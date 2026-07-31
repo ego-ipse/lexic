@@ -267,6 +267,7 @@ src/lexic/
         scanner.py                 Structured-noise recognizer — the folding-aware P3/P5 scanner substrate
       runtime/
         __init__.py                The fused predictive runtime — execute the compiled tables
+        attempt.py                 Attempt-seam leaves — admission, kernel scratch, the aliasing-true stack copy
         build.py                   Frame vocabulary + the fused model-build tail (PDA runtime leaf)
         islands.py                 Island sub-parse + splice — the cold-path Earley escape for a PDA clone
         matchers.py                Terminal matching — the PDA runtime's cursor-free recognition leaf

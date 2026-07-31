@@ -79,7 +79,7 @@ from typing import Any
 
 from lexic.exceptions import LexicError
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.ambiguity import Resolver, same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.fold import ModelFold
@@ -105,8 +105,14 @@ from lexic.parsing.pda.compiler.flatten import (
     select_gated,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
+from lexic.parsing.pda.runtime.attempt import (
+    PROBE_DEPTH,
+    KernelCaches,
+    admits,
+    frames_copy,
+)
 from lexic.parsing.pda.runtime.build import (
     F_ARM,
     F_CLONE,
@@ -143,16 +149,6 @@ _EMPTY_SLOT: Any = None
 each slot later holding a sub-model list) without narrowing their type."""
 
 
-def _admits(char: str, chars: Any, negated: Any) -> bool:
-    """Whether an attempt entry's FIRST pre-filter admits the lookahead.
-
-    ``chars is None`` is the nullable default entry — always admitted.
-    """
-    if chars is None:
-        return True
-    return (char != "" and char not in chars) if negated else char in chars
-
-
 class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
     """One predictive parse of ``text`` over a compiled :class:`PdaProgram`.
 
@@ -180,22 +176,22 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         island may derive its text more than one way. The SAME record is handed
         to :func:`~lexic.parsing.pda.runtime.islands.island_parse`, with the
         per-island delegates filled in at the reference.
-    :ivar _intern: The per-parse intern memo — repeated identical sub-models
-        built once and shared. Its lifetime is exactly one top-level kernel
-        run: a fresh, empty dict per :class:`PdaKernel` (each island-interior
-        delegate sub-run is a *separate* kernel with its own memo, so island
-        sub-models — spliced by ``id`` — never share across the boundary).
+    :ivar _caches: The per-parse scratch (:class:`KernelCaches`) — the
+        delegate-table and intern memos plus the stop-probe flag. Its lifetime
+        is exactly one top-level kernel run: fresh per :class:`PdaKernel`
+        (each island-interior delegate sub-run is a *separate* kernel with its
+        own caches, so island sub-models — spliced by ``id`` — never share
+        across the boundary).
     """
 
-    __slots__ = ("tables", "text", "pos", "stack", "policy", "_deleg", "_intern")
+    __slots__ = ("tables", "text", "pos", "stack", "policy", "_caches")
 
     tables: PdaTables
     text: str
     pos: int
     stack: list[list[Any]]
     policy: IslandPolicy[M]
-    _deleg: dict[str, dict[int, Delegate]]
-    _intern: dict[Any, object]
+    _caches: KernelCaches
 
     def __init__(
         self,
@@ -221,8 +217,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         self.policy = IslandPolicy(resolve=resolve, fold=fold)
         self.pos = 0
         self.stack = []
-        self._deleg = {}
-        self._intern = {}
+        self._caches = KernelCaches()
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -532,7 +527,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         text = self.text
         arm = select_arm(clone, text[pos : pos + 1], pos)
         if arm.n != clone.fold.n_items:
-            return leaf_mismatch(clone, out, arm.n, pos, self._intern)
+            return leaf_mismatch(clone, out, arm.n, pos, self._caches.intern)
         start = pos
         ends = [0] * arm.n
         sinks: list[Any] | None = None
@@ -563,7 +558,9 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             else:
                 pos = match_cc(text, arm, i, pos)
             ends[i] = pos
-        out.append(build_fast(self.text, clone, (start, ends, sinks), self._intern))
+        out.append(
+            build_fast(self.text, clone, (start, ends, sinks), self._caches.intern)
+        )
         return pos
 
     def _match_vstr(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
@@ -583,7 +580,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             iteration with no default arm.
         """
         text = self.text
-        intern = self._intern
+        intern = self._caches.intern
         clone = arm.payloads[i]
         lo, hi = arm.los[i], arm.his[i]
         gk, gate = arm.gate_kinds[i], arm.gate_data[i]
@@ -654,13 +651,13 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         :param name: The island rule name.
         :returns: rule_id → its delegate callable (empty when nothing delegates).
         """
-        cached = self._deleg.get(name)
+        cached = self._caches.deleg.get(name)
         if cached is None:
             cached = {
                 rid: partial(self._delegate_run, clone)
                 for rid, clone in self.tables.island_delegates(name).items()
             }
-            self._deleg[name] = cached
+            self._caches.deleg[name] = cached
         return cached
 
     def _attempt_iteration(
@@ -696,37 +693,87 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         """
         char = self.text[pos : pos + 1]
         first, follow, rest = arm.gate_data[i]
-        if not _admits(char, *first):
+        if not admits(char, *first):
             frame[F_COUNT] = 0
             frame[F_I] = i + 1
             frame[F_ENDS][i] = pos
             return i + 1
-        if _admits(char, *follow) and self._attempt_run(rest, pos) is not None:
-            raise PdaFail(f"attempt loop at {pos}: taking and stopping are both viable")
         k = arm.kinds[i]
-        got: tuple[int, list[object]] | None = None
-        if k <= OP_GRP:  # OP_REF / OP_GRP — a clone entry, attempted
-            got = self._attempt_run(arm.payloads[i], pos)
-        elif k == OP_ISLAND:
-            sink = self._sink_for(frame, arm, i)
-            try:
-                self._island(arm.payloads[i], sink)
-            except PdaFail:
-                got = None
-            else:
-                frame[F_COUNT] += 1
-                return i
-        # OP_FAIL: an attempted fail-island iteration fails soft — loop closes
+        if k > OP_GRP:  # OP_ISLAND / OP_FAIL — no (end, values) to fork-probe
+            if admits(char, *follow) and self._attempt_run(rest, pos) is not None:
+                raise ProbeFork(
+                    f"attempt loop at {pos}: taking and stopping are both viable"
+                )
+            return self._attempt_island(frame, arm, i, pos)
+        got = self._attempt_run(arm.payloads[i], pos)
         if got is None or got[0] == pos:
             frame[F_COUNT] = 0
             frame[F_I] = i + 1
             frame[F_ENDS][i] = pos
             return i + 1
+        if admits(char, *follow) and self._attempt_run(rest, pos) is not None:
+            if self._caches.probing >= PROBE_DEPTH or self._fork_is_real(
+                arm, i, pos, got
+            ):
+                raise ProbeFork(
+                    f"attempt loop at {pos}: taking and stopping are both viable"
+                )
         end, values = got
         self._sink_for(frame, arm, i).extend(values)
         frame[F_COUNT] += 1
         self.pos = end
         return i
+
+    def _attempt_island(self, frame: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+        """An attempted ISLAND / fail-island iteration — failure closes the loop."""
+        if arm.kinds[i] == OP_ISLAND:
+            sink = self._sink_for(frame, arm, i)
+            try:
+                self._island(arm.payloads[i], sink)
+            except PdaFail:
+                pass
+            else:
+                frame[F_COUNT] += 1
+                return i
+        frame[F_COUNT] = 0
+        frame[F_I] = i + 1
+        frame[F_ENDS][i] = pos
+        self.pos = pos
+        return i + 1
+
+    def _fork_is_real(
+        self,
+        arm: FlatArm,
+        i: int,
+        pos: int,
+        taken: tuple[int, list[object]],
+    ) -> bool:
+        """Whether a both-viable boundary genuinely forks the parse's VALUE.
+
+        Ambiguity is a question about values, asked here the way the forest
+        gate asks it — on completions, one flip at the decision point (a fold
+        is compositional, so if no single alternative changes the value, no
+        combination does; later boundaries get their own audits). The STOP
+        side runs to end-of-input first; if it never completes, taking is
+        FORCED — soundly, the alternative derives nothing. If it does, the
+        TAKE side runs the same way (the iteration's effect applied to the
+        copy), and only completions that build DIFFERENT values are a real
+        fork. Equal values are a benign split through the boundary — e.g. an
+        optional chain where an item fits either slot — which the doctrine
+        never refuses.
+
+        :param taken: The iteration's ``(end, values)`` (the take side's seed).
+        :returns: ``True`` when the gated engine must decide.
+        """
+        stop = self._probe(arm, i, pos, None)
+        if stop is None:
+            return False
+        take = self._probe(arm, i, pos, taken)
+        return (
+            take is None
+            or len(take) != len(stop)
+            or any(not same_value(a, b) for a, b in zip(take, stop))
+        )
 
     def _attempt(self, clone: FlatClone, out: list[object]) -> None:
         """Try an attempt clone's entries in order — the third gate class, live.
@@ -749,7 +796,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         winner = -1
         best: tuple[int, list[object]] | None = None
         for idx, (chars, negated, sub) in enumerate(entries):
-            if not _admits(char, chars, negated):
+            if not admits(char, chars, negated):
                 continue
             best = self._attempt_run(sub, pos)
             if best is not None:
@@ -777,7 +824,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         """
         char = self.text[pos : pos + 1]
         for chars, negated, sub in rest:
-            if not _admits(char, chars, negated):
+            if not admits(char, chars, negated):
                 continue
             other = self._attempt_run(sub, pos)
             if other is None:
@@ -817,9 +864,67 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self._enter(sub, holder)
             self._drive()
             return self.pos, holder
+        except ProbeFork:
+            # Undecidable is NOT failure: swallowing it as this arm's miss
+            # would let a later arm commit what the gated engine may refuse.
+            raise
         except PdaFail, LexicError:
             return None
         finally:
+            self.stack, self.pos = saved_stack, saved_pos
+
+    def _probe(
+        self,
+        arm: FlatArm,
+        i: int,
+        pos: int,
+        taken: tuple[int, list[object]] | None,
+    ) -> list[object] | None:
+        """One side of a boundary, run to end-of-input on a copied stack.
+
+        The continuation from a boundary is runnable because the live stack
+        IS the continuation: a structural copy (:func:`frames_copy`) with
+        the boundary decided — closed (``taken is None``) or advanced past
+        one taken iteration — drives to completion under the swapped-stack
+        discipline. The completed parse's root values come back for the
+        caller's value comparison; the decision applies to the COPY's top
+        frame only — the live stack is never touched.
+
+        :param taken: ``None`` for the stop side; the iteration's
+            ``(end, values)`` for the take side.
+        :returns: The root output values on a full-input completion, else
+            ``None``.
+        :raises ProbeFork: A deeper undecidable boundary — the caller bails
+            (undecidable never reads as "this side failed").
+        """
+        caches = self._caches
+        saved_stack, saved_pos = self.stack, self.pos
+        probe = frames_copy(saved_stack)
+        root_out = probe[0][F_OUT]
+        top = probe[-1]
+        if taken is None:
+            top[F_COUNT] = 0
+            top[F_I] = i + 1
+            top[F_ENDS][i] = pos
+            start = pos
+        else:
+            top[F_COUNT] += 1
+            top[F_I] = i
+            start = taken[0]
+        self.stack = probe
+        self.pos = start
+        caches.probing += 1
+        try:
+            if taken is not None:
+                self._sink_for(top, arm, i).extend(taken[1])
+            self._drive()
+            return root_out if self.pos == len(self.text) else None
+        except ProbeFork:
+            raise
+        except PdaFail, LexicError:
+            return None
+        finally:
+            caches.probing -= 1
             self.stack, self.pos = saved_stack, saved_pos
 
     def _delegate_run(
@@ -871,13 +976,13 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
                     self.text,
                     clone,
                     (frame[F_START], frame[F_ENDS], frame[F_SINKS]),
-                    self._intern,
+                    self._caches.intern,
                 )
             else:
-                model = build_sequence(self.text, frame, clone, self._intern)
+                model = build_sequence(self.text, frame, clone, self._caches.intern)
         elif mode == BUILD_VALUE_STR:
             model = build_vstr(
-                clone, self.text[frame[F_START] : self.pos], self._intern
+                clone, self.text[frame[F_START] : self.pos], self._caches.intern
             )
         else:  # BUILD_ALT
             model = alt_model(frame)

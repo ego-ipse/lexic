@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
 
 OP_LIT, OP_CC, OP_REF, OP_GRP, OP_ISLAND, OP_FAIL = 0, 1, 2, 3, 4, 5
@@ -197,7 +197,7 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
         if take:
             fchars, fnegated = gate[1]
             if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
-                raise PdaFail(
+                raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable"
                 )
         return take
