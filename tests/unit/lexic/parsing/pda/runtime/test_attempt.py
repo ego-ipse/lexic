@@ -39,6 +39,7 @@ def test_kernel_caches_seed_empty_with_probe_depth_zero():
     assert caches.deleg == {}
     assert caches.intern == {}
     assert caches.probing == 0
+    assert caches.runs == {}
 
 
 # ── frames_copy — the aliasing-true structural copy ───────────────────

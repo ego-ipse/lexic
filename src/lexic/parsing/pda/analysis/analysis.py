@@ -577,7 +577,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if policy == "island":
                 if not self._demote_loop(items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
-                    self.taxonomy.attempt_loops[id(item)] = self.cont_at(
+                    self.taxonomy.attempt_loops[id(item)] = self.beyond_at(
                         items, k, scope.tail
                     )
                     notes.covered += 1
@@ -627,7 +627,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             notes.hard.append(
                 f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable"
             )
-            self.taxonomy.attempt_loops[id(items[k])] = self.cont_at(
+            self.taxonomy.attempt_loops[id(items[k])] = self.beyond_at(
                 items, k, scope.tail
             )
             notes.covered += 1
@@ -646,6 +646,21 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             hard_eff = hard_eff.union(self.atom_hard(atom))
         ctx = ConflictCtx(notes, Cont(eff, hard_eff), scope.rule, k)
         SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
+
+    def beyond_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
+        """The continuation visible only BEYOND the arm after item ``k``.
+
+        The attempt licence's audit set: a boundary char viable via the
+        same-arm rest is a SPLIT (one production carved two ways — the first
+        slot owns the text, greedy take, never refused); only viability via
+        the ENCLOSING tail — reachable when the rest is all-nullable — makes
+        the boundary an arm choice in loop clothing, worth the composition
+        probe.
+        """
+        rest = items[k + 1 :]
+        if all(self.item_nullable(i) for i in rest):
+            return tail
+        return CharSet.EMPTY
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
         """The continuation char set after item ``k`` (rest of arm, then tail)."""

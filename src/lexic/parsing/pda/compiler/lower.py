@@ -30,7 +30,6 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_ISLAND,
     OP_LIT,
     OP_REF,
-    R_SPLICE,
     FlatArm,
     FlatClone,
     PdaProgram,
@@ -110,48 +109,6 @@ def _flatten_gate(
     return GATE_STOP, (cs.chars, cs.negated)
 
 
-def _rest_clone(
-    rest: Sequence[ItemSpec], shells: dict[CloneKey, FlatClone]
-) -> FlatClone:
-    """The arm's remainder as a runnable TRANSPARENT clone.
-
-    The STOP-side probe of an attempt-loop boundary: at a char viable for
-    both another iteration and the continuation, the driver attempts this
-    clone from the cursor — a success means stopping composes locally too
-    (the boundary is a genuine fork, bailed to the gated engine); a failure
-    licenses the iteration. Recognition-only — its products are discarded.
-    The reduce fields are the safe splice-through defaults, so the reduce
-    twin can drive it identically.
-    """
-    clone = FlatClone.__new__(FlatClone)
-    clone.selectors = ()
-    clone.kwin_selectors = None
-    clone.pn_selectors = None
-    clone.default = _flatten_arm(rest, shells)
-    clone.struct_arm = None
-    clone.attempt = None
-    clone.mode = BUILD_TRANSPARENT
-    _bake_build(clone, None)
-    clone.reduce_kind = R_SPLICE
-    clone.reduce_body = None
-    clone.reduce_is_yield = False
-    clone.reduce_span = False
-    clone.reduce_can_drop = True
-    return clone
-
-
-def _flat_gate_for(
-    spec: ItemSpec, rest: Sequence[ItemSpec], shells: dict[CloneKey, FlatClone]
-) -> tuple[int, object]:
-    """One item's flat gate; an attempt gate grows the arm-rest probe —
-    ``((first), (soft cont), rest clone)``, see :func:`_rest_clone`."""
-    gate_kind, gate_body = _flatten_gate(spec.gate)
-    if gate_kind == GATE_ATTEMPT:
-        pair = cast("tuple[object, object]", gate_body)
-        gate_body = (pair[0], pair[1], _rest_clone(rest, shells))
-    return gate_kind, gate_body
-
-
 def _flatten_arm(
     specs: Sequence[ItemSpec], shells: dict[CloneKey, FlatClone]
 ) -> FlatArm:
@@ -163,13 +120,13 @@ def _flatten_arm(
     his: list[int] = []
     gate_kinds: list[int] = []
     gate_data: list[object] = []
-    for idx, spec in enumerate(specs):
+    for spec in specs:
         kind, payload = _flatten_item(spec, shells)
         kinds.append(kind)
         payloads.append(payload)
         los.append(spec.lo)
         his.append(HI_UNBOUNDED if spec.hi is None else spec.hi)
-        gate_kind, gate_body = _flat_gate_for(spec, specs[idx + 1 :], shells)
+        gate_kind, gate_body = _flatten_gate(spec.gate)
         gate_kinds.append(gate_kind)
         gate_data.append(gate_body)
     arm = FlatArm.__new__(FlatArm)

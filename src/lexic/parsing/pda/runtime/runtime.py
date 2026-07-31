@@ -112,6 +112,7 @@ from lexic.parsing.pda.runtime.attempt import (
     KernelCaches,
     admits,
     frames_copy,
+    sole_admitted,
 )
 from lexic.parsing.pda.runtime.build import (
     F_ARM,
@@ -471,8 +472,12 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
                 return False  # the empty (nullable) arm — nothing consumed
             clone = chased
         if clone.attempt is not None:
-            self._attempt(clone, out)
-            return False  # the winning arm was consumed inline
+            sole = sole_admitted(clone.attempt[1], char)
+            if sole is None:
+                self._attempt(clone, out)
+                return False  # the winning arm was consumed inline
+            clone = sole  # one admitted entry — no fork is possible: a plain
+            # frame push replaces the sub-run, and the audit has nothing to ask
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(
@@ -692,7 +697,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             then belongs to the enclosing frames, which no local probe sees).
         """
         char = self.text[pos : pos + 1]
-        first, follow, rest = arm.gate_data[i]
+        first, beyond = arm.gate_data[i]
         if not admits(char, *first):
             frame[F_COUNT] = 0
             frame[F_I] = i + 1
@@ -700,7 +705,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             return i + 1
         k = arm.kinds[i]
         if k > OP_GRP:  # OP_ISLAND / OP_FAIL — no (end, values) to fork-probe
-            if admits(char, *follow) and self._attempt_run(rest, pos) is not None:
+            if admits(char, *beyond):
                 raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable"
                 )
@@ -711,7 +716,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             frame[F_I] = i + 1
             frame[F_ENDS][i] = pos
             return i + 1
-        if admits(char, *follow) and self._attempt_run(rest, pos) is not None:
+        if admits(char, *beyond):
             if self._caches.probing >= PROBE_DEPTH or self._fork_is_real(
                 arm, i, pos, got
             ):
@@ -750,17 +755,14 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
     ) -> bool:
         """Whether a both-viable boundary genuinely forks the parse's VALUE.
 
-        Ambiguity is a question about values, asked here the way the forest
-        gate asks it — on completions, one flip at the decision point (a fold
-        is compositional, so if no single alternative changes the value, no
-        combination does; later boundaries get their own audits). The STOP
-        side runs to end-of-input first; if it never completes, taking is
-        FORCED — soundly, the alternative derives nothing. If it does, the
-        TAKE side runs the same way (the iteration's effect applied to the
-        copy), and only completions that build DIFFERENT values are a real
-        fork. Equal values are a benign split through the boundary — e.g. an
-        optional chain where an item fits either slot — which the doctrine
-        never refuses.
+        Ambiguity is a question about values, asked as the forest gate asks
+        it — on completions, one flip at the decision point (a fold is
+        compositional; later boundaries get their own audits). The STOP side
+        runs to end-of-input first; no completion → taking is FORCED, soundly
+        (the alternative derives nothing). Otherwise the TAKE side runs the
+        same way, and only DIFFERENT values are a real fork — equal values
+        are a benign split (an optional chain whose item fits either slot),
+        which the doctrine never refuses.
 
         :param taken: The iteration's ``(end, values)`` (the take side's seed).
         :returns: ``True`` when the gated engine must decide.
@@ -852,26 +854,38 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         (:class:`~lexic.exceptions.LexicError`) fails the ARM, not the parse —
         a later arm may be the one that composes.
 
+        Memoized (packrat) on :attr:`KernelCaches.runs` — probes re-drive the
+        same continuation, re-reaching identical ``(clone, pos)`` sub-runs; a
+        :class:`ProbeFork` is never memoized (it propagates as the verdict).
+
         :param sub: The entry's single-arm clone.
         :param pos: The attempt position.
         :returns: ``(end, values)``, or ``None`` when the arm fails.
         """
+        caches = self._caches
+        key = (id(sub), pos, caches.probing >= PROBE_DEPTH)
+        runs = caches.runs
+        if key in runs:
+            return runs[key]
         saved_stack, saved_pos = self.stack, self.pos
         self.stack = []
         self.pos = pos
         holder: list[object] = []
+        result: tuple[int, list[object]] | None
         try:
             self._enter(sub, holder)
             self._drive()
-            return self.pos, holder
+            result = (self.pos, holder)
         except ProbeFork:
             # Undecidable is NOT failure: swallowing it as this arm's miss
             # would let a later arm commit what the gated engine may refuse.
             raise
         except PdaFail, LexicError:
-            return None
+            result = None
         finally:
             self.stack, self.pos = saved_stack, saved_pos
+        caches.runs[key] = result
+        return result
 
     def _probe(
         self,

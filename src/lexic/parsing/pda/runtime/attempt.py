@@ -15,7 +15,7 @@ from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.pda.runtime.build import F_ENDS, F_OUT, F_SINKS
 
-__all__ = ["PROBE_DEPTH", "KernelCaches", "admits", "frames_copy"]
+__all__ = ["PROBE_DEPTH", "KernelCaches", "admits", "frames_copy", "sole_admitted"]
 
 PROBE_DEPTH = 8
 """Stop-probe nesting cap. Past it a boundary reads as undecidable
@@ -34,6 +34,22 @@ def admits(char: str, chars: Any, negated: Any) -> bool:
     return (char != "" and char not in chars) if negated else char in chars
 
 
+def sole_admitted(entries: tuple[Any, ...], char: str) -> Any:
+    """The single admitted entry's clone, or ``None`` when several admit.
+
+    An attempt decision with exactly one admitted entry has no fork to audit
+    and no rollback to arm — the runtime enters it as an ordinary clone
+    (frame push) instead of a self-contained sub-run.
+    """
+    sole = None
+    for chars, negated, sub in entries:
+        if admits(char, chars, negated):
+            if sole is not None:
+                return None
+            sole = sub
+    return sole
+
+
 class KernelCaches(IrLeaf[IrSelf, IrSelf]):
     """One kernel run's scratch — the memos and the stop-probe depth.
 
@@ -46,19 +62,29 @@ class KernelCaches(IrLeaf[IrSelf, IrSelf]):
         :data:`PROBE_DEPTH`, past which a boundary raises
         :class:`~lexic.parsing.pda.core.errors.ProbeFork` (undecidable reads
         as viable).
+    :ivar runs: The packrat memo — ``(id(clone), pos, at_cap)`` → a finished
+        attempt sub-run's ``(end, values)``, or ``None`` for one that FAILED.
+        Sound because a sub-run is a pure function of the clone and position
+        over one kernel's fixed text and tables — except at the probe-depth
+        cap, where a boundary forks instead of resolving, hence the third key
+        part. The values are immutable models, only ever ``extend``-read, so
+        a hit splices the same objects the miss built (the intern memo's own
+        sharing rule).
     """
 
-    __slots__ = ("deleg", "intern", "probing")
+    __slots__ = ("deleg", "intern", "probing", "runs")
 
     deleg: dict[str, dict[int, Delegate]]
     intern: dict[Any, object]
     probing: int
+    runs: dict[tuple[int, int, bool], tuple[int, list[object]] | None]
 
     def __init__(self) -> None:
         """Seed the memos empty, the probe depth zero."""
         self.deleg = {}
         self.intern = {}
         self.probing = 0
+        self.runs = {}
 
 
 def frames_copy(stack: list[list[Any]]) -> list[list[Any]]:
