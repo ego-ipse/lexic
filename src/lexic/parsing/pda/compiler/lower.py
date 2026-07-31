@@ -21,8 +21,13 @@ from lexic.parsing.pda.compiler.flatten import (
     GATE_PAIR,
     GATE_PEEK,
     GATE_SCAN,
+    BUILD_DISPATCH,
     GATE_STOP,
     HI_UNBOUNDED,
+    OP_CC1,
+    OP_LIT1,
+    OP_REF1,
+    OP_VSTR,
     MODE_CODE,
     OP_CC,
     OP_FAIL,
@@ -230,6 +235,121 @@ def _flatten_group(group: GroupSpec, shells: dict[CloneKey, FlatClone]) -> FlatC
     return clone
 
 
+def _step_admits_next(step: tuple[Any, ...], nxt: tuple[Any, ...]) -> bool:
+    """Whether the possessive ``step`` could over-eat what ``nxt`` needs.
+
+    The step matcher is possessive (no backtracking — src imports no regex
+    engine), so a prefix may only chain steps whose alphabets are DISJOINT
+    at the seam; otherwise a greedy take could falsely reject a viable arm,
+    which would be an UNSOUND admission. Overlap ends the prefix instead.
+    """
+    kind, payload, _lo, hi = step
+    if hi == 1:
+        return False  # a bounded-once step never over-eats
+    if kind == 0:
+        lead = payload[0]
+        return _member(lead, nxt)
+    chars, negated = payload
+    if negated:
+        return True  # a co-finite step overlaps almost anything — stop
+    return any(_member(ch, nxt) for ch in chars)
+
+
+def _member(ch: str, step: tuple[Any, ...]) -> bool:
+    """Whether ``ch`` can begin ``step``."""
+    kind, payload, _lo, _hi = step
+    if kind == 0:
+        return payload[0] == ch
+    chars, negated = payload
+    return (ch not in chars) if negated else ch in chars
+
+
+def _arm_prefix_steps(arm: FlatArm, depth: int) -> list[tuple[Any, ...]]:
+    """The arm's leading terminal run as flat matcher steps, seen THROUGH refs.
+
+    A leading exactly-once reference to a single-arm, default-free,
+    non-attempt clone inlines transparently (hoisting puts most of a vyx
+    arm's discriminator — ``key '='`` — behind such refs); any other shape,
+    or a seam the possessive matcher cannot chain soundly
+    (:func:`_step_admits_next`), ends the prefix. Bounded by ``depth``.
+    """
+    steps: list[tuple[Any, ...]] = []
+    for j in range(arm.n):
+        k = arm.kinds[j]
+        step: tuple[Any, ...] | None = None
+        if k in (OP_LIT, OP_LIT1):
+            lo = arm.los[j] if k == OP_LIT else 1
+            hi = arm.his[j] if k == OP_LIT else 1
+            step = (0, arm.payloads[j], lo, hi)
+        elif k in (OP_CC, OP_CC1):
+            lo = arm.los[j] if k == OP_CC else 1
+            hi = arm.his[j] if k == OP_CC else 1
+            step = (1, arm.payloads[j], lo, hi)
+        elif (
+            k in (OP_REF, OP_REF1, OP_VSTR)
+            and depth > 0
+            and arm.los[j] == 1
+            and arm.his[j] == 1
+        ):
+            grown = _clone_prefix_steps(arm.payloads[j], depth - 1)
+            if grown is not None:
+                inner, whole = grown
+                if steps and _step_admits_next(steps[-1], inner[0]):
+                    break
+                steps.extend(inner)
+                if whole:
+                    continue
+            break
+        if step is None:
+            break
+        if steps and _step_admits_next(steps[-1], step):
+            break
+        steps.append(step)
+    return steps
+
+
+def _clone_prefix_steps(
+    clone: Any, depth: int
+) -> tuple[list[tuple[Any, ...]], bool] | None:
+    """``clone``'s leading steps and whether they span the WHOLE clone (only
+    then may the caller's prefix continue past it), or ``None``.
+
+    Single-arm clones only — a default (nullable) arm, a gated selection, a
+    nested attempt or an alternation yields nothing here (branch fan-out is
+    handled at the entry's top level, where each arm is its own prefix).
+    """
+    if (
+        not isinstance(clone, FlatClone)
+        or clone.attempt is not None
+        or clone.struct_arm is not None
+        or clone.kwin_selectors is not None
+        or clone.pn_selectors is not None
+        or clone.default is not None
+        or clone.mode == BUILD_DISPATCH
+        or len(clone.selectors) != 1
+    ):
+        return None
+    arm = clone.selectors[0][2]
+    inner = _arm_prefix_steps(arm, depth)
+    if not inner:
+        return None
+    return inner, len(inner) == arm.n
+
+
+def _arm_prefix(arm: FlatArm) -> tuple[tuple[Any, ...], ...] | None:
+    """The arm's leading-terminal prefix as matcher steps, or ``None``.
+
+    The attempt entries' cheap admission (the recognition prototype's run
+    mode, applied to decisions, without importing a regex engine): one pass
+    of :func:`~lexic.parsing.pda.runtime.attempt.prefix_admits` decides
+    whether the arm can reach past its leading terminals — a reject skips
+    the arm's sub-run AND its audit, soundly (a prefix miss means the arm
+    cannot match; every possessive seam was disjointness-checked at build).
+    """
+    steps = _arm_prefix_steps(arm, 6)
+    return tuple(steps) if steps else None
+
+
 def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
     """A single-arm sub-clone shell copying ``clone``'s FINAL baked state.
 
@@ -260,25 +380,27 @@ def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
 
 def _attempt_entries(
     clone: FlatClone, reduce_mode: bool
-) -> tuple[tuple[Any, Any, FlatClone], ...]:
-    """An attempt clone's ordered entry list — one single-arm sub-clone each.
+) -> tuple[tuple[Any, Any, Any, FlatClone], ...]:
+    """An attempt clone's ordered entry list — one single-arm sub-clone each,
+    with a leading-terminal prefix regex as its C-speed admission
+    (:func:`_arm_prefix_re`).
 
     Every sub-clone SHARES the parent's :class:`FlatArm` (op specialisation
     reached it once, through the parent) and the parent's baked build plan, so
     a sub-run builds exactly the model the rule would. The nullable default,
     when present, is the last entry, always admitted (``chars is None``).
     """
-    entries: list[tuple[Any, Any, FlatClone]] = []
+    entries: list[tuple[Any, Any, Any, FlatClone]] = []
     for chars, negated, arm in clone.selectors:
         sub = _attempt_sub(clone, reduce_mode)
         sub.selectors = ((chars, negated, arm),)
         sub.default = None
-        entries.append((chars, negated, sub))
+        entries.append((chars, negated, _arm_prefix(arm), sub))
     if clone.default is not None:
         sub = _attempt_sub(clone, reduce_mode)
         sub.selectors = ()
         sub.default = clone.default
-        entries.append((None, None, sub))
+        entries.append((None, None, None, sub))
     return tuple(entries)
 
 

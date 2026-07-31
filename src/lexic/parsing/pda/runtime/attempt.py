@@ -15,7 +15,14 @@ from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.pda.runtime.build import F_ENDS, F_OUT, F_SINKS
 
-__all__ = ["PROBE_DEPTH", "KernelCaches", "admits", "frames_copy", "sole_admitted"]
+__all__ = [
+    "PROBE_DEPTH",
+    "KernelCaches",
+    "admits",
+    "frames_copy",
+    "prefix_admits",
+    "sole_admitted",
+]
 
 PROBE_DEPTH = 8
 """Stop-probe nesting cap. Past it a boundary reads as undecidable
@@ -34,19 +41,52 @@ def admits(char: str, chars: Any, negated: Any) -> bool:
     return (char != "" and char not in chars) if negated else char in chars
 
 
-def sole_admitted(entries: tuple[Any, ...], char: str) -> Any:
+def prefix_admits(text: str, pos: int, steps: tuple[tuple[Any, ...], ...]) -> bool:
+    """Whether the arm's leading-terminal prefix matches at ``pos``.
+
+    The possessive step matcher (every seam was disjointness-checked at
+    build, so greediness cannot falsely reject): literals by ``startswith``,
+    classes char by char, each to its quantifier.
+    """
+    for kind, payload, lo, hi in steps:
+        count = 0
+        if kind == 0:
+            width = len(payload)
+            while (hi < 0 or count < hi) and text.startswith(payload, pos):
+                pos += width
+                count += 1
+        else:
+            chars, negated = payload
+            while hi < 0 or count < hi:
+                ch = text[pos : pos + 1]
+                if not ((ch != "" and ch not in chars) if negated else ch in chars):
+                    break
+                pos += 1
+                count += 1
+        if count < lo:
+            return False
+    return True
+
+
+def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     """The single admitted entry's clone, or ``None`` when several admit.
 
-    An attempt decision with exactly one admitted entry has no fork to audit
-    and no rollback to arm — the runtime enters it as an ordinary clone
-    (frame push) instead of a self-contained sub-run.
+    Admission is the first-char pre-filter AND the leading-terminal prefix
+    regex (one C-level match per candidate) — most overlapping-FIRST
+    decisions collapse to a single survivor at their discriminator, and a
+    sole survivor has no fork to audit and no rollback to arm: the runtime
+    enters it as an ordinary clone (frame push) instead of a sub-run.
     """
+    char = text[pos : pos + 1]
     sole = None
-    for chars, negated, sub in entries:
-        if admits(char, chars, negated):
-            if sole is not None:
-                return None
-            sole = sub
+    for chars, negated, prefix, sub in entries:
+        if not admits(char, chars, negated):
+            continue
+        if prefix is not None and not prefix_admits(text, pos, prefix):
+            continue
+        if sole is not None:
+            return None
+        sole = sub
     return sole
 
 
