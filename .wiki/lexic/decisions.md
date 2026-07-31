@@ -126,6 +126,150 @@ their frame pops, and their ids get handed straight back to different objects.
 
 ---
 
+## 2026-07-31 — Structured-gate licences are selection-side: the semantic flag gates attribution, not recognition
+
+**Decision:** the P3/P5 structured gate family (scan / probe / arm escape)
+derives its run-forming noise roots from the ``semantic`` flag as before,
+but falls back to a flag-independent derivation (``run_roots`` — any rule
+referenced with a nullable quantifier) when the flag yields nothing; the
+P5 header match (``ref(R) noise* lit(L)``) likewise accepts a SEMANTIC
+middle rule on a second pass, strict pass first. The value-attribution
+licences (``_match_gate`` and its noise↔noise clauses) keep the strict
+flag — an over-take there re-splits value content.
+
+**Why:** a self-emitted meta grammar declares no ``@non-semantic`` rules —
+its noise is semantic on purpose (round-trip keeps exact spacing) — so
+every noise-aware licence silently vanished for the whole formulation and
+its decision points fell to attempts and islands (correct-by-fallback,
+never predictive). But scan/probe gates are recognition-only: the winner
+re-parses its own noise, so the flag's job (who owns the chars in the
+MODEL) is simply not in question at selection time. With the fallback, the
+GBNF meta grammar's loop boundaries license the P5 rulename-probe gate
+(the ``rulename n* "::="`` header refutes the take reading) and the
+empty-first-arm alternation (``ws ::= | " " ...``) licenses the arm
+escape — all decided on the compiled scanner hot path.
+
+**What it bought, measured:** gbnf-meta from refused to 5.2 µs/char
+(0.08× Earley); abnf-meta 8.1 → 6.0 (0.10×); every bench row at
+0.05–0.10× Earley; raw parity 194 checked / 0 divergent, PDA fallbacks
+11 → 6. Directive-carrying grammars are unchanged by construction: the
+fallback fires only when the strict derivation is empty, and the strict
+header pass wins whenever it is unique.
+
+**The rejected alternative:** deciding these boundaries at runtime
+(bounded frontier simulation over the upcoming text, probe backtracking).
+It reached correctness but cost 35–65 µs/char on the meta rows —
+re-deriving at every boundary what the compile can bake once. Runtime
+search is a slower Earley; the gate artifact is the PDA's way.
+
+## 2026-07-31 — The attempt gate: ordered trying is the third answer beyond demotion and islanding
+
+**Decision:** a decision point the k-window cannot settle and left recursion
+does not forbid may be classified `attempts` (analysis `Taxonomy.attempts`,
+`AttemptSpec.order` with nullable arms last) instead of islanding: the runtime
+tries the arms in order as self-contained sub-runs and commits the first
+success — after an **audit** of the remaining admitted arms. A second success
+on the same span, or on a different span whose next character the rule's soft
+FOLLOW accepts, raises `PdaFail` — the gated engine then refuses iff the
+ambiguity is real. Licensed optional loops run the same way per iteration
+(`GATE_ATTEMPT`): a failing iteration closes the loop instead of failing the
+arm, and a boundary where taking AND stopping are both viable is resolved by
+probing both sides to end-of-input and comparing completed VALUES
+(`same_value`, exactly the forest gate's question) — equal is a benign split,
+one side dead forces the other, different values raise `ProbeFork`.
+
+**The load-bearing choices:**
+
+- **Sub-runs are watermarked, not severed.** An attempt runs ON TOP of the
+  live stack (`_drive(floor)`); nested viability walks and probes see the true
+  continuation. A severed fresh stack mis-resolves any fork whose alternative
+  lives in an enclosing frame.
+- **Probes never nest.** Inside a probe, both-viable boundaries resolve
+  greedily by viability class and mark the outcome `uncertain`; the sampled
+  verdict is trusted. Nested probing is exponential (measured — a 24-deep
+  probe chain), and conservative bailing on `uncertain` regressed working
+  grammars.
+- **No memoization.** A sub-run's outcome depends on the enclosing
+  continuation, so `(clone, pos)` is not a sound packrat key — and the memo
+  measured zero hits before removal. The prototype's memoized numbers priced
+  recognition without model building or the value-ambiguity invariant.
+- **Attempt clones are canonical.** Every reference to an attemptable rule
+  redirects to one clone compiled at the analysis' hard FOLLOW
+  (`_spec_ruleref`); per-call-site clones fragmented the table ~60% for
+  nothing.
+- **Optimizer licences exclude gated clones.** `OP_VSTR` inlining, leaf
+  marking and dispatch conversion all require `attempt`/`kwin`/`pn`/`struct`
+  to be absent — `select_arm` reads plain selectors, which gated clones leave
+  empty; inlining one mis-parses (the abnf `defined` regression).
+- **`ProbeFork` is a `PdaFail` subtype meaning UNDECIDABLE, not failed** — an
+  arm miss must not swallow it, or a later arm commits what the gated engine
+  may refuse. Public soundness is unchanged: `parse_model` falls back on any
+  `PdaFail` to gated Earley.
+
+## 2026-07-29 — The island seam declares cross-span uncertainty instead of longest-matching through it
+
+**Decision:** after `island_parse` picks the longest completion end `E`, any
+other origin-0 completion end `E' < E` whose next character the island's
+continuation accepts raises `PdaFail`. The continuation evidence is the
+analysis' soft FOLLOW of the island rule, carried as
+`PdaTables.island_follow` (whose key set IS the island set; `islands` is a
+derived property) and threaded per reference via `IslandPolicy.follow`.
+`follow=None` (a caller without analysis — the direct-call test seam) keeps
+plain longest-match; every runtime route passes the real set.
+
+**Why:** longest-match is only a DEFINED answer while no shorter completion
+could also compose. A cross-span arm choice (`item ::= "a" | "ab"` then
+`tail ::= "bc" | "c"` over `abc`) never shows the same-span gate one span
+with two meanings — the PDA answered what gated Earley refuses, a public
+invariant breach. `parse_model` falls back on `PdaFail` to **gated**
+`earley_model`, so bailing is fully correct: the fallback refuses iff the
+ambiguity is real. Soundness of the candidate set is the edge-liveness
+window predicate (no completion reachable beyond `E`); soundness of the
+check is FOLLOW ⊇ any one site's continuation — every error is a spurious
+bail, never a wrong commit.
+
+**The accepted cost:** k=1 FOLLOW over-approximates. vyx's benchmark corpus
+trips it at the first island (`template-def`, ends 9/30, a space genuinely
+in rule-level FOLLOW), so the vyx PDA route bails and the row runs gated
+Earley until the ordered-attempt gate lands — correctness now, the speed
+returns with the attempt design, which SEES each cross-span point and can
+try the alternative composition instead of guessing from one character.
+With the bail, vyx holds raw parity (0/194 divergent; row added for real —
+its old "exclusion" subtracted a stem that was never in the list).
+
+## 2026-07-29 — Island window growth: chart liveness at the edge zone, not a completion-column probe
+
+**Decision:** `island_parse` grows its doubling window iff the windowed chart
+has an item filed in the edge zone — the last `max(terms.lens)` columns
+(`_may_extend` in `pda/runtime/islands.py`). The three old signals (no
+completion yet; completion touches the edge; `can_extend_at` at the completion
+column) are deleted, along with `can_extend_at` itself.
+
+**Why it is sound:** `longest_start_completion` scans the whole window, so
+every completion inside it is already known — more input can only add a
+completion that consumes past the edge, and any derivation doing so leaves
+visible evidence: a scanner filed at the edge column, or a multi-char literal
+the window cut, whose scanner files nothing but sits at most the longest
+literal short of the edge (hence the zone, not the single column). Runs cut by
+the window land ON the edge; a declined delegate falls through to normal
+seeding, so its continuations are ordinary items.
+
+**Why the old probe was wrong twice.** Divergent: probing the completion
+column re-answers identically at every window size (columns are a function of
+the text prefix), so one persistent scanner — vyx's line interiors — grew the
+window to the end of the input, re-parsing from scratch each time (~37× the
+corpus through `island_run` on the vyx benchmark; the "anomaly" of the PDA
+measuring slower than Earley there). Unsound: a multi-char literal can jump
+the probed column without filing an item in it, so the probe answered "don't
+grow" while a longer completion was reachable — a truncated longest match
+spliced as the answer (`test_island_parse_grows_past_a_window_cut_multi_char_literal`
+pins the shape).
+
+**Impact:** `island_run` returns `(kern, completion | None)` — the kernel is
+the predicate's evidence even on a miss, and a dead-chart no-match now fails
+fast instead of growing to the end of the input first. `island_value`'s
+fold-refusal reroute stays as the last line of defence.
+
 ## 2026-07-21 — Micro-perf floor: in-process A/B only; model count, not per-model cost, bounds the win
 
 **Finding:** the only trustworthy way to measure a parse-engine change below roughly 15% is an **in-process, interleaved A/B** — baseline and candidate run in the same warm process, order randomized per sample, best-of-N reported. Cross-process comparisons (including git-stash-based before/after) and `cProfile` self-time both mislead at this scale: cross-process runs showed an apparent 6–11% win that vanished (and in one case reversed) under in-process A/B, because cold-start and allocator noise dominate a delta that small; `cProfile`'s per-call overhead inflates exactly the highest-call-count helper functions, misdirecting effort toward code that isn't the real steady-state bottleneck.
@@ -195,7 +339,7 @@ their frame pops, and their ids get handed straight back to different objects.
 - **Alignment lives inside `compile_arms`' own enumeration** (`windows[idx]` attached in the same loop that drops empty-FIRST arms) — window↔arm drift is structurally impossible rather than checked after the fact. A FIRST-overlapping alternation reaching the compiler with **no** spec raises — the anti-trap tripwire (F2: an empty gate mis-parses, PdaFail-falls-back, and passes island-move + parity gates while unsound and slower).
 - **Verified live:** chess `nonpawn` (loop, k=3) 0.0% fallback + 8.6× faster than the 6.2 island-hit path; `lo>k` EOF-exact arm selection end-to-end; GBNF-self 17→8 / ABNF-self 9→7 island moves exactly per the coverage map.
 
-**Impact:** `Taxonomy` is public (`analysis.__all__`); `KTupleGate`/`ArmSpec.windows` reinstated in `clones.py` as read-side only; LL(2) 2-prefix machinery now lives in `kwindow.py` as free fns (`loop_policy` calls across); `_bake_reduce`/`_reduce_rewrite` live in `reduce_pda.py`. `P2_DEMOTION_ENABLED` defaults **True**; `False` is the A/B seam. See [[architecture]], the PLAN_v5 ledger, and log 2026-07-11.
+**Impact:** `Taxonomy` is public (`analysis.__all__`); `KTupleGate`/`ArmSpec.windows` reinstated in `clones.py` as read-side only; LL(2) 2-prefix machinery now lives in `kwindow.py` as free fns (`loop_policy` calls across); `_bake_reduce`/`_reduce_rewrite` live in `reduce_pda.py`. `P2_DEMOTION_ENABLED` defaults **True**; `False` is the A/B seam. See [[architecture]] and log 2026-07-11.
 
 ---
 

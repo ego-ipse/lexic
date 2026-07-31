@@ -132,6 +132,64 @@ def test_islands_are_the_conflict_keys():
     assert analysis.islands == frozenset(analysis.conflicts)
 
 
+# ── the attempt classification (the third gate class) ─────────────────────
+
+
+def text_analysis(text: str) -> GrammarAnalysis:
+    """Analyse the lifted codegen grammar of a hand-authored GBNF snippet."""
+    canonical = canonical_grammar(text, get_flavour("gbnf"))
+    return GrammarAnalysis(lift_optional_nullables(build_codegen_grammar(canonical)))
+
+
+def test_a_cross_span_arm_choice_earns_an_attempt_spec():
+    """`item ::= "a" | "ab"` under an overlap-forcing tail islands AND carries
+    an attempt plan in authored arm order."""
+    analysis = text_analysis(
+        'root ::= item tail\nitem ::= "a" | "ab"\ntail ::= "bc" | "c"\n'
+    )
+    assert "item" in analysis.islands
+    assert analysis.taxonomy.attempts["item"].order == (0, 1)
+
+
+def test_attempt_order_puts_nullable_arms_last():
+    """A nullable arm tried first wins vacuously — it goes last."""
+    analysis = text_analysis(
+        'root ::= x tail\nx ::= y | "ab"\ny ::= "a"?\ntail ::= "bc" | "c"\n'
+    )
+    assert "x" in analysis.islands
+    assert analysis.taxonomy.attempts["x"].order == (1, 0)
+
+
+def test_left_recursive_rules_never_attempt():
+    """No arm order helps a rule that re-enters at the same position."""
+    analysis = text_analysis('root ::= e\ne ::= e "+" e | "a"\n')
+    assert "e" in analysis.islands
+    assert "e" not in analysis.taxonomy.attempts
+
+
+def test_ungatable_loops_carry_the_attempt_licence():
+    """vyx: EVERY island is attemptable once its ungatable loops carry the
+    greedy-take licence — a loop extent is a split with a defined answer
+    (the first slot owns the text), so greedy take + rollback needs no gate."""
+    analysis = lifted_analysis("vyx.gbnf")
+    taxonomy = analysis.taxonomy
+    assert set(taxonomy.attempts) == analysis.islands
+    assert taxonomy.attempt_loops
+    assert all(isinstance(key, int) for key in taxonomy.attempt_loops)
+
+
+@pytest.mark.parametrize("stem", sorted(PINNED_ISLANDS))
+def test_attempts_are_islands_an_arm_order_can_settle(stem: str):
+    """Attempts ⊆ islands, never a fail island, and each order is a full
+    permutation of its rule's body arms."""
+    analysis = lifted_analysis(stem)
+    attempts = analysis.taxonomy.attempts
+    assert set(attempts) <= analysis.islands
+    assert not set(attempts) & analysis.fail_islands
+    for name, spec in attempts.items():
+        assert sorted(spec.order) == list(range(len(analysis.rules[name].body)))
+
+
 # ── P2 k-window demotion (flag OFF baseline / flag ON gated behavior) ──────
 
 

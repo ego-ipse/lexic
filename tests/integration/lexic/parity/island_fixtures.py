@@ -48,7 +48,19 @@ GRAMMAR = IrAst(
                     IrItem(IrRuleRef("value")),
                     IrItem(IrRuleRef("rest"), STAR),
                     IrItem(IrRuleRef("comma"), OPT),
-                )
+                ),
+                # A LEFT-RECURSIVE arm — the class no gate licences and no
+                # attempt settles (the delegation-parity SYNTH_GRAMMAR
+                # idiom), pinning ``list`` an island however sharp the
+                # analysis' separators get. Reachable only through a
+                # double comma, which no fixture input contains, so the
+                # language and folds of every exercised input are
+                # unchanged.
+                IrSequence(
+                    IrItem(IrRuleRef("list")),
+                    IrItem(IrRuleRef("comma")),
+                    IrItem(IrRuleRef("comma")),
+                ),
             ),
         ),
         IrRule(

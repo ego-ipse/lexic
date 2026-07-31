@@ -39,7 +39,9 @@ from tests.integration.lexic.parity.island_fixtures import (
 
 
 def test_the_fixture_list_rule_actually_islands():
-    """The trailing-comma shape must stay ungateable — the fixture's licence."""
+    """``list`` must stay an island — the fixture's licence. Its
+    left-recursive arm pins that against any future gate sharpening
+    (structured separators now gate the plain trailing-comma shape)."""
     analysis = GrammarAnalysis(lift_optional_nullables(GRAMMAR))
     assert "list" in analysis.islands
 

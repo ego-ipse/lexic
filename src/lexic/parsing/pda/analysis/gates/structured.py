@@ -67,6 +67,29 @@ def noise_roots(analysis: Any) -> frozenset[str]:
     return frozenset(roots)
 
 
+def run_roots(analysis: Any) -> frozenset[str]:
+    """Run-forming rule names regardless of the ``semantic`` flag.
+
+    The SELECTION-side fallback for formulations that declare no
+    non-semantic rules (a self-emitted meta grammar keeps its noise
+    semantic for round-trip fidelity): scan/probe gates are
+    recognition-only — the winner re-parses its noise — so attribution is
+    never in question, and every downstream licence check still applies.
+    The value-attribution licences (:func:`_match_gate` and its clauses)
+    keep the strict flag: an over-take there re-splits VALUE content.
+    """
+    roots: set[str] = set()
+    for rule in analysis.rules.values():
+        for arm in rule.body:
+            for item in _items(arm):
+                atom = item.atom
+                if not isinstance(atom, IrRuleRef) or int(item.quantifier.lo) != 0:
+                    continue
+                if str(atom) in analysis.rules:
+                    roots.add(str(atom))
+    return frozenset(roots)
+
+
 def _leading_roots(
     analysis: Any, all_roots: frozenset[str], atom: Any, seen: frozenset[str]
 ) -> frozenset[str]:
@@ -268,7 +291,7 @@ def structured_loop_gate(
     ``SG_PROBE`` — the P5 escalation when those leads overlap on a
     next-construct header (see :func:`_probe_gate`).
     """
-    roots = noise_roots(analysis)
+    roots = noise_roots(analysis) or run_roots(analysis)
     if not roots:
         return None
     gate = _match_gate(analysis, roots, items, k, scope)
@@ -397,7 +420,7 @@ def structured_arm_gate(
     :returns: The :class:`~lexic.parsing.pda.core.scanner.ArmGate` (scan gate + escape
         arm index), or ``None`` on a licence miss.
     """
-    roots = noise_roots(analysis)
+    roots = noise_roots(analysis) or run_roots(analysis)
     if not roots or label not in analysis.rules:
         return None
     nullable = [i for i, arm in enumerate(arms) if _arm_nullable(analysis, arm)]
@@ -467,28 +490,29 @@ def _probe_candidate(
     (:func:`_post_noise_follow` with the header occurrence skipped), and
     demands exactly one distinct spec grammar-wide.
     """
-    cands: set[tuple[str, str, str]] = set()
-    for rule in analysis.rules.values():
-        if not rule.semantic:
-            continue
-        for arm in rule.body:
-            shape = _header_shape(analysis, _items(arm))
-            if shape is None:
+    for relaxed_mid in (False, True):
+        cands: set[tuple[str, str, str]] = set()
+        for rule in analysis.rules.values():
+            if not rule.semantic:
                 continue
-            head, r_name, mid_root, lit = shape
-            if not overlap.subtract(analysis.first[r_name]).is_empty():
-                continue
-            pnf = _post_noise_follow(analysis, lead, skip=id(head))[r_name]
-            if pnf.has(lit[0]):
-                continue
-            cands.add((r_name, mid_root, lit))
-    if len(cands) != 1:
-        return None
-    return next(iter(cands))
+            for arm in rule.body:
+                shape = _header_shape(analysis, _items(arm), relaxed_mid)
+                if shape is None:
+                    continue
+                head, r_name, mid_root, lit = shape
+                if not overlap.subtract(analysis.first[r_name]).is_empty():
+                    continue
+                pnf = _post_noise_follow(analysis, lead, skip=id(head))[r_name]
+                if pnf.has(lit[0]):
+                    continue
+                cands.add((r_name, mid_root, lit))
+        if len(cands) == 1:
+            return next(iter(cands))
+    return None
 
 
 def _header_shape(
-    analysis: Any, arm_items: Sequence[IrItem]
+    analysis: Any, arm_items: Sequence[IrItem], relaxed_mid: bool = False
 ) -> "tuple[IrItem, str, str, str] | None":
     """Match ``[ref R (1,1)] [same noise ref]+ [lit L] …`` at an arm's head.
 
@@ -496,7 +520,10 @@ def _header_shape(
         shape. The middle items must all reference one non-semantic rule (the
         probe skips a maximal run of it between the name and the literal;
         at least one such item — a zero-noise header would make the probe's
-        noise run over-permissive for nothing).
+        noise run over-permissive for nothing). ``relaxed_mid`` accepts a
+        SEMANTIC middle rule — the second pass for formulations declaring no
+        non-semantic rules; the strict pass runs first so directive-carrying
+        grammars keep their unique-spec answer.
     """
     if not arm_items:
         return None
@@ -519,7 +546,11 @@ def _header_shape(
             return (head, str(head.atom), mid, str(atom))
         name = str(atom) if isinstance(atom, IrRuleRef) else None
         target = analysis.rules.get(name) if name is not None else None
-        if target is None or target.semantic or mid not in (None, name):
+        if (
+            target is None
+            or mid not in (None, name)
+            or (target.semantic and not relaxed_mid)
+        ):
             return None
         mid = name
     return None

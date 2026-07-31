@@ -1,6 +1,6 @@
 """Tests for lexic.parsing.pda.core.errors — PdaFail.
 
-Homed in its own leaf module so :mod:`~lexic.parsing.pda.runtime.runtime` and
+Homed in its own leaf module so :mod:`~lexic.parsing.pda.runtime.kernel.kernel` and
 :mod:`~lexic.parsing.pda.runtime.islands` can both raise it without an import cycle;
 ``runtime`` re-exports it, so callers importing either path get the identical
 class.
@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.runtime import PdaFail as RuntimePdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail as RuntimePdaFail
 
 
 def test_pda_fail_is_an_exception_subclass():
@@ -31,5 +31,5 @@ def test_pda_fail_is_raisable_and_catchable():
 
 
 def test_runtime_reexports_the_identical_class():
-    """runtime.py's re-export is the SAME object, not a duplicate definition."""
+    """kernel.py's re-export is the SAME object, not a duplicate definition."""
     assert RuntimePdaFail is PdaFail

@@ -45,7 +45,7 @@ Module map:
 - :mod:`.pda.clones`  — :func:`~lexic.parsing.pda.compiler.clones.compile_pda`, the
                         per-(rule, continuation) clone compiler.
 - :mod:`.pda.flatten` — the int-coded PDA runtime program + optimizer passes.
-- :mod:`.pda.runtime`  — :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel`, the fused
+- :mod:`.pda.runtime`  — :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel`, the fused
                         predictive runtime (parse + fold, no ``ParseTree``).
 
 The forest is a full SPPF (Scott 2008): nullable-rule completion (Aycock-Horspool)

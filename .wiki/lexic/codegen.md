@@ -11,7 +11,7 @@
 
 **When to load:** historical reference only — for current codegen-grammar passes, binding view, and class synthesis see [[public-api]] / [[architecture]] (`compile/` package).
 
-See also: [[architecture]], [[ir-shapes]], [[field-naming]], [[decisions]], [[cutover-plan]]
+See also: [[architecture]], [[ir-shapes]], [[field-naming]], [[decisions]]
 
 Renamed from `new-codegen.md` (2026-07-04) — that page described the `new_codegen/` scaffold built against `NewRuleSpec` during the May 2026 Lark cutover; `lexic.codegen` has since been rebuilt a second time (2026-07-03/04) to be **IR-native**: it takes a canonical `IrAst` directly, with no `RuleSpec` middle layer at all. This page describes the current shape.
 

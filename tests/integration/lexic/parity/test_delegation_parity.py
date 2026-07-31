@@ -46,8 +46,8 @@ from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
 from lexic.parsing.products import _reduce_product
 from tests.integration.lexic.parity.test_pda_parity import ALL_STEMS, grammar_for
 from tests.unit.lexic.parsing.parsing_helpers import prod
@@ -85,15 +85,16 @@ def with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> objec
 
 
 SYNTH_GRAMMAR = """root ::= item+
-item ::= a | b
+item ::= item "!" | a | b
 a ::= digits "x"
 b ::= digits "y"
 digits ::= [0-9]+
 """
-"""A minimal delegation payoff grammar: ``item`` is an alternation island (both
-arms share FIRST ``[0-9]``), and its interior delegable rule ``digits``
-(``[0-9]+``) is an unbounded run — a long predictive span the delegate resolves
-on its clone instead of the island's Earley item machinery."""
+"""A minimal delegation payoff grammar: ``item`` is a LEFT-RECURSIVE island
+(the class no attempt settles — the plain shared-digit-prefix alternation it
+once was now attempts instead of islanding), and its interior delegable rule
+``digits`` (``[0-9]+``) is an unbounded run — a long predictive span the
+delegate resolves on its clone instead of the island's Earley item machinery."""
 
 SYNTH_SAMPLES: tuple[str, ...] = (
     "1x2y3x",
@@ -138,7 +139,7 @@ def test_delegation_instance_parity(stem: str) -> None:
     A grammar whose (possibly overridden) start rule is itself an island
     (c.gbnf under the "statement" override — see ``test_pda_parity``)
     compiles to an immediate-``PdaFail`` start: :meth:`PdaKernel.run` raises
-    before looking at the delegate source or the input (``runtime.py``'s
+    before looking at the delegate source or the input (``kernel.py``'s
     "IslandRef opt-out" branch), so delegation cannot fire either way.
     Rather than skip the stem outright, this pins that invariant directly —
     on and off both fail identically on a real generated sample."""
@@ -188,7 +189,9 @@ def test_delegation_synthetic_long_interior() -> None:
     """A long digit run under an alternation island: delegates fire, parity holds."""
     cg = compile_text(SYNTH_GRAMMAR, cache_key="delegation-synth")
     assert not isinstance(prod(cg).pda.start_key, IslandRef)
-    assert sorted(prod(cg).pda.islands) == ["item"], "synthetic island set"
+    assert sorted(prod(cg).pda.islands) == ["item", "item-arm1"], (
+        "synthetic island set (the hoisted left-recursive arm islands too)"
+    )
     names = {
         prod(cg).instance_grammar.rules[rid].name
         for rid in prod(cg).pda.island_delegates("item")

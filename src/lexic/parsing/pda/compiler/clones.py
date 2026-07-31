@@ -13,7 +13,7 @@ that reaches it (its loop stop-sets are call-site-exact, pivot 4).
 placeholder before compiling, so recursion resolves to the in-progress key and
 a repeat ``(name, tail)`` reuses the clone. Island rules are never cloned — a
 reference carries an :class:`IslandRef` (a ``fail`` one raises
-:class:`~lexic.parsing.pda.runtime.runtime.PdaFail`, forcing the engine fallback).
+:class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`, forcing the engine fallback).
 
 **Item specs.** Each item compiles to a flat :class:`ItemSpec`
 (``lit``/``cc``/``ref``/``grp``) with its bounds and a loop gate —
@@ -33,7 +33,7 @@ an unregistered atom raises :exc:`~lexic.exceptions.UnsupportedConstructError`
 
 The spec NamedTuples are the compiler's *intermediate* (the shape tests pin);
 :func:`flatten_program` lowers them once into the flat int-coded
-:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` walks. The
+:class:`PdaProgram` the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks. The
 two stay in lockstep on :class:`PdaTables` (``.clones`` for introspection,
 ``.program`` for the hot loop).
 """
@@ -55,6 +55,7 @@ from lexic.ir import (
     IrLiteral,
     IrNoneType,
     IrNot,
+    IrRule,
     IrRuleRef,
     IrSelf,
     IrTypeMap,
@@ -81,6 +82,7 @@ from lexic.parsing.pda.compiler.specs import (
     REF,
     ArmGates,
     ArmSpec,
+    AttemptGate,
     CloneKey,
     CloneSpec,
     GroupSpec,
@@ -206,14 +208,14 @@ class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     lo: int
     hi: int | None
     cont: CharSet
-    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate
+    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate
 
     def __init__(
         self,
         lo: int,
         hi: int | None,
         cont: CharSet,
-        gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate,
+        gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate,
     ) -> None:
         """Bind one item's bounds, continuation and gate."""
         self.lo = lo
@@ -266,6 +268,15 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     if name in compiler.islands:
         fail = name in compiler.fail_islands
         return ItemSpec(REF, IslandRef(name, fail), ctx.lo, ctx.hi, ctx.gate)
+    if name in compiler.analysis.taxonomy.attempts:
+        # ONE canonical clone per attemptable rule (the analysis-level hard
+        # FOLLOW as its tail): its decisions are attempted, not stop-set-cut,
+        # so call-site tail exactness buys nothing — and a single identity is
+        # what lets the packrat memo see a repeat as a repeat (per-tail clones
+        # made every (rule, pos) re-attempt a fresh key: measured 60% of all
+        # sub-runs on the vyx corpus).
+        canonical = compiler.ensure_rule(name, compiler.analysis.hard_follow[name])
+        return ItemSpec(REF, canonical, ctx.lo, ctx.hi, ctx.gate)
     tail = ctx.cont
     if ctx.hi is None or ctx.hi > 1:
         tail = tail.union(compiler.analysis.atom_hard(cast(IrAtom, n)))
@@ -353,8 +364,10 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     @property
     def islands(self) -> frozenset[str]:
-        """The island rule names — never cloned (a view onto the analysis)."""
-        return self.analysis.islands
+        """The island residue — conflicted rules no attempt can settle, never
+        cloned. Attemptable rules (``taxonomy.attempts``) clone instead, with
+        their arms in attempt order."""
+        return self.analysis.islands - frozenset(self.analysis.taxonomy.attempts)
 
     @property
     def fail_islands(self) -> frozenset[str]:
@@ -394,23 +407,53 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                 self.draining = False
         return key
 
-    def _compile_clone(self, key: CloneKey) -> None:
-        """Compile one queued clone body into :attr:`clones` (drain step)."""
-        name = key.name
-        rule = self.analysis.rules[name]
+    def _clone_shape(
+        self, name: str, rule: IrRule, tail: CharSet
+    ) -> tuple[
+        tuple[ArmSpec, ...],
+        tuple[ItemSpec, ...] | None,
+        ScanGate | None,
+        CharSet | None,
+    ]:
+        """One clone body's compiled arms — the attempt / gated split.
+
+        An attemptable rule's arms compile in attempt order with no gate
+        specs; every other rule gets its stored demotion gates. A
+        single-gated-arm attempt rule (islanded for its loops alone) has no
+        arm choice to try — its licensed loops carry the whole licence in
+        their gates, so it runs as an ordinary clone (``follow`` is ``None``).
+
+        :returns: ``(arms, default, struct gate, attempt follow | None)``.
+        """
         tax = self.analysis.taxonomy
+        attempt = tax.attempts.get(name)
+        if attempt is not None:
+            arms, default, struct = self.compile_arms(
+                rule.body, tail, order=attempt.order
+            )
+            follow = self.analysis.follow[name] if len(arms) > 1 else None
+            return arms, default, struct, follow
         arms, default, struct = self.compile_arms(
             rule.body,
-            key.tail,
+            tail,
             ArmGates(
                 tax.arm_gates.get(name),
                 tax.pn_arm_gates.get(name),
                 tax.struct_arm_gates.get(name),
             ),
         )
+        return arms, default, struct, None
+
+    def _compile_clone(self, key: CloneKey) -> None:
+        """Compile one queued clone body into :attr:`clones` (drain step)."""
+        name = key.name
+        rule = self.analysis.rules[name]
+        arms, default, struct, follow = self._clone_shape(name, rule, key.tail)
         fold = self.fold_config.get(name)
         match_only = fold is not None and fold.kind == "value_str"
-        self.clones[key] = CloneSpec(name, arms, default, fold, match_only, struct)
+        self.clones[key] = CloneSpec(
+            name, arms, default, fold, match_only, struct, follow
+        )
         if self.reduce is not None:
             self.completions[key] = self.reduce.comp_for(name)
 
@@ -419,6 +462,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         node: IrAlternation,
         tail: CharSet,
         gates: ArmGates = ArmGates(),
+        order: tuple[int, ...] | None = None,
     ) -> tuple[tuple[ArmSpec, ...], tuple[ItemSpec, ...] | None, ScanGate | None]:
         """Compile the arms of a rule body or inline group against ``tail``.
 
@@ -431,17 +475,25 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         past the empty-FIRST drop; the ``struct_arm`` escape index is validated
         here against the nullable default arm the compiler actually picks.
 
+        With ``order`` (an ATTEMPT rule's ``AttemptSpec.order``) the arms are
+        emitted in attempt order rather than authored order, and the
+        overlap-without-gate raise is skipped — overlapping FIRSTs are the
+        attempt case, tried in order by the runtime rather than selected.
+
         :returns: ``(gated arms, default specs | None, struct-arm ScanGate | None)``.
         :raises UnsupportedConstructError: When gated arms' FIRSTs overlap with
-            no gate spec to select by, or a ``struct_arm`` gate's escape index
-            does not match the nullable default arm (analysis/compiler drift —
-            a wrong arm would silently mis-parse, so the grammar opts out).
+            no gate spec to select by (and no attempt ``order``), or a
+            ``struct_arm`` gate's escape index does not match the nullable
+            default arm (analysis/compiler drift — a wrong arm would silently
+            mis-parse, so the grammar opts out).
         """
         windows, peeks = gates.windows, gates.peeks
         arms: list[ArmSpec] = []
         default: tuple[ItemSpec, ...] | None = None
         default_idx: int | None = None
-        for idx, arm in enumerate(node):
+        for idx, arm in (
+            enumerate(node) if order is None else ((i, node[i]) for i in order)
+        ):
             items = _items(arm)
             specs = self._compile_seq(items, tail)
             first = self.analysis.seq_first(items)
@@ -457,7 +509,12 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
                         (peeks[0], peeks[1][idx]) if peeks is not None else None,
                     )
                 )
-        if windows is None and peeks is None and _firsts_overlap(arms):
+        if (
+            order is None
+            and windows is None
+            and peeks is None
+            and _firsts_overlap(arms)
+        ):
             raise UnsupportedConstructError(
                 "pda: arm FIRST overlap without a gate spec"
             )
@@ -494,7 +551,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     def _loop_gate(
         self, items: Sequence[IrItem], idx: int, cont: CharSet
-    ) -> StopGate | PairGate | KTupleGate | PeekGate | ScanGate:
+    ) -> StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate:
         """The loop-continuation gate — stop-set, LL(2) pair, or k-window set.
 
         Defaults to the non-greedy stop-set (``FIRST(atom) − continuation``); a
@@ -530,6 +587,17 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             sspec = analysis.taxonomy.struct_loop_gates.get(id(item))
             if sspec is not None:
                 return sspec  # a folding-aware ScanGate (P3 structured / P5)
+            licence = analysis.taxonomy.attempt_loops.get(id(item))
+            if licence is not None:
+                # The attempt licence: FIRST admits an iteration ATTEMPT —
+                # the runtime runs it as a sub-run and a failure closes the
+                # loop, so the loop takes maximally subject to its iterations
+                # actually parsing (the split's defined answer). A plain
+                # stop-set here would commit on one character and fail the
+                # arm on any later mismatch inside the iteration. The stored
+                # soft continuation guards the boundary where taking and
+                # stopping are BOTH viable — an arm choice in loop clothing.
+                return AttemptGate(first, licence)
             if first.overlaps(cont):
                 policy = analysis.loop_policy(item, rest)
                 if isinstance(policy, tuple):
@@ -598,8 +666,8 @@ def compile_reduce_pda(
     policy the reduce runtime cannot reconstruct (a grammar-global condition with
     no enclosing rule) compiles to an **immediate-PdaFail start** — an
     :class:`IslandRef` start over an empty clone table, so
-    :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` raises
-    :class:`~lexic.parsing.pda.runtime.runtime.PdaFail` on the first step and the caller
+    :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` raises
+    :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail` on the first step and the caller
     completes on the Earley reduce per parse (no ``None`` channel, no windowed
     self-parse of the whole input).
 

@@ -34,6 +34,7 @@ __all__ = [
     "IslandRef",
     "ArmGates",
     "StopGate",
+    "AttemptGate",
     "PairGate",
     "KTupleGate",
     "PeekGate",
@@ -66,7 +67,7 @@ class IslandRef(NamedTuple):
 
     :ivar name: The island rule name.
     :ivar fail: When ``True``, a fail-island (a semantic F1 stop-set-escape
-        rule) — the reference raises :class:`~lexic.parsing.pda.runtime.runtime.PdaFail`
+        rule) — the reference raises :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`
         (engine fallback) rather than risking a divergent longest-match parse.
     """
 
@@ -85,6 +86,27 @@ class StopGate(NamedTuple):
     """
 
     charset: CharSet
+
+
+class AttemptGate(NamedTuple):
+    """An attempt-licensed loop gate — the atom's full FIRST, as ADMISSION.
+
+    Past the mandatory count, an admitted iteration is ATTEMPTED as a
+    self-contained sub-run; a failure closes the loop at the current count
+    instead of failing the arm. The loop thereby takes maximally subject to
+    its iterations actually parsing — the split's defined answer (the first
+    slot owns the text) — where a plain stop-set take would COMMIT on one
+    character and fail the arm on a later mismatch.
+
+    :ivar charset: The atom's FIRST — a pre-filter, never a commitment.
+    :ivar follow: The decision's SOFT continuation. A boundary char in BOTH
+        sets is an arm choice in loop clothing — a shorter extent may compose
+        into a different-valued whole parse — so the runtime bails to the
+        gated engine there instead of committing another iteration.
+    """
+
+    charset: CharSet
+    follow: CharSet
 
 
 class PairGate(NamedTuple):
@@ -146,7 +168,7 @@ class ItemSpec(NamedTuple):
     payload: str | CharSet | CloneKey | IslandRef | GroupSpec
     lo: int
     hi: int | None
-    gate: StopGate | PairGate | KTupleGate | PeekGate | ScanGate
+    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate
 
 
 class ArmSpec(NamedTuple):
@@ -215,6 +237,12 @@ class CloneSpec(NamedTuple):
         :class:`~lexic.parsing.pda.core.scanner.ScanGate`), or ``None``. When set, the
         runtime consults it before the FIRST-gated selection: a take admits the
         gated arms, a refusal selects the nullable :attr:`default` (escape) arm.
+    :ivar attempt_follow: The rule's soft-FOLLOW :class:`CharSet` on an
+        ATTEMPT clone, else ``None``. Non-``None`` marks the clone's arms as
+        ordered attempts — :attr:`arms` is stored already in attempt order
+        (nullable arms last), FIRSTs may overlap, and the runtime tries arms
+        with rollback instead of selecting one; the follow set is the
+        cross-span composition evidence its second-success audit reads.
     """
 
     name: str
@@ -223,3 +251,4 @@ class CloneSpec(NamedTuple):
     fold: RuleFold | None
     match_only: bool
     struct_arm: ScanGate | None = None
+    attempt_follow: CharSet | None = None

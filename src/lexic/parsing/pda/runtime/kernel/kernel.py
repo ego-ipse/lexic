@@ -1,71 +1,45 @@
 """Fused predictive runtime — parses text to a model, no ParseTree on the path.
 
-The runtime sibling of :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`: where the Earley
-kernel builds an SPPF a :class:`~lexic.parsing.fold.ModelFold` later folds,
-:class:`PdaKernel` walks the flat int-coded
-:class:`~lexic.parsing.pda.compiler.clones.PdaProgram` and builds the model **directly
-during the walk** — the fold is fused into the parse, so no intermediate
-:class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` is ever allocated on the deterministic
-path.
-
-**Flat program (Task 8).** The runtime walks the int-coded
-:class:`~lexic.parsing.pda.compiler.clones.PdaProgram` (``_OP_*`` op-codes, pre-resolved
-``(chars, negated)`` membership sets, direct :class:`FlatClone` references),
-not the compiler's :class:`~lexic.parsing.pda.compiler.clones.CloneSpec` NamedTuples —
-integer dispatch, no attribute descriptors, no per-char method calls on the hot
-loop (the ``tables.py``/``kernel.py`` philosophy).
+The runtime sibling of :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`:
+where the Earley kernel builds an SPPF a :class:`~lexic.parsing.fold.ModelFold`
+later folds, :class:`PdaKernel` walks the flat int-coded
+:class:`~lexic.parsing.pda.compiler.clones.PdaProgram` (``_OP_*`` op-codes,
+pre-resolved ``(chars, negated)`` membership sets, direct :class:`FlatClone`
+references — integer dispatch, no per-char method calls on the hot loop) and
+builds the model **directly during the walk** — the fold is fused into the
+parse, so no intermediate parse tree is allocated on the deterministic path.
 
 **Explicit frame stack.** Rule, group and loop descent runs on an explicit
 :attr:`PdaKernel.stack` of flat *list frames* (the ``kernel.py`` int-array
-explicit-stack precedent; the class cursor is :class:`PdaKernel` itself — see the
-frame layout below) — never Python recursion. Per-parse state (the input, the
-cursor position, the frame stack) lives on the kernel;
-:class:`~lexic.parsing.pda.compiler.clones.PdaProgram` is shared and immutable. A frame
-executes one arm's items in order; a literal / char-class item runs its whole
-quantifier loop inline in :mod:`~lexic.parsing.pda.runtime.matchers` (no
-descent, no per-char call), while a rule
-reference or inline group pushes a sub-frame per iteration and resumes when it
-completes.
+precedent) — never Python recursion. Per-parse state (input, cursor, stack)
+lives on the kernel; the program is shared and immutable. A frame executes one
+arm's items in order; a terminal item runs its whole quantifier loop inline in
+:mod:`~lexic.parsing.pda.runtime.matchers`, while a rule reference or inline
+group pushes a sub-frame per iteration.
 
 **Fused capture.** A *clone frame* with a build-mode (``sequence`` /
 ``alternation`` / ``value_str``) captures what its fold needs and, on
 completion, builds exactly one model (:meth:`PdaKernel._complete`); a
-*transparent frame* (an inline group, or a look-through no-constructor clone)
-funnels every model produced inside it straight to its ``F_OUT`` sink. Each
-frame records item end positions in its ``F_ENDS`` slot (item spans derive from
-the contiguous, monotonic cursor — item ``i``'s span is
-``(start if i==0 else ends[i-1], ends[i])``); only a span-reading ``sequence``
-clone reads them back, but every frame keeps the slot so the driver's per-item
-write stays branch-free. Descent sub-models are collected per bound item in a
-lazily-allocated ``F_SINKS`` list. So a sub-model produced arbitrarily deep,
-through any number of group and loop layers, lands in the nearest enclosing
-*bound* item's sink, exactly as the fold's look-through ``_models_at`` collects
-the topmost models under a kid.
-
-Per build-mode (mirroring :meth:`~lexic.parsing.fold.ModelFold._fold_node`):
-
-- ``value_str`` → ``ctor(value=text[a:b])`` over the clone's whole span (its
-  interior is pure-terminal — no sub-models are built below it);
-- ``alternation`` → pass-through of the first model under the matched arm;
-- ``sequence`` → per bound field, the item's ``text`` / ``gtext`` span or its
-  ``model`` / ``models`` collection; a zero-item arm match → ``ctor()``.
+*transparent frame* funnels every model produced inside it straight to its
+``F_OUT`` sink. Item spans derive from the contiguous cursor via the frame's
+``F_ENDS`` slot; descent sub-models collect per bound item in a lazily
+allocated ``F_SINKS`` list, so a sub-model produced arbitrarily deep lands in
+the nearest enclosing *bound* item's sink, exactly as the fold's look-through
+``_models_at`` collects the topmost models under a kid. Per build-mode
+(mirroring :meth:`~lexic.parsing.fold.ModelFold._fold_node`): ``value_str`` →
+``ctor(value=text[a:b])`` over the clone's whole span; ``alternation`` →
+pass-through of the first model under the matched arm; ``sequence`` → per
+bound field, the item's span or its sub-model collection.
 
 **Islands.** A reference to a conflicted (island) rule cannot be walked
-deterministically, so it delegates to a windowed Earley sub-parse: a fresh
-:class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel` over the rule's
-:meth:`~lexic.parsing.pda.compiler.clones.PdaTables.island_tables` runs
-:meth:`~lexic.parsing.earley.kernel.loop.kernel.Kernel.longest_start_completion` over a doubling
-window and takes the longest completion; the decoded
-:class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` (via
-:class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree`, falling back to the first derivation
-on ambiguity) folds through the supplied :class:`~lexic.parsing.fold
-.ModelFold` and the resulting sub-model splices into the current capture
-exactly as a clone's model would. The cursor advances past the consumed span.
-Without a fold (:attr:`PdaKernel.fold` is ``None``, the island-free path) an
-island reference raises :class:`PdaFail` so the engine reparses. A
-**fail-island** reference (a semantic F1 stop-set-escape rule whose longest-match
-split would silently diverge) always raises :class:`PdaFail`, independent of the
-fold, so the compile seam falls back to the sound engine parse.
+deterministically, so it delegates to a windowed Earley sub-parse
+(:meth:`PdaKernel._island`): the longest completion over a doubling window
+folds through the supplied fold and the sub-model splices into the current
+capture; the cursor advances past the consumed span. Without a fold (the
+island-free path) an island reference raises :class:`PdaFail`, as does a
+**fail-island** reference (a semantic F1 stop-set-escape rule whose
+longest-match split would silently diverge) — the compile seam then falls back
+to the sound engine parse.
 
 :class:`PdaFail` is internal to :mod:`lexic.parsing` — a PDA parse failure is
 caught by the compile seam and retried on the full engine, which owns the
@@ -88,6 +62,7 @@ from lexic.parsing.pda.compiler.flatten import (
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
     DISPATCH_EMPTY,
+    GATE_ATTEMPT,
     OP_CC,
     OP_CC1,
     OP_FAIL,
@@ -104,6 +79,10 @@ from lexic.parsing.pda.compiler.flatten import (
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.core.scanner import scan_gate_take
+from lexic.parsing.pda.runtime.admission import (
+    KernelCaches,
+    sole_admitted,
+)
 from lexic.parsing.pda.runtime.build import (
     F_ARM,
     F_CLONE,
@@ -126,6 +105,7 @@ from lexic.parsing.pda.runtime.islands import (
     island_parse,
     island_value,
 )
+from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.matchers import (
     match_cc,
     match_lit,
@@ -140,7 +120,7 @@ _EMPTY_SLOT: Any = None
 each slot later holding a sub-model list) without narrowing their type."""
 
 
-class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
+class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
     """One predictive parse of ``text`` over a compiled :class:`PdaProgram`.
 
     Construct per parse, call :meth:`run` once; it returns the start clone's
@@ -167,22 +147,22 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         island may derive its text more than one way. The SAME record is handed
         to :func:`~lexic.parsing.pda.runtime.islands.island_parse`, with the
         per-island delegates filled in at the reference.
-    :ivar _intern: The per-parse intern memo — repeated identical sub-models
-        built once and shared. Its lifetime is exactly one top-level kernel
-        run: a fresh, empty dict per :class:`PdaKernel` (each island-interior
-        delegate sub-run is a *separate* kernel with its own memo, so island
-        sub-models — spliced by ``id`` — never share across the boundary).
+    :ivar _caches: The per-parse scratch (:class:`KernelCaches`) — the
+        delegate-table and intern memos plus the stop-probe flag. Its lifetime
+        is exactly one top-level kernel run: fresh per :class:`PdaKernel`
+        (each island-interior delegate sub-run is a *separate* kernel with its
+        own caches, so island sub-models — spliced by ``id`` — never share
+        across the boundary).
     """
 
-    __slots__ = ("tables", "text", "pos", "stack", "policy", "_deleg", "_intern")
+    __slots__ = ("tables", "text", "pos", "stack", "policy", "_caches")
 
     tables: PdaTables
     text: str
     pos: int
     stack: list[list[Any]]
     policy: IslandPolicy[M]
-    _deleg: dict[str, dict[int, Delegate]]
-    _intern: dict[Any, object]
+    _caches: KernelCaches
 
     def __init__(
         self,
@@ -208,8 +188,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         self.policy = IslandPolicy(resolve=resolve, fold=fold)
         self.pos = 0
         self.stack = []
-        self._deleg = {}
-        self._intern = {}
+        self._caches = KernelCaches()
 
     # ── the driver ────────────────────────────────────────────────────
 
@@ -244,7 +223,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         end-of-input. Unlike :meth:`run` there is **no** trailing-input / EOF
         check: the caller (an island Earley predictor) files a completed span of
         length ``end`` and consumes only that far. The sub-run is exactly the
-        entry mode :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model`
+        entry mode :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model`
         already trusts, just anchored at an arbitrary clone and position
         instead of the start clone at ``0``.
 
@@ -273,7 +252,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self.stack, self.pos = saved_stack, saved_pos
         return end, (holder[0] if holder else None)
 
-    def _drive(self) -> None:
+    def _drive(self, floor: int = 0) -> None:
         """Drain the frame stack — the fused hot loop.
 
         The outer loop processes the top frame; the inner loop runs its items
@@ -289,7 +268,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         """
         stack = self.stack
         text = self.text
-        while stack:
+        while len(stack) > floor:
             frame = stack[-1]
             arm = frame[F_ARM]
             kinds = arm.kinds
@@ -355,7 +334,12 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             need = True
         else:
             hi = arm.his[i]
-            need = (hi < 0 or count < hi) and gate_take(
+            due = hi < 0 or count < hi
+            if due and arm.gate_kinds[i] == GATE_ATTEMPT:
+                frame[F_I] = i
+                self.pos = pos
+                return self.attempt_iteration(frame, arm, i, pos)
+            need = due and gate_take(
                 self.text, pos, arm.gate_kinds[i], arm.gate_data[i]
             )
         if not need:
@@ -457,6 +441,13 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             if chased is None:
                 return False  # the empty (nullable) arm — nothing consumed
             clone = chased
+        if clone.attempt is not None:
+            sole = sole_admitted(clone.attempt[1], self.text, self.pos)
+            if sole is None:
+                self.attempt(clone, out)
+                return False  # the winning arm was consumed inline
+            clone = sole  # one admitted entry — no fork is possible: a plain
+            # frame push replaces the sub-run, and the audit has nothing to ask
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(
@@ -511,7 +502,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         text = self.text
         arm = select_arm(clone, text[pos : pos + 1], pos)
         if arm.n != clone.fold.n_items:
-            return leaf_mismatch(clone, out, arm.n, pos, self._intern)
+            return leaf_mismatch(clone, out, arm.n, pos, self._caches.intern)
         start = pos
         ends = [0] * arm.n
         sinks: list[Any] | None = None
@@ -542,7 +533,9 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             else:
                 pos = match_cc(text, arm, i, pos)
             ends[i] = pos
-        out.append(build_fast(self.text, clone, (start, ends, sinks), self._intern))
+        out.append(
+            build_fast(self.text, clone, (start, ends, sinks), self._caches.intern)
+        )
         return pos
 
     def _match_vstr(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
@@ -562,7 +555,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             iteration with no default arm.
         """
         text = self.text
-        intern = self._intern
+        intern = self._caches.intern
         clone = arm.payloads[i]
         lo, hi = arm.los[i], arm.his[i]
         gk, gate = arm.gate_kinds[i], arm.gate_data[i]
@@ -579,8 +572,8 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
 
         The island rule parses over a doubling window from the cursor — with its
         conflict-free interior rules delegated to their PDA clones
-        (:meth:`_delegates`) — and the longest completion folds through
-        :attr:`fold`, its sub-model appending to ``sink``. The cursor advances
+        (:meth:`_delegates`) — and the longest completion folds through the
+        policy's fold, its sub-model appending to ``sink``. The cursor advances
         past the consumed island span.
 
         :param name: The island rule name.
@@ -599,8 +592,6 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             sink.append(model)
         self.pos += end
 
-    # ── island-interior delegation ────────────────────────────────────
-
     def _island_subparse(self, name: str) -> tuple[Any, int]:
         """Windowed Earley sub-parse of island ``name`` from the cursor, delegated.
 
@@ -616,7 +607,9 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             self.text,
             self.pos,
             name,
-            self.policy.for_island(self._delegates(name)),
+            self.policy.for_island(
+                self._delegates(name), self.tables.island_follow.get(name)
+            ),
         )
 
     def _delegates(self, name: str) -> dict[int, Delegate]:
@@ -631,13 +624,13 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         :param name: The island rule name.
         :returns: rule_id → its delegate callable (empty when nothing delegates).
         """
-        cached = self._deleg.get(name)
+        cached = self._caches.deleg.get(name)
         if cached is None:
             cached = {
                 rid: partial(self._delegate_run, clone)
                 for rid, clone in self.tables.island_delegates(name).items()
             }
-            self._deleg[name] = cached
+            self._caches.deleg[name] = cached
         return cached
 
     def _delegate_run(
@@ -689,13 +682,13 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
                     self.text,
                     clone,
                     (frame[F_START], frame[F_ENDS], frame[F_SINKS]),
-                    self._intern,
+                    self._caches.intern,
                 )
             else:
-                model = build_sequence(self.text, frame, clone, self._intern)
+                model = build_sequence(self.text, frame, clone, self._caches.intern)
         elif mode == BUILD_VALUE_STR:
             model = build_vstr(
-                clone, self.text[frame[F_START] : self.pos], self._intern
+                clone, self.text[frame[F_START] : self.pos], self._caches.intern
             )
         else:  # BUILD_ALT
             model = alt_model(frame)

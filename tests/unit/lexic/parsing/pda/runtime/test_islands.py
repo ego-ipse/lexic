@@ -1,6 +1,6 @@
 """Tests for lexic.parsing.pda.runtime.islands — the island sub-parse + splice.
 
-Shed from :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` as free functions
+Shed from :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` as free functions
 (Task 2b): a windowed Earley sub-parse over a small real grammar, driven
 through the module's three public entry points directly. The functions are
 already covered end-to-end by the ``pda_model`` parity/fallback suites, so
@@ -23,14 +23,27 @@ import pytest
 from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.generate import generate
-from lexic.ir import IrAst, IrInt, IrRuleRef, IrSeq, IrStr
+from lexic.ir import (
+    IrAlternation,
+    IrAst,
+    IrInt,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+    IrSeq,
+    IrSequence,
+    IrStr,
+)
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.islands import (
+    ISLAND_WINDOW,
     IslandPolicy,
     _differs,
     island_derivation,
@@ -45,12 +58,12 @@ from tests.paths import GROUND_TRUTH
 
 
 def test_island_run_returns_kernel_item_and_end_on_match(digit_grammar: IrAst):
-    """A matching window returns (kernel, accepting_item, end)."""
+    """A matching window returns the kernel and (accepting_item, end)."""
     tables = compile_tables(digit_grammar)
-    result = island_run(tables, "5")
-    assert result is not None
-    kern, item, end = result
+    kern, best = island_run(tables, "5")
     assert isinstance(kern, Kernel)
+    assert best is not None
+    item, end = best
     assert isinstance(item, int)
     assert end == 1
 
@@ -58,17 +71,19 @@ def test_island_run_returns_kernel_item_and_end_on_match(digit_grammar: IrAst):
 def test_island_run_returns_none_when_the_start_rule_never_completes(
     digit_grammar: IrAst,
 ):
-    """A window the start rule can't match at all returns None."""
+    """A window the start rule can't match returns the kernel and no completion."""
     tables = compile_tables(digit_grammar)
-    assert island_run(tables, "x") is None
+    kern, best = island_run(tables, "x")
+    assert isinstance(kern, Kernel)
+    assert best is None
 
 
 def test_island_run_finds_the_longest_origin_zero_completion(sss_grammar: IrAst):
     """``s = s s / 'a'`` over 'aaa' completes at end=3, not a shorter prefix."""
     tables = compile_tables(sss_grammar)
-    result = island_run(tables, "aaa")
-    assert result is not None
-    _, _, end = result
+    _, best = island_run(tables, "aaa")
+    assert best is not None
+    _, end = best
     assert end == 3
 
 
@@ -97,6 +112,69 @@ def test_island_parse_raises_pda_fail_with_position_on_no_match(digit_grammar: I
     tables = compile_tables(digit_grammar)
     with pytest.raises(PdaFail, match=r"island 'digit': no match at 0"):
         island_parse(tables, "x", 0, "digit")
+
+
+def _cross_span_tables():
+    """``x ::= "a" | "ab"`` — an arm choice whose arms span different ends."""
+    x = IrRule(
+        "x",
+        IrAlternation(
+            IrSequence(IrItem(IrLiteral("a"))),
+            IrSequence(IrItem(IrLiteral("ab"))),
+        ),
+    )
+    return compile_tables(IrAst(rules=IrSeq(x), start="x"))
+
+
+def test_island_parse_bails_when_a_shorter_end_could_compose():
+    """A second completion end whose next char the continuation accepts is a
+    cross-span arm choice the seam cannot settle — PdaFail names both ends."""
+    policy = IslandPolicy(follow=CharSet(frozenset("b")))
+    with pytest.raises(PdaFail, match=r"arm choice spans two ends \(1, 2\)"):
+        island_parse(_cross_span_tables(), "abc", 0, "x", policy)
+
+
+def test_island_parse_commits_longest_when_the_shorter_cannot_compose():
+    """A shorter end whose next char the continuation refuses is no
+    alternative — longest-match stays the defined answer."""
+    policy = IslandPolicy(follow=CharSet(frozenset("z")))
+    tree, end = island_parse(_cross_span_tables(), "abc", 0, "x", policy)
+    assert isinstance(tree, ParseTree)
+    assert end == 2
+
+
+def test_island_parse_without_follow_keeps_plain_longest_match():
+    """No continuation evidence (the direct-call seam) — legacy longest-match."""
+    tree, end = island_parse(_cross_span_tables(), "abc", 0, "x")
+    assert isinstance(tree, ParseTree)
+    assert end == 2
+
+
+def test_island_parse_grows_past_a_window_cut_multi_char_literal():
+    """A multi-char literal cut by the window files NO item at all, and it can
+    jump the shorter arm's completion column without ever filing one there —
+    the truncation is invisible anywhere but the edge zone. The growth
+    predicate must read liveness over the zone, or the island splices a
+    truncated longest match (the short arm's end, not the long arm's)."""
+    pre = IrRule(
+        "pre",
+        IrAlternation(
+            IrSequence(IrItem(IrLiteral("a")), IrItem(IrRuleRef("pre"))),
+            IrSequence(IrItem(IrLiteral("a"))),
+        ),
+    )
+    x = IrRule(
+        "x",
+        IrAlternation(
+            IrSequence(IrItem(IrRuleRef("pre")), IrItem(IrLiteral("b"))),
+            IrSequence(IrItem(IrRuleRef("pre")), IrItem(IrLiteral("bcd"))),
+        ),
+    )
+    tables = compile_tables(IrAst(rules=IrSeq(x, pre), start="x"))
+    text = "a" * (ISLAND_WINDOW - 2) + "bcd"
+    tree, end = island_parse(tables, text, 0, "x")
+    assert isinstance(tree, ParseTree)
+    assert end == len(text)
 
 
 def test_island_parse_resolves_an_ambiguous_completion_via_island_derivation(
@@ -168,9 +246,9 @@ def test_the_fast_path_declining_is_not_by_itself_ambiguity(sss_grammar: IrAst):
 def test_island_derivation_returns_the_first_derivation(sss_grammar: IrAst):
     """Given an ambiguous completion's kernel/item/end, decodes one tree."""
     tables = compile_tables(sss_grammar)
-    result = island_run(tables, "aaa")
-    assert result is not None
-    kern, item, end = result
+    kern, best = island_run(tables, "aaa")
+    assert best is not None
+    item, end = best
     tree = island_derivation(kern, item, end, "s")
     assert isinstance(tree, ParseTree)
     assert tree.symbol == "s"

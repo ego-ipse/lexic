@@ -9,7 +9,7 @@ raising :exc:`~lexic.exceptions.UnsupportedConstructError` on an unknown atom.
 
 from __future__ import annotations
 
-__all__ = ["GrammarAnalysis", "Taxonomy", "nullable_names"]
+__all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy", "nullable_names"]
 
 
 from typing import Sequence, cast
@@ -56,7 +56,7 @@ from lexic.parsing.pda.analysis.predicates import (
     nullable_names,
     seq_nullable,
 )
-from lexic.parsing.pda.analysis.taxonomy import Taxonomy
+from lexic.parsing.pda.analysis.taxonomy import AttemptSpec, Taxonomy
 from lexic.parsing.pda.core.charsets import CharSet
 
 _EOF: CharSet = CharSet.from_chars("")
@@ -476,14 +476,29 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             scope = Scope(name, self.follow[name], self.hard_follow[name], body=True)
             arms = [_items(arm) for arm in rule.body]
             self.arm_conflicts(arms, self.follow[name], name, notes)
+            body_hard = len(notes.hard)
             for arm in arms:
                 self.seq_conflicts(arm, scope, notes)
+            fail = notes.f1 and self.rules[name].semantic
             if notes.hard:
                 self.taxonomy.conflicts[name] = notes.hard
+                if body_hard + notes.covered == len(notes.hard) and not fail:
+                    self.taxonomy.attempts[name] = self._attempt_spec(arms)
             if notes.soft:
                 self.taxonomy.demoted[name] = notes.soft
-            if notes.f1 and self.rules[name].semantic:
+            if fail:
                 self.taxonomy.fail.add(name)
+
+    def _attempt_spec(self, arms: list[list[IrItem]]) -> AttemptSpec:
+        """The ordered-attempt plan for a body-arm-conflicted rule.
+
+        Authored arm order, nullable arms last: a nullable arm tried first
+        succeeds vacuously and makes every later arm dead code (the same rule
+        the PEG emitter applies to spell a faithful ordered choice).
+        """
+        solid = tuple(i for i, arm in enumerate(arms) if not seq_nullable(self, arm))
+        empty = tuple(i for i, arm in enumerate(arms) if seq_nullable(self, arm))
+        return AttemptSpec(solid + empty)
 
     def arm_conflicts(
         self,
@@ -562,6 +577,10 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if policy == "island":
                 if not self._demote_loop(items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
+                    self.taxonomy.attempt_loops[id(item)] = self.beyond_at(
+                        items, k, scope
+                    )
+                    notes.covered += 1
             elif policy == "stopset":
                 if not stopset_escapes_soft_follow(self, items, k, scope):
                     notes.soft.append(f"{scope.rule}[{k}]: loop stop-set applied")
@@ -608,6 +627,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             notes.hard.append(
                 f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable"
             )
+            self.taxonomy.attempt_loops[id(items[k])] = self.beyond_at(items, k, scope)
+            notes.covered += 1
 
     def _sub_conflict(
         self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
@@ -623,6 +644,24 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             hard_eff = hard_eff.union(self.atom_hard(atom))
         ctx = ConflictCtx(notes, Cont(eff, hard_eff), scope.rule, k)
         SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
+
+    def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
+        """The continuation visible only BEYOND the arm after item ``k``.
+
+        The attempt licence's audit set: a boundary char viable via the
+        same-arm rest is a SPLIT (one production carved two ways — the first
+        slot owns the text, greedy take, never refused); only viability via
+        the ENCLOSING tail — reachable when the rest is all-nullable — makes
+        the boundary an arm choice in loop clothing, worth the composition
+        probe. (Subtracting the hard tail here was tried and is UNSOUND —
+        the escape alternative's first char can be hard at another site of
+        the same rule; the union follow keeps the audit alive at the cost of
+        spurious probes, and per-SITE precision is the honest narrowing.)
+        """
+        rest = items[k + 1 :]
+        if all(self.item_nullable(i) for i in rest):
+            return scope.tail
+        return CharSet.EMPTY
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
         """The continuation char set after item ``k`` (rest of arm, then tail)."""

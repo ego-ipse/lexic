@@ -87,7 +87,7 @@ It is raised and caught inside the product entries; no caller ever sees it.
 `compile_tables()` and the PDA compile are the parser's "codegen moment":
 exactly as `codegen/` emits Python classes from an `IrAst`, `earley/tables.py`
 and `pda/clones.py` compile an `IrAst` into flat int-coded tables, and
-`earley/kernel.py` / `pda/runtime.py` run over them with no per-item IR
+`earley/kernel.py` / `pda/runtime/kernel/kernel.py` run over them with no per-item IR
 dispatch, no IR object as a hot-path key, and no tuple allocation per
 advance.
 
@@ -137,9 +137,13 @@ parsing/
       reduce_pda.py     the reduce completion read off the ReducePlan (§12)
       delegate_compile.py DelegateSource — island-interior delegation (§13)
     runtime/          execute the tables — the fused model build (§12)
-      runtime.py        PdaKernel — the fused model runtime
-      reduce_runtime.py the reduce twin of the runtime
+      kernel/           the driver and its shed halves
+        kernel.py         PdaKernel — the fused model runtime
+        decisions.py      the attempt/probe method group the kernel inherits
+        reduce_runtime.py the reduce twin of the runtime
+      admission.py      attempt-seam leaves — admission tests, scratch, stack copy
       build.py          frame-slot layout + the fused model-build tail
+      matchers.py       terminal matching — the cursor-free recognition leaf
       islands.py        the windowed Earley island sub-parse (§13)
 ```
 
@@ -323,7 +327,7 @@ compile retargets the flat clones for the grammar-text product
 `ReducePlan` — no re-derivation). Everything `flatten.py` exposes to its
 sibling consumers (op-codes, flat records, gate helpers) is public by name.
 
-## 12. The fused runtime (`pda/runtime.py`, `pda/reduce_runtime.py`)
+## 12. The fused runtime (`pda/runtime/kernel/`)
 
 `PdaKernel` is the model runtime: an explicit descent stack of flat list
 frames (no Python recursion) walks the int-coded `PdaProgram`, **building the
@@ -331,7 +335,7 @@ model during the walk** — no `ParseTree`. Terminal quantifier loops match
 inline; capture frames own per-item spans and sub-model sinks, capture
 bubbles to the nearest bound item through transparent frames (groups,
 no-constructor clones) exactly as `ModelFold` collects. The reduce kernel
-(`reduce_runtime.py`) is the grammar-text twin: it shares the whole
+(`kernel/reduce_runtime.py`) is the grammar-text twin: it shares the whole
 recognition machinery and overrides only the completion callbacks, producing
 reduced IR (including the O(1) `YIELD` span stitch, mirroring
 `FusedReduce`). One internal dispatch serves both behind the product

@@ -1,5 +1,88 @@
 # Log
 
+## The meta grammars go predictive — licences relaxed, not machinery added
+
+The gbnf-meta "trailing input at 244" family is closed at COMPILE time:
+the structured gate analyses now derive run-forming noise without the
+``semantic`` flag when the flag yields nothing, and the P5 header match
+accepts a semantic middle rule on a strict-first second pass
+(``run_roots`` / ``relaxed_mid`` in ``analysis/gates/structured.py`` —
+the whole change is one file). The meta loop boundaries compile to the
+existing SG_PROBE/SG_SCAN gates and run on the scanner hot path: every
+bench row is now 0.05–0.10× Earley (gbnf-meta 5.2 µs/char from refused,
+abnf-meta 6.0 from 8.1), raw parity 194/0, fallbacks 11 → 6. The island
+valid-prefix fixture pins its island with a left-recursive arm now that
+the plain trailing-comma shape gates. ``decisions.md`` carries the
+selection-vs-attribution reasoning and the rejected runtime-search
+alternative.
+
+## The ordered-attempt gate lands end-to-end
+
+The third decision class is live: analysis classifies attemptable rules and
+licensed loops (`Taxonomy.attempts`/`attempt_loops`), the clone compiler
+builds canonical attempt clones with ordered entries (+ pure-Python prefix
+steps for admission), and the kernel tries arms as watermarked sub-runs with
+value-probed loop boundaries — committing only past an audit, bailing
+`PdaFail`/`ProbeFork` to gated Earley otherwise. Packrat memoization was
+implemented, measured (zero hits, unsound key) and removed.
+`.wiki/lexic/decisions.md` carries the reasoning. The kernel also grew a
+package: `pda/runtime/kernel/{kernel,decisions,reduce_runtime}.py` —
+`decisions.py` hosts the attempt/probe method group the kernel inherits;
+`admission.py` (ex `attempt.py`) holds the flat admission/scratch leaves.
+
+## The island seam bails on what it cannot settle
+
+The cross-span blind spot below is closed: `island_parse` now checks every
+shorter completion end against the island's continuation charset
+(`PdaTables.island_follow`, analysis soft FOLLOW) and raises `PdaFail` when
+one could compose — the public route completes on gated Earley, which
+refuses iff the ambiguity is real. The strict xfail flipped to a passing
+test that also asserts the public refusal; vyx entered raw parity for real
+and holds (0 divergent). The accepted cost: the one-character FOLLOW probe
+over-approximates, and vyx's own benchmark corpus trips it at the first
+island — that row runs the engine until the ordered-attempt gate replaces
+guessing with trying. `.wiki/lexic/decisions.md` carries the reasoning.
+
+## A cross-span arm choice is the island gate's blind spot
+
+vyx's raw-parity exclusion said "known defect"; it is now a four-line pinned
+one. `item ::= "a" | "ab"` with `tail ::= "bc" | "c"` over `abc` derives two
+values by ARMS on both rules — the gated Earley path refuses it, the public
+PDA path answers it, because the island's ambiguity gate asks only whether ONE
+span means two things and the competing arm ends at a different span:
+longest-match decides an arm choice it never recognised as one. (A boundary
+shift inside one production — `rest ::= [a-z]*` absorbing what the shorter
+item leaves — is a SPLIT, decided identically by both engines; verified before
+pinning.) `test_the_pda_refuses_a_cross_span_arm_choice_too` is a strict
+xfail until the fix; the raw-parity stem list's vyx subtraction, which never
+subtracted anything (`_SKIP_STEMS` removes vyx a level up), now says so.
+
+## The island window grows on chart evidence, and only then
+
+`island_parse`'s growth probe asked `can_extend_at` at the completion column —
+a question the chart answers identically at every window size, so one
+persistent scanner grew the window to the end of the input, re-parsing from
+scratch each round; and a question a window-cut multi-char literal never
+reaches, so a truncated longest match could splice as the answer. Both are the
+same wrong column. The predicate is now liveness in the edge zone (the last
+`max(terms.lens)` columns of `seen`) — sound because every completion inside
+the window is already known and anything reachable beyond it leaves an item
+there. `can_extend_at` deleted; `island_run` returns the kernel even on a
+miss. On the vyx benchmark this removed all 78 growth re-parses and the
+PDA-slower-than-Earley reading (59 → 40 µs/char, 0.79× Earley).
+`.wiki/lexic/decisions.md` carries the soundness argument.
+
+## The wiki stops tracking finished work
+
+`cutover-plan.md` and `slice-b-status.md` were task status for efforts that
+ended months ago, and `index.md` still routed "What tasks are done vs pending?"
+to the first. Both pages deleted; the routing row and the "Active work" section
+went with them (`decisions.md` moved to the reference table). Task state lives
+in the active plan directory, not the wiki. Riding along: `codegen.md`'s
+see-also and `theory/grammar-formats.md`'s "token syntax unimplemented" gap
+bullet — token terminals have shipped (see [[lexic/tokens]]), so the gap
+section shrank to the `root`-convention note.
+
 ## The model path asks the meaning question too, and a pin is consumed
 
 `earley_model` used to take the first derivation without asking whether the

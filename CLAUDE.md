@@ -267,11 +267,15 @@ src/lexic/
         scanner.py                 Structured-noise recognizer — the folding-aware P3/P5 scanner substrate
       runtime/
         __init__.py                The fused predictive runtime — execute the compiled tables
+        admission.py               Admission leaves — arm admission tests, kernel scratch, the aliasing-true stack copy
         build.py                   Frame vocabulary + the fused model-build tail (PDA runtime leaf)
         islands.py                 Island sub-parse + splice — the cold-path Earley escape for a PDA clone
         matchers.py                Terminal matching — the PDA runtime's cursor-free recognition leaf
-        reduce_runtime.py          Reduce (grammar-text) predictive runtime — the b1 twin of `PdaKernel`
-        runtime.py                 Fused predictive runtime — parses text to a model, no ParseTree on the path
+        kernel/                   The kernel — the fused driver and its shed halves
+          __init__.py              the group's package marker
+          decisions.py             The attempt/probe method group — the kernel's decision half
+          reduce_runtime.py        Reduce (grammar-text) predictive runtime — the b1 twin of `PdaKernel`
+          kernel.py                Fused predictive runtime — parses text to a model, no ParseTree on the path
 tests/
   unit/lexic/           structural mirror of src/lexic/
   integration/lexic/    cross-module, grouped by what a test DEFENDS:

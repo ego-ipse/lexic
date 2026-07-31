@@ -2,16 +2,13 @@
 
 What a finished kernel says about the parse it built: the accepting items, the
 forest root, the decoded chart (including the deferred Leo chains ``to_chart``
-expands first), the readable form of a packed item, and the islands seam's
-valid-prefix probe.
+expands first), and the readable form of a packed item.
 
 Ported from ``test_kernel.py`` when ``readout.py`` was split out — assertions
 unchanged.
 """
 
 from __future__ import annotations
-
-from typing import cast
 
 from lexic.ir import (
     IrAlternation,
@@ -30,19 +27,19 @@ from lexic.ir import (
 )
 from lexic.parsing import derivations
 from lexic.parsing.earley.kernel.forest.chart import Chart
-from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf, SppfNode
+from lexic.parsing.earley.kernel.forest.forest import ParseTree, SppfNode
 from lexic.parsing.earley.kernel.forest.readout import (
     accept_item,
     accept_items,
     accept_node,
-    can_extend_at,
     decode_item,
     root_ambiguous,
+    start_completion_ends,
     to_chart,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
-from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ORIGIN_MASK
+from lexic.parsing.earley.kernel.tables.records import ORIGIN_MASK
 from tests.unit.lexic.parsing.ir_fixtures import digit_grammar as _digit_grammar
 from tests.unit.lexic.parsing.ir_fixtures import (
     norm,
@@ -199,44 +196,25 @@ def test_root_ambiguous_false_for_single_production():
     assert root_ambiguous(kernel) is False
 
 
-# ── can_extend_at — the islands seam's valid-prefix probe ─────────────
+# ── start_completion_ends — the island seam's cross-span evidence ─────
 
 
-def test_can_extend_at_true_when_an_item_faces_the_char(sss_grammar):
-    """``s = s s / 'a'`` over 'aa': at col 1 an in-progress item awaits 'a'."""
-    tables = compile_tables(sss_grammar)
-    kern = Kernel(tables, "aa")
-    assert kern.longest_start_completion() is not None
-    assert can_extend_at(kern, 1, "a") is True
-
-
-def test_can_extend_at_sighted_refusal_when_nothing_seeds(sss_grammar):
-    """Over 'ax' the col-1 seeds were gated by 'x' and none admitted — the
-    empty scannable is a SIGHTED refusal (probe char == window char)."""
-    tables = compile_tables(sss_grammar)
-    kern = Kernel(tables, "ax")
-    assert kern.longest_start_completion() is not None
-    assert not kern.st.scannable[1]
-    assert can_extend_at(kern, 1, "x") is False
-
-
-def test_can_extend_at_out_of_domain_char_answers_may(sss_grammar):
-    """A probe char differing from the column's window char proves nothing —
-    conservative MAY (the gates were evaluated with the other char)."""
-    tables = compile_tables(sss_grammar)
-    kern = Kernel(tables, "ax")
+def test_start_completion_ends_lists_every_origin_zero_end(sss_grammar):
+    """``s = s s / 'a'`` over 'aaa' completes from origin 0 at 1, 2 and 3."""
+    kern = Kernel(compile_tables(sss_grammar), "aaa")
     kern.longest_start_completion()
-    assert can_extend_at(kern, 1, "b") is True
+    assert start_completion_ends(kern) == (1, 2, 3)
 
 
-def test_can_extend_at_blind_delegate_end_answers_may(sss_grammar):
-    """A delegate-landing column is blind regardless of chart content.
-
-    Landings are derived from ``Kernel.delegated`` handles (low bits = end
-    column) — inject one landing at column 1 and the probe must answer MAY.
-    """
-    tables = compile_tables(sss_grammar)
-    kern = Kernel(tables, "ax")
+def test_start_completion_ends_single_on_unambiguous(sss_grammar):
+    """A one-char window has the single end its one completion spans."""
+    kern = Kernel(compile_tables(sss_grammar), "a")
     kern.longest_start_completion()
-    kern.delegated[(7 << ORIGIN_BITS) | 1] = cast(PayloadLeaf, None)
-    assert can_extend_at(kern, 1, "x") is True
+    assert start_completion_ends(kern) == (1,)
+
+
+def test_start_completion_ends_empty_on_no_parse(sss_grammar):
+    """No origin-0 completion anywhere → no ends."""
+    kern = Kernel(compile_tables(sss_grammar), "x")
+    kern.longest_start_completion()
+    assert not start_completion_ends(kern)

@@ -1,10 +1,10 @@
 """Frame vocabulary + the fused model-build tail (PDA runtime leaf).
 
-The slot layout of the :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` descent
+The slot layout of the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` descent
 frame (the ``F_*`` indices) and the functions that fold a completed frame into
 a model — a ``sequence`` clone's per-field slot reads (fast or validated), an
 ``alternation``'s pass-through, and the leaf empty-arm build. Shed out of
-``runtime.py`` so the frame vocabulary is shared by name with
+``kernel/kernel.py`` so the frame vocabulary is shared by name with
 ``reduce_runtime.py`` (which walks the same frames) rather than crossing a
 module boundary as a private import.
 
@@ -43,7 +43,7 @@ is never mistaken for a hit)."""
 #
 # A frame is one in-progress arm execution on the kernel's explicit descent
 # stack — a flat list (the ``kernel.py`` int-array explicit-stack precedent; the
-# class *cursor* is :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel` itself),
+# class *cursor* is :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` itself),
 # indexed by the constants below. A *clone frame* (a non-transparent ``F_MODE``)
 # captures what its fold needs and, on completion, builds a single model; a
 # *transparent frame* (``BUILD_TRANSPARENT`` — an inline group or look-through
@@ -73,7 +73,7 @@ def finish_delegate(
 ) -> tuple[int, object] | None:
     """Drive a delegate sub-kernel to completion — fail-soft + window-edge rule.
 
-    The shared body of both :meth:`~lexic.parsing.pda.runtime.runtime.PdaKernel
+    The shared body of both :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel
     ._delegate_run` and its reduce twin: the only per-path difference is which
     sub-kernel (model vs reduce) is built, so that construction stays on each
     override and the completion / decline logic lives here.
@@ -175,7 +175,7 @@ def build_fast(
     lists by element ids) in one pass, then either returns the memo's already-
     built (immutable) model or constructs one through the validation-skip
     constructor and stores it. The shared build tail of :func:`build_sequence`
-    and :meth:`~lexic.parsing.pda.runtime.runtime.PdaKernel._run_leaf`.
+    and :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
 
     :param text: The whole input.
     :param clone: The clone (fast licence granted).
@@ -325,7 +325,7 @@ def build_vstr(clone: FlatClone, span: str, memo: dict[Any, object]) -> object:
     """Build (or reuse) a ``value_str`` model over its matched ``span``.
 
     The single home of the value_str build both :meth:`~lexic.parsing.pda.runtime
-    .runtime.PdaKernel._complete` and :meth:`~lexic.parsing.pda.runtime.runtime
+    .runtime.PdaKernel._complete` and :meth:`~lexic.parsing.pda.runtime.kernel.kernel
     .PdaKernel._vstr_once` call: keyed ``(ctor, span)`` in the intern memo, so
     every occurrence of the same class over the same source text shares one
     instance. Uses the clone's :class:`~lexic.parsing.fold.FastCtor` licence when

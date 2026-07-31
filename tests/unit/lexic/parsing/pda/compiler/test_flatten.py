@@ -157,7 +157,7 @@ def test_flatarm_declares_exactly_the_parallel_per_item_arrays():
 def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     """FlatClone carries exactly the arm-selector + fold/build fields, no extras."""
     expected = {"selectors", "kwin_selectors", "pn_selectors", "default"}
-    expected |= {"struct_arm"}
+    expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "fold", "fields"}
     expected |= {"fast", "defaults", "leaf", "needs_ends"}
     expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
@@ -324,9 +324,10 @@ def test_inline_group_flattens_transparent_with_no_fold_and_no_fast_ctor():
 
 def test_island_ref_flattens_to_op_island_carrying_the_rule_name():
     """A ref to a genuine (non-fail) island flattens to OP_ISLAND with the
-    island's rule name as payload — the runtime's splice-in marker.
+    island's rule name as payload — the runtime's splice-in marker. The
+    fixture islands by LEFT RECURSION — the class no attempt can settle.
     """
-    pda = pda_from_text('root ::= x\nx ::= n "x" | n "y"\nn ::= [0-9]+\n')
+    pda = pda_from_text('root ::= x\nx ::= x "a" | "b"\n')
     assert "x" in pda.islands
     arm = only_arm(pda.program.start)
     assert arm.kinds == (OP_ISLAND,)
@@ -346,11 +347,11 @@ def test_fail_island_ref_flattens_to_op_fail_carrying_the_rule_name():
 def test_start_rule_itself_an_island_flattens_the_program_to_a_bare_islandref():
     """When the start rule is itself an island, PdaProgram.start is the
     IslandRef marker directly — no FlatClone entry point at all. The fixture
-    shares an unbounded digit prefix across arms, ungatable at any ``k ≤ 3``
-    (the old ``"a"? "a"`` shape now legitimately demotes under P2).
+    islands by LEFT RECURSION (the ungatable digit-prefix overlap shape now
+    legitimately attempts, as the ``"a"? "a"`` shape before it demoted).
     """
-    pda = pda_from_text('root ::= n "x" | n "y"\nn ::= [0-9]+\n')
-    assert pda.islands == frozenset({"root"})
+    pda = pda_from_text('root ::= root "a" | "b"\n')
+    assert pda.islands == frozenset({"root", "root-arm1"})  # the hoisted arm too
     assert pda.program.start == IslandRef("root", fail=False)
 
 

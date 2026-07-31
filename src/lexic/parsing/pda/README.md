@@ -50,8 +50,9 @@ core ◄──── analysis ◄──── compiler ◄──── runtime
   continuation into flat int-coded tables, the reduce-path bake, and
   island-interior delegation.
 - **`runtime/`** — `PdaKernel`: the fused kernel that walks the tables and
-  builds the model directly, its grammar-text twin, the shared frame/build
-  vocabulary, and the windowed Earley island escape.
+  builds the model directly, the attempt/probe decision seam it inherits,
+  its grammar-text twin, the shared frame/build and admission vocabulary,
+  and the windowed Earley island escape.
 
 The whole package is a leaf w.r.t. `lexic.compile` and `lexic.grammars`, and
 imports `../earley` but never the reverse.

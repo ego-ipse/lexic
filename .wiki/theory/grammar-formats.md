@@ -57,13 +57,9 @@ Defined by the llama.cpp project. Used natively as Lexic's primary input format.
 
 ### GBNF vs. Lexic's self-grammar (current gaps)
 
-There is no separate "Lexic meta-grammar" module anymore — `GBNF_GRAMMAR` (`grammars/gbnf.py`), authored directly as `IrAst`, is the grammar the native Earley engine parses GBNF text against (see [[lexic/architecture]]). As of the 2026-07 Lark→Earley cutover it accepts the full surface the old Lark-based parser did, including bare exact-count quantifiers (`{m}`, via a dedicated `q-exact` rule) — that gap is closed. **Features still not accepted:**
+There is no separate "Lexic meta-grammar" module anymore — `GBNF_GRAMMAR` (`grammars/gbnf.py`), authored directly as `IrAst`, is the grammar the native Earley engine parses GBNF text against (see [[lexic/architecture]]). It accepts the full GBNF surface, including bare exact-count quantifiers (`{m}`, via a dedicated `q-exact` rule) and token-level syntax (`<[id]>`, `<token>`, `!<…>`, mapped to `IrAlphabet` terminals — see [[lexic/tokens]]). One convention difference remains:
 
-> [!warning]
-> These constructs will cause `UnsupportedConstructError` (or an unhelpful "no parse" from the engine) at parse time.
-
-- **Token-level syntax** (`<[id]>`, `<token>`, `!<…>`) — no rule for it in `GBNF_GRAMMAR`, no `IrNode` type for vocabulary tokens. Slice B's planned pre-tokenisation scan (for an actionable error message rather than a bare parse failure) is still unimplemented — see [[lexic/slice-b-status]].
-- **Implicit start rule** — GBNF requires `root` as start; Lexic supports `@start` directives but the `root` convention is not enforced (it is handled as a positional fallback in `compile_grammar`).
+- **Implicit start rule** — GBNF requires `root` as start; Lexic supports `@start` directives and otherwise falls back to the first defined rule rather than enforcing the `root` convention.
 
 ---
 

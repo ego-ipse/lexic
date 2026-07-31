@@ -1,17 +1,18 @@
-"""Tests for lexic.parsing.pda.runtime.runtime — the fused-runtime parity gate (Task 4).
+"""Tests for pda.runtime.kernel.kernel — the fused-runtime parity gate (Task 4).
 
-:func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` builds a model directly during the
-walk (fold fusion, no :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`). The
-correctness bar is **user ruling 1**: ``semantic_dump()`` equality +
-``to_text()`` round-trip against the engine's own
-``fold.apply(parse_first(...))`` path — not raw ``dump()`` equality,
-which may differ on ``semantic=False`` fields when the PDA's greedy loop
-splits whitespace-like runs differently from the engine's.
+:func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` builds a
+model directly during the walk (fold fusion, no
+:class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`). The
+bar here is ``semantic_dump()`` equality + ``to_text()`` round-trip against
+the engine's own ``fold.apply(parse_first(...))`` path; the raw-equality
+invariant — both engines build the SAME model, field for field (ruled
+2026-07-28) — is owned by the integration raw-parity test, which covers
+these grammars too.
 
 Scoped to the four **island-free** ground-truth grammars (arithmetic.gbnf,
 japanese.gbnf, list.gbnf, arithmetic.abnf — see the pinned island sets in
 ``test_analysis.py`` / ``test_clones.py``, all empty for these four): Task
-4 leaves island references raising :exc:`~lexic.parsing.pda.runtime.runtime.PdaFail`
+4 leaves island references raising :exc:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`
 (Task 5's seam), so json/c/chess (island-bearing) are out of scope here. json
 in particular already islands its ``ws`` rule (F1's soft-follower fix), so it
 would report nothing but PdaFail on the runtime this task lands.
@@ -40,10 +41,10 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime import reduce_runtime as rrt
 from lexic.parsing.pda.runtime.islands import IslandPolicy
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model, pda_reduce
-from lexic.parsing.pda.runtime.runtime import PdaFail, PdaKernel
+from lexic.parsing.pda.runtime.kernel import reduce_runtime as rrt
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
 from tests.integration.lexic.parity.pda_parity_helpers import (
     arithmetic_bench_corpus,
     deep_semantic,
@@ -79,10 +80,9 @@ def test_pda_engine_parity_on_generated_samples(stem: str) -> None:
 
     Skips generator-overshoot inputs the engine itself rejects. Tolerates the
     known arithmetic stop-set fallback residue (a small minority of samples,
-    ruling 1's engine-fallback path — not a parity failure); any *other*
-    grammar's :exc:`PdaFail` is a genuine, unexpected divergence and fails the
-    test outright (these four are island-free — nothing should force a
-    fallback).
+    the engine-fallback path — not a parity failure); any *other* grammar's
+    :exc:`PdaFail` is a genuine, unexpected divergence and fails the test
+    outright (these four are island-free — nothing should force a fallback).
     """
     path = GROUND_TRUTH / stem
     compiled, pda = compiled_and_pda(path)

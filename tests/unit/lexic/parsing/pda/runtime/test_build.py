@@ -1,9 +1,9 @@
 """Tests for lexic.parsing.pda.runtime.build — the fused model-build tail + frames.
 
-Unit-pins the free functions shed out of ``runtime.py``: the frame-slot
+Unit-pins the free functions shed out of the kernel: the frame-slot
 layout, the delegate-completion window-edge/fail-soft rule, and the per-field
 build dispatch (fast, validated, empty-arm). End-to-end coverage of these
-through a real parse lives in ``test_runtime`` and the integration suite; this
+through a real parse lives in ``test_kernel`` and the integration suite; this
 module pins their branch logic in isolation with lightweight stubs.
 """
 

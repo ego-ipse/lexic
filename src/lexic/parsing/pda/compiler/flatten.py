@@ -6,8 +6,9 @@ the structural tests pin); :func:`~lexic.parsing.pda.compiler.clones.flatten_pro
 lowers them, once per :func:`~lexic.parsing.pda.compiler.clones.compile_pda`, into the
 flat int-coded artifact this module defines — :class:`FlatClone` /
 :class:`FlatArm` carrying ``_OP_*`` op-codes and pre-resolved
-``(chars, negated)`` membership sets, which :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel`
-walks with integer dispatch (the ``tables.py``/``kernel.py`` philosophy).
+``(chars, negated)`` membership sets, which
+:class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks with
+integer dispatch (the ``tables.py``/``kernel.py`` philosophy).
 
 :func:`optimize_program` then runs the specialisation passes that carve the
 hot-loop op-codes (exactly-once terminals, inlinable ``value_str`` references,
@@ -23,7 +24,7 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
 
 OP_LIT, OP_CC, OP_REF, OP_GRP, OP_ISLAND, OP_FAIL = 0, 1, 2, 3, 4, 5
@@ -43,7 +44,7 @@ _TERMINAL_OPS = frozenset((OP_LIT, OP_CC, OP_LIT1, OP_CC1))
 """The op-codes that consume input without descending — the ``OP_VSTR``
 inlining licence (a clone is inlinable iff every arm is all-terminal)."""
 
-GATE_STOP, GATE_PAIR, GATE_KWIN, GATE_PEEK, GATE_SCAN = 0, 1, 2, 3, 4
+GATE_STOP, GATE_PAIR, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4, 5
 """Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, the
 ``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved
 ``(chars, negated)`` position windows the runtime matches EOF-exactly against
@@ -69,7 +70,7 @@ unit ruleref, and the alternation itself is a pass-through (the matched arm's
 sub-model reports straight to the parent sink) — so the post-flatten pass
 rewrites qualifying clones into dispatch tables whose selectors carry the
 target :class:`FlatClone` directly and the runtime chases them in
-:meth:`~lexic.parsing.pda.runtime.runtime.PdaKernel._enter` without a frame."""
+:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter` without a frame."""
 
 BUILD_REDUCE = 5
 """The grammar-text (reducer) completion mode — the b1 twin of the model build
@@ -79,7 +80,7 @@ on completion, feeds the reducer's cleaned children to its reduction
 DROP-noise rule its subtree is dropped from), or splices its parts straight
 into the caller (:data:`R_SPLICE`, an inline group). One PDA compilation, one
 frame/island stack — only this completion callback differs from the model
-modes; see :mod:`lexic.parsing.pda.runtime.runtime`."""
+modes; see :mod:`lexic.parsing.pda.runtime.kernel.kernel`."""
 
 R_KEEP, R_DROP, R_SPLICE = 0, 1, 2
 """Reduce completion kinds (:data:`BUILD_REDUCE` clones): KEEP evaluates the
@@ -175,11 +176,32 @@ def _peek_admits(text: str, pos: int, gate: Any) -> bool:
 
 
 def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
-    """Whether a flat loop gate of kind ``gk`` admits another iteration at ``pos``."""
+    """Whether a flat loop gate of kind ``gk`` admits another iteration at ``pos``.
+
+    :data:`GATE_ATTEMPT` here is the TERMINAL attempt loop's decision (the
+    driver routes non-terminal attempt items to
+    :meth:`PdaKernel._attempt_iteration` before consulting a gate): take while
+    the char is in the FIRST alone, and a char viable for BOTH the FIRST and
+    the stored soft continuation is an arm choice in loop clothing — with no
+    sub-run to consult, the terminal loop bails to the gated engine.
+
+    :raises PdaFail: A terminal attempt boundary whose char both sets accept.
+    """
     if gk == GATE_STOP:
         ch = text[pos : pos + 1]
         chars, negated = gate
         return (ch != "" and ch not in chars) if negated else ch in chars
+    if gk == GATE_ATTEMPT:
+        ch = text[pos : pos + 1]
+        chars, negated = gate[0]
+        take = (ch != "" and ch not in chars) if negated else ch in chars
+        if take:
+            fchars, fnegated = gate[1]
+            if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
+                raise ProbeFork(
+                    f"attempt loop at {pos}: taking and stopping are both viable"
+                )
+        return take
     if gk == GATE_PAIR:
         return text[pos : pos + 2] in gate
     if gk == GATE_KWIN:
@@ -282,7 +304,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         ``((w_chars, w_negated), ((chars, negated, arm), ...))`` pair on a P3
         noise-skip alternation (Task 6.4): the runtime skips the maximal
         ``W``-noise run without consuming and selects the arm containing the
-        first post-noise char (:meth:`~lexic.parsing.pda.runtime.runtime.PdaKernel
+        first post-noise char (:meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel
         ._select_arm_peek`); the winner re-parses its own noise. The
         dispatch/leaf specialisations are skipped for this clone.
     :ivar default: The all-nullable default :class:`FlatArm`, or ``None``; on
@@ -293,6 +315,15 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         the FIRST-gated selection: a take admits the gated arms, a refusal
         selects :attr:`default` (the escape arm). Dispatch conversion is skipped
         for such a clone (the gate branch must survive).
+    :ivar attempt: ``None`` on an ordinary clone. On an ATTEMPT clone,
+        ``(follow, entries)`` — the rule's soft-FOLLOW CharSet and, in attempt
+        order, ``(chars, negated, sub)`` entries: ``chars`` the arm's FIRST
+        pre-filter (``None`` for the always-admitted nullable default entry)
+        and ``sub`` a single-arm :class:`FlatClone` sharing the parent's
+        :class:`FlatArm` (so op specialisation reached it once). The runtime
+        tries entries in order via the sub-run seam; the follow set is the
+        second-success audit's composition evidence. Dispatch and leaf
+        specialisation are skipped for such a clone.
     :ivar mode: The build-mode (one of the ``_BUILD_*`` constants).
     :ivar fold: The rule's :class:`~lexic.parsing.fold.RuleFold`, or ``None``
         (transparent).
@@ -304,7 +335,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         the fused build seeds each parts dict from, or ``None``.
     :ivar leaf: ``True`` for a fast-licenced ``sequence`` clone whose every arm
         is all-terminal (``OP_VSTR`` included) — the runtime runs it
-        frame-lessly in :meth:`~lexic.parsing.pda.runtime.runtime.PdaKernel._run_leaf`.
+        frame-lessly in :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
     :ivar needs_ends: ``True`` when any bound field reads an item span (a
         ``text``/``gtext`` mode) — only then does a frame allocate and write
         per-item end positions.
@@ -330,6 +361,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "pn_selectors",
         "default",
         "struct_arm",
+        "attempt",
         "mode",
         "fold",
         "fields",
@@ -349,6 +381,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     pn_selectors: Any
     default: Any
     struct_arm: Any  # ScanGate | None — the empty-arm gate, consulted at select
+    attempt: Any  # ((chars, negated), entries) | None — the attempt order
     mode: int
     fold: Any  # RuleFold | None — Any-typed like payloads: hot-loop reads
     fields: tuple[tuple[int, int, str, int], ...]
@@ -436,9 +469,26 @@ def _specialize_terminals(arm: FlatArm) -> None:
 
 
 def _vstr_inlinable(clone: Any) -> bool:
-    """The ``OP_VSTR`` licence: a terminal-only ``value_str`` clone."""
-    return clone.mode == BUILD_VALUE_STR and all(
-        all(kind in _TERMINAL_OPS for kind in arm.kinds) for arm in _clone_arms(clone)
+    """The ``OP_VSTR`` licence: a terminal-only ``value_str`` clone.
+
+    Never an attempt clone — the inline matcher selects one arm by FIRST,
+    which is exactly the decision an attempt clone exists to NOT make that
+    way — and never a windowed / peeked / struct-gated clone: the inline
+    matcher's ``select_arm`` reads ``selectors`` only, and a gated clone's
+    live arms hang off its gate structures (a k-window ``value_str`` inlined
+    here selected from an EMPTY list and failed every mandatory iteration —
+    latent while such rules islanded, exposed when they began to run).
+    """
+    return (
+        clone.mode == BUILD_VALUE_STR
+        and clone.attempt is None
+        and clone.kwin_selectors is None
+        and clone.pn_selectors is None
+        and clone.struct_arm is None
+        and all(
+            all(kind in _TERMINAL_OPS for kind in arm.kinds)
+            for arm in _clone_arms(clone)
+        )
     )
 
 
@@ -473,6 +523,8 @@ def _convert_dispatch(clone: FlatClone) -> None:
         return  # a noise-skip alternation selects by post-noise peek
     if clone.struct_arm is not None:
         return  # an empty-arm gate must run before any lead-char dispatch
+    if clone.attempt is not None:
+        return  # an attempt clone tries arms in order, never dispatches one
     targets = [_unit_ref_target(arm) for _chars, _negated, arm in clone.selectors]
     if any(target is None for target in targets):
         return
@@ -500,6 +552,10 @@ def _mark_leaves(clone: FlatClone) -> None:
     it, so the runtime builds its model inline without a frame.
     """
     if clone.mode != BUILD_SEQ or clone.fast is None:
+        return
+    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+        return  # a gated selection cannot run frame-lessly by lead char
+    if clone.struct_arm is not None or clone.attempt is not None:
         return
     inline_ops = _TERMINAL_OPS | {OP_VSTR}
     clone.leaf = all(

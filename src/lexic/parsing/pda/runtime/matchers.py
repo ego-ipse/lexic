@@ -2,7 +2,7 @@
 
 Candidate ``lexic/parsing/pda/runtime/matchers.py``. Every function here reads
 only the input ``text`` (plus the per-parse intern memo where it builds a
-``value_str`` model), never the :class:`~lexic.parsing.pda.runtime.runtime.PdaKernel`
+``value_str`` model), never the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel`
 cursor — the leaf shape :mod:`~lexic.parsing.pda.runtime.build` and
 :mod:`~lexic.parsing.pda.runtime.islands` already have, so ``runtime`` imports
 this, not the reverse.

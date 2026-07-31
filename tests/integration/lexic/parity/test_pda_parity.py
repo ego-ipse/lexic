@@ -1,26 +1,27 @@
 """Differential CI: PDA vs engine, across all 10 ground-truth grammars (Task 7).
 
-Where :mod:`tests.unit.lexic.parsing.pda.test_runtime` scopes its parity gate to
+Where :mod:`tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel` scopes its parity gate to
 the four **island-free** grammars, this module is the *wide* matrix: all 10
 ground-truth grammars (islands included — c/chess/json/json_arr/json_ws all
 carry at least one), each driven through both internal seams directly:
 
-- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.reduce_runtime.pda_model` with the real
+- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` with the real
   fold supplied (so island references splice their Earley sub-parse);
 - **forced-engine** — ``cg.fold.apply(parse_first(prod(cg).instance_grammar, text,
   prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
   fallback branch makes.
 
-The correctness bar is ruling 1 (semantic parity, not raw ``dump()``
-equality — the PDA's greedy stop-set loop may split a ``semantic=False`` run
-differently from the engine's ambiguity resolution): every sample where both
-paths succeed asserts deep semantic equality (:func:`deep_semantic` —
-``semantic=False`` binds dropped at every level) plus a ``to_text()``
-round-trip on *both* models. A forced-PDA ``PdaFail`` is a **fallback**, not a
-failure — it is tallied, not asserted against (except that the engine path
-alone must still round-trip). The raw ``dump()``-exact rate and the
-fallback rate are *reported* (printed) per grammar, not gated — they feed the
-effort's OUTCOME numbers, not a pass/fail bar.
+Two bars, two tests. The broad differential compares every sample where both
+paths succeed at the SEMANTIC bar (:func:`deep_semantic` — ``semantic=False``
+binds dropped at every level) plus a ``to_text()`` round-trip on *both*
+models; it owns fallback behaviour and the opt-out branch across every
+grammar and every escape. The EQUALITY invariant — both engines build the
+same model, field for field (ruled 2026-07-28) — is owned by
+``test_both_engines_build_the_same_model_not_just_the_same_meaning`` below,
+at the raw bar, on the grammars that hold it. A forced-PDA ``PdaFail`` is a
+**fallback**, not a failure — it is tallied, not asserted against (except
+that the engine path alone must still round-trip). The raw ``dump()``-exact
+rate and the fallback rate are *reported* (printed) per grammar, not gated.
 """
 
 from __future__ import annotations
@@ -35,8 +36,8 @@ from lexic.generate import generate
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.compiler.flatten import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.reduce_runtime import pda_model
-from lexic.parsing.pda.runtime.runtime import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import earley_model
 from tests.integration.lexic.parity.pda_parity_helpers import (
     check_one,
@@ -48,7 +49,9 @@ from tests.integration.lexic.parity.pda_parity_helpers import (
 )
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
-from tests.unit.lexic.parsing.pda.runtime.test_runtime import arithmetic_bench_corpus
+from tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel import (
+    arithmetic_bench_corpus,
+)
 
 # ── fixtures ────────────────────────────────────────────────────────────
 
@@ -65,7 +68,7 @@ N_SEEDS = 40
 MAX_DEPTH = 4
 
 # A couple of representative bench-shaped corpora. Arithmetic's is imported
-# from test_runtime.py (its own bench-corpus test already pins the same
+# from test_kernel.py (its own bench-corpus test already pins the same
 # snippets/target length — reusing it, not re-pinning the literal, sidesteps
 # the whole-tree pylint R0801 duplicate-code gate).
 BENCH_CORPORA: dict[str, str] = {
@@ -261,10 +264,13 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
 # ARM class — one span through two different productions that mean different
 # things — where a length preference has no standing. Adding it here is the
 # fails-before test for that fix.
-RAW_PARITY_STEMS: tuple[str, ...] = tuple(
-    stem for stem in ALL_STEMS if stem not in {"vyx.gbnf"}
-)
-"""Only `vyx.gbnf` is out, and it is a named defect rather than a licence."""
+RAW_PARITY_STEMS: tuple[str, ...] = ALL_STEMS + ("vyx.gbnf",)
+"""Every wide-matrix stem, PLUS vyx — added explicitly because `_SKIP_STEMS`
+removes it from `ALL_STEMS` one level up (this list once "subtracted" it, a
+no-op that read as an exclusion). Its divergence was a cross-span arm choice
+the island gate could not see; the island seam's composition check now bails
+those to the gated engine (`test_the_pda_refuses_a_cross_span_arm_choice_too`
+pins the four-line shape), so the row holds at the raw bar."""
 
 RAW_PARITY_STARTS: dict[str, str] = {
     # c needs a start chosen for THIS bar. `START_OVERRIDES` drives the wide
@@ -310,11 +316,12 @@ def test_both_engines_build_the_same_model_not_just_the_same_meaning(
     so a consumer reading those fields CAN see a difference the semantic bar
     calls invisible.
 
-    Every corpus grammar but one holds at this bar; `vyx.gbnf` is excluded and
-    named in `RAW_PARITY_STEMS` as a known defect, not a licence. `c.gbnf`
-    needs its own generation start (`RAW_PARITY_STARTS`) to reach the
-    predictive path at all — the wide matrix's start escapes to islands on
-    every sample, which compared nothing.
+    Every corpus grammar holds at this bar — vyx included, since the island
+    seam's composition check bails its cross-span arm choices to the gated
+    engine instead of longest-matching through them. `c.gbnf` needs its own
+    generation start (`RAW_PARITY_STARTS`) to reach the predictive path at
+    all — the wide matrix's start escapes to islands on every sample, which
+    compared nothing.
     """
     cg, rules, start = grammar_for(stem, RAW_PARITY_STARTS.get(stem))
     product = prod(cg)
@@ -407,3 +414,39 @@ def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> 
 
 REFUSED = object()
 """Sentinel for "this engine declined", distinct from any model it could build."""
+
+
+_CROSS_SPAN_AMBIGUOUS = """root ::= item tail
+item ::= "a" | "ab"
+tail ::= "bc" | "c"
+"""
+"""An arm choice whose arms span DIFFERENT lengths, so it never presents as
+one span meaning two things to a local gate: over `abc`, `item` is `a` (and
+`tail` its `bc` arm) or `ab` (and `tail` its `c` arm). Not a split — the
+derivations differ by ARMS on both rules, not by a boundary inside one
+production. This is the shape that kept vyx out of raw parity, in four lines
+(there: an unquoted value's tail absorbing `\\n\\#` vs ending so they parse
+as escape items)."""
+
+
+def test_earley_refuses_a_cross_span_arm_choice() -> None:
+    """The whole-grammar view sees the full input derived two ways — refused."""
+    cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-earley")
+    pr = prod(cg)
+    with pytest.raises(UnsupportedConstructError):
+        earley_model(pr.instance_grammar, "abc", cg.fold, pr.tables)
+
+
+def test_the_pda_refuses_a_cross_span_arm_choice_too() -> None:
+    """The PDA must not answer what the other engine refuses as an arm choice.
+
+    The island seam cannot settle a second completion end whose next character
+    the continuation accepts (`item`'s FOLLOW holds `b` via `tail`), so it
+    bails — and the public path completes on the gated engine, which refuses.
+    Longest-match answered `Item('ab')` here before the composition check.
+    """
+    cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-pda")
+    with pytest.raises((UnsupportedConstructError, PdaFail)):
+        pda_model(prod(cg).pda, "abc", cg.fold)
+    with pytest.raises(UnsupportedConstructError):
+        cg.parse("abc")
