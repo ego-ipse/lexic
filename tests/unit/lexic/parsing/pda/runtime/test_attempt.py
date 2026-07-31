@@ -34,12 +34,12 @@ def test_admits_eof_never_passes_a_negated_set():
 
 
 def test_kernel_caches_seed_empty_with_probe_depth_zero():
-    """A fresh scratch: empty memos, probe depth zero."""
+    """A fresh scratch: empty memos, probe depth zero, certainty clean."""
     caches = KernelCaches()
     assert caches.deleg == {}
     assert caches.intern == {}
     assert caches.probing == 0
-    assert caches.runs == {}
+    assert caches.uncertain is False
 
 
 # ── frames_copy — the aliasing-true structural copy ───────────────────
