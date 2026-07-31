@@ -268,6 +268,15 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     if name in compiler.islands:
         fail = name in compiler.fail_islands
         return ItemSpec(REF, IslandRef(name, fail), ctx.lo, ctx.hi, ctx.gate)
+    if name in compiler.analysis.taxonomy.attempts:
+        # ONE canonical clone per attemptable rule (the analysis-level hard
+        # FOLLOW as its tail): its decisions are attempted, not stop-set-cut,
+        # so call-site tail exactness buys nothing — and a single identity is
+        # what lets the packrat memo see a repeat as a repeat (per-tail clones
+        # made every (rule, pos) re-attempt a fresh key: measured 60% of all
+        # sub-runs on the vyx corpus).
+        canonical = compiler.ensure_rule(name, compiler.analysis.hard_follow[name])
+        return ItemSpec(REF, canonical, ctx.lo, ctx.hi, ctx.gate)
     tail = ctx.cont
     if ctx.hi is None or ctx.hi > 1:
         tail = tail.union(compiler.analysis.atom_hard(cast(IrAtom, n)))

@@ -133,7 +133,7 @@ def all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
 
 PINNED_CLONE_COUNTS: dict[str, int] = {
     "arithmetic.gbnf": 32,
-    "c.gbnf": 157,  # attempt: statement/factor/forinit/statement-arm7 now clone
+    "c.gbnf": 69,  # attempt rules clone once, canonically (memo identity)
     "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
     "japanese.gbnf": 12,
     "json.gbnf": 126,  # island-free at P3: the whole grammar clones

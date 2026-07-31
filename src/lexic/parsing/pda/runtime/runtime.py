@@ -145,9 +145,55 @@ from lexic.parsing.pda.runtime.matchers import (
 
 __all__ = ["PdaFail", "PdaKernel"]
 
+_DEAD, _ASCEND, _ADMITS = 0, 1, 2
+"""An arm-rest walk's verdicts: a mandatory non-admitting item kills the
+stop side; a fully-skippable rest defers to the enclosing frame; an
+admitting item is same-arm (split) or ancestor-arm (fork) viability,
+per the caller's level."""
+
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
 each slot later holding a sub-model list) without narrowing their type."""
+
+
+def _item_admits(arm: FlatArm, j: int, char: str) -> bool:
+    """MAY item ``j`` consume ``char`` first — conservative for clone items."""
+    if char == "":
+        return False
+    k = arm.kinds[j]
+    payload = arm.payloads[j]
+    if k in (OP_LIT, OP_LIT1):
+        return payload[0] == char
+    if k in (OP_CC, OP_CC1):
+        chars, negated = payload
+        return (char not in chars) if negated else char in chars
+    if k in (OP_FAIL, OP_ISLAND):
+        return True  # no FIRST at hand — MAY (a spurious probe is safe)
+    return _clone_admits(payload, char)
+
+
+def _clone_admits(clone: FlatClone, char: str) -> bool:
+    """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
+    if clone.attempt is not None:
+        return any(admits(char, c, n) for c, n, _sub in clone.attempt[1])
+    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+        return True  # windowed selection — MAY
+    if clone.default is not None:
+        return True  # a nullable default may defer admission further down
+    for chars, negated, _arm in clone.selectors:
+        if (char not in chars) if negated else char in chars:
+            return True
+    return False
+
+
+def _arm_rest_verdict(arm: FlatArm, i: int, char: str) -> int:
+    """The rest-of-arm walk past item ``i`` — dead, ascend, or admits."""
+    for j in range(i + 1, arm.n):
+        if _item_admits(arm, j, char):
+            return _ADMITS
+        if arm.los[j] > 0:
+            return _DEAD
+    return _ASCEND
 
 
 class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
@@ -697,7 +743,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             then belongs to the enclosing frames, which no local probe sees).
         """
         char = self.text[pos : pos + 1]
-        first, beyond = arm.gate_data[i]
+        first = arm.gate_data[i][0]
         if not admits(char, *first):
             frame[F_COUNT] = 0
             frame[F_I] = i + 1
@@ -705,7 +751,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             return i + 1
         k = arm.kinds[i]
         if k > OP_GRP:  # OP_ISLAND / OP_FAIL — no (end, values) to fork-probe
-            if admits(char, *beyond):
+            if self._stop_viable(arm, i, char):
                 raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable"
                 )
@@ -716,7 +762,7 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
             frame[F_I] = i + 1
             frame[F_ENDS][i] = pos
             return i + 1
-        if admits(char, *beyond):
+        if self._stop_viable(arm, i, char):
             if self._caches.probing >= PROBE_DEPTH or self._fork_is_real(
                 arm, i, pos, got
             ):
@@ -729,7 +775,37 @@ class PdaKernel[M](IrLeaf[IrSelf, IrSelf]):
         self.pos = end
         return i
 
-    def _attempt_island(self, frame: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _stop_viable(self, arm: FlatArm, i: int, char: str) -> bool:
+        """Whether the boundary char is viable BEYOND this arm, site-exactly.
+
+        The fork trigger the compiler cannot compute: rule-level FOLLOW
+        unions every reference site (measured — all 319 spurious corpus
+        probes were its pollution), but the live stack IS this site's
+        continuation, so walk it. In the OWN arm an admitting later item is
+        the greedy-split case (no probe — the parity sweeps hold at 0
+        divergent under it) and a mandatory non-admitting item kills
+        stop-viability outright; only when the whole rest is skippable does
+        the walk ascend. An ANCESTOR item admitting the char is the
+        invisible-alternative fork (seed-146's escape items live in the
+        grandparent's arm) — probe. A resumed item's own re-iteration is
+        skipped: that alternative is audited at ITS boundary when the parent
+        actually resumes. Clone admission is conservative-MAY (a spurious
+        probe costs a value comparison, never a wrong commit).
+        """
+        verdict = _arm_rest_verdict(arm, i, char)
+        if verdict != _ASCEND:
+            return False  # dead, or a same-arm split (greedy take)
+        for frame in self.stack[-2::-1]:
+            verdict = _arm_rest_verdict(frame[F_ARM], frame[F_I], char)
+            if verdict == _ADMITS:
+                return True
+            if verdict == _DEAD:
+                return False
+        return char == ""
+
+    def _attempt_island(
+        self, frame: list[Any], arm: FlatArm, i: int, pos: int
+    ) -> int:
         """An attempted ISLAND / fail-island iteration — failure closes the loop."""
         if arm.kinds[i] == OP_ISLAND:
             sink = self._sink_for(frame, arm, i)

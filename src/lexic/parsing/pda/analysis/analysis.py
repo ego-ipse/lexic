@@ -578,7 +578,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 if not self._demote_loop(items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
                     self.taxonomy.attempt_loops[id(item)] = self.beyond_at(
-                        items, k, scope.tail
+                        items, k, scope
                     )
                     notes.covered += 1
             elif policy == "stopset":
@@ -628,7 +628,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable"
             )
             self.taxonomy.attempt_loops[id(items[k])] = self.beyond_at(
-                items, k, scope.tail
+                items, k, scope
             )
             notes.covered += 1
 
@@ -647,7 +647,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         ctx = ConflictCtx(notes, Cont(eff, hard_eff), scope.rule, k)
         SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
 
-    def beyond_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
+    def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
         """The continuation visible only BEYOND the arm after item ``k``.
 
         The attempt licence's audit set: a boundary char viable via the
@@ -655,11 +655,14 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         slot owns the text, greedy take, never refused); only viability via
         the ENCLOSING tail — reachable when the rest is all-nullable — makes
         the boundary an arm choice in loop clothing, worth the composition
-        probe.
+        probe. (Subtracting the hard tail here was tried and is UNSOUND —
+        the escape alternative's first char can be hard at another site of
+        the same rule; the union follow keeps the audit alive at the cost of
+        spurious probes, and per-SITE precision is the honest narrowing.)
         """
         rest = items[k + 1 :]
         if all(self.item_nullable(i) for i in rest):
-            return tail
+            return scope.tail
         return CharSet.EMPTY
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:
