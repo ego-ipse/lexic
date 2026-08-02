@@ -38,7 +38,7 @@ from lexic.ir import (
     IrTypeMap,
 )
 
-from opsis.eidolon import Topology
+from opsis_proto_0.eidolon import Topology
 
 # ── the monospace metric (from the 260720 prototype) ──────────────────
 

@@ -16,12 +16,12 @@ from html import escape
 from lexic.compile import compile_text, export_source
 from lexic.exceptions import LexicError
 
-from opsis.eidolon import Topology
-from opsis.graphic import railroad_html, topology_svg
-from opsis.instance import ambiguity_note, instance_html
-from opsis.pipeline import pipeline_html
-from opsis.trace import engine_html
-from opsis.verdict import verdicts_html
+from opsis_proto_0.eidolon import Topology
+from opsis_proto_0.graphic import railroad_html, topology_svg
+from opsis_proto_0.instance import ambiguity_note, instance_html
+from opsis_proto_0.pipeline import pipeline_html
+from opsis_proto_0.trace import engine_html
+from opsis_proto_0.verdict import verdicts_html
 
 
 class Praxis:

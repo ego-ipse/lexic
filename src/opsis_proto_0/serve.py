@@ -18,8 +18,8 @@ from urllib.parse import parse_qs, urlsplit
 import lexic.grammars
 from lexic.ir.flavour import IrFlavour
 
-from opsis.praxis import Praxis
-from opsis.shell import artifact, fragments, live_page
+from opsis_proto_0.praxis import Praxis
+from opsis_proto_0.shell import artifact, fragments, live_page
 
 _GROUND = Path(__file__).parents[2] / "resources" / "ground_truth"
 """The example corpus — repo-relative, a prototype convenience."""

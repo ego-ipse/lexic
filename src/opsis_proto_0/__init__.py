@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from opsis.praxis import Praxis
-from opsis.serve import serve
-from opsis.shell import artifact
+from opsis_proto_0.praxis import Praxis
+from opsis_proto_0.serve import serve
+from opsis_proto_0.shell import artifact
 
 __all__ = ["Praxis", "explore", "report"]
 
