@@ -17,9 +17,21 @@ from typing import Callable, NamedTuple
 
 from lexic.compile import CompiledGrammar
 from lexic.model import GrammarModel
+from opsis.opsis.pane import artefact
+from opsis.praxis.deeds.acts import deeds
 from opsis.praxis.reading import Reading
+from opsis.praxis.session import Session, alphabets
 
-__all__ = ["GROUPS", "OFFERS", "Group", "Offer", "offered"]
+__all__ = [
+    "GROUPS",
+    "OFFERS",
+    "Group",
+    "Offer",
+    "fan",
+    "fanned",
+    "offered",
+    "orbits",
+]
 
 Test = Callable[["Fan"], bool]
 """What has to be true of a reading for an entry to be offered."""
@@ -71,47 +83,47 @@ drawn — an empty orbit is not a category, it is a gap.
 """
 
 
-def _has_grammar(fan: Fan) -> bool:
+def _has_grammar(at: Fan) -> bool:
     """Whether this reading IS a grammar, however it came to be one."""
-    return fan.grammar is not None
+    return at.grammar is not None
 
 
-def _read(fan: Fan) -> bool:
+def _read(at: Fan) -> bool:
     """Whether something above actually read this one."""
-    return fan.read_by is not None
+    return at.read_by is not None
 
 
-def _is_model(fan: Fan) -> bool:
+def _is_model(at: Fan) -> bool:
     """Whether what came back is a parsed model."""
-    return isinstance(fan.reading.product, GrammarModel)
+    return isinstance(at.reading.product, GrammarModel)
 
 
-def _has_product(fan: Fan) -> bool:
+def _has_product(at: Fan) -> bool:
     """Whether something came back that is not itself a grammar."""
-    return fan.reading.product is not None and fan.reading.compiled is None
+    return at.reading.product is not None and at.reading.compiled is None
 
 
-def _bound(fan: Fan) -> bool:
+def _bound(at: Fan) -> bool:
     """Whether a vocabulary is docked to this grammar."""
-    return fan.grammar is not None and fan.grammar.tokens.tokenizer is not None
+    return at.grammar is not None and at.grammar.tokens.tokenizer is not None
 
 
-def _segments(fan: Fan) -> bool:
+def _segments(at: Fan) -> bool:
     """Whether the grammar above reads this text as tokens."""
-    return fan.read_by is not None and fan.read_by.tokens.segmented
+    return at.read_by is not None and at.read_by.tokens.segmented
 
 
-def _flavour(fan: Fan) -> bool:
+def _flavour(at: Fan) -> bool:
     """Whether this reading produced a reader."""
-    return fan.reading.flavour is not None
+    return at.reading.flavour is not None
 
 
-def _loose(fan: Fan) -> bool:
+def _loose(at: Fan) -> bool:
     """Whether nothing reads this one yet."""
-    return not fan.reading.reader
+    return not at.reading.reader
 
 
-def _always(_fan: Fan) -> bool:
+def _always(_at: Fan) -> bool:
     """Offered wherever the group is."""
     return True
 
@@ -159,21 +171,56 @@ absent because its own test says so, never because a branch forgot it.
 """
 
 
-def _wanted(fan: Fan) -> list[str]:
+def _wanted(at: Fan) -> list[str]:
     """The encoding names this reading asks to be read under."""
-    from opsis.praxis.session import alphabets
-
-    return alphabets(fan.reading.instance)
+    return alphabets(at.reading.instance)
 
 
-def offered(fan: Fan, deeds: tuple[tuple[str, str], ...] = ()) -> list[Offer]:
+def offered(at: Fan, doable: tuple[tuple[str, str], ...] = ()) -> list[Offer]:
     """Every offer this reading actually has, deeds folded in.
 
-    :param fan: The reading and what read it.
-    :param deeds: ``(name, label)`` per deed, which are offers too —
+    :param at: The reading and what read it.
+    :param doable: ``(name, label)`` per deed, which are offers too —
         they just come from what a reading can DO rather than from what
         it has.
     """
-    out = [offer for offer in OFFERS if offer.when(fan)]
-    out += [Offer(f"do:{name}", label, "do", _always) for name, label in deeds]
+    out = [offer for offer in OFFERS if offer.when(at)]
+    out += [Offer(f"do:{name}", label, "do", _always) for name, label in doable]
+    return out
+
+
+def fanned(session: Session, reading: Reading) -> Fan:
+    """What the fan table gets to look at, for this reading."""
+    above = session.readings.get(reading.reader)
+    return Fan(
+        reading,
+        artefact(above) if above is not None and reading.text else None,
+        artefact(reading),
+    )
+
+
+def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
+    """The readings this one actually has — flat, in group order."""
+    return [(o.kind, o.label) for o in _offers(session, reading)]
+
+
+def _offers(session: Session, reading: Reading) -> list[Offer]:
+    """Every offer this reading has, from the table and from its deeds."""
+    return offered(
+        fanned(session, reading), tuple((d.name, d.label) for d in deeds(reading))
+    )
+
+
+def orbits(session: Session, reading: Reading) -> list[tuple[Group, list[Offer]]]:
+    """This reading's offers, gathered into the orbits they ride in.
+
+    A group with nothing in it is not returned: an empty orbit is not a
+    category, it is a gap, and drawing one would be a dead control.
+    """
+    found = _offers(session, reading)
+    out: list[tuple[Group, list[Offer]]] = []
+    for group in GROUPS:
+        mine = [o for o in found if o.group == group.name]
+        if mine:
+            out.append((group, mine))
     return out

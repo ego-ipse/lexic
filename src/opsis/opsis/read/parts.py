@@ -20,6 +20,7 @@ __all__ = [
     "Node",
     "bounded",
     "button",
+    "chip",
     "controls",
     "facts",
     "field",
@@ -104,6 +105,30 @@ def titled(name: str, measure: str, why: str, *body: IrDoc) -> IrDoc:
             el("div", {"class": "note"}, _text(why)),
         ),
         *body,
+    )
+
+
+def chip(label: str, ident: str, value: str, empty: str, off: bool = False) -> IrDoc:
+    """A small editable datum, labelled — a directive, a resolver, a name.
+
+    A chip that cannot apply is drawn OFF rather than hidden: an
+    unavailable control is a stated fact about the reader, and hiding
+    it would make the reason unavailable too.
+    """
+    return el(
+        "span",
+        {"class": "chip off" if off else "chip"},
+        _text(label),
+        el(
+            "input",
+            {
+                "id": ident,
+                "value": value,
+                "placeholder": empty,
+                "spellcheck": "false",
+                "data-post": "chip",
+            },
+        ),
     )
 
 

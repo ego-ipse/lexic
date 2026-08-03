@@ -12,7 +12,7 @@ every window eagerly would charge that to whoever loaded it.
 
 from __future__ import annotations
 
-from typing import Callable, NamedTuple
+from typing import Callable
 
 from lexic.compile import CompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
@@ -21,34 +21,41 @@ from lexic.model import GrammarModel
 from lexic.parsing import lift_optional_nullables
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
-from opsis.opsis.fan import GROUPS, Fan, Group, Offer, offered
-from opsis.opsis.floor.analysis import analysis_view
-from opsis.opsis.floor.chart import chart_view, segmentation_view
-from opsis.opsis.floor.engine import (
-    derivation_view,
-    execution_view,
-    floor_view,
-    forest_view,
-    tables_view,
-)
+from opsis.opsis.fan import fan, fanned, orbits
 from opsis.opsis.floor.lanes import lane_of, lane_view
+from opsis.opsis.floor.panes import (
+    analysis_pane,
+    chart_pane,
+    derivations_pane,
+    execution_pane,
+    floor_pane,
+    forest_pane,
+    resume_pane,
+    segmentation_pane,
+    tables_pane,
+)
+from opsis.opsis.pane import (
+    CURSORS,
+    RESUMES,
+    SPELLABLE,
+    WIDTHS,
+    Pane,
+    artefact,
+    grammar_of,
+)
 from opsis.opsis.read.binding import binding_view, fold_view, runs_of
 from opsis.opsis.read.emission import emit_doc
+from opsis.opsis.read.parts import bounded, button, chip, controls, refusal
 from opsis.opsis.read.stages import module_view, pipeline_view
 from opsis.opsis.read.tables import flavour_view, registry_view, table_view
 from opsis.opsis.read.views import (
     binding_facts,
-    bounded,
-    button,
     carve_view,
     constrain_view,
-    controls,
     doc_view,
     instance_view,
     railroad_view,
-    refusal,
     regrammar_view,
-    resume_view,
     rules_view,
     semantic_view,
     shadow_view,
@@ -56,9 +63,8 @@ from opsis.opsis.read.views import (
 )
 from opsis.praxis.deeds.acts import Deed, deeds
 from opsis.praxis.deeds.carve import bench
-from opsis.praxis.deeds.constrain import Cursors, sample
-from opsis.praxis.deeds.resume import Resumes
-from opsis.praxis.reading import Reading, self_compiled
+from opsis.praxis.deeds.constrain import sample
+from opsis.praxis.reading import Reading
 from opsis.praxis.session import Session, alphabets
 
 __all__ = [
@@ -74,77 +80,6 @@ __all__ = [
     "shadows",
     "window",
 ]
-
-
-def artefact(reading: Reading) -> CompiledGrammar | None:
-    """The grammar this reading IS, however it came to be one.
-
-    A grammar reading compiled one; a flavour reading carries one — its
-    own self-grammar, which is a grammar like any other and gets the
-    same windows. That equivalence is the meta ladder, and it is one
-    function rather than a special case in each of them.
-    """
-    if reading.compiled is not None:
-        return reading.compiled
-    return self_compiled(reading.flavour) if reading.flavour is not None else None
-
-
-def fanned(session: Session, reading: Reading) -> Fan:
-    """What the fan table gets to look at, for this reading."""
-    above = session.readings.get(reading.reader)
-    return Fan(
-        reading,
-        artefact(above) if above is not None and reading.text else None,
-        artefact(reading),
-    )
-
-
-def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
-    """The readings this one actually has — flat, in group order."""
-    return [(o.kind, o.label) for o in _offers(session, reading)]
-
-
-def _offers(session: Session, reading: Reading) -> list[Offer]:
-    """Every offer this reading has, from the table and from its deeds."""
-    return offered(
-        fanned(session, reading), tuple((d.name, d.label) for d in deeds(reading))
-    )
-
-
-def orbits(session: Session, reading: Reading) -> list[tuple[Group, list[Offer]]]:
-    """This reading's offers, gathered into the orbits they ride in.
-
-    A group with nothing in it is not returned: an empty orbit is not a
-    category, it is a gap, and drawing one would be a dead control.
-    """
-    found = _offers(session, reading)
-    out: list[tuple[Group, list[Offer]]] = []
-    for group in GROUPS:
-        mine = [o for o in found if o.group == group.name]
-        if mine:
-            out.append((group, mine))
-    return out
-
-
-RESUMES = Resumes()
-"""Every reading's growing chart — dropped when its grammar re-reads."""
-
-CURSORS = Cursors()
-"""Every reading's constraint cursor — thrown away when it re-reads."""
-
-WIDTHS: dict[str, int] = {}
-"""The width each reading's document window is rendered at."""
-
-_SPELLABLE = ("gbnf", "abnf", "ebnf")
-"""Surfaces the exporter can spell a module's docstrings in."""
-
-
-class Pane(NamedTuple):
-    """One window: what it is called, how big, and how to build it."""
-
-    title: str
-    size: tuple[int, int]
-    build: Callable[[], list[IrDoc]]
 
 
 def _text_pane(session: Session, reading: Reading) -> Pane:
@@ -182,7 +117,7 @@ def _vocabulary_pane(_session: Session, reading: Reading) -> Pane:
 
 def _bound_pane(_session: Session, reading: Reading) -> Pane:
     """The vocabulary this grammar is bound to."""
-    compiled = _grammar(reading)
+    compiled = grammar_of(reading)
     vocab = IrTokenizer.ensure(compiled.tokens.tokenizer, "a bound vocabulary")
     return Pane(
         f"{reading.title} — bound to {vocab.name}",
@@ -206,13 +141,13 @@ def _reader_pane(session: Session, reading: Reading) -> Pane:
 
 def _rules_pane(_session: Session, reading: Reading) -> Pane:
     """This grammar's rules, by distance from the start."""
-    grammar = _grammar(reading).grammar
+    grammar = grammar_of(reading).grammar
     return Pane(f"{reading.title} — rules", (680, 440), lambda: [rules_view(grammar)])
 
 
 def _railroad_pane(_session: Session, reading: Reading) -> Pane:
     """Every rule's track, stacked."""
-    grammar = _grammar(reading).grammar
+    grammar = grammar_of(reading).grammar
     return Pane(
         f"{reading.title} — railroad", (700, 460), lambda: [railroad_view(grammar)]
     )
@@ -220,7 +155,7 @@ def _railroad_pane(_session: Session, reading: Reading) -> Pane:
 
 def _module_pane(_session: Session, reading: Reading) -> Pane:
     """The importable twin this grammar would export."""
-    compiled = _grammar(reading)
+    compiled = grammar_of(reading)
     return Pane(
         f"{reading.title} — module",
         (700, 440),
@@ -237,7 +172,7 @@ def _pipeline_pane(session: Session, reading: Reading) -> Pane:
 
 def _binding_pane(_session: Session, reading: Reading) -> Pane:
     """Where this grammar's classes and field names come from."""
-    compiled = _grammar(reading)
+    compiled = grammar_of(reading)
     return Pane(
         f"{reading.title} — binding", (660, 420), lambda: [binding_view(compiled)]
     )
@@ -245,7 +180,7 @@ def _binding_pane(_session: Session, reading: Reading) -> Pane:
 
 def _fold_pane(_session: Session, reading: Reading) -> Pane:
     """How an instance of this grammar is built, field by field."""
-    compiled = _grammar(reading)
+    compiled = grammar_of(reading)
     return Pane(
         f"{reading.title} — its fold", (660, 420), lambda: [fold_view(compiled)]
     )
@@ -253,7 +188,7 @@ def _fold_pane(_session: Session, reading: Reading) -> Pane:
 
 def _runs_pane(_session: Session, reading: Reading) -> Pane:
     """The lexical layer this grammar derives, and what it forecloses."""
-    compiled = _grammar(reading)
+    compiled = grammar_of(reading)
     return Pane(f"{reading.title} — its runs", (620, 340), lambda: [runs_of(compiled)])
 
 
@@ -292,17 +227,9 @@ def _surface_of(session: Session, reading: Reading) -> str:
     return held.flavour if held is not None else "gbnf"
 
 
-def _analysis_pane(_session: Session, reading: Reading) -> Pane:
-    """Every decision the predictive analysis settled, in its own words."""
-    compiled = _grammar(reading)
-    return Pane(
-        f"{reading.title} — its verdicts", (660, 420), lambda: [analysis_view(compiled)]
-    )
-
-
 def _tokens_pane(_session: Session, reading: Reading) -> Pane:
     """What this grammar knows about tokens — bound, segments, unresolved."""
-    compiled = _grammar(reading)
+    compiled = grammar_of(reading)
     return Pane(
         f"{reading.title} — its token facts",
         (620, 340),
@@ -310,19 +237,9 @@ def _tokens_pane(_session: Session, reading: Reading) -> Pane:
     )
 
 
-def _resume_pane(_session: Session, reading: Reading) -> Pane:
-    """The growing chart, its marks, and what it accepts so far."""
-    held = RESUMES.of(reading)
-    return Pane(
-        f"{reading.title} — resume",
-        (600, 380),
-        lambda: [resume_view(reading.ident, held)],
-    )
-
-
 def _doc_pane(_session: Session, reading: Reading) -> Pane:
     """The layout document an emission IS, at a width you can drag."""
-    compiled = _grammar(reading)
+    compiled = grammar_of(reading)
     width = WIDTHS.get(reading.ident, 88)
     doc = emit_doc(compiled.grammar, _spelling(compiled))
     return Pane(
@@ -334,15 +251,7 @@ def _doc_pane(_session: Session, reading: Reading) -> Pane:
 
 def _spelling(compiled: CompiledGrammar) -> str:
     """Which surface this grammar's own emission is spelled in."""
-    return compiled.flavour if compiled.flavour in _SPELLABLE else "gbnf"
-
-
-def _tables_pane(_session: Session, reading: Reading) -> Pane:
-    """The predictive artefact this grammar compiled to."""
-    compiled = _grammar(reading)
-    return Pane(
-        f"{reading.title} — its tables", (640, 380), lambda: [tables_view(compiled)]
-    )
+    return compiled.flavour if compiled.flavour in SPELLABLE else "gbnf"
 
 
 def shadows(session: Session, reading: Reading) -> list[Reading]:
@@ -406,7 +315,7 @@ def _dispatch_pane(_session: Session, reading: Reading) -> Pane:
 
 def _carve_pane(session: Session, reading: Reading) -> Pane:
     """This grammar's template bench."""
-    _grammar(reading)
+    grammar_of(reading)
     return Pane(
         f"{reading.title} — template", (620, 420), lambda: [_carve(session, reading)]
     )
@@ -435,14 +344,6 @@ def _constrain_pane(session: Session, reading: Reading) -> Pane:
     )
 
 
-def _segments(session: Session, reading: Reading) -> IrTokenizer | None:
-    """The vocabulary this text is cut by, when it is read as tokens."""
-    under = _under(session, reading)
-    if under is None or not under.tokens.segmented:
-        return None
-    return under.tokens.tokenizer
-
-
 def lanes(session: Session, reading: Reading) -> list[Reading]:
     """Other grammars in the session this one could be a lane with.
 
@@ -461,7 +362,7 @@ def lanes(session: Session, reading: Reading) -> list[Reading]:
 
 def _lanes_pane(session: Session, reading: Reading) -> Pane:
     """Whether the other grammars here are the same language as this one."""
-    ours = _grammar(reading).grammar
+    ours = grammar_of(reading).grammar
     found = tuple(
         (other.title, lane_of(ours, held.grammar))
         for other in lanes(session, reading)
@@ -477,92 +378,12 @@ def _lanes_pane(session: Session, reading: Reading) -> Pane:
     )
 
 
-def _execution_pane(session: Session, reading: Reading) -> Pane:
-    """What the predictive runtime did to this text, decision by decision."""
-    under = _read_by(session, reading)
-    text = reading.text
-    return Pane(
-        f"{reading.title} — what ran", (700, 460), lambda: [execution_view(under, text)]
-    )
-
-
-def _chart_pane(session: Session, reading: Reading) -> Pane:
-    """The Earley chart this text fills, column by column."""
-    under = _read_by(session, reading)
-    text = reading.text
-    return Pane(
-        f"{reading.title} — its chart", (700, 460), lambda: [chart_view(under, text)]
-    )
-
-
-def _segmentation_pane(session: Session, reading: Reading) -> Pane:
-    """Where this text was cut into tokens, and into which ids."""
-    vocab = _segments(session, reading)
-    if vocab is None:
-        raise UnsupportedConstructError(f"{reading.title} is not read as tokens")
-    text = reading.text
-    return Pane(
-        f"{reading.title} — its tokens ▲",
-        (640, 420),
-        lambda: [segmentation_view(vocab, text)],
-    )
-
-
-def _floor_pane(session: Session, reading: Reading) -> Pane:
-    """Both engines on this text, and whether they agree."""
-    under = _read_by(session, reading)
-    text = reading.text
-    return Pane(
-        f"{reading.title} — floor",
-        (640, 380),
-        lambda: [floor_view(under, text), _resolver(reading)],
-    )
-
-
-def _forest_pane(session: Session, reading: Reading) -> Pane:
-    """The forest this text derives."""
-    under = _read_by(session, reading)
-    text = reading.text
-    return Pane(
-        f"{reading.title} — forest", (700, 460), lambda: [forest_view(under, text)]
-    )
-
-
-def _derivations_pane(session: Session, reading: Reading) -> Pane:
-    """Every way this text derives."""
-    under = _read_by(session, reading)
-    text = reading.text
-    return Pane(
-        f"{reading.title} — derivations",
-        (640, 380),
-        lambda: [derivation_view(under, text), _resolver(reading)],
-    )
-
-
 def _deed_pane(_session: Session, reading: Reading, name: str) -> Pane:
     """One of a reading's deeds, and the button that does it."""
     deed = next(d for d in deeds(reading) if d.name == name)
     return Pane(
         f"{reading.title} — {deed.label}", (480, 200), lambda: [_deed(reading, deed)]
     )
-
-
-def _grammar(reading: Reading) -> CompiledGrammar:
-    """The grammar this reading is, or the refusal saying it is not one."""
-    held = artefact(reading)
-    if held is None:
-        raise UnsupportedConstructError(f"{reading.title} is not a grammar")
-    return held
-
-
-def _read_by(session: Session, reading: Reading) -> CompiledGrammar:
-    """The compiled grammar that read this text, or the refusal."""
-    under = _under(session, reading)
-    if under is None:
-        raise UnsupportedConstructError(
-            f"{reading.title} was not read by a compiled grammar"
-        )
-    return under
 
 
 PANES: dict[str, Callable[[Session, Reading], Pane]] = {
@@ -576,13 +397,13 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "railroad": _railroad_pane,
     "module": _module_pane,
     "pipeline": _pipeline_pane,
-    "tables": _tables_pane,
+    "tables": tables_pane,
     "binding": _binding_pane,
     "fold": _fold_pane,
     "runs": _runs_pane,
-    "analysis": _analysis_pane,
+    "analysis": analysis_pane,
     "tokens": _tokens_pane,
-    "resume": _resume_pane,
+    "resume": resume_pane,
     "doc": _doc_pane,
     "semantic": _semantic_pane,
     "regrammar": _regrammar_pane,
@@ -592,12 +413,12 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "carve": _carve_pane,
     "plug": _plug_pane,
     "registry": _registry_pane,
-    "floor": _floor_pane,
-    "forest": _forest_pane,
-    "derivations": _derivations_pane,
-    "chart": _chart_pane,
-    "execution": _execution_pane,
-    "segmentation": _segmentation_pane,
+    "floor": floor_pane,
+    "forest": forest_pane,
+    "derivations": derivations_pane,
+    "chart": chart_pane,
+    "execution": execution_pane,
+    "segmentation": segmentation_pane,
     "lanes": _lanes_pane,
 }
 """Fan kind → the window it opens.
@@ -624,32 +445,6 @@ def window(session: Session, reading: Reading, kind: str) -> Pane:
     if build is None:
         raise UnsupportedConstructError(f"no window for {kind!r}")
     return build(session, reading)
-
-
-def _resolver(reading: Reading) -> IrDoc:
-    """The resolver plug — the caller's answer to an ambiguity.
-
-    Not a flag: an ambiguity is refused unless somebody says which
-    derivation they meant, and this is where they say it. Empty means
-    refuse, which is the default and the honest one.
-    """
-    return el(
-        "div",
-        {"class": "controls"},
-        _chip(
-            "resolver",
-            f"c-res-{reading.ident}",
-            reading.params.resolver,
-            "empty refuses",
-            False,
-        ),
-        el(
-            "span",
-            {"class": "note"},
-            "'first' takes the first derivation; empty refuses an ambiguous "
-            "span rather than choosing for you",
-        ),
-    )
 
 
 def _carve(session: Session, reading: Reading) -> IrDoc:
@@ -757,12 +552,12 @@ def _deed(reading: Reading, deed: Deed) -> IrDoc:
 
 def _surface(compiled: CompiledGrammar) -> str:
     """Which surface a module is spelled in when the grammar names none."""
-    return compiled.flavour if compiled.flavour in _SPELLABLE else "gbnf"
+    return compiled.flavour if compiled.flavour in SPELLABLE else "gbnf"
 
 
 def _pipeline(session: Session, reading: Reading) -> IrDoc:
     """The compile's stages for this reading."""
-    compiled = _grammar(reading)
+    compiled = grammar_of(reading)
     parsed = session.instance_of(reading)
     concretized = (
         compiled.codegen_grammar if compiled.tokens.tokenizer is not None else None
@@ -804,14 +599,14 @@ def _editor(session: Session, reading: Reading) -> list[IrDoc]:
             el(
                 "div",
                 {"class": "controls"},
-                _chip(
+                chip(
                     "@start",
                     f"c-start-{reading.ident}",
                     reading.params.directives.start or "",
                     "first rule",
                     off,
                 ),
-                _chip(
+                chip(
                     "@non-semantic",
                     f"c-ns-{reading.ident}",
                     ",".join(
@@ -870,25 +665,6 @@ def _editor(session: Session, reading: Reading) -> list[IrDoc]:
             )
         )
     return body
-
-
-def _chip(label: str, ident: str, value: str, empty: str, off: bool) -> IrDoc:
-    """One directive chip — a small editable datum that reads on change."""
-    return el(
-        "span",
-        {"class": "chip off" if off else "chip"},
-        label,
-        el(
-            "input",
-            {
-                "id": ident,
-                "value": value,
-                "placeholder": empty,
-                "spellcheck": "false",
-                "data-post": "chip",
-            },
-        ),
-    )
 
 
 def _under(session: Session, reading: Reading) -> CompiledGrammar | None:
