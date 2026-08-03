@@ -193,6 +193,10 @@ RULES: tuple[tuple[str, str], ...] = (
         f"font:10px {MONO};letter-spacing:2px;text-transform:uppercase",
     ),
     (".raillabel .small", f"font:9px {MONO};fill:var(--dim)"),
+    # A label has no coordinates until the camera gives it some, so it
+    # starts hidden rather than at the origin — an unplaced label is a
+    # word floating in the corner of the screen.
+    (".raillabel", "display:none"),
     (
         ".leader",
         "fill:none;stroke:var(--cyan);stroke-width:1;stroke-dasharray:2 5;opacity:.5",

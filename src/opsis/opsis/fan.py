@@ -119,7 +119,11 @@ def _always(_at: Fan) -> bool:
 OFFERS: tuple[Offer, ...] = (
     Offer("text", "text", _always),
     Offer("shape", "shape", _grammar),
-    Offer("built", "built ▲", lambda a: _built(a) or a.reading.instance is not None),
+    Offer(
+        "built",
+        "built ▲",
+        lambda a: a.reading.product is not None or a.reading.instance is not None,
+    ),
     Offer("parse", "parse", _read),
     Offer("compile", "compile", _grammar),
     Offer("tokens", "tokens", lambda a: _grammar(a) or _vocabulary(a)),
@@ -137,7 +141,15 @@ PARTS: dict[str, tuple[Part, ...]] = {
         Part("fold", "fold", "how an instance is built", _grammar),
     ),
     "built": (
-        Part("instance", "what it built", "the tree, beside its text", _always),
+        Part(
+            "instance",
+            "what it built",
+            "the tree, beside its text",
+            lambda a: a.reading.product is not None or a.reading.instance is not None,
+        ),
+        Part(
+            "space", "its shape", "the same tree as a space — depth and width", _model
+        ),
         Part("semantic", "semantic", "noise dimmed, never removed", _model),
         Part("regrammar", "its grammar", "back to the surface it came from", _model),
         Part("reader", "read by", "the grammar above it", _read),
@@ -173,6 +185,7 @@ PARTS: dict[str, tuple[Part, ...]] = {
         Part("flavour", "what it IS", "metadata and tables", _flavour),
         Part("dispatch", "its tables", "everything it dispatches on", _flavour),
         Part("lanes", "lanes ≅", "is anything here the same language", _grammar),
+        Part("transpile", "transpile", "this grammar in every other surface", _grammar),
         Part("shadow", "shadows ⚠", "who else answers to this name", _flavour),
         Part(
             "registry",

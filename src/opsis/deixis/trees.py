@@ -19,9 +19,16 @@ from typing import NamedTuple
 from lexic.ir import IrDoc, IrSelf
 from lexic.model import GrammarModel
 from opsis.opsis.draw.canvas import el
-from opsis.opsis.read.parts import bounded
+from opsis.opsis.draw.canvas import text as _text
+from opsis.opsis.read.parts import (
+    Node,
+    bounded,
+    graph,
+    refusal,
+    stack,
+)
 
-__all__ = ["Twig", "instance_view", "model_rows", "twin"]
+__all__ = ["Twig", "instance_view", "model_rows", "tree_space", "twin"]
 
 
 def instance_view(product: object, source: str) -> IrDoc:
@@ -130,9 +137,9 @@ def model_rows(root: GrammarModel) -> tuple[list[IrDoc], int, int]:
     """The parse as rows, each knowing the span of text it covers."""
     rows: list[IrDoc] = []
     deepest = 0
-    stack: list[tuple[GrammarModel, int, str, int]] = [(root, 0, "0", 0)]
-    while stack:
-        model, depth, path, start = stack.pop()
+    pending: list[tuple[GrammarModel, int, str, int]] = [(root, 0, "0", 0)]
+    while pending:
+        model, depth, path, start = pending.pop()
         deepest = max(deepest, depth)
         kids = _model_kids(model)
         text = model.to_text()
@@ -154,7 +161,7 @@ def model_rows(root: GrammarModel) -> tuple[list[IrDoc], int, int]:
         for i, kid in enumerate(kids):
             placed.append((kid, depth + 1, f"{path}.{i}", cursor))
             cursor += len(kid.to_text())
-        stack.extend(reversed(placed))
+        pending.extend(reversed(placed))
     return rows, len(rows), deepest
 
 
@@ -162,15 +169,15 @@ def _ir_rows(root: IrSelf) -> tuple[list[IrDoc], int, int]:
     """Any IR product as a tree — what the reducer built, node by node."""
     rows: list[IrDoc] = []
     deepest = 0
-    stack: list[tuple[IrSelf, int, str]] = [(root, 0, "0")]
-    while stack:
-        node, depth, path = stack.pop()
+    pending: list[tuple[IrSelf, int, str]] = [(root, 0, "0")]
+    while pending:
+        node, depth, path = pending.pop()
         deepest = max(deepest, depth)
         kids = list(node.children())
         shown = str(node) if isinstance(node, str) else repr(node)
         rows.append(_row(Twig(path, depth, type(node).__name__, shown, bool(kids))))
         for i, kid in enumerate(reversed(kids)):
-            stack.append((kid, depth + 1, f"{path}.{len(kids) - 1 - i}"))
+            pending.append((kid, depth + 1, f"{path}.{len(kids) - 1 - i}"))
     return rows, len(rows), deepest
 
 
@@ -178,9 +185,9 @@ def _plain_rows(root: object) -> tuple[list[IrDoc], int, int]:
     """Plain data as a tree — dicts, lists and scalars, named for what they are."""
     rows: list[IrDoc] = []
     deepest = 0
-    stack: list[tuple[object, int, str, str]] = [(root, 0, "0", "")]
-    while stack:
-        value, depth, path, key = stack.pop()
+    pending: list[tuple[object, int, str, str]] = [(root, 0, "0", "")]
+    while pending:
+        value, depth, path, key = pending.pop()
         deepest = max(deepest, depth)
         if isinstance(value, dict):
             kids: list[tuple[object, str]] = [(v, str(k)) for k, v in value.items()]
@@ -193,5 +200,83 @@ def _plain_rows(root: object) -> tuple[list[IrDoc], int, int]:
         label = f"{key} · {type(value).__name__}" if key else type(value).__name__
         rows.append(_row(Twig(path, depth, label, shown, bool(kids))))
         for i, (kid, kid_key) in enumerate(reversed(kids)):
-            stack.append((kid, depth + 1, f"{path}.{len(kids) - 1 - i}", kid_key))
+            pending.append((kid, depth + 1, f"{path}.{len(kids) - 1 - i}", kid_key))
     return rows, len(rows), deepest
+
+
+def tree_space(root: GrammarModel) -> IrDoc:
+    """A parse as the tree it IS — nodes and edges, not indented rows.
+
+    Rows are better for reading a span: they stack, they scroll, and a
+    long text stays legible. A space is better for reading a SHAPE —
+    where a grammar went wide, where it went deep, which arm carried
+    the weight. Both are the same tree, so both are offered rather than
+    one replacing the other.
+
+    Depth is the column and document order is the row, which makes the
+    drawing left-to-right exactly as the text reads.
+    """
+    into = _Space([], [])
+    _walk(root, (0, 0), into, -1)
+    nodes, edges = into.nodes, into.edges
+    if not nodes:
+        return refusal("this reading built nothing to draw")
+    return stack(
+        [
+            el(
+                "div",
+                {"class": "note"},
+                _text(
+                    f"{len(nodes)} nodes · {max(n.column for n in nodes) + 1} deep · "
+                    "column is depth, row is document order"
+                ),
+            ),
+            graph(nodes, edges),
+        ]
+    )
+
+
+class _Space(NamedTuple):
+    """What a tree walk is filling in — the space, and where it is."""
+
+    nodes: list[Node]
+    edges: list[tuple[int, int]]
+
+
+def _walk(node: GrammarModel, at: tuple[int, int], into: _Space, parent: int) -> int:
+    """One node into the space, then its children — in document order.
+
+    :param at: ``(depth, row)`` — the column this node sits in, and the
+        first row free for it.
+    :returns: The next free row, so a sibling starts below this whole
+        subtree rather than on top of it.
+    """
+    depth, start = at
+    if len(into.nodes) >= _SPACE:
+        return start
+    here = len(into.nodes)
+    into.nodes.append(
+        Node(
+            f"n{here}",
+            type(node).__name__,
+            depth,
+            start,
+            "cyan" if _model_kids(node) else "green",
+            str(node.__grammar__.name),
+            "",
+        )
+    )
+    if parent >= 0:
+        into.edges.append((parent, here))
+    row = start
+    for kid in _model_kids(node):
+        row = _walk(kid, (depth + 1, row), into, here)
+    return max(row, start + 1)
+
+
+_SPACE = 240
+"""How many nodes one tree space draws before it stops.
+
+Stated in the note above it rather than silently: a tree bigger than
+this is still a tree, and the rows view still shows all of it.
+"""

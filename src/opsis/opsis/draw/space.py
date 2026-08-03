@@ -464,6 +464,42 @@ function fit(pad) {
   ty = (innerHeight - h * scale) / 2 - (y0 - 150) * scale;
   apply(); draw();
 }
+// Zoom to enter: bring one node to the middle at working scale, so its
+// orbit is readable and its windows land in front of you. Not a mode —
+// pan and wheel keep working, and drag a window anywhere you like. It
+// is the camera doing what you would do by hand, in one gesture.
+function enter(node, zoom) {
+  const [nx, ny] = P(node);
+  const want = zoom === undefined ? 1.0 : zoom;
+  const from = {scale, tx, ty};
+  const to = {
+    scale: want,
+    tx: innerWidth * 0.28 - nx * want,
+    ty: innerHeight * 0.45 - ny * want,
+  };
+  glide(from, to, 260);
+}
+// One easing, so every camera move feels like the same camera.
+function glide(from, to, ms) {
+  const t0 = performance.now();
+  const step = now => {
+    const k = Math.min(1, (now - t0) / ms);
+    const e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    scale = from.scale + (to.scale - from.scale) * e;
+    tx = from.tx + (to.tx - from.tx) * e;
+    ty = from.ty + (to.ty - from.ty) * e;
+    apply(); draw();
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+// Double-click the void to see everything again — the way out is the
+// same size gesture as the way in.
+space.addEventListener("dblclick", e => {
+  const node = e.target.closest(".nd.ring");
+  if (node) { enter(node); return; }
+  if (!e.target.closest(".frame")) fit(90);
+});
 // A window is born beside its node and stays with it until somebody
 // puts it somewhere. The server draws it at the node's LAID-OUT spot,
 // which is wrong the moment the node is dragged — so where it opens is
@@ -503,7 +539,7 @@ function toggle(name) {
   draw();
   return f;
 }
-window.opsisCamera = {snapshot, restore, draw, fit, toggle,
+window.opsisCamera = {snapshot, restore, draw, fit, toggle, enter,
                       raise: el => { el.style.zIndex = ++zTop; }};
 space.addEventListener("wheel", e => {
   if (e.target.closest(".frame")) return;

@@ -19,11 +19,12 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrDoc, IrFlavour, IrTokenizer
 from lexic.model import GrammarModel
 from lexic.parsing import lift_optional_nullables
+from opsis.deixis.trees import tree_space
 from opsis.kairos.constrain import sample
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.fan import OFFERS, fan, fanned, parts_of
-from opsis.opsis.floor.lanes import lane_of, lane_view
+from opsis.opsis.floor.lanes import lane_of, lane_view, transpile_view
 from opsis.opsis.floor.panes import (
     analysis_pane,
     chart_pane,
@@ -97,12 +98,18 @@ def _text_pane(session: Session, reading: Reading) -> Pane:
     )
 
 
-def _instance_pane(session: Session, reading: Reading) -> Pane:
-    """The other reading of this text."""
+def _instance_pane(_session: Session, reading: Reading) -> Pane:
+    """What this reading built — whichever of its two readings there is.
+
+    A flavour builds an AST and compiles it; a grammar builds a model.
+    Showing the one that exists is the point; showing ``None`` because
+    a reader offers no second reading was a window saying nothing.
+    """
+    built = reading.instance if reading.instance is not None else reading.product
     return Pane(
-        f"{reading.title} — instance ▲",
+        f"{reading.title} — what it built",
         (760, 430),
-        lambda: [instance_view(session.instance_of(reading), reading.text)],
+        lambda: [instance_view(built, reading.text)],
     )
 
 
@@ -198,6 +205,16 @@ def _runs_pane(_session: Session, reading: Reading) -> Pane:
     """The lexical layer this grammar derives, and what it forecloses."""
     compiled = grammar_of(reading)
     return Pane(f"{reading.title} — its runs", (620, 340), lambda: [runs_of(compiled)])
+
+
+def _space_pane(_session: Session, reading: Reading) -> Pane:
+    """The same tree drawn as a space — where it went wide, where deep."""
+    model = GrammarModel.ensure(reading.product, "a model")
+    return Pane(
+        f"{reading.title} — its shape",
+        (760, 460),
+        lambda: [tree_space(model)],
+    )
 
 
 def _semantic_pane(_session: Session, reading: Reading) -> Pane:
@@ -368,6 +385,16 @@ def lanes(session: Session, reading: Reading) -> list[Reading]:
     ]
 
 
+def _transpile_pane(_session: Session, reading: Reading) -> Pane:
+    """This grammar spelled in every other surface, and whether it holds."""
+    compiled = grammar_of(reading)
+    return Pane(
+        f"{reading.title} — transpile",
+        (720, 480),
+        lambda: [transpile_view(compiled.grammar, compiled.flavour)],
+    )
+
+
 def _lanes_pane(session: Session, reading: Reading) -> Pane:
     """Whether the other grammars here are the same language as this one."""
     ours = grammar_of(reading).grammar
@@ -413,6 +440,7 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "tokens": _tokens_pane,
     "resume": resume_pane,
     "doc": _doc_pane,
+    "space": _space_pane,
     "semantic": _semantic_pane,
     "regrammar": _regrammar_pane,
     "flavour": _flavour_pane,
@@ -428,6 +456,7 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "execution": execution_pane,
     "segmentation": segmentation_pane,
     "lanes": _lanes_pane,
+    "transpile": _transpile_pane,
 }
 """Fan kind → the window it opens.
 
