@@ -15,9 +15,9 @@ from typing import NamedTuple
 
 from lexic.ir import IrAst, IrDoc
 from lexic.ir.grammar.canonical import canonicalize
-from opsis.opsis.canvas import el
-from opsis.opsis.canvas import text as _text
-from opsis.opsis.views import bounded, panel
+from opsis.opsis.draw.canvas import el
+from opsis.opsis.draw.canvas import text as _text
+from opsis.opsis.read.views import bounded, panel
 from opsis.praxis.reading import FOREIGN
 
 __all__ = ["Lane", "lane_of", "lane_view"]

@@ -19,24 +19,24 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrDoc, IrFlavour, IrTokenizer
 from lexic.model import GrammarModel
 from lexic.parsing import lift_optional_nullables
-from opsis.opsis.analysis import analysis_view
-from opsis.opsis.binding import binding_view, fold_view, runs_of
-from opsis.opsis.canvas import el
-from opsis.opsis.canvas import text as _text
-from opsis.opsis.chart import chart_view, segmentation_view
-from opsis.opsis.emission import emit_doc
-from opsis.opsis.engine import (
+from opsis.opsis.draw.canvas import el
+from opsis.opsis.draw.canvas import text as _text
+from opsis.opsis.fan import GROUPS, Fan, Group, Offer, offered
+from opsis.opsis.floor.analysis import analysis_view
+from opsis.opsis.floor.chart import chart_view, segmentation_view
+from opsis.opsis.floor.engine import (
     derivation_view,
     execution_view,
     floor_view,
     forest_view,
     tables_view,
 )
-from opsis.opsis.fan import GROUPS, Fan, Group, Offer, offered
-from opsis.opsis.lanes import lane_of, lane_view
-from opsis.opsis.stages import module_view, pipeline_view
-from opsis.opsis.tables import flavour_view, registry_view, table_view
-from opsis.opsis.views import (
+from opsis.opsis.floor.lanes import lane_of, lane_view
+from opsis.opsis.read.binding import binding_view, fold_view, runs_of
+from opsis.opsis.read.emission import emit_doc
+from opsis.opsis.read.stages import module_view, pipeline_view
+from opsis.opsis.read.tables import flavour_view, registry_view, table_view
+from opsis.opsis.read.views import (
     binding_facts,
     bounded,
     button,
@@ -54,11 +54,11 @@ from opsis.opsis.views import (
     shadow_view,
     tokenizer_view,
 )
-from opsis.praxis.acts import Deed, deeds
-from opsis.praxis.carve import bench
-from opsis.praxis.constrain import Cursors, sample
+from opsis.praxis.deeds.acts import Deed, deeds
+from opsis.praxis.deeds.carve import bench
+from opsis.praxis.deeds.constrain import Cursors, sample
+from opsis.praxis.deeds.resume import Resumes
 from opsis.praxis.reading import Reading, self_compiled
-from opsis.praxis.resume import Resumes
 from opsis.praxis.session import Session, alphabets
 
 __all__ = [
@@ -318,10 +318,6 @@ def _resume_pane(_session: Session, reading: Reading) -> Pane:
         (600, 380),
         lambda: [resume_view(reading.ident, held)],
     )
-
-
-WIDTHS: dict[str, int] = {}
-"""The width each reading's document window is rendered at."""
 
 
 def _doc_pane(_session: Session, reading: Reading) -> Pane:

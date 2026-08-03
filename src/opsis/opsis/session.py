@@ -22,18 +22,18 @@ from lexic.ir import (
     IrSeq,
 )
 from opsis.eidolon import layout
-from opsis.opsis.canvas import el, html, raw
-from opsis.opsis.canvas import text as _text
-from opsis.opsis.graphic import RAIL_CSS, rule_svg
+from opsis.opsis.draw.canvas import el, html, raw
+from opsis.opsis.draw.canvas import text as _text
+from opsis.opsis.draw.graphic import RAIL_CSS, rule_svg
+from opsis.opsis.draw.scene import Moon, Rail, Ring, Space, VisualNode
+from opsis.opsis.draw.space import Box, Frame, frame, render_scene
 from opsis.opsis.panes import Pane, artefact, fan, orbits, window
-from opsis.opsis.scene import Moon, Rail, Ring, Space, VisualNode
-from opsis.opsis.space import Box, Frame, frame, render_scene
-from opsis.opsis.views import (
+from opsis.opsis.read.views import (
     refusal,
     view_of,
 )
+from opsis.praxis.ingress.reflect import written
 from opsis.praxis.reading import FOREIGN, Reading
-from opsis.praxis.reflect import written
 from opsis.praxis.session import Session
 
 __all__ = [

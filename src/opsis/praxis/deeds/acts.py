@@ -24,7 +24,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.ir import IrSelf, IrTokenizer
 from lexic.model import GrammarModel
-from opsis.praxis.ingress import open_file
+from opsis.praxis.ingress.ingress import open_file
 from opsis.praxis.reading import Reading, Source
 from opsis.praxis.session import Session
 

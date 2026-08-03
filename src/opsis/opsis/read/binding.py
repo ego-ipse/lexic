@@ -15,10 +15,10 @@ from lexic.compile import CompiledGrammar
 from lexic.ir import IrDoc
 from lexic.parsing import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
-from opsis.opsis.canvas import el
-from opsis.opsis.canvas import text as _text
-from opsis.opsis.engine import walked
-from opsis.opsis.views import facts, grid, panel, refusal
+from opsis.opsis.draw.canvas import el
+from opsis.opsis.draw.canvas import text as _text
+from opsis.opsis.floor.engine import walked
+from opsis.opsis.read.views import facts, grid, panel, refusal
 from opsis.praxis.reading import FOREIGN
 
 __all__ = ["binding_view", "fold_view", "runs_of"]

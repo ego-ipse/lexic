@@ -18,9 +18,9 @@ from typing import NamedTuple, Sequence
 from lexic.compile import CompiledGrammar, export_source
 from lexic.grammars import get_flavour
 from lexic.ir import IrAst, IrDoc
-from opsis.opsis.canvas import el
-from opsis.opsis.space import Box, Frame, frame
-from opsis.opsis.views import Node, graph, panel
+from opsis.opsis.draw.canvas import el
+from opsis.opsis.draw.space import Box, Frame, frame
+from opsis.opsis.read.views import Node, graph, panel
 
 __all__ = ["Diff", "module_view", "pipeline_view"]
 

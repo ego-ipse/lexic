@@ -22,9 +22,9 @@ import math
 from typing import NamedTuple, Sequence
 
 from lexic.ir import IrAction, IrCat, IrDoc, IrLeaf, IrNone, IrSelf, IrTypeMap
-from opsis.opsis.canvas import el, html, raw
-from opsis.opsis.scene import Moon, Rail, Ring, Space
-from opsis.opsis.theme import css
+from opsis.opsis.draw.canvas import el, html, raw
+from opsis.opsis.draw.scene import Moon, Rail, Ring, Space
+from opsis.opsis.draw.theme import css
 
 __all__ = [
     "CAMERA",

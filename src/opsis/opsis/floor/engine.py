@@ -28,9 +28,9 @@ from lexic.parsing import (
     recognize,
 )
 from lexic.parsing.pda.core.errors import PdaFail
-from opsis.opsis.canvas import el
-from opsis.opsis.canvas import text as _text
-from opsis.opsis.views import Node, bounded, facts, graph, refusal
+from opsis.opsis.draw.canvas import el
+from opsis.opsis.draw.canvas import text as _text
+from opsis.opsis.read.views import Node, bounded, facts, graph, refusal
 
 __all__ = ["derivation_view", "floor_view", "forest_view", "tables_view"]
 

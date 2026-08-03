@@ -18,7 +18,7 @@ from lexic.compile import load_ir
 from lexic.compile.notation.emit import emit_ir
 from lexic.compile.notation.parse import NOTATION_GRAMMAR
 from lexic.exceptions import UnsupportedConstructError
-from opsis.opsis.scene import SYMBOLS, Space, VisualNode
+from opsis.opsis.draw.scene import SYMBOLS, Space, VisualNode
 from opsis.praxis.reading import Params, Reader
 from opsis.praxis.session import Session
 

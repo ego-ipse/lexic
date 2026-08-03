@@ -16,7 +16,7 @@ from inspect import isroutine
 from typing import NamedTuple
 
 from lexic.ir import IrAst, IrDoc, IrFlavour, IrMapping
-from opsis.opsis.views import VIEWS, bounded, facts, grid, panel, refusal, titled
+from opsis.opsis.read.views import VIEWS, bounded, facts, grid, panel, refusal, titled
 
 __all__ = [
     "Table",

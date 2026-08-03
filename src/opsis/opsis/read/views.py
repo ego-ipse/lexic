@@ -13,7 +13,7 @@ visible refusal, never an empty window.
 
 from __future__ import annotations
 
-from typing import NamedTuple, Sequence
+from typing import Sequence
 
 from lexic.compile import CompiledGrammar
 from lexic.exceptions import LexicError, UnsupportedConstructError
@@ -29,10 +29,29 @@ from lexic.ir import (
     render,
 )
 from lexic.model import GrammarModel
-from opsis.eidolon import Topology
-from opsis.opsis.canvas import el, raw
-from opsis.opsis.canvas import text as _text
-from opsis.opsis.graphic import RAIL_CSS, rule_svg
+from opsis.opsis.draw.canvas import el
+from opsis.opsis.draw.canvas import text as _text
+from opsis.opsis.read.parts import (
+    BIG,
+    Node,
+    bounded,
+    button,
+    controls,
+    facts,
+    field,
+    graph,
+    grid,
+    panel,
+    refusal,
+    titled,
+)
+from opsis.opsis.read.trees import (
+    instance_view,
+    model_rows,
+    railroad_view,
+    rules_view,
+    twin,
+)
 
 __all__ = [
     "BIG",
@@ -60,445 +79,6 @@ __all__ = [
     "semantic_view",
     "view_of",
 ]
-
-BIG = 60_000
-"""Beyond this many characters a text is windowed, and says so."""
-
-_COL = 200
-_ROW = 30
-
-
-def bounded(text: str, limit: int = BIG) -> tuple[str, str]:
-    """A text the DOM can hold, and the honest note about the rest.
-
-    No silent caps: the true size is stated, and so is how much of it
-    is on screen.
-    """
-    if len(text) <= limit:
-        return text, ""
-    return (
-        text[:limit],
-        f"{len(text):,} characters · showing the first {limit:,} — "
-        "the rest is on disk, not hidden",
-    )
-
-
-def button(label: str, does: str) -> IrDoc:
-    """One control that does one thing, and says which."""
-    return el("button", {"class": "go", "data-do": does}, _text(label))
-
-
-def controls(*parts: IrDoc) -> IrDoc:
-    """A row of controls — the one shape every window's affordances take."""
-    return el("div", {"class": "controls"}, *parts)
-
-
-def field(ident: str, empty: str, push: str = "") -> IrDoc:
-    """A small editable datum a control reads when it fires."""
-    attrs: dict[str, str | None] = {
-        "id": ident,
-        "spellcheck": "false",
-        "placeholder": empty,
-    }
-    if push:
-        attrs["data-push"] = push
-    return el("input", attrs)
-
-
-def grid(rows: Sequence[tuple[str, str]]) -> IrDoc:
-    """A scrolling grid of key/value cells — the one shape a listing takes."""
-    return el(
-        "div",
-        {"class": "grid"},
-        *(
-            el(
-                "div",
-                {"class": "cell"},
-                el("code", None, _text(key)),
-                el("span", None, _text(value)),
-            )
-            for key, value in rows
-        ),
-    )
-
-
-def titled(name: str, measure: str, why: str, *body: IrDoc) -> IrDoc:
-    """A named block: what it is, how much of it, and why — then itself."""
-    return el(
-        "div",
-        {"class": "table"},
-        el(
-            "div",
-            {"class": "row"},
-            el("span", {"class": "name"}, _text(name)),
-            el("b", None, _text(measure)),
-            el("div", {"class": "note"}, _text(why)),
-        ),
-        *body,
-    )
-
-
-def panel(note: str, *rows: IrDoc) -> IrDoc:
-    """A body that opens by saying what it is, then shows it.
-
-    Every window here has the same shape — a sentence, then the thing —
-    so it is written once.
-    """
-    return el("div", None, el("div", {"class": "note"}, _text(note)), *rows)
-
-
-def facts(rows: Sequence[tuple[str, str, str]], *rest: IrDoc) -> IrDoc:
-    """Named measurements, one per line: what, how much, and why."""
-    return el(
-        "div",
-        None,
-        *(
-            el(
-                "div",
-                {"class": "row"},
-                el("span", {"class": "name"}, _text(name)),
-                el("b", None, _text(value)),
-                el("div", {"class": "note"}, _text(why)),
-            )
-            for name, value, why in rows
-        ),
-        *rest,
-    )
-
-
-def refusal(message: str) -> IrDoc:
-    """A drawn refusal — the real message, in the register's err voice."""
-    return el("div", {"class": "refusal"}, message)
-
-
-# ── a node space: what every graph in a window is drawn as ────────────
-
-
-class Node(NamedTuple):
-    """One node of a drawn graph: where it sits and what it says."""
-
-    ident: str
-    label: str
-    column: int
-    row: int
-    hue: str = "cyan"
-    rule: str = ""
-    opens: str = ""
-
-
-def graph(nodes: Sequence[Node], edges: Sequence[tuple[int, int]]) -> IrDoc:
-    """A graph as a node space — edges beneath, nodes over them.
-
-    Rows are barycentred first: each node drifts toward the average row
-    of what names it, which is the difference between a graph and a
-    thicket.
-    """
-    if not nodes:
-        return el("div", {"class": "note"}, "nothing to draw")
-    placed = _barycentre(list(nodes), list(edges))
-    width = 26 + max(n.column for n in placed) * _COL + 250
-    height = 22 + max(n.row for n in placed) * _ROW + 40
-    wires = el(
-        "svg",
-        {"class": "gwires", "width": str(width), "height": str(height)},
-        *(_edge(placed[a], placed[b]) for a, b in edges),
-    )
-    drawn: list[IrDoc] = []
-    for node in placed:
-        x, y = 26 + node.column * _COL, 22 + node.row * _ROW
-        attrs: dict[str, str | None] = {
-            "class": f"gnode v-{node.hue}",
-            "style": f"left:{x}px;top:{y}px",
-        }
-        if node.rule:
-            attrs["data-rule"] = node.rule
-        if node.opens:
-            attrs["data-open"] = node.opens
-        drawn.append(el("div", attrs, el("i", None), node.label))
-    return el(
-        "div",
-        {"class": "gspace", "style": f"width:{width}px;height:{height}px"},
-        wires,
-        *drawn,
-    )
-
-
-def _barycentre(nodes: list[Node], edges: list[tuple[int, int]]) -> list[Node]:
-    """Two sweeps toward the average row of each node's namers."""
-    incoming: dict[int, list[int]] = {i: [] for i in range(len(nodes))}
-    for a, b in edges:
-        incoming[b].append(a)
-    rows = {i: float(n.row) for i, n in enumerate(nodes)}
-    for _sweep in range(2):
-        for i in range(len(nodes)):
-            namers = incoming[i]
-            if namers:
-                rows[i] = sum(rows[p] for p in namers) / len(namers)
-        columns: dict[int, list[int]] = {}
-        for i, node in enumerate(nodes):
-            columns.setdefault(node.column, []).append(i)
-        for members in columns.values():
-            for slot, i in enumerate(sorted(members, key=lambda j: rows[j])):
-                rows[i] = float(slot)
-    return [n._replace(row=int(rows[i])) for i, n in enumerate(nodes)]
-
-
-def _edge(a: Node, b: Node) -> IrDoc:
-    """One edge — a flat cubic, so columns read left to right."""
-    x1, y1 = 26 + a.column * _COL + 8, 22 + a.row * _ROW
-    x2, y2 = 26 + b.column * _COL - 8, 22 + b.row * _ROW
-    return el(
-        "path",
-        {"class": "gedge", "d": f"M{x1},{y1} C{x1 + 48},{y1} {x2 - 48},{y2} {x2},{y2}"},
-    )
-
-
-# ── a grammar is a graph of rules ─────────────────────────────────────
-
-
-def rules_view(ast: IrAst) -> IrDoc:
-    """Rules by distance from the start, edges by reference.
-
-    Hue says what a rule IS at a glance: the start rule, structural
-    noise, something nothing reaches, or an ordinary rule. Clicking one
-    opens its railroad — which lives in the world, because a diagram
-    belongs to its rule and not to whichever window asked.
-    """
-    topo = Topology(ast)
-    rows: dict[int, int] = {}
-    nodes: list[Node] = []
-    index: dict[str, int] = {}
-    unreachable = max(topo.levels.values(), default=0) + 1
-    for name in topo.names:
-        level = topo.levels.get(name, -1)
-        column = level if level >= 0 else unreachable
-        row = rows.get(column, 0)
-        rows[column] = row + 1
-        index[name] = len(nodes)
-        nodes.append(
-            Node(name, name, column, row, _rule_hue(name, topo), name, f"rr-{name}")
-        )
-    edges = [
-        (index[src], index[dst])
-        for src, named in topo.out.items()
-        for dst in named
-        if src in index and dst in index
-    ]
-    note = (
-        f"{len(nodes)} rules · {len(edges)} references · start is {topo.start} · "
-        "click a rule for its railroad"
-    )
-    return el("div", None, el("div", {"class": "note"}, note), graph(nodes, edges))
-
-
-def _rule_hue(name: str, topo: Topology) -> str:
-    """What a rule is: the start, noise, unreachable, or ordinary."""
-    if name == topo.start:
-        return "amber"
-    if topo.levels.get(name, -1) < 0:
-        return "err"
-    if not topo.semantic.get(name, True):
-        return "dim"
-    return "cyan"
-
-
-def railroad_view(ast: IrAst) -> IrDoc:
-    """Every rule's track, stacked — the grammar as one long diagram."""
-    rows = [
-        el(
-            "div",
-            {"class": "row"},
-            el("div", {"class": "name", "data-rule": str(rule.name)}, str(rule.name)),
-            el("div", {"class": "rr"}, raw(rule_svg(rule))),
-        )
-        for rule in ast.rules
-    ]
-    return el(
-        "div",
-        None,
-        raw(f"<style>{RAIL_CSS}</style>"),
-        el("div", {"class": "note"}, f"{len(rows)} rules · every track it walks"),
-        *rows,
-    )
-
-
-# ── an instance is the tree its parse built, beside its text ──────────
-
-
-def instance_view(product: object, source: str) -> IrDoc:
-    """A reading, as the text it read and what it built — side by side.
-
-    Hovering a node lights the span of text it covers. The spans are
-    not guessed: a model's text is its children's texts in order, which
-    is the round-trip invariant, so walking in order gives them exactly.
-    A product that covers no span says so rather than pretending.
-    """
-    if isinstance(product, IrTokenizer):
-        return _twin(source, tokenizer_view(product))
-    if isinstance(product, GrammarModel):
-        rows, count, deep = _model_rows(product)
-        note = f"{count} models · {deep + 1} deep · hover a node for its text"
-    elif isinstance(product, IrSelf):
-        rows, count, deep = _ir_rows(product)
-        note = (
-            f"{count} IR nodes · {deep + 1} deep · "
-            "what a reducer BUILT covers no span of the input"
-        )
-    else:
-        rows, count, deep = _plain_rows(product)
-        note = f"{count} values · {deep + 1} deep · plain data, no lexic types"
-    return _twin(
-        source,
-        el(
-            "div",
-            None,
-            el("div", {"class": "note"}, note),
-            el("div", {"class": "tree"}, *rows),
-        ),
-    )
-
-
-def _twin(source: str, right: IrDoc) -> IrDoc:
-    """The two panes: what was read, and what it became."""
-    shown, note = bounded(source)
-    return el(
-        "div",
-        {"class": "twin"},
-        el(
-            "div",
-            {"class": "pane left"},
-            el("div", {"class": "note"}, note or "the text it was read from"),
-            el("pre", {"class": "src target"}, shown),
-        ),
-        el("div", {"class": "pane"}, right),
-    )
-
-
-class Twig(NamedTuple):
-    """One row of a drawn tree — where it sits and what it stands for."""
-
-    path: str
-    depth: int
-    label: str
-    text: str = ""
-    kids: bool = False
-    rule: str = ""
-    span: tuple[int, int] | None = None
-
-
-def _row(twig: Twig) -> IrDoc:
-    """One row of a tree: its twig, its name, what it stands for."""
-    path, depth, label = twig.path, twig.depth, twig.label
-    text, kids, rule, span = twig.text, twig.kids, twig.rule, twig.span
-    shut = kids and depth >= 1
-    classes = "twig" + (" kids" if kids else "") + (" shut" if shut else "")
-    attrs: dict[str, str | None] = {
-        "class": classes + (" hide" if depth > 1 else ""),
-        "data-path": path,
-        "style": f"padding-left:{depth * 15}px",
-    }
-    if span is not None:
-        attrs["data-from"] = str(span[0])
-        attrs["data-to"] = str(span[1])
-    name: dict[str, str | None] = {"class": "name"}
-    if rule:
-        name["data-rule"] = rule
-    preview = text if len(text) <= 56 else text[:53] + "…"
-    return el(
-        "div",
-        attrs,
-        el("b", None, ("▸" if shut else "▾") if kids else "·"),
-        el("span", name, label),
-        el("span", {"class": "txt"}, preview),
-    )
-
-
-def _model_kids(model: GrammarModel) -> list[GrammarModel]:
-    """Every model this one holds, tuples flattened.
-
-    A ``models``-mode field holds a TUPLE of models; dropping those
-    would draw a parse with its repetitions cut out, which is not the
-    parse that happened.
-    """
-    out: list[GrammarModel] = []
-    for kid in model.children():
-        if isinstance(kid, GrammarModel):
-            out.append(kid)
-        elif isinstance(kid, tuple):
-            out.extend(v for v in kid if isinstance(v, GrammarModel))
-    return out
-
-
-def _model_rows(root: GrammarModel) -> tuple[list[IrDoc], int, int]:
-    """The parse as rows, each knowing the span of text it covers."""
-    rows: list[IrDoc] = []
-    deepest = 0
-    stack: list[tuple[GrammarModel, int, str, int]] = [(root, 0, "0", 0)]
-    while stack:
-        model, depth, path, start = stack.pop()
-        deepest = max(deepest, depth)
-        kids = _model_kids(model)
-        text = model.to_text()
-        rows.append(
-            _row(
-                Twig(
-                    path,
-                    depth,
-                    type(model).__name__,
-                    text,
-                    bool(kids),
-                    str(model.__grammar__.name),
-                    (start, start + len(text)),
-                )
-            )
-        )
-        cursor = start
-        placed: list[tuple[GrammarModel, int, str, int]] = []
-        for i, kid in enumerate(kids):
-            placed.append((kid, depth + 1, f"{path}.{i}", cursor))
-            cursor += len(kid.to_text())
-        stack.extend(reversed(placed))
-    return rows, len(rows), deepest
-
-
-def _ir_rows(root: IrSelf) -> tuple[list[IrDoc], int, int]:
-    """Any IR product as a tree — what the reducer built, node by node."""
-    rows: list[IrDoc] = []
-    deepest = 0
-    stack: list[tuple[IrSelf, int, str]] = [(root, 0, "0")]
-    while stack:
-        node, depth, path = stack.pop()
-        deepest = max(deepest, depth)
-        kids = list(node.children())
-        shown = str(node) if isinstance(node, str) else repr(node)
-        rows.append(_row(Twig(path, depth, type(node).__name__, shown, bool(kids))))
-        for i, kid in enumerate(reversed(kids)):
-            stack.append((kid, depth + 1, f"{path}.{len(kids) - 1 - i}"))
-    return rows, len(rows), deepest
-
-
-def _plain_rows(root: object) -> tuple[list[IrDoc], int, int]:
-    """Plain data as a tree — dicts, lists and scalars, named for what they are."""
-    rows: list[IrDoc] = []
-    deepest = 0
-    stack: list[tuple[object, int, str, str]] = [(root, 0, "0", "")]
-    while stack:
-        value, depth, path, key = stack.pop()
-        deepest = max(deepest, depth)
-        if isinstance(value, dict):
-            kids: list[tuple[object, str]] = [(v, str(k)) for k, v in value.items()]
-            shown = f"{{{len(value)}}}"
-        elif isinstance(value, (list, tuple)):
-            kids = [(v, str(i)) for i, v in enumerate(value)]
-            shown = f"[{len(value)}]"
-        else:
-            kids, shown = [], repr(value)
-        label = f"{key} · {type(value).__name__}" if key else type(value).__name__
-        rows.append(_row(Twig(path, depth, label, shown, bool(kids))))
-        for i, (kid, kid_key) in enumerate(reversed(kids)):
-            stack.append((kid, depth + 1, f"{path}.{len(kids) - 1 - i}", kid_key))
-    return rows, len(rows), deepest
-
 
 # ── a vocabulary is a size and a pipeline ─────────────────────────────
 
@@ -693,7 +273,7 @@ def semantic_view(model: GrammarModel, source: str) -> IrDoc:
     its span, because what counts as noise is the grammar's judgement
     and hiding it would be opsis making that judgement instead.
     """
-    rows, _deepest, _n = _model_rows(model)
+    rows, _deepest, _n = model_rows(model)
     kept, whole = len(model.semantic_dump()), len(model.dump())
     return el(
         "div",
@@ -707,7 +287,7 @@ def semantic_view(model: GrammarModel, source: str) -> IrDoc:
                 "grammar's judgement, not this window's"
             ),
         ),
-        _twin(source, el("div", {"class": "semantic"}, *rows)),
+        twin(source, el("div", {"class": "semantic"}, *rows)),
     )
 
 
