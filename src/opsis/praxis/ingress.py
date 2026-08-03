@@ -10,6 +10,7 @@ what successfully READS it, tried cheapest first:
 - a session file       → the scene notation reads it
 - a compiled value     → Python reads it, by importing it
 - an exported twin     → lexic's module grammar reads it
+- a saved session      → it replaces the session rather than joining it
 - IR notation          → the notation reads it
 
 Nothing here takes a "kind" argument, and what nothing reads is a
@@ -42,6 +43,7 @@ __all__ = [
     "Entry",
     "Opened",
     "browse",
+    "SHIPPED",
     "manifest_reader",
     "manifests",
     "open_file",
@@ -52,6 +54,9 @@ __all__ = [
 
 _VALUE_MARK = "A compiled value"
 """How an exported value names itself, in its own first line."""
+
+SHIPPED = "lexic ships "
+"""How a seeded flavour records where its manifest came from."""
 
 _VOCAB_MARK = '"added_tokens"'
 """What a ``tokenizer.json`` document says early and nothing else does."""
@@ -318,6 +323,8 @@ def open_file(root: Path, rel: str) -> Opened:
             _flavour_reader(flavour),
             f"a {type(flavour).name} grammar",
         )
+    if text.lstrip().startswith("Saved("):
+        return Opened(name, "session", text, None, "a saved session")
     if _reads(lambda: load_flavour(text)):
         loaded = load_flavour(text)
         return Opened(

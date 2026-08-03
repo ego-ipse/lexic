@@ -15,14 +15,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from lexic.compile import Directives, Vocabulary
+from lexic.compile import Directives
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrCat
 from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.scene import Space
 from opsis.opsis.session import bar, hint, legend, picker, world_of
 from opsis.opsis.space import page
+from opsis.praxis.frozen import freeze, thaw
 from opsis.praxis.ingress import (
+    SHIPPED,
     browse,
     manifest_reader,
     manifests,
@@ -92,6 +94,11 @@ class Handler(BaseHTTPRequestHandler):
         elif len(parts) == 2 and parts[0] == "unplug":
             session.name_reader(parts[1], "")
             self._send("unplugged", kind="text/plain")
+        elif parts == ["freeze"]:
+            self._send(freeze(session), kind="text/plain")
+        elif parts == ["thaw"]:
+            count = thaw(session, body)
+            self._send(f"thawed · {count} readings", kind="text/plain")
         elif len(parts) == 2 and parts[0] == "remove":
             gone = session.drop(parts[1])
             self._send(f"removed {gone.title if gone else ''}", kind="text/plain")
@@ -101,6 +108,10 @@ class Handler(BaseHTTPRequestHandler):
     def _open(self, session: Session, rel: str) -> None:
         """A file becomes a reading, read by whatever turned out to read it."""
         opened = open_file(session.root, rel)
+        if opened.kind == "session":
+            count = thaw(session, opened.text)
+            self._send(f"{opened.note} · {count} readings", kind="text/plain")
+            return
         if opened.reader is None:
             self._send(opened.note, 422, "text/plain")
             return
@@ -135,8 +146,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise UnsupportedConstructError(
                     "a vocabulary binds to a compiled grammar; this one has none"
                 )
-            landed.params.vocabulary = Vocabulary(tokenizer=held.tokenizer)
-            session.read(landed.ident)
+            session.bind(landed.ident, held.ident)
             self._send(f"bound · {held.tokenizer.name}", kind="text/plain")
             return
         if held.as_reader() is not None:
@@ -364,16 +374,24 @@ window.opsisDrop = (el, cx, cy) => {
   fetch(`/drop/${el.dataset.reading}/${onto.dataset.reading}`,
         {method: "POST", body: ""}).then(posted);
 };
-// ── a frozen artifact: the page as it stands, gestures dead ──
+// ── freezing: the page as it stands, and the session that made it ──
+function save(text, name, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], {type}));
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 function freeze() {
   const clone = document.documentElement.cloneNode(true);
   clone.querySelector("body").classList.add("frozen");
-  const blob = new Blob(["<!DOCTYPE html>" + clone.outerHTML], {type: "text/html"});
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "opsis.html";
-  a.click();
-  URL.revokeObjectURL(a.href);
+  save("<!DOCTYPE html>" + clone.outerHTML, "opsis.html", "text/html");
+  // The picture and the session are different artifacts: one is what
+  // it looked like, one is what it WAS. Opening the second thaws.
+  fetch("/freeze", {method: "POST", body: ""}).then(r => r.text()).then(text => {
+    save(text, "opsis.session.ir", "text/plain");
+    toast("froze · the page, and the session file that reads back");
+  });
 }
 // ── text ↔ tree: a node lights the span it covers ──
 document.addEventListener("pointerover", e => {
@@ -468,4 +486,4 @@ def seed(session: Session) -> None:
     """
     notation = session.surface(manifest_reader())
     for name, text in manifests():
-        session.add(name, "manifest", notation, text, f"lexic ships {name}")
+        session.add(name, "manifest", notation, text, SHIPPED + name)

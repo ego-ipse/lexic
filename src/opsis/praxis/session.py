@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from lexic.compile import Vocabulary
 from lexic.exceptions import UnsupportedConstructError
 from opsis.praxis.reading import Params, Reader, Reading, refusal_of
 
@@ -48,6 +49,16 @@ class Session:
         self.readings[reading.ident] = reading
         self.read(reading.ident)
         return reading
+
+    def claim(self, ident: str) -> None:
+        """Reserve a name a restored reading already carries.
+
+        Thawing puts readings back under the names they were saved
+        with, so the counter has to move past them or the next new node
+        would take a name that is already on screen.
+        """
+        if ident.startswith("r") and ident[1:].isdigit():
+            self._next = max(self._next, int(ident[1:]))
 
     def surface(self, reader: Reader) -> str:
         """Hold a reader that came from lexic rather than from a reading."""
@@ -112,8 +123,37 @@ class Session:
         return other.as_reader() if other is not None else None
 
     def readers_of(self, ident: str) -> list[Reading]:
-        """Every reading that names this one as its reader."""
-        return [r for r in self.readings.values() if r.reader == ident]
+        """Every reading that depends on this one, however it names it.
+
+        Being read by it and being bound to it are both dependencies, so
+        both cascade: editing a vocabulary document re-reads the
+        grammars bound to it, which is the whole point of a binding
+        being an ident.
+        """
+        return [
+            r
+            for r in self.readings.values()
+            if ident in (r.reader, r.params.bound) and r.ident != ident
+        ]
+
+    def bind(self, ident: str, vocabulary: str) -> None:
+        """Say which reading's product is this one's vocabulary."""
+        reading = self._get(ident)
+        if vocabulary == ident:
+            raise UnsupportedConstructError("a grammar cannot be its own vocabulary")
+        reading.params.bound = vocabulary
+        self.read(ident)
+
+    def vocabulary_for(self, reading: Reading) -> Vocabulary:
+        """The vocabulary a reading is bound to, resolved now.
+
+        A binding to a reading that has since gone, or that no longer
+        produces a vocabulary, is simply no binding — the grammar reads
+        unbound and its node says what it is bound to, which is nothing.
+        """
+        held = self.readings.get(reading.params.bound)
+        tokenizer = held.tokenizer if held is not None else None
+        return Vocabulary() if tokenizer is None else Vocabulary(tokenizer=tokenizer)
 
     def read(self, ident: str) -> None:
         """Read this one, then everything that names it, downward.
@@ -144,6 +184,7 @@ class Session:
         """
         if reader.instance is not None:
             reading.instance = reader.instance(reading.text)
+        reading.params.vocabulary = self.vocabulary_for(reading)
         if reader.refine is not None and reading.instance is not None:
             reading.product = reader.refine(reading.instance, reading.params)
             return

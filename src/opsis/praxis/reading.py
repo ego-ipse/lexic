@@ -32,10 +32,17 @@ __all__ = ["Params", "Reader", "Reading"]
 class Params:
     """The rest of a reading's input — everything beside the text itself.
 
-    Directives are the chips, a vocabulary is what a plugged tokenizer
-    left behind, a resolver is the answer to an ambiguity, an origin is
-    where the text came from. They ride every re-read, because they are
-    part of what was read rather than settings applied to it.
+    Directives are the chips, ``bound`` names the reading whose product
+    is this one's vocabulary, a resolver is the answer to an ambiguity,
+    an origin is where the text came from. They ride every re-read,
+    because they are part of what was read rather than settings applied
+    to it.
+
+    A binding is an ident and not a tokenizer, which is what makes it
+    survive: editing the vocabulary document re-reads everything bound
+    to it, and a saved session can name the binding without carrying a
+    hundred thousand entries. ``vocabulary`` is what ``bound`` resolved
+    to on the last read — derived, never declared.
 
     ``origin`` is not provenance decoration. One artefact — a compiled
     value — is read by IMPORTING it, and a module is imported by path,
@@ -43,13 +50,14 @@ class Params:
     needs its directives.
     """
 
-    __slots__ = ("directives", "vocabulary", "resolver", "origin")
+    __slots__ = ("directives", "resolver", "origin", "bound", "vocabulary")
 
     def __init__(self, origin: str = "") -> None:
         self.directives = Directives()
-        self.vocabulary = Vocabulary()
         self.resolver: str = ""
         self.origin = origin
+        self.bound: str = ""
+        self.vocabulary = Vocabulary()
 
 
 class Reader:
