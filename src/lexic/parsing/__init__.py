@@ -86,9 +86,12 @@ The engine floor is public here too, beside :class:`Kernel`:
 completions — the route-forcing seam (forcing a route means calling a
 different product entry, never passing a flag) — and the predictive half
 surfaces as :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` (the
-fused runtime, subclassable for tracing) and
+fused runtime, subclassable for tracing),
 :class:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis` (the decision
-taxonomy the verdict readers consume).
+taxonomy the verdict readers consume), and
+:func:`~lexic.parsing.products.pda_tables` /
+:class:`~lexic.parsing.pda.compiler.tables.PdaTables` (the compiled tables a
+kernel runs over, identity-memoised with the parse path).
 """
 
 from __future__ import annotations
@@ -132,12 +135,14 @@ from lexic.parsing.fold import (
     lift_optional_nullables,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.products import (
     earley_model,
     earley_reduce,
     parse_model,
     parse_reduced,
+    pda_tables,
     token_model,
 )
 
@@ -246,6 +251,7 @@ __all__ = [
     "ParseTree",
     "ParserTables",
     "PdaKernel",
+    "PdaTables",
     "Reducer",
     "Resolver",
     "RootNode",
@@ -262,6 +268,7 @@ __all__ = [
     "parse_first",
     "parse_forest",
     "parse_model",
+    "pda_tables",
     "CharTrieCursor",
     "TokenMaskCursor",
     "TokenTermCursor",

@@ -55,6 +55,7 @@ __all__ = [
     "parse_model",
     "earley_reduce",
     "earley_model",
+    "pda_tables",
     "reset_product_cache",
 ]
 
@@ -339,3 +340,21 @@ def parse_model[M](
         return earley_model(
             product.instance_grammar, text, fold, product.tables, resolve
         )
+
+
+def pda_tables(grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS) -> PdaTables:
+    """The instance product's compiled PDA — the artefact's predictive half.
+
+    The public reach onto what :func:`parse_model` drives: identity-memoised
+    with the parse path, so the tables a parse compiled are the exact object
+    returned (and a first call compiles once and shares forward). This is the
+    trace substrate a :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel`
+    subclass runs over.
+
+    :param grammar: The authored codegen grammar.
+    :param fold: The positional fold the product is keyed with.
+    :param bits: The packing tier the memo key rides (the PDA half itself is
+        tier-independent).
+    :returns: The compiled :class:`~lexic.parsing.pda.compiler.tables.PdaTables`.
+    """
+    return _model_product(grammar, fold, bits).pda

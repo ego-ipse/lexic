@@ -28,6 +28,7 @@ from lexic.parsing.earley.kernel.tables import atoms as tables_mod
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import (
     _MODEL_CACHE,
     _model_product,
@@ -36,6 +37,7 @@ from lexic.parsing.products import (
     earley_reduce,
     parse_model,
     parse_reduced,
+    pda_tables,
     reset_product_cache,
 )
 from tests.unit.lexic.parsing.parsing_helpers import compiled
@@ -151,6 +153,44 @@ def test_reset_product_cache_forces_model_product_recompilation():
     assert first is not second
     assert first.grammar is second.grammar
     assert first.fold is second.fold
+
+
+# ── pda_tables — the public predictive-tables accessor ─────────────────────
+
+
+def test_pda_tables_returns_pda_tables():
+    """pda_tables returns the compiled PdaTables for a (grammar, fold) pair."""
+    cg = compiled()
+    assert isinstance(pda_tables(cg.codegen_grammar, cg.fold), PdaTables)
+
+
+def test_pda_tables_is_the_model_products_pda():
+    """pda_tables is identity-memoised with the parse path — the same object
+    _model_product's .pda field holds."""
+    cg = compiled()
+    assert (
+        pda_tables(cg.codegen_grammar, cg.fold)
+        is _model_product(cg.codegen_grammar, cg.fold).pda
+    )
+
+
+def test_pda_tables_is_the_same_object_across_calls():
+    """Two calls with the identical (grammar, fold) return the SAME tables —
+    no recompilation."""
+    cg = compiled()
+    first = pda_tables(cg.codegen_grammar, cg.fold)
+    second = pda_tables(cg.codegen_grammar, cg.fold)
+    assert first is second
+
+
+def test_reset_product_cache_forces_pda_tables_recompilation():
+    """reset_product_cache drops the model cache pda_tables reads too — a
+    fresh object comes back for the same identity."""
+    cg = compiled()
+    first = pda_tables(cg.codegen_grammar, cg.fold)
+    reset_product_cache()
+    second = pda_tables(cg.codegen_grammar, cg.fold)
+    assert first is not second
 
 
 # ── boundary checks ─────────────────────────────────────────────────────────

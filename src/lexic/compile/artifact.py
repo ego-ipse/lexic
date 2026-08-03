@@ -21,7 +21,14 @@ from lexic.ir import (
     concretize,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelFold, TokenMaskCursor, parse_model, token_model
+from lexic.parsing import (
+    ModelFold,
+    PdaTables,
+    TokenMaskCursor,
+    parse_model,
+    pda_tables,
+    token_model,
+)
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 
 
@@ -180,6 +187,19 @@ class CompiledGrammar:
             parse_model(self.codegen_grammar, text, self.fold, resolve),
             "compile: the start rule's fold",
         )
+
+    def pda_tables(self) -> PdaTables:
+        """The predictive engine's compiled tables for this artefact.
+
+        Reaches the engine's identity-memoised instance product for
+        ``(codegen_grammar, fold)`` — this artefact holds the exact objects
+        the memo is keyed by, so the tables returned are the very ones
+        :meth:`parse` drives: hot if this grammar has parsed already,
+        compiled once and shared forward if not.
+
+        :returns: The compiled :class:`~lexic.parsing.PdaTables`.
+        """
+        return pda_tables(self.codegen_grammar, self.fold)
 
     def bind(
         self, tokenizer: IrTokenizer, registry: IrMap | None = None

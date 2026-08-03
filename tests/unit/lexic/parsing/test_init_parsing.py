@@ -35,6 +35,7 @@ from lexic.parsing import (
     ParserTables,
     ParseTree,
     PdaKernel,
+    PdaTables,
     Reducer,
     RuleFold,
     SppfNode,
@@ -49,6 +50,10 @@ from lexic.parsing import (
     parse_forest,
     parse_model,
     parse_reduced,
+    pda_tables,
+)
+from lexic.parsing import products as products_direct
+from lexic.parsing import (
     recognize,
 )
 from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
@@ -69,6 +74,7 @@ from lexic.parsing.earley.kernel.tables.records import (
 )
 from lexic.parsing.earley.reduce.reducer import Reducer as ReducerDirect
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis as GrammarAnalysisDirect
+from lexic.parsing.pda.compiler.tables import PdaTables as PdaTablesDirect
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel as PdaKernelDirect
 from lexic.parsing.products import earley_model as earley_model_direct
 from lexic.parsing.products import earley_reduce as earley_reduce_direct
@@ -231,3 +237,14 @@ def test_grammar_analysis_re_exported_from_package():
 def test_pda_kernel_re_exported_from_package():
     """PdaKernel is re-exported from the package top-level."""
     assert PdaKernel is PdaKernelDirect
+
+
+def test_pda_tables_re_exported_from_package():
+    """PdaTables is re-exported from the package top-level."""
+    assert PdaTables is PdaTablesDirect
+
+
+def test_pda_tables_function_re_exported_from_package():
+    """pda_tables (the products function) is re-exported from the package
+    top-level, the same object products.pda_tables is."""
+    assert pda_tables is products_direct.pda_tables
