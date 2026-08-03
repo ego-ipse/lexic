@@ -32,6 +32,7 @@ from opsis.opsis.space import frame
 from opsis.opsis.tables import flavour_view, registry_view, table_view
 from opsis.opsis.views import (
     bounded,
+    carve_view,
     constrain_view,
     instance_view,
     module_view,
@@ -42,6 +43,7 @@ from opsis.opsis.views import (
     view_of,
 )
 from opsis.praxis.acts import Deed, deeds
+from opsis.praxis.carve import bench
 from opsis.praxis.constrain import Cursors, sample
 from opsis.praxis.reading import Reading
 from opsis.praxis.reflect import drawn_by
@@ -124,7 +126,7 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
             ("derivations", "derivations"),
         ]
     if reading.compiled is not None:
-        out.append(("tables", "its tables"))
+        out += [("tables", "its tables"), ("carve", "template")]
     if reading.flavour is not None:
         out += [("flavour", "what it IS"), ("dispatch", "its tables")]
     if not reading.reader:
@@ -321,6 +323,13 @@ def _window(
             (660, 460),
             lambda: [table_view(carrier, str(type(carrier).name))],
         )
+    if kind == "carve" and reading.compiled is not None:
+        carved = reading.compiled
+        return (
+            f"{title} — template",
+            (620, 420),
+            lambda: [_carve(session, reading, carved)],
+        )
     if kind == "plug":
         return (f"{title} — plug ⊕", (520, 320), lambda: [_plug(session, reading)])
     if kind == "registry":
@@ -425,6 +434,20 @@ def _resolver(reading: Reading) -> IrDoc:
             "span rather than choosing for you",
         ),
     )
+
+
+def _carve(session: Session, reading: Reading, compiled: CompiledGrammar) -> IrDoc:
+    """This grammar's template bench, over whichever text it last read.
+
+    The document is a reading below this one — templating extracts from
+    a DOCUMENT, and the documents this grammar has are the readings it
+    reads.
+    """
+    held = bench(reading.ident)
+    below = session.readers_of(reading.ident)
+    doc = next((r.title for r in below if r.text), "")
+    note = held.result.note + (f" · over {doc}" if doc else " · nothing under it yet")
+    return carve_view(reading.ident, held.shape, held.spec, held.result.paths, note)
 
 
 def _plug(session: Session, reading: Reading) -> IrDoc:

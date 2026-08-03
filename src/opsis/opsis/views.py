@@ -37,6 +37,7 @@ __all__ = [
     "BIG",
     "VIEWS",
     "bounded",
+    "carve_view",
     "constrain_view",
     "graph",
     "instance_view",
@@ -490,6 +491,63 @@ def constrain_view(
             el("button", {"class": "go", "data-do": f"/push/{ident}"}, "push"),
             el("button", {"class": "go", "data-do": f"/back/{ident}"}, "back"),
             el("button", {"class": "go", "data-do": f"/reset/{ident}"}, "reset"),
+        ),
+    )
+
+
+def carve_view(ident: str, shape: str, spec: str, rows, note: str) -> IrDoc:
+    """The template editor — the shape, the paths, and what came out."""
+    return el(
+        "div",
+        None,
+        el(
+            "div",
+            {"class": "row"},
+            el("span", {"class": "name"}, "shape"),
+            el(
+                "input",
+                {
+                    "id": f"sh-{ident}",
+                    "value": shape,
+                    "spellcheck": "false",
+                    "placeholder": "section, entry, key, value",
+                },
+            ),
+        ),
+        el(
+            "div",
+            {"class": "note"},
+            "which of this grammar's rules make one mapping level — the "
+            "section, one entry, and the entry's key and value fields",
+        ),
+        el(
+            "div",
+            {"class": "row"},
+            el("span", {"class": "name"}, "keep"),
+            el(
+                "textarea",
+                {
+                    "id": f"sp-{ident}",
+                    "spellcheck": "false",
+                    "placeholder": "one dotted path per line",
+                },
+                spec,
+            ),
+        ),
+        el(
+            "div",
+            {"class": "controls"},
+            el("button", {"class": "go", "data-do": f"/carve/{ident}"}, "extract"),
+            el("span", {"class": "note"}, note),
+        ),
+        *(
+            el(
+                "div",
+                {"class": "cell"},
+                el("code", None, path),
+                el("span", None, value),
+            )
+            for path, value in rows
         ),
     )
 

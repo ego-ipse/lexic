@@ -31,6 +31,7 @@ from opsis.opsis.session import (
 )
 from opsis.opsis.space import page
 from opsis.praxis.acts import perform
+from opsis.praxis.carve import run_bench
 from opsis.praxis.frozen import freeze, thaw
 from opsis.praxis.ingress import (
     SHIPPED,
@@ -128,6 +129,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(perform(session, reading, parts[2]), kind="text/plain")
         elif len(parts) == 2 and parts[0] in ("push", "back", "reset"):
             self._send(_step(session, parts[0], parts[1], body), kind="text/plain")
+        elif len(parts) == 2 and parts[0] == "carve":
+            self._send(_carve(session, parts[1], query), kind="text/plain")
         elif parts == ["reflect"]:
             self._send(_reflect(session), kind="text/plain")
         elif parts == ["freeze"]:
@@ -257,6 +260,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         """Quiet — the terminal belongs to whoever started this."""
+
+
+def _carve(session: Session, ident: str, query: str) -> str:
+    """Run a reading's template bench with what its window says."""
+    reading = session.readings.get(ident)
+    compiled = reading.compiled if reading is not None else None
+    if reading is None or compiled is None:
+        raise UnsupportedConstructError("templating needs a compiled grammar")
+    below = [r for r in session.readers_of(ident) if r.text]
+    if not below:
+        raise UnsupportedConstructError(
+            "nothing under this grammar to extract from — give it a text first"
+        )
+    qs = parse_qs(query)
+    held = run_bench(
+        ident,
+        compiled,
+        (qs.get("shape") or [""])[0],
+        (qs.get("spec") or [""])[0],
+        below[0].text,
+    )
+    return held.result.note
 
 
 def _reflect(session: Session) -> str:
@@ -417,8 +442,18 @@ document.addEventListener("click", e => {
   if (go) {
     go.disabled = true;
     go.textContent = "…";
-    const field = go.closest(".frame").querySelector("[data-push]");
-    fetch(go.dataset.do, {method: "POST", body: field ? field.value : ""})
+    const win = go.closest(".frame");
+    const field = win.querySelector("[data-push]");
+    const sh = win.querySelector('input[id^="sh-"]');
+    const sp = win.querySelector('textarea[id^="sp-"]');
+    let where = go.dataset.do;
+    if (sh || sp) {
+      const q = new URLSearchParams();
+      if (sh) q.set("shape", sh.value);
+      if (sp) q.set("spec", sp.value);
+      where += "?" + q.toString();
+    }
+    fetch(where, {method: "POST", body: field ? field.value : ""})
       .then(r => r.text().then(t => { toast(t); return r.ok ? refresh() : null; }));
     return;
   }
