@@ -92,9 +92,9 @@ def test_open_spawn_drop_edit_round_trips_a_model(server: OpsisServer) -> None:
     grammar = next(r for r in session.readings.values() if r.title == "json.gbnf")
     assert grammar.compiled is not None
 
-    status, _ = _post(server, "/new", "text")
+    status, _ = _post(server, "/new")
     assert status == 200
-    spawned = next(r for r in session.readings.values() if r.title == "new text")
+    spawned = next(r for r in session.readings.values() if r.title == "untitled")
 
     status, _ = _post(server, f"/drop/{grammar.ident}/{spawned.ident}")
     assert status == 200
@@ -118,7 +118,7 @@ def test_open_spawn_drop_edit_round_trips_a_model(server: OpsisServer) -> None:
         ("POST", "/do/zzz/twin", ""),
         ("POST", "/text/zzz", "hi"),
         ("POST", "/thaw", "not a session"),
-        ("POST", "/new", "nonsense"),
+        ("POST", "/name/zzz", "whatever"),
     ],
 )
 def test_every_bad_gesture_refuses_without_taking_the_server_down(

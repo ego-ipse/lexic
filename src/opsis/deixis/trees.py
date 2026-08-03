@@ -19,13 +19,12 @@ from typing import NamedTuple
 from lexic.ir import IrDoc, IrSelf
 from lexic.model import GrammarModel
 from opsis.opsis.draw.canvas import el
-from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.read.parts import (
     Node,
     bounded,
     graph,
+    panel,
     refusal,
-    stack,
 )
 
 __all__ = ["Twig", "instance_view", "model_rows", "tree_space", "twin"]
@@ -221,18 +220,10 @@ def tree_space(root: GrammarModel) -> IrDoc:
     nodes, edges = into.nodes, into.edges
     if not nodes:
         return refusal("this reading built nothing to draw")
-    return stack(
-        [
-            el(
-                "div",
-                {"class": "note"},
-                _text(
-                    f"{len(nodes)} nodes · {max(n.column for n in nodes) + 1} deep · "
-                    "column is depth, row is document order"
-                ),
-            ),
-            graph(nodes, edges),
-        ]
+    return panel(
+        f"{len(nodes)} nodes · {max(n.column for n in nodes) + 1} deep · "
+        "column is depth, row is document order",
+        graph(nodes, edges),
     )
 
 

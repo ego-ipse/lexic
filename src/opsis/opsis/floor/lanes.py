@@ -110,17 +110,9 @@ def transpile_view(ast: IrAst, source: str) -> IrDoc:
         if name == source:
             continue
         rows.append(_lane(ours, name))
-    return stack(
-        [
-            el(
-                "div",
-                {"class": "note"},
-                _text(
-                    f"the same grammar through {len(rows)} other surfaces — each "
-                    "emitted, read back, and compared to what it started as"
-                ),
-            )
-        ],
+    return panel(
+        f"the same grammar through {len(rows)} other surfaces — each "
+        "emitted, read back, and compared to what it started as",
         *rows,
     )
 
@@ -151,12 +143,16 @@ def _lane(ours: IrAst, surface: str) -> IrDoc:
                     _text(
                         "reads back as the same grammar"
                         if same
-                        else "reads back as a DIFFERENT grammar — this surface loses "
-                        "something this one has"
+                        else "reads back as a DIFFERENT grammar — this "
+                        "surface loses something this one has"
                     ),
                 ),
             ),
-            el("pre", {"class": "src"}, _text(shown + (f"\n… {note}" if note else ""))),
+            el(
+                "pre",
+                {"class": "src"},
+                _text(shown + (f"\n… {note}" if note else "")),
+            ),
         ]
     )
 
