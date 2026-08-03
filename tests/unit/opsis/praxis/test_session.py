@@ -81,13 +81,16 @@ def test_edit_cascades_through_a_bound_reading(
     vname = session.surface(vocabulary_reader())
     grammar = session.add("toy", "grammar", gname, Source(_TOY))
     vocab = bind_vocab(session, grammar, vname)
-    assert grammar.params.vocabulary.tokenizer is vocab.tokenizer
+    assert grammar.params.bound == vocab.ident
+    assert grammar.compiled is not None
+    assert grammar.compiled.tokens.tokenizer is vocab.tokenizer
 
     text = session.add("text", "text", grammar.ident, Source("xx"))
     before = id(text.product)
 
     session.edit(vocab.ident, '{"model": {"vocab": {"a": 0, "b": 1}, "merges": []}}')
-    assert grammar.params.vocabulary.tokenizer is vocab.tokenizer
+    assert grammar.compiled is not None
+    assert grammar.compiled.tokens.tokenizer is vocab.tokenizer
     assert id(text.product) != before
 
 

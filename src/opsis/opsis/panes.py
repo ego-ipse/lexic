@@ -19,6 +19,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrDoc, IrFlavour, IrTokenizer
 from lexic.model import GrammarModel
 from lexic.parsing import lift_optional_nullables
+from opsis.opsis.analysis import analysis_view
 from opsis.opsis.binding import binding_view, fold_view, runs_of
 from opsis.opsis.canvas import el
 from opsis.opsis.canvas import text as _text
@@ -28,17 +29,20 @@ from opsis.opsis.engine import (
     forest_view,
     tables_view,
 )
+from opsis.opsis.stages import module_view, pipeline_view
 from opsis.opsis.tables import flavour_view, registry_view, table_view
 from opsis.opsis.views import (
+    binding_facts,
     bounded,
+    button,
     carve_view,
     constrain_view,
+    controls,
     instance_view,
-    module_view,
-    pipeline_view,
     railroad_view,
     refusal,
     regrammar_view,
+    resume_view,
     rules_view,
     semantic_view,
     tokenizer_view,
@@ -47,9 +51,18 @@ from opsis.praxis.acts import Deed, deeds
 from opsis.praxis.carve import bench
 from opsis.praxis.constrain import Cursors, sample
 from opsis.praxis.reading import Reading, self_compiled
+from opsis.praxis.resume import Resumes
 from opsis.praxis.session import Session, alphabets
 
-__all__ = ["CURSORS", "PANES", "Pane", "artefact", "fan", "window"]
+__all__ = [
+    "CURSORS",
+    "PANES",
+    "RESUMES",
+    "Pane",
+    "artefact",
+    "fan",
+    "window",
+]
 
 
 def artefact(reading: Reading) -> CompiledGrammar | None:
@@ -103,6 +116,9 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
             ("binding", "binding"),
             ("fold", "its fold"),
             ("runs", "its runs"),
+            ("analysis", "its verdicts"),
+            ("tokens", "its token facts"),
+            ("resume", "resume"),
         ]
     if reading.flavour is not None:
         out += [("flavour", "what it IS"), ("dispatch", "its tables")]
@@ -112,6 +128,9 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
         out.append(("plug", "plug ⊕"))
     return out
 
+
+RESUMES = Resumes()
+"""Every reading's growing chart — dropped when its grammar re-reads."""
 
 CURSORS = Cursors()
 """Every reading's constraint cursor — thrown away when it re-reads."""
@@ -273,6 +292,34 @@ def _surface_of(session: Session, reading: Reading) -> str:
     return held.flavour if held is not None else "gbnf"
 
 
+def _analysis_pane(_session: Session, reading: Reading) -> Pane:
+    """Every decision the predictive analysis settled, in its own words."""
+    compiled = _grammar(reading)
+    return Pane(
+        f"{reading.title} — its verdicts", (660, 420), lambda: [analysis_view(compiled)]
+    )
+
+
+def _tokens_pane(_session: Session, reading: Reading) -> Pane:
+    """What this grammar knows about tokens — bound, segments, unresolved."""
+    compiled = _grammar(reading)
+    return Pane(
+        f"{reading.title} — its token facts",
+        (620, 340),
+        lambda: [binding_facts(compiled)],
+    )
+
+
+def _resume_pane(_session: Session, reading: Reading) -> Pane:
+    """The growing chart, its marks, and what it accepts so far."""
+    held = RESUMES.of(reading)
+    return Pane(
+        f"{reading.title} — resume",
+        (600, 380),
+        lambda: [resume_view(reading.ident, held)],
+    )
+
+
 def _tables_pane(_session: Session, reading: Reading) -> Pane:
     """The predictive artefact this grammar compiled to."""
     compiled = _grammar(reading)
@@ -402,6 +449,9 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "binding": _binding_pane,
     "fold": _fold_pane,
     "runs": _runs_pane,
+    "analysis": _analysis_pane,
+    "tokens": _tokens_pane,
+    "resume": _resume_pane,
     "semantic": _semantic_pane,
     "regrammar": _regrammar_pane,
     "flavour": _flavour_pane,
@@ -533,17 +583,7 @@ def _plug(session: Session, reading: Reading) -> IrDoc:
         if r.tokenizer is not None
     )
     if bound is not None:
-        rows.append(
-            el(
-                "div",
-                {"class": "controls"},
-                el(
-                    "button",
-                    {"class": "go", "data-do": f"/drop//{reading.ident}"},
-                    "unbind",
-                ),
-            )
-        )
+        rows.append(controls(button("unbind", f"/drop//{reading.ident}")))
     return el("div", None, *rows)
 
 

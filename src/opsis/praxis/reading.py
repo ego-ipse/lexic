@@ -26,7 +26,6 @@ from typing import Callable, NamedTuple
 from lexic.compile import (
     CompiledGrammar,
     Directives,
-    Vocabulary,
     compile_ast,
     compile_text,
     parse_grammar,
@@ -77,8 +76,9 @@ class Params(NamedTuple):
     A binding is an ident and not a tokenizer, which is what makes it
     survive: editing the vocabulary document re-reads everything bound
     to it, and a saved session can name the binding without carrying a
-    hundred thousand entries. ``vocabulary`` is what ``bound`` resolved
-    to on the last read — derived, never declared.
+    hundred thousand entries. Nothing here holds the
+    vocabulary itself: what is bound is applied by rebinding the
+    artefact, so the artefact is where to ask what it ended up with.
 
     ``origin`` is not provenance decoration. One artefact — a compiled
     value — is read by IMPORTING it, and a module is imported by path,
@@ -90,7 +90,6 @@ class Params(NamedTuple):
     resolver: str = ""
     origin: str = ""
     bound: str = ""
-    vocabulary: Vocabulary = Vocabulary()
 
 
 class Reader(NamedTuple):
@@ -248,12 +247,10 @@ def _flavour_reader(flavour: IrFlavour, of: str = "") -> Reader:
     """
 
     def read(text: str, params: Params) -> object:
-        return compile_text(
-            text,
-            flavour=flavour,
-            vocabulary=params.vocabulary,
-            directives=params.directives,
-        )
+        # Compiled unbound, always: docking a vocabulary is a rebind of
+        # what this produced, and compiling per vocabulary would throw
+        # away the memo on every dock.
+        return compile_text(text, flavour=flavour, directives=params.directives)
 
     return Reader(
         str(type(flavour).name),

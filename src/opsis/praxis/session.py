@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from lexic.compile import Vocabulary
+from lexic.compile import CompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAlphabet, IrMap, IrSelf, IrStr, IrTuple
 from opsis.praxis.reading import (
@@ -184,28 +184,6 @@ class Session:
         reading.params = reading.params._replace(bound=vocabulary)
         self.read(ident)
 
-    def vocabulary_for(self, reading: Reading, instance: object = None) -> Vocabulary:
-        """The vocabulary a reading is bound to, resolved now.
-
-        A binding to a reading that has since gone, or that no longer
-        produces a vocabulary, is simply no binding — the grammar reads
-        unbound and its node says what it is bound to, which is nothing.
-
-        A tokenizer binds under its own name, which is not usually the
-        name the grammar asks for: a grammar says ``IrAlphabet("tokens",
-        …)`` and means "whatever vocabulary I am read with". So the
-        tokenizer is also bound under every encoding name this grammar
-        actually names — read off its own AST, never a list of names
-        opsis knows.
-        """
-        held = self.readings.get(reading.params.bound)
-        tokenizer = held.tokenizer if held is not None else None
-        if tokenizer is None:
-            return Vocabulary()
-        wanted = alphabets(instance)
-        registry = IrMap(*(IrTuple(IrStr(name), tokenizer) for name in wanted))
-        return Vocabulary(tokenizer=tokenizer, registry=registry or None)
-
     def read(self, ident: str) -> None:
         """Read this one, then everything that names it, downward.
 
@@ -232,12 +210,30 @@ class Session:
         try:
             if reader.instance is not None:
                 instance = reader.instance(reading.text)
-            reading.params = reading.params._replace(
-                vocabulary=self.vocabulary_for(reading, instance)
-            )
-            return Outcome(instance, self._built(reader, reading, instance))
+            built = self._built(reader, reading, instance)
+            return Outcome(instance, self._docked(reading, built, instance))
         except FOREIGN as exc:
             return Outcome(instance, None, refusal_of(exc))
+
+    def _docked(self, reading: Reading, built: object, instance: object) -> object:
+        """The product with its vocabulary docked — rebound, never recompiled.
+
+        Docking a vocabulary is a rebind: the classes, the binding and
+        the fold are all invariant under WHICH vocabulary is bound, so
+        only the resolved ids differ. Measured at ~1000x cheaper than
+        compiling again, which is the difference between a drag that
+        lands and one that hangs.
+
+        The declaration stays an ident on the params, so the binding
+        survives an edit and a save; this is only how it is applied.
+        """
+        held = self.readings.get(reading.params.bound)
+        tokenizer = held.tokenizer if held is not None else None
+        if tokenizer is None or not isinstance(built, CompiledGrammar):
+            return built
+        names = alphabets(instance)
+        registry = IrMap(*(IrTuple(IrStr(name), tokenizer) for name in names))
+        return built.bind(tokenizer, registry or None)
 
     def _built(self, reader: Reader, reading: Reading, instance: object) -> object:
         """The product — refined off the first reading where there is one."""

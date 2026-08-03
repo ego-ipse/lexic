@@ -13,12 +13,10 @@ visible refusal, never an empty window.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import NamedTuple, Sequence
 
-from lexic.compile import CompiledGrammar, export_source
+from lexic.compile import CompiledGrammar
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.grammars import get_flavour
 from lexic.ir import (
     IrAction,
     IrAst,
@@ -34,23 +32,25 @@ from opsis.eidolon import Topology
 from opsis.opsis.canvas import el, raw
 from opsis.opsis.canvas import text as _text
 from opsis.opsis.graphic import RAIL_CSS, rule_svg
-from opsis.opsis.space import Box, Frame, frame
 
 __all__ = [
     "BIG",
     "VIEWS",
+    "binding_facts",
     "bounded",
+    "button",
     "carve_view",
+    "controls",
+    "field",
     "facts",
     "panel",
     "constrain_view",
     "graph",
     "instance_view",
-    "module_view",
-    "pipeline_view",
     "railroad_view",
     "refusal",
     "regrammar_view",
+    "resume_view",
     "rules_view",
     "semantic_view",
     "view_of",
@@ -76,6 +76,28 @@ def bounded(text: str, limit: int = BIG) -> tuple[str, str]:
         f"{len(text):,} characters · showing the first {limit:,} — "
         "the rest is on disk, not hidden",
     )
+
+
+def button(label: str, does: str) -> IrDoc:
+    """One control that does one thing, and says which."""
+    return el("button", {"class": "go", "data-do": does}, _text(label))
+
+
+def controls(*parts: IrDoc) -> IrDoc:
+    """A row of controls — the one shape every window's affordances take."""
+    return el("div", {"class": "controls"}, *parts)
+
+
+def field(ident: str, empty: str, push: str = "") -> IrDoc:
+    """A small editable datum a control reads when it fires."""
+    attrs: dict[str, str | None] = {
+        "id": ident,
+        "spellcheck": "false",
+        "placeholder": empty,
+    }
+    if push:
+        attrs["data-push"] = push
+    return el("input", attrs)
 
 
 def panel(note: str, *rows: IrDoc) -> IrDoc:
@@ -443,6 +465,136 @@ def _plain_rows(root: object) -> tuple[list[IrDoc], int, int]:
 # ── a vocabulary is a size and a pipeline ─────────────────────────────
 
 
+def binding_facts(compiled: CompiledGrammar) -> IrDoc:
+    """What a grammar knows about tokens — three facts, not one state.
+
+    Bound and segmented are separate questions, and conflating them is
+    what breaks additivity: a char grammar can carry a vocabulary for
+    generation and still parse as a char grammar. So the socket says
+    both, and says what a rebind would start from.
+    """
+    tokens = compiled.tokens
+    bound = tokens.tokenizer
+    rows = [
+        (
+            "bound",
+            str(bound.name) if bound is not None else "nothing",
+            f"{len(bound.encode):,} entries"
+            if bound is not None
+            else "no vocabulary is docked",
+        ),
+        (
+            "segments",
+            "yes" if tokens.segmented else "no",
+            "its terminals name an encoding, so its input is segmented"
+            if tokens.segmented
+            else "its terminals are characters — a docked vocabulary does not "
+            "change that",
+        ),
+        (
+            "unresolved",
+            "kept" if tokens.unresolved is not None else "none",
+            "the pre-resolution grammar a rebind re-concretizes; resolution is "
+            "lossy, so a rebind cannot start from the codegen grammar",
+        ),
+    ]
+    return facts(
+        rows,
+        el(
+            "div",
+            {"class": "claim ok" if not _mismatch(tokens) else "claim no"},
+            _text(_additivity(tokens)),
+        ),
+    )
+
+
+def _mismatch(tokens: object) -> bool:
+    """Whether the docked vocabulary and the grammar disagree about tokens."""
+    return bool(getattr(tokens, "segmented", False)) and (
+        getattr(tokens, "tokenizer", None) is None
+    )
+
+
+def _additivity(tokens: object) -> str:
+    """The additivity invariant, said for this particular grammar."""
+    bound = getattr(tokens, "tokenizer", None) is not None
+    segments = bool(getattr(tokens, "segmented", False))
+    if segments and not bound:
+        return (
+            "this grammar names an encoding but nothing is bound — it cannot "
+            "be read until a vocabulary is"
+        )
+    if segments:
+        return "a token grammar with its vocabulary — its terminals ARE ids"
+    if bound:
+        return (
+            "a char grammar carrying a vocabulary: it still parses as a char "
+            "grammar, and the vocabulary is there for generation"
+        )
+    return "a char grammar, reading characters"
+
+
+def resume_view(ident: str, held: object) -> IrDoc:
+    """A chart that is still growing: what has arrived, and where to return to.
+
+    Marks are TEMPORAL — points in this session's history, not offsets
+    in a document — so they are listed in the order they were taken and
+    rolling back to one drops the ones after it.
+    """
+    text = str(getattr(held, "text", ""))
+    marks = list(getattr(held, "marks", ()))
+    runs = list(getattr(held, "runs", ()))
+    accepting = bool(getattr(held, "accepting", False))
+    rows: list[IrDoc] = [
+        el(
+            "div",
+            {"class": "row"},
+            el("span", {"class": "name"}, "so far"),
+            el("pre", {"class": "src"}, _text(text or "· nothing yet ·")),
+        ),
+        el(
+            "div",
+            {"class": "claim ok" if accepting else "claim no"},
+            _text(
+                "a whole string ✓"
+                if accepting
+                else "not a whole string yet — the chart is open"
+            ),
+        ),
+    ]
+    if runs:
+        rows.append(
+            el(
+                "div",
+                {"class": "note"},
+                _text(
+                    f"{len(runs)} rule{'s' if len(runs) != 1 else ''} could be collapsed "
+                    f"into run terminals ({', '.join(str(r) for r in runs[:4])}). This "
+                    "chart runs on PLAIN tables so it can grow — a collapsed one could "
+                    "not, because a run has already consumed past where you are."
+                ),
+            )
+        )
+    rows.append(
+        controls(
+            field(f"ext-{ident}", "more text", push=ident),
+            button("extend", f"/extend/{ident}"),
+            button("mark", f"/mark/{ident}"),
+        )
+    )
+    rows.extend(
+        el(
+            "div",
+            {"class": "cell"},
+            el("code", None, _text(f"mark {mark.at}")),
+            el("span", None, _text(repr(mark.text)[:60])),
+            button("back to here", f"/rewind/{ident}/{mark.at}"),
+        )
+        for mark in marks
+    )
+    return el("div", None, *rows)
+
+
 def semantic_view(model: GrammarModel, source: str) -> IrDoc:
     """The model with its noise dimmed — the same tree, read for meaning.
 
@@ -646,173 +798,6 @@ def carve_view(ident: str, shape: str, spec: str, rows, note: str) -> IrDoc:
             for path, value in rows
         ),
     )
-
-
-# ── the compile, stage by stage ───────────────────────────────────────
-
-
-def pipeline_view(stages: Sequence[tuple[str, IrAst | None, str]]) -> IrDoc:
-    """The compile as stages, each opening what IT changed.
-
-    A stage is a diff, not a dump: what it added, what it rewrote shown
-    before and after, and how much it left alone. A stage that does not
-    occur in this compile is drawn as the absence it is.
-    """
-    nodes: list[Node] = []
-    edges: list[tuple[int, int]] = []
-    details: list[IrDoc] = []
-    before: IrAst | None = None
-    before_name = ""
-    for column, (name, ast, why) in enumerate(stages):
-        if ast is None:
-            nodes.append(
-                Node(
-                    f"st-{name}",
-                    f"{name} · not here",
-                    column,
-                    0,
-                    "dim",
-                    "",
-                    f"st-{name}",
-                )
-            )
-            details.append(_stage(Diff(name, why, [], [], 0, before_name)))
-        else:
-            added, changed = _diff(before, ast)
-            mark = f"{name} · {len(list(ast.rules))} rules"
-            if before is not None:
-                mark += f" · +{len(added)} ~{len(changed)}"
-            hue = (
-                "amber"
-                if before is None
-                else ("green" if not (added or changed) else "cyan")
-            )
-            nodes.append(Node(f"st-{name}", mark, column, 0, hue, "", f"st-{name}"))
-            details.append(
-                _stage(
-                    Diff(
-                        name,
-                        why,
-                        added,
-                        changed,
-                        len(list(ast.rules)) - len(added) - len(changed),
-                        before_name,
-                    )
-                )
-            )
-            before, before_name = ast, name
-        if column:
-            edges.append((column - 1, column))
-    return panel(
-        "each stage is what the one before it became · +added ~rewritten",
-        graph(nodes, edges),
-        *details,
-    )
-
-
-def _diff(
-    before: IrAst | None, after: IrAst
-) -> tuple[list[tuple[str, str]], list[tuple[str, str, str]]]:
-    """Which rules a stage added, and which it rewrote — with their text."""
-    if before is None:
-        return [], []
-    spell = get_flavour("gbnf")
-    was = {str(rule.name): rule for rule in before.rules}
-    added: list[tuple[str, str]] = []
-    changed: list[tuple[str, str, str]] = []
-    for rule in after.rules:
-        name = str(rule.name)
-        older = was.get(name)
-        if older is None:
-            added.append((name, str(spell.apply(rule, None))))
-        elif repr(older.body) != repr(rule.body):
-            changed.append(
-                (name, str(spell.apply(older, None)), str(spell.apply(rule, None)))
-            )
-    return added, changed
-
-
-class Diff(NamedTuple):
-    """What one compile stage did — added, rewrote, and left alone."""
-
-    name: str
-    why: str
-    added: list[tuple[str, str]]
-    changed: list[tuple[str, str, str]]
-    untouched: int
-    before: str
-
-
-def _stage(step: Diff) -> IrDoc:
-    """One stage's own window — what it did, rule by rule."""
-    name, before = step.name, step.before
-    added, changed, untouched = step.added, step.changed, step.untouched
-    rows: list[IrDoc] = [el("div", {"class": "note"}, step.why)]
-    if not before:
-        rows.append(
-            el("div", {"class": "note"}, "the first stage — nothing precedes it")
-        )
-    elif not added and not changed:
-        rows.append(el("div", {"class": "note"}, f"changed nothing from {before}"))
-    for rule, source in added:
-        rows.append(
-            el(
-                "div",
-                {"class": "row added"},
-                el("span", {"class": "name", "data-rule": rule}, f"+ {rule}"),
-                el("pre", {"class": "src"}, source),
-            )
-        )
-    for rule, was, now in changed:
-        rows.append(
-            el(
-                "div",
-                {"class": "row changed"},
-                el("span", {"class": "name", "data-rule": rule}, f"~ {rule}"),
-                el("pre", {"class": "src was"}, was),
-                el("pre", {"class": "src"}, now),
-            )
-        )
-    if untouched and before:
-        rows.append(el("div", {"class": "note"}, f"{untouched} rules untouched"))
-    return frame(
-        Frame(
-            f"st-{name}",
-            f"{name} — what it changed",
-            Box(24, 76, 560, 270),
-            shown=False,
-            sub=True,
-        ),
-        *rows,
-    )
-
-
-def module_view(compiled: CompiledGrammar, surface: str) -> IrDoc:
-    """The importable twin this grammar would export.
-
-    The grammar is the ground truth; a module is one way of writing it
-    down, and its docstrings must be spelled in SOME surface. A grammar
-    born from IR names none of its own, so one is chosen and said out
-    loud — nothing is recompiled for it, only the label the exporter
-    spells with.
-    """
-    artefact = compiled
-    note = f"what export_module writes for {compiled.flavour}"
-    if compiled.flavour != surface:
-        artefact = replace(compiled, flavour=surface)
-        note = (
-            f"this grammar came from {compiled.flavour}, which spells no "
-            f"surface of its own — its module is written out in {surface}"
-        )
-    source = export_source(artefact)
-    return panel(
-        f"{len(source.splitlines())} lines · {note} · "
-        "derived from the grammar, never the other way round",
-        el("pre", {"class": "src"}, source),
-    )
-
-
-# ── the registry: a product with no view is a DRAWN refusal ───────────
 
 
 class GrammarView(IrLeaf[IrSelf, IrSelf]):

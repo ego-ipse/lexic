@@ -163,9 +163,7 @@ def surfaces() -> list[Reader]:
             "notation",
             "notation",
             lambda text, params: compile_ast(
-                _notation_ast(text),
-                vocabulary=params.vocabulary,
-                directives=params.directives,
+                _notation_ast(text), directives=params.directives
             ),
             instance=_notation_ast,
             grammar=NOTATION_GRAMMAR,
@@ -174,9 +172,7 @@ def surfaces() -> list[Reader]:
             "module grammar",
             "module",
             lambda text, params: compile_ast(
-                _twin_ast(text),
-                vocabulary=params.vocabulary,
-                directives=params.directives,
+                _twin_ast(text), directives=params.directives
             ),
             instance=parse_module,
             grammar=MODULE_GRAMMAR,

@@ -20,7 +20,7 @@ from lexic.compile import Directives
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrCat, IrTokenizer
 from opsis.opsis.canvas import el, html, raw
-from opsis.opsis.panes import CURSORS
+from opsis.opsis.panes import CURSORS, RESUMES
 from opsis.opsis.scene import Space
 from opsis.opsis.session import (
     hint,
@@ -339,6 +339,33 @@ def _carve(session: Session, ident: str, query: str) -> str:
         below[0].text,
     )
     return held.result.note
+
+
+def _extend(session: Session, rest: list[str], ask: Ask) -> str:
+    """More text onto a growing chart."""
+    held = RESUMES.of(_held(session, rest[0]))
+    held.extend(ask.body)
+    return f"extended · {'accepts' if held.accepting else 'still open'}"
+
+
+def _mark(session: Session, rest: list[str], _ask: Ask) -> str:
+    """A point on this chart worth coming back to."""
+    return f"marked at {RESUMES.of(_held(session, rest[0])).mark().at}"
+
+
+def _rewind(session: Session, rest: list[str], _ask: Ask) -> str:
+    """Back to a mark, dropping everything taken after it."""
+    held = RESUMES.of(_held(session, rest[0]))
+    held.rollback(int(rest[1]))
+    return f"back to {rest[1]} · {held.text!r}"
+
+
+def _held(session: Session, ident: str) -> Reading:
+    """The reading by that name, or the refusal naming it."""
+    reading = session.readings.get(ident)
+    if reading is None:
+        raise UnsupportedConstructError(f"no reading called {ident!r}")
+    return reading
 
 
 def _reflect(session: Session, _rest: list[str], _ask: Ask) -> str:
@@ -699,6 +726,9 @@ _ROUTES: dict[tuple[str, int], Callable[[Session, list[str], Ask], str]] = {
     ("back", 1): lambda s, r, a: _cursor(s, ["back", r[0]], a),
     ("reset", 1): lambda s, r, a: _cursor(s, ["reset", r[0]], a),
     ("carve", 1): _template,
+    ("extend", 1): _extend,
+    ("mark", 1): _mark,
+    ("rewind", 2): _rewind,
     ("reflect", 0): _reflect,
     ("freeze", 0): _freeze,
     ("thaw", 0): _thaw,
