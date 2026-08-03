@@ -32,6 +32,7 @@ from opsis.opsis.views import (
     refusal,
     rules_view,
 )
+from opsis.praxis.acts import Deed, deeds
 from opsis.praxis.reading import Reading
 from opsis.praxis.session import Session
 
@@ -101,6 +102,7 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
     reader = session.reader_for(reading)
     if reader is not None and reader.grammar is not None:
         out.append(("reader", "its reader"))
+    out += [(f"do:{deed.name}", deed.label) for deed in deeds(session, reading)]
     return out
 
 
@@ -257,6 +259,9 @@ def _window(
 ) -> tuple[str, tuple[int, int], Callable[[], list[IrDoc]]]:
     """What a reading's window is called, how big, and how to build it."""
     title = reading.title
+    if kind.startswith("do:"):
+        deed = next(d for d in deeds(session, reading) if d.name == kind[3:])
+        return (f"{title} — {deed.label}", (480, 200), lambda: [_deed(reading, deed)])
     if kind == "text":
         return f"{title} — its text", (480, 340), lambda: _editor(session, reading)
     if kind == "instance":
@@ -306,6 +311,24 @@ def _window(
             lambda: [module_view(compiled, _surface(compiled))],
         )
     return f"{title} — pipeline", (720, 440), lambda: [_pipeline(session, reading)]
+
+
+def _deed(reading: Reading, deed: Deed) -> IrDoc:
+    """A deed, as the sentence it is and the button that does it."""
+    return el(
+        "div",
+        None,
+        el("div", {"class": "note"}, _text(deed.why)),
+        el(
+            "div",
+            {"class": "controls"},
+            el(
+                "button",
+                {"class": "go", "data-do": f"/do/{reading.ident}/{deed.name}"},
+                _text(deed.label),
+            ),
+        ),
+    )
 
 
 def _surface(compiled: CompiledGrammar) -> str:

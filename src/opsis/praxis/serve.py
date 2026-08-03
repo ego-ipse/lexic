@@ -22,6 +22,7 @@ from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.scene import Space
 from opsis.opsis.session import bar, hint, legend, picker, world_of
 from opsis.opsis.space import page
+from opsis.praxis.acts import perform
 from opsis.praxis.frozen import freeze, thaw
 from opsis.praxis.ingress import (
     SHIPPED,
@@ -94,6 +95,11 @@ class Handler(BaseHTTPRequestHandler):
         elif len(parts) == 2 and parts[0] == "unplug":
             session.name_reader(parts[1], "")
             self._send("unplugged", kind="text/plain")
+        elif len(parts) == 3 and parts[0] == "do":
+            reading = session.readings.get(parts[1])
+            if reading is None:
+                raise UnsupportedConstructError("that reading is no longer here")
+            self._send(perform(session, reading, parts[2]), kind="text/plain")
         elif parts == ["freeze"]:
             self._send(freeze(session), kind="text/plain")
         elif parts == ["thaw"]:
@@ -342,6 +348,14 @@ addEventListener("pointerup", e => {
   fetch("/new", {method: "POST", body: kind}).then(posted);
 });
 document.addEventListener("click", e => {
+  const go = e.target.closest("[data-do]");
+  if (go) {
+    go.disabled = true;
+    go.textContent = "…";
+    fetch(go.dataset.do, {method: "POST", body: ""})
+      .then(r => r.text().then(t => { toast(t); return r.ok ? refresh() : null; }));
+    return;
+  }
   const act = e.target.closest("[data-act]");
   if (act) {
     if (act.dataset.act === "picker") {
