@@ -90,7 +90,12 @@ def thaw(session: Session, text: str) -> int:
     :returns: How many readings came back.
     :raises UnsupportedConstructError: If the text is not a session.
     """
-    saved = load_ir(text, symbols=SESSION_SYMBOLS)
+    try:
+        saved = load_ir(text, symbols=SESSION_SYMBOLS)
+    except (TypeError, ValueError) as exc:
+        # A well-formed expression can still be a malformed record —
+        # the notation reads it, the constructor refuses it.
+        raise UnsupportedConstructError(f"thaw: {exc}") from exc
     if not isinstance(saved, Saved):
         raise UnsupportedConstructError(
             f"thaw: that is a {type(saved).__name__}, not a saved session"

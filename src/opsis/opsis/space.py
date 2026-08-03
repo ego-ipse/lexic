@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from typing import Sequence
 
-from lexic.ir import IrAction, IrCat, IrDoc, IrLeaf, IrSelf, IrTypeMap
+from lexic.ir import IrAction, IrCat, IrDoc, IrLeaf, IrNone, IrSelf, IrTypeMap
 from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.scene import Moon, Rail, Ring, Space
 from opsis.opsis.theme import css
@@ -40,6 +40,28 @@ ACTS = {
     ),
 }
 """What a node lets you do to it. Unplugging is not removing."""
+
+
+def _lozenge(ring: Ring) -> tuple[IrDoc, ...]:
+    """The ◈ a ring wears when it is ABOUT something.
+
+    A ring's payload is the lexic node it stands for, carried whole. The
+    lozenge is how you reach it — and because the payload rides in the
+    scene record, editing the scene edits what the lozenge opens.
+    """
+    if ring.payload is IrNone:
+        return ()
+    return (
+        el(
+            "b",
+            {
+                "class": "act ir",
+                "title": f"what it is about — {type(ring.payload).__name__}",
+                "data-open": f"ir-{ring.name}",
+            },
+            "◈",
+        ),
+    )
 
 
 def frame(
@@ -87,7 +109,23 @@ def frame(
             el("b", {"class": "close", "title": "close"}, "×"),
         ),
         el("div", {"class": "body"}, *body),
-        el("div", {"class": "grip", "title": "resize"}),
+        *_edges(),
+    )
+
+
+_SIDES = ("n", "s", "e", "w", "ne", "nw", "se", "sw")
+"""Every side and corner a window can be taken by."""
+
+
+def _edges() -> tuple[IrDoc, ...]:
+    """The eight grips a window resizes from.
+
+    All eight, because a window whose only handle is its bottom-right
+    corner has to be moved before it can be made bigger upward, and
+    that is two gestures for one intention.
+    """
+    return tuple(
+        el("div", {"class": f"grip g-{side}", "data-side": side}) for side in _SIDES
     )
 
 
@@ -135,6 +173,7 @@ class DrawRing(IrLeaf[IrSelf, IrSelf]):
                 el("b", {"class": f"act {act}", "title": why}, glyph)
                 for act, glyph, why in ACTS.get(kind, ())
             ),
+            *_lozenge(ring),
             *(
                 _moon(Moon.ensure(m, "space: a moon"), i, len(moons))
                 for i, m in enumerate(moons)
@@ -421,9 +460,12 @@ document.addEventListener("pointerdown", e => {
     draw(); return;
   }
   if (t.classList.contains("grip")) {
-    drag = {kind: "size", el: f, sx: e.clientX, sy: e.clientY,
-            w: f.offsetWidth, h: f.offsetHeight,
+    const p = P(f);
+    drag = {kind: "size", el: f, side: t.dataset.side,
+            sx: e.clientX, sy: e.clientY,
+            w: f.offsetWidth, h: f.offsetHeight, x: p[0], y: p[1],
             fixed: f.classList.contains("hud")};
+    hold(t, e);
     return;
   }
   if (t.closest(".act, .moon")) return;   // affordances are clicks, not drags
@@ -431,6 +473,7 @@ document.addEventListener("pointerdown", e => {
   if (capsule) { folds.delete(capsule.dataset.capsule); applyFolds(); return; }
   const header = t.closest(".frame header");
   const node = t.closest(".nd");
+  if (header || node) hold(t, e);
   if (header) {
     if (f.classList.contains("hud") && !f.style.left) {
       const r = f.getBoundingClientRect();
@@ -447,17 +490,32 @@ document.addEventListener("pointerdown", e => {
     space.classList.add("dragging");
   }
 });
+// A window taken by its left or top edge grows the other way: the
+// side you did NOT grab is the one that must not move.
+function size(d, dx, dy) {
+  const s = d.side || "se";
+  const W = 240, H = 64;
+  let w = d.w, h = d.h, x = d.x, y = d.y;
+  if (s.includes("e")) w = Math.max(W, d.w + dx);
+  if (s.includes("s")) h = Math.max(H, d.h + dy);
+  if (s.includes("w")) { w = Math.max(W, d.w - dx); x = d.x + (d.w - w); }
+  if (s.includes("n")) { h = Math.max(H, d.h - dy); y = d.y + (d.h - h); }
+  d.el.style.width = w + "px";
+  d.el.style.height = h + "px";
+  if (!d.fixed || d.el.style.left) { d.el.style.left = x + "px"; d.el.style.top = y + "px"; }
+}
+// Capture the pointer so a fast drag cannot outrun its own handle.
+function hold(el, e) {
+  if (el.setPointerCapture) el.setPointerCapture(e.pointerId);
+  document.body.classList.add("dragging-any");
+}
 addEventListener("pointermove", e => {
   if (panning) { tx = e.clientX - panning.x; ty = e.clientY - panning.y; apply(); return; }
   if (!drag) return;
   const k = drag.fixed ? 1 : scale;
   const dx = (e.clientX - drag.sx) / k, dy = (e.clientY - drag.sy) / k;
   if (Math.hypot(dx, dy) > 3) drag.moved = true;
-  if (drag.kind === "size") {
-    drag.el.style.width = Math.max(260, drag.w + dx) + "px";
-    drag.el.style.height = Math.max(36, drag.h + dy) + "px";
-    return;
-  }
+  if (drag.kind === "size") { size(drag, dx, dy); draw(); return; }
   let nx = drag.x + dx, ny = drag.y + dy;
   const host = drag.el.parentElement && drag.el.parentElement.closest(".body");
   if (host && drag.el.classList.contains("frame")) {
@@ -474,6 +532,7 @@ addEventListener("pointermove", e => {
 });
 addEventListener("pointerup", e => {
   panning = null; space.classList.remove("dragging");
+  document.body.classList.remove("dragging-any");
   document.querySelectorAll(".landing").forEach(n => n.classList.remove("landing"));
   if (drag && drag.moved && drag.el.classList.contains("ring") && window.opsisDrop) {
     window.opsisDrop(drag.el, e.clientX, e.clientY);

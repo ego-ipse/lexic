@@ -230,11 +230,24 @@ RULES: tuple[tuple[str, str], ...] = (
     ),
     (".frame::before", "left:-1px;top:-1px;border-right:0;border-bottom:0"),
     (".frame::after", "right:-1px;bottom:-1px;border-left:0;border-top:0"),
+    (".grip", "position:absolute;z-index:7;touch-action:none"),
+    (".g-n", "left:8px;right:8px;top:-3px;height:7px;cursor:ns-resize"),
+    (".g-s", "left:8px;right:8px;bottom:-3px;height:7px;cursor:ns-resize"),
+    (".g-e", "top:8px;bottom:8px;right:-3px;width:7px;cursor:ew-resize"),
+    (".g-w", "top:8px;bottom:8px;left:-3px;width:7px;cursor:ew-resize"),
+    (".g-ne", "top:-3px;right:-3px;width:13px;height:13px;cursor:nesw-resize"),
+    (".g-nw", "top:-3px;left:-3px;width:13px;height:13px;cursor:nwse-resize"),
+    (".g-se", "bottom:-3px;right:-3px;width:13px;height:13px;cursor:nwse-resize"),
+    (".g-sw", "bottom:-3px;left:-3px;width:13px;height:13px;cursor:nesw-resize"),
     (
-        ".grip",
-        "position:absolute;right:0;bottom:0;width:16px;height:16px;"
-        "cursor:nwse-resize;z-index:7",
+        ".g-se::after",
+        'content:"";position:absolute;right:3px;bottom:3px;width:6px;height:6px;'
+        "border-right:1px solid var(--line);border-bottom:1px solid var(--line)",
     ),
+    (".frame:hover .g-se::after", "border-color:var(--cyan)"),
+    # while anything is being dragged, nothing else may claim the pointer
+    (".dragging-any", "user-select:none"),
+    (".dragging-any .body,.dragging-any .gspace", "pointer-events:none"),
     (".frame.min", "height:auto !important;min-height:0"),
     (".frame.min .body,.frame.min .grip", "display:none"),
     (

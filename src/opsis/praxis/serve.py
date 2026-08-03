@@ -13,14 +13,22 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import SplitResult, parse_qs, urlsplit
 
 from lexic.compile import Directives
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrCat
 from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.scene import Space
-from opsis.opsis.session import CURSORS, bar, hint, legend, picker, world_of
+from opsis.opsis.session import (
+    CURSORS,
+    bar,
+    hint,
+    legend,
+    picker,
+    scene_of,
+    world_of,
+)
 from opsis.opsis.space import page
 from opsis.praxis.acts import perform
 from opsis.praxis.frozen import freeze, thaw
@@ -34,6 +42,7 @@ from opsis.praxis.ingress import (
     vocabulary_reader,
 )
 from opsis.praxis.reading import Reading
+from opsis.praxis.reflect import REFLECTED, scene_reader, scene_text
 from opsis.praxis.session import Session
 
 __all__ = ["Handler", "OpsisServer", "serve"]
@@ -51,7 +60,13 @@ class Handler(BaseHTTPRequestHandler):
         return server.session
 
     def do_GET(self) -> None:
-        url = urlsplit(self.path)
+        try:
+            self._get(urlsplit(self.path))
+        except Exception as exc:  # a route reaches foreign code
+            self._refuse(exc)
+
+    def _get(self, url: SplitResult) -> None:
+        """One read gesture — the page, the world, or the workspace."""
         session = self._session()
         if url.path == "/":
             self._send(self._page(session))
@@ -59,11 +74,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(world_of(session))
         elif url.path == "/files":
             at = (parse_qs(url.query).get("at") or [""])[0]
-            try:
-                rows = browse(session.root, at)
-            except UnsupportedConstructError as exc:
-                self._send(str(exc), 422, "text/plain")
-                return
+            rows = browse(session.root, at)
             self._send("\n".join("\t".join(row) for row in rows), kind="text/plain")
         else:
             self.send_error(404)
@@ -73,18 +84,33 @@ class Handler(BaseHTTPRequestHandler):
         body = self._body()
         if body is None:
             return
-        parts = url.path.strip("/").split("/")
         try:
-            self._route(parts, url.query, body)
-        except UnsupportedConstructError as exc:
-            self._send(str(exc), 422, "text/plain")
+            self._route(url.path.strip("/").split("/"), url.query, body)
+        except Exception as exc:  # a route reaches foreign code
+            self._refuse(exc)
+
+    def _refuse(self, exc: Exception) -> None:
+        """Answer with the refusal, whatever kind of thing raised it.
+
+        A refusal lexic states is a 422 — it is an answer about the
+        input. Anything else is a 500 that still carries its message,
+        because a page that says what broke is worth more than a
+        connection that closes, and one bad gesture must never take the
+        instrument down.
+        """
+        answer = 422 if isinstance(exc, LexicError) else 500
+        self._send(f"{type(exc).__name__}: {exc}", answer, "text/plain")
 
     def _route(self, parts: list[str], query: str, body: str) -> None:
         """One gesture, dispatched by what it is."""
         session = self._session()
         if parts == ["open"]:
             self._open(session, body.strip())
-        elif parts == ["new"] and body in ("grammar", "text"):
+        elif parts == ["new"]:
+            if body not in ("grammar", "text"):
+                raise UnsupportedConstructError(
+                    f"new: {body!r} is not something to make — 'grammar' or 'text'"
+                )
             session.add(f"new {body}", body)
             self._send("spawned", kind="text/plain")
         elif len(parts) == 2 and parts[0] == "text":
@@ -102,6 +128,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(perform(session, reading, parts[2]), kind="text/plain")
         elif len(parts) == 2 and parts[0] in ("push", "back", "reset"):
             self._send(_step(session, parts[0], parts[1], body), kind="text/plain")
+        elif parts == ["reflect"]:
+            self._send(_reflect(session), kind="text/plain")
         elif parts == ["freeze"]:
             self._send(freeze(session), kind="text/plain")
         elif parts == ["thaw"]:
@@ -109,7 +137,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(f"thawed · {count} readings", kind="text/plain")
         elif len(parts) == 2 and parts[0] == "remove":
             gone = session.drop(parts[1])
-            self._send(f"removed {gone.title if gone else ''}", kind="text/plain")
+            if gone is None:
+                raise UnsupportedConstructError(f"no reading called {parts[1]!r}")
+            self._send(f"removed {gone.title}", kind="text/plain")
         else:
             self.send_error(404)
 
@@ -137,8 +167,12 @@ class Handler(BaseHTTPRequestHandler):
         on a grammar and it binds. Anything else refuses by saying which
         of the two was supposed to read.
         """
-        held = session.readings.get(source)
         landed = session.readings.get(target)
+        if not source and landed is not None:
+            session.bind(target, "")
+            self._send(f"{landed.title} · unbound", kind="text/plain")
+            return
+        held = session.readings.get(source)
         if held is None or landed is None:
             raise UnsupportedConstructError("one of those is no longer here")
         if landed.kind == "vocabulary" and held.compiled is not None:
@@ -223,6 +257,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         """Quiet — the terminal belongs to whoever started this."""
+
+
+def _reflect(session: Session) -> str:
+    """Write the picture down as a reading, so it can be edited.
+
+    The scene is snapshotted at the moment it is written: from then on
+    the text is the source and the drawing follows it, which is what
+    makes editing a node's payload change what that node shows.
+    """
+    space = scene_of(session)
+    name = session.surface(scene_reader())
+    session.add("the scene", REFLECTED, name, scene_text(space))
+    return f"the scene, written down · {len(space)} records — edit it and it draws"
 
 
 def _step(session: Session, what: str, ident: str, body: str) -> str:
@@ -382,6 +429,9 @@ document.addEventListener("click", e => {
       if (f && f.style.display !== "none") browse("");
     }
     if (act.dataset.act === "freeze") freeze();
+    if (act.dataset.act === "reflect") {
+      fetch("/reflect", {method: "POST", body: ""}).then(posted);
+    }
     return;
   }
   const ring = e.target.closest(".nd.ring[data-reading]");

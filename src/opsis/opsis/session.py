@@ -39,11 +39,13 @@ from opsis.opsis.views import (
     railroad_view,
     refusal,
     rules_view,
+    view_of,
 )
 from opsis.praxis.acts import Deed, deeds
 from opsis.praxis.constrain import Cursors, sample
 from opsis.praxis.reading import Reading
-from opsis.praxis.session import Session
+from opsis.praxis.reflect import drawn_by
+from opsis.praxis.session import Session, alphabets
 
 __all__ = ["bar", "hint", "legend", "picker", "scene_of", "windows_of", "world_of"]
 
@@ -127,7 +129,19 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
         out += [("flavour", "what it IS"), ("dispatch", "its tables")]
     if not reading.reader:
         out.append(("registry", "the registry"))
+    if _wants(session, reading):
+        out.append(("plug", "plug ⊕"))
     return out
+
+
+def _wants(session: Session, reading: Reading) -> list[str]:
+    """The encoding names this reading asks to be read under, unmet or not.
+
+    A grammar that names an encoding needs a vocabulary bound under that
+    name before it can be read at all — so the plug affordance exists
+    exactly where the grammar itself says it does.
+    """
+    return alphabets(reading.instance)
 
 
 def _under(session: Session, reading: Reading) -> CompiledGrammar | None:
@@ -307,6 +321,8 @@ def _window(
             (660, 460),
             lambda: [table_view(carrier, str(type(carrier).name))],
         )
+    if kind == "plug":
+        return (f"{title} — plug ⊕", (520, 320), lambda: [_plug(session, reading)])
     if kind == "registry":
         return (f"{title} — the registry", (620, 380), lambda: [registry_view()])
     if kind == "do:constrain":
@@ -411,6 +427,74 @@ def _resolver(reading: Reading) -> IrDoc:
     )
 
 
+def _plug(session: Session, reading: Reading) -> IrDoc:
+    """What this reading needs bound, and everything that could be it.
+
+    Dragging one node onto another is the gesture; this is the same
+    gesture said in words, for the case where the two nodes are a
+    screen apart. It lists only vocabularies that exist in the session,
+    and says so plainly when there are none.
+    """
+    wants = _wants(session, reading)
+    have = [r for r in session.readings.values() if r.tokenizer is not None]
+    bound = session.readings.get(reading.params.bound)
+    rows: list[IrDoc] = [
+        el(
+            "div",
+            {"class": "note"},
+            _text(
+                f"this grammar reads its terminals under "
+                f"{', '.join(wants)} — bind a vocabulary under that name"
+            ),
+        ),
+        el(
+            "div",
+            {"class": "claim ok" if bound else "claim no"},
+            _text(f"bound to {bound.title}" if bound else "nothing bound yet"),
+            el("em", None, _text(reading.error[:90] if reading.error else "")),
+        ),
+    ]
+    if not have:
+        rows.append(
+            el(
+                "div",
+                {"class": "note"},
+                "no vocabulary is open — open a tokenizer.json from the "
+                "bar and it appears here",
+            )
+        )
+    rows.extend(
+        el(
+            "div",
+            {"class": "controls"},
+            el("span", {"class": "name"}, _text(str(r.tokenizer.name))),
+            el(
+                "span", {"class": "note"}, _text(f"{len(r.tokenizer.encode):,} entries")
+            ),
+            el(
+                "button",
+                {"class": "go", "data-do": f"/drop/{r.ident}/{reading.ident}"},
+                "bind",
+            ),
+        )
+        for r in have
+        if r.tokenizer is not None
+    )
+    if bound is not None:
+        rows.append(
+            el(
+                "div",
+                {"class": "controls"},
+                el(
+                    "button",
+                    {"class": "go", "data-do": f"/drop//{reading.ident}"},
+                    "unbind",
+                ),
+            )
+        )
+    return el("div", None, *rows)
+
+
 def _constrain(session: Session, reading: Reading) -> IrDoc:
     """The live cursor for this reading, at whatever prefix it is at."""
     at = CURSORS.of(session, reading.ident)
@@ -480,6 +564,32 @@ def _pipeline(session: Session, reading: Reading) -> IrDoc:
             ),
         )
     )
+
+
+def payloads_of(space: Space) -> list[IrDoc]:
+    """A window per ring that is ABOUT something, built from the SPACE.
+
+    From the space and not from the readings, so a hand-edited scene
+    opens the payload it now names. That is the reflective rung's whole
+    claim made good: change the node, change what it shows.
+    """
+    out: list[IrDoc] = []
+    for part in space:
+        if not isinstance(part, Ring) or part.payload is IrNone:
+            continue
+        out.append(
+            frame(
+                f"ir-{part.name}",
+                f"{part.label or part.name} — ◈ what it is about",
+                part.x + 210,
+                part.y + 90,
+                640,
+                400,
+                view_of(part.payload),
+                shown=False,
+            )
+        )
+    return out
 
 
 def windows_of(session: Session) -> str:
@@ -580,6 +690,13 @@ def bar() -> IrDoc:
             el("i", None),
             el("em", None, "text"),
         ),
+        el("u", None, "itself"),
+        el(
+            "div",
+            {"class": "bnode magenta", "data-act": "reflect"},
+            el("i", None),
+            el("em", None, "the scene"),
+        ),
         el("u", None, "session"),
         el(
             "span",
@@ -641,7 +758,16 @@ def hint() -> IrDoc:
 
 
 def world_of(session: Session) -> str:
-    """Everything inside ``#world`` — the swappable fragment."""
+    """Everything inside ``#world`` — the swappable fragment.
+
+    Derived from the readings, unless somebody has written the scene
+    down: a hand-edited scene is an instruction, not a report, and the
+    windows still come from the readings so the two halves of a node
+    never disagree about which reading they belong to.
+    """
     from opsis.opsis.space import render_scene
 
-    return render_scene(scene_of(session)) + windows_of(session)
+    written = drawn_by(session)
+    space = written if written is not None else scene_of(session)
+    payloads = html(IrCat(*payloads_of(space)))
+    return render_scene(space) + windows_of(session) + payloads

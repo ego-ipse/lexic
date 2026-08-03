@@ -17,9 +17,34 @@ from pathlib import Path
 
 from lexic.compile import Vocabulary
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrAlphabet, IrMap, IrSelf, IrStr, IrTuple
 from opsis.praxis.reading import Params, Reader, Reading, refusal_of
 
-__all__ = ["Session"]
+__all__ = ["Session", "alphabets"]
+
+
+def alphabets(node: object) -> list[str]:
+    """Every encoding name a grammar asks to be read under.
+
+    A grammar's own answer to "what vocabulary do you want", taken off
+    its AST. ``unicode`` is excluded: it is always bound, and binding a
+    tokenizer under it would mean reading a char grammar as tokens.
+
+    :param node: A grammar AST, or anything else — a thing with no
+        alphabets asks for none.
+    """
+    if not isinstance(node, IrSelf):
+        return []
+    out: list[str] = []
+    stack: list[IrSelf] = [node]
+    while stack:
+        here = stack.pop()
+        if isinstance(here, IrAlphabet) and str(here.encoding) != "unicode":
+            name = str(here.encoding)
+            if name not in out:
+                out.append(name)
+        stack.extend(here.children())
+    return out
 
 
 class Session:
@@ -150,10 +175,21 @@ class Session:
         A binding to a reading that has since gone, or that no longer
         produces a vocabulary, is simply no binding — the grammar reads
         unbound and its node says what it is bound to, which is nothing.
+
+        A tokenizer binds under its own name, which is not usually the
+        name the grammar asks for: a grammar says ``IrAlphabet("tokens",
+        …)`` and means "whatever vocabulary I am read with". So the
+        tokenizer is also bound under every encoding name this grammar
+        actually names — read off its own AST, never a list of names
+        opsis knows.
         """
         held = self.readings.get(reading.params.bound)
         tokenizer = held.tokenizer if held is not None else None
-        return Vocabulary() if tokenizer is None else Vocabulary(tokenizer=tokenizer)
+        if tokenizer is None:
+            return Vocabulary()
+        wanted = alphabets(reading.instance)
+        registry = IrMap(*(IrTuple(IrStr(name), tokenizer) for name in wanted))
+        return Vocabulary(tokenizer=tokenizer, registry=registry or None)
 
     def read(self, ident: str) -> None:
         """Read this one, then everything that names it, downward.

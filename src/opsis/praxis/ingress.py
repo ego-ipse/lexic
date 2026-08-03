@@ -284,6 +284,11 @@ def vocabulary_reader(
     )
 
 
+def _article(name: str) -> str:
+    """``a`` or ``an``, by how the name is said."""
+    return f"{'an' if name[:1].lower() in 'aeiou' else 'a'} {name}"
+
+
 def _stem(rel: str) -> str:
     """A vocabulary's name — its file's stem up to the first dot."""
     return Path(rel).name.split(".", 1)[0] if rel else "vocabulary"
@@ -321,7 +326,7 @@ def open_file(root: Path, rel: str) -> Opened:
             "grammar",
             text,
             _flavour_reader(flavour),
-            f"a {type(flavour).name} grammar",
+            f"{_article(str(type(flavour).name))} grammar",
         )
     if text.lstrip().startswith("Saved("):
         return Opened(name, "session", text, None, "a saved session")
