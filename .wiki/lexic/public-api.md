@@ -1,6 +1,6 @@
 # Public API
 
-**When to load:** writing docs, examples, or integration tests; choosing between `parse_instance`, `compile_text`, `compile_from_path`, `canonical_grammar`, `parse_grammar`, `export_module`; understanding `CompiledGrammar` fields or `GrammarModel` methods.
+**When to load:** writing docs, examples, or integration tests; choosing between `parse_instance`, `compile_text`, `compile_from_path`, `compile_ast`, `canonical_grammar`, `parse_grammar`, `export_module`; understanding `CompiledGrammar` fields or `GrammarModel` methods; reaching the engine floor (`lexic.parsing` root exports).
 
 How callers use Lexic. The stable surface lives in the `compile/` package and `model.py`. Both grammar-text parsing and generated-instance parsing run on the same engine (`lexic.parsing` — PDA-first, Earley completion); there is no Lark and no `RuleSpec` anywhere in the call path. NOTE: `parse` is the ENGINE's name (`lexic.parsing.parse` → a raw `ParseTree`); the compile-side one-liners are `parse_instance`/`parse_instance_from_path`.
 
@@ -47,13 +47,32 @@ cg = compile_text(text, vocabulary=Vocabulary(tokenizer))
 
 Both are part of the memo key: one source compiled two ways must not hand back the first.
 
-`flavour` defaults to `"gbnf"`. **Memoised by content by default**: the default cache key is `(content sha stem, flavour)` — compiling the same source in the same flavour returns the cached `CompiledGrammar` and its class objects. Pass `cache_key=` to prepend an extra key prefix; `reset_cache_for_tests()` clears the cache when a caller needs fresh class objects. Classes are synthesized in memory (`type()`) — there is no output directory to key on.
+`flavour` defaults to `"gbnf"` and takes **a name or a live `IrFlavour` instance**. An instance is used directly and never touches the registry: a loaded session manifest (`load_flavour`) compiles without `register_flavour`, and the shipped singleton under the same name is not shadowed. The artefact still records the plain name string (`cg.flavour == type(instance).name`).
+
+**Memoised by content by default**: the default cache key is `(content sha stem, flavour key)` — compiling the same source in the same flavour returns the cached `CompiledGrammar` and its class objects. A flavour NAME keys by itself; an INSTANCE keys by its class object (flavour value equality is not a designed key in either direction; the class object is identity-stable and pinned live by the cache entry, so it can never be reused the way an `id()` can — the cost is that two loads of one manifest compile twice). Pass `cache_key=` to prepend an extra key prefix; `reset_cache_for_tests()` clears the cache when a caller needs fresh class objects. Classes are synthesized in memory (`type()`) — there is no output directory to key on.
 
 ---
 
 ### `compile_from_path(path, *, flavour, vocabulary, directives)` — `compile/__init__.py`
 
-Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour, vocabulary, directives)`, using `path.stem` as the class-module stem. Flavour is inferred from the file extension if omitted. Carries `compile_text`'s whole surface.
+Like `compile_text` but reads the file and memoises by `(path, mtime, size, flavour key, vocabulary, directives)`, using `path.stem` as the class-module stem. Flavour is inferred from the file extension if omitted, and may be a name or an instance. Carries `compile_text`'s whole surface.
+
+---
+
+### `compile_ast(ast, *, cache_key, vocabulary, directives)` — `compile/__init__.py`
+
+The **IR-born twin** of `compile_text` — the entry for a grammar that never had text: authored natively in IR (`grammars/json.py`'s way), or loaded through the notation (`load_ir`). The text route's front half is skipped, not emulated: emitting IR through a flavour and recompiling that text is **lossy** — `semantic=False` flags vanish with the comments — and can only spell what the chosen flavour can spell.
+
+The given AST need not be canonical; it is canonicalized as it stands and its rules' own `semantic` flags survive. Start and flags resolve from the AST itself with `directives` overriding (the text route's precedence: `directives.start` beats `ast.start` beats first rule; `directives.non_semantic` REPLACES the rules' flags when given, `None` keeps them).
+
+Memoised like the text twin with `repr(ast)` as the content: repr is codegen-exact, so the key distinguishes what AST equality deliberately ignores (the `semantic` flags — two flag-twins that compare `==` get distinct artefacts). The artefact's `flavour` is `"ir"`; `to_grammar` still takes its target flavour explicitly.
+
+```python
+from lexic.compile import compile_ast
+from lexic.grammars.json import JSON_GRAMMAR
+
+cg = compile_ast(JSON_GRAMMAR)          # no text, no emit round-trip
+```
 
 ---
 
@@ -183,6 +202,10 @@ cheaper than recompiling, and the ratio grows with grammar size.
 New artefact, never a mutation: the engine memoises tables per grammar
 identity, and a rebound grammar genuinely *is* a different identity.
 
+### `.pda_tables()` — the predictive half, memo-hot
+
+Returns the engine's compiled `PdaTables` for `(codegen_grammar, fold)` — the trace substrate a `PdaKernel` subclass runs over. The artefact holds the exact objects the engine's instance-product memo is keyed by (identity), so the tables returned are the very ones `.parse` drives: hot if this grammar has parsed already, compiled once and shared forward if not.
+
 On explicit request `export_module(compiled, path, *, stem=None, inline_tables=False)` writes an importable twin module (`export_source` is the string-taker it wraps) — see [[generated-modules]]. `bind_module(grammar, namespace)` is the twin modules' module-end binder.
 
 `.parse(text)` is the only method callers need. It runs `parse_model(self.codegen_grammar, text, self.fold)` — the engine's instance product (PDA-first, Earley completion inside the engine, memoised per `(grammar, fold)` identity). If the start rule does not fold to a `GrammarModel`, `.parse` raises `UnsupportedConstructError`.
@@ -208,6 +231,19 @@ Every synthesized class subclasses `GrammarModel(IrNamedTuple)` — the record s
 | `fast_construct()` | `(ctor, defaults)` | Always granted — a record build is one C-level tuple construction |
 
 Equality is type-aware (same concrete class + payload; the `IrBounds` pattern) and hash-consistent. Hand construction (`__new__`) runs IR-intrinsic per-field checked construction raising `FieldValidationError` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required-presence); an unexpected kwarg still raises `TypeError`. Parse paths (fold/PDA) use trusted construction and bypass the checks. `models`-mode lists coerce to tuples at construction. `to_text()` raises `NotImplementedError` on an abstract alternation class (no fields, no binds) — call it on a concrete subclass instance.
+
+---
+
+## The engine floor — `lexic.parsing` root exports
+
+The engine's public root carries, beside the products (`parse_reduced` / `parse_model` / `token_model`) and the Earley toolkit (`Kernel`, `compile_tables`, `normalize`, `lift_optional_nullables`, the tree/forest readers):
+
+- **`earley_model` / `earley_reduce`** — the per-product Earley completions, public as the route-forcing seam. Forcing an engine route means calling a different product entry, never passing a flag: an engine selector chooses between `parse_model` (PDA-first) and `earley_model` (Earley only).
+- **`PdaKernel`** — the fused predictive runtime, subclassable for tracing.
+- **`GrammarAnalysis`** — the decision taxonomy (verdicts, gate specs) the analysis produces per grammar.
+- **`pda_tables(grammar, fold, bits=...)` / `PdaTables`** — the compiled predictive tables, identity-memoised with the parse path; `CompiledGrammar.pda_tables()` is the artefact-side reach onto the same memo entry.
+
+There is deliberately no `lexic.parsing.pda` façade — the PDA names surface at the parsing root beside `Kernel`.
 
 ---
 
@@ -238,10 +274,13 @@ See `canonical_grammar`'s precedence rules above for how `@start`/`@non-semantic
 
 | Situation | Entry point |
 |---|---|
-| Parse one string against a file on disk | `parse.parse` |
+| Parse one string, one-off | `parse_instance` / `parse_instance_from_path` |
 | Grammar is in memory; parse many strings | `compile_text` → `.parse()` |
 | Grammar is a file; parse many strings | `compile_from_path` → `.parse()` |
+| Grammar is an `IrAst` (native IR, notation-loaded) | `compile_ast` → `.parse()` |
+| Compile with a session flavour, registry-free | `compile_text(..., flavour=<IrFlavour instance>)` |
 | Inspect the canonical grammar without generating code | `canonical_grammar` |
 | Grammar text → raw (not-yet-canonicalized) `IrAst` only (transpile, inspect, re-emit) | `parse_grammar` |
+| Force the Earley route / trace the PDA | `earley_model` / `earley_reduce`; `PdaKernel` over `.pda_tables()` |
 | Write a compiled grammar as an importable twin | `export_module` |
 | Write a PARSED VALUE as an importable module | `export_value` |

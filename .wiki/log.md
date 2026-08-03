@@ -1,5 +1,26 @@
 # Log
 
+## The engine floor opens; compile grows its AST-born and instance-flavour entries
+
+Three public-surface additions, one batch. (1) `lexic.parsing` root now
+exports the engine floor beside `Kernel`: `earley_model`/`earley_reduce`
+(the route-forcing seam — forcing a route is calling a different product
+entry, never a flag), `PdaKernel`, `GrammarAnalysis`, and
+`pda_tables`/`PdaTables`; `CompiledGrammar.pda_tables()` is the
+artefact-side reach onto the same identity-memoised entry the parse path
+drives. No `pda` façade — the names surface at the root. (2)
+`compile_text`/`compile_from_path` (and the `parse_instance` sugars) take
+`flavour: str | IrFlavour` — an instance compiles registry-free (no
+`register_flavour`, no singleton shadowing) and keys the memo by its
+class object (value equality is not a designed key in either direction).
+(3) `compile_ast` — the IR-born twin of `compile_text`: canonicalizes the
+given AST as it stands (rule `semantic` flags SURVIVE, where the
+emit-and-recompile detour measurably loses them with the comments),
+resolves start/flags from the AST with `directives` overriding, shares
+the back half verbatim (`_assemble_core`), keys the memo on `repr(ast)`
+(codegen-exact — distinguishes what AST `==` deliberately ignores), and
+stamps `flavour="ir"`. [[lexic/public-api]] carries all three.
+
 ## The meta grammars go predictive — licences relaxed, not machinery added
 
 The gbnf-meta "trailing input at 244" family is closed at COMPILE time:
