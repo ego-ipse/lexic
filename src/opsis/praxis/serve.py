@@ -459,23 +459,45 @@ function fill(frame) {
 }
 window.opsisFill = fill;
 function refresh() {
-  // The caret is carried across the swap by hand, or reading-as-you-type
-  // would fight the typing.
+  // Swapping #world throws every window body away, because bodies are
+  // built when they open. So what was open is re-opened and re-filled,
+  // and the caret is put back only once its field exists again —
+  // otherwise typing into a text window would delete the text window.
   const a = document.activeElement;
   const held = a && a.id && (a.tagName === "TEXTAREA" || a.tagName === "INPUT")
     ? {id: a.id, s: a.selectionStart, e: a.selectionEnd, top: a.scrollTop} : null;
+  const open = [...document.querySelectorAll("#world .frame")]
+    .filter(f => f.style.display !== "none")
+    .map(f => ({name: f.dataset.frame, geo: f.getAttribute("style"),
+                placed: f.dataset.placed}));
   return fetch("/world").then(r => r.text()).then(w => {
     const cam = window.opsisCamera.snapshot();
     document.getElementById("world").innerHTML = w;
     window.opsisCamera.restore(cam);
     if (!framed) { framed = true; window.opsisCamera.fit(90); }
-    if (!held) return;
-    const el = document.getElementById(held.id);
-    if (!el) return;
-    el.focus();
-    if (el.setSelectionRange) el.setSelectionRange(held.s, held.e);
-    el.scrollTop = held.top;
+    open.forEach(was => {
+      const f = document.querySelector(
+        `#world .frame[data-frame="${CSS.escape(was.name)}"]`);
+      if (!f) return;
+      if (was.placed) { f.setAttribute("style", was.geo); f.dataset.placed = "1"; }
+      f.style.display = "flex";
+      fill(f);
+    });
+    window.opsisCamera.draw();
+    if (held) restore(held);
   });
+}
+// The field is only there once its window has been filled, and filling
+// is a fetch — so this waits for it rather than assuming.
+function restore(held, tries = 20) {
+  const el = document.getElementById(held.id);
+  if (!el) {
+    if (tries) setTimeout(() => restore(held, tries - 1), 25);
+    return;
+  }
+  el.focus();
+  if (el.setSelectionRange) el.setSelectionRange(held.s, held.e);
+  el.scrollTop = held.top;
 }
 const posted = r => r.ok ? refresh() : r.text().then(toast);
 function browse(at) {

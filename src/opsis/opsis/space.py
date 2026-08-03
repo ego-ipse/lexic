@@ -149,18 +149,23 @@ def _edges() -> tuple[IrDoc, ...]:
     )
 
 
-def orbit(index: int, count: int) -> tuple[int, int]:
+SUB_R = 86
+"""How far a group's own moons ride from it — closer than the main orbit."""
+
+
+def orbit(index: int, count: int, radius: int = 0) -> tuple[int, int]:
     """Where the ``index``-th of ``count`` moons rides, from the core.
 
     Constant offsets on a fixed radius: a moon keeps its distance
     however the ring is dragged, because it has no position of its own
     to lose.
     """
+    reach = radius or ORBIT_R
     if count <= 1:
-        return ORBIT_R, 0
+        return reach, 0
     step = ORBIT_ARC / (count - 1)
     angle = math.radians(-ORBIT_ARC / 2 + step * index)
-    return round(ORBIT_R * math.cos(angle)), round(ORBIT_R * math.sin(angle))
+    return round(reach * math.cos(angle)), round(reach * math.sin(angle))
 
 
 class DrawRing(IrLeaf[IrSelf, IrSelf]):
@@ -202,12 +207,48 @@ class DrawRing(IrLeaf[IrSelf, IrSelf]):
 
 
 def _moon(moon: Moon, index: int, count: int) -> IrDoc:
-    """One moon in its ring's orbit — a reading, one click from open."""
+    """One moon in its ring's orbit — a reading, one click from open.
+
+    A moon carrying moons is a GROUP: it opens its own orbit in place
+    rather than a window, so a node with twenty readings wears seven
+    and the rest are one click away instead of all at once.
+    """
     x, y = orbit(index, count)
+    inner = tuple(moon.moons)
+    attrs: dict[str, str | None] = {
+        "class": "moon group" if inner else "moon",
+        "id": moon.name,
+        "style": f"left:{x}px;top:{y}px",
+    }
+    if inner:
+        attrs["data-orbit"] = moon.name
+    else:
+        attrs["data-open"] = f"w-{moon.name}"
+    body: list[IrDoc] = [
+        el("div", {"class": "dot"}),
+        el("em", None, moon.label or moon.kind),
+    ]
+    if inner:
+        body.append(
+            el(
+                "div",
+                {"class": "sub"},
+                *(
+                    _sub_moon(Moon.ensure(m, "space: a sub-moon"), i, len(inner))
+                    for i, m in enumerate(inner)
+                ),
+            )
+        )
+    return el("div", attrs, *body)
+
+
+def _sub_moon(moon: Moon, index: int, count: int) -> IrDoc:
+    """One reading inside a group's own orbit."""
+    x, y = orbit(index, count, SUB_R)
     return el(
         "div",
         {
-            "class": "moon",
+            "class": "moon inner",
             "id": moon.name,
             "data-open": f"w-{moon.name}",
             "style": f"left:{x}px;top:{y}px",
@@ -417,6 +458,22 @@ function fit(pad) {
   ty = (innerHeight - h * scale) / 2 - (y0 - 150) * scale;
   apply(); draw();
 }
+// A window is born beside its node and stays with it until somebody
+// puts it somewhere. The server draws it at the node's LAID-OUT spot,
+// which is wrong the moment the node is dragged — so where it opens is
+// decided here, against where its node actually is.
+function beside(f) {
+  if (f.dataset.placed) return;
+  const moon = document.getElementById(f.dataset.owner || "");
+  const ring = moon ? moon.closest(".nd.ring") : null;
+  if (!ring) return;
+  const [rx, ry] = P(ring);
+  const kin = [...document.querySelectorAll(`.frame[data-owner^="m-${ring.id}-"]`)];
+  const slot = Math.max(0, kin.indexOf(f));
+  f.style.left = (rx + 250 + slot * 26) + "px";
+  f.style.top = Math.max(60, ry - 60 + slot * 44) + "px";
+}
+window.opsisBeside = beside;
 function toggle(name) {
   const f = document.querySelector(`.frame[data-frame="${CSS.escape(name)}"]`);
   if (!f) return null;
@@ -431,6 +488,8 @@ function toggle(name) {
     if (host) {
       f.style.left = (host.scrollLeft + 24) + "px";
       f.style.top = (host.scrollTop + 24) + "px";
+    } else {
+      beside(f);
     }
   }
   const moon = document.getElementById(f.dataset.owner || "");
@@ -482,6 +541,7 @@ document.addEventListener("pointerdown", e => {
   }
   if (t.classList.contains("grip")) {
     const p = P(f);
+    f.dataset.placed = "1";
     drag = {kind: "size", el: f, side: t.dataset.side,
             sx: e.clientX, sy: e.clientY,
             w: f.offsetWidth, h: f.offsetHeight, x: p[0], y: p[1],
@@ -501,6 +561,7 @@ document.addEventListener("pointerdown", e => {
       f.style.left = r.left + "px"; f.style.top = r.top + "px";
       f.style.transform = "none";
     }
+    f.dataset.placed = "1";   // put here on purpose; stop following the node
     drag = {kind: "move", el: f, sx: e.clientX, sy: e.clientY,
             x: P(f)[0], y: P(f)[1], fixed: f.classList.contains("hud")};
   } else if (node && !f) {
@@ -561,6 +622,18 @@ addEventListener("pointerup", e => {
   drag = null;
 });
 document.addEventListener("click", e => {
+  const group = e.target.closest(".moon[data-orbit]");
+  if (group && !e.target.closest(".moon.inner")) {
+    // A group opens in place. Only one at a time on a ring: two open
+    // orbits overlap, and an unreadable fan is not a fan.
+    const ring = group.closest(".nd.ring");
+    const was = group.classList.contains("open");
+    if (ring) ring.querySelectorAll(".moon.group.open")
+                  .forEach(o => o.classList.remove("open"));
+    group.classList.toggle("open", !was);
+    draw();
+    return;
+  }
   const moon = e.target.closest(".moon[data-open]");
   if (moon) { toggle(moon.dataset.open); return; }
   const opener = e.target.closest("[data-open]:not(.moon)");

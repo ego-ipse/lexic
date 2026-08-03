@@ -50,19 +50,25 @@ def visual[T: IrSelf](t: type[T]) -> type[T]:
     return made
 
 
-class Moon(VisualNode, IrNamedTuple[str, str, str]):
-    """A reading of its ring, in orbit around it.
+class Moon(VisualNode, IrNamedTuple[str, str, str, IrSeq]):
+    """A reading of its ring, in orbit around it — and its own moons.
 
     A moon is carried rather than placed: it rides at a fixed offset, so
     a fan keeps its shape however the ring is dragged. Lines are for
     relations between rings; a reading of a ring belongs to it.
+
+    A moon that carries moons is a GROUP: clicking it opens its own
+    orbit in place instead of a window. That is the same recursion the
+    ladder has, applied to the fan, and it is what keeps a node from
+    wearing twenty readings at once.
     """
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    _child_attrs: ClassVar[tuple[str, ...]] = ("moons",)
 
     name: str
     label: str = ""
     kind: str = ""
+    moons: IrSeq = IrSeq()
 
 
 class Ring(

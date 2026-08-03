@@ -414,6 +414,20 @@ RULES: tuple[tuple[str, str], ...] = (
         "opacity:.55",
     ),
     (".exec i:hover", "opacity:1;width:2px;background:var(--amber)"),
+    # a group of readings, worn as one moon and opened in place
+    (".moon.group .dot", "border-style:double;border-width:3px"),
+    (".moon .sub", "position:absolute;left:0;top:0;pointer-events:none"),
+    (
+        ".moon .sub .moon",
+        "opacity:0;transform:scale(.4);pointer-events:none;"
+        "transition:opacity .16s,transform .16s",
+    ),
+    (
+        ".moon.group.open .sub .moon",
+        "opacity:1;transform:scale(1);pointer-events:auto",
+    ),
+    (".moon.group.open > .dot", "background:var(--cyan);border-color:var(--cyan)"),
+    (".moon.inner .dot", "width:7px;height:7px"),
     # a measured claim — the mark carries the verdict, the hue repeats it
     (
         ".claim",

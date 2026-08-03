@@ -25,7 +25,7 @@ from opsis.eidolon import layout
 from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.canvas import text as _text
 from opsis.opsis.graphic import RAIL_CSS, rule_svg
-from opsis.opsis.panes import Pane, artefact, fan, window
+from opsis.opsis.panes import Pane, artefact, fan, orbits, window
 from opsis.opsis.scene import Moon, Rail, Ring, Space, VisualNode
 from opsis.opsis.space import Box, Frame, frame, render_scene
 from opsis.opsis.views import (
@@ -110,6 +110,34 @@ def placement(session: Session) -> dict[str, tuple[int, int]]:
     return layout({i: session.readings[i].reader for i in idents}, idents)
 
 
+def _orbit(session: Session, reading: Reading, ident: str) -> IrSeq:
+    """A reading's offers as the orbits they ride in.
+
+    One moon per GROUP, each carrying its own — so a node wears seven
+    at most and opens the rest in place. A group of one is drawn as
+    that one: a folder holding a single thing is a click nobody needs.
+    """
+    out: list[Moon] = []
+    for group, offers in orbits(session, reading):
+        if len(offers) == 1:
+            out.append(_moon(ident, offers[0].kind, offers[0].label))
+            continue
+        out.append(
+            Moon(
+                f"g-{ident}-{group.name}",
+                group.label,
+                "group",
+                IrSeq(*(_moon(ident, o.kind, o.label) for o in offers)),
+            )
+        )
+    return IrSeq(*out)
+
+
+def _moon(ident: str, kind: str, label: str) -> Moon:
+    """One offer, as the moon that opens it."""
+    return Moon(f"m-{ident}-{kind}", label, kind)
+
+
 def scene_of(session: Session) -> Space:
     """Every reading as a ring, every naming as a rail."""
     place = placement(session)
@@ -130,12 +158,7 @@ def scene_of(session: Session) -> Space:
                 y,
                 reading.title,
                 _sub(reading),
-                IrSeq(
-                    *(
-                        Moon(f"m-{ident}-{kind}", label, kind)
-                        for kind, label in fan(session, reading)
-                    )
-                ),
+                _orbit(session, reading, ident),
                 f"reading:{ident}",
                 "reads" if reading.reads else "idle",
             )

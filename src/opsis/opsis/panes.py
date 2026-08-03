@@ -32,6 +32,7 @@ from opsis.opsis.engine import (
     forest_view,
     tables_view,
 )
+from opsis.opsis.fan import GROUPS, Fan, Group, Offer, offered
 from opsis.opsis.lanes import lane_of, lane_view
 from opsis.opsis.stages import module_view, pipeline_view
 from opsis.opsis.tables import flavour_view, registry_view, table_view
@@ -68,6 +69,7 @@ __all__ = [
     "WIDTHS",
     "artefact",
     "fan",
+    "orbits",
     "lanes",
     "shadows",
     "window",
@@ -87,74 +89,40 @@ def artefact(reading: Reading) -> CompiledGrammar | None:
     return self_compiled(reading.flavour) if reading.flavour is not None else None
 
 
+def fanned(session: Session, reading: Reading) -> Fan:
+    """What the fan table gets to look at, for this reading."""
+    above = session.readings.get(reading.reader)
+    return Fan(
+        reading,
+        artefact(above) if above is not None and reading.text else None,
+        artefact(reading),
+    )
+
+
 def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
-    """The readings this one actually has — nothing offered that isn't."""
-    out = [("text", "text")]
-    out += _grammar_fan(reading)
-    out += _product_fan(reading)
-    reader = session.reader_for(reading)
-    if reader is not None and reader.grammar is not None:
-        out.append(("reader", "its reader"))
-    out += [(f"do:{deed.name}", deed.label) for deed in deeds(reading)]
-    if _under(session, reading) is not None:
-        out += [
-            ("floor", "the floor"),
-            ("forest", "forest"),
-            ("derivations", "derivations"),
-            ("chart", "its chart"),
-            ("execution", "what ran"),
-        ]
-        if _segments(session, reading) is not None:
-            out.append(("segmentation", "its tokens ▲"))
-    if reading.flavour is not None:
-        out += [("flavour", "what it IS"), ("dispatch", "its tables")]
-    if shadows(session, reading):
-        out.append(("shadow", "it shadows ⚠"))
-    if lanes(session, reading):
-        out.append(("lanes", "its lanes ≅"))
-    if not reading.reader:
-        out.append(("registry", "the registry"))
-    if _wants(reading):
-        out.append(("plug", "plug ⊕"))
-    return out
+    """The readings this one actually has — flat, in group order."""
+    return [(o.kind, o.label) for o in _offers(session, reading)]
 
 
-def _grammar_fan(reading: Reading) -> list[tuple[str, str]]:
-    """Everything a reading offers because it IS a grammar."""
-    held = artefact(reading)
-    if held is None:
-        return []
-    out = [
-        ("rules", "rules"),
-        ("railroad", "railroad"),
-        ("pipeline", "pipeline"),
-        ("module", "module"),
-        ("doc", "its document"),
-        ("tables", "its tables"),
-        ("binding", "binding"),
-        ("fold", "its fold"),
-        ("runs", "its runs"),
-        ("analysis", "its verdicts"),
-        ("tokens", "its token facts"),
-        ("resume", "resume"),
-        ("carve", "template"),
-    ]
-    if held.tokens.tokenizer is not None:
-        out.append(("bound", "bound to ▲"))
-    return out
+def _offers(session: Session, reading: Reading) -> list[Offer]:
+    """Every offer this reading has, from the table and from its deeds."""
+    return offered(
+        fanned(session, reading), tuple((d.name, d.label) for d in deeds(reading))
+    )
 
 
-def _product_fan(reading: Reading) -> list[tuple[str, str]]:
-    """Everything a reading offers because of what it PRODUCED."""
-    out: list[tuple[str, str]] = []
-    if reading.tokenizer is not None:
-        out.append(("vocabulary", "vocabulary ▲"))
-    if reading.instance is not None:
-        out.append(("instance", "instance ▲"))
-    if reading.product is not None and reading.compiled is None:
-        out.append(("product", "product ▲"))
-    if isinstance(reading.product, GrammarModel):
-        out += [("semantic", "semantic ▲"), ("regrammar", "its grammar ▲")]
+def orbits(session: Session, reading: Reading) -> list[tuple[Group, list[Offer]]]:
+    """This reading's offers, gathered into the orbits they ride in.
+
+    A group with nothing in it is not returned: an empty orbit is not a
+    category, it is a gap, and drawing one would be a dead control.
+    """
+    found = _offers(session, reading)
+    out: list[tuple[Group, list[Offer]]] = []
+    for group in GROUPS:
+        mine = [o for o in found if o.group == group.name]
+        if mine:
+            out.append((group, mine))
     return out
 
 
@@ -163,6 +131,9 @@ RESUMES = Resumes()
 
 CURSORS = Cursors()
 """Every reading's constraint cursor — thrown away when it re-reads."""
+
+WIDTHS: dict[str, int] = {}
+"""The width each reading's document window is rendered at."""
 
 _SPELLABLE = ("gbnf", "abnf", "ebnf")
 """Surfaces the exporter can spell a module's docstrings in."""
@@ -934,8 +905,7 @@ def _under(session: Session, reading: Reading) -> CompiledGrammar | None:
     whether it happens to be a compiled artefact, is what stops that
     from being two different situations.
     """
-    above = session.readings.get(reading.reader)
-    return artefact(above) if above is not None and reading.text else None
+    return fanned(session, reading).read_by
 
 
 def _wants(reading: Reading) -> list[str]:
