@@ -10,6 +10,8 @@ API changes from the int-kernel rework:
 - New re-exports added and tested here: ``FastTree``, ``Kernel``, ``Link``,
   ``Links``, ``ParserTables``, ``compile_tables`` (``Link``/``Links`` existed
   before this rework too, but were untested at this layer).
+- Also tested here: ``earley_model``, ``earley_reduce``, ``GrammarAnalysis``,
+  ``PdaKernel`` — the engine-floor root re-exports beside ``Kernel``.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from lexic.parsing import (
     FastCtor,
     FastTree,
     FieldFold,
+    GrammarAnalysis,
     Kernel,
     Link,
     Links,
@@ -31,11 +34,14 @@ from lexic.parsing import (
     ModelFold,
     ParserTables,
     ParseTree,
+    PdaKernel,
     Reducer,
     RuleFold,
     SppfNode,
     compile_tables,
     derivations,
+    earley_model,
+    earley_reduce,
     is_ambiguous,
     lift_optional_nullables,
     normalize,
@@ -62,7 +68,10 @@ from lexic.parsing.earley.kernel.tables.records import (
     ParserTables as ParserTablesDirect,
 )
 from lexic.parsing.earley.reduce.reducer import Reducer as ReducerDirect
-from lexic.parsing.products import earley_model, earley_reduce
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis as GrammarAnalysisDirect
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel as PdaKernelDirect
+from lexic.parsing.products import earley_model as earley_model_direct
+from lexic.parsing.products import earley_reduce as earley_reduce_direct
 
 
 def test_chart_re_exported_from_package():
@@ -201,8 +210,24 @@ def test_product_entries_take_the_authored_grammar_pda_first():
     )
 
 
-def test_earley_completions_are_submodule_importable():
-    """The Earley-completion / route-forcing seam lives on the products
-    submodule (tests-only), not the package root."""
-    assert callable(earley_reduce)
-    assert callable(earley_model)
+# ── The engine-floor root exports ───────────────────────────────────────
+
+
+def test_earley_model_re_exported_from_package():
+    """earley_model is re-exported from the package top-level."""
+    assert earley_model is earley_model_direct
+
+
+def test_earley_reduce_re_exported_from_package():
+    """earley_reduce is re-exported from the package top-level."""
+    assert earley_reduce is earley_reduce_direct
+
+
+def test_grammar_analysis_re_exported_from_package():
+    """GrammarAnalysis is re-exported from the package top-level."""
+    assert GrammarAnalysis is GrammarAnalysisDirect
+
+
+def test_pda_kernel_re_exported_from_package():
+    """PdaKernel is re-exported from the package top-level."""
+    assert PdaKernel is PdaKernelDirect

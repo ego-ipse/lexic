@@ -13,13 +13,15 @@ parse runs the PDA first and completes on the Earley engine on any
 
 The Earley-completion entries — :func:`earley_reduce` (fused reduce over a
 normalised grammar) and :func:`earley_model` (gated first derivation + fold) — are the
-per-product completions the product entries call, and the seam tests force to
-exercise the Earley route directly. They take an **Earley-normalised** grammar,
+per-product completions the product entries call, public at the package root
+as the route-forcing seam: forcing a route means calling a different product
+entry, never passing a flag. They take an **Earley-normalised** grammar,
 the low-level contract the tree/forest readers keep.
 
 A leaf inside ``lexic.parsing``: imports the Earley engine and the PDA compiler/
-runtime by public name; ``__init__`` re-exports the two product entries at the
-package root, the sole surface ``compile.py`` (and every other consumer) sees.
+runtime by public name; ``__init__`` re-exports the product entries and the
+Earley completions at the package root, the sole surface ``compile.py`` (and
+every other consumer) sees.
 """
 
 from __future__ import annotations

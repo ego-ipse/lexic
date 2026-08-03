@@ -79,6 +79,16 @@ The tree/forest readers (:func:`recognize` … :func:`is_ambiguous`) each box th
 text and drive one :class:`~lexic.ir.base.IrSelf` orchestration node in
 :mod:`.earley.engine`. ``PdaFail`` is internal to the products and never
 surfaces.
+
+The engine floor is public here too, beside :class:`Kernel`:
+:func:`~lexic.parsing.products.earley_model` /
+:func:`~lexic.parsing.products.earley_reduce` are the per-product Earley
+completions — the route-forcing seam (forcing a route means calling a
+different product entry, never passing a flag) — and the predictive half
+surfaces as :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` (the
+fused runtime, subclassable for tracing) and
+:class:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis` (the decision
+taxonomy the verdict readers consume).
 """
 
 from __future__ import annotations
@@ -121,7 +131,15 @@ from lexic.parsing.fold import (
     RuleFold,
     lift_optional_nullables,
 )
-from lexic.parsing.products import parse_model, parse_reduced, token_model
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+from lexic.parsing.products import (
+    earley_model,
+    earley_reduce,
+    parse_model,
+    parse_reduced,
+    token_model,
+)
 
 
 def recognize(grammar: IrAst, text: str) -> IrInt:
@@ -219,6 +237,7 @@ __all__ = [
     "FastCtor",
     "FastTree",
     "FieldFold",
+    "GrammarAnalysis",
     "Kernel",
     "Link",
     "Links",
@@ -226,6 +245,7 @@ __all__ = [
     "ModelFold",
     "ParseTree",
     "ParserTables",
+    "PdaKernel",
     "Reducer",
     "Resolver",
     "RootNode",
@@ -233,6 +253,8 @@ __all__ = [
     "SppfNode",
     "compile_tables",
     "derivations",
+    "earley_model",
+    "earley_reduce",
     "is_ambiguous",
     "lift_optional_nullables",
     "normalize",
