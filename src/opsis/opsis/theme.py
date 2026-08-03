@@ -211,6 +211,110 @@ RULES: tuple[tuple[str, dict[str, str]], ...] = (
         ".frame::after",
         {"right": "-1px", "bottom": "-1px", "border-left": "0", "border-top": "0"},
     ),
+    (
+        ".rrow",
+        {"margin": "0 0 8px", "border-left": "2px solid var(--line)", "padding": "2px 8px"},
+    ),
+    (
+        ".rname",
+        {
+            "color": "var(--cyan)",
+            "letter-spacing": "1.5px",
+            "cursor": "pointer",
+        },
+    ),
+    (".rsrc", {"color": "var(--text)", "margin": "4px 0 0", "white-space": "pre-wrap"}),
+    (
+        ".refusal",
+        {
+            "color": "var(--err)",
+            "border-left": "2px solid var(--err)",
+            "padding": "4px 8px",
+            "white-space": "pre-wrap",
+        },
+    ),
+    (
+        "[data-rule].dx, .dx [data-rule], .dx.rname",
+        {"color": "var(--amber)", "text-shadow": "0 0 10px rgba(255,196,106,.8)"},
+    ),
+    (
+        ".editor textarea",
+        {
+            "width": "100%",
+            "min-height": "110px",
+            "background": "transparent",
+            "border": "1px solid var(--line)",
+            "color": "var(--text)",
+            "font": '11.5px "Cascadia Mono", Consolas, monospace',
+            "padding": "6px",
+            "resize": "vertical",
+        },
+    ),
+    (
+        ".chips",
+        {"display": "flex", "gap": "8px", "margin": "6px 0", "align-items": "center"},
+    ),
+    (
+        ".chip",
+        {
+            "border": "1px solid var(--line)",
+            "border-radius": "9px",
+            "padding": "1px 8px",
+            "font": '10px "Cascadia Mono", monospace',
+            "color": "var(--dim)",
+            "background": "transparent",
+        },
+    ),
+    (".chip input", {
+        "background": "transparent",
+        "border": "0",
+        "color": "var(--text)",
+        "font": "inherit",
+        "width": "90px",
+        "outline": "none",
+    }),
+    (".chips.off .chip", {"opacity": ".35", "pointer-events": "none"}),
+    (".chips.off .why", {"color": "var(--dim)", "font-size": "10px"}),
+    (
+        ".read",
+        {
+            "border": "1px solid var(--cyan)",
+            "background": "transparent",
+            "color": "var(--cyan)",
+            "font": '10px "Cascadia Mono", monospace',
+            "letter-spacing": "1.5px",
+            "padding": "2px 10px",
+            "cursor": "pointer",
+        },
+    ),
+    (
+        ".fan",
+        {
+            "position": "absolute",
+            "width": "0",
+            "height": "0",
+            "z-index": "3",
+            "cursor": "pointer",
+        },
+    ),
+    (
+        ".fan .fdot",
+        {
+            "position": "absolute",
+            "left": "-5px",
+            "top": "-5px",
+            "width": "10px",
+            "height": "10px",
+            "border-radius": "50%",
+            "border": "1px solid var(--dim)",
+            "background": "rgba(95,122,148,.15)",
+        },
+    ),
+    (".fan:hover .fdot", {"border-color": "var(--cyan)"}),
+    (
+        ".fan .rlabel",
+        {"left": "12px", "top": "-7px", "font-size": "10px"},
+    ),
 )
 """The canvas rules — (selector, properties), drawn in order."""
 

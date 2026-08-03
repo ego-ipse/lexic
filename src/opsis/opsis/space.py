@@ -167,12 +167,27 @@ window.addEventListener("pointermove", e => {
   draw();
 });
 window.addEventListener("pointerup", () => { panning = null; drag = null; });
+document.addEventListener("pointerover", e => {
+  const t = e.target.closest("[data-rule]");
+  document.querySelectorAll(".dx").forEach(n => n.classList.remove("dx"));
+  if (!t) return;
+  const sel = `[data-rule="${CSS.escape(t.dataset.rule)}"]`;
+  document.querySelectorAll(sel).forEach(n => n.classList.add("dx"));
+});
 """
-"""The camera — DOM behavior only; the scene never moves."""
+"""The camera — DOM behavior only; the scene never moves. Deixis is the
+one document-level listener: hovering anything carrying ``data-rule``
+glows every occurrence of that rule across every window at any depth."""
 
 
-def page(scene: Space, title: str = "opsis", subtitle: str = "") -> str:
+def page(
+    scene: Space, title: str = "opsis", subtitle: str = "", extra: str = ""
+) -> str:
     """A complete standalone page for one scene — the display window.
+
+    ``extra`` is pre-rendered markup appended inside ``#world`` after the
+    scene fragment (the caller's own frames/scripts) — a raw pass-through,
+    not re-escaped.
 
     Deterministic by construction (no timestamps, no randomness): the
     same scene renders the same bytes, which is what makes a rendered
@@ -202,7 +217,7 @@ def page(scene: Space, title: str = "opsis", subtitle: str = "") -> str:
                 el(
                     "div",
                     {"id": "space"},
-                    el("div", {"id": "world"}, raw(render_scene(scene))),
+                    el("div", {"id": "world"}, raw(render_scene(scene)), raw(extra)),
                 ),
                 el("script", None, raw(CAMERA)),
             ),

@@ -15,6 +15,7 @@ from opsis.opsis.scene import (
     visual,
 )
 from opsis.opsis.space import RENDER, page, render_scene
+from opsis.opsis.views import VIEWS, refusal, view_body
 
 __all__ = [
     "OPSIS_SYMBOLS",
@@ -22,9 +23,12 @@ __all__ = [
     "Rail",
     "Ring",
     "Space",
+    "VIEWS",
     "VisualNode",
     "Window",
     "page",
+    "refusal",
     "render_scene",
+    "view_body",
     "visual",
 ]

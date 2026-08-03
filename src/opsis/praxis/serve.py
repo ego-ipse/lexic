@@ -11,12 +11,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from lexic.compile import CompiledGrammar, Directives, export_module, verify_module
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir import IrNone
-from opsis.opsis import Rail, Ring, Space, VisualNode, page
+from lexic.ir import IrCat, IrDoc, IrNone
+from opsis.opsis import Rail, Ring, Space, VisualNode, page, view_body
+from opsis.opsis.canvas import el, html, raw, void
 from opsis.praxis.roots import Opened, Workspace, open_path
-from opsis.praxis.state import Ladder
+from opsis.praxis.state import Ladder, Rung
 
-__all__ = ["Handler", "OpsisServer", "Session", "scene_of", "serve"]
+__all__ = ["Handler", "OpsisServer", "Session", "frames_of", "scene_of", "serve"]
 
 _MAX_BODY = 2_000_000
 
@@ -48,6 +49,11 @@ def scene_of(session: Session) -> Space:
     return Space(*parts)
 
 
+def _ring_pos(k: int, i: int) -> tuple[int, int]:
+    """The ``k``-th ladder's rung-``i`` ring position — the trivial grid."""
+    return 160 + k * 260, 140 + i * 150
+
+
 def _ladder_parts(ladder: Ladder, k: int) -> list[VisualNode]:
     """One ring per rung of ``ladder`` (the ``k``-th ladder), plus its rails."""
     parts: list[VisualNode] = []
@@ -57,13 +63,165 @@ def _ladder_parts(ladder: Ladder, k: int) -> list[VisualNode]:
         terminal = i == len(ladder.rungs) - 1
         hue = "err" if rung.errors else ("green" if terminal else "cyan")
         payload = rung.compiled.grammar if rung.compiled is not None else IrNone
-        parts.append(
-            Ring(name, payload=payload, hue=hue, x=160 + k * 260, y=140 + i * 150)
-        )
+        x, y = _ring_pos(k, i)
+        parts.append(Ring(name, payload=payload, hue=hue, x=x, y=y))
         if i:
             parts.append(Rail(src=prev_name, dst=name))
         prev_name = name
     return parts
+
+
+def frames_of(session: Session) -> str:
+    """Pre-rendered editor and fan-detail frames, for every rung in view.
+
+    Sits alongside :func:`scene_of` as the world's other half: the scene
+    is the frozen ring/rail layer the camera draws once, this is the
+    per-rung DOM (editors, fan nodes) the camera's own JS toggles.
+    """
+    parts: list[IrDoc] = []
+    k = 0
+    for entry in session.entries:
+        if entry.ladder is not None:
+            parts.extend(_ladder_frames(entry.ladder, k))
+            k += 1
+    return html(IrCat(*parts))
+
+
+def _ladder_frames(ladder: Ladder, k: int) -> list[IrDoc]:
+    """Editor + fan frames for every rung of ``ladder`` (the ``k``-th ladder)."""
+    parts: list[IrDoc] = []
+    for i, rung in enumerate(ladder.rungs):
+        x, y = _ring_pos(k, i)
+        parts.append(_editor_frame(ladder, k, i, rung, x, y))
+        parts.extend(_fan_frames(k, i, rung, x, y))
+    return parts
+
+
+def _editor_frame(
+    ladder: Ladder, k: int, i: int, rung: Rung, ring_x: int, ring_y: int
+) -> IrDoc:
+    """The rung's editor: a chips row, its text, and a button to re-read it."""
+    x, y = ring_x + 340, ring_y - 20
+    frame_id = f"l{k}r{i}"
+    return el(
+        "div",
+        {
+            "class": "frame editor",
+            "data-frame": f"ed-{frame_id}",
+            "style": f"left:{x}px;top:{y}px;width:420px;height:240px",
+        },
+        el("header", None, el("span", None, f"l{k} · rung {i} — editor")),
+        el(
+            "div",
+            {"class": "fbody"},
+            _chips_row(ladder, rung, frame_id),
+            el("textarea", {"id": f"t-{frame_id}"}, rung.text),
+            el("button", {"class": "read", "data-post": f"/rung/{k}/{i}"}, "read ▸"),
+        ),
+    )
+
+
+def _chips_row(ladder: Ladder, rung: Rung, frame_id: str) -> IrDoc:
+    """The rung's directive chips — disabled with a reason on a comment-less root."""
+    off = not ladder.root.comment_forms
+    start = rung.directives.start or ""
+    non_semantic = rung.directives.non_semantic
+    ns = ",".join(sorted(non_semantic)) if non_semantic else ""
+    kids = [
+        el(
+            "span",
+            {"class": "chip"},
+            void("input", {"id": f"c-start-{frame_id}", "value": start}),
+        ),
+        el(
+            "span",
+            {"class": "chip"},
+            void("input", {"id": f"c-ns-{frame_id}", "value": ns}),
+        ),
+    ]
+    if off:
+        kids.append(
+            el(
+                "span",
+                {"class": "why"},
+                "this root's surface carries no comments — flags ride the argument channel",
+            )
+        )
+    return el("div", {"class": "chips off" if off else "chips"}, *kids)
+
+
+def _fan_frames(k: int, i: int, rung: Rung, ring_x: int, ring_y: int) -> list[IrDoc]:
+    """Tethered fan dots, one per reading this rung actually has."""
+    parts: list[IrDoc] = []
+    slot = 0
+    if rung.compiled is not None:
+        parts.extend(
+            _fan_pair(
+                "rules",
+                "rules",
+                view_body(rung.compiled.grammar),
+                k,
+                i,
+                slot,
+                ring_x,
+                ring_y,
+            )
+        )
+        slot += 1
+    if rung.instance is not None:
+        parts.extend(
+            _fan_pair(
+                "instance",
+                "instance ▲",
+                view_body(rung.instance),
+                k,
+                i,
+                slot,
+                ring_x,
+                ring_y,
+            )
+        )
+        slot += 1
+    return parts
+
+
+def _fan_pair(
+    kind: str,
+    label: str,
+    body: IrDoc,
+    k: int,
+    i: int,
+    slot: int,
+    ring_x: int,
+    ring_y: int,
+) -> list[IrDoc]:
+    """One fan node plus its hidden-by-default detail frame."""
+    fx, fy = ring_x + 40, ring_y + 26 + 24 * slot
+    open_id = f"fan-l{k}r{i}-{kind}"
+    fan = el(
+        "div",
+        {
+            "class": "fan",
+            "id": f"fn-l{k}r{i}-{kind}",
+            "data-open": open_id,
+            "style": f"left:{fx}px;top:{fy}px",
+        },
+        el("div", {"class": "fdot"}),
+        el("div", {"class": "rlabel"}, label),
+    )
+    frame = el(
+        "div",
+        {
+            "class": "frame",
+            "data-frame": open_id,
+            "style": (
+                f"left:{fx + 120}px;top:{fy}px;width:420px;height:240px;display:none"
+            ),
+        },
+        el("header", None, el("span", None, label)),
+        el("div", {"class": "fbody"}, body),
+    )
+    return [fan, frame]
 
 
 def _rung_directives(query: str) -> Directives | None:
@@ -101,6 +259,34 @@ def _matches_grammar(compiled: CompiledGrammar, target: Path) -> bool:
     except LexicError:
         return False
     return True
+
+
+SERVE_JS = """
+"use strict";
+document.addEventListener("click", e => {
+  const fan = e.target.closest(".fan[data-open]");
+  if (fan) {
+    const frame = document.querySelector(`.frame[data-frame="${fan.dataset.open}"]`);
+    if (frame) frame.style.display = frame.style.display === "none" ? "flex" : "none";
+    return;
+  }
+  const btn = e.target.closest(".read[data-post]");
+  if (!btn) return;
+  const editor = btn.closest(".editor");
+  const textarea = editor.querySelector("textarea");
+  const start = editor.querySelector('input[id^="c-start-"]');
+  const ns = editor.querySelector('input[id^="c-ns-"]');
+  const params = new URLSearchParams();
+  if (start && start.value) params.set("start", start.value);
+  if (ns && ns.value) params.set("non_semantic", ns.value);
+  const qs = params.toString();
+  fetch(btn.dataset.post + (qs ? `?${qs}` : ""), {method: "POST", body: textarea.value})
+    .then(() => location.reload());
+});
+"""
+"""The rung frames' own behavior — fan toggling and the read-post gesture.
+Deixis stays CAMERA's; this is the frames' half only, so neither script
+re-registers the other's listener."""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -142,7 +328,8 @@ class Handler(BaseHTTPRequestHandler):
         session = self._session()
         n = sum(1 for entry in session.entries if entry.ladder is not None)
         subtitle = f"{n} roots · workspace {session.workspace.root.name}"
-        self._send(page(scene_of(session), subtitle=subtitle))
+        extra = frames_of(session) + html(el("script", None, raw(SERVE_JS)))
+        self._send(page(scene_of(session), subtitle=subtitle, extra=extra))
 
     def _get_files(self) -> None:
         listing = self._session().workspace.listing()
@@ -217,9 +404,9 @@ class Handler(BaseHTTPRequestHandler):
         if length > _MAX_BODY:
             self.send_error(413)
             return None
-        raw = self.rfile.read(length)
+        data = self.rfile.read(length)
         try:
-            return raw.decode("utf-8")
+            return data.decode("utf-8")
         except UnicodeDecodeError:
             self._send("body is not UTF-8", code=400, kind="text/plain")
             return None

@@ -11,6 +11,7 @@ import threading
 
 import pytest
 
+from lexic.compile import compile_text
 from opsis.praxis.serve import serve
 from tests.paths import GROUND_TRUTH
 
@@ -83,6 +84,74 @@ def test_open_escaping_the_workspace_refuses(running_server):
     """POST /open of a path outside the workspace refuses with 422."""
     status, _ = _request(running_server, "POST", "/open", body="../escape")
     assert status == 422
+
+
+def test_root_carries_the_rung_0_editor_prefilled_with_the_grammar_text(
+    running_server,
+):
+    """GET / carries rung 0's editor frame with the grammar text in a textarea."""
+    _request(running_server, "POST", "/open", body="resources/ground_truth/list.gbnf")
+
+    _, page_body = _request(running_server, "GET", "/")
+
+    assert 'data-frame="ed-l0r0"' in page_body
+    start = page_body.index('id="t-l0r0"')
+    end = page_body.index("</textarea>", start)
+    assert "item" in page_body[start:end]
+
+
+def test_root_chips_row_is_not_off_for_a_gbnf_root(running_server):
+    """A gbnf root can spell directive comments, so its chips row is not disabled."""
+    _request(running_server, "POST", "/open", body="resources/ground_truth/list.gbnf")
+
+    _, page_body = _request(running_server, "GET", "/")
+
+    assert 'class="chips off"' not in page_body
+    assert 'class="chips"' in page_body
+
+
+def test_root_carries_a_fan_for_the_compiled_reading(running_server):
+    """Rung 0's fan for the compiled reading carries a known rule's data-rule."""
+    _request(running_server, "POST", "/open", body="resources/ground_truth/list.gbnf")
+    # A single opened rung starts terminal (no compiled reading yet); growing
+    # the ladder gives rung 0 its compiled reading, and its fan.
+    _request(running_server, "POST", "/rung/0/1", body="- item\n")
+
+    _, page_body = _request(running_server, "GET", "/")
+
+    assert 'data-frame="fan-l0r0-rules"' in page_body
+    assert 'data-rule="root"' in page_body
+
+
+def test_root_carries_an_instance_fan_for_the_edited_rung(running_server):
+    """Editing rung 1 with an instance text gives that rung its own instance fan."""
+    _request(running_server, "POST", "/open", body="resources/ground_truth/list.gbnf")
+    _request(running_server, "POST", "/rung/0/1", body="- item\n")
+
+    _, page_body = _request(running_server, "GET", "/")
+
+    assert 'data-frame="fan-l0r1-instance"' in page_body
+
+
+def test_root_page_script_still_carries_the_deixis_listener(running_server):
+    """The page's script keeps the one document-level deixis listener."""
+    _, page_body = _request(running_server, "GET", "/")
+
+    assert 'e.target.closest("[data-rule]")' in page_body
+
+
+def test_notation_root_chips_row_is_off_with_its_reason(running_server, tmp_path):
+    """A notation root carries no comments, so its chips row draws off with a reason."""
+    grammar_text = (GROUND_TRUTH / "list.gbnf").read_text(encoding="utf-8")
+    cg = compile_text(grammar_text)
+    (tmp_path / "notation.txt").write_text(repr(cg.grammar), encoding="utf-8")
+
+    status, _ = _request(running_server, "POST", "/open", body="notation.txt")
+    assert status == 200
+
+    _, page_body = _request(running_server, "GET", "/")
+    assert 'class="chips off"' in page_body
+    assert "carries no comments" in page_body
 
 
 def test_export_writes_the_generated_module(running_server, tmp_path):

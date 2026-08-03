@@ -26,7 +26,7 @@ from lexic.compile import (
 from lexic.compile.notation.loader import load_flavour
 from lexic.exceptions import LexicError
 from lexic.grammars import get_flavour
-from lexic.ir import IrAst, IrSelf
+from lexic.ir import IrAst, IrFlavour, IrSelf
 
 __all__ = ["Ladder", "Root", "Rung", "root_flavour", "root_manifest", "root_notation"]
 
@@ -40,16 +40,28 @@ class Root:
     ``read_grammar`` is the COMPILER reading every grammar rung gets
     (the defining relation); ``read_instance`` is rung 1's INSTANCE
     reading — the root's own surface reading its first text — or
-    ``None`` where the root has no instance surface.
+    ``None`` where the root has no instance surface. ``comment_forms``
+    is whether the root's SOURCE surface can spell a ``@directive`` —
+    a comment-less surface draws its directive chips disabled, with
+    that reason.
     """
 
-    __slots__ = ("read_grammar", "read_instance")
+    __slots__ = ("read_grammar", "read_instance", "comment_forms")
 
     def __init__(
-        self, read_grammar: GrammarReader, read_instance: InstanceReader | None
+        self,
+        read_grammar: GrammarReader,
+        read_instance: InstanceReader | None,
+        comment_forms: bool,
     ) -> None:
         self.read_grammar = read_grammar
         self.read_instance = read_instance
+        self.comment_forms = comment_forms
+
+
+def _has_comments(flavour: IrFlavour) -> bool:
+    """Whether the flavour's surface can spell a directive comment."""
+    return bool(flavour.line_comment or flavour.block_comment)
 
 
 def root_flavour(name: str) -> Root:
@@ -60,6 +72,7 @@ def root_flavour(name: str) -> Root:
             text, flavour=name, vocabulary=vocabulary, directives=directives
         ),
         lambda text: parse_grammar(text, flavour),
+        _has_comments(flavour),
     )
 
 
@@ -76,6 +89,7 @@ def root_manifest(manifest_text: str) -> Root:
             text, flavour=flavour, vocabulary=vocabulary, directives=directives
         ),
         lambda text: parse_grammar(text, flavour),
+        _has_comments(flavour),
     )
 
 
@@ -84,13 +98,15 @@ def root_notation() -> Root:
 
     Reads through ``compile_ast`` directly: no emit round-trip, so the
     AST's own ``semantic`` flags survive and nothing is bound to one
-    flavour's spelling.
+    flavour's spelling. The notation carries no comments — flags ride
+    the AST itself — so directive chips draw disabled on this root.
     """
     return Root(
         lambda text, vocabulary, directives: compile_ast(
             _notation_ast(text), vocabulary=vocabulary, directives=directives
         ),
         _notation_ast,
+        False,
     )
 
 
