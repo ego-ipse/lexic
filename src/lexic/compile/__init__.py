@@ -21,7 +21,10 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
 
 ``canonical_grammar(text, flavour)`` is the public front half (parse +
 canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
-transpilers build on it.
+transpilers build on it. ``compile_ast(ast)`` is the IR-born twin of
+``compile_text``: same back half, no text — the given AST is canonicalized
+as it stands and its own ``semantic`` flags survive (the emit-and-recompile
+detour loses them with the comments).
 
 ``CompiledGrammar`` carries the codegen grammar + its fold; ``parse`` hands
 them to the engine's ``parse_model`` product, and ``parse_grammar`` hands the
@@ -562,6 +565,23 @@ def _compile_core(
         non_semantic_rules=directives.non_semantic,
         start=directives.start,
     )
+    flavour_name = flavour if isinstance(flavour, str) else type(flavour).name
+    return _assemble_core(
+        ast, stem=stem, source=text, flavour_name=flavour_name, vocabulary=vocabulary
+    )
+
+
+def _assemble_core(
+    ast: IrAst, *, stem: str, source: str, flavour_name: str, vocabulary: Vocabulary
+) -> CompiledGrammar:
+    """The compile back half — canonical flagged AST → :class:`CompiledGrammar`.
+
+    Shared verbatim by the text route (:func:`_compile_core`) and the AST
+    route (:func:`compile_ast`); everything from here down is front-half
+    agnostic. ``source`` is the content string the synthetic-module identity
+    tags (:func:`_identity_for`) — the grammar text on the text route,
+    ``repr(ast)`` on the AST route.
+    """
     resolved = encoding_registry(vocabulary.tokenizer, vocabulary.registry)
     # Resolution is for MATCHING, not for meaning. concretize COMMUTES with
     # build_codegen_grammar, so the unresolved codegen grammar is built once
@@ -575,14 +595,14 @@ def _compile_core(
     if resolved is not None:
         codegen_grammar = concretize(unresolved, resolved)
     binding = compute_binding(codegen_grammar)
-    classes = synthesize(unresolved, binding, _identity_for(stem, text))
+    classes = synthesize(unresolved, binding, _identity_for(stem, source))
     fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
     return CompiledGrammar(
         classes=classes,
         grammar=ast,
         codegen_grammar=codegen_grammar,
         fold=fold,
-        flavour=flavour if isinstance(flavour, str) else type(flavour).name,
+        flavour=flavour_name,
         stem=stem,
         tokens=TokenBinding(
             segmentation_tokenizer(resolved),
@@ -652,6 +672,82 @@ def compile_text(
         flavour=flavour,
         vocabulary=vocabulary,
         directives=directives,
+    )
+    _CACHE[key] = cg
+    return cg
+
+
+def _canonical_ast(ast: IrAst, directives: Directives) -> IrAst:
+    """The AST route's front half — canonicalize + resolve the flags.
+
+    Mirrors :func:`canonical_grammar` with the AST itself as the source:
+    ``directives.start`` overrides ``ast.start`` (else the first rule), and
+    ``directives.non_semantic`` REPLACES the rules' own ``semantic`` flags
+    when given — ``None`` keeps them (canonicalize preserves the flag).
+
+    :raises UnsupportedConstructError: When the resolved start rule is not
+        defined in the grammar.
+    """
+    start = directives.start or ast.start or (ast.rules[0].name if ast.rules else "")
+    canon = canonicalize(IrAst(rules=ast.rules, start=start))
+    if canon.start and not any(r.name == canon.start for r in canon.rules):
+        raise UnsupportedConstructError(
+            f"start rule {canon.start!r} not defined in grammar; "
+            f"available rules: {[r.name for r in canon.rules]}"
+        )
+    if directives.non_semantic is None:
+        return canon
+    folded = frozenset(fold_name(n) for n in directives.non_semantic)
+    rules = IrSeq(*(IrRule(r.name, r.body, r.name not in folded) for r in canon.rules))
+    return IrAst(rules=rules, start=canon.start)
+
+
+def compile_ast(
+    ast: IrAst,
+    *,
+    cache_key: Hashable | None = None,
+    vocabulary: Vocabulary = Vocabulary(),
+    directives: Directives = Directives(),
+) -> CompiledGrammar:
+    """Compile from a grammar AST — the IR-born twin of :func:`compile_text`.
+
+    The entry for a grammar that never had text: authored natively in IR, or
+    loaded through the notation. The text route's front half is skipped, not
+    emulated — emitting IR through a flavour and recompiling that text is
+    lossy (``semantic=False`` flags vanish with the comments) and can only
+    spell what the chosen flavour can spell. Here the given AST is
+    canonicalized as it stands (rule flags survive), the start and flags
+    resolve from the AST itself with ``directives`` overriding — the text
+    route's precedence — and the back half is shared verbatim.
+
+    Memoised like the text twin, with ``repr(ast)`` as the content: repr is
+    codegen-exact, so the key distinguishes what AST equality deliberately
+    ignores (the ``semantic`` flags). The artefact's ``flavour`` is ``"ir"``
+    — the notation is the surface it arrived in; ``to_grammar`` still takes
+    its target flavour explicitly.
+
+    :param ast: The grammar AST; need not be canonical.
+    :param cache_key: Extra key prefix, prepended as in :func:`compile_text`.
+    :param vocabulary: The lens the grammar's terminals are read through
+        (see :func:`compile_text`).
+    :param directives: Overrides for what the AST's own start and flags say.
+    :returns: The compiled grammar (cached across calls with the same key).
+    :raises UnsupportedConstructError: When the resolved start rule is not
+        defined in the grammar.
+    """
+    source = repr(ast)
+    stem = _stem_for_text(source)
+    content_key: tuple[Hashable, ...] = (stem, "ir", vocabulary, directives)
+    key = (cache_key, *content_key) if cache_key is not None else content_key
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    cg = _assemble_core(
+        _canonical_ast(ast, directives),
+        stem=stem,
+        source=source,
+        flavour_name="ir",
+        vocabulary=vocabulary,
     )
     _CACHE[key] = cg
     return cg

@@ -135,7 +135,7 @@ src/lexic/
     json_tokenizer.py              tokenizer.json → IrTokenizer; the json formulation is a parameter
     pretokens.py                   that format's own split specs — vendor vocabulary, declared out of ir/
   compile/
-    __init__.py                    parse_grammar / canonical_grammar / compile_text — grammar entry points
+    __init__.py                    parse_grammar / canonical_grammar / compile_text / compile_ast — grammar entry points
     artifact.py                    CompiledGrammar — the parse-ready artefact compile_* produces
     foldkit.py                     Shared authored-fold vocabulary — the build-path unification seed
     templating.py                  Generic templating — extract selected paths of any COMPILED grammar via spans

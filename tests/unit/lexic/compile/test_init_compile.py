@@ -17,6 +17,7 @@ from lexic.compile import (
     _scan_directives,
     bind_module,
     canonical_grammar,
+    compile_ast,
     compile_from_path,
     compile_text,
     parse_grammar,
@@ -320,6 +321,105 @@ def test_compile_from_path_with_a_flavour_instance(tmp_path):
     cg = compile_from_path(src, flavour=fl)
     assert cg.parse("x42").to_text() == "x42"
     assert cg.flavour == "gbnf"
+
+
+# ── compile_ast: the IR-born twin of compile_text ──────────────────────
+
+COMPILE_AST_TEXT = 'root ::= ws "x" ws\nws ::= [ ]*\n'
+
+
+def test_compile_ast_survives_the_flag_the_emit_route_loses():
+    """compile_ast keeps a rule's semantic=False flag; emitting the same AST
+    through a flavour and recompiling the text loses it with the comments —
+    the detour compile_ast exists to avoid."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    assert compile_ast(flagged).grammar.non_semantic == frozenset({"ws"})
+
+    emitted = str(GBNF_FLAVOUR.apply(flagged))
+    recompiled = compile_text(emitted, flavour="gbnf")
+    assert recompiled.grammar.non_semantic == frozenset()
+
+
+def test_compile_ast_parses():
+    """The AST route's artefact parses exactly like the text route's."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    assert compile_ast(flagged).parse(" x ").to_text() == " x "
+
+
+def test_compile_ast_flavour_is_ir_and_stem_is_a_string():
+    """The artefact names its origin "ir"; the stem is some sane string."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    cg = compile_ast(flagged)
+    assert cg.flavour == "ir"
+    assert isinstance(cg.stem, str)
+
+
+def test_compile_ast_memoises_by_repr_not_ast_equality():
+    """Same AST object twice hits the memo; a flag-free twin of the same
+    rules gets a DIFFERENT artefact even though the two ASTs compare equal —
+    the repr-keyed memo splits what == deliberately ignores (semantic flags)."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    plain = canonical_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    assert flagged == plain
+
+    cg1 = compile_ast(flagged)
+    cg2 = compile_ast(flagged)
+    assert cg1 is cg2
+
+    cg3 = compile_ast(plain)
+    assert cg3 is not cg1
+
+
+def test_compile_ast_directives_override_non_semantic():
+    """An explicit directives.non_semantic replaces the AST's own flags."""
+    plain = canonical_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    cg = compile_ast(plain, directives=Directives(non_semantic=frozenset({"ws"})))
+    assert cg.grammar.non_semantic == frozenset({"ws"})
+
+
+def test_compile_ast_directives_override_start():
+    """An explicit directives.start changes which rule is the start rule."""
+    plain = canonical_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    cg = compile_ast(plain, directives=Directives(start="ws"))
+    assert cg.grammar.start == "ws"
+
+
+def test_compile_ast_undefined_start_directive_raises():
+    """A directives.start naming an undefined rule refuses, like the text route."""
+    plain = canonical_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    with pytest.raises(UnsupportedConstructError):
+        compile_ast(plain, directives=Directives(start="nope"))
+
+
+def test_compile_ast_accepts_an_uncanonical_ast():
+    """compile_ast canonicalizes the given AST itself — it need not arrive
+    already folded and ordered — landing on the same grammar as the text
+    route."""
+    raw = parse_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    uncanonical = IrAst(rules=raw.rules, start="root")
+    assert compile_ast(uncanonical).grammar == compile_text(COMPILE_AST_TEXT).grammar
+
+
+def test_compile_ast_and_compile_text_agree_given_the_same_flags():
+    """Same canonical AST, same flags: the text route and the AST route land
+    on the identical grammar, flags included."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    text_route = compile_text(
+        COMPILE_AST_TEXT, directives=Directives(non_semantic=frozenset({"ws"}))
+    )
+    ast_route = compile_ast(flagged)
+    assert text_route.grammar == ast_route.grammar
+    assert repr(text_route.grammar) == repr(ast_route.grammar)
 
 
 # ── canonical_grammar start-resolution unit tests ──
