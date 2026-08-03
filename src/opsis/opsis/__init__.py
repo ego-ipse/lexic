@@ -14,13 +14,17 @@ from opsis.opsis._scene import (
     Window,
     visual,
 )
+from opsis.opsis.space import RENDER, page, render_scene
 
 __all__ = [
     "OPSIS_SYMBOLS",
+    "RENDER",
     "Rail",
     "Ring",
     "Space",
     "VisualNode",
     "Window",
+    "page",
+    "render_scene",
     "visual",
 ]
