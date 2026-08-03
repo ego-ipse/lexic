@@ -456,6 +456,18 @@ RULES: tuple[tuple[str, str], ...] = (
     (".shead em", "margin-left:auto;font-style:normal;color:var(--line)"),
     (".sbody", "display:none;padding:2px 10px 10px"),
     (".sect.open .sbody", "display:block"),
+    # a parse over time: step index across, cursor position down
+    (".kairos", "display:flex;flex-direction:column;gap:8px"),
+    (
+        ".ksvg",
+        "width:100%;height:auto;background:var(--void);border:1px solid var(--line)",
+    ),
+    (".kline", "fill:none;stroke:var(--cyan);stroke-width:1.4;opacity:.9"),
+    (".kaxis", "stroke:var(--line);stroke-width:1"),
+    (".kdot", "fill:var(--line);cursor:pointer"),
+    (".kdot:hover", "fill:var(--amber);r:4"),
+    (".kdot.at", "fill:var(--amber)"),
+    ("[data-replay] mark", "background:var(--cyandim);color:var(--void)"),
     ("#nodes", "position:absolute;left:0;top:0;width:0;height:0"),
     # a measured claim — the mark carries the verdict, the hue repeats it
     (

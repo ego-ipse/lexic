@@ -157,6 +157,7 @@ PARTS: dict[str, tuple[Part, ...]] = {
     "parse": (
         Part("floor", "the floor", "measured claims about this parse", _read),
         Part("execution", "what ran", "the runtime's own record", _read),
+        Part("timeline", "over time", "where the cursor was, step by step", _read),
         Part("chart", "chart", "columns of items", _read),
         Part("forest", "forest", "every derivation, packed", _read),
         Part("derivations", "derivations", "enumerated — this one can be slow", _read),

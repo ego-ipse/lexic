@@ -40,7 +40,14 @@ from opsis.opsis.read.parts import (
     stack,
 )
 
-__all__ = ["derivation_view", "floor_view", "forest_view", "tables_view"]
+__all__ = [
+    "derivation_view",
+    "execution_view",
+    "floor_view",
+    "forest_view",
+    "tables_view",
+    "trace_of",
+]
 
 _STEPS = 200
 """How many steps one execution view draws before it states the rest."""
@@ -284,6 +291,11 @@ def execution_view(compiled: CompiledGrammar, text: str) -> IrDoc:
             else []
         ),
     )
+
+
+def trace_of(compiled: CompiledGrammar, text: str) -> list[Step]:
+    """The runtime's own record of this parse, however it ended."""
+    return _trace(compiled, text)[0]
 
 
 def _trace(compiled: CompiledGrammar, text: str) -> tuple[list[Step], str]:

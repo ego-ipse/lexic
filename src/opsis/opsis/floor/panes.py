@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrDoc, IrTokenizer
+from opsis.kairos.scrub import timeline_view
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.floor.analysis import analysis_view
 from opsis.opsis.floor.chart import chart_view, segmentation_view
@@ -20,6 +21,7 @@ from opsis.opsis.floor.engine import (
     floor_view,
     forest_view,
     tables_view,
+    trace_of,
 )
 from opsis.opsis.pane import RESUMES, Pane, artefact, grammar_of, read_by
 from opsis.opsis.read.parts import chip
@@ -36,6 +38,7 @@ __all__ = [
     "forest_pane",
     "resolver",
     "resume_pane",
+    "timeline_pane",
     "segmentation_pane",
     "segments",
     "tables_pane",
@@ -83,6 +86,17 @@ def execution_pane(session: Session, reading: Reading) -> Pane:
     text = reading.text
     return Pane(
         f"{reading.title} — what ran", (700, 460), lambda: [execution_view(under, text)]
+    )
+
+
+def timeline_pane(session: Session, reading: Reading) -> Pane:
+    """This parse as its cursor's path — measured, and scrubbable."""
+    under = read_by(session, reading)
+    text = reading.text
+    return Pane(
+        f"{reading.title} — over time",
+        (700, 480),
+        lambda: [timeline_view(trace_of(under, text), text)],
     )
 
 

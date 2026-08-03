@@ -35,6 +35,7 @@ from opsis.opsis.floor.panes import (
     resume_pane,
     segmentation_pane,
     tables_pane,
+    timeline_pane,
 )
 from opsis.opsis.pane import (
     CURSORS,
@@ -453,6 +454,7 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "forest": forest_pane,
     "derivations": derivations_pane,
     "chart": chart_pane,
+    "timeline": timeline_pane,
     "execution": execution_pane,
     "segmentation": segmentation_pane,
     "lanes": _lanes_pane,

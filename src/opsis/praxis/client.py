@@ -29,6 +29,37 @@ let framed = true;
 // A window's body is built when it opens, not when the page is drawn:
 // a self-grammar's predictive tables cost fifty seconds, and nobody
 // should pay that for a window they never opened.
+// Scrubbing a parse: the slider names a step, and the input lights up
+// to exactly where the cursor stood at it. Replayed from what the
+// runtime recorded — nothing is re-run to draw this.
+document.addEventListener("input", e => {
+  const slider = e.target.closest("[data-scrub]");
+  if (!slider) return;
+  const box = slider.closest(".kairos");
+  const at = +slider.value;
+  const dots = [...box.querySelectorAll(".kdot")];
+  dots.forEach(d => d.classList.toggle("at", +d.dataset.step === at));
+  const dot = dots[at];
+  const label = box.querySelector("[data-at]");
+  const pre = box.querySelector("[data-replay]");
+  if (!dot || !pre) return;
+  if (pre.dataset.plain === undefined) pre.dataset.plain = pre.textContent;
+  const whole = pre.dataset.plain;
+  const span = Math.round(+dot.getAttribute("cy") / 220 * whole.length);
+  pre.textContent = "";
+  const seen = document.createElement("mark");
+  seen.textContent = whole.slice(0, span);
+  pre.appendChild(seen);
+  pre.appendChild(document.createTextNode(whole.slice(span)));
+  if (label) label.textContent = `step ${at} · ${dot.dataset.name || ""} @${span}`;
+});
+document.addEventListener("click", e => {
+  const dot = e.target.closest(".kdot");
+  if (!dot) return;
+  const slider = dot.closest(".kairos").querySelector("[data-scrub]");
+  slider.value = dot.dataset.step;
+  slider.dispatchEvent(new Event("input", {bubbles: true}));
+});
 // A section fills the first time it is opened, and never again until
 // something it depends on is re-read.
 document.addEventListener("click", e => {
