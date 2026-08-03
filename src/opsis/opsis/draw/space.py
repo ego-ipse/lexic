@@ -311,8 +311,14 @@ RENDER: IrTypeMap = IrTypeMap(
 
 
 def render_scene(scene: Space) -> str:
-    """The scene fragment — wires and nodes, ready to sit in ``#world``."""
-    return html(_doc(RENDER, scene))
+    """The scene fragment — wires and nodes, ready to sit in ``#world``.
+
+    Wrapped in one element so it can be replaced on its own. Positioned
+    at the origin and sized to nothing, so it is the containing block
+    its absolutely-placed children already resolved against — swapping
+    it moves nothing.
+    """
+    return html(el("div", {"id": "nodes"}, _doc(RENDER, scene)))
 
 
 CAMERA = r"""

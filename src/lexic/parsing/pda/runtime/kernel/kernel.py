@@ -49,7 +49,7 @@ user-facing diagnostics. It never surfaces to the caller.
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import Any, NamedTuple
 
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
@@ -121,6 +121,22 @@ __all__ = ["PdaFail", "PdaKernel"]
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
 each slot later holding a sub-model list) without narrowing their type."""
+
+
+class Watch(NamedTuple):
+    """What a caller wants to know or decide about one parse.
+
+    :ivar resolve: The caller's deterministic answer to an island that
+        derives its text two ways meaning different things; ``None``
+        refuses one.
+    :ivar trace: A list to append one :class:`Step` per DECISION to, or
+        ``None`` for no trace. Off by default and off in every hot path:
+        an untraced parse pays one ``is not None`` test per decision and
+        allocates nothing.
+    """
+
+    resolve: Resolver | None = None
+    trace: list[Step] | None = None
 
 
 MODES: dict[int, str] = {
@@ -197,9 +213,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         tables: PdaTables,
         text: str,
         fold: ModelFold[M] | None = None,
-        *,
-        resolve: Resolver | None = None,
-        trace: list[Step] | None = None,
+        watch: Watch = Watch(),
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -208,20 +222,17 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         :param fold: The full-grammar :class:`~lexic.parsing.fold.ModelFold`
             for splicing island sub-models; ``None`` disables island resolution
             (any island reference raises :class:`PdaFail`).
-        :param resolve: The caller's deterministic answer to an island that
-            derives its text two ways that mean different things; ``None``
-            refuses one. Per-parse state, so it rides on the cursor.
-        :param trace: A list to append one :class:`Step` per DECISION to,
-            or ``None`` for no trace. Off by default and off in every hot
-            path: an untraced parse pays one ``is not None`` test per
-            decision and allocates nothing.
+        :param watch: What the caller wants to know or decide about this
+            parse — its answer to an ambiguous island, and a list to
+            record decisions into. Both are per-parse, so both ride
+            together on the cursor.
         """
         self.tables = tables
         self.text = text
-        self.policy = IslandPolicy(resolve=resolve, fold=fold)
+        self.policy = IslandPolicy(resolve=watch.resolve, fold=fold)
         self.pos = 0
         self.stack = []
-        self.trace = trace
+        self.trace = watch.trace
         self._caches = KernelCaches()
 
     # ── the driver ────────────────────────────────────────────────────
@@ -700,10 +711,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         :returns: ``(end, sub_model)``, or ``None`` (declined — the safety net).
         """
         sub = PdaKernel(
-            self.tables,
-            window_text,
-            self.policy.fold,
-            resolve=self.policy.resolve,
+            self.tables, window_text, self.policy.fold, Watch(self.policy.resolve)
         )
         return finish_delegate(sub, clone, window_text, pos)
 

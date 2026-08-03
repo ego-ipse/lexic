@@ -20,6 +20,7 @@ from lexic.ir import IrAst, IrDoc, IrSelf
 from lexic.parsing import (
     PdaKernel,
     Step,
+    Watch,
     derivations,
     earley_model,
     is_ambiguous,
@@ -282,7 +283,7 @@ def _trace(compiled: CompiledGrammar, text: str) -> tuple[list[Step], str]:
     """The runtime's own record of this parse, and how it ended."""
     steps: list[Step] = []
     try:
-        PdaKernel(compiled.pda_tables(), text, compiled.fold, trace=steps).run()
+        PdaKernel(compiled.pda_tables(), text, compiled.fold, Watch(trace=steps)).run()
     except LexicError as exc:
         return steps, f"refused after {len(steps):,} decisions — {exc}"
     except PdaFail as exc:

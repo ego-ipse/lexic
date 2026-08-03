@@ -223,16 +223,25 @@ class Reading:
         children and one that cannot, and it is a fact about the
         product rather than a mode someone set.
         """
-        return self.compiled is not None or self.flavour is not None
+        return (
+            self.compiled is not None
+            or self.flavour is not None
+            or isinstance(self.product, Reader)
+        )
 
     def as_reader(self) -> Reader | None:
         """This reading's product, as something that reads.
 
         A compiled grammar reads texts into models; a loaded flavour
-        reads texts into grammars. Anything else reads nothing, and
-        returns ``None`` rather than a reader that would refuse
-        everything.
+        reads texts into grammars; a product that is already a reader
+        is one. Anything else reads nothing, and returns ``None``
+        rather than a reader that would refuse everything.
         """
+        if isinstance(self.product, Reader):
+            # Already one. A reading whose product IS a reader needs no
+            # translating — the notation is the case, and it is the top
+            # of the ladder rather than an exception to it.
+            return self.product
         compiled = self.compiled
         if compiled is not None:
             return Reader(

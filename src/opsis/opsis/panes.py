@@ -21,7 +21,7 @@ from lexic.model import GrammarModel
 from lexic.parsing import lift_optional_nullables
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
-from opsis.opsis.fan import fan, fanned, orbits
+from opsis.opsis.fan import OFFERS, fan, fanned, parts_of
 from opsis.opsis.floor.lanes import lane_of, lane_view
 from opsis.opsis.floor.panes import (
     analysis_pane,
@@ -45,7 +45,14 @@ from opsis.opsis.pane import (
 )
 from opsis.opsis.read.binding import binding_view, fold_view, runs_of
 from opsis.opsis.read.emission import emit_doc
-from opsis.opsis.read.parts import bounded, button, chip, controls, refusal
+from opsis.opsis.read.parts import (
+    bounded,
+    button,
+    chip,
+    controls,
+    refusal,
+    section,
+)
 from opsis.opsis.read.stages import module_view, pipeline_view
 from opsis.opsis.read.tables import flavour_view, registry_view, table_view
 from opsis.opsis.read.views import (
@@ -75,7 +82,6 @@ __all__ = [
     "WIDTHS",
     "artefact",
     "fan",
-    "orbits",
     "lanes",
     "shadows",
     "window",
@@ -430,12 +436,84 @@ returns is what this replaced.
 """
 
 
+SIZES: dict[str, tuple[int, int]] = {
+    "text": (480, 340),
+    "shape": (720, 480),
+    "built": (780, 460),
+    "parse": (720, 480),
+    "compile": (740, 480),
+    "tokens": (660, 420),
+    "bench": (640, 440),
+    "meta": (680, 440),
+    "do": (520, 300),
+}
+"""How big each window opens — bigger than one part needs, because a
+window holds several and people open two of them at once."""
+
+
+def _shell(session: Session, reading: Reading, kind: str) -> Pane:
+    """A window as its parts, each opening when it is wanted.
+
+    A window that built everything at once would be unreadable and
+    expensive — several of these cost a compile — so a part is a
+    heading and an empty slot until somebody expands it.
+    """
+    label = next((o.label for o in OFFERS if o.kind == kind), kind)
+    title = f"{reading.title} — {label}"
+    if kind == "text":
+        return Pane(title, SIZES["text"], lambda: _editor(session, reading))
+    if kind == "do":
+        return Pane(title, SIZES["do"], lambda: [_deeds(reading)])
+    inside = parts_of(fanned(session, reading), kind)
+    if not inside:
+        return Pane(
+            title,
+            SIZES[kind],
+            lambda: [refusal(f"{reading.title} has no {label} to show")],
+        )
+    return Pane(
+        title,
+        SIZES[kind],
+        lambda: [
+            section(part.label, f"{reading.ident}/{part.kind}", part.why, shown=i == 0)
+            for i, part in enumerate(inside)
+        ],
+    )
+
+
+def _deeds(reading: Reading) -> IrDoc:
+    """Everything this reading can do, each with the button that does it."""
+    found = deeds(reading)
+    if not found:
+        return refusal(f"{reading.title} has nothing to do")
+    return el(
+        "div",
+        None,
+        *(
+            el(
+                "div",
+                {"class": "row"},
+                el("span", {"class": "name"}, _text(deed.label)),
+                el("div", {"class": "note"}, _text(deed.why)),
+                controls(button(deed.label, f"/do/{reading.ident}/{deed.name}")),
+            )
+            for deed in found
+        ),
+    )
+
+
 def window(session: Session, reading: Reading, kind: str) -> Pane:
-    """The window a fan entry opens.
+    """The window a moon opens, or the part a section fills.
+
+    One function for both, because they are the same question asked at
+    two depths: a window is a shell of sections, and a section is one
+    of the bodies this table has always built.
 
     :raises UnsupportedConstructError: When nothing knows that kind —
         which the caller draws rather than swallows.
     """
+    if kind in SIZES:
+        return _shell(session, reading, kind)
     if kind.startswith("do:"):
         name = kind.removeprefix("do:")
         if name == "constrain":

@@ -28,6 +28,7 @@ __all__ = [
     "grid",
     "panel",
     "refusal",
+    "section",
     "titled",
 ]
 
@@ -129,6 +130,29 @@ def chip(label: str, ident: str, value: str, empty: str, off: bool = False) -> I
                 "data-post": "chip",
             },
         ),
+    )
+
+
+def section(title: str, opens: str, why: str = "", shown: bool = False) -> IrDoc:
+    """One collapsible part of a window, filled when it is opened.
+
+    A window that showed everything at once would either be unreadable
+    or expensive — usually both, since some of these cost a compile.
+    So a section is a heading and an empty slot, and the slot fills the
+    first time somebody expands it. Same laziness as a window, one
+    level in.
+    """
+    return el(
+        "div",
+        {"class": "sect open" if shown else "sect"},
+        el(
+            "div",
+            {"class": "shead", "data-expand": opens},
+            el("b", None, "▾" if shown else "▸"),
+            _text(title),
+            el("em", None, _text(why)),
+        ),
+        el("div", {"class": "sbody", "data-pane": opens}),
     )
 
 

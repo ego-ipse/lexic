@@ -27,7 +27,7 @@ from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.draw.graphic import RAIL_CSS, rule_svg
 from opsis.opsis.draw.scene import Moon, Rail, Ring, Space, VisualNode
 from opsis.opsis.draw.space import Box, Frame, frame, render_scene
-from opsis.opsis.panes import Pane, artefact, fan, orbits, window
+from opsis.opsis.panes import Pane, artefact, fan, window
 from opsis.opsis.read.views import (
     refusal,
     view_of,
@@ -42,6 +42,7 @@ __all__ = [
     "legend",
     "picker",
     "scene_of",
+    "scene_only",
     "windows_of",
     "world_of",
 ]
@@ -111,26 +112,12 @@ def placement(session: Session) -> dict[str, tuple[int, int]]:
 
 
 def _orbit(session: Session, reading: Reading, ident: str) -> IrSeq:
-    """A reading's offers as the orbits they ride in.
+    """A reading's windows, as the moons that open them.
 
-    One moon per GROUP, each carrying its own — so a node wears seven
-    at most and opens the rest in place. A group of one is drawn as
-    that one: a folder holding a single thing is a click nobody needs.
+    Flat, because there are eight. A sub-orbit was the answer when a
+    node wore twenty-four, and the better answer was for it not to.
     """
-    out: list[Moon] = []
-    for group, offers in orbits(session, reading):
-        if len(offers) == 1:
-            out.append(_moon(ident, offers[0].kind, offers[0].label))
-            continue
-        out.append(
-            Moon(
-                f"g-{ident}-{group.name}",
-                group.label,
-                "group",
-                IrSeq(*(_moon(ident, o.kind, o.label) for o in offers)),
-            )
-        )
-    return IrSeq(*out)
+    return IrSeq(*(_moon(ident, kind, label) for kind, label in fan(session, reading)))
 
 
 def _moon(ident: str, kind: str, label: str) -> Moon:
@@ -446,6 +433,17 @@ def _overridden(derived: Space, edits: dict[str, VisualNode]) -> Space:
     if not edits:
         return derived
     return Space(*(edits.get(str(getattr(part, "name", "")), part) for part in derived))
+
+
+def scene_only(session: Session) -> str:
+    """Just the rings and rails — no windows.
+
+    What a text edit changes: a node's hue, its subtitle, the rails
+    under it. Swapping the windows too would mean replacing the very
+    textarea somebody is typing into, four times a sentence.
+    """
+    space = _overridden(scene_of(session), written(session))
+    return render_scene(space)
 
 
 def world_of(session: Session) -> str:

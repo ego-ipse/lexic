@@ -5,7 +5,7 @@ from __future__ import annotations
 from lexic.compile.notation.emit import emit_ir
 from lexic.compile.notation.parse import load_ir
 from lexic.ir import IrSeq, IrStr
-from opsis.opsis.scene import SYMBOLS, Moon, Ring, Space, VisualNode, visual
+from opsis.opsis.draw.scene import SYMBOLS, Moon, Ring, Space, VisualNode, visual
 
 
 def _sample_space() -> Space:

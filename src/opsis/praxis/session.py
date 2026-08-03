@@ -119,8 +119,8 @@ class Session:
             reader and a shipped surface has to stand in.
         """
         for reading in self.readings.values():
-            flavour = reading.flavour
-            if flavour is not None and str(type(flavour).name) == name:
+            held = reading.as_reader()
+            if held is not None and held.name == name:
                 return reading.ident
         return ""
 

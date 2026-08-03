@@ -10,7 +10,7 @@ import pytest
 from lexic.compile import parse_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from opsis.praxis.ingress import vocabulary_reader
+from opsis.praxis.ingress.ingress import vocabulary_reader
 from opsis.praxis.reading import Reading, Source, _flavour_reader
 from opsis.praxis.session import Session, alphabets
 from tests.paths import GROUND_TRUTH

@@ -17,6 +17,8 @@ from typing import Callable, NamedTuple
 from urllib.parse import SplitResult, parse_qs, urlsplit
 
 from lexic.compile import Directives
+from lexic.compile.notation.emit import emit_ir
+from lexic.compile.notation.parse import NOTATION_GRAMMAR
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrCat, IrTokenizer
 from opsis.opsis.draw.canvas import el, html, raw
@@ -30,6 +32,7 @@ from opsis.opsis.session import (
     picker,
     rail_body,
     scene_of,
+    scene_only,
     spawn_bar,
     world_of,
 )
@@ -47,7 +50,7 @@ from opsis.praxis.ingress.ingress import (
     vocabulary_reader,
 )
 from opsis.praxis.ingress.reflect import REFLECTED, scene_reader, scene_text
-from opsis.praxis.reading import FOREIGN, Reading, Source
+from opsis.praxis.reading import FOREIGN, Outcome, Reading, Source
 from opsis.praxis.session import Session
 
 __all__ = ["Handler", "OpsisServer", "serve"]
@@ -78,6 +81,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(self._page(session))
         elif url.path == "/world":
             self._send(world_of(session))
+        elif url.path == "/scene":
+            self._send(scene_only(session))
         elif url.path.startswith("/pane/"):
             ident, _, kind = url.path.removeprefix("/pane/").partition("/")
             self._send(pane_body(session, ident, kind))
@@ -188,9 +193,11 @@ def _open(session: Session, _rest: list[str], ask: Ask) -> str:
     opened = open_file(session.root, ask.body.strip())
     if opened.kind == "session":
         return f"{opened.note} · {thaw(session, opened.text)} readings"
-    if opened.reader is None:
-        raise UnsupportedConstructError(opened.note)
-    name = session.reader_named(opened.reader.name) or session.surface(opened.reader)
+    name = ""
+    if opened.reader is not None:
+        name = session.reader_named(opened.reader.name) or session.surface(
+            opened.reader
+        )
     session.add(opened.title, opened.kind, name, Source(opened.text, ask.body.strip()))
     return f"{opened.note} · {opened.title}"
 
@@ -444,17 +451,30 @@ def serve(root: Path, port: int = 0) -> OpsisServer:
 
 
 def seed(session: Session) -> None:
-    """Put the flavours lexic ships on the canvas, as readings.
+    """Put the ladder lexic ships on the canvas, from the top down.
 
-    A flavour is not a menu entry here and never was: it is a manifest
-    text read by the notation, whose product happens to read grammars.
-    Seeding them means the top rung is on screen at launch, that editing
-    one changes what it reads with, and that opening a manifest of your
-    own lands beside them as the same kind of thing.
+    A flavour is not a god-given thing at the top — it is the level
+    that talks to IR, which is a fact about WHERE it sits and nothing
+    more. So the thing that reads a manifest is a reading too, and a
+    flavour hangs under it like any grammar hangs under a flavour.
+    Above the notation is IR itself, which is not a text and so is not
+    a node: that is where the ladder stops, and it stops on something
+    real rather than on a convention.
+
+    A grammar authored natively in IR is the same height as a flavour
+    and lands beside it, because both are read by the notation.
     """
-    notation = session.surface(manifest_reader())
+    reader = manifest_reader()
+    top = session.add(
+        "the notation",
+        "notation",
+        "",
+        Source(emit_ir(NOTATION_GRAMMAR), "lexic IS this"),
+    )
+    top.outcome = Outcome(product=reader)
+    session.surface(reader)
     for name, text in manifests():
-        session.add(name, "manifest", notation, Source(text, SHIPPED + name))
+        session.add(name, "manifest", top.ident, Source(text, SHIPPED + name))
 
 
 _ROUTES: dict[tuple[str, int], Callable[[Session, list[str], Ask], str]] = {

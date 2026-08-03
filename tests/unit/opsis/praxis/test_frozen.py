@@ -8,7 +8,7 @@ import pytest
 
 from lexic.compile import Directives
 from lexic.exceptions import UnsupportedConstructError
-from opsis.praxis.frozen import freeze, thaw
+from opsis.praxis.ingress.frozen import freeze, thaw
 from opsis.praxis.reading import Source
 from opsis.praxis.session import Session
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from opsis.opsis.theme import PALETTE, RULES, css
+from opsis.opsis.draw.theme import PALETTE, RULES, css
 
 
 def test_css_is_non_empty() -> None:

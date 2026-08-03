@@ -43,7 +43,7 @@ from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.kernel import reduce_runtime as rrt
-from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, Watch
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
 from tests.integration.lexic.parity.pda_parity_helpers import (
     arithmetic_bench_corpus,
@@ -333,7 +333,7 @@ def test_kernel_and_islands_share_one_policy_record():
     def take_first(first, _other):
         return first
 
-    kern = PdaKernel(pda, "{}", compiled.fold, resolve=take_first)
+    kern = PdaKernel(pda, "{}", compiled.fold, Watch(take_first))
     assert isinstance(kern.policy, IslandPolicy)
     assert kern.policy.fold is compiled.fold
     assert kern.policy.resolve is take_first

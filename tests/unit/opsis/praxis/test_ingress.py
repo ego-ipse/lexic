@@ -11,7 +11,7 @@ from lexic.compile.module.export import export_module
 from lexic.compile.notation.loader import load_flavour
 from lexic.compile.payload.export import export_value
 from lexic.exceptions import UnsupportedConstructError
-from opsis.praxis.ingress import browse, manifests, open_file, resolve
+from opsis.praxis.ingress.ingress import browse, manifests, open_file, resolve
 from tests.paths import PROJECT_ROOT
 
 _TOY = 'root ::= "x"+\n'
@@ -67,12 +67,27 @@ def test_open_file_infers_a_compiled_value(tmp_path: Path) -> None:
     assert opened.reader.kind == "python"
 
 
-def test_open_file_refuses_a_file_lexic_cannot_read() -> None:
-    """A source file that reads as none of the known surfaces names its attempts."""
+def test_a_file_no_reader_claims_opens_as_a_text() -> None:
+    """Everything is text; what it MEANS is whatever ends up reading it.
+
+    Not a refusal: a source file, a README or a log may be the document
+    somebody wants to parse, or carry the grammar for a level below.
+    Deciding in advance that it could not be would be opsis choosing
+    what a text is allowed to mean.
+    """
     opened = open_file(PROJECT_ROOT, "src/lexic/model.py")
-    assert opened.kind == "refused"
+    assert opened.kind == "text"
     assert opened.reader is None
-    assert "src/lexic/model.py" in opened.note
+    assert opened.text
+    assert "model.py" in opened.note
+
+
+def test_a_text_no_reader_claims_still_says_what_was_tried() -> None:
+    """The attempts are named, so the answer is informative either way."""
+    opened = open_file(PROJECT_ROOT, "CLAUDE.md")
+    assert opened.kind == "text"
+    assert "IR notation" in opened.note
+    assert "drop a reader on it" in opened.note
 
 
 def test_open_file_on_a_missing_path_raises_construct_error(tmp_path: Path) -> None:

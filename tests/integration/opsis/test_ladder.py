@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from lexic.model import GrammarModel
-from opsis.praxis.reflect import REFLECTED
+from opsis.praxis.ingress.reflect import REFLECTED
 from opsis.praxis.serve import OpsisServer, serve
 
 _VOID = frozenset(

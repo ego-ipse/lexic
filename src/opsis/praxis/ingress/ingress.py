@@ -12,9 +12,11 @@ what successfully READS it, tried cheapest first:
 - an exported twin     → lexic's module grammar reads it
 - a saved session      → it replaces the session rather than joining it
 - IR notation          → the notation reads it
+- anything else        → a TEXT, waiting for something to read it
 
-Nothing here takes a "kind" argument, and what nothing reads is a
-refusal that says what was tried.
+Nothing here takes a "kind" argument, and nothing is refused: a file no
+reader claims is a text, which is the honest answer and a real state.
+What a text MEANS is whatever ends up reading it.
 
 Reads are workspace-scoped. That is a boundary, not a shelf list: the
 whole workspace is reachable and nothing outside it is.
@@ -304,13 +306,23 @@ def open_file(root: Path, rel: str) -> Opened:
         opened = attempt(root, path, text)
         if opened is not None:
             return opened
-    return Opened(path.name, "refused", text, None, _nothing_reads(rel))
+    return Opened(path.name, "text", text, None, _just_text(rel))
 
 
-def _nothing_reads(rel: str) -> str:
-    """The refusal, naming every reading that was tried."""
+def _just_text(rel: str) -> str:
+    """What a file is when no reader claimed it: a text.
+
+    Not a refusal. Everything is text — a README, a source file, a log
+    — and what it MEANS is whatever ends up reading it. Refusing to
+    open one would be opsis deciding in advance that a file could not
+    be a document, or a grammar for some level below.
+    """
     tried = ", ".join(_TRIED[:-1]) + f", or {_TRIED[-1]}"
-    return f"nothing reads {rel!r} — it is not {tried}"
+    return (
+        f"{Path(rel).name} · a text — nothing here reads it yet. It is not "
+        f"{tried}, but structure is what gives a text meaning: drop a reader "
+        "on it and see."
+    )
 
 
 def _as_value(root: Path, path: Path, text: str) -> Opened | None:

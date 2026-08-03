@@ -29,6 +29,17 @@ let framed = true;
 // A window's body is built when it opens, not when the page is drawn:
 // a self-grammar's predictive tables cost fifty seconds, and nobody
 // should pay that for a window they never opened.
+// A section fills the first time it is opened, and never again until
+// something it depends on is re-read.
+document.addEventListener("click", e => {
+  const head = e.target.closest(".shead[data-expand]");
+  if (!head) return;
+  const sect = head.closest(".sect");
+  const open = !sect.classList.contains("open");
+  sect.classList.toggle("open", open);
+  head.querySelector("b").textContent = open ? "▾" : "▸";
+  if (open) fill(sect);
+});
 function fill(frame) {
   const slot = frame.querySelector("[data-pane], [data-rail]");
   if (!slot || slot.dataset.filled) return;
@@ -73,6 +84,7 @@ function refresh() {
       if (was.placed) { f.setAttribute("style", was.geo); f.dataset.placed = "1"; }
       f.style.display = "flex";
       fill(f);
+      f.querySelectorAll(".sect.open").forEach(fill);
     });
     window.opsisCamera.draw();
     if (held) restore(held);
@@ -91,6 +103,24 @@ function restore(held, tries = 20) {
   el.scrollTop = held.top;
 }
 const posted = r => r.ok ? refresh() : r.text().then(toast);
+// A text edit re-reads the session, so the rings change — but the
+// windows do not need rebuilding, and rebuilding them would replace
+// the textarea being typed into. So only the scene is swapped, and
+// whatever else was open is marked for refilling when next looked at.
+function reread() {
+  return fetch("/scene").then(r => r.text()).then(scene => {
+    const old = document.getElementById("nodes");
+    const shell = document.createElement("div");
+    shell.innerHTML = scene;
+    const fresh = shell.querySelector("#nodes");
+    if (old && fresh) old.replaceWith(fresh);
+    window.opsisCamera.draw();
+    document.querySelectorAll("#world .frame [data-pane]").forEach(slot => {
+      const frame = slot.closest(".frame");
+      if (frame.style.display === "none") delete slot.dataset.filled;
+    });
+  });
+}
 function browse(at) {
   fetch("/files?at=" + encodeURIComponent(at)).then(r => r.text()).then(text => {
     const rows = document.getElementById("rows");
@@ -156,7 +186,7 @@ document.addEventListener("input", e => {
     if (ns && ns.value.trim()) q.set("non_semantic", ns.value.trim());
     const qs = q.toString();
     fetch(route + (qs ? "?" + qs : ""), {method: "POST", body: area.value})
-      .then(posted);
+      .then(r => r.ok ? reread() : r.text().then(toast));
   }, 450));
 });
 // ── the bar: a picker, new texts, a frozen artifact ──

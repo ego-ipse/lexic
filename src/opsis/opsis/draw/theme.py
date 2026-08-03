@@ -217,7 +217,7 @@ RULES: tuple[tuple[str, str], ...] = (
     (".frame header b:hover", "opacity:1"),
     (
         ".frame .body",
-        "flex:1;overflow:auto;padding:11px;user-select:text;"
+        "flex:1;min-height:0;overflow:auto;padding:11px;user-select:text;"
         f"position:relative;font:11.5px {MONO}",
     ),
     ("::-webkit-scrollbar", "width:7px;height:7px"),
@@ -313,10 +313,12 @@ RULES: tuple[tuple[str, str], ...] = (
     (".twig .txt", "color:var(--dim);overflow:hidden;text-overflow:ellipsis"),
     (".twig:hover .txt", "color:var(--text)"),
     # editors
-    (".editor .body", "display:flex;flex-direction:column;gap:8px"),
+    (".editor .body", "display:flex;flex-direction:column;gap:8px;min-height:0"),
     (
+        # The WINDOW resizes; the text box follows it, on both axes. A
+        # large window with a small text box in it is nobody's idea.
         ".editor textarea",
-        "flex:1;width:100%;min-height:70px;padding:8px;resize:none;"
+        "flex:1;width:100%;min-height:0;padding:8px;resize:none;"
         "outline:none;background:rgba(4,8,15,.6);"
         "border:1px solid var(--line);color:var(--text);"
         f"font:11.5px {MONO}",
@@ -428,6 +430,22 @@ RULES: tuple[tuple[str, str], ...] = (
     ),
     (".moon.group.open > .dot", "background:var(--cyan);border-color:var(--cyan)"),
     (".moon.inner .dot", "width:7px;height:7px"),
+    # a window's own parts, each opened when it is wanted
+    (".sect", "border-top:1px solid var(--line)"),
+    (".sect:first-child", "border-top:0"),
+    (
+        ".shead",
+        "display:flex;gap:8px;align-items:center;padding:6px 10px;cursor:pointer;"
+        f"font:10px {MONO};letter-spacing:1.4px;text-transform:uppercase;"
+        "color:var(--dim);user-select:none",
+    ),
+    (".shead:hover", "color:var(--cyan);background:var(--void)"),
+    (".shead b", "color:var(--line);font-weight:400"),
+    (".sect.open .shead", "color:var(--cyan)"),
+    (".shead em", "margin-left:auto;font-style:normal;color:var(--line)"),
+    (".sbody", "display:none;padding:2px 10px 10px"),
+    (".sect.open .sbody", "display:block"),
+    ("#nodes", "position:absolute;left:0;top:0;width:0;height:0"),
     # a measured claim — the mark carries the verdict, the hue repeats it
     (
         ".claim",
