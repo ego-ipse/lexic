@@ -16,10 +16,9 @@ from __future__ import annotations
 from typing import Sequence
 
 from lexic.ir import IrAction, IrCat, IrDoc, IrLeaf, IrNone, IrSelf, IrTypeMap
-
-from opsis.opsis._canvas import el, html, raw
-from opsis.opsis._scene import Rail, Ring, Space, Window
-from opsis.opsis._theme import css
+from opsis.opsis.canvas import el, html, raw
+from opsis.opsis.scene import Rail, Ring, Space, Window
+from opsis.opsis.theme import css
 
 __all__ = ["RENDER", "page", "render_scene"]
 
@@ -69,11 +68,15 @@ class DrawWindow(IrLeaf[IrSelf, IrSelf]):
                 "class": "frame",
                 "data-frame": win.name,
                 "style": (
-                    f"left:{win.x}px;top:{win.y}px;"
-                    f"width:{win.w}px;height:{win.h}px"
+                    f"left:{win.x}px;top:{win.y}px;width:{win.w}px;height:{win.h}px"
                 ),
             },
-            el("header", None, el("span", None, win.name), el("b", {"class": "fx"}, "×")),
+            el(
+                "header",
+                None,
+                el("span", None, win.name),
+                el("b", {"class": "fx"}, "×"),
+            ),
             el("div", {"class": "fbody"}, el("pre", {"class": "notation"}, body)),
         )
 
@@ -83,12 +86,8 @@ class DrawSpace(IrLeaf[IrSelf, IrSelf]):
 
     def eval(self, d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
         space = Space.ensure(n, "space: the space action")
-        wires = [
-            _doc(d, kid) for kid in space if isinstance(kid, Rail)
-        ]
-        nodes = [
-            _doc(d, kid) for kid in space if not isinstance(kid, Rail)
-        ]
+        wires = [_doc(d, kid) for kid in space if isinstance(kid, Rail)]
+        nodes = [_doc(d, kid) for kid in space if not isinstance(kid, Rail)]
         svg = el("svg", {"id": "wires", "width": "1400", "height": "900"}, *wires)
         return IrCat(svg, *nodes)
 

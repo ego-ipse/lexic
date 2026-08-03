@@ -7,7 +7,7 @@ import pytest
 from lexic.compile import compile_text
 from lexic.exceptions import IrKeyError
 from lexic.ir import IrNone, IrStr
-from opsis.opsis._scene import Rail, Ring, Space, VisualNode, Window, visual
+from opsis.opsis.scene import Rail, Ring, Space, VisualNode, Window, visual
 from opsis.opsis.space import page, render_scene
 
 GRAMMAR_TEXT = 'root ::= "x" num\nnum ::= [0-9]+\n'

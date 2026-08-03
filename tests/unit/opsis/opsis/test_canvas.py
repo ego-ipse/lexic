@@ -1,8 +1,8 @@
-"""Tests for opsis.opsis._canvas — element constructors with intrinsic escaping."""
+"""Tests for opsis.opsis.canvas — element constructors with intrinsic escaping."""
 
 from __future__ import annotations
 
-from opsis.opsis._canvas import el, html, raw, text, void
+from opsis.opsis.canvas import el, html, raw, text, void
 
 
 def test_text_escapes():

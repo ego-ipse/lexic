@@ -1,8 +1,8 @@
-"""Tests for opsis.opsis._theme — the register as data."""
+"""Tests for opsis.opsis.theme — the register as data."""
 
 from __future__ import annotations
 
-from opsis.opsis._theme import PALETTE, RULES, css
+from opsis.opsis.theme import PALETTE, RULES, css
 
 
 def test_css_root_block_has_every_palette_name():

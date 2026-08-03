@@ -1,4 +1,4 @@
-"""Tests for opsis.opsis._scene — the scene substrate.
+"""Tests for opsis.opsis.scene — the scene substrate.
 
 ``visual(t)`` marks a payload type visual by MRO, not by wrapping; the
 scene records (``Ring``/``Rail``/``Window``/``Space``) are frozen spine
@@ -14,7 +14,7 @@ from lexic.compile.notation.parse import load_ir
 from lexic.grammars import get_flavour
 from lexic.ir import IrNone, IrRuleRef
 from opsis.opsis import Ring as RingReExport
-from opsis.opsis._scene import (
+from opsis.opsis.scene import (
     OPSIS_SYMBOLS,
     Rail,
     Ring,

@@ -26,7 +26,7 @@ PALETTE: dict[str, str] = {
 }
 """Named hues — the vocabulary scene records' ``hue`` fields draw from."""
 
-_HUED = ("cyan", "green", "amber", "magenta")
+_HUED = ("cyan", "green", "amber", "magenta", "err")
 
 _GLOW = "rgba(106,217,255,.25)"
 
@@ -176,7 +176,10 @@ RULES: tuple[tuple[str, dict[str, str]], ...] = (
         },
     ),
     (".frame header span", {"flex": "1"}),
-    (".frame header b", {"font-weight": "normal", "opacity": ".5", "cursor": "pointer"}),
+    (
+        ".frame header b",
+        {"font-weight": "normal", "opacity": ".5", "cursor": "pointer"},
+    ),
     (".frame header b:hover", {"opacity": "1"}),
     (
         ".frame .fbody",
