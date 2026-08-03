@@ -189,7 +189,7 @@ def _open(session: Session, _rest: list[str], ask: Ask) -> str:
         return f"{opened.note} · {thaw(session, opened.text)} readings"
     if opened.reader is None:
         raise UnsupportedConstructError(opened.note)
-    name = session.surface(opened.reader)
+    name = session.reader_named(opened.reader.name) or session.surface(opened.reader)
     session.add(opened.title, opened.kind, name, Source(opened.text, ask.body.strip()))
     return f"{opened.note} · {opened.title}"
 

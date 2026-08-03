@@ -106,6 +106,24 @@ class Session:
         self.surfaces[reader.name] = reader
         return reader.name
 
+    def reader_named(self, name: str) -> str:
+        """The ident of a READING whose product answers to ``name``.
+
+        A grammar opened from a file is read by a flavour, and the
+        session already holds that flavour as a reading — so it is
+        named by ident rather than by a second anonymous copy of the
+        same reader. That is what puts a rail under it, and it is why
+        a grammar has a layer above it at all.
+
+        :returns: The ident, or ``""`` when no reading produces that
+            reader and a shipped surface has to stand in.
+        """
+        for reading in self.readings.values():
+            flavour = reading.flavour
+            if flavour is not None and str(type(flavour).name) == name:
+                return reading.ident
+        return ""
+
     def drop(self, ident: str) -> Reading | None:
         """Remove a reading; whatever named it is read again without it.
 

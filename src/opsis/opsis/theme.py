@@ -402,6 +402,18 @@ RULES: tuple[tuple[str, str], ...] = (
         "transparent calc(var(--cols) * 1ch),var(--panel) calc(var(--cols) * 1ch))",
     ),
     ('input[type="range"]', "accent-color:var(--cyan);width:200px"),
+    # the execution bar: one mark per decision, laid over the input
+    (
+        ".exec",
+        "position:relative;height:26px;margin:8px 0;border:1px solid var(--line);"
+        "border-left:2px solid var(--cyan);background:var(--void)",
+    ),
+    (
+        ".exec i",
+        "position:absolute;top:3px;width:1px;height:20px;background:var(--cyan);"
+        "opacity:.55",
+    ),
+    (".exec i:hover", "opacity:1;width:2px;background:var(--amber)"),
     # a measured claim — the mark carries the verdict, the hue repeats it
     (
         ".claim",

@@ -27,6 +27,7 @@ from opsis.opsis.chart import chart_view, segmentation_view
 from opsis.opsis.emission import emit_doc
 from opsis.opsis.engine import (
     derivation_view,
+    execution_view,
     floor_view,
     forest_view,
     tables_view,
@@ -95,12 +96,13 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
     if reader is not None and reader.grammar is not None:
         out.append(("reader", "its reader"))
     out += [(f"do:{deed.name}", deed.label) for deed in deeds(reading)]
-    if reader is not None and reader.of and _under(session, reading) is not None:
+    if _under(session, reading) is not None:
         out += [
             ("floor", "the floor"),
             ("forest", "forest"),
             ("derivations", "derivations"),
             ("chart", "its chart"),
+            ("execution", "what ran"),
         ]
         if _segments(session, reading) is not None:
             out.append(("segmentation", "its tokens ▲"))
@@ -508,6 +510,15 @@ def _lanes_pane(session: Session, reading: Reading) -> Pane:
     )
 
 
+def _execution_pane(session: Session, reading: Reading) -> Pane:
+    """What the predictive runtime did to this text, decision by decision."""
+    under = _read_by(session, reading)
+    text = reading.text
+    return Pane(
+        f"{reading.title} — what ran", (700, 460), lambda: [execution_view(under, text)]
+    )
+
+
 def _chart_pane(session: Session, reading: Reading) -> Pane:
     """The Earley chart this text fills, column by column."""
     under = _read_by(session, reading)
@@ -618,6 +629,7 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "forest": _forest_pane,
     "derivations": _derivations_pane,
     "chart": _chart_pane,
+    "execution": _execution_pane,
     "segmentation": _segmentation_pane,
     "lanes": _lanes_pane,
 }
@@ -913,14 +925,17 @@ def _chip(label: str, ident: str, value: str, empty: str, off: bool) -> IrDoc:
 
 
 def _under(session: Session, reading: Reading) -> CompiledGrammar | None:
-    """The compiled grammar that read this text, if one did.
+    """The grammar that read this text, whatever kind of reading held it.
 
-    The floor is about a PARSE, so it exists only where a grammar
-    actually read something — a grammar with nothing under it has no
-    forest, and a text nobody reads has no engine.
+    The floor is about a PARSE, and every reading with something above
+    it was parsed — a grammar read by a flavour was parsed by that
+    flavour's own self-grammar, exactly as a document is parsed by the
+    grammar above IT. Asking the layer above what it IS, rather than
+    whether it happens to be a compiled artefact, is what stops that
+    from being two different situations.
     """
     above = session.readings.get(reading.reader)
-    return above.compiled if above is not None and reading.text else None
+    return artefact(above) if above is not None and reading.text else None
 
 
 def _wants(reading: Reading) -> list[str]:

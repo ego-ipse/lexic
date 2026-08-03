@@ -40,7 +40,7 @@ from lexic.parsing.pda.runtime.admission import (
     prefix_admits,
     sole_admitted,
 )
-from lexic.parsing.pda.runtime.build import F_ARM, F_COUNT, F_ENDS, F_I, F_OUT
+from lexic.parsing.pda.runtime.build import F_ARM, F_COUNT, F_ENDS, F_I, F_OUT, Step
 
 __all__ = ["Attempting", "sole_admitted"]
 
@@ -114,6 +114,13 @@ def _close_loop(frame: list[Any], i: int, pos: int) -> int:
     return i + 1
 
 
+def _attempt_name(clone: FlatClone) -> str:
+    """What an attempt clone builds, by the class its fold constructs."""
+    fold = clone.fold
+    ctor = getattr(fold, "ctor", None) if fold is not None else None
+    return getattr(ctor, "__name__", "") or "(transparent)"
+
+
 class Attempting:
     """The attempt/probe methods, hosted for the kernel to inherit.
 
@@ -127,6 +134,7 @@ class Attempting:
     text: str
     pos: int
     stack: list[list[Any]]
+    trace: list[Step] | None
     _caches: KernelCaches
 
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
@@ -326,6 +334,12 @@ class Attempting:
             raise PdaFail(f"attempt: no arm matches at {pos}")
         self._attempt_audit(entries[winner + 1 :], pos, best[0], follow)
         out.extend(best[1])
+        if self.trace is not None:
+            self.trace.append(
+                Step(
+                    "attempt", _attempt_name(clone), pos, best[0], f"entry {winner} won"
+                )
+            )
         self.pos = best[0]
 
     def _attempt_audit(

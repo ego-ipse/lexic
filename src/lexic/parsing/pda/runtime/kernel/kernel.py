@@ -57,7 +57,9 @@ from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.flatten import (
+    BUILD_ALT,
     BUILD_DISPATCH,
+    BUILD_REDUCE,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -93,6 +95,7 @@ from lexic.parsing.pda.runtime.build import (
     F_OUT,
     F_SINKS,
     F_START,
+    Step,
     alt_model,
     build_fast,
     build_sequence,
@@ -118,6 +121,30 @@ __all__ = ["PdaFail", "PdaKernel"]
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
 each slot later holding a sub-model list) without narrowing their type."""
+
+
+MODES: dict[int, str] = {
+    BUILD_TRANSPARENT: "transparent",
+    BUILD_VALUE_STR: "value-str",
+    BUILD_ALT: "alternation",
+    BUILD_SEQ: "sequence",
+    BUILD_DISPATCH: "dispatch",
+    BUILD_REDUCE: "reduce",
+}
+"""Build-mode code → what it is called, for a trace to be readable in."""
+
+
+def _named(clone: FlatClone) -> str:
+    """What a flat clone builds, by name.
+
+    The flat program has no rule names — throwing them away is what
+    flattening IS. What survives is the fold's constructor, and the
+    class it builds is named after the rule, so the trace reports what
+    the runtime is actually building rather than an index.
+    """
+    fold = clone.fold
+    ctor = getattr(fold, "ctor", None) if fold is not None else None
+    return getattr(ctor, "__name__", "") or "(transparent)"
 
 
 class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
@@ -155,13 +182,14 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         across the boundary).
     """
 
-    __slots__ = ("tables", "text", "pos", "stack", "policy", "_caches")
+    __slots__ = ("tables", "text", "pos", "stack", "policy", "trace", "_caches")
 
     tables: PdaTables
     text: str
     pos: int
     stack: list[list[Any]]
     policy: IslandPolicy[M]
+    trace: list[Step] | None
     _caches: KernelCaches
 
     def __init__(
@@ -171,6 +199,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         fold: ModelFold[M] | None = None,
         *,
         resolve: Resolver | None = None,
+        trace: list[Step] | None = None,
     ) -> None:
         """Prepare a parse of ``text`` over ``tables``.
 
@@ -182,12 +211,17 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         :param resolve: The caller's deterministic answer to an island that
             derives its text two ways that mean different things; ``None``
             refuses one. Per-parse state, so it rides on the cursor.
+        :param trace: A list to append one :class:`Step` per DECISION to,
+            or ``None`` for no trace. Off by default and off in every hot
+            path: an untraced parse pays one ``is not None`` test per
+            decision and allocates nothing.
         """
         self.tables = tables
         self.text = text
         self.policy = IslandPolicy(resolve=resolve, fold=fold)
         self.pos = 0
         self.stack = []
+        self.trace = trace
         self._caches = KernelCaches()
 
     # ── the driver ────────────────────────────────────────────────────
@@ -435,6 +469,16 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             was consumed inline (a leaf run, or a dispatch clone's empty arm).
         :raises PdaFail: When no arm's FIRST matches and there is no default.
         """
+        if self.trace is not None:
+            self.trace.append(
+                Step(
+                    "enter",
+                    _named(clone),
+                    self.pos,
+                    self.pos,
+                    MODES.get(clone.mode, "?"),
+                )
+            )
         char = self.text[self.pos : self.pos + 1]
         if clone.mode == BUILD_DISPATCH:
             chased = self._chase_dispatch(clone, char)
@@ -590,6 +634,10 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         model = island_value(lambda: fold.apply(tree), name, self.pos)
         if model is not None:
             sink.append(model)
+        if self.trace is not None:
+            self.trace.append(
+                Step("island", name, self.pos, self.pos + end, "Earley took this span")
+            )
         self.pos += end
 
     def _island_subparse(self, name: str) -> tuple[Any, int]:

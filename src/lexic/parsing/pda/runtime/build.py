@@ -27,7 +27,7 @@ codes), :mod:`lexic.parsing.fold` (:class:`RuleFold`) and
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.parsing.fold import RuleFold
@@ -348,3 +348,26 @@ def build_vstr(clone: FlatClone, span: str, memo: dict[Any, object]) -> object:
     )
     memo[key] = model
     return model
+
+
+class Step(NamedTuple):
+    """One decision the predictive runtime made, and where it made it.
+
+    The trace's unit. Recorded only when a caller asked for a trace, so
+    an ordinary parse allocates none of these and pays one ``is not
+    None`` test per DECISION — never per character.
+
+    :ivar kind: ``attempt`` (an arm chosen), ``loop`` (an iteration
+        taken or the loop closed), or ``island`` (a span handed to
+        Earley).
+    :ivar name: The rule or clone the decision was about.
+    :ivar start: Where in the input it was made.
+    :ivar end: Where the decision's span ended.
+    :ivar note: What was decided, in the runtime's own words.
+    """
+
+    kind: str
+    name: str
+    start: int
+    end: int
+    note: str = ""

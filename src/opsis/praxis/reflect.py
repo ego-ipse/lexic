@@ -18,11 +18,11 @@ from lexic.compile import load_ir
 from lexic.compile.notation.emit import emit_ir
 from lexic.compile.notation.parse import NOTATION_GRAMMAR
 from lexic.exceptions import UnsupportedConstructError
-from opsis.opsis.scene import SYMBOLS, Space
+from opsis.opsis.scene import SYMBOLS, Space, VisualNode
 from opsis.praxis.reading import Params, Reader
 from opsis.praxis.session import Session
 
-__all__ = ["REFLECTED", "drawn_by", "scene_reader", "scene_text"]
+__all__ = ["REFLECTED", "scene_reader", "scene_text", "written"]
 
 REFLECTED = "scene"
 """The kind a reading that IS the picture carries."""
@@ -58,18 +58,24 @@ def scene_text(space: Space) -> str:
     return emit_ir(space)
 
 
-def drawn_by(session: Session) -> Space | None:
-    """The hand-edited scene the world should draw, if there is one.
+def written(session: Session) -> dict[str, VisualNode]:
+    """The parts a hand-written scene overrides, by the name they carry.
 
-    A session normally derives its picture from its readings. Once
-    somebody has written a scene down, that writing is what is drawn —
-    it stops being a report of the session and becomes an instruction to
-    it, which is the whole point of being able to edit it.
+    A written scene is an instruction about the rings it NAMES — not a
+    replacement for the picture. Anything it does not mention is still
+    derived, so opening a file after writing the scene down still shows
+    it, and the scene node itself appears rather than being invisible in
+    its own snapshot.
 
-    The most recent one wins, so writing a new scene supersedes an older
-    one without anybody having to delete it.
+    The most recent writing wins, so editing a new scene supersedes an
+    older one without anybody having to delete it.
     """
-    for reading in reversed(list(session.readings.values())):
-        if reading.kind == REFLECTED and isinstance(reading.product, Space):
-            return reading.product
-    return None
+    out: dict[str, VisualNode] = {}
+    for reading in session.readings.values():
+        if reading.kind != REFLECTED or not isinstance(reading.product, Space):
+            continue
+        for part in reading.product:
+            name = getattr(part, "name", None)
+            if name is not None and isinstance(part, VisualNode):
+                out[str(name)] = part
+    return out

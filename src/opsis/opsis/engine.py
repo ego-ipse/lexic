@@ -12,10 +12,14 @@ that could not be measured is drawn as unmeasured rather than assumed.
 
 from __future__ import annotations
 
+from typing import Sequence
+
 from lexic.compile import CompiledGrammar
 from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrDoc, IrSelf
 from lexic.parsing import (
+    PdaKernel,
+    Step,
     derivations,
     earley_model,
     is_ambiguous,
@@ -23,11 +27,15 @@ from lexic.parsing import (
     normalize,
     recognize,
 )
+from lexic.parsing.pda.core.errors import PdaFail
 from opsis.opsis.canvas import el
 from opsis.opsis.canvas import text as _text
 from opsis.opsis.views import Node, bounded, facts, graph, refusal
 
 __all__ = ["derivation_view", "floor_view", "forest_view", "tables_view"]
+
+_STEPS = 200
+"""How many steps one execution view draws before it states the rest."""
 
 _ARMS = 60
 """How many forest nodes one space draws before it states the rest."""
@@ -84,18 +92,26 @@ def floor_view(compiled: CompiledGrammar, text: str) -> IrDoc:
 def _lift(compiled: CompiledGrammar, text: str) -> IrDoc:
     """What the nullable lift is worth, on this very text.
 
-    Measured both ways rather than asserted: the unlifted grammar is
-    parsed too, and the two derivation counts are the claim.
+    Both grammars are ASKED whether they are ambiguous, not asked how
+    many ways they derive: the unlifted form is routinely exponential,
+    which is the whole reason the lift exists, so counting it would be
+    paying exactly the cost the lift was built to avoid.
     """
     try:
-        bare = len(derivations(normalize(compiled.codegen_grammar), text))
-        lifted = len(derivations(walked(compiled), text))
+        bare = bool(int(is_ambiguous(normalize(compiled.codegen_grammar), text)))
+        lifted = bool(int(is_ambiguous(walked(compiled), text)))
     except LexicError as exc:
         return _claim("the lift settles it", None, str(exc)[:120])
     return _claim(
         "the lift settles it",
-        lifted < bare or bare == lifted == 1,
-        f"{bare:,} derivations unlifted · {lifted:,} lifted",
+        bare and not lifted,
+        "unlifted this text is ambiguous, lifted it is not"
+        if bare and not lifted
+        else (
+            "neither form is ambiguous here"
+            if not bare
+            else "still ambiguous after the lift"
+        ),
     )
 
 
@@ -112,17 +128,25 @@ def _recognized(grammar: IrAst, text: str) -> IrDoc:
 
 
 def _ambiguity(grammar: IrAst, text: str) -> IrDoc:
-    """Whether the text derives more than one way, and how many."""
+    """Whether the text derives more than one way.
+
+    Asked, never counted. ``is_ambiguous`` is a property of the packed
+    forest and costs one parse; ENUMERATING the derivations to report a
+    number is exponential in the ambiguity, and a window that hung to
+    print a count would be paying an unbounded price for a decoration.
+    The derivations window counts, because whoever opens it asked.
+    """
     try:
         many = bool(int(is_ambiguous(grammar, text)))
-        count = len(derivations(grammar, text)) if many else 1
-        return _claim(
-            "unambiguous" if not many else "ambiguous",
-            not many,
-            f"{count} derivation{'s' if count != 1 else ''}",
-        )
     except LexicError as exc:
         return _claim("unambiguous", None, str(exc)[:120])
+    return _claim(
+        "unambiguous" if not many else "ambiguous",
+        not many,
+        "one derivation"
+        if not many
+        else "more than one — open derivations to enumerate them",
+    )
 
 
 def _agreement(compiled: CompiledGrammar, text: str) -> IrDoc:
@@ -216,6 +240,73 @@ def _range(follow: object) -> str:
         return "closed by end of input"
     negated = getattr(follow, "negated", False)
     return f"closes on {'anything but ' if negated else ''}{len(chars)} characters"
+
+
+def execution_view(compiled: CompiledGrammar, text: str) -> IrDoc:
+    """What the predictive runtime actually did, step by step.
+
+    Not a reconstruction: the runtime records one step per DECISION it
+    makes, and this is that list. A step's position is where the cursor
+    stood, so the bar reads left to right exactly as the parse ran.
+
+    A refused parse traces too, and stops where it stopped — which is
+    the trace worth having.
+    """
+    steps, refusal_said = _trace(compiled, text)
+    if not steps:
+        return refusal(refusal_said or "the predictive runtime made no decisions")
+    rows = [
+        (f"@{step.start}", step.name, f"{step.kind} · {step.note}")
+        for step in steps[:_STEPS]
+    ]
+    left = len(steps) - len(rows)
+    return el(
+        "div",
+        None,
+        el(
+            "div",
+            {"class": "claim no" if refusal_said else "claim ok"},
+            _text(refusal_said or f"parsed · {len(steps):,} decisions"),
+        ),
+        _bar(steps, len(text)),
+        facts(rows),
+        *(
+            [el("div", {"class": "note"}, _text(f"{left:,} more steps"))]
+            if left > 0
+            else []
+        ),
+    )
+
+
+def _trace(compiled: CompiledGrammar, text: str) -> tuple[list[Step], str]:
+    """The runtime's own record of this parse, and how it ended."""
+    steps: list[Step] = []
+    try:
+        PdaKernel(compiled.pda_tables(), text, compiled.fold, trace=steps).run()
+    except LexicError as exc:
+        return steps, f"refused after {len(steps):,} decisions — {exc}"
+    except PdaFail as exc:
+        return steps, f"the predictive half gave up: {exc}"
+    return steps, ""
+
+
+def _bar(steps: Sequence[Step], width: int) -> IrDoc:
+    """The parse as a bar over the input — one mark per decision.
+
+    Where a step has no span it gets a mark and no width, rather than a
+    width invented to make the picture tidy.
+    """
+    marks = [
+        el(
+            "i",
+            {
+                "style": f"left:{step.start / max(width, 1) * 100:.2f}%",
+                "title": f"@{step.start} {step.name}",
+            },
+        )
+        for step in steps[:_STEPS]
+    ]
+    return el("div", {"class": "exec"}, *marks)
 
 
 def forest_view(compiled: CompiledGrammar, text: str) -> IrDoc:
@@ -313,6 +404,11 @@ def derivation_view(compiled: CompiledGrammar, text: str) -> IrDoc:
         found = derivations(walked(compiled), text)
     except LexicError as exc:
         return refusal(f"{type(exc).__name__}: {exc}")
+    except RecursionError:
+        return refusal(
+            "this text derives more ways than can be enumerated — the forest "
+            "packs them, but listing them does not terminate in useful time"
+        )
     rows = [
         el(
             "div",

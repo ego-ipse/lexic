@@ -26,14 +26,14 @@ from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.canvas import text as _text
 from opsis.opsis.graphic import RAIL_CSS, rule_svg
 from opsis.opsis.panes import Pane, artefact, fan, window
-from opsis.opsis.scene import Moon, Rail, Ring, Space
+from opsis.opsis.scene import Moon, Rail, Ring, Space, VisualNode
 from opsis.opsis.space import Box, Frame, frame, render_scene
 from opsis.opsis.views import (
     refusal,
     view_of,
 )
 from opsis.praxis.reading import FOREIGN, Reading
-from opsis.praxis.reflect import drawn_by
+from opsis.praxis.reflect import written
 from opsis.praxis.session import Session
 
 __all__ = [
@@ -412,15 +412,26 @@ def hint() -> IrDoc:
     )
 
 
+def _overridden(derived: Space, edits: dict[str, VisualNode]) -> Space:
+    """The derived scene with hand-written parts standing in for their own.
+
+    Composition rather than replacement: a written ring replaces the
+    derived one of that name, and everything unmentioned stays. That is
+    what makes writing the scene down safe — nothing you have not
+    written about can disappear because you wrote about something else.
+    """
+    if not edits:
+        return derived
+    return Space(*(edits.get(str(getattr(part, "name", "")), part) for part in derived))
+
+
 def world_of(session: Session) -> str:
     """Everything inside ``#world`` — the swappable fragment.
 
-    Derived from the readings, unless somebody has written the scene
-    down: a hand-edited scene is an instruction, not a report, and the
-    windows still come from the readings so the two halves of a node
-    never disagree about which reading they belong to.
+    Derived from the readings, with any hand-written scene composed
+    over it. The windows still come from the readings, so the two
+    halves of a node never disagree about which reading they belong to.
     """
-    written = drawn_by(session)
-    space = written if written is not None else scene_of(session)
+    space = _overridden(scene_of(session), written(session))
     payloads = html(IrCat(*payloads_of(space)))
     return render_scene(space) + windows_of(session) + payloads
