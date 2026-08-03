@@ -31,7 +31,14 @@ from lexic.parsing import (
 from lexic.parsing.pda.core.errors import PdaFail
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
-from opsis.opsis.read.views import Node, bounded, facts, graph, refusal
+from opsis.opsis.read.parts import (
+    Node,
+    bounded,
+    facts,
+    graph,
+    refusal,
+    stack,
+)
 
 __all__ = ["derivation_view", "floor_view", "forest_view", "tables_view"]
 
@@ -261,16 +268,16 @@ def execution_view(compiled: CompiledGrammar, text: str) -> IrDoc:
         for step in steps[:_STEPS]
     ]
     left = len(steps) - len(rows)
-    return el(
-        "div",
-        None,
-        el(
-            "div",
-            {"class": "claim no" if refusal_said else "claim ok"},
-            _text(refusal_said or f"parsed · {len(steps):,} decisions"),
-        ),
-        _bar(steps, len(text)),
-        facts(rows),
+    return stack(
+        [
+            el(
+                "div",
+                {"class": "claim no" if refusal_said else "claim ok"},
+                _text(refusal_said or f"parsed · {len(steps):,} decisions"),
+            ),
+            _bar(steps, len(text)),
+            facts(rows),
+        ],
         *(
             [el("div", {"class": "note"}, _text(f"{left:,} more steps"))]
             if left > 0

@@ -151,17 +151,35 @@ def flavour_view(flavour: IrFlavour) -> IrDoc:
     """A flavour as what it is: metadata and tables, no methods.
 
     A flavour defines zero parsing methods — it is a config bundle, and
-    seeing its tables IS seeing it. The metadata above them is the rest.
+    seeing its tables IS seeing it — but that is what the tables window
+    is FOR, and showing them here too would be the same thing twice.
+    This one answers the other question: what it is CALLED, what it
+    claims, and whether it can carry a directive at all.
     """
     kind = type(flavour)
+    comments = bool(flavour.line_comment or flavour.block_comment)
     shown = [
-        ("name", str(kind.name)),
-        ("extensions", ", ".join(str(e) for e in kind.extensions) or "none"),
-        ("line comment", str(flavour.line_comment) or "none"),
-        ("block comment", str(flavour.block_comment) or "none"),
-        ("rules", f"{len(list(flavour.grammar.rules))} in its self-grammar"),
+        ("name", str(kind.name), "what a grammar names to be read by it"),
+        (
+            "extensions",
+            ", ".join(str(e) for e in kind.extensions) or "none",
+            "what a file has to end in for this to be inferred",
+        ),
+        (
+            "line comment",
+            str(flavour.line_comment) or "none",
+            "" if flavour.line_comment else "so a @directive cannot be written",
+        ),
+        ("block comment", str(flavour.block_comment) or "none", ""),
+        (
+            "directives",
+            "yes" if comments else "no",
+            "a comment-less surface carries them as arguments instead",
+        ),
+        (
+            "rules",
+            f"{len(list(flavour.grammar.rules))}",
+            "in the self-grammar — open shape to walk them",
+        ),
     ]
-    return facts(
-        [(name, value, "") for name, value in shown],
-        table_view(flavour, str(kind.name)),
-    )
+    return facts(shown)

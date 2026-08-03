@@ -217,16 +217,8 @@ def doc_view(doc: IrDoc, width: int, what: str) -> IrDoc:
     and this window is where it lives.
     """
     shown, note = bounded(render(doc, width))
-    return el(
-        "div",
-        None,
-        el(
-            "div",
-            {"class": "note"},
-            _text(
-                f"{what} · rendered at {width} columns{' · ' + note if note else ''}"
-            ),
-        ),
+    return panel(
+        f"{what} · rendered at {width} columns{' · ' + note if note else ''}",
         controls(
             el(
                 "input",

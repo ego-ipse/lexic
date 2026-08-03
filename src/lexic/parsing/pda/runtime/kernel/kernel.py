@@ -465,6 +465,33 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             clone = nxt
         return clone
 
+    def _settle(self, clone: FlatClone, out: list[object]) -> FlatClone | None:
+        """Which concrete clone this entry lands on, or ``None`` if it is done.
+
+        Two gates that both resolve BEFORE any frame is pushed. A
+        dispatch clone is chased to the concrete clone its selectors
+        name; an attempt clone with more than one admitted entry is
+        tried inline and consumed there.
+
+        :returns: The clone to push a frame for, or ``None`` when the
+            entry was consumed without one.
+        """
+        char = self.text[self.pos : self.pos + 1]
+        if clone.mode == BUILD_DISPATCH:
+            chased = self._chase_dispatch(clone, char)
+            if chased is None:
+                return None  # the empty (nullable) arm — nothing consumed
+            clone = chased
+        if clone.attempt is None:
+            return clone
+        sole = sole_admitted(clone.attempt[1], self.text, self.pos)
+        if sole is None:
+            self.attempt(clone, out)
+            return None  # the winning arm was consumed inline
+        # One admitted entry — no fork is possible: a plain frame push
+        # replaces the sub-run, and the audit has nothing to ask.
+        return sole
+
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
 
@@ -490,19 +517,10 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                     MODES.get(clone.mode, "?"),
                 )
             )
-        char = self.text[self.pos : self.pos + 1]
-        if clone.mode == BUILD_DISPATCH:
-            chased = self._chase_dispatch(clone, char)
-            if chased is None:
-                return False  # the empty (nullable) arm — nothing consumed
-            clone = chased
-        if clone.attempt is not None:
-            sole = sole_admitted(clone.attempt[1], self.text, self.pos)
-            if sole is None:
-                self.attempt(clone, out)
-                return False  # the winning arm was consumed inline
-            clone = sole  # one admitted entry — no fork is possible: a plain
-            # frame push replaces the sub-run, and the audit has nothing to ask
+        settled = self._settle(clone, out)
+        if settled is None:
+            return False  # consumed inline — a nullable arm, or an attempt
+        clone = settled
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(
@@ -522,6 +540,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             self.pos = self._run_leaf(clone, out, self.pos)
             return False
         arm = None
+        char = self.text[self.pos : self.pos + 1]
         for chars, negated, candidate in clone.selectors:
             if (char != "" and char not in chars) if negated else char in chars:
                 arm = candidate

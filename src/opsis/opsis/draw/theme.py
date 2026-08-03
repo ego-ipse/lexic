@@ -314,6 +314,13 @@ RULES: tuple[tuple[str, str], ...] = (
     (".twig:hover .txt", "color:var(--text)"),
     # editors
     (".editor .body", "display:flex;flex-direction:column;gap:8px;min-height:0"),
+    # A window's body is filled when it opens, and what fills it lands
+    # inside this slot — so the slot has to BE the column, or a text box
+    # inside it has nothing to grow against and sits at its minimum.
+    (
+        ".frame > .body > [data-pane]",
+        "flex:1;min-height:0;display:flex;flex-direction:column;gap:8px",
+    ),
     (
         # The WINDOW resizes; the text box follows it, on both axes. A
         # large window with a small text box in it is nobody's idea.
