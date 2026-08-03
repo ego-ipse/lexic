@@ -29,6 +29,7 @@ from opsis.opsis.engine import (
 from opsis.opsis.graphic import RAIL_CSS, rule_svg
 from opsis.opsis.scene import Moon, Rail, Ring, Space
 from opsis.opsis.space import frame
+from opsis.opsis.tables import flavour_view, registry_view, table_view
 from opsis.opsis.views import (
     bounded,
     constrain_view,
@@ -122,6 +123,10 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
         ]
     if reading.compiled is not None:
         out.append(("tables", "its tables"))
+    if reading.flavour is not None:
+        out += [("flavour", "what it IS"), ("dispatch", "its tables")]
+    if not reading.reader:
+        out.append(("registry", "the registry"))
     return out
 
 
@@ -292,6 +297,18 @@ def _window(
     under = _under(session, reading)
     if kind in ("floor", "forest", "derivations") and under is not None:
         return _engine(reading, under, kind)
+    if kind == "flavour" and reading.flavour is not None:
+        shown = reading.flavour
+        return (f"{title} — what it IS", (660, 460), lambda: [flavour_view(shown)])
+    if kind == "dispatch" and reading.flavour is not None:
+        carrier = reading.flavour
+        return (
+            f"{title} — its tables",
+            (660, 460),
+            lambda: [table_view(carrier, str(type(carrier).name))],
+        )
+    if kind == "registry":
+        return (f"{title} — the registry", (620, 380), lambda: [registry_view()])
     if kind == "do:constrain":
         return (
             f"{title} — constrain",

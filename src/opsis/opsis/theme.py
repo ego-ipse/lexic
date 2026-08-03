@@ -379,6 +379,46 @@ RULES: tuple[tuple[str, str], ...] = (
         "border:1px solid var(--err);border-left:3px solid var(--err);"
         f"color:var(--err);font:11px {MONO};white-space:pre-wrap;cursor:pointer",
     ),
+    # a measured claim — the mark carries the verdict, the hue repeats it
+    (
+        ".claim",
+        "margin:7px 0;padding:6px 10px;border-left:2px solid var(--line);"
+        f"font:11px {MONO};color:var(--dim);letter-spacing:.4px",
+    ),
+    (".claim em", "float:right;font-style:normal;color:var(--line)"),
+    (".claim.ok", "border-left-color:var(--green);color:var(--green)"),
+    (".claim.no", "border-left-color:var(--err);color:var(--err)"),
+    (
+        ".claim.un",
+        "border-left-color:var(--amber);color:var(--amber);border-left-style:dashed",
+    ),
+    # a deed's button — it does one thing and says which
+    (
+        "button.go",
+        "padding:4px 12px;background:transparent;border:1px solid var(--cyan);"
+        f"color:var(--cyan);font:10px {MONO};letter-spacing:1.4px;"
+        "text-transform:uppercase;cursor:pointer;transition:background .12s",
+    ),
+    ("button.go:hover", "background:var(--cyan);color:var(--void)"),
+    ("button.go:disabled", "opacity:.4;cursor:progress"),
+    # a dispatch table, as the data it is
+    (
+        ".table",
+        "margin:10px 0;border:1px solid var(--line);"
+        "border-left:2px solid var(--magenta)",
+    ),
+    (
+        ".grid",
+        "max-height:220px;overflow:auto;border-top:1px solid var(--line)",
+    ),
+    (
+        ".cell",
+        "display:flex;gap:10px;padding:3px 10px;"
+        f"font:10.5px {MONO};border-bottom:1px solid var(--line)",
+    ),
+    (".cell:hover", "background:var(--panel)"),
+    (".cell code", "flex:0 0 34%;color:var(--cyan);overflow:hidden"),
+    (".cell span", "flex:1;color:var(--dim);overflow:hidden;white-space:pre"),
     # a frozen artifact: gestures dead, and drawn so
     (
         ".frozen .bnode,.frozen .chip,.frozen .act,.frozen textarea",

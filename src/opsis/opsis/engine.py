@@ -257,8 +257,8 @@ def _packed(trees: list[IrSelf]) -> tuple[list[Node], list[tuple[int, int]], int
                 _label(node),
                 depth[node],
                 len(nodes),
-                type(node).__name__,
-                "cyan",
+                _hue(node),
+                _label(node),
             )
         )
     for node, index in at.items():
@@ -267,6 +267,11 @@ def _packed(trees: list[IrSelf]) -> tuple[list[Node], list[tuple[int, int]], int
             if pair[0] is not None and pair[1] is not None:
                 edges.add((pair[0], pair[1]))
     return nodes, sorted(edges), len(at)
+
+
+def _hue(node: IrSelf) -> str:
+    """What a forest node is: a leaf, or a symbol that was expanded."""
+    return "cyan" if list(node.children()) else "green"
 
 
 def _label(node: IrSelf) -> str:
