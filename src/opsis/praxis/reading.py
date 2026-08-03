@@ -52,16 +52,23 @@ class Source(NamedTuple):
 
 
 class Outcome(NamedTuple):
-    """What one read produced — both its readings, or the refusal.
+    """What one read produced — both its readings, the refusal, the cost.
 
     One record because they are one event: a reading either produced
-    what it produced, or refused, and holding the three separately would
+    what it produced, or refused, and holding the parts separately would
     let a stale product outlive the read that made it.
+
+    ``millis`` is measured. ``shared`` is observed: lexic memoises a
+    compile by content, and a memo hit hands back the SAME artefact
+    object, so two readings holding one object is the hit itself rather
+    than an inference from how long it took.
     """
 
     instance: object | None = None
     product: object | None = None
     error: str = ""
+    millis: float = 0.0
+    shared: bool = False
 
 
 class Params(NamedTuple):
@@ -178,6 +185,18 @@ class Reading:
     def error(self) -> str:
         """The refusal, verbatim, when it refused."""
         return self.outcome.error
+
+    @property
+    def memo(self) -> str:
+        """Whether the last read did the work, or found it already done.
+
+        Not a guess from the clock: a memo hit is another reading
+        already holding the very artefact this one got back.
+        """
+        if not self.text:
+            return ""
+        spent = f"{self.outcome.millis:.0f}ms"
+        return f"memo hit · {spent}" if self.outcome.shared else f"fresh · {spent}"
 
     # ── what this reading IS, once it has been read ───────────────────
 

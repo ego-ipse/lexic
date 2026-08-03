@@ -53,6 +53,23 @@ def _glyph(point: int) -> str:
     return chr(point) if 33 <= point < 127 else f"\\x{point:02x}"
 
 
+def _encoding(atom: IrSelf, x: int, y: int, w: int) -> str:
+    """The badge an atom wears when it is read under a named encoding.
+
+    Ordinals mean nothing until something says what alphabet they are
+    in, so an atom scoped to an encoding says which — and one that is
+    not scoped wears nothing, because ``unicode`` is not a decision
+    anybody made.
+    """
+    if not isinstance(atom, IrAlphabet):
+        return ""
+    name = escape(str(atom.encoding))
+    return (
+        f'<text class="rr-enc" x="{x + w - 3}" y="{y - 3}" '
+        f'text-anchor="end">{name}</text>'
+    )
+
+
 def _label(atom: IrSelf) -> str:
     """What a leaf atom says on its box."""
     if isinstance(atom, IrLiteral):
@@ -196,6 +213,7 @@ class _ELeaf(IrLeaf[IrSelf, IrSelf]):
             f'<g class="{kind}"{points}>'
             f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{radius}"/>'
             f'<text x="{x + w // 2}" y="{y + h // 2 + 4}">{escape(_label(n))}</text>'
+            f"{_encoding(n, x, y, w)}"
             f"</g>"
         )
 
@@ -332,6 +350,7 @@ EMIT: IrTypeMap = IrTypeMap(
 
 RAIL_CSS = """
 .rr { overflow:auto; padding:4px 0 2px; }
+.rr .rr-enc { fill:var(--magenta); font-size:8px; letter-spacing:.8px; }
 .rr svg { display:block; }
 .rr .rr-line, .rr .rr-loop, .rr .rr-skip { fill:none; stroke:var(--dim);
   stroke-width:1.1; }

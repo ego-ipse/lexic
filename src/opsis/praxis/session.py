@@ -14,6 +14,7 @@ order things were opened, so a text is never read by a stale reader.
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 
 from lexic.compile import CompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
@@ -207,13 +208,17 @@ class Session:
         otherwise would mean drawing a product built from nothing.
         """
         instance: object | None = None
+        began = perf_counter()
         try:
             if reader.instance is not None:
                 instance = reader.instance(reading.text)
             built = self._built(reader, reading, instance)
-            return Outcome(instance, self._docked(reading, built, instance))
+            docked = self._docked(reading, built, instance)
+            spent = (perf_counter() - began) * 1000
+            return Outcome(instance, docked, "", spent, self._seen(reading, built))
         except FOREIGN as exc:
-            return Outcome(instance, None, refusal_of(exc))
+            spent = (perf_counter() - began) * 1000
+            return Outcome(instance, None, refusal_of(exc), spent)
 
     def _docked(self, reading: Reading, built: object, instance: object) -> object:
         """The product with its vocabulary docked — rebound, never recompiled.
@@ -234,6 +239,18 @@ class Session:
         names = alphabets(instance)
         registry = IrMap(*(IrTuple(IrStr(name), tokenizer) for name in names))
         return built.bind(tokenizer, registry or None)
+
+    def _seen(self, reading: Reading, built: object) -> bool:
+        """Whether another reading already holds this very artefact.
+
+        A compile is memoised by content, and a hit hands the SAME
+        object back — so identity is the observation, and no clock has
+        to be trusted for it.
+        """
+        return any(
+            other.ident != reading.ident and other.outcome.product is built
+            for other in self.readings.values()
+        )
 
     def _built(self, reader: Reader, reading: Reading, instance: object) -> object:
         """The product — refined off the first reading where there is one."""

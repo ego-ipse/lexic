@@ -60,10 +60,24 @@ def test_read_spec_ignores_blanks_and_comments() -> None:
     assert set(spec.keys()) == {"f"}
 
 
-def test_carve_with_an_incomplete_shape_raises() -> None:
-    """Fewer than four rule names cannot address a mapping level at all."""
-    with pytest.raises(UnsupportedConstructError, match="all four names"):
-        carve(_TOY_COMPILED, Shape("sect"), "f", _TOY_DOC)
+def test_carve_with_no_names_at_all_raises() -> None:
+    """A shape naming nothing cannot address a mapping level."""
+    with pytest.raises(UnsupportedConstructError, match="name the entry rule"):
+        carve(_TOY_COMPILED, Shape(), "f", _TOY_DOC)
+
+
+def test_carve_derives_the_whole_shape_from_the_entry_rule() -> None:
+    """Naming the entry alone extracts as much as naming all four does.
+
+    Three of the four names are a function of the grammar, so a caller
+    who restates them can only agree or be wrong.
+    """
+    one = carve(_TOY_COMPILED, Shape(entry="pair"), "f\nb.c", _TOY_DOC)
+    four = carve(
+        _TOY_COMPILED, Shape("group", "pair", "label", "thing"), "f\nb.c", _TOY_DOC
+    )
+    assert dict(one.paths) == dict(four.paths)
+    assert dict(one.paths) == {"f": "4", "b.c": "22"}
 
 
 def test_carve_with_an_empty_spec_raises() -> None:

@@ -20,7 +20,7 @@ from lexic.compile import Directives
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrCat, IrTokenizer
 from opsis.opsis.canvas import el, html, raw
-from opsis.opsis.panes import CURSORS, RESUMES
+from opsis.opsis.panes import CURSORS, RESUMES, WIDTHS
 from opsis.opsis.scene import Space
 from opsis.opsis.session import (
     hint,
@@ -368,6 +368,18 @@ def _held(session: Session, ident: str) -> Reading:
     return reading
 
 
+def _width(session: Session, rest: list[str], ask: Ask) -> str:
+    """How wide to render a reading's document.
+
+    Held per reading rather than globally: two documents open at once
+    are two questions, and one slider answering both would be a setting
+    pretending to be a control.
+    """
+    _held(session, rest[0])
+    WIDTHS[rest[0]] = max(20, min(200, int(ask.body or "88")))
+    return f"{WIDTHS[rest[0]]} columns"
+
+
 def _reflect(session: Session, _rest: list[str], _ask: Ask) -> str:
     """Write the picture down as a reading, so it can be edited.
 
@@ -497,6 +509,21 @@ function browse(at) {
 }
 // ── reading as you type ──
 const pending = new Map();
+// The width slider is a control, not a setting: it re-renders the one
+// document it belongs to, live, and each document keeps its own.
+document.addEventListener("input", e => {
+  const slider = e.target.closest("[data-width]");
+  if (!slider) return;
+  const win = slider.closest(".frame");
+  const slot = win.querySelector("[data-pane]");
+  if (!slot) return;
+  const ident = slot.dataset.pane.split("/")[0];
+  clearTimeout(pending.get("width" + ident));
+  pending.set("width" + ident, setTimeout(() => {
+    fetch("/width/" + ident, {method: "POST", body: slider.value})
+      .then(() => { delete slot.dataset.filled; fill(win); });
+  }, 60));
+});
 document.addEventListener("input", e => {
   const field = e.target.closest("[data-post]");
   if (!field) return;
@@ -729,6 +756,7 @@ _ROUTES: dict[tuple[str, int], Callable[[Session, list[str], Ask], str]] = {
     ("extend", 1): _extend,
     ("mark", 1): _mark,
     ("rewind", 2): _rewind,
+    ("width", 1): _width,
     ("reflect", 0): _reflect,
     ("freeze", 0): _freeze,
     ("thaw", 0): _thaw,

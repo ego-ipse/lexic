@@ -64,9 +64,9 @@ class Bench(NamedTuple):
 
 
 def read_shape(text: str) -> Shape:
-    """A shape from four comma-separated names.
+    """A shape from one name, or from four.
 
-    :param text: ``section, entry, key, value``.
+    :param text: ``entry`` alone, or ``section, entry, key, value``.
     :returns: The shape, with whatever was left out left empty.
     """
     parts = [p.strip() for p in text.split(",")]
@@ -116,6 +116,28 @@ def _lift(tree: dict[str, object]) -> IrMap:
     )
 
 
+def resolve_shape(compiled: CompiledGrammar, shape: Shape) -> MapShape:
+    """The four names, from however many were given.
+
+    Three of the four are a function of the grammar, so asking for them
+    is asking someone to restate what the grammar already says — and a
+    restatement can disagree with it. Name the ENTRY rule and the rest
+    derives; name all four and they are taken as given, because a
+    formulation the derivation cannot read is still a formulation.
+
+    :raises UnsupportedConstructError: When nothing was named, or when
+        what was named is not a rule that makes a mapping level.
+    """
+    if shape.stated:
+        return MapShape(*shape)
+    if not shape.entry and not shape.section:
+        raise UnsupportedConstructError(
+            "name the entry rule — the rule that produces one key/value pair. "
+            "The section, key and value derive from it."
+        )
+    return MapShape.for_entry(compiled, shape.entry or shape.section)
+
+
 def carve(compiled: CompiledGrammar, shape: Shape, spec: str, text: str) -> Carve:
     """Extract the spec'd paths of ``text`` and say what came out.
 
@@ -124,14 +146,10 @@ def carve(compiled: CompiledGrammar, shape: Shape, spec: str, text: str) -> Carv
         document does not parse — each of which is a real answer about
         what was asked, not a failure to try.
     """
-    if not shape.stated:
-        raise UnsupportedConstructError(
-            "a shape needs all four names: section, entry, key, value"
-        )
     keep = read_spec(spec)
     if not keep:
         raise UnsupportedConstructError("nothing to keep — name a path")
-    built = template(compiled, MapShape(*shape), keep)
+    built = template(compiled, resolve_shape(compiled, shape), keep)
     out = built.run(text)
     paths = tuple(
         (".".join(str(p) for p in path), _shown(value)) for path, value in out.items()

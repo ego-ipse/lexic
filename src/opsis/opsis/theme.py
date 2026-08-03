@@ -395,6 +395,13 @@ RULES: tuple[tuple[str, str], ...] = (
     # a semantic reading: the grammar's own noise, dimmed
     ('.semantic .twig.noise,.semantic .twig[data-rule=""]', "opacity:.32"),
     (".semantic .twig:hover", "opacity:1"),
+    # a document rendered at a width you can see the edge of
+    (
+        ".src.ruled",
+        "position:relative;background:linear-gradient(to right,transparent 0,"
+        "transparent calc(var(--cols) * 1ch),var(--panel) calc(var(--cols) * 1ch))",
+    ),
+    ('input[type="range"]', "accent-color:var(--cyan);width:200px"),
     # a measured claim — the mark carries the verdict, the hue repeats it
     (
         ".claim",

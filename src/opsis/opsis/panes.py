@@ -23,6 +23,7 @@ from opsis.opsis.analysis import analysis_view
 from opsis.opsis.binding import binding_view, fold_view, runs_of
 from opsis.opsis.canvas import el
 from opsis.opsis.canvas import text as _text
+from opsis.opsis.emission import emit_doc
 from opsis.opsis.engine import (
     derivation_view,
     floor_view,
@@ -38,6 +39,7 @@ from opsis.opsis.views import (
     carve_view,
     constrain_view,
     controls,
+    doc_view,
     instance_view,
     railroad_view,
     refusal,
@@ -45,6 +47,7 @@ from opsis.opsis.views import (
     resume_view,
     rules_view,
     semantic_view,
+    shadow_view,
     tokenizer_view,
 )
 from opsis.praxis.acts import Deed, deeds
@@ -59,8 +62,10 @@ __all__ = [
     "PANES",
     "RESUMES",
     "Pane",
+    "WIDTHS",
     "artefact",
     "fan",
+    "shadows",
     "window",
 ]
 
@@ -81,24 +86,8 @@ def artefact(reading: Reading) -> CompiledGrammar | None:
 def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
     """The readings this one actually has — nothing offered that isn't."""
     out = [("text", "text")]
-    if artefact(reading) is not None:
-        out += [
-            ("rules", "rules"),
-            ("railroad", "railroad"),
-            ("pipeline", "pipeline"),
-            ("module", "module"),
-        ]
-    if reading.tokenizer is not None:
-        out.append(("vocabulary", "vocabulary ▲"))
-    if reading.instance is not None:
-        out.append(("instance", "instance ▲"))
-    if reading.product is not None and reading.compiled is None:
-        out.append(("product", "product ▲"))
-    if isinstance(reading.product, GrammarModel):
-        out += [("semantic", "semantic ▲"), ("regrammar", "its grammar ▲")]
-    held = artefact(reading)
-    if held is not None and held.tokens.tokenizer is not None:
-        out.append(("bound", "bound to ▲"))
+    out += _grammar_fan(reading)
+    out += _product_fan(reading)
     reader = session.reader_for(reading)
     if reader is not None and reader.grammar is not None:
         out.append(("reader", "its reader"))
@@ -109,23 +98,53 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
             ("forest", "forest"),
             ("derivations", "derivations"),
         ]
-    if artefact(reading) is not None:
-        out += [
-            ("tables", "its tables"),
-            ("carve", "template"),
-            ("binding", "binding"),
-            ("fold", "its fold"),
-            ("runs", "its runs"),
-            ("analysis", "its verdicts"),
-            ("tokens", "its token facts"),
-            ("resume", "resume"),
-        ]
     if reading.flavour is not None:
         out += [("flavour", "what it IS"), ("dispatch", "its tables")]
+    if shadows(session, reading):
+        out.append(("shadow", "it shadows ⚠"))
     if not reading.reader:
         out.append(("registry", "the registry"))
     if _wants(reading):
         out.append(("plug", "plug ⊕"))
+    return out
+
+
+def _grammar_fan(reading: Reading) -> list[tuple[str, str]]:
+    """Everything a reading offers because it IS a grammar."""
+    held = artefact(reading)
+    if held is None:
+        return []
+    out = [
+        ("rules", "rules"),
+        ("railroad", "railroad"),
+        ("pipeline", "pipeline"),
+        ("module", "module"),
+        ("doc", "its document"),
+        ("tables", "its tables"),
+        ("binding", "binding"),
+        ("fold", "its fold"),
+        ("runs", "its runs"),
+        ("analysis", "its verdicts"),
+        ("tokens", "its token facts"),
+        ("resume", "resume"),
+        ("carve", "template"),
+    ]
+    if held.tokens.tokenizer is not None:
+        out.append(("bound", "bound to ▲"))
+    return out
+
+
+def _product_fan(reading: Reading) -> list[tuple[str, str]]:
+    """Everything a reading offers because of what it PRODUCED."""
+    out: list[tuple[str, str]] = []
+    if reading.tokenizer is not None:
+        out.append(("vocabulary", "vocabulary ▲"))
+    if reading.instance is not None:
+        out.append(("instance", "instance ▲"))
+    if reading.product is not None and reading.compiled is None:
+        out.append(("product", "product ▲"))
+    if isinstance(reading.product, GrammarModel):
+        out += [("semantic", "semantic ▲"), ("regrammar", "its grammar ▲")]
     return out
 
 
@@ -320,12 +339,74 @@ def _resume_pane(_session: Session, reading: Reading) -> Pane:
     )
 
 
+WIDTHS: dict[str, int] = {}
+"""The width each reading's document window is rendered at."""
+
+
+def _doc_pane(_session: Session, reading: Reading) -> Pane:
+    """The layout document an emission IS, at a width you can drag."""
+    compiled = _grammar(reading)
+    width = WIDTHS.get(reading.ident, 88)
+    doc = emit_doc(compiled.grammar, _spelling(compiled))
+    return Pane(
+        f"{reading.title} — its document",
+        (640, 420),
+        lambda: [doc_view(doc, width, f"this grammar in {_spelling(compiled)}")],
+    )
+
+
+def _spelling(compiled: CompiledGrammar) -> str:
+    """Which surface this grammar's own emission is spelled in."""
+    return compiled.flavour if compiled.flavour in _SPELLABLE else "gbnf"
+
+
 def _tables_pane(_session: Session, reading: Reading) -> Pane:
     """The predictive artefact this grammar compiled to."""
     compiled = _grammar(reading)
     return Pane(
         f"{reading.title} — its tables", (640, 380), lambda: [tables_view(compiled)]
     )
+
+
+def shadows(session: Session, reading: Reading) -> list[Reading]:
+    """Other readings whose product answers to this one's name.
+
+    A flavour is named, and two flavours can be named the same thing —
+    a manifest you wrote called ``gbnf`` beside the one lexic ships.
+    Neither is refused: the session holds both, and each grammar names
+    which one reads it. What is refused is pretending only one exists,
+    so the collision is drawn.
+    """
+    flavour = reading.flavour
+    if flavour is None:
+        return []
+    name = str(type(flavour).name)
+    return [
+        other
+        for other in session.readings.values()
+        if other.ident != reading.ident
+        and other.flavour is not None
+        and str(type(other.flavour).name) == name
+    ]
+
+
+def _shadow_pane(session: Session, reading: Reading) -> Pane:
+    """Who else answers to this reading's name, and what reads with which."""
+    flavour = IrFlavour.ensure(reading.flavour, "a flavour")
+    name = str(type(flavour).name)
+    held = [reading, *shadows(session, reading)]
+    rows = tuple((one.title, _reads_with(session, one)) for one in held)
+    return Pane(
+        f"{reading.title} — it shadows ⚠",
+        (600, 340),
+        lambda: [shadow_view(name, rows)],
+    )
+
+
+def _reads_with(session: Session, reader: Reading) -> str:
+    """What this particular reader is currently reading."""
+    named = [r.title for r in session.readings.values() if r.reader == reader.ident]
+    return ", ".join(named) if named else "nothing reads with it yet"
 
 
 def _flavour_pane(_session: Session, reading: Reading) -> Pane:
@@ -452,9 +533,11 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "analysis": _analysis_pane,
     "tokens": _tokens_pane,
     "resume": _resume_pane,
+    "doc": _doc_pane,
     "semantic": _semantic_pane,
     "regrammar": _regrammar_pane,
     "flavour": _flavour_pane,
+    "shadow": _shadow_pane,
     "dispatch": _dispatch_pane,
     "carve": _carve_pane,
     "plug": _plug_pane,

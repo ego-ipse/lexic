@@ -26,6 +26,7 @@ from lexic.ir import (
     IrSelf,
     IrTokenizer,
     IrTypeMap,
+    render,
 )
 from lexic.model import GrammarModel
 from opsis.eidolon import Topology
@@ -41,6 +42,7 @@ __all__ = [
     "button",
     "carve_view",
     "controls",
+    "doc_view",
     "field",
     "facts",
     "panel",
@@ -51,6 +53,7 @@ __all__ = [
     "refusal",
     "regrammar_view",
     "resume_view",
+    "shadow_view",
     "rules_view",
     "semantic_view",
     "view_of",
@@ -595,6 +598,71 @@ def resume_view(ident: str, held: object) -> IrDoc:
     return el("div", None, *rows)
 
 
+def doc_view(doc: IrDoc, width: int, what: str) -> IrDoc:
+    """A layout document, rendered live at a width you can drag.
+
+    Emission is not string concatenation here: a document is a tree of
+    width-aware combinators, and what it looks like is a function of the
+    width it is given. So the width is a control rather than a constant,
+    and this window is where it lives.
+    """
+    shown, note = bounded(render(doc, width))
+    return el(
+        "div",
+        None,
+        el(
+            "div",
+            {"class": "note"},
+            _text(
+                f"{what} · rendered at {width} columns{' · ' + note if note else ''}"
+            ),
+        ),
+        controls(
+            el(
+                "input",
+                {
+                    "id": "width",
+                    "type": "range",
+                    "min": "20",
+                    "max": "200",
+                    "value": str(width),
+                    "data-width": "1",
+                },
+            ),
+            el("span", {"class": "note"}, _text(f"{width}")),
+        ),
+        el("pre", {"class": "src ruled", "style": f"--cols:{width}"}, _text(shown)),
+    )
+
+
+def shadow_view(name: str, rows: Sequence[tuple[str, str]]) -> IrDoc:
+    """Two readers answering to one name, and who reads with which.
+
+    Not refused, and not resolved behind anyone's back: a name is how a
+    flavour is spoken about, not what it IS, so the session holds both
+    and every grammar names the reading that reads it. What would be
+    wrong is a registry silently picking.
+    """
+    return panel(
+        f"{len(rows)} readings produce a flavour called {name!r} — nothing is "
+        "shadowed away: each grammar names the one that reads it, and a name is "
+        "how a flavour is spoken about, not what it is",
+        el(
+            "div",
+            {"class": "grid"},
+            *(
+                el(
+                    "div",
+                    {"class": "cell"},
+                    el("code", None, _text(title)),
+                    el("span", None, _text(reads)),
+                )
+                for title, reads in rows
+            ),
+        ),
+    )
+
+
 def semantic_view(model: GrammarModel, source: str) -> IrDoc:
     """The model with its noise dimmed — the same tree, read for meaning.
 
@@ -649,11 +717,13 @@ def regrammar_view(model: GrammarModel, flavour: str, reader: str) -> IrDoc:
 
 
 def tokenizer_view(tok: IrTokenizer) -> IrDoc:
-    """What a tokenizer IS: its size, its stages, a look at its entries.
+    """What a tokenizer IS: its size, its stages as a space, its entries.
 
-    A vocabulary of a hundred thousand entries is not drawn entry by
-    entry — the count is stated and a sample is shown, which is the
-    scale rule: no silent caps, and no pretending the rest is absent.
+    The pipeline is drawn as the chain it is — normalize, pretoken,
+    segment — because the stages are ordered and each one hands its
+    output to the next. A vocabulary of a hundred thousand entries is
+    not drawn entry by entry: the count is stated and a sample shown,
+    which is the scale rule.
     """
     stages = list(tok.pipeline)
     entries = list(tok.encode.items())[:40]
@@ -661,27 +731,18 @@ def tokenizer_view(tok: IrTokenizer) -> IrDoc:
     return el(
         "div",
         None,
-        el(
-            "div",
-            {"class": "row"},
-            el("span", {"class": "name"}, str(tok.name)),
-            el(
-                "div",
-                {"class": "note"},
-                f"{len(tok.encode):,} entries · {len(tok.ranks):,} merge ranks · "
-                f"segmented by {type(tok.segmenter).__name__}",
-            ),
+        facts(
+            [
+                ("name", str(tok.name), f"{len(tok.encode):,} entries"),
+                (
+                    "merges",
+                    f"{len(tok.ranks):,} ranks",
+                    f"segmented by {type(tok.segmenter).__name__}",
+                ),
+                ("pipeline", f"{len(stages)} stages", "each one hands its output on"),
+            ]
         ),
-        el(
-            "div",
-            {"class": "row"},
-            el("span", {"class": "name"}, f"pipeline · {len(stages)} stages"),
-            el(
-                "div",
-                {"class": "note"},
-                " → ".join(type(stage).__name__ for stage in stages) or "none",
-            ),
-        ),
+        _stage_space(stages, type(tok.segmenter).__name__),
         el(
             "div",
             {"class": "row"},
@@ -689,11 +750,22 @@ def tokenizer_view(tok: IrTokenizer) -> IrDoc:
             el(
                 "div",
                 {"class": "note"},
-                f"the first {len(entries)} of {len(tok.encode):,}",
+                _text(f"the first {len(entries)} of {len(tok.encode):,}"),
             ),
-            el("pre", {"class": "src"}, sample),
+            el("pre", {"class": "src"}, _text(sample)),
         ),
     )
+
+
+def _stage_space(stages: Sequence[object], segmenter: str) -> IrDoc:
+    """The token pipeline as a chain — text in one end, ids out the other."""
+    names = [type(stage).__name__ for stage in stages] + [segmenter]
+    nodes = [
+        Node(f"tp{i}", name, i, 0, "magenta" if i == len(names) - 1 else "cyan")
+        for i, name in enumerate(names)
+    ]
+    edges = [(i, i + 1) for i in range(len(names) - 1)]
+    return graph(nodes, edges)
 
 
 def constrain_view(
