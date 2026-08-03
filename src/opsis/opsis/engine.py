@@ -25,7 +25,7 @@ from lexic.parsing import (
 )
 from opsis.opsis.canvas import el
 from opsis.opsis.canvas import text as _text
-from opsis.opsis.views import Node, bounded, graph, refusal
+from opsis.opsis.views import Node, bounded, facts, graph, refusal
 
 __all__ = ["derivation_view", "floor_view", "forest_view", "tables_view"]
 
@@ -164,21 +164,7 @@ def tables_view(compiled: CompiledGrammar) -> IrDoc:
         ("islands", f"{len(islands):,}", "spans handed back to Earley"),
         ("start", str(tables.start_key.name), "where the program enters"),
     ]
-    return el(
-        "div",
-        None,
-        *(
-            el(
-                "div",
-                {"class": "row"},
-                el("span", {"class": "name"}, _text(name)),
-                el("b", None, _text(value)),
-                el("div", {"class": "note"}, _text(why)),
-            )
-            for name, value, why in rows
-        ),
-        _island_list(islands),
-    )
+    return facts(rows, _island_list(islands))
 
 
 def _island_list(islands: list[str]) -> IrDoc:

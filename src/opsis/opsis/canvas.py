@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from html import escape
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrCat, IrDoc, IrLine, IrText, render
 
-__all__ = ["el", "html", "raw", "text", "void"]
+__all__ = ["VOID", "el", "html", "raw", "text"]
 
 
 def text(body: str) -> IrDoc:
@@ -45,21 +46,34 @@ def _lines(body: str) -> IrDoc:
     return IrCat(*parts)
 
 
+VOID = frozenset(
+    "area base br col embed hr img input link meta param source track wbr".split()
+)
+"""Elements HTML closes for you — writing ``</br>`` is not markup."""
+
+
 def el(tag: str, attrs: dict[str, str | None] | None, *kids: IrDoc | str) -> IrDoc:
     """One element — attributes escaped, string children escaped.
 
+    Whether a tag closes is a fact about the tag, so it is decided here
+    rather than by every caller remembering. Asking for children of a
+    void element is a mistake worth hearing about, not one to render.
+
     The doc check comes first: an ``IrText`` IS a ``str`` (a node is its
     payload), so a doc child must never be escaped twice.
+
+    :raises UnsupportedConstructError: When a void element is given
+        children — HTML has nowhere to put them.
     """
-    parts: list[IrDoc] = [raw(f"<{tag}{_attrs(attrs)}>")]
-    parts.extend(kid if isinstance(kid, IrDoc) else text(kid) for kid in kids)
-    parts.append(raw(f"</{tag}>"))
-    return IrCat(*parts)
-
-
-def void(tag: str, attrs: dict[str, str | None] | None = None) -> IrDoc:
-    """A void element — ``meta``, ``br`` and kin."""
-    return raw(f"<{tag}{_attrs(attrs)}>")
+    open_tag = raw(f"<{tag}{_attrs(attrs)}>")
+    if tag not in VOID:
+        kid_docs = [k if isinstance(k, IrDoc) else text(k) for k in kids]
+        return IrCat(open_tag, *kid_docs, raw(f"</{tag}>"))
+    if kids:
+        raise UnsupportedConstructError(
+            f"<{tag}> is a void element; it takes no children"
+        )
+    return open_tag
 
 
 def _attrs(attrs: dict[str, str | None] | None) -> str:

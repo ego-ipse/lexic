@@ -18,7 +18,15 @@ from pathlib import Path
 from lexic.compile import Vocabulary
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAlphabet, IrMap, IrSelf, IrStr, IrTuple
-from opsis.praxis.reading import Params, Reader, Reading, refusal_of
+from opsis.praxis.reading import (
+    FOREIGN,
+    Outcome,
+    Params,
+    Reader,
+    Reading,
+    Source,
+    refusal_of,
+)
 
 __all__ = ["Session", "alphabets"]
 
@@ -65,12 +73,19 @@ class Session:
         title: str,
         kind: str = "text",
         reader: str = "",
-        text: str = "",
-        origin: str = "",
+        source: Source = Source(),
     ) -> Reading:
-        """Hold a new reading and read it."""
+        """Hold a new reading and read it.
+
+        :param title: What it is called on screen.
+        :param kind: What it turned out to be.
+        :param reader: The ident or surface name that reads it.
+        :param source: Its text, and where that text came from.
+        """
         self._next += 1
-        reading = Reading(f"r{self._next}", title, kind, reader, text, origin)
+        reading = Reading(f"r{self._next}", title, kind, reader)
+        reading.text = source.text
+        reading.params = Params(origin=source.origin)
         self.readings[reading.ident] = reading
         self.read(reading.ident)
         return reading
@@ -166,10 +181,10 @@ class Session:
         reading = self._get(ident)
         if vocabulary == ident:
             raise UnsupportedConstructError("a grammar cannot be its own vocabulary")
-        reading.params.bound = vocabulary
+        reading.params = reading.params._replace(bound=vocabulary)
         self.read(ident)
 
-    def vocabulary_for(self, reading: Reading) -> Vocabulary:
+    def vocabulary_for(self, reading: Reading, instance: object = None) -> Vocabulary:
         """The vocabulary a reading is bound to, resolved now.
 
         A binding to a reading that has since gone, or that no longer
@@ -187,7 +202,7 @@ class Session:
         tokenizer = held.tokenizer if held is not None else None
         if tokenizer is None:
             return Vocabulary()
-        wanted = alphabets(reading.instance)
+        wanted = alphabets(instance)
         registry = IrMap(*(IrTuple(IrStr(name), tokenizer) for name in wanted))
         return Vocabulary(tokenizer=tokenizer, registry=registry or None)
 
@@ -199,32 +214,36 @@ class Session:
         in, and the message is the interesting part.
         """
         reading = self._get(ident)
-        reading.instance = None
-        reading.product = None
-        reading.error = ""
+        reading.outcome = Outcome()
         reader = self.reader_for(reading)
         if reader is not None and reading.text:
-            try:
-                self._both(reading, reader)
-            except Exception as exc:  # a reader may be foreign code
-                reading.error = refusal_of(exc)
+            reading.outcome = self._both(reading, reader)
         for below in self.readers_of(ident):
             self.read(below.ident)
 
-    def _both(self, reading: Reading, reader: Reader) -> None:
+    def _both(self, reading: Reading, reader: Reader) -> Outcome:
         """The two readings of one text, in the order they depend on.
 
         A refusal in the first is a refusal, full stop: there is no
         second reading of a text that would not parse, and pretending
         otherwise would mean drawing a product built from nothing.
         """
-        if reader.instance is not None:
-            reading.instance = reader.instance(reading.text)
-        reading.params.vocabulary = self.vocabulary_for(reading)
-        if reader.refine is not None and reading.instance is not None:
-            reading.product = reader.refine(reading.instance, reading.params)
-            return
-        reading.product = reader.read(reading.text, reading.params)
+        instance: object | None = None
+        try:
+            if reader.instance is not None:
+                instance = reader.instance(reading.text)
+            reading.params = reading.params._replace(
+                vocabulary=self.vocabulary_for(reading, instance)
+            )
+            return Outcome(instance, self._built(reader, reading, instance))
+        except FOREIGN as exc:
+            return Outcome(instance, None, refusal_of(exc))
+
+    def _built(self, reader: Reader, reading: Reading, instance: object) -> object:
+        """The product — refined off the first reading where there is one."""
+        if reader.refine is not None and instance is not None:
+            return reader.refine(instance, reading.params)
+        return reader.read(reading.text, reading.params)
 
     def edit(self, ident: str, text: str, params: Params | None = None) -> None:
         """Set a reading's input and re-read it and everything under it."""

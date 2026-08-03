@@ -21,15 +21,42 @@ of it looks.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, NamedTuple
 
-from lexic.compile import CompiledGrammar, Directives, Vocabulary
+from lexic.compile import (
+    CompiledGrammar,
+    Directives,
+    Vocabulary,
+    compile_text,
+    parse_grammar,
+)
+from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrFlavour, IrTokenizer
 
-__all__ = ["Params", "Reader", "Reading"]
+__all__ = ["FOREIGN", "Outcome", "Params", "Reader", "Reading", "Source"]
 
 
-class Params:
+class Source(NamedTuple):
+    """A text and where it came from — the two halves of one input."""
+
+    text: str = ""
+    origin: str = ""
+
+
+class Outcome(NamedTuple):
+    """What one read produced — both its readings, or the refusal.
+
+    One record because they are one event: a reading either produced
+    what it produced, or refused, and holding the three separately would
+    let a stale product outlive the read that made it.
+    """
+
+    instance: object | None = None
+    product: object | None = None
+    error: str = ""
+
+
+class Params(NamedTuple):
     """The rest of a reading's input — everything beside the text itself.
 
     Directives are the chips, ``bound`` names the reading whose product
@@ -50,17 +77,14 @@ class Params:
     needs its directives.
     """
 
-    __slots__ = ("directives", "resolver", "origin", "bound", "vocabulary")
-
-    def __init__(self, origin: str = "") -> None:
-        self.directives = Directives()
-        self.resolver: str = ""
-        self.origin = origin
-        self.bound: str = ""
-        self.vocabulary = Vocabulary()
+    directives: Directives = Directives()
+    resolver: str = ""
+    origin: str = ""
+    bound: str = ""
+    vocabulary: Vocabulary = Vocabulary()
 
 
-class Reader:
+class Reader(NamedTuple):
     """Something that turns a text into a product.
 
     A reader is never conjured: it is always the product of some
@@ -87,40 +111,15 @@ class Reader:
         lexic ships.
     """
 
-    __slots__ = (
-        "name",
-        "kind",
-        "grammar",
-        "read",
-        "instance",
-        "refine",
-        "comments",
-        "of",
-        "flavour",
-    )
-
-    def __init__(
-        self,
-        name: str,
-        kind: str,
-        read: Callable[[str, Params], object],
-        *,
-        instance: Callable[[str], object] | None = None,
-        refine: Callable[[object, Params], object] | None = None,
-        grammar: IrAst | None = None,
-        comments: bool = False,
-        of: str = "",
-        flavour: IrFlavour | None = None,
-    ) -> None:
-        self.name = name
-        self.kind = kind
-        self.read = read
-        self.instance = instance
-        self.refine = refine
-        self.grammar = grammar
-        self.comments = comments
-        self.of = of
-        self.flavour = flavour
+    name: str
+    kind: str
+    read: Callable[[str, Params], object]
+    instance: Callable[[str], object] | None = None
+    refine: Callable[[object, Params], object] | None = None
+    grammar: IrAst | None = None
+    comments: bool = False
+    of: str = ""
+    flavour: IrFlavour | None = None
 
 
 class Reading:
@@ -144,40 +143,33 @@ class Reading:
     :ivar error: The refusal, verbatim, when it refused.
     """
 
-    __slots__ = (
-        "ident",
-        "title",
-        "kind",
-        "text",
-        "reader",
-        "params",
-        "instance",
-        "product",
-        "error",
-        "x",
-        "y",
-    )
+    __slots__ = ("ident", "title", "kind", "text", "reader", "params", "outcome")
 
     def __init__(
-        self,
-        ident: str,
-        title: str,
-        kind: str = "text",
-        reader: str = "",
-        text: str = "",
-        origin: str = "",
+        self, ident: str, title: str, kind: str = "text", reader: str = ""
     ) -> None:
         self.ident = ident
         self.title = title
         self.kind = kind
         self.reader = reader
-        self.text = text
-        self.params = Params(origin)
-        self.instance: object | None = None
-        self.product: object | None = None
-        self.error: str = ""
-        self.x = 0
-        self.y = 0
+        self.text = ""
+        self.params = Params()
+        self.outcome = Outcome()
+
+    @property
+    def instance(self) -> object | None:
+        """The first of the two readings, where its reader offers one."""
+        return self.outcome.instance
+
+    @property
+    def product(self) -> object | None:
+        """What came back, or ``None`` if it refused."""
+        return self.outcome.product
+
+    @property
+    def error(self) -> str:
+        """The refusal, verbatim, when it refused."""
+        return self.outcome.error
 
     # ── what this reading IS, once it has been read ───────────────────
 
@@ -245,7 +237,6 @@ def _flavour_reader(flavour: IrFlavour, of: str = "") -> Reader:
     reader for the level below. The compile is what
     :meth:`Reading.as_reader` picks up.
     """
-    from lexic.compile import compile_text, parse_grammar
 
     def read(text: str, params: Params) -> object:
         return compile_text(
@@ -275,3 +266,24 @@ def refusal_of(exc: BaseException) -> str:
     sentence, not the provenance of the exception class.
     """
     return f"{type(exc).__name__}: {exc}"
+
+
+FOREIGN: tuple[type[BaseException], ...] = (
+    ArithmeticError,
+    AttributeError,
+    LexicError,
+    LookupError,
+    OSError,
+    RecursionError,
+    TypeError,
+    UnicodeError,
+    ValueError,
+)
+"""What running somebody else's reader can raise.
+
+Named rather than caught wholesale. A reader is foreign code — a
+flavour loaded from a manifest, a module imported off disk — and it
+fails in the ordinary ways any code does. Saying which ways is what
+makes the boundary a decision instead of a shrug: a ``KeyboardInterrupt``
+or a ``SystemExit`` is not a refusal and must still get through.
+"""

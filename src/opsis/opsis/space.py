@@ -19,14 +19,23 @@ server replace the world under it without disturbing a thing.
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import NamedTuple, Sequence
 
 from lexic.ir import IrAction, IrCat, IrDoc, IrLeaf, IrNone, IrSelf, IrTypeMap
 from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.scene import Moon, Rail, Ring, Space
 from opsis.opsis.theme import css
 
-__all__ = ["CAMERA", "RENDER", "RING_R", "frame", "page", "render_scene"]
+__all__ = [
+    "CAMERA",
+    "RENDER",
+    "RING_R",
+    "Box",
+    "Frame",
+    "frame",
+    "page",
+    "render_scene",
+]
 
 RING_R = 34
 ORBIT_R = 96
@@ -64,46 +73,57 @@ def _lozenge(ring: Ring) -> tuple[IrDoc, ...]:
     )
 
 
-def frame(
-    ident: str,
-    title: str,
-    x: int,
-    y: int,
-    w: int,
-    h: int,
-    *body: IrDoc,
-    shown: bool = True,
-    editor: bool = False,
-    sub: bool = False,
-    hud: bool = False,
-    owner: str = "",
-    rule: str = "",
-) -> IrDoc:
-    """One window — the ONLY way a window exists.
+class Box(NamedTuple):
+    """Where a window sits and how big it is, in world pixels."""
 
-    :param ident: What a gesture toggles it by.
-    :param owner: The node it belongs to, so the camera can tether it.
-    :param sub: Opened inside another window, and stays inside it.
-    :param hud: Belongs to the viewport rather than the panned world.
+    x: int = 0
+    y: int = 0
+    w: int = 420
+    h: int = 300
+
+
+class Frame(NamedTuple):
+    """Everything about a window except what is inside it.
+
+    :ivar ident: What a gesture toggles it by.
+    :ivar owner: The node it belongs to, so the camera can tether it.
+    :ivar sub: Opened inside another window, and stays inside it.
+    :ivar hud: Belongs to the viewport rather than the panned world.
     """
-    classes = " ".join(["frame"] + ["editor"] * editor + ["sub"] * sub + ["hud"] * hud)
-    box = f"width:{w}px;height:{h}px"
-    place = box if hud else f"left:{x}px;top:{y}px;{box}"
+
+    ident: str
+    title: str
+    box: Box = Box()
+    shown: bool = True
+    editor: bool = False
+    sub: bool = False
+    hud: bool = False
+    owner: str = ""
+    rule: str = ""
+
+
+def frame(spec: Frame, *body: IrDoc) -> IrDoc:
+    """One window — the ONLY way a window exists."""
+    classes = " ".join(
+        ["frame"] + ["editor"] * spec.editor + ["sub"] * spec.sub + ["hud"] * spec.hud
+    )
+    size = f"width:{spec.box.w}px;height:{spec.box.h}px"
+    place = size if spec.hud else f"left:{spec.box.x}px;top:{spec.box.y}px;{size}"
     attrs: dict[str, str | None] = {
         "class": classes,
-        "data-frame": ident,
-        "style": place + ("" if shown else ";display:none"),
+        "data-frame": spec.ident,
+        "style": place + ("" if spec.shown else ";display:none"),
     }
-    if owner:
-        attrs["data-owner"] = owner
-    head: dict[str, str | None] | None = {"data-rule": rule} if rule else None
+    if spec.owner:
+        attrs["data-owner"] = spec.owner
+    head: dict[str, str | None] | None = {"data-rule": spec.rule} if spec.rule else None
     return el(
         "div",
         attrs,
         el(
             "header",
             None,
-            el("span", head, title),
+            el("span", head, spec.title),
             el("b", {"class": "min", "title": "minimize"}, "–"),
             el("b", {"class": "max", "title": "maximize"}, "□"),
             el("b", {"class": "close", "title": "close"}, "×"),

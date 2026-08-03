@@ -207,20 +207,25 @@ class _ESeq(IrLeaf[IrSelf, IrSelf]):
         seq = IrSequence.ensure(n, "graphic: draw a sequence")
         x, y = _at(nc)
         _w, _h, mid = _m(seq)
-        if not len(seq):
+        if not seq:
             return IrStr(
                 f'<text class="rr-eps" x="{x + PAD}" y="{y + mid + 4}">ε</text>'
             )
-        out: list[str] = []
-        cursor = x
-        for i, kid in enumerate(seq):
-            kw, _kh, kmid = _m(kid)
-            if i:
-                out.append(_track(cursor, y + mid, cursor + GAP, y + mid))
-                cursor += GAP
-            out.append(_draw(kid, cursor, y + mid - kmid))
-            cursor += kw
-        return IrStr("".join(out))
+        return IrStr("".join(_chain(seq, x, y + mid)))
+
+
+def _chain(seq: Sequence[IrSelf], x: int, line: int) -> list[str]:
+    """Each part in turn, joined left to right by a track."""
+    out: list[str] = []
+    cursor = x
+    for i, kid in enumerate(seq):
+        width, _height, mid = _m(kid)
+        if i:
+            out.append(_track(cursor, line, cursor + GAP, line))
+            cursor += GAP
+        out.append(_draw(kid, cursor, line - mid))
+        cursor += width
+    return out
 
 
 class _EAlt(IrLeaf[IrSelf, IrSelf]):
@@ -236,20 +241,24 @@ class _EAlt(IrLeaf[IrSelf, IrSelf]):
         out: list[str] = []
         top = y
         for arm in arms:
-            aw, ah, amid = _m(arm)
-            line = top + amid
-            out.append(
-                f'<path class="rr-line" d="M{x},{y + mid} '
-                f'C{x + GAP // 2},{y + mid} {x + GAP // 2},{line} {x + GAP},{line}"/>'
-            )
-            out.append(_draw(arm, x + GAP, top))
-            out.append(
-                f'<path class="rr-line" d="M{x + GAP + aw},{line} '
-                f"C{x + w - GAP // 2},{line} {x + w - GAP // 2},{y + mid} "
-                f'{x + w},{y + mid}"/>'
-            )
-            top += ah + VGAP
+            out.extend(_arm(arm, x, top, (w, y + mid)))
+            top += _m(arm)[1] + VGAP
         return IrStr("".join(out))
+
+
+def _arm(arm: IrSelf, x: int, top: int, span: tuple[int, int]) -> list[str]:
+    """One arm: a rail out to it, the arm, a rail back to the exit."""
+    width, spine = span
+    aw, _ah, amid = _m(arm)
+    line = top + amid
+    return [
+        f'<path class="rr-line" d="M{x},{spine} '
+        f'C{x + GAP // 2},{spine} {x + GAP // 2},{line} {x + GAP},{line}"/>',
+        _draw(arm, x + GAP, top),
+        f'<path class="rr-line" d="M{x + GAP + aw},{line} '
+        f"C{x + width - GAP // 2},{line} {x + width - GAP // 2},{spine} "
+        f'{x + width},{spine}"/>',
+    ]
 
 
 class _EItem(IrLeaf[IrSelf, IrSelf]):
@@ -257,35 +266,57 @@ class _EItem(IrLeaf[IrSelf, IrSelf]):
 
     def eval(self, _d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
         item = IrItem.ensure(n, "graphic: draw an item")
-        x, y = _at(nc)
-        w, _h, mid = _m(item)
-        aw, ah, amid = _m(item.atom)
-        lo, hi = int(item.quantifier.lo), item.quantifier.hi
-        many = not isinstance(hi, int) or int(hi) > 1
-        skip = lo == 0
-        pad = LOOP if (many or skip) else 0
-        out: list[str] = []
-        if pad:
-            out.append(_track(x, y + mid, x + pad, y + mid))
-            out.append(_track(x + pad + aw, y + mid, x + w, y + mid))
-        out.append(_draw(item.atom, x + pad, y + mid - amid))
-        if many:
-            top = y + 3
-            out.append(
-                f'<path class="rr-loop" d="M{x + pad + aw},{y + mid} '
-                f"C{x + w},{y + mid} {x + w},{top} {x + w - LOOP // 2},{top} "
-                f"L{x + LOOP // 2},{top} "
-                f'C{x},{top} {x},{y + mid} {x + pad},{y + mid}"/>'
-            )
-        if skip:
-            under = y + mid + (ah - amid) + LOOP - 3
-            out.append(
-                f'<path class="rr-skip" d="M{x},{y + mid} '
-                f"C{x + LOOP // 2},{y + mid} {x + LOOP // 2},{under} "
-                f"{x + LOOP},{under} L{x + w - LOOP},{under} "
-                f'C{x + w},{under} {x + w},{y + mid} {x + w},{y + mid}"/>'
-            )
-        return IrStr("".join(out))
+        many, skip = _repeats(item)
+        return IrStr("".join(_item_parts(item, _at(nc), (many, skip))))
+
+
+def _repeats(item: IrItem) -> tuple[bool, bool]:
+    """Whether an item may repeat, and whether it may be absent."""
+    hi = item.quantifier.hi
+    return not isinstance(hi, int) or int(hi) > 1, int(item.quantifier.lo) == 0
+
+
+def _item_parts(
+    item: IrItem, at: tuple[int, int], rails: tuple[bool, bool]
+) -> list[str]:
+    """The atom, and whichever of the two rails this item wears."""
+    x, y = at
+    many, skip = rails
+    width, _height, mid = _m(item)
+    aw, ah, amid = _m(item.atom)
+    pad = LOOP if (many or skip) else 0
+    out: list[str] = []
+    if pad:
+        out.append(_track(x, y + mid, x + pad, y + mid))
+        out.append(_track(x + pad + aw, y + mid, x + width, y + mid))
+    out.append(_draw(item.atom, x + pad, y + mid - amid))
+    if many:
+        out.append(_loop((x, y + 3), y + mid, (width, pad, aw)))
+    if skip:
+        out.append(_skip(x, y + mid, width, y + mid + (ah - amid) + LOOP - 3))
+    return out
+
+
+def _loop(at: tuple[int, int], spine: int, box: tuple[int, int, int]) -> str:
+    """The rail over an atom that may repeat — out the right, back the left."""
+    x, top = at
+    width, pad, inner = box
+    return (
+        f'<path class="rr-loop" d="M{x + pad + inner},{spine} '
+        f"C{x + width},{spine} {x + width},{top} {x + width - LOOP // 2},{top} "
+        f"L{x + LOOP // 2},{top} "
+        f'C{x},{top} {x},{spine} {x + pad},{spine}"/>'
+    )
+
+
+def _skip(x: int, spine: int, width: int, under: int) -> str:
+    """The rail under an atom that may be absent."""
+    return (
+        f'<path class="rr-skip" d="M{x},{spine} '
+        f"C{x + LOOP // 2},{spine} {x + LOOP // 2},{under} "
+        f"{x + LOOP},{under} L{x + width - LOOP},{under} "
+        f'C{x + width},{under} {x + width},{spine} {x + width},{spine}"/>'
+    )
 
 
 EMIT: IrTypeMap = IrTypeMap(

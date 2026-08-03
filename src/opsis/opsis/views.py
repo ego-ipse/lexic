@@ -13,6 +13,7 @@ visible refusal, never an empty window.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import NamedTuple, Sequence
 
 from lexic.compile import CompiledGrammar, export_source
@@ -31,13 +32,17 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 from opsis.eidolon import Topology
 from opsis.opsis.canvas import el, raw
+from opsis.opsis.canvas import text as _text
 from opsis.opsis.graphic import RAIL_CSS, rule_svg
+from opsis.opsis.space import Box, Frame, frame
 
 __all__ = [
     "BIG",
     "VIEWS",
     "bounded",
     "carve_view",
+    "facts",
+    "panel",
     "constrain_view",
     "graph",
     "instance_view",
@@ -68,6 +73,34 @@ def bounded(text: str, limit: int = BIG) -> tuple[str, str]:
         text[:limit],
         f"{len(text):,} characters · showing the first {limit:,} — "
         "the rest is on disk, not hidden",
+    )
+
+
+def panel(note: str, *rows: IrDoc) -> IrDoc:
+    """A body that opens by saying what it is, then shows it.
+
+    Every window here has the same shape — a sentence, then the thing —
+    so it is written once.
+    """
+    return el("div", None, el("div", {"class": "note"}, _text(note)), *rows)
+
+
+def facts(rows: Sequence[tuple[str, str, str]], *rest: IrDoc) -> IrDoc:
+    """Named measurements, one per line: what, how much, and why."""
+    return el(
+        "div",
+        None,
+        *(
+            el(
+                "div",
+                {"class": "row"},
+                el("span", {"class": "name"}, _text(name)),
+                el("b", None, _text(value)),
+                el("div", {"class": "note"}, _text(why)),
+            )
+            for name, value, why in rows
+        ),
+        *rest,
     )
 
 
@@ -279,16 +312,22 @@ def _twin(source: str, right: IrDoc) -> IrDoc:
     )
 
 
-def _row(
-    path: str,
-    depth: int,
-    label: str,
-    text: str,
-    kids: bool,
-    rule: str,
-    span: tuple[int, int] | None = None,
-) -> IrDoc:
+class Twig(NamedTuple):
+    """One row of a drawn tree — where it sits and what it stands for."""
+
+    path: str
+    depth: int
+    label: str
+    text: str = ""
+    kids: bool = False
+    rule: str = ""
+    span: tuple[int, int] | None = None
+
+
+def _row(twig: Twig) -> IrDoc:
     """One row of a tree: its twig, its name, what it stands for."""
+    path, depth, label = twig.path, twig.depth, twig.label
+    text, kids, rule, span = twig.text, twig.kids, twig.rule, twig.span
     shut = kids and depth >= 1
     classes = "twig" + (" kids" if kids else "") + (" shut" if shut else "")
     attrs: dict[str, str | None] = {
@@ -340,13 +379,15 @@ def _model_rows(root: GrammarModel) -> tuple[list[IrDoc], int, int]:
         text = model.to_text()
         rows.append(
             _row(
-                path,
-                depth,
-                type(model).__name__,
-                text,
-                bool(kids),
-                str(model.__grammar__.name),
-                (start, start + len(text)),
+                Twig(
+                    path,
+                    depth,
+                    type(model).__name__,
+                    text,
+                    bool(kids),
+                    str(model.__grammar__.name),
+                    (start, start + len(text)),
+                )
             )
         )
         cursor = start
@@ -368,7 +409,7 @@ def _ir_rows(root: IrSelf) -> tuple[list[IrDoc], int, int]:
         deepest = max(deepest, depth)
         kids = list(node.children())
         shown = str(node) if isinstance(node, str) else repr(node)
-        rows.append(_row(path, depth, type(node).__name__, shown, bool(kids), ""))
+        rows.append(_row(Twig(path, depth, type(node).__name__, shown, bool(kids))))
         for i, kid in enumerate(reversed(kids)):
             stack.append((kid, depth + 1, f"{path}.{len(kids) - 1 - i}"))
     return rows, len(rows), deepest
@@ -391,7 +432,7 @@ def _plain_rows(root: object) -> tuple[list[IrDoc], int, int]:
         else:
             kids, shown = [], repr(value)
         label = f"{key} · {type(value).__name__}" if key else type(value).__name__
-        rows.append(_row(path, depth, label, shown, bool(kids), ""))
+        rows.append(_row(Twig(path, depth, label, shown, bool(kids))))
         for i, (kid, kid_key) in enumerate(reversed(kids)):
             stack.append((kid, depth + 1, f"{path}.{len(kids) - 1 - i}", kid_key))
     return rows, len(rows), deepest
@@ -580,7 +621,7 @@ def pipeline_view(stages: Sequence[tuple[str, IrAst | None, str]]) -> IrDoc:
                     f"st-{name}",
                 )
             )
-            details.append(_stage(name, why, [], [], 0, before_name))
+            details.append(_stage(Diff(name, why, [], [], 0, before_name)))
         else:
             added, changed = _diff(before, ast)
             mark = f"{name} · {len(list(ast.rules))} rules"
@@ -594,25 +635,21 @@ def pipeline_view(stages: Sequence[tuple[str, IrAst | None, str]]) -> IrDoc:
             nodes.append(Node(f"st-{name}", mark, column, 0, hue, "", f"st-{name}"))
             details.append(
                 _stage(
-                    name,
-                    why,
-                    added,
-                    changed,
-                    len(list(ast.rules)) - len(added) - len(changed),
-                    before_name,
+                    Diff(
+                        name,
+                        why,
+                        added,
+                        changed,
+                        len(list(ast.rules)) - len(added) - len(changed),
+                        before_name,
+                    )
                 )
             )
             before, before_name = ast, name
         if column:
             edges.append((column - 1, column))
-    return el(
-        "div",
-        None,
-        el(
-            "div",
-            {"class": "note"},
-            "each stage is what the one before it became · +added ~rewritten",
-        ),
+    return panel(
+        "each stage is what the one before it became · +added ~rewritten",
         graph(nodes, edges),
         *details,
     )
@@ -640,18 +677,22 @@ def _diff(
     return added, changed
 
 
-def _stage(
-    name: str,
-    why: str,
-    added: list[tuple[str, str]],
-    changed: list[tuple[str, str, str]],
-    untouched: int,
-    before: str,
-) -> IrDoc:
-    """One stage's own window — what it did, rule by rule."""
-    from opsis.opsis.space import frame
+class Diff(NamedTuple):
+    """What one compile stage did — added, rewrote, and left alone."""
 
-    rows: list[IrDoc] = [el("div", {"class": "note"}, why)]
+    name: str
+    why: str
+    added: list[tuple[str, str]]
+    changed: list[tuple[str, str, str]]
+    untouched: int
+    before: str
+
+
+def _stage(step: Diff) -> IrDoc:
+    """One stage's own window — what it did, rule by rule."""
+    name, before = step.name, step.before
+    added, changed, untouched = step.added, step.changed, step.untouched
+    rows: list[IrDoc] = [el("div", {"class": "note"}, step.why)]
     if not before:
         rows.append(
             el("div", {"class": "note"}, "the first stage — nothing precedes it")
@@ -680,15 +721,14 @@ def _stage(
     if untouched and before:
         rows.append(el("div", {"class": "note"}, f"{untouched} rules untouched"))
     return frame(
-        f"st-{name}",
-        f"{name} — what it changed",
-        24,
-        76,
-        560,
-        270,
+        Frame(
+            f"st-{name}",
+            f"{name} — what it changed",
+            Box(24, 76, 560, 270),
+            shown=False,
+            sub=True,
+        ),
         *rows,
-        shown=False,
-        sub=True,
     )
 
 
@@ -701,8 +741,6 @@ def module_view(compiled: CompiledGrammar, surface: str) -> IrDoc:
     loud — nothing is recompiled for it, only the label the exporter
     spells with.
     """
-    from dataclasses import replace
-
     artefact = compiled
     note = f"what export_module writes for {compiled.flavour}"
     if compiled.flavour != surface:
@@ -712,15 +750,9 @@ def module_view(compiled: CompiledGrammar, surface: str) -> IrDoc:
             f"surface of its own — its module is written out in {surface}"
         )
     source = export_source(artefact)
-    return el(
-        "div",
-        None,
-        el(
-            "div",
-            {"class": "note"},
-            f"{len(source.splitlines())} lines · {note} · "
-            "derived from the grammar, never the other way round",
-        ),
+    return panel(
+        f"{len(source.splitlines())} lines · {note} · "
+        "derived from the grammar, never the other way round",
         el("pre", {"class": "src"}, source),
     )
 

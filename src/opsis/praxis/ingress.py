@@ -25,8 +25,9 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
+from lexic import grammars
 from lexic.api.json_tokenizer import tokenizer_of
 from lexic.compile import compile_ast, load_ir, parse_module
 from lexic.compile.module.selfgrammar import MODULE_GRAMMAR
@@ -143,9 +144,7 @@ def manifests() -> list[tuple[str, str]]:
 
     :returns: ``(file name, manifest text)`` per shipped flavour.
     """
-    import lexic.grammars
-
-    home = Path(str(lexic.grammars.__file__)).parent
+    home = Path(str(grammars.__file__)).parent
     return [
         (path.name, path.read_text(encoding="utf-8"))
         for path in sorted(home.glob("*.flavour.ir"))
@@ -297,58 +296,118 @@ def _stem(rel: str) -> str:
 def open_file(root: Path, rel: str) -> Opened:
     """A file, and what turned out to read it.
 
-    Cheap tests first, so a large file is never parsed six ways before
-    the answer that was obvious from its first line.
+    Each attempt in turn, cheapest first, so a large file is never
+    parsed six ways before the answer that was obvious from its first
+    line. What nothing claims is a refusal naming everything that was
+    tried — a list nobody has to keep in sync, because it IS the list
+    of attempts.
     """
     path = resolve(root, rel)
     text = _slurp(path, rel)
-    name = path.name
-    if path.suffix == ".py":
-        if _VALUE_MARK in text[:400]:
-            return Opened(name, "value", text, _python_reader(root), "a compiled value")
-        if _reads(lambda: parse_module(text)):
-            return Opened(name, "grammar", text, _module_surface(), "an exported twin")
-    if path.suffix == ".json" and _VOCAB_MARK in text[:4000]:
-        return Opened(
-            name,
-            "vocabulary",
-            text,
-            vocabulary_reader(),
-            f"a vocabulary document · {_scaled(len(text))} to read",
-        )
-    try:
-        flavour = flavour_for_extension(rel)
-    except UnsupportedConstructError:
-        flavour = None
-    if flavour is not None:
-        return Opened(
-            name,
-            "grammar",
-            text,
-            _flavour_reader(flavour),
-            f"{_article(str(type(flavour).name))} grammar",
-        )
-    if text.lstrip().startswith("Saved("):
-        return Opened(name, "session", text, None, "a saved session")
-    if _reads(lambda: load_flavour(text)):
-        loaded = load_flavour(text)
-        return Opened(
-            name,
-            "manifest",
-            text,
-            manifest_reader(),
-            f"a manifest declaring {type(loaded).name}",
-        )
-    if _reads(lambda: _notation_ast(text)):
-        return Opened(name, "grammar", text, _notation_surface(), "IR notation")
+    for attempt in _ATTEMPTS:
+        opened = attempt(root, path, text)
+        if opened is not None:
+            return opened
+    return Opened(path.name, "refused", text, None, _nothing_reads(rel))
+
+
+def _nothing_reads(rel: str) -> str:
+    """The refusal, naming every reading that was tried."""
+    tried = ", ".join(_TRIED[:-1]) + f", or {_TRIED[-1]}"
+    return f"nothing reads {rel!r} — it is not {tried}"
+
+
+def _as_value(root: Path, path: Path, text: str) -> Opened | None:
+    """A compiled value — read by importing it."""
+    if path.suffix != ".py" or _VALUE_MARK not in text[:400]:
+        return None
+    return Opened(path.name, "value", text, _python_reader(root), "a compiled value")
+
+
+def _as_twin(_root: Path, path: Path, text: str) -> Opened | None:
+    """An exported twin — lexic's module grammar reads it."""
+    if path.suffix != ".py" or not _reads(lambda: parse_module(text)):
+        return None
+    return Opened(path.name, "grammar", text, _module_surface(), "an exported twin")
+
+
+def _as_vocabulary(_root: Path, path: Path, text: str) -> Opened | None:
+    """A vocabulary document — a json formulation reads it."""
+    if path.suffix != ".json" or _VOCAB_MARK not in text[:4000]:
+        return None
     return Opened(
-        name,
-        "refused",
+        path.name,
+        "vocabulary",
         text,
-        None,
-        f"nothing reads {rel!r} — it is not a grammar surface, a manifest, "
-        "an exported twin, a compiled value, a vocabulary, or IR notation",
+        vocabulary_reader(),
+        f"a vocabulary document · {_scaled(len(text))} to read",
     )
+
+
+def _as_grammar(_root: Path, path: Path, text: str) -> Opened | None:
+    """A grammar — whichever flavour claims its extension."""
+    try:
+        flavour = flavour_for_extension(path.name)
+    except UnsupportedConstructError:
+        return None
+    return Opened(
+        path.name,
+        "grammar",
+        text,
+        _flavour_reader(flavour),
+        f"{_article(str(type(flavour).name))} grammar",
+    )
+
+
+def _as_session(_root: Path, path: Path, text: str) -> Opened | None:
+    """A saved session — it replaces the session rather than joining it."""
+    if not text.lstrip().startswith("Saved("):
+        return None
+    return Opened(path.name, "session", text, None, "a saved session")
+
+
+def _as_manifest(_root: Path, path: Path, text: str) -> Opened | None:
+    """A manifest — the notation reads it into the reader it declares."""
+    if not _reads(lambda: load_flavour(text)):
+        return None
+    loaded = load_flavour(text)
+    return Opened(
+        path.name,
+        "manifest",
+        text,
+        manifest_reader(),
+        f"a manifest declaring {type(loaded).name}",
+    )
+
+
+def _as_notation(_root: Path, path: Path, text: str) -> Opened | None:
+    """IR notation — a grammar written as the constructors it is."""
+    if not _reads(lambda: _notation_ast(text)):
+        return None
+    return Opened(path.name, "grammar", text, _notation_surface(), "IR notation")
+
+
+_ATTEMPTS: tuple[Callable[[Path, Path, str], Opened | None], ...] = (
+    _as_value,
+    _as_twin,
+    _as_vocabulary,
+    _as_grammar,
+    _as_session,
+    _as_manifest,
+    _as_notation,
+)
+"""Every way a file can be read, in the order they are cheap to try."""
+
+_TRIED = (
+    "a compiled value",
+    "an exported twin",
+    "a vocabulary",
+    "a grammar surface",
+    "a saved session",
+    "a manifest",
+    "IR notation",
+)
+"""What :data:`_ATTEMPTS` tried, said the way a person would."""
 
 
 def _slurp(path: Path, rel: str) -> str:

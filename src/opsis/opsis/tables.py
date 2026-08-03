@@ -18,7 +18,7 @@ from typing import NamedTuple
 from lexic.ir import IrAst, IrDoc, IrFlavour, IrMapping
 from opsis.opsis.canvas import el
 from opsis.opsis.canvas import text as _text
-from opsis.opsis.views import VIEWS, bounded, refusal
+from opsis.opsis.views import VIEWS, bounded, facts, panel, refusal
 
 __all__ = [
     "Table",
@@ -120,17 +120,9 @@ def table_view(carrier: object, title: str) -> IrDoc:
     tables = tables_of(carrier)
     if not tables:
         return refusal(f"{title} carries no dispatch tables")
-    return el(
-        "div",
-        None,
-        el(
-            "div",
-            {"class": "note"},
-            _text(
-                f"{title} · {len(tables)} tables · "
-                f"{sum(t.total for t in tables):,} rows in all"
-            ),
-        ),
+    return panel(
+        f"{title} · {len(tables)} tables · "
+        f"{sum(t.total for t in tables):,} rows in all",
         *(_one(table) for table in tables),
     )
 
@@ -176,17 +168,9 @@ def registry_view() -> IrDoc:
     lexic": the gap is visible rather than silent, and the table that
     would refuse is right here.
     """
-    return el(
-        "div",
-        None,
-        el(
-            "div",
-            {"class": "note"},
-            _text(
-                "what a product's window is built from — open, MRO-ordered, "
-                "raising default. A type not in here draws its refusal."
-            ),
-        ),
+    return panel(
+        "what a product's window is built from — open, MRO-ordered, "
+        "raising default. A type not in here draws its refusal.",
         _one(_table("VIEWS", VIEWS)),
     )
 
@@ -198,24 +182,14 @@ def flavour_view(flavour: IrFlavour) -> IrDoc:
     seeing its tables IS seeing it. The metadata above them is the rest.
     """
     kind = type(flavour)
-    facts = [
+    shown = [
         ("name", str(kind.name)),
         ("extensions", ", ".join(str(e) for e in kind.extensions) or "none"),
         ("line comment", str(flavour.line_comment) or "none"),
         ("block comment", str(flavour.block_comment) or "none"),
         ("rules", f"{len(list(flavour.grammar.rules))} in its self-grammar"),
     ]
-    return el(
-        "div",
-        None,
-        *(
-            el(
-                "div",
-                {"class": "row"},
-                el("span", {"class": "name"}, _text(name)),
-                el("b", None, _text(value)),
-            )
-            for name, value in facts
-        ),
+    return facts(
+        [(name, value, "") for name, value in shown],
         table_view(flavour, str(kind.name)),
     )

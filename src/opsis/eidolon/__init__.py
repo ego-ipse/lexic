@@ -87,6 +87,14 @@ class Topology:
         self.start: str = str(ast.start) or (self.names[0] if self.names else "")
         self.levels: dict[str, int] = self._depths()
 
+    def reaches(self, name: str) -> bool:
+        """Whether the start rule can get to this one at all."""
+        return self.levels.get(name, -1) >= 0
+
+    def deepest(self) -> int:
+        """How far from the start the furthest reachable rule sits."""
+        return max(self.levels.values(), default=0)
+
     def _depths(self) -> dict[str, int]:
         """Breadth-first distance from the start rule; unreachable is -1."""
         levels = dict.fromkeys(self.names, -1)

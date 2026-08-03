@@ -11,14 +11,14 @@ rules — not because a flag was off. That is the whole rule for the fan.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from lexic.compile import CompiledGrammar
-from lexic.exceptions import LexicError
-from lexic.ir import IrAst, IrCat, IrDoc, IrNone, IrSeq
+from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.ir import IrAst, IrCat, IrDoc, IrFlavour, IrNone, IrSeq, IrTokenizer
 from lexic.parsing import lift_optional_nullables
 from opsis.eidolon import layout
-from opsis.opsis.canvas import el, html
+from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.canvas import text as _text
 from opsis.opsis.engine import (
     derivation_view,
@@ -28,7 +28,7 @@ from opsis.opsis.engine import (
 )
 from opsis.opsis.graphic import RAIL_CSS, rule_svg
 from opsis.opsis.scene import Moon, Rail, Ring, Space
-from opsis.opsis.space import frame
+from opsis.opsis.space import Box, Frame, frame, render_scene
 from opsis.opsis.tables import flavour_view, registry_view, table_view
 from opsis.opsis.views import (
     bounded,
@@ -40,6 +40,7 @@ from opsis.opsis.views import (
     railroad_view,
     refusal,
     rules_view,
+    tokenizer_view,
     view_of,
 )
 from opsis.praxis.acts import Deed, deeds
@@ -49,7 +50,15 @@ from opsis.praxis.reading import Reading
 from opsis.praxis.reflect import drawn_by
 from opsis.praxis.session import Session, alphabets
 
-__all__ = ["bar", "hint", "legend", "picker", "scene_of", "windows_of", "world_of"]
+__all__ = [
+    "spawn_bar",
+    "hint",
+    "legend",
+    "picker",
+    "scene_of",
+    "windows_of",
+    "world_of",
+]
 
 CURSORS = Cursors()
 """Every reading's constraint cursor — thrown away when it re-reads."""
@@ -76,14 +85,24 @@ def _hue(reading: Reading) -> str:
     return "green"
 
 
-def _sub(session: Session, reading: Reading) -> str:
+def _sub(reading: Reading) -> str:
     """The dim line under a name — what this reading IS right now."""
+    return _unread(reading) or _produced(reading)
+
+
+def _unread(reading: Reading) -> str:
+    """Why there is nothing to say about a product yet, if there isn't."""
     if reading.error:
         return "refused — its text window carries the message"
     if not reading.text:
         return "empty — type its text and it reads"
     if not reading.reader:
         return f"{len(reading.text):,} chars · nothing reads it yet"
+    return ""
+
+
+def _produced(reading: Reading) -> str:
+    """What this reading turned out to be, once something read it."""
     compiled = reading.compiled
     if compiled is not None:
         rules = len(list(compiled.grammar.rules))
@@ -118,7 +137,7 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
     reader = session.reader_for(reading)
     if reader is not None and reader.grammar is not None:
         out.append(("reader", "its reader"))
-    out += [(f"do:{deed.name}", deed.label) for deed in deeds(session, reading)]
+    out += [(f"do:{deed.name}", deed.label) for deed in deeds(reading)]
     if reader is not None and reader.of and _under(session, reading) is not None:
         out += [
             ("floor", "the floor"),
@@ -131,12 +150,12 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
         out += [("flavour", "what it IS"), ("dispatch", "its tables")]
     if not reading.reader:
         out.append(("registry", "the registry"))
-    if _wants(session, reading):
+    if _wants(reading):
         out.append(("plug", "plug ⊕"))
     return out
 
 
-def _wants(session: Session, reading: Reading) -> list[str]:
+def _wants(reading: Reading) -> list[str]:
     """The encoding names this reading asks to be read under, unmet or not.
 
     A grammar that names an encoding needs a vocabulary bound under that
@@ -157,16 +176,24 @@ def _under(session: Session, reading: Reading) -> CompiledGrammar | None:
     return above.compiled if above is not None and reading.text else None
 
 
+def placement(session: Session) -> dict[str, tuple[int, int]]:
+    """Where every reading sits — derived, and held by nobody.
+
+    Positions belong to the picture, not to the readings: a reading
+    knows what it is and what reads it, and would be the same reading
+    laid out any other way.
+    """
+    idents = list(session.readings)
+    return layout({i: session.readings[i].reader for i in idents}, idents)
+
+
 def scene_of(session: Session) -> Space:
     """Every reading as a ring, every naming as a rail."""
-    idents = list(session.readings)
-    parents = {i: session.readings[i].reader for i in idents}
-    place = layout(parents, idents)
+    place = placement(session)
     parts: list[Ring | Rail] = []
-    for ident in idents:
+    for ident in session.readings:
         reading = session.readings[ident]
         x, y = place.get(ident, (400, 300))
-        reading.x, reading.y = x, y
         payload = reading.product if isinstance(reading.product, IrAst) else IrNone
         compiled = reading.compiled
         if compiled is not None:
@@ -179,7 +206,7 @@ def scene_of(session: Session) -> Space:
                 x,
                 y,
                 reading.title,
-                _sub(session, reading),
+                _sub(reading),
                 IrSeq(
                     *(
                         Moon(f"m-{ident}-{kind}", label, kind)
@@ -286,7 +313,7 @@ def _editor(session: Session, reading: Reading) -> list[IrDoc]:
     return body
 
 
-def _chip(label: str, ident: str, value: str, hint: str, off: bool) -> IrDoc:
+def _chip(label: str, ident: str, value: str, empty: str, off: bool) -> IrDoc:
     """One directive chip — a small editable datum that reads on change."""
     return el(
         "span",
@@ -297,7 +324,7 @@ def _chip(label: str, ident: str, value: str, hint: str, off: bool) -> IrDoc:
             {
                 "id": ident,
                 "value": value,
-                "placeholder": hint,
+                "placeholder": empty,
                 "spellcheck": "false",
                 "data-post": "chip",
             },
@@ -305,109 +332,261 @@ def _chip(label: str, ident: str, value: str, hint: str, off: bool) -> IrDoc:
     )
 
 
-def _window(
-    session: Session, reading: Reading, kind: str
-) -> tuple[str, tuple[int, int], Callable[[], list[IrDoc]]]:
-    """What a reading's window is called, how big, and how to build it."""
-    title = reading.title
-    under = _under(session, reading)
-    if kind in ("floor", "forest", "derivations") and under is not None:
-        return _engine(reading, under, kind)
-    if kind == "flavour" and reading.flavour is not None:
-        shown = reading.flavour
-        return (f"{title} — what it IS", (660, 460), lambda: [flavour_view(shown)])
-    if kind == "dispatch" and reading.flavour is not None:
-        carrier = reading.flavour
-        return (
-            f"{title} — its tables",
-            (660, 460),
-            lambda: [table_view(carrier, str(type(carrier).name))],
-        )
-    if kind == "carve" and reading.compiled is not None:
-        carved = reading.compiled
-        return (
-            f"{title} — template",
-            (620, 420),
-            lambda: [_carve(session, reading, carved)],
-        )
-    if kind == "plug":
-        return (f"{title} — plug ⊕", (520, 320), lambda: [_plug(session, reading)])
-    if kind == "registry":
-        return (f"{title} — the registry", (620, 380), lambda: [registry_view()])
-    if kind == "do:constrain":
-        return (
-            f"{title} — constrain",
-            (560, 300),
-            lambda: [_constrain(session, reading)],
-        )
-    if kind.startswith("do:"):
-        deed = next(d for d in deeds(session, reading) if d.name == kind[3:])
-        return (f"{title} — {deed.label}", (480, 200), lambda: [_deed(reading, deed)])
-    if kind == "text":
-        return f"{title} — its text", (480, 340), lambda: _editor(session, reading)
-    if kind == "instance":
-        return (
-            f"{title} — instance ▲",
-            (760, 430),
-            lambda: [instance_view(session.instance_of(reading), reading.text)],
-        )
-    if kind == "product":
-        return (
-            f"{title} — product ▲",
-            (760, 430),
-            lambda: [instance_view(reading.product, reading.text)],
-        )
-    if kind == "reader":
-        reader = session.reader_for(reading)
-        grammar = reader.grammar if reader is not None else None
-        name = reader.name if reader is not None else "?"
-        return (
-            f"{title} — read by {name}",
-            (660, 430),
-            lambda: (
-                [rules_view(grammar)]
-                if grammar is not None
-                else [refusal("its reader has no grammar of its own")]
-            ),
-        )
+class Pane(NamedTuple):
+    """One window: what it is called, how big, and how to build it."""
+
+    title: str
+    size: tuple[int, int]
+    build: Callable[[], list[IrDoc]]
+
+
+def _text_pane(session: Session, reading: Reading) -> Pane:
+    """A reading's own text, editable."""
+    return Pane(
+        f"{reading.title} — its text", (480, 340), lambda: _editor(session, reading)
+    )
+
+
+def _instance_pane(session: Session, reading: Reading) -> Pane:
+    """The other reading of this text."""
+    return Pane(
+        f"{reading.title} — instance ▲",
+        (760, 430),
+        lambda: [instance_view(session.instance_of(reading), reading.text)],
+    )
+
+
+def _product_pane(_session: Session, reading: Reading) -> Pane:
+    """Whatever came back, drawn by its own view."""
+    return Pane(
+        f"{reading.title} — product ▲",
+        (760, 430),
+        lambda: [instance_view(reading.product, reading.text)],
+    )
+
+
+def _vocabulary_pane(_session: Session, reading: Reading) -> Pane:
+    """The vocabulary this reading produced."""
+    vocab = IrTokenizer.ensure(reading.tokenizer, "a vocabulary")
+    return Pane(
+        f"{reading.title} — vocabulary ▲", (620, 380), lambda: [tokenizer_view(vocab)]
+    )
+
+
+def _bound_pane(_session: Session, reading: Reading) -> Pane:
+    """The vocabulary this grammar is bound to."""
+    compiled = _grammar(reading)
+    vocab = IrTokenizer.ensure(compiled.tokens.tokenizer, "a bound vocabulary")
+    return Pane(
+        f"{reading.title} — bound to {vocab.name}",
+        (620, 380),
+        lambda: [tokenizer_view(vocab)],
+    )
+
+
+def _reader_pane(session: Session, reading: Reading) -> Pane:
+    """The grammar of whatever reads this one."""
+    reader = session.reader_for(reading)
+    grammar = reader.grammar if reader is not None else None
+    name = reader.name if reader is not None else "?"
+    body = (
+        (lambda: [rules_view(grammar)])
+        if grammar is not None
+        else (lambda: [refusal("its reader has no grammar of its own")])
+    )
+    return Pane(f"{reading.title} — read by {name}", (660, 430), body)
+
+
+def _rules_pane(_session: Session, reading: Reading) -> Pane:
+    """This grammar's rules, by distance from the start."""
+    grammar = _grammar(reading).grammar
+    return Pane(f"{reading.title} — rules", (680, 440), lambda: [rules_view(grammar)])
+
+
+def _railroad_pane(_session: Session, reading: Reading) -> Pane:
+    """Every rule's track, stacked."""
+    grammar = _grammar(reading).grammar
+    return Pane(
+        f"{reading.title} — railroad", (700, 460), lambda: [railroad_view(grammar)]
+    )
+
+
+def _module_pane(_session: Session, reading: Reading) -> Pane:
+    """The importable twin this grammar would export."""
+    compiled = _grammar(reading)
+    return Pane(
+        f"{reading.title} — module",
+        (700, 440),
+        lambda: [module_view(compiled, _surface(compiled))],
+    )
+
+
+def _pipeline_pane(session: Session, reading: Reading) -> Pane:
+    """The compile, stage by stage."""
+    return Pane(
+        f"{reading.title} — pipeline", (720, 440), lambda: [_pipeline(session, reading)]
+    )
+
+
+def _tables_pane(_session: Session, reading: Reading) -> Pane:
+    """The predictive artefact this grammar compiled to."""
+    compiled = _grammar(reading)
+    return Pane(
+        f"{reading.title} — its tables", (640, 380), lambda: [tables_view(compiled)]
+    )
+
+
+def _flavour_pane(_session: Session, reading: Reading) -> Pane:
+    """A flavour as what it is — metadata and tables."""
+    shown = IrFlavour.ensure(reading.flavour, "a flavour")
+    return Pane(
+        f"{reading.title} — what it IS", (660, 460), lambda: [flavour_view(shown)]
+    )
+
+
+def _dispatch_pane(_session: Session, reading: Reading) -> Pane:
+    """Everything a flavour dispatches on."""
+    carrier = IrFlavour.ensure(reading.flavour, "a flavour")
+    return Pane(
+        f"{reading.title} — its tables",
+        (660, 460),
+        lambda: [table_view(carrier, str(type(carrier).name))],
+    )
+
+
+def _carve_pane(session: Session, reading: Reading) -> Pane:
+    """This grammar's template bench."""
+    _grammar(reading)
+    return Pane(
+        f"{reading.title} — template", (620, 420), lambda: [_carve(session, reading)]
+    )
+
+
+def _plug_pane(session: Session, reading: Reading) -> Pane:
+    """What this reading needs bound, and what could be it."""
+    return Pane(
+        f"{reading.title} — plug ⊕", (520, 320), lambda: [_plug(session, reading)]
+    )
+
+
+def _registry_pane(_session: Session, reading: Reading) -> Pane:
+    """The views registry — the coverage doctrine, looking at itself."""
+    return Pane(
+        f"{reading.title} — the registry", (620, 380), lambda: [registry_view()]
+    )
+
+
+def _constrain_pane(session: Session, reading: Reading) -> Pane:
+    """The live constraint cursor for this grammar."""
+    return Pane(
+        f"{reading.title} — constrain",
+        (560, 300),
+        lambda: [_constrain(session, reading)],
+    )
+
+
+def _floor_pane(session: Session, reading: Reading) -> Pane:
+    """Both engines on this text, and whether they agree."""
+    under = _read_by(session, reading)
+    text = reading.text
+    return Pane(
+        f"{reading.title} — floor",
+        (640, 380),
+        lambda: [floor_view(under, text), _resolver(reading)],
+    )
+
+
+def _forest_pane(session: Session, reading: Reading) -> Pane:
+    """The forest this text derives."""
+    under = _read_by(session, reading)
+    text = reading.text
+    return Pane(
+        f"{reading.title} — forest", (700, 460), lambda: [forest_view(under, text)]
+    )
+
+
+def _derivations_pane(session: Session, reading: Reading) -> Pane:
+    """Every way this text derives."""
+    under = _read_by(session, reading)
+    text = reading.text
+    return Pane(
+        f"{reading.title} — derivations",
+        (640, 380),
+        lambda: [derivation_view(under, text), _resolver(reading)],
+    )
+
+
+def _deed_pane(_session: Session, reading: Reading, name: str) -> Pane:
+    """One of a reading's deeds, and the button that does it."""
+    deed = next(d for d in deeds(reading) if d.name == name)
+    return Pane(
+        f"{reading.title} — {deed.label}", (480, 200), lambda: [_deed(reading, deed)]
+    )
+
+
+def _grammar(reading: Reading) -> CompiledGrammar:
+    """The artefact this reading produced, or the refusal saying it did not."""
     compiled = reading.compiled
     if compiled is None:
-        return (
-            f"{title} — {kind}",
-            (520, 240),
-            lambda: [refusal(f"{kind}: nothing compiled here")],
-        )
-    if kind == "rules":
-        return f"{title} — rules", (680, 440), lambda: [rules_view(compiled.grammar)]
-    if kind == "railroad":
-        return (
-            f"{title} — railroad",
-            (700, 460),
-            lambda: [railroad_view(compiled.grammar)],
-        )
-    if kind == "tables":
-        return (f"{title} — its tables", (640, 380), lambda: [tables_view(compiled)])
-    if kind == "module":
-        return (
-            f"{title} — module",
-            (700, 440),
-            lambda: [module_view(compiled, _surface(compiled))],
-        )
-    return f"{title} — pipeline", (720, 440), lambda: [_pipeline(session, reading)]
+        raise UnsupportedConstructError(f"{reading.title} compiled nothing")
+    return compiled
 
 
-def _engine(
-    reading: Reading, under: CompiledGrammar, kind: str
-) -> tuple[str, tuple[int, int], Callable[[], list[IrDoc]]]:
-    """A floor window — always over the grammar that actually read this."""
-    text = reading.text
-    build = {
-        "floor": lambda: [floor_view(under, text), _resolver(reading)],
-        "forest": lambda: [forest_view(under, text)],
-        "derivations": lambda: [derivation_view(under, text), _resolver(reading)],
-    }[kind]
-    size = (700, 460) if kind == "forest" else (640, 380)
-    return f"{reading.title} — {kind}", size, build
+def _read_by(session: Session, reading: Reading) -> CompiledGrammar:
+    """The compiled grammar that read this text, or the refusal."""
+    under = _under(session, reading)
+    if under is None:
+        raise UnsupportedConstructError(
+            f"{reading.title} was not read by a compiled grammar"
+        )
+    return under
+
+
+PANES: dict[str, Callable[[Session, Reading], Pane]] = {
+    "text": _text_pane,
+    "instance": _instance_pane,
+    "product": _product_pane,
+    "vocabulary": _vocabulary_pane,
+    "bound": _bound_pane,
+    "reader": _reader_pane,
+    "rules": _rules_pane,
+    "railroad": _railroad_pane,
+    "module": _module_pane,
+    "pipeline": _pipeline_pane,
+    "tables": _tables_pane,
+    "flavour": _flavour_pane,
+    "dispatch": _dispatch_pane,
+    "carve": _carve_pane,
+    "plug": _plug_pane,
+    "registry": _registry_pane,
+    "floor": _floor_pane,
+    "forest": _forest_pane,
+    "derivations": _derivations_pane,
+}
+"""Fan kind → the window it opens.
+
+Open and table-driven, like every other consumer here: a kind with no
+row raises, the drawing boundary catches that and DRAWS it, so a gap is
+a visible refusal rather than a silent blank. A cascade of eighteen
+returns is what this replaced.
+"""
+
+
+def _window(session: Session, reading: Reading, kind: str) -> Pane:
+    """The window a fan entry opens.
+
+    :raises UnsupportedConstructError: When nothing knows that kind —
+        which the caller draws rather than swallows.
+    """
+    if kind.startswith("do:"):
+        name = kind.removeprefix("do:")
+        if name == "constrain":
+            return _constrain_pane(session, reading)
+        return _deed_pane(session, reading, name)
+    build = PANES.get(kind)
+    if build is None:
+        raise UnsupportedConstructError(f"no window for {kind!r}")
+    return build(session, reading)
 
 
 def _resolver(reading: Reading) -> IrDoc:
@@ -436,7 +615,7 @@ def _resolver(reading: Reading) -> IrDoc:
     )
 
 
-def _carve(session: Session, reading: Reading, compiled: CompiledGrammar) -> IrDoc:
+def _carve(session: Session, reading: Reading) -> IrDoc:
     """This grammar's template bench, over whichever text it last read.
 
     The document is a reading below this one — templating extracts from
@@ -458,7 +637,7 @@ def _plug(session: Session, reading: Reading) -> IrDoc:
     screen apart. It lists only vocabularies that exist in the session,
     and says so plainly when there are none.
     """
-    wants = _wants(session, reading)
+    wants = _wants(reading)
     have = [r for r in session.readings.values() if r.tokenizer is not None]
     bound = session.readings.get(reading.params.bound)
     rows: list[IrDoc] = [
@@ -602,14 +781,13 @@ def payloads_of(space: Space) -> list[IrDoc]:
             continue
         out.append(
             frame(
-                f"ir-{part.name}",
-                f"{part.label or part.name} — ◈ what it is about",
-                part.x + 210,
-                part.y + 90,
-                640,
-                400,
+                Frame(
+                    f"ir-{part.name}",
+                    f"{part.label or part.name} — ◈ what it is about",
+                    Box(part.x + 210, part.y + 90, 640, 400),
+                    shown=False,
+                ),
                 view_of(part.payload),
-                shown=False,
             )
         )
     return out
@@ -618,35 +796,58 @@ def payloads_of(space: Space) -> list[IrDoc]:
 def windows_of(session: Session) -> str:
     """Every window every reading offers, plus each grammar's railroads."""
     parts: list[IrDoc] = []
+    place = placement(session)
     for ident, reading in session.readings.items():
-        x, y = reading.x, reading.y
-        for slot, (kind, _label) in enumerate(fan(session, reading)):
-            moon = f"m-{ident}-{kind}"
-            title, size, build = _window(session, reading, kind)
-            try:
-                body = build()
-            except (LexicError, RecursionError) as exc:
-                # One window that cannot be built must never take the
-                # page down with it.
-                body = [refusal(f"{type(exc).__name__}: {exc}")]
-            parts.append(
-                frame(
+        at = place.get(ident, (400, 300))
+        parts.extend(_fan_windows(session, reading, at))
+        compiled = reading.compiled
+        if compiled is not None:
+            parts.extend(_railroads(compiled.grammar, at[0] + 320, at[1] + 40))
+    return html(IrCat(*parts))
+
+
+def _fan_windows(
+    session: Session, reading: Reading, at: tuple[int, int]
+) -> list[IrDoc]:
+    """One reading's windows, fanned out from where its ring sits."""
+    out: list[IrDoc] = []
+    for slot, (kind, _label) in enumerate(fan(session, reading)):
+        moon = f"m-{reading.ident}-{kind}"
+        pane = _pane(session, reading, kind)
+        out.append(
+            frame(
+                Frame(
                     f"w-{moon}",
-                    title,
-                    x + 250 + slot * 26,
-                    max(60, y - 60 + slot * 44),
-                    size[0],
-                    size[1],
-                    *body,
+                    pane.title,
+                    Box(
+                        at[0] + 250 + slot * 26,
+                        max(60, at[1] - 60 + slot * 44),
+                        pane.size[0],
+                        pane.size[1],
+                    ),
                     shown=False,
                     editor=kind == "text",
                     owner=moon,
-                )
+                ),
+                *pane.build(),
             )
-        compiled = reading.compiled
-        if compiled is not None:
-            parts.extend(_railroads(compiled.grammar, x + 320, y + 40))
-    return html(IrCat(*parts))
+        )
+    return out
+
+
+def _pane(session: Session, reading: Reading, kind: str) -> Pane:
+    """A window, or one that draws whatever went wrong building it.
+
+    A window that cannot be built must never take the page down with
+    it, and must never be blank either: the refusal IS the content.
+    """
+    try:
+        pane = _window(session, reading, kind)
+        body = pane.build()
+    except (LexicError, RecursionError) as exc:
+        drawn = [refusal(f"{type(exc).__name__}: {exc}")]
+        return Pane(f"{reading.title} — {kind}", (520, 240), lambda: drawn)
+    return Pane(pane.title, pane.size, lambda: body)
 
 
 def _railroads(ast: IrAst, x: int, y: int) -> list[IrDoc]:
@@ -656,24 +857,21 @@ def _railroads(ast: IrAst, x: int, y: int) -> list[IrDoc]:
     it: opening ``value`` from a rules graph and from a reference box
     inside another railroad reaches the SAME window.
     """
-    from opsis.opsis.canvas import raw
-
     return [
         frame(
-            f"rr-{rule.name}",
-            f"{rule.name} · railroad",
-            x + (i % 6) * 34,
-            y + (i % 6) * 28,
-            540,
-            200,
+            Frame(
+                f"rr-{rule.name}",
+                f"{rule.name} · railroad",
+                Box(x + (i % 6) * 34, y + (i % 6) * 28, 540, 200),
+                shown=False,
+                rule=str(rule.name),
+            ),
             el(
                 "div",
                 {"class": "rr"},
                 raw(f"<style>{RAIL_CSS}</style>"),
                 raw(rule_svg(rule)),
             ),
-            shown=False,
-            rule=str(rule.name),
         )
         for i, rule in enumerate(ast.rules)
     ]
@@ -682,7 +880,7 @@ def _railroads(ast: IrAst, x: int, y: int) -> list[IrDoc]:
 # ── the furniture ─────────────────────────────────────────────────────
 
 
-def bar() -> IrDoc:
+def spawn_bar() -> IrDoc:
     """Where new readings come from, fixed to the viewport.
 
     There is no list of flavours here and no vocabulary button: a
@@ -733,16 +931,15 @@ def bar() -> IrDoc:
 def picker() -> IrDoc:
     """The picker — the whole workspace, browsable, held by the viewport."""
     return frame(
-        "picker",
-        "open — anything in the workspace",
-        0,
-        0,
-        580,
-        420,
+        Frame(
+            "picker",
+            "open — anything in the workspace",
+            Box(0, 0, 580, 420),
+            shown=False,
+            hud=True,
+        ),
         el("div", {"class": "note", "id": "where"}, "the workspace"),
         el("div", {"id": "rows"}),
-        shown=False,
-        hud=True,
     )
 
 
@@ -788,8 +985,6 @@ def world_of(session: Session) -> str:
     windows still come from the readings so the two halves of a node
     never disagree about which reading they belong to.
     """
-    from opsis.opsis.space import render_scene
-
     written = drawn_by(session)
     space = written if written is not None else scene_of(session)
     payloads = html(IrCat(*payloads_of(space)))

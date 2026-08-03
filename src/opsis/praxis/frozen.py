@@ -17,7 +17,7 @@ from lexic.compile.notation.emit import emit_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrNamedTuple, IrSeq, IrStr
 from opsis.praxis.ingress import SHIPPED, manifests
-from opsis.praxis.reading import Reading
+from opsis.praxis.reading import Params, Reading
 from opsis.praxis.session import Session
 
 __all__ = ["SESSION_SYMBOLS", "Held", "Saved", "freeze", "thaw"]
@@ -116,15 +116,14 @@ def _restore(session: Session, held: Held) -> None:
     than what the file used to say.
     """
     reading = Reading(
-        str(held.ident),
-        str(held.title),
-        str(held.kind),
-        str(held.reader),
-        _text(session, held),
-        str(held.origin),
+        str(held.ident), str(held.title), str(held.kind), str(held.reader)
     )
-    reading.params.bound = str(held.vocabulary)
-    reading.params.directives = _directives(held)
+    reading.text = _text(session, held)
+    reading.params = Params(
+        directives=_directives(held),
+        origin=str(held.origin),
+        bound=str(held.vocabulary),
+    )
     session.readings[reading.ident] = reading
     session.claim(reading.ident)
 

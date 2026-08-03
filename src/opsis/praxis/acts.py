@@ -24,7 +24,7 @@ from lexic.generate import generate
 from lexic.ir import IrSelf
 from lexic.model import GrammarModel
 from opsis.praxis.ingress import open_file
-from opsis.praxis.reading import Reading
+from opsis.praxis.reading import Reading, Source
 from opsis.praxis.session import Session
 
 __all__ = ["Deed", "deeds", "perform"]
@@ -44,7 +44,7 @@ class Deed(NamedTuple):
     why: str
 
 
-def deeds(session: Session, reading: Reading) -> list[Deed]:
+def deeds(reading: Reading) -> list[Deed]:
     """What this reading can do — from what it HAS, never from its kind."""
     out: list[Deed] = []
     compiled = reading.compiled
@@ -90,10 +90,10 @@ def perform(session: Session, reading: Reading, name: str) -> str:
         reading offers — which is a real refusal, since the fan draws
         only the deeds it has.
     """
-    if name not in {deed.name for deed in deeds(session, reading)}:
+    if name not in {deed.name for deed in deeds(reading)}:
         raise UnsupportedConstructError(
             f"{reading.title} cannot {name!r} — it offers "
-            f"{[d.name for d in deeds(session, reading)] or 'nothing'}"
+            f"{[d.name for d in deeds(reading)] or 'nothing'}"
         )
     return _DO[name](session, reading)
 
@@ -107,7 +107,7 @@ def _generate(session: Session, reading: Reading) -> str:
     rng = random.Random(len(reading.text))
     made = [generate(start, rules, rng=rng) for _ in range(_SAMPLES)]
     for i, text in enumerate(sorted(set(made), key=len)):
-        session.add(f"generated {i + 1}", "text", reading.ident, text)
+        session.add(f"generated {i + 1}", "text", reading.ident, Source(text))
     return f"generated {len(set(made))} distinct strings from {start!r}"
 
 
@@ -158,7 +158,7 @@ def _home(session: Session, reading: Reading) -> str | None:
     return f"{SHELF}.{stem}"
 
 
-def _constrain(session: Session, reading: Reading) -> str:
+def _constrain(_session: Session, reading: Reading) -> str:
     """State the binding a constraint cursor would run over.
 
     The cursor itself is driven from its window, one token at a time,
@@ -179,7 +179,10 @@ def _reopen(session: Session, path: Path, note: str) -> str:
     if opened.reader is None:
         return f"{note} · but nothing reads it back — {opened.note}"
     session.add(
-        opened.title, opened.kind, session.surface(opened.reader), opened.text, rel
+        opened.title,
+        opened.kind,
+        session.surface(opened.reader),
+        Source(opened.text, rel),
     )
     return f"{note} · {opened.note}, read back"
 

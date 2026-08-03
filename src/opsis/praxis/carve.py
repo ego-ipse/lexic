@@ -129,7 +129,7 @@ def carve(compiled: CompiledGrammar, shape: Shape, spec: str, text: str) -> Carv
             "a shape needs all four names: section, entry, key, value"
         )
     keep = read_spec(spec)
-    if not len(keep):
+    if not keep:
         raise UnsupportedConstructError("nothing to keep — name a path")
     built = template(compiled, MapShape(*shape), keep)
     out = built.run(text)

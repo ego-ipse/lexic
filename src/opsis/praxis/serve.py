@@ -13,20 +13,21 @@ from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Callable, NamedTuple
 from urllib.parse import SplitResult, parse_qs, urlsplit
 
 from lexic.compile import Directives
 from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir import IrCat
+from lexic.ir import IrCat, IrTokenizer
 from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.scene import Space
 from opsis.opsis.session import (
     CURSORS,
-    bar,
     hint,
     legend,
     picker,
     scene_of,
+    spawn_bar,
     world_of,
 )
 from opsis.opsis.space import page
@@ -42,7 +43,7 @@ from opsis.praxis.ingress import (
     surfaces,
     vocabulary_reader,
 )
-from opsis.praxis.reading import Reading
+from opsis.praxis.reading import FOREIGN, Reading, Source
 from opsis.praxis.reflect import REFLECTED, scene_reader, scene_text
 from opsis.praxis.session import Session
 
@@ -60,10 +61,11 @@ class Handler(BaseHTTPRequestHandler):
             raise UnsupportedConstructError("serve: not an opsis server")
         return server.session
 
-    def do_GET(self) -> None:
+    def get(self) -> None:
+        """Answer a read gesture, or the refusal it turned out to be."""
         try:
             self._get(urlsplit(self.path))
-        except Exception as exc:  # a route reaches foreign code
+        except FOREIGN as exc:
             self._refuse(exc)
 
     def _get(self, url: SplitResult) -> None:
@@ -80,17 +82,23 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def do_POST(self) -> None:
+    def post(self) -> None:
+        """Answer a write gesture, or the refusal it turned out to be."""
         url = urlsplit(self.path)
         body = self._body()
         if body is None:
             return
         try:
             self._route(url.path.strip("/").split("/"), url.query, body)
-        except Exception as exc:  # a route reaches foreign code
+        except FOREIGN as exc:
             self._refuse(exc)
 
-    def _refuse(self, exc: Exception) -> None:
+    # http.server dispatches on ``do_`` plus the verb; these are the
+    # names it looks up, and the two above are the ones anyone reads.
+    do_GET = get
+    do_POST = post
+
+    def _refuse(self, exc: BaseException) -> None:
         """Answer with the refusal, whatever kind of thing raised it.
 
         A refusal lexic states is a 422 — it is an answer about the
@@ -103,128 +111,19 @@ class Handler(BaseHTTPRequestHandler):
         self._send(f"{type(exc).__name__}: {exc}", answer, "text/plain")
 
     def _route(self, parts: list[str], query: str, body: str) -> None:
-        """One gesture, dispatched by what it is."""
+        """One gesture, dispatched by the name it came in under.
+
+        A table, so a route that does not exist is a 404 and a route
+        that does is one line — not a sixteen-branch ladder where the
+        last gesture is the cheapest to get wrong.
+        """
         session = self._session()
-        if parts == ["open"]:
-            self._open(session, body.strip())
-        elif parts == ["new"]:
-            if body not in ("grammar", "text"):
-                raise UnsupportedConstructError(
-                    f"new: {body!r} is not something to make — 'grammar' or 'text'"
-                )
-            session.add(f"new {body}", body)
-            self._send("spawned", kind="text/plain")
-        elif len(parts) == 2 and parts[0] == "text":
-            session.edit(parts[1], body, _params(session, parts[1], query))
-            self._send("read", kind="text/plain")
-        elif len(parts) == 3 and parts[0] == "drop":
-            self._drop(session, parts[1], parts[2])
-        elif len(parts) == 2 and parts[0] == "unplug":
-            session.name_reader(parts[1], "")
-            self._send("unplugged", kind="text/plain")
-        elif len(parts) == 3 and parts[0] == "do":
-            reading = session.readings.get(parts[1])
-            if reading is None:
-                raise UnsupportedConstructError("that reading is no longer here")
-            self._send(perform(session, reading, parts[2]), kind="text/plain")
-        elif len(parts) == 2 and parts[0] in ("push", "back", "reset"):
-            self._send(_step(session, parts[0], parts[1], body), kind="text/plain")
-        elif len(parts) == 2 and parts[0] == "carve":
-            self._send(_carve(session, parts[1], query), kind="text/plain")
-        elif parts == ["reflect"]:
-            self._send(_reflect(session), kind="text/plain")
-        elif parts == ["freeze"]:
-            self._send(freeze(session), kind="text/plain")
-        elif parts == ["thaw"]:
-            count = thaw(session, body)
-            self._send(f"thawed · {count} readings", kind="text/plain")
-        elif len(parts) == 2 and parts[0] == "remove":
-            gone = session.drop(parts[1])
-            if gone is None:
-                raise UnsupportedConstructError(f"no reading called {parts[1]!r}")
-            self._send(f"removed {gone.title}", kind="text/plain")
-        else:
+        verb, rest = parts[0], parts[1:]
+        take = _ROUTES.get((verb, len(rest)))
+        if take is None:
             self.send_error(404)
-
-    def _open(self, session: Session, rel: str) -> None:
-        """A file becomes a reading, read by whatever turned out to read it."""
-        opened = open_file(session.root, rel)
-        if opened.kind == "session":
-            count = thaw(session, opened.text)
-            self._send(f"{opened.note} · {count} readings", kind="text/plain")
             return
-        if opened.reader is None:
-            self._send(opened.note, 422, "text/plain")
-            return
-        name = session.surface(opened.reader)
-        session.add(opened.title, opened.kind, name, opened.text, rel)
-        self._send(f"{opened.note} · {opened.title}", kind="text/plain")
-
-    def _drop(self, session: Session, source: str, target: str) -> None:
-        """Dropping one node on another says what reads what.
-
-        The meaning is what the two nodes ARE, and the gesture is read
-        the way a hand reads it: what you drop something ONTO takes it.
-        Drop a grammar on a reader and that reader reads it; drop a
-        reader on a loose text and it reads that text; drop a vocabulary
-        on a grammar and it binds. Anything else refuses by saying which
-        of the two was supposed to read.
-        """
-        landed = session.readings.get(target)
-        if not source and landed is not None:
-            session.bind(target, "")
-            self._send(f"{landed.title} · unbound", kind="text/plain")
-            return
-        held = session.readings.get(source)
-        if held is None or landed is None:
-            raise UnsupportedConstructError("one of those is no longer here")
-        if landed.kind == "vocabulary" and held.compiled is not None:
-            self._reformulate(session, held, landed)
-            return
-        if landed.as_reader() is not None and held.tokenizer is None:
-            session.name_reader(source, target)
-            self._send(f"{landed.title} now reads {held.title}", kind="text/plain")
-            return
-        if held.tokenizer is not None:
-            compiled = landed.compiled
-            if compiled is None:
-                raise UnsupportedConstructError(
-                    "a vocabulary binds to a compiled grammar; this one has none"
-                )
-            session.bind(landed.ident, held.ident)
-            self._send(f"bound · {held.tokenizer.name}", kind="text/plain")
-            return
-        if held.as_reader() is not None:
-            session.name_reader(target, source)
-            self._send(f"{held.title} now reads {landed.title}", kind="text/plain")
-            return
-        raise UnsupportedConstructError(
-            f"{held.title} reads nothing and {landed.title} reads nothing — "
-            "one of them has to be a reader"
-        )
-
-    def _reformulate(self, session: Session, held: Reading, landed: Reading) -> None:
-        """Read a vocabulary with a DIFFERENT json formulation.
-
-        This is the one place the "no privileged formulation" rule is
-        visible as a gesture rather than as a claim: the shipped json
-        grammar is what a vocabulary opens with, and dropping another
-        json grammar on it swaps which grammar does the reading. If the
-        two disagree about what the rules are called, the reduction
-        refuses and the node says so — which is the honest answer, not a
-        silent fall back to the shipped one.
-        """
-        compiled = held.compiled
-        assert compiled is not None
-        name = session.surface(
-            vocabulary_reader(
-                compiled.grammar, name=f"vocabulary via {held.title}", of=held.ident
-            )
-        )
-        landed.reader = name
-        session.read(landed.ident)
-        outcome = landed.error or f"read by {held.title}"
-        self._send(f"{landed.title} · {outcome}", kind="text/plain")
+        self._send(take(session, rest, Ask(query, body)), kind="text/plain")
 
     def _page(self, session: Session) -> str:
         """The page, served once; everything after this is a fragment."""
@@ -235,7 +134,9 @@ class Handler(BaseHTTPRequestHandler):
             else "open a file from the bar below, or make a new text"
         )
         hud = html(
-            IrCat(bar(), picker(), legend(), hint(), el("script", None, raw(CLIENT)))
+            IrCat(
+                spawn_bar(), picker(), legend(), hint(), el("script", None, raw(CLIENT))
+            )
         )
         return page(Space(), subtitle, world_of(session), hud)
 
@@ -258,8 +159,157 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def log_message(self, format: str, *args: object) -> None:
-        """Quiet — the terminal belongs to whoever started this."""
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        """Say nothing about a request that worked.
+
+        Only the successful ones: a refusal still reaches the terminal,
+        because somebody running this wants to see the one gesture that
+        went wrong without reading a line for every one that did not.
+        """
+
+
+class Ask(NamedTuple):
+    """What a gesture carried besides its name — its query and its body."""
+
+    query: str = ""
+    body: str = ""
+
+
+def _open(session: Session, _rest: list[str], ask: Ask) -> str:
+    """A file becomes a reading, read by whatever turned out to read it."""
+    opened = open_file(session.root, ask.body.strip())
+    if opened.kind == "session":
+        return f"{opened.note} · {thaw(session, opened.text)} readings"
+    if opened.reader is None:
+        raise UnsupportedConstructError(opened.note)
+    name = session.surface(opened.reader)
+    session.add(opened.title, opened.kind, name, Source(opened.text, ask.body.strip()))
+    return f"{opened.note} · {opened.title}"
+
+
+def _new(session: Session, _rest: list[str], ask: Ask) -> str:
+    """An empty reading to type into."""
+    if ask.body not in ("grammar", "text"):
+        raise UnsupportedConstructError(
+            f"new: {ask.body!r} is not something to make — 'grammar' or 'text'"
+        )
+    session.add(f"new {ask.body}", ask.body)
+    return "spawned"
+
+
+def _edit(session: Session, rest: list[str], ask: Ask) -> str:
+    """A reading's text, and everything under it, read again."""
+    session.edit(rest[0], ask.body, _params(session, rest[0], ask.query))
+    return "read"
+
+
+def _drop(session: Session, rest: list[str], _ask: Ask) -> str:
+    """Dropping one node on another says what reads what.
+
+    The meaning is what the two nodes ARE, and the gesture is read the
+    way a hand reads it: what you drop something ONTO takes it. Drop a
+    grammar on a reader and that reader reads it; drop a reader on a
+    loose text and it reads that text; drop a vocabulary on a grammar
+    and it binds. Anything else refuses by saying which of the two was
+    supposed to read.
+    """
+    source, target = rest
+    landed = session.readings.get(target)
+    if not source and landed is not None:
+        session.bind(target, "")
+        return f"{landed.title} · unbound"
+    held = session.readings.get(source)
+    if held is None or landed is None:
+        raise UnsupportedConstructError("one of those is no longer here")
+    if landed.kind == "vocabulary" and held.compiled is not None:
+        return _reformulate(session, held, landed)
+    if landed.as_reader() is not None and held.tokenizer is None:
+        session.name_reader(source, target)
+        return f"{landed.title} now reads {held.title}"
+    if held.tokenizer is not None:
+        return _bind(session, held, landed)
+    if held.as_reader() is not None:
+        session.name_reader(target, source)
+        return f"{held.title} now reads {landed.title}"
+    raise UnsupportedConstructError(
+        f"{held.title} reads nothing and {landed.title} reads nothing — "
+        "one of them has to be a reader"
+    )
+
+
+def _bind(session: Session, held: Reading, landed: Reading) -> str:
+    """A vocabulary onto a grammar — the binding, by ident."""
+    if landed.compiled is None:
+        raise UnsupportedConstructError(
+            "a vocabulary binds to a compiled grammar; this one has none"
+        )
+    session.bind(landed.ident, held.ident)
+    vocab = IrTokenizer.ensure(held.tokenizer, "a vocabulary")
+    return f"bound · {vocab.name}"
+
+
+def _reformulate(session: Session, held: Reading, landed: Reading) -> str:
+    """Read a vocabulary with a DIFFERENT json formulation.
+
+    This is the one place the "no privileged formulation" rule is
+    visible as a gesture rather than as a claim: the shipped json
+    grammar is what a vocabulary opens with, and dropping another json
+    grammar on it swaps which grammar does the reading. If the two
+    disagree about what the rules are called, the reduction refuses and
+    the node says so — not a silent fall back to the shipped one.
+    """
+    compiled = held.compiled
+    if compiled is None:
+        raise UnsupportedConstructError(f"{held.title} compiled nothing to read with")
+    landed.reader = session.surface(
+        vocabulary_reader(
+            compiled.grammar, name=f"vocabulary via {held.title}", of=held.ident
+        )
+    )
+    session.read(landed.ident)
+    return f"{landed.title} · {landed.error or f'read by {held.title}'}"
+
+
+def _unplug(session: Session, rest: list[str], _ask: Ask) -> str:
+    """Nothing reads it any more, but it is kept."""
+    session.name_reader(rest[0], "")
+    return "unplugged"
+
+
+def _remove(session: Session, rest: list[str], _ask: Ask) -> str:
+    """Out of the session — never off the disk."""
+    gone = session.drop(rest[0])
+    if gone is None:
+        raise UnsupportedConstructError(f"no reading called {rest[0]!r}")
+    return f"removed {gone.title}"
+
+
+def _do(session: Session, rest: list[str], _ask: Ask) -> str:
+    """One of a reading's deeds."""
+    reading = session.readings.get(rest[0])
+    if reading is None:
+        raise UnsupportedConstructError("that reading is no longer here")
+    return perform(session, reading, rest[1])
+
+
+def _cursor(session: Session, rest: list[str], ask: Ask) -> str:
+    """One move of a constraint cursor."""
+    return _step(session, rest[0], rest[1], ask.body)
+
+
+def _template(session: Session, rest: list[str], ask: Ask) -> str:
+    """One run of a reading's template bench."""
+    return _carve(session, rest[0], ask.query)
+
+
+def _freeze(session: Session, _rest: list[str], _ask: Ask) -> str:
+    """The session as the notation that reads it back."""
+    return freeze(session)
+
+
+def _thaw(session: Session, _rest: list[str], ask: Ask) -> str:
+    """That notation, back into a session."""
+    return f"thawed · {thaw(session, ask.body)} readings"
 
 
 def _carve(session: Session, ident: str, query: str) -> str:
@@ -284,7 +334,7 @@ def _carve(session: Session, ident: str, query: str) -> str:
     return held.result.note
 
 
-def _reflect(session: Session) -> str:
+def _reflect(session: Session, _rest: list[str], _ask: Ask) -> str:
     """Write the picture down as a reading, so it can be edited.
 
     The scene is snapshotted at the moment it is written: from then on
@@ -293,7 +343,7 @@ def _reflect(session: Session) -> str:
     """
     space = scene_of(session)
     name = session.surface(scene_reader())
-    session.add("the scene", REFLECTED, name, scene_text(space))
+    session.add("the scene", REFLECTED, name, Source(scene_text(space)))
     return f"the scene, written down · {len(space)} records — edit it and it draws"
 
 
@@ -317,14 +367,14 @@ def _params(session: Session, ident: str, query: str):
     if params is None:
         return None
     qs = parse_qs(query)
-    params.resolver = (qs.get("resolver") or [""])[0]
-    start = (qs.get("start") or [""])[0] or None
     names = (qs.get("non_semantic") or [""])[0]
-    params.directives = Directives(
-        start=start,
-        non_semantic=frozenset(names.split(",")) if names else None,
+    return params._replace(
+        resolver=(qs.get("resolver") or [""])[0],
+        directives=Directives(
+            start=(qs.get("start") or [""])[0] or None,
+            non_semantic=frozenset(names.split(",")) if names else None,
+        ),
     )
-    return params
 
 
 CLIENT = r"""
@@ -604,4 +654,27 @@ def seed(session: Session) -> None:
     """
     notation = session.surface(manifest_reader())
     for name, text in manifests():
-        session.add(name, "manifest", notation, text, SHIPPED + name)
+        session.add(name, "manifest", notation, Source(text, SHIPPED + name))
+
+
+_ROUTES: dict[tuple[str, int], Callable[[Session, list[str], Ask], str]] = {
+    ("open", 0): _open,
+    ("new", 0): _new,
+    ("text", 1): _edit,
+    ("drop", 2): _drop,
+    ("unplug", 1): _unplug,
+    ("remove", 1): _remove,
+    ("do", 2): _do,
+    ("push", 1): lambda s, r, a: _cursor(s, ["push", r[0]], a),
+    ("back", 1): lambda s, r, a: _cursor(s, ["back", r[0]], a),
+    ("reset", 1): lambda s, r, a: _cursor(s, ["reset", r[0]], a),
+    ("carve", 1): _template,
+    ("reflect", 0): _reflect,
+    ("freeze", 0): _freeze,
+    ("thaw", 0): _thaw,
+}
+"""(verb, how many names follow) → the gesture it is.
+
+Keyed by arity too, so ``/drop/a`` is a 404 rather than a crash inside
+a route that expected two names.
+"""
