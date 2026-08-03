@@ -20,7 +20,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrCat
 from opsis.opsis.canvas import el, html, raw
 from opsis.opsis.scene import Space
-from opsis.opsis.session import bar, hint, legend, picker, world_of
+from opsis.opsis.session import CURSORS, bar, hint, legend, picker, world_of
 from opsis.opsis.space import page
 from opsis.praxis.acts import perform
 from opsis.praxis.frozen import freeze, thaw
@@ -100,6 +100,8 @@ class Handler(BaseHTTPRequestHandler):
             if reading is None:
                 raise UnsupportedConstructError("that reading is no longer here")
             self._send(perform(session, reading, parts[2]), kind="text/plain")
+        elif len(parts) == 2 and parts[0] in ("push", "back", "reset"):
+            self._send(_step(session, parts[0], parts[1], body), kind="text/plain")
         elif parts == ["freeze"]:
             self._send(freeze(session), kind="text/plain")
         elif parts == ["thaw"]:
@@ -223,6 +225,19 @@ class Handler(BaseHTTPRequestHandler):
         """Quiet — the terminal belongs to whoever started this."""
 
 
+def _step(session: Session, what: str, ident: str, body: str) -> str:
+    """One move of a constraint cursor — push, undo, or start over."""
+    if what == "reset":
+        CURSORS.reset(session, ident)
+        return "back to the empty prefix"
+    at = CURSORS.of(session, ident)
+    if what == "back":
+        at.back()
+        return f"undone · {at.text!r}"
+    pushed = at.push_text(body)
+    return f"pushed {pushed} · {at.text!r}"
+
+
 def _params(session: Session, ident: str, query: str):
     """A reading's params, with the chips this edit carried."""
     reading = session.readings.get(ident)
@@ -230,6 +245,7 @@ def _params(session: Session, ident: str, query: str):
     if params is None:
         return None
     qs = parse_qs(query)
+    params.resolver = (qs.get("resolver") or [""])[0]
     start = (qs.get("start") or [""])[0] or None
     names = (qs.get("non_semantic") or [""])[0]
     params.directives = Directives(
@@ -315,6 +331,8 @@ document.addEventListener("input", e => {
     const start = win.querySelector('input[id^="c-start-"]');
     const ns = win.querySelector('input[id^="c-ns-"]');
     const q = new URLSearchParams();
+    const res = document.querySelector('input[id^="c-res-"]');
+    if (res && res.value.trim()) q.set("resolver", res.value.trim());
     if (start && start.value.trim()) q.set("start", start.value.trim());
     if (ns && ns.value.trim()) q.set("non_semantic", ns.value.trim());
     const qs = q.toString();
@@ -352,7 +370,8 @@ document.addEventListener("click", e => {
   if (go) {
     go.disabled = true;
     go.textContent = "…";
-    fetch(go.dataset.do, {method: "POST", body: ""})
+    const field = go.closest(".frame").querySelector("[data-push]");
+    fetch(go.dataset.do, {method: "POST", body: field ? field.value : ""})
       .then(r => r.text().then(t => { toast(t); return r.ok ? refresh() : null; }));
     return;
   }

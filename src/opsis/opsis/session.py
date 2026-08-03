@@ -20,11 +20,18 @@ from lexic.parsing import lift_optional_nullables
 from opsis.eidolon import layout
 from opsis.opsis.canvas import el, html
 from opsis.opsis.canvas import text as _text
+from opsis.opsis.engine import (
+    derivation_view,
+    floor_view,
+    forest_view,
+    tables_view,
+)
 from opsis.opsis.graphic import RAIL_CSS, rule_svg
 from opsis.opsis.scene import Moon, Rail, Ring, Space
 from opsis.opsis.space import frame
 from opsis.opsis.views import (
     bounded,
+    constrain_view,
     instance_view,
     module_view,
     pipeline_view,
@@ -33,10 +40,14 @@ from opsis.opsis.views import (
     rules_view,
 )
 from opsis.praxis.acts import Deed, deeds
+from opsis.praxis.constrain import Cursors, sample
 from opsis.praxis.reading import Reading
 from opsis.praxis.session import Session
 
 __all__ = ["bar", "hint", "legend", "picker", "scene_of", "windows_of", "world_of"]
+
+CURSORS = Cursors()
+"""Every reading's constraint cursor — thrown away when it re-reads."""
 
 _SPELLABLE = ("gbnf", "abnf", "ebnf")
 """Surfaces the exporter can spell a module's docstrings in."""
@@ -103,7 +114,26 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
     if reader is not None and reader.grammar is not None:
         out.append(("reader", "its reader"))
     out += [(f"do:{deed.name}", deed.label) for deed in deeds(session, reading)]
+    if reader is not None and reader.of and _under(session, reading) is not None:
+        out += [
+            ("floor", "the floor"),
+            ("forest", "forest"),
+            ("derivations", "derivations"),
+        ]
+    if reading.compiled is not None:
+        out.append(("tables", "its tables"))
     return out
+
+
+def _under(session: Session, reading: Reading) -> CompiledGrammar | None:
+    """The compiled grammar that read this text, if one did.
+
+    The floor is about a PARSE, so it exists only where a grammar
+    actually read something — a grammar with nothing under it has no
+    forest, and a text nobody reads has no engine.
+    """
+    above = session.readings.get(reading.reader)
+    return above.compiled if above is not None and reading.text else None
 
 
 def scene_of(session: Session) -> Space:
@@ -259,6 +289,15 @@ def _window(
 ) -> tuple[str, tuple[int, int], Callable[[], list[IrDoc]]]:
     """What a reading's window is called, how big, and how to build it."""
     title = reading.title
+    under = _under(session, reading)
+    if kind in ("floor", "forest", "derivations") and under is not None:
+        return _engine(reading, under, kind)
+    if kind == "do:constrain":
+        return (
+            f"{title} — constrain",
+            (560, 300),
+            lambda: [_constrain(session, reading)],
+        )
     if kind.startswith("do:"):
         deed = next(d for d in deeds(session, reading) if d.name == kind[3:])
         return (f"{title} — {deed.label}", (480, 200), lambda: [_deed(reading, deed)])
@@ -304,6 +343,8 @@ def _window(
             (700, 460),
             lambda: [railroad_view(compiled.grammar)],
         )
+    if kind == "tables":
+        return (f"{title} — its tables", (640, 380), lambda: [tables_view(compiled)])
     if kind == "module":
         return (
             f"{title} — module",
@@ -311,6 +352,59 @@ def _window(
             lambda: [module_view(compiled, _surface(compiled))],
         )
     return f"{title} — pipeline", (720, 440), lambda: [_pipeline(session, reading)]
+
+
+def _engine(
+    reading: Reading, under: CompiledGrammar, kind: str
+) -> tuple[str, tuple[int, int], Callable[[], list[IrDoc]]]:
+    """A floor window — always over the grammar that actually read this."""
+    text = reading.text
+    build = {
+        "floor": lambda: [floor_view(under, text), _resolver(reading)],
+        "forest": lambda: [forest_view(under, text)],
+        "derivations": lambda: [derivation_view(under, text), _resolver(reading)],
+    }[kind]
+    size = (700, 460) if kind == "forest" else (640, 380)
+    return f"{reading.title} — {kind}", size, build
+
+
+def _resolver(reading: Reading) -> IrDoc:
+    """The resolver plug — the caller's answer to an ambiguity.
+
+    Not a flag: an ambiguity is refused unless somebody says which
+    derivation they meant, and this is where they say it. Empty means
+    refuse, which is the default and the honest one.
+    """
+    return el(
+        "div",
+        {"class": "controls"},
+        _chip(
+            "resolver",
+            f"c-res-{reading.ident}",
+            reading.params.resolver,
+            "empty refuses",
+            False,
+        ),
+        el(
+            "span",
+            {"class": "note"},
+            "'first' takes the first derivation; empty refuses an ambiguous "
+            "span rather than choosing for you",
+        ),
+    )
+
+
+def _constrain(session: Session, reading: Reading) -> IrDoc:
+    """The live cursor for this reading, at whatever prefix it is at."""
+    at = CURSORS.of(session, reading.ident)
+    admitted = at.mask()
+    return constrain_view(
+        reading.ident,
+        at.text,
+        sample(admitted, at.vocabulary),
+        len(admitted),
+        at.accepts(),
+    )
 
 
 def _deed(reading: Reading, deed: Deed) -> IrDoc:

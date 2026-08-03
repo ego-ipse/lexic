@@ -37,6 +37,7 @@ __all__ = [
     "BIG",
     "VIEWS",
     "bounded",
+    "constrain_view",
     "graph",
     "instance_view",
     "module_view",
@@ -442,6 +443,53 @@ def tokenizer_view(tok: IrTokenizer) -> IrDoc:
                 f"the first {len(entries)} of {len(tok.encode):,}",
             ),
             el("pre", {"class": "src"}, sample),
+        ),
+    )
+
+
+def constrain_view(
+    ident: str, spelled: str, admitted: str, count: int, whole: bool
+) -> IrDoc:
+    """The cursor at its prefix — what is spelled, and what may come next.
+
+    Every claim on it is measured: whether the prefix is a whole string
+    is what the cursor answers, not what the shape of the text suggests.
+    """
+    return el(
+        "div",
+        None,
+        el(
+            "div",
+            {"class": "row"},
+            el("span", {"class": "name"}, "prefix"),
+            el("pre", {"class": "src"}, spelled or "· nothing pushed yet ·"),
+        ),
+        el(
+            "div",
+            {"class": "row"},
+            el("span", {"class": "name"}, f"admits {count:,}"),
+            el("div", {"class": "note"}, admitted),
+        ),
+        el(
+            "div",
+            {"class": "claim ok" if whole else "claim no"},
+            "a whole string ✓" if whole else "not a whole string yet",
+        ),
+        el(
+            "div",
+            {"class": "controls"},
+            el(
+                "input",
+                {
+                    "id": f"push-{ident}",
+                    "placeholder": "a token, spelled",
+                    "spellcheck": "false",
+                    "data-push": ident,
+                },
+            ),
+            el("button", {"class": "go", "data-do": f"/push/{ident}"}, "push"),
+            el("button", {"class": "go", "data-do": f"/back/{ident}"}, "back"),
+            el("button", {"class": "go", "data-do": f"/reset/{ident}"}, "reset"),
         ),
     )
 
