@@ -17,7 +17,7 @@ from dataclasses import replace
 from typing import NamedTuple, Sequence
 
 from lexic.compile import CompiledGrammar, export_source
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir import (
     IrAction,
@@ -50,7 +50,9 @@ __all__ = [
     "pipeline_view",
     "railroad_view",
     "refusal",
+    "regrammar_view",
     "rules_view",
+    "semantic_view",
     "view_of",
 ]
 
@@ -439,6 +441,59 @@ def _plain_rows(root: object) -> tuple[list[IrDoc], int, int]:
 
 
 # ── a vocabulary is a size and a pipeline ─────────────────────────────
+
+
+def semantic_view(model: GrammarModel, source: str) -> IrDoc:
+    """The model with its noise dimmed — the same tree, read for meaning.
+
+    Not a filtered tree: every node is still there and still points at
+    its span, because what counts as noise is the grammar's judgement
+    and hiding it would be opsis making that judgement instead.
+    """
+    rows, _deepest, _n = _model_rows(model)
+    kept, whole = len(model.semantic_dump()), len(model.dump())
+    return el(
+        "div",
+        None,
+        el(
+            "div",
+            {"class": "note"},
+            _text(
+                f"semantic · {kept} meaningful of {whole} top-level parts — "
+                "noise dimmed, never removed: what counts as noise is the "
+                "grammar's judgement, not this window's"
+            ),
+        ),
+        _twin(source, el("div", {"class": "semantic"}, *rows)),
+    )
+
+
+def regrammar_view(model: GrammarModel, flavour: str, reader: str) -> IrDoc:
+    """A model as the grammar text that would read it.
+
+    Grammar is the ground truth and a class is its representation, so
+    this direction is the one that has to hold: any model can say which
+    grammar it is of, losslessly, in a named surface.
+    """
+    try:
+        text = str(model.to_grammar(flavour))
+    except LexicError as exc:
+        return refusal(f"{type(exc).__name__}: {exc}")
+    shown, note = bounded(text)
+    return el(
+        "div",
+        None,
+        el(
+            "div",
+            {"class": "note"},
+            _text(
+                f"{len(text.splitlines())} line{'s' if len(text.splitlines()) != 1 else ''} "
+                f"in {flavour} · what {reader} would "
+                f"read back as this very model{' · ' + note if note else ''}"
+            ),
+        ),
+        el("pre", {"class": "src"}, shown),
+    )
 
 
 def tokenizer_view(tok: IrTokenizer) -> IrDoc:

@@ -424,6 +424,7 @@ function toggle(name) {
   f.style.display = open ? "flex" : "none";
   if (open) {
     f.style.zIndex = ++zTop;
+    if (window.opsisFill) window.opsisFill(f);
     // A window opened INSIDE another lands where that window is looking,
     // so its own chrome is never scrolled out of reach.
     const host = f.parentElement && f.parentElement.closest(".body");

@@ -27,13 +27,22 @@ from lexic.compile import (
     CompiledGrammar,
     Directives,
     Vocabulary,
+    compile_ast,
     compile_text,
     parse_grammar,
 )
 from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrFlavour, IrTokenizer
 
-__all__ = ["FOREIGN", "Outcome", "Params", "Reader", "Reading", "Source"]
+__all__ = [
+    "FOREIGN",
+    "Outcome",
+    "Params",
+    "Reader",
+    "Reading",
+    "Source",
+    "self_compiled",
+]
 
 
 class Source(NamedTuple):
@@ -270,6 +279,7 @@ def refusal_of(exc: BaseException) -> str:
 
 FOREIGN: tuple[type[BaseException], ...] = (
     ArithmeticError,
+    AssertionError,
     AttributeError,
     LexicError,
     LookupError,
@@ -287,3 +297,23 @@ fails in the ordinary ways any code does. Saying which ways is what
 makes the boundary a decision instead of a shrug: a ``KeyboardInterrupt``
 or a ``SystemExit`` is not a refusal and must still get through.
 """
+
+
+_SELVES: dict[int, CompiledGrammar] = {}
+"""Self-grammar artefacts, memoised per flavour identity."""
+
+
+def self_compiled(flavour: IrFlavour) -> CompiledGrammar:
+    """A flavour's own self-grammar, compiled.
+
+    The meta ladder's first rung, and not a metaphor: a flavour carries
+    the grammar of the language it reads, that grammar goes through the
+    same compile as any other, and what comes back has the same fan. A
+    flavour IS a grammar, so it gets a grammar's windows.
+    """
+    key = id(flavour)
+    if key not in _SELVES:
+        _SELVES[key] = compile_ast(
+            flavour.grammar, cache_key=f"self:{type(flavour).name}"
+        )
+    return _SELVES[key]

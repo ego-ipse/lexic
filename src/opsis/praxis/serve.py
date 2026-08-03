@@ -20,12 +20,14 @@ from lexic.compile import Directives
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrCat, IrTokenizer
 from opsis.opsis.canvas import el, html, raw
+from opsis.opsis.panes import CURSORS
 from opsis.opsis.scene import Space
 from opsis.opsis.session import (
-    CURSORS,
     hint,
     legend,
+    pane_body,
     picker,
+    rail_body,
     scene_of,
     spawn_bar,
     world_of,
@@ -75,6 +77,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(self._page(session))
         elif url.path == "/world":
             self._send(world_of(session))
+        elif url.path.startswith("/pane/"):
+            ident, _, kind = url.path.removeprefix("/pane/").partition("/")
+            self._send(pane_body(session, ident, kind))
+        elif url.path.startswith("/rail/"):
+            self._send(rail_body(session, url.path.removeprefix("/rail/")))
         elif url.path == "/files":
             at = (parse_qs(url.query).get("at") or [""])[0]
             rows = browse(session.root, at)
@@ -389,6 +396,29 @@ function toast(message) {
   document.body.appendChild(t);
 }
 let framed = true;
+// A window's body is built when it opens, not when the page is drawn:
+// a self-grammar's predictive tables cost fifty seconds, and nobody
+// should pay that for a window they never opened.
+function fill(frame) {
+  const slot = frame.querySelector("[data-pane], [data-rail]");
+  if (!slot || slot.dataset.filled) return;
+  slot.dataset.filled = "1";
+  slot.textContent = "…";
+  const where = slot.dataset.pane
+    ? "/pane/" + slot.dataset.pane
+    : "/rail/" + encodeURIComponent(slot.dataset.rail);
+  fetch(where)
+    .then(r => r.text().then(t => {
+      if (r.ok) { slot.innerHTML = t; return; }
+      slot.innerHTML = "";
+      const bad = document.createElement("div");
+      bad.className = "refusal";
+      bad.textContent = t;
+      slot.appendChild(bad);
+    }))
+    .catch(e => { slot.textContent = String(e); });
+}
+window.opsisFill = fill;
 function refresh() {
   // The caret is carried across the swap by hand, or reading-as-you-type
   // would fight the typing.

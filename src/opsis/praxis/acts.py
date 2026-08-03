@@ -17,11 +17,12 @@ import random
 from pathlib import Path
 from typing import NamedTuple
 
+from lexic.compile import CompiledGrammar
 from lexic.compile.module.export import export_module
 from lexic.compile.payload.export import export_value
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.ir import IrSelf
+from lexic.ir import IrSelf, IrTokenizer
 from lexic.model import GrammarModel
 from opsis.praxis.ingress import open_file
 from opsis.praxis.reading import Reading, Source
@@ -98,10 +99,22 @@ def perform(session: Session, reading: Reading, name: str) -> str:
     return _DO[name](session, reading)
 
 
+def _artefact(reading: Reading) -> CompiledGrammar:
+    """The grammar this reading IS, or the refusal saying it is not one.
+
+    Never an assert: a deed offered on a reading that turns out not to
+    have one is something the person doing it should be TOLD, and an
+    assertion error is not a sentence anybody can act on.
+    """
+    held = reading.compiled
+    if held is None:
+        raise UnsupportedConstructError(f"{reading.title} is not a compiled grammar")
+    return held
+
+
 def _generate(session: Session, reading: Reading) -> str:
     """Random strings in the grammar's language, each opened under it."""
-    compiled = reading.compiled
-    assert compiled is not None
+    compiled = _artefact(reading)
     rules = {str(rule.name): rule for rule in compiled.grammar.rules}
     start = str(compiled.grammar.start) or next(iter(rules), "")
     rng = random.Random(len(reading.text))
@@ -113,8 +126,7 @@ def _generate(session: Session, reading: Reading) -> str:
 
 def _twin(session: Session, reading: Reading) -> str:
     """The importable module, written and then read back as a reading."""
-    compiled = reading.compiled
-    assert compiled is not None
+    compiled = _artefact(reading)
     stem = _stem(reading)
     path = export_module(compiled, session.root / SHELF / f"{stem}.py", stem=stem)
     return _reopen(session, path, f"wrote {stem}.py")
@@ -165,10 +177,8 @@ def _constrain(_session: Session, reading: Reading) -> str:
     because a mask is a fact about a PREFIX and there is no prefix until
     someone has pushed one.
     """
-    compiled = reading.compiled
-    assert compiled is not None
-    vocab = compiled.tokens.tokenizer
-    assert vocab is not None
+    compiled = _artefact(reading)
+    vocab = IrTokenizer.ensure(compiled.tokens.tokenizer, "a bound vocabulary")
     return f"constrained by {vocab.name} · {len(vocab.encode):,} entries"
 
 
