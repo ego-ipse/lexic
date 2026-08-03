@@ -18,7 +18,7 @@ from lexic.parsing.earley.lexruns import run_candidates
 from opsis.opsis.canvas import el
 from opsis.opsis.canvas import text as _text
 from opsis.opsis.engine import walked
-from opsis.opsis.views import facts, panel, refusal
+from opsis.opsis.views import facts, grid, panel, refusal
 from opsis.praxis.reading import FOREIGN
 
 __all__ = ["binding_view", "fold_view", "runs_of"]
@@ -31,20 +31,12 @@ def binding_view(compiled: CompiledGrammar) -> IrDoc:
     else — it falls out of the bound part's own type. Seeing the rule
     and the name side by side is what makes that checkable.
     """
-    rows = [
-        el(
-            "div",
-            {"class": "cell"},
-            el("code", None, _text(str(name))),
-            el("span", None, _text(_bound(body))),
-        )
-        for name, body in compiled.fold.bodies.items()
-    ]
+    rows = [(str(name), _bound(body)) for name, body in compiled.fold.bodies.items()]
     if not rows:
         return refusal("this grammar bound nothing — it has no fold bodies")
     return panel(
         f"{len(rows)} rules bound · rule → the class it became, and its fields",
-        el("div", {"class": "grid"}, *rows),
+        grid(rows),
     )
 
 

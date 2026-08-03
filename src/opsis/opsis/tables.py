@@ -16,9 +16,7 @@ from inspect import isroutine
 from typing import NamedTuple
 
 from lexic.ir import IrAst, IrDoc, IrFlavour, IrMapping
-from opsis.opsis.canvas import el
-from opsis.opsis.canvas import text as _text
-from opsis.opsis.views import VIEWS, bounded, facts, panel, refusal
+from opsis.opsis.views import VIEWS, bounded, facts, grid, panel, refusal, titled
 
 __all__ = [
     "Table",
@@ -131,33 +129,7 @@ def _one(table: Table) -> IrDoc:
     """One table: its name, what it is, and its rows."""
     more = table.total - len(table.rows)
     note = f"{table.total:,} rows" + (f" · {more:,} not drawn" if more else "")
-    return el(
-        "div",
-        {"class": "table"},
-        el(
-            "div",
-            {"class": "row"},
-            el("span", {"class": "name"}, _text(table.name)),
-            el("b", None, _text(note)),
-            el("div", {"class": "note"}, _text(table.what)),
-        ),
-        el(
-            "div",
-            {"class": "grid"},
-            *(
-                IrDoc.ensure(
-                    el(
-                        "div",
-                        {"class": "cell"},
-                        el("code", None, _text(key)),
-                        el("span", None, _text(value)),
-                    ),
-                    "a table cell",
-                )
-                for key, value in table.rows
-            ),
-        ),
-    )
+    return titled(table.name, note, table.what, grid(table.rows))
 
 
 def registry_view() -> IrDoc:

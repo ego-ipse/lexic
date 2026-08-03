@@ -44,6 +44,7 @@ __all__ = [
     "controls",
     "doc_view",
     "field",
+    "grid",
     "facts",
     "panel",
     "constrain_view",
@@ -54,6 +55,7 @@ __all__ = [
     "regrammar_view",
     "resume_view",
     "shadow_view",
+    "titled",
     "rules_view",
     "semantic_view",
     "view_of",
@@ -101,6 +103,39 @@ def field(ident: str, empty: str, push: str = "") -> IrDoc:
     if push:
         attrs["data-push"] = push
     return el("input", attrs)
+
+
+def grid(rows: Sequence[tuple[str, str]]) -> IrDoc:
+    """A scrolling grid of key/value cells — the one shape a listing takes."""
+    return el(
+        "div",
+        {"class": "grid"},
+        *(
+            el(
+                "div",
+                {"class": "cell"},
+                el("code", None, _text(key)),
+                el("span", None, _text(value)),
+            )
+            for key, value in rows
+        ),
+    )
+
+
+def titled(name: str, measure: str, why: str, *body: IrDoc) -> IrDoc:
+    """A named block: what it is, how much of it, and why — then itself."""
+    return el(
+        "div",
+        {"class": "table"},
+        el(
+            "div",
+            {"class": "row"},
+            el("span", {"class": "name"}, _text(name)),
+            el("b", None, _text(measure)),
+            el("div", {"class": "note"}, _text(why)),
+        ),
+        *body,
+    )
 
 
 def panel(note: str, *rows: IrDoc) -> IrDoc:
@@ -647,19 +682,7 @@ def shadow_view(name: str, rows: Sequence[tuple[str, str]]) -> IrDoc:
         f"{len(rows)} readings produce a flavour called {name!r} — nothing is "
         "shadowed away: each grammar names the one that reads it, and a name is "
         "how a flavour is spoken about, not what it is",
-        el(
-            "div",
-            {"class": "grid"},
-            *(
-                el(
-                    "div",
-                    {"class": "cell"},
-                    el("code", None, _text(title)),
-                    el("span", None, _text(reads)),
-                )
-                for title, reads in rows
-            ),
-        ),
+        grid(rows),
     )
 
 

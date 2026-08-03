@@ -23,6 +23,7 @@ from opsis.opsis.analysis import analysis_view
 from opsis.opsis.binding import binding_view, fold_view, runs_of
 from opsis.opsis.canvas import el
 from opsis.opsis.canvas import text as _text
+from opsis.opsis.chart import chart_view, segmentation_view
 from opsis.opsis.emission import emit_doc
 from opsis.opsis.engine import (
     derivation_view,
@@ -30,6 +31,7 @@ from opsis.opsis.engine import (
     forest_view,
     tables_view,
 )
+from opsis.opsis.lanes import lane_of, lane_view
 from opsis.opsis.stages import module_view, pipeline_view
 from opsis.opsis.tables import flavour_view, registry_view, table_view
 from opsis.opsis.views import (
@@ -65,6 +67,7 @@ __all__ = [
     "WIDTHS",
     "artefact",
     "fan",
+    "lanes",
     "shadows",
     "window",
 ]
@@ -97,11 +100,16 @@ def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
             ("floor", "the floor"),
             ("forest", "forest"),
             ("derivations", "derivations"),
+            ("chart", "its chart"),
         ]
+        if _segments(session, reading) is not None:
+            out.append(("segmentation", "its tokens ▲"))
     if reading.flavour is not None:
         out += [("flavour", "what it IS"), ("dispatch", "its tables")]
     if shadows(session, reading):
         out.append(("shadow", "it shadows ⚠"))
+    if lanes(session, reading):
+        out.append(("lanes", "its lanes ≅"))
     if not reading.reader:
         out.append(("registry", "the registry"))
     if _wants(reading):
@@ -458,6 +466,70 @@ def _constrain_pane(session: Session, reading: Reading) -> Pane:
     )
 
 
+def _segments(session: Session, reading: Reading) -> IrTokenizer | None:
+    """The vocabulary this text is cut by, when it is read as tokens."""
+    under = _under(session, reading)
+    if under is None or not under.tokens.segmented:
+        return None
+    return under.tokens.tokenizer
+
+
+def lanes(session: Session, reading: Reading) -> list[Reading]:
+    """Other grammars in the session this one could be a lane with.
+
+    Any two grammars can be asked whether they are the same language —
+    the answer is measured, so there is no need to guess which pairs are
+    worth asking about.
+    """
+    if artefact(reading) is None:
+        return []
+    return [
+        other
+        for other in session.readings.values()
+        if other.ident != reading.ident and artefact(other) is not None
+    ]
+
+
+def _lanes_pane(session: Session, reading: Reading) -> Pane:
+    """Whether the other grammars here are the same language as this one."""
+    ours = _grammar(reading).grammar
+    found = tuple(
+        (other.title, lane_of(ours, held.grammar))
+        for other in lanes(session, reading)
+        if (held := artefact(other)) is not None
+    )
+    return Pane(
+        f"{reading.title} — its lanes ≅",
+        (680, 420),
+        lambda: (
+            [lane_view(reading.title, name, lane) for name, lane in found]
+            or [refusal("nothing else here is a grammar to compare with")]
+        ),
+    )
+
+
+def _chart_pane(session: Session, reading: Reading) -> Pane:
+    """The Earley chart this text fills, column by column."""
+    under = _read_by(session, reading)
+    text = reading.text
+    return Pane(
+        f"{reading.title} — its chart", (700, 460), lambda: [chart_view(under, text)]
+    )
+
+
+def _segmentation_pane(session: Session, reading: Reading) -> Pane:
+    """Where this text was cut into tokens, and into which ids."""
+    vocab = _segments(session, reading)
+    if vocab is None:
+        raise UnsupportedConstructError(f"{reading.title} is not read as tokens")
+    text = reading.text
+    return Pane(
+        f"{reading.title} — its tokens ▲",
+        (640, 420),
+        lambda: [segmentation_view(vocab, text)],
+    )
+
+
 def _floor_pane(session: Session, reading: Reading) -> Pane:
     """Both engines on this text, and whether they agree."""
     under = _read_by(session, reading)
@@ -545,6 +617,9 @@ PANES: dict[str, Callable[[Session, Reading], Pane]] = {
     "floor": _floor_pane,
     "forest": _forest_pane,
     "derivations": _derivations_pane,
+    "chart": _chart_pane,
+    "segmentation": _segmentation_pane,
+    "lanes": _lanes_pane,
 }
 """Fan kind → the window it opens.
 

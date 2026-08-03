@@ -164,25 +164,58 @@ def tables_view(compiled: CompiledGrammar) -> IrDoc:
         ("islands", f"{len(islands):,}", "spans handed back to Earley"),
         ("start", str(tables.start_key.name), "where the program enters"),
     ]
-    return facts(rows, _island_list(islands))
+    return facts(rows, _island_list(compiled, islands))
 
 
-def _island_list(islands: list[str]) -> IrDoc:
-    """Which rules escape, named — or the statement that none do."""
+def _island_list(compiled: CompiledGrammar, islands: list[str]) -> IrDoc:
+    """Where the predictive half hands back, and over what range.
+
+    An island is a rule the analysis could not decide, so its span goes
+    to Earley. What closes the island is its follow set — the characters
+    that can appear after it — which is the range the escape runs to.
+    """
     if not islands:
         return el(
             "div",
-            {"class": "note"},
-            "no islands: this grammar is predictive all the way down",
+            {"class": "claim ok"},
+            _text(
+                "no islands: this grammar is predictive all the way down, so "
+                "nothing is ever handed back to Earley"
+            ),
         )
-    shown = islands[:_ARMS]
-    rest = f" (of {len(islands):,})" if len(islands) > _ARMS else ""
+    tables = compiled.pda_tables()
+    rows = [
+        (
+            name,
+            f"{len(tables.island_delegates(name))} delegates",
+            _range(tables.island_follow.get(name)),
+        )
+        for name in islands[:_ARMS]
+    ]
+    left = len(islands) - len(rows)
     return el(
         "div",
-        {"class": "row"},
-        el("span", {"class": "name"}, "where"),
-        el("pre", {"class": "src"}, _text(", ".join(shown) + rest)),
+        None,
+        facts(rows),
+        el(
+            "div",
+            {"class": "note"},
+            _text(
+                "each is a rule the analysis could not decide; its span goes to "
+                "Earley and runs to whatever its follow set admits"
+                + (f" · {left} more" if left > 0 else "")
+            ),
+        ),
     )
+
+
+def _range(follow: object) -> str:
+    """The character range that closes an island, as something readable."""
+    chars = getattr(follow, "chars", None)
+    if chars is None:
+        return "closed by end of input"
+    negated = getattr(follow, "negated", False)
+    return f"closes on {'anything but ' if negated else ''}{len(chars)} characters"
 
 
 def forest_view(compiled: CompiledGrammar, text: str) -> IrDoc:
