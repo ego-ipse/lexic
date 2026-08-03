@@ -315,6 +315,82 @@ RULES: tuple[tuple[str, dict[str, str]], ...] = (
         ".fan .rlabel",
         {"left": "12px", "top": "-7px", "font-size": "10px"},
     ),
+    (
+        ".bar",
+        {
+            "position": "absolute",
+            "bottom": "16px",
+            "left": "50%",
+            "transform": "translateX(-50%)",
+            "z-index": "9",
+            "display": "flex",
+            "gap": "18px",
+            "align-items": "center",
+            "padding": "8px 16px",
+            "background": "var(--panelbg)",
+            "border": "1px solid var(--line)",
+            "border-radius": "3px",
+            "cursor": "move",
+        },
+    ),
+    (
+        ".bar u",
+        {
+            "text-decoration": "none",
+            "color": "var(--dim)",
+            "font": '9px "Cascadia Mono", monospace',
+            "letter-spacing": "2px",
+            "text-transform": "uppercase",
+        },
+    ),
+    (
+        ".bnode",
+        {"display": "flex", "gap": "7px", "align-items": "center", "cursor": "pointer"},
+    ),
+    (
+        ".bnode .bdot",
+        {
+            "width": "14px",
+            "height": "14px",
+            "border-radius": "50%",
+            "border": "1.2px solid var(--cyan)",
+            "background": "rgba(106,217,255,.10)",
+        },
+    ),
+    (".bnode:hover .bdot", {"box-shadow": "0 0 10px rgba(106,217,255,.6)"}),
+    (
+        ".bnode span, .bar .act",
+        {
+            "font": '10px "Cascadia Mono", monospace',
+            "letter-spacing": "1.5px",
+            "color": "var(--text)",
+            "cursor": "pointer",
+        },
+    ),
+    (".bar .act:hover", {"color": "var(--cyan)"}),
+    (
+        ".prow",
+        {
+            "padding": "2px 6px",
+            "cursor": "pointer",
+            "font": '11px "Cascadia Mono", monospace',
+            "color": "var(--text)",
+        },
+    ),
+    (".prow:hover", {"color": "var(--cyan)", "background": "rgba(106,217,255,.06)"}),
+    (
+        ".frozen .read, .frozen .bnode, .frozen .bar .act, .frozen .chips",
+        {"opacity": ".35", "pointer-events": "none"},
+    ),
+    (
+        ".frozen #spawnbar::after",
+        {
+            "content": '"frozen artifact — actions need the live loop"',
+            "color": "var(--dim)",
+            "font": '9px "Cascadia Mono", monospace',
+            "letter-spacing": "1.5px",
+        },
+    ),
 )
 """The canvas rules — (selector, properties), drawn in order."""
 

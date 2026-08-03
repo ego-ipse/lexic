@@ -17,7 +17,17 @@ from opsis.opsis.canvas import el, html, raw, void
 from opsis.praxis.roots import Opened, Workspace, open_path
 from opsis.praxis.state import Ladder, Rung
 
-__all__ = ["Handler", "OpsisServer", "Session", "frames_of", "scene_of", "serve"]
+__all__ = [
+    "Handler",
+    "OpsisServer",
+    "Session",
+    "frames_of",
+    "picker_frame",
+    "scene_of",
+    "serve",
+    "session_window",
+    "spawn_bar",
+]
 
 _MAX_BODY = 2_000_000
 
@@ -224,6 +234,61 @@ def _fan_pair(
     return [fan, frame]
 
 
+def spawn_bar() -> IrDoc:
+    """The spawn bar — the ingress affordance, bottom-center by default.
+
+    Its position is camera state: dragging moves the DOM, and a freeze
+    (a DOM snapshot) carries wherever it sits. The file bnode opens the
+    picker; freeze and session are the artifact's two halves — the
+    filled page, and its machine-reloadable ``repr(scene)``.
+    """
+    return el(
+        "div",
+        {"class": "bar", "id": "spawnbar"},
+        el("u", None, "spawn"),
+        el(
+            "div",
+            {"class": "bnode", "data-act": "picker"},
+            el("div", {"class": "bdot"}),
+            el("span", None, "file"),
+        ),
+        el("span", {"class": "act", "data-act": "freeze"}, "freeze ▾"),
+        el("span", {"class": "act", "data-act": "session"}, "session ▾"),
+    )
+
+
+def picker_frame() -> IrDoc:
+    """The picker window — filled from ``GET /files`` when opened."""
+    return el(
+        "div",
+        {
+            "class": "frame",
+            "data-frame": "picker",
+            "style": "left:480px;top:560px;width:420px;height:260px;display:none",
+        },
+        el("header", None, el("span", None, "open — workspace files")),
+        el("div", {"class": "fbody", "id": "picker-rows"}),
+    )
+
+
+def session_window(scene: Space) -> IrDoc:
+    """The session-file window — this page's own ``repr(scene)``, drawn."""
+    return el(
+        "div",
+        {
+            "class": "frame",
+            "data-frame": "session-file",
+            "style": "left:960px;top:560px;width:420px;height:260px;display:none",
+        },
+        el("header", None, el("span", None, "session — repr(scene)")),
+        el(
+            "div",
+            {"class": "fbody"},
+            el("pre", {"class": "notation", "id": "session-notation"}, repr(scene)),
+        ),
+    )
+
+
 def _rung_directives(query: str) -> Directives | None:
     """``start``/``non_semantic`` query params as Directives, or None if absent."""
     qs = parse_qs(query)
@@ -263,11 +328,50 @@ def _matches_grammar(compiled: CompiledGrammar, target: Path) -> bool:
 
 SERVE_JS = """
 "use strict";
+const FROZEN = document.body.classList.contains("frozen");
+function toggleFrame(name) {
+  const frame = document.querySelector(`.frame[data-frame="${name}"]`);
+  if (frame) frame.style.display = frame.style.display === "none" ? "flex" : "none";
+  return frame;
+}
+function openPicker() {
+  const frame = toggleFrame("picker");
+  if (!frame || frame.style.display === "none") return;
+  fetch("/files").then(r => r.text()).then(text => {
+    const rows = document.getElementById("picker-rows");
+    rows.textContent = "";
+    text.split("\\n").filter(Boolean).forEach(path => {
+      const row = document.createElement("div");
+      row.className = "prow";
+      row.textContent = path;
+      row.addEventListener("click", () =>
+        fetch("/open", {method: "POST", body: path}).then(() => location.reload()));
+      rows.appendChild(row);
+    });
+  });
+}
+function freezeSnapshot() {
+  const clone = document.documentElement.cloneNode(true);
+  clone.querySelector("body").classList.add("frozen");
+  const blob = new Blob(["<!DOCTYPE html>" + clone.outerHTML], {type: "text/html"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "opsis-frozen.html";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 document.addEventListener("click", e => {
+  if (FROZEN) return;
+  const act = e.target.closest("[data-act]");
+  if (act) {
+    if (act.dataset.act === "picker") openPicker();
+    if (act.dataset.act === "freeze") freezeSnapshot();
+    if (act.dataset.act === "session") location.href = "/session";
+    return;
+  }
   const fan = e.target.closest(".fan[data-open]");
   if (fan) {
-    const frame = document.querySelector(`.frame[data-frame="${fan.dataset.open}"]`);
-    if (frame) frame.style.display = frame.style.display === "none" ? "flex" : "none";
+    toggleFrame(fan.dataset.open);
     return;
   }
   const btn = e.target.closest(".read[data-post]");
@@ -283,10 +387,32 @@ document.addEventListener("click", e => {
   fetch(btn.dataset.post + (qs ? `?${qs}` : ""), {method: "POST", body: textarea.value})
     .then(() => location.reload());
 });
+const bar = document.getElementById("spawnbar");
+if (bar) bar.addEventListener("pointerdown", e => {
+  if (e.target.closest("[data-act]") || FROZEN) return;
+  const rect = bar.getBoundingClientRect();
+  bar.style.left = rect.left + "px";
+  bar.style.top = rect.top + "px";
+  bar.style.bottom = "auto";
+  bar.style.transform = "none";
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const move = ev => {
+    bar.style.left = (ev.clientX - sx) + "px";
+    bar.style.top = (ev.clientY - sy) + "px";
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+});
 """
-"""The rung frames' own behavior — fan toggling and the read-post gesture.
-Deixis stays CAMERA's; this is the frames' half only, so neither script
-re-registers the other's listener."""
+"""The rung frames' + bar's behavior — fan/picker toggling, the read-post
+gesture, the freeze snapshot (the DOM is the camera: whatever was dragged
+freezes where it sits), and the bar drag (its position is camera state).
+In a frozen artifact every gesture is dead and drawn so. Deixis stays
+CAMERA's; neither script re-registers the other's listener."""
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -306,6 +432,8 @@ class Handler(BaseHTTPRequestHandler):
             self._get_root()
         elif url.path == "/files":
             self._get_files()
+        elif url.path == "/session":
+            self._get_session()
         else:
             self.send_error(404)
 
@@ -328,12 +456,25 @@ class Handler(BaseHTTPRequestHandler):
         session = self._session()
         n = sum(1 for entry in session.entries if entry.ladder is not None)
         subtitle = f"{n} roots · workspace {session.workspace.root.name}"
-        extra = frames_of(session) + html(el("script", None, raw(SERVE_JS)))
-        self._send(page(scene_of(session), subtitle=subtitle, extra=extra))
+        scene = scene_of(session)
+        extra = (
+            frames_of(session)
+            + html(IrCat(spawn_bar(), picker_frame(), session_window(scene)))
+            + html(el("script", None, raw(SERVE_JS)))
+        )
+        self._send(page(scene, subtitle=subtitle, extra=extra))
 
     def _get_files(self) -> None:
         listing = self._session().workspace.listing()
         self._send("\n".join(listing), kind="text/plain")
+
+    def _get_session(self) -> None:
+        """The artifact's machine-reloadable half — ``repr(scene)``, to disk."""
+        self._send(
+            repr(scene_of(self._session())),
+            kind="text/plain",
+            download="session.scene",
+        )
 
     def _post_open(self, body: str) -> None:
         session = self._session()
@@ -411,10 +552,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send("body is not UTF-8", code=400, kind="text/plain")
             return None
 
-    def _send(self, body: str, code: int = 200, kind: str = "text/html") -> None:
+    def _send(
+        self,
+        body: str,
+        code: int = 200,
+        kind: str = "text/html",
+        download: str | None = None,
+    ) -> None:
         data = body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", f"{kind}; charset=utf-8")
+        if download is not None:
+            self.send_header(
+                "Content-Disposition", f'attachment; filename="{download}"'
+            )
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
