@@ -346,15 +346,9 @@ def spawn_bar() -> IrDoc:
         el("u", None, "new"),
         el(
             "div",
-            {"class": "bnode cyan", "data-spawn": "grammar"},
+            {"class": "bnode green", "data-spawn": "reading"},
             el("i", None),
-            el("em", None, "grammar"),
-        ),
-        el(
-            "div",
-            {"class": "bnode green", "data-spawn": "text"},
-            el("i", None),
-            el("em", None, "text"),
+            el("em", None, "reading"),
         ),
         el("u", None, "itself"),
         el(

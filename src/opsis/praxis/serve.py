@@ -202,14 +202,26 @@ def _open(session: Session, _rest: list[str], ask: Ask) -> str:
     return f"{opened.note} · {opened.title}"
 
 
-def _new(session: Session, _rest: list[str], ask: Ask) -> str:
-    """An empty reading to type into."""
-    if ask.body not in ("grammar", "text"):
-        raise UnsupportedConstructError(
-            f"new: {ask.body!r} is not something to make — 'grammar' or 'text'"
-        )
-    session.add(f"new {ask.body}", ask.body)
-    return "spawned"
+def _new(session: Session, _rest: list[str], _ask: Ask) -> str:
+    """An empty reading to type into.
+
+    One kind of thing, because there is only one: a grammar and a text
+    are the same reading, and which it turns out to be is decided by
+    what reads it, not by which button made it.
+    """
+    made = session.add("untitled", "text")
+    return f"a reading · {made.ident} · name it and drop a reader on it"
+
+
+def _rename(session: Session, rest: list[str], ask: Ask) -> str:
+    """What a reading is called — its own, and nobody else's business.
+
+    A name is not what a reading IS: it is how you refer to it. So it
+    is editable, and changing it re-reads nothing.
+    """
+    reading = _held(session, rest[0])
+    reading.title = ask.body.strip() or reading.title
+    return f"called {reading.title!r}"
 
 
 def _edit(session: Session, rest: list[str], ask: Ask) -> str:
@@ -480,6 +492,7 @@ def seed(session: Session) -> None:
 _ROUTES: dict[tuple[str, int], Callable[[Session, list[str], Ask], str]] = {
     ("open", 0): _open,
     ("new", 0): _new,
+    ("name", 1): _rename,
     ("text", 1): _edit,
     ("drop", 2): _drop,
     ("unplug", 1): _unplug,

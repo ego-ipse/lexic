@@ -698,7 +698,19 @@ def _pipeline(session: Session, reading: Reading) -> IrDoc:
 
 def _editor(session: Session, reading: Reading) -> list[IrDoc]:
     """A reading's own text, its chips, and what refused."""
-    body: list[IrDoc] = []
+    body: list[IrDoc] = [
+        controls(
+            chip("called", f"n-{reading.ident}", reading.title, "untitled"),
+            el(
+                "span",
+                {"class": "note"},
+                _text(
+                    "a name is how you refer to a reading, not what it is — "
+                    "changing it re-reads nothing"
+                ),
+            ),
+        )
+    ]
     reader = session.reader_for(reading)
     if reader is not None and reader.kind in ("flavour", "notation", "module"):
         off = not reader.comments

@@ -199,6 +199,16 @@ document.addEventListener("input", e => {
   }, 60));
 });
 document.addEventListener("input", e => {
+  const named = e.target.closest('input[id^="n-"]');
+  if (named) {
+    const id = named.id.slice(2);
+    clearTimeout(pending.get("name" + id));
+    pending.set("name" + id, setTimeout(() => {
+      fetch("/name/" + id, {method: "POST", body: named.value}).then(r =>
+        r.ok ? reread() : r.text().then(toast));
+    }, 400));
+    return;
+  }
   const field = e.target.closest("[data-post]");
   if (!field) return;
   const win = field.closest(".frame");
