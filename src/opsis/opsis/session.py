@@ -1,0 +1,513 @@
+"""Drawing a session — praxis holds the readings, the spectacle shows them.
+
+Everything here turns readings into rings, rails and windows. It decides
+where things sit and which readings a node offers; it never decides what
+a reading MEANS.
+
+What a node offers follows from what it actually produced. A reading
+with no compiled grammar has no rules window, because there are no
+rules — not because a flag was off. That is the whole rule for the fan.
+"""
+
+from __future__ import annotations
+
+from typing import Callable
+
+from lexic.compile import CompiledGrammar
+from lexic.exceptions import LexicError
+from lexic.ir import IrAst, IrCat, IrDoc, IrNone, IrSeq
+from lexic.parsing import lift_optional_nullables
+from opsis.eidolon import layout
+from opsis.opsis.canvas import el, html
+from opsis.opsis.canvas import text as _text
+from opsis.opsis.graphic import RAIL_CSS, rule_svg
+from opsis.opsis.scene import Moon, Rail, Ring, Space
+from opsis.opsis.space import frame
+from opsis.opsis.views import (
+    bounded,
+    instance_view,
+    module_view,
+    pipeline_view,
+    railroad_view,
+    refusal,
+    rules_view,
+)
+from opsis.praxis.reading import Reading
+from opsis.praxis.session import Session
+
+__all__ = ["bar", "hint", "legend", "picker", "scene_of", "windows_of", "world_of"]
+
+_SPELLABLE = ("gbnf", "abnf", "ebnf")
+"""Surfaces the exporter can spell a module's docstrings in."""
+
+
+# ── the scene ─────────────────────────────────────────────────────────
+
+
+def _hue(reading: Reading) -> str:
+    """What a reading's state looks like."""
+    if reading.error:
+        return "err"
+    if not reading.text:
+        return "dim"
+    if reading.flavour is not None:
+        return "amber"
+    if reading.tokenizer is not None:
+        return "magenta"
+    if reading.compiled is not None:
+        return "cyan"
+    return "green"
+
+
+def _sub(session: Session, reading: Reading) -> str:
+    """The dim line under a name — what this reading IS right now."""
+    if reading.error:
+        return "refused — its text window carries the message"
+    if not reading.text:
+        return "empty — type its text and it reads"
+    if not reading.reader:
+        return f"{len(reading.text):,} chars · nothing reads it yet"
+    compiled = reading.compiled
+    if compiled is not None:
+        rules = len(list(compiled.grammar.rules))
+        bound = compiled.tokens.tokenizer
+        vocab = f" · bound to {bound.name}" if bound is not None else ""
+        return f"{rules} rules · reads what is dropped on it{vocab}"
+    if reading.flavour is not None:
+        return "a reader · drop a grammar on it to read it"
+    if reading.tokenizer is not None:
+        return f"{len(reading.tokenizer.encode):,} entries · drop it on a grammar"
+    return f"{type(reading.product).__name__} · {len(reading.text):,} chars"
+
+
+def fan(session: Session, reading: Reading) -> list[tuple[str, str]]:
+    """The readings this one actually has — nothing offered that isn't."""
+    out = [("text", "text")]
+    if reading.compiled is not None:
+        out += [
+            ("rules", "rules"),
+            ("railroad", "railroad"),
+            ("pipeline", "pipeline"),
+            ("module", "module"),
+        ]
+    if reading.tokenizer is not None:
+        out.append(("vocabulary", "vocabulary ▲"))
+    if reading.instance is not None:
+        out.append(("instance", "instance ▲"))
+    if reading.product is not None and reading.compiled is None:
+        out.append(("product", "product ▲"))
+    if reading.compiled is not None and reading.compiled.tokens.tokenizer is not None:
+        out.append(("bound", "bound to ▲"))
+    reader = session.reader_for(reading)
+    if reader is not None and reader.grammar is not None:
+        out.append(("reader", "its reader"))
+    return out
+
+
+def scene_of(session: Session) -> Space:
+    """Every reading as a ring, every naming as a rail."""
+    idents = list(session.readings)
+    parents = {i: session.readings[i].reader for i in idents}
+    place = layout(parents, idents)
+    parts: list[Ring | Rail] = []
+    for ident in idents:
+        reading = session.readings[ident]
+        x, y = place.get(ident, (400, 300))
+        reading.x, reading.y = x, y
+        payload = reading.product if isinstance(reading.product, IrAst) else IrNone
+        compiled = reading.compiled
+        if compiled is not None:
+            payload = compiled.grammar
+        parts.append(
+            Ring(
+                ident,
+                payload,
+                _hue(reading),
+                x,
+                y,
+                reading.title,
+                _sub(session, reading),
+                IrSeq(
+                    *(
+                        Moon(f"m-{ident}-{kind}", label, kind)
+                        for kind, label in fan(session, reading)
+                    )
+                ),
+                f"reading:{ident}",
+                "reads" if reading.reads else "idle",
+            )
+        )
+        if reading.reader in session.readings:
+            ok = not reading.error
+            parts.append(
+                Rail(
+                    src=reading.reader,
+                    dst=ident,
+                    hue="green" if ok else "err",
+                    label="reads",
+                    sub=f"{session.readings[reading.reader].title} reads this text",
+                    bow=0,
+                )
+            )
+    return Space(*parts)
+
+
+# ── the windows a fan opens ───────────────────────────────────────────
+
+
+def _editor(session: Session, reading: Reading) -> list[IrDoc]:
+    """A reading's own text, its chips, and what refused."""
+    body: list[IrDoc] = []
+    reader = session.reader_for(reading)
+    if reader is not None and reader.kind in ("flavour", "notation", "module"):
+        off = not reader.comments
+        body.append(
+            el(
+                "div",
+                {"class": "controls"},
+                _chip(
+                    "@start",
+                    f"c-start-{reading.ident}",
+                    reading.params.directives.start or "",
+                    "first rule",
+                    off,
+                ),
+                _chip(
+                    "@non-semantic",
+                    f"c-ns-{reading.ident}",
+                    ",".join(
+                        sorted(reading.params.directives.non_semantic or frozenset())
+                    ),
+                    "ws,sp",
+                    off,
+                ),
+            )
+        )
+        body.append(
+            el(
+                "div",
+                {"class": "note"},
+                "this reader has no comment form, so directives ride the "
+                "argument channel — the chips still apply"
+                if off
+                else "the @directives, as arguments — they key the compile",
+            )
+        )
+    shown, note = bounded(reading.text)
+    if note:
+        body.append(el("div", {"class": "note"}, f"{note} · read-only here"))
+        body.append(el("pre", {"class": "src"}, shown))
+    else:
+        body.append(
+            el(
+                "textarea",
+                {
+                    "id": f"t-{reading.ident}",
+                    "spellcheck": "false",
+                    "data-post": f"/text/{reading.ident}",
+                },
+                reading.text,
+            )
+        )
+        body.append(
+            el(
+                "div",
+                {"class": "controls"},
+                el(
+                    "span",
+                    {"class": "note"},
+                    "reads as you type · every edit cascades downward",
+                ),
+            )
+        )
+    if reading.error:
+        body.append(refusal(reading.error))
+    if not reading.reader:
+        body.append(
+            el(
+                "div",
+                {"class": "note"},
+                "nothing reads this yet — drop it on a reader, or drop a reader on it",
+            )
+        )
+    return body
+
+
+def _chip(label: str, ident: str, value: str, hint: str, off: bool) -> IrDoc:
+    """One directive chip — a small editable datum that reads on change."""
+    return el(
+        "span",
+        {"class": "chip off" if off else "chip"},
+        label,
+        el(
+            "input",
+            {
+                "id": ident,
+                "value": value,
+                "placeholder": hint,
+                "spellcheck": "false",
+                "data-post": "chip",
+            },
+        ),
+    )
+
+
+def _window(
+    session: Session, reading: Reading, kind: str
+) -> tuple[str, tuple[int, int], Callable[[], list[IrDoc]]]:
+    """What a reading's window is called, how big, and how to build it."""
+    title = reading.title
+    if kind == "text":
+        return f"{title} — its text", (480, 340), lambda: _editor(session, reading)
+    if kind == "instance":
+        return (
+            f"{title} — instance ▲",
+            (760, 430),
+            lambda: [instance_view(session.instance_of(reading), reading.text)],
+        )
+    if kind == "product":
+        return (
+            f"{title} — product ▲",
+            (760, 430),
+            lambda: [instance_view(reading.product, reading.text)],
+        )
+    if kind == "reader":
+        reader = session.reader_for(reading)
+        grammar = reader.grammar if reader is not None else None
+        name = reader.name if reader is not None else "?"
+        return (
+            f"{title} — read by {name}",
+            (660, 430),
+            lambda: (
+                [rules_view(grammar)]
+                if grammar is not None
+                else [refusal("its reader has no grammar of its own")]
+            ),
+        )
+    compiled = reading.compiled
+    if compiled is None:
+        return (
+            f"{title} — {kind}",
+            (520, 240),
+            lambda: [refusal(f"{kind}: nothing compiled here")],
+        )
+    if kind == "rules":
+        return f"{title} — rules", (680, 440), lambda: [rules_view(compiled.grammar)]
+    if kind == "railroad":
+        return (
+            f"{title} — railroad",
+            (700, 460),
+            lambda: [railroad_view(compiled.grammar)],
+        )
+    if kind == "module":
+        return (
+            f"{title} — module",
+            (700, 440),
+            lambda: [module_view(compiled, _surface(compiled))],
+        )
+    return f"{title} — pipeline", (720, 440), lambda: [_pipeline(session, reading)]
+
+
+def _surface(compiled: CompiledGrammar) -> str:
+    """Which surface a module is spelled in when the grammar names none."""
+    return compiled.flavour if compiled.flavour in _SPELLABLE else "gbnf"
+
+
+def _pipeline(session: Session, reading: Reading) -> IrDoc:
+    """The compile's stages for this reading."""
+    compiled = reading.compiled
+    assert compiled is not None
+    parsed = session.instance_of(reading)
+    concretized = (
+        compiled.codegen_grammar if compiled.tokens.tokenizer is not None else None
+    )
+    return pipeline_view(
+        (
+            (
+                "parsed",
+                parsed if isinstance(parsed, IrAst) else None,
+                "what the reader's own reduction built",
+            ),
+            (
+                "canonical",
+                compiled.grammar,
+                "names folded, shape normalised — what the grammar IS",
+            ),
+            ("concretized", concretized, "alphabets resolved against a vocabulary"),
+            (
+                "codegen",
+                compiled.codegen_grammar,
+                "groups and arms hoisted, noise relaxed — what binds to classes",
+            ),
+            (
+                "lifted",
+                lift_optional_nullables(compiled.codegen_grammar),
+                "nullables lifted — the shape the engine walks",
+            ),
+        )
+    )
+
+
+def windows_of(session: Session) -> str:
+    """Every window every reading offers, plus each grammar's railroads."""
+    parts: list[IrDoc] = []
+    for ident, reading in session.readings.items():
+        x, y = reading.x, reading.y
+        for slot, (kind, _label) in enumerate(fan(session, reading)):
+            moon = f"m-{ident}-{kind}"
+            title, size, build = _window(session, reading, kind)
+            try:
+                body = build()
+            except (LexicError, RecursionError) as exc:
+                # One window that cannot be built must never take the
+                # page down with it.
+                body = [refusal(f"{type(exc).__name__}: {exc}")]
+            parts.append(
+                frame(
+                    f"w-{moon}",
+                    title,
+                    x + 250 + slot * 26,
+                    max(60, y - 60 + slot * 44),
+                    size[0],
+                    size[1],
+                    *body,
+                    shown=False,
+                    editor=kind == "text",
+                    owner=moon,
+                )
+            )
+        compiled = reading.compiled
+        if compiled is not None:
+            parts.extend(_railroads(compiled.grammar, x + 320, y + 40))
+    return html(IrCat(*parts))
+
+
+def _railroads(ast: IrAst, x: int, y: int) -> list[IrDoc]:
+    """A window per rule's diagram, in the world.
+
+    A diagram belongs to its rule, not to whichever window asked for
+    it: opening ``value`` from a rules graph and from a reference box
+    inside another railroad reaches the SAME window.
+    """
+    from opsis.opsis.canvas import raw
+
+    return [
+        frame(
+            f"rr-{rule.name}",
+            f"{rule.name} · railroad",
+            x + (i % 6) * 34,
+            y + (i % 6) * 28,
+            540,
+            200,
+            el(
+                "div",
+                {"class": "rr"},
+                raw(f"<style>{RAIL_CSS}</style>"),
+                raw(rule_svg(rule)),
+            ),
+            shown=False,
+            rule=str(rule.name),
+        )
+        for i, rule in enumerate(ast.rules)
+    ]
+
+
+# ── the furniture ─────────────────────────────────────────────────────
+
+
+def bar() -> IrDoc:
+    """Where new readings come from, fixed to the viewport.
+
+    There is no list of flavours here and no vocabulary button: a
+    surface you can read with is a READING the session holds, and you
+    drag it. The bar only makes what nothing else can — a picker, and
+    two empty texts.
+    """
+    return el(
+        "div",
+        {"class": "bar", "id": "bar"},
+        el("u", None, "open"),
+        el(
+            "div",
+            {"class": "bnode cyan", "data-act": "picker"},
+            el("i", None),
+            el("em", None, "file"),
+        ),
+        el("u", None, "new"),
+        el(
+            "div",
+            {"class": "bnode cyan", "data-spawn": "grammar"},
+            el("i", None),
+            el("em", None, "grammar"),
+        ),
+        el(
+            "div",
+            {"class": "bnode green", "data-spawn": "text"},
+            el("i", None),
+            el("em", None, "text"),
+        ),
+        el("u", None, "session"),
+        el(
+            "span",
+            {"class": "bnode", "data-act": "freeze"},
+            el("i", None),
+            el("em", None, "freeze"),
+        ),
+    )
+
+
+def picker() -> IrDoc:
+    """The picker — the whole workspace, browsable, held by the viewport."""
+    return frame(
+        "picker",
+        "open — anything in the workspace",
+        0,
+        0,
+        580,
+        420,
+        el("div", {"class": "note", "id": "where"}, "the workspace"),
+        el("div", {"id": "rows"}),
+        shown=False,
+        hud=True,
+    )
+
+
+def legend() -> IrDoc:
+    """What the hues mean — stated, not remembered."""
+    marks = (
+        ("amber", "a reader"),
+        ("cyan", "a grammar"),
+        ("green", "a text"),
+        ("magenta", "a vocabulary"),
+        ("err", "refused"),
+        ("dim", "unread"),
+    )
+    return el(
+        "div",
+        {"id": "legend"},
+        *(
+            IrCat(el("i", {"style": f"background:var(--{hue})"}), _text(what))
+            for hue, what in marks
+        ),
+    )
+
+
+def hint() -> IrDoc:
+    """The gestures, said once."""
+    return el(
+        "div",
+        {"id": "hint"},
+        "drag the void to pan · wheel to zoom · click a moon for a reading",
+        el("br", None),
+        "drop one node on another to say what reads what — a reader reads a "
+        "grammar, a vocabulary binds to one",
+        el("br", None),
+        "⊗ unplugs · × removes · ⌖ folds · windows drag, resize and close",
+    )
+
+
+def world_of(session: Session) -> str:
+    """Everything inside ``#world`` — the swappable fragment."""
+    from opsis.opsis.space import render_scene
+
+    return render_scene(scene_of(session)) + windows_of(session)
