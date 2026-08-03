@@ -1,8 +1,7 @@
-"""Deixis — pointing: what names what, across every window at any depth.
+"""Deixis — pointing: making one thing name another, both ways at once.
 
-There is no machinery here yet because the mechanism is one attribute:
-anything naming a rule carries ``data-rule``, and a single document
-listener in the camera lights every occurrence. This package is where a
-formal Point/Relation vocabulary lands when structural and temporal
-pointing need more than that.
+A window that shows a tree beside its text is only useful if the two
+halves point at each other. Everything here is about that: which
+characters a node covers, which rule built it, and the single
+attribute that lets one hover light all three.
 """

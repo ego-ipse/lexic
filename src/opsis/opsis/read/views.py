@@ -29,6 +29,7 @@ from lexic.ir import (
     render,
 )
 from lexic.model import GrammarModel
+from opsis.deixis.trees import instance_view, model_rows, twin
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.read.parts import (
@@ -45,13 +46,7 @@ from opsis.opsis.read.parts import (
     refusal,
     titled,
 )
-from opsis.opsis.read.trees import (
-    instance_view,
-    model_rows,
-    railroad_view,
-    rules_view,
-    twin,
-)
+from opsis.opsis.read.trees import railroad_view, rules_view
 
 __all__ = [
     "BIG",

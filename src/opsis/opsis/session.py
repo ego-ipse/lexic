@@ -21,7 +21,7 @@ from lexic.ir import (
     IrRule,
     IrSeq,
 )
-from opsis.eidolon import layout
+from opsis.eidolon.layout import layout
 from opsis.opsis.draw.canvas import el, html, raw
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.draw.graphic import RAIL_CSS, rule_svg

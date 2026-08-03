@@ -13,8 +13,8 @@ from typing import Callable, NamedTuple
 from lexic.compile import CompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrDoc
-from opsis.praxis.deeds.constrain import Cursors
-from opsis.praxis.deeds.resume import Resumes
+from opsis.kairos.constrain import Cursors
+from opsis.kairos.resume import Resumes
 from opsis.praxis.reading import Reading, self_compiled
 from opsis.praxis.session import Session
 

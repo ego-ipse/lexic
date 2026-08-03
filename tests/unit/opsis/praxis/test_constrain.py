@@ -13,7 +13,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrMap, IrTokenizer
 from lexic.parsing import parse_reduced
-from opsis.praxis.deeds.constrain import Cursors, Prefix, sample
+from opsis.kairos.constrain import Cursors, Prefix, sample
 from opsis.praxis.reading import Outcome, Reading
 from opsis.praxis.session import Session
 from tests.paths import GROUND_TRUTH

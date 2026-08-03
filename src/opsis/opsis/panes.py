@@ -19,6 +19,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrDoc, IrFlavour, IrTokenizer
 from lexic.model import GrammarModel
 from lexic.parsing import lift_optional_nullables
+from opsis.kairos.constrain import sample
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.fan import OFFERS, fan, fanned, parts_of
@@ -51,7 +52,9 @@ from opsis.opsis.read.parts import (
     chip,
     controls,
     refusal,
+    row,
     section,
+    stack,
 )
 from opsis.opsis.read.stages import module_view, pipeline_view
 from opsis.opsis.read.tables import flavour_view, registry_view, table_view
@@ -70,7 +73,6 @@ from opsis.opsis.read.views import (
 )
 from opsis.praxis.deeds.acts import Deed, deeds
 from opsis.praxis.deeds.carve import bench
-from opsis.praxis.deeds.constrain import sample
 from opsis.praxis.reading import Reading
 from opsis.praxis.session import Session, alphabets
 
@@ -486,19 +488,15 @@ def _deeds(reading: Reading) -> IrDoc:
     found = deeds(reading)
     if not found:
         return refusal(f"{reading.title} has nothing to do")
-    return el(
-        "div",
-        None,
-        *(
-            el(
-                "div",
-                {"class": "row"},
-                el("span", {"class": "name"}, _text(deed.label)),
+    return stack(
+        [
+            row(
+                deed.label,
                 el("div", {"class": "note"}, _text(deed.why)),
                 controls(button(deed.label, f"/do/{reading.ident}/{deed.name}")),
             )
             for deed in found
-        ),
+        ]
     )
 
 

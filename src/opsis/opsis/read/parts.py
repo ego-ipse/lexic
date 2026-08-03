@@ -28,7 +28,9 @@ __all__ = [
     "grid",
     "panel",
     "refusal",
+    "row",
     "section",
+    "stack",
     "titled",
 ]
 
@@ -165,21 +167,29 @@ def panel(note: str, *rows: IrDoc) -> IrDoc:
     return el("div", None, el("div", {"class": "note"}, _text(note)), *rows)
 
 
+def row(name: str, *rest: IrDoc) -> IrDoc:
+    """One named line — the shape every listed thing takes here."""
+    return el(
+        "div", {"class": "row"}, el("span", {"class": "name"}, _text(name)), *rest
+    )
+
+
+def stack(made: Sequence[IrDoc], *rest: IrDoc) -> IrDoc:
+    """Several rows, one after another."""
+    return el("div", None, *made, *rest)
+
+
 def facts(rows: Sequence[tuple[str, str, str]], *rest: IrDoc) -> IrDoc:
     """Named measurements, one per line: what, how much, and why."""
-    return el(
-        "div",
-        None,
-        *(
-            el(
-                "div",
-                {"class": "row"},
-                el("span", {"class": "name"}, _text(name)),
+    return stack(
+        [
+            row(
+                name,
                 el("b", None, _text(value)),
                 el("div", {"class": "note"}, _text(why)),
             )
             for name, value, why in rows
-        ),
+        ],
         *rest,
     )
 
