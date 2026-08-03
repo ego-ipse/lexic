@@ -533,15 +533,29 @@ def _is_segmented(ast: IrAst) -> bool:
     return False
 
 
+def _flavour_key(flavour: str | IrFlavour) -> Hashable:
+    """The memo component a flavour contributes — its name, or its class.
+
+    A name string keys by itself. An INSTANCE keys by its class object:
+    flavour value equality is not a designed key in either direction —
+    record-tier equality is content-based, so two field-less records of
+    DIFFERENT classes compare equal (aliasing), while two loads of the SAME
+    manifest compare unequal (their tables' actions differ by identity) —
+    whereas the class object is identity-stable and the cache entry pins it
+    live, so (unlike an ``id()``) it can never be reused for another flavour.
+    """
+    return flavour if isinstance(flavour, str) else type(flavour)
+
+
 def _compile_core(
     text: str,
     *,
     stem: str,
-    flavour: str = "gbnf",
+    flavour: str | IrFlavour = "gbnf",
     vocabulary: Vocabulary = Vocabulary(),
     directives: Directives = Directives(),
 ) -> CompiledGrammar:
-    flavour_cls = get_flavour(flavour)
+    flavour_cls = get_flavour(flavour) if isinstance(flavour, str) else flavour
     ast = canonical_grammar(
         text,
         flavour_cls,
@@ -568,7 +582,7 @@ def _compile_core(
         grammar=ast,
         codegen_grammar=codegen_grammar,
         fold=fold,
-        flavour=flavour,
+        flavour=flavour if isinstance(flavour, str) else type(flavour).name,
         stem=stem,
         tokens=TokenBinding(
             segmentation_tokenizer(resolved),
@@ -582,27 +596,34 @@ def compile_text(
     text: str,
     *,
     cache_key: Hashable | None = None,
-    flavour: str = "gbnf",
+    flavour: str | IrFlavour = "gbnf",
     vocabulary: Vocabulary = Vocabulary(),
     directives: Directives = Directives(),
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
-    The cache key is ``(content sha stem, flavour)`` — compiling the same
+    The cache key is ``(content sha stem, flavour key)`` — compiling the same
     source in the same flavour returns the cached :class:`CompiledGrammar`
     (and its class objects; synthesis writes no files, so there is no output
     directory to key on). An explicit ``cache_key`` is *prepended* to that
-    content key rather than used as-is: ``(cache_key, stem, flavour)``.
+    content key rather than used as-is: ``(cache_key, stem, flavour key)``.
     Folding the content stem in means the same key can never serve a stale
     grammar — different source text under one ``cache_key`` yields distinct
     entries, while identical text still hits the memo. The test seam
     :func:`reset_cache_for_tests` clears the cache when a caller needs fresh
     class objects.
 
+    A flavour INSTANCE is used directly and never touches the registry: a
+    loaded session manifest compiles without ``register_flavour``, and the
+    shipped singleton under the same name is not shadowed. It contributes
+    its class object to the memo key — identity-stable, pinned live by the
+    cache entry — so two different flavours can never alias one entry.
+
     :param text: Grammar source in ``flavour``'s syntax.
     :param cache_key: Extra key prefix disambiguating otherwise-identical
         compilations; ``None`` uses the content key alone.
-    :param flavour: The grammar flavour name.
+    :param flavour: The grammar flavour — a registered name, or a live
+        :class:`~lexic.ir.IrFlavour` instance.
     :param vocabulary: The lens the grammar's terminals are read through — a
         tokenizer, a name → encoding registry, or both (they compose).
     :param directives: What the ``@directives`` would say, as an argument;
@@ -615,7 +636,12 @@ def compile_text(
     # reused and hand back another one's artefact. Both are hashable.
     # The directives are part of WHAT WAS COMPILED, so they key the memo too:
     # without them one source compiled two ways would hand back the first.
-    content_key: tuple[Hashable, ...] = (stem, flavour, vocabulary, directives)
+    content_key: tuple[Hashable, ...] = (
+        stem,
+        _flavour_key(flavour),
+        vocabulary,
+        directives,
+    )
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
@@ -686,19 +712,20 @@ def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
 def compile_from_path(
     grammar_path: str | Path,
     *,
-    flavour: str | None = None,
+    flavour: str | IrFlavour | None = None,
     vocabulary: Vocabulary = Vocabulary(),
     directives: Directives = Directives(),
 ) -> CompiledGrammar:
-    """Compile from a file path; memoised by (path, mtime, size, flavour).
+    """Compile from a file path; memoised by (path, mtime, size, flavour key).
 
     The path-taking wrapper around :func:`compile_text`, carrying its whole
     surface: a grammar with token terminals binds a vocabulary here exactly
-    as it would from source.
+    as it would from source, and a flavour instance compiles registry-free
+    exactly as it would there.
 
     :param grammar_path: Path to the grammar source file.
-    :param flavour: The grammar flavour name; inferred from the file
-        extension if omitted.
+    :param flavour: The grammar flavour name or instance; inferred from the
+        file extension if omitted.
     :param vocabulary: The lens the grammar's terminals are read through
         (see :func:`compile_text`).
     :param directives: What the ``@directives`` would say, as an argument.
@@ -717,7 +744,7 @@ def compile_from_path(
         str(path),
         stat.st_mtime,
         stat.st_size,
-        flavour,
+        _flavour_key(flavour),
         vocabulary,
         directives,
     )
@@ -736,7 +763,9 @@ def compile_from_path(
     return cg
 
 
-def parse_instance(text: str, grammar: str, *, flavour: str = "gbnf") -> GrammarModel:
+def parse_instance(
+    text: str, grammar: str, *, flavour: str | IrFlavour = "gbnf"
+) -> GrammarModel:
     """Parse ``text`` against grammar SOURCE — the one-line entry.
 
     Sugar for ``compile_text(grammar, flavour=flavour).parse(text)``; the
@@ -746,7 +775,7 @@ def parse_instance(text: str, grammar: str, *, flavour: str = "gbnf") -> Grammar
 
     :param text: The instance text to parse.
     :param grammar: Grammar source in ``flavour``'s syntax.
-    :param flavour: The grammar flavour name.
+    :param flavour: The grammar flavour name or instance.
     :returns: The start rule's model instance.
     :raises UnsupportedConstructError: If the grammar or the text refuses.
     """
@@ -754,14 +783,14 @@ def parse_instance(text: str, grammar: str, *, flavour: str = "gbnf") -> Grammar
 
 
 def parse_instance_from_path(
-    text: str, grammar_path: str | Path, *, flavour: str | None = None
+    text: str, grammar_path: str | Path, *, flavour: str | IrFlavour | None = None
 ) -> GrammarModel:
     """Parse ``text`` against a grammar FILE — the path-taking twin.
 
     :param text: The instance text to parse.
     :param grammar_path: Path to the grammar source file.
-    :param flavour: The grammar flavour name; inferred from the file
-        extension if omitted.
+    :param flavour: The grammar flavour name or instance; inferred from the
+        file extension if omitted.
     :returns: The start rule's model instance.
     :raises UnsupportedConstructError: If the grammar or the text refuses.
     """
