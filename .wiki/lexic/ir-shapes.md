@@ -10,6 +10,41 @@ The IR is the contract between parsers, transformers, codegen, and flavour emitt
 
 A node **is** its payload. There are NO `.value` / `.items` / `.arms` accessors — use the node directly. `IrType`, `coerce`, the load-bearing `IrNode.__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade are all GONE.
 
+### How a record's fields are derived — and why it is not `__dict__`
+
+`IrNamedTuple.__init_subclass__` reads the class body's annotations with
+`annotationlib.get_annotations(cls, format=Format.STRING)`. Two properties
+matter and neither is incidental:
+
+**It must not read `cls.__dict__["__annotations__"]`.** Under **PEP 649** a
+class body carrying annotations compiles to an `__annotate_func__`, and
+`__annotations__` is computed on *access* — so at `__init_subclass__` time
+`__dict__` holds nothing to read and every field registers as none. A module
+carrying `from __future__ import annotations` opts *out* of 649 and stores a
+plain dict eagerly, which is the only reason a `__dict__` read ever appeared to
+work: it was never reading annotations, it was reading a side effect of PEP
+563. The future import is therefore **irrelevant to correctness** here, and
+must stay that way — a record's fields work with or without it.
+
+**`format=STRING` never evaluates.** A forward reference in a field
+annotation cannot raise during class creation, which is what makes the
+self-referential records (`Spec`, `IrMap[IrStr, "Keep | Spec"]`) definable at
+all.
+
+The failure this replaced was silent in a way worth remembering: fields
+registering as none does not raise. The record still constructs, `repr` still
+looks right, and attribute reads still answer — from the class-level default
+rather than from the tuple. `len()` is 0. Every surface a person checks by
+hand looks correct.
+
+Two related guarantees, both tested:
+
+- **Surplus positional values raise.** A record given more values than it has
+  fields names the count and the fields rather than discarding the extras.
+- **A subclass adding no fields keeps its parent's.** `__init_subclass__`
+  merges rather than overwrites; a bare `type("Mine", (Num,), {})` has `Num`'s
+  fields. (`IrCachingTuple` merges its own bases and dedups, and is unaffected.)
+
 ### `IrSelf[Iri, Ir_co]` root
 
 Generic identity root and action-protocol base. `Iri` is the input node type; `Ir_co` the covariant return type (PEP 695 infers covariance since it is return-position only). Supplies:

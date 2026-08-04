@@ -1,5 +1,30 @@
 # Log
 
+## A record's fields, read properly under PEP 649
+
+`IrNamedTuple.__init_subclass__` derived fields from
+`cls.__dict__["__annotations__"]`. Under PEP 649 that dict does not exist at
+class-creation time — a class body compiles to `__annotate_func__` and
+`__annotations__` is computed on access — so fields registered as **none**,
+silently: the record still constructed, still compared, still answered
+attribute reads from class defaults, and `len()` was 0. The future import
+appeared to fix it only because PEP 563 stores a dict eagerly as a side
+effect.
+
+Now `annotationlib.get_annotations(format=STRING)`, which never evaluates, so
+a forward reference cannot raise during class creation and the future import
+is irrelevant to correctness. Read correctly rather than refuse loudly.
+
+Two more in the same family, each surfaced by fixing the one before it:
+surplus positional values were discarded silently (they raise now), and a
+subclass adding no fields lost its parent's. A payload test had been passing
+only because the surplus argument was swallowed — the defect covering for
+itself.
+
+`ir-shapes.md` gains "How a record's fields are derived — and why it is not
+`__dict__`".
+
+
 ## The engine floor opens; compile grows its AST-born and instance-flavour entries
 
 Three public-surface additions, one batch. (1) `lexic.parsing` root now
