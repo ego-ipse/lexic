@@ -35,7 +35,7 @@ from lexic.parsing.pda.runtime.build import (
     finish_delegate,
 )
 from lexic.parsing.pda.runtime.islands import island_value
-from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel, Watch
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 
 __all__ = ["pda_model", "pda_reduce"]
 
@@ -250,4 +250,4 @@ def pda_model[M](
     :raises PdaFail: On any deterministic-parse failure (caught by the compile
         seam, which retries on the full engine).
     """
-    return PdaKernel(tables, text, fold, Watch(resolve)).run()
+    return PdaKernel(tables, text, fold, resolve=resolve).run()

@@ -136,8 +136,7 @@ from lexic.parsing.fold import (
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.runtime.build import Step
-from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel, Watch
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.products import (
     earley_model,
     earley_reduce,
@@ -258,7 +257,6 @@ __all__ = [
     "RootNode",
     "RuleFold",
     "SppfNode",
-    "Step",
     "compile_tables",
     "derivations",
     "earley_model",
@@ -274,7 +272,6 @@ __all__ = [
     "CharTrieCursor",
     "TokenMaskCursor",
     "TokenTermCursor",
-    "Watch",
     "token_model",
     "parse_reduced",
     "recognize",
