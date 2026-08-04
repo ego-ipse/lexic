@@ -49,3 +49,4 @@ generated/
 
 # ── Fetched tokenizer fixtures (LGPL — never committed) ──
 resources/tokenizers/
+.gstack/
