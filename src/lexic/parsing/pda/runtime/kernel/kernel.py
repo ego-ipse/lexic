@@ -453,10 +453,14 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                 :raises PdaFail: When no arm's FIRST matches and there is no default.
         """
         char = self.text[self.pos : self.pos + 1]
-        settled = self._settle(clone, char, out)
-        if settled is None:
-            return False  # consumed inline — an empty arm, or an attempt run
-        clone = settled
+        if clone.mode == BUILD_DISPATCH or clone.attempt is not None:
+            # Most entries resolve to themselves; pay the call only when one of
+            # the two substituting shapes is actually present (measured: the
+            # unconditional call cost 1-3% on every grammar).
+            settled = self._settle(clone, char, out)
+            if settled is None:
+                return False  # consumed inline — empty arm, or an attempt run
+            clone = settled
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(
