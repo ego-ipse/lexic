@@ -291,6 +291,11 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     :attr:`selectors` and :attr:`default` with clone payloads instead of arms —
     the runtime chases them frame-lessly.
 
+    :ivar name: The rule this clone stands for, or ``""`` when it stands for
+        nothing the grammar named (an inline group). The flat artifact carries
+        its own provenance: a consumer holding a clone — the runtime deciding
+        which rule to island, a trace naming a frame — can say what it is
+        without reaching back into the compile-side binding view for a name.
     :ivar selectors: FIRST-gated arms as ``(chars, negated, arm)`` triples;
         ``arm`` is the target :class:`FlatClone` on a dispatch clone.
     :ivar kwin_selectors: ``None`` on the single-char path; a tuple of
@@ -356,6 +361,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     """
 
     __slots__ = (
+        "name",
         "selectors",
         "kwin_selectors",
         "pn_selectors",
@@ -376,6 +382,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "reduce_can_drop",
     )
 
+    name: str
     selectors: tuple[tuple[frozenset[str], bool, Any], ...]
     kwin_selectors: Any
     pn_selectors: Any

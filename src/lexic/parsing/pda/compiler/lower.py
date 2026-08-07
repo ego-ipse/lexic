@@ -222,6 +222,7 @@ def _flatten_selectors(
 def _flatten_group(group: GroupSpec, shells: dict[CloneKey, FlatClone]) -> FlatClone:
     """Lower an inline group to a transparent :class:`FlatClone`."""
     clone = FlatClone.__new__(FlatClone)
+    clone.name = ""  # an inline group stands for no rule the grammar named
     clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
         group.arms, shells
     )
@@ -362,6 +363,7 @@ def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
     actually runs with. ``selectors``/``default`` are the caller's to set.
     """
     sub = FlatClone.__new__(FlatClone)
+    sub.name = clone.name  # the sub-run stands for the parent's rule
     sub.kwin_selectors = None
     sub.pn_selectors = None
     sub.struct_arm = None
@@ -426,6 +428,7 @@ def flatten_clones(
     }
     for key, spec in clones.items():
         clone = shells[key]
+        clone.name = spec.name
         clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
             spec.arms, shells
         )

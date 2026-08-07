@@ -156,13 +156,29 @@ def test_flatarm_declares_exactly_the_parallel_per_item_arrays():
 
 def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     """FlatClone carries exactly the arm-selector + fold/build fields, no extras."""
-    expected = {"selectors", "kwin_selectors", "pn_selectors", "default"}
+    expected = {"name", "selectors", "kwin_selectors", "pn_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "fold", "fields"}
     expected |= {"fast", "defaults", "leaf", "needs_ends"}
     expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
     expected |= {"reduce_span", "reduce_can_drop"}
     assert set(FlatClone.__slots__) == expected
+
+
+def test_a_clone_carries_the_rule_name_it_stands_for():
+    """The flat artifact names itself — no reaching back into the binding view."""
+    pda = pda_from_text('root ::= lit "x"\nlit ::= "a" | "b"\n')
+    root = pda.program.start
+    assert root.name == "root"
+    assert only_arm(root).payloads[0].name == "lit"
+
+
+def test_an_inline_group_clone_has_an_empty_name():
+    """A group stands for no rule the grammar named, and says so."""
+    pda = pda_from_text('root ::= (a "y" | b) "c"\na ::= "x"\nb ::= "z"\n')
+    group = only_arm(pda.program.start).payloads[0]
+    assert isinstance(group, FlatClone)
+    assert group.name == ""
 
 
 def test_pdaprogram_declares_start_and_delegates_slots():
