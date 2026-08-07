@@ -3,7 +3,7 @@
 ## NEXT SESSION — start here
 
 **The gate investigation is CLOSED and the fix has LANDED** (solution A, after
-external review). Read **`gate/FINDING.md`** — §0–9 the account, §10 the
+external review). Read **`../260807-pda-linearity/FINDING.md`** — §0–9 the account, §10 the
 review, §11 what shipped. In one line: the codegen pass `relax_non_semantic`
 was deleting the metagrammar's authored maximal-munch discipline
 (`seq-rest ::= n item` → `n? item`, and `n ::= nunit+` → `nunit*`, so `n`
@@ -14,12 +14,15 @@ language-preserving. All ten ground-truth grammars ride the PDA with no
 resolver: **vyx 4.451s → 0.029s**. Gates green: run_checks exit 0, suite 3776
 passed, parity + property 141 passed, check_generated CLEAN, examples exit 0.
 
-**Still open, deliberately unbundled:** solution D — an attemptable rule
-carries ONE canonical clone with a rule-level union FOLLOW, so a rule ambiguous
-at one reference site probe-forks at EVERY site, and the fallback is
-whole-document rather than an island. The narrowing removed the trigger, not
-the mechanism; the review ranks the islanding half as constitutional (it
-follows the escapes-are-islands ruling), not merely an optimisation.
+**What to do next is argued in `../260807-pda-linearity/PLAN.md`** — the ordering over everything
+this investigation left open. Headline: the biggest item is NOT solution D. The
+PDA is **quadratic** on pipe-heavy vyx packets (`../260807-pda-linearity/PROBE-QUADRATIC.md`) — no
+fork, no fallback, the predictive runtime succeeding at 73 s for an 11 KB
+packet, 92% of it inside `_probe`, which runs one side of every boundary to
+end-of-input. Pre-existing, measured NOT a regression from the relaxation fix
+(and that A/B also answers the "gbnf-meta regressed" question: it did not,
+5.508 → 5.471 µs/char inside a 2.80% noise floor). Solution D stays sound with
+affordable economics but a narrower subject and a bounded ×7-8 prize.
 
 **Otherwise next:** rung 2's remaining half (the two engine clocks,
 switchable). Note atlas's `meta`/`vyx` fixtures no longer need the `first`
@@ -40,7 +43,7 @@ ledger), `atlas/THINKING.md` (the iteration map).
 | `tk/` | in-process tkinter probes: `demonstrator.py` (the four spine kinds + the instrument editing its own Style), `spectacle.py` (a parse watched, 50 chars), `wolf.py` (same at hostile scale, 3 fixtures) | done; superseded as a medium (canvas text is not selectable — the litmus); each has `--census` and `--shot` |
 | `facets/` | the composition answer: Python instrument ⇄ browser leaf, four facets of one reading, subject-level cursors, native selection → co-selection, edits as re-readings | done as built; ledger closed with a pointer to atlas |
 | `atlas/` | the ergonomics fork — the live line | rung 1 done (refusal frontier + edit-in-place); rung 2 first half done (background route, parity verdict, inversion marks) |
-| `gate/` | the fork investigation: `FINDING.md` (the account + proposed fixes), `variants.py` (three relaxation bodies, patched in place), `probes/` (five standalone probes), `relaxoff.py`/`relaxnull.py` (pytest plugins), `run_all.sh` | closed; awaiting a ruling |
+| `gate/` | **MOVED** — the engine line outgrew this effort and is now `../260807-pda-linearity/` (its `PLAN.md` is the order of work). Everything below the relaxation fix, the quadratic and solution D lives there | split out 2026-08-07 |
 | `STACK.md` | the stack position: answered before building, after building, amended after the selection litmus | current |
 
 ## Run
@@ -123,7 +126,7 @@ screenshots.
   additive surface carrying frontier position (and eventually expected-next).
   Until then atlas regex-reads the kernel's words — honest but fragile.
 - ~~**The namechar\* attempt-loop gate**~~ — **ANSWERED AND FIXED**
-  (`gate/FINDING.md`). Both halves turned out to be one bug: the codegen pass
+  (`../260807-pda-linearity/FINDING.md`). Both halves turned out to be one bug: the codegen pass
   `relax_non_semantic` was widening the metagrammar into ambiguity, so the
   "route-forcing fork" and the "model-product ambiguity" were the same cause
   seen at two sites. The pass now relaxes only nullable noise refs.
@@ -131,7 +134,7 @@ screenshots.
   probe-fork hands the WHOLE document to Earley (~n^3.2 here), not just the
   undecidable span; and because an attemptable rule carries one canonical
   clone with a rule-level union FOLLOW, a rule ambiguous at one reference site
-  forks at every site. See `gate/FINDING.md` §7 D — the review ranks the
+  forks at every site. See `../260807-pda-linearity/FINDING.md` §7 D — the review ranks the
   islanding half as constitutional (escapes are islands), not an optimisation.
 
 ## Traps (each cost time today)

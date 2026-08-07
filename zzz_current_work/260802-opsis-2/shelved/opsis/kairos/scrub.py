@@ -15,11 +15,12 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from lexic.ir import IrDoc
-from lexic.parsing import Step
 from opsis.opsis.draw.canvas import el, raw
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.read.parts import bounded, facts, refusal, stack
+
+from lexic.ir import IrDoc
+from lexic.parsing import Step
 
 __all__ = ["timeline_view"]
 

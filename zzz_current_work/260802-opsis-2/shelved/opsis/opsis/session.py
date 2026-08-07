@@ -11,16 +11,6 @@ rules — not because a flag was off. That is the whole rule for the fan.
 
 from __future__ import annotations
 
-from lexic.compile import CompiledGrammar
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import (
-    IrAst,
-    IrCat,
-    IrDoc,
-    IrNone,
-    IrRule,
-    IrSeq,
-)
 from opsis.eidolon.layout import layout
 from opsis.opsis.draw.canvas import el, html, raw
 from opsis.opsis.draw.canvas import text as _text
@@ -35,6 +25,17 @@ from opsis.opsis.read.views import (
 from opsis.praxis.ingress.reflect import written
 from opsis.praxis.reading import FOREIGN, Reading
 from opsis.praxis.session import Session
+
+from lexic.compile import CompiledGrammar
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import (
+    IrAst,
+    IrCat,
+    IrDoc,
+    IrNone,
+    IrRule,
+    IrSeq,
+)
 
 __all__ = [
     "spawn_bar",

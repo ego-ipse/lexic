@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from typing import NamedTuple, Sequence
 
-from lexic.ir import IrDoc
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
+
+from lexic.ir import IrDoc
 
 __all__ = [
     "BIG",

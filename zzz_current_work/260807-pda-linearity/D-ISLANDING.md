@@ -44,6 +44,15 @@ That property is what makes this change safe by construction. **Every uncertain
 outcome degrades to today's behaviour.** The change can cost a wasted island
 attempt; it cannot commit anything Earley would have refused.
 
+The follow-guard covers cross-span END choices. The other half of the soundness
+argument is the island's own engine run: two derivations of *equal* extent that
+build different values are refused by `island_parse` itself (the ambiguity gate
+folds both and compares — `IslandPolicy.fold` exists for exactly that question),
+which is the same refusal compile-time islands already rely on. So both classes
+are covered — differing extents by the follow guard, equal extents by the
+island's ambiguity gate — and nothing is left to a silent pick.
+(Review note 1, adopted.)
+
 ## 2. The mechanism
 
 On `ProbeFork`, instead of unwinding to the whole-document fallback:
@@ -145,12 +154,15 @@ the adversarial case and nothing in the corpus exercises it at size.
 
 1. `PdaTables.rule_follow` — FOLLOW for every rule, not just declared islands
    (§3). Additive, independently testable.
-2. **Clone → rule name.** `flatten_program` discards `flatten_clones`'s
-   `dict[CloneKey, FlatClone]`, and neither `FlatClone` nor `RuleFold` carries a
-   name — the trial probe had to recover it through
-   `compute_binding` (class name → rule name), which the kernel cannot do.
-   Either give `FlatClone` a `name` slot or retain the shells map on
-   `PdaProgram`.
+2. **Clone → rule name: give `FlatClone` a `name` slot.** `flatten_program`
+   discards `flatten_clones`'s `dict[CloneKey, FlatClone]`, and neither
+   `FlatClone` nor `RuleFold` carries a name — the trial probe recovered it
+   through `compute_binding` (class name → rule name), which is runtime reaching
+   into compile's binding view and a layering inversion the kernel must not
+   inherit. A name on the flat record is honest provenance; retaining the shells
+   map would work mechanically but leaves the artifact anonymous. Cost, stated:
+   `specs.py` is a pinned test vocabulary, so the slot moves pinned specs —
+   churn, not an objection. (Review note 2, adopted.)
 3. The kernel climb + rollback + splice (§2), model path first, reduce path
    stated either way.
 4. Re-run `forkcount.py`, `island_trial.py` and `probes/scaling.py` before/after.

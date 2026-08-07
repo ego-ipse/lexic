@@ -14,11 +14,6 @@ from __future__ import annotations
 
 from typing import Callable
 
-from lexic.compile import CompiledGrammar
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrAst, IrDoc, IrFlavour, IrTokenizer
-from lexic.model import GrammarModel
-from lexic.parsing import lift_optional_nullables
 from opsis.deixis.trees import tree_space
 from opsis.kairos.constrain import sample
 from opsis.opsis.draw.canvas import el
@@ -77,6 +72,12 @@ from opsis.praxis.deeds.acts import Deed, deeds
 from opsis.praxis.deeds.carve import bench
 from opsis.praxis.reading import Reading
 from opsis.praxis.session import Session, alphabets
+
+from lexic.compile import CompiledGrammar
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrAst, IrDoc, IrFlavour, IrTokenizer
+from lexic.model import GrammarModel
+from lexic.parsing import lift_optional_nullables
 
 __all__ = [
     "CURSORS",

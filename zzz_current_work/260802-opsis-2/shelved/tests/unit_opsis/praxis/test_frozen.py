@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
-from lexic.compile import Directives
-from lexic.exceptions import UnsupportedConstructError
 from opsis.praxis.ingress.frozen import freeze, thaw
 from opsis.praxis.reading import Source
 from opsis.praxis.session import Session
+
+from lexic.compile import Directives
+from lexic.exceptions import UnsupportedConstructError
 
 
 def _populated(tmp_path: Path) -> Session:

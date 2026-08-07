@@ -15,20 +15,6 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from lexic.compile import CompiledGrammar
-from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir import (
-    IrAction,
-    IrAst,
-    IrDoc,
-    IrLeaf,
-    IrRule,
-    IrSelf,
-    IrTokenizer,
-    IrTypeMap,
-    render,
-)
-from lexic.model import GrammarModel
 from opsis.deixis.trees import instance_view, model_rows, twin
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
@@ -47,6 +33,21 @@ from opsis.opsis.read.parts import (
     titled,
 )
 from opsis.opsis.read.trees import railroad_view, rules_view
+
+from lexic.compile import CompiledGrammar
+from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.ir import (
+    IrAction,
+    IrAst,
+    IrDoc,
+    IrLeaf,
+    IrRule,
+    IrSelf,
+    IrTokenizer,
+    IrTypeMap,
+    render,
+)
+from lexic.model import GrammarModel
 
 __all__ = [
     "BIG",

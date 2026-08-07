@@ -15,12 +15,13 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import NamedTuple, Sequence
 
-from lexic.compile import CompiledGrammar, export_source
-from lexic.grammars import get_flavour
-from lexic.ir import IrAst, IrDoc
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.space import Box, Frame, frame
 from opsis.opsis.read.views import Node, graph, panel
+
+from lexic.compile import CompiledGrammar, export_source
+from lexic.grammars import get_flavour
+from lexic.ir import IrAst, IrDoc
 
 __all__ = ["Diff", "module_view", "pipeline_view"]
 

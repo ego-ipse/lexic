@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from opsis.praxis.deeds.carve import Shape, carve, read_shape, read_spec
 
 from lexic.compile import compile_text
 from lexic.compile.templating import KEEP
 from lexic.exceptions import UnsupportedConstructError
-from opsis.praxis.deeds.carve import Shape, carve, read_shape, read_spec
 
 _TOY = r"""
 # One formulation of a nested key=value map. Deliberately NOT the

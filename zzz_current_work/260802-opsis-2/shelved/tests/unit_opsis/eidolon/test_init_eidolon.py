@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from lexic.compile import parse_grammar
-from lexic.grammars import GBNF_FLAVOUR
 from opsis.eidolon.layout import layout
 from opsis.eidolon.topology import Topology
+
+from lexic.compile import parse_grammar
+from lexic.grammars import GBNF_FLAVOUR
 
 
 def test_layout_centres_a_parent_over_its_children() -> None:

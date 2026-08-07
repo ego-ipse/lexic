@@ -10,13 +10,14 @@ from __future__ import annotations
 
 from typing import Callable, NamedTuple
 
-from lexic.compile import CompiledGrammar
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrDoc
 from opsis.kairos.constrain import Cursors
 from opsis.kairos.resume import Resumes
 from opsis.praxis.reading import Reading, self_compiled
 from opsis.praxis.session import Session
+
+from lexic.compile import CompiledGrammar
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrDoc
 
 __all__ = [
     "CURSORS",

@@ -9,8 +9,6 @@ grammar read this reading — and that is the only thing they share.
 
 from __future__ import annotations
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrDoc, IrTokenizer
 from opsis.kairos.scrub import timeline_view
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.floor.analysis import analysis_view
@@ -28,6 +26,9 @@ from opsis.opsis.read.parts import chip
 from opsis.opsis.read.views import resume_view
 from opsis.praxis.reading import Reading
 from opsis.praxis.session import Session
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrDoc, IrTokenizer
 
 __all__ = [
     "analysis_pane",

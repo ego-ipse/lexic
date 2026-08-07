@@ -16,10 +16,10 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
-
-from lexic.model import GrammarModel
 from opsis.praxis.ingress.reflect import REFLECTED
 from opsis.praxis.serve import OpsisServer, serve
+
+from lexic.model import GrammarModel
 
 _VOID = frozenset(
     {"br", "input", "img", "hr", "meta", "link", "area", "base", "col", "wbr"}

@@ -9,10 +9,10 @@ import tkinter as tk
 import tkinter.font as tkfont
 from collections.abc import Callable
 
+from scene import Path, Style
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrInt, IrNamedTuple, IrNoneType, IrSelf, IrStr
-
-from scene import Path, Style
 
 Box = tuple[int, int, int, int]
 FontCache = dict[tuple[str, int, str, int], tkfont.Font]

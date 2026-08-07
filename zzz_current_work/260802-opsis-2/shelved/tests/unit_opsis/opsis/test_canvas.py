@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from opsis.opsis.draw.canvas import el, html, raw, text
 
 from lexic.exceptions import UnsupportedConstructError
-from opsis.opsis.draw.canvas import el, html, raw, text
 
 
 def test_text_escapes_angle_brackets_ampersand_and_quote() -> None:

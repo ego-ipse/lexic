@@ -45,7 +45,14 @@ class Span(NamedTuple):
 
 
 def first(first_meaning: object, _witness: object) -> object:
-    """The explicit ambiguity opt-out — a deterministic first-derivation resolver."""
+    """The explicit ambiguity opt-out — a deterministic first-derivation resolver.
+
+    No fixture needs it any more: the metagrammar stopped being ambiguous when
+    ``relax_non_semantic`` was narrowed to nullable noise rules (see
+    ``../../260807-pda-linearity/FINDING.md``). Kept as the instrument's opt-out channel — a
+    subject that needs one sets ``self.resolve``, and the whole instrument
+    branches on that switch.
+    """
     return first_meaning
 
 
@@ -61,6 +68,7 @@ class Subject:
             self.doc_path = HERE.parent / "tk" / "fixtures_long.json"
             self.document = self.doc_path.read_text()
             self.resolve = None
+            self.corrupt_at = len(self.document) // 2
         else:
             self.compiled = compile_ast(GBNF_FLAVOUR.grammar)
             self.reader_text = str(GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar))
@@ -68,7 +76,11 @@ class Subject:
             name = "vyx.gbnf" if key == "vyx" else "json.gbnf"
             self.doc_path = ROOT / "resources" / "ground_truth" / name
             self.document = self.doc_path.read_text()
-            self.resolve = first
+            self.resolve = None
+            # A control char mid-document is VALID inside a GBNF comment
+            # (cmchar admits \x00-\t) — measured, not assumed. Corrupt at 0,
+            # where no line form can start with \x01.
+            self.corrupt_at = 0
         self.generation = 0
         self.t = 0.0
         self.selection = -1
@@ -316,16 +328,15 @@ def census(subject: Subject) -> int:
     handler.subject = subject
     same = subject.document[first_span.start : first_span.end]
     ok_edit = handler.retype(f"{first_span.start} {first_span.end}\n{same}").startswith("ok")
-    # a mid-document control char is VALID inside the metagrammar's comments
-    # (cmchar admits \x00-\t) — measured, not assumed. Corrupt where the
-    # grammar cannot recover: mid-document on the PDA route (frontier check),
-    # position 0 on resolver routes (no line form starts with \x01).
-    mid = len(subject.document) // 2 if subject.resolve is None else 0
+    # Where the grammar cannot recover — the subject carries its own offset
+    # and the reason (a control char is legal inside a GBNF comment).
+    mid = subject.corrupt_at
     refusal = handler.retype(f"{mid} {mid + 1}\n\x01")
     head, _, words = refusal.partition("\n")
     pos = int(head.split()[1]) if head.startswith("refuse") else -2
     ok_refuse = head.startswith("refuse") and subject.document[mid] != "\x01"
-    ok_frontier = pos >= 0 if subject.resolve is None else pos == -1
+    # every fixture is PDA-routed now, so every frontier is measurable
+    ok_frontier = pos >= 0
     span0 = subject.spans[0]
     saved = handler.retype(
         f"{span0.start} {span0.end}\n{subject.document[span0.start:span0.end]}", persist=True

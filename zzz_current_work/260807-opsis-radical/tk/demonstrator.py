@@ -15,8 +15,6 @@ import sys
 import tkinter as tk
 import tkinter.font as tkfont
 
-from lexic.ir import IrInt, IrNamedTuple, IrNone, IrNoneType, IrSelf, IrStr
-
 from present import (
     MONO_FAMILIES,
     SANS_FAMILIES,
@@ -36,6 +34,8 @@ from scene import (
     spell_path,
     walk,
 )
+
+from lexic.ir import IrInt, IrNamedTuple, IrNone, IrNoneType, IrSelf, IrStr
 
 W, H = 1500, 940
 MARGIN = 28

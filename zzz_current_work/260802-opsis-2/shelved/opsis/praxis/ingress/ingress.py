@@ -29,6 +29,8 @@ import sys
 from pathlib import Path
 from typing import Callable, NamedTuple
 
+from opsis.praxis.reading import Params, Reader, _flavour_reader
+
 from lexic import grammars
 from lexic.api.json_tokenizer import tokenizer_of
 from lexic.compile import compile_ast, load_ir, parse_module
@@ -40,7 +42,6 @@ from lexic.grammars import flavour_for_extension
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrAst, IrMap
 from lexic.parsing import Reducer, parse_reduced
-from opsis.praxis.reading import Params, Reader, _flavour_reader
 
 __all__ = [
     "Entry",

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-
 from opsis.praxis.reading import Reading, Source
 from opsis.praxis.session import Session
 

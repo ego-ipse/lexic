@@ -17,6 +17,10 @@ import random
 from pathlib import Path
 from typing import NamedTuple
 
+from opsis.praxis.ingress.ingress import open_file
+from opsis.praxis.reading import Reading, Source
+from opsis.praxis.session import Session
+
 from lexic.compile import CompiledGrammar
 from lexic.compile.module.export import export_module
 from lexic.compile.payload.export import export_value
@@ -24,9 +28,6 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.ir import IrSelf, IrTokenizer
 from lexic.model import GrammarModel
-from opsis.praxis.ingress.ingress import open_file
-from opsis.praxis.reading import Reading, Source
-from opsis.praxis.session import Session
 
 __all__ = ["Deed", "deeds", "perform"]
 

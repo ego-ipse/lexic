@@ -13,14 +13,15 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.compile import parse_grammar
-from lexic.grammars import get_flavour
-from lexic.ir import IrAst, IrDoc
-from lexic.ir.grammar.canonical import canonicalize
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.read.parts import bounded, panel, stack
 from opsis.praxis.reading import FOREIGN
+
+from lexic.compile import parse_grammar
+from lexic.grammars import get_flavour
+from lexic.ir import IrAst, IrDoc
+from lexic.ir.grammar.canonical import canonicalize
 
 __all__ = ["Lane", "lane_of", "lane_view", "transpile_view"]
 

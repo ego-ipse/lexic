@@ -16,13 +16,14 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from opsis.opsis.floor.engine import walked
+from opsis.praxis.reading import FOREIGN, Reading
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import compile_tables
 from lexic.parsing.earley.kernel.forest.readout import accept_item
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.resume import ResumableKernel
-from opsis.opsis.floor.engine import walked
-from opsis.praxis.reading import FOREIGN, Reading
 
 __all__ = ["Mark", "Resume", "Resumes"]
 

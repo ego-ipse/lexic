@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from opsis.praxis.reading import Outcome, Reading, refusal_of
+
 from lexic.compile import compile_text
 from lexic.grammars import GBNF_FLAVOUR
-from opsis.praxis.reading import Outcome, Reading, refusal_of
 
 _TOY = 'root ::= "x"+\n'
 

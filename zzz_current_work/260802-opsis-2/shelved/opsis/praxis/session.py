@@ -16,9 +16,6 @@ from __future__ import annotations
 from pathlib import Path
 from time import perf_counter
 
-from lexic.compile import CompiledGrammar
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrAlphabet, IrMap, IrSelf, IrStr, IrTuple
 from opsis.praxis.reading import (
     FOREIGN,
     Outcome,
@@ -28,6 +25,10 @@ from opsis.praxis.reading import (
     Source,
     refusal_of,
 )
+
+from lexic.compile import CompiledGrammar
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrAlphabet, IrMap, IrSelf, IrStr, IrTuple
 
 __all__ = ["Session", "alphabets"]
 

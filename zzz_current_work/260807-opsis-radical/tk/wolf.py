@@ -28,12 +28,12 @@ from bisect import bisect_right
 from pathlib import Path as FsPath
 from typing import NamedTuple
 
+from present import MONO_FAMILIES, SANS_FAMILIES, FontCache, Frame
+from scene import initial_session
+
 from lexic.compile import compile_ast, compile_from_path
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.model import GrammarModel
-
-from present import MONO_FAMILIES, SANS_FAMILIES, FontCache, Frame
-from scene import initial_session
 
 HERE = FsPath(__file__).resolve().parent
 ROOT = HERE.parents[1]

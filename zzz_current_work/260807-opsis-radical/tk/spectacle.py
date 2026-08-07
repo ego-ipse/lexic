@@ -20,11 +20,11 @@ import tkinter.font as tkfont
 from pathlib import Path as FsPath
 from typing import NamedTuple
 
-from lexic.compile import compile_from_path
-from lexic.model import GrammarModel
-
 from present import MONO_FAMILIES, SANS_FAMILIES, FontCache, Frame
 from scene import initial_session
+
+from lexic.compile import compile_from_path
+from lexic.model import GrammarModel
 
 W, H = 1500, 730
 MARGIN = 28

@@ -14,13 +14,14 @@ notation reader a manifest is, and refuses the same way.
 
 from __future__ import annotations
 
+from opsis.opsis.draw.scene import SYMBOLS, Space, VisualNode
+from opsis.praxis.reading import Params, Reader
+from opsis.praxis.session import Session
+
 from lexic.compile import load_ir
 from lexic.compile.notation.emit import emit_ir
 from lexic.compile.notation.parse import NOTATION_GRAMMAR
 from lexic.exceptions import UnsupportedConstructError
-from opsis.opsis.draw.scene import SYMBOLS, Space, VisualNode
-from opsis.praxis.reading import Params, Reader
-from opsis.praxis.session import Session
 
 __all__ = ["REFLECTED", "scene_reader", "scene_text", "written"]
 

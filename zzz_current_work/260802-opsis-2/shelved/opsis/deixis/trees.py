@@ -16,8 +16,6 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.ir import IrDoc, IrSelf
-from lexic.model import GrammarModel
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.read.parts import (
     Node,
@@ -26,6 +24,9 @@ from opsis.opsis.read.parts import (
     panel,
     refusal,
 )
+
+from lexic.ir import IrDoc, IrSelf
+from lexic.model import GrammarModel
 
 __all__ = ["Twig", "instance_view", "model_rows", "tree_space", "twin"]
 

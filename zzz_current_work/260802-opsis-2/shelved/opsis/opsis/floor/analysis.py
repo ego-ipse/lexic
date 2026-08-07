@@ -13,14 +13,15 @@ which made the decision wrote it.
 
 from __future__ import annotations
 
-from lexic.compile import CompiledGrammar
-from lexic.ir import IrDoc
-from lexic.parsing import GrammarAnalysis
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.floor.engine import walked
 from opsis.opsis.read.views import facts, panel, refusal
 from opsis.praxis.reading import FOREIGN
+
+from lexic.compile import CompiledGrammar
+from lexic.ir import IrDoc
+from lexic.parsing import GrammarAnalysis
 
 __all__ = ["analysis_view", "verdict_of"]
 

@@ -10,11 +10,12 @@ is about making two things name each other rather than about form.
 
 from __future__ import annotations
 
-from lexic.ir import IrAst, IrDoc
 from opsis.eidolon.topology import Topology
 from opsis.opsis.draw.canvas import el, raw
 from opsis.opsis.draw.graphic import RAIL_CSS, rule_svg
 from opsis.opsis.read.parts import Node, graph
+
+from lexic.ir import IrAst, IrDoc
 
 __all__ = ["railroad_view", "rules_view"]
 

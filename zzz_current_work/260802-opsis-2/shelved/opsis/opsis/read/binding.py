@@ -11,15 +11,16 @@ windows is that the answer is derivable and shown, never guessed.
 
 from __future__ import annotations
 
-from lexic.compile import CompiledGrammar
-from lexic.ir import IrDoc
-from lexic.parsing import compile_tables
-from lexic.parsing.earley.lexruns import run_candidates
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.floor.engine import walked
 from opsis.opsis.read.views import facts, grid, panel, refusal
 from opsis.praxis.reading import FOREIGN
+
+from lexic.compile import CompiledGrammar
+from lexic.ir import IrDoc
+from lexic.parsing import compile_tables
+from lexic.parsing.earley.lexruns import run_candidates
 
 __all__ = ["binding_view", "fold_view", "runs_of"]
 

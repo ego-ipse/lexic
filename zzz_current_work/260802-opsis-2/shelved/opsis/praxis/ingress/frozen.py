@@ -12,13 +12,14 @@ as the sentence that says so.
 
 from __future__ import annotations
 
+from opsis.praxis.ingress.ingress import SHIPPED, manifests
+from opsis.praxis.reading import Params, Reading
+from opsis.praxis.session import Session
+
 from lexic.compile import Directives, load_ir
 from lexic.compile.notation.emit import emit_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrNamedTuple, IrSeq, IrStr
-from opsis.praxis.ingress.ingress import SHIPPED, manifests
-from opsis.praxis.reading import Params, Reading
-from opsis.praxis.session import Session
 
 __all__ = ["SESSION_SYMBOLS", "Held", "Saved", "freeze", "thaw"]
 

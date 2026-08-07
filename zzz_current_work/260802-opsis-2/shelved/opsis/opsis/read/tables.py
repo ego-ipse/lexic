@@ -15,8 +15,9 @@ from __future__ import annotations
 from inspect import isroutine
 from typing import NamedTuple
 
-from lexic.ir import IrAst, IrDoc, IrFlavour, IrMapping
 from opsis.opsis.read.views import VIEWS, bounded, facts, grid, panel, refusal, titled
+
+from lexic.ir import IrAst, IrDoc, IrFlavour, IrMapping
 
 __all__ = [
     "Table",

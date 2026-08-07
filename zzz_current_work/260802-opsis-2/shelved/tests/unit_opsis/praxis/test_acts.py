@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
-
-from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars import GBNF_FLAVOUR
 from opsis.praxis.deeds.acts import deeds, perform
 from opsis.praxis.ingress.ingress import vocabulary_reader
 from opsis.praxis.reading import Reading, Source, _flavour_reader
 from opsis.praxis.session import Session
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import GBNF_FLAVOUR
 from tests.paths import GROUND_TRUTH
 
 BindVocab = Callable[[Session, Reading, str], Reading]

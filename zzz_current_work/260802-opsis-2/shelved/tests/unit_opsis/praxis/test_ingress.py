@@ -5,13 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from opsis.praxis.ingress.ingress import browse, manifests, open_file, resolve
 
 from lexic.compile import compile_text
 from lexic.compile.module.export import export_module
 from lexic.compile.notation.loader import load_flavour
 from lexic.compile.payload.export import export_value
 from lexic.exceptions import UnsupportedConstructError
-from opsis.praxis.ingress.ingress import browse, manifests, open_file, resolve
 from tests.paths import PROJECT_ROOT
 
 _TOY = 'root ::= "x"+\n'

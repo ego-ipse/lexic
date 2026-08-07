@@ -1,8 +1,10 @@
 # The gate — why the PDA leaves the fast road one char into the first rulename
 
-**Status:** diagnosed, root cause confirmed by counterfactual, fix measured but
-**NOT applied**. `src/` is untouched; every measurement below goes through a
-monkeypatch in `variants.py`. Awaiting a ruling on which narrowing to build.
+**Status: SOLUTION A IMPLEMENTED AND GREEN** (2026-08-07, after external
+review — see §10, and §11 for what landed). Sections 0–9 are the investigation
+as written *before* the fix; read them in the past tense. The probe variants
+have been re-pointed accordingly: `today` is now the fixed pass, and
+`unconditional` reproduces the bug.
 
 ---
 
@@ -273,14 +275,14 @@ docstring should say which condition makes it true.
 ## 9. Reproducing all of it
 
 ```bash
-zzz_current_work/260807-opsis-radical/gate/run_all.sh      # everything, all variants
+zzz_current_work/260807-pda-linearity/run_all.sh      # everything, all variants
 uv run python .../gate/probes/repro.py      [today|off|nullable]   # the ten-char repro
 uv run python .../gate/probes/gate_dump.py  [today|off|nullable]   # every attempt gate
 uv run python .../gate/probes/shapes.py     [today|off|nullable]   # what the pass rewrites
 uv run python .../gate/probes/corpus.py     [today|off|nullable]   # route + timing, all ten
 uv run python .../gate/probes/cost.py       [today|off|nullable]   # what the fix costs
 
-PYTHONPATH=zzz_current_work/260807-opsis-radical/gate \
+PYTHONPATH=zzz_current_work/260807-pda-linearity \
   tools/guarded.sh 8G 1800 -- uv run pytest tests/ -q -n auto -p relaxnull
 ```
 
@@ -323,3 +325,119 @@ goes from silently accepted to refused). This reviewer's position: that is not
 the cost of the fix — it IS the fix; the current behaviour is the engine
 second-guessing an authored quantifier, which the repo's first principle
 forbids.
+
+---
+
+## 11. What landed (solution A, per the §10 review)
+
+**`src/lexic/compile/pipeline/passes.py`** — `relax_non_semantic` narrowed to
+one line, `targets = ast.non_semantic & nullable_names(ast.rules)`, solved on
+the incoming grammar. Docstring rewritten to carry the ε-equivalence, the GBNF
+case, and the self-fulfilling-fixpoint trap; the module header no longer claims
+all three rewrites are language-preserving unconditionally.
+
+**`src/lexic/parsing/__init__.py`** — `nullable_names` exported (review note 2:
+the `lift_optional_nullables` precedent; the `ir/grammar/` move is deferred as
+a separate cleanliness effort, not a blocker on the 163×). Named in the module
+docstring beside the engine floor, with its reason.
+
+**Tests re-stated to assert BOTH halves** (review note 3). In
+`passes_cases.py`, every `ws` fixture that meant to exercise relaxation is now
+genuinely nullable (`" "*` not `" "+`) — five cases were passing for the wrong
+reason once the pass narrowed. Three cases now stand where one did:
+
+- `test_relax_sets_min_zero_on_nullable_noise_refs` — the ergonomic half;
+- `test_relax_keeps_refs_to_required_noise_rules` — **the load-bearing half**,
+  the one this bug needed and nothing pinned;
+- `test_relax_reads_nullability_from_the_incoming_grammar` — pins the trap: a
+  noise rule the pass would itself make nullable does not thereby license
+  relaxing refs to it (the exact `n ::= nunit+` / `nunit` shape).
+
+`test_clones.py` — `PINNED_CLONE_COUNTS["c.gbnf"]` 69 → 75.
+
+**Docs** (review note 3): `CLAUDE.md`'s Directives section no longer says "their
+refs get min=0" flat; `.wiki/lexic/codegen.md`'s pass bullet carries the
+condition and its reasoning; `.wiki/lexic/decisions.md` gains *"A codegen pass
+may not overrule an authored quantifier"* with the accepted cost and the
+still-open per-site question; `.wiki/log.md` logs it.
+
+**Gates, all green:** `tools/run_checks.sh` exit 0 · full suite 3776 passed,
+8 skipped · parity differentials + property suite 141 passed ·
+`tools/check_generated.py` CLEAN (49 modules, 0 pyright errors) ·
+`tools/run_examples.sh` exit 0.
+
+**Verified after landing:** all ten ground-truth grammars ride the PDA with no
+resolver, round-trip holding — vyx **4.451 s → 0.029 s** measured against the
+`unconditional` variant on the same machine, same run.
+
+**Not done, deliberately:** solution D (per-site attempt licences, and islanding
+the undecidable span rather than failing whole-document). Review note 4 ranks
+the islanding half as constitutional rather than optional — it follows the
+standing escapes-are-islands ruling. Unbundled, still open.
+
+---
+
+## 12. Is solution D worth doing? — the premise, measured
+
+Before building D, the same question the relaxation fix earned: **does anything
+real still take the slow road, and what does it cost there?**
+
+`forkcount.py` (a pytest plugin that tallies `PdaFail` / `ProbeFork` by raise
+site — patching `__init__` on the existing classes, never substituting
+subclasses; a sibling subclass breaks `except PdaFail` and 51 tests with it)
+over the whole suite:
+
+```
+PdaFail        6321      ← overwhelmingly the attempt machinery's own control
+ProbeFork         9         flow: a sub-run fails, the loop closes. Expected.
+```
+
+**Nine forks in 3,776 tests, and all nine are the same subject:** vyx.gbnf as an
+*instance* grammar — pipe-list values (`|a|b|c`) and dict-defs (`D:col{a=1 b=2}`),
+raised at `runtime/kernel/kernel.py:341` and `:563` (the runtime's attempt/probe
+decisions — a different site from the metagrammar's flat `GATE_ATTEMPT`). No
+other grammar in the corpus forks at all any more.
+
+Then the cost, which is a question about SIZE, not count — `probes/scaling.py`
+grows a vyx block body of real corpus lines and times the public parse against a
+non-forking body of the same size:
+
+```
+ lines   chars     forking body        plain body
+     1      29   fallback  0.003s     PDA  0.000s   ×8
+     8     135   fallback  0.007s     PDA  0.001s   ×7
+    32     495   fallback  0.024s     PDA  0.003s   ×8
+```
+
+**A flat ×7–8, and it scales linearly.** That is the finding that decides D. The
+~n³·² blowup measured earlier was specific to the *metagrammar* — a dense
+grammar where chart density compounds. On vyx the fallback is a constant factor:
+the chart stays sparse, so a fork costs a multiplier, not an explosion. A
+10,000-char vyx packet full of dict-defs extrapolates to ~0.5 s against ~0.06 s
+— worth having, nowhere near the 163× superlinear prize solution A carried.
+
+**Recommendation: not now.** Three reasons, in order of weight:
+
+1. **The prize is a constant factor on one grammar's constructs.** A was 163×
+   and superlinear on every grammar read through the metagrammar. D is ×7–8 on
+   vyx packets that contain pipe-lists or dict-defs. Real, bounded, not urgent.
+2. **D's first half fights a deliberate, measured decision.** Per-site attempt
+   licences mean per-site clones, and `_spec_ruleref` records why there is
+   exactly one: per-tail clones made every `(rule, pos)` re-attempt a fresh memo
+   key — *60% of all sub-runs on the vyx corpus*. Reversing that trades a
+   measured cost on the common path for a measured gain on the rare one, and
+   nobody has measured the trade. That is its own investigation, not a fix.
+3. **Scope.** This is an ergonomics effort with a live ladder (rung 2's second
+   half). D is a lexic engine effort and belongs in its own directory with its
+   own gate.
+
+**What would change the answer:** evidence that large vyx packets carrying these
+constructs are a real workload. The forks are on vyx's *own* common syntax, so
+if packet bodies grow, the ×8 starts to matter. That is a vyx question, not a
+lexic one.
+
+**If D is built, build only its second half first** — island the undecidable
+span instead of failing whole-document. It is the review's constitutional half
+(escapes are islands), the island machinery already exists (`runtime/islands.py`,
+`island_tables`, the delegate compile), and it collapses the ×8 without touching
+the clone-identity decision at all. Half one can then be judged on what is left.

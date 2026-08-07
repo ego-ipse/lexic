@@ -21,10 +21,11 @@ from __future__ import annotations
 import math
 from typing import NamedTuple, Sequence
 
-from lexic.ir import IrAction, IrCat, IrDoc, IrLeaf, IrNone, IrSelf, IrTypeMap
 from opsis.opsis.draw.canvas import el, html, raw
 from opsis.opsis.draw.scene import Moon, Rail, Ring, Space
 from opsis.opsis.draw.theme import css
+
+from lexic.ir import IrAction, IrCat, IrDoc, IrLeaf, IrNone, IrSelf, IrTypeMap
 
 __all__ = [
     "CAMERA",

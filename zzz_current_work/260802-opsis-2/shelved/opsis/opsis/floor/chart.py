@@ -12,16 +12,17 @@ would be worse than saying so.
 
 from __future__ import annotations
 
-from lexic.compile import CompiledGrammar
-from lexic.ir import IrDoc, IrTokenizer
-from lexic.parsing import ParserTables, compile_tables
-from lexic.parsing.earley.kernel.forest.readout import decode_item
-from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from opsis.opsis.draw.canvas import el
 from opsis.opsis.draw.canvas import text as _text
 from opsis.opsis.floor.engine import walked
 from opsis.opsis.read.views import facts, grid, panel, refusal, titled
 from opsis.praxis.reading import FOREIGN
+
+from lexic.compile import CompiledGrammar
+from lexic.ir import IrDoc, IrTokenizer
+from lexic.parsing import ParserTables, compile_tables
+from lexic.parsing.earley.kernel.forest.readout import decode_item
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
 
 __all__ = ["chart_view", "segmentation_view"]
 

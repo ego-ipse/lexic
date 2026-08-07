@@ -14,6 +14,17 @@ from __future__ import annotations
 
 from typing import Sequence
 
+from opsis.opsis.draw.canvas import el
+from opsis.opsis.draw.canvas import text as _text
+from opsis.opsis.read.parts import (
+    Node,
+    bounded,
+    facts,
+    graph,
+    refusal,
+    stack,
+)
+
 from lexic.compile import CompiledGrammar
 from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrDoc, IrSelf
@@ -29,16 +40,6 @@ from lexic.parsing import (
     recognize,
 )
 from lexic.parsing.pda.core.errors import PdaFail
-from opsis.opsis.draw.canvas import el
-from opsis.opsis.draw.canvas import text as _text
-from opsis.opsis.read.parts import (
-    Node,
-    bounded,
-    facts,
-    graph,
-    refusal,
-    stack,
-)
 
 __all__ = [
     "derivation_view",

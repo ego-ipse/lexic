@@ -12,10 +12,11 @@ grammar means nothing under the new one.
 
 from __future__ import annotations
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrTokenizer
 from opsis.praxis.reading import Reading
 from opsis.praxis.session import Session
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrTokenizer
 
 __all__ = ["Cursors", "Prefix"]
 

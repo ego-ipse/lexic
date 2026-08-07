@@ -417,3 +417,13 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   only for simultaneity" survives in THINKING as advice, not enforcement;
   cascade staggers modulo 8 so a pile of pins stays on screen. Screenshot:
   five overlapping pins, the wide rule window unwrapped on one line.
+- **`gate/` SPLIT OUT to `../../260807-pda-linearity/`** (user's call, and this
+  plan's own recommendation): the engine line — the relaxation fix, the PDA
+  quadratic, solution D, the provenance asks — had outgrown an ergonomics
+  effort. Every `gate/...` path in the entries above resolves there now; that
+  effort carries its own HANDOVER and TALLY, and its `PLAN.md` is the order of
+  work. Nothing moved in `src/`. **This ledger continues to own atlas only** —
+  the live line here is rung 2's remaining half (the two engine clocks), and
+  the two items the engine effort holds for atlas are the refusal position on
+  the record (kills atlas's regex-over-prose) and `FlatClone.name`, both ranked
+  first in that plan regardless of the split.

@@ -17,12 +17,13 @@ from __future__ import annotations
 
 from typing import Callable, NamedTuple
 
-from lexic.compile import CompiledGrammar
-from lexic.model import GrammarModel
 from opsis.opsis.pane import artefact
 from opsis.praxis.deeds.acts import deeds
 from opsis.praxis.reading import Reading
 from opsis.praxis.session import Session, alphabets
+
+from lexic.compile import CompiledGrammar
+from lexic.model import GrammarModel
 
 __all__ = [
     "OFFERS",

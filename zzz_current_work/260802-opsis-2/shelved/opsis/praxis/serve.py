@@ -16,11 +16,6 @@ from pathlib import Path
 from typing import Callable, NamedTuple
 from urllib.parse import SplitResult, parse_qs, urlsplit
 
-from lexic.compile import Directives
-from lexic.compile.notation.emit import emit_ir
-from lexic.compile.notation.parse import NOTATION_GRAMMAR
-from lexic.exceptions import LexicError, UnsupportedConstructError
-from lexic.ir import IrCat, IrTokenizer
 from opsis.opsis.draw.canvas import el, html, raw
 from opsis.opsis.draw.scene import Space
 from opsis.opsis.draw.space import page
@@ -52,6 +47,12 @@ from opsis.praxis.ingress.ingress import (
 from opsis.praxis.ingress.reflect import REFLECTED, scene_reader, scene_text
 from opsis.praxis.reading import FOREIGN, Outcome, Reading, Source
 from opsis.praxis.session import Session
+
+from lexic.compile import Directives
+from lexic.compile.notation.emit import emit_ir
+from lexic.compile.notation.parse import NOTATION_GRAMMAR
+from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.ir import IrCat, IrTokenizer
 
 __all__ = ["Handler", "OpsisServer", "serve"]
 
