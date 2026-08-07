@@ -257,7 +257,7 @@ def test_unbounded_terminal_is_never_specialised_to_its_exactly_once_code():
     assert arm.his[0] == HI_UNBOUNDED
 
 
-# ── _convert_dispatch ────────────────────────────────────────────────────
+# ── convert_dispatch ────────────────────────────────────────────────────
 
 
 def test_qualifying_alternation_converts_to_a_frameless_dispatch_clone():
@@ -283,7 +283,7 @@ def test_qualifying_alternation_converts_to_a_frameless_dispatch_clone():
 def test_dispatch_conversion_skipped_once_value_str_inlining_eats_the_refs():
     """When every arm's target is itself a terminal-only value_str clone,
     _inline_value_strs rewrites the unit refs to OP_VSTR *before*
-    _convert_dispatch runs — the alternation no longer has the unit-ref
+    convert_dispatch runs — the alternation no longer has the unit-ref
     shape the dispatch rewrite requires, so it stays BUILD_ALT.
     """
     pda = pda_from_text('root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= "2"\n')

@@ -309,7 +309,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     second pass so a recursive reference resolves to the live object (no id
     indirection on the hot path).
 
-    A :data:`BUILD_DISPATCH` clone (cut by :func:`_convert_dispatch`) reuses
+    A :data:`BUILD_DISPATCH` clone (cut by :func:`convert_dispatch`) reuses
     :attr:`selectors` and :attr:`default` with clone payloads instead of arms —
     the runtime chases them frame-lessly.
 
@@ -531,13 +531,23 @@ def _inline_value_strs(arm: FlatArm) -> None:
 
 
 def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":
-    """The arm's sole exactly-once clone reference, or ``None``."""
-    if arm.n == 1 and arm.kinds[0] == OP_REF and arm.los[0] == 1 and arm.his[0] == 1:
-        return arm.payloads[0]
-    return None
+    """The arm's sole exactly-once clone reference, or ``None``.
+
+    ``OP_REF1`` counts as well as ``OP_REF``: it is the same fact — an
+    exactly-once reference whose payload is the target clone — and only the
+    driver's resume bookkeeping differs. The main pass never sees one (calls
+    specialise after this runs); :func:`~lexic.parsing.pda.compiler.lower
+    .flatten_clones` does, when it optimises the attempt sub-clones, which
+    share their parent's already-specialised arm.
+    """
+    if arm.n != 1 or arm.los[0] != 1 or arm.his[0] != 1:
+        return None
+    if arm.kinds[0] not in (OP_REF, OP_REF1):
+        return None
+    return arm.payloads[0]
 
 
-def _convert_dispatch(clone: FlatClone) -> None:
+def convert_dispatch(clone: FlatClone) -> None:
     """Rewrite a qualifying ``alternation`` clone into a dispatch table.
 
     Qualifies when every gated arm is a single unit clone reference and the
@@ -616,9 +626,12 @@ def optimize_program(roots: list[FlatClone]) -> None:
     Terminal specialisation first (``OP_LIT1``/``OP_CC1``), then
     ``value_str`` inlining (its licence reads the specialised op-codes), then
     leaf marking (which reads ``OP_VSTR``) and dispatch conversion, then call
-    specialisation (``OP_REF1``, which must not pre-empt the dispatch pass's
-    unit-ref shape check). All compile-time only — nothing here is a per-parse
-    cost.
+    specialisation (``OP_REF1``). The order once mattered because
+    :func:`_unit_ref_target` recognised ``OP_REF`` alone; it now accepts either,
+    so call specialisation can no longer pre-empt the dispatch shape check —
+    the order is kept because the passes downstream of ``OP_VSTR`` still read
+    it, not to protect that check. All compile-time only — nothing here is a
+    per-parse cost.
     """
     clones = all_clones(roots)
     for clone in clones:
@@ -629,6 +642,6 @@ def optimize_program(roots: list[FlatClone]) -> None:
             _inline_value_strs(arm)
     for clone in clones:
         _mark_leaves(clone)
-        _convert_dispatch(clone)
+        convert_dispatch(clone)
     for clone in clones:
         _specialize_calls(clone)

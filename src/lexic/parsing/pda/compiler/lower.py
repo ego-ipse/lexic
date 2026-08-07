@@ -38,6 +38,7 @@ from lexic.parsing.pda.compiler.flatten import (
     FlatArm,
     FlatClone,
     PdaProgram,
+    convert_dispatch,
     optimize_program,
 )
 from lexic.parsing.pda.compiler.reduce_pda import (
@@ -451,11 +452,32 @@ def flatten_clones(
     for key, spec in clones.items():
         if spec.attempt_follow is not None:
             clone = shells[key]
-            clone.attempt = (
-                spec.attempt_follow,
-                _attempt_entries(clone, completions is not None),
-            )
+            entries = _attempt_entries(clone, completions is not None)
+            _optimize_entries(entries, completions is not None)
+            clone.attempt = (spec.attempt_follow, entries)
     return shells
+
+
+def _optimize_entries(entries: tuple[Any, ...], reduce_mode: bool) -> None:
+    """Give the attempt sub-clones the specialisations the main pass missed.
+
+    :func:`optimize_program` runs over the shell set, and these sub-clones are
+    built after it — so without this they enter with a frame each, though every
+    one is a single-arm pass-through, the exact shape dispatch conversion
+    exists to remove. On the vyx grammar that is a quarter of all clone entries.
+
+    **The reduce path is excluded by licence, not by accident.** A dispatch
+    chase is frame-less, so it would skip the completion callback a reduce
+    clone needs to evaluate its reduction body, and the values would go missing
+    silently. Today :func:`~lexic.parsing.pda.compiler.reduce_pda.reduce_rewrite`
+    bakes every reachable clone to :data:`BUILD_REDUCE`, so the conversion's
+    own ``BUILD_ALT`` test happens to refuse them — a mode-value coincidence
+    that would stop holding the moment either side moved.
+    """
+    if reduce_mode:
+        return
+    for entry in entries:
+        convert_dispatch(entry[-1])
 
 
 def flatten_program(
