@@ -31,12 +31,16 @@ request, but the subject/scene state is built at boot).
 
 Three ways, all leaving the document untouched (generation does not bump):
 
-1. **By hand (the real flow):** run the `long` fixture → select some
-   characters in THE DOCUMENT with the mouse → press **E** → replace the text
-   with something the grammar cannot derive (e.g. `§§§`) → Enter. The banner
-   carries the engine's words plus the measured frontier; a red caret marks
-   the deepest verified position; the cursor jumps there; the spine shows what
-   was open in the last good reading. Esc clears the mark.
+1. **By hand (the real flow):** run the `long` fixture → click into THE
+   DOCUMENT and **type** — it is an editable text plane. While edited, the
+   derived facets go stale (dimmed; they show the last good reading) and the
+   status reads `edited — unread`. **Ctrl+Enter re-reads without saving;
+   Ctrl+S saves, and saving compiles** (the write goes to the document's own
+   file — held with a stated reason for ground-truth corpus fixtures). Type
+   something the grammar cannot derive and re-read: the banner carries the
+   engine's words plus the measured frontier, and a red caret marks the
+   deepest verified position inside the text you typed. Esc reverts to the
+   last good reading.
 2. **Deterministically (for screenshots):** open
    `http://127.0.0.1:8903/?break=5000` — the leaf POSTs a one-char corruption
    at offset 5000 on boot and renders the refusal state.
@@ -49,8 +53,11 @@ unmeasured* — see lexic asks below.
 
 ## TODO — the iteration ladder (atlas/THINKING.md owns the detail)
 
-1. ~~**Refusal frontier**~~ — DONE (`2e3c5aa`). Red caret at the PDA's deepest
-   verified position, read from the kernel's own failure words.
+1. ~~**Refusal frontier**~~ — DONE (`2e3c5aa`), then reworked: the edit box
+   (whose Enter was broken by a selectionchange race, and which was a UX
+   killer regardless) is gone; the document is an editable text plane with
+   dirty/stale state, Ctrl+Enter (re-read) and Ctrl+S (save — saving
+   compiles), Esc revert, and the frontier drawn in the typed text.
 2. **Both engines** (§6b, ruled by the user): background Earley run beside the
    PDA product; alternate route drawn as pending until finished; switch
    enables on completion; inversion on PDA failure (probe-fork point and

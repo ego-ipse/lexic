@@ -58,14 +58,16 @@ class Subject:
             self.compiled = compile_from_path(str(ROOT / "resources" / "ground_truth" / "json.gbnf"))
             self.reader_text = (ROOT / "resources" / "ground_truth" / "json.gbnf").read_text()
             self.reader_desc = "json.gbnf"
-            self.document = (HERE.parent / "tk" / "fixtures_long.json").read_text()
+            self.doc_path = HERE.parent / "tk" / "fixtures_long.json"
+            self.document = self.doc_path.read_text()
             self.resolve = None
         else:
             self.compiled = compile_ast(GBNF_FLAVOUR.grammar)
             self.reader_text = str(GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar))
             self.reader_desc = "the GBNF metagrammar (90 rules), spelled by its own emitter"
             name = "vyx.gbnf" if key == "vyx" else "json.gbnf"
-            self.document = (ROOT / "resources" / "ground_truth" / name).read_text()
+            self.doc_path = ROOT / "resources" / "ground_truth" / name
+            self.document = self.doc_path.read_text()
             self.resolve = first
         self.generation = 0
         self.t = 0.0
@@ -87,6 +89,12 @@ class Subject:
         self.faithful = model.to_text() == text
         self.spans = fold_spans(model, text)
         self.generation += 1
+
+    def save_held(self) -> str:
+        """Why a save must not write, or empty when writing is allowed."""
+        if "ground_truth" in str(self.doc_path):
+            return "the document is repo ground-truth corpus; the instrument will not overwrite it"
+        return ""
 
     def frontier(self, text: str) -> int:
         """The PDA's deepest verified position on ``text``, read from its own words.
@@ -223,13 +231,20 @@ class Handler(BaseHTTPRequestHandler):
             self.send_text("ok")
             return
         if self.path == "/edit":
-            self.send_text(self.retype(body))
+            self.send_text(self.retype(body, persist=False))
+            return
+        if self.path == "/save":
+            self.send_text(self.retype(body, persist=True))
             return
         self.send_response(404)
         self.end_headers()
 
-    def retype(self, body: str) -> str:
-        """Splice the document and re-read it — or refuse with the engine's words."""
+    def retype(self, body: str, persist: bool = False) -> str:
+        """Splice and re-read; ``persist`` also writes the document to its own file.
+
+        Saving compiles: a save that does not derive writes nothing. A save of
+        corpus fixtures is HELD with its reason — re-reading still happened.
+        """
         head, _, replacement = body.partition("\n")
         start, end = (int(x) for x in head.split())
         with self.subject.lock:
@@ -241,7 +256,14 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"refused at {pos}: {refusal}")
                 return f"refuse {pos}\n{refusal}"
             print(f"generation {self.subject.generation}: re-read {len(candidate):,} chars in {self.subject.seconds:.2f}s")
-            return f"ok {self.subject.seconds:.2f}"
+            if not persist:
+                return f"ok {self.subject.seconds:.2f}"
+            held = self.subject.save_held()
+            if held:
+                return f"ok {self.subject.seconds:.2f} held {held}"
+            self.subject.doc_path.write_text(self.subject.document)
+            print(f"saved {self.subject.doc_path}")
+            return f"ok {self.subject.seconds:.2f} saved"
 
 
 def census(subject: Subject) -> int:
@@ -259,11 +281,17 @@ def census(subject: Subject) -> int:
     pos = int(head.split()[1]) if head.startswith("refuse") else -2
     ok_refuse = head.startswith("refuse") and subject.document[mid] != "\x01"
     ok_frontier = pos >= 0 if subject.resolve is None else pos == -1
+    span0 = subject.spans[0]
+    saved = handler.retype(
+        f"{span0.start} {span0.end}\n{subject.document[span0.start:span0.end]}", persist=True
+    )
+    ok_save = saved.startswith("ok") and (" saved" in saved if subject.save_held() == "" else " held" in saved)
     print(f"{subject.key}: {len(subject.document):,} chars · {len(subject.spans):,} spans · "
           f"{len(subject.rule_lines())} rules in reader · parse {subject.seconds:.2f}s · scene {len(scene):,} bytes")
     print(f"faithful {subject.faithful} · scene integrity {ok_scene} · identity retype ok {ok_edit} · "
           f"garbage retype refused {ok_refuse} · frontier {pos} ({words[:48]}…)")
-    ok = subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier
+    print(f"save: {saved.split(chr(10))[0][:70]} · as expected {ok_save}")
+    ok = subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier and ok_save
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 

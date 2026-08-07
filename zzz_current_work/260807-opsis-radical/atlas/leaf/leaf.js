@@ -14,7 +14,8 @@ const LH = 19, PAD_TOP = 8;
 
 let S = null;            // the scene: doc, reader, spans, rules, meta
 let M = null;            // measured geometry: charW, gutterW
-let cur = { t: 0, playing: false, sel: -1, hover: -1, rule: '', docSel: null, frontier: -1 };
+let cur = { t: 0, playing: false, sel: -1, hover: -1, rule: '', docSel: null, frontier: -1, fstarts: null };
+let dirty = false;
 let view0 = 0;           // chart viewport (leaf-local)
 let lastPost = 0;
 let needsDraw = false;
@@ -124,12 +125,28 @@ function buildCode(host, textLines, gutter) {
 
 function measure() {
   const probe = document.createElement('div');
-  probe.className = 'ln';
-  probe.innerHTML = '<span class="g">0</span><span class="t">' + 'M'.repeat(40) + '</span>';
-  $('docBody').appendChild(probe);
-  const t = probe.querySelector('.t').getBoundingClientRect();
-  M = { charW: t.width / 40, gutterW: probe.querySelector('.g').getBoundingClientRect().width };
+  probe.className = 'code';
+  probe.style.position = 'absolute';
+  probe.textContent = 'M'.repeat(40);
+  document.body.appendChild(probe);
+  M = { charW: probe.getBoundingClientRect().width / 40, gutterW: $('docText').offsetLeft };
   probe.remove();
+}
+
+function buildGutter(n) {
+  const g = $('gutter');
+  g.textContent = '';
+  const frag = document.createDocumentFragment();
+  for (let i = 1; i <= n; i++) {
+    const d = document.createElement('div');
+    d.textContent = i;
+    frag.appendChild(d);
+  }
+  g.appendChild(frag);
+}
+
+function setStale(on) {
+  for (const id of ['chart', 'spine', 'grammar']) $(id).classList.toggle('stale', on);
 }
 
 function sizeDocCanvases() {
@@ -165,6 +182,7 @@ function visibleLines() {
 function drawUnder() {
   const cx = $('under').getContext('2d');
   cx.clearRect(0, 0, 1e6, 1e6);
+  if (dirty) return;
   const [l0, l1] = visibleLines();
   for (const i of openAt(cur.t)) {
     cx.fillStyle = 'rgba(111,195,201,0.045)';
@@ -190,9 +208,24 @@ function drawUnder() {
   }
 }
 
+function frontierMark(cx) {
+  if (cur.frontier < 0) return;
+  const sts = cur.fstarts || S.lineStarts;
+  let lo = 0, hi = sts.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (sts[mid] <= cur.frontier) lo = mid; else hi = mid - 1; }
+  const fx = M.gutterW + (cur.frontier - sts[lo]) * M.charW;
+  const fy = PAD_TOP + lo * LH;
+  cx.fillStyle = C.red;
+  cx.shadowColor = C.red; cx.shadowBlur = 8;
+  cx.fillRect(fx - 1, fy, 2, LH);
+  cx.fillRect(fx - 4, fy + LH - 2, Math.max(M.charW + 8, 12), 2);
+  cx.shadowBlur = 0;
+}
+
 function drawOver() {
   const cx = $('over').getContext('2d');
   cx.clearRect(0, 0, 1e6, 1e6);
+  if (dirty) { frontierMark(cx); return; }
   const wrap = $('docWrap');
   const t = Math.min(cur.t, S.doc.length);
   const line = lineOf(Math.min(Math.floor(t), S.doc.length - 1));
@@ -205,16 +238,7 @@ function drawOver() {
   cx.shadowColor = C.warm; cx.shadowBlur = 6;
   cx.fillRect(x - 1, y, 2, LH);
   cx.shadowBlur = 0;
-  if (cur.frontier >= 0) {
-    const fl = lineOf(Math.min(cur.frontier, S.doc.length - 1));
-    const fx = M.gutterW + (cur.frontier - S.lineStarts[fl]) * M.charW;
-    const fy = PAD_TOP + fl * LH;
-    cx.fillStyle = C.red;
-    cx.shadowColor = C.red; cx.shadowBlur = 8;
-    cx.fillRect(fx - 1, fy, 2, LH);
-    cx.fillRect(fx - 4, fy + LH - 2, Math.max(M.charW + 8, 12), 2);
-    cx.shadowBlur = 0;
-  }
+  frontierMark(cx);
 }
 
 /* ── chart facet: overview density + depth lanes ── */
@@ -333,6 +357,12 @@ function litRules() {
 
 function render() {
   needsDraw = false;
+  if (dirty) {
+    drawUnder(); drawOver();
+    $('pos').textContent = `edited — unread · Ctrl+Enter re-reads · Ctrl+S saves (saving compiles) · Esc reverts · gen ${S.meta.generation}`;
+    $('readout').textContent = 'the derived facets show the LAST GOOD reading until the text is re-read';
+    return;
+  }
   followCursor();
   drawUnder(); drawOver(); drawChart(); drawSpine(); litRules();
   const state = cur.playing ? 'playing' : (cur.t >= S.doc.length ? 'complete' : 'paused');
@@ -359,6 +389,7 @@ function ask() { if (!needsDraw) { needsDraw = true; requestAnimationFrame(rende
 
 let followT = -1;
 function followCursor() {
+  if (dirty) return;
   if (!cur.playing && followT === cur.t) return;
   followT = cur.t;
   if (!cur.playing && !cur.follow) return;
@@ -391,16 +422,28 @@ function play() {
 /* ── gestures ── */
 
 function wire() {
-  const doc = $('docBody');
+  const doc = $('docText');
   doc.addEventListener('mousemove', (e) => {
+    if (dirty) return;
     const off = offsetAt(e);
     const hover = off < 0 ? -1 : deepestAt(off);
     if (hover !== cur.hover) { cur.hover = hover; ask(); }
   });
   doc.addEventListener('mouseleave', () => { cur.hover = -1; ask(); });
-  doc.addEventListener('dblclick', (e) => {
-    const off = offsetAt(e);
-    if (off >= 0) { cur.playing = false; cur.t = off; ask(); }
+  doc.addEventListener('input', () => {
+    if (!dirty) {
+      dirty = true;
+      setStale(true);
+      cur.playing = false; cur.sel = -1; cur.hover = -1; cur.frontier = -1; cur.fstarts = null;
+      $('banner').hidden = true;
+    }
+    ask();
+  });
+  $('gutter').addEventListener('click', (e) => {
+    if (dirty) return;
+    const rect = $('gutter').getBoundingClientRect();
+    const line = Math.floor((e.clientY - rect.top - PAD_TOP) / LH);
+    if (line >= 0 && line < S.lineStarts.length) { cur.playing = false; cur.t = S.lineStarts[line]; ask(); }
   });
   $('docScroll').addEventListener('scroll', ask);
   document.addEventListener('selectionchange', readSelection);
@@ -451,19 +494,13 @@ function wire() {
   }
   window.addEventListener('resize', ask);
   window.addEventListener('keydown', onKey);
-  $('editInput').addEventListener('keydown', (e) => {
-    e.stopPropagation();
-    if (e.key === 'Enter') submitEdit();
-    if (e.key === 'Escape') { $('editbar').hidden = true; }
-  });
 }
 
 function offsetAt(e) {
-  const ln = e.target.closest('.ln');
-  if (!ln) return -1;
-  const t = ln.querySelector('.t').getBoundingClientRect();
-  const col = Math.max(0, Math.round((e.clientX - t.left) / M.charW));
-  const line = +ln.dataset.l;
+  const rect = $('docText').getBoundingClientRect();
+  const line = Math.floor((e.clientY - rect.top - PAD_TOP) / LH);
+  if (line < 0 || line >= S.lineStarts.length) return -1;
+  const col = Math.max(0, Math.round((e.clientX - rect.left) / M.charW));
   const len = (S.lineStarts[line + 1] ?? S.doc.length + 1) - 1 - S.lineStarts[line];
   return S.lineStarts[line] + Math.min(col, len);
 }
@@ -471,64 +508,92 @@ function offsetAt(e) {
 function readSelection() {
   const sel = window.getSelection();
   if (!sel.rangeCount || sel.isCollapsed) { cur.docSel = null; return; }
-  const within = (node) => $('docBody').contains(node.nodeType === 3 ? node.parentNode : node);
+  if (dirty) return;
+  const within = (node) => $('docText').contains(node.nodeType === 3 ? node.parentNode : node);
   if (!within(sel.anchorNode) || !within(sel.focusNode)) return;
   const offOf = (node, k) => {
-    const ln = (node.nodeType === 3 ? node.parentNode : node).closest('.ln');
-    return ln ? S.lineStarts[+ln.dataset.l] + k : -1;
+    const r = document.createRange();
+    r.setStart($('docText'), 0);
+    r.setEnd(node, k);
+    return r.toString().length;
   };
   const a = offOf(sel.anchorNode, sel.anchorOffset), b = offOf(sel.focusNode, sel.focusOffset);
-  if (a < 0 || b < 0) return;
   cur.docSel = { lo: Math.min(a, b), hi: Math.max(a, b) };
   cur.sel = smallestOver(cur.docSel.lo, cur.docSel.hi);
   ask();
 }
 
 function onKey(e) {
-  if (!$('editbar').hidden) return;
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); commitDoc(true); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); commitDoc(false); return; }
+  if (e.key === 'Escape') { e.preventDefault(); revertOrClear(); return; }
+  if (document.activeElement === $('docText')) return;
   if (e.key === ' ') { e.preventDefault(); cur.playing ? (cur.playing = false, ask()) : play(); }
   else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     cur.playing = false;
     cur.t = Math.max(0, Math.min(Math.floor(cur.t) + (e.key === 'ArrowRight' ? 1 : -1), S.doc.length));
     ask();
-  } else if ((e.key === 'e' || e.key === 'E') && cur.docSel) {
-    $('banner').hidden = true;
-    $('editSpan').textContent = `${cur.docSel.lo.toLocaleString()}..${cur.docSel.hi.toLocaleString()}`;
-    $('editInput').value = S.doc.slice(cur.docSel.lo, cur.docSel.hi);
-    $('editbar').hidden = false;
-    $('editInput').focus();
-  } else if (e.key === 'Escape') { cur.sel = -1; cur.rule = ''; cur.frontier = -1; $('banner').hidden = true; ask(); }
+  }
 }
 
-async function submitEdit() {
-  const { lo, hi } = cur.docSel;
-  $('editbar').hidden = true;
-  await applyEdit(lo, hi, $('editInput').value);
+async function commitDoc(persist) {
+  if (!dirty && !persist) return;
+  await applyEdit(0, S.doc.length, $('docText').textContent, persist);
 }
 
-async function applyEdit(lo, hi, value) {
-  const resp = await (await fetch('/edit', { method: 'POST', body: `${lo} ${hi}\n${value}` })).text();
+function revertOrClear() {
+  $('banner').hidden = true;
+  if (dirty) {
+    $('docText').textContent = S.doc;
+    buildGutter(S.lineStarts.length);
+    sizeDocCanvases();
+    dirty = false;
+    setStale(false);
+  }
+  cur.sel = -1; cur.rule = ''; cur.frontier = -1; cur.fstarts = null;
+  ask();
+}
+
+async function applyEdit(lo, hi, value, persist) {
+  const candidate = S.doc.slice(0, lo) + value + S.doc.slice(hi);
+  const url = persist ? '/save' : '/edit';
+  const resp = await (await fetch(url, { method: 'POST', body: `${lo} ${hi}\n${value}` })).text();
   const banner = $('banner');
   banner.hidden = false;
   const [head] = resp.split('\n', 1);
   if (head.startsWith('ok')) {
     banner.className = 'ok';
-    cur.frontier = -1;
+    dirty = false;
+    setStale(false);
+    cur.frontier = -1; cur.fstarts = null;
     await boot(true);
-    banner.textContent = `generation ${S.meta.generation} — the document was re-read in ${head.slice(3)}s; every facet re-derived`;
-  } else {
-    banner.className = 'refuse';
-    const words = resp.slice(head.length + 1);
-    const pos = parseInt(head.split(' ')[1], 10);
-    cur.frontier = Number.isFinite(pos) ? pos : -1;
-    if (cur.frontier >= 0) {
-      banner.textContent = `${words} — frontier at char ${cur.frontier.toLocaleString()}; the red mark is the deepest verified position`;
-      cur.playing = false; cur.t = cur.frontier; cur.follow = true;
-    } else {
-      banner.textContent = `${words} — frontier unmeasured on this route (the engine's refusal carries no position; recorded lexic gap)`;
-    }
-    ask();
+    const parts = head.split(' ');
+    let outcome = `re-read in ${parts[1]}s; every facet re-derived from the text`;
+    if (parts[2] === 'saved') outcome += ' · saved to its file';
+    if (parts[2] === 'held') outcome += ` · save held: ${parts.slice(3).join(' ')}`;
+    banner.textContent = `generation ${S.meta.generation} — ${outcome}`;
+    return;
   }
+  banner.className = 'refuse';
+  const words = resp.slice(head.length + 1);
+  const pos = parseInt(head.split(' ')[1], 10);
+  cur.frontier = Number.isFinite(pos) ? pos : -1;
+  cur.fstarts = starts(candidate);
+  if ($('docText').textContent !== candidate) $('docText').textContent = candidate;
+  dirty = true;
+  setStale(true);
+  buildGutter(cur.fstarts.length);
+  sizeDocCanvases();
+  cur.playing = false;
+  banner.textContent = cur.frontier >= 0
+    ? `${words} — frontier at char ${cur.frontier.toLocaleString()}; fix the text — Ctrl+Enter re-reads, Ctrl+S saves · Esc reverts`
+    : `${words} — frontier unmeasured on this route; fix the text — Ctrl+Enter re-reads, Ctrl+S saves · Esc reverts`;
+  if (cur.frontier >= 0) {
+    let lo2 = 0, hi2 = cur.fstarts.length - 1;
+    while (lo2 < hi2) { const mid = (lo2 + hi2 + 1) >> 1; if (cur.fstarts[mid] <= cur.frontier) lo2 = mid; else hi2 = mid - 1; }
+    $('docScroll').scrollTop = Math.max(0, PAD_TOP + lo2 * LH - $('docScroll').clientHeight * 0.4);
+  }
+  ask();
 }
 
 /* ── boot ── */
@@ -538,7 +603,8 @@ async function boot(keep) {
   const t0 = keep ? Math.min(cur.t, 1e12) : 0;
   S = parseScene(text);
   cur.sel = -1; cur.hover = -1; cur.docSel = null;
-  buildCode($('docBody'), S.doc.split('\n'), true);
+  $('docText').textContent = S.doc;
+  buildGutter(S.lineStarts.length);
   buildCode($('grammarBody'), S.readerLines, false);
   if (!M) measure();
   sizeDocCanvases();

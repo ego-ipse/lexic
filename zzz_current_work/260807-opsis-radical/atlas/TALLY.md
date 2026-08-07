@@ -33,3 +33,15 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   (7,884/7,884); meta -1 as ruled. Screenshot-verified at ?break=5000: red
   mark at char 5,000, spine of the last good reading at the frontier,
   generation unchanged. Server on :8903 stopped at wrap.
+- Edit flow reworked on user verdict (edit box: Enter broken by a
+  selectionchange race nulling the snapshot; and a UX killer as a concept).
+  The document facet is now an editable text plane (contenteditable
+  plaintext): typing marks the session dirty, derived facets go stale (dimmed,
+  labelled "last good reading"), Ctrl+Enter re-reads WITHOUT saving, Ctrl+S
+  saves AND compiles (write to the document's own file; held-with-reason for
+  ground-truth corpus), Esc reverts. Refusal draws the frontier caret inside
+  the typed candidate text and scrolls to it. Gutter click sets the cursor
+  (dblclick returned to native word-select). Census extended: identity save →
+  'saved' on long, 'held' on meta/vyx. Screenshot-verified via ?break=5000:
+  § visible in the editable text, red caret beside it, stale facets, contract
+  in the status strip. node --check now used as the leaf syntax gate.

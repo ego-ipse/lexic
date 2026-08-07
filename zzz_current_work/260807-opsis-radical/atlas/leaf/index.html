@@ -21,7 +21,8 @@
     <div class="scroll" id="docScroll">
       <div id="docWrap">
         <canvas id="under"></canvas>
-        <div id="docBody" class="code"></div>
+        <div id="gutter"></div>
+        <pre id="docText" class="code" contenteditable="plaintext-only" spellcheck="false"></pre>
         <canvas id="over"></canvas>
       </div>
     </div>
@@ -37,13 +38,9 @@
 </main>
 <footer id="status">
   <span id="pos"></span>
-  <span id="hint">select text to co-select · double-click sets the cursor · E retypes the selection · Space plays · the chart scrubs</span>
+  <span id="hint">type in the document — Ctrl+Enter re-reads · Ctrl+S saves, and saving compiles · Esc reverts · select text to co-select · click a line number to set the cursor · Space plays · the chart scrubs</span>
   <span id="readout"></span>
 </footer>
-<div id="editbar" hidden>
-  <label for="editInput">retype <span id="editSpan"></span> — Enter re-reads, Esc cancels</label>
-  <input id="editInput" spellcheck="false" autocomplete="off">
-</div>
 <div id="banner" hidden></div>
 <script src="/leaf.js"></script>
 </body>
