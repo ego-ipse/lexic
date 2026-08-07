@@ -775,3 +775,35 @@ history so nothing is re-derived or re-run.
   matchers, or the payload hoist. The aggregate across every call site is
   unmeasured and is the next thing to establish — the per-site counts are the
   measurement, not another microbenchmark.
+- **NO-SLICE PROTOTYPE (`bench/noslice.py`) — the microbenchmark's 36% does NOT
+  survive in situ, and the reason is precise.**
+
+  ```
+             baseline  no-slice
+  csv          0.838    0.828   +1.2%
+  arithmetic   3.234    3.245   −0.3%   (noise)
+  json         1.901    1.982   −4.3%   WORSE
+  vyx          4.875    4.845   +0.6%
+  ```
+
+  Round-trip holds everywhere. **Why it evaporated:** the microbenchmark hoisted
+  `n = len(text)` OUT of its loop; `gate_take` is a free function receiving
+  `text` per call, so the prototype pays a `len(text)` on every invocation. The
+  slice it removes is nearly free by comparison — **CPython interns 1-character
+  strings**, so `text[pos:pos+1]` on ASCII returns a cached object rather than
+  allocating. The premise "the slice allocates" is wrong for exactly the
+  characters a parser sees.
+  That is the third microbenchmark this mission to over-predict its in-situ
+  result, and the first where the mechanism is fully explained rather than
+  merely observed.
+- **BUT THE FINDING IS NOT DEAD — it relocates.** The win is real when the
+  length is already in hand; the engine simply never has it. `PdaKernel` holds
+  `self.text` and passes it into free functions that each re-derive `len(text)`.
+  Carrying **`self.n = len(text)`** on the kernel and threading it to the gate
+  and matcher leaves would make the indexed form strictly cheaper — no slice, no
+  repeated length. That is a signature change across the runtime leaves, not a
+  local rewrite, and it is the honest shape of this optimization.
+  Worth pricing before building: count `gate_take` + matcher invocations per
+  parse and multiply by the ~18 ns the hoisted form saves. If csv runs ~12.5k
+  gate calls that is ~0.23 ms of 12.9 ms (~1.8%) — small, but unlike the failed
+  levers it costs nothing at runtime and applies to every grammar.
