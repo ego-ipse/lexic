@@ -680,3 +680,36 @@ history so nothing is re-derived or re-run.
   and neutral on two — real, but a tenth of what csv needs and not worth a src
   change on its own. It should be measured before this line is called dead, and
   it should not be expected to change the verdict.
+- **GUARDED VARIANT MEASURED — WORSE, and the C-scan line is now CLOSED.**
+  Peek one char past the first; if the run cannot reach length 2, keep the loop:
+
+  ```
+             baseline  guarded    (unguarded, previous entry)
+  csv          0.857    0.850   +0.8%      (+1.7%)
+  arithmetic   3.229    3.337   −3.3%      (+2.2%)   turned a WIN into a loss
+  json         2.016    2.204   −9.3%      (−7.8%)
+  vyx          4.876    4.956   −1.6%      (−2.8%)
+  ```
+
+  The guard was supposed to recover the short-run grammars. It recovers a
+  little on vyx (−2.8 → −1.6) and makes **arithmetic and json worse**, turning
+  arithmetic's only win into a 3.3% loss. The per-call test costs more than the
+  regex call it avoids — **the same disease that killed FIRST_k**: a cheap
+  per-call check, run far more often than the expensive thing it guards.
+  Both variants are now measured. **Neither wins. The C-level-scan line is
+  closed**, and with it the last identified candidate on the board.
+- **THE PATTERN, stated because it is now three for three:** every optimization
+  this mission has proposed died the same way — FIRST_k admission (2.9 µs check
+  × 4,675 to avoid 370 × 25.6 µs), the unguarded regex (call overhead against
+  short runs), and now the guard itself. In an interpreted driver, **any test
+  added to a per-item or per-candidate path costs the same order as the work it
+  is trying to avoid.** That is the structural reason lexic loses csv and
+  arithmetic to a C-lexer LALR, and it is not addressable by adding smarter
+  decisions to the Python loop — only by having fewer Python-level operations
+  per character at all.
+- **NO CANDIDATE REMAINS.** Every lever identified across this mission has been
+  prototyped and measured, and none wins. The board is unchanged from
+  iteration 1: lexic-pda loses four of six rows. What the mission produced is a
+  map of WHY — two rows explained as the price of ambiguity refusal, four lines
+  closed with reasons, three prototypes killed by their own arithmetic, and one
+  structural conclusion about interpreted per-item tests.

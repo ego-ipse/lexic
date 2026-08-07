@@ -29,9 +29,19 @@ _orig = M.match_cc
 
 
 def match_cc(text, arm, i, pos):
-    """`match_cc` with the run consumed by a C-level scan."""
+    """`match_cc` with the run consumed by a C-level scan.
+
+    GUARDED: the kill-test put the regex/loop crossover at run length 2, so a
+    run that cannot reach length 2 must keep the loop or the call overhead
+    exceeds the saving. Cheapest sound test — peek one character past the
+    first; if it is not a member the run is length ≤1 and the loop wins.
+    """
     chars, negated = arm.payloads[i]
     lo, hi = arm.los[i], arm.his[i]
+    nxt = text[pos + 1 : pos + 2]
+    inside = (nxt != "" and nxt not in chars) if negated else (nxt in chars)
+    if not inside:
+        return _orig(text, arm, i, pos)
     end = pattern(chars, negated).match(text, pos).end()
     if hi >= 0:
         end = min(end, pos + hi)
