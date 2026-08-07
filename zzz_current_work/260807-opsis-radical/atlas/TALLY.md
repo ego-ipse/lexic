@@ -448,3 +448,18 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   readout (drawUnder/drawChart now mark cur.rule OR graphHover). Browser
   scene parser generalized to consume unknown sections safely. Remaining
   half of rung 4: the same facet flat in the TUI.
+- LANDINGS CASHED + THREE USER ITEMS: (1) items 4+5 fully landed engine-side —
+  retype now reads the public Refusal readout off the caught exception
+  directly (pos + "while reading <rule>" + expected/none-of set when
+  populated; no second kernel run; frontier() was already rewritten by the
+  engine agent to the same surface). (2) 'g' did nothing because it never
+  existed: the earlier keyboard patches anchored on an `} else if` shape the
+  atlas onKey does not have — str.replace silently no-opped and the heredocs
+  printed ok regardless. ALL leaf patches now assert their anchors and print
+  per-replace confirmations. p / Ctrl+P / g / [ ] installed on the real
+  onKey. (3) graph ergonomics for the user's held feedback: wheel ZOOM
+  (per-view, 0.35..5, multiplies the auto-fit), and the graph POPS OUT as a
+  pinned window (⧉ window button / ?gpin=1) — multi-view refactor: each view
+  carries its own orbit+zoom, shares the one layout and the one co-selection;
+  closing the window drops its view; ResizeObserver redraws on window
+  resize. Plus [ ]-keyed derivation speed (×0.25..×16, shown in status).

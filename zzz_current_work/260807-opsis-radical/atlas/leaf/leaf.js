@@ -16,7 +16,8 @@ let S = null;            // the scene: doc, reader, spans, rules, meta
 let M = null;            // measured geometry: charW, gutterW
 let cur = { t: 0, playing: false, sel: -1, hover: -1, rule: '', docSel: null, frontier: -1, fstarts: null };
 let dirty = false;
-let pins = [];      // the ruled exception: pinned occurrences, cap 3
+let pins = [];      // pinned occurrences and pinned facets — uncapped, by ruling
+let speed = 1;      // derivation sweep multiplier ([ and ] halve/double)
 let pinSeq = 0;
 let pinZ = 30;
 let view0 = 0;           // chart viewport (leaf-local)
@@ -387,7 +388,8 @@ function render() {
   const line = lineOf(Math.min(Math.floor(cur.t), S.doc.length - 1)) + 1;
   $('pos').textContent =
     `char ${Math.floor(Math.min(cur.t, S.doc.length)).toLocaleString()} / ${S.doc.length.toLocaleString()}`
-    + ` · line ${line.toLocaleString()} / ${S.lineStarts.length.toLocaleString()} · ${state} · gen ${S.meta.generation}`;
+    + ` · line ${line.toLocaleString()} / ${S.lineStarts.length.toLocaleString()} · ${state}`
+    + (speed !== 1 ? ` · speed ×${speed}` : '') + ` · gen ${S.meta.generation}`;
   const focus = cur.sel >= 0 ? cur.sel : cur.hover;
   $('readout').textContent = focus < 0 ? (cur.rule ? `rule ${cur.rule} — its spans outlined violet` : '') : spanWords(focus);
   if (performance.now() - lastPost > 300) {
@@ -399,9 +401,13 @@ function render() {
 /* ── the 3D rule graph — z is derivation distance, the earned axis ── */
 
 let graphOn = false;
-let gYaw = 0.42, gPitch = 0.92;
 let gNodes = null;
 let graphHover = '';
+let gViews = [];  // [0] is the facet view; others live inside pinned windows
+
+function makeGraphView(wrap, cv, chips) {
+  return { wrap, cv, chips, yaw: 0.42, pitch: 0.92, zoom: 1 };
+}
 
 function markedRule() { return cur.rule || graphHover; }
 
@@ -423,7 +429,10 @@ function buildGraph() {
       gNodes.set(n, { x: Math.cos(a) * R, y: Math.sin(a) * R * 0.78, z: -lvl * 150 });
     });
   }
-  const chips = $('graphChips');
+  for (const v of gViews) buildChipsInto(v.chips);
+}
+
+function buildChipsInto(chips) {
   chips.textContent = '';
   for (const name of gNodes.keys()) {
     const el = document.createElement('span');
@@ -434,11 +443,11 @@ function buildGraph() {
   }
 }
 
-function gProject(p, w, h) {
-  const cy = Math.cos(gYaw), sy = Math.sin(gYaw);
+function gProject(v, p, w, h) {
+  const cy = Math.cos(v.yaw), sy = Math.sin(v.yaw);
   const x = p.x * cy + p.z * sy;
   let z = -p.x * sy + p.z * cy;
-  const cp = Math.cos(gPitch), sp = Math.sin(gPitch);
+  const cp = Math.cos(v.pitch), sp = Math.sin(v.pitch);
   const y = p.y * cp - z * sp;
   z = p.y * sp + z * cp;
   const f = 780;
@@ -447,24 +456,32 @@ function gProject(p, w, h) {
 }
 
 function drawGraph() {
-  if (!graphOn || !gNodes) return;
-  const wrap = $('graphWrap');
-  const cv = $('graphCv');
+  if (!gNodes) return;
+  for (const v of gViews) {
+    if (!document.contains(v.wrap) || v.wrap.closest('[hidden]')) continue;
+    drawGraphView(v);
+  }
+}
+
+function drawGraphView(v) {
+  const wrap = v.wrap;
+  const cv = v.cv;
   const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!w || !h) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
   const cx = cv.getContext('2d');
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, w, h);
   const proj = new Map();
-  for (const [name, p] of gNodes) proj.set(name, gProject(p, w, h));
+  for (const [name, p] of gNodes) proj.set(name, gProject(v, p, w, h));
   // auto-fit: fill the facet whatever the grammar's size or the orbit's angle
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
   for (const P of proj.values()) {
     x0 = Math.min(x0, P.x); x1 = Math.max(x1, P.x);
     y0 = Math.min(y0, P.y); y1 = Math.max(y1, P.y);
   }
-  const k = Math.min((w * 0.84) / Math.max(1, x1 - x0), (h * 0.78) / Math.max(1, y1 - y0), 2.4);
+  const k = Math.min((w * 0.84) / Math.max(1, x1 - x0), (h * 0.78) / Math.max(1, y1 - y0), 2.4) * v.zoom;
   const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
   for (const P of proj.values()) {
     P.x = w / 2 + (P.x - mx) * k;
@@ -484,7 +501,7 @@ function drawGraph() {
     cx.stroke();
   }
   const start = S.ruledefs.length ? S.ruledefs[0].name : '';
-  for (const el of $('graphChips').children) {
+  for (const el of v.chips.children) {
     const P = proj.get(el.dataset.name);
     if (!P) continue;
     el.style.left = P.x + 'px';
@@ -503,39 +520,62 @@ function setGraph(on) {
   $('grammarScroll').hidden = on;
   $('graphWrap').hidden = !on;
   $('gmode').textContent = on ? 'text' : 'graph';
+  $('gpop').hidden = !on;
   if (on && !gNodes) buildGraph();
   if (on) drawGraph();
 }
 
-function wireGraph() {
-  $('gmode').addEventListener('click', () => setGraph(!graphOn));
-  const wrap = $('graphWrap');
+function wireGraphView(v) {
   let drag = null;
-  wrap.addEventListener('pointerdown', (e) => {
+  v.wrap.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.gchip')) return;
     drag = { x: e.clientX, y: e.clientY };
+    e.preventDefault();
   });
   window.addEventListener('pointermove', (e) => {
     if (!drag) return;
-    gYaw += (e.clientX - drag.x) * 0.006;
-    gPitch = Math.max(-1.2, Math.min(1.2, gPitch + (e.clientY - drag.y) * 0.005));
+    v.yaw += (e.clientX - drag.x) * 0.006;
+    v.pitch = Math.max(-1.4, Math.min(1.4, v.pitch + (e.clientY - drag.y) * 0.005));
     drag = { x: e.clientX, y: e.clientY };
-    drawGraph();
+    drawGraphView(v);
   });
   window.addEventListener('pointerup', () => { drag = null; });
-  $('graphChips').addEventListener('mouseover', (e) => {
+  v.wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    v.zoom = Math.max(0.35, Math.min(5, v.zoom * Math.pow(1.0016, -e.deltaY)));
+    drawGraphView(v);
+  }, { passive: false });
+  v.chips.addEventListener('mouseover', (e) => {
     const el = e.target.closest('.gchip');
     if (el && el.dataset.name !== graphHover) { graphHover = el.dataset.name; ask(); }
   });
-  $('graphChips').addEventListener('mouseout', () => {
+  v.chips.addEventListener('mouseout', () => {
     if (graphHover) { graphHover = ''; ask(); }
   });
-  $('graphChips').addEventListener('click', (e) => {
+  v.chips.addEventListener('click', (e) => {
     const el = e.target.closest('.gchip');
     if (!el) return;
     cur.rule = cur.rule === el.dataset.name ? '' : el.dataset.name;
     ask();
   });
+}
+
+function graphPin() {
+  if (!gNodes) buildGraph();
+  const k = pins.length;
+  pins.push({
+    id: ++pinSeq, kind: 'graph', rule: 'RULE GRAPH',
+    x: 300 + (k % 8) * 44, y: 90 + (k % 8) * 44, w: 520,
+  });
+  renderPins();
+}
+
+function wireGraph() {
+  $('gmode').addEventListener('click', () => setGraph(!graphOn));
+  $('gpop').addEventListener('click', graphPin);
+  const facetView = makeGraphView($('graphWrap'), $('graphCv'), $('graphChips'));
+  gViews.push(facetView);
+  wireGraphView(facetView);
 }
 
 /* ── pinned windows — uncapped, by ruling: let the people have fun ── */
@@ -585,11 +625,29 @@ function ruleDefText(rule) {
 
 function buildPin(p, layer) {
   const el = document.createElement('div');
-  el.className = 'pin';
+  el.className = 'pin' + (p.kind === 'graph' ? ' graph' : '');
   el.dataset.id = p.id;
   el.style.left = p.x + 'px';
   el.style.top = p.y + 'px';
   el.style.zIndex = ++pinZ;
+  if (p.kind === 'graph') {
+    el.style.width = p.w + 'px';
+    el.style.height = '440px';
+    el.innerHTML =
+      `<header><span>RULE GRAPH</span><span class="addr">z = derivation distance · drag orbits · wheel zooms</span>`
+      + `<span class="stalemark"></span><button class="x" title="close">×</button></header>`
+      + `<div class="body gbody"><div class="gwrap"><canvas></canvas><div class="gchips"></div></div></div>`;
+    layer.appendChild(el);
+    const wrap = el.querySelector('.gwrap');
+    const v = makeGraphView(wrap, el.querySelector('canvas'), el.querySelector('.gchips'));
+    v.yaw = 0.9;
+    gViews.push(v);
+    if (gNodes) buildChipsInto(v.chips);
+    wireGraphView(v);
+    new ResizeObserver(() => drawGraphView(v)).observe(wrap);
+    drawGraphView(v);
+    return el;
+  }
   el.innerHTML =
     `<header><span>${p.rule}</span><span class="addr">${p.s.toLocaleString()}..${p.e.toLocaleString()} · d${p.d}</span>`
     + `<span class="stalemark"></span>`
@@ -612,6 +670,7 @@ function renderPins() {
     seen.add(String(p.id));
     let el = layer.querySelector(`.pin[data-id="${p.id}"]`);
     if (!el) el = buildPin(p, layer);
+    if (p.kind === 'graph') continue;
     const stale = p.gen !== S.meta.generation;
     el.classList.toggle('stale', stale);
     el.querySelector('.stalemark').textContent = stale ? `gen ${p.gen} — stale` : '';
@@ -621,7 +680,10 @@ function renderPins() {
     el.querySelector('.def').textContent = stale ? '' : ruleDefText(p.rule);
   }
   for (const el of [...layer.children]) {
-    if (!seen.has(el.dataset.id)) el.remove();
+    if (!seen.has(el.dataset.id)) {
+      gViews = gViews.filter((v) => !el.contains(v.wrap));
+      el.remove();
+    }
   }
   $('pincount').textContent = pins.length ? `pinned ${pins.length}` : '';
 }
@@ -730,7 +792,7 @@ function tick(now) {
   if (!cur.playing) return;
   const dt = lastTick ? (now - lastTick) / 1000 : 0;
   lastTick = now;
-  cur.t = Math.min(cur.t + (S.doc.length / 22) * dt, S.doc.length);
+  cur.t = Math.min(cur.t + (S.doc.length / 22) * speed * dt, S.doc.length);
   if (cur.t >= S.doc.length) cur.playing = false;
   render();
   if (cur.playing) requestAnimationFrame(tick);
@@ -854,8 +916,17 @@ function readSelection() {
 function onKey(e) {
   if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); commitDoc(true); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); commitDoc(false); return; }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+    e.preventDefault();
+    addPin(cur.sel >= 0 ? cur.sel : cur.hover);
+    return;
+  }
   if (e.key === 'Escape') { e.preventDefault(); revertOrClear(); return; }
   if (document.activeElement === $('docText')) return;
+  if (e.key === 'p' || e.key === 'P') { addPin(cur.sel >= 0 ? cur.sel : cur.hover); return; }
+  if (e.key === 'g' || e.key === 'G') { setGraph(!graphOn); return; }
+  if (e.key === '[') { speed = Math.max(0.25, speed / 2); ask(); return; }
+  if (e.key === ']') { speed = Math.min(16, speed * 2); ask(); return; }
   if (e.key === ' ') { e.preventDefault(); cur.playing ? (cur.playing = false, ask()) : play(); }
   else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     cur.playing = false;
@@ -996,5 +1067,6 @@ async function pollRoutes() {
     for (const off of q.get('pin').split(',')) addPin(deepestAt(+off));
   }
   if (q.has('graph')) setGraph(true);
+  if (q.has('gpin')) { setGraph(true); graphPin(); }
   if ([...q.keys()].length === 0) setTimeout(play, 600);  // deterministic states do not animate
 })();

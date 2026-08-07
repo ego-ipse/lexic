@@ -118,7 +118,14 @@ document a control char mid-file is *legal* inside a comment (`cmchar` admits
 One iteration per session; update `atlas/TALLY.md` each time; census before
 screenshots.
 
-## Lexic asks (rulings wanted, both measured this effort)
+## Lexic asks — BOTH LANDED (see 260807-pda-linearity/)
+
+Historical section; kept for the reasoning. FlatClone carries its rule name;
+refusals carry a public `Refusal` readout (pos, rule, expected, negated,
+undecidable) on `UnsupportedConstructError` — atlas reads it directly and the
+regex-over-prose is deleted.
+
+### (original asks follow)
 
 - **Refusal position on the record.** `PdaFail` spells its position only in
   prose ("no arm at N"); the public parse surface discards even that

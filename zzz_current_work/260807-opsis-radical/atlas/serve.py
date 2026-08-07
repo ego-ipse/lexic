@@ -347,9 +347,16 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.subject.read(candidate)
             except Exception as refusal:
-                pos = self.subject.frontier(candidate)
+                ro = getattr(refusal, "readout", None)
+                pos = ro.pos if ro else -1
+                extra = ""
+                if ro and ro.rule:
+                    extra += f" — while reading {ro.rule}"
+                if ro and ro.expected:
+                    joiner = "none of" if ro.negated else "expected:"
+                    extra += f" — {joiner} " + " ".join(str(x) for x in tuple(ro.expected)[:12])
                 print(f"refused at {pos}: {refusal}")
-                return f"refuse {pos}\n{refusal}"
+                return f"refuse {pos}\n{refusal}{extra}"
             print(f"generation {self.subject.generation}: re-read {len(candidate):,} chars in {self.subject.seconds:.2f}s")
             if not persist:
                 return f"ok {self.subject.seconds:.2f}"

@@ -240,3 +240,20 @@ body {
 .gchip.start { color: var(--warm); border-color: var(--warm); }
 .gchip.marked { color: var(--violet); border-color: var(--violet); }
 .gchip.hot { background: var(--warm); color: var(--field); border-color: var(--warm); }
+
+#gpop {
+  margin-left: 6px;
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--dim);
+  font: 10px var(--sans);
+  padding: 1px 8px;
+  cursor: pointer;
+}
+#gpop:hover { border-color: var(--warm); color: var(--warm); }
+.pin.graph .body.gbody { padding: 0; flex: 1; display: flex; min-height: 0; }
+.pin.graph .gwrap { position: relative; flex: 1; overflow: hidden; cursor: grab; }
+.pin.graph .gwrap:active { cursor: grabbing; }
+.pin.graph canvas { position: absolute; inset: 0; }
+.pin.graph .gchips { position: absolute; inset: 0; pointer-events: none; }
+.pin.graph .gchips .gchip { pointer-events: auto; }
