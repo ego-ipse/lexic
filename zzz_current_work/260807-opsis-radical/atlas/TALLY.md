@@ -285,3 +285,11 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   carry duplicated hand-authored presentation policy — the drift pressure the
   user observed; the eventual seam is policy-as-data over the wire
   (arrangement as a session value, THINKING §1/§4 direction).
+- RULED (user: "the fair compromise for now"): one instrument, one policy,
+  many surfaces. Browser = flagship (text + scoped 3D + windows + GPU);
+  windows = pinned facets only (pane cannot overlap, window can); 3D = the
+  rule-graph facet, z = derivation distance, browser only, flat in the TUI;
+  TUI = field instrument, pins land as panes; presentation policy moves into
+  the wire AFTER pinning + 3D exist (build twice, then the rule); native/GPU
+  stays watched. THINKING §7 + ladder rewritten (3 pinning → 4 rule graph →
+  5 policy → 6 panes → 7 ports → 8 ring).

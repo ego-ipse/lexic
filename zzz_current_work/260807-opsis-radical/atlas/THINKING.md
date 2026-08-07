@@ -112,16 +112,46 @@ same value — holds*. Surface exists: engine-floor exports (`earley_model`,
 `PdaKernel`, `pda_tables`) from the opsis-2 batch; `TraceKernel(PdaKernel)`
 is the proven zero-hook observation pattern.
 
+## 7. The ruled direction — one instrument, one policy, many surfaces
+
+User-blessed ("the fair compromise for now") after TUI slice 3.
+
+- **The browser leaf is the flagship** — the one medium carrying all four at
+  once: real text, scoped 3D, overlapping windows, GPU spectacle. The living,
+  full opsis is the browser one.
+- **Windows are pinned facets, only.** Created by an explicit pin gesture,
+  never by navigation; movable, resizable, capped; carrying their subject's
+  address so co-selection reaches inside. The instances: simultaneity a
+  tiling cannot express, comparison of exactly two, persistent reference.
+  The load-bearing line stands: a pane cannot overlap; a window can.
+- **3D is the rule-graph facet** — z = derivation distance from the start
+  rule, scoped perspective, name-addressed co-selection — browser only. The
+  TUI renders the same facet flat; a cell grid has no z and pretending
+  otherwise is medium dishonesty. The forest stays flat everywhere (settled
+  by looking).
+- **The TUI is the field instrument**, not a parity race: read side + honest
+  editing where developers and agents already stand. Its pins land as panes;
+  same meaning, the medium's geometry.
+- **Presentation policy moves from leaf code into the wire** — the
+  resolution of the two-renderings divergence: the scene grows a policy
+  section (facet inventory, arrangement shares, pins, register, co-selection
+  vocabulary); leaves thin into interpreters of one policy. Extracted AFTER
+  pinning and the 3D graph exist concretely — build twice, then the rule.
+  Seam-resize (§1) folds into this rung: shares ARE arrangement-as-value.
+- **The native/GPU endgame stays the watched option** (libghostty when it
+  stabilises); nothing above the leaf changes if taken later.
+
 ## Iteration ladder
 
-1. **Refusal facet** — draw the trace shape with what exists (words +
-   unmeasured frontier); wire a `broken` fixture. Blocked-on-lexic parts named.
-2. **Both engines** (§6b) — background Earley run beside the PDA product,
-   pending state, the route switch, the parity verdict.
-3. **Seam resize** — shares as session values; degrade-by-deriving-less.
-4. **Rule graph facet** — flat first (edges + co-selection), then the earned z.
-5. **Ports bay** — reducer docking as the first real attachment; transpile
-   peer lane second.
-6. **The ring** — focus opsis's own configuration as a subject.
+1. ~~Refusal facet~~ — DONE (browser + TUI, frontier in both media).
+2. ~~Both engines, first half~~ — DONE (background run, parity verdict,
+   inversion). The clocks-switch remains, folded after the policy rung.
+3. **Pinning in the browser** (§7) — the ruled window exception, built.
+4. **The 3D rule-graph facet in the browser** (§2, §7) — flat in the TUI.
+5. **Policy into the wire** (§7) — extracted from rungs 3–4; TUI re-based
+   onto it as the proof one policy drives two media; seam-resize lands here.
+6. **TUI panes-for-pins** — the policy's pane rendering.
+7. **Ports bay** — reducer docking; transpile peer lane.
+8. **The ring** — focus opsis's own configuration as a subject.
 
 One iteration per session, tally updated each time, census before screenshots.
