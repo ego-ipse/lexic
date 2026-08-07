@@ -220,7 +220,7 @@ body {
 }
 #gmode:hover { border-color: var(--cool); color: var(--cool); }
 .facet h2 { display: flex; align-items: center; }
-#graphWrap { position: relative; flex: 1; overflow: hidden; cursor: grab; min-height: 0; }
+#graphWrap { position: relative; flex: 1; overflow: hidden; cursor: grab; min-height: 0; z-index: 0; }
 #graphWrap:active { cursor: grabbing; }
 #graphCv { position: absolute; inset: 0; }
 #graphChips { position: absolute; inset: 0; pointer-events: none; }

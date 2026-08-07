@@ -503,3 +503,8 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   the fit lerp converging 22% per hover-triggered render — smoothing now
   applies only during an active drag; all other draws snap to the fitted
   target.
+- Graph chips floated over pinned windows (user): the chips' per-depth
+  z-indexes (up to ~1200) competed globally because #graphWrap was not a
+  stacking context — z-index: 0 on the wrap scopes depth-ordering locally
+  and puts the whole graph layer beneath the windows (pins z≥20 win).
+  Pinned-graph windows were already scoped by their own .pin z-index.
