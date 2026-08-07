@@ -2,12 +2,14 @@
 import time
 from collections import Counter
 from pathlib import Path
+
 import lexic.parsing.pda.compiler.flatten as F
 import lexic.parsing.pda.compiler.lower as L
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.core.scanner import scan_gate_take
 from lexic.parsing.pda.runtime.admission import sole_admitted
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+
 
 # ── part 1: compile — optimize the attempt sub-clones where they are born ──
 def widened(arm):

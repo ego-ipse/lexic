@@ -17,10 +17,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import common  # noqa: F401  (path bootstrap)
-from lexic.compile import CompiledGrammar, compile_from_path
 import random
 
+import common  # noqa: F401  (path bootstrap)
+
+from lexic.compile import CompiledGrammar, compile_from_path
 from lexic.generate import generate
 from lexic.parsing import PdaKernel
 
