@@ -346,3 +346,37 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
     anything at that point, 26% of entries collapse; if it carries loop
     licences independent of arm count, this lever is smaller than it looked and
     §4 needs another way to cash out. No src touched.
+- **PROPOSAL.md written** — two post-flatten optimizer gaps, handed over for
+  review. No src touched.
+  · **§1 (the big one): attempt sub-clones never see the optimizer.**
+    `flatten_clones` runs `optimize_program` over the shell set, THEN builds
+    attempt entries via `_attempt_entries`/`_sub_clone` — so those sub-clones
+    are created after the passes and are not in the set. 31 of them exist in
+    the vyx program and they take **1,396 entries per parse, 25.9% of all
+    5,394** (kv-pair 452, value 444, body-line 330, scope-item 144, bare-val
+    26). Every one is BUILD_ALT, one arm, one exactly-once ref — the shape
+    `_convert_dispatch` exists for. Needs `_unit_ref_target` to accept OP_REF1
+    as well as OP_REF (a sub-clone shares its parent's already-specialised arm);
+    that widening is a no-op for the main pass. RISK named: sub-clones are
+    entered through the sub-run seam, and whether a frame-less chase composes
+    with rollback is the first thing to establish.
+  · **§2: `OP_VSTR` disqualifies a bigger optimization.** `_inline_value_strs`
+    runs before dispatch and `_unit_ref_target` does not recognise OP_VSTR, so a
+    single-arm alternation loses the conversion because it won an inlining —
+    the same hazard the pass order already guards for OP_REF1. ~1%; a
+    design-correctness fix, not a perf one. May be better fixed by ordering
+    than by widening.
+  · §3 records the model route as bounded (46% fewer models = 16%, and it costs
+    an API change) so nobody re-opens it, and that interning is already
+    effective (3,342 refs → 561 objects).
+  · **§4 records a FAILED prototype as a warning:** applying `_convert_dispatch`
+    post-hoc to the finished program corrupts it (a converted clone's selectors
+    hold clone payloads where the driver expects a FlatArm). These passes are
+    order-dependent and cannot be applied out of band — a real prototype must
+    run inside `flatten_clones`, which is a src change this investigation was
+    scoped out of. The proposal is therefore DIAGNOSED, NOT DEMONSTRATED, and
+    says so; step one for any implementer is to build that prototype properly
+    and measure before believing the sizing.
+  · §5 lists what a reviewer should push on, including the weakest link: "16%
+    is the floor for an entry cut" rests on ONE calibration point from a
+    grammar-side rewrite that moved several things at once.
