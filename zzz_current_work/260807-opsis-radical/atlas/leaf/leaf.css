@@ -356,7 +356,7 @@ body {
   border: none;
   border-radius: 0;
 }
-#gview, .pin .pview {
+#gview, .pin .pview, #cclock {
   margin-left: 6px;
   background: var(--field2);
   border: 1px solid var(--hair);
@@ -366,7 +366,7 @@ body {
   cursor: pointer;
   appearance: none;
 }
-#gview:hover, .pin .pview:hover { border-color: var(--cool); color: var(--cool); }
+#gview:hover, .pin .pview:hover, #cclock:hover { border-color: var(--cool); color: var(--cool); }
 .pin .rback {
   margin-left: 8px;
   background: none;

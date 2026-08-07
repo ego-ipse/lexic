@@ -50,6 +50,9 @@ let pinSeq = 0;
 let pinZ = 30;
 let view0 = 0;           // chart viewport (leaf-local)
 let chartZoom = 1;       // plain scroll on the chart: zoom the lane window
+let chartClock = 'model';  // model | pda | earley — which clock the lanes tell
+let clockData = null;      // { gen, enters, tries, items, entersTop, itemsTop, pdaEnd }
+let clockWaiting = false;
 let lastPost = 0;
 let needsDraw = false;
 
@@ -293,6 +296,80 @@ function drawOver() {
 
 /* ── chart facet: overview density + depth lanes ── */
 
+async function loadClock() {
+  if (clockWaiting) return;
+  clockWaiting = true;
+  try {
+    const text = await (await fetch('/clock')).text();
+    if (text.startsWith('status pending')) {
+      setTimeout(() => { clockWaiting = false; ask(); }, 1500);
+      return;
+    }
+    const N = S.doc.length;
+    const data = {
+      gen: S.meta.generation, pdaEnd: -1,
+      enters: new Int32Array(N + 1), tries: new Int32Array(N + 1), items: new Int32Array(N + 1),
+      entersTop: 1, itemsTop: 1,
+    };
+    let section = '';
+    for (const ln of text.split('\n')) {
+      if (ln.startsWith('generation ')) {
+        if (ln.slice(11) !== S.meta.generation) { setTimeout(() => { clockWaiting = false; ask(); }, 1500); return; }
+      } else if (ln.startsWith('pda_end ')) data.pdaEnd = +ln.slice(8);
+      else if (ln.startsWith('#PDACLOCK')) section = 'p';
+      else if (ln.startsWith('#EARLEYCLOCK')) section = 'e';
+      else if (section) {
+        const [i, a, b] = ln.split(' ');
+        if (i === '') continue;
+        if (section === 'p') {
+          data.enters[+i] = +a; data.tries[+i] = +b;
+          data.entersTop = Math.max(data.entersTop, +a);
+        } else {
+          data.items[+i] = +a;
+          data.itemsTop = Math.max(data.itemsTop, +a);
+        }
+      }
+    }
+    clockData = data;
+    clockWaiting = false;
+    ask();
+  } catch { clockWaiting = false; }
+}
+
+function clockReady() {
+  return clockData && clockData.gen === S.meta.generation;
+}
+
+function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
+  const pda = chartClock === 'pda';
+  const arr = pda ? clockData.enters : clockData.items;
+  const top = pda ? clockData.entersTop : clockData.itemsTop;
+  const y1 = h - 6, span = y1 - lanesY - 4;
+  const colour = pda ? C.cool : C.violet;
+  const win = S.chartHit.win;
+  for (let off = Math.floor(view0); off <= Math.min(view0 + win, S.doc.length); off++) {
+    const v = arr[off];
+    if (!v) continue;
+    const bh = Math.max(1, Math.round((Math.log1p(v) / Math.log1p(top)) * span));
+    cx.fillStyle = off <= cur.t ? colour : C.pending;
+    cx.fillRect(sx(off), y1 - bh, Math.max(1, pitch - 0.5), bh);
+    if (pda && clockData.tries[off]) {
+      cx.fillStyle = C.warm;
+      cx.fillRect(sx(off), lanesY, Math.max(1.5, pitch - 0.5), 4);
+    }
+  }
+  if (pda && clockData.pdaEnd >= 0 && clockData.pdaEnd >= view0 && clockData.pdaEnd <= view0 + win) {
+    cx.strokeStyle = C.red || '#e06060';
+    cx.beginPath(); cx.moveTo(sx(clockData.pdaEnd), lanesY); cx.lineTo(sx(clockData.pdaEnd), y1); cx.stroke();
+  }
+  cx.fillStyle = C.dim;
+  cx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+  const legend = pda
+    ? `the PDA's decisions — frame entries per char (log) · warm ticks: real attempt forks${clockData.pdaEnd >= 0 ? ' · red: where the fast road stops' : ''}`
+    : "Earley's chart — items per column (log)";
+  cx.fillText(legend, 12, lanesY - 4);
+}
+
 function drawChart() {
   const cv = $('chartCv');
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -332,6 +409,19 @@ function drawChart() {
   const laneH = Math.max(6, Math.min(22, Math.floor((h - lanesY - 8) / (S.maxdepth + 1))));
   const sx = (off) => pad + (off - view0) * pitch;
   S.chartHit = { pad, bandH, lanesY, laneH, pitch, win, ox };
+  if (chartClock !== 'model') {
+    if (!clockReady()) {
+      loadClock();
+      cx.fillStyle = C.dim;
+      cx.fillText(`the ${chartClock} clock is running…`, 12, lanesY + 14);
+    } else {
+      drawClockLanes(cx, w, h, lanesY, pitch, sx);
+    }
+    const cxx0 = sx(Math.min(Math.max(cur.t, view0), view0 + win));
+    cx.strokeStyle = C.warm;
+    cx.beginPath(); cx.moveTo(cxx0, lanesY - 6); cx.lineTo(cxx0, h - 4); cx.stroke();
+    return;
+  }
   for (const s of S.spans) {
     if (s.e <= view0 || s.s >= view0 + win) continue;
     const x1 = sx(Math.max(s.s, view0)), x2 = sx(Math.min(s.e, view0 + win));
@@ -445,6 +535,7 @@ function applyPolicy() {
   if (P['speed']) speed = parseFloat(P['speed']) || speed;
   if (P['doc.zoom']) { docZoom = parseFloat(P['doc.zoom']) || 1; applyDocZoom(); }
   if (P['chart.zoom']) chartZoom = parseFloat(P['chart.zoom']) || 1;
+  if (P['chart.clock']) { chartClock = P['chart.clock']; $('cclock').value = chartClock; }
   if (P['spine.zoom']) { spineZoom = parseFloat(P['spine.zoom']) || 1; applySpineZoom(); }
   if (P['graph.view']) gView = P['graph.view'];
   for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
@@ -1309,6 +1400,14 @@ function wireTextZoom() {
   }
 }
 
+function wireClockSelect() {
+  $('cclock').addEventListener('change', () => {
+    chartClock = $('cclock').value;
+    postPolicy('chart.clock', chartClock);
+    ask();
+  });
+}
+
 function wireChartZoom() {
   $('chartCv').addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -1952,6 +2051,7 @@ function applyPolicyKey(k, v) {
   if (k === 'speed') speed = parseFloat(v) || 1;
   else if (k === 'doc.zoom') { docZoom = parseFloat(v) || 1; applyDocZoom(); }
   else if (k === 'chart.zoom') chartZoom = parseFloat(v) || 1;
+  else if (k === 'chart.clock') { chartClock = v || 'model'; $('cclock').value = chartClock; }
   else if (k === 'spine.zoom') { spineZoom = parseFloat(v) || 1; applySpineZoom(); }
   else if (k === 'reader.mode') setGraph(v === 'graph', true);
   else if (k === 'graph.view') {
@@ -2108,6 +2208,7 @@ async function pollRoutes() {
   wireSpineZoom();
   wireTextZoom();
   wireChartZoom();
+  wireClockSelect();
   wireRailChip();
   wireTune();
   wireSeams();

@@ -204,8 +204,10 @@ open dispatch table); its facet kind is reserved in the policy schema now.
 7. ~~TUI panes-for-pins~~ — DONE (the PANES column from the same policy
    record; span text, rail structure in registers, graph pins named; live
    `/policy` tick in both leaves closed rung 5's polling leftover).
-8. **Engine clocks** (rung 2's second half) — cheaper now: FlatClone names
-   + the Refusal readout landed.
+8. ~~Engine clocks~~ — DONE (`/clock` wire; `ClockKernel(PdaKernel)`
+   zero-hook counts + the explicit Earley `Kernel.cols` readout; the
+   derivation facet's `chart.clock` switch, policy-persisted; pending
+   drawn as a sentence).
 9. **Ports bay** — reducer docking; transpile peer lane.
 10. **The ring** — focus opsis's own configuration as a subject.
 

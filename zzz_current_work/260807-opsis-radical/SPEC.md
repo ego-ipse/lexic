@@ -29,6 +29,14 @@ screenshot-verified.
   line ranges in the reader text) · `#RULENAMES n` · `#FIELDNAMES n` ·
   `#SPANS n` (`start end depth ruleIdx fieldIdx`) · `#READER <bytes>` and
   `#DOC <bytes>` (length-prefixed raw blocks).
+- `GET /clock` — the two engine clocks over the document coordinate,
+  rebuilt in the background after every read: `status pending|done`,
+  `generation`, `pda_end` (−1 healthy; else where the fast road stops),
+  then `#PDACLOCK n` (`pos enters attempts` — the fused kernel's frame
+  entries and REAL attempt invocations, from a `ClockKernel(PdaKernel)`
+  that counts before delegating; zero hooks in the engine) and
+  `#EARLEYCLOCK n` (`pos items` — chart items per column, read off the
+  explicit `Kernel`'s own `cols`). Sparse: zero positions are omitted.
 - `GET /rails` — every rule's structural lines in one frame, sections
   headed `#RAIL <rule> <n>` in AST order — the all-rules rails view reads
   this once and caches it (the reader grammar never changes across document
@@ -46,7 +54,9 @@ screenshot-verified.
   `words`.
 - `#POLICY n` in the scene, plus `GET /policy` and `POST /policy` (changed
   keys as `key value` lines; value `-` deletes) — the presentation policy as
-  session state, rung 5. Keys: `speed`, `doc.zoom`, `chart.zoom`,
+  session state, rung 5. Keys: `speed`, `doc.zoom`, `chart.zoom`, `chart.clock model|pda|earley`
+  (which clock THE DERIVATION's lanes tell — rung 8; pending is drawn as a
+  sentence, never a blank),
   `spine.zoom`, `reader.mode text|graph`, `graph.view depth3d|flat|arcs|rails`,
   `graph.levelstep|ringscale|flatten|labelscale`, `graph.camera "yaw pitch
   zoom panx pany"`, `arrange.reader|right|top` (grid shares; the seams write
@@ -131,9 +141,12 @@ After every successful read, a daemon thread runs the road not taken
 
 The leaf polls `/routes` (1.2s) and renders the strip in the derivation
 header: running… → timings + verdict (green on holds) or the inversion
-position. **Remaining half of rung 2**: the two engine *clocks* as switchable
-visualizations (PDA decision sequence; Earley chart columns) — the switch
-appears when there are two things to switch between.
+position. **Rung 8 (rung 2's second half) is built**: THE DERIVATION's lanes
+switch between the model view, the PDA's decision clock (frame entries per
+char, log-scaled; warm ticks where the real attempt machinery fired; a red
+line where the fast road stops on a refused route) and Earley's chart clock
+(items per column, log-scaled) — both rebuilt in the background per read,
+census-gated on every fixture.
 
 ## 6. Known reads of engine prose (fragile, by declared necessity)
 

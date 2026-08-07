@@ -809,3 +809,40 @@ Closing the audit's items 1 and 3 before rung 8.
 
 SPEC §2 span value updated. Serve + TUI censuses green (legacy 9-token
 values still parse — the census's own pin.7 value proves it).
+
+## Round: rung 8 — the engine clocks — 2026-08-07
+
+THINKING §6b, built as ruled: both engines drawn as their OWN time facets
+on the shared document coordinate, neither a renamed version of the other.
+
+**Instrument.** `ClockKernel(PdaKernel)` — the zero-hook observation
+pattern, third use: `_enter` and `attempt` increment per-position counters
+before delegating (`__slots__` required; the IR meta refuses a dict even
+on subclasses — measured, fixed). The Earley clock reads the explicit
+`Kernel(compile_tables(instance), doc, record_links=False).run().cols` —
+items per column, off the kernel's own state; instance tables compiled
+once per subject (the grammar never changes across re-reads). Both build
+in a background thread per read, generation-guarded like the route.
+Wire: `GET /clock` — status/generation/pda_end + sparse `#PDACLOCK`
+(`pos enters attempts`) and `#EARLEYCLOCK` (`pos items`).
+
+**Leaf.** THE DERIVATION header grew the clock select (model · pda clock ·
+earley clock), policy-persisted as `chart.clock` and live-synced like
+every policy key. The lanes region switches: PDA = cool bars (log frame
+entries) + warm ticks where the real attempt machinery fired + a red line
+at pda_end on refused routes; Earley = violet columns (log items). The
+overview strip, viewport, scrub and cursor stay — time is time in every
+clock. Pending is a drawn sentence ("the pda clock is running…"), never a
+blank; data invalidates on generation.
+
+Measured while verifying (vyx at char 1,200, a comment-heavy region): the
+PDA's clock is SPARSE there — comment interiors run frameless (leaf runs),
+so whole lines cost a few entries at the line heads — while Earley's
+columns stay dense throughout. The two clocks disagree exactly where the
+engines differ; that disagreement is the content. Censuses: all four
+fixtures gained the clock gate (arrays cover doc+1, totals nonzero) —
+meta 1,453/30,981 · vyx 2,635/32,471 · long 8,225/294,262 · abnf
+4,994/151,689 (pda enters / earley items). All exit 0; TUI census
+untouched and green (chart.clock is browser policy; the TUI ignores it).
+
+Screenshots: /tmp/clock_pda.png, /tmp/clock_earley.png.

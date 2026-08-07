@@ -21,12 +21,11 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
+from urllib.parse import unquote
 
 from lexic.compile import compile_ast, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
-from urllib.parse import unquote
-
 from lexic.ir import (
     IrAlphabet,
     IrAlternation,
@@ -39,7 +38,7 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import PdaKernel, earley_model, lift_optional_nullables, normalize
+from lexic.parsing import Kernel, PdaKernel, compile_tables, earley_model, lift_optional_nullables, normalize
 from lexic.parsing.pda.core.errors import PdaFail
 
 HERE = Path(__file__).resolve().parent
@@ -128,6 +127,8 @@ class Subject:
         self.seconds: float
         self.faithful: bool
         self.route2: dict[str, str] = {}
+        self.clock: dict = {"status": "pending"}
+        self._instance_tables = None
         self.read(self.document)
 
     def read(self, text: str) -> None:
@@ -142,6 +143,8 @@ class Subject:
         self.generation += 1
         self.route2 = {"status": "pending"}
         threading.Thread(target=self.other_route, args=(self.generation,), daemon=True).start()
+        self.clock = {"status": "pending"}
+        threading.Thread(target=self.clock_route, args=(self.generation,), daemon=True).start()
 
     def other_route(self, generation: int) -> None:
         """Run the road NOT taken, in the background — observation, never product.
@@ -172,6 +175,37 @@ class Subject:
         with self.lock:
             if self.generation == generation:
                 self.route2 = result
+
+    def clock_route(self, generation: int) -> None:
+        """Build both engine clocks in the background — observation, never product.
+
+        The PDA's decision sequence (entries + real attempts per position) and
+        Earley's chart columns (items per position) over the same document
+        coordinate. Results are discarded if a re-read moved the generation.
+        """
+        result: dict = {"status": "done"}
+        try:
+            ck = ClockKernel(self.compiled.pda_tables(), self.document, self.compiled.fold)
+            try:
+                ck.run()
+                result["pda_end"] = -1
+            except PdaFail as fork:
+                result["pda_end"] = fork.pos  # the inversion is content
+            result["enters"] = ck.enters
+            result["tries"] = ck.tries
+        except Exception as err:
+            result["pda_error"] = str(err)[:160]
+        try:
+            if self._instance_tables is None:
+                instance = normalize(lift_optional_nullables(self.compiled.codegen_grammar))
+                self._instance_tables = compile_tables(instance)
+            kernel = Kernel(self._instance_tables, self.document, record_links=False).run()
+            result["items"] = [len(col) for col in kernel.cols]
+        except Exception as err:
+            result["earley_error"] = str(err)[:160]
+        with self.lock:
+            if self.generation == generation:
+                self.clock = result
 
     def save_held(self) -> str:
         """Why a save must not write, or empty when writing is allowed."""
@@ -239,6 +273,31 @@ def rule_graph(ast) -> tuple[list[tuple[str, str]], dict[str, int]]:
                     nxt.append(ref)
         frontier = nxt
     return edges, depth
+
+
+class ClockKernel(PdaKernel):
+    """The PDA's decision clock — the fused kernel, counting its own entries.
+
+    The zero-hook observation pattern: every ``_enter`` and every real
+    ``attempt`` (the sole-admission fast path never reaches ``attempt``)
+    increments a per-position counter before delegating. The parse is the
+    engine's own; the clock only watches it.
+    """
+
+    __slots__ = ("enters", "tries")
+
+    def __init__(self, tables, text, fold) -> None:
+        super().__init__(tables, text, fold)
+        self.enters = [0] * (len(text) + 1)
+        self.tries = [0] * (len(text) + 1)
+
+    def _enter(self, clone, out):
+        self.enters[min(self.pos, len(self.text))] += 1
+        return super()._enter(clone, out)
+
+    def attempt(self, clone, out):
+        self.tries[min(self.pos, len(self.text))] += 1
+        return super().attempt(clone, out)
 
 
 def rail_lines(ast, name: str) -> list[str] | None:
@@ -396,6 +455,26 @@ class Handler(BaseHTTPRequestHandler):
                 body = "\n".join(f"{k} {v}" for k, v in self.subject.policy.items())
             self.send_text(body)
             return
+        if self.path == "/clock":
+            with self.subject.lock:
+                clock = dict(self.subject.clock)
+                generation = self.subject.generation
+            if clock.get("status") != "done":
+                self.send_text("status pending")
+                return
+            out = [f"status done", f"generation {generation}",
+                   f"pda_end {clock.get('pda_end', -1)}"]
+            enters = clock.get("enters", [])
+            tries = clock.get("tries", [])
+            rows = [f"{i} {e} {tries[i]}" for i, e in enumerate(enters) if e or tries[i]]
+            out.append(f"#PDACLOCK {len(rows)}")
+            out.extend(rows)
+            items = clock.get("items", [])
+            rows = [f"{i} {n}" for i, n in enumerate(items) if n]
+            out.append(f"#EARLEYCLOCK {len(rows)}")
+            out.extend(rows)
+            self.send_text("\n".join(out))
+            return
         if self.path == "/rails":
             with self.subject.lock:
                 ast = self.subject.graph_ast
@@ -531,6 +610,18 @@ def census(subject: Subject) -> int:
     with subject.lock:
         subject.policy.clear()
     print(f"policy round-trips through the scene: {ok_policy}")
+    for _ in range(400):
+        if subject.clock.get("status") == "done":
+            break
+        time.sleep(0.05)
+    ck = subject.clock
+    ok_clock = (ck.get("status") == "done"
+                and len(ck.get("enters", [])) == len(subject.document) + 1
+                and sum(ck.get("enters", [])) > 0
+                and len(ck.get("items", [])) == len(subject.document) + 1
+                and sum(ck.get("items", [])) > 0)
+    print(f"clocks: pda {sum(ck.get('enters', []))} enters ({sum(ck.get('tries', []))} attempts, "
+          f"end {ck.get('pda_end')}) · earley {sum(ck.get('items', []))} items · well-formed {ok_clock}")
     rails = rail_lines(subject.graph_ast, start)
     ok_rail = (rails is not None and len(rails) > 0
                and all(len(ln.split(None, 1)) >= 2 for ln in rails)
@@ -550,7 +641,7 @@ def census(subject: Subject) -> int:
         ok_routes = r2.get("status") == "failed" and int(r2.get("pos", "-1")) >= 0
     print(f"other route: {r2} · as expected {ok_routes}")
     ok = (subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier
-          and ok_save and ok_routes and ok_graph and ok_policy and ok_rail)
+          and ok_save and ok_routes and ok_graph and ok_policy and ok_rail and ok_clock)
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 
