@@ -600,3 +600,28 @@ history so nothing is re-derived or re-run.
   call recovers most of it. Prefer `re` compiled ONCE per CharSet at flatten
   time and carried on the FlatArm, beside the `(chars, negated)` pair — the same
   place and the same lifetime as the membership set it replaces.
+- **THE SCANNING VOLUME — and csv scans its input 1.89 TIMES.** Characters
+  consumed by per-character Python loops (`vstr_once` + `match_cc`):
+
+  ```
+  csv         12,539 chars   loop-scanned 23,759  = 189% of input   (vstr 2,639 / cc 1,320 calls)
+  arithmetic   4,000         loop-scanned  2,976  =  74%            (vstr 2,976 / cc 0)
+  json         2,403         loop-scanned  3,108  = 129%            (vstr 1,759 / cc 1,153)
+  ```
+
+  **Re-sizes the regex candidate.** The earlier 5.4% counted vstr RUNS; the
+  saving actually scales with characters SCANNED. At ~75 ns/char marginal in the
+  loop (from the microbenchmark's slope) 23,759 chars ≈ 1.78 ms of csv's 12.9 ms;
+  replacing with ~185 ns flat per call over 3,959 calls ≈ 0.73 ms. Net saving
+  **≈ 1.05 ms ≈ 8%** — better than 5.4%, still short of the 21% csv needs.
+- **NEW OPEN QUESTION, and possibly the bigger one: why 189%?** A single-pass
+  parse should scan each character about once. csv scans 1.89× and json 1.29×,
+  while arithmetic scans only 0.74× (no `match_cc` at all). Something is
+  re-scanning — candidates, all unmeasured: a quantifier loop that scans a run
+  and then a following item re-scans part of it; `match_cc` and `vstr_once`
+  covering overlapping spans; or backtracking that discards scanned work.
+  **This is worth more than the regex swap if it is real** — eliminating a
+  re-scan removes the work entirely rather than making it cheaper, and 0.89
+  redundant passes over the input is a bigger number than 8%.
+  Next: instrument the scanned SPANS (not just counts) on csv and check for
+  overlap — if the same offsets are scanned twice, find which two call sites.
