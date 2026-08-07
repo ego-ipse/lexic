@@ -27,6 +27,7 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrRuleRef
 from lexic.model import GrammarModel
 from lexic.parsing import PdaKernel, earley_model, lift_optional_nullables, normalize
+from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.core.errors import PdaFail
 
 HERE = Path(__file__).resolve().parent
@@ -147,16 +148,15 @@ class Subject:
     def frontier(self, text: str) -> int:
         """The PDA's deepest verified position on ``text``, read from its own words.
 
-        Only meaningful on the PDA route (no resolver). ``PdaFail.pos`` carries
-        it structurally now — the regex-over-prose this used to do is gone.
-        -1 when the text parses, or when the failure is not about a position.
+        Read off the PUBLIC parse surface now: a refused parse carries a
+        ``Refusal`` readout (position, rule, expected-next), so this no longer
+        reaches past the product into the engine floor — nor regexes prose.
+        -1 when the text parses, or when the refusal carries no position.
         """
-        if self.resolve is not None:
-            return -1
         try:
-            PdaKernel(self.compiled.pda_tables(), text, self.compiled.fold).run()
-        except PdaFail as fail:
-            return fail.pos
+            self.compiled.parse(text, resolve=self.resolve)
+        except UnsupportedConstructError as refusal:
+            return refusal.readout.pos if refusal.readout else -1
         return -1
 
     def rule_lines(self) -> list[tuple[str, int, int]]:
