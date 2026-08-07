@@ -733,3 +733,20 @@ same register as chip/spans, and the alternation rail pin carrying `▲ 2`
 (its two referrers). Wheel-scroll, click-descend and history are wired and
 code-verified; headless can't drive them — the user's hands are the test.
 `node --check` clean; no server change this round.
+
+## Round: per-mode cameras — 2026-08-07
+
+The user's catch: switching graph views carried the old view's coordinates
+— scroll to the bottom of rails, switch to depth 3d, and you're panned
+into the middle of nowhere. The camera was one shared state across modes.
+
+Fix: `switchViewMode(v, from, to)` — on every view switch (facet select
+and pin selects alike) the outgoing mode's camera (yaw/pitch/zoom/pan/
+touched) is banked in `v.cams[from]` and the incoming mode's own camera is
+restored — or fresh defaults with `touched=false`, so the untouched
+framing (start edge / top-left) greets a first visit. Switching back
+returns you exactly where you were in THAT view. The fit cache clears on
+switch. Policy still persists the current camera only — per-mode cameras
+are session memory, the wire schema is unchanged.
+
+Boot sanity DOM-checked; interaction is user-side as usual.

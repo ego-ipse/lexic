@@ -507,6 +507,16 @@ let gArcIndex = new Map();
 
 function viewMode(v) { return v.pin ? (v.pin.mode || 'depth3d') : gView; }
 
+function switchViewMode(v, from, to) {
+  if (from === to) return;
+  v.cams = v.cams || {};
+  v.cams[from] = { yaw: v.yaw, pitch: v.pitch, zoom: v.zoom, pan: { ...v.pan }, touched: v.touched };
+  const c = v.cams[to];
+  if (c) Object.assign(v, { yaw: c.yaw, pitch: c.pitch, zoom: c.zoom, pan: { ...c.pan }, touched: c.touched });
+  else Object.assign(v, { yaw: 0.42, pitch: 0.92, zoom: 1, pan: { x: 0, y: 0 }, touched: false });
+  v.fit = null;
+}
+
 function makeGraphView(wrap, cv, chips) {
   return { wrap, cv, chips, yaw: 0.42, pitch: 0.92, zoom: 1, pan: { x: 0, y: 0 }, touched: false };
 }
@@ -1339,7 +1349,12 @@ function syncTunePanel() {
 
 function wireTune() {
   $('gview').addEventListener('change', () => {
+    const from = gView;
     gView = $('gview').value;
+    if (gViews[0]) {
+      switchViewMode(gViews[0], from, gView);
+      persistView(gViews[0]);
+    }
     postPolicy('graph.view', gView);
     syncTunePanel();
     drawGraph();
@@ -1509,7 +1524,9 @@ function buildPin(p, layer) {
     const sel = el.querySelector('.pview');
     sel.value = p.mode || 'depth3d';
     sel.addEventListener('change', () => {
+      const from = p.mode || 'depth3d';
       p.mode = sel.value;
+      switchViewMode(v, from, p.mode);
       applyPinMode(p, el);
       postPolicyDebounced(`pin.${p.id}`, pinPolicyValue(p));
     });
