@@ -520,3 +520,28 @@ history so nothing is re-derived or re-run.
   the time is in `_drive`'s per-item terminal path (OP_CC1 / OP_LIT1 / OP_VSTR)
   and the frame push/complete cycle. Measure the split before proposing
   anything — that is the loop lark-lalr beats with a separate lexer.
+- **cProfile IS UNRELIABLE AT THIS CALL DENSITY — a methodological finding that
+  invalidates a reading I nearly took.** Profiling csv: 414,741 calls in 0.163 s
+  profiled, against ~12.9 ms unprofiled — **a 12.6× inflation**. Per-call
+  instrumentation overhead dominates, so the profile's proportions skew hard
+  toward high-call-count functions.
+  Concretely it showed model construction (`_from_parts` 20,910 calls,
+  `_fast_fields` / `build_fast` 14,300 each) at ~29% of csv's run. **Iteration 4
+  measured the same thing by stubbing the constructors and got 2%.** The stub
+  A/B is the trustworthy number — it changes the program and times the whole
+  thing, rather than taxing every call. The profile is measuring its own
+  overhead on the hottest, smallest functions.
+  This matches the repo's standing perf guidance (in-process interleaved A/B;
+  cProfile misleads) and I nearly reasoned from the profile anyway. Where
+  cProfile HAS been useful this mission is locating a hotspot by NAME
+  (`values_agree` at ×63 call growth, the Earley fold at 46%) — the shape, not
+  the share.
+- **SO WHERE csv's TIME GOES IS STILL OPEN, and the tools so far cannot say.**
+  Construction is 2% (stub A/B). Chases are 0. Entries are 0.228/char, the
+  lowest on the board. That leaves `_drive`'s per-item terminal path — but it is
+  ONE function, so cProfile cannot decompose it and a stub cannot remove it.
+  Measuring inside it needs a different technique: counting op-code executions
+  per kind (compile-time reachable from the FlatArms), or line-level timing.
+  **Next: count OP_CC1 / OP_LIT1 / OP_VSTR / OP_REF1 executions on csv and
+  divide the 12.9 ms by op.** That gives a per-op cost to compare against what
+  a table-driven LALR loop pays per character.
