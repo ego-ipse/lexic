@@ -199,7 +199,8 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
             fchars, fnegated = gate[1]
             if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
                 raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable"
+                    f"attempt loop at {pos}: taking and stopping are both viable",
+                    pos,
                 )
         return take
     if gk == GATE_PAIR:
@@ -238,7 +239,7 @@ def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
                 got = candidate
                 break
     if got is None and clone.default is None:
-        raise PdaFail(f"no arm at {pos}")
+        raise PdaFail(f"no arm at {pos}", pos)
     return got if got is not None else clone.default
 
 

@@ -16,10 +16,30 @@ class PdaFail(Exception):
 
     Raised wherever the PDA cannot proceed deterministically (a terminal
     mismatch, no viable arm, trailing input, or a fail/unresolvable island
-    reference). Carries the failing position and a short reason for debugging;
-    the compile seam catches it and falls back to the full engine, so it is
-    **never** user-facing.
+    reference). The compile seam catches it and falls back to the full engine,
+    so it is **never** user-facing.
+
+    :ivar pos: The character offset the failing construct was attempted FROM —
+        not necessarily the deepest character matched. A mismatch inside a
+        literal reports the literal's start, and the optimizer merges adjacent
+        exactly-once literals into one run, so the offset can sit earlier than
+        the first wrong character. ``-1`` when the failure is not about a
+        position at all (an islanded start rule, a start rule that produced no
+        model).
+
+    The position used to live only in the message, so the one consumer that
+    wanted it read it back out of prose with a regex. It is an attribute
+    because a caller asking "how far did you get?" should not have to parse an
+    error string to find out. The message still spells it too — that is for
+    people, and the two are written from the same value.
     """
+
+    __slots__ = ("pos",)
+
+    def __init__(self, message: str, pos: int = -1) -> None:
+        """Bind the human-readable reason and the machine-readable position."""
+        super().__init__(message)
+        self.pos = pos
 
 
 class ProbeFork(PdaFail):

@@ -81,7 +81,9 @@ def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
     try:
         return compute()
     except LexicError as exc:
-        raise PdaFail(f"island {name!r} at {pos}: fold refused the completion") from exc
+        raise PdaFail(
+            f"island {name!r} at {pos}: fold refused the completion", pos
+        ) from exc
 
 
 _DERIV_PARSER = EarleyParser()
@@ -182,14 +184,15 @@ def island_parse(
         window *= 2
         kern, best = island_run(tables, text[pos : pos + window], policy.delegates)
     if best is None:
-        raise PdaFail(f"island {name!r}: no match at {pos}")
+        raise PdaFail(f"island {name!r}: no match at {pos}", pos)
     item, end = best
     if policy.follow is not None:
         for alt in start_completion_ends(kern):
             if alt < end and policy.follow.has(text[pos + alt]):
                 raise PdaFail(
                     f"island {name!r} at {pos}: arm choice spans two ends "
-                    f"({alt}, {end}) and the shorter could compose"
+                    f"({alt}, {end}) and the shorter could compose",
+                    pos,
                 )
     handle = (item << kern.tables.packing.bits) | end
     tree = FastTree(kern).build(handle)

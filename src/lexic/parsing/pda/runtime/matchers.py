@@ -38,7 +38,7 @@ def select_arm(clone: FlatClone, char: str, pos: int) -> FlatArm:
             return candidate
     default = clone.default
     if default is None:
-        raise PdaFail(f"no arm at {pos}")
+        raise PdaFail(f"no arm at {pos}", pos)
     return default
 
 
@@ -54,7 +54,7 @@ def match_lit(text: str, arm: FlatArm, i: int, pos: int) -> int:
     count = 0
     while count < lo:
         if not text.startswith(lit, pos):
-            raise PdaFail(f"expected {lit!r} at {pos}")
+            raise PdaFail(f"expected {lit!r} at {pos}", pos)
         pos += llen
         count += 1
     gate = arm.gate_data[i]
@@ -66,13 +66,13 @@ def match_lit(text: str, arm: FlatArm, i: int, pos: int) -> int:
             if (char == "" or char in chars) if negated else char not in chars:
                 break
             if not text.startswith(lit, pos):
-                raise PdaFail(f"expected {lit!r} at {pos}")
+                raise PdaFail(f"expected {lit!r} at {pos}", pos)
             pos += llen
             count += 1
         return pos
     while (hi < 0 or count < hi) and gate_take(text, pos, gk, gate):
         if not text.startswith(lit, pos):
-            raise PdaFail(f"expected {lit!r} at {pos}")
+            raise PdaFail(f"expected {lit!r} at {pos}", pos)
         pos += llen
         count += 1
     return pos
@@ -92,7 +92,7 @@ def match_cc(text: str, arm: FlatArm, i: int, pos: int) -> int:
     while count < lo:
         char = text[pos : pos + 1]
         if (char == "" or char in chars) if negated else char not in chars:
-            raise PdaFail(f"char class miss at {pos}")
+            raise PdaFail(f"char class miss at {pos}", pos)
         pos += 1
         count += 1
     gate = arm.gate_data[i]
@@ -126,13 +126,13 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
         if k == OP_LIT1:
             lit = arm.payloads[j]
             if not text.startswith(lit, pos):
-                raise PdaFail(f"expected {lit!r} at {pos}")
+                raise PdaFail(f"expected {lit!r} at {pos}", pos)
             pos += len(lit)
         elif k == OP_CC1:
             chars, negated = arm.payloads[j]
             char = text[pos : pos + 1]
             if (char == "" or char in chars) if negated else char not in chars:
-                raise PdaFail(f"char class miss at {pos}")
+                raise PdaFail(f"char class miss at {pos}", pos)
             pos += 1
         elif k == OP_LIT:
             pos = match_lit(text, arm, j, pos)
@@ -162,13 +162,13 @@ def vstr_once(
     if kj == OP_CC1:
         chars, negated = varm.payloads[0]
         if (char == "" or char in chars) if negated else char not in chars:
-            raise PdaFail(f"char class miss at {pos}")
+            raise PdaFail(f"char class miss at {pos}", pos)
         sink.append(build_vstr(clone, char, intern))
         return pos + 1
     if kj == OP_LIT1:
         lit = varm.payloads[0]
         if not text.startswith(lit, pos):
-            raise PdaFail(f"expected {lit!r} at {pos}")
+            raise PdaFail(f"expected {lit!r} at {pos}", pos)
         sink.append(build_vstr(clone, lit, intern))
         return pos + len(lit)
     end = (

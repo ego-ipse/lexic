@@ -208,7 +208,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         self._enter(start, holder)
         self._drive()
         if self.pos != len(self.text):
-            raise PdaFail(f"trailing input at {self.pos}")
+            raise PdaFail(f"trailing input at {self.pos}", self.pos)
         if not holder:
             raise PdaFail("start rule produced no model")
         return holder[0]
@@ -286,12 +286,12 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                         if payload[1]
                         else (char not in payload[0])
                     ):
-                        raise PdaFail(f"char class miss at {pos}")
+                        raise PdaFail(f"char class miss at {pos}", pos)
                     pos += 1
                 elif k == OP_LIT1:
                     lit = arm.payloads[i]
                     if not text.startswith(lit, pos):
-                        raise PdaFail(f"expected {lit!r} at {pos}")
+                        raise PdaFail(f"expected {lit!r} at {pos}", pos)
                     pos += len(lit)
                 elif k == OP_REF1:
                     frame[F_I] = i + 1
@@ -360,7 +360,8 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         if k == OP_FAIL:
             raise PdaFail(
                 f"fail-island {arm.payloads[i]!r} at {pos}: "
-                "F1 semantic escape, engine fallback"
+                "F1 semantic escape, engine fallback",
+                pos,
             )
         self._island(arm.payloads[i], sink)  # OP_ISLAND — spliced inline
         return i
@@ -414,7 +415,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             if nxt is None:
                 nxt = clone.default
                 if nxt is None:
-                    raise PdaFail(f"no arm at {self.pos}")
+                    raise PdaFail(f"no arm at {self.pos}", self.pos)
                 if nxt is DISPATCH_EMPTY:
                     return None
             clone = nxt
@@ -458,7 +459,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         if gate is not None and not scan_gate_take(self.text, self.pos, gate):
             arm = clone.default
             if arm is None:
-                raise PdaFail(f"no arm at {self.pos}")
+                raise PdaFail(f"no arm at {self.pos}", self.pos)
             self.stack.append(
                 [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
             )
@@ -474,7 +475,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         if arm is None:
             arm = clone.default
             if arm is None:
-                raise PdaFail(f"no arm at {self.pos}")
+                raise PdaFail(f"no arm at {self.pos}", self.pos)
         # frame layout: arm, i, count, out, mode, clone, start, ends, sinks
         # ``ends`` is per-frame so the driver's per-item span write stays
         # unconditional (only span-reading sequence clones ever read it back).
@@ -516,12 +517,12 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                     if payload[1]
                     else (char not in payload[0])
                 ):
-                    raise PdaFail(f"char class miss at {pos}")
+                    raise PdaFail(f"char class miss at {pos}", pos)
                 pos += 1
             elif k == OP_LIT1:
                 lit = arm.payloads[i]
                 if not text.startswith(lit, pos):
-                    raise PdaFail(f"expected {lit!r} at {pos}")
+                    raise PdaFail(f"expected {lit!r} at {pos}", pos)
                 pos += len(lit)
             elif k == OP_VSTR:
                 if sinks is None:
@@ -585,7 +586,9 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         """
         fold = self.policy.fold
         if fold is None:
-            raise PdaFail(f"island {name!r} at {self.pos}: no fold for splice")
+            raise PdaFail(
+                f"island {name!r} at {self.pos}: no fold for splice", self.pos
+            )
         tree, end = self._island_subparse(name)
         model = island_value(lambda: fold.apply(tree), name, self.pos)
         if model is not None:

@@ -185,7 +185,8 @@ class Attempting:
         if k > OP_GRP:  # OP_ISLAND / OP_FAIL — no (end, values) to fork-probe
             if self._stop_viable(arm, i, char):
                 raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable"
+                    f"attempt loop at {pos}: taking and stopping are both viable",
+                    pos,
                 )
             return self._attempt_island(frame, arm, i, pos)
         got = self._attempt_run(arm.payloads[i], pos)
@@ -209,7 +210,8 @@ class Attempting:
                 return _close_loop(frame, i, pos)
             if verdict == _FORKED:
                 raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable"
+                    f"attempt loop at {pos}: taking and stopping are both viable",
+                    pos,
                 )
         end, values = got
         self._sink_for(frame, arm, i).extend(values)
@@ -323,7 +325,7 @@ class Attempting:
                 winner = idx
                 break
         if best is None:
-            raise PdaFail(f"attempt: no arm matches at {pos}")
+            raise PdaFail(f"attempt: no arm matches at {pos}", pos)
         self._attempt_audit(entries[winner + 1 :], pos, best[0], follow)
         out.extend(best[1])
         self.pos = best[0]
@@ -355,12 +357,14 @@ class Attempting:
             if alt == end:
                 raise PdaFail(
                     f"attempt at {pos}: two arms span [{pos}, {end}) — "
-                    "a value question for the gated engine"
+                    "a value question for the gated engine",
+                    pos,
                 )
             if follow.has(self.text[alt : alt + 1]):
                 raise PdaFail(
                     f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
-                    "and the alternative could compose"
+                    "and the alternative could compose",
+                    pos,
                 )
 
     def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:
