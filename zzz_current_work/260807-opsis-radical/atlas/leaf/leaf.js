@@ -593,6 +593,9 @@ function gProject(v, p, w, h) {
 }
 
 function drawGraph() {
+  for (const p of pins) {
+    if (p.kind === 'rail' && p.tree && p.el && document.contains(p.el)) drawRailPin(p, p.el);
+  }
   if (!gNodes) return;
   for (const v of gViews) {
     if (!document.contains(v.wrap) || v.wrap.closest('[hidden]')) continue;
@@ -733,6 +736,14 @@ function wireGraphView(v) {
   });
   v.wrap.addEventListener('wheel', (e) => {
     e.preventDefault();
+    if (viewMode(v) === 'rails' && !e.ctrlKey) {
+      // a stack of diagrams reads like a document: wheel scrolls, Ctrl+wheel zooms
+      v.touched = true;
+      v.pan.y -= e.deltaY;
+      persistView(v);
+      drawGraphView(v);
+      return;
+    }
     const r = v.wrap.getBoundingClientRect();
     const factorTo = Math.max(0.35, Math.min(5, v.zoom * Math.pow(1.0016, -e.deltaY)));
     const factor = factorTo / v.zoom;
@@ -752,15 +763,24 @@ function wireGraphView(v) {
     const ux = (e.clientX - r.left - v.rtx) / v.rk;
     const uy = (e.clientY - r.top - v.rty) / v.rk;
     const hit = v.railHits.find((b) => ux >= b.x && ux <= b.x + b.w && uy >= b.y && uy <= b.y + b.h);
-    if (hit) railPin(hit.rule);
+    if (!hit) return;
+    cur.rule = hit.rule;
+    railsGoto(v, hit.rule);
+    railChipShow(hit.rule, e.clientX, e.clientY);
+    ask();
   });
   v.cv.addEventListener('mousemove', (e) => {
     if (viewMode(v) !== 'rails' || !v.railHits) { v.cv.style.cursor = ''; return; }
     const r = v.cv.getBoundingClientRect();
     const ux = (e.clientX - r.left - v.rtx) / v.rk;
     const uy = (e.clientY - r.top - v.rty) / v.rk;
-    const over = v.railHits.some((b) => ux >= b.x && ux <= b.x + b.w && uy >= b.y && uy <= b.y + b.h);
-    v.cv.style.cursor = over ? 'pointer' : '';
+    const hit = v.railHits.find((b) => ux >= b.x && ux <= b.x + b.w && uy >= b.y && uy <= b.y + b.h);
+    v.cv.style.cursor = hit ? 'pointer' : '';
+    const rule = hit ? hit.rule : '';
+    if (rule !== graphHover) { graphHover = rule; ask(); }
+  });
+  v.cv.addEventListener('mouseout', () => {
+    if (graphHover) { graphHover = ''; ask(); }
   });
   v.chips.addEventListener('mouseover', (e) => {
     const el = e.target.closest('.gchip');
@@ -835,7 +855,7 @@ let railInk = null;
 function railColors() {
   if (!railInk) {
     const cs = getComputedStyle(document.documentElement);
-    railInk = Object.fromEntries(['cool', 'warm', 'violet', 'dim', 'dimmer', 'ink', 'red']
+    railInk = Object.fromEntries(['cool', 'warm', 'violet', 'dim', 'dimmer', 'ink', 'red', 'field']
       .map((k) => [k, cs.getPropertyValue('--' + k).trim()]));
   }
   return railInk;
@@ -971,14 +991,25 @@ function railDraw(n, cx, x, y, hits) {
     cx.fillText(n.tag, x + 5, y + 11);
   } else {
     const C = railColors();
-    const color = { ref: C.cool, lit: C.warm, class: C.violet }[n.k] || C.dim;
+    let color = { ref: C.cool, lit: C.warm, class: C.violet }[n.k] || C.dim;
+    let textColor = color;
+    if (n.k === 'ref' && n.label === hotRule()) {
+      // the same light the rule's chip carries when hovered
+      cx.fillStyle = C.warm;
+      cx.fillRect(x, y, n.w, n.h);
+      color = C.warm;
+      textColor = C.field;
+    } else if (n.k === 'ref' && n.label === cur.rule) {
+      color = C.violet;
+      textColor = C.violet;
+    }
     cx.strokeStyle = color;
     cx.lineWidth = 1;
     cx.beginPath();
     if (n.k === 'lit') cx.roundRect(x, y, n.w, n.h, 9);
     else cx.rect(x, y, n.w, n.h);
     cx.stroke();
-    cx.fillStyle = color;
+    cx.fillStyle = textColor;
     cx.fillText(n.label, x + (n.w - cx.measureText(n.label).width) / 2, yE + 3.5);
     if (n.k === 'ref') hits.push({ x, y, w: n.w, h: n.h, rule: n.label });
   }
@@ -1124,6 +1155,15 @@ function wireRailChip() {
   $('grammarScroll').addEventListener('scroll', () => { chip.hidden = true; });
 }
 
+function railsGoto(v, rule) {
+  const e = railsLayout && railsLayout.byName.get(rule);
+  if (!e || v.rk === undefined) return;
+  v.touched = true;
+  v.pan.y += 34 - (e.y * v.rk + v.rty);
+  persistView(v);
+  drawGraphView(v);
+}
+
 function railPin(rule) {
   const k = pins.length;
   const p = { id: ++pinSeq, kind: 'rail', rule, x: 320 + (k % 8) * 40, y: 120 + (k % 8) * 40, w: 0, h: 0 };
@@ -1169,7 +1209,7 @@ function drawRailPin(p, el) {
   railDraw(p.tree, cx, 0, 0, p.hits);
 }
 
-async function wireRailPin(p, el) {
+async function railPinLoad(p, el) {
   const body = el.querySelector('.railbody');
   const cv = el.querySelector('canvas');
   const tree = await fetchRail(p.rule);
@@ -1184,16 +1224,49 @@ async function wireRailPin(p, el) {
     el.style.width = p.w + 'px';
     el.style.height = p.h + 'px';
   }
+  el.querySelector('.addr').textContent = p.rule;
+  el.querySelector('.rback').hidden = !(p.hist && p.hist.length);
+  const up = el.querySelector('.rup');
+  const parents = [...new Set(S.edges.filter((ed) => ed[1] === p.rule && ed[0] !== p.rule).map((ed) => ed[0]))];
+  up.hidden = !parents.length;
+  up.innerHTML = `<option value="">▲ ${parents.length}</option>`
+    + parents.map((n) => `<option>${n}</option>`).join('');
   postPolicyDebounced(`pin.${p.id}`, pinPolicyValue(p));
-  new ResizeObserver(() => drawRailPin(p, el)).observe(body);
+  drawRailPin(p, el);
+}
+
+function railGoto(p, el, rule, push) {
+  if (rule === p.rule) return;
+  if (push) (p.hist = p.hist || []).push(p.rule);
+  p.rule = rule;
+  p.tree = null;
+  railPinLoad(p, el);
+}
+
+async function wireRailPin(p, el) {
+  const cv = el.querySelector('canvas');
+  new ResizeObserver(() => drawRailPin(p, el)).observe(el.querySelector('.railbody'));
   cv.addEventListener('click', (e) => {
+    // navigate in place — a NEW window is the chip gesture's job, not a click's
     const rule = railHitAt(p, cv, e);
-    if (rule) railPin(rule);
+    if (rule) railGoto(p, el, rule, true);
   });
   cv.addEventListener('mousemove', (e) => {
-    cv.style.cursor = railHitAt(p, cv, e) ? 'pointer' : '';
+    const rule = railHitAt(p, cv, e) || '';
+    cv.style.cursor = rule ? 'pointer' : '';
+    if (rule !== graphHover) { graphHover = rule; ask(); }
   });
-  drawRailPin(p, el);
+  cv.addEventListener('mouseout', () => {
+    if (graphHover) { graphHover = ''; ask(); }
+  });
+  el.querySelector('.rback').addEventListener('click', () => {
+    if (p.hist && p.hist.length) railGoto(p, el, p.hist.pop(), false);
+  });
+  el.querySelector('.rup').addEventListener('change', (e) => {
+    if (e.target.value) railGoto(p, el, e.target.value, true);
+    e.target.selectedIndex = 0;
+  });
+  await railPinLoad(p, el);
 }
 
 let spineZoom = 1;
@@ -1401,9 +1474,11 @@ function buildPin(p, layer) {
     el.classList.add('rail');
     el.innerHTML =
       `<header><span>RAILROAD</span><span class="addr">${p.rule}</span>`
+      + `<button class="rback" title="back" hidden>↩</button><select class="rup" hidden></select>`
       + `<span class="stalemark"></span><button class="x" title="close">×</button></header>`
       + `<div class="body railbody"><canvas></canvas></div>`;
     layer.appendChild(el);
+    p.el = el;
     wireRailPin(p, el);
     return el;
   }
@@ -1537,7 +1612,7 @@ function wirePins() {
     const el = e.target.closest('.pin');
     if (!el) return;
     el.style.zIndex = ++pinZ;
-    if (e.target.closest('.pview')) return;
+    if (e.target.closest('.pview') || e.target.closest('.rback') || e.target.closest('.rup')) return;
     if (e.target.closest('.x')) {
       pins = pins.filter((p) => p.id !== +el.dataset.id);
       renderPins();

@@ -59,7 +59,14 @@ screenshot-verified.
   rule chip in any graph view, raises `▤ rail` beside the pointer — the
   same gesture shape as the text pin chip. The tune panel is per-view
   (depth3d: depth/ring/flat/label · flat: cols/rows/label · arcs:
-  pitch/lift/label · rails: gap/label).
+  pitch/lift/label · rails: gap/label). Railroads are navigable spaces:
+  the rails view scrolls on wheel (Ctrl+wheel zooms, like the text
+  planes) and clicking a ref scrolls to that rule; in a rail window a
+  ref click re-targets the window in place (`↩` walks back, `▲ n`
+  ascends to a chosen parent — a rule may be referenced many times, so
+  ascent is a choice, not a jump). A NEW window is only ever the chip.
+  Hovering any ref co-selects its rule — the same light as its chip,
+  reader line and spans; rail windows join the per-frame render for it.
   Leaves are interpreters: the browser applies policy at boot and
   posts every presentation gesture back; the TUI obeys speed, shares, and
   reader.mode — its flat rule graph IS `graph.view` in cells. Leaves polling

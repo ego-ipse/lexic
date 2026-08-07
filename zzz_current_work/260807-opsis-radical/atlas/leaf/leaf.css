@@ -367,6 +367,27 @@ body {
   appearance: none;
 }
 #gview:hover, .pin .pview:hover { border-color: var(--cool); color: var(--cool); }
+.pin .rback {
+  margin-left: 8px;
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--dim);
+  font: 10px var(--mono);
+  padding: 0 6px;
+  cursor: pointer;
+}
+.pin .rback:hover { border-color: var(--cool); color: var(--cool); }
+.pin .rup {
+  margin-left: 4px;
+  background: var(--field2);
+  border: 1px solid var(--hair);
+  color: var(--dim);
+  font: 10px var(--mono);
+  padding: 1px 4px;
+  cursor: pointer;
+  appearance: none;
+}
+.pin .rup:hover { border-color: var(--cool); color: var(--cool); }
 .pin .pview { margin-left: auto; margin-right: 6px; }
 .pin.graph .gtext {
   display: none;

@@ -704,3 +704,32 @@ defined's `=`/`=/` arms), DOM greps for chips-in-flat and #railchip
 presence. All censuses exit 0: meta, long, vyx, abnf, TUI. The chip
 gesture's click path is wired and DOM-verified but not headless-clickable —
 user-side is the real test. SPEC §1/§2 updated.
+
+## Round: the railroad becomes a navigable space — 2026-08-07
+
+The user's review of the rails round, all three taken:
+
+1. **Scroll, not pan** → in the rails view the wheel scrolls (`pan.y`),
+   Ctrl+wheel keeps the cursor-anchored zoom — the same split every text
+   plane already uses. Drag still pans.
+2. **Refs light like their chips** → hovering a ref box co-selects its
+   rule: `graphHover` drives the same light everywhere (chip hot, reader
+   line, spans). The ref box itself draws hot (warm fill, field text) when
+   its rule is hovered anywhere, violet when marked. Rail pins joined the
+   per-frame render (`drawGraph` head) so cross-lighting reaches inside
+   windows — hover a chip, the refs in every open railroad light up.
+3. **Click descends, the chip forks** → in the rails view a ref click
+   scrolls to that rule's diagram (`railsGoto`), marks it, and raises the
+   rail chip (pinning stays one more click, never automatic). In a rail
+   window a ref click re-targets the window in place; `↩` pops the
+   navigation history; `▲ n` in the header lists the rule's referrers
+   (from #EDGES) — ascent is a CHOICE because a rule may be referenced
+   many times, which is exactly why it's a select and not a button.
+   Window drag guards extended so the new header controls survive.
+
+Verification: /tmp/rails_lit.png — one frame showing `?rule=rule` lighting
+the `rule` refs violet across the rails view (rules-rest's track) in the
+same register as chip/spans, and the alternation rail pin carrying `▲ 2`
+(its two referrers). Wheel-scroll, click-descend and history are wired and
+code-verified; headless can't drive them — the user's hands are the test.
+`node --check` clean; no server change this round.
