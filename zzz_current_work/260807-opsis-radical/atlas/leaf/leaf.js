@@ -470,6 +470,7 @@ function rebuildPinsFromPolicy(P) {
         x: +t[1], y: +t[2], w: +t[3], h: +t[4],
         vyaw: parseFloat(t[5]), vpitch: parseFloat(t[6]), vzoom: parseFloat(t[7]),
         vpanx: parseFloat(t[8]) || 0, vpany: parseFloat(t[9]) || 0,
+        mode: t[10] || 'depth3d',
       });
     } else {
       const [se, ee, de] = [+t[1], +t[2], +t[3]];
@@ -501,6 +502,8 @@ let gViews = [];  // [0] is the facet view; others live inside pinned windows
 let gFlat = new Map();
 let gArc = new Map();
 let gArcIndex = new Map();
+
+function viewMode(v) { return v.pin ? (v.pin.mode || 'depth3d') : gView; }
 
 function makeGraphView(wrap, cv, chips) {
   return { wrap, cv, chips, yaw: 0.42, pitch: 0.92, zoom: 1, pan: { x: 0, y: 0 }, touched: false };
@@ -595,6 +598,8 @@ function drawGraph() {
 }
 
 function drawGraphView(v, smooth = false) {
+  const mode = viewMode(v);
+  if (mode === 'text') return;
   const wrap = v.wrap;
   const cv = v.cv;
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -605,10 +610,10 @@ function drawGraphView(v, smooth = false) {
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, w, h);
   const proj = new Map();
-  if (gView === 'depth3d') {
+  if (mode === 'depth3d') {
     for (const [name, p] of gNodes) proj.set(name, gProject(v, p, w, h));
   } else {
-    const src = gView === 'flat' ? gFlat : gArc;
+    const src = mode === 'flat' ? gFlat : gArc;
     for (const [name, q] of src) proj.set(name, { x: q.x, y: q.y, s: 1 });
   }
   // auto-fit: fill the facet whatever the grammar's size or the orbit's angle
@@ -618,7 +623,7 @@ function drawGraphView(v, smooth = false) {
     y0 = Math.min(y0, P.y); y1 = Math.max(y1, P.y);
   }
   let fitk = Math.min((w * 0.84) / Math.max(40, x1 - x0), (h * 0.78) / Math.max(40, y1 - y0), 2.4);
-  if (gView !== 'depth3d') fitk = Math.max(fitk, 0.8);  // flat/arcs stay readable; pan explores
+  if (mode !== 'depth3d') fitk = Math.max(fitk, 0.8);  // flat/arcs stay readable; pan explores
   const tk = fitk * v.zoom;
   const tmx = (x0 + x1) / 2, tmy = (y0 + y1) / 2;
   if (!v.fit || !smooth) v.fit = { k: tk, mx: tmx, my: tmy };
@@ -628,7 +633,7 @@ function drawGraphView(v, smooth = false) {
     v.fit.my += (tmy - v.fit.my) * 0.22;
   }
   const { k, mx, my } = v.fit;
-  if (gView !== 'depth3d' && !v.touched) {
+  if (mode !== 'depth3d' && !v.touched) {
     v.pan.x = 70 - w / 2 - (x0 - mx) * k;  // untouched camera frames the start rule's edge
   }
   for (const P of proj.values()) {
@@ -646,12 +651,12 @@ function drawGraphView(v, smooth = false) {
       ? 'rgba(217,140,245,0.75)'
       : `rgba(111,195,201,${(0.06 + 0.22 * Math.min(A.s, B.s)).toFixed(3)})`;
     cx.beginPath();
-    if (gView === 'arcs' && a !== b) {
+    if (mode === 'arcs' && a !== b) {
       const dir = B.x >= A.x ? 1 : -1;  // forward references arc above, backward below
       const lift = dir * (12 + Math.abs(B.x - A.x) * 0.28) * gTune.ringscale;
       cx.moveTo(A.x, A.y);
       cx.quadraticCurveTo((A.x + B.x) / 2, A.y - lift, B.x, B.y);
-    } else if (gView === 'arcs') {
+    } else if (mode === 'arcs') {
       cx.arc(A.x, A.y - 9, 7, 0, Math.PI * 2);  // recursion: a self-loop ring
     } else {
       cx.moveTo(A.x, A.y);
@@ -669,8 +674,8 @@ function drawGraphView(v, smooth = false) {
     el.style.top = P.y + 'px';
     el.style.transform = `translate(-50%, -50%) scale(${Math.max(0.55, Math.min(P.s, 1.2)).toFixed(2)})`;
     el.style.zIndex = Math.round(P.s * 1000);
-    el.classList.toggle('near', gView === 'depth3d' ? P.s > 0.85 : true);
-    el.classList.toggle('dot', gView === 'arcs'
+    el.classList.toggle('near', mode === 'depth3d' ? P.s > 0.85 : true);
+    el.classList.toggle('dot', mode === 'arcs'
       && el.dataset.name !== hot && el.dataset.name !== cur.rule && el.dataset.name !== start);
     el.classList.toggle('start', el.dataset.name === start);
     el.classList.toggle('marked', el.dataset.name === cur.rule);
@@ -696,7 +701,8 @@ function wireGraphView(v) {
   let drag = null;
   v.wrap.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.gchip') || e.target.closest('#gtune')) return;
-    drag = { x: e.clientX, y: e.clientY, pan: gView !== 'depth3d' || e.shiftKey };
+    if (viewMode(v) === 'text') return;
+    drag = { x: e.clientX, y: e.clientY, pan: viewMode(v) !== 'depth3d' || e.shiftKey };
     e.preventDefault();
   });
   window.addEventListener('pointermove', (e) => {
@@ -776,7 +782,8 @@ function pinPolicyValue(p) {
     const v = p.view;
     return `graph ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w)} ${Math.round(p.h || 440)}`
       + (v ? ` ${v.yaw.toFixed(2)} ${v.pitch.toFixed(2)} ${v.zoom.toFixed(2)} ${Math.round(v.pan.x)} ${Math.round(v.pan.y)}`
-           : ' 0.9 0.92 1 0 0');
+           : ' 0.9 0.92 1 0 0')
+      + ` ${p.mode || 'depth3d'}`;
   }
   return `span ${p.s} ${p.e} ${p.d} ${p.rule} ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w || 360)} ${Math.round(p.h || 0)}`;
 }
@@ -840,9 +847,19 @@ function wireChartZoom() {
   }, { passive: false });
 }
 
+const TUNE_PANEL = {
+  depth3d: { levelstep: 'depth', ringscale: 'ring', flatten: 'flat', labelscale: 'label' },
+  flat: { levelstep: 'cols', ringscale: 'rows', labelscale: 'label' },
+  arcs: { levelstep: 'pitch', ringscale: 'lift', labelscale: 'label' },
+};
+
 function syncTunePanel() {
   if (!$('gt-levelstep')) return;
+  const panel = TUNE_PANEL[gView] || TUNE_PANEL.depth3d;
   for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
+    const row = $('gt-' + k).parentElement;
+    row.style.display = (k in panel) ? '' : 'none';  // CSS display:grid beats the hidden attribute
+    if (k in panel) row.firstChild.textContent = panel[k];
     $('gt-' + k).value = gTune[k];
   }
   $('gview').value = gView;
@@ -852,6 +869,7 @@ function wireTune() {
   $('gview').addEventListener('change', () => {
     gView = $('gview').value;
     postPolicy('graph.view', gView);
+    syncTunePanel();
     drawGraph();
   });
   for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
@@ -982,9 +1000,11 @@ function buildPin(p, layer) {
     el.style.width = p.w + 'px';
     el.style.height = '440px';
     el.innerHTML =
-      `<header><span>RULE GRAPH</span><span class="addr">z = derivation distance · drag orbits · wheel zooms</span>`
+      `<header><span>RULE GRAPH</span><select class="pview"><option value="depth3d">depth 3d</option>`
+      + `<option value="flat">flat</option><option value="arcs">arcs</option><option value="text">text</option></select>`
       + `<span class="stalemark"></span><button class="x" title="close">×</button></header>`
-      + `<div class="body gbody"><div class="gwrap"><canvas></canvas><div class="gchips"></div></div></div>`;
+      + `<div class="body gbody"><div class="gwrap"><canvas></canvas><div class="gchips"></div></div>`
+      + `<div class="gtext"></div></div>`;
     layer.appendChild(el);
     const wrap = el.querySelector('.gwrap');
     const v = makeGraphView(wrap, el.querySelector('canvas'), el.querySelector('.gchips'));
@@ -999,7 +1019,14 @@ function buildPin(p, layer) {
     if (gNodes) buildChipsInto(v.chips);
     wireGraphView(v);
     new ResizeObserver(() => drawGraphView(v)).observe(wrap);
-    drawGraphView(v);
+    const sel = el.querySelector('.pview');
+    sel.value = p.mode || 'depth3d';
+    sel.addEventListener('change', () => {
+      p.mode = sel.value;
+      applyPinMode(p, el);
+      postPolicyDebounced(`pin.${p.id}`, pinPolicyValue(p));
+    });
+    applyPinMode(p, el);
     return el;
   }
   el.innerHTML =
@@ -1022,6 +1049,15 @@ function buildPin(p, layer) {
     }
   }).observe(el);
   return el;
+}
+
+function applyPinMode(p, el) {
+  const m = p.mode || 'depth3d';
+  el.querySelector('.gwrap').style.display = m === 'text' ? 'none' : '';
+  const tx = el.querySelector('.gtext');
+  tx.style.display = m === 'text' ? 'block' : 'none';  // CSS default is none
+  if (m === 'text' && !tx.textContent) tx.textContent = S.reader;
+  if (m !== 'text' && p.view) drawGraphView(p.view);
 }
 
 function renderPins() {
@@ -1089,6 +1125,7 @@ function wirePins() {
     const el = e.target.closest('.pin');
     if (!el) return;
     el.style.zIndex = ++pinZ;
+    if (e.target.closest('.pview')) return;
     if (e.target.closest('.x')) {
       pins = pins.filter((p) => p.id !== +el.dataset.id);
       renderPins();

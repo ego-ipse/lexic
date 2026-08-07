@@ -32,10 +32,12 @@ screenshot-verified.
   keys as `key value` lines; value `-` deletes) — the presentation policy as
   session state, rung 5. Keys: `speed`, `doc.zoom`, `chart.zoom`,
   `spine.zoom`, `reader.mode text|graph`, `graph.view depth3d|flat|arcs`,
-  `graph.levelstep|ringscale|flatten|labelscale`, `graph.camera "y p z"`,
-  `arrange.reader|right|top` (grid shares; the seams write these),
-  `pin.<id> span s e d rule x y w h` / `pin.<id> graph x y w h yaw pitch
-  zoom`. Leaves are interpreters: the browser applies policy at boot and
+  `graph.levelstep|ringscale|flatten|labelscale`, `graph.camera "yaw pitch
+  zoom panx pany"`, `arrange.reader|right|top` (grid shares; the seams write
+  these), `pin.<id> span s e d rule x y w h` / `pin.<id> graph x y w h yaw
+  pitch zoom panx pany view` (`view` ∈ text|depth3d|flat|arcs — every graph
+  window carries its own, independent of `graph.view`; shorter legacy values
+  parse). Leaves are interpreters: the browser applies policy at boot and
   posts every presentation gesture back; the TUI obeys speed, shares, and
   reader.mode — its flat rule graph IS `graph.view` in cells. Leaves polling
   `/policy` (browser: not yet; planned) get cross-leaf sync. Policy dies

@@ -579,3 +579,35 @@ Trap paid again this round: a 15-patch batch died on an anchor whose indent
 landed, all fifteen "applied" prints were in-memory. The assert-every-anchor
 + verify-artifact-on-disk rule caught it; re-run landed all fifteen
 (`v.pan` ×7 verified on disk).
+
+## Round: view-true sliders + independent pin views — 2026-08-07
+
+The user's two items on the previous round:
+
+1. **The flat slider is useless in flat mode — sliders should change with the
+   view** → the tune panel is now per-view (`TUNE_PANEL` map): depth3d shows
+   depth/ring/flat/label; flat shows cols/rows/label; arcs shows
+   pitch/lift/label. Same four tunables underneath — the panel shows only the
+   ones the active layout reads, named for what they do there. Rows toggle by
+   inline `display` (the `hidden` attribute loses to the CSS `display: grid`
+   — caught on the first screenshot).
+2. **Pin windows' view independent of the main one, plus a text view** →
+   every graph view resolves its mode through `viewMode(v)`: pins carry
+   `p.mode`, the facet follows `graph.view`. Each pin header grew its own
+   `<select>` (depth 3d / flat / arcs / text); `text` swaps the canvas for
+   the reader's grammar text as real selectable DOM. Mode persists as the
+   graph-pin value's 10th token (`view`), legacy 9-token values parse as
+   depth3d. Header drag ignores the select; drag semantics (pan vs orbit)
+   follow the pin's own mode, not the facet's.
+
+Deferred by the user's own sequencing: sliding the reader share to minimum
+and then sliding the derivation sweeps the document **under** — to be
+addressed when facets become movable, not before.
+
+Verification: /tmp/pinmodes2.png — main facet flat, pin 1 in text (grammar
+text visible, scrollbars live), pin 2 in depth3d, tune panel showing
+cols/rows/label only; both pins built FROM policy at boot, so mode
+persistence is the same screenshot. Second display-fallback bug in the same
+frame: `.gtext`'s inline `''` fell back to the CSS `display:none` — both
+fixed with explicit inline display. SPEC §2 policy keys updated (camera 5
+tokens, pin graph 10 tokens — was two rounds stale).
