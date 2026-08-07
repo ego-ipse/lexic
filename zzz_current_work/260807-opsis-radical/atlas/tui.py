@@ -169,6 +169,13 @@ class Tui:
         self.reader_top = 0
         self.drag: tuple[int, bool] | None = None  # (anchor offset, moved)
         self.routes = "route: measuring…"
+        self.port = 0
+        self.mode = "view"
+        self.buf = ""
+        self.caret = 0
+        self.frontier = -1
+        self.note = ""
+        self.cview0 = 0  # chart viewport start (chars)
 
     # ── layout ────────────────────────────────────────────────────────
 
@@ -196,24 +203,33 @@ class Tui:
         """Rows available to the document pane."""
         return self.rows - self.doc_row0() - 3
 
+    def active(self) -> tuple[str, list[int]]:
+        """The text the document pane shows, with its line starts."""
+        if self.mode == "edit":
+            return self.buf, [0] + [k + 1 for k, ch in enumerate(self.buf) if ch == "\n"]
+        return self.sc.doc, self.sc.line_starts
+
     def follow(self) -> None:
-        """Keep the cursor's line inside the visible document window."""
-        line = self.sc.line_of(min(int(self.t), len(self.sc.doc) - 1))
+        """Keep the cursor's (or caret's) line inside the visible window."""
+        text, starts = self.active()
+        at = self.caret if self.mode == "edit" else int(self.t)
+        line = line_in(starts, min(at, max(0, len(text) - 1)))
         if line < self.top + 1:
             self.top = max(0, line - 1)
         elif line > self.top + self.doc_rows() - 3:
-            self.top = min(line - self.doc_rows() + 3, len(self.sc.line_starts) - 1)
+            self.top = min(line - self.doc_rows() + 3, len(starts) - 1)
 
     def offset_at(self, x: int, y: int) -> int:
-        """Document offset under terminal cell (x, y), or -1."""
+        """Active-text offset under terminal cell (x, y), or -1."""
+        text, starts = self.active()
         line = self.top + (y - self.doc_row0())
-        if not (0 <= line < len(self.sc.line_starts)) or not (0 <= y - self.doc_row0() < self.doc_rows()):
+        if not (0 <= line < len(starts)) or not (0 <= y - self.doc_row0() < self.doc_rows()):
             return -1
         x0 = self.doc_x() + GUTTER_W
         if not (x0 <= x < x0 + self.doc_w()):
             return -1
-        start = self.sc.line_starts[line]
-        end = (self.sc.line_starts[line + 1] - 1) if line + 1 < len(self.sc.line_starts) else len(self.sc.doc)
+        start = starts[line]
+        end = (starts[line + 1] - 1) if line + 1 < len(starts) else len(text)
         return min(start + (x - x0), end)
 
     # ── the frame ─────────────────────────────────────────────────────
@@ -224,6 +240,11 @@ class Tui:
         sc = self.sc
         out = [f"\x1b[H{bg(FIELD)}\x1b[2J"]
         out.append(self.render_masthead())
+        if self.mode == "edit":
+            out.append(self.render_doc())
+            out.append(self.render_stale())
+            out.append(self.render_status())
+            return "".join(out)
         if self.chart_rows():
             out.append(self.render_chart())
         out.append(self.render_doc())
@@ -260,7 +281,7 @@ class Tui:
         """THE DERIVATION band: overview density, then depth lanes of the window."""
         sc = self.sc
         x, w = self.chart_x(), self.chart_w()
-        out = [f"\x1b[2;{x}H{bg(FIELD)}{fg(COOL)}THE DERIVATION{fg(DIMMER)} · overview scrubs · lanes = visible window"]
+        out = [f"\x1b[2;{x}H{bg(FIELD)}{fg(COOL)}THE DERIVATION{fg(DIMMER)} · overview scrubs · lanes follow the cursor"]
         cells = []
         per = max(1, len(sc.doc) // w)
         read = int(self.t)
@@ -273,11 +294,13 @@ class Tui:
         cur = min(w - 1, read // per)
         cells[cur] = f"{bg(WARM)}{fg(FIELD)}█{bg(FIELD)}"
         out.append(f"\x1b[3;{x}H{''.join(cells)}")
-        v0 = sc.line_starts[self.top]
-        vend_line = min(self.top + self.doc_rows(), len(sc.line_starts) - 1)
-        v1 = sc.line_starts[vend_line] if vend_line < len(sc.line_starts) else len(sc.doc)
-        v1 = max(v1, v0 + 1)
-        cpc = max(1, (v1 - v0) // w + 1)
+        # the browser's lane semantics: a viewport that FOLLOWS the cursor
+        cpc = 2
+        win = w * cpc
+        if self.t < self.cview0 or self.t > self.cview0 + win * 0.72:
+            self.cview0 = int(max(0, min(self.t - win * 0.6, len(sc.doc) - win)))
+        v0 = self.cview0
+        v1 = min(v0 + win, len(sc.doc))
         depths = min(sc.maxdepth, 11)
         grid = [[" "] * w for _ in range(depths + 1)]
         for s, e, d, _r, _f in sc.spans:
@@ -304,31 +327,35 @@ class Tui:
         return "".join(out)
 
     def render_doc(self) -> str:
-        """THE DOCUMENT: gutter + per-cell styled text, absolute-positioned."""
+        """THE DOCUMENT: gutter + per-cell styled active text, absolute-positioned."""
         sc = self.sc
+        text_all, starts = self.active()
+        editing = self.mode == "edit"
         read = int(self.t)
-        open_bounds = [
+        open_bounds = [] if editing else [
             sc.spans[k][:2] for k in sc.open_at(self.t)
             if sc.spans[k][1] - sc.spans[k][0] < len(sc.doc)
         ]
-        hover_range = sc.spans[self.hover][:2] if self.hover >= 0 else None
-        sel_span = sc.spans[self.sel][:2] if self.sel >= 0 else None
-        rule_ranges = [s[:2] for s in sc.spans if self.rule and sc.rule_names[s[3]] == self.rule]
+        hover_range = sc.spans[self.hover][:2] if (self.hover >= 0 and not editing) else None
+        sel_span = sc.spans[self.sel][:2] if (self.sel >= 0 and not editing) else None
+        rule_ranges = [] if editing else [
+            s[:2] for s in sc.spans if self.rule and sc.rule_names[s[3]] == self.rule
+        ]
         x = self.doc_x()
         out = []
         for r in range(self.doc_rows()):
             line = self.top + r
             row = self.doc_row0() + r
-            if line >= len(sc.line_starts):
+            if line >= len(starts):
                 out.append(f"\x1b[{row};{x}H{bg(FIELD)}\x1b[K")
                 continue
-            start = sc.line_starts[line]
-            end = (sc.line_starts[line + 1] - 1) if line + 1 < len(sc.line_starts) else len(sc.doc)
-            text = sc.doc[start:end][: self.doc_w()]
+            start = starts[line]
+            end = (starts[line + 1] - 1) if line + 1 < len(starts) else len(text_all)
+            text = text_all[start:end][: self.doc_w()]
             cells = [f"\x1b[{row};{x}H{bg(FIELD)}{fg(DIMMER)}{line + 1:>5} "]
             for col, ch in enumerate(text):
                 off = start + col
-                back, front = FIELD, (INK if off < read else DIM)
+                back, front = FIELD, (INK if (editing or off < read) else DIM)
                 if any(s <= off < e for s, e in open_bounds):
                     back = OPEN_BG
                 if any(s <= off < e for s, e in rule_ranges):
@@ -339,12 +366,26 @@ class Tui:
                     back = SEL_BG
                 if self.sel_range and self.sel_range[0] <= off < self.sel_range[1]:
                     back, front = SEL_BG, INK
-                if off == read and self.t < len(sc.doc):
+                if (editing and off == self.caret) or (not editing and off == read and self.t < len(text_all)):
                     back, front = WARM, FIELD
+                if editing and off == self.frontier:
+                    back, front = RED, FIELD
                 cells.append(f"{bg(back)}{fg(front)}{ch}")
+            if editing and self.caret == end and line_in(starts, min(self.caret, max(0, len(text_all) - 1))) == line:
+                cells.append(f"{bg(WARM)} ")
             cells.append(f"{bg(FIELD)}\x1b[K")
             out.append("".join(cells))
         return "".join(out)
+
+    def render_stale(self) -> str:
+        """Edit mode: the derived facets say they show the last good reading."""
+        x = self.cols - SPINE_W
+        return (
+            f"\x1b[{self.doc_row0()};{x}H{bg(FIELD)}{fg(DIMMER)}THE SPINE — stale\x1b[K"
+            f"\x1b[{self.doc_row0() + 1};{x}H{fg(DIMMER)}the derived facets show the\x1b[K"
+            f"\x1b[{self.doc_row0() + 2};{x}H{fg(DIMMER)}LAST GOOD reading until the\x1b[K"
+            f"\x1b[{self.doc_row0() + 3};{x}H{fg(DIMMER)}text is re-read\x1b[K"
+        )
 
     def render_reader(self) -> str:
         """THE READER: the grammar, with the co-selected rule lit."""
@@ -429,13 +470,99 @@ class Tui:
         keys = (
             f" char {min(int(self.t), len(sc.doc)):,} / {len(sc.doc):,} · line {line:,} · {state}"
             " · hover co-selects · drag selects · click sets cursor · rule-click lights"
-            " · Space plays · ←/→ · c chart · Esc · q"
+            " · i edits · Space plays · ←/→ · c chart · Esc · q"
         )
+        if self.mode == "edit":
+            words = f" {self.note}" if self.note else " editing — the text is UNREAD until re-read"
+            keys = (
+                " edit mode · type to insert · Backspace deletes · arrows move the caret"
+                " · Ctrl+R re-reads · Ctrl+S saves (saving compiles) · Esc reverts"
+            )
+        elif self.note:
+            words = f" {self.note}"
+        colour = RED if self.frontier >= 0 or self.note.startswith("refus") else WARM
         return (
-            f"\x1b[{self.rows - 2};1H{bg(FIELD)}{fg(WARM)}{words[: self.cols]}\x1b[K"
+            f"\x1b[{self.rows - 2};1H{bg(FIELD)}{fg(colour)}{words[: self.cols]}\x1b[K"
             f"\x1b[{self.rows - 1};1H{bg(FIELD)}{fg(DIM)}{keys[: self.cols]}\x1b[K"
             f"\x1b[{self.rows};1H{bg(FIELD)}{fg(DIMMER)} {self.routes[: self.cols - 2]}\x1b[K"
         )
+
+
+    # ── the write side ────────────────────────────────────────────────
+
+    def enter_edit(self) -> None:
+        """Begin editing the document at the time cursor."""
+        self.mode = "edit"
+        self.buf = self.sc.doc
+        self.caret = min(int(self.t), len(self.buf))
+        self.playing = False
+        self.frontier = -1
+        self.note = ""
+
+    def revert(self) -> None:
+        """Discard the buffer — the session value was never touched."""
+        self.mode = "view"
+        self.buf = ""
+        self.frontier = -1
+        self.note = "edit reverted — the last good reading stands"
+
+    def insert(self, text: str) -> None:
+        """Insert at the caret."""
+        self.buf = self.buf[: self.caret] + text + self.buf[self.caret :]
+        self.caret += len(text)
+        self.frontier = -1
+
+    def delete_back(self) -> None:
+        """Delete the character before the caret."""
+        if self.caret > 0:
+            self.buf = self.buf[: self.caret - 1] + self.buf[self.caret :]
+            self.caret -= 1
+            self.frontier = -1
+
+    def commit(self, persist: bool) -> None:
+        """Re-read the buffer — Ctrl+R without saving, Ctrl+S saves and compiles."""
+        body = f"0 {len(self.sc.doc)}\n{self.buf}"
+        path = "/save" if persist else "/edit"
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=body.encode())
+            resp = urllib.request.urlopen(req, timeout=30).read().decode()
+        except OSError as err:
+            self.note = f"refused by the wire: {err}"
+            return
+        head, _, words = resp.partition("\n")
+        if head.startswith("ok"):
+            self.sc = Scene(fetch(self.port, "/scene"))
+            self.mode = "view"
+            self.buf = ""
+            self.frontier = -1
+            self.hover = self.sel = -1
+            self.sel_range = None
+            self.t = min(self.t, float(len(self.sc.doc)))
+            parts = head.split(" ")
+            tail = ""
+            if len(parts) > 2 and parts[2] == "saved":
+                tail = " · saved to its file"
+            elif len(parts) > 2 and parts[2] == "held":
+                tail = f" · save held: {' '.join(parts[3:])}"
+            self.note = f"gen {self.sc.meta.get('generation', '?')} — re-read in {parts[1]}s{tail}"
+            return
+        pos = int(head.split(" ")[1]) if head.startswith("refuse") else -1
+        self.frontier = pos
+        if pos >= 0:
+            self.caret = pos
+        self.note = f"refused: {words[:110]} — frontier at char {pos:,}" if pos >= 0 else f"refused: {words[:130]}"
+
+
+def line_in(starts: list[int], off: int) -> int:
+    """The line containing ``off`` in an arbitrary line-start table."""
+    lo, hi = 0, len(starts) - 1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if starts[mid] <= off:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
 
 
 # ── terminal plumbing ─────────────────────────────────────────────────
@@ -463,24 +590,44 @@ def post(port: int, path: str, body: str) -> None:
         pass
 
 
-def ensure_server(fixture: str, port: int) -> subprocess.Popen | None:
-    """Reuse a running server or spawn one, waiting for its first scene."""
+def served_fixture(port: int) -> str:
+    """Which fixture a listening server carries, or '' when none listens."""
     try:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}/scene", timeout=1)
-        return None
+        head = fetch(port, "/scene")[:200]
     except OSError:
-        pass
+        return ""
+    for ln in head.split("\n"):
+        if ln.startswith("fixture "):
+            return ln[8:]
+    return "?"
+
+
+def stop(proc: subprocess.Popen | None) -> None:
+    """Kill the server's whole process group."""
+    if proc is not None:
+        try:
+            os.killpg(proc.pid, 9)
+        except OSError:
+            proc.kill()
+
+
+def ensure_server(fixture: str, port: int) -> subprocess.Popen | None:
+    """Reuse a MATCHING server or spawn one, waiting for its first scene."""
+    running = served_fixture(port)
+    if running == fixture:
+        return None
+    if running:
+        raise SystemExit(f":{port} already serves '{running}', not '{fixture}' — pick another port")
     proc = subprocess.Popen(
-        ["uv", "run", "python", str(HERE / "serve.py"), fixture, str(port)],
+        [sys.executable, str(HERE / "serve.py"), fixture, str(port)],
         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
     )
     for _ in range(240):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/scene", timeout=1)
+        if served_fixture(port) == fixture:
             return proc
-        except OSError:
-            time.sleep(0.25)
-    proc.kill()
+        time.sleep(0.25)
+    stop(proc)
     raise SystemExit(f"server for '{fixture}' did not come up on :{port}")
 
 
@@ -513,6 +660,7 @@ def run(fixture: str, port: int) -> int:
     scene = Scene(fetch(port, "/scene"))
     cols, rows = term_size()
     ui = Tui(scene, cols, rows)
+    ui.port = port
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd)
     sys.stdout.write("\x1b[?1049h\x1b[?25l\x1b[?1003h\x1b[?1006h")
@@ -535,9 +683,16 @@ def run(fixture: str, port: int) -> int:
             ui.cols, ui.rows = term_size()
             if ready:
                 data = os.read(fd, 4096).decode(errors="replace")
-                buf = handle(ui, buf + data, scene)
+                buf = handle(ui, buf + data)
                 if buf is None:
                     return 0
+            elif buf == "\x1b":  # a lone Esc key, settled by the timeout
+                buf = ""
+                if ui.mode == "edit":
+                    ui.revert()
+                else:
+                    ui.sel, ui.sel_range, ui.rule, ui.note = -1, None, '', ''
+
             if now - last_routes > 2.5:
                 last_routes = now
                 ui.routes = routes_line(port)
@@ -550,14 +705,21 @@ def run(fixture: str, port: int) -> int:
         termios.tcsetattr(fd, termios.TCSADRAIN, saved)
         sys.stdout.write("\x1b[?1003l\x1b[?1006l\x1b[?25h\x1b[?1049l")
         sys.stdout.flush()
-        if proc is not None:
-            proc.kill()
+        stop(proc)
 
 
-def mouse_event(ui: Tui, scene: Scene, code: int, x: int, y: int, kind: str) -> None:
+def mouse_event(ui: Tui, code: int, x: int, y: int, kind: str) -> None:
     """One SGR mouse report — zones: overview row, reader pane, document pane."""
+    scene = ui.sc
     if code in (64, 65):
-        ui.top = max(0, min(ui.top + (3 if code == 65 else -3), len(scene.line_starts) - 1))
+        _text, starts = ui.active()
+        ui.top = max(0, min(ui.top + (3 if code == 65 else -3), len(starts) - 1))
+        return
+    if ui.mode == "edit":
+        if code == 0 and kind == "M":
+            off = ui.offset_at(x, y)
+            if off >= 0:
+                ui.caret = off
         return
     if y == 3 and ui.chart_rows() and code == 0 and kind == "M" and x >= ui.chart_x():
         frac = max(0.0, min((x - ui.chart_x()) / max(1, ui.chart_w()), 1.0))
@@ -597,26 +759,34 @@ def mouse_event(ui: Tui, scene: Scene, code: int, x: int, y: int, kind: str) -> 
             ui.drag = None
 
 
-def handle(ui: Tui, buf: str, scene: Scene) -> str | None:
+def handle(ui: Tui, buf: str) -> str | None:
     """Consume input bytes; None means quit."""
     while buf:
         m = MOUSE.match(buf)
         if m:
-            mouse_event(ui, scene, int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4))
+            mouse_event(ui, int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4))
             buf = buf[m.end():]
+            continue
+        if ui.mode == "edit":
+            consumed = edit_key(ui, buf)
+            if consumed is None:
+                return buf  # partial escape — wait for more bytes
+            buf = buf[consumed or 1:]
             continue
         ch = buf[0]
         if ch == "q":
             return None
         if ch == " ":
-            if ui.t >= len(scene.doc):
+            if ui.t >= len(ui.sc.doc):
                 ui.t = 0.0
             ui.playing = not ui.playing
         elif ch == "c":
             ui.show_chart = not ui.show_chart
+        elif ch == "i":
+            ui.enter_edit()
         elif buf.startswith("\x1b[C"):
             ui.playing = False
-            ui.t = min(float(len(scene.doc)), int(ui.t) + 1.0)
+            ui.t = min(float(len(ui.sc.doc)), int(ui.t) + 1.0)
             buf = buf[3:]
             continue
         elif buf.startswith("\x1b[D"):
@@ -632,6 +802,67 @@ def handle(ui: Tui, buf: str, scene: Scene) -> str | None:
             ui.rule = ""
         buf = buf[1:]
     return buf
+
+
+def edit_key(ui: Tui, buf: str) -> int | None:
+    """One edit-mode key. Chars consumed; 0 for unknown; None for a partial escape."""
+    text, starts = ui.active()
+    ch = buf[0]
+    if ch == "\x12":  # Ctrl+R — re-read without saving
+        ui.commit(False)
+        return 1
+    if ch == "\x13":  # Ctrl+S — save, and saving compiles
+        ui.commit(True)
+        return 1
+    if ch == "\x7f":
+        ui.delete_back()
+        return 1
+    if ch == "\r":
+        ui.insert("\n")
+        return 1
+    if ch == "\x1b":
+        if buf.startswith("\x1b[C"):
+            ui.caret = min(len(ui.buf), ui.caret + 1)
+            return 3
+        if buf.startswith("\x1b[D"):
+            ui.caret = max(0, ui.caret - 1)
+            return 3
+        if buf.startswith("\x1b[A") or buf.startswith("\x1b[B"):
+            line = line_in(starts, min(ui.caret, max(0, len(text) - 1)))
+            col = ui.caret - starts[line]
+            target = line + (1 if buf[2] == "B" else -1)
+            if 0 <= target < len(starts):
+                t_start = starts[target]
+                t_end = (starts[target + 1] - 1) if target + 1 < len(starts) else len(text)
+                ui.caret = min(t_start + col, t_end)
+            return 3
+        if buf.startswith("\x1b[3~"):
+            if ui.caret < len(ui.buf):
+                ui.buf = ui.buf[: ui.caret] + ui.buf[ui.caret + 1 :]
+                ui.frontier = -1
+            return 4
+        if len(buf) < 3:
+            return None
+        ui.revert()
+        return 1
+    if ch.isprintable():
+        ui.insert(ch)
+        return 1
+    return 0
+
+
+def reader_lit_visible(ui: Tui) -> bool:
+    """Whether the rule render_reader chose to light has its definition in view."""
+    sc = ui.sc
+    active = ui.rule
+    if not active and ui.sel >= 0:
+        active = sc.rule_names[sc.spans[ui.sel][3]]
+    if not active and ui.hover >= 0:
+        active = sc.rule_names[sc.spans[ui.hover][3]]
+    if active not in sc.rule_of:
+        return True
+    rows = ui.doc_rows() + ui.chart_rows()
+    return ui.reader_top <= sc.rule_of[active][0] < ui.reader_top + rows - 1
 
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
@@ -655,8 +886,7 @@ def census(fixture: str, port: int) -> int:
         hover_rule = scene.rule_names[scene.spans[ui.hover][3]] if ui.hover >= 0 else ""
         checks = {
             "reader drawn": "THE READER" in plain,
-            "reader lights the rule": (hover_rule not in scene.rule_of)
-            or (hover_rule + " ::=" in plain),
+            "reader lights the rule": reader_lit_visible(ui),
             "chart drawn": "THE DERIVATION" in plain and any(s in plain for s in SHADES[1:]),
             "spine drawn": "THE SPINE" in plain and "JUST CLOSED" in plain,
             "spine bounded": len(open_now) <= scene.maxdepth + 1,
@@ -668,12 +898,32 @@ def census(fixture: str, port: int) -> int:
         print(f"{fixture}: {len(scene.doc):,} chars · {len(scene.spans):,} spans · "
               f"frame {len(frame):,} bytes ({len(plain):,} visible)")
         print(" · ".join(f"{k} {v}" for k, v in checks.items()))
-        ok = all(checks.values())
+        # the write side, driven through the same byte path the terminal uses
+        ui.port = port
+        gen0 = int(ui.sc.meta.get("generation", "0"))
+        handle(ui, "i")
+        ui.caret = 0
+        handle(ui, "\u00a1")  # a char no fixture's line can start with
+        handle(ui, "\x12")    # Ctrl+R — re-read without saving
+        edit = {
+            "refusal keeps edit mode": ui.mode == "edit",
+            "frontier at the char": ui.frontier == 0,
+            "refusal note": ui.note.startswith("refused"),
+            "frontier drawn red": bg(RED) in ui.render(),
+        }
+        ui.revert()
+        edit["revert restores"] = ui.mode == "view" and ui.buf == ""
+        handle(ui, "i")
+        handle(ui, "\x12")    # identity re-read — the ok path
+        gen1 = int(ui.sc.meta.get("generation", "0"))
+        edit["identity re-read ok"] = ui.mode == "view" and gen1 == gen0 + 1
+        edit["ok note"] = ui.note.startswith("gen")
+        print(" · ".join(f"{k} {v}" for k, v in edit.items()))
+        ok = all(checks.values()) and all(edit.values())
         print("census ok" if ok else "census FAILED")
         return 0 if ok else 1
     finally:
-        if proc is not None:
-            proc.kill()
+        stop(proc)
 
 
 def main() -> int:
