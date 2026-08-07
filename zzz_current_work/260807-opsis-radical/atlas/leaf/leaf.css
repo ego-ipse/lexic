@@ -155,8 +155,8 @@ body {
 /* ── pinned windows: the ruled exception. A pane cannot overlap; these can. ── */
 .pin {
   position: fixed;
+  width: 360px;
   min-width: 280px;
-  max-width: 460px;
   min-height: 90px;
   background: var(--field2);
   border: 1px solid var(--warm);

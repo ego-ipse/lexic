@@ -390,3 +390,20 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   (c) the ?sel chip placed itself pre-scroll and unclamped, landing
   off-viewport. Chip placement is one geometry path (glyph arithmetic) used
   by both the live selection and the deterministic ?sel state.
+- `gate/PLAN.md` written — the ordering argument over everything left open,
+  self-contained for a cold start: (1) scope the quadratic cheaply, incl. the
+  STOP_FORCED reachability question that could halve it before anyone optimises
+  it; (2) lockstep convergence in `_fork_verdict`, behind the budget escape so
+  worst case is today's answer; (3) re-measure; (4) FlatClone.name; (5) refusal
+  position on the record; (6) D-half-2 only if (3) still shows it paying;
+  deferred: D-half-1 and the nullable_names move. Two calls left to the user and
+  named as such: the effort split (items 1-3/6 are lexic engine work this
+  ergonomics effort merely surfaced — they want their own directory and gate),
+  and whether atlas rung 2 preempts the lot (if so the order is 4 → 5 → rung 2
+  and the quadratic parks as a filed finding). PLAN.md also carries the
+  instrument table so none of this gets re-derived, and the sitecustomize A/B
+  recipe. HANDOVER's NEXT SESSION block and the gate/ row now point at it.
+- Pin resize cap (user): max-width:460px was meant as a birth size but
+  native CSS resize honors it as a ceiling — replaced with an explicit
+  birth width (360px) and no maximum; resize is now unbounded above the
+  minimum in both axes.
