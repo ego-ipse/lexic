@@ -807,3 +807,32 @@ history so nothing is re-derived or re-run.
   parse and multiply by the ~18 ns the hoisted form saves. If csv runs ~12.5k
   gate calls that is ~0.23 ms of 12.9 ms (~1.8%) — small, but unlike the failed
   levers it costs nothing at runtime and applies to every grammar.
+- **THE `self.n` THREADING, SIZED FROM COUNTS — ~1%, and not worth its churn
+  alone.** Leaf invocations that each re-derive `len(text)` today:
+
+  ```
+  csv        5,499 calls (0.44/char)  × 18 ns =  99 µs  of ~10.5 ms  = 0.9%
+  arithmetic 7,490      (1.87/char)          = 135 µs  of ~12.9 ms  = 1.0%
+  json       3,214      (1.34/char)          =  58 µs  of  ~4.6 ms  = 1.3%
+  vyx        8,480      (2.45/char)          = 153 µs  of ~16.9 ms  = 0.9%
+  ```
+
+  (`vstr_once`, `gate_take`, `match_cc` dominate in every grammar.)
+  **Uniform ~1%.** Real, costs nothing at runtime, applies to every grammar —
+  and requires changing the signature of every runtime leaf to carry the length.
+  **Verdict: not worth it standing alone.** ~1% for touching `gate_take`,
+  `match_cc`, `match_lit`, `vstr_once`, `select_gated` and their call sites is a
+  poor trade, and this effort has already been reminded (the `_settle`
+  extraction) that a gate-driven edit to the hot path can cost more than it
+  looks. Worth folding in FREE if any of those signatures is being changed for
+  another reason; not worth opening them for this.
+  Sized from an invocation COUNT rather than a fourth microbenchmark, which is
+  the methodological lesson of the previous three entries applied.
+- **DRIVER MICRO-OPTIMIZATION LINE — CLOSED with a number.** Both concrete
+  inefficiencies found in the driver's hot path are now measured end to end: the
+  one-char slice is nearly free (CPython interns 1-char strings, so the premise
+  was wrong), and removing the redundant `len(text)` is worth ~1% at the cost of
+  every leaf signature. Neither moves a row. The generic driver is not carrying
+  obvious waste — its cost is the interpreted per-item, per-character work
+  itself, which is the structural conclusion this mission reached three separate
+  ways.
