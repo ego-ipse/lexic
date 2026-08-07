@@ -41,6 +41,7 @@ from lexic.parsing.pda.runtime.admission import (
     pending_values,
     prefix_admits,
     sole_admitted,
+    value_shape,
     values_agree,
 )
 from lexic.parsing.pda.runtime.build import F_ARM, F_COUNT, F_ENDS, F_I, F_OUT
@@ -348,6 +349,7 @@ class Attempting:
 
         :returns: The verdict, or ``None`` when the long way must decide.
         """
+        shape = value_shape(self.stack)
         left = self._side(arm, i, pos, None)
         right = self._side(arm, i, pos, taken)
         for _round in range(_LOCKSTEP_ROUNDS):
@@ -356,7 +358,7 @@ class Attempting:
             target = max(left[1], right[1])
             if left[1] == right[1]:
                 if control_signature(*left) == control_signature(*right):
-                    return self._converged(left, right)
+                    return self._converged(left, right, shape)
                 target += _LOCKSTEP_STEP
             left = self._advance(left, target)
             right = self._advance(right, target)
@@ -366,9 +368,17 @@ class Attempting:
         self,
         left: tuple[list[Any], int],
         right: tuple[list[Any], int],
+        shape: tuple[Any, ...],
     ) -> int | None:
-        """The verdict once both sides share a position and a control state."""
-        if values_agree(pending_values(left[0]), pending_values(right[0])):
+        """The verdict once both sides share a position and a control state.
+
+        Only the values built SINCE the boundary are compared — ``shape`` is
+        the watermark taken there, and both sides inherited everything below it
+        from one stack.
+        """
+        if values_agree(
+            pending_values(left[0], shape), pending_values(right[0], shape)
+        ):
             return _TAKE
         done = self._advance(left, -1)
         if done is None or done[1] != len(self.text):

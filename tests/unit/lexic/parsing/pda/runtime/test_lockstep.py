@@ -23,6 +23,7 @@ from lexic.compile import compile_text
 from lexic.parsing.pda.runtime.admission import (
     control_signature,
     pending_values,
+    value_shape,
     values_agree,
 )
 from lexic.parsing.pda.runtime.build import F_ARM, F_COUNT, F_I, F_OUT
@@ -117,3 +118,41 @@ def test_a_boundary_heavy_parse_still_round_trips():
     )
     text = "alpha beta gamma delta epsilon "
     assert compiled.parse(text).to_text() == text
+
+
+def test_the_watermark_compares_only_what_was_built_after_it():
+    """Values present at the boundary are common to both sides — skip them.
+
+    Comparing the whole accumulated state was 92% of a large parse and the
+    whole of its residual superlinearity: the snapshot is linear, but it was
+    re-walked at every convergence.
+    """
+    stop, take = frames((0,), (-1,), 0, (1, 1))
+    stop[F_OUT], take[F_OUT] = ["shared"], ["shared"]
+    mark = value_shape([stop])
+    stop[F_OUT].append("left")
+    take[F_OUT].append("right")
+    assert pending_values([stop], mark) == (("left",), ())
+    assert not values_agree(pending_values([stop], mark), pending_values([take], mark))
+
+
+def test_a_container_that_shrank_is_compared_whole():
+    """A watermark means nothing on a container that was replaced, not appended.
+
+    Conservative by construction: comparing more can only cost time, while
+    trusting a stale mark could skip a real difference.
+    """
+    (frame,) = frames((0,), (-1,), 0, (1, 1))[:1]
+    frame[F_OUT] = ["a", "b", "c"]
+    mark = value_shape([frame])
+    frame[F_OUT] = ["z"]
+    assert pending_values([frame], mark) == (("z",), ())
+
+
+def test_frames_deeper_than_the_watermark_are_compared_in_full():
+    """A frame pushed after the boundary has no watermark and no shared prefix."""
+    outer, inner = frames((0,), (-1,), 0, (1, 1))
+    outer[F_OUT] = ["before"]
+    mark = value_shape([outer])
+    inner[F_OUT] = ["after"]
+    assert pending_values([outer, inner], mark) == ((), (), ("after",), ())

@@ -30,6 +30,7 @@ __all__ = [
     "PROBE_DEPTH",
     "control_signature",
     "pending_values",
+    "value_shape",
     "values_agree",
     "KernelCaches",
     "admits",
@@ -233,22 +234,67 @@ def _count_key(frame: list[Any]) -> int:
     return _COUNT_FREE
 
 
-def pending_values(stack: list[list[Any]]) -> tuple[Any, ...]:
-    """Every value a probe side has built so far, in frame order.
+def value_shape(stack: list[list[Any]]) -> tuple[Any, ...]:
+    """Every value container's length — the watermark taken AT the boundary.
+
+    Both sides of a boundary are copies of one live stack, so everything
+    already in a container when the fork was taken is identical between them
+    by construction. Only what is appended AFTER can differ, and this is what
+    lets :func:`pending_values` compare the delta instead of the whole
+    accumulated state — the difference between O(built-since) and O(built), and
+    the difference between a linear parse and a quadratic one.
+    """
+    return tuple(
+        (
+            len(frame[F_OUT]),
+            ()
+            if frame[F_SINKS] is None
+            else tuple(0 if slot is None else len(slot) for slot in frame[F_SINKS]),
+        )
+        for frame in stack
+    )
+
+
+def pending_values(
+    stack: list[list[Any]], shape: tuple[Any, ...] = ()
+) -> tuple[Any, ...]:
+    """Every value a probe side has built SINCE ``shape`` was taken.
+
+    Containers grow by append, so the watermark's prefix is common to both
+    sides and re-comparing it is pure waste — measured as 92% of the parse and
+    the whole of its residual superlinearity. A container that came back
+    SHORTER than its watermark was not appended to but replaced, and there the
+    watermark means nothing: it is compared whole, which is the conservative
+    reading.
+
+    Frames deeper than ``shape`` did not exist at the boundary and are compared
+    in full.
 
     Aliased containers (a frame's ``F_OUT`` IS a parent's sink slot) are read
     twice; harmless for an equality test, and cheaper than resolving identity.
     """
     out: list[Any] = []
-    for frame in stack:
-        out.append(tuple(frame[F_OUT]))
+    for depth, frame in enumerate(stack):
+        was_out, was_sinks = shape[depth] if depth < len(shape) else (0, ())
+        out.append(_since(frame[F_OUT], was_out))
         sinks = frame[F_SINKS]
+        if sinks is None:
+            out.append(())
+            continue
         out.append(
-            ()
-            if sinks is None
-            else tuple(() if slot is None else tuple(slot) for slot in sinks)
+            tuple(
+                ()
+                if slot is None
+                else _since(slot, was_sinks[k] if k < len(was_sinks) else 0)
+                for k, slot in enumerate(sinks)
+            )
         )
     return tuple(out)
+
+
+def _since(container: list[Any], mark: int) -> tuple[Any, ...]:
+    """``container``'s tail past ``mark`` — or all of it if it shrank."""
+    return tuple(container) if len(container) < mark else tuple(container[mark:])
 
 
 def values_agree(left: Any, right: Any) -> bool:
