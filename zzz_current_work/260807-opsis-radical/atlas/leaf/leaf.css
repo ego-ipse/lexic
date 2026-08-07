@@ -122,6 +122,7 @@ body {
 #under, #over { position: absolute; top: 0; left: 0; z-index: 0; }
 #over { z-index: 2; pointer-events: none; }
 .stale { opacity: 0.45; filter: saturate(0.55); }
+#routes.holds { color: var(--green); }
 
 /* ── chart & spine ── */
 #chartCv { flex: 1; width: 100%; min-height: 0; cursor: crosshair; }

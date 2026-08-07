@@ -25,7 +25,7 @@ from typing import NamedTuple
 from lexic.compile import compile_ast, compile_from_path
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.model import GrammarModel
-from lexic.parsing import PdaKernel
+from lexic.parsing import PdaKernel, earley_model, lift_optional_nullables, normalize
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
@@ -77,6 +77,7 @@ class Subject:
         self.spans: list[Span]
         self.seconds: float
         self.faithful: bool
+        self.route2: dict[str, str] = {}
         self.read(self.document)
 
     def read(self, text: str) -> None:
@@ -89,6 +90,39 @@ class Subject:
         self.faithful = model.to_text() == text
         self.spans = fold_spans(model, text)
         self.generation += 1
+        self.route2 = {"status": "pending"}
+        threading.Thread(target=self.other_route, args=(self.generation,), daemon=True).start()
+
+    def other_route(self, generation: int) -> None:
+        """Run the road NOT taken, in the background — observation, never product.
+
+        PDA-routed subjects get an explicit Earley run and a parity verdict;
+        resolver-routed subjects get the PDA's honest end (the probe-fork) —
+        the inversion is the content. Results are discarded if a re-read
+        moved the generation while this ran.
+        """
+        t0 = time.perf_counter()
+        if self.resolve is None:
+            try:
+                instance = normalize(lift_optional_nullables(self.compiled.codegen_grammar))
+                other = earley_model(instance, self.document, self.compiled.fold)
+                seconds = time.perf_counter() - t0
+                parity = "holds" if (other == self.model and other.to_text() == self.document) else "FAILS"
+                result = {"status": "done", "name": "Earley", "seconds": f"{seconds:.2f}", "parity": parity}
+            except Exception as refusal:
+                result = {"status": "failed", "name": "Earley", "words": str(refusal)[:160]}
+        else:
+            try:
+                PdaKernel(self.compiled.pda_tables(), self.document, self.compiled.fold).run()
+                result = {"status": "done", "name": "PDA", "seconds": f"{time.perf_counter() - t0:.2f}",
+                          "parity": "unmeasured"}
+            except Exception as fork:
+                hit = FRONTIER.search(str(fork))
+                result = {"status": "failed", "name": "PDA", "pos": hit.group(1) if hit else "-1",
+                          "words": str(fork)[:160]}
+        with self.lock:
+            if self.generation == generation:
+                self.route2 = result
 
     def save_held(self) -> str:
         """Why a save must not write, or empty when writing is allowed."""
@@ -217,6 +251,13 @@ class Handler(BaseHTTPRequestHandler):
             with self.subject.lock:
                 self.send_text(build_scene(self.subject))
             return
+        if self.path == "/routes":
+            with self.subject.lock:
+                primary = "PDA (fused kernel)" if self.subject.resolve is None else "Earley + first-derivation resolver"
+                lines = [f"primary {primary}", f"primary_seconds {self.subject.seconds:.2f}"]
+                lines += [f"{k} {v}" for k, v in self.subject.route2.items()]
+            self.send_text("\n".join(lines))
+            return
         self.send_response(404)
         self.end_headers()
 
@@ -275,7 +316,11 @@ def census(subject: Subject) -> int:
     handler.subject = subject
     same = subject.document[first_span.start : first_span.end]
     ok_edit = handler.retype(f"{first_span.start} {first_span.end}\n{same}").startswith("ok")
-    mid = len(subject.document) // 2
+    # a mid-document control char is VALID inside the metagrammar's comments
+    # (cmchar admits \x00-\t) — measured, not assumed. Corrupt where the
+    # grammar cannot recover: mid-document on the PDA route (frontier check),
+    # position 0 on resolver routes (no line form starts with \x01).
+    mid = len(subject.document) // 2 if subject.resolve is None else 0
     refusal = handler.retype(f"{mid} {mid + 1}\n\x01")
     head, _, words = refusal.partition("\n")
     pos = int(head.split()[1]) if head.startswith("refuse") else -2
@@ -291,7 +336,17 @@ def census(subject: Subject) -> int:
     print(f"faithful {subject.faithful} · scene integrity {ok_scene} · identity retype ok {ok_edit} · "
           f"garbage retype refused {ok_refuse} · frontier {pos} ({words[:48]}…)")
     print(f"save: {saved.split(chr(10))[0][:70]} · as expected {ok_save}")
-    ok = subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier and ok_save
+    for _ in range(200):
+        if subject.route2.get("status") != "pending":
+            break
+        time.sleep(0.05)
+    r2 = subject.route2
+    if subject.resolve is None:
+        ok_routes = r2.get("status") == "done" and r2.get("parity") == "holds"
+    else:
+        ok_routes = r2.get("status") == "failed" and int(r2.get("pos", "-1")) >= 0
+    print(f"other route: {r2} · as expected {ok_routes}")
+    ok = subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier and ok_save and ok_routes
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 

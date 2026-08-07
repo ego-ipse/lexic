@@ -621,9 +621,33 @@ async function boot(keep) {
   return S;
 }
 
+async function pollRoutes() {
+  const text = await (await fetch('/routes')).text();
+  const r = {};
+  for (const line of text.split('\n')) {
+    const k = line.slice(0, line.indexOf(' '));
+    r[k] = line.slice(k.length + 1);
+  }
+  const el = $('routes');
+  if (r.status === 'pending') {
+    el.textContent = ` · route: ${r.primary} ${r.primary_seconds}s · the other engine is running…`;
+    setTimeout(pollRoutes, 1200);
+  } else if (r.status === 'done') {
+    el.textContent = ` · route: ${r.primary} ${r.primary_seconds}s · ${r.name} ${r.seconds}s · `
+      + (r.parity === 'holds' ? 'both engines built the same value — holds'
+         : r.parity === 'unmeasured' ? 'parity unmeasured' : 'PARITY FAILS');
+    el.className = r.parity === 'holds' ? 'holds' : '';
+  } else {
+    const pos = parseInt(r.pos ?? '-1', 10);
+    el.textContent = ` · route: ${r.primary} ${r.primary_seconds}s · ${r.name} ended`
+      + (pos >= 0 ? ` at char ${pos.toLocaleString()} — where the fast road stops` : `: ${r.words}`);
+  }
+}
+
 (async () => {
   await boot(false);
   wire();
+  pollRoutes();
   const q = new URLSearchParams(location.search);
   if (q.has('t')) { cur.t = Math.min(+q.get('t'), S.doc.length); cur.follow = true; ask(); }
   if (q.has('sel')) { cur.sel = deepestAt(+q.get('sel')); ask(); }

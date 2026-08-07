@@ -1,9 +1,10 @@
 # opsis-radical — HANDOVER (2026-08-07, end of day)
 
-State: everything committed on `opsis_proto` (`80ede43`…`b8053f5`), including
+State: everything committed on `opsis_proto` (`80ede43` onward), including
 this gitignored folder (added with `-f`; the user granted `--no-verify` for
-zzz-only commits). Cold start needs three files: this one, `atlas/TALLY.md`
-(the live ledger), `atlas/THINKING.md` (the map the iterations follow).
+zzz-only commits). Cold start reads, in order: **`VISION.md`** (the position),
+**`SPEC.md`** (the as-built contract), this file, `atlas/TALLY.md` (the live
+ledger), `atlas/THINKING.md` (the iteration map).
 
 ## What exists, oldest to newest
 
@@ -11,7 +12,7 @@ zzz-only commits). Cold start needs three files: this one, `atlas/TALLY.md`
 |---|---|---|
 | `tk/` | in-process tkinter probes: `demonstrator.py` (the four spine kinds + the instrument editing its own Style), `spectacle.py` (a parse watched, 50 chars), `wolf.py` (same at hostile scale, 3 fixtures) | done; superseded as a medium (canvas text is not selectable — the litmus); each has `--census` and `--shot` |
 | `facets/` | the composition answer: Python instrument ⇄ browser leaf, four facets of one reading, subject-level cursors, native selection → co-selection, edits as re-readings | done as built; ledger closed with a pointer to atlas |
-| `atlas/` | the ergonomics fork — the live line | iteration 1 of 6 done (refusal frontier) |
+| `atlas/` | the ergonomics fork — the live line | rung 1 done (refusal frontier + edit-in-place); rung 2 first half done (background route, parity verdict, inversion marks) |
 | `STACK.md` | the stack position: answered before building, after building, amended after the selection litmus | current |
 
 ## Run
@@ -58,12 +59,17 @@ unmeasured* — see lexic asks below.
    killer regardless) is gone; the document is an editable text plane with
    dirty/stale state, Ctrl+Enter (re-read) and Ctrl+S (save — saving
    compiles), Esc revert, and the frontier drawn in the typed text.
-2. **Both engines** (§6b, ruled by the user): background Earley run beside the
-   PDA product; alternate route drawn as pending until finished; switch
-   enables on completion; inversion on PDA failure (probe-fork point and
-   island hand-offs as first-class marks); parity as a drawn verdict.
-   Surfaces exist: `earley_model`, `PdaKernel`, `pda_tables`;
-   `TraceKernel(PdaKernel)` is the proven observation pattern.
+2. **Both engines** (§6b) — FIRST HALF DONE: a daemon thread runs the road
+   not taken after every read; `/routes` reports it; the derivation header
+   shows running… → timings + `both engines built the same value — holds`
+   (green) on the PDA route, or `PDA ended at char N — where the fast road
+   stops` on resolver routes (meta 202, vyx 3,306). The instance-grammar
+   recipe that makes the explicit Earley run work is
+   `normalize(lift_optional_nullables(cg.codegen_grammar))` — recorded in
+   SPEC.md §5. REMAINING HALF: the two engine *clocks* as switchable
+   visualizations (PDA decision sequence via a TraceKernel subclass; Earley
+   chart columns via the readout seam) — the switch appears when there are
+   two things to switch between.
 3. **Seam resize** — shares as session values; facets degrade by deriving
    less, never by clipping.
 4. **Rule graph facet** — flat first (IrRuleRef edges + name-addressed

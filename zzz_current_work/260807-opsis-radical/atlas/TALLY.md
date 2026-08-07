@@ -45,3 +45,15 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   'saved' on long, 'held' on meta/vyx. Screenshot-verified via ?break=5000:
   § visible in the editable text, red caret beside it, stale facets, contract
   in the status strip. node --check now used as the leaf syntax gate.
+- RUNG 2, FIRST HALF: background other-route run per read (daemon thread,
+  generation-tagged, stale results discarded); GET /routes; leaf polls and
+  renders the strip in the derivation header. PDA-route: explicit Earley via
+  normalize(lift_optional_nullables(codegen)) — THE instance-grammar recipe
+  (bare normalize refuses on unnormalised quantifiers, and alone reports
+  spurious ambiguity); parity verdict drawn (holds: structural == plus
+  to_text). Resolver-route: PdaKernel probe-fork position drawn as
+  where-the-fast-road-stops (meta 202, vyx 3,306). Census extended; caught my
+  own formulation assumption: \x01 mid-document is LEGAL in metagrammar
+  comments (cmchar admits controls) — the "garbage" parsed; corruption now
+  placed per route. VISION.md + SPEC.md written at the radical root; HANDOVER
+  updated (cold start = VISION → SPEC → HANDOVER → TALLY → THINKING).

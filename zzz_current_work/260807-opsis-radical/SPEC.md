@@ -1,0 +1,100 @@
+# opsis-radical — SPEC (as built, 2026-08-07)
+
+The concrete contract of the running system (`atlas/`). VISION.md carries the
+why; this carries the what. Every claim here is census-gated or
+screenshot-verified.
+
+## 1. Processes and files
+
+- **Instrument**: `atlas/serve.py` — Python, in-process with lexic.
+  `Subject` owns: compiled grammar, reader text, document text (+ its file
+  path), model, span fold, generation, cursors, background route result.
+- **Leaf**: `atlas/leaf/` — versioned artifacts (`index.html`, `leaf.css`,
+  `leaf.js`; `pretext.js` vendored byte-identical, md5
+  `e04b8d0c6712b291f2b37088999007e0`, not yet imported — enters when a facet
+  wraps or flows). The leaf is generic: it names nothing of lexic.
+- **Fixtures**: `long` (json.gbnf reads `tk/fixtures_long.json`, PDA route),
+  `meta` / `vyx` (the GBNF metagrammar — `compile_ast(GBNF_FLAVOUR.grammar)`
+  — reads `resources/ground_truth/{json,vyx}.gbnf`; Earley + first-derivation
+  resolver route; reader text = `GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar)`).
+
+## 2. The wire (line-oriented plain text; no JSON anywhere)
+
+- `GET /scene` — the frame: `#META` key-value lines (fixture, reader,
+  seconds, resolver, faithful, generation, t) · `#RULEDEFS n` (`name a b`
+  line ranges in the reader text) · `#RULENAMES n` · `#FIELDNAMES n` ·
+  `#SPANS n` (`start end depth ruleIdx fieldIdx`) · `#READER <bytes>` and
+  `#DOC <bytes>` (length-prefixed raw blocks).
+- `GET /routes` — `primary …`, `primary_seconds …`, then the background
+  result: `status pending|done|failed`, `name`, `seconds`, `parity`, `pos`,
+  `words`.
+- `POST /cursor` — `t <float> sel <int>` (fire-and-forget, throttled).
+- `POST /edit` — `<start> <end>\n<replacement>` → re-read WITHOUT saving.
+  Reply `ok <secs>` or `refuse <pos>\n<engine words>` (`pos` −1 when
+  unmeasurable).
+- `POST /save` — same body → re-read AND persist to the document's own file.
+  Reply `ok <secs> saved` | `ok <secs> held <reason>` (ground-truth corpus is
+  never overwritten; the hold states why) | `refuse <pos>\n<words>`.
+
+Spans are folded from the model's own tagged `emit_parts()` stream — the
+stream `to_text()` consumes — so the chart cannot drift from the text; rule
+names come from `type(part).__grammar__.name`.
+
+## 3. Facets and cursors
+
+READER (grammar text; rule lines addressable) · DOCUMENT (editable plaintext
+plane over welded under/over canvases; glyph geometry is monospace
+arithmetic) · DERIVATION (canvas: overview density + depth lanes + route
+strip) · SPINE (stack open at the cursor; bounded by depth). Cursors on the
+subject: `t`, selection, hover. Co-selection: hover/click a span ⇄ its rule
+lights in the reader; click a rule → its spans outline violet everywhere;
+native text selection → smallest covering occurrence co-selects; gutter click
+sets `t` to that line; chart scrubs; Space plays; ←/→ steps.
+
+## 4. Editing contract
+
+Typing in the document marks the session **dirty**: derived facets go stale
+(dimmed, labelled "last good reading"), span/hover queries suspend, status
+reads `edited — unread`. **Ctrl+Enter re-reads without saving. Ctrl+S saves,
+and saving compiles.** Esc reverts to the last good reading. A refused
+re-read keeps the typed text, draws the **frontier** (red caret + underline)
+inside it at the deepest verified position, scrolls there, and carries the
+engine's words in the banner. Generation bumps only on a successful read.
+
+## 5. Engine routes (rung 2, first half)
+
+After every successful read, a daemon thread runs the road not taken
+(results discarded if the generation moved):
+
+- PDA-routed subjects → explicit Earley:
+  `earley_model(normalize(lift_optional_nullables(cg.codegen_grammar)),
+  doc, cg.fold)` — **this pass pair is the instance-grammar recipe**; without
+  it the tables refuse (unnormalised quantifiers) or the parse reports
+  spurious ambiguity. Parity verdict = structural `==` plus `to_text`
+  equality. Measured: 1.9s vs 0.05s on 15.7K chars, parity holds.
+- Resolver-routed subjects → `PdaKernel(cg.pda_tables(), doc, cg.fold)`,
+  expected to probe-fork; the position is read from its words ("attempt loop
+  at N") and drawn as where-the-fast-road-stops (meta: 202, vyx: 3,306).
+
+The leaf polls `/routes` (1.2s) and renders the strip in the derivation
+header: running… → timings + verdict (green on holds) or the inversion
+position. **Remaining half of rung 2**: the two engine *clocks* as switchable
+visualizations (PDA decision sequence; Earley chart columns) — the switch
+appears when there are two things to switch between.
+
+## 6. Known reads of engine prose (fragile, by declared necessity)
+
+`re: "\bat (\d+)\b"` over `PdaFail` / `ProbeFork` words. Both are lexic asks
+(HANDOVER): put the position on the record; de-ambiguate the self-grammar's
+model product.
+
+## 7. Gates and verification
+
+`serve.py <fixture> --census` (exit 0) asserts: round-trip fidelity, scene
+integrity, identity retype ok, garbage retype refused with the document
+untouched (corruption placed per route — a mid-document control char is
+LEGAL in metagrammar comments; measured), frontier position exact on the PDA
+route / −1 on resolver routes, save `saved` vs `held` per route, background
+route result as expected. Leaf syntax: `node --check`. Visuals: playwright's
+chrome-headless-shell with `--no-sandbox` + `?t=`/`?sel=`/`?rule=`/`?break=`
+deterministic states.
