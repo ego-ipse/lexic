@@ -175,3 +175,66 @@ of two shapes — the pass never sees them (a reachability gap) or it sees them
 and declines for a reason not in its guards (a shape mismatch at pass time, most
 likely `_unit_ref_target`'s `OP_REF`-only test meeting something else). Both are
 small fixes; they are different fixes.
+
+---
+
+## 8 — Diagnosed: two causes, and the big one is not a bug
+
+Instrumented `_convert_dispatch` during a real compile. The pass **does** see
+these clones — 164 calls over 118 names — so the reachability hypothesis is
+dead. (`all_clones` following only `OP_GRP` and never clone references, which
+made the earlier probe return one clone, is real but irrelevant here:
+`optimize_program` is handed EVERY shell as a root.)
+
+Of the 21 clones that were `BUILD_ALT` at pass time, 9 converted and **12
+declined**, for exactly two reasons:
+
+```
+  7  attempt (arms tried in order)                       e.g. 'scope-scalar'
+  5  gated arm not a unit ref: n=1 kind=OP_VSTR lo=1 hi=1  e.g. 'env-field'
+```
+
+### The small one is a real gap
+
+`_inline_value_strs` runs BEFORE `_convert_dispatch` and rewrites a
+terminal-only ref to `OP_VSTR`; `_unit_ref_target` accepts only `OP_REF`. So a
+single-arm alternation over a value_str rule is disqualified by an
+optimization — the same class of pass-ordering hazard `optimize_program`'s
+docstring already guards against for `OP_REF1`, but unguarded for `OP_VSTR`.
+Five clones, and by the runtime census only **52 entries per parse (1%)**.
+
+### The big one is deliberate, and my §7 read was wrong
+
+**Correction to §7.** I reported 1,396 entries (26%) as pass-throughs that
+"should have converted", checking the guards against each clone's FINAL state.
+That was the wrong state to check: those arms read `OP_REF1`, which
+`_specialize_calls` produces AFTER the dispatch pass. At pass time they were
+`OP_REF` — and they declined on `attempt`, not on shape. The 1,396 are the
+**seven attempt clones**, where dispatch is excluded on purpose: an attempt
+clone tries its arms in order with rollback, which a lead-char dispatch cannot
+express.
+
+So the honest sizing is: 1% is an ordering gap worth fixing cheaply, and 26% sits
+behind a deliberate exclusion.
+
+### What remains genuinely open
+
+A single-arm attempt clone has **no arm choice to try**. `_clone_shape` already
+recognises this shape — "a single-gated-arm attempt rule … has no arm choice to
+try — its licensed loops carry the whole licence in their gates, so it runs as
+an ordinary clone" — yet these seven carry a non-``None`` `attempt`, so
+something is classifying them as multi-arm at spec time and single-arm by the
+time the program runs (arm dropping in `compile_arms` is the obvious suspect,
+and is NOT verified here).
+
+That is the question worth taking next, and it is the engine owner's call
+rather than a mechanical fix: **if a clone reaches the runtime with one arm and
+an attempt marker, is the marker still earning anything?** If not, 26% of
+entries collapse. If it is — if the marker carries loop licences independent of
+arm count — then this lever is smaller than it looked and §4's conclusion
+(time tracks entries) needs a different way to cash out.
+
+**Method note, since it cost a wrong conclusion:** a compile-time pass must be
+diagnosed at pass time. Reading the artefact afterwards shows you the state
+three passes later, and every op-code specialisation in between rewrites the
+evidence.

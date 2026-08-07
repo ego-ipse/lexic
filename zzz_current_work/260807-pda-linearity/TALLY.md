@@ -322,3 +322,27 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   possible shapes (reachability gap vs a shape mismatch at pass time, most
   likely `_unit_ref_target`'s OP_REF-only test) — both small fixes, different
   fixes. No src touched.
+- **DIAGNOSED (§8) — and it CORRECTS the previous entry.** Instrumented
+  `_convert_dispatch` during a real compile: the pass sees these clones (164
+  calls, 118 names), so the reachability hypothesis is dead. Of 21 BUILD_ALT
+  clones at pass time, 9 converted and **12 declined for exactly two reasons:
+  7 `attempt`, 5 `gated arm is OP_VSTR`**.
+  · The OP_VSTR five ARE a real gap: `_inline_value_strs` runs before dispatch
+    and `_unit_ref_target` accepts only OP_REF, so an optimization disqualifies
+    a clone from a bigger one — the same hazard `optimize_program` documents
+    for OP_REF1 but does not guard for OP_VSTR. Worth ~**52 entries (1%)**, not
+    26%.
+  · **MY EARLIER 26% READ WAS WRONG, and the reason is a method error worth
+    keeping:** I checked the guards against each clone's FINAL state, where the
+    arms read OP_REF1 — an op-code `_specialize_calls` produces AFTER the
+    dispatch pass. At pass time they were OP_REF and declined on `attempt`, not
+    on shape. A compile-time pass must be diagnosed AT pass time; reading the
+    artefact afterwards shows the state three passes later.
+  · STILL OPEN, and it is the engine owner's call: a single-arm attempt clone
+    has no arm choice to try, and `_clone_shape` already says so in words — yet
+    these seven carry a non-None attempt marker. Something classifies them
+    multi-arm at spec time and single-arm at runtime (arm dropping in
+    `compile_arms` is the suspect, NOT verified). If the marker is not earning
+    anything at that point, 26% of entries collapse; if it carries loop
+    licences independent of arm count, this lever is smaller than it looked and
+    §4 needs another way to cash out. No src touched.
