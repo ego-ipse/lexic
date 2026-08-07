@@ -51,14 +51,26 @@ It is Java, and its own row notes 4–8% of the timed region is CharStream
 construction. json is a tie, not a win. gbnf-meta and vyx have no rival that
 accepts the corpus, so "winning" there means nothing.
 
-## 3 — The honesty note that has to ride with every number
+## 3 — The product difference costs ~0% on the PDA route (measured; earlier
+claim retracted)
 
-The bench header records it and it bears repeating in any conclusion: **the
-engines do not build the same thing.** lexic returns a typed model the source is
-recoverable from; lark a `Tree`, parsimonious a `Node` tree, pyparsing a
-`ParseResults`, antlr a `ParserRuleContext`. Nobody else gets semantic actions.
-Some of every gap is that difference, and the investigation's job is to find how
-much — not to assume it is all of it, and not to assume it is none.
+The engines do not build the same thing — lexic returns a typed model the source
+is recoverable from, the rivals return generic trees, and nobody else gets
+semantic actions. This section used to say "some of every gap is that
+difference". **On the PDA route that is false, and it is now measured.**
+
+Stubbing all three model constructors and re-timing the parse changes the number
+by 0–2%, inside noise, on every grammar. Interning had already collapsed 3,342
+model references to 561 objects; construction was almost free before this
+mission started.
+
+It remains true of the **Earley** route, where the fold is 46% of the run — and
+generalising it from there to the PDA, without checking, is the mistake this
+section used to encode.
+
+**So the gap is recognition.** lexic's walk is slower than parsimonious's
+packrat and lark-lalr's table loop, and stripping the product closes none of
+it.
 
 ## 4 — Ranked targets
 

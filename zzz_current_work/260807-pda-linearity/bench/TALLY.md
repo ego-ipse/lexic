@@ -89,3 +89,33 @@ history so nothing is re-derived or re-run.
   that matter are the lexic-pda ones**, where lexic loses four of six:
   vyx −1.83× and abnf-meta −1.59× (parsimonious), arithmetic and csv −1.26×
   (lark-lalr). Target 2 is now target 1.
+- **THE STANDING CAVEAT IS FALSE, MEASURED.** Stubbed all three model
+  constructors (`build_fast`, `build_validated`, `build_vstr`) to return
+  ``None`` and re-timed the PDA parse — recognition without the product:
+
+  ```
+  vyx        full 4.866  recognition 4.854   build = 0%   rival 2.773  LOSES
+  abnf-meta  full 5.969  recognition 6.002   build = 0%   rival 3.913  LOSES
+  arithmetic full 3.199  recognition 3.208   build = 0%   rival 2.684  LOSES
+  csv        full 0.839  recognition 0.821   build = 2%   rival 0.727  LOSES
+  json       full 1.967  recognition 1.951   build = 1%   rival 2.124  WINS
+  ```
+
+  **Model building is ~0% of the PDA parse.** Every deviation is inside noise.
+  Consistent with the earlier census — interning already collapses 3,342 model
+  references to 561 objects, so construction was already almost free.
+
+  So "some of the gap is that lexic builds a typed model and the rivals build
+  generic trees" — which `FINDINGS.md` §3 carries as a standing caveat and
+  which I have repeated in every summary this mission — **is worth ~0% on the
+  PDA route.** It is true of the *Earley* route (46% fold) and I generalised it
+  without checking. Retracted.
+
+  **The whole gap is RECOGNITION**: lexic's walk is slower than parsimonious's
+  packrat and lark-lalr's table loop, and stripping the product does not close
+  any of it. That is a harder problem than the one I thought I had, and it is
+  the real one. `FINDINGS.md` §3 must be rewritten, not softened.
+- Next: recognition is 1.56 clone entries per char (prior mission). The
+  question is no longer "what do we build" but "why does one character cost
+  more than one rule frame", and whether that is the grammar's shape (vyx's
+  per-character lexical rules) or the engine's.
