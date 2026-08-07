@@ -713,3 +713,37 @@ history so nothing is re-derived or re-run.
   map of WHY — two rows explained as the price of ambiguity refusal, four lines
   closed with reasons, three prototypes killed by their own arithmetic, and one
   structural conclusion about interpreted per-item tests.
+- **ITEM FUSION — ZERO OPPORTUNITY, because the optimizer already took it.**
+  My own structural conclusion (the only way forward is fewer Python-level
+  operations per character, not smarter per-item tests) implies one candidate I
+  had not tried: fuse adjacent exactly-once terminal items at flatten time, so
+  `"a" "b" "c"` becomes one `startswith("abc")`. That REMOVES dispatch at
+  compile time rather than adding a runtime test — a different shape from the
+  three levers that died.
+  Measured across every executed arm:
+
+  ```
+  csv         4,400 items   0 fusable   0.0%
+  arithmetic  5,125 items   0 fusable   0.0%
+  json        5,519 items   0 fusable   0.0%
+  vyx         6,310 items   0 fusable   0.0%
+  ```
+
+  **Not one adjacent exactly-once terminal pair exists in any hot arm.** In
+  hindsight it is obvious: `hoist_arms` plus `_inline_value_strs` have already
+  collapsed terminal-only sequences into `OP_VSTR` clones, so the fusion was
+  performed years ago by an existing pass. The candidate was real in principle
+  and the work was already done.
+- **MISSION CONCLUSION.** Every lever identified has now been prototyped or
+  measured to zero, including the one my own analysis implied last. The board is
+  where it was at iteration 1.
+  What is established: **vyx and abnf-meta lose because lexic refuses ambiguity
+  and PEG does not** — irreducible without changing the promise. **csv and
+  arithmetic lose to a C-lexer LALR on interpreted per-character work**, and
+  every attempt to reduce that work by adding a decision to the loop costs more
+  than it saves (three for three). Item fusion, the one approach that removes
+  rather than adds, has no opportunity left.
+  **The remaining honest options are both outside optimization:** relax the
+  ambiguity guarantee (a ruling), or move the character loop below Python (a
+  different implementation language for the driver). Neither is a change this
+  mission can make, and I have no fourth to offer.
