@@ -450,3 +450,44 @@ history so nothing is re-derived or re-run.
   sub-runs by roughly 6:1 on vyx, so a per-decision test must be ~an order of
   magnitude cheaper than a sub-run to break even, and interpreted set
   membership is not.
+- **THE COST CONCENTRATES, AND THEN THE LAST DIRECTION CLOSES.**
+  Attempt cost by rule on vyx (648 decisions, 32.04 ms):
+
+  ```
+   102 × 164.1 µs = 16.73 ms  52.2%  body-line   (10 arms)
+   226 ×  28.3 µs =  6.39 ms  19.9%  kv-pair
+   222 ×  23.7 µs =  5.26 ms  16.4%  value       (7 arms)
+    72 ×  46.2 µs =  3.33 ms  10.4%  scope-item
+  ```
+
+  `body-line` alone is **52%** of attempt cost. Concentration is good news — it
+  suggests one targeted fix. And the shape of that fix looked right: convert it
+  from an ATTEMPT (speculative, per-candidate) to a k-window GATED SELECTION
+  (one check per decision, picks the arm) — which is `arm_gate`'s existing job
+  and would have avoided the per-candidate cost that killed the last prototype.
+  **It does not separate.** Tested directly, bypassing `arm_gate`'s max_k=3:
+
+  ```
+  body-line  10 arms   k=2..6: collide at every k
+  kv-pair     2 arms   k=2..6: collide
+  value       7 arms   k=2..6: collide
+  scope-item  3 arms   k=2..6: collide
+  ```
+
+  So raising the search ceiling converts nothing. The attempt classification is
+  CORRECT: these arms genuinely require unbounded lookahead to tell apart, which
+  is why they are attempted rather than gated.
+- **THE ARCHITECTURAL ANSWER to "why does parsimonious beat lexic on vyx" — and
+  it is not a tuning gap.** parsimonious is a PEG packrat: ordered choice means
+  first-match-wins, and its memo is `(rule, position) → result`, sound because
+  the result does not depend on what follows. lexic cannot use that memo —
+  `_attempt_run`'s docstring records it was tried and measured zero hits,
+  because a sub-run's outcome DOES depend on the enclosing continuation.
+  It depends on the continuation because **lexic is deciding something
+  parsimonious never decides.** PEG takes the first matching arm and is under no
+  obligation to ask whether a later arm also matches; lexic refuses ambiguity,
+  so it must check — that is the audit, and it is why the composition matters.
+  **The 1.83× is largely the price of ambiguity refusal on a grammar whose arms
+  are not separable by any bounded lookahead.** Closing it means changing what
+  lexic promises, not how fast it computes it — which is a ruling, not an
+  optimization, and it belongs to the user.
