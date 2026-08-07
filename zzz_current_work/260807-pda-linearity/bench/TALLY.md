@@ -66,3 +66,26 @@ history so nothing is re-derived or re-run.
   construction share, not just validation's 18 points. If there IS a semantic
   reason (Earley can present children the fast ctor cannot trust), that reason
   is the finding and the route stays slow by design.
+- **TARGET 1 CLOSED — the Earley fold declines the licence BY DESIGN, and the
+  reason is written down.** `FastCtor`'s docstring (`parsing/fold.py:96`):
+  *"Granted per rule by the compile seam when the model class provably needs no
+  per-field validation; the PDA runtime then builds instances through `make`
+  instead of the validated constructor. **The engine-side fold ignores it — the
+  engine path stays the validated reference.**"* Confirmed by use: only
+  `pda/runtime/build.py` reads `clone.fast`; the fold never does.
+  So the 14,152 validated constructions are the point, not a defect. The Earley
+  route is the **correctness oracle** the parity differentials check the PDA
+  against — if both sides took the fast path, per-field validation would run
+  nowhere and the gate would be comparing two unchecked builds. Speeding it up
+  by taking the licence would delete the property the gate rests on.
+  Also: validation is only 18 points of a 46% fold, and arithmetic unchecked is
+  49.8 vs lark-earley's 43.9 — so even the unavailable win would not take that
+  row. Two reasons to stop, not one.
+- **STRATEGIC CONSEQUENCE, and it re-ranks the mission.** The bench's
+  `lexic-earley` row measures the *reference* implementation, not the
+  production path — the PDA is the default route and Earley runs only when it
+  bails, which after this effort's work is rare (2 real ProbeForks in 3,801
+  tests). Chasing lark-earley optimises a row no user's parse takes. **The rows
+  that matter are the lexic-pda ones**, where lexic loses four of six:
+  vyx −1.83× and abnf-meta −1.59× (parsimonious), arithmetic and csv −1.26×
+  (lark-lalr). Target 2 is now target 1.
