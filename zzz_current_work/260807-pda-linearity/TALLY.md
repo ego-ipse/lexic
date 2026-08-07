@@ -164,3 +164,33 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
 - PLAN items 1, 2, 4, 5 are all done. Remaining: item 3 (re-measure — partly
   done above; `probes/economics.py` and the benchmark row still want a rerun),
   item 6 (D-half-2 islanding, only if item 3 still shows it paying).
+- **ITEM 3 DONE — re-measured, and it closes item 6.**
+  · corpus: all ten ground-truth grammars still ride the PDA, no resolver,
+    round-trip holding (vyx 9,417c in 0.029s) — unchanged, as intended.
+  · `bench --only gbnf-meta`: lexic-pda **5.386 µs/char** against 5.471 before
+    the lockstep and 5.508 pre-relaxation-fix, at a 0.50% noise floor. Flat:
+    the meta row's reduce path has no both-viable boundaries to settle, so it
+    neither gains nor pays. No regression from any of this effort's changes.
+  · forkcount over the suite: **ProbeFork 9 → 3, and one of those three is our
+    own unit test constructing one.** So TWO real forks remain in 3,796 tests,
+    both `dict-def`. The six pipe-list forks are gone — lockstep settles those
+    boundaries by convergence instead of bailing, which was an unlooked-for
+    second win: fewer whole-document Earley fallbacks, not just cheaper probes.
+  · economics: pipe-heavy still "no fork"; dict-heavy still BAILS at every size.
+- **ITEM 6 (D-half-2 islanding): CLOSED AS NOT WORTH BUILDING.** Its own revert
+  condition ("if scaling does not move, revert") is now moot in the stronger
+  direction — the subject evaporated. The only live forks left are the two
+  dict-defs, and islanding BAILS on exactly those, so the change would buy
+  nothing and cost an island attempt on every one. The design in
+  D-ISLANDING.md stays valid and is worth keeping for whenever a fork
+  population reappears; it simply has no population now. Not a rejection of the
+  design — a measurement of its subject.
+- RESIDUAL, now characterised: the PDA is ~**n^1.3**, not linear
+  (719c→0.044s, 1,424c→0.116s ×2.6, 2,832c→0.345s ×3.0, 5,648c→1.142s ×3.3,
+  11,281c→4.076s ×3.6 — the per-doubling factor is still creeping up). The
+  `_probe` quadratic is gone; the remaining growth is elsewhere and is a fresh
+  question, not a leftover of this one. Whoever takes it should profile before
+  theorising — that discipline is what found both of the last two.
+- PLAN items 1-6 are now all closed (2, 4, 5 built; 1, 3 measured; 6 measured
+  and declined). Deferred still: D-half-1 (per-site licences, needs the
+  clone-identity trade priced) and `nullable_names` → `ir/grammar/`.
