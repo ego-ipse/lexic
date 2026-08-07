@@ -45,3 +45,24 @@ history so nothing is re-derived or re-run.
   NEXT: confirm by counting fast_construct vs __new__ on both routes over the
   same grammar. If confirmed, prototype the Earley fold taking the same
   licence.
+- **CONFIRMED — the two routes construct models differently.** Counting
+  `GrammarModel.__new__` over one grammar (arithmetic), same fold, same input:
+  **PDA 0 calls. Earley 14,152.** The PDA fold builds through the fast-ctor
+  licence entirely; the Earley fold pays validated construction for every model.
+  That is a fold-side difference, not an engine one, and it was invisible in
+  the bench because both routes are timed as whole parses.
+- **BOUNDED (prototype: `_check_fields` stubbed, timing only — NOT a proposal,
+  the validation is load-bearing for hand-construction).** Validation alone is
+  **18.0% of the Earley parse on arithmetic, 17.6% on json, 7.5% on csv.**
+  So it is a real share but NOT the whole 1.45× lark-earley gap: arithmetic
+  60.7 → 49.8 µs/char unchecked, still well above lark-earley's 43.9.
+  Reading: the fold is ~46% of the Earley run (previous entry), validation is
+  ~18 points of that, and the rest is construction proper — `__new__` +
+  `records.py.__new__` (82k calls). Removing validation alone does not win the
+  row; taking the fast-ctor path (which skips both) might.
+- OPEN, and the next prototype: why does the Earley fold not take the licence
+  the PDA fold takes? If it is a missing `fast` on the RuleFold for this route
+  rather than a semantic reason, the fix is small and the win is the whole
+  construction share, not just validation's 18 points. If there IS a semantic
+  reason (Earley can present children the fast ctor cannot trust), that reason
+  is the finding and the route stays slow by design.
