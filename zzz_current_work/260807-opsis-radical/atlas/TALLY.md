@@ -184,3 +184,35 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   (their shell, or possibly the `!` prefix). The .term artifact is exactly
   the right seam for the agent side: the agent writes files; the human cats
   them wherever kitty graphics is spoken.
+- SOLUTION D — premise measured before building, and the answer is NOT NOW.
+  New probes: `gate/forkcount.py` (suite-wide ProbeFork/PdaFail tally by raise
+  site) and `gate/probes/scaling.py` (the fallback's cost as a vyx packet
+  grows). Findings: only NINE ProbeForks survive in the whole 3,776-test suite,
+  all of them vyx.gbnf-as-instance-grammar (pipe-lists, dict-defs) at
+  runtime/kernel/kernel.py:341/:563 — a different site from the metagrammar's
+  flat GATE_ATTEMPT; no other corpus grammar forks at all. And the cost there
+  is a FLAT ×7-8 that scales LINEARLY (32 lines/495c: 0.024s vs 0.003s) — the
+  ~n^3.2 blowup was specific to the metagrammar's chart density, not a property
+  of the fallback. So D's prize is a bounded constant factor on one grammar's
+  constructs, against A's 163× superlinear. Recorded as FINDING.md §12 with the
+  recommendation: defer; if built, do the ISLANDING half alone first (the
+  machinery exists and it does not touch the one-canonical-clone decision,
+  which per-site licences would reverse — and that decision is itself measured
+  at 60% of sub-runs). Also learned the hard way: a counting subclass of
+  PdaFail breaks `except PdaFail` for ProbeFork (sibling types) — 51 tests
+  failed until the plugin patched `__init__` on the existing classes instead.
+- NEW SESSION (context kept). Option A found landed in the working tree by the
+  gate agent (src + tests + CLAUDE.md + atlas/serve.py adapted — theirs to
+  commit): vyx reads in 0.07-0.54s, all fixtures PDA-routed, all frontiers
+  measurable. TUI SLICE 1 BUILT: atlas/tui.py — the interactive display in
+  cells, stdlib-only, third client of the unchanged wire. Document facet as
+  styled cells (span shading = background attributes: the weld is free on a
+  grid), spine pane, masthead, status readout; mouse hover co-selects, click
+  sets the cursor, wheel scrolls, Space plays, arrows step, q quits; spawns
+  the server if absent. Census green first run (doc drawn, spine bounded,
+  caret styled, hover co-selected); verified by TEXT SCREENSHOT — a TUI frame
+  ANSI-stripped is readable by the agent, a native visual channel neither tk
+  nor the browser had. UNTESTED BY ME (no tty in harness): live mouse/key
+  parsing — the user's hands are the gate. Slice 2: editing (grid editor +
+  kitty keyboard protocol for Ctrl+Enter), selection + OSC 52, chart as a
+  kitty-graphics placement pane.
