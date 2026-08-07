@@ -463,3 +463,27 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   carries its own orbit+zoom, shares the one layout and the one co-selection;
   closing the window drops its view; ResizeObserver redraws on window
   resize. Plus [ ]-keyed derivation speed (×0.25..×16, shown in status).
+- USER'S GRAPH-AND-TEMPO BATCH, all seven landed: (1) transport BUTTONS in
+  the derivation header (− ‹ ▶ › + with live speed word) and the speed floor
+  dropped to ×1/512 — slow enough to watch char-by-char as a teaching
+  device; ‹ › step exactly one character. (2) The spine wheel-zooms
+  (0.6–2.4× font scale). (3) The overview is now also the document's
+  minimap: scrubbing it scrolls the text in sync. (4) Rule lighting flows
+  from the graph too: hotRule() unifies graph-chip hover with span hover, so
+  hovering a chip lights the reader text (when visible), the document, and
+  the chart — same address, four facets. (5a) json's start rule connected:
+  nodes are now built from the server's name universe (#DEPTHS keys — AST
+  canonical names) instead of reader-text spellings, with case-insensitive
+  ruleDef() bridging reader lines. (5b) orbit jank fixed: the auto-fit
+  lerps (0.22/frame) instead of snapping as bounds degenerate at shallow
+  angles. (5c) FOCUS mode (◉ button / ?focus=1): with a rule selected, the
+  graph fades everything but its direct parents + full descendant subtree —
+  DOM-verified 84 of 90 faded for rulename; spatial-distribution
+  experiments remain open for the user's continued critique.
+- INCIDENT, recorded for the discipline: the first 14-patch round CRASHED on
+  its 15th assert and never wrote — all fourteen "applied" prints were
+  in-memory; a follow-up round then landed litRules calling helpers that
+  did not exist. Recovery: re-applied atomically, then verified ON DISK
+  (grep for function markers) and IN THE DOM (chip-class census) before
+  claiming anything. New rule: after every patch round, verify the artifact,
+  not the patch log.

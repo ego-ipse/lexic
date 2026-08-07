@@ -358,16 +358,18 @@ function drawSpine() {
 
 function litRules() {
   const selRule = cur.sel >= 0 ? S.ruleNames[S.spans[cur.sel].r] : null;
-  const hotRule = cur.hover >= 0 ? S.ruleNames[S.spans[cur.hover].r] : null;
+  const selDef = selRule ? ruleDef(selRule) : null;
+  const curDef = cur.rule ? ruleDef(cur.rule) : null;
+  const hotDef = hotRule() ? ruleDef(hotRule()) : null;
   document.querySelectorAll('#grammarBody .ln').forEach((ln) => {
     const i = +ln.dataset.l;
-    const inRule = (name) => name && S.ruleOf[name] && S.ruleOf[name].a <= i && i <= S.ruleOf[name].b;
-    ln.classList.toggle('lit', inRule(selRule) || inRule(cur.rule));
-    ln.classList.toggle('hot', inRule(hotRule));
+    const inDef = (d) => d && d.a <= i && i <= d.b;
+    ln.classList.toggle('lit', inDef(selDef) || inDef(curDef));
+    ln.classList.toggle('hot', inDef(hotDef));
   });
-  const target = selRule || hotRule || cur.rule;
-  if (target && S.ruleOf[target]) {
-    const ln = document.querySelector(`#grammarBody .ln[data-l="${S.ruleOf[target].a}"]`);
+  const target = selDef || hotDef || curDef;
+  if (target) {
+    const ln = document.querySelector(`#grammarBody .ln[data-l="${target.a}"]`);
     if (ln) ln.scrollIntoView({ block: 'nearest' });
   }
 }
@@ -389,7 +391,9 @@ function render() {
   $('pos').textContent =
     `char ${Math.floor(Math.min(cur.t, S.doc.length)).toLocaleString()} / ${S.doc.length.toLocaleString()}`
     + ` · line ${line.toLocaleString()} / ${S.lineStarts.length.toLocaleString()} · ${state}`
-    + (speed !== 1 ? ` · speed ×${speed}` : '') + ` · gen ${S.meta.generation}`;
+    + (speed !== 1 ? ` · speed ${speedWord()}` : '') + ` · gen ${S.meta.generation}`;
+  $('tb-play').textContent = cur.playing ? '⏸' : '▶';
+  $('tb-speed').textContent = speedWord();
   const focus = cur.sel >= 0 ? cur.sel : cur.hover;
   $('readout').textContent = focus < 0 ? (cur.rule ? `rule ${cur.rule} — its spans outlined violet` : '') : spanWords(focus);
   if (performance.now() - lastPost > 300) {
@@ -411,14 +415,27 @@ function makeGraphView(wrap, cv, chips) {
 
 function markedRule() { return cur.rule || graphHover; }
 
+function hotRule() {
+  if (graphHover) return graphHover;
+  if (cur.hover >= 0) return S.ruleNames[S.spans[cur.hover].r];
+  return '';
+}
+
+function ruleDef(name) {
+  if (S.ruleOf[name]) return S.ruleOf[name];
+  const ci = S.ruledefs.find((r) => r.name.toLowerCase() === name.toLowerCase());
+  return ci ? { a: ci.a, b: ci.b } : null;
+}
+
 function buildGraph() {
   const maxd = Math.max(0, ...Object.values(S.depths).filter((d) => d >= 0));
   const levels = new Map();
-  for (const r of S.ruledefs) {
-    const d = S.depths[r.name] ?? -1;
+  const names = Object.keys(S.depths).length ? Object.keys(S.depths) : S.ruledefs.map((r) => r.name);
+  for (const name of names) {
+    const d = S.depths[name] ?? -1;
     const lvl = d < 0 ? maxd + 1 : d;
     if (!levels.has(lvl)) levels.set(lvl, []);
-    levels.get(lvl).push(r.name);
+    levels.get(lvl).push(name);
   }
   gNodes = new Map();
   for (const [lvl, names] of levels) {
@@ -481,16 +498,23 @@ function drawGraphView(v) {
     x0 = Math.min(x0, P.x); x1 = Math.max(x1, P.x);
     y0 = Math.min(y0, P.y); y1 = Math.max(y1, P.y);
   }
-  const k = Math.min((w * 0.84) / Math.max(1, x1 - x0), (h * 0.78) / Math.max(1, y1 - y0), 2.4) * v.zoom;
-  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  const tk = Math.min((w * 0.84) / Math.max(40, x1 - x0), (h * 0.78) / Math.max(40, y1 - y0), 2.4) * v.zoom;
+  const tmx = (x0 + x1) / 2, tmy = (y0 + y1) / 2;
+  if (!v.fit) v.fit = { k: tk, mx: tmx, my: tmy };
+  v.fit.k += (tk - v.fit.k) * 0.22;
+  v.fit.mx += (tmx - v.fit.mx) * 0.22;
+  v.fit.my += (tmy - v.fit.my) * 0.22;
+  const { k, mx, my } = v.fit;
   for (const P of proj.values()) {
     P.x = w / 2 + (P.x - mx) * k;
     P.y = h / 2 + (P.y - my) * k;
   }
   const mark = markedRule();
+  const keepE = focusSet();
   for (const [a, b] of S.edges) {
     const A = proj.get(a), B = proj.get(b);
     if (!A || !B) continue;
+    if (keepE !== null && !(keepE.has(a) && keepE.has(b))) continue;
     const touched = mark && (a === mark || b === mark);
     cx.strokeStyle = touched
       ? 'rgba(217,140,245,0.75)'
@@ -500,7 +524,9 @@ function drawGraphView(v) {
     cx.lineTo(B.x, B.y);
     cx.stroke();
   }
-  const start = S.ruledefs.length ? S.ruledefs[0].name : '';
+  const start = Object.keys(S.depths).find((n) => S.depths[n] === 0) || '';
+  const hot = hotRule();
+  const keep = focusSet();
   for (const el of v.chips.children) {
     const P = proj.get(el.dataset.name);
     if (!P) continue;
@@ -511,7 +537,8 @@ function drawGraphView(v) {
     el.classList.toggle('near', P.s > 0.85);
     el.classList.toggle('start', el.dataset.name === start);
     el.classList.toggle('marked', el.dataset.name === cur.rule);
-    el.classList.toggle('hot', el.dataset.name === graphHover);
+    el.classList.toggle('hot', el.dataset.name === hot);
+    el.classList.toggle('faded', keep !== null && !keep.has(el.dataset.name));
   }
 }
 
@@ -521,6 +548,7 @@ function setGraph(on) {
   $('graphWrap').hidden = !on;
   $('gmode').textContent = on ? 'text' : 'graph';
   $('gpop').hidden = !on;
+  $('gfocus').hidden = !on;
   if (on && !gNodes) buildGraph();
   if (on) drawGraph();
 }
@@ -560,6 +588,23 @@ function wireGraphView(v) {
   });
 }
 
+let focusOn = false;
+
+function focusSet() {
+  if (!focusOn || !cur.rule) return null;
+  const keep = new Set([cur.rule]);
+  for (const [a, b] of S.edges) if (b === cur.rule) keep.add(a);
+  let frontier = [cur.rule];
+  while (frontier.length) {
+    const next = [];
+    for (const [a, b] of S.edges) {
+      if (frontier.includes(a) && !keep.has(b)) { keep.add(b); next.push(b); }
+    }
+    frontier = next;
+  }
+  return keep;
+}
+
 function graphPin() {
   if (!gNodes) buildGraph();
   const k = pins.length;
@@ -570,9 +615,27 @@ function graphPin() {
   renderPins();
 }
 
+let spineZoom = 1;
+
+function wireSpineZoom() {
+  $('spine').addEventListener('wheel', (e) => {
+    if (!e.ctrlKey && Math.abs(e.deltaY) < 4) return;
+    e.preventDefault();
+    spineZoom = Math.max(0.6, Math.min(2.4, spineZoom * Math.pow(1.0016, -e.deltaY)));
+    for (const id of ['spineBody', 'closedBody']) {
+      $(id).style.fontSize = (11.5 * spineZoom).toFixed(1) + 'px';
+    }
+  }, { passive: false });
+}
+
 function wireGraph() {
   $('gmode').addEventListener('click', () => setGraph(!graphOn));
   $('gpop').addEventListener('click', graphPin);
+  $('gfocus').addEventListener('click', () => {
+    focusOn = !focusOn;
+    $('gfocus').classList.toggle('on', focusOn);
+    drawGraph();
+  });
   const facetView = makeGraphView($('graphWrap'), $('graphCv'), $('graphChips'));
   gViews.push(facetView);
   wireGraphView(facetView);
@@ -618,7 +681,7 @@ function pinSpanIdx(p) {
 }
 
 function ruleDefText(rule) {
-  const def = S.ruleOf[rule];
+  const def = ruleDef(rule);
   if (!def) return '';
   return S.readerLines.slice(def.a, Math.min(def.b + 1, def.a + 3)).join('\n');
 }
@@ -805,6 +868,30 @@ function play() {
 
 /* ── gestures ── */
 
+function speedWord() {
+  return speed >= 1 ? `×${speed}` : `×1/${Math.round(1 / speed)}`;
+}
+
+function wireTransport() {
+  $('tb-slow').addEventListener('click', () => { speed = Math.max(1 / 512, speed / 2); ask(); });
+  $('tb-fast').addEventListener('click', () => { speed = Math.min(16, speed * 2); ask(); });
+  $('tb-play').addEventListener('click', () => {
+    cur.playing ? (cur.playing = false, ask()) : play();
+  });
+  $('tb-back').addEventListener('click', () => {
+    cur.playing = false;
+    cur.t = Math.max(0, Math.floor(cur.t) - 1);
+    cur.follow = true;
+    ask();
+  });
+  $('tb-step').addEventListener('click', () => {
+    cur.playing = false;
+    cur.t = Math.min(S.doc.length, Math.floor(cur.t) + 1);
+    cur.follow = true;
+    ask();
+  });
+}
+
 function wire() {
   const doc = $('docText');
   doc.addEventListener('mousemove', (e) => {
@@ -848,6 +935,7 @@ function wire() {
     cur.playing = false;
     if (y < lanesY) cur.t = Math.max(0, Math.min((x - pad) / (r.width - 2 * pad), 1)) * S.doc.length;
     else cur.t = Math.max(0, Math.min(view0 + (x - pad) / pitch, S.doc.length));
+    cur.follow = true;  // the overview is also the document's minimap
     ask();
   };
   chart.addEventListener('mousedown', (e) => { dragging = true; scrub(e); });
@@ -925,7 +1013,7 @@ function onKey(e) {
   if (document.activeElement === $('docText')) return;
   if (e.key === 'p' || e.key === 'P') { addPin(cur.sel >= 0 ? cur.sel : cur.hover); return; }
   if (e.key === 'g' || e.key === 'G') { setGraph(!graphOn); return; }
-  if (e.key === '[') { speed = Math.max(0.25, speed / 2); ask(); return; }
+  if (e.key === '[') { speed = Math.max(1 / 512, speed / 2); ask(); return; }
   if (e.key === ']') { speed = Math.min(16, speed * 2); ask(); return; }
   if (e.key === ' ') { e.preventDefault(); cur.playing ? (cur.playing = false, ask()) : play(); }
   else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -1053,6 +1141,8 @@ async function pollRoutes() {
   wirePins();
   wireChip();
   wireGraph();
+  wireTransport();
+  wireSpineZoom();
   pollRoutes();
   const q = new URLSearchParams(location.search);
   if (q.has('t')) { cur.t = Math.min(+q.get('t'), S.doc.length); cur.follow = true; ask(); }
@@ -1068,5 +1158,6 @@ async function pollRoutes() {
   }
   if (q.has('graph')) setGraph(true);
   if (q.has('gpin')) { setGraph(true); graphPin(); }
+  if (q.has('focus')) { focusOn = true; $('gfocus').classList.add('on'); drawGraph(); }
   if ([...q.keys()].length === 0) setTimeout(play, 600);  // deterministic states do not animate
 })();
