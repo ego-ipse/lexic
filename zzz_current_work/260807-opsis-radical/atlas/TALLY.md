@@ -176,3 +176,11 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   artifact — the terminal-native peer of the HTML export target. Static by
   design: the artifact half, not the instrument. Visual confirmation needs a
   kitty-graphics terminal (ghostty/kitty/wezterm) — the user's gate.
+- VISUAL GATE PASSED (user, in ghostty): `cat frame.term` paints. The session
+  itself now runs in ghostty — but MEASURED: the agent cannot paint inline
+  through its own Bash tool; the harness captures stdout (54.6KB → persisted
+  file, ESC bytes stripped in the preview), so APC never reaches the tty.
+  Frames-in-conversation therefore work only for USER-initiated commands
+  (their shell, or possibly the `!` prefix). The .term artifact is exactly
+  the right seam for the agent side: the agent writes files; the human cats
+  them wherever kitty graphics is spoken.
