@@ -12,11 +12,25 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.earley.kernel.forest.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
-from lexic.parsing.pda.runtime.build import F_ENDS, F_OUT, F_SINKS
+from lexic.parsing.pda.runtime.build import (
+    F_ARM,
+    F_CLONE,
+    F_COUNT,
+    F_ENDS,
+    F_I,
+    F_MODE,
+    F_OUT,
+    F_SINKS,
+    F_START,
+)
 
 __all__ = [
     "PROBE_DEPTH",
+    "control_signature",
+    "pending_values",
+    "values_agree",
     "KernelCaches",
     "admits",
     "frames_copy",
@@ -157,3 +171,98 @@ def _dup(lst: list[Any], remap: dict[int, list[Any]]) -> list[Any]:
         got = list(lst)
         remap[id(lst)] = got
     return got
+
+
+def control_signature(stack: list[list[Any]], pos: int) -> tuple[Any, ...]:
+    """What a probe side must SHARE with the other to have a common future.
+
+    The stack IS the continuation, so two sides at the same position with the
+    same control state consume the same remaining text and build the same
+    additional values — which is what lets a boundary be settled without
+    running either side to end-of-input.
+
+    Deliberately excludes every value container (``F_OUT`` / ``F_SINKS``): the
+    two sides differing THERE is the fact being measured, and folding it into
+    the signature would mean the sides never converge. Arm and clone enter by
+    identity — the flat program is immutable and shared across every parse, so
+    ``id`` is a stable key here rather than an accident of allocation.
+
+    The iteration count is normalised by :func:`_count_key`, and that is what
+    makes convergence possible at all: the take side has taken one iteration
+    the stop side has not, so their raw counts differ FOREVER and no two states
+    would ever match.
+    """
+    return (
+        pos,
+        len(stack),
+        tuple(
+            (
+                id(frame[F_ARM]),
+                frame[F_I],
+                _count_key(frame),
+                frame[F_MODE],
+                id(frame[F_CLONE]),
+                frame[F_START],
+            )
+            for frame in stack
+        ),
+    )
+
+
+_COUNT_FREE = -1
+"""The count key of a loop whose exact iteration count can no longer constrain
+anything — past its mandatory floor with no ceiling to hit."""
+
+
+def _count_key(frame: list[Any]) -> int:
+    """A frame's iteration count, or :data:`_COUNT_FREE` when it cannot matter.
+
+    A count constrains the future only while it can still decide something: it
+    is below the item's mandatory ``lo``, or the item has a ``hi`` to run into.
+    Past ``lo`` on an unbounded item every further iteration is permitted, so
+    the exact number is not part of the state — and collapsing it is what lets
+    a side that took one more iteration converge with one that did not.
+    """
+    arm = frame[F_ARM]
+    i = frame[F_I]
+    if i >= arm.n:
+        return _COUNT_FREE
+    count = frame[F_COUNT]
+    if arm.his[i] >= 0 or count < arm.los[i]:
+        return count
+    return _COUNT_FREE
+
+
+def pending_values(stack: list[list[Any]]) -> tuple[Any, ...]:
+    """Every value a probe side has built so far, in frame order.
+
+    Aliased containers (a frame's ``F_OUT`` IS a parent's sink slot) are read
+    twice; harmless for an equality test, and cheaper than resolving identity.
+    """
+    out: list[Any] = []
+    for frame in stack:
+        out.append(tuple(frame[F_OUT]))
+        sinks = frame[F_SINKS]
+        out.append(
+            ()
+            if sinks is None
+            else tuple(() if slot is None else tuple(slot) for slot in sinks)
+        )
+    return tuple(out)
+
+
+def values_agree(left: Any, right: Any) -> bool:
+    """Whether two :func:`pending_values` snapshots mean the same thing.
+
+    Structural to the leaves, then :func:`~lexic.parsing.earley.kernel.forest
+    .ambiguity.same_value` — the SAME question the end-of-input comparison
+    asks, asked earlier. A shape mismatch is a disagreement, never an error:
+    the caller's next move on "these differ" is always the conservative one.
+    """
+    if isinstance(left, tuple) or isinstance(right, tuple):
+        if not (isinstance(left, tuple) and isinstance(right, tuple)):
+            return False
+        if len(left) != len(right):
+            return False
+        return all(values_agree(a, b) for a, b in zip(left, right))
+    return bool(same_value(left, right))

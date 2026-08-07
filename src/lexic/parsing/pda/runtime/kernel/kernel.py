@@ -252,8 +252,22 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             self.stack, self.pos = saved_stack, saved_pos
         return end, (holder[0] if holder else None)
 
-    def _drive(self, floor: int = 0) -> None:
+    def _drive(self, floor: int = 0, limit: int = -1) -> None:
         """Drain the frame stack — the fused hot loop.
+
+        With ``limit`` >= 0 the drive RETURNS as soon as the cursor reaches it,
+        leaving the stack resumable: a later call continues where this one
+        stopped. It is a PARAMETER and not a cursor field on purpose — the
+        bound belongs to one call, and a nested drive (an attempt sub-run
+        re-entering the driver) must be unbounded. Carried on the cursor it
+        leaked into those sub-runs, which then stopped early and never
+        converged; measured, that put every boundary back on the slow path.
+        It folds into the OUTER loop's own condition, so the hot path gains no
+        branch — and a
+        frame boundary is exactly where ``self.pos`` and ``frame[F_I]`` are
+        both current, which is what makes the pause resumable at all. Used by
+        the lockstep boundary verdict, which advances two candidate
+        continuations in step instead of running each to end-of-input.
 
         The outer loop processes the top frame; the inner loop runs its items
         in order. A terminal item matches its whole quantifier loop inline (no
@@ -268,12 +282,11 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         """
         stack = self.stack
         text = self.text
-        while len(stack) > floor:
+        while len(stack) > floor and not 0 <= limit <= self.pos:
             frame = stack[-1]
             arm = frame[F_ARM]
             kinds = arm.kinds
             n = arm.n
-            ends = frame[F_ENDS]
             i = frame[F_I]
             pos = self.pos
             while i < n:
@@ -309,7 +322,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                         break  # pushed — the sub-frame drives next
                     pos = self.pos
                     continue
-                ends[i] = pos
+                frame[F_ENDS][i] = pos
                 i += 1
             else:  # items exhausted without a descent — the frame completes
                 frame[F_I] = i
