@@ -57,3 +57,11 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   comments (cmchar admits controls) — the "garbage" parsed; corruption now
   placed per route. VISION.md + SPEC.md written at the radical root; HANDOVER
   updated (cold start = VISION → SPEC → HANDOVER → TALLY → THINKING).
+- MEASURED why vyx costs ~5s: compile is 0.03s (memo-warm); the Earley
+  fallback route is SUPERLINEAR on this grammar — 4,281 chars in 0.37s
+  (11.5K chars/s) vs 8,750 chars in 3.79s (2.3K chars/s): ×2 input ≈ ×10
+  time, ≈ n^3.2. Not a constant-factor gap; chart density compounds. The
+  PDA probe-forks at 3,306 (attempt-loop gate undecidable) and the fallback
+  is whole-document Earley — the fork does not island. Sharpens the lexic
+  asks: decidable self-grammar → PDA route (~30ms), or island the
+  undecidable span so only it pays Earley.
