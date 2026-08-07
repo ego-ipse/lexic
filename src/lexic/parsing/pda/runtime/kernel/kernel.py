@@ -437,31 +437,26 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
 
-        A dispatch clone (a frame-less pass-through alternation) is chased
-        first: its selectors carry target clones, so the walk lands on the
-        concrete clone — reporting into the same ``out`` the alternation would
-        have passed through to — before any frame is pushed. A leaf clone then
-        runs frame-lessly in :meth:`_run_leaf`.
+                A dispatch clone (a frame-less pass-through alternation) is chased
+                first: its selectors carry target clones, so the walk lands on the
+                concrete clone — reporting into the same ``out`` the alternation would
+                have passed through to — before any frame is pushed. A leaf clone then
+                runs frame-lessly in :meth:`_run_leaf`.
 
-        :param clone: The clone (or inline group) to descend into.
-        :param out: The parent sink list the clone's model reports into.
-        :returns: ``True`` when a frame was pushed; ``False`` when the clone
-            was consumed inline (a leaf run, or a dispatch clone's empty arm).
-        :raises PdaFail: When no arm's FIRST matches and there is no default.
+        Both steps live in :meth:`_settle`, which
+                resolves them to a fixpoint.
+
+                :param clone: The clone (or inline group) to descend into.
+                :param out: The parent sink list the clone's model reports into.
+                :returns: ``True`` when a frame was pushed; ``False`` when the clone
+                    was consumed inline (a leaf run, or a dispatch clone's empty arm).
+                :raises PdaFail: When no arm's FIRST matches and there is no default.
         """
         char = self.text[self.pos : self.pos + 1]
-        if clone.mode == BUILD_DISPATCH:
-            chased = self._chase_dispatch(clone, char)
-            if chased is None:
-                return False  # the empty (nullable) arm — nothing consumed
-            clone = chased
-        if clone.attempt is not None:
-            sole = sole_admitted(clone.attempt[1], self.text, self.pos)
-            if sole is None:
-                self.attempt(clone, out)
-                return False  # the winning arm was consumed inline
-            clone = sole  # one admitted entry — no fork is possible: a plain
-            # frame push replaces the sub-run, and the audit has nothing to ask
+        settled = self._settle(clone, char, out)
+        if settled is None:
+            return False  # consumed inline — an empty arm, or an attempt run
+        clone = settled
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(
@@ -496,6 +491,53 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
         )
         return True
+
+    def _settle(
+        self, clone: FlatClone, char: str, out: list[object]
+    ) -> "FlatClone | None":
+        """Resolve dispatch chases and attempt substitutions to a fixpoint.
+
+        Either step installs a *different* clone, and the clone it installs has
+        not been through the tests above it: a chase yields the selected
+        target, an attempt substitution yields the sole admitted entry. Run as
+        straight-line tests each check happens at most once, in one order, and
+        a substituted clone reaches the caller's arm selection carrying
+        whatever specialisation it has — which is a crash when that
+        specialisation is dispatch, whose selectors hold clones where the frame
+        push expects a :class:`FlatArm`. Attempt → dispatch → attempt chains are
+        the normal case rather than a corner: on the vyx grammar they run to 30
+        hops.
+
+        **It terminates.** Every hop follows a FIRST-position reference edge — a
+        dispatch selector and an attempt entry both name what may *begin* the
+        span — and a cycle of first-position references is left recursion, which
+        the analysis refuses before any clone is built. Every chain is therefore
+        bounded by the depth of an acyclic FIRST graph.
+
+        :param clone: The clone to resolve.
+        :param char: The lookahead, for the dispatch selectors.
+        :param out: The parent sink, for an attempt run's inline consumption.
+        :returns: The clone the caller should enter, or ``None`` when the walk
+            was consumed inline (a dispatch clone's empty arm, or an attempt
+            whose winning arm ran as a sub-run).
+        """
+        while True:
+            if clone.mode == BUILD_DISPATCH:
+                chased = self._chase_dispatch(clone, char)
+                if chased is None:
+                    return None  # the empty (nullable) arm — nothing consumed
+                clone = chased
+                continue
+            if clone.attempt is not None:
+                sole = sole_admitted(clone.attempt[1], self.text, self.pos)
+                if sole is None:
+                    self.attempt(clone, out)
+                    return None  # the winning arm was consumed inline
+                clone = sole  # one admitted entry — no fork is possible: a
+                # plain frame push replaces the sub-run, and the audit has
+                # nothing to ask
+                continue
+            return clone
 
     def _run_leaf(self, clone: FlatClone, out: list[Any], pos: int) -> int:
         """Run an all-terminal ``sequence`` clone frame-lessly — match and build.
