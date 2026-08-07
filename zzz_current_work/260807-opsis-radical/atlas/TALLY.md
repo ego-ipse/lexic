@@ -345,3 +345,48 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   at 22px, chart viewport clamped into the document on every draw and
   reset on re-read. The short-doc state is a good standing fixture: edit
   the doc down over the wire, then look.
+- "Make it linear?" — one route killed by measurement, one route specified.
+  KILLED: the cheap shortcut (skip both probes when `_beyond_class` says
+  `_ADMITS`, on the theory that optional-only viability means a split, which
+  the split rule settles). `gate/verdictcensus.py` over the whole suite:
+  3,586 ADMITS_HARD→TAKE, 239 ADMITS→TAKE, and **4 ADMITS→FORKED** — genuine
+  forks, so the shortcut would commit what the engine refuses. The boundary
+  class is not a sufficient statistic for the verdict. OPEN AND SPECIFIED:
+  lockstep probing with convergence detection — drive both sides together,
+  stop when one dies (forced, as today), when both reach an identical
+  (pos, stack signature) (the stack IS the continuation, so identical state at
+  identical position ⇒ identical future ⇒ verdict reduces to values accumulated
+  before convergence), or when a step budget runs out (fall back to today's
+  run-to-EOF, which makes correctness unregressable by construction). Sides
+  reconverge within one element on pipe-lists → O(1) per boundary → linear.
+  Needs a step-wise/bounded `_drive`, a cheap stack signature, and the
+  value-comparison equivalence argued. Also banked: STOP_FORCED occurs ZERO
+  times in 3,829 verdicts — the stop-probe's only known subject (gbnf-meta
+  terminator theft) may have been removed by the relaxation fix, so dropping it
+  would halve the constant; weak evidence, wants a grammar-level argument
+  before anyone deletes a soundness check.
+- Fable review notes 1 and 2 adopted in D-ISLANDING.md (note 3 was executed
+  earlier as probes/economics.py; note 4 was priority, now superseded by the
+  probe quadratic). Note 1: §1 gains the second half of the soundness argument
+  — the follow guard covers differing EXTENTS, the island's own ambiguity gate
+  covers EQUAL extents with different values, so nothing is left to a silent
+  pick. Note 2: §7 item 2 no longer hedges "either a name slot or the shells
+  map" — it recommends the `FlatClone.name` slot, because the probe's
+  compute_binding route is runtime reaching into compile's binding view and the
+  kernel must not inherit that inversion; the pinned-specs churn is stated as a
+  cost, not an objection.
+- THE PIN GESTURE, third time right (user: bare p dead when the document has
+  focus — which is almost always — and Ctrl+P is every browser's print). The
+  gesture is now DRAWN, not typed: select text → a `⌖ pin` chip appears at
+  the selection → click pins. Ctrl+P kept as intercepted secondary; bare p
+  kept outside document focus; pinning with no target now SPEAKS ("nothing
+  to pin — select text, or hover an occurrence first"). Three real bugs
+  found en route, each screenshot-diagnosed: (a) the autoplay `else` had
+  migrated through patch insertions until it attached to `if (q.has('pin'))`
+  — deterministic states animated and scroll events ate the chip; boot now
+  autoplays only with NO query params; (b) `addEventListener('scroll',
+  hideChip)` passed the Event object as hideChip's `force` parameter —
+  truthy — force-hiding the sticky chip on the render's own follow-scroll;
+  (c) the ?sel chip placed itself pre-scroll and unclamped, landing
+  off-viewport. Chip placement is one geometry path (glyph arithmetic) used
+  by both the live selection and the deterministic ?sel state.

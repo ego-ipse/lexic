@@ -396,7 +396,13 @@ function render() {
 const PIN_CAP = 3;
 
 function addPin(spanIdx) {
-  if (spanIdx < 0) return;
+  if (spanIdx < 0) {
+    const banner = $('banner');
+    banner.hidden = false;
+    banner.className = 'refuse';
+    banner.textContent = 'nothing to pin — select text, or hover an occurrence first';
+    return;
+  }
   if (pins.length >= PIN_CAP) {
     const banner = $('banner');
     banner.hidden = false;
@@ -449,6 +455,38 @@ function renderPins() {
     layer.appendChild(el);
   }
   $('pincount').textContent = pins.length ? `pinned ${pins.length} of ${PIN_CAP}` : '';
+}
+
+let chipSticky = false;
+
+function chipAt(off, sticky = false) {
+  chipSticky = sticky;
+  // position the chip from glyph geometry — one path for selection and ?sel
+  const chip = $('pinchip');
+  const wrap = $('docWrap').getBoundingClientRect();
+  const line = lineOf(Math.min(off, S.doc.length - 1));
+  const col = off - S.lineStarts[line];
+  const x = wrap.left + M.gutterW + col * M.charW;
+  const y = wrap.top + PAD_TOP + line * LH;
+  chip.style.left = Math.max(8, Math.min(x + 6, window.innerWidth - 90)) + 'px';
+  chip.style.top = Math.max(8, Math.min(y - 30, window.innerHeight - 42)) + 'px';
+  chip.hidden = false;
+}
+
+function hideChip(force = false) {
+  if (chipSticky && !force) return;
+  $('pinchip').hidden = true;
+}
+
+function wireChip() {
+  const chip = $('pinchip');
+  chip.addEventListener('pointerdown', (e) => e.preventDefault());  // keep the selection alive
+  chip.addEventListener('click', () => {
+    addPin(cur.sel);
+    chipSticky = false;
+    hideChip(true);
+  });
+  $('docScroll').addEventListener('scroll', () => hideChip());
 }
 
 function wirePins() {
@@ -622,7 +660,11 @@ function offsetAt(e) {
 
 function readSelection() {
   const sel = window.getSelection();
-  if (!sel.rangeCount || sel.isCollapsed) { cur.docSel = null; return; }
+  if (!sel.rangeCount || sel.isCollapsed) {
+    cur.docSel = null;
+    if (document.activeElement !== $('pinchip')) hideChip();
+    return;
+  }
   if (dirty) return;
   const within = (node) => $('docText').contains(node.nodeType === 3 ? node.parentNode : node);
   if (!within(sel.anchorNode) || !within(sel.focusNode)) return;
@@ -635,6 +677,8 @@ function readSelection() {
   const a = offOf(sel.anchorNode, sel.anchorOffset), b = offOf(sel.focusNode, sel.focusOffset);
   cur.docSel = { lo: Math.min(a, b), hi: Math.max(a, b) };
   cur.sel = smallestOver(cur.docSel.lo, cur.docSel.hi);
+  if (cur.sel >= 0) chipAt(cur.docSel.hi);
+  else hideChip();
   ask();
 }
 
@@ -765,14 +809,19 @@ async function pollRoutes() {
   await boot(false);
   wire();
   wirePins();
+  wireChip();
   pollRoutes();
   const q = new URLSearchParams(location.search);
   if (q.has('t')) { cur.t = Math.min(+q.get('t'), S.doc.length); cur.follow = true; ask(); }
-  if (q.has('sel')) { cur.sel = deepestAt(+q.get('sel')); ask(); }
+  if (q.has('sel')) {
+    cur.sel = deepestAt(+q.get('sel'));
+    render();
+    if (cur.sel >= 0) chipAt(S.spans[cur.sel].s, true);
+  }
   if (q.has('rule')) { cur.rule = q.get('rule'); ask(); }
   if (q.has('break')) { const off = +q.get('break'); applyEdit(off, off + 1, '\u00a7'); }
   if (q.has('pin')) {
     for (const off of q.get('pin').split(',')) addPin(deepestAt(+off));
   }
-  else setTimeout(play, 600);
+  if ([...q.keys()].length === 0) setTimeout(play, 600);  // deterministic states do not animate
 })();

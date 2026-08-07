@@ -195,3 +195,16 @@ body {
 .pin .body .facts { color: var(--dim); margin-top: 6px; font-size: 11px; }
 .pin .body .def { color: var(--cool); margin-top: 6px; white-space: pre-wrap; }
 .pin .stalemark { color: var(--red); font-size: 10px; }
+
+#pinchip {
+  position: fixed;
+  z-index: 40;
+  background: var(--field2);
+  border: 1px solid var(--warm);
+  color: var(--warm);
+  font: 11px var(--sans);
+  padding: 3px 10px;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
+}
+#pinchip:hover { background: var(--warm); color: var(--field); }
