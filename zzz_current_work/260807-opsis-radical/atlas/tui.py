@@ -72,6 +72,8 @@ class Scene:
         self.rule_names: list[str] = []
         self.field_names: list[str] = []
         self.ruledefs: list[tuple[str, int, int]] = []
+        self.depths: dict[str, int] = {}
+        self.policy: dict[str, str] = {}
         i = raw.index("\n") + 1
         while not raw.startswith("#", i):
             j = raw.index("\n", i)
@@ -103,6 +105,14 @@ class Scene:
                 for ln in lines:
                     name, a, b = ln.rsplit(" ", 2)
                     self.ruledefs.append((name, int(a), int(b)))
+            elif tag == "#DEPTHS":
+                for ln in lines:
+                    name, _, d = ln.rpartition(" ")
+                    self.depths[name] = int(d)
+            elif tag == "#POLICY":
+                for ln in lines:
+                    key, _, value = ln.partition(" ")
+                    self.policy[key] = value
         self.rule_of = {name: (a, b) for name, a, b in self.ruledefs}
         self.reader_lines = self.reader.split("\n")
         self.line_starts = [0] + [k + 1 for k, ch in enumerate(self.doc) if ch == "\n"]
@@ -169,6 +179,9 @@ class Tui:
         self.reader_top = 0
         self.drag: tuple[int, bool] | None = None  # (anchor offset, moved)
         self.routes = "route: measuring…"
+        self.speed = float(scene.policy.get("speed", "1") or 1)
+        self.reader_frac = float(scene.policy.get("arrange.reader", "0") or 0)
+        self.reader_graph = scene.policy.get("reader.mode") == "graph"
         self.port = 0
         self.mode = "view"
         self.buf = ""
@@ -180,8 +193,12 @@ class Tui:
     # ── layout ────────────────────────────────────────────────────────
 
     def reader_w(self) -> int:
-        """The reader facet's width — 0 when the terminal is too narrow."""
-        return 42 if self.cols >= 140 else 0
+        """The reader facet's width — policy share when given, else 42 columns."""
+        if self.cols < 140:
+            return 0
+        if self.reader_frac:
+            return max(30, min(self.cols // 2, int(self.cols * self.reader_frac)))
+        return 42
 
     def chart_rows(self) -> int:
         """Rows the chart band occupies — 0 when the terminal is too short."""
@@ -387,8 +404,37 @@ class Tui:
             f"\x1b[{self.doc_row0() + 3};{x}H{fg(DIMMER)}text is re-read\x1b[K"
         )
 
+    def render_flat_graph(self) -> str:
+        """THE READER as the flat rule graph — the policy's graph.view, in cells.
+
+        The cell medium's honest projection: levels as columns (depth = the
+        column), names coloured by role; edges are the browser's business.
+        """
+        sc = self.sc
+        rows = self.doc_rows() + self.chart_rows()
+        w = self.reader_w()
+        maxd = max((d for d in sc.depths.values() if d >= 0), default=0)
+        levels: dict[int, list[str]] = {}
+        for name, d in sc.depths.items():
+            levels.setdefault(d if d >= 0 else maxd + 1, []).append(name)
+        colw = 17
+        ncols = max(1, (w - 2) // colw)
+        out = [f"\x1b[2;1H{bg(FIELD)}{fg(COOL)} THE READER{fg(DIMMER)} · flat graph (policy) · depth → columns"]
+        start = next((n for n, d in sc.depths.items() if d == 0), "")
+        for lvl in range(min(ncols, maxd + 2)):
+            x = 2 + lvl * colw
+            out.append(f"\x1b[3;{x}H{fg(DIMMER)}d{lvl}")
+            for i, name in enumerate(sorted(levels.get(lvl, []))[: rows - 3]):
+                colour = WARM if name == start else (VIOLET if name == self.rule else DIM)
+                out.append(f"\x1b[{4 + i};{x}H{fg(colour)}{name[: colw - 1]}")
+        if maxd + 2 > ncols:
+            out.append(f"\x1b[{rows};2H{fg(DIMMER)}+{maxd + 2 - ncols} deeper levels — widen the reader share")
+        return "".join(out)
+
     def render_reader(self) -> str:
         """THE READER: the grammar, with the co-selected rule lit."""
+        if self.reader_graph:
+            return self.render_flat_graph()
         sc = self.sc
         lit = None
         active = self.rule
@@ -676,7 +722,7 @@ def run(fixture: str, port: int) -> int:
             ready, _, _ = select.select([fd], [], [], timeout)
             now = time.monotonic()
             if ui.playing:
-                ui.t = min(ui.t + (len(scene.doc) / 22) * (now - last), float(len(scene.doc)))
+                ui.t = min(ui.t + (len(scene.doc) / 22) * ui.speed * (now - last), float(len(scene.doc)))
                 if ui.t >= len(scene.doc):
                     ui.playing = False
             last = now
@@ -895,6 +941,15 @@ def census(fixture: str, port: int) -> int:
             "routes line": "route:" in plain,
             "verdict": "holds" in plain or "FAILS" in plain,
         }
+        urllib.request.urlopen(urllib.request.Request(
+            f"http://127.0.0.1:{port}/policy",
+            data=b"reader.mode graph\nspeed 0.5\narrange.reader 0.3")).read()
+        scene2 = Scene(fetch(port, "/scene"))
+        ui2 = Tui(scene2, 190, 48)
+        plain2 = ANSI.sub("", ui2.render())
+        checks["policy: speed applied"] = ui2.speed == 0.5
+        checks["policy: reader share applied"] = ui2.reader_w() == 57
+        checks["policy: flat graph drawn"] = "flat graph (policy)" in plain2
         print(f"{fixture}: {len(scene.doc):,} chars · {len(scene.spans):,} spans · "
               f"frame {len(frame):,} bytes ({len(plain):,} visible)")
         print(" · ".join(f"{k} {v}" for k, v in checks.items()))

@@ -28,6 +28,18 @@ screenshot-verified.
 - `GET /routes` — `primary …`, `primary_seconds …`, then the background
   result: `status pending|done|failed`, `name`, `seconds`, `parity`, `pos`,
   `words`.
+- `#POLICY n` in the scene, plus `GET /policy` and `POST /policy` (changed
+  keys as `key value` lines; value `-` deletes) — the presentation policy as
+  session state, rung 5. Keys: `speed`, `doc.zoom`, `chart.zoom`,
+  `spine.zoom`, `reader.mode text|graph`, `graph.view depth3d|flat|arcs`,
+  `graph.levelstep|ringscale|flatten|labelscale`, `graph.camera "y p z"`,
+  `arrange.reader|right|top` (grid shares; the seams write these),
+  `pin.<id> span s e d rule x y w h` / `pin.<id> graph x y w h yaw pitch
+  zoom`. Leaves are interpreters: the browser applies policy at boot and
+  posts every presentation gesture back; the TUI obeys speed, shares, and
+  reader.mode — its flat rule graph IS `graph.view` in cells. Leaves polling
+  `/policy` (browser: not yet; planned) get cross-leaf sync. Policy dies
+  with the server process — accepted for now.
 - `POST /cursor` — `t <float> sel <int>` (fire-and-forget, throttled).
 - `POST /edit` — `<start> <end>\n<replacement>` → re-read WITHOUT saving.
   Reply `ok <secs>` or `refuse <pos>\n<engine words>` (`pos` −1 when

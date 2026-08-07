@@ -23,11 +23,11 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lexic.compile import compile_ast, compile_from_path
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrRuleRef
 from lexic.model import GrammarModel
 from lexic.parsing import PdaKernel, earley_model, lift_optional_nullables, normalize
-from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.core.errors import PdaFail
 
 HERE = Path(__file__).resolve().parent
@@ -88,6 +88,7 @@ class Subject:
         self.generation = 0
         self.t = 0.0
         self.selection = -1
+        self.policy: dict[str, str] = {}
         self.lock = threading.Lock()
         self.model: GrammarModel
         self.spans: list[Span]
@@ -251,6 +252,8 @@ def build_scene(subject: Subject) -> str:
         f"faithful {1 if subject.faithful else 0}",
         f"generation {subject.generation}",
         f"t {subject.t:.1f}",
+        f"#POLICY {len(subject.policy)}",
+        *(f"{k} {v}" for k, v in subject.policy.items()),
         f"#RULEDEFS {len(rules)}",
         *(f"{name} {a} {b}" for name, a, b in rules),
         f"#RULENAMES {len(rule_names)}",
@@ -305,6 +308,11 @@ class Handler(BaseHTTPRequestHandler):
             with self.subject.lock:
                 self.send_text(build_scene(self.subject))
             return
+        if self.path == "/policy":
+            with self.subject.lock:
+                body = "\n".join(f"{k} {v}" for k, v in self.subject.policy.items())
+            self.send_text(body)
+            return
         if self.path == "/routes":
             with self.subject.lock:
                 primary = "PDA (fused kernel)" if self.subject.resolve is None else "Earley + first-derivation resolver"
@@ -323,6 +331,18 @@ class Handler(BaseHTTPRequestHandler):
             with self.subject.lock:
                 self.subject.t = float(head[1])
                 self.subject.selection = int(head[3])
+            self.send_text("ok")
+            return
+        if self.path == "/policy":
+            with self.subject.lock:
+                for line in body.split("\n"):
+                    if not line.strip():
+                        continue
+                    key, _, value = line.partition(" ")
+                    if value == "-":
+                        self.subject.policy.pop(key, None)
+                    else:
+                        self.subject.policy[key] = value
             self.send_text("ok")
             return
         if self.path == "/edit":
@@ -399,6 +419,16 @@ def census(subject: Subject) -> int:
     print(f"faithful {subject.faithful} · scene integrity {ok_scene} · identity retype ok {ok_edit} · "
           f"garbage retype refused {ok_refuse} · frontier {pos} ({words[:48]}…)")
     print(f"save: {saved.split(chr(10))[0][:70]} · as expected {ok_save}")
+    handler.do_POST = handler.do_POST  # noqa: self-reference guard for direct use
+    with subject.lock:
+        subject.policy["graph.view"] = "arcs"
+        subject.policy["pin.7"] = "span 10 20 3 test 100 100 300 200"
+    round_trip = build_scene(subject)
+    ok_policy = ("#POLICY 2" in round_trip and "graph.view arcs" in round_trip
+                 and "pin.7 span 10 20 3 test 100 100 300 200" in round_trip)
+    with subject.lock:
+        subject.policy.clear()
+    print(f"policy round-trips through the scene: {ok_policy}")
     for _ in range(200):
         if subject.route2.get("status") != "pending":
             break
@@ -410,7 +440,7 @@ def census(subject: Subject) -> int:
         ok_routes = r2.get("status") == "failed" and int(r2.get("pos", "-1")) >= 0
     print(f"other route: {r2} · as expected {ok_routes}")
     ok = (subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier
-          and ok_save and ok_routes and ok_graph)
+          and ok_save and ok_routes and ok_graph and ok_policy)
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 

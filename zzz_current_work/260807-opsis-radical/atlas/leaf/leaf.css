@@ -57,8 +57,8 @@ body {
 #grid {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(260px, 24%) 1fr minmax(320px, 30%);
-  grid-template-rows: minmax(0, 58%) minmax(0, 42%);
+  grid-template-columns: minmax(220px, var(--ar, 24%)) 1fr minmax(260px, var(--aright, 30%));
+  grid-template-rows: minmax(0, var(--atop, 58%)) minmax(0, 1fr);
   min-height: 0;
 }
 .facet { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--hair); }
@@ -227,7 +227,8 @@ body {
 .gchip {
   position: absolute;
   transform: translate(-50%, -50%);
-  font: 10px var(--mono);
+  font-family: var(--mono);
+  font-size: calc(10px * var(--glabel, 1));
   color: var(--dim);
   background: var(--field2);
   border: 1px solid var(--dimmer);
@@ -282,3 +283,42 @@ body {
 .gchip.faded { opacity: 0.12; pointer-events: none; }
 
 #status #transport { margin-left: 0; }
+
+#gtune {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(14, 18, 25, 0.85);
+  border: 1px solid var(--hair);
+  padding: 6px 8px;
+}
+#gtune label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 9px var(--sans);
+  color: var(--dim);
+}
+#gtune input[type="range"] { width: 90px; accent-color: var(--cool); height: 10px; }
+#gview {
+  margin-left: 6px;
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--dim);
+  font: 10px var(--mono);
+  padding: 1px 8px;
+  cursor: pointer;
+}
+#gview:hover { border-color: var(--cool); color: var(--cool); }
+.gchip.dot {
+  font-size: 0;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--cool);
+  border-color: var(--cool);
+}
+.gchip.dot.faded { background: var(--dimmer); }

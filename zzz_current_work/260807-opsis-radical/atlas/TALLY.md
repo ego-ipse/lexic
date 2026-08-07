@@ -516,3 +516,24 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   contention with the engine lane), no lexic asks outstanding, TUI flat
   design known. Accepted limitation, named: session policy dies with the
   server process (persistence is not rung 5).
+- RUNG 5 LANDED, to review point: presentation policy is session state.
+  Server: policy dict on the session, #POLICY in the scene, GET/POST /policy
+  (line-oriented, value '-' deletes); census asserts round-trip. Browser is
+  an interpreter: boot applies speed/zooms/shares/reader-mode/graph
+  camera+tunables/PINS (pins survive reload — the felt gap closed); every
+  presentation gesture posts its delta (speed via setSpeed, all three zooms
+  debounced, setGraph mode, pin add/close/drag/resize via ResizeObserver,
+  facet camera on orbit-end). Seam resize landed as arrange.* — draggable
+  facet borders (reader/right columns + chart/spine row) writing shares.
+  THE GRAPH ASKS: tunables panel (depth/ring/flat/label sliders → policy),
+  graph.view switch button cycling depth3d/flat/arcs — flat = levels as
+  columns, no camera; arcs = rules in SOURCE ORDER, forward references
+  arcing above, backward below, recursion drawn as self-loop rings, labels
+  collapsing to dots except start/hot/marked. Verified: policy POSTed over
+  the wire BEFORE page load → browser boots into arcs + wide reader + ×1/4
+  speed with zero query params. TUI RE-BASE (the acceptance test): parses
+  #POLICY, obeys speed + arrange.reader + reader.mode — the FLAT RULE GRAPH
+  IN CELLS (rung 4's remaining half) is just the TUI's interpretation of
+  graph.view; census grew three policy checks, nineteen green. One policy,
+  two media, proven. NOT yet: browser /policy polling (cross-leaf live
+  sync), pin gen-staleness across restarts, railroad (rung 6).

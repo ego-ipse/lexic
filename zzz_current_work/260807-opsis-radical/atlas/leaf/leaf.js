@@ -20,6 +20,24 @@ let cur = { t: 0, playing: false, sel: -1, hover: -1, rule: '', docSel: null, fr
 let dirty = false;
 let pins = [];      // pinned occurrences and pinned facets — uncapped, by ruling
 let speed = 1;      // derivation sweep multiplier ([ and ] halve/double)
+let gView = 'depth3d';
+let gTune = { levelstep: 150, ringscale: 1, flatten: 0.78, labelscale: 1 };
+const policyTimers = {};
+
+function postPolicy(key, value) {
+  fetch('/policy', { method: 'POST', body: `${key} ${value}` }).catch(() => {});
+}
+
+function postPolicyDebounced(key, value, ms = 350) {
+  clearTimeout(policyTimers[key]);
+  policyTimers[key] = setTimeout(() => postPolicy(key, value), ms);
+}
+
+function setSpeed(x) {
+  speed = Math.max(1 / 512, Math.min(16, x));
+  postPolicy('speed', speed);
+  ask();
+}
 let pinSeq = 0;
 let pinZ = 30;
 let view0 = 0;           // chart viewport (leaf-local)
@@ -46,6 +64,7 @@ function parseScene(text) {
   }
   scene.edges = [];
   scene.depths = {};
+  scene.policy = {};
   for (let guard = 0; guard < 12 && i < text.length; guard++) {
     const head = nextLine().split(' ');
     const tag = head[0], n = parseInt(head[1], 10);
@@ -71,6 +90,11 @@ function parseScene(text) {
       for (const ln of lines) {
         const sp = ln.lastIndexOf(' ');
         scene.depths[ln.slice(0, sp)] = +ln.slice(sp + 1);
+      }
+    } else if (tag === '#POLICY') {
+      for (const ln of lines) {
+        const sp = ln.indexOf(' ');
+        scene.policy[ln.slice(0, sp)] = ln.slice(sp + 1);
       }
     }
   }
@@ -406,12 +430,75 @@ function render() {
   }
 }
 
+/* ── policy application: the leaf is an interpreter of session state ── */
+
+function applyPolicy() {
+  const P = S.policy || {};
+  if (P['speed']) speed = parseFloat(P['speed']) || speed;
+  if (P['doc.zoom']) { docZoom = parseFloat(P['doc.zoom']) || 1; applyDocZoom(); }
+  if (P['chart.zoom']) chartZoom = parseFloat(P['chart.zoom']) || 1;
+  if (P['spine.zoom']) { spineZoom = parseFloat(P['spine.zoom']) || 1; applySpineZoom(); }
+  if (P['graph.view']) gView = P['graph.view'];
+  for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
+    if (P['graph.' + k]) gTune[k] = parseFloat(P['graph.' + k]);
+  }
+  document.documentElement.style.setProperty('--glabel', gTune.labelscale);
+  for (const which of ['reader', 'right', 'top']) {
+    if (P['arrange.' + which]) setShare(which, parseFloat(P['arrange.' + which]), false);
+  }
+  if (P['graph.camera'] && gViews[0]) {
+    const [yw, pt, zm] = P['graph.camera'].split(' ').map(parseFloat);
+    Object.assign(gViews[0], { yaw: yw, pitch: pt, zoom: zm });
+  }
+  if (P['reader.mode'] === 'graph' && !graphOn) setGraph(true, true);
+  syncTunePanel();
+  rebuildPinsFromPolicy(P);
+}
+
+function rebuildPinsFromPolicy(P) {
+  const wanted = Object.keys(P).filter((k) => k.startsWith('pin.'));
+  if (!wanted.length) return;
+  pins = [];
+  for (const key of wanted) {
+    const id = +key.slice(4);
+    const t = P[key].split(' ');
+    pinSeq = Math.max(pinSeq, id);
+    if (t[0] === 'graph') {
+      pins.push({
+        id, kind: 'graph', rule: 'RULE GRAPH',
+        x: +t[1], y: +t[2], w: +t[3], h: +t[4],
+        vyaw: parseFloat(t[5]), vpitch: parseFloat(t[6]), vzoom: parseFloat(t[7]),
+      });
+    } else {
+      const [se, ee, de] = [+t[1], +t[2], +t[3]];
+      pins.push({
+        id, gen: S.meta.generation, s: se, e: ee, d: de, rule: t[4],
+        field: '', snip: S.doc.slice(se, Math.min(ee, se + 400)),
+        x: +t[5], y: +t[6], w: +t[7], h: +t[8] || 0,
+      });
+    }
+  }
+  renderPins();
+}
+
+function setShare(which, frac, post = true) {
+  const vars = { reader: '--ar', right: '--aright', top: '--atop' };
+  const lim = { reader: [0.12, 0.42], right: [0.18, 0.46], top: [0.3, 0.75] };
+  const v = Math.max(lim[which][0], Math.min(lim[which][1], frac));
+  document.documentElement.style.setProperty(vars[which], (v * 100).toFixed(1) + '%');
+  if (post) postPolicyDebounced('arrange.' + which, v.toFixed(3));
+  ask();
+}
+
 /* ── the 3D rule graph — z is derivation distance, the earned axis ── */
 
 let graphOn = false;
 let gNodes = null;
 let graphHover = '';
 let gViews = [];  // [0] is the facet view; others live inside pinned windows
+let gFlat = new Map();
+let gArc = new Map();
+let gArcIndex = new Map();
 
 function makeGraphView(wrap, cv, chips) {
   return { wrap, cv, chips, yaw: 0.42, pitch: 0.92, zoom: 1 };
@@ -444,12 +531,30 @@ function buildGraph() {
   gNodes = new Map();
   for (const [lvl, names] of levels) {
     const k = names.length;
-    const R = k === 1 ? 0 : 46 + Math.min(230, k * 15);
+    const R = (k === 1 ? 0 : 46 + Math.min(230, k * 15)) * gTune.ringscale;
     names.forEach((n, i) => {
       const a = (i / k) * Math.PI * 2 + lvl * 0.7;
-      gNodes.set(n, { x: Math.cos(a) * R, y: Math.sin(a) * R * 0.78, z: -lvl * 150 });
+      gNodes.set(n, {
+        x: Math.cos(a) * R,
+        y: Math.sin(a) * R * gTune.flatten,
+        z: -lvl * gTune.levelstep,
+      });
     });
   }
+  gFlat = new Map();
+  for (const [lvl, list] of levels) {
+    list.forEach((n, i) => {
+      gFlat.set(n, { x: lvl * 170, y: (i - list.length / 2) * 26 + (lvl % 2) * 9 });
+    });
+  }
+  gArc = new Map();
+  gArcIndex = new Map();
+  const order = S.ruledefs.map((r) => r.name).filter((n) => names.includes(n));
+  for (const n of names) if (!order.includes(n)) order.push(n);
+  order.forEach((n, i) => {
+    gArcIndex.set(n, i);
+    gArc.set(n, { x: i * 26, y: 0 });
+  });
   for (const v of gViews) buildChipsInto(v.chips);
 }
 
@@ -495,7 +600,12 @@ function drawGraphView(v, smooth = false) {
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, w, h);
   const proj = new Map();
-  for (const [name, p] of gNodes) proj.set(name, gProject(v, p, w, h));
+  if (gView === 'depth3d') {
+    for (const [name, p] of gNodes) proj.set(name, gProject(v, p, w, h));
+  } else {
+    const src = gView === 'flat' ? gFlat : gArc;
+    for (const [name, q] of src) proj.set(name, { x: q.x, y: q.y, s: 1 });
+  }
   // auto-fit: fill the facet whatever the grammar's size or the orbit's angle
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
   for (const P of proj.values()) {
@@ -526,8 +636,17 @@ function drawGraphView(v, smooth = false) {
       ? 'rgba(217,140,245,0.75)'
       : `rgba(111,195,201,${(0.06 + 0.22 * Math.min(A.s, B.s)).toFixed(3)})`;
     cx.beginPath();
-    cx.moveTo(A.x, A.y);
-    cx.lineTo(B.x, B.y);
+    if (gView === 'arcs' && a !== b) {
+      const dir = B.x >= A.x ? 1 : -1;  // forward references arc above, backward below
+      const lift = dir * (12 + Math.abs(B.x - A.x) * 0.28);
+      cx.moveTo(A.x, A.y);
+      cx.quadraticCurveTo((A.x + B.x) / 2, A.y - lift, B.x, B.y);
+    } else if (gView === 'arcs') {
+      cx.arc(A.x, A.y - 9, 7, 0, Math.PI * 2);  // recursion: a self-loop ring
+    } else {
+      cx.moveTo(A.x, A.y);
+      cx.lineTo(B.x, B.y);
+    }
     cx.stroke();
   }
   const start = Object.keys(S.depths).find((n) => S.depths[n] === 0) || '';
@@ -540,7 +659,9 @@ function drawGraphView(v, smooth = false) {
     el.style.top = P.y + 'px';
     el.style.transform = `translate(-50%, -50%) scale(${Math.max(0.55, Math.min(P.s, 1.2)).toFixed(2)})`;
     el.style.zIndex = Math.round(P.s * 1000);
-    el.classList.toggle('near', P.s > 0.85);
+    el.classList.toggle('near', gView === 'depth3d' ? P.s > 0.85 : true);
+    el.classList.toggle('dot', gView === 'arcs'
+      && el.dataset.name !== hot && el.dataset.name !== cur.rule && el.dataset.name !== start);
     el.classList.toggle('start', el.dataset.name === start);
     el.classList.toggle('marked', el.dataset.name === cur.rule);
     el.classList.toggle('hot', el.dataset.name === hot);
@@ -548,13 +669,15 @@ function drawGraphView(v, smooth = false) {
   }
 }
 
-function setGraph(on) {
+function setGraph(on, fromPolicy = false) {
   graphOn = on;
+  if (!fromPolicy) postPolicy('reader.mode', on ? 'graph' : 'text');
   $('grammarScroll').hidden = on;
   $('graphWrap').hidden = !on;
   $('gmode').textContent = on ? 'text' : 'graph';
   $('gpop').hidden = !on;
   $('gfocus').hidden = !on;
+  $('gview').hidden = !on;
   if (on && !gNodes) buildGraph();
   if (on) drawGraph();
 }
@@ -563,6 +686,7 @@ function wireGraphView(v) {
   let drag = null;
   v.wrap.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.gchip')) return;
+    if (gView !== 'depth3d') return;  // flat and arcs have no camera
     drag = { x: e.clientX, y: e.clientY };
     e.preventDefault();
   });
@@ -573,10 +697,14 @@ function wireGraphView(v) {
     drag = { x: e.clientX, y: e.clientY };
     drawGraphView(v, true);
   });
-  window.addEventListener('pointerup', () => { drag = null; });
+  window.addEventListener('pointerup', () => {
+    if (drag) persistView(v);
+    drag = null;
+  });
   v.wrap.addEventListener('wheel', (e) => {
     e.preventDefault();
     v.zoom = Math.max(0.35, Math.min(5, v.zoom * Math.pow(1.0016, -e.deltaY)));
+    persistView(v);
     drawGraphView(v);
   }, { passive: false });
   v.chips.addEventListener('mouseover', (e) => {
@@ -611,6 +739,20 @@ function focusSet() {
   return keep;
 }
 
+function persistView(v) {
+  if (v.pin) postPolicyDebounced(`pin.${v.pin.id}`, pinPolicyValue(v.pin));
+  else postPolicyDebounced('graph.camera', `${v.yaw.toFixed(2)} ${v.pitch.toFixed(2)} ${v.zoom.toFixed(2)}`);
+}
+
+function pinPolicyValue(p) {
+  if (p.kind === 'graph') {
+    const v = p.view;
+    return `graph ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w)} ${Math.round(p.h || 440)}`
+      + (v ? ` ${v.yaw.toFixed(2)} ${v.pitch.toFixed(2)} ${v.zoom.toFixed(2)}` : ' 0.9 0.92 1');
+  }
+  return `span ${p.s} ${p.e} ${p.d} ${p.rule} ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w || 360)} ${Math.round(p.h || 0)}`;
+}
+
 function graphPin() {
   if (!gNodes) buildGraph();
   const k = pins.length;
@@ -629,10 +771,15 @@ function wireSpineZoom() {
     if (!e.ctrlKey) return;
     e.preventDefault();
     spineZoom = Math.max(0.6, Math.min(2.4, spineZoom * Math.pow(1.0016, -e.deltaY)));
-    for (const id of ['spineBody', 'closedBody']) {
-      $(id).style.fontSize = (11.5 * spineZoom).toFixed(1) + 'px';
-    }
+    applySpineZoom();
+    postPolicyDebounced('spine.zoom', spineZoom.toFixed(2));
   }, { passive: false });
+}
+
+function applySpineZoom() {
+  for (const id of ['spineBody', 'closedBody']) {
+    $(id).style.fontSize = (11.5 * spineZoom).toFixed(1) + 'px';
+  }
 }
 
 function applyDocZoom() {
@@ -650,6 +797,7 @@ function wireTextZoom() {
       e.preventDefault();
       docZoom = Math.max(0.6, Math.min(2.2, docZoom * Math.pow(1.0016, -e.deltaY)));
       applyDocZoom();
+      postPolicyDebounced('doc.zoom', docZoom.toFixed(2));
       ask();
     }, { passive: false });
   }
@@ -659,8 +807,70 @@ function wireChartZoom() {
   $('chartCv').addEventListener('wheel', (e) => {
     e.preventDefault();
     chartZoom = Math.max(0.25, Math.min(8, chartZoom * Math.pow(1.0016, -e.deltaY)));
+    postPolicyDebounced('chart.zoom', chartZoom.toFixed(2));
     ask();
   }, { passive: false });
+}
+
+function syncTunePanel() {
+  if (!$('gt-levelstep')) return;
+  for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
+    $('gt-' + k).value = gTune[k];
+  }
+  $('gview').textContent = gView;
+}
+
+function wireTune() {
+  $('gview').addEventListener('click', () => {
+    const order = ['depth3d', 'flat', 'arcs'];
+    gView = order[(order.indexOf(gView) + 1) % 3];
+    $('gview').textContent = gView;
+    postPolicy('graph.view', gView);
+    drawGraph();
+  });
+  for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
+    $('gt-' + k).addEventListener('input', (e) => {
+      gTune[k] = parseFloat(e.target.value);
+      if (k === 'labelscale') {
+        document.documentElement.style.setProperty('--glabel', gTune.labelscale);
+      } else if (gNodes) {
+        buildGraph();
+      }
+      postPolicyDebounced('graph.' + k, gTune[k]);
+      drawGraph();
+    });
+  }
+}
+
+function wireSeams() {
+  let seam = null;
+  window.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.pin') || e.target.closest('#pinchip')) return;
+    const g = $('grid').getBoundingClientRect();
+    const rd = $('document').getBoundingClientRect();
+    const rc = $('chart').getBoundingClientRect();
+    const rs = $('spine').getBoundingClientRect();
+    if (Math.abs(e.clientX - rd.left) <= 5 && e.clientY > g.top) seam = 'reader';
+    else if (Math.abs(e.clientX - rc.left) <= 5 && e.clientY > g.top) seam = 'right';
+    else if (e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 5) seam = 'top';
+    if (seam) {
+      e.preventDefault();
+      document.body.style.cursor = seam === 'top' ? 'row-resize' : 'col-resize';
+    }
+  }, true);
+  window.addEventListener('pointermove', (e) => {
+    if (!seam) return;
+    const g = $('grid').getBoundingClientRect();
+    if (seam === 'reader') setShare('reader', (e.clientX - g.left) / g.width);
+    else if (seam === 'right') setShare('right', (g.right - e.clientX) / g.width);
+    else setShare('top', (e.clientY - g.top) / g.height);
+  });
+  window.addEventListener('pointerup', () => {
+    if (seam) {
+      seam = null;
+      document.body.style.cursor = '';
+    }
+  });
 }
 
 function wireGraph() {
@@ -690,15 +900,17 @@ function addPin(spanIdx) {
   }
   const s = S.spans[spanIdx];
   const k = pins.length;
-  pins.push({
+  const p = {
     id: ++pinSeq, gen: S.meta.generation, s: s.s, e: s.e, d: s.d,
     rule: S.ruleNames[s.r], field: S.fieldNames[s.f] || '',
     snip: S.doc.slice(s.s, Math.min(s.e, s.s + 400)),
     x: 240 + (k % 8) * 44 + Math.floor(k / 8) * 12,
     y: 110 + (k % 8) * 44,
     w: 0,
-  });
+  };
+  pins.push(p);
   renderPins();
+  postPolicy(`pin.${p.id}`, pinPolicyValue(p));
 }
 
 function pinWidth(p, el) {
@@ -738,7 +950,11 @@ function buildPin(p, layer) {
     layer.appendChild(el);
     const wrap = el.querySelector('.gwrap');
     const v = makeGraphView(wrap, el.querySelector('canvas'), el.querySelector('.gchips'));
-    v.yaw = 0.9;
+    v.pin = p;
+    p.view = v;
+    v.yaw = p.vyaw ?? 0.9;
+    if (p.vpitch !== undefined) v.pitch = p.vpitch;
+    if (p.vzoom !== undefined) v.zoom = p.vzoom;
     gViews.push(v);
     if (gNodes) buildChipsInto(v.chips);
     wireGraphView(v);
@@ -757,6 +973,14 @@ function buildPin(p, layer) {
   layer.appendChild(el);
   if (!p.w) p.w = pinWidth(p, el);
   el.style.width = p.w + 'px';
+  if (p.h) el.style.height = p.h + 'px';
+  new ResizeObserver(() => {
+    if (el.offsetWidth && (Math.abs(el.offsetWidth - p.w) > 2 || Math.abs(el.offsetHeight - (p.h || el.offsetHeight)) > 2)) {
+      p.w = el.offsetWidth;
+      p.h = el.offsetHeight;
+      postPolicyDebounced(`pin.${p.id}`, pinPolicyValue(p));
+    }
+  }).observe(el);
   return el;
 }
 
@@ -828,6 +1052,7 @@ function wirePins() {
     if (e.target.closest('.x')) {
       pins = pins.filter((p) => p.id !== +el.dataset.id);
       renderPins();
+      postPolicy(`pin.${el.dataset.id}`, '-');
       return;
     }
     if (e.target.closest('header')) {
@@ -843,7 +1068,10 @@ function wirePins() {
     drag.el.style.left = drag.p.x + 'px';
     drag.el.style.top = drag.p.y + 'px';
   });
-  window.addEventListener('pointerup', () => { drag = null; });
+  window.addEventListener('pointerup', () => {
+    if (drag) postPolicyDebounced(`pin.${drag.p.id}`, pinPolicyValue(drag.p));
+    drag = null;
+  });
   layer.addEventListener('mousemove', (e) => {
     const el = e.target.closest('.pin');
     const p = el && pins.find((q) => q.id === +el.dataset.id);
@@ -908,8 +1136,8 @@ function speedWord() {
 }
 
 function wireTransport() {
-  $('tb-slow').addEventListener('click', () => { speed = Math.max(1 / 512, speed / 2); ask(); });
-  $('tb-fast').addEventListener('click', () => { speed = Math.min(16, speed * 2); ask(); });
+  $('tb-slow').addEventListener('click', () => setSpeed(speed / 2));
+  $('tb-fast').addEventListener('click', () => setSpeed(speed * 2));
   $('tb-play').addEventListener('click', () => {
     cur.playing ? (cur.playing = false, ask()) : play();
   });
@@ -1048,8 +1276,8 @@ function onKey(e) {
   if (document.activeElement === $('docText')) return;
   if (e.key === 'p' || e.key === 'P') { addPin(cur.sel >= 0 ? cur.sel : cur.hover); return; }
   if (e.key === 'g' || e.key === 'G') { setGraph(!graphOn); return; }
-  if (e.key === '[') { speed = Math.max(1 / 512, speed / 2); ask(); return; }
-  if (e.key === ']') { speed = Math.min(16, speed * 2); ask(); return; }
+  if (e.key === '[') { setSpeed(speed / 2); return; }
+  if (e.key === ']') { setSpeed(speed * 2); return; }
   if (e.key === ' ') { e.preventDefault(); cur.playing ? (cur.playing = false, ask()) : play(); }
   else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
     cur.playing = false;
@@ -1134,6 +1362,7 @@ async function boot(keep) {
   sizeDocCanvases();
   gNodes = null;
   if (graphOn) buildGraph();
+  applyPolicy();
   $('sub').textContent =
     `${S.meta.reader} read ${S.doc.length.toLocaleString()} chars in ${S.meta.seconds}s · `
     + `${S.spans.length.toLocaleString()} spans · depth ${S.maxdepth}`
@@ -1180,6 +1409,8 @@ async function pollRoutes() {
   wireSpineZoom();
   wireTextZoom();
   wireChartZoom();
+  wireTune();
+  wireSeams();
   pollRoutes();
   const q = new URLSearchParams(location.search);
   if (q.has('t')) { cur.t = Math.min(+q.get('t'), S.doc.length); cur.follow = true; ask(); }
