@@ -424,3 +424,21 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   · §7 gives the landing order: part 2 alone first (pure refactor, should be a
     no-op), then part 1 with the `_unit_ref_target` widening; gate on
     run_checks + full suite + parity, then re-run the per-grammar table.
+- **LANDED** (`9e6b012` part 2, `a491c46` part 1), per PROPOSAL §7 exactly.
+  **vyx 5.118 → 4.819 µs/char, clone entries 5,394 → 3,727.** Gates: run_checks
+  0, suite **3,801 passed**, check_generated CLEAN, examples 0; models
+  structurally identical on every bench grammar, round-trip holds.
+  Two things the landing changed from the prototype, both forced by the repo's
+  own gates rather than by taste:
+  · Part 2's loop pushed `_enter` to 13 branches (cap 12). Extracted as
+    `_settle()` — which is the better home anyway: the termination argument
+    (FIRST-position edges, cycles are left recursion, refused at analysis time)
+    now lives on the method it defends, as R2 asked.
+  · `_convert_dispatch` → `convert_dispatch`. The layering test caught the
+    private cross-module import immediately (1 failed, 3,800 passed) — a name
+    shared across modules is public at its defining module.
+  §7.5's doc updates went in WITH the landing, not deferred: `optimize_program`'s
+  ordering note no longer claims the order protects the unit-ref shape check
+  (it doesn't, now that OP_REF1 is accepted), and `_unit_ref_target` says why.
+- REMAINING from this thread, unchanged: the OP_VSTR gap (~1%, unprototyped,
+  PROPOSAL §6 — a lead, not a recommendation).
