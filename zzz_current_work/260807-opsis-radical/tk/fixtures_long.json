@@ -1,0 +1,986 @@
+{
+  "w0": {
+    "chart0": [
+      [
+        5991,
+        614
+      ],
+      {
+        "rule0": false,
+        "rule1": 9455,
+        "rule2": 9120,
+        "span3": false,
+        "depth4": true
+      }
+    ],
+    "atom1": [
+      {
+        "token0": 7628,
+        "depth1": false,
+        "gate2": 5627,
+        "span3": "forest",
+        "lane4": true
+      },
+      {
+        "token0": "gate",
+        "atom1": true,
+        "atom2": false,
+        "kernel3": "chart"
+      },
+      {
+        "island0": 2753,
+        "parse1": "reducer",
+        "atom2": "kernel",
+        "lane3": "emit",
+        "chart4": 3780
+      },
+      {
+        "grammar0": 7945,
+        "lane1": "island",
+        "lane2": true
+      },
+      [
+        "chart",
+        6560,
+        true,
+        861,
+        false
+      ],
+      {
+        "chart0": false,
+        "island1": "span",
+        "kernel2": 7870
+      }
+    ],
+    "span2": [
+      {
+        "grammar0": true,
+        "grammar1": 8652,
+        "emit2": "island"
+      },
+      [
+        false,
+        false,
+        "flavour",
+        "grammar",
+        "flavour",
+        "island"
+      ],
+      {
+        "reducer0": "flavour",
+        "grammar1": 7855
+      },
+      [
+        6365,
+        true
+      ]
+    ]
+  },
+  "w1": {
+    "atom0": [
+      [
+        2476,
+        "gate"
+      ],
+      {
+        "grammar0": 233,
+        "forest1": 3191,
+        "parse2": "reducer"
+      },
+      {
+        "lane0": false,
+        "forest1": false,
+        "grammar2": 7211,
+        "depth3": 2319,
+        "rule4": 5340
+      }
+    ],
+    "rule1": {
+      "rule0": [
+        7408,
+        false,
+        "flavour",
+        8325,
+        8572,
+        "lane"
+      ],
+      "kernel1": {
+        "forest0": 1198,
+        "lane1": 5999,
+        "kernel2": "span"
+      },
+      "depth2": [
+        "forest",
+        "forest",
+        true
+      ],
+      "kernel3": {
+        "chart0": 5431,
+        "span1": "span"
+      }
+    },
+    "rule2": [
+      {
+        "forest0": true,
+        "gate1": true,
+        "depth2": 6968
+      },
+      [
+        1372,
+        true,
+        6844,
+        8632
+      ],
+      {
+        "flavour0": 5111,
+        "parse1": 7302,
+        "emit2": true
+      }
+    ],
+    "flavour3": [
+      [
+        "gate",
+        8301
+      ],
+      {
+        "chart0": 5694,
+        "atom1": 4187,
+        "chart2": false
+      },
+      {
+        "depth0": "emit",
+        "island1": "token",
+        "flavour2": "depth",
+        "atom3": 7776,
+        "reducer4": 8269
+      }
+    ],
+    "lane4": {
+      "chart0": {
+        "reducer0": false,
+        "chart1": true,
+        "lane2": false,
+        "lane3": false
+      },
+      "reducer1": {
+        "lane0": "span",
+        "rule1": 308
+      }
+    }
+  },
+  "w2": {
+    "atom0": [
+      [
+        4131,
+        "reducer",
+        true,
+        false,
+        "atom"
+      ],
+      {
+        "lane0": "gate",
+        "span1": true,
+        "parse2": 7613,
+        "flavour3": 5106
+      }
+    ],
+    "parse1": {
+      "emit0": {
+        "atom0": true,
+        "emit1": false,
+        "emit2": "island"
+      },
+      "chart1": {
+        "gate0": 7385,
+        "forest1": "chart"
+      },
+      "grammar2": {
+        "chart0": false,
+        "parse1": "island",
+        "atom2": 5909,
+        "emit3": "rule"
+      },
+      "lane3": {
+        "forest0": "token",
+        "forest1": false,
+        "flavour2": "rule",
+        "kernel3": true
+      },
+      "lane4": {
+        "token0": true,
+        "emit1": true,
+        "chart2": 1961,
+        "flavour3": "gate",
+        "token4": 7372
+      }
+    }
+  },
+  "w3": {
+    "token0": [
+      {
+        "flavour0": true,
+        "flavour1": 6174,
+        "gate2": true,
+        "flavour3": "emit"
+      },
+      {
+        "forest0": "grammar",
+        "gate1": "gate",
+        "kernel2": 7355,
+        "lane3": false,
+        "kernel4": 1392
+      },
+      {
+        "parse0": "emit",
+        "span1": true
+      },
+      {
+        "reducer0": "grammar",
+        "kernel1": 4564,
+        "gate2": 8622,
+        "forest3": "rule"
+      }
+    ],
+    "forest1": {
+      "forest0": [
+        false,
+        6890,
+        false
+      ],
+      "atom1": {
+        "parse0": "reducer",
+        "parse1": 1785,
+        "gate2": 6832
+      },
+      "chart2": {
+        "lane0": 6805,
+        "chart1": 7366
+      }
+    },
+    "depth2": {
+      "kernel0": {
+        "island0": 5434,
+        "atom1": 4584,
+        "flavour2": "island",
+        "forest3": 1437,
+        "island4": "kernel"
+      },
+      "gate1": {
+        "reducer0": "rule",
+        "atom1": 1015,
+        "token2": true,
+        "rule3": "token",
+        "grammar4": 9757
+      },
+      "span2": {
+        "chart0": 4113,
+        "gate1": false,
+        "parse2": "reducer",
+        "kernel3": "atom",
+        "depth4": 4051
+      }
+    }
+  },
+  "w4": {
+    "depth0": [
+      [
+        "flavour",
+        "depth",
+        false,
+        true
+      ],
+      {
+        "emit0": 3263,
+        "reducer1": false,
+        "flavour2": 5346,
+        "reducer3": 1647
+      }
+    ],
+    "grammar1": {
+      "kernel0": [
+        4811,
+        "flavour"
+      ],
+      "depth1": {
+        "grammar0": "island",
+        "token1": "rule",
+        "rule2": "flavour",
+        "forest3": 6091
+      },
+      "flavour2": {
+        "gate0": "forest",
+        "lane1": "atom",
+        "emit2": "parse",
+        "rule3": 5117,
+        "island4": 3230
+      }
+    },
+    "grammar2": {
+      "forest0": {
+        "chart0": 9466,
+        "lane1": false
+      },
+      "chart1": {
+        "depth0": true,
+        "depth1": 1099,
+        "parse2": "rule",
+        "token3": true
+      },
+      "depth2": [
+        6627,
+        true,
+        2563
+      ]
+    },
+    "reducer3": [
+      {
+        "token0": false,
+        "parse1": "parse"
+      },
+      {
+        "kernel0": 8250,
+        "gate1": true,
+        "kernel2": 2942,
+        "lane3": "forest"
+      },
+      [
+        true,
+        true
+      ]
+    ]
+  },
+  "w5": [
+    {
+      "span0": {
+        "parse0": "reducer",
+        "emit1": "token",
+        "kernel2": "emit",
+        "flavour3": 9697,
+        "token4": "rule"
+      },
+      "depth1": [
+        "chart",
+        "rule",
+        true,
+        "island"
+      ]
+    },
+    [
+      {
+        "kernel0": 3769,
+        "parse1": true
+      },
+      [
+        "rule",
+        7081,
+        true,
+        true
+      ],
+      {
+        "island0": "reducer",
+        "lane1": "island"
+      },
+      {
+        "reducer0": true,
+        "lane1": 4419
+      }
+    ],
+    {
+      "kernel0": [
+        8074,
+        "rule",
+        3041,
+        202,
+        8491,
+        true
+      ],
+      "rule1": [
+        "grammar",
+        "atom",
+        "reducer",
+        true,
+        true
+      ],
+      "forest2": [
+        4346,
+        1399,
+        "depth",
+        3144,
+        true,
+        true
+      ],
+      "reducer3": [
+        3472,
+        9260,
+        1833,
+        5650
+      ]
+    }
+  ],
+  "w6": {
+    "atom0": [
+      [
+        false,
+        6288,
+        true,
+        1433
+      ],
+      {
+        "parse0": 5228,
+        "island1": "parse",
+        "token2": false
+      }
+    ],
+    "grammar1": [
+      {
+        "island0": 7683,
+        "atom1": 9413
+      },
+      [
+        884,
+        false,
+        5688,
+        4648
+      ]
+    ]
+  },
+  "w7": {
+    "atom0": {
+      "token0": {
+        "chart0": 1411,
+        "island1": true,
+        "depth2": 6214,
+        "rule3": "token",
+        "token4": "kernel"
+      },
+      "reducer1": {
+        "reducer0": true,
+        "lane1": false,
+        "island2": 2636,
+        "emit3": 1667,
+        "flavour4": "lane"
+      }
+    },
+    "parse1": {
+      "span0": [
+        "flavour",
+        "grammar"
+      ],
+      "reducer1": [
+        true,
+        "grammar",
+        false,
+        false
+      ],
+      "span2": {
+        "emit0": "forest",
+        "depth1": 4096,
+        "forest2": "depth",
+        "grammar3": 6368
+      }
+    }
+  },
+  "w8": {
+    "depth0": [
+      [
+        false,
+        "grammar"
+      ],
+      [
+        7486,
+        false,
+        "rule",
+        "rule",
+        6890
+      ],
+      {
+        "reducer0": 6421,
+        "atom1": false,
+        "reducer2": "island",
+        "kernel3": "lane",
+        "island4": false
+      }
+    ],
+    "emit1": [
+      {
+        "island0": "parse",
+        "forest1": "island",
+        "chart2": "atom",
+        "lane3": 8694
+      },
+      [
+        1179,
+        9477,
+        7404
+      ],
+      [
+        false,
+        4866,
+        "atom",
+        1916,
+        2282,
+        false
+      ]
+    ],
+    "gate2": {
+      "grammar0": {
+        "kernel0": "gate",
+        "island1": false,
+        "atom2": 2957,
+        "grammar3": "rule"
+      },
+      "span1": [
+        "rule",
+        true,
+        true,
+        "flavour",
+        "emit"
+      ],
+      "parse2": {
+        "chart0": "emit",
+        "flavour1": "span",
+        "parse2": 2090,
+        "chart3": 9081,
+        "chart4": 4921
+      }
+    }
+  },
+  "w9": [
+    [
+      [
+        false,
+        true,
+        7501,
+        false,
+        219,
+        5068
+      ],
+      {
+        "grammar0": true,
+        "rule1": "forest",
+        "kernel2": false,
+        "lane3": 7789
+      }
+    ],
+    [
+      [
+        true,
+        1993
+      ],
+      {
+        "emit0": true,
+        "depth1": false
+      },
+      [
+        false,
+        "kernel",
+        862
+      ]
+    ],
+    [
+      {
+        "parse0": "depth",
+        "rule1": false,
+        "kernel2": 7697,
+        "island3": "forest"
+      },
+      [
+        true,
+        false,
+        "lane",
+        9579,
+        false,
+        3839
+      ],
+      {
+        "forest0": 2576,
+        "lane1": 4486,
+        "gate2": false,
+        "reducer3": "rule"
+      },
+      [
+        "grammar",
+        "atom",
+        true,
+        true
+      ],
+      {
+        "flavour0": "depth",
+        "island1": true,
+        "lane2": "rule"
+      },
+      {
+        "island0": true,
+        "grammar1": 5651
+      }
+    ],
+    {
+      "gate0": [
+        "emit",
+        9717,
+        "flavour"
+      ],
+      "atom1": {
+        "island0": 7508,
+        "chart1": true
+      },
+      "reducer2": [
+        6440,
+        6077,
+        "rule",
+        971,
+        4225,
+        false
+      ]
+    },
+    [
+      [
+        "token",
+        2033
+      ],
+      {
+        "grammar0": 7666,
+        "reducer1": 1274,
+        "kernel2": false
+      },
+      {
+        "token0": "gate",
+        "lane1": 5439,
+        "kernel2": 9066,
+        "emit3": 6852
+      },
+      {
+        "token0": "emit",
+        "kernel1": true,
+        "rule2": 3459,
+        "emit3": "island"
+      },
+      [
+        1598,
+        true,
+        "kernel"
+      ],
+      [
+        "parse",
+        true,
+        false,
+        3775,
+        1432
+      ]
+    ]
+  ],
+  "w10": {
+    "parse0": {
+      "forest0": [
+        true,
+        "atom"
+      ],
+      "lane1": [
+        "depth",
+        false,
+        "grammar",
+        true
+      ]
+    },
+    "reducer1": [
+      [
+        9442,
+        false,
+        8803,
+        "depth",
+        true
+      ],
+      [
+        false,
+        7277,
+        "rule",
+        8087
+      ],
+      {
+        "reducer0": "lane",
+        "chart1": "grammar",
+        "forest2": 9781
+      },
+      [
+        false,
+        false,
+        false,
+        false
+      ]
+    ],
+    "grammar2": {
+      "atom0": {
+        "grammar0": "lane",
+        "kernel1": true,
+        "emit2": "rule"
+      },
+      "span1": [
+        "rule",
+        true,
+        true,
+        true,
+        false
+      ],
+      "parse2": {
+        "parse0": 7440,
+        "island1": "parse"
+      }
+    }
+  },
+  "w11": [
+    {
+      "flavour0": [
+        "chart",
+        "reducer",
+        8051,
+        4841,
+        "atom"
+      ],
+      "kernel1": [
+        6355,
+        false,
+        "forest",
+        "flavour",
+        false,
+        false
+      ],
+      "lane2": {
+        "grammar0": true,
+        "lane1": false
+      }
+    },
+    {
+      "kernel0": {
+        "parse0": false,
+        "chart1": "grammar",
+        "chart2": "parse",
+        "lane3": 7137
+      },
+      "token1": {
+        "token0": 3347,
+        "grammar1": "emit",
+        "parse2": "parse"
+      },
+      "forest2": {
+        "rule0": 9743,
+        "atom1": "reducer",
+        "chart2": "lane",
+        "gate3": false
+      },
+      "token3": [
+        2797,
+        "depth"
+      ],
+      "token4": [
+        false,
+        3404,
+        true,
+        693,
+        "grammar",
+        1613
+      ]
+    }
+  ],
+  "w12": {
+    "lane0": [
+      [
+        2568,
+        false,
+        false
+      ],
+      [
+        2358,
+        false,
+        true,
+        "grammar"
+      ],
+      [
+        7203,
+        true
+      ],
+      [
+        true,
+        4128,
+        false,
+        true
+      ],
+      {
+        "atom0": 2842,
+        "grammar1": 4762,
+        "token2": true
+      }
+    ],
+    "atom1": [
+      [
+        "reducer",
+        4646,
+        4573,
+        "lane"
+      ],
+      [
+        9092,
+        true,
+        false
+      ],
+      {
+        "flavour0": false,
+        "emit1": "kernel",
+        "reducer2": 6621,
+        "atom3": "emit",
+        "grammar4": "lane"
+      },
+      [
+        3793,
+        "island",
+        3159
+      ],
+      {
+        "chart0": "island",
+        "lane1": true,
+        "island2": false
+      }
+    ],
+    "kernel2": {
+      "island0": [
+        true,
+        true
+      ],
+      "depth1": {
+        "lane0": false,
+        "depth1": false,
+        "emit2": 7125,
+        "parse3": false
+      },
+      "span2": {
+        "flavour0": true,
+        "chart1": "emit",
+        "forest2": false,
+        "kernel3": 8333
+      },
+      "forest3": [
+        true,
+        9160,
+        3866
+      ],
+      "depth4": {
+        "atom0": true,
+        "gate1": 7909,
+        "kernel2": 2180,
+        "lane3": 9626,
+        "forest4": "lane"
+      }
+    },
+    "chart3": [
+      [
+        5906,
+        true
+      ],
+      {
+        "depth0": "kernel",
+        "parse1": "atom"
+      }
+    ]
+  },
+  "w13": [
+    {
+      "emit0": {
+        "forest0": "flavour",
+        "grammar1": false,
+        "emit2": 4030,
+        "grammar3": 6476,
+        "depth4": "parse"
+      },
+      "chart1": {
+        "token0": "island",
+        "emit1": true,
+        "chart2": "flavour",
+        "depth3": 4908
+      },
+      "depth2": {
+        "atom0": 654,
+        "island1": false,
+        "forest2": 2345,
+        "forest3": true,
+        "depth4": "chart"
+      },
+      "island3": [
+        "token",
+        false,
+        "rule",
+        "parse",
+        6039
+      ]
+    },
+    {
+      "grammar0": [
+        true,
+        6095,
+        9253
+      ],
+      "reducer1": {
+        "span0": 3625,
+        "emit1": 8016,
+        "span2": false
+      },
+      "atom2": [
+        false,
+        true,
+        6421
+      ],
+      "gate3": [
+        6117,
+        true,
+        true
+      ]
+    },
+    {
+      "flavour0": [
+        "island",
+        "emit",
+        8407,
+        true
+      ],
+      "token1": [
+        559,
+        false
+      ]
+    },
+    {
+      "gate0": {
+        "depth0": false,
+        "chart1": false,
+        "emit2": 7275,
+        "gate3": 8221
+      },
+      "atom1": {
+        "gate0": true,
+        "atom1": "token",
+        "lane2": "rule",
+        "kernel3": "kernel",
+        "token4": "token"
+      }
+    },
+    {
+      "kernel0": [
+        743,
+        true,
+        false,
+        9575,
+        "span",
+        "span"
+      ],
+      "reducer1": [
+        "parse",
+        true,
+        "token"
+      ],
+      "token2": [
+        8253,
+        5721,
+        true,
+        4954,
+        true
+      ]
+    }
+  ]
+}
