@@ -327,3 +327,38 @@ history so nothing is re-derived or re-run.
   window (FIRST_k over-approximates) excludes fewer. So the numbers above are
   an UPPER bound on what k buys, not a prediction. Only the prototype settles
   it.
+- **THE WINDOWS ARE COMPACT — one failure mode ruled out, the decisive one not.**
+  vyx has **13 attempt rules / 49 arms**. FIRST_k prefix-set sizes:
+
+  ```
+  k=2: median 2 windows per arm, max 12
+  k=3: median 3,               max 28
+  k=4: median 4,               max 77   — none over 1000
+  ```
+
+  So the solver neither explodes combinatorially nor poisons the sets with the
+  `UNK` cycle marker at k=4. That kills the "the windows will be enormous or
+  useless" failure mode, and it means the compile-time cost is trivial.
+  **But set size is NOT coverage, and this does not settle tightness.** A prefix
+  set is a set of ≤k-length CharSet TUPLES — a single window `(ANY, ANY, ANY,
+  ANY)` has size 1 and excludes nothing. Four narrow windows discriminate;
+  four wide ones do not. What has been measured is that the sets are small,
+  not that they are narrow.
+  The decisive question — does the window at the failure position actually
+  exclude the arm that fails there — still needs the prototype, and no proxy
+  measured so far substitutes for it.
+- **STATE FOR THE NEXT ITERATION (the prototype is one full unit of work, and
+  the recipe is now complete):**
+  1. `GrammarAnalysis(tables.instance_grammar).taxonomy.attempts` → 13 rules.
+  2. `KWindowFirst(rules, 4).arm_prefixes(list(arm), 4)` per arm — verified to
+     work, compact output.
+  3. Map arm → flat attempt entry by ORDER: entries are built from
+     `clone.selectors` in attempt order (`AttemptSpec.order`). **This mapping
+     is the one unverified step and the place a prototype will silently
+     mis-attribute — check it explicitly before trusting a number.**
+  4. Patch `kernel.sole_admitted` (bound by name IN kernel.py — patching
+     `admission.sole_admitted` does NOT take, learned in iteration 8) to apply
+     `_window_admits` before returning.
+  5. Measure sub-run count and µs/char. Criterion from iteration 9 stands as
+     written, with iteration 11's correction: ~4.0–4.3 is the honest target at
+     k=4.
