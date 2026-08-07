@@ -19,6 +19,15 @@ STATS = Counter()
 _orig_entries = L._attempt_entries
 def patched_entries(clone, is_reduce):
     entries = _orig_entries(clone, is_reduce)
+    if is_reduce:
+        # R1: the reduce path is EXCLUDED by licence, not by luck. A dispatch
+        # chase is frame-less, so it skips the completion callback a reduce
+        # clone needs to eval its reduction body — silent wrong values. Today
+        # `reduce_rewrite` bakes every reachable clone to BUILD_REDUCE, so
+        # `_convert_dispatch`'s `mode != BUILD_ALT` test happens to refuse them;
+        # that is a mode-value coincidence, and `reduce_rewrite` says the model
+        # specialisations are "deliberately skipped" here. Say so, once.
+        return entries
     saved, F._unit_ref_target = F._unit_ref_target, widened
     try:
         for entry in entries:

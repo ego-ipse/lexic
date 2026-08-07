@@ -34,8 +34,16 @@ frame-less.
 
 ## 2 — The change (two parts; both are required)
 
-**Part 1 — compile.** Run `_convert_dispatch` over each sub-clone where
-`_attempt_entries` creates it. `_unit_ref_target` must widen from `OP_REF` to
+**Part 1 — compile.** Run `_convert_dispatch` over each **model-path**
+sub-clone where `_attempt_entries` creates it. **The reduce path is excluded by
+licence, not by luck (R1):** a dispatch chase is frame-less, so it would skip
+the completion callback a reduce clone needs to eval its reduction body — silent
+wrong values. Today `reduce_rewrite` bakes every reachable clone to
+`BUILD_REDUCE`, so `_convert_dispatch`'s `mode != BUILD_ALT` test refuses them
+as a side effect; that is a mode-value coincidence, and `reduce_rewrite`'s own
+docstring says the model specialisations are "deliberately skipped" there.
+`_attempt_entries` already receives `reduce_mode` — gate on it and state the
+reason, or this proposal ships the very defect-shape its §2 condemns. `_unit_ref_target` must widen from `OP_REF` to
 `kind in (OP_REF, OP_REF1)`: a sub-clone shares its parent's arm, which
 `_specialize_calls` has already rewritten. `OP_REF1` is the same fact — an
 exactly-once reference with a `FlatClone` payload — and the widening is a no-op
@@ -72,8 +80,18 @@ while True:
     break
 ```
 
-It terminates: a dispatch chase yields a concrete rule clone, and an attempt
-substitution yields a sub-clone whose own `attempt` is `None`.
+**Termination (R2 — the first argument was wrong).** "A substitution yields a
+sub-clone whose `attempt` is `None`" does not close it: with part 1 that
+sub-clone is `BUILD_DISPATCH`, its chase lands on a target, and that target may
+carry `attempt` again — attempt → dispatch → attempt chains are exactly what
+the loop newly permits. The real argument is stronger and belongs in the landed
+docstring: **every hop, chase or substitution, follows a first-position
+reference edge, and a cycle of first-position references IS left recursion,
+which the leftrec gate refuses at analysis time.** Every chain is therefore
+bounded by the depth of an acyclic FIRST-graph.
+
+This is not academic. Measured on vyx, chases chain **up to 30 hops** (§4b), so
+the loop routinely traverses what the straight line could not.
 
 ## 3 — Correctness evidence
 
@@ -114,6 +132,26 @@ vyx        orig 4.770  looped 4.785   −0.3%
 **The loop is free.** The risk that part 2 taxes every entry to help a quarter
 of them is measured and does not exist.
 
+## 4b — Where every removed entry goes (R3)
+
+The §1 census attributes 1,396 entries to sub-clones, but the change removes
+**1,667**. The census counted the wrong side. Removed entries land on the
+**target** clones — `unquoted` −397, `kv-pair-arm1` −226, `kv-pair-arm2` −226,
+`labeled-val` −222 — because a converted sub-clone's chase folds the target's
+separate entry into its own.
+
+The excess over 1,396 is **multi-hop chases**. Hops per entering call, measured:
+
+```
+  1418  entries with 0 hops        1507  with 1 hop
+    72  with 2      222  with 3      106  with 5      72  with 6
+    72  with 8       24  with 17      26  with 18      24  with 30
+```
+
+A single `_enter` that chases N hops collapses N+1 baseline entries into one, so
+long chains remove more than the sub-clone count. Nothing is unaccounted for,
+and the arithmetic closes.
+
 ## 5 — Scope, honestly
 
 **This helps grammars with attempt sub-clones and no others.** vyx is the only
@@ -148,7 +186,13 @@ can chase it is unestablished. Recorded as a lead, not a recommendation.
 3. Gate: `tools/run_checks.sh` exit 0, full suite, and the parity differentials
    specifically. Re-run `bench --only vyx` and the per-grammar table above.
 4. `subopt.py` is the working prototype — the two patched functions in it are
-   the intended shapes, and can be read as the diff.
+   the intended shapes, and can be read as the diff. It carries the R1 reduce
+   gate.
+5. Docs that go stale with the widening: `optimize_program`'s ordering note
+   ("`OP_REF1` must not pre-empt the dispatch pass's unit-ref shape check") is
+   misleading once `_unit_ref_target` accepts `OP_REF1`; `_enter`'s
+   straight-line comments; and `OPTIMIZATION.md` §4's entry calibration, which
+   §5 corrects.
 
 ---
 
@@ -215,3 +259,29 @@ inherits `_enter`, so part 2 covers the b1 twin with no second patch; the
 post-substitution chase re-checks the same `(chars, negated)` gate the
 admission just passed, so no new `PdaFail` site appears. §6's restraint on
 `OP_VSTR` is right — same licence family as R1, and unproven.
+
+---
+
+## Response to review — all three taken
+
+**R1 (reduce path) — fixed in the prototype.** `patched_entries` now returns
+early on `is_reduce`, with the reason written where the gate is. §2 states it as
+a licence. Re-verified: **3,801 passed**, vyx **+6.9%**, entries still
+5,394 → 3,727, models structurally identical. The reduce path was never
+converting anything, so the gate costs nothing — it makes a coincidence into a
+contract.
+
+**R2 (termination) — the review is right and the original argument was wrong.**
+Replaced with the first-position-edge/left-recursion argument, which is the one
+that survives. And the concern is empirically live rather than theoretical:
+§4b measures chase chains up to **30 hops**, so attempt → dispatch → attempt
+chaining is the normal case, not an edge. That sentence belongs in the landed
+`_enter` docstring, as asked.
+
+**R3 (entry arithmetic) — closed, and it corrected my census.** §4b. The 1,396
+figure counted sub-clone entries; the entries that actually disappear are the
+**targets'**, and multi-hop chases collapse whole chains — which is why 1,667 >
+1,396. My §1 census was measuring the wrong side of the chase, and the review
+catching it as "a gain that exceeds its own census" was the right instinct.
+
+**The docs ask** is folded into §7.5.
