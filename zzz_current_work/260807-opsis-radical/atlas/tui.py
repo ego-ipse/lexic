@@ -18,14 +18,12 @@ how selection feels here). q quits.
 import os
 import re
 import select
-import struct
 import subprocess
 import sys
 import termios
 import time
 import tty
 import urllib.request
-from fcntl import ioctl
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -280,8 +278,8 @@ class Tui:
 
 def term_size() -> tuple[int, int]:
     """Current (cols, rows) of the controlling terminal."""
-    rows, cols = struct.unpack("hh", ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, b"\x00" * 4))
-    return cols, rows
+    size = os.get_terminal_size()
+    return size.columns, size.lines
 
 
 def fetch_scene(port: int) -> Scene:
