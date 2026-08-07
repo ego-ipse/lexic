@@ -472,6 +472,8 @@ function rebuildPinsFromPolicy(P) {
         vpanx: parseFloat(t[8]) || 0, vpany: parseFloat(t[9]) || 0,
         mode: t[10] || 'depth3d',
       });
+    } else if (t[0] === 'rail') {
+      pins.push({ id, kind: 'rail', rule: t[1], x: +t[2], y: +t[3], w: +t[4], h: +t[5] });
     } else {
       const [se, ee, de] = [+t[1], +t[2], +t[3]];
       pins.push({
@@ -785,6 +787,9 @@ function pinPolicyValue(p) {
            : ' 0.9 0.92 1 0 0')
       + ` ${p.mode || 'depth3d'}`;
   }
+  if (p.kind === 'rail') {
+    return `rail ${p.rule} ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w || 520)} ${Math.round(p.h || 300)}`;
+  }
   return `span ${p.s} ${p.e} ${p.d} ${p.rule} ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w || 360)} ${Math.round(p.h || 0)}`;
 }
 
@@ -796,6 +801,237 @@ function graphPin() {
     x: 300 + (k % 8) * 44, y: 90 + (k % 8) * 44, w: 520,
   });
   renderPins();
+}
+
+/* ── the railroad — one rule's body as track: sequence rides the line,
+   choice splits it, repetition loops it. Structure from the wire; geometry here. ── */
+
+const RAIL = { bh: 20, padx: 7, gap: 16, vgap: 9, loop: 13 };
+const railCache = new Map();
+let railInk = null;
+
+function railColors() {
+  if (!railInk) {
+    const cs = getComputedStyle(document.documentElement);
+    railInk = Object.fromEntries(['cool', 'warm', 'violet', 'dim', 'dimmer', 'ink', 'red']
+      .map((k) => [k, cs.getPropertyValue('--' + k).trim()]));
+  }
+  return railInk;
+}
+
+function railFont() {
+  return '11px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+}
+
+async function fetchRail(rule) {
+  if (railCache.has(rule)) return railCache.get(rule);
+  const text = await fetch('/rail?rule=' + encodeURIComponent(rule)).then((r) => r.text());
+  if (text.startsWith('no such rule')) { railCache.set(rule, null); return null; }
+  const root = { k: 'seq', payload: '', kids: [] };
+  const stack = [root];
+  for (const ln of text.split('\n').slice(1)) {
+    const m = ln.match(/^(\d+) (\S+)(?: (.*))?$/);
+    if (!m) continue;
+    const node = { k: m[2], payload: m[3] || '', kids: [] };
+    stack[+m[1]].kids.push(node);
+    stack[+m[1] + 1] = node;
+  }
+  const tree = root.kids.length === 1 ? root.kids[0] : root;
+  railCache.set(rule, tree);
+  return tree;
+}
+
+function railMeasure(n, cx) {
+  for (const kid of n.kids) railMeasure(kid, cx);
+  if (n.k === 'seq') {
+    n.cy = Math.max(...n.kids.map((kid) => kid.cy));
+    n.w = n.kids.reduce((a, kid) => a + kid.w, 0) + RAIL.gap * (n.kids.length - 1);
+    n.h = n.cy + Math.max(...n.kids.map((kid) => kid.h - kid.cy));
+  } else if (n.k === 'alt') {
+    n.w = Math.max(...n.kids.map((kid) => kid.w)) + 56;
+    n.h = n.kids.reduce((a, kid) => a + kid.h, 0) + RAIL.vgap * (n.kids.length - 1);
+    n.cy = n.kids[0].cy;
+  } else if (n.k === 'many') {
+    const [lo, hi] = n.payload.split(' ').map(Number);
+    const kid = n.kids[0];
+    n.bypass = lo === 0;
+    n.loop = hi !== 1;
+    n.count = lo > 1 || hi > 1 ? `${lo}..${hi < 0 ? '∞' : hi}` : '';
+    n.w = kid.w + 40;
+    n.h = kid.h + (n.bypass ? RAIL.loop : 0) + (n.loop ? RAIL.loop : 0) + (n.count ? 10 : 0);
+    n.cy = kid.cy + (n.bypass ? RAIL.loop : 0);
+  } else if (n.k === 'not' || n.k === 'alpha') {
+    const kid = n.kids[0];
+    n.tag = n.k === 'not' ? '¬ none of' : '⟨' + n.payload + '⟩';
+    n.w = Math.max(kid.w + 12, cx.measureText(n.tag).width + 12);
+    n.h = kid.h + 20;
+    n.cy = kid.cy + 16;
+  } else {
+    let label = n.k === 'nil' ? 'ε' : n.k === 'class' ? '[' + n.payload + ']' : n.payload || 'ε';
+    if (label.length > 30) label = label.slice(0, 29) + '…';
+    n.label = label;
+    n.w = Math.max(26, Math.ceil(cx.measureText(label).width) + RAIL.padx * 2);
+    n.h = RAIL.bh;
+    n.cy = RAIL.bh / 2;
+  }
+}
+
+function railLine(cx, x0, y0, x1, y1) {
+  cx.strokeStyle = railColors().dim;
+  cx.lineWidth = 1.2;
+  cx.beginPath();
+  cx.moveTo(x0, y0);
+  cx.lineTo(x1, y1);
+  cx.stroke();
+}
+
+function railBranch(cx, x0, y0, x1, y1) {
+  cx.strokeStyle = railColors().dim;
+  cx.lineWidth = 1.2;
+  cx.beginPath();
+  cx.moveTo(x0, y0);
+  cx.bezierCurveTo((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1, y1);
+  cx.stroke();
+}
+
+function railArch(cx, x0, x1, y, dy) {
+  cx.strokeStyle = railColors().dim;
+  cx.lineWidth = 1.2;
+  cx.beginPath();
+  cx.moveTo(x0, y);
+  cx.bezierCurveTo(x0 + 2, y + dy, x1 - 2, y + dy, x1, y);
+  cx.stroke();
+}
+
+function railDraw(n, cx, x, y, hits) {
+  const yE = y + n.cy;
+  if (n.k === 'seq') {
+    let ax = x;
+    n.kids.forEach((kid, i) => {
+      if (i) { railLine(cx, ax, yE, ax + RAIL.gap, yE); ax += RAIL.gap; }
+      railDraw(kid, cx, ax, yE - kid.cy, hits);
+      ax += kid.w;
+    });
+  } else if (n.k === 'alt') {
+    const inx = x + 28, outx = x + n.w - 28;
+    let ay = y;
+    for (const kid of n.kids) {
+      const ky = ay + kid.cy;
+      railBranch(cx, x, yE, inx, ky);
+      railDraw(kid, cx, inx, ay, hits);
+      railLine(cx, inx + kid.w, ky, outx, ky);
+      railBranch(cx, x + n.w, yE, outx, ky);
+      ay += kid.h + RAIL.vgap;
+    }
+  } else if (n.k === 'many') {
+    const kid = n.kids[0];
+    const kx = x + 20;
+    railLine(cx, x, yE, kx, yE);
+    railDraw(kid, cx, kx, yE - kid.cy, hits);
+    railLine(cx, kx + kid.w, yE, x + n.w, yE);
+    if (n.bypass) railArch(cx, x + 5, x + n.w - 5, yE, -(kid.cy + 10));
+    if (n.loop) railArch(cx, kx - 6, kx + kid.w + 6, yE, kid.h - kid.cy + 10);
+    if (n.count) {
+      cx.fillStyle = railColors().dim;
+      cx.fillText(n.count, x + (n.w - cx.measureText(n.count).width) / 2, yE + kid.h - kid.cy + RAIL.loop + 8);
+    }
+  } else if (n.k === 'not' || n.k === 'alpha') {
+    const kid = n.kids[0];
+    const kx = x + 6;
+    railLine(cx, x, yE, kx, yE);
+    railDraw(kid, cx, kx, y + 16, hits);
+    railLine(cx, kx + kid.w, yE, x + n.w, yE);
+    cx.setLineDash([3, 3]);
+    cx.strokeStyle = railColors().dim;
+    cx.strokeRect(x + 1, y + 1, n.w - 2, n.h - 2);
+    cx.setLineDash([]);
+    cx.fillStyle = n.k === 'not' ? railColors().red : railColors().dim;
+    cx.fillText(n.tag, x + 5, y + 11);
+  } else {
+    const C = railColors();
+    const color = { ref: C.cool, lit: C.warm, class: C.violet }[n.k] || C.dim;
+    cx.strokeStyle = color;
+    cx.lineWidth = 1;
+    cx.beginPath();
+    if (n.k === 'lit') cx.roundRect(x, y, n.w, n.h, 9);
+    else cx.rect(x, y, n.w, n.h);
+    cx.stroke();
+    cx.fillStyle = color;
+    cx.fillText(n.label, x + (n.w - cx.measureText(n.label).width) / 2, yE + 3.5);
+    if (n.k === 'ref') hits.push({ x, y, w: n.w, h: n.h, rule: n.label });
+  }
+}
+
+function railPin(rule) {
+  const k = pins.length;
+  const p = { id: ++pinSeq, kind: 'rail', rule, x: 320 + (k % 8) * 40, y: 120 + (k % 8) * 40, w: 0, h: 0 };
+  pins.push(p);
+  renderPins();
+}
+
+function railHitAt(p, cv, e) {
+  if (!p.hits) return null;
+  const r = cv.getBoundingClientRect();
+  const ux = (e.clientX - r.left - p.ox) / p.scale;
+  const uy = (e.clientY - r.top - p.oy) / p.scale;
+  const hit = p.hits.find((b) => ux >= b.x && ux <= b.x + b.w && uy >= b.y && uy <= b.y + b.h);
+  return hit ? hit.rule : null;
+}
+
+function drawRailPin(p, el) {
+  const body = el.querySelector('.railbody');
+  const cv = el.querySelector('canvas');
+  const w = body.clientWidth, h = body.clientHeight;
+  if (!w || !h || !p.tree) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = w * dpr;
+  cv.height = h * dpr;
+  const cx = cv.getContext('2d');
+  const full = p.tree.w + 28;
+  const s = Math.min(1.5, (w - 20) / full, (h - 16) / p.tree.h);
+  p.scale = s;
+  p.ox = (w - full * s) / 2 + 14 * s;
+  p.oy = (h - p.tree.h * s) / 2;
+  cx.setTransform(dpr * s, 0, 0, dpr * s, dpr * p.ox, dpr * p.oy);
+  cx.font = railFont();
+  p.hits = [];
+  const yE = p.tree.cy;
+  railLine(cx, -14, yE, 0, yE);
+  railLine(cx, p.tree.w, yE, p.tree.w + 14, yE);
+  cx.fillStyle = railColors().dim;
+  for (const ex of [-14, p.tree.w + 14]) {
+    cx.beginPath();
+    cx.arc(ex, yE, 2.5, 0, Math.PI * 2);
+    cx.fill();
+  }
+  railDraw(p.tree, cx, 0, 0, p.hits);
+}
+
+async function wireRailPin(p, el) {
+  const body = el.querySelector('.railbody');
+  const cv = el.querySelector('canvas');
+  const tree = await fetchRail(p.rule);
+  if (!tree) { body.textContent = 'no such rule ' + p.rule; return; }
+  p.tree = tree;
+  const cx = cv.getContext('2d');
+  cx.font = railFont();
+  railMeasure(tree, cx);
+  if (!p.w) {
+    p.w = Math.min(tree.w + 52, Math.floor(window.innerWidth * 0.72));
+    p.h = Math.min(tree.h + 58, Math.floor(window.innerHeight * 0.72));
+    el.style.width = p.w + 'px';
+    el.style.height = p.h + 'px';
+  }
+  postPolicyDebounced(`pin.${p.id}`, pinPolicyValue(p));
+  new ResizeObserver(() => drawRailPin(p, el)).observe(body);
+  cv.addEventListener('click', (e) => {
+    const rule = railHitAt(p, cv, e);
+    if (rule) railPin(rule);
+  });
+  cv.addEventListener('mousemove', (e) => {
+    cv.style.cursor = railHitAt(p, cv, e) ? 'pointer' : '';
+  });
+  drawRailPin(p, el);
 }
 
 let spineZoom = 1;
@@ -932,6 +1168,10 @@ function wireSeams() {
 function wireGraph() {
   $('gmode').addEventListener('click', () => setGraph(!graphOn));
   $('gpop').addEventListener('click', graphPin);
+  $('grail').addEventListener('click', () => {
+    const rule = markedRule() || Object.keys(S.depths).find((n) => S.depths[n] === 0) || '';
+    if (rule) railPin(rule);
+  });
   $('gfocus').addEventListener('click', () => {
     focusOn = !focusOn;
     $('gfocus').classList.toggle('on', focusOn);
@@ -996,6 +1236,18 @@ function buildPin(p, layer) {
   el.style.left = p.x + 'px';
   el.style.top = p.y + 'px';
   el.style.zIndex = ++pinZ;
+  if (p.kind === 'rail') {
+    if (p.w) el.style.width = p.w + 'px';
+    if (p.h) el.style.height = p.h + 'px';
+    el.classList.add('rail');
+    el.innerHTML =
+      `<header><span>RAILROAD</span><span class="addr">${p.rule}</span>`
+      + `<span class="stalemark"></span><button class="x" title="close">×</button></header>`
+      + `<div class="body railbody"><canvas></canvas></div>`;
+    layer.appendChild(el);
+    wireRailPin(p, el);
+    return el;
+  }
   if (p.kind === 'graph') {
     el.style.width = p.w + 'px';
     el.style.height = '440px';
@@ -1068,7 +1320,7 @@ function renderPins() {
     seen.add(String(p.id));
     let el = layer.querySelector(`.pin[data-id="${p.id}"]`);
     if (!el) el = buildPin(p, layer);
-    if (p.kind === 'graph') continue;
+    if (p.kind) continue;
     const stale = p.gen !== S.meta.generation;
     el.classList.toggle('stale', stale);
     el.querySelector('.stalemark').textContent = stale ? `gen ${p.gen} — stale` : '';
@@ -1503,6 +1755,7 @@ async function pollRoutes() {
   }
   if (q.has('graph')) setGraph(true);
   if (q.has('gpin')) { setGraph(true); graphPin(); }
+  if (q.has('rail')) { for (const name of q.get('rail').split(',')) railPin(name); }
   if (q.has('focus')) { focusOn = true; $('gfocus').classList.add('on'); drawGraph(); }
   if ([...q.keys()].length === 0) setTimeout(play, 600);  // deterministic states do not animate
 })();

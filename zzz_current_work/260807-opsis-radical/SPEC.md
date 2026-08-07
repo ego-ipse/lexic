@@ -25,6 +25,14 @@ screenshot-verified.
   line ranges in the reader text) · `#RULENAMES n` · `#FIELDNAMES n` ·
   `#SPANS n` (`start end depth ruleIdx fieldIdx`) · `#READER <bytes>` and
   `#DOC <bytes>` (length-prefixed raw blocks).
+- `GET /rail?rule=<name>` — one rule's body as indented structural lines:
+  `#RAIL <rule> <n>`, then `<depth> <kind> [payload]` per node (children one
+  depth deeper). Kinds: `alt`/`seq` (containers, single-child collapsed
+  server-side), `many lo hi` (a real quantifier; hi −1 unbounded),
+  `ref`/`lit`/`class` (leaves; lit escaped `\n\t\r\\`), `not`/`alpha`
+  (one-child wrappers), `nil` (empty sequence), `other <Type>` (undrawable,
+  named). Unknown rule → `no such rule <name>`. The leaf owns all geometry —
+  the railroad renderer draws these lines as track.
 - `GET /routes` — `primary …`, `primary_seconds …`, then the background
   result: `status pending|done|failed`, `name`, `seconds`, `parity`, `pos`,
   `words`.
@@ -37,7 +45,9 @@ screenshot-verified.
   these), `pin.<id> span s e d rule x y w h` / `pin.<id> graph x y w h yaw
   pitch zoom panx pany view` (`view` ∈ text|depth3d|flat|arcs — every graph
   window carries its own, independent of `graph.view`; shorter legacy values
-  parse). Leaves are interpreters: the browser applies policy at boot and
+  parse) / `pin.<id> rail <rule> x y w h` (a railroad window; refs inside it
+  are clickable and open that rule's railroad — `?rail=a,b` deep-links).
+  Leaves are interpreters: the browser applies policy at boot and
   posts every presentation gesture back; the TUI obeys speed, shares, and
   reader.mode — its flat rule graph IS `graph.view` in cells. Leaves polling
   `/policy` (browser: not yet; planned) get cross-leaf sync. Policy dies

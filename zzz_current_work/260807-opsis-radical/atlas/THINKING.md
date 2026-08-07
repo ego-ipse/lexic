@@ -197,8 +197,10 @@ open dispatch table); its facet kind is reserved in the policy schema now.
 5. **Policy into the wire** (§8) — INCLUDES the graph asks (tunables +
    switchable views flat/arcs) and the TUI re-base with the flat graph;
    seam-resize lands here.
-6. **The railroad** (§8, post-5) — per-rule railroad diagrams as pin
-   windows.
+6. ~~The railroad~~ — DONE (`/rail` structural wire; canvas renderer with
+   bypass/loop arches, split/join curves, class/literal/ref/negation
+   registers; `▤ rail` on the marked rule; refs click through to their own
+   railroad; `pin.<id> rail` policy + `?rail=` deep link).
 7. **TUI panes-for-pins** — the policy's pane rendering.
 8. **Engine clocks** (rung 2's second half) — cheaper now: FlatClone names
    + the Refusal readout landed.

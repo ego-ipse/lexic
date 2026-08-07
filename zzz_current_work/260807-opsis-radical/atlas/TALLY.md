@@ -611,3 +611,44 @@ persistence is the same screenshot. Second display-fallback bug in the same
 frame: `.gtext`'s inline `''` fell back to the CSS `display:none` — both
 fixed with explicit inline display. SPEC §2 policy keys updated (camera 5
 tokens, pin graph 10 tokens — was two rounds stale).
+
+## Round: rung 6 — the railroad — 2026-08-07
+
+The seam split follows the house rule. The instrument walks the rule's own
+body (`IrAlternation → IrSequence → IrItem(atom, quantifier)`, plus
+`IrNot`/`IrAlphabet` wrappers) and ships neutral indented lines over
+`GET /rail?rule=` — `<depth> <kind> [payload]`, kinds
+alt/seq/many/ref/lit/class/not/alpha/nil/other, single-child containers
+collapsed server-side, `other <Type>` named rather than silent. No lexic
+name crosses the wire; the leaf owns every pixel.
+
+The leaf renderer (~230 lines): recursive measure (`w/h/cy` per node, entry
+line always at cy) then draw — sequence rides the line, alternation splits
+into bezier branches, `many` draws the bypass arch (lo=0) and/or the loop
+arch (hi≠1) with a `lo..hi` count label when bounded above 1, wrappers get a
+dashed enclosure (¬ in red for negation, ⟨encoding⟩ for alphabet-bound
+atoms). Terminal registers: refs cool rectangles (clickable — opening THAT
+rule's railroad), literals warm rounded, classes violet with labels
+truncated at 30 chars. Entry/exit stubs with dot terminals. Windows
+auto-size to the measured diagram, fit-scale on resize, hit-testing in
+diagram units through the scale transform.
+
+Gestures: `▤ rail` in the reader header pops the marked rule's railroad
+(start rule when nothing is marked); refs click through; `?rail=a,b`
+deep-links. Policy: `pin.<id> rail <rule> x y w h`; the rail cache is
+static per session because the reader grammar never changes across document
+re-reads — only documents re-read, the grammar is the ground truth.
+
+Verification: census gains ok_rail (well-formed lines for the start rule,
+None for an unknown rule) — meta/long/vyx all exit 0, TUI census untouched
+and green. Screenshots: /tmp/rail1.png (rule/item/alternation/cc-first —
+sequence, optional bypass, zero-or-more, alternation splits),
+/tmp/rail2.png (namechar/lplain violet classes, token-not literal+ref),
+/tmp/rail3.png (?rail=grammar,quantifier deep link — the four-arm
+quantifier split). The `not`/`alpha` draw paths are code-symmetric with the
+verified shapes but no metagrammar rule exercises them visually — noted,
+not hidden.
+
+SPEC §2 updated (/rail wire, pin.rail value, deep link); THINKING ladder
+rung 6 struck. Rung-5 leftovers still open: browser /policy polling for
+cross-leaf sync, pin gen-staleness across restarts.

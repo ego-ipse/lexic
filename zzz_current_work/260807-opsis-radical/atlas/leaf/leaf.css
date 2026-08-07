@@ -242,6 +242,25 @@ body {
 .gchip.marked { color: var(--violet); border-color: var(--violet); }
 .gchip.hot { background: var(--warm); color: var(--field); border-color: var(--warm); }
 
+#grail {
+  margin-left: 6px;
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--dim);
+  font: 10px var(--sans);
+  padding: 1px 8px;
+  cursor: pointer;
+}
+#grail:hover { border-color: var(--violet); color: var(--violet); }
+.pin.rail .body.railbody {
+  padding: 0;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+.pin.rail canvas { position: absolute; inset: 0; }
+
 #gpop {
   margin-left: 6px;
   background: none;

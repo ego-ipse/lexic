@@ -25,7 +25,19 @@ from typing import NamedTuple
 from lexic.compile import compile_ast, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir import IrRuleRef
+from urllib.parse import unquote
+
+from lexic.ir import (
+    IrAlphabet,
+    IrAlternation,
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrNone,
+    IrNot,
+    IrRuleRef,
+    IrSequence,
+)
 from lexic.model import GrammarModel
 from lexic.parsing import PdaKernel, earley_model, lift_optional_nullables, normalize
 from lexic.parsing.pda.core.errors import PdaFail
@@ -208,6 +220,56 @@ def rule_graph(ast) -> tuple[list[tuple[str, str]], dict[str, int]]:
     return edges, depth
 
 
+def rail_lines(ast, name: str) -> list[str] | None:
+    """One rule's body as indented structural lines — the railroad's wire form.
+
+    Each line is ``<depth> <kind> [payload]``; children sit one depth deeper.
+    Kinds: ``alt``/``seq`` (containers), ``many lo hi`` (a real quantifier,
+    hi -1 for unbounded), ``ref``/``lit``/``class`` (leaves), ``not``/``alpha``
+    (one-child wrappers), ``nil`` (the empty sequence), ``other`` (anything
+    this instrument does not yet draw — named, never silent).
+    """
+    for rule in ast.rules:
+        if str(rule.name) == name:
+            out: list[str] = []
+            _rail(rule.body, 0, out)
+            return out
+    return None
+
+
+def _rail(node, depth: int, out: list[str]) -> None:
+    """One structural line for ``node`` — single-child containers collapse."""
+    if isinstance(node, (IrAlternation, IrSequence)) and len(node) == 1:
+        _rail(node[0], depth, out)
+    elif isinstance(node, (IrAlternation, IrSequence)) and len(node) == 0:
+        out.append(f"{depth} nil")
+    elif isinstance(node, (IrAlternation, IrSequence)):
+        out.append(f"{depth} {'alt' if isinstance(node, IrAlternation) else 'seq'}")
+        for child in node:
+            _rail(child, depth + 1, out)
+    elif isinstance(node, IrItem) and node.quantifier.lo == 1 and node.quantifier.hi == 1:
+        _rail(node.atom, depth, out)
+    elif isinstance(node, IrItem):
+        hi = -1 if node.quantifier.hi is IrNone else int(node.quantifier.hi)
+        out.append(f"{depth} many {int(node.quantifier.lo)} {hi}")
+        _rail(node.atom, depth + 1, out)
+    elif isinstance(node, IrRuleRef):
+        out.append(f"{depth} ref {node}")
+    elif isinstance(node, IrLiteral):
+        text = str(node).replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r")
+        out.append(f"{depth} lit {text}")
+    elif isinstance(node, IrCharClass):
+        out.append(f"{depth} class {node.pattern()}")
+    elif isinstance(node, IrNot):
+        out.append(f"{depth} not")
+        _rail(node[0], depth + 1, out)
+    elif isinstance(node, IrAlphabet):
+        out.append(f"{depth} alpha {node.encoding}")
+        _rail(node.inner, depth + 1, out)
+    else:
+        out.append(f"{depth} other {type(node).__name__}")
+
+
 def fold_spans(model: GrammarModel, document: str) -> list[Span]:
     """Every occurrence's span, folded from the model's own tagged emit stream."""
     spans: list[Span] = []
@@ -312,6 +374,15 @@ class Handler(BaseHTTPRequestHandler):
             with self.subject.lock:
                 body = "\n".join(f"{k} {v}" for k, v in self.subject.policy.items())
             self.send_text(body)
+            return
+        if self.path.startswith("/rail?rule="):
+            name = unquote(self.path.split("=", 1)[1])
+            with self.subject.lock:
+                lines = rail_lines(self.subject.graph_ast, name)
+            if lines is None:
+                self.send_text(f"no such rule {name}")
+                return
+            self.send_text(f"#RAIL {name} {len(lines)}\n" + "\n".join(lines))
             return
         if self.path == "/routes":
             with self.subject.lock:
@@ -429,6 +500,12 @@ def census(subject: Subject) -> int:
     with subject.lock:
         subject.policy.clear()
     print(f"policy round-trips through the scene: {ok_policy}")
+    rails = rail_lines(subject.graph_ast, start)
+    ok_rail = (rails is not None and len(rails) > 0
+               and all(len(ln.split(None, 1)) >= 2 for ln in rails)
+               and any(ln.split()[1] in ("ref", "lit", "class") for ln in rails)
+               and rail_lines(subject.graph_ast, "no-such-rule-xyz") is None)
+    print(f"rail lines for {start}: {len(rails or [])} · well-formed {ok_rail}")
     for _ in range(200):
         if subject.route2.get("status") != "pending":
             break
@@ -440,7 +517,7 @@ def census(subject: Subject) -> int:
         ok_routes = r2.get("status") == "failed" and int(r2.get("pos", "-1")) >= 0
     print(f"other route: {r2} · as expected {ok_routes}")
     ok = (subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier
-          and ok_save and ok_routes and ok_graph and ok_policy)
+          and ok_save and ok_routes and ok_graph and ok_policy and ok_rail)
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 
