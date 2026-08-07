@@ -545,3 +545,27 @@ history so nothing is re-derived or re-run.
   **Next: count OP_CC1 / OP_LIT1 / OP_VSTR / OP_REF1 executions on csv and
   divide the 12.9 ms by op.** That gives a per-op cost to compare against what
   a table-driven LALR loop pays per character.
+- **csv's TIME IS PER-CHARACTER SCANNING IN PYTHON — located at last.**
+  Item-slot executions on csv: **0.35 per character** (2,639 `vstr`, 1,540
+  `ref1`, 221 `ref` — 4,400 slots for 12,539 chars). So the driver dispatches
+  roughly one item per three characters; item dispatch is NOT the cost.
+  Each `vstr` item then scans a whole run of characters inside `vstr_once`, and
+  a char-class quantifier loop advances **one character per Python iteration**
+  with a set membership each. At 1.03 µs/char and 0.35 items/char, the time is
+  in those scanning loops, not in the frame/item machinery around them.
+- **THE STRUCTURAL COMPARISON, and it is a fair fight lexic is losing on tooling
+  not on design.** lark-lalr wins csv (0.727 vs 0.917) because it lexes with
+  `re` — character scanning in C. lexic scans in a Python `while` loop. For csv
+  the parse is essentially lexing (0.228 entries/char, zero attempts, zero
+  chases), so the row is close to a direct Python-loop vs C-regex comparison.
+  **This is the first gap this mission has found that is neither irreducible nor
+  a promise lexic makes** — vyx's is the price of refusing ambiguity, the Earley
+  fold's is the oracle by design, but this one is just an implementation choice.
+- **OPTIMIZATION CANDIDATE, untested and the strongest one found:** replace the
+  per-character Python loops for char-class and value_str runs with a C-level
+  scan — a precompiled `re` pattern per CharSet, or `str.translate`-based
+  span-finding. Every grammar pays this loop, unlike the attempt seam (vyx only).
+  Wants pricing before belief: build a microbenchmark of `while` + set membership
+  against `re.match(...).end()` over the corpus's actual run lengths FIRST — if
+  the runs are short (2-3 chars), regex call overhead may exceed the loop it
+  replaces, which is exactly how the FIRST_k prototype died.
