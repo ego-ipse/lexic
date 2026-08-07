@@ -102,3 +102,20 @@ What it changes, precisely:
 
 The census gates could never have caught this: scripted checks verify what is
 drawn, not what can be grasped. The user's live hand is the gate — again.
+
+## Candidate third leaf (2026-08-07, evening): the terminal, via ghostty
+
+The pixel-leaf layer was built swappable; a TUI leaf is the strongest third
+candidate, aimed at the terminal-dwelling audience (developers, agents). For:
+the cell grid IS the weld (exact geometry by construction — the problem
+pretext solves in the browser does not exist); GPU + shaders carry the
+register natively; keyboard-first; and the wire is already terminal-speech —
+a TUI leaf speaks the same /scene //cursor /edit protocol against the
+unchanged server. Against, and deciding: the tk litmus half-applies — mouse
+reporting forfeits emulator selection, so selection is app-implemented
+(tractable on a grid + OSC 52 clipboard, unlike canvas — but not free), IME
+is rough, and the mono/sans register channel dies in a grid. Verdict by
+hostile slice, not argument: the document facet as a TUI over the existing
+wire, then look. libghostty EMBEDDING is premature (API untagged; render/view
+layers longest-term) — watch, don't build on. Immediate cheap win regardless:
+kitty-graphics inline rendering of shots and frozen artifacts.
