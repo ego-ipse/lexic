@@ -269,3 +269,33 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   `root_ambiguous`, `child_node`) with an identity test and an end-to-end one.
   Additive; gates green (run_checks 0, suite **3801 passed**, generated CLEAN).
   **The other agent should have everything it needs on the src side for rung 2.**
+- **OPTIMIZATION INVESTIGATION OPENED — `OPTIMIZATION.md`. No src touched.**
+  Target is the COMMON path (`bench --only vyx`, 5.658 µs/char on real traffic),
+  which nothing this effort landed has moved. Headline is a NEGATIVE result that
+  redirects the work:
+  · Profile: nothing dominates — `_drive` 13%, `_enter` 7.7%, `vstr_once` 7%,
+    `_fast_fields` 6.8%. A structurally busy interpreter loop, not an
+    algorithmic error.
+  · Model census: 3,342 models for 3,461 chars, but only **561 distinct
+    objects** — interning already shares 83%, so allocation is not the cost.
+    54% of models are single-char value_str (`nl-word ::= nl-tail+` over a
+    char-class rule builds one model per character).
+  · **CEILING PROTOTYPE (the decisive one):** inlined those rules grammar-side
+    — same language, different model shape — and measured. **46% fewer models
+    buys 16% faster.** So this effort's own prior art ("a 30-50% win needs a
+    structural model-count cut") does NOT survive measurement: model count is
+    not the dominant cost and cutting it has a low ceiling.
+  · **What time actually tracks: clone ENTRIES, not models.** The 46% model cut
+    moved time 16%; the 11% entry cut in the same variant moved it 16%.
+    `_enter` runs **1.56 times per character** — vyx's lexical layer is
+    per-character rules chained several deep.
+  · NEXT PROTOTYPE, specified: unit-chain collapse. `BUILD_DISPATCH` already
+    chases alternations frame-lessly and `OP_VSTR` already runs terminal-only
+    value_str clones without a frame; the gap is a SEQUENCE clone whose single
+    arm is one exactly-once ref with a transparent/pass-through fold. The
+    sizing measurement is "what fraction of the 5,394 entries per parse are
+    such pass-throughs?" — and unlike the model cut it needs no change to the
+    generated class surface.
+  · Recorded as do-not-re-run: micro-levers (~0% previously), model-count
+    reduction (16% ceiling for a 46% cut, measured here), GC and
+    operation-count growth (ruled out during the linearity work).
