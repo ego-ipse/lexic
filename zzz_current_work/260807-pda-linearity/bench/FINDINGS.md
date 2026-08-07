@@ -72,16 +72,47 @@ section used to encode.
 packrat and lark-lalr's table loop, and stripping the product closes none of
 it.
 
-## 4 — Ranked targets
+## 4 — Standing state (consolidated; `TALLY.md` holds the history)
 
-1. **lexic-earley on arithmetic** (63.8 µs/char). The worst absolute number, and
-   the one where a peer Earley implementation is 1.45× faster — so the gap is
-   not intrinsic to the algorithm.
-2. **vyx / abnf-meta against parsimonious.** The largest PDA losses; likely the
-   same cause, since both are structure-dense.
-3. **arithmetic / csv against lark-lalr.** Smallest gap, and the most likely to
-   be "we build more" rather than "we are slower" — worth pricing before
-   chasing.
+### Closed, with reasons — do not reopen
 
-Next: profile target 1, since it is the largest and has a same-algorithm peer to
-compare against.
+| line | why it is closed |
+|---|---|
+| **lexic-earley's 12–30× gap** | The Earley fold declines the fast-ctor licence **by design** — `FastCtor`'s docstring: "the engine path stays the validated reference". Its 14,152 validated constructions are the property the parity differentials rest on. Also insufficient: unchecked arithmetic is 49.8 vs lark-earley's 43.9. |
+| **The second-success audit** | 9% of attempt cost (3.32 ms of 36.18 ms). Not worth touching an ambiguity check for. |
+| **Sub-run memoisation** | Tried before this mission, measured **zero hits** — a sub-run's outcome depends on the enclosing continuation, so `(clone, pos)` is unsound. In `_attempt_run`'s own docstring. |
+| **FIRST_k admission filtering** | Prototyped (`kproto.py`). Cuts 370 sub-runs and runs **27% SLOWER**: ~4,675 window checks at ~2.9 µs to avoid 370 sub-runs at 25.6 µs. Restructuring *when* to check does not fix a cost that is *per call*. |
+| **Raising `arm_gate`'s k ceiling** | `body-line`, `kv-pair`, `value`, `scope-item` all **collide at every k from 2 to 6**. The attempt classification is correct; these arms need unbounded lookahead. |
+| **csv double-scanning** | Retracted — `vstr_once` calls `match_cc`, so the 189% was nesting reported twice, not redundant work. |
+
+### The architectural answer for vyx (−1.83×)
+
+parsimonious wins because PEG ordered choice takes the first match and memoises
+`(rule, position)` soundly. lexic cannot: its sub-run outcome depends on the
+enclosing continuation, **because lexic refuses ambiguity and must check whether
+a later arm also matches.** The gap is largely the price of that refusal on a
+grammar with no bounded-lookahead separation. Closing it means changing what
+lexic promises — a ruling, not an optimization.
+
+### The one live candidate
+
+**Replace per-character Python scan loops with a C-level scan** (a `re` pattern
+compiled once per CharSet at flatten time, carried on the `FlatArm` beside the
+`(chars, negated)` pair it replaces).
+
+- Kill-test **passed**: the Python loop is linear in run length
+  (173/267/348/511/909 ns at 1/2/3/5/10 chars); `re.match` is flat at ~185 ns.
+  Crossover at length 2; csv's runs average 4.75.
+- Honest size: **~5.4% on csv**, against the **21%** needed to pass lark-lalr.
+- Design note: keep the loop for length-1 runs (a cheap first-char test recovers
+  the crossover loss).
+
+### The bottom line
+
+lexic's PDA loses four of six rows. **vyx and abnf-meta are explained** (the
+price of ambiguity refusal, irreducible without changing the promise).
+**arithmetic and csv are not** — they have zero attempts, zero chases, the
+lowest entries/char on the board, and still lose 1.26× to a table-driven LALR
+with a C lexer. That is the real remaining gap, only ~5.4% of it is currently
+identified, and "beat every parser on every grammar" is not reachable on the
+evidence so far.
