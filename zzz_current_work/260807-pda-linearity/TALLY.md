@@ -212,3 +212,38 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   models per character than grammar source, which is mostly literals and char
   classes), but nobody has counted, and this effort's rule is that a cause is
   measured before it is asserted.
+- **THE RESIDUAL IS GONE — the parse is LINEAR** (`81cc106`). Chased the ~n^1.3
+  left over after item 2, and the discipline paid twice: two hypotheses killed
+  by measurement before the third landed.
+  · KILLED — "the number of operations grows superlinearly": every counted
+    component grows EXACTLY ×4.0 for ×4 input (frames copied, `_attempt_run`,
+    `_lockstep_verdict`, `_advance`, `pending_values` calls and top-level
+    elements walked). Operation count was never the problem.
+  · KILLED — "it is the garbage collector" (a classic cause of apparent
+    superlinearity in allocation-heavy Python, and the bench harness disables
+    gc, which made it a live suspect): identical timings with `gc.disable()`.
+  · FOUND — profiling at two sizes: **92% of the parse in `values_agree`, its
+    calls growing ×63 for ×8 input** (145K → 9.2M). The snapshot was linear but
+    it was re-walked IN FULL at every convergence, and convergences grow with
+    the input.
+  FIX: both sides of a boundary are copies of ONE live stack, so everything
+  already in a container at fork time is identical between them by
+  construction — only appends after can differ. `value_shape()` takes that
+  watermark; `pending_values(stack, shape)` compares the delta past it.
+  Conservative where the premise fails: a container that came back SHORTER was
+  replaced, not appended to, so it is compared whole; frames pushed after the
+  boundary have no watermark and are compared in full. Three tests pin exactly
+  those three cases.
+  MEASURED: 512-line packet 4.08s → **0.49s**, and growth is now flat —
+  **44 µs/char from 719c to 11,281c**, ×1.98 time for ×2 input (was ×2.6 rising
+  to ×3.6). Against where this effort started on that input: **73.4s → 0.49s**.
+  Gates: run_checks 0, suite **3799 passed**, check_generated CLEAN, examples 0.
+- Real-workload check: `bench --only vyx` (the vyx grammar on a real packet,
+  NOT the metagrammar route) reads 5.658 µs/char at a 1.44% noise floor —
+  unmoved, as expected: a 3,461c corpus of ordinary traffic has few both-viable
+  boundaries, so it never paid the cost this removes. The synthetic pipe-heavy
+  body is ~44 µs/char, ~8× denser in boundaries than real traffic. Worth saying
+  plainly: **this effort's wins are on boundary-dense inputs; ordinary vyx
+  traffic was already fine and is unchanged.** What changed is that the bad
+  case is no longer catastrophic — and no longer superlinear, so it cannot
+  become catastrophic at scale.
