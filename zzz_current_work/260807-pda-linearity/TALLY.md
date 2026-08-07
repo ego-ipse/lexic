@@ -130,3 +130,37 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   (4) the budget escape falling back to today's run-to-EOF. Gate: the parity
   differentials, plus adversarial fixtures for the convergence predicate
   (identical control state, divergent pending values) per the reviewer's note 1.
+- **ITEM 2 DONE (`21f36bd`) — the lockstep verdict, and the quadratic is gone.**
+  `_fork_verdict` now settles a both-viable boundary by CONVERGENCE: both sides
+  driven in step until one dies (forced, as before), or both stand at the same
+  position with the same control state — at which point the stack IS the
+  continuation, so the futures are identical and the verdict reduces to the
+  values built on the way there. Agreeing values → TAKE (the common case, O(1)).
+  Differing values → the COMMON remainder runs ONCE, not twice: completing makes
+  it a real fork, dying means neither completes, which was already TAKE. No
+  convergence inside the budget → falls through to the untouched EOF comparison,
+  so the worst case is exactly what shipped before.
+  MEASURED: vyx pipe-heavy whole parse 128 lines **4.63s → 0.34s**, 512 lines
+  (11,281c) **73.4s → 4.12s**; probe calls over that parse **512 → 2**.
+  Gates: run_checks 0, suite **3796 passed** / 8 skipped, check_generated CLEAN,
+  examples 0 — parity differentials included in the suite.
+- TWO BUGS FOUND BY MEASURING, both of which silently disabled the whole thing
+  while every test still passed — worth remembering, because "green" would have
+  shipped a no-op:
+  (a) **Counts must be normalised in the signature.** The take side has taken an
+  iteration the stop side has not, so raw `F_COUNT` differs FOREVER and no two
+  states ever match. Past its mandatory floor with no ceiling to run into, a
+  count cannot constrain the future and is not part of the state (`_count_key`).
+  (b) **The bound must be a PARAMETER, not a cursor field.** Moved onto the
+  cursor to satisfy a pylint locals cap, it leaked into nested attempt sub-runs,
+  which stopped early and never converged — 64 of 66 boundaries went back to the
+  slow path and the quadratic returned in full (88s). The bound belongs to one
+  call; a nested drive must be unbounded. The locals cap was paid instead by
+  reading `frame[F_ENDS]` directly rather than aliasing it.
+- Residual, NOT claimed as fixed: the parse is still mildly superlinear
+  (191c→0.008s, 11,281c→4.12s is ~n^1.7, not n). The `_probe` quadratic is gone;
+  something else scales. That is a fresh finding and wants its own measurement
+  before anyone guesses.
+- PLAN items 1, 2, 4, 5 are all done. Remaining: item 3 (re-measure — partly
+  done above; `probes/economics.py` and the benchmark row still want a rerun),
+  item 6 (D-half-2 islanding, only if item 3 still shows it paying).
