@@ -652,3 +652,55 @@ not hidden.
 SPEC §2 updated (/rail wire, pin.rail value, deep link); THINKING ladder
 rung 6 struck. Rung-5 leftovers still open: browser /policy polling for
 cross-leaf sync, pin gen-staleness across restarts.
+
+## Round: rails as a view of its own + the chip gesture + the abnf example — 2026-08-07
+
+The user's three items:
+
+1. **More examples, file loading** → fixture `abnf`: the ABNF metagrammar
+   (76 rules) reading `json.abnf` — the second flavour through the same
+   pipeline, census-gated like the others (parses via PDA in 0.04s, parity
+   holds, rails well-formed). And the file pair: `serve.py <grammar> <doc>
+   [port]` compiles any grammar file and reads any document — smoke-tested
+   with json.gbnf + the long fixture. `RULE_LINE` widened to the three
+   flavour rule-head spellings (`::=`, `=`, `=/`) — the abnf reader went
+   from 0 addressable rules to 76.
+2. **Rails as a first-class view** → `graph.view rails` (and per-pin
+   `rails`): every rule as a railroad, stacked in AST order, chip-labeled,
+   pan/zoom like the other views, untouched camera frames the top-left.
+   One wire read: `GET /rails` ships all rules' structural lines; cached
+   for the session (the reader grammar never changes across re-reads).
+   Refs inside any diagram click through to a rail pin. Tune panel gains
+   the rails row set (gap/label).
+3. **The chip is the gesture** → the `▤ rail` header button is GONE.
+   Clicking a rule in the reader text or a rule chip in any graph view
+   raises `▤ rail` beside the pointer — the same gesture shape as the text
+   pin chip. Violet register, hides on scroll/elsewhere-click.
+
+Two bugs found by the round's own verification:
+
+- **Boot-order: chips never built under policy boot.** `boot()` runs
+  `applyPolicy()` → `setGraph` → `buildGraph` whose chip loop iterates
+  `gViews` — which was EMPTY because `wireGraph()` ran after boot. Zero
+  chips in the DOM on every policy-driven boot (and boot-time
+  `graph.camera` silently skipped). Discriminated against the `?graph`
+  param path (chips appear), fixed by registering the facet view before
+  boot. flat/arcs re-verified by DOM grep.
+- **Microtask storm hung the page.** While rails loaded, every draw did
+  `fetchRails().then(drawGraph)`; the guarded early-return resolves
+  immediately → drawGraph → draw → fetch… a tight microtask loop that
+  starved the event loop so the fetch itself never completed —
+  chrome-headless hung past 100s. The redraw moved INSIDE fetchRails
+  (fires once, when the rails arrive); guarded calls schedule nothing.
+
+Also paid again: a patch script with asserts but NO write call — two
+"applied" prints, nothing on disk; and one rep() probe that would have
+clobbered its anchor had the script written. The discipline holds: verify
+on disk after every batch (`grep -c` before/after).
+
+Verification: /tmp/rails2.png (meta rails, chips labeling every rule),
+/tmp/rails_abnf.png (the ABNF metagrammar as rails — rulelist/filler/
+defined's `=`/`=/` arms), DOM greps for chips-in-flat and #railchip
+presence. All censuses exit 0: meta, long, vyx, abnf, TUI. The chip
+gesture's click path is wired and DOM-verified but not headless-clickable —
+user-side is the real test. SPEC §1/§2 updated.

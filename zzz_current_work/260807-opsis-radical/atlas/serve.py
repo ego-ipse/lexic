@@ -24,7 +24,7 @@ from typing import NamedTuple
 
 from lexic.compile import compile_ast, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars import GBNF_FLAVOUR
+from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from urllib.parse import unquote
 
 from lexic.ir import (
@@ -45,7 +45,8 @@ from lexic.parsing.pda.core.errors import PdaFail
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 LEAF = HERE / "leaf"
-RULE_LINE = re.compile(r"^([A-Za-z0-9_-]+)\s*::=")
+# The three flavour spellings of a rule head: GBNF `::=`, ABNF `=` / `=/`, EBNF `=`.
+RULE_LINE = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 
 
 class Span(NamedTuple):
@@ -73,29 +74,49 @@ def first(first_meaning: object, _witness: object) -> object:
 class Subject:
     """The reading: reader text, document text, model, spans — and how to re-read."""
 
-    def __init__(self, key: str) -> None:
+    def __init__(self, key: str, doc: str | None = None) -> None:
         self.key = key
         if key == "long":
             self.compiled = compile_from_path(str(ROOT / "resources" / "ground_truth" / "json.gbnf"))
             self.reader_text = (ROOT / "resources" / "ground_truth" / "json.gbnf").read_text()
             self.reader_desc = "json.gbnf"
             self.doc_path = HERE.parent / "tk" / "fixtures_long.json"
-            self.document = self.doc_path.read_text()
-            self.resolve = None
-            self.corrupt_at = len(self.document) // 2
-        else:
+            self.graph_ast = self.compiled.grammar
+            self.corrupt_at = len(self.doc_path.read_text()) // 2
+        elif key == "abnf":
+            self.compiled = compile_ast(ABNF_FLAVOUR.grammar)
+            self.reader_text = str(ABNF_FLAVOUR.apply(ABNF_FLAVOUR.grammar))
+            self.reader_desc = (f"the ABNF metagrammar ({len(ABNF_FLAVOUR.grammar.rules)} rules), "
+                                "spelled by its own emitter")
+            self.doc_path = ROOT / "resources" / "ground_truth" / "json.abnf"
+            self.graph_ast = ABNF_FLAVOUR.grammar
+            self.corrupt_at = 0
+        elif key in ("meta", "vyx"):
             self.compiled = compile_ast(GBNF_FLAVOUR.grammar)
             self.reader_text = str(GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar))
             self.reader_desc = "the GBNF metagrammar (90 rules), spelled by its own emitter"
             name = "vyx.gbnf" if key == "vyx" else "json.gbnf"
             self.doc_path = ROOT / "resources" / "ground_truth" / name
-            self.document = self.doc_path.read_text()
-            self.resolve = None
+            self.graph_ast = GBNF_FLAVOUR.grammar
             # A control char mid-document is VALID inside a GBNF comment
             # (cmchar admits \x00-\t) — measured, not assumed. Corrupt at 0,
             # where no line form can start with \x01.
             self.corrupt_at = 0
-        self.graph_ast = self.compiled.grammar if key == "long" else GBNF_FLAVOUR.grammar
+        else:
+            # A file pair: any grammar the pipeline compiles, any document it reads.
+            gpath = Path(key)
+            if not gpath.is_file():
+                raise SystemExit(f"no fixture and no grammar file named '{key}'")
+            if doc is None:
+                raise SystemExit("a file grammar needs a document: serve.py <grammar> <doc> [port]")
+            self.compiled = compile_from_path(str(gpath))
+            self.reader_text = gpath.read_text()
+            self.reader_desc = gpath.name
+            self.doc_path = Path(doc)
+            self.graph_ast = self.compiled.grammar
+            self.corrupt_at = 0
+        self.document = self.doc_path.read_text()
+        self.resolve = None
         self.edges, self.rule_depth = rule_graph(self.graph_ast)
         self.generation = 0
         self.t = 0.0
@@ -375,6 +396,16 @@ class Handler(BaseHTTPRequestHandler):
                 body = "\n".join(f"{k} {v}" for k, v in self.subject.policy.items())
             self.send_text(body)
             return
+        if self.path == "/rails":
+            with self.subject.lock:
+                ast = self.subject.graph_ast
+                out = []
+                for rule in ast.rules:
+                    lines = rail_lines(ast, str(rule.name)) or []
+                    out.append(f"#RAIL {rule.name} {len(lines)}")
+                    out.extend(lines)
+            self.send_text("\n".join(out))
+            return
         if self.path.startswith("/rail?rule="):
             name = unquote(self.path.split("=", 1)[1])
             with self.subject.lock:
@@ -504,7 +535,9 @@ def census(subject: Subject) -> int:
     ok_rail = (rails is not None and len(rails) > 0
                and all(len(ln.split(None, 1)) >= 2 for ln in rails)
                and any(ln.split()[1] in ("ref", "lit", "class") for ln in rails)
-               and rail_lines(subject.graph_ast, "no-such-rule-xyz") is None)
+               and rail_lines(subject.graph_ast, "no-such-rule-xyz") is None
+               and all(rail_lines(subject.graph_ast, str(r.name)) is not None
+                       for r in subject.graph_ast.rules))
     print(f"rail lines for {start}: {len(rails or [])} · well-formed {ok_rail}")
     for _ in range(200):
         if subject.route2.get("status") != "pending":
@@ -526,9 +559,11 @@ def main() -> int:
     """Entry — build the subject, then serve it or gate it."""
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     key = args[0] if args else "vyx"
-    port = int(args[1]) if len(args) > 1 else 8901
+    doc = args[1] if len(args) > 1 and not args[1].isdigit() else None
+    tail = args[2:] if doc is not None else args[1:]
+    port = int(tail[0]) if tail else 8901
     print(f"reading fixture '{key}' …")
-    subject = Subject(key)
+    subject = Subject(key, doc)
     print(f"{subject.reader_desc} read {len(subject.document):,} chars in {subject.seconds:.2f}s · "
           f"{len(subject.spans):,} spans · faithful {subject.faithful}")
     if "--census" in sys.argv:

@@ -15,8 +15,12 @@ screenshot-verified.
   wraps or flows). The leaf is generic: it names nothing of lexic.
 - **Fixtures**: `long` (json.gbnf reads `tk/fixtures_long.json`, PDA route),
   `meta` / `vyx` (the GBNF metagrammar — `compile_ast(GBNF_FLAVOUR.grammar)`
-  — reads `resources/ground_truth/{json,vyx}.gbnf`; Earley + first-derivation
-  resolver route; reader text = `GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar)`).
+  — reads `resources/ground_truth/{json,vyx}.gbnf`; reader text =
+  `GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar)`), `abnf` (the ABNF metagrammar
+  reads `json.abnf` — the second flavour through the same pipeline). Any
+  other first argument is a **file pair**: `serve.py <grammar> <doc> [port]`
+  compiles the grammar file and reads the document — any grammar the
+  pipeline compiles, any document it reads.
 
 ## 2. The wire (line-oriented plain text; no JSON anywhere)
 
@@ -25,6 +29,10 @@ screenshot-verified.
   line ranges in the reader text) · `#RULENAMES n` · `#FIELDNAMES n` ·
   `#SPANS n` (`start end depth ruleIdx fieldIdx`) · `#READER <bytes>` and
   `#DOC <bytes>` (length-prefixed raw blocks).
+- `GET /rails` — every rule's structural lines in one frame, sections
+  headed `#RAIL <rule> <n>` in AST order — the all-rules rails view reads
+  this once and caches it (the reader grammar never changes across document
+  re-reads).
 - `GET /rail?rule=<name>` — one rule's body as indented structural lines:
   `#RAIL <rule> <n>`, then `<depth> <kind> [payload]` per node (children one
   depth deeper). Kinds: `alt`/`seq` (containers, single-child collapsed
@@ -39,14 +47,19 @@ screenshot-verified.
 - `#POLICY n` in the scene, plus `GET /policy` and `POST /policy` (changed
   keys as `key value` lines; value `-` deletes) — the presentation policy as
   session state, rung 5. Keys: `speed`, `doc.zoom`, `chart.zoom`,
-  `spine.zoom`, `reader.mode text|graph`, `graph.view depth3d|flat|arcs`,
+  `spine.zoom`, `reader.mode text|graph`, `graph.view depth3d|flat|arcs|rails`,
   `graph.levelstep|ringscale|flatten|labelscale`, `graph.camera "yaw pitch
   zoom panx pany"`, `arrange.reader|right|top` (grid shares; the seams write
   these), `pin.<id> span s e d rule x y w h` / `pin.<id> graph x y w h yaw
-  pitch zoom panx pany view` (`view` ∈ text|depth3d|flat|arcs — every graph
+  pitch zoom panx pany view` (`view` ∈ text|depth3d|flat|arcs|rails — every graph
   window carries its own, independent of `graph.view`; shorter legacy values
   parse) / `pin.<id> rail <rule> x y w h` (a railroad window; refs inside it
   are clickable and open that rule's railroad — `?rail=a,b` deep-links).
+  The rail gesture is the chip: clicking a rule in the reader text, or a
+  rule chip in any graph view, raises `▤ rail` beside the pointer — the
+  same gesture shape as the text pin chip. The tune panel is per-view
+  (depth3d: depth/ring/flat/label · flat: cols/rows/label · arcs:
+  pitch/lift/label · rails: gap/label).
   Leaves are interpreters: the browser applies policy at boot and
   posts every presentation gesture back; the TUI obeys speed, shares, and
   reader.mode — its flat rule graph IS `graph.view` in cells. Leaves polling
