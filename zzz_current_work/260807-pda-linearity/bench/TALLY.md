@@ -625,3 +625,28 @@ history so nothing is re-derived or re-run.
   redundant passes over the input is a bigger number than 8%.
   Next: instrument the scanned SPANS (not just counts) on csv and check for
   overlap — if the same offsets are scanned twice, find which two call sites.
+- **RETRACTION — the 189% is nesting, not re-scanning. There is no double scan.**
+  Span instrumentation showed 11,220 of csv's 12,539 offsets touched exactly
+  twice (max 2), and **every single overlap was the pair
+  `(match_cc, vstr_once)`** — never any other pair, which is the tell. Checked
+  the source before claiming a defect: `vstr_once` CALLS `match_cc` (and
+  `match_arm`) to consume its span. So one logical scan is reported twice by an
+  instrument that wraps both the caller and the callee.
+  The uniformity of the pair is what gave it away — a real re-scan would show
+  varied call-site pairs and occasional counts above 2. Both signals said
+  "artifact" and I checked rather than proposed.
+  **This retracts the previous entry's headline.** csv scans its input ~once,
+  like any single-pass parser. The "0.89 redundant passes, worth more than the
+  regex swap" claim is withdrawn entirely — there is no redundant work to
+  remove.
+- **CONSEQUENCE — the regex candidate shrinks back.** Its saving scales with
+  characters scanned ONCE (~12,539 on csv), not 23,759. So the ~8% estimate was
+  built on the doubled figure and is wrong; the honest size is the earlier
+  **~5.4%** from vstr-run analysis, against the **21%** csv needs to pass
+  lark-lalr. The candidate survives its kill-test and remains real, but it is a
+  fifth of what the row needs and nothing else on csv is currently identified.
+- **STANDING METHOD NOTE for this ledger:** wrapping two functions where one
+  calls the other double-counts, and the signature is a single dominant
+  call-site pair with counts capped at exactly 2. Same class of error as
+  iteration 6's cumulative-vs-self timing. Both were caught by checking the
+  call graph; neither was visible in the numbers alone.
