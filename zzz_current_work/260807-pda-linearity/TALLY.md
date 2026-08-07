@@ -247,3 +247,25 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   traffic was already fine and is unchanged.** What changed is that the bad
   case is no longer catastrophic — and no longer superlinear, so it cannot
   become catastrophic at scale.
+- **DOCS APPLIED** (`1824a93`). `decisions.md` had gone STALE at line 176 — it
+  still said a both-viable boundary is "resolved by probing both sides to
+  end-of-input", which the lockstep verdict retired. Corrected, and a full entry
+  added: why the old shape was quadratic (with the ws-pays-94% finding, so it
+  does not read as one grammar's quirk), why convergence is sound, the three
+  things the predicate must get right, why only the delta since the boundary is
+  compared, and what was ruled out on the way (operation counts, the GC). The
+  honest limit is in there too: ordinary traffic was always fine and is unmoved.
+  `log.md` carries the short version. This mattered because the reasoning lived
+  ONLY in this gitignored folder, which committed docs may not cite.
+- **SRC WORK FOR ATLAS RUNG 2 — done** (`0a75c96`). Checked what the two engine
+  clocks need. PDA clock: nothing — `PdaKernel` is subclassable and every
+  decision point is an overridable method (proven by use: four different
+  subclasses this session), and `FlatClone.name` now lets a trace NAME the frame
+  it reports, which it could not before item 4. Earley clock: the chart TYPES
+  were public but the readout READERS were not, so the instrument would have had
+  to deep-import `earley.kernel.forest.readout` — the same layering inversion
+  removed on the predictive side. Now exported whole from `lexic.parsing`
+  (`to_chart`, `decode_item`, the `accept_*` readers, `start_completion_ends`,
+  `root_ambiguous`, `child_node`) with an identity test and an end-to-end one.
+  Additive; gates green (run_checks 0, suite **3801 passed**, generated CLEAN).
+  **The other agent should have everything it needs on the src side for rung 2.**
