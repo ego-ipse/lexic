@@ -274,3 +274,26 @@ history so nothing is re-derived or re-run.
   (3) filter candidates in `sole_admitted`'s position before any sub-run;
   (4) measure sub-run count and µs/char on vyx. Success criterion set in
   advance: sub-runs 2,005 → under 1,400, and vyx under 4.0 µs/char.
+- **k=4 IS AVAILABLE — the ≤3 bound is a cost ceiling, not a correctness one.**
+  `KWindowFirst(rules, k)` is constructed per window width with no cap in the
+  class; `max_k: int = 3` is a parameter of the `arm_gate` SEARCH (how far to
+  look for a separating k before giving up), and the solver memoises per
+  `(rule, budget)`. So the 83.4%-at-depth-4 prize is reachable; k only costs
+  compile time, which is memoised and paid once.
+- **WHERE THE CHANGE HAS TO LIVE — a real obstacle, found by trying to write
+  the prototype.** `arm_prefixes` takes a sequence of `IrItem`; the runtime
+  holds `FlatArm`s, which are int-coded and carry no IrItems. So the filter
+  CANNOT be computed at runtime from what the kernel has. The windows must be
+  computed at COMPILE time, where the `IrAst` arms are still in scope, and
+  carried on the attempt entries — exactly as `kwin_selectors` already carries
+  them for gated arms.
+  Concretely: the attempt entry tuple is `(chars, negated, prefix, sub)` and
+  gains a windows field; `PdaCompiler` fills it where it builds the entries
+  (the `IrAlternation` arms are in hand there); `sole_admitted` matches it with
+  the existing `_window_admits`. Every piece exists; none of them is currently
+  connected across that seam.
+  **Consequence for scope:** this is not a runtime-only patch. It touches the
+  clone compiler, the entry spec, the flat lowering and the admission leaf —
+  four files, one seam. Worth it at ~40% of vyx's entry time, but it is not the
+  one-line change the "machinery already exists" framing might suggest, and the
+  next iteration should size the diff honestly before starting it.
