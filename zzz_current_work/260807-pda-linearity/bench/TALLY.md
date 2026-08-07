@@ -491,3 +491,32 @@ history so nothing is re-derived or re-run.
   are not separable by any bounded lookahead.** Closing it means changing what
   lexic promises, not how fast it computes it — which is a ruling, not an
   optimization, and it belongs to the user.
+- **NEW TARGET OPENED: csv is the purest inner-loop comparison on the board.**
+  Isolating `_chase_dispatch`'s SELF time (previous per-kind figures were
+  cumulative and included the target's whole subtree — that inflated the chase
+  to 3.1 µs and misled me):
+
+  ```
+  arithmetic  parse 15.52 ms   1537 chases × 255 ns = 0.39 ms   2.5% of parse
+  csv         parse 12.89 ms      0 chases                      0.0%
+  ```
+
+  A dispatch chase is **255 ns**, not 3.1 µs — cheap, and 2.5% of arithmetic.
+  **csv has ZERO attempt entries and ZERO dispatch chases.** No speculation, no
+  ambiguity machinery, no attempt seam — its 12.89 ms is the driver's terminal
+  matching plus 2,860 plain frame pushes (0.228 entries/char, the lowest on the
+  board). It is lexic's inner loop with everything else stripped away, losing
+  1.26× to lark-lalr.
+  That makes csv the RIGHT next target and the one that generalises: every
+  grammar pays the driver, whereas the attempt seam (now closed as irreducible)
+  is vyx's problem alone. It also means the csv gap CANNOT be explained by the
+  ambiguity-refusal argument that explains vyx — nothing is being refused there.
+- **CORRECTION, recorded because it changed a conclusion:** iteration 6's
+  per-kind table attributed 80% of arithmetic's entry time to "dispatch chase".
+  That was cumulative time, so it was really the chased target's entire subtree.
+  Self time is 2.5%. Anywhere that table was read as "chases are expensive", it
+  was read wrong — and I wrote it that way.
+- NEXT: decompose csv's 12.89 ms. Entries are 0.228/char and chases are zero, so
+  the time is in `_drive`'s per-item terminal path (OP_CC1 / OP_LIT1 / OP_VSTR)
+  and the frame push/complete cycle. Measure the split before proposing
+  anything — that is the loop lark-lalr beats with a separate lexer.
