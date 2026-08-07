@@ -40,30 +40,35 @@ function parseScene(text) {
     scene.meta[line.slice(0, k)] = line.slice(k + 1);
     if (text[i] === '#') break;
   }
-  const counts = {};
-  for (let guard = 0; guard < 6 && i < text.length; guard++) {
+  scene.edges = [];
+  scene.depths = {};
+  for (let guard = 0; guard < 12 && i < text.length; guard++) {
     const head = nextLine().split(' ');
     const tag = head[0], n = parseInt(head[1], 10);
+    if (tag === '#READER') { scene.reader = text.slice(i, i + n); i += n + 1; continue; }
+    if (tag === '#DOC') { scene.doc = text.slice(i, i + n); i += n + 1; continue; }
+    const lines = [];
+    for (let k = 0; k < n; k++) lines.push(nextLine());
     if (tag === '#RULEDEFS') {
-      for (let k = 0; k < n; k++) {
-        const [name, a, b] = nextLine().split(' ');
-        scene.ruledefs.push({ name, a: +a, b: +b });
+      for (const ln of lines) {
+        const parts = ln.split(' ');
+        scene.ruledefs.push({ name: parts.slice(0, -2).join(' '), a: +parts.at(-2), b: +parts.at(-1) });
       }
-    } else if (tag === '#RULENAMES') {
-      for (let k = 0; k < n; k++) scene.ruleNames.push(nextLine());
-    } else if (tag === '#FIELDNAMES') {
-      for (let k = 0; k < n; k++) scene.fieldNames.push(nextLine());
-    } else if (tag === '#SPANS') {
-      for (let k = 0; k < n; k++) {
-        const p = nextLine().split(' ');
+    } else if (tag === '#RULENAMES') scene.ruleNames = lines;
+    else if (tag === '#FIELDNAMES') scene.fieldNames = lines;
+    else if (tag === '#SPANS') {
+      for (const ln of lines) {
+        const p = ln.split(' ');
         scene.spans.push({ s: +p[0], e: +p[1], d: +p[2], r: +p[3], f: +p[4] });
       }
-    } else if (tag === '#READER') {
-      scene.reader = text.slice(i, i + n); i += n + 1;
-    } else if (tag === '#DOC') {
-      scene.doc = text.slice(i, i + n); i += n + 1;
+    } else if (tag === '#EDGES') {
+      scene.edges = lines.map((ln) => ln.split(' '));
+    } else if (tag === '#DEPTHS') {
+      for (const ln of lines) {
+        const sp = ln.lastIndexOf(' ');
+        scene.depths[ln.slice(0, sp)] = +ln.slice(sp + 1);
+      }
     }
-    counts[tag] = n;
   }
   scene.lineStarts = starts(scene.doc);
   scene.readerLines = scene.reader.split('\n');
@@ -197,10 +202,10 @@ function drawUnder() {
     cx.fillStyle = 'rgba(111,195,201,0.045)';
     segRects(S.spans[i].s, S.spans[i].e, l0, l1, (x, y, w, h) => cx.fillRect(x, y, w, h));
   }
-  if (cur.rule) {
+  if (markedRule()) {
     cx.strokeStyle = C.violet;
     for (const [i, s] of S.spans.entries()) {
-      if (S.ruleNames[s.r] !== cur.rule) continue;
+      if (S.ruleNames[s.r] !== markedRule()) continue;
       segRects(s.s, s.e, l0, l1, (x, y, w, h) => cx.strokeRect(x + 0.5, y + 1.5, w - 1, h - 3));
     }
   }
@@ -305,7 +310,7 @@ function drawChart() {
       cx.strokeStyle = idx === cur.sel ? C.warm : C.dim;
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
     }
-    if (cur.rule && S.ruleNames[s.r] === cur.rule) {
+    if (markedRule() && S.ruleNames[s.r] === markedRule()) {
       cx.strokeStyle = C.violet;
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
     }
@@ -377,7 +382,7 @@ function render() {
     return;
   }
   followCursor();
-  drawUnder(); drawOver(); drawChart(); drawSpine(); litRules();
+  drawUnder(); drawOver(); drawChart(); drawSpine(); litRules(); drawGraph();
   const state = cur.playing ? 'playing' : (cur.t >= S.doc.length ? 'complete' : 'paused');
   const line = lineOf(Math.min(Math.floor(cur.t), S.doc.length - 1)) + 1;
   $('pos').textContent =
@@ -389,6 +394,148 @@ function render() {
     lastPost = performance.now();
     fetch('/cursor', { method: 'POST', body: `t ${cur.t.toFixed(1)} sel ${cur.sel}` }).catch(() => {});
   }
+}
+
+/* ── the 3D rule graph — z is derivation distance, the earned axis ── */
+
+let graphOn = false;
+let gYaw = 0.42, gPitch = 0.92;
+let gNodes = null;
+let graphHover = '';
+
+function markedRule() { return cur.rule || graphHover; }
+
+function buildGraph() {
+  const maxd = Math.max(0, ...Object.values(S.depths).filter((d) => d >= 0));
+  const levels = new Map();
+  for (const r of S.ruledefs) {
+    const d = S.depths[r.name] ?? -1;
+    const lvl = d < 0 ? maxd + 1 : d;
+    if (!levels.has(lvl)) levels.set(lvl, []);
+    levels.get(lvl).push(r.name);
+  }
+  gNodes = new Map();
+  for (const [lvl, names] of levels) {
+    const k = names.length;
+    const R = k === 1 ? 0 : 46 + Math.min(230, k * 15);
+    names.forEach((n, i) => {
+      const a = (i / k) * Math.PI * 2 + lvl * 0.7;
+      gNodes.set(n, { x: Math.cos(a) * R, y: Math.sin(a) * R * 0.78, z: -lvl * 150 });
+    });
+  }
+  const chips = $('graphChips');
+  chips.textContent = '';
+  for (const name of gNodes.keys()) {
+    const el = document.createElement('span');
+    el.className = 'gchip';
+    el.dataset.name = name;
+    el.textContent = name;
+    chips.appendChild(el);
+  }
+}
+
+function gProject(p, w, h) {
+  const cy = Math.cos(gYaw), sy = Math.sin(gYaw);
+  const x = p.x * cy + p.z * sy;
+  let z = -p.x * sy + p.z * cy;
+  const cp = Math.cos(gPitch), sp = Math.sin(gPitch);
+  const y = p.y * cp - z * sp;
+  z = p.y * sp + z * cp;
+  const f = 780;
+  const s = f / (f - z + 420);
+  return { x: w / 2 + x * s, y: h / 2 + y * s, s };
+}
+
+function drawGraph() {
+  if (!graphOn || !gNodes) return;
+  const wrap = $('graphWrap');
+  const cv = $('graphCv');
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  const cx = cv.getContext('2d');
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.clearRect(0, 0, w, h);
+  const proj = new Map();
+  for (const [name, p] of gNodes) proj.set(name, gProject(p, w, h));
+  // auto-fit: fill the facet whatever the grammar's size or the orbit's angle
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const P of proj.values()) {
+    x0 = Math.min(x0, P.x); x1 = Math.max(x1, P.x);
+    y0 = Math.min(y0, P.y); y1 = Math.max(y1, P.y);
+  }
+  const k = Math.min((w * 0.84) / Math.max(1, x1 - x0), (h * 0.78) / Math.max(1, y1 - y0), 2.4);
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  for (const P of proj.values()) {
+    P.x = w / 2 + (P.x - mx) * k;
+    P.y = h / 2 + (P.y - my) * k;
+  }
+  const mark = markedRule();
+  for (const [a, b] of S.edges) {
+    const A = proj.get(a), B = proj.get(b);
+    if (!A || !B) continue;
+    const touched = mark && (a === mark || b === mark);
+    cx.strokeStyle = touched
+      ? 'rgba(217,140,245,0.75)'
+      : `rgba(111,195,201,${(0.06 + 0.22 * Math.min(A.s, B.s)).toFixed(3)})`;
+    cx.beginPath();
+    cx.moveTo(A.x, A.y);
+    cx.lineTo(B.x, B.y);
+    cx.stroke();
+  }
+  const start = S.ruledefs.length ? S.ruledefs[0].name : '';
+  for (const el of $('graphChips').children) {
+    const P = proj.get(el.dataset.name);
+    if (!P) continue;
+    el.style.left = P.x + 'px';
+    el.style.top = P.y + 'px';
+    el.style.transform = `translate(-50%, -50%) scale(${Math.max(0.55, Math.min(P.s, 1.2)).toFixed(2)})`;
+    el.style.zIndex = Math.round(P.s * 1000);
+    el.classList.toggle('near', P.s > 0.85);
+    el.classList.toggle('start', el.dataset.name === start);
+    el.classList.toggle('marked', el.dataset.name === cur.rule);
+    el.classList.toggle('hot', el.dataset.name === graphHover);
+  }
+}
+
+function setGraph(on) {
+  graphOn = on;
+  $('grammarScroll').hidden = on;
+  $('graphWrap').hidden = !on;
+  $('gmode').textContent = on ? 'text' : 'graph';
+  if (on && !gNodes) buildGraph();
+  if (on) drawGraph();
+}
+
+function wireGraph() {
+  $('gmode').addEventListener('click', () => setGraph(!graphOn));
+  const wrap = $('graphWrap');
+  let drag = null;
+  wrap.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.gchip')) return;
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    gYaw += (e.clientX - drag.x) * 0.006;
+    gPitch = Math.max(-1.2, Math.min(1.2, gPitch + (e.clientY - drag.y) * 0.005));
+    drag = { x: e.clientX, y: e.clientY };
+    drawGraph();
+  });
+  window.addEventListener('pointerup', () => { drag = null; });
+  $('graphChips').addEventListener('mouseover', (e) => {
+    const el = e.target.closest('.gchip');
+    if (el && el.dataset.name !== graphHover) { graphHover = el.dataset.name; ask(); }
+  });
+  $('graphChips').addEventListener('mouseout', () => {
+    if (graphHover) { graphHover = ''; ask(); }
+  });
+  $('graphChips').addEventListener('click', (e) => {
+    const el = e.target.closest('.gchip');
+    if (!el) return;
+    cur.rule = cur.rule === el.dataset.name ? '' : el.dataset.name;
+    ask();
+  });
 }
 
 /* ── pinned windows — uncapped, by ruling: let the people have fun ── */
@@ -791,6 +938,8 @@ async function boot(keep) {
   measure();
   view0 = 0;
   sizeDocCanvases();
+  gNodes = null;
+  if (graphOn) buildGraph();
   $('sub').textContent =
     `${S.meta.reader} read ${S.doc.length.toLocaleString()} chars in ${S.meta.seconds}s · `
     + `${S.spans.length.toLocaleString()} spans · depth ${S.maxdepth}`
@@ -832,6 +981,7 @@ async function pollRoutes() {
   wire();
   wirePins();
   wireChip();
+  wireGraph();
   pollRoutes();
   const q = new URLSearchParams(location.search);
   if (q.has('t')) { cur.t = Math.min(+q.get('t'), S.doc.length); cur.follow = true; ask(); }
@@ -845,5 +995,6 @@ async function pollRoutes() {
   if (q.has('pin')) {
     for (const off of q.get('pin').split(',')) addPin(deepestAt(+off));
   }
+  if (q.has('graph')) setGraph(true);
   if ([...q.keys()].length === 0) setTimeout(play, 600);  // deterministic states do not animate
 })();

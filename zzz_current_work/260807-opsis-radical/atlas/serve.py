@@ -24,6 +24,7 @@ from typing import NamedTuple
 
 from lexic.compile import compile_ast, compile_from_path
 from lexic.grammars import GBNF_FLAVOUR
+from lexic.ir import IrRuleRef
 from lexic.model import GrammarModel
 from lexic.parsing import PdaKernel, earley_model, lift_optional_nullables, normalize
 from lexic.parsing.pda.core.errors import PdaFail
@@ -81,6 +82,8 @@ class Subject:
             # (cmchar admits \x00-\t) — measured, not assumed. Corrupt at 0,
             # where no line form can start with \x01.
             self.corrupt_at = 0
+        self.graph_ast = self.compiled.grammar if key == "long" else GBNF_FLAVOUR.grammar
+        self.edges, self.rule_depth = rule_graph(self.graph_ast)
         self.generation = 0
         self.t = 0.0
         self.selection = -1
@@ -167,6 +170,43 @@ class Subject:
         return out
 
 
+def rule_graph(ast) -> tuple[list[tuple[str, str]], dict[str, int]]:
+    """Reference edges and BFS depth from the start rule — the graph facet's truth.
+
+    Edges come from the AST's own ``IrRuleRef`` leaves; depth is derivation
+    distance from the start rule (-1 for rules the start never reaches).
+    """
+    edges: list[tuple[str, str]] = []
+    for rule in ast.rules:
+        seen: set[str] = set()
+        stack = [rule.body]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, IrRuleRef):
+                name = str(node)
+                if name not in seen:
+                    seen.add(name)
+                    edges.append((str(rule.name), name))
+                continue
+            stack.extend(node.children())
+    out: dict[str, list[str]] = {}
+    for a, b in edges:
+        out.setdefault(a, []).append(b)
+    start = str(ast.rules[0].name)
+    depth = {str(r.name): -1 for r in ast.rules}
+    depth[start] = 0
+    frontier = [start]
+    while frontier:
+        nxt = []
+        for name in frontier:
+            for ref in out.get(name, []):
+                if depth.get(ref, 0) == -1:
+                    depth[ref] = depth[name] + 1
+                    nxt.append(ref)
+        frontier = nxt
+    return edges, depth
+
+
 def fold_spans(model: GrammarModel, document: str) -> list[Span]:
     """Every occurrence's span, folded from the model's own tagged emit stream."""
     spans: list[Span] = []
@@ -217,6 +257,10 @@ def build_scene(subject: Subject) -> str:
         *rule_names,
         f"#FIELDNAMES {len(field_names)}",
         *field_names,
+        f"#EDGES {len(subject.edges)}",
+        *(f"{a} {b}" for a, b in subject.edges),
+        f"#DEPTHS {len(subject.rule_depth)}",
+        *(f"{name} {d}" for name, d in subject.rule_depth.items()),
         f"#SPANS {len(subject.spans)}",
         *(f"{s.start} {s.end} {s.depth} {rule_idx[s.rule]} {field_idx[s.field]}" for s in subject.spans),
         f"#READER {len(subject.reader_text)}",
@@ -340,8 +384,11 @@ def census(subject: Subject) -> int:
         f"{span0.start} {span0.end}\n{subject.document[span0.start:span0.end]}", persist=True
     )
     ok_save = saved.startswith("ok") and (" saved" in saved if subject.save_held() == "" else " held" in saved)
+    start = str(subject.graph_ast.rules[0].name)
+    ok_graph = len(subject.edges) > 0 and subject.rule_depth.get(start) == 0
     print(f"{subject.key}: {len(subject.document):,} chars · {len(subject.spans):,} spans · "
-          f"{len(subject.rule_lines())} rules in reader · parse {subject.seconds:.2f}s · scene {len(scene):,} bytes")
+          f"{len(subject.rule_lines())} rules in reader · {len(subject.edges)} graph edges "
+          f"(start depth {subject.rule_depth.get(start)}) · parse {subject.seconds:.2f}s · scene {len(scene):,} bytes")
     print(f"faithful {subject.faithful} · scene integrity {ok_scene} · identity retype ok {ok_edit} · "
           f"garbage retype refused {ok_refuse} · frontier {pos} ({words[:48]}…)")
     print(f"save: {saved.split(chr(10))[0][:70]} · as expected {ok_save}")
@@ -355,7 +402,8 @@ def census(subject: Subject) -> int:
     else:
         ok_routes = r2.get("status") == "failed" and int(r2.get("pos", "-1")) >= 0
     print(f"other route: {r2} · as expected {ok_routes}")
-    ok = subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier and ok_save and ok_routes
+    ok = (subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier
+          and ok_save and ok_routes and ok_graph)
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 

@@ -427,3 +427,24 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   the two items the engine effort holds for atlas are the refusal position on
   the record (kills atlas's regex-over-prose) and `FlatClone.name`, both ranked
   first in that plan regardless of the split.
+- COLLISION LOG: mid-flight, the engine agent executed the effort split
+  itself (260807-pda-linearity/, gate/ emptied into it — my duplicate dir
+  deleted unborn) AND landed items 4+5 in src under the user's override:
+  FlatClone carries its rule name; PdaFail carries pos. Atlas cashed item 5
+  immediately: frontier() now reads the attribute; the regex-over-prose is
+  deleted. One live src collision observed (errors.py mid-keystroke syntax
+  error — the expected-set landing); sequenced around it, no harm.
+- RUNG 4 (browser half) LANDED: the 3D rule-graph facet. Server emits
+  #EDGES (IrRuleRef walk over the reader AST — 127 edges for the
+  metagrammar) and #DEPTHS (BFS derivation distance from the start rule;
+  census asserts edges>0 and start depth 0). The reader facet gains a
+  text⇄graph toggle ('g' or the header button; ?graph=1 for shots): rule
+  chips as real DOM text, canvas edges underneath, manual 3D projection
+  with orbit-by-drag, auto-fit to the pane each frame (grammar-size- and
+  orbit-independent), depth cues via scale/z-index/near-class. Default view
+  looks DOWN the derivation axis so depth descends the portrait pane —
+  grammar at top, leaves at the bottom. Co-selection is name-addressed and
+  bidirectional: chip hover/click ⇄ violet marking across document, chart,
+  readout (drawUnder/drawChart now mark cur.rule OR graphHover). Browser
+  scene parser generalized to consume unknown sections safely. Remaining
+  half of rung 4: the same facet flat in the TUI.

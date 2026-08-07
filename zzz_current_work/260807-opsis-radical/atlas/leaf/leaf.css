@@ -207,3 +207,36 @@ body {
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.5);
 }
 #pinchip:hover { background: var(--warm); color: var(--field); }
+
+/* ── the 3D rule graph: z = derivation distance, scoped to this facet ── */
+#gmode {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--hair);
+  color: var(--dim);
+  font: 10px var(--sans);
+  padding: 1px 8px;
+  cursor: pointer;
+}
+#gmode:hover { border-color: var(--cool); color: var(--cool); }
+.facet h2 { display: flex; align-items: center; }
+#graphWrap { position: relative; flex: 1; overflow: hidden; cursor: grab; min-height: 0; }
+#graphWrap:active { cursor: grabbing; }
+#graphCv { position: absolute; inset: 0; }
+#graphChips { position: absolute; inset: 0; pointer-events: none; }
+.gchip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font: 10px var(--mono);
+  color: var(--dim);
+  background: var(--field2);
+  border: 1px solid var(--dimmer);
+  padding: 1px 6px;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.gchip.near { color: var(--ink); border-color: var(--cool); }
+.gchip.start { color: var(--warm); border-color: var(--warm); }
+.gchip.marked { color: var(--violet); border-color: var(--violet); }
+.gchip.hot { background: var(--warm); color: var(--field); border-color: var(--warm); }
