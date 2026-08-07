@@ -174,9 +174,11 @@ FOLLOW accepts, raises `PdaFail` — the gated engine then refuses iff the
 ambiguity is real. Licensed optional loops run the same way per iteration
 (`GATE_ATTEMPT`): a failing iteration closes the loop instead of failing the
 arm, and a boundary where taking AND stopping are both viable is resolved by
-probing both sides to end-of-input and comparing completed VALUES
-(`same_value`, exactly the forest gate's question) — equal is a benign split,
-one side dead forces the other, different values raise `ProbeFork`.
+comparing the VALUES the two sides build (`same_value`, exactly the forest
+gate's question) — equal is a benign split, one side dead forces the other,
+different values raise `ProbeFork`. That comparison is reached by CONVERGENCE
+rather than by running both sides to end-of-input; see *"A both-viable boundary
+is settled by convergence"* below.
 
 **The load-bearing choices:**
 
@@ -667,3 +669,74 @@ canonical clone with a rule-level union FOLLOW as its attempt licence
 corpus). So a rule that is genuinely ambiguous at one reference site
 probe-forks at *every* site, and the fallback is whole-document rather than an
 island. Narrowing the pass removed the trigger, not the mechanism.
+
+
+---
+
+## A both-viable boundary is settled by convergence, not by running to end-of-input
+
+**Decision:** when taking and stopping are both viable at a licensed loop
+boundary (`GATE_ATTEMPT`), the two sides are driven in LOCKSTEP and the verdict
+is taken at the first of: one side dying, or both reaching the same position
+with the same control state. Running both to end-of-input remains, as the
+fallback when neither happens inside a budget.
+
+**Why:** the old shape cost O(remaining input) per boundary, and boundary count
+grows with the input, so the predictive parse was **quadratic** — an 11 KB vyx
+packet took 73 seconds with no fork, no fallback and no resolver: the fast path
+succeeding, slowly. It is not one grammar's problem either: a `ws` rule pays 94%
+of all fork verdicts across the suite, so any grammar with noise in a repeated
+position was paying it, usually on inputs too short to notice.
+
+**Why it is sound.** The stack IS the continuation. Two sides at the same
+position with the same control state consume the same remaining text and build
+the same additional values, so the whole question collapses to the values each
+built on the way there — the same question, asked earlier. Three outcomes are
+decidable, and each is the answer the end-of-input comparison would have given:
+
+| at convergence | verdict | why |
+|---|---|---|
+| values agree | TAKE | one value; a benign split. The common case, now O(1) |
+| values differ | run the COMMON remainder once | completing makes it a real fork; dying means neither side completes, which was already TAKE |
+| a side died first | forced | unchanged |
+
+Everything else — no convergence inside the budget, a `ProbeFork` from deeper —
+falls through to the untouched comparison. **That escape is what makes the
+change unable to regress correctness:** the worst case is the behaviour and the
+answer that shipped before it. What the escape does NOT protect is the
+convergence predicate itself, so that is tested directly rather than through a
+parse (`tests/unit/lexic/parsing/pda/runtime/test_lockstep.py`).
+
+**Three things the predicate has to get right**, each found by measurement and
+each silently disabling the optimisation while every test stayed green:
+
+- **Values are excluded from the control signature.** The sides differing there
+  is the fact being measured; folding it in means they never converge.
+- **The iteration count is normalised** (`_count_key`). The take side has taken
+  an iteration the stop side has not, so raw counts differ FOREVER. Past its
+  mandatory floor with no ceiling to run into, a count cannot constrain the
+  future and is not part of the state.
+- **The drive bound is a parameter, not a cursor field.** On the cursor it
+  leaks into nested attempt sub-runs, which then stop early and never converge.
+  The bound belongs to one call; a nested drive must be unbounded.
+
+**Only the delta is compared.** Both sides are copies of ONE live stack, so
+everything already in a value container at fork time is identical between them
+by construction. `value_shape()` takes that watermark at the boundary and
+`pending_values(stack, shape)` compares past it — O(built-since), not O(built).
+Comparing the whole state was 92% of a large parse and the whole of its residual
+superlinearity. Conservative where the premise fails: a container that comes
+back SHORTER was replaced rather than appended to and is compared whole, and
+frames pushed after the boundary have no watermark and are compared in full.
+
+**Measured**, on a boundary-dense vyx packet: 11,281 chars **73.4s → 0.49s**,
+and the growth is linear — 44 µs/char flat from 719c to 11,281c, where it had
+been ×2.6 rising to ×3.6 per doubling. Ordinary vyx traffic (`bench --only vyx`,
+5.658 µs/char) is UNMOVED and always was fine: a real 3.5 KB packet has few
+both-viable boundaries. What changed is that the bad case is no longer
+catastrophic, and no longer superlinear, so it cannot become catastrophic at
+scale.
+
+**Ruled out on the way, recorded so nobody re-runs them:** the number of
+operations (every counted component grows exactly ×4.0 for ×4 input) and the
+garbage collector (identical with `gc.disable()`).

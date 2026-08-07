@@ -1,5 +1,21 @@
 # Log
 
+## The predictive parse was quadratic; it is linear now
+
+A both-viable loop boundary was settled by running BOTH continuations to
+end-of-input and comparing values. That is O(remaining) per boundary with a
+boundary count that grows, so an 11 KB vyx packet cost 73 seconds on the fast
+path — succeeding, slowly — and a `ws` rule pays 94% of all fork verdicts, so it
+was never one grammar's problem.
+
+The sides differ only in the boundary decision, so they reconverge fast: driven
+in lockstep, the verdict falls out at convergence, and only the values built
+SINCE the boundary need comparing (the rest is shared by construction). Both
+halves were needed — the first made it 13× on that packet, the second made it
+linear. 73.4s → 0.49s, 44 µs/char flat. Ordinary traffic is unmoved; it never
+paid this. See [[decisions]] for the soundness argument and the three things the
+convergence predicate has to get right.
+
 ## A refused parse says where it stopped and what it wanted
 
 `PdaFail` spelled its position only in prose ("no arm at N") and never escaped
