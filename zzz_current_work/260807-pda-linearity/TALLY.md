@@ -48,3 +48,31 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   (identical (pos, shallow-signature) and divergent pending values); the
   "values accumulated before convergence" equivalence is a proof obligation,
   not a refactor.
+- **USER OVERRIDE (2026-08-07): start with PLAN items 4 and 5**, siding with the
+  reviewer's note 4 ("items 4-5 first, regardless of the split") over my own
+  ordering, which had put the quadratic first. Both landed, gates green.
+- **ITEM 4 DONE** (`171ab83`): `FlatClone` gained a `name` slot. Set at all
+  three construction sites — the per-key shells from `CloneSpec.name`, an
+  inline group to `""` (it stands for no rule the grammar named), and an
+  attempt sub-clone to its parent's (it stands for the parent's rule). Two
+  tests pin what the name SAYS, not just that the slot exists; the pinned
+  `__slots__` test updated. This removes the layering inversion the trial probe
+  had to commit (runtime → `compute_binding` for a rule name) and is the
+  runtime-island climb's prerequisite.
+- **ITEM 5, FIRST HALF DONE** (`8d1ffc2`): `PdaFail(message, pos)` with a
+  structured `.pos`; `ProbeFork` inherits it. Every raise site that knows a
+  position now passes it (25 sites across islands/kernel/matchers/decisions/
+  flatten); the four with no position report -1 rather than inventing one.
+  atlas dropped its `FRONTIER` regex and reads `fail.pos` — its three censuses
+  still pass. **A finding worth keeping:** `.pos` is the offset the failing
+  construct was attempted FROM, not the deepest character matched — a literal
+  mismatch reports the literal's start, and the optimizer merges adjacent
+  exactly-once literals into one run, so `"abc" "def"` against `abcXef` reports
+  0, not 3. My first test assumed the other contract and failed; both halves are
+  now pinned. The SECOND half of item 5 (the fuller readout record with
+  expected-next) waits for a consumer — rung 2's engine clocks are the likely
+  one.
+- Gates for both: run_checks exit 0, suite **3783 passed** / 8 skipped (from
+  3776 — five new tests), check_generated CLEAN, run_examples exit 0.
+- Next per PLAN.md: item 1 (scope the quadratic — corpus-wide probe counts, and
+  the STOP_FORCED reachability argument), then item 2 (lockstep convergence).

@@ -26,12 +26,12 @@ from lexic.compile import compile_ast, compile_from_path
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.model import GrammarModel
 from lexic.parsing import PdaKernel, earley_model, lift_optional_nullables, normalize
+from lexic.parsing.pda.core.errors import PdaFail
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 LEAF = HERE / "leaf"
 RULE_LINE = re.compile(r"^([A-Za-z0-9_-]+)\s*::=")
-FRONTIER = re.compile(r"\bat (\d+)\b")
 
 
 class Span(NamedTuple):
@@ -128,9 +128,8 @@ class Subject:
                 PdaKernel(self.compiled.pda_tables(), self.document, self.compiled.fold).run()
                 result = {"status": "done", "name": "PDA", "seconds": f"{time.perf_counter() - t0:.2f}",
                           "parity": "unmeasured"}
-            except Exception as fork:
-                hit = FRONTIER.search(str(fork))
-                result = {"status": "failed", "name": "PDA", "pos": hit.group(1) if hit else "-1",
+            except PdaFail as fork:
+                result = {"status": "failed", "name": "PDA", "pos": str(fork.pos),
                           "words": str(fork)[:160]}
         with self.lock:
             if self.generation == generation:
@@ -145,17 +144,16 @@ class Subject:
     def frontier(self, text: str) -> int:
         """The PDA's deepest verified position on ``text``, read from its own words.
 
-        Only meaningful on the PDA route (no resolver): the kernel's failure
-        signal spells its position in prose ("no arm at N") — no attribute
-        carries it, which is the recorded lexic gap. -1 when unmeasurable.
+        Only meaningful on the PDA route (no resolver). ``PdaFail.pos`` carries
+        it structurally now — the regex-over-prose this used to do is gone.
+        -1 when the text parses, or when the failure is not about a position.
         """
         if self.resolve is not None:
             return -1
         try:
             PdaKernel(self.compiled.pda_tables(), text, self.compiled.fold).run()
-        except Exception as fail:
-            hit = FRONTIER.search(str(fail))
-            return int(hit.group(1)) if hit else -1
+        except PdaFail as fail:
+            return fail.pos
         return -1
 
     def rule_lines(self) -> list[tuple[str, int, int]]:
