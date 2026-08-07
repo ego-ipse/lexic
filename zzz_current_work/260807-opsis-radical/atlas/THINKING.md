@@ -1,0 +1,108 @@
+# atlas — the ergonomics, thought topologically
+
+Forked from `../facets/` (which scales; nothing was thrown away). This file is
+the map the iterations follow. The governing picture: **the session is a graph
+of subjects** (edges: lineage, peers, time); **facets are projections of one
+subject**; **cursors live on the subject** and every facet renders them. Every
+question below is answered by placing the new thing in that graph — never by
+inventing a window.
+
+## 1. Resize
+
+The only geometry a hand should ever touch is a **seam** between facets.
+Shares are session values (like everything else — editable, persisted,
+reported over the gesture wire), not pixel rectangles. The load-bearing rule:
+
+> **A facet degrades by deriving less, never by clipping.**
+
+The spine already behaves (bounded by depth at any width). The chart drops
+lanes and thins its overview. The document keeps text and sheds gutter. A
+facet that cannot say anything at its current share says so — one honest line
+— rather than showing a cropped lie. Iteration: draggable seams on the grid,
+shares POSTed like the cursor, a `min-say` per facet.
+
+## 2. The 3D language graph
+
+A fifth facet over the READER subject: rules as nodes, references as edges,
+**z = derivation distance from the start rule** — the axis that earned its
+meaning in opsis-4's flat-vs-depth comparison, kept scoped to its region
+(opsis-3 proved perspective does not leak to flat siblings, text stays
+selectable). Co-selection needs zero new mechanism: a rule's *name* is already
+the shared address — hover `namechar` in the graph and the reader line, the
+document spans, and the chart bars light exactly as they do today. Edges come
+from lexic (`IrRuleRef`s in each rule body), never re-derived by the leaf.
+
+## 3. Attachments — reducers, templates, transpile
+
+These are **not facets and not rungs — they are ports on the reading** (the
+codex-mock's capability bay, now with a substrate under it). Topologically:
+
+- **Docking a reducer** adds a *product* to the reading (the reduced value).
+  A new product brings ITS facets (a value tree beside the model view). The
+  facet set multiplies by products, never by windows.
+- **A template** is an attachment that selects paths — its facet is the
+  document with the selected paths lit, which is co-selection we already have,
+  driven by a value instead of a hand.
+- **Transpile** adds a **peer edge** in the session graph: a second READER
+  facet beside the first (`json.gbnf ≅ json.abnf`), same canonical subject
+  underneath, co-selection crossing via the canonical value. The peer is a
+  sibling of the reader, not a child of the parse.
+
+Empty ports are drawn with an explanation and a way to supply the object —
+a missing attachment is visible capability, not absent UI.
+
+## 4. Changing the meta level
+
+Opsis's own configuration is a subject like any other — the tk demonstrator
+proved the mechanism (its Style record drawn and retyped by the same table).
+So "going meta" is not a mode: it is **moving focus along a lineage edge that
+happens to point at yourself**. The session graph contains opsis's own session
+as a node; its document is the configuration text; its reader is the config
+grammar; its facets are the same four. The ladder closes into a ring (the
+opsis-4 conjecture) and the ring is just an edge in the graph. Ergonomically:
+one gesture — focus a subject — covers grammars, documents, and the
+instrument itself, uniformly.
+
+## 5. What a stacktrace looks like on a badly formatted file
+
+A refusal is a *reading product*, so it gets facets like any product:
+
+- the DOCUMENT with the **failure frontier** marked — the deepest position the
+  engine verified before refusing;
+- the SPINE **at the frontier** — what was open when derivation died (the
+  honest analogue of stack frames);
+- the **expected-next** set, from the grammar, in the reader's own spellings —
+  which co-selects the rules that could have continued (the reader facet
+  lights the alternatives);
+- the engine's words, verbatim, as the title line.
+
+**Measured gap (2026-08-07): lexic's public parse surface carries none of
+this.** A refusal is `UnsupportedConstructError` with words only — no
+position, no expected set (`args` is the whole payload). The engine knows the
+frontier internally (the PDA's failure state, Earley's last live column); the
+public surface discards it. This is lexic work worth a ruling, the same class
+as opsis-3's §6 findings — a readout surface, additive, shaped like
+`readout.py`'s existing seam. Until it lands, the refusal facet draws the
+words and marks the frontier **unmeasured**, honestly.
+
+## 6. Performance truth (measured, same day)
+
+`json.gbnf` on the PDA fused route: **313,593 chars/s**. The metagrammar on
+the Earley+resolver route: **1,974 chars/s** — 159×. The resolver fires ONCE
+on all of vyx.gbnf, so the cost is the route, not the resolution: the GBNF
+self-grammar's model product is ambiguous, the PDA probe-forks, and the whole
+document pays for Earley + the ambiguity audit. Lexic-side fix: make the
+self-grammar's model product unambiguous (noise attribution) so it rides the
+PDA. Opsis's obligation meanwhile: state the route in the masthead (it does).
+
+## Iteration ladder
+
+1. **Refusal facet** — draw the trace shape with what exists (words +
+   unmeasured frontier); wire a `broken` fixture. Blocked-on-lexic parts named.
+2. **Seam resize** — shares as session values; degrade-by-deriving-less.
+3. **Rule graph facet** — flat first (edges + co-selection), then the earned z.
+4. **Ports bay** — reducer docking as the first real attachment; transpile
+   peer lane second.
+5. **The ring** — focus opsis's own configuration as a subject.
+
+One iteration per session, tally updated each time, census before screenshots.

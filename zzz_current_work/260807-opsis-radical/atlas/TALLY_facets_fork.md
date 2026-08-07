@@ -55,20 +55,3 @@ Newest last. One line per meaningful step; enough to resume cold.
   facet co-lit `namechar ::= [\-0-9A-Z_a-z]`, the rule that read the selected
   character: cross-facet deixis on camera.
 - Root README run-lines updated for the tk/ move.
-- COMMITTED at 80ede43 on opsis_proto ("opsis-radical: the demonstrator line")
-  — user's explicit grant; gitignored zzz added with -f; pre-commit gates green.
-- Perf question answered by measurement: PDA fused route 313,593 chars/s vs
-  metagrammar Earley+resolver route 1,974 chars/s (159×); resolver invoked
-  exactly ONCE on vyx — the cost is the route (ambiguous self-grammar model
-  product → probe-fork → Earley + ambiguity audit), not resolution. Lexic-side
-  fix: de-ambiguate the GBNF self-grammar's model product (noise attribution).
-- Refusal surface measured: UnsupportedConstructError carries words only — no
-  position, no expected set. Lexic gap worth a ruling (readout-shaped,
-  additive). Recorded in atlas/THINKING.md §5.
-- atlas/ forked from facets (leaf + serve intact; facets tally frozen there as
-  TALLY_facets_fork.md). atlas/THINKING.md written: topological answers for
-  resize (degrade-by-deriving-less), the 3D rule graph (z = derivation
-  distance, name-addressed co-selection), attachments as ports (products
-  multiply facets, transpile is a peer edge), the meta ring (focus along a
-  lineage edge pointing at yourself), the refusal facet, and the iteration
-  ladder (refusal → seams → graph → ports → ring).
