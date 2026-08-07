@@ -119,3 +119,37 @@ history so nothing is re-derived or re-run.
   question is no longer "what do we build" but "why does one character cost
   more than one rule frame", and whether that is the grammar's shape (vyx's
   per-character lexical rules) or the engine's.
+- **THE COST MODEL — recognition tracks CLONE ENTRIES, and the loss is
+  entries/char × ns/entry.** Measured across all six:
+
+  ```
+  grammar      µs/char  entries/char  ns/entry   rival   ratio
+  csv            0.854         0.228    3743      0.727  1.17x LOSES
+  json           1.933         0.605    3193      2.124  0.91x WINS
+  arithmetic     3.100         1.025    3024      2.684  1.15x LOSES
+  vyx            4.912         1.077    4562      2.773  1.77x LOSES
+  abnf-meta      5.929         1.451    4087      3.913  1.52x LOSES
+  gbnf-meta      5.109         1.064    4802         —      —
+  ```
+
+  µs/char tracks entries/char closely — 0.228→0.854, 0.605→1.933, 1.025→3.100,
+  1.451→5.929. **The one row lexic WINS (json) is the second-lowest
+  entries/char.** The correlation is the finding.
+  But ns/entry is NOT constant: 3,024 (arithmetic) to 4,802 (gbnf-meta), and
+  vyx costs 4,562 against arithmetic's 3,024 for near-identical entries/char
+  (1.077 vs 1.025). So there are TWO levers, and vyx is bad at both.
+  **Caveat on ns/entry, stated because it is easy to over-read:** it is
+  total ÷ entries, so it attributes ALL work to entries including terminal
+  scanning that happens inside `_drive` without any entry. For csv (0.228
+  entries/char) most of the parse is scanning between entries, which inflates
+  its ns/entry. The figure is a ratio, not a per-entry cost.
+- **TWO LEVERS, both open:**
+  (a) **entries/char** — grammar shape. The dispatch-conversion landing already
+      cut vyx's from 1.56 to 1.077, worth 5.118→4.815 µs/char.
+  (b) **ns/entry** — why does a vyx entry cost 1.5× an arithmetic one at the
+      same entries/char? Suspicion, unmeasured: attempt entries run whole
+      sub-runs, and vyx is the attempt-heavy grammar. If so, the lever is the
+      attempt seam, not the driver.
+- NEXT: decompose ns/entry by entry KIND (plain frame push vs attempt sub-run
+  vs gated selection) on vyx. That separates lever (b) into something
+  actionable or kills it.
