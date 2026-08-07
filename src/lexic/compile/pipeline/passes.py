@@ -11,7 +11,11 @@ language-preserving-for-instances rewrites::
   single unit ruleref hoists to a ``<rule>-arm<N>`` sequence rule, restoring
   the single-arm premise the positional fold rests on. Empty arms stay in
   place (zero-kid matches discriminate themselves).
-- :func:`relax_non_semantic` — refs to ``semantic=False`` rules get ``min=0``.
+- :func:`relax_non_semantic` — refs to NULLABLE ``semantic=False`` rules get
+  ``min=0``. The nullability condition is what keeps the third rewrite
+  language-preserving like the other two: over a non-nullable rule the same
+  relaxation widens the accepted language, and a widening can introduce
+  ambiguity into a formulation authored to be unambiguous.
 
 The ``lexic.compile`` package builds the codegen grammar via
 :func:`build_codegen_grammar` and hands it to both synthesis and the instance
@@ -43,6 +47,7 @@ from lexic.ir import (
     IrSequence,
     IrTypeMap,
 )
+from lexic.parsing import nullable_names
 
 
 def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:
@@ -199,15 +204,30 @@ def _relaxed_item(item: IrItem, non_semantic: frozenset[str]) -> IrItem:
 
 
 def relax_non_semantic(ast: IrAst) -> IrAst:
-    """Relax the quantifier of every top-level ref to a non-semantic rule.
+    """Relax the quantifier of every top-level ref to a NULLABLE noise rule.
 
-    Only arm-level items relax (refs inside inline groups keep their bounds),
-    matching the spec-level relaxation the old derive pipeline applied.
+    Only arm-level items relax (refs inside inline groups keep their bounds).
+
+    The nullability condition is what makes the pass language-preserving rather
+    than language-widening. ``min=1 → min=0`` over a rule that already derives
+    ε changes nothing about the accepted language (once ``ε ∈ L(N)``,
+    ``L(N)^{lo..hi} == L(N)^{0..hi}``) — it only lets the noise be ABSENT in the
+    model instead of an empty node, which is the ergonomic the flag exists for.
+    Over a non-nullable rule the same rewrite strictly widens the language, and
+    a widening can make the grammar ambiguous: relaxing GBNF's ``n ::= nunit+``
+    deletes the mandatory-separator discipline ``grammars/gbnf.py`` engineers
+    maximal munch with, after which ``a ::= bc`` means either one rule
+    reference or two. An authored quantifier is not the engine's to overrule.
+
+    Nullability is read from the INCOMING grammar. Solving it on the relaxed
+    result would be self-fulfilling — relaxing ``n ::= nunit+`` to ``nunit*``
+    makes ``n`` nullable, which would then license relaxing every reference to
+    it.
 
     :param ast: The grammar carrying ``semantic=False`` flags on noise rules.
-    :returns: The relaxed grammar; unchanged when no rule is flagged.
+    :returns: The relaxed grammar; unchanged when no nullable rule is flagged.
     """
-    targets = ast.non_semantic
+    targets = ast.non_semantic & nullable_names(ast.rules)
     if not targets:
         return ast
     rules = [

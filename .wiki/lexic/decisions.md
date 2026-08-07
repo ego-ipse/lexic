@@ -615,3 +615,55 @@ This retires "ruling 1", which had licensed the two paths to disagree: *"the PDA
 - The semantic licence had been hiding 47 of 200 JSON inputs — the same characters landing in different `Ws` fields.
 - Ambiguity is still **refused by default**. The engines are not permitted to pick. A caller may supply a deterministic resolver, and that resolver's behaviour is the caller's concern, not the engine's — it is not a fallback and not a flag.
 - `RAW_PARITY_STEMS` excludes a stem only with a written reason. Exclusions are debts, not licences.
+
+---
+
+## A codegen pass may not overrule an authored quantifier
+
+**Decision:** `relax_non_semantic` relaxes an arm-level ref to a `semantic=False`
+rule to `min=0` **only when that rule is nullable**. A required ref to a
+non-nullable noise rule keeps its bound. A grammar that means "optional" writes
+`ws?`.
+
+**Why:** the flag buys a model-shape ergonomic — noise reads as an absence
+rather than an empty node — and that is free exactly when the noise already
+derives ε: once `ε ∈ L(N)`, `L(N)^{lo..hi} == L(N)^{0..hi}`, so the rewrite
+cannot change what the grammar accepts. Over a non-nullable rule the same
+rewrite strictly widens the language, and a widening can make an unambiguous
+formulation ambiguous. That is not hypothetical: it was happening to the GBNF
+metagrammar, which engineers maximal munch structurally because it has no lexer
+to grant it. `seq-rest ::= n item` (an item may follow another without real
+whitespace only if it is a non-name atom) was relaxed to `n? item`, and
+`n ::= nunit+` to `nunit*` — after which `a ::= bc` derives either one rule
+reference or two. Every grammar read through the metagrammar needed an
+ambiguity resolver, and the PDA — correctly — probe-forked one character into
+the first rulename and handed the whole document to Earley, which is
+superlinear on this grammar (~n³·²). Narrowing the pass put all ten
+ground-truth grammars back on the predictive route with no resolver: vyx
+4.561 s → 0.028 s.
+
+The general form: **the codegen passes may restructure a grammar, never
+re-author it.** `hoist_groups` and `hoist_arms` preserve the language by
+construction; `relax_non_semantic` is the one that could not, and the
+nullability condition is what buys it the same standing.
+
+**Nullability is solved on the INCOMING grammar,** never the result — relaxing
+`n ::= nunit+` to `nunit*` makes `n` nullable, which would then license
+relaxing every reference to it. The pass would bootstrap its own licence.
+`nullable_names` (the repo's only nullability fixpoint, in
+`parsing/pda/analysis/predicates.py`) is exported from `lexic.parsing` for this,
+following `lift_optional_nullables`.
+
+**Cost, accepted:** a grammar whose noise rule is non-nullable narrows. With
+`ws ::= [ \t]+` and `root ::= "a" ws "b"`, the text `ab` was silently accepted
+and is now refused. Among the ground-truth corpus only `c.gbnf` has a
+non-nullable `ws`; its own fixtures are unaffected. This is not the cost of the
+fix so much as the fix itself — the previous behaviour was the engine
+second-guessing an authored quantifier.
+
+**Still open, deliberately unbundled:** an attemptable rule carries ONE
+canonical clone with a rule-level union FOLLOW as its attempt licence
+(`beyond_at`, `_spec_ruleref` — per-tail clones cost 60% of sub-runs on the vyx
+corpus). So a rule that is genuinely ambiguous at one reference site
+probe-forks at *every* site, and the fallback is whole-document rather than an
+island. Narrowing the pass removed the trigger, not the mechanism.

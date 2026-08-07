@@ -309,10 +309,15 @@ Scanned from source comments *before* the grammar is parsed, by the private
 
 ```
 # @start my_rule          — override the start rule (default: first defined)
-# @non-semantic ws sp     — mark rules structural; their refs get min=0
+# @non-semantic ws sp     — mark rules structural; refs to NULLABLE ones get min=0
 ```
 
-A directive naming an undefined rule is silently ignored.
+A directive naming an undefined rule is silently ignored. The `min=0`
+relaxation applies only where it is **language-preserving** — to refs whose
+target rule already derives ε. A required ref to a non-nullable noise rule
+keeps its bound: relaxing it would widen the accepted language, and a widening
+can make an unambiguous formulation ambiguous. Write `ws?` if you mean
+optional.
 
 ## Key invariants
 

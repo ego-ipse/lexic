@@ -92,6 +92,11 @@ taxonomy the verdict readers consume), and
 :func:`~lexic.parsing.products.pda_tables` /
 :class:`~lexic.parsing.pda.compiler.tables.PdaTables` (the compiled tables a
 kernel runs over, identity-memoised with the parse path).
+
+:func:`~lexic.parsing.pda.analysis.predicates.nullable_names` surfaces here for
+the same reason: it is the repo's only nullability fixpoint, and the codegen
+passes need it to tell a language-preserving rewrite from a language-widening
+one (:func:`~lexic.compile.pipeline.passes.relax_non_semantic`).
 """
 
 from __future__ import annotations
@@ -135,6 +140,7 @@ from lexic.parsing.fold import (
     lift_optional_nullables,
 )
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.predicates import nullable_names
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.products import (
@@ -264,6 +270,7 @@ __all__ = [
     "is_ambiguous",
     "lift_optional_nullables",
     "normalize",
+    "nullable_names",
     "parse",
     "parse_first",
     "parse_forest",

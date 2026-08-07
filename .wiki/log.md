@@ -1,5 +1,26 @@
 # Log
 
+## `relax_non_semantic` narrowed to nullable noise rules
+
+The pass rewrote every arm-level ref to a `semantic=False` rule to `min=0`,
+whatever the rule derived. Over a nullable noise rule that is free; over a
+non-nullable one it widens the accepted language. It was widening GBNF's own
+metagrammar: `n ::= nunit+` became `nunit*` and `seq-rest ::= n item` became
+`n? item`, deleting the mandatory-separator discipline `gbnf.py` engineers
+maximal munch with — so `a ::= bc` meant either one rule reference or two. The
+metagrammar was ambiguous, every grammar read through it needed a resolver, and
+the PDA correctly probe-forked one char into the first rulename and handed the
+whole document to Earley (superlinear on this grammar).
+
+Now `targets = ast.non_semantic & nullable_names(ast.rules)`, solved on the
+incoming grammar so the pass cannot bootstrap its own licence. All ten
+ground-truth grammars read by the metagrammar now ride the PDA with no
+resolver: vyx 4.561 s → 0.028 s. `nullable_names` is exported from
+`lexic.parsing` (the `lift_optional_nullables` precedent); [[codegen]] and
+[[decisions]] carry the rule.
+
+---
+
 ## A record's fields, read properly under PEP 649
 
 `IrNamedTuple.__init_subclass__` derived fields from
