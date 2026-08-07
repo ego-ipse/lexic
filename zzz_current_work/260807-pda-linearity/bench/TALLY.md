@@ -747,3 +747,31 @@ history so nothing is re-derived or re-run.
   ambiguity guarantee (a ruling), or move the character loop below Python (a
   different implementation language for the driver). Neither is a change this
   mission can make, and I have no fourth to offer.
+- **BACK TO THE DIRECTIVE: two MEASURED inefficiencies in the generic driver's
+  hot path.** Operation-level microbenchmarks, 300k iterations:
+
+  ```
+  text[p:p+1] + '' emptiness test    50.3 ns
+  p < n and text[p]                  32.0 ns    36% cheaper
+  arm.payloads[i]                    16.4 ns
+  payloads = arm.payloads (hoisted)  12.4 ns    24% cheaper
+  ```
+
+  **(1) The one-character slice.** Every lookahead in the engine reads
+  `text[pos : pos + 1]`, which ALLOCATES a new string object per test, and then
+  compares against `""` to detect EOF. Indexing with an explicit bounds check
+  does the same job 36% cheaper and allocates nothing. The pattern is not local
+  — it is in `_drive`'s inline `OP_CC1` path, `_enter`, `_settle`, `gate_take`,
+  and the matchers; it is the single most-executed expression in the engine.
+  **(2) The unhoisted attribute.** `_drive` hoists `arm.kinds` out of the inner
+  loop but reads `arm.payloads[i]` per item. Hoisting `payloads` the same way is
+  24% cheaper per access.
+  Neither ADDS a test to a hot path — which is what killed the three previous
+  candidates. Both REMOVE work from an expression already being evaluated, and
+  they apply to every grammar, not to one shape.
+- Sizing, deliberately conservative: csv alone runs ~12.5k character tests; at
+  18 ns saved each that is ~0.23 ms of a 12.9 ms parse (~1.8%) from the slice
+  change on the `OP_CC1` path ALONE, before counting `_enter`, `gate_take`, the
+  matchers, or the payload hoist. The aggregate across every call site is
+  unmeasured and is the next thing to establish — the per-site counts are the
+  measurement, not another microbenchmark.
