@@ -216,3 +216,38 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   parsing — the user's hands are the gate. Slice 2: editing (grid editor +
   kitty keyboard protocol for Ctrl+Enter), selection + OSC 52, chart as a
   kitty-graphics placement pane.
+- D-half-2 (islanding) DESIGNED, not implemented — `gate/D-ISLANDING.md`. The
+  feasibility read overturned the "it is just wiring" assumption and then
+  closed it better: islanding a RUNTIME fork is not obviously sound (a
+  compile-time island has a decidable boundary; a ProbeFork IS an undecidable
+  boundary), but `island_parse` already carries the guard — `policy.follow`
+  bails when a shorter completion end could compose, and `island_follow`'s own
+  note records that a rule-level (superset) follow can only cause a spurious
+  bail, never a wrong commit. So the change is safe by construction and
+  degrades to today's fallback on every uncertain outcome. Mechanism: on
+  ProbeFork climb to the innermost NAMED-rule frame, roll back to its F_START
+  (the `_attempt_run` floor-watermark primitive), island that rule, splice into
+  the parent sink; on any island refusal re-raise and fall back as today. One
+  thing must be built: PdaTables keeps FOLLOW only for declared islands and
+  needs it for every rule (the analysis already has it). Risks logged: the
+  climb target, PROBE_DEPTH forks (not boundary questions — keep falling back),
+  reduce-path parity, and the real one — a failed island attempt is pure loss
+  on top of a fallback, so with the prize at only ×8 the instrument must show
+  island-succeeded vs island-attempted before this counts as a win. Stopped
+  before touching the kernel's hot loop: it wants to land as one reviewed
+  change, gated on the parity differentials.
+- TUI SLICE 2 — read-side parity with the browser: THE READER pane (rule
+  co-lighting from hover/selection, click-a-rule → violet marks everywhere,
+  auto-scroll to the lit rule), THE DERIVATION band (overview density in
+  shade glyphs + depth lanes of the visible window, overview scrubs), drag
+  selection → smallest covering occurrence, routes strip polled live,
+  fidelity verdict in the masthead. Facets degrade by deriving less (reader
+  hides <140 cols, chart <34 rows; 'c' toggles). Census grew to nine checks,
+  green on vyx and long; verified by a faithful text screenshot that
+  RECONSTRUCTS absolute positioning into a character grid (the census's
+  earlier reader check searched stripped output where rows don't survive —
+  fixed to assert the def line itself). Layout fix: the chart band now starts
+  clear of the reader pane (it was drawn under it, burying the overview's
+  left quarter and skewing the scrub mapping). Remaining for slice 3: the
+  write side — grid editor, kitty-keyboard Ctrl+Enter/Ctrl+S, refusal
+  frontier in cells.
