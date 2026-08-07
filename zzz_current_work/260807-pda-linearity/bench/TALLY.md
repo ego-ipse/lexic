@@ -650,3 +650,33 @@ history so nothing is re-derived or re-run.
   call-site pair with counts capped at exactly 2. Same class of error as
   iteration 6's cumulative-vs-self timing. Both were caught by checking the
   call graph; neither was visible in the numbers alone.
+- **C-LEVEL SCAN PROTOTYPED (`bench/rescan.py`) — NOT A WIN.** `match_cc`'s
+  per-character loop replaced by a per-CharSet precompiled `re`, memoised on the
+  `(chars, negated)` pair:
+
+  ```
+             baseline   re-scan
+  csv          0.877     0.862    +1.7%
+  arithmetic   3.259     3.188    +2.2%
+  json         1.982     2.136    −7.8%   WORSE
+  vyx          4.842     4.978    −2.8%   WORSE
+  ```
+
+  Round-trip holds everywhere. Small win on the two grammars with long
+  char-class runs, **clear loss on the two with short ones** — exactly the
+  crossover the kill-test found at length 2, now paid for real.
+- **MY ESTIMATE WAS 3× OPTIMISTIC.** Predicted ~5.4% on csv from the run-length
+  distribution; measured **1.7%**. The microbenchmark timed the scan in
+  isolation; in situ the call overhead lands against a smaller share of the
+  parse than the run-length arithmetic implied. Recording the ratio because it
+  is the second time this mission a per-run microbenchmark over-predicted an
+  in-situ result (FIRST_k was the first), which is now a pattern worth
+  distrusting rather than an accident.
+- **UNTESTED VARIANT, and the only thing left on this line:** the design note
+  said "keep the loop for length-1 runs — a cheap first-char test recovers the
+  crossover loss", and this prototype did NOT implement it. json and vyx are
+  precisely the short-run grammars, so a guarded version might turn −7.8% and
+  −2.8% into ~0 and keep csv's +1.7%. That would make it a ~2% win on two rows
+  and neutral on two — real, but a tenth of what csv needs and not worth a src
+  change on its own. It should be measured before this line is called dead, and
+  it should not be expected to change the verdict.
