@@ -297,3 +297,33 @@ history so nothing is re-derived or re-run.
   four files, one seam. Worth it at ~40% of vyx's entry time, but it is not the
   one-line change the "machinery already exists" framing might suggest, and the
   next iteration should size the diff honestly before starting it.
+- **CORRECTION TO THE SIZING — my "k=4 excludes 83%" was off by one.**
+  Reasoning it through rather than reading the cumulative column off the table:
+  an arm that FAILS at depth d had its first d characters ACCEPTED. A FIRST_k
+  window describes what can begin the arm, so for k ≤ d the window MATCHES and
+  the filter does NOT exclude it. **FIRST_k excludes exactly the arms whose
+  failure depth is < k.** Re-reading the same data with the correct offset:
+
+  ```
+  k=2  excludes depth 1        296 of 784   37.8%
+  k=3  excludes depth ≤2       362          46.2%
+  k=4  excludes depth ≤3       436          55.6%
+  k=5  excludes depth ≤4       654          83.4%
+  ```
+
+  So the prize is **k=4 → ~11 ms of vyx's 41 ms (~27%)**, and the 83% figure
+  needs **k=5**, not k=4. Iteration 8 read the cumulative row at depth 4 and
+  attributed it to k=4; the window has to be one wider than the failure it
+  rules out.
+  Revised expectation for the prototype: vyx 4.9 → roughly 4.0–4.3 µs/char at
+  k=4, not the ~3.0 the earlier number implied. **The success criterion set in
+  iteration 9 (under 4.0 µs/char) was set against the wrong sizing and is
+  probably unreachable at k=4** — it stands as written, and if the prototype
+  lands at 4.2 that is the lever working as actually sized, not a failure.
+- SECOND-ORDER, unresolved and worth stating: failure depth is measured on the
+  arms the seam actually tried. An arm excluded by a window is never tried, so
+  the excluded set is not guaranteed to be exactly the shallow-failing set —
+  the estimate assumes the window is TIGHT at the failure point, and a loose
+  window (FIRST_k over-approximates) excludes fewer. So the numbers above are
+  an UPPER bound on what k buys, not a prediction. Only the prototype settles
+  it.
