@@ -251,3 +251,37 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   left quarter and skewing the scrub mapping). Remaining for slice 3: the
   write side — grid editor, kitty-keyboard Ctrl+Enter/Ctrl+S, refusal
   frontier in cells.
+- D-half-2 HIT RATE MEASURED (`gate/probes/island_trial.py`, no src change — a
+  PdaKernel subclass trials the island at each fork and re-raises): 3 of 5
+  settle, and the split is by construct — pipe-lists island cleanly, dict-defs
+  always bail through `policy.follow` ("arm choice spans two ends (3,4) and the
+  shorter could compose"), which is the guard working, not a defect. So the
+  mechanism is sound on live subjects and the open question is purely economic:
+  a bail pays the island attempt ON TOP of the fallback, so dict-defs get
+  strictly slower. Sample bound stated: 8 forks, one grammar, inputs of tens of
+  chars; a dict-entry-heavy packet at size is the adversarial case and nothing
+  in the corpus exercises it. Remaining work listed as D-ISLANDING.md §7 — and
+  a NEW prerequisite surfaced: neither FlatClone nor RuleFold carries a rule
+  name and `flatten_program` discards the CloneKey→FlatClone map, so the probe
+  had to recover names via compute_binding, which the kernel cannot do. Probe
+  bug worth remembering: dedup by `id(exception)` false-dedups (ids are reused
+  after GC) — mark the object instead.
+- TUI SLICE 3 — the write side in cells, and the renderings CONVERGE (user
+  caught the divergence). Chart semantics now match the browser: lanes follow
+  the cursor's viewport, not the doc scroll. Edit mode ('i'): buffer editing
+  with caret (insert/backspace/delete/arrows/click), stale facets with the
+  last-good-reading note, Ctrl+R re-reads / Ctrl+S saves-and-compiles (the
+  terminal's honest stand-ins; Ctrl+Enter needs the kitty keyboard protocol —
+  deferred), Esc reverts (lone-Esc settled by the select timeout). Refusal
+  keeps the buffer, drops the RED frontier caret on the exact char, moves the
+  caret there. Bugs found by the census this round: the uv-run spawn leak
+  (killing the wrapper orphans the server — fixed: venv-python spawn,
+  new session, process-group kill, fixture-verified reuse that REFUSES a
+  mismatched port), frontier cell lost to the caret (precedence swapped), the
+  reader check asserting hover's rule while auto-scroll follows selection's
+  (now asserts what render_reader promises). Census: sixteen checks per
+  fixture, write side driven through the same byte path the terminal uses;
+  green on long and vyx. REMAINING structural divergence, named: two leaves
+  carry duplicated hand-authored presentation policy — the drift pressure the
+  user observed; the eventual seam is policy-as-data over the wire
+  (arrangement as a session value, THINKING §1/§4 direction).
