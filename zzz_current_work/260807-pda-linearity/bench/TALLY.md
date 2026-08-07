@@ -836,3 +836,28 @@ history so nothing is re-derived or re-run.
   obvious waste — its cost is the interpreted per-item, per-character work
   itself, which is the structural conclusion this mission reached three separate
   ways.
+- **LEAF CALL OVERHEAD — ~2%, and it completes the driver's overhead budget.**
+  A 4-argument Python call costs **37.5 ns** net of loop overhead. Against the
+  leaf-call counts:
+
+  ```
+  csv        5,499 × 37 ns = 206 µs of 10.5 ms = 2.0%
+  arithmetic 7,490         = 281 µs of 12.9 ms = 2.2%
+  json       3,214         = 121 µs of  4.6 ms = 2.6%
+  vyx        8,480         = 318 µs of 16.9 ms = 1.9%
+  ```
+
+  Inlining every leaf into `_drive` would recover it — and would blow the
+  branch and locals caps that already forced the `_settle` extraction, and
+  dissolve the module structure the package is deliberately organised around.
+- **THE DRIVER'S TOTAL RECOVERABLE OVERHEAD IS ~3–4%.** Everything this mission
+  found in the generic driver, added up:
+  · redundant `len(text)` per leaf call — **~1%** (costs every leaf signature)
+  · leaf call overhead — **~2%** (costs the module structure)
+  · one-char slice — **~0%** (premise wrong; CPython interns 1-char strings)
+  · adjacent-item fusion — **0%** (no opportunity; existing passes took it)
+  **csv needs 21% to pass lark-lalr.** The driver is not carrying 21% of waste;
+  it is carrying 3–4%, and each point of it costs an architectural concession.
+  This is the same conclusion the mission reached from three other directions,
+  now with a budget attached: **the cost is the interpreted per-item,
+  per-character work itself, not overhead around it.**
