@@ -508,3 +508,11 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   stacking context — z-index: 0 on the wrap scopes depth-ordering locally
   and puts the whole graph layer beneath the windows (pins z≥20 win).
   Pinned-graph windows were already scoped by their own .pin z-index.
+- RULED: the graph asks move into rung 5 (layout tunables as policy sliders;
+  graph.view switchable depth3d/flat/arcs) and post-5 (the railroad as its
+  own iteration, per-rule diagrams in pin windows, facet kind reserved in
+  the schema). Rung 5 scope inscribed as THINKING §8, itemized; ladder
+  renumbered with DONE marks. Nothing blocks rung 5: zzz-only (no src
+  contention with the engine lane), no lexic asks outstanding, TUI flat
+  design known. Accepted limitation, named: session policy dies with the
+  server process (persistence is not rung 5).

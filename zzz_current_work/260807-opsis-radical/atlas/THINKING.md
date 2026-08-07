@@ -143,17 +143,66 @@ User-blessed ("the fair compromise for now") after TUI slice 3.
 - **The native/GPU endgame stays the watched option** (libghostty when it
   stabilises); nothing above the leaf changes if taken later.
 
+## 8. Rung 5 — policy into the wire (scope, ruled with the user)
+
+One instrument, one policy, many surfaces — presentation moves from leaf code
+into session state; the leaves become interpreters. In scope, explicitly:
+
+1. **The policy record** on the session, line-oriented like the whole wire
+   (no JSON): dotted keys — `arrange.reader`, `doc.zoom`, `chart.zoom`,
+   `spine.zoom`, `speed`, `reader.mode`, `graph.*`, `pin.<id> …`. Cursors
+   (t, sel) already live on the subject; policy is the third session state.
+   NOT IR-notation yet — configuration-as-IR is the ring's business.
+2. **Wire**: `#POLICY` in `/scene`; `POST /policy` (changed keys as lines);
+   `GET /policy` polled ~2s — which gives cross-leaf sync free: two leaves
+   on one server stay in step.
+3. **Browser re-base**: boot applies policy (pins survive reload — the felt
+   gap); every presentation gesture posts its delta.
+4. **Seam resize lands here** — draggable hairlines writing `arrange.*`;
+   it always was arrangement-as-value.
+5. **THE GRAPH ASKS, moved into this rung by ruling**:
+   - Obsidian-style layout tunables as policy values with a slider panel:
+     `graph.levelstep` (z separation), `graph.ringscale`, `graph.flatten`,
+     `graph.labelscale`.
+   - `graph.view` switchable: `depth3d` (current) · `flat` (levels as
+     columns, no camera — the same view the TUI renders in cells) · `arcs`
+     (rules in SOURCE ORDER on a line, reference arcs above/below —
+     recursion, forward/backward refs and clustering become visible shapes,
+     and source order is preserved where the rings destroy it).
+6. **TUI re-base — the acceptance test**: the TUI obeys `#POLICY` (shares,
+   speed, reader.mode) including rung 4's remaining half — the FLAT rule
+   graph in cells is just the TUI's interpretation of `graph.view`. Pins
+   render as a minimal occurrence-list pane (full panes stay rung 6).
+7. **Gates**: policy round-trip census (POST → GET → boot applies, asserted
+   in DOM and TUI text screenshots); SPEC §2 wire update; ledger.
+
+Out of scope, named: IR-native policy spelling (the ring), the engine
+clocks (rung 2b), per-colour register editing, policy persistence across
+server restarts (session state dies with the process — accepted for now).
+
+**POST-5, its own iteration by ruling: the railroad.** Per-rule railroad
+diagrams opened as pin windows (mark a rule → pop its railroad) — a real
+renderer with lineage (opsis-1's graphic.py was a railroad flavour as an
+open dispatch table); its facet kind is reserved in the policy schema now.
+
 ## Iteration ladder
 
 1. ~~Refusal facet~~ — DONE (browser + TUI, frontier in both media).
 2. ~~Both engines, first half~~ — DONE (background run, parity verdict,
    inversion). The clocks-switch remains, folded after the policy rung.
-3. **Pinning in the browser** (§7) — the ruled window exception, built.
-4. **The 3D rule-graph facet in the browser** (§2, §7) — flat in the TUI.
-5. **Policy into the wire** (§7) — extracted from rungs 3–4; TUI re-based
-   onto it as the proof one policy drives two media; seam-resize lands here.
-6. **TUI panes-for-pins** — the policy's pane rendering.
-7. **Ports bay** — reducer docking; transpile peer lane.
-8. **The ring** — focus opsis's own configuration as a subject.
+3. ~~Pinning in the browser~~ — DONE (uncapped by ruling; chip gesture;
+   measured birth width; reconciled rendering).
+4. ~~The 3D rule-graph facet, browser half~~ — DONE (+ focus mode, orbit,
+   zoom, pop-out, camera clamp; the TUI flat half moves into rung 5).
+5. **Policy into the wire** (§8) — INCLUDES the graph asks (tunables +
+   switchable views flat/arcs) and the TUI re-base with the flat graph;
+   seam-resize lands here.
+6. **The railroad** (§8, post-5) — per-rule railroad diagrams as pin
+   windows.
+7. **TUI panes-for-pins** — the policy's pane rendering.
+8. **Engine clocks** (rung 2's second half) — cheaper now: FlatClone names
+   + the Refusal readout landed.
+9. **Ports bay** — reducer docking; transpile peer lane.
+10. **The ring** — focus opsis's own configuration as a subject.
 
 One iteration per session, tally updated each time, census before screenshots.
