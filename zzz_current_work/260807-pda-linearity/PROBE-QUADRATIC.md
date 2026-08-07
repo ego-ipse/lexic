@@ -188,3 +188,30 @@ often — not how much each one costs at size. `probes/probecount.py` was writte
 to measure cost per grammar but `lexic.generate`'s depth budget produces inputs
 of 3–43 characters, far too short to show growth; it needs per-grammar growth
 templates (the `scaling.py` shape) before it can answer the cost half.
+
+## Item 1, second answer: keep the stop-probe — and lockstep makes it moot
+
+Hunted a `_STOP_FORCED` counterexample rather than arguing about one
+(`probes/stopforced.py`, six loop shapes where a greedy take would steal what a
+later mandatory item needs). None of them reaches a fork verdict at all: those
+loops are settled by the stop-set / k-window gates and never enter the attempt
+path, so they cannot exercise the verdict.
+
+The structural reason the corpus produces no `STOP_FORCED`, which is the useful
+finding: by the time `_fork_verdict` runs, **the iteration itself has already
+parsed** — `_attempt_run` returned non-``None``, and a failing iteration closes
+the loop earlier. So the take side dies only when the REMAINDER fails after a
+successful iteration while stopping completes. The corpus's attempt-gated loops
+are noise loops (`ws` — 94% of verdicts) and vyx's list loops, where one more
+iteration consumes characters nothing later needs. There is no subject.
+
+`STOP_FORCED` is reachable in principle — gbnf-meta's terminator theft was
+exactly it, which is why the branch exists — and the relaxation fix removed that
+subject without making the shape impossible. **So the probe stays.** It costs a
+constant, and a constant is cheap insurance on a soundness check, per the
+reviewer's own note 2.
+
+**And the question turns out not to matter**, which is worth saying plainly: the
+halving was only ever a constant-factor shortcut. Lockstep convergence makes
+BOTH probes O(1) per boundary, so it subsumes the saving entirely. Item 1 is
+closed; nothing about item 2 changes.

@@ -103,3 +103,30 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   inputs, so it needs per-grammar growth templates first.
 - Next: the STOP_FORCED reachability argument (item 1's second half, could halve
   item 2), then lockstep convergence.
+- **ITEM 1 CLOSED — both questions answered.** (a) GENERALITY: the quadratic is
+  `ws`-shaped, not vyx-shaped — 4,736 of 5,027 fork verdicts are paid by a
+  whitespace rule (above). (b) STOP_FORCED: hunted a counterexample instead of
+  arguing (`probes/stopforced.py`, six loop shapes) — none of them reaches a
+  fork verdict at all, because those loops are settled by stop-set/k-window
+  gates and never enter the attempt path. The structural finding that explains
+  the corpus's zero: by the time `_fork_verdict` runs the iteration has ALREADY
+  parsed (a failing iteration closes the loop earlier), so the take side dies
+  only if the remainder fails after a successful iteration while stopping
+  completes — and the corpus's attempt-gated loops are noise loops, where one
+  more iteration steals nothing anyone needs. Reachable in principle (gbnf-meta's
+  terminator theft WAS it; the relaxation fix removed the subject, not the
+  shape), so **the probe stays** — a constant is cheap insurance on a soundness
+  check. And the question is moot anyway: lockstep makes BOTH probes O(1), so
+  the halving was only ever a constant-factor shortcut. Nothing about item 2
+  changes.
+- NEXT: item 2, lockstep convergence in `_fork_verdict`. Design is
+  PROBE-QUADRATIC.md's last section; the shape of the implementation is now
+  clear from reading `_drive`: it needs (1) a bounded drive — a position limit
+  checked at the OUTER frame-boundary loop only, so the per-item hot path is
+  untouched; (2) each side keeping its own (stack, pos) and being swapped in and
+  out per round, which `_probe` already does once; (3) a control-state
+  signature — (pos, per-frame (arm identity, item index, count)) and explicitly
+  NOT the accumulated values, since those differing is the thing being measured;
+  (4) the budget escape falling back to today's run-to-EOF. Gate: the parity
+  differentials, plus adversarial fixtures for the convergence predicate
+  (identical control state, divergent pending values) per the reviewer's note 1.
