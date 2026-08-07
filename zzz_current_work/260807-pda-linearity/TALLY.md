@@ -400,3 +400,27 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   take it first**; §1 is worth doing but touches the hottest path in the engine
   and part 2 adds work to EVERY entry to save it on a quarter — a trade the §4
   calibration cannot predict, so measure before believing 26%.
+- **PROPOSAL IS NOW AN ACTUAL PROPOSAL — prototyped, working, measured, suite
+  green.** Working prototype at `subopt.py` (pytest plugin, both halves by
+  monkeypatch; the two patched functions ARE the intended diff).
+  · **vyx +7.1%, clone entries 5,394 → 3,727 (−31%).**
+  · Correctness: **full suite 3,801 passed** under the prototype (parity
+    differentials included); models **structurally identical** on all six bench
+    grammars; round-trip holds everywhere.
+  · Part 2 (the `_enter` head becoming a chase/substitute/re-check LOOP) is
+    REQUIRED — part 1 alone crashes, measured twice. And it is **free**:
+    interleaved A/B toggling only `_enter` gives −0.3% / +0.2% / −0.3% on
+    json / abnf-meta / vyx. The "taxes every entry to help a quarter" risk is
+    measured and does not exist.
+  · Scope stated honestly: only grammars WITH attempt sub-clones benefit; vyx is
+    the only one in the corpus (though it is the product grammar). And a 31%
+    entry cut bought 7.1%, which CORRECTS OPTIMIZATION.md §4's "16% floor for an
+    entry cut" — that figure came from a rewrite that moved entries, models and
+    _run_leaf together and over-predicts a change that removes only a frame push
+    and a completion.
+  · §6 keeps the OP_VSTR gap explicitly OUT of the proposal: not prototyped,
+    ~1%, and OP_VSTR's runtime semantics differ from OP_REF's. A lead, not a
+    recommendation.
+  · §7 gives the landing order: part 2 alone first (pure refactor, should be a
+    no-op), then part 1 with the `_unit_ref_target` widening; gate on
+    run_checks + full suite + parity, then re-run the per-grammar table.

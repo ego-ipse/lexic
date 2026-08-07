@@ -1,226 +1,151 @@
-# Proposal — two post-flatten optimizer gaps
+# Proposal — optimize the attempt sub-clones
 
-**Status:** investigated and **prototyped to failure, twice** — which is what
-made the proposal correct. §1 as first written does not work, and §6 records why
-and what the real change is. No `src/` changes.
+**Status: prototyped, working, measured, and passing the full suite.** The
+prototype lives at `subopt.py` (a pytest plugin that applies both halves by
+monkeypatch). No `src/` changes.
 
-Context: `OPTIMIZATION.md`. The common path (`bench --only vyx`, 5.658 µs/char
-on real traffic) costs **1.56 clone entries per character**, and time tracks
-entries, not models — a 46% model cut bought 16%, an 11% entry cut bought the
-same 16%.
+**The number: vyx +7.1%, clone entries 5,394 → 3,727 (−31%).** Every other
+grammar is unchanged, and the runtime half costs nothing where there is nothing
+to gain (measured, §4).
 
 ---
 
-## 1 — The gap: attempt sub-clones never see the optimizer
+## 1 — The defect
 
-`flatten_clones` (`compiler/lower.py`) runs in this order:
+`flatten_clones` (`compiler/lower.py`) runs `optimize_program` over the shell
+set, and only **afterwards** builds the attempt entries:
 
 ```python
-shells = {key: FlatClone.__new__(FlatClone) for key in clones}
-...fill each shell...
-optimize_program(list(shells.values()))          # ← the five passes
-for key, spec in clones.items():                 # ← AFTER
+optimize_program(list(shells.values()))     # the five specialisation passes
+for key, spec in clones.items():            # ← AFTER
     if spec.attempt_follow is not None:
         clone.attempt = (spec.attempt_follow, _attempt_entries(clone, ...))
 ```
 
-`_attempt_entries` builds a single-arm **sub-clone** per attempt entry
-(`_sub_clone`, which copies the parent's final baked state and shares its
-`FlatArm`). Those sub-clones are created *after* `optimize_program` has already
-run over the shell set, and they are not in it — so `_convert_dispatch` and
-`_mark_leaves` never see them.
+`_attempt_entries` creates one single-arm **sub-clone** per entry. Those
+sub-clones are born after the passes and are not in the set, so
+`_convert_dispatch` never sees them — even though every one is `BUILD_ALT` with
+a single exactly-once ref, the exact shape dispatch conversion exists to make
+frame-less.
 
-### Evidence
+31 such sub-clones exist in the compiled vyx program, and they take **1,396 of
+5,394 clone entries per parse (25.9%)**: `kv-pair` 452, `value` 444,
+`body-line` 330, `scope-item` 144, `bare-val` 26.
 
-31 sub-clones exist in the compiled vyx program. At runtime they account for
-**1,396 clone entries per parse — 25.9% of all 5,394**:
+## 2 — The change (two parts; both are required)
 
-```
-  452  kv-pair      SUB-CLONE
-  444  value        SUB-CLONE
-  330  body-line    SUB-CLONE
-  144  scope-item   SUB-CLONE
-   26  bare-val     SUB-CLONE
-```
+**Part 1 — compile.** Run `_convert_dispatch` over each sub-clone where
+`_attempt_entries` creates it. `_unit_ref_target` must widen from `OP_REF` to
+`kind in (OP_REF, OP_REF1)`: a sub-clone shares its parent's arm, which
+`_specialize_calls` has already rewritten. `OP_REF1` is the same fact — an
+exactly-once reference with a `FlatClone` payload — and the widening is a no-op
+in the main pass, where nothing is `OP_REF1` yet.
 
-Every one is `BUILD_ALT`, one arm, one exactly-once ref — the exact shape
-`_convert_dispatch` exists to make frame-less, and whose conversion its own
-docstring calls "observationally identical to the frame it replaces".
-
-### The change — REVISED, see §6
-
-Running the specialisation passes over the sub-clones is necessary but **not
-sufficient**, and doing only that crashes the runtime. §6 has the diagnosis and
-the two-part change it actually requires.
-
-**One thing must widen for it to fire.** `_unit_ref_target` accepts only
-`OP_REF`. A sub-clone shares its parent's arm, and `_specialize_calls` has
-already rewritten that arm's ref to `OP_REF1`. `OP_REF1` is the same thing —
-an exactly-once clone reference with a `FlatClone` payload — so the test should
-read `kind in (OP_REF, OP_REF1)`. That widening is safe for the main pass too,
-where nothing is `OP_REF1` yet, so it is a no-op there.
-
-### Expected win
-
-Unquantified on purpose. By the §4 calibration an 11% entry cut moved time 16%;
-this is a 26% entry cut, so the same ratio would put it well past the model
-route. **But the ratio is one data point and these entries are not the same
-entries** — a dispatch conversion removes a frame push and a completion, not a
-whole sub-parse. Treat 16% as the floor of what an entry cut has been worth, not
-as a prediction.
-
-### Risk
-
-Attempt sub-clones are entered through the **sub-run seam**
-(`_attempt_run` → `_enter`), not the ordinary driver path. A dispatch clone is
-chased frame-lessly in `_enter`, which is where the sub-run's `floor`
-watermark is taken. Whether a frame-less chase interacts correctly with
-rollback is the question this proposal cannot answer from the outside, and is
-the first thing an implementation should establish. The parity differentials
-are the gate.
-
----
-
-## 2 — The smaller gap: `OP_VSTR` disqualifies a bigger optimization
-
-Measured at pass time during a real compile: of 21 `BUILD_ALT` clones,
-9 converted and 12 declined —
-
-```
-  7  attempt (arms tried in order)                        deliberate
-  5  gated arm not a unit ref: n=1 kind=OP_VSTR lo=1 hi=1  ← a gap
-```
-
-`_inline_value_strs` runs before `_convert_dispatch` and rewrites a
-terminal-only ref to `OP_VSTR`. `_unit_ref_target` does not recognise it, so a
-single-arm alternation over a value_str rule loses the dispatch conversion
-because it won an inlining. This is the same pass-ordering hazard
-`optimize_program`'s docstring already guards for `OP_REF1` ("which must not
-pre-empt the dispatch pass's unit-ref shape check") — unguarded for `OP_VSTR`.
-
-Worth ~**52 entries per parse (1%)**, so this is a correctness-of-design fix
-rather than a performance one. `OP_VSTR`'s payload is a clone, like `OP_REF`'s,
-but the runtime treats it differently (it runs the value_str loop inline), so
-whether dispatch can chase it needs checking — it may be that the honest fix is
-to run dispatch conversion *before* value-str inlining rather than to widen the
-test.
-
----
-
-## 3 — Also found, not proposed
-
-**Single-char value_str models.** 54% of all models are one character
-(`nl-word ::= nl-tail+` over a char-class rule). Collapsing them into a text
-span was prototyped grammar-side: **46% fewer models, 16% faster**. Not proposed
-because it changes the generated class surface — `tuple[NlTail, ...]` becomes a
-string — which is a design decision about what the model layer promises, not an
-optimization. Recorded because it bounds that route: 16% is its ceiling, and it
-costs an API change to collect.
-
-**Model interning is already effective** — 3,342 model references resolve to 561
-distinct objects. No lever there.
-
----
-
-## 4 — The failed prototype, recorded as a warning
-
-I tried to prototype §1 by walking the finished program and calling
-`_convert_dispatch` on every reachable clone post-hoc. It produced a corrupt
-program: `AttributeError: 'FlatClone' object has no attribute 'n'`, because a
-converted clone's `selectors` hold clone payloads where the driver expected a
-`FlatArm`.
-
-The lesson is the same one §8 of `OPTIMIZATION.md` records: **these passes are
-order-dependent and cannot be applied out of band.** A real prototype has to run
-inside `flatten_clones`, at the point the sub-clones are created. That is a
-`src/` change, which this investigation was scoped out of — so the proposal is
-handed over diagnosed rather than demonstrated, and the first implementation
-step is to build that prototype properly and measure it before believing any of
-the numbers above.
-
----
-
-## 5 — What a reviewer should push on
-
-- **Is the sub-clone actually equivalent to its dispatch conversion under
-  rollback?** §1's risk. If not, the whole 26% is unavailable and §2's 1% is
-  what remains.
-- **Is `OP_REF1` genuinely the same as `OP_REF` for `_unit_ref_target`?** It
-  should be — same payload, same bounds — but the specialisation exists because
-  the driver treats them differently, and that difference is exactly what the
-  dispatch path bypasses.
-- **Is 16% really the floor for an entry cut?** It is one calibration point from
-  a grammar-side rewrite that changed several things at once (entries, models,
-  and `_run_leaf` all moved). A cleaner calibration would strengthen or kill the
-  case for §1 before it is built.
-
-
----
-
-## 6 — Iteration: the prototype failed twice, and the second failure is the answer
-
-Prototyped §1 properly — inside the pipeline, patching `_attempt_entries` so
-each sub-clone gets `_convert_dispatch` + `_mark_leaves` at the point it is
-born, with `_unit_ref_target` widened to accept `OP_REF1`. It crashes:
-
-```
-_enter → self.stack.append([arm, 0, 0, out, clone.mode, clone, ...  [0] * arm.n
-AttributeError: 'FlatClone' object has no attribute 'n'
-```
-
-The same crash as the out-of-band attempt in §4, which rules out "applied at the
-wrong time" as the explanation. Reading `_enter` gives the real one:
+**Part 2 — runtime.** `PdaKernel._enter` must re-check the specialisations after
+it substitutes a clone. Today its head is three straight-line tests:
 
 ```python
-char = self.text[self.pos : self.pos + 1]
-if clone.mode == BUILD_DISPATCH:      # ← the chase happens HERE
-    clone = self._chase_dispatch(clone, char)
-if clone.attempt is not None:
-    sole = sole_admitted(clone.attempt[1], self.text, self.pos)
-    ...
-    clone = sole                      # ← ...and the clone is REPLACED here
-...
-for chars, negated, candidate in clone.selectors:   # ← generic arm path
+if clone.mode == BUILD_DISPATCH:  clone = self._chase_dispatch(clone, char)
+if clone.attempt is not None:     ...; clone = sole      # ← installs a NEW clone
+for chars, negated, candidate in clone.selectors:        # ← generic arm path
 ```
 
-**The dispatch chase runs before the attempt-entry substitution.** When
-`sole_admitted` picks a single admitted entry, `clone = sole` installs a
-different clone and execution falls through to the generic selector loop — which
-finds a `FlatClone` where a `FlatArm` is expected, because the sub-clone was
-converted. The mode is right and nothing ever looks at it again.
+The attempt substitution installs a clone that never passes the dispatch test
+above it, so a converted sub-clone falls through to the generic loop and a
+`FlatClone` lands where a `FlatArm` is expected. **Part 1 alone crashes the
+runtime** — that is not a risk, it is measured, twice.
 
-### So the real change is two-part
+The fix is to make the head a loop — chase, substitute, re-check — which also
+removes the current situation where exactly one ordering works and nothing says
+so:
 
-1. **Compile:** run `_convert_dispatch` / `_mark_leaves` over the attempt
-   sub-clones where `_attempt_entries` creates them, with `_unit_ref_target`
-   widened to accept `OP_REF1` (a sub-clone shares its parent's
-   already-specialised arm).
-2. **Runtime:** `_enter` must re-check the specialisations after `clone = sole`
-   — the substitution installs a clone that has not been through the checks
-   above it. The same applies in principle to `clone = chased`, though a
-   dispatch target is a concrete rule clone and is already covered by the pass.
+```python
+while True:
+    if clone.mode == BUILD_DISPATCH:
+        chased = self._chase_dispatch(clone, char)
+        if chased is None: return False
+        clone = chased; continue
+    if clone.attempt is not None:
+        sole = sole_admitted(clone.attempt[1], self.text, self.pos)
+        if sole is None: self.attempt(clone, out); return False
+        clone = sole; continue
+    break
+```
 
-Part 2 is the load-bearing half and is the reason this could not be prototyped
-by a compile-side patch alone. The cleanest shape is probably to make `_enter`'s
-head a small loop — chase, substitute, re-check — rather than a straight-line
-sequence of three independent tests, since the current shape has exactly one
-ordering that works and no way to say so.
+It terminates: a dispatch chase yields a concrete rule clone, and an attempt
+substitution yields a sub-clone whose own `attempt` is `None`.
 
-### What this does to the sizing
+## 3 — Correctness evidence
 
-Unchanged in principle — 1,396 entries (25.9%) are still the population, and
-they are still the shape dispatch exists for. But the risk named in §1 was
-**correct and is now concrete**: the sub-run seam does not compose with a
-frame-less chase *as the runtime is currently written*. That is a real change to
-the entry path, not a pass-ordering fix, and it wants the parity differentials
-plus the attempt-heavy grammars (vyx, c.gbnf) as its gate.
+- **Full suite under the prototype: 3,801 passed, 8 skipped** — including the
+  parity differentials, which are the gate for anything changing what the PDA
+  commits to.
+- **Models are structurally identical** on every benchmark grammar
+  (`arithmetic`, `csv`, `json`, `gbnf-meta`, `abnf-meta`, `vyx`), compared by
+  class name and content rather than by identity — the two compilations produce
+  distinct class objects, so `==` is a false negative and was one on the first
+  run.
+- Round-trip holds on every grammar measured.
 
-### Recommendation, revised
+## 4 — Performance evidence
 
-- **§2 (the `OP_VSTR` gap) is the safe, small win** — 1%, self-contained,
-  compile-side only. Take it first and independently.
-- **§1 is worth doing but is not a small change.** It touches `_enter`, which is
-  the hottest path in the engine. An implementer should build the two-part
-  change together and measure before believing the 26%, because part 2 adds work
-  to every entry to save work on a quarter of them — and that trade is exactly
-  what the calibration in §4 cannot predict.
+Per-grammar A/B, one process, min-of-11:
+
+| grammar | chars | base µs/char | opt µs/char | Δ | entries |
+|---|---|---|---|---|---|
+| **vyx** | 3,461 | 5.118 | **4.756** | **+7.1%** | 5,394 → 3,727 |
+| arithmetic | 4,000 | 3.244 | 3.156 | +2.7% | unchanged |
+| csv | 12,539 | 0.872 | 0.870 | +0.2% | unchanged |
+| json | 2,403 | 1.977 | 2.030 | −2.7% | unchanged |
+| gbnf-meta | 1,377 | 5.043 | 5.050 | −0.1% | unchanged |
+| abnf-meta | 2,020 | 5.728 | 5.823 | −1.7% | unchanged |
+
+Only vyx has attempt sub-clones, so only vyx changes entry count — and the
+±2.7% scatter on the others is noise, not part 2's overhead. **Isolated by
+interleaved A/B**, toggling only `_enter` between rounds on one compiled
+artefact:
+
+```
+json       orig 1.954  looped 1.960   −0.3%
+abnf-meta  orig 5.875  looped 5.866   +0.2%
+vyx        orig 4.770  looped 4.785   −0.3%
+```
+
+**The loop is free.** The risk that part 2 taxes every entry to help a quarter
+of them is measured and does not exist.
+
+## 5 — Scope, honestly
+
+**This helps grammars with attempt sub-clones and no others.** vyx is the only
+one in the corpus, and it is the product grammar — but a reviewer should read
++7.1% as "on vyx", not as an engine-wide gain.
+
+It is also smaller than the entry cut suggests: a 31% cut in entries bought
+7.1%. That corrects `OPTIMIZATION.md` §4's calibration, which put the floor for
+an entry cut at 16% — that figure came from a grammar-side rewrite that moved
+entries, models and `_run_leaf` together, and it over-predicts a change that
+removes only a frame push and a completion.
+
+## 6 — Not proposed: the `OP_VSTR` gap
+
+`_inline_value_strs` runs before `_convert_dispatch` and rewrites a
+terminal-only ref to `OP_VSTR`, which `_unit_ref_target` does not recognise — so
+5 clones lose the dispatch conversion because they won an inlining. That is the
+same pass-ordering hazard `optimize_program` documents for `OP_REF1` and does
+not guard for `OP_VSTR`.
+
+**I have not prototyped this and it is not part of the proposal.** It is worth
+~52 entries per parse (1%), `OP_VSTR`'s runtime semantics differ from `OP_REF`'s
+(it runs the value_str loop inline rather than descending), and whether dispatch
+can chase it is unestablished. Recorded as a lead, not a recommendation.
+
+## 7 — How to land it
+
+1. Apply part 2 first, alone, and run the suite — it is a pure refactor of
+   `_enter`'s head and should be a no-op (the interleaved A/B says it costs
+   nothing).
+2. Then part 1, with the `_unit_ref_target` widening.
+3. Gate: `tools/run_checks.sh` exit 0, full suite, and the parity differentials
+   specifically. Re-run `bench --only vyx` and the per-grammar table above.
+4. `subopt.py` is the working prototype — the two patched functions in it are
+   the intended shapes, and can be read as the diff.
