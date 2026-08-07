@@ -110,3 +110,68 @@ Closing the gap means fewer frames per character, not a faster frame.
 **Do not re-run these:** micro-levers were measured at ~0% here previously;
 model-count reduction is now measured at a 16% ceiling for a 46% cut; GC and
 operation-count growth were ruled out during the linearity work.
+
+---
+
+## 7 — The entry census, and a concrete lever
+
+§5 asked what fraction of the 5,394 entries per parse are pass-throughs.
+Classifying every one by clone shape:
+
+```
+entries per parse: 5394  (1.56/char)
+
+  1905  35.3%  sequence: 1 arm, several items      real work
+  1396  25.9%  alternation: 1 arm, 1 unit ref      ← PASS-THROUGH
+   638  11.8%  alternation: 2 arms
+   551  10.2%  dispatch: 2 arms                    already frame-less
+   367   6.8%  alternation: 3 arms
+   222   4.1%  alternation: 7 arms
+```
+
+**26% of all entries are a single-arm alternation over one exactly-once rule
+reference.** A `BUILD_ALT` clone passes its matched arm's sub-model straight
+through — with one arm there is not even a choice to make. Entering it costs a
+frame push, an item walk and a completion to hand back exactly what the callee
+produced.
+
+`_convert_dispatch` exists precisely to make such a clone frame-less, and its
+own docstring says the conversion is "observationally identical to the frame it
+replaces". Every one of those 1,396 entries passes **every documented guard** —
+not window-gated, not noise-peek gated, no empty-arm gate, not an attempt clone,
+arm is a unit ref, default is absent or a unit ref. Checked at runtime, per
+entry, and the tally is unanimous:
+
+```
+  1396  NOTHING — should have converted   e.g. 'body-line'
+```
+
+### Why this is the lever worth taking
+
+The calibration from §4: an 11% cut in entries moved time 16%, while a 46% cut
+in models moved it the same 16%. If a 26% entry cut scales anywhere near the
+first ratio, it is worth substantially more than the model cut — and unlike the
+model cut it changes **nothing** about the generated class surface, because a
+dispatch conversion is by construction observationally identical.
+
+### What is NOT established
+
+**Why** those clones stayed `BUILD_ALT`. The obvious hypothesis — that
+`_specialize_calls` rewrites `OP_REF` to `OP_REF1` before the dispatch pass sees
+the shape — is wrong: `optimize_program` already runs dispatch conversion first
+and its docstring says why ("which must not pre-empt the dispatch pass's
+unit-ref shape check"). Somebody already thought of that.
+
+A reachability probe was inconclusive rather than informative:
+`all_clones([program.start])` returned **one** clone on this grammar, so either
+the optimizer's clone set does not cover these, or `all_clones` has a contract
+this probe misread. Not asserted either way — the cause has not been measured,
+and this document's rule is that a cause is measured before it is claimed.
+
+**The next step is therefore diagnostic, not a fix:** determine what set
+`optimize_program` actually iterates for this grammar, and whether
+`_convert_dispatch` is called on the `body-line` clone at all. The answer is one
+of two shapes — the pass never sees them (a reachability gap) or it sees them
+and declines for a reason not in its guards (a shape mismatch at pass time, most
+likely `_unit_ref_target`'s `OP_REF`-only test meeting something else). Both are
+small fixes; they are different fixes.

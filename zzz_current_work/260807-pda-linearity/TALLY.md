@@ -299,3 +299,26 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   · Recorded as do-not-re-run: micro-levers (~0% previously), model-count
     reduction (16% ceiling for a 46% cut, measured here), GC and
     operation-count growth (ruled out during the linearity work).
+- **OPTIMIZATION — the lever is located** (`OPTIMIZATION.md` §7). Entry census
+  over the real corpus: of 5,394 entries per parse, **1,396 (25.9%) are
+  single-arm alternations over one exactly-once ruleref** — pass-throughs that
+  cost a frame push, an item walk and a completion to hand back exactly what the
+  callee produced. `_convert_dispatch` exists to make exactly these frame-less
+  ("observationally identical to the frame it replaces") and they pass EVERY
+  documented guard: checked per entry at runtime, 1,396 of 1,396 report
+  "NOTHING — should have converted" (e.g. `body-line`).
+  Why it is worth taking: §4's calibration says an 11% entry cut moved time 16%
+  while a 46% MODEL cut moved it the same 16% — so a 26% entry cut plausibly
+  beats the model route, and unlike it changes nothing about the generated class
+  surface.
+  **NOT established, deliberately: WHY they stayed BUILD_ALT.** The obvious
+  hypothesis (OP_REF1 specialisation pre-empting the shape check) is WRONG —
+  `optimize_program` already orders dispatch first and documents that exact
+  reason. A reachability probe was inconclusive, not informative:
+  `all_clones([program.start])` returned ONE clone here, so either the
+  optimizer's set misses them or the probe misread `all_clones`'s contract.
+  Next step is diagnostic: find what set `optimize_program` iterates for this
+  grammar and whether `_convert_dispatch` is called on that clone at all. Two
+  possible shapes (reachability gap vs a shape mismatch at pass time, most
+  likely `_unit_ref_target`'s OP_REF-only test) — both small fixes, different
+  fixes. No src touched.
