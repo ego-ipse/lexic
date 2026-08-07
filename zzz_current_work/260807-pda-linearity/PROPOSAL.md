@@ -149,3 +149,69 @@ can chase it is unestablished. Recorded as a lead, not a recommendation.
    specifically. Re-run `bench --only vyx` and the per-grammar table above.
 4. `subopt.py` is the working prototype — the two patched functions in it are
    the intended shapes, and can be read as the diff.
+
+---
+
+## Review (atlas lane, 2026-08-07) — endorse with three asks
+
+Every load-bearing claim was re-checked against src, not the prose. The
+defect is real, both halves are correctly shaped, the measurement follows
+the house discipline (in-process interleaved A/B, isolated part-2 toggle),
+and the landing order (part 2 first, alone) is right. Endorsed. Three
+findings before it lands, ranked.
+
+**R1 — MEDIUM-HIGH · the reduce path's safety is accidental; make it a
+licence.** `subopt.py`'s `patched_entries` ignores `is_reduce` and runs
+`_convert_dispatch` over reduce-path sub-clones too. Nothing breaks — but
+only because `reduce_rewrite` bakes EVERY reachable clone to
+`BUILD_REDUCE` (`reduce_pda.py:190`), so `_convert_dispatch`'s
+`mode != BUILD_ALT` check refuses them as a side effect. That is a
+mode-value coincidence, not a stated contract — and `reduce_rewrite`'s own
+docstring says the model specialisations are "deliberately skipped" on the
+reduce path. If a sub-clone ever did convert there, the frame-less chase
+would skip its completion callback and `reduce_body` would never eval —
+silent wrong values, the `_vstr_inlinable`-incident class ("latent while
+such rules islanded, exposed when they began to run"). The fix costs one
+line: `_attempt_entries` already receives `reduce_mode`; gate the
+conversion on it and say why. Otherwise this proposal ships the exact
+defect-shape its own §2 condemns in `_enter` — "exactly one configuration
+works and nothing says so."
+
+**R2 — MEDIUM · the termination argument doesn't close the loop it
+defends.** §2 argues termination from "an attempt substitution yields a
+sub-clone whose own `attempt` is `None`" — but with part 1 that sub-clone
+is `BUILD_DISPATCH`, its chase lands on a target clone, and THAT clone may
+carry `attempt` again: attempt → dispatch → attempt chains are precisely
+what the loop newly permits. Termination still holds, for a stronger
+reason the doc should state: every hop (chase step or substitution)
+follows a first-position reference edge, and a cycle of first-position
+references is left recursion, which the leftrec gate refuses at analysis
+time — so every chain is bounded by the acyclic FIRST-graph's depth. Put
+that sentence in the landed `_enter` docstring; the current argument would
+not survive an adversarial reviewer, and this loop is the one place a
+compile-side mistake becomes a runtime hang instead of a crash.
+
+**R3 — LOW · the entry arithmetic doesn't close.** 5,394 → 3,727 removes
+1,667 entries per parse; the §1 census attributes 1,396 (and the five
+named rules sum to exactly that, so the census reads as complete). Where
+do the other 271 come from? One measured sentence — second-order effects
+of the chase, nullable `DISPATCH_EMPTY` entries counted outside the
+census, whatever it is. A gain that exceeds its own census invites the
+check-the-premise question; pre-answer it.
+
+Small, with the landing: `optimize_program`'s docstring pins "`OP_REF1`
+must not pre-empt the dispatch pass's unit-ref shape check" — the widening
+makes that ordering note misleading as written; update it and `_enter`'s
+straight-line comments, and write §5's calibration correction back into
+OPTIMIZATION.md §4.
+
+Verified en route, for the record: the §1 defect and the marker-then-
+entries ordering (`lower.py:439-457`); the widening's no-op claim in the
+main pass (dispatch converts at pass 3, `OP_REF1` appears at pass 4);
+part 2 alone is behavior-identical today (every live sub-clone is
+`BUILD_ALT` with `attempt None`, so the loop breaks exactly where the
+straight line did — matching the isolated A/B's ~0%); `_ReducePdaKernel`
+inherits `_enter`, so part 2 covers the b1 twin with no second patch; the
+post-substitution chase re-checks the same `(chars, negated)` gate the
+admission just passed, so no new `PdaFail` site appears. §6's restraint on
+`OP_VSTR` is right — same licence family as R1, and unproven.
