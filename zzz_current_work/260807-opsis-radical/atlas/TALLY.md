@@ -537,3 +537,45 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   graph.view; census grew three policy checks, nineteen green. One policy,
   two media, proven. NOT yet: browser /policy polling (cross-leaf live
   sync), pin gen-staleness across restarts, railroad (rung 6).
+
+## Round: rung-5 review feedback (seven items) — 2026-08-07
+
+The user's review of rung 5, item by item:
+
+1. **Seams need pixel-hunting** → grip widened to 10px with a hover cursor
+   affordance on both axes.
+1b. **Facet max size** → share limits widened to `reader/right [0.06, 0.86]`,
+   `top [0.12, 0.92]` — near-fullscreen graph is now reachable.
+2. **Only the label slider worked in flat/arcs** → `gFlat`/`gArc` layouts had
+   constants baked in; `gTune.levelstep/ringscale/flatten` now feed both
+   (levelstep = column pitch, ringscale = row spread, flatten = arc lift).
+2b. **Sliders dead in 3D** → the orbit pointerdown swallowed them
+   (`preventDefault` on everything); events from `#gtune` are now ignored by
+   the orbit handler.
+2c. **Sliders out of style** → `#gtune` restyled into the register:
+   translucent panel (opaque on hover), custom range track/thumb in cool/dim.
+2d. **Flat/arcs unhelpful** → two causes. Auto-fit crushed the layout below
+   readability (labels piling) — fit now floors at `k ≥ 0.8` for flat/arcs
+   and pan explores what doesn't fit. And the untouched camera framed the
+   sparse middle of the layout — until the user pans/zooms, flat/arcs now
+   frame the start rule's edge (`v.touched` latch; screenshot-verified
+   /tmp/flat3.png).
+2e. **No pan anywhere** → every view pans: drag pans flat/arcs, Shift+drag
+   pans 3D (plain drag still orbits), wheel zoom is cursor-anchored
+   (`pan = c - (c - pan) * factor`). Pan persists: `graph.camera` grew to
+   5 tokens (`yaw pitch zoom panx pany`) and graph-pin values to 9; both
+   parse the old shorter forms.
+2f. **Cycling button won't scale to view #4** → replaced by a styled
+   `<select id="gview">` — direct travel, one row, grows by option.
+
+Verification: `node --check` clean; screenshots /tmp/flat_tuned.png (exposed
+the crush), /tmp/flat2.png (floor fixed scale), /tmp/flat3.png (start-edge
+framing); policy round-trip exercised over the wire on the vyx fixture
+(port 8933) with `reader.mode graph, graph.view flat, levelstep 200,
+ringscale 1.3`.
+
+Trap paid again this round: a 15-patch batch died on an anchor whose indent
+(4 spaces) didn't match the file (2 spaces) — crash-before-write, nothing
+landed, all fifteen "applied" prints were in-memory. The assert-every-anchor
++ verify-artifact-on-disk rule caught it; re-run landed all fifteen
+(`v.pan` ×7 verified on disk).

@@ -447,8 +447,9 @@ function applyPolicy() {
     if (P['arrange.' + which]) setShare(which, parseFloat(P['arrange.' + which]), false);
   }
   if (P['graph.camera'] && gViews[0]) {
-    const [yw, pt, zm] = P['graph.camera'].split(' ').map(parseFloat);
+    const [yw, pt, zm, px, py] = P['graph.camera'].split(' ').map(parseFloat);
     Object.assign(gViews[0], { yaw: yw, pitch: pt, zoom: zm });
+    if (!Number.isNaN(px)) gViews[0].pan = { x: px, y: py || 0 };
   }
   if (P['reader.mode'] === 'graph' && !graphOn) setGraph(true, true);
   syncTunePanel();
@@ -468,6 +469,7 @@ function rebuildPinsFromPolicy(P) {
         id, kind: 'graph', rule: 'RULE GRAPH',
         x: +t[1], y: +t[2], w: +t[3], h: +t[4],
         vyaw: parseFloat(t[5]), vpitch: parseFloat(t[6]), vzoom: parseFloat(t[7]),
+        vpanx: parseFloat(t[8]) || 0, vpany: parseFloat(t[9]) || 0,
       });
     } else {
       const [se, ee, de] = [+t[1], +t[2], +t[3]];
@@ -483,7 +485,7 @@ function rebuildPinsFromPolicy(P) {
 
 function setShare(which, frac, post = true) {
   const vars = { reader: '--ar', right: '--aright', top: '--atop' };
-  const lim = { reader: [0.12, 0.42], right: [0.18, 0.46], top: [0.3, 0.75] };
+  const lim = { reader: [0.06, 0.86], right: [0.06, 0.86], top: [0.12, 0.92] };
   const v = Math.max(lim[which][0], Math.min(lim[which][1], frac));
   document.documentElement.style.setProperty(vars[which], (v * 100).toFixed(1) + '%');
   if (post) postPolicyDebounced('arrange.' + which, v.toFixed(3));
@@ -501,7 +503,7 @@ let gArc = new Map();
 let gArcIndex = new Map();
 
 function makeGraphView(wrap, cv, chips) {
-  return { wrap, cv, chips, yaw: 0.42, pitch: 0.92, zoom: 1 };
+  return { wrap, cv, chips, yaw: 0.42, pitch: 0.92, zoom: 1, pan: { x: 0, y: 0 }, touched: false };
 }
 
 function markedRule() { return cur.rule || graphHover; }
@@ -544,7 +546,10 @@ function buildGraph() {
   gFlat = new Map();
   for (const [lvl, list] of levels) {
     list.forEach((n, i) => {
-      gFlat.set(n, { x: lvl * 170, y: (i - list.length / 2) * 26 + (lvl % 2) * 9 });
+      gFlat.set(n, {
+        x: lvl * gTune.levelstep * 1.15,
+        y: (i - list.length / 2) * 24 * gTune.ringscale + (lvl % 2) * 9,
+      });
     });
   }
   gArc = new Map();
@@ -553,7 +558,7 @@ function buildGraph() {
   for (const n of names) if (!order.includes(n)) order.push(n);
   order.forEach((n, i) => {
     gArcIndex.set(n, i);
-    gArc.set(n, { x: i * 26, y: 0 });
+    gArc.set(n, { x: i * (gTune.levelstep / 6), y: 0 });
   });
   for (const v of gViews) buildChipsInto(v.chips);
 }
@@ -612,7 +617,9 @@ function drawGraphView(v, smooth = false) {
     x0 = Math.min(x0, P.x); x1 = Math.max(x1, P.x);
     y0 = Math.min(y0, P.y); y1 = Math.max(y1, P.y);
   }
-  const tk = Math.min((w * 0.84) / Math.max(40, x1 - x0), (h * 0.78) / Math.max(40, y1 - y0), 2.4) * v.zoom;
+  let fitk = Math.min((w * 0.84) / Math.max(40, x1 - x0), (h * 0.78) / Math.max(40, y1 - y0), 2.4);
+  if (gView !== 'depth3d') fitk = Math.max(fitk, 0.8);  // flat/arcs stay readable; pan explores
+  const tk = fitk * v.zoom;
   const tmx = (x0 + x1) / 2, tmy = (y0 + y1) / 2;
   if (!v.fit || !smooth) v.fit = { k: tk, mx: tmx, my: tmy };
   else {
@@ -621,9 +628,12 @@ function drawGraphView(v, smooth = false) {
     v.fit.my += (tmy - v.fit.my) * 0.22;
   }
   const { k, mx, my } = v.fit;
+  if (gView !== 'depth3d' && !v.touched) {
+    v.pan.x = 70 - w / 2 - (x0 - mx) * k;  // untouched camera frames the start rule's edge
+  }
   for (const P of proj.values()) {
-    P.x = w / 2 + (P.x - mx) * k;
-    P.y = h / 2 + (P.y - my) * k;
+    P.x = w / 2 + (P.x - mx) * k + v.pan.x;
+    P.y = h / 2 + (P.y - my) * k + v.pan.y;
   }
   const mark = markedRule();
   const keepE = focusSet();
@@ -638,7 +648,7 @@ function drawGraphView(v, smooth = false) {
     cx.beginPath();
     if (gView === 'arcs' && a !== b) {
       const dir = B.x >= A.x ? 1 : -1;  // forward references arc above, backward below
-      const lift = dir * (12 + Math.abs(B.x - A.x) * 0.28);
+      const lift = dir * (12 + Math.abs(B.x - A.x) * 0.28) * gTune.ringscale;
       cx.moveTo(A.x, A.y);
       cx.quadraticCurveTo((A.x + B.x) / 2, A.y - lift, B.x, B.y);
     } else if (gView === 'arcs') {
@@ -685,13 +695,20 @@ function setGraph(on, fromPolicy = false) {
 function wireGraphView(v) {
   let drag = null;
   v.wrap.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.gchip')) return;
-    if (gView !== 'depth3d') return;  // flat and arcs have no camera
-    drag = { x: e.clientX, y: e.clientY };
+    if (e.target.closest('.gchip') || e.target.closest('#gtune')) return;
+    drag = { x: e.clientX, y: e.clientY, pan: gView !== 'depth3d' || e.shiftKey };
     e.preventDefault();
   });
   window.addEventListener('pointermove', (e) => {
     if (!drag) return;
+    if (drag.pan) {
+      v.touched = true;
+      v.pan.x += e.clientX - drag.x;
+      v.pan.y += e.clientY - drag.y;
+      drag = { x: e.clientX, y: e.clientY, pan: true };
+      drawGraphView(v);
+      return;
+    }
     v.yaw += (e.clientX - drag.x) * 0.006;
     v.pitch = Math.max(-1.4, Math.min(1.4, v.pitch + (e.clientY - drag.y) * 0.005));
     drag = { x: e.clientX, y: e.clientY };
@@ -703,7 +720,16 @@ function wireGraphView(v) {
   });
   v.wrap.addEventListener('wheel', (e) => {
     e.preventDefault();
-    v.zoom = Math.max(0.35, Math.min(5, v.zoom * Math.pow(1.0016, -e.deltaY)));
+    const r = v.wrap.getBoundingClientRect();
+    const factorTo = Math.max(0.35, Math.min(5, v.zoom * Math.pow(1.0016, -e.deltaY)));
+    const factor = factorTo / v.zoom;
+    v.zoom = factorTo;
+    v.touched = true;
+    // anchor the zoom at the cursor: the point under it stays under it
+    const cxr = e.clientX - r.left - r.width / 2;
+    const cyr = e.clientY - r.top - r.height / 2;
+    v.pan.x = cxr - (cxr - v.pan.x) * factor;
+    v.pan.y = cyr - (cyr - v.pan.y) * factor;
     persistView(v);
     drawGraphView(v);
   }, { passive: false });
@@ -741,14 +767,16 @@ function focusSet() {
 
 function persistView(v) {
   if (v.pin) postPolicyDebounced(`pin.${v.pin.id}`, pinPolicyValue(v.pin));
-  else postPolicyDebounced('graph.camera', `${v.yaw.toFixed(2)} ${v.pitch.toFixed(2)} ${v.zoom.toFixed(2)}`);
+  else postPolicyDebounced('graph.camera',
+    `${v.yaw.toFixed(2)} ${v.pitch.toFixed(2)} ${v.zoom.toFixed(2)} ${Math.round(v.pan.x)} ${Math.round(v.pan.y)}`);
 }
 
 function pinPolicyValue(p) {
   if (p.kind === 'graph') {
     const v = p.view;
     return `graph ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w)} ${Math.round(p.h || 440)}`
-      + (v ? ` ${v.yaw.toFixed(2)} ${v.pitch.toFixed(2)} ${v.zoom.toFixed(2)}` : ' 0.9 0.92 1');
+      + (v ? ` ${v.yaw.toFixed(2)} ${v.pitch.toFixed(2)} ${v.zoom.toFixed(2)} ${Math.round(v.pan.x)} ${Math.round(v.pan.y)}`
+           : ' 0.9 0.92 1 0 0');
   }
   return `span ${p.s} ${p.e} ${p.d} ${p.rule} ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w || 360)} ${Math.round(p.h || 0)}`;
 }
@@ -817,14 +845,12 @@ function syncTunePanel() {
   for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
     $('gt-' + k).value = gTune[k];
   }
-  $('gview').textContent = gView;
+  $('gview').value = gView;
 }
 
 function wireTune() {
-  $('gview').addEventListener('click', () => {
-    const order = ['depth3d', 'flat', 'arcs'];
-    gView = order[(order.indexOf(gView) + 1) % 3];
-    $('gview').textContent = gView;
+  $('gview').addEventListener('change', () => {
+    gView = $('gview').value;
     postPolicy('graph.view', gView);
     drawGraph();
   });
@@ -850,16 +876,28 @@ function wireSeams() {
     const rd = $('document').getBoundingClientRect();
     const rc = $('chart').getBoundingClientRect();
     const rs = $('spine').getBoundingClientRect();
-    if (Math.abs(e.clientX - rd.left) <= 5 && e.clientY > g.top) seam = 'reader';
-    else if (Math.abs(e.clientX - rc.left) <= 5 && e.clientY > g.top) seam = 'right';
-    else if (e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 5) seam = 'top';
+    if (Math.abs(e.clientX - rd.left) <= 10 && e.clientY > g.top) seam = 'reader';
+    else if (Math.abs(e.clientX - rc.left) <= 10 && e.clientY > g.top) seam = 'right';
+    else if (e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 8) seam = 'top';
     if (seam) {
       e.preventDefault();
       document.body.style.cursor = seam === 'top' ? 'row-resize' : 'col-resize';
     }
   }, true);
   window.addEventListener('pointermove', (e) => {
-    if (!seam) return;
+    if (!seam) {
+      if (e.buttons) return;
+      const g = $('grid').getBoundingClientRect();
+      if (e.clientY <= g.top) { document.body.style.cursor = ''; return; }
+      const rd = $('document').getBoundingClientRect();
+      const rc = $('chart').getBoundingClientRect();
+      const rs = $('spine').getBoundingClientRect();
+      const near =
+        (Math.abs(e.clientX - rd.left) <= 10 || Math.abs(e.clientX - rc.left) <= 10) ? 'col-resize'
+        : (e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 8) ? 'row-resize' : '';
+      document.body.style.cursor = near;
+      return;
+    }
     const g = $('grid').getBoundingClientRect();
     if (seam === 'reader') setShare('reader', (e.clientX - g.left) / g.width);
     else if (seam === 'right') setShare('right', (g.right - e.clientX) / g.width);
@@ -955,6 +993,8 @@ function buildPin(p, layer) {
     v.yaw = p.vyaw ?? 0.9;
     if (p.vpitch !== undefined) v.pitch = p.vpitch;
     if (p.vzoom !== undefined) v.zoom = p.vzoom;
+    if (p.vpanx) v.pan.x = p.vpanx;
+    if (p.vpany) v.pan.y = p.vpany;
     gViews.push(v);
     if (gNodes) buildChipsInto(v.chips);
     wireGraphView(v);
