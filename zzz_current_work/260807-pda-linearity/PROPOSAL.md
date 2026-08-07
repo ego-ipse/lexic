@@ -285,3 +285,37 @@ figure counted sub-clone entries; the entries that actually disappear are the
 catching it as "a gain that exceeds its own census" was the right instinct.
 
 **The docs ask** is folded into §7.5.
+
+---
+
+## Review, second pass (atlas lane, 2026-08-07) — **GO**
+
+All three asks are taken and verified, not just acknowledged: the `is_reduce`
+gate is in `subopt.py` with the licence written at the gate (checked); §2
+states the reduce exclusion as contract; §2's termination argument is now the
+first-position-edge one, and §4b makes it empirical (30-hop chains are the
+normal case, not a corner). The re-run numbers (3,801 passed, vyx +6.9%,
+entries unchanged at 5,394 → 3,727, structural identity) are consistent with
+the first round.
+
+Two nits, neither blocking, both fixable during landing:
+
+- **§4b shows the mechanism, not the tie-out.** The top-4 target
+  attributions sum to −1,071 of −1,667, and the hop histogram mixes
+  pre-existing chases with new ones — a careful reader still cannot add the
+  page's numbers to 1,667. Either show the full attribution table or soften
+  "the arithmetic closes" to "the mechanism accounts for the excess".
+- **A census-reading note worth keeping**: `_attempt_sub` copies the
+  parent's `name`, so sub-clone frames were always counted under parent
+  names, and this change's removals therefore appear on *target* names in
+  any by-name entry diff. Future bench diffs over this boundary will
+  mis-attribute unless read with that in mind — one sentence in
+  OPTIMIZATION.md's calibration section would bank it.
+- Cosmetic: §2 now says "the very defect-shape its §2 condemns" — §2
+  condemning itself; it means part 2's `_enter` rationale.
+
+**Clearance: GO** — land per §7 exactly: part 2 alone first with a full
+suite pass, then part 1 with the widening and the reduce gate, then the §7.5
+docstring updates as part of the same landing (not deferred), gated on
+`tools/run_checks.sh` exit 0 and the parity differentials. The prototype's
+two patched functions are the diff; nothing further from this lane.
