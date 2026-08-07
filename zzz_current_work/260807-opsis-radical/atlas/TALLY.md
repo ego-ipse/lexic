@@ -308,3 +308,40 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   windows, occlusion real, pinned 2 of 3 in the masthead, routes strip
   showing PDA 0.53s / Earley 0.54s / parity holds. Pins are leaf-local state
   for now — rung 5 (policy into the wire) makes them session values.
+- FABLE REVIEW of D-ISLANDING taken (its §8): endorsed the design, four notes.
+  Note 3 (run the economics BEFORE the kernel splice, at production packet
+  size) executed as `gate/probes/economics.py` — and it turned up something
+  much bigger than D.
+- **THE PDA IS QUADRATIC ON PIPE-HEAVY VYX PACKETS** (`gate/PROBE-QUADRATIC.md`).
+  No fork, no fallback, no resolver — the PREDICTIVE runtime succeeding, and
+  ×4 input → ×16 time: 191c 0.020s / 719c 0.294s / 2,832c 4.632s / 11,281c
+  **73.4s**. Cause pinned: `_probe` runs one side of a boundary TO END OF INPUT
+  on a copied stack, once per boundary — probe count grows linearly (34/130/514)
+  and 92% of wall clock is inside probes. Linear probes × linear cost = n².
+  NOT A REGRESSION and not mine: A/B via a sitecustomize-injected
+  `unconditional` variant gives 4.635s pre-fix vs 4.632s post-fix, and
+  `tools.benchmark.bench --only gbnf-meta` lexic-pda 5.508 pre vs 5.471 post
+  µs/char — inside the bench's own 2.80% noise floor, and the wrong way for a
+  regression. (This also answers the user's "gbnf meta seems to have regressed"
+  note: measured, it did not.)
+- D's economics settled as a side effect, and its subject narrowed: dict-heavy
+  islanding costs 0.1% of the parse at size (not the 33% a 135-char toy showed)
+  so the bail case IS affordable; but pipe-heavy packets do not fork at all —
+  the §6 pipe forks were at `@start value`, parsing a bare value, not inside a
+  packet. D stays sound with affordable economics; it is just no longer the most
+  valuable thing in this area.
+- THREE LIVE-DRIVE BUGS (user), fixed and screenshot-verified on the
+  short-document repro the user suggested (long fixture edited down to 24
+  chars over the wire): (1) `p` fell through to contenteditable when the
+  selection focused the document (the check sat after the focus guard) —
+  pin is now Ctrl+P everywhere (print suppressed), bare p kept when focus
+  is outside; (2) glyph metrics were tab-sized — the probe carried class
+  .code whose min-width:100% resolves against the viewport for an
+  absolute body child (1720px/40 ≈ 43px per glyph); the probe now copies
+  the document's computed font with no layout classes, re-measured each
+  boot; (3) the chart on a tiny document collapsed to a 5px-pitch sliver
+  with lanes stretched to fill — pitch now adapts (small doc fills the
+  width, capped 12px; large doc keeps the 5px window), lane height capped
+  at 22px, chart viewport clamped into the document on every draw and
+  reset on re-read. The short-doc state is a good standing fixture: edit
+  the doc down over the wire, then look.

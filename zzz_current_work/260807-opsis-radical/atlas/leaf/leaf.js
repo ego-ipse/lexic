@@ -127,12 +127,18 @@ function buildCode(host, textLines, gutter) {
 }
 
 function measure() {
-  const probe = document.createElement('div');
-  probe.className = 'code';
-  probe.style.position = 'absolute';
+  const doc = $('docText');
+  const cs = getComputedStyle(doc);
+  const probe = document.createElement('span');
   probe.textContent = 'M'.repeat(40);
+  probe.style.position = 'absolute';
+  probe.style.visibility = 'hidden';
+  probe.style.whiteSpace = 'pre';
+  probe.style.fontFamily = cs.fontFamily;
+  probe.style.fontSize = cs.fontSize;
+  probe.style.letterSpacing = cs.letterSpacing;
   document.body.appendChild(probe);
-  M = { charW: probe.getBoundingClientRect().width / 40, gutterW: $('docText').offsetLeft };
+  M = { charW: probe.getBoundingClientRect().width / 40, gutterW: doc.offsetLeft };
   probe.remove();
 }
 
@@ -271,13 +277,17 @@ function drawChart() {
     cx.fillStyle = shades[Math.min(3, Math.floor((m * 4) / (S.covTop + 1)))];
     cx.fillRect(ox(off), 8, Math.max(1, ox(off + step) - ox(off)), bandH);
   }
-  const pitch = 5;
+  // a small document fills the width; a large one gets a 5px-per-char window
+  const pitch = N * 5 < (w - 2 * pad) ? Math.min(12, Math.floor((w - 2 * pad) / Math.max(1, N))) : 5;
   const win = Math.floor((w - 2 * pad) / pitch);
-  if (cur.t < view0 || cur.t > view0 + win * 0.72) view0 = Math.max(0, Math.min(cur.t - win * 0.6, N - win));
+  view0 = Math.max(0, Math.min(view0, Math.max(0, N - win)));
+  if (cur.t < view0 || cur.t > view0 + win * 0.72) {
+    view0 = Math.max(0, Math.min(cur.t - win * 0.6, Math.max(0, N - win)));
+  }
   cx.strokeStyle = C.warm;
   cx.strokeRect(ox(view0), 5, ox(Math.min(view0 + win, N)) - ox(view0), bandH + 6);
   const lanesY = bandH + 22;
-  const laneH = Math.max(6, Math.floor((h - lanesY - 8) / (S.maxdepth + 1)));
+  const laneH = Math.max(6, Math.min(22, Math.floor((h - lanesY - 8) / (S.maxdepth + 1))));
   const sx = (off) => pad + (off - view0) * pitch;
   S.chartHit = { pad, bandH, lanesY, laneH, pitch, win, ox };
   for (const s of S.spans) {
@@ -712,7 +722,8 @@ async function boot(keep) {
   $('docText').textContent = S.doc;
   buildGutter(S.lineStarts.length);
   buildCode($('grammarBody'), S.readerLines, false);
-  if (!M) measure();
+  measure();
+  view0 = 0;
   sizeDocCanvases();
   $('sub').textContent =
     `${S.meta.reader} read ${S.doc.length.toLocaleString()} chars in ${S.meta.seconds}s · `
