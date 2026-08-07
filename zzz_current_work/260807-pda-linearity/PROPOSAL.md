@@ -1,9 +1,8 @@
 # Proposal — two post-flatten optimizer gaps
 
-**Status:** investigated, evidence below, **no `src/` changes**. One prototype
-was attempted and failed for a methodological reason recorded in §4; the
-proposal is written from the diagnosis, not from a working prototype, and says
-so.
+**Status:** investigated and **prototyped to failure, twice** — which is what
+made the proposal correct. §1 as first written does not work, and §6 records why
+and what the real change is. No `src/` changes.
 
 Context: `OPTIMIZATION.md`. The common path (`bench --only vyx`, 5.658 µs/char
 on real traffic) costs **1.56 clone entries per character**, and time tracks
@@ -48,11 +47,11 @@ Every one is `BUILD_ALT`, one arm, one exactly-once ref — the exact shape
 `_convert_dispatch` exists to make frame-less, and whose conversion its own
 docstring calls "observationally identical to the frame it replaces".
 
-### The change
+### The change — REVISED, see §6
 
-Run the specialisation passes over the sub-clones too, at the point they are
-created — i.e. after the `_attempt_entries` loop in `flatten_clones`, not by
-re-running the whole of `optimize_program`.
+Running the specialisation passes over the sub-clones is necessary but **not
+sufficient**, and doing only that crashes the runtime. §6 has the diagnosis and
+the two-part change it actually requires.
 
 **One thing must widen for it to fire.** `_unit_ref_target` accepts only
 `OP_REF`. A sub-clone shares its parent's arm, and `_specialize_calls` has
@@ -154,3 +153,74 @@ the numbers above.
   a grammar-side rewrite that changed several things at once (entries, models,
   and `_run_leaf` all moved). A cleaner calibration would strengthen or kill the
   case for §1 before it is built.
+
+
+---
+
+## 6 — Iteration: the prototype failed twice, and the second failure is the answer
+
+Prototyped §1 properly — inside the pipeline, patching `_attempt_entries` so
+each sub-clone gets `_convert_dispatch` + `_mark_leaves` at the point it is
+born, with `_unit_ref_target` widened to accept `OP_REF1`. It crashes:
+
+```
+_enter → self.stack.append([arm, 0, 0, out, clone.mode, clone, ...  [0] * arm.n
+AttributeError: 'FlatClone' object has no attribute 'n'
+```
+
+The same crash as the out-of-band attempt in §4, which rules out "applied at the
+wrong time" as the explanation. Reading `_enter` gives the real one:
+
+```python
+char = self.text[self.pos : self.pos + 1]
+if clone.mode == BUILD_DISPATCH:      # ← the chase happens HERE
+    clone = self._chase_dispatch(clone, char)
+if clone.attempt is not None:
+    sole = sole_admitted(clone.attempt[1], self.text, self.pos)
+    ...
+    clone = sole                      # ← ...and the clone is REPLACED here
+...
+for chars, negated, candidate in clone.selectors:   # ← generic arm path
+```
+
+**The dispatch chase runs before the attempt-entry substitution.** When
+`sole_admitted` picks a single admitted entry, `clone = sole` installs a
+different clone and execution falls through to the generic selector loop — which
+finds a `FlatClone` where a `FlatArm` is expected, because the sub-clone was
+converted. The mode is right and nothing ever looks at it again.
+
+### So the real change is two-part
+
+1. **Compile:** run `_convert_dispatch` / `_mark_leaves` over the attempt
+   sub-clones where `_attempt_entries` creates them, with `_unit_ref_target`
+   widened to accept `OP_REF1` (a sub-clone shares its parent's
+   already-specialised arm).
+2. **Runtime:** `_enter` must re-check the specialisations after `clone = sole`
+   — the substitution installs a clone that has not been through the checks
+   above it. The same applies in principle to `clone = chased`, though a
+   dispatch target is a concrete rule clone and is already covered by the pass.
+
+Part 2 is the load-bearing half and is the reason this could not be prototyped
+by a compile-side patch alone. The cleanest shape is probably to make `_enter`'s
+head a small loop — chase, substitute, re-check — rather than a straight-line
+sequence of three independent tests, since the current shape has exactly one
+ordering that works and no way to say so.
+
+### What this does to the sizing
+
+Unchanged in principle — 1,396 entries (25.9%) are still the population, and
+they are still the shape dispatch exists for. But the risk named in §1 was
+**correct and is now concrete**: the sub-run seam does not compose with a
+frame-less chase *as the runtime is currently written*. That is a real change to
+the entry path, not a pass-ordering fix, and it wants the parity differentials
+plus the attempt-heavy grammars (vyx, c.gbnf) as its gate.
+
+### Recommendation, revised
+
+- **§2 (the `OP_VSTR` gap) is the safe, small win** — 1%, self-contained,
+  compile-side only. Take it first and independently.
+- **§1 is worth doing but is not a small change.** It touches `_enter`, which is
+  the hottest path in the engine. An implementer should build the two-part
+  change together and measure before believing the 26%, because part 2 adds work
+  to every entry to save work on a quarter of them — and that trade is exactly
+  what the calibration in §4 cannot predict.

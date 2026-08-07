@@ -380,3 +380,23 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   · §5 lists what a reviewer should push on, including the weakest link: "16%
     is the floor for an entry cut" rests on ONE calibration point from a
     grammar-side rewrite that moved several things at once.
+- **ITERATED — the prototype failed TWICE, and the second failure is the
+  answer** (PROPOSAL.md §6). Built §1 properly in-pipeline (patch
+  `_attempt_entries`, convert + mark each sub-clone at birth, widen
+  `_unit_ref_target` to OP_REF1). Same crash as the out-of-band attempt, which
+  rules out "wrong time" — so the cause is real. Reading `_enter`:
+  **the dispatch chase runs BEFORE the attempt-entry substitution.** When
+  `sole_admitted` picks a single admitted entry, `clone = sole` installs a
+  different clone and execution falls through to the GENERIC selector loop,
+  which finds a FlatClone where a FlatArm is expected. The converted sub's mode
+  is correct and nothing looks at it again.
+  So the real change is TWO-PART: (1) compile — optimize the sub-clones where
+  they are created; (2) runtime — `_enter` must re-check specialisations after
+  `clone = sole`. Part 2 is load-bearing and is why a compile-side prototype
+  could not work. Suggested shape: make `_enter`'s head a small loop (chase,
+  substitute, re-check) instead of three straight-line tests with exactly one
+  ordering that works and no way to say so.
+  Recommendation revised: **§2 (OP_VSTR, 1%) is the safe self-contained win,
+  take it first**; §1 is worth doing but touches the hottest path in the engine
+  and part 2 adds work to EVERY entry to save it on a quarter — a trade the §4
+  calibration cannot predict, so measure before believing 26%.
