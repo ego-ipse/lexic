@@ -832,7 +832,7 @@ function pinPolicyValue(p) {
   if (p.kind === 'rail') {
     return `rail ${p.rule} ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w || 520)} ${Math.round(p.h || 300)}`;
   }
-  return `span ${p.s} ${p.e} ${p.d} ${p.rule} ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w || 360)} ${Math.round(p.h || 0)}`;
+  return `span ${p.s} ${p.e} ${p.d} ${p.rule} ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.w || 360)} ${Math.round(p.h || 0)} ${p.gen}`;
 }
 
 function graphPin() {
@@ -1992,7 +1992,7 @@ function parsePinValue(id, t) {
   }
   const [se, ee, de] = [+t[1], +t[2], +t[3]];
   return {
-    id, gen: S.meta.generation, s: se, e: ee, d: de, rule: t[4],
+    id, gen: t[9] ?? S.meta.generation, s: se, e: ee, d: de, rule: t[4],
     field: '', snip: S.doc.slice(se, Math.min(ee, se + 400)),
     x: +t[5], y: +t[6], w: +t[7], h: +t[8] || 0,
   };
@@ -2024,6 +2024,15 @@ function syncPinsFromPolicy(P) {
       Object.assign(p, { x: +t[2], y: +t[3], w: +t[4], h: +t[5] });
       if (t[1] !== p.rule && p.el) { p.rule = t[1]; p.tree = null; p.hist = []; railPinLoad(p, p.el); }
     } else {
+      const [se, ee, de] = [+t[1], +t[2], +t[3]];
+      if (se !== p.s || ee !== p.e || de !== p.d || t[4] !== p.rule) {
+        Object.assign(p, {
+          s: se, e: ee, d: de, rule: t[4],
+          snip: S.doc.slice(se, Math.min(ee, se + 400)),
+        });
+        if (pel) pel.remove();  // header/snip/def all changed — rebuild, keeping geometry
+      }
+      if (t[9] !== undefined) p.gen = t[9];
       Object.assign(p, { x: +t[5], y: +t[6], w: +t[7], h: +t[8] || 0 });
     }
     if (pel) {

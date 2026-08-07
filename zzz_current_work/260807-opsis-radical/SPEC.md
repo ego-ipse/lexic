@@ -50,7 +50,9 @@ screenshot-verified.
   `spine.zoom`, `reader.mode text|graph`, `graph.view depth3d|flat|arcs|rails`,
   `graph.levelstep|ringscale|flatten|labelscale`, `graph.camera "yaw pitch
   zoom panx pany"`, `arrange.reader|right|top` (grid shares; the seams write
-  these), `pin.<id> span s e d rule x y w h` / `pin.<id> graph x y w h yaw
+  these), `pin.<id> span s e d rule x y w h gen` (gen is the reading the
+  pin was made against — staleness survives a reload; legacy 9-token
+  values read as current) / `pin.<id> graph x y w h yaw
   pitch zoom panx pany view` (`view` ∈ text|depth3d|flat|arcs|rails — every graph
   window carries its own, independent of `graph.view`; shorter legacy values
   parse) / `pin.<id> rail <rule> x y w h` (a railroad window; refs inside it

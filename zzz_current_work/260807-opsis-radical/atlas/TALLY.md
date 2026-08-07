@@ -788,3 +788,24 @@ same record driving a second leaf. The browser's live tick joins the
 gesture list the user's hands verify.
 
 SPEC §2 rewritten for polling + panes; THINKING ladder rung 7 struck.
+
+## Round: the two pin leftovers — 2026-08-07
+
+Closing the audit's items 1 and 3 before rung 8.
+
+1. **Staleness survives a reload.** The span-pin policy value grew its
+   10th token: the generation the pin was made against. `parsePinValue`
+   reads it back (legacy 9-token values read as current — old policies
+   don't false-stale); the existing `p.gen !== generation` marking does
+   the rest. Verified end-to-end: pin posted at gen 1 → identity /edit
+   bumped the server to gen 2 → fresh browser boot → DOM carries
+   "gen 1 — stale" and the `.pin.stale` register.
+3. **Remote re-target rebuilds the window.** `syncPinsFromPolicy`'s span
+   branch now checks span identity (s/e/d/rule); a changed identity
+   updates the record + snippet and drops the element so `renderPins`
+   rebuilds header/snip/def, keeping geometry. A bare gen change flips
+   staleness without a rebuild. Code-verified (the live-poll harness
+   limit, as recorded last round).
+
+SPEC §2 span value updated. Serve + TUI censuses green (legacy 9-token
+values still parse — the census's own pin.7 value proves it).
