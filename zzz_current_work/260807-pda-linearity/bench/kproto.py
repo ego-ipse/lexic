@@ -74,14 +74,29 @@ def build(cg):
 
 
 def filtered_sole(entries, text, pos):
-    """`sole_admitted` plus the FIRST_k exclusion."""
-    sole, n = None, 0
+    """Cheap pass first; consult windows ONLY on the multi-survivor remainder.
+
+    The window can only ever change the answer when two or more candidates
+    survive `admits` + `prefix_admits` — a single survivor is already the
+    result. Filtering every candidate (the first prototype) paid for a window
+    check on decisions the cheap pass had settled, which cost 27%.
+    """
+    char = text[pos : pos + 1]
+    survivors = []
     for chars, negated, prefix, sub in entries:
-        char = text[pos : pos + 1]
         if not admits(char, chars, negated):
             continue
         if prefix is not None and not prefix_admits(text, pos, prefix):
             continue
+        survivors.append(sub)
+        if len(survivors) > 4:
+            break
+    if len(survivors) <= 1:
+        STAT["settled by the cheap pass"] += 1
+        return survivors[0] if survivors else None
+    kept = None
+    n = 0
+    for sub in survivors:
         win = WIN.get(id(sub))
         if win is not None and not _window_admits(text, pos, win):
             STAT["EXCLUDED by window"] += 1
@@ -89,8 +104,9 @@ def filtered_sole(entries, text, pos):
         n += 1
         if n > 1:
             return None
-        sole = sub
-    return sole
+        kept = sub
+    STAT["settled BY the window"] += n == 1
+    return kept
 
 
 def measure(label, cg, corpus):

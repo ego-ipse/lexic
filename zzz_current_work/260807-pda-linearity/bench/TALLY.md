@@ -420,3 +420,33 @@ history so nothing is re-derived or re-run.
   located, sized, de-risked and now prototyped — and the prototype says it loses
   as designed. That is a result, but it is not a win, and the mission's goal
   (beat every parser on every grammar) is not closer than it was at iteration 1.
+- **SALVAGE TESTED — also loses (−27.7%), and its premise was wrong.**
+  Restructured to run the cheap pass first and consult windows only on the
+  multi-survivor remainder:
+
+  ```
+  baseline        4.660 µs/char  sub-runs 2005
+  FIRST_4 filter  5.951 µs/char  sub-runs 1635      -27.7%
+  settled by the cheap pass 2321 · settled BY the window 1210 · exclusions 2354
+  ```
+
+  The premise was that the multi-survivor remainder is small. It is not: 2,321
+  decisions settle cheaply, but enough reach the window path to run 2,354
+  exclusions, and the window genuinely settles **1,210** decisions the cheap
+  pass could not. The filter is doing real work and still loses.
+- **WHY IT CANNOT WIN AS BUILT — the arithmetic is decisive.** ~4,675 window
+  evaluations to avoid 370 sub-runs. Saving is 370 × 25.6 µs ≈ 9.5 ms; the
+  filter adds ≈ 13.5 ms, i.e. **~2.9 µs per window check**. That is the right
+  order for a Python loop over ≤4 windows × 4 positions with a set membership
+  each. **The check is not too loose or too rare — it is too EXPENSIVE per
+  call, and no restructuring of when to call it fixes that.**
+  For this approach to pay, the admission test itself would have to be compiled
+  to something cheap — int-coded, first-char-indexed, or a trie — the way
+  terminals already are in the flat program. `_window_admits` as a Python
+  interpreter loop cannot be called thousands of times per parse to save
+  hundreds of microseconds.
+- **DIRECTION THIS RULES OUT:** any attempt-seam optimization whose test runs
+  per candidate per decision in Python. The seam's decisions outnumber its
+  sub-runs by roughly 6:1 on vyx, so a per-decision test must be ~an order of
+  magnitude cheaper than a sub-run to break even, and interpreted set
+  membership is not.
