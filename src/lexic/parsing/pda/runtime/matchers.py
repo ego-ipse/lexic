@@ -22,6 +22,7 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_LIT1,
     FlatArm,
     FlatClone,
+    arm_expected,
     gate_take,
 )
 from lexic.parsing.pda.core.errors import PdaFail
@@ -38,7 +39,9 @@ def select_arm(clone: FlatClone, char: str, pos: int) -> FlatArm:
             return candidate
     default = clone.default
     if default is None:
-        raise PdaFail(f"no arm at {pos}", pos)
+        raise PdaFail(
+            f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
+        )
     return default
 
 

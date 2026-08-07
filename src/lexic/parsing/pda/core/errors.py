@@ -26,20 +26,44 @@ class PdaFail(Exception):
         the first wrong character. ``-1`` when the failure is not about a
         position at all (an islanded start rule, a start rule that produced no
         model).
+    :ivar rule: The rule being matched when it stopped (a
+        :attr:`~lexic.parsing.pda.compiler.flatten.FlatClone.name`), or ``""``
+        when the stop was not inside a named rule.
+    :ivar expected: The characters that would have been accepted here — empty
+        when the raising site cannot say.
+    :ivar negated: ``True`` when :attr:`expected` is an EXCLUSION set, so the
+        polarity survives instead of a co-finite set being enumerated.
+
+    The two travel together as one ``wanted`` argument because they are one
+    fact — a membership set with a polarity, the engine's own ``(chars,
+    negated)`` shape, which is exactly what
+    :func:`~lexic.parsing.pda.compiler.flatten.arm_expected` hands back.
 
     The position used to live only in the message, so the one consumer that
-    wanted it read it back out of prose with a regex. It is an attribute
-    because a caller asking "how far did you get?" should not have to parse an
-    error string to find out. The message still spells it too — that is for
-    people, and the two are written from the same value.
+    wanted it read it back out of prose with a regex. These are attributes
+    because a caller asking "how far did you get, and what did you want?"
+    should not have to parse an error string to find out. The message still
+    spells the position too — that half is for people, and the two are written
+    from the same value. Together they are what
+    :class:`~lexic.exceptions.Refusal` is built from at the product seam, which
+    is where a caller finally sees them.
     """
 
-    __slots__ = ("pos",)
+    __slots__ = ("pos", "rule", "expected", "negated")
 
-    def __init__(self, message: str, pos: int = -1) -> None:
-        """Bind the human-readable reason and the machine-readable position."""
+    def __init__(
+        self,
+        message: str,
+        pos: int = -1,
+        *,
+        rule: str = "",
+        wanted: tuple[tuple[str, ...], bool] = ((), False),
+    ) -> None:
+        """Bind the human-readable reason and the machine-readable readout."""
         super().__init__(message)
         self.pos = pos
+        self.rule = rule
+        self.expected, self.negated = wanted
 
 
 class ProbeFork(PdaFail):

@@ -1,5 +1,18 @@
 # Log
 
+## A refused parse says where it stopped and what it wanted
+
+`PdaFail` spelled its position only in prose ("no arm at N") and never escaped
+the product seam, so the public refusal was words alone and the one consumer
+that wanted a frontier regexed the engine's error string.
+
+`PdaFail` now carries `pos` / `rule` / `expected` / `negated` as attributes, and
+`UnsupportedConstructError.readout` carries a `Refusal` built from them when
+BOTH engines decline — position, rule, expected-next, polarity, and whether the
+predictive route failed or merely bailed as undecidable. Additive: messages are
+unchanged and every other raise site still passes a message alone. See
+[[error-vocabulary]].
+
 ## `relax_non_semantic` narrowed to nullable noise rules
 
 The pass rewrote every arm-level ref to a `semantic=False` rule to `min=0`,

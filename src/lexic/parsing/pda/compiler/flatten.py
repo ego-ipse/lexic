@@ -212,6 +212,25 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     return scan_gate_take(text, pos, gate)  # GATE_SCAN — the ScanGate itself
 
 
+def arm_expected(clone: FlatClone) -> tuple[tuple[str, ...], bool]:
+    """The characters that would have selected some arm of ``clone``.
+
+    A no-arm refusal's expected set: the union of the FIRST-gated selectors. A
+    single negated selector is reported with its polarity intact rather than
+    enumerated; a mix of polarities cannot be unioned honestly in one pair, so
+    it reports nothing rather than something wrong.
+    """
+    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+        return (), False
+    negated = [neg for _chars, neg, _arm in clone.selectors]
+    if not negated or any(negated) != all(negated):
+        return (), False
+    merged: set[str] = set()
+    for chars, _neg, _arm in clone.selectors:
+        merged |= chars
+    return tuple(sorted(merged)), negated[0]
+
+
 def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
     """The gated arm of a k-window or noise-skip alternation at ``pos``.
 
@@ -239,7 +258,9 @@ def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
                 got = candidate
                 break
     if got is None and clone.default is None:
-        raise PdaFail(f"no arm at {pos}", pos)
+        raise PdaFail(
+            f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
+        )
     return got if got is not None else clone.default
 
 
