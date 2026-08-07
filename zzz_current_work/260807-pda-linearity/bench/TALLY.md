@@ -861,3 +861,32 @@ history so nothing is re-derived or re-run.
   This is the same conclusion the mission reached from three other directions,
   now with a budget attached: **the cost is the interpreted per-item,
   per-character work itself, not overhead around it.**
+- **WORK PER CALL — and a large share of leaf calls consume NO INPUT AT ALL.**
+
+  ```
+  csv        12,539c / 5,499 calls = 2.28 chars/call   1,540 consume nothing  28%
+  arithmetic  4,000c / 7,490 calls = 0.53 chars/call   4,514 consume nothing  60%
+  json        2,403c / 3,214 calls = 0.75 chars/call     302 consume nothing   9%
+  vyx         3,461c / 8,418 calls = 0.41 chars/call   3,503 consume nothing  42%
+  ```
+
+  The zero-consumption calls are `gate_take` — the loop continue/stop decision.
+  **On arithmetic 60% of all leaf calls consume no input**, and on vyx 42%. Each
+  pays the full 37 ns call overhead plus its test to advance the parse by zero
+  characters.
+  This is the sharpest statement yet of why lexic loses the character loop:
+  lark-lalr's regex lexer consumes a whole token per C-level call; lexic makes
+  0.41–2.28 characters of progress per Python call, and a third to two thirds of
+  those calls make none.
+- **THE MOST ACTIONABLE DRIVER ITEM FOUND — inline the `GATE_STOP` fast path.**
+  `GATE_STOP` is the simplest and most common gate: `ch in chars` against a
+  single-char stop set. It does not need a function call. Inlining just that
+  branch into the quantifier step — leaving `GATE_PAIR` / `GATE_KWIN` /
+  `GATE_PEEK` / `GATE_SCAN` / `GATE_ATTEMPT` to the existing call — is ONE
+  branch, not the wholesale leaf-inlining that would blow the driver's caps.
+  Estimated from counts at ~80 ns per avoided call (37 ns call + the test):
+  **arithmetic ~2.8%, vyx ~1.7%, csv ~1.2%.** The largest single driver item in
+  this mission, and the cheapest architecturally.
+  **Not yet prototyped** — and this mission's record on estimates is three
+  over-predictions out of three, so the number above is a hypothesis until the
+  in-situ measurement exists.
