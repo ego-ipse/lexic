@@ -569,3 +569,34 @@ history so nothing is re-derived or re-run.
   against `re.match(...).end()` over the corpus's actual run lengths FIRST — if
   the runs are short (2-3 chars), regex call overhead may exceed the loop it
   replaces, which is exactly how the FIRST_k prototype died.
+- **KILL-TEST PASSED — a C-level scan wins at csv's ACTUAL run lengths.**
+  csv's `vstr` runs: 2,639 of them, **mean 4.75 chars**, bimodal — 1,319 of
+  length 1 (50%) and ~1,260 of length 7–9 (48%).
+  Python `while` + set membership against `re.match(...).end()`:
+
+  ```
+  run len  1:  loop  173 ns   regex  180 ns   loop wins (by 7 ns)
+  run len  2:  loop  267 ns   regex  182 ns   REGEX WINS
+  run len  3:  loop  348 ns   regex  184 ns   REGEX WINS
+  run len  5:  loop  511 ns   regex  185 ns   REGEX WINS
+  run len 10:  loop  909 ns   regex  199 ns   REGEX WINS
+  ```
+
+  The loop is linear in run length; the regex is **flat at ~185 ns**. Crossover
+  is at length 2, and csv sits at 4.75. **This is the first candidate this
+  mission has proposed that survives its own kill-test** — FIRST_k died exactly
+  here, on per-call overhead exceeding the saving.
+- **SIZED HONESTLY, and it is not enough on its own.** Applying it to `vstr`
+  runs only: the 1,319 length-1 runs LOSE ~7 ns each (+9 µs), the ~1,260
+  length-8ish runs save ~570 ns each (−720 µs). Net **≈ 700 µs on a 12.9 ms
+  parse — about 5.4%.** csv needs **21%** to pass lark-lalr (0.917 → 0.727), so
+  vstr alone does not take the row.
+  What is NOT yet counted: the same per-character loop runs in `match_cc`, the
+  inline `OP_CC1` path in `_drive`, and every char-class quantifier in every
+  grammar. Those are unmeasured and are where the rest would have to come from.
+- **DESIGN NOTE for whoever builds it:** the crossover at length 2 means a
+  length-1 run should keep the loop — dispatching on expected run length is not
+  possible (it is data-dependent), but a cheap first-char test before the regex
+  call recovers most of it. Prefer `re` compiled ONCE per CharSet at flatten
+  time and carried on the FlatArm, beside the `(chars, negated)` pair — the same
+  place and the same lifetime as the membership set it replaces.
