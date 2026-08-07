@@ -93,6 +93,14 @@ taxonomy the verdict readers consume), and
 :class:`~lexic.parsing.pda.compiler.tables.PdaTables` (the compiled tables a
 kernel runs over, identity-memoised with the parse path).
 
+:mod:`~lexic.parsing.earley.kernel.forest.readout`'s decode seam surfaces
+here whole — :func:`to_chart`, :func:`decode_item`, the ``accept_*``
+readers, :func:`start_completion_ends`, :func:`root_ambiguous`,
+:func:`child_node`. It reads a finished :class:`Kernel`'s public fields and
+calls no method on it, which is what makes it a seam; exporting it means a
+consumer that wants to SEE a parse — a chart-column view, a trace — never
+reaches past the package boundary for it.
+
 :func:`~lexic.parsing.pda.analysis.predicates.nullable_names` surfaces here for
 the same reason: it is the repo's only nullability fixpoint, and the codegen
 passes need it to tell a language-preserving rewrite from a language-widening
@@ -120,6 +128,17 @@ from lexic.parsing.earley.kernel.forest.forest import (
     ParseTree,
     RootNode,
     SppfNode,
+)
+from lexic.parsing.earley.kernel.forest.readout import (
+    accept_handle,
+    accept_item,
+    accept_items,
+    accept_node,
+    child_node,
+    decode_item,
+    root_ambiguous,
+    start_completion_ends,
+    to_chart,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
@@ -263,6 +282,16 @@ __all__ = [
     "RootNode",
     "RuleFold",
     "SppfNode",
+    "accept_handle",
+    "accept_handle",
+    "accept_item",
+    "accept_items",
+    "accept_node",
+    "child_node",
+    "decode_item",
+    "root_ambiguous",
+    "start_completion_ends",
+    "to_chart",
     "compile_tables",
     "derivations",
     "earley_model",

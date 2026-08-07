@@ -16,6 +16,8 @@ API changes from the int-kernel rework:
 
 from __future__ import annotations
 
+from lexic import parsing
+from lexic.compile import parse_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import IrAst
 from lexic.parsing import (
@@ -55,8 +57,10 @@ from lexic.parsing import (
 from lexic.parsing import products as products_direct
 from lexic.parsing import (
     recognize,
+    to_chart,
 )
 from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
+from lexic.parsing.earley.kernel.forest import readout
 from lexic.parsing.earley.kernel.forest.chart import Chart as ChartDirect
 from lexic.parsing.earley.kernel.forest.chart import EarleyItem as EarleyItemDirect
 from lexic.parsing.earley.kernel.forest.chart import Link as LinkDirect
@@ -248,3 +252,39 @@ def test_pda_tables_function_re_exported_from_package():
     """pda_tables (the products function) is re-exported from the package
     top-level, the same object products.pda_tables is."""
     assert pda_tables is products_direct.pda_tables
+
+
+def test_readout_seam_re_exported_from_package():
+    """The decode seam is public at the package root, not a deep import.
+
+    A consumer that wants to SEE a parse — a chart-column view, a trace —
+    should not have to reach into ``earley.kernel.forest.readout`` for it.
+    """
+    for name in (
+        "to_chart",
+        "decode_item",
+        "accept_item",
+        "accept_items",
+        "accept_handle",
+        "accept_node",
+        "child_node",
+        "root_ambiguous",
+        "start_completion_ends",
+    ):
+        assert name in parsing.__all__, name
+        assert getattr(parsing, name) is getattr(readout, name), name
+
+
+def test_the_readout_seam_decodes_a_real_finished_kernel():
+    """End to end: compile, run the kernel, read the chart back out.
+
+    Pins the seam as USABLE from the package root, which is the whole point of
+    exporting it — the types were already public, the readers were not.
+    """
+
+    grammar = parse_grammar('root ::= "a" "b"\n', GBNF_FLAVOUR)
+    tables = compile_tables(normalize(grammar))
+    kern = Kernel(tables, "ab")
+    kern.run()
+    chart = to_chart(kern)
+    assert isinstance(chart, Chart)
