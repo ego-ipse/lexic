@@ -72,3 +72,8 @@ Newest last. One line per meaningful step; enough to resume cold.
   multiply facets, transpile is a peer edge), the meta ring (focus along a
   lineage edge pointing at yourself), the refusal facet, and the iteration
   ladder (refusal → seams → graph → ports → ring).
+- RULED (user, 2026-08-07): both engines as observation — PDA default, Earley
+  loaded in the background, visualization switchable once Earley finishes;
+  inversion when the PDA fails. No route flag enters the parse API (the
+  no-PDA-opt-out ruling stands). Recorded as THINKING.md §6b; inserted into
+  the iteration ladder as step 2.

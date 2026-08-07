@@ -95,14 +95,33 @@ document pays for Earley + the ambiguity audit. Lexic-side fix: make the
 self-grammar's model product unambiguous (noise attribution) so it rides the
 PDA. Opsis's obligation meanwhile: state the route in the masthead (it does).
 
+## 6b. Both engines, both clocks (ruled 2026-08-07)
+
+The user's ruling on §6: **give both routes as observation.** The parse API
+keeps no route flag — the "no PDA opt-out" ruling stands untouched; the
+product is still the engine's own composition. But the instrument runs BOTH
+engines over the document and draws each as its own time facet on the shared
+document coordinate: the PDA's decision sequence, Earley's chart columns —
+neither a renamed version of the other. Protocol: default to the road actually
+taken (PDA when healthy); run the other in the background; the switch enables
+only when it finishes — until then the alternate route is a drawn pending
+state, never a blank. When the PDA fails, the inversion is content: the
+probe-fork point and island hand-off intervals are first-class marks. With
+both runs in hand, parity is a drawable measured fact: *both engines built the
+same value — holds*. Surface exists: engine-floor exports (`earley_model`,
+`PdaKernel`, `pda_tables`) from the opsis-2 batch; `TraceKernel(PdaKernel)`
+is the proven zero-hook observation pattern.
+
 ## Iteration ladder
 
 1. **Refusal facet** — draw the trace shape with what exists (words +
    unmeasured frontier); wire a `broken` fixture. Blocked-on-lexic parts named.
-2. **Seam resize** — shares as session values; degrade-by-deriving-less.
-3. **Rule graph facet** — flat first (edges + co-selection), then the earned z.
-4. **Ports bay** — reducer docking as the first real attachment; transpile
+2. **Both engines** (§6b) — background Earley run beside the PDA product,
+   pending state, the route switch, the parity verdict.
+3. **Seam resize** — shares as session values; degrade-by-deriving-less.
+4. **Rule graph facet** — flat first (edges + co-selection), then the earned z.
+5. **Ports bay** — reducer docking as the first real attachment; transpile
    peer lane second.
-5. **The ring** — focus opsis's own configuration as a subject.
+6. **The ring** — focus opsis's own configuration as a subject.
 
 One iteration per session, tally updated each time, census before screenshots.
