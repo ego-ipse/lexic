@@ -153,3 +153,37 @@ history so nothing is re-derived or re-run.
 - NEXT: decompose ns/entry by entry KIND (plain frame push vs attempt sub-run
   vs gated selection) on vyx. That separates lever (b) into something
   actionable or kills it.
+- **LEVER (b) LOCATED — the attempt seam is vyx's cost, and it is not close.**
+  Decomposing `_enter` by entry kind (times are cumulative, so nested sub-run
+  work is counted under the attempt that caused it — the attribution is the
+  point, not the absolute ms):
+
+  ```
+  vyx        3543 entries, 41.51 ms inside _enter
+     699 ×  48712 ns =  34.05 ms  82.0%  ATTEMPT (sub-runs)
+    1426 ×   3823 ns =   5.45 ms  13.1%  dispatch chase
+     209 ×   6450 ns =   1.35 ms   3.2%  leaf (frame-less)
+    1209 ×    550 ns =   0.66 ms   1.6%  plain frame push
+
+  arithmetic 4100 entries, 5.97 ms
+    1537 ×   3112 ns =   4.78 ms  80.1%  dispatch chase
+    2563 ×    463 ns =   1.19 ms  19.9%  plain frame push
+  ```
+
+  **An attempt entry costs 48.7 µs — 88× a plain frame push (550 ns) and 13× a
+  dispatch chase.** 699 of 3,543 entries (20%) take 82% of the time.
+  **arithmetic has ZERO attempt entries**, which explains the ns/entry spread
+  from the previous entry exactly: 3,024 vs 4,562 is attempt density, not a
+  mysterious per-entry constant. Lever (b) is real and it has one name.
+- What an attempt entry does, for the next iteration: `sole_admitted` already
+  short-circuits the single-admitted case without a sub-run, so the 699 that
+  reach `attempt()` are the genuinely multi-admitted ones — each tries arms in
+  order as rolled-back sub-runs, then AUDITS the remaining admitted arms for a
+  second success (the ambiguity check), which is a further sub-run each.
+  **Known dead end, do not retry:** `_attempt_run`'s own docstring records that
+  memoising sub-runs was tried and measured ZERO hits — a sub-run's outcome
+  depends on the enclosing continuation, so `(clone, pos)` is not a sound key.
+  The live question is the AUDIT: it is a correctness property (two arms
+  matching the same span is the ambiguity refusal), so the target is not
+  removing it but establishing whether it can be decided without a second full
+  sub-run.
