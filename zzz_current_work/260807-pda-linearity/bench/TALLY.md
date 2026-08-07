@@ -248,3 +248,29 @@ history so nothing is re-derived or re-run.
   are computed per decision point today, not per attempt entry, so the analysis
   may need to be asked a question it does not currently answer — establish that
   before assuming the wiring is free.
+- **THE PRIMITIVE EXISTS, AND THE BLOCKER I EXPECTED IS NOT ONE.**
+  `KWindowFirst(rules, k).arm_prefixes(arm, k)` (`analysis/gates/kwindow.py`)
+  returns the per-arm FIRST_k prefix set — exactly the per-attempt-entry
+  question I thought the analysis could not answer.
+  The wrapper `arm_gate()` only returns a result when the arms are SEPARABLE
+  (pairwise disjoint), and attempt clones overlap by definition — that is why
+  they are attempts. So `arm_gate` gives `None` for every one of them, and it
+  looked like the analysis had nothing to offer.
+  **But separability is a requirement for SELECTION, not for EXCLUSION.** I do
+  not need the windows to pick an arm; I need them to prove an arm cannot
+  match. Overlapping prefix sets still do that: if the text's k-window is in no
+  window of arm A, A cannot match, whatever the other arms admit. The sound
+  primitive is `arm_prefixes` directly, bypassing `arm_gate`'s separability
+  test — which is a filter over a different question.
+- **CAVEAT, unresolved:** `arm_gate`'s signature pins `max_k: int = 3` and its
+  docstring says "the largest window to try (`≤ 3`)". The failure-depth data
+  wants k=4 (83.4% cumulative); k=3 reaches only 55.6%. Whether the ≤3 bound is
+  a cost ceiling on the solver or a correctness limit is NOT established — read
+  `KWindowFirst` before assuming k=4 is available. If it is capped at 3, the
+  lever is worth ~55% of the waste rather than ~83%, which is still ~11 ms of
+  vyx's 41 ms.
+- **NEXT (prototype, in this order):** (1) read `KWindowFirst` for the k bound;
+  (2) compute `arm_prefixes` per attempt entry at the largest sound k;
+  (3) filter candidates in `sole_admitted`'s position before any sub-run;
+  (4) measure sub-run count and µs/char on vyx. Success criterion set in
+  advance: sub-runs 2,005 → under 1,400, and vyx under 4.0 µs/char.
