@@ -10,7 +10,9 @@ const C = {
   cool: '#6fc3c9', warm: '#e2a65c', violet: '#d98cf5', red: '#e06060',
   green: '#79c99a', closed: '#10282e', active: '#3a2f18', pending: '#2a3140',
 };
-const LH = 19, PAD_TOP = 8;
+let LH = 19;
+const PAD_TOP = 8;
+let docZoom = 1;
 
 let S = null;            // the scene: doc, reader, spans, rules, meta
 let M = null;            // measured geometry: charW, gutterW
@@ -21,6 +23,7 @@ let speed = 1;      // derivation sweep multiplier ([ and ] halve/double)
 let pinSeq = 0;
 let pinZ = 30;
 let view0 = 0;           // chart viewport (leaf-local)
+let chartZoom = 1;       // plain scroll on the chart: zoom the lane window
 let lastPost = 0;
 let needsDraw = false;
 
@@ -284,8 +287,9 @@ function drawChart() {
     cx.fillRect(ox(off), 8, Math.max(1, ox(off + step) - ox(off)), bandH);
   }
   // a small document fills the width; a large one gets a 5px-per-char window
-  const pitch = N * 5 < (w - 2 * pad) ? Math.min(12, Math.floor((w - 2 * pad) / Math.max(1, N))) : 5;
-  const win = Math.floor((w - 2 * pad) / pitch);
+  const base = N * 5 < (w - 2 * pad) ? Math.min(12, Math.floor((w - 2 * pad) / Math.max(1, N))) : 5;
+  const pitch = Math.max(0.5, base * chartZoom);
+  const win = Math.max(8, Math.floor((w - 2 * pad) / pitch));
   view0 = Math.max(0, Math.min(view0, Math.max(0, N - win)));
   if (cur.t < view0 || cur.t > view0 + win * 0.72) {
     view0 = Math.max(0, Math.min(cur.t - win * 0.6, Math.max(0, N - win)));
@@ -468,7 +472,7 @@ function gProject(v, p, w, h) {
   const y = p.y * cp - z * sp;
   z = p.y * sp + z * cp;
   const f = 780;
-  const s = f / (f - z + 420);
+  const s = f / Math.max(220, f - z + 420);  // near-plane clamp: no pole, no mirror
   return { x: w / 2 + x * s, y: h / 2 + y * s, s };
 }
 
@@ -480,7 +484,7 @@ function drawGraph() {
   }
 }
 
-function drawGraphView(v) {
+function drawGraphView(v, smooth = false) {
   const wrap = v.wrap;
   const cv = v.cv;
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -500,10 +504,12 @@ function drawGraphView(v) {
   }
   const tk = Math.min((w * 0.84) / Math.max(40, x1 - x0), (h * 0.78) / Math.max(40, y1 - y0), 2.4) * v.zoom;
   const tmx = (x0 + x1) / 2, tmy = (y0 + y1) / 2;
-  if (!v.fit) v.fit = { k: tk, mx: tmx, my: tmy };
-  v.fit.k += (tk - v.fit.k) * 0.22;
-  v.fit.mx += (tmx - v.fit.mx) * 0.22;
-  v.fit.my += (tmy - v.fit.my) * 0.22;
+  if (!v.fit || !smooth) v.fit = { k: tk, mx: tmx, my: tmy };
+  else {
+    v.fit.k += (tk - v.fit.k) * 0.22;
+    v.fit.mx += (tmx - v.fit.mx) * 0.22;
+    v.fit.my += (tmy - v.fit.my) * 0.22;
+  }
   const { k, mx, my } = v.fit;
   for (const P of proj.values()) {
     P.x = w / 2 + (P.x - mx) * k;
@@ -565,7 +571,7 @@ function wireGraphView(v) {
     v.yaw += (e.clientX - drag.x) * 0.006;
     v.pitch = Math.max(-1.4, Math.min(1.4, v.pitch + (e.clientY - drag.y) * 0.005));
     drag = { x: e.clientX, y: e.clientY };
-    drawGraphView(v);
+    drawGraphView(v, true);
   });
   window.addEventListener('pointerup', () => { drag = null; });
   v.wrap.addEventListener('wheel', (e) => {
@@ -618,13 +624,42 @@ function graphPin() {
 let spineZoom = 1;
 
 function wireSpineZoom() {
+  // text fields zoom with Ctrl+scroll, like an editor
   $('spine').addEventListener('wheel', (e) => {
-    if (!e.ctrlKey && Math.abs(e.deltaY) < 4) return;
+    if (!e.ctrlKey) return;
     e.preventDefault();
     spineZoom = Math.max(0.6, Math.min(2.4, spineZoom * Math.pow(1.0016, -e.deltaY)));
     for (const id of ['spineBody', 'closedBody']) {
       $(id).style.fontSize = (11.5 * spineZoom).toFixed(1) + 'px';
     }
+  }, { passive: false });
+}
+
+function applyDocZoom() {
+  LH = Math.round(19 * docZoom);
+  document.documentElement.style.setProperty('--fs', (12.5 * docZoom).toFixed(1) + 'px');
+  document.documentElement.style.setProperty('--lh', LH + 'px');
+  measure();
+  sizeDocCanvases();
+}
+
+function wireTextZoom() {
+  for (const id of ['docScroll', 'grammarScroll']) {
+    $(id).addEventListener('wheel', (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      docZoom = Math.max(0.6, Math.min(2.2, docZoom * Math.pow(1.0016, -e.deltaY)));
+      applyDocZoom();
+      ask();
+    }, { passive: false });
+  }
+}
+
+function wireChartZoom() {
+  $('chartCv').addEventListener('wheel', (e) => {
+    e.preventDefault();
+    chartZoom = Math.max(0.25, Math.min(8, chartZoom * Math.pow(1.0016, -e.deltaY)));
+    ask();
   }, { passive: false });
 }
 
@@ -1143,6 +1178,8 @@ async function pollRoutes() {
   wireGraph();
   wireTransport();
   wireSpineZoom();
+  wireTextZoom();
+  wireChartZoom();
   pollRoutes();
   const q = new URLSearchParams(location.search);
   if (q.has('t')) { cur.t = Math.min(+q.get('t'), S.doc.length); cur.follow = true; ask(); }

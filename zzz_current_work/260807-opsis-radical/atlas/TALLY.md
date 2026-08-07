@@ -487,3 +487,19 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   (grep for function markers) and IN THE DOM (chip-class census) before
   claiming anything. New rule: after every patch round, verify the artifact,
   not the patch log.
+- SECOND FEEDBACK ROUND on tempo/zoom/graph: (1) transport relocated to the
+  status strip, beside the position readout — playback is global, not the
+  derivation facet's furniture. (2) Zoom semantics RULED and implemented:
+  text fields zoom with Ctrl+scroll (document+reader share the code-plane
+  zoom — LH went dynamic, CSS vars scale, glyph metrics re-measure and the
+  canvas welds re-size on every step; spine keeps its own Ctrl+scroll);
+  non-text fields zoom with plain scroll (graph as before; the derivation
+  chart NEW — wheel scales the lane window's chars-per-pixel, 0.25–8×).
+  (5b, the real fix) "explodes off screen" was a CAMERA pole, not a fit
+  pole: the perspective divisor f−z+420 could approach zero or flip
+  negative behind the camera at some orbits, detonating one node's
+  projection and with it the fit bounds — divisor now clamped ≥220: no
+  pole, no mirror, mathematically bounded. (5d) the hover-zoom ghost was
+  the fit lerp converging 22% per hover-triggered render — smoothing now
+  applies only during an active drag; all other draws snap to the fitted
+  target.

@@ -280,3 +280,5 @@ body {
 }
 #gfocus:hover, #gfocus.on { border-color: var(--violet); color: var(--violet); }
 .gchip.faded { opacity: 0.12; pointer-events: none; }
+
+#status #transport { margin-left: 0; }
