@@ -52,6 +52,7 @@ let view0 = 0;           // chart viewport (leaf-local)
 let chartZoom = 1;       // plain scroll on the chart: zoom the lane window
 let chartClock = 'model';  // model | pda | earley — which clock the lanes tell
 let clockHover = -1;       // hovered document position in a clock view
+let clockHoverExt = null;  // the hovered frame / hypothesis extent
 let clockData = null;      // { gen, enters, tries, items, entersTop, itemsTop, pdaEnd }
 let clockWaiting = false;
 let lastPost = 0;
@@ -306,31 +307,46 @@ async function loadClock() {
       setTimeout(() => { clockWaiting = false; ask(); }, 1500);
       return;
     }
-    const N = S.doc.length;
     const data = {
-      gen: S.meta.generation, pdaEnd: -1,
-      enters: new Int32Array(N + 1), tries: new Int32Array(N + 1), items: new Int32Array(N + 1),
-      entersTop: 1, itemsTop: 1,
+      gen: S.meta.generation, pdaEnd: -1, dropped: 0,
+      frames: [], tries: [], hyp: [], fnames: [], hnames: [], frameRows: 1, hypRows: 1,
     };
     let section = '';
     for (const ln of text.split('\n')) {
       if (ln.startsWith('generation ')) {
         if (ln.slice(11) !== S.meta.generation) { setTimeout(() => { clockWaiting = false; ask(); }, 1500); return; }
       } else if (ln.startsWith('pda_end ')) data.pdaEnd = +ln.slice(8);
-      else if (ln.startsWith('#PDACLOCK')) section = 'p';
-      else if (ln.startsWith('#EARLEYCLOCK')) section = 'e';
-      else if (section) {
-        const [i, a, b] = ln.split(' ');
-        if (i === '') continue;
-        if (section === 'p') {
-          data.enters[+i] = +a; data.tries[+i] = +b;
-          data.entersTop = Math.max(data.entersTop, +a);
-        } else {
-          data.items[+i] = +a;
-          data.itemsTop = Math.max(data.itemsTop, +a);
-        }
-      }
+      else if (ln.startsWith('dropped ')) data.dropped = +ln.slice(8);
+      else if (ln.startsWith('#PDAFRAMES')) section = 'f';
+      else if (ln.startsWith('#PDANAMES')) section = 'fn';
+      else if (ln.startsWith('#TRIES')) section = 't';
+      else if (ln.startsWith('#EARLEYNAMES')) section = 'hn';
+      else if (ln.startsWith('#EARLEY')) section = 'h';
+      else if (section === 'f') {
+        const [a, b, c, d] = ln.split(' ');
+        data.frames.push({ s: +a, e: +b, d: +c, n: +d });
+        data.frameRows = Math.max(data.frameRows, +c + 1);
+      } else if (section === 'fn') data.fnames.push(ln);
+      else if (section === 't') {
+        const sp = ln.indexOf(' ');
+        data.tries.push({ pos: +ln.slice(0, sp), name: ln.slice(sp + 1) });
+      } else if (section === 'h') {
+        const [a, b, c, d] = ln.split(' ');
+        data.hyp.push({ s: +a, e: +b, c: +c, n: +d });
+      } else if (section === 'hn') data.hnames.push(ln);
     }
+    for (const f of data.frames) f.name = data.fnames[f.n];
+    // hypotheses pack into rows greedily — the row count IS the maximum
+    // number of simultaneously live hypotheses, itself a measurement
+    const rowEnd = [];
+    for (const hh of data.hyp) {
+      hh.name = data.hnames[hh.n];
+      let r = 0;
+      while (r < rowEnd.length && rowEnd[r] > hh.s) r++;
+      rowEnd[r] = Math.max(hh.e, hh.s + 0.5);
+      hh.row = r;
+    }
+    data.hypRows = Math.max(1, rowEnd.length);
     clockData = data;
     clockWaiting = false;
     ask();
@@ -341,27 +357,56 @@ function clockReady() {
   return clockData && clockData.gen === S.meta.generation;
 }
 
+let clockHit = null;
+
 function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   const pda = chartClock === 'pda';
-  const arr = pda ? clockData.enters : clockData.items;
-  const top = pda ? clockData.entersTop : clockData.itemsTop;
-  const y1 = h - 6, span = y1 - lanesY - 4;
-  const colour = pda ? C.cool : C.violet;
+  const list = pda ? clockData.frames : clockData.hyp;
+  const rows = pda ? clockData.frameRows : clockData.hypRows;
+  const y1 = h - 6;
+  const laneH = Math.max(2, Math.min(16, Math.floor((y1 - lanesY - 4) / Math.max(1, rows))));
   const win = S.chartHit.win;
-  for (let off = Math.floor(view0); off <= Math.min(view0 + win, S.doc.length); off++) {
-    const v = arr[off];
-    if (!v) continue;
-    const bh = Math.max(1, Math.round((Math.log1p(v) / Math.log1p(top)) * span));
-    cx.fillStyle = off <= cur.t ? colour : C.pending;
-    cx.fillRect(sx(off), y1 - bh, Math.max(1, pitch - 0.5), bh);
-    if (pda && clockData.tries[off]) {
-      cx.fillStyle = C.warm;
-      cx.fillRect(sx(off), lanesY, Math.max(1.5, pitch - 0.5), 4);
+  clockHit = { lanesY: lanesY + 4, laneH, pda };
+  const abandoned = 'rgba(224,96,96,0.55)';
+  const abandonedFill = 'rgba(224,96,96,0.16)';
+  for (const f of list) {
+    if (f.e <= view0 || f.s >= view0 + win) continue;
+    const row = pda ? f.d : f.row;
+    const y = clockHit.lanesY + row * laneH;
+    if (y + laneH > y1) continue;
+    const x1 = sx(Math.max(f.s, view0));
+    const x2 = Math.max(sx(Math.min(f.e, view0 + win)), x1 + 1.5);
+    const done = f.e <= cur.t, live = !done && f.s < cur.t;
+    if (pda) {
+      if (done) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 1); cx.strokeStyle = C.cool; }
+      else if (live) {
+        cx.fillStyle = C.active;
+        cx.fillRect(x1, y, sx(Math.min(cur.t, view0 + win)) - x1, laneH - 1);
+        cx.strokeStyle = C.warm;
+      } else cx.strokeStyle = C.pending;
+    } else if (f.c) {
+      if (done) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
+      cx.strokeStyle = done ? C.cool : C.pending;
+    } else {
+      if (done) { cx.fillStyle = abandonedFill; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
+      cx.strokeStyle = abandoned;
+    }
+    cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
+    if (clockHoverExt === f) {
+      cx.strokeStyle = C.ink || '#e8e2d6';
+      cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 2);
+    }
+    if (markedRule() && f.name === markedRule()) {
+      cx.strokeStyle = C.violet;
+      cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 2);
     }
   }
-  if (clockHover >= view0 && clockHover <= view0 + win) {
-    cx.strokeStyle = C.ink || '#e8e2d6';
-    cx.strokeRect(sx(clockHover) - 0.5, lanesY, Math.max(2, pitch), y1 - lanesY);
+  if (pda) {
+    cx.fillStyle = C.warm;
+    for (const t of clockData.tries) {
+      if (t.pos < view0 || t.pos > view0 + win) continue;
+      cx.fillRect(sx(t.pos), lanesY - 2, Math.max(2, pitch / 2), 4);
+    }
   }
   if (pda && clockData.pdaEnd >= 0 && clockData.pdaEnd >= view0 && clockData.pdaEnd <= view0 + win) {
     cx.strokeStyle = C.red || '#e06060';
@@ -370,9 +415,10 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   cx.fillStyle = C.dim;
   cx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
   const legend = pda
-    ? `the PDA's decisions — frame entries per char (log) · warm ticks: real attempt forks${clockData.pdaEnd >= 0 ? ' · red: where the fast road stops' : ''}`
-    : "Earley's chart — items per column (log)";
-  cx.fillText(legend, 12, lanesY - 4);
+    ? `the PDA's own frames — every push, at its stack depth · gaps: frameless leaf runs · warm ticks: real attempt forks${clockData.pdaEnd >= 0 ? ' · red: where the fast road stops' : ''}`
+    : `Earley's hypotheses — every (rule, origin) it considered · red outline: abandoned · ${clockData.hypRows} live at the widest`
+      + (clockData.dropped ? ` · ${clockData.dropped.toLocaleString()} short extents not shipped` : '');
+  cx.fillText(legend, 12, lanesY - 8);
 }
 
 function drawChart() {
@@ -528,13 +574,13 @@ function render() {
   const focus = cur.sel >= 0 ? cur.sel : cur.hover;
   let words = focus < 0 ? (cur.rule ? `rule ${cur.rule} — its spans outlined violet` : '') : spanWords(focus);
   if (chartClock !== 'model' && clockHover >= 0 && clockReady()) {
-    const clk = chartClock === 'pda'
-      ? (clockData.enters[clockHover]
-          ? `the PDA entered ${clockData.enters[clockHover]} frame${clockData.enters[clockHover] === 1 ? '' : 's'} here`
-            + (clockData.tries[clockHover] ? ` · ${clockData.tries[clockHover]} real attempt${clockData.tries[clockHover] === 1 ? '' : 's'}` : '')
-          : 'frameless — a leaf run carried this char')
-      : `Earley's column holds ${clockData.items[clockHover]} item${clockData.items[clockHover] === 1 ? '' : 's'}`;
-    words = `char ${clockHover.toLocaleString()} — ${clk}` + (words ? ` · ${words}` : '');
+    const f = clockHoverExt;
+    const clk = !f
+      ? (chartClock === 'pda' ? 'frameless here — a leaf run carried this stretch' : 'no hypothesis on this row here')
+      : chartClock === 'pda'
+        ? `frame ${f.name} · ${f.s.toLocaleString()}..${f.e.toLocaleString()} · stack depth ${f.d}`
+        : `hypothesis ${f.name} · ${f.s.toLocaleString()}..${f.e.toLocaleString()} · ${f.c ? 'completed' : 'ABANDONED — considered, never finished'}`;
+    words = clk + (words ? ` · ${words}` : '');
   }
   $('readout').textContent = words;
   if (performance.now() - lastPost > 300) {
@@ -1901,16 +1947,29 @@ function wire() {
       if (chartClock === 'model') {
         const d = Math.floor((y - lanesY) / laneH);
         S.spans.forEach((s, i) => { if (s.d === d && s.s <= off && off < s.e) hover = i; });
-      } else if (off >= 0 && off <= S.doc.length) {
-        // a clock bar is a position: read its numbers, co-select what lives there
+      } else if (off >= 0 && off <= S.doc.length && clockHit && clockReady()) {
+        // a clock lane holds extents: find the one under the hand
         clkh = Math.round(off);
+        const row = Math.floor((y - clockHit.lanesY) / clockHit.laneH);
+        const list = clockHit.pda ? clockData.frames : clockData.hyp;
+        clockHoverExt = list.find((f) => (clockHit.pda ? f.d : f.row) === row && f.s <= off && off < Math.max(f.e, f.s + 1)) || null;
         hover = deepestAt(Math.min(clkh, S.doc.length - 1));
       }
     }
-    if (hover !== cur.hover || clkh !== clockHover) { cur.hover = hover; clockHover = clkh; ask(); }
+    const hoverName = clockHoverExt ? clockHoverExt.name : '';
+    if (hover !== cur.hover || clkh !== clockHover || hoverName !== graphHover) {
+      cur.hover = hover;
+      clockHover = clkh;
+      if (chartClock !== 'model') graphHover = hoverName;
+      ask();
+    }
   });
   chart.addEventListener('mouseleave', () => {
-    if (cur.hover !== -1 || clockHover !== -1) { cur.hover = -1; clockHover = -1; ask(); }
+    if (cur.hover !== -1 || clockHover !== -1 || clockHoverExt) {
+      cur.hover = -1; clockHover = -1; clockHoverExt = null;
+      if (chartClock !== 'model' && graphHover) graphHover = '';
+      ask();
+    }
   });
   for (const host of [$('spineBody'), $('closedBody')]) {
     host.addEventListener('click', (e) => {

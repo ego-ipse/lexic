@@ -38,7 +38,8 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import Kernel, PdaKernel, compile_tables, earley_model, lift_optional_nullables, normalize
+from lexic.parsing import Kernel, PdaKernel, compile_tables, decode_item, earley_model, lift_optional_nullables, normalize
+from lexic.parsing.pda.runtime.build import F_CLONE, F_START
 from lexic.parsing.pda.core.errors import PdaFail
 
 HERE = Path(__file__).resolve().parent
@@ -191,7 +192,10 @@ class Subject:
                 result["pda_end"] = -1
             except PdaFail as fork:
                 result["pda_end"] = fork.pos  # the inversion is content
-            result["enters"] = ck.enters
+            for rec in ck.frames:
+                if rec[1] < 0:
+                    rec[1] = ck.pos  # the live stack at death closes here
+            result["frames"] = ck.frames
             result["tries"] = ck.tries
         except Exception as err:
             result["pda_error"] = str(err)[:160]
@@ -200,7 +204,29 @@ class Subject:
                 instance = normalize(lift_optional_nullables(self.compiled.codegen_grammar))
                 self._instance_tables = compile_tables(instance)
             kernel = Kernel(self._instance_tables, self.document, record_links=False).run()
-            result["items"] = [len(col) for col in kernel.cols]
+            # every hypothesis (rule, origin) — born at origin, alive to its
+            # last column, completed if a final-dot item ever appeared
+            ext: dict[tuple[str, int], list] = {}
+            for j, col in enumerate(kernel.cols):
+                for packed in col:
+                    rule, seq, dot, origin = decode_item(self._instance_tables, packed)
+                    rec = ext.get((str(rule), origin))
+                    if rec is None:
+                        rec = ext[(str(rule), origin)] = [origin, j, 0]
+                    if j > rec[1]:
+                        rec[1] = j
+                    if dot == len(seq):
+                        rec[2] = 1
+            hyp = [[o, last, comp, name] for (name, o), (o2, last, comp) in ext.items()]
+            hyp.sort(key=lambda r: (r[0], -(r[1] - r[0])))
+            dropped = 0
+            if len(hyp) > 60000:
+                hyp.sort(key=lambda r: (-r[2], -(r[1] - r[0])))
+                dropped = len(hyp) - 60000
+                hyp = hyp[:60000]
+                hyp.sort(key=lambda r: (r[0], -(r[1] - r[0])))
+            result["hyp"] = hyp
+            result["dropped"] = dropped
         except Exception as err:
             result["earley_error"] = str(err)[:160]
         with self.lock:
@@ -276,27 +302,42 @@ def rule_graph(ast) -> tuple[list[tuple[str, str]], dict[str, int]]:
 
 
 class ClockKernel(PdaKernel):
-    """The PDA's decision clock — the fused kernel, counting its own entries.
+    """The PDA's own trace — every frame the fused kernel pushes, as an extent.
 
-    The zero-hook observation pattern: every ``_enter`` and every real
-    ``attempt`` (the sole-admission fast path never reaches ``attempt``)
-    increments a per-position counter before delegating. The parse is the
-    engine's own; the clock only watches it.
+    The zero-hook observation pattern: ``_enter`` records the pushed frame
+    (start, stack depth, clone name), ``_complete`` closes its extent, and
+    ``attempt`` marks where the real attempt machinery fired — then every
+    override delegates. The parse is the engine's own; the clock only
+    watches it. Frames still open when a parse dies keep ``end=-1`` and are
+    closed at the failure position — the live stack at death IS the trace's
+    last column. Probe sub-runs record their frames too: rolled-back work
+    is real work, and the clock shows work.
     """
 
-    __slots__ = ("enters", "tries")
+    __slots__ = ("frames", "open_frames", "tries")
 
     def __init__(self, tables, text, fold) -> None:
         super().__init__(tables, text, fold)
-        self.enters = [0] * (len(text) + 1)
-        self.tries = [0] * (len(text) + 1)
+        self.frames: list[list] = []  # [start, end, depth, clone name]
+        self.open_frames: dict[int, int] = {}
+        self.tries: list[tuple[int, str]] = []
 
     def _enter(self, clone, out):
-        self.enters[min(self.pos, len(self.text))] += 1
-        return super()._enter(clone, out)
+        pushed = super()._enter(clone, out)
+        if pushed:
+            frame = self.stack[-1]
+            self.open_frames[id(frame)] = len(self.frames)
+            self.frames.append([frame[F_START], -1, len(self.stack) - 1, str(frame[F_CLONE].name)])
+        return pushed
+
+    def _complete(self, frame):
+        idx = self.open_frames.pop(id(frame), None)
+        if idx is not None:
+            self.frames[idx][1] = self.pos
+        return super()._complete(frame)
 
     def attempt(self, clone, out):
-        self.tries[min(self.pos, len(self.text))] += 1
+        self.tries.append((self.pos, str(clone.name)))
         return super().attempt(clone, out)
 
 
@@ -463,16 +504,31 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_text("status pending")
                 return
             out = [f"status done", f"generation {generation}",
-                   f"pda_end {clock.get('pda_end', -1)}"]
-            enters = clock.get("enters", [])
+                   f"pda_end {clock.get('pda_end', -1)}",
+                   f"dropped {clock.get('dropped', 0)}"]
+            frames = clock.get("frames", [])
+            fnames: dict[str, int] = {}
+            rows = []
+            for start, end, depth, name in frames:
+                idx = fnames.setdefault(name, len(fnames))
+                rows.append(f"{start} {end} {depth} {idx}")
+            out.append(f"#PDAFRAMES {len(rows)}")
+            out.extend(rows)
+            out.append(f"#PDANAMES {len(fnames)}")
+            out.extend(fnames)
             tries = clock.get("tries", [])
-            rows = [f"{i} {e} {tries[i]}" for i, e in enumerate(enters) if e or tries[i]]
-            out.append(f"#PDACLOCK {len(rows)}")
+            out.append(f"#TRIES {len(tries)}")
+            out.extend(f"{pos} {name}" for pos, name in tries)
+            hyp = clock.get("hyp", [])
+            hnames: dict[str, int] = {}
+            rows = []
+            for origin, last, comp, name in hyp:
+                idx = hnames.setdefault(name, len(hnames))
+                rows.append(f"{origin} {last} {comp} {idx}")
+            out.append(f"#EARLEY {len(rows)}")
             out.extend(rows)
-            items = clock.get("items", [])
-            rows = [f"{i} {n}" for i, n in enumerate(items) if n]
-            out.append(f"#EARLEYCLOCK {len(rows)}")
-            out.extend(rows)
+            out.append(f"#EARLEYNAMES {len(hnames)}")
+            out.extend(hnames)
             self.send_text("\n".join(out))
             return
         if self.path == "/rails":
@@ -615,13 +671,20 @@ def census(subject: Subject) -> int:
             break
         time.sleep(0.05)
     ck = subject.clock
+    frames = ck.get("frames", [])
+    hyp = ck.get("hyp", [])
+    n_doc = len(subject.document)
     ok_clock = (ck.get("status") == "done"
-                and len(ck.get("enters", [])) == len(subject.document) + 1
-                and sum(ck.get("enters", [])) > 0
-                and len(ck.get("items", [])) == len(subject.document) + 1
-                and sum(ck.get("items", [])) > 0)
-    print(f"clocks: pda {sum(ck.get('enters', []))} enters ({sum(ck.get('tries', []))} attempts, "
-          f"end {ck.get('pda_end')}) · earley {sum(ck.get('items', []))} items · well-formed {ok_clock}")
+                and len(frames) > 0
+                and all(0 <= f[0] <= f[1] <= n_doc for f in frames)
+                and any(f[0] == 0 and f[1] == n_doc for f in frames)
+                and len(hyp) > 0
+                and all(0 <= h[0] <= h[1] <= n_doc for h in hyp)
+                and any(h[0] == 0 and h[1] == n_doc and h[2] for h in hyp))
+    print(f"clocks: pda {len(frames)} frames (depth {max((f[2] for f in frames), default=0)}, "
+          f"{len(ck.get('tries', []))} attempts, end {ck.get('pda_end')}) · "
+          f"earley {len(hyp)} hypotheses ({sum(1 for h in hyp if h[2])} completed, "
+          f"{ck.get('dropped', 0)} dropped) · well-formed {ok_clock}")
     rails = rail_lines(subject.graph_ast, start)
     ok_rail = (rails is not None and len(rails) > 0
                and all(len(ln.split(None, 1)) >= 2 for ln in rails)

@@ -32,11 +32,17 @@ screenshot-verified.
 - `GET /clock` — the two engine clocks over the document coordinate,
   rebuilt in the background after every read: `status pending|done`,
   `generation`, `pda_end` (−1 healthy; else where the fast road stops),
-  then `#PDACLOCK n` (`pos enters attempts` — the fused kernel's frame
-  entries and REAL attempt invocations, from a `ClockKernel(PdaKernel)`
-  that counts before delegating; zero hooks in the engine) and
-  `#EARLEYCLOCK n` (`pos items` — chart items per column, read off the
-  explicit `Kernel`'s own `cols`). Sparse: zero positions are omitted.
+  `dropped n`, then the engines' own OBJECTS (counts were built first and
+  ripped out — a histogram is not a machine): `#PDAFRAMES n`
+  (`start end depth nameIdx` — every frame the fused kernel pushed, from
+  `ClockKernel(PdaKernel)` recording in `_enter`/`_complete`/`attempt`
+  before delegating; frames open at death close at the failure position),
+  `#PDANAMES k`, `#TRIES n` (`pos name` — real attempt invocations),
+  `#EARLEY n` (`origin last completed nameIdx` — every hypothesis
+  `(rule, origin)` the explicit `Kernel` ever held, decoded from its own
+  columns via `decode_item`; completed = a final-dot item appeared) and
+  `#EARLEYNAMES k`. Hypotheses cap at 60k, longest/completed kept,
+  `dropped` counts the rest — stated on the legend, never silent.
 - `GET /rails` — every rule's structural lines in one frame, sections
   headed `#RAIL <rule> <n>` in AST order — the all-rules rails view reads
   this once and caches it (the reader grammar never changes across document

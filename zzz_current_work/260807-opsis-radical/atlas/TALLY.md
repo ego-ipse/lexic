@@ -872,3 +872,46 @@ Fix, three parts in the same gesture channel the model view uses:
 Hover can't be driven headless; sanity boot screenshot clean
 (/tmp/clock_hover_sanity.png), hit-test math shared with the proven
 scrub. User-side feel test, as usual.
+
+## Round: the clocks, ripped out and rebuilt as the machines — 2026-08-07
+
+The user's verdict on rung 8's first form: "the visualization should be
+meaningful. These bars do none of it." Correct — count bars are a
+histogram, not a machine. Ripped out (wire sections and all) and rebuilt
+from the engines' own objects.
+
+**The PDA clock is now the kernel's own trace.** `ClockKernel` records
+every frame the fused kernel pushes — extent (enter position → completion
+position), stack depth, clone name — via `_enter`/`_complete` keyed by
+frame identity (no LIFO assumption; probe sub-run frames record too:
+rolled-back work is real work). Frames still open when a parse dies close
+at the failure position — the live stack at death IS the trace's last
+column. Drawn exactly like the model lanes (read/active/pending states
+against the cursor, violet on the marked rule) — but these are the
+ENGINE's frames: frameless leaf runs appear as literal silence, the gaps
+between frames. In the vyx comment region the trace is three frames deep
+where the model shows d18 — the difference between what the text MEANS
+and what the machine DID, side by side on the same coordinate.
+
+**The Earley clock is now the hypothesis field.** Every `(rule, origin)`
+the kernel ever held, decoded from its own columns (`decode_item`), drawn
+from birth to last column alive — cool when completed, red-outlined when
+ABANDONED (considered, never finished: the speculation the grammar
+forces). Greedy row packing; the row count is itself a measurement (the
+most hypotheses simultaneously alive), stated on the legend. 60k cap with
+longest/completed kept and `dropped` counted aloud (long: 2,833 dropped
+of 62,833).
+
+Hover now answers with identity, not numbers: `frame comment-line ·
+1,198..1,257 · stack depth 2` / `hypothesis kv-pair · 306..391 ·
+ABANDONED — considered, never finished`; the hovered extent outlines ink,
+its rule co-selects through graphHover (reader lights, graph chips heat).
+
+Census hardened: the root frame must span the whole document; a completed
+whole-document hypothesis must exist; every extent ordered and in bounds.
+meta 2,543 frames/10,328 hyp · vyx 1,360/8,999 (786 abandoned) · long
+6,620/60,000 · abnf 4,539/42,501. All four exit 0.
+
+Screenshots: /tmp/trace_pda.png (the stack breathing over a comment
+stretch, spine agreeing), /tmp/trace_earley.png (completed extents over
+the dense per-char hypothesis band).
