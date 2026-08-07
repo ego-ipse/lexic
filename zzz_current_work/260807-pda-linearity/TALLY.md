@@ -194,3 +194,21 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
 - PLAN items 1-6 are now all closed (2, 4, 5 built; 1, 3 measured; 6 measured
   and declined). Deferred still: D-half-1 (per-site licences, needs the
   clone-identity trade priced) and `nullable_names` → `ir/grammar/`.
+- **LABEL CORRECTION (user caught it).** Throughout this ledger, "vyx 4.451s →
+  0.029s" and "vyx 9,417c in 0.029s" mean **the GBNF METAGRAMMAR reading
+  vyx.gbnf as grammar SOURCE TEXT** — not the vyx grammar parsing a vyx packet.
+  The numbers are right; the shorthand was misleading, and it invites exactly
+  the comparison that exposed it: 9,417c/0.029s reads as 3.1 µs/char, while
+  `bench --only vyx` reports lexic-pda at 5.724 µs/char.
+  Both reproduce in-process, side by side, so the methodology agrees with the
+  benchmark and the gap is workload:
+      bench vyx corpus (vyx grammar → a vyx packet)   3,461c  5.305 µs/char
+      metagrammar → vyx.gbnf source                   9,417c  2.925 µs/char
+  Read every "vyx" in the entries above as "the metagrammar reading vyx.gbnf"
+  unless it says packet. The pipe-heavy/dict-heavy packet measurements ARE the
+  vyx grammar on instances — those are labelled and are the other workload.
+  NOT measured, so not claimed: WHY a packet costs ~1.8× more per char than
+  grammar text. The plausible reason is model density (a packet builds more
+  models per character than grammar source, which is mostly literals and char
+  classes), but nobody has counted, and this effort's rule is that a cause is
+  measured before it is asserted.
