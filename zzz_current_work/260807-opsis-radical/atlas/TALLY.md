@@ -293,3 +293,18 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   the wire AFTER pinning + 3D exist (build twice, then the rule); native/GPU
   stays watched. THINKING §7 + ladder rewritten (3 pinning → 4 rule graph →
   5 policy → 6 panes → 7 ports → 8 ring).
+- RUNG 3 (pinning) LANDED in the browser leaf: windows exist, as the ruled
+  exception only. `p` pins the selection (or hover); cap 3 with the refusal
+  in words ("pin only for simultaneity"); windows are movable (header drag),
+  resizable (native CSS resize), z-raise on press, closable — and they
+  OVERLAP, which is what makes them windows and not panes. Each pin carries
+  its occurrence's address (rule · span · depth), its real-text snippet
+  (selectable), the field, AND the defining grammar rule's own lines —
+  cross-subject deixis inside the window. Hovering a pin co-selects its
+  occurrence across every facet; clicking selects it. After a re-read, pins
+  from an older generation mark themselves STALE (dimmed, "the document has
+  moved on — re-pin or close") instead of dangling silently. ?pin=OFF,OFF
+  query for deterministic shots. Screenshot-verified: two overlapping
+  windows, occlusion real, pinned 2 of 3 in the masthead, routes strip
+  showing PDA 0.53s / Earley 0.54s / parity holds. Pins are leaf-local state
+  for now — rung 5 (policy into the wire) makes them session values.

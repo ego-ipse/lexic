@@ -16,6 +16,9 @@ let S = null;            // the scene: doc, reader, spans, rules, meta
 let M = null;            // measured geometry: charW, gutterW
 let cur = { t: 0, playing: false, sel: -1, hover: -1, rule: '', docSel: null, frontier: -1, fstarts: null };
 let dirty = false;
+let pins = [];      // the ruled exception: pinned occurrences, cap 3
+let pinSeq = 0;
+let pinZ = 30;
 let view0 = 0;           // chart viewport (leaf-local)
 let lastPost = 0;
 let needsDraw = false;
@@ -378,6 +381,108 @@ function render() {
   }
 }
 
+/* ── pinned windows — pin only for simultaneity ── */
+
+const PIN_CAP = 3;
+
+function addPin(spanIdx) {
+  if (spanIdx < 0) return;
+  if (pins.length >= PIN_CAP) {
+    const banner = $('banner');
+    banner.hidden = false;
+    banner.className = 'refuse';
+    banner.textContent = `pinned ${PIN_CAP} of ${PIN_CAP} — close one first; pin only for simultaneity`;
+    return;
+  }
+  const s = S.spans[spanIdx];
+  pins.push({
+    id: ++pinSeq, gen: S.meta.generation, s: s.s, e: s.e, d: s.d,
+    rule: S.ruleNames[s.r], field: S.fieldNames[s.f] || '',
+    snip: S.doc.slice(s.s, Math.min(s.e, s.s + 400)),
+    x: 240 + pins.length * 44, y: 110 + pins.length * 44,
+  });
+  renderPins();
+}
+
+function pinSpanIdx(p) {
+  if (p.gen !== S.meta.generation) return -1;
+  return S.spans.findIndex((s) => s.s === p.s && s.e === p.e && s.d === p.d);
+}
+
+function ruleDefText(rule) {
+  const def = S.ruleOf[rule];
+  if (!def) return '';
+  return S.readerLines.slice(def.a, Math.min(def.b + 1, def.a + 3)).join('\n');
+}
+
+function renderPins() {
+  const layer = $('pinlayer');
+  layer.textContent = '';
+  for (const p of pins) {
+    const stale = p.gen !== S.meta.generation;
+    const el = document.createElement('div');
+    el.className = 'pin' + (stale ? ' stale' : '');
+    el.dataset.id = p.id;
+    el.style.left = p.x + 'px';
+    el.style.top = p.y + 'px';
+    el.style.zIndex = pinZ;
+    el.innerHTML =
+      `<header><span>${p.rule}</span><span class="addr">${p.s.toLocaleString()}..${p.e.toLocaleString()} · d${p.d}</span>`
+      + (stale ? `<span class="stalemark">gen ${p.gen} — stale</span>` : '')
+      + `<button class="x" title="close">×</button></header>`
+      + `<div class="body"><div class="snip"></div>`
+      + `<div class="facts">${p.field ? 'field ' + p.field + ' · ' : ''}pinned against gen ${p.gen}`
+      + (stale ? ' · the document has moved on — re-pin or close' : '') + `</div>`
+      + `<div class="def"></div></div>`;
+    el.querySelector('.snip').textContent = p.snip + (p.e - p.s > 400 ? ' …' : '');
+    el.querySelector('.def').textContent = stale ? '' : ruleDefText(p.rule);
+    layer.appendChild(el);
+  }
+  $('pincount').textContent = pins.length ? `pinned ${pins.length} of ${PIN_CAP}` : '';
+}
+
+function wirePins() {
+  const layer = $('pinlayer');
+  let drag = null;
+  layer.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest('.pin');
+    if (!el) return;
+    el.style.zIndex = ++pinZ;
+    if (e.target.closest('.x')) {
+      pins = pins.filter((p) => p.id !== +el.dataset.id);
+      renderPins();
+      return;
+    }
+    if (e.target.closest('header')) {
+      const p = pins.find((q) => q.id === +el.dataset.id);
+      drag = { p, el, dx: e.clientX - p.x, dy: e.clientY - p.y };
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    drag.p.x = Math.max(0, e.clientX - drag.dx);
+    drag.p.y = Math.max(0, e.clientY - drag.dy);
+    drag.el.style.left = drag.p.x + 'px';
+    drag.el.style.top = drag.p.y + 'px';
+  });
+  window.addEventListener('pointerup', () => { drag = null; });
+  layer.addEventListener('mousemove', (e) => {
+    const el = e.target.closest('.pin');
+    const p = el && pins.find((q) => q.id === +el.dataset.id);
+    const idx = p ? pinSpanIdx(p) : -1;
+    if (idx !== cur.hover) { cur.hover = idx; ask(); }
+  });
+  layer.addEventListener('mouseleave', () => { cur.hover = -1; ask(); });
+  layer.addEventListener('click', (e) => {
+    const el = e.target.closest('.pin');
+    if (!el || e.target.closest('.x') || e.target.closest('header')) return;
+    const p = pins.find((q) => q.id === +el.dataset.id);
+    const idx = p ? pinSpanIdx(p) : -1;
+    if (idx >= 0) { cur.sel = idx; ask(); }
+  });
+}
+
 function spanWords(i) {
   const s = S.spans[i];
   const f = S.fieldNames[s.f];
@@ -572,6 +677,7 @@ async function applyEdit(lo, hi, value, persist) {
     if (parts[2] === 'saved') outcome += ' · saved to its file';
     if (parts[2] === 'held') outcome += ` · save held: ${parts.slice(3).join(' ')}`;
     banner.textContent = `generation ${S.meta.generation} — ${outcome}`;
+    renderPins();  // pins from an older generation mark themselves stale
     return;
   }
   banner.className = 'refuse';
@@ -647,11 +753,15 @@ async function pollRoutes() {
 (async () => {
   await boot(false);
   wire();
+  wirePins();
   pollRoutes();
   const q = new URLSearchParams(location.search);
   if (q.has('t')) { cur.t = Math.min(+q.get('t'), S.doc.length); cur.follow = true; ask(); }
   if (q.has('sel')) { cur.sel = deepestAt(+q.get('sel')); ask(); }
   if (q.has('rule')) { cur.rule = q.get('rule'); ask(); }
   if (q.has('break')) { const off = +q.get('break'); applyEdit(off, off + 1, '\u00a7'); }
+  if (q.has('pin')) {
+    for (const off of q.get('pin').split(',')) addPin(deepestAt(+off));
+  }
   else setTimeout(play, 600);
 })();

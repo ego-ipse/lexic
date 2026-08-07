@@ -47,6 +47,7 @@ body {
 #title { color: var(--cool); font-weight: 700; letter-spacing: 0.18em; font-size: 14px; }
 #sub { color: var(--dim); }
 #verdict { margin-left: auto; font-family: var(--mono); font-size: 11px; }
+#pincount { font-family: var(--mono); font-size: 11px; color: var(--warm); }
 #verdict .holds { color: var(--green); }
 #verdict .fails { color: var(--red); }
 #pos { font-family: var(--mono); color: var(--ink); min-width: 30ch; }
@@ -150,3 +151,47 @@ body {
 }
 #banner.refuse { border: 1px solid var(--red); color: var(--red); }
 #banner.ok { border: 1px solid var(--green); color: var(--green); }
+
+/* ── pinned windows: the ruled exception. A pane cannot overlap; these can. ── */
+.pin {
+  position: fixed;
+  min-width: 280px;
+  max-width: 460px;
+  min-height: 90px;
+  background: var(--field2);
+  border: 1px solid var(--warm);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  z-index: 20;
+  resize: both;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.pin.stale { border-color: var(--dimmer); filter: saturate(0.5); }
+.pin header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: move;
+  border-bottom: 1px solid var(--hair);
+  font-size: 11px;
+  color: var(--warm);
+  user-select: none;
+}
+.pin.stale header { color: var(--dim); }
+.pin header .addr { font-family: var(--mono); color: var(--dim); }
+.pin header .x {
+  margin-left: auto;
+  cursor: pointer;
+  color: var(--dim);
+  background: none;
+  border: none;
+  font: inherit;
+}
+.pin header .x:hover { color: var(--red); }
+.pin .body { padding: 8px 10px; overflow: auto; font-family: var(--mono); font-size: 12px; }
+.pin .body .snip { color: var(--ink); white-space: pre-wrap; }
+.pin .body .facts { color: var(--dim); margin-top: 6px; font-size: 11px; }
+.pin .body .def { color: var(--cool); margin-top: 6px; white-space: pre-wrap; }
+.pin .stalemark { color: var(--red); font-size: 10px; }
