@@ -120,8 +120,10 @@ User-blessed ("the fair compromise for now") after TUI slice 3.
   once: real text, scoped 3D, overlapping windows, GPU spectacle. The living,
   full opsis is the browser one.
 - **Windows are pinned facets, only.** Created by an explicit pin gesture,
-  never by navigation; movable, resizable, capped; carrying their subject's
-  address so co-selection reaches inside. The instances: simultaneity a
+  never by navigation; movable, resizable, uncapped (the cap was overruled —
+  "let the people have fun"; "pin only for simultaneity" survives as advice,
+  not enforcement); carrying their subject's address so co-selection reaches
+  inside. The instances: simultaneity a
   tiling cannot express, comparison of exactly two, persistent reference.
   The load-bearing line stands: a pane cannot overlap; a window can.
 - **3D is the rule-graph facet** — z = derivation distance from the start

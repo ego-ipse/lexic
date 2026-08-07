@@ -391,9 +391,9 @@ function render() {
   }
 }
 
-/* ── pinned windows — pin only for simultaneity ── */
+/* ── pinned windows — uncapped, by ruling: let the people have fun ── */
 
-const PIN_CAP = 3;
+let pinMeasure = null;
 
 function addPin(spanIdx) {
   if (spanIdx < 0) {
@@ -403,21 +403,26 @@ function addPin(spanIdx) {
     banner.textContent = 'nothing to pin — select text, or hover an occurrence first';
     return;
   }
-  if (pins.length >= PIN_CAP) {
-    const banner = $('banner');
-    banner.hidden = false;
-    banner.className = 'refuse';
-    banner.textContent = `pinned ${PIN_CAP} of ${PIN_CAP} — close one first; pin only for simultaneity`;
-    return;
-  }
   const s = S.spans[spanIdx];
+  const k = pins.length;
   pins.push({
     id: ++pinSeq, gen: S.meta.generation, s: s.s, e: s.e, d: s.d,
     rule: S.ruleNames[s.r], field: S.fieldNames[s.f] || '',
     snip: S.doc.slice(s.s, Math.min(s.e, s.s + 400)),
-    x: 240 + pins.length * 44, y: 110 + pins.length * 44,
+    x: 240 + (k % 8) * 44 + Math.floor(k / 8) * 12,
+    y: 110 + (k % 8) * 44,
+    w: 0,
   });
   renderPins();
+}
+
+function pinWidth(p, el) {
+  // wide enough that the pinned text does not wrap, viewport permitting
+  if (!pinMeasure) pinMeasure = document.createElement('canvas').getContext('2d');
+  pinMeasure.font = getComputedStyle(el.querySelector('.snip')).font;
+  let w = 0;
+  for (const line of p.snip.split('\n')) w = Math.max(w, pinMeasure.measureText(line).width);
+  return Math.max(280, Math.min(Math.ceil(w) + 28, Math.floor(window.innerWidth * 0.62)));
 }
 
 function pinSpanIdx(p) {
@@ -431,30 +436,47 @@ function ruleDefText(rule) {
   return S.readerLines.slice(def.a, Math.min(def.b + 1, def.a + 3)).join('\n');
 }
 
+function buildPin(p, layer) {
+  const el = document.createElement('div');
+  el.className = 'pin';
+  el.dataset.id = p.id;
+  el.style.left = p.x + 'px';
+  el.style.top = p.y + 'px';
+  el.style.zIndex = ++pinZ;
+  el.innerHTML =
+    `<header><span>${p.rule}</span><span class="addr">${p.s.toLocaleString()}..${p.e.toLocaleString()} · d${p.d}</span>`
+    + `<span class="stalemark"></span>`
+    + `<button class="x" title="close">×</button></header>`
+    + `<div class="body"><div class="snip"></div>`
+    + `<div class="facts"></div>`
+    + `<div class="def"></div></div>`;
+  el.querySelector('.snip').textContent = p.snip + (p.e - p.s > 400 ? ' …' : '');
+  layer.appendChild(el);
+  if (!p.w) p.w = pinWidth(p, el);
+  el.style.width = p.w + 'px';
+  return el;
+}
+
 function renderPins() {
+  // reconcile, never rebuild: a hand-resized window keeps its size and scroll
   const layer = $('pinlayer');
-  layer.textContent = '';
+  const seen = new Set();
   for (const p of pins) {
+    seen.add(String(p.id));
+    let el = layer.querySelector(`.pin[data-id="${p.id}"]`);
+    if (!el) el = buildPin(p, layer);
     const stale = p.gen !== S.meta.generation;
-    const el = document.createElement('div');
-    el.className = 'pin' + (stale ? ' stale' : '');
-    el.dataset.id = p.id;
-    el.style.left = p.x + 'px';
-    el.style.top = p.y + 'px';
-    el.style.zIndex = pinZ;
-    el.innerHTML =
-      `<header><span>${p.rule}</span><span class="addr">${p.s.toLocaleString()}..${p.e.toLocaleString()} · d${p.d}</span>`
-      + (stale ? `<span class="stalemark">gen ${p.gen} — stale</span>` : '')
-      + `<button class="x" title="close">×</button></header>`
-      + `<div class="body"><div class="snip"></div>`
-      + `<div class="facts">${p.field ? 'field ' + p.field + ' · ' : ''}pinned against gen ${p.gen}`
-      + (stale ? ' · the document has moved on — re-pin or close' : '') + `</div>`
-      + `<div class="def"></div></div>`;
-    el.querySelector('.snip').textContent = p.snip + (p.e - p.s > 400 ? ' …' : '');
+    el.classList.toggle('stale', stale);
+    el.querySelector('.stalemark').textContent = stale ? `gen ${p.gen} — stale` : '';
+    el.querySelector('.facts').textContent =
+      (p.field ? 'field ' + p.field + ' · ' : '') + `pinned against gen ${p.gen}`
+      + (stale ? ' · the document has moved on — re-pin or close' : '');
     el.querySelector('.def').textContent = stale ? '' : ruleDefText(p.rule);
-    layer.appendChild(el);
   }
-  $('pincount').textContent = pins.length ? `pinned ${pins.length} of ${PIN_CAP}` : '';
+  for (const el of [...layer.children]) {
+    if (!seen.has(el.dataset.id)) el.remove();
+  }
+  $('pincount').textContent = pins.length ? `pinned ${pins.length}` : '';
 }
 
 let chipSticky = false;

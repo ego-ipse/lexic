@@ -407,3 +407,13 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   native CSS resize honors it as a ceiling — replaced with an explicit
   birth width (360px) and no maximum; resize is now unbounded above the
   minimum in both axes.
+- Pin round three (user): (1) adding a pin no longer resizes the others —
+  renderPins now RECONCILES by id (create missing, update stale marks in
+  place, remove closed) instead of rebuilding the layer, so hand-set inline
+  sizes and body scroll survive; (2) birth width is measured — the snippet's
+  longest line via canvas measureText in the pin's own font, clamped
+  [280px, 62vw], so pinned text does not wrap when the viewport allows;
+  (3) THE CAP IS GONE by user ruling ("let the people have fun") — "pin
+  only for simultaneity" survives in THINKING as advice, not enforcement;
+  cascade staggers modulo 8 so a pile of pins stays on screen. Screenshot:
+  five overlapping pins, the wide rule window unwrapped on one line.
