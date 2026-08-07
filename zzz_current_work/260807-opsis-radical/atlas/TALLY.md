@@ -65,3 +65,15 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   is whole-document Earley — the fork does not island. Sharpens the lexic
   asks: decidable self-grammar → PDA route (~30ms), or island the
   undecidable span so only it pays Earley.
+- CORRECTED (user caught it: "3306 is the start of the grammar!"): the
+  probe-fork is ONE CHAR INTO THE FIRST RULENAME in both fixtures (vyx 3306 =
+  'p'▶'acket ::='; json 202 = 'J'▶'SON-text ::='). The PDA consumed the whole
+  comment preamble fine — the noise loop is NOT the fork site; the
+  undecidable gate is rulename's namechar* (an identifier-tail loop). By
+  inspection that loop looks k=1 separable (namechar set vs the n?/"::=" that
+  follows — disjoint), yet the compiled attempt-loop gate declares both
+  viable — a precise, reproducible engine question. My earlier causal story
+  conflated two findings: the route-forcing fork (namechar*, first rulename)
+  and the model-product ambiguity (resolver, invoked once, site unknown) are
+  SEPARATE. If this one gate becomes decidable the PDA may carry the whole
+  metagrammar — the 160x win may hinge on one loop.
