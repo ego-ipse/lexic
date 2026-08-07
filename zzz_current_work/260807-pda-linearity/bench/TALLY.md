@@ -362,3 +362,29 @@ history so nothing is re-derived or re-run.
   5. Measure sub-run count and µs/char. Criterion from iteration 9 stands as
      written, with iteration 11's correction: ~4.0–4.3 is the honest target at
      k=4.
+- **THE MAPPING IS CLEAN — the recipe's one unverified step is now verified.**
+  For every attempt clone on vyx, the gated-arm count EQUALS the authored
+  `rule.body` count, and the stored `AttemptSpec.order` has the same length:
+
+  ```
+  body-line     authored 10  gated 10  order 10
+  value          7   7   7        bare-val      3  3  3
+  scope-item     3   3   3        scope-scalar  3  3  3
+  pipe-bare      3   3   3        kv-pair       2  2  2
+  0 of the attempt clones have a gated count != authored count
+  ```
+
+  `compile_arms` drops arms whose FIRST is empty, which would have shifted the
+  index mapping silently — that was the risk. It does not fire here. So
+  **entry i ↔ `rule.body[order[i]]`** holds directly, and the prototype can
+  map windows onto flat entries by position without a lookup table.
+  (Seven attempt CLONES against thirteen attempt RULES in the taxonomy — the
+  gap is the single-gated-arm rules, which carry `attempt_follow is None` and
+  run as ordinary clones. Consistent with `_clone_shape`, and it means the
+  filter only ever has to cover these seven.)
+- **PROTOTYPE STATUS: fully de-risked, ready to execute.** Every step of the
+  iteration-12 recipe is now verified except the measurement itself: the
+  primitive works and is compact (it 12), k=4 is sound and cheap (it 10), the
+  seam location is known (it 10), the patch target is known (it 8), the sizing
+  is corrected (it 11), and the mapping holds (this one). What remains is one
+  full context budget of writing and measuring — not investigation.
