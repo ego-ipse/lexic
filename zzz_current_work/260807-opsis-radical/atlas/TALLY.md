@@ -92,3 +92,87 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   vocabulary), print gate[0]/gate[1] char sets, and trace which letters
   entered the continuation and from which occurrence. Fix follows diagnosis;
   full run_checks + parity differentials gate any engine change.
+- **GATE INVESTIGATION CLOSED — root cause found, fix measured (not applied).**
+  The forking gate is the ONLY attempt-gated item in the whole metagrammar:
+  `rulename`'s `namechar*` loop (`AttemptGate(FIRST=[-0-9A-Z_a-z],
+  follow=…letters…)`; FIRST ∩ follow = letters + `_`, and NOT digits/`-` —
+  confirmed by prediction: `a1 ::= "x"` and `a- ::= "x"` ride the PDA,
+  `ab ::= "x"` forks). Chain, each link measured:
+  (1) `relax_non_semantic` (compile/pipeline/passes.py) rewrites every
+  top-level ref to a `semantic=False` rule to `min=0`. GBNF's `n` is
+  non-semantic, so the authored `seq-rest ::= n item` becomes `n? item` and
+  `rules-rest ::= n rule` becomes `n? rule` — deleting the maximal-munch
+  discipline gbnf.py's own design note declares load-bearing ("adjacent items
+  need real noise unless the next atom is non-name (seq-rest), inter-rule
+  noise is REQUIRED (rules-rest)").
+  (2) The codegen grammar is therefore GENUINELY ambiguous: `a ::= bc` =
+  one ruleref or two. Verified — Earley refuses it without a resolver, while
+  `ab ::= "x"` (LHS, unambiguous) parses fine.
+  (3) Because letters genuinely follow `rulename` at the atom site, the
+  namechar* loop cannot be gated → attempt licence filed with the RULE-LEVEL
+  union FOLLOW (`beyond_at` → `scope.tail`), and an attemptable rule gets ONE
+  canonical clone (`_spec_ruleref`, memo identity) → the union licence applies
+  at EVERY site, including the LHS where the continuation is only `n? "::="`.
+  So the pos-1 fork is a SPURIOUS probe caused by real ambiguity elsewhere —
+  exactly what `beyond_at`'s docstring predicts ("per-SITE precision is the
+  honest narrowing"). The two findings banked yesterday as separate are one
+  causal chain, and the earlier falsification was right for the right reason:
+  no generic conservatism, the metagrammar's authored `n` is what differs.
+  COUNTERFACTUAL (monkeypatched, nothing in src touched): with the relaxation
+  narrowed to nullable noise rules only, all TEN ground-truth grammars ride
+  the PDA with NO resolver and round-trip intact — vyx 4.817s → 0.028s (172×),
+  json.gbnf 0.522s → 0.007s. Suite: relax fully off = 8 failed / 3766 passed;
+  nullable-only = 3 failed / 3771 passed (two pin the pass's own contract with
+  a non-nullable `ws ::= " "+`; one is c.gbnf's pinned clone count, 69 → 75).
+  Cost of the narrowing, exact: a NON-nullable noise rule in a mandatory slot
+  becomes genuinely mandatory (`root ::= "a" ws "b"`, `ws ::= [ \t]+`: `"ab"`
+  accepted today, refused after). c.gbnf is the only corpus grammar with a
+  non-nullable `ws`; its own fixtures still pass. FIX NOT APPLIED — awaiting
+  the user's ruling on which narrowing (see HANDOVER lexic asks).
+- Investigation written up and made reproducible: `../gate/` carries
+  `FINDING.md` (the account, four proposed solutions with their costs, the
+  recommendation), `variants.py` (the three relaxation bodies, patched in
+  place — `src/` never written), five standalone probes under `probes/`
+  (repro, gate_dump, shapes, corpus, cost — each takes a variant name), the
+  two pytest plugins, and `run_all.sh` (every probe × every variant, then the
+  suite under the candidate). Sharper than yesterday's account on one point:
+  the pass ALSO relaxes `n ::= nunit+` to `nunit*`, so the noise rule itself
+  goes nullable — two independent breakages, not one.
+- **FIX LANDED (solution A), all gates green.** External review endorsed A and
+  added four amendments, all taken: land with `nullable_names` exported from
+  `lexic.parsing` rather than blocking on an `ir/grammar/` move; re-state the
+  pinned tests to assert BOTH halves; update CLAUDE.md + wiki (the Directives
+  line documented the old behaviour verbatim); keep D unbundled but rank the
+  islanding half as constitutional. Shipped: `relax_non_semantic` narrowed to
+  `ast.non_semantic & nullable_names(ast.rules)` (solved on the INCOMING
+  grammar — the trap is that relaxing `n ::= nunit+` would make `n` nullable
+  and license itself); `nullable_names` exported; five `ws` fixtures made
+  genuinely nullable (they were passing for the wrong reason); three pass tests
+  where one stood, including the load-bearing "a required noise ref keeps its
+  bound" that nothing pinned before; c.gbnf clone count 69 → 75; CLAUDE.md,
+  `.wiki/lexic/codegen.md`, a `decisions.md` entry ("A codegen pass may not
+  overrule an authored quantifier") and a `log.md` entry. Gates: run_checks
+  exit 0, suite 3776 passed / 8 skipped, parity + property 141 passed,
+  check_generated CLEAN, run_examples exit 0. Measured after landing, same
+  run: all ten ground-truth grammars ride the PDA with no resolver, vyx
+  **4.451s → 0.029s**. The probe suite stays honest — `gate/variants.py` gained
+  `unconditional` (the pre-fix body) so the bug is still reproducible, and
+  `relaxnull.py` became `relaxold.py`.
+- Atlas caught up to the fix (its own census found it): meta/vyx no longer
+  force the `first` resolver — every fixture is PDA-routed now, so every
+  frontier is measured and every derivation header shows a real parity verdict
+  (Earley agrees on all three). The census's corruption offset moved onto the
+  subject as `corrupt_at` with its reason attached (a control char mid-file is
+  LEGAL inside a GBNF comment, so metagrammar-read documents corrupt at 0);
+  it had been keyed on `resolve`, which stopped meaning anything. All three
+  censuses green. Consequence worth noting for rung 2's second half: there is
+  no longer any fixture that DEMONSTRATES the inversion — the instrument can
+  still display one, but nothing in the corpus produces it.
+- Kitty-graphics inline export landed: atlas/inline.py (zero-dep emitter,
+  PNG → chunked APC stream, f=100/a=T first chunk, m-only continuations,
+  ≤4096/chunk — framing and exact payload round-trip verified byte-level) and
+  atlas/shot.sh (one gesture: serve fixture → headless shot at a ?query state
+  → inline). `inline.py frame.png > frame.term` freezes a cat-able terminal
+  artifact — the terminal-native peer of the HTML export target. Static by
+  design: the artifact half, not the instrument. Visual confirmation needs a
+  kitty-graphics terminal (ghostty/kitty/wezterm) — the user's gate.

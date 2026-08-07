@@ -2,22 +2,28 @@
 
 ## NEXT SESSION — start here
 
-**The gate investigation** (full state: `atlas/TALLY.md`, last entries;
-banked at `ddac70e`). The PDA probe-forks one character into the FIRST
-RULENAME of any grammar the metagrammar reads — ten-char repro:
-`ab ::= "x"\n` forks at pos 1, `a ::= "x"\n` rides the PDA. Site:
-`gate_take`'s GATE_ATTEMPT branch (`parsing/pda/compiler/flatten.py`) — a
-terminal attempt loop forks iff the char is in BOTH the take-set and a
-stored soft-continuation set. Falsified already: generic FOLLOW-union
-conservatism (synthetic shapes, including a letter-followed occurrence, all
-ride the PDA). First move: compile `GBNF_FLAVOUR.grammar`, find the
-`namechar*` clone's gate spec (compiler/specs vocabulary), print both char
-sets, trace which letters entered the continuation and from which
-occurrence. Fix follows diagnosis; any engine change gates on
-`tools/run_checks.sh` exit 0 + the parity differentials. The prize,
-measured: vyx ~5s → ~30ms (the Earley fallback is ~n^3.2 on this grammar;
-the PDA route is 313K chars/s), and the metagrammar may have NO other fork
-site. Otherwise: rung 2's remaining half (the two engine clocks, switchable).
+**The gate investigation is CLOSED and the fix has LANDED** (solution A, after
+external review). Read **`gate/FINDING.md`** — §0–9 the account, §10 the
+review, §11 what shipped. In one line: the codegen pass `relax_non_semantic`
+was deleting the metagrammar's authored maximal-munch discipline
+(`seq-rest ::= n item` → `n? item`, and `n ::= nunit+` → `nunit*`, so `n`
+itself went nullable), which made the grammar the engines see genuinely
+ambiguous — the probe-fork was the engine being right. The pass now relaxes
+only refs to **nullable** noise rules, which is exactly where the rewrite is
+language-preserving. All ten ground-truth grammars ride the PDA with no
+resolver: **vyx 4.451s → 0.029s**. Gates green: run_checks exit 0, suite 3776
+passed, parity + property 141 passed, check_generated CLEAN, examples exit 0.
+
+**Still open, deliberately unbundled:** solution D — an attemptable rule
+carries ONE canonical clone with a rule-level union FOLLOW, so a rule ambiguous
+at one reference site probe-forks at EVERY site, and the fallback is
+whole-document rather than an island. The narrowing removed the trigger, not
+the mechanism; the review ranks the islanding half as constitutional (it
+follows the escapes-are-islands ruling), not merely an optimisation.
+
+**Otherwise next:** rung 2's remaining half (the two engine clocks,
+switchable). Note atlas's `meta`/`vyx` fixtures no longer need the `first`
+resolver and now measure the frontier — `serve.py`'s route caveat is stale.
 
 ---
 
@@ -34,6 +40,7 @@ ledger), `atlas/THINKING.md` (the iteration map).
 | `tk/` | in-process tkinter probes: `demonstrator.py` (the four spine kinds + the instrument editing its own Style), `spectacle.py` (a parse watched, 50 chars), `wolf.py` (same at hostile scale, 3 fixtures) | done; superseded as a medium (canvas text is not selectable — the litmus); each has `--census` and `--shot` |
 | `facets/` | the composition answer: Python instrument ⇄ browser leaf, four facets of one reading, subject-level cursors, native selection → co-selection, edits as re-readings | done as built; ledger closed with a pointer to atlas |
 | `atlas/` | the ergonomics fork — the live line | rung 1 done (refusal frontier + edit-in-place); rung 2 first half done (background route, parity verdict, inversion marks) |
+| `gate/` | the fork investigation: `FINDING.md` (the account + proposed fixes), `variants.py` (three relaxation bodies, patched in place), `probes/` (five standalone probes), `relaxoff.py`/`relaxnull.py` (pytest plugins), `run_all.sh` | closed; awaiting a ruling |
 | `STACK.md` | the stack position: answered before building, after building, amended after the selection litmus | current |
 
 ## Run
@@ -43,6 +50,9 @@ uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py             #
 uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py long 8903   # json.gbnf route, fast, frontier-capable
 uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py meta 8902   # metagrammar reading json.gbnf
 uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py long --census   # the gate, exit 0
+
+zzz_current_work/260807-opsis-radical/atlas/shot.sh long 'break=5000'   # frame, inline in a kitty-graphics terminal
+zzz_current_work/260807-opsis-radical/atlas/shot.sh vyx 't=4205&sel=4205' > frame.term   # frozen .term artifact; replay with cat
 ```
 
 Then open the printed URL. **The server does not hot-reload** — after any
@@ -69,9 +79,12 @@ Three ways, all leaving the document untouched (generation does not bump):
 3. **Scripted:** `serve.py long --census` splices garbage mid-document and
    asserts the frontier equals the exact corruption offset.
 
-Route caveat: the frontier is measured only on the PDA route (`long`). On the
-resolver fixtures (`meta`/`vyx`) the refusal honestly reports *frontier
-unmeasured* — see lexic asks below.
+No route caveat any more: since the relaxation fix, **every** fixture is
+PDA-routed, so every frontier is measured and every derivation header carries a
+real parity verdict (`both engines built the same value — holds`). Each subject
+carries its own `corrupt_at` offset with the reason — on a metagrammar-read
+document a control char mid-file is *legal* inside a comment (`cmchar` admits
+`\x00-\t`), so those corrupt at 0 instead.
 
 ## TODO — the iteration ladder (atlas/THINKING.md owns the detail)
 
@@ -109,16 +122,17 @@ screenshots.
   (`UnsupportedConstructError`, words only, no attrs). Wanted: a readout-shaped,
   additive surface carrying frontier position (and eventually expected-next).
   Until then atlas regex-reads the kernel's words — honest but fragile.
-- **The namechar\* attempt-loop gate** (supersedes the earlier "de-ambiguate
-  noise attribution" framing — user-corrected: the fork is one char into the
-  first rulename, NOT at the noise seam; see NEXT SESSION block). Two
-  separate facts: (a) the route-forcing fork is the terminal attempt loop's
-  soft-continuation overlap, metagrammar-specific, repro'd in ten chars;
-  (b) the model-product ambiguity (resolver invoked once, site not yet
-  located) is a DIFFERENT finding. Measured stakes: Earley fallback is
-  ~n^3.2 on this grammar (4.3K chars 0.37s → 8.75K chars 3.79s); PDA route
-  313K chars/s; and the fallback is whole-document — the fork does not
-  island, which is its own question.
+- ~~**The namechar\* attempt-loop gate**~~ — **ANSWERED AND FIXED**
+  (`gate/FINDING.md`). Both halves turned out to be one bug: the codegen pass
+  `relax_non_semantic` was widening the metagrammar into ambiguity, so the
+  "route-forcing fork" and the "model-product ambiguity" were the same cause
+  seen at two sites. The pass now relaxes only nullable noise refs.
+- **The fallback does not island** — the one part of that ask still open. A
+  probe-fork hands the WHOLE document to Earley (~n^3.2 here), not just the
+  undecidable span; and because an attemptable rule carries one canonical
+  clone with a rule-level union FOLLOW, a rule ambiguous at one reference site
+  forks at every site. See `gate/FINDING.md` §7 D — the review ranks the
+  islanding half as constitutional (escapes are islands), not an optimisation.
 
 ## Traps (each cost time today)
 
