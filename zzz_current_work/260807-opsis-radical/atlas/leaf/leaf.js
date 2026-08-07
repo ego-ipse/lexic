@@ -14,7 +14,7 @@ const LH = 19, PAD_TOP = 8;
 
 let S = null;            // the scene: doc, reader, spans, rules, meta
 let M = null;            // measured geometry: charW, gutterW
-let cur = { t: 0, playing: false, sel: -1, hover: -1, rule: '', docSel: null };
+let cur = { t: 0, playing: false, sel: -1, hover: -1, rule: '', docSel: null, frontier: -1 };
 let view0 = 0;           // chart viewport (leaf-local)
 let lastPost = 0;
 let needsDraw = false;
@@ -205,6 +205,16 @@ function drawOver() {
   cx.shadowColor = C.warm; cx.shadowBlur = 6;
   cx.fillRect(x - 1, y, 2, LH);
   cx.shadowBlur = 0;
+  if (cur.frontier >= 0) {
+    const fl = lineOf(Math.min(cur.frontier, S.doc.length - 1));
+    const fx = M.gutterW + (cur.frontier - S.lineStarts[fl]) * M.charW;
+    const fy = PAD_TOP + fl * LH;
+    cx.fillStyle = C.red;
+    cx.shadowColor = C.red; cx.shadowBlur = 8;
+    cx.fillRect(fx - 1, fy, 2, LH);
+    cx.fillRect(fx - 4, fy + LH - 2, Math.max(M.charW + 8, 12), 2);
+    cx.shadowBlur = 0;
+  }
 }
 
 /* ── chart facet: overview density + depth lanes ── */
@@ -487,23 +497,37 @@ function onKey(e) {
     $('editInput').value = S.doc.slice(cur.docSel.lo, cur.docSel.hi);
     $('editbar').hidden = false;
     $('editInput').focus();
-  } else if (e.key === 'Escape') { cur.sel = -1; cur.rule = ''; $('banner').hidden = true; ask(); }
+  } else if (e.key === 'Escape') { cur.sel = -1; cur.rule = ''; cur.frontier = -1; $('banner').hidden = true; ask(); }
 }
 
 async function submitEdit() {
   const { lo, hi } = cur.docSel;
   $('editbar').hidden = true;
-  const body = `${lo} ${hi}\n${$('editInput').value}`;
-  const resp = await (await fetch('/edit', { method: 'POST', body })).text();
+  await applyEdit(lo, hi, $('editInput').value);
+}
+
+async function applyEdit(lo, hi, value) {
+  const resp = await (await fetch('/edit', { method: 'POST', body: `${lo} ${hi}\n${value}` })).text();
   const banner = $('banner');
   banner.hidden = false;
-  if (resp.startsWith('ok')) {
+  const [head] = resp.split('\n', 1);
+  if (head.startsWith('ok')) {
     banner.className = 'ok';
+    cur.frontier = -1;
     await boot(true);
-    banner.textContent = `generation ${S.meta.generation} — the document was re-read in ${resp.slice(3)}s; every facet re-derived`;
+    banner.textContent = `generation ${S.meta.generation} — the document was re-read in ${head.slice(3)}s; every facet re-derived`;
   } else {
     banner.className = 'refuse';
-    banner.textContent = resp.slice(7);
+    const words = resp.slice(head.length + 1);
+    const pos = parseInt(head.split(' ')[1], 10);
+    cur.frontier = Number.isFinite(pos) ? pos : -1;
+    if (cur.frontier >= 0) {
+      banner.textContent = `${words} — frontier at char ${cur.frontier.toLocaleString()}; the red mark is the deepest verified position`;
+      cur.playing = false; cur.t = cur.frontier; cur.follow = true;
+    } else {
+      banner.textContent = `${words} — frontier unmeasured on this route (the engine's refusal carries no position; recorded lexic gap)`;
+    }
+    ask();
   }
 }
 
@@ -538,5 +562,6 @@ async function boot(keep) {
   if (q.has('t')) { cur.t = Math.min(+q.get('t'), S.doc.length); cur.follow = true; ask(); }
   if (q.has('sel')) { cur.sel = deepestAt(+q.get('sel')); ask(); }
   if (q.has('rule')) { cur.rule = q.get('rule'); ask(); }
+  if (q.has('break')) { const off = +q.get('break'); applyEdit(off, off + 1, '\u00a7'); }
   else setTimeout(play, 600);
 })();

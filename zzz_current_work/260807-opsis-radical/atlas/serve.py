@@ -25,11 +25,13 @@ from typing import NamedTuple
 from lexic.compile import compile_ast, compile_from_path
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.model import GrammarModel
+from lexic.parsing import PdaKernel
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 LEAF = HERE / "leaf"
 RULE_LINE = re.compile(r"^([A-Za-z0-9_-]+)\s*::=")
+FRONTIER = re.compile(r"\bat (\d+)\b")
 
 
 class Span(NamedTuple):
@@ -85,6 +87,22 @@ class Subject:
         self.faithful = model.to_text() == text
         self.spans = fold_spans(model, text)
         self.generation += 1
+
+    def frontier(self, text: str) -> int:
+        """The PDA's deepest verified position on ``text``, read from its own words.
+
+        Only meaningful on the PDA route (no resolver): the kernel's failure
+        signal spells its position in prose ("no arm at N") — no attribute
+        carries it, which is the recorded lexic gap. -1 when unmeasurable.
+        """
+        if self.resolve is not None:
+            return -1
+        try:
+            PdaKernel(self.compiled.pda_tables(), text, self.compiled.fold).run()
+        except Exception as fail:
+            hit = FRONTIER.search(str(fail))
+            return int(hit.group(1)) if hit else -1
+        return -1
 
     def rule_lines(self) -> list[tuple[str, int, int]]:
         """Where each rule is defined in the reader text — name, first line, last line."""
@@ -219,8 +237,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.subject.read(candidate)
             except Exception as refusal:
-                print(f"refused: {refusal}")
-                return f"refuse {refusal}"
+                pos = self.subject.frontier(candidate)
+                print(f"refused at {pos}: {refusal}")
+                return f"refuse {pos}\n{refusal}"
             print(f"generation {self.subject.generation}: re-read {len(candidate):,} chars in {self.subject.seconds:.2f}s")
             return f"ok {self.subject.seconds:.2f}"
 
@@ -234,13 +253,17 @@ def census(subject: Subject) -> int:
     handler.subject = subject
     same = subject.document[first_span.start : first_span.end]
     ok_edit = handler.retype(f"{first_span.start} {first_span.end}\n{same}").startswith("ok")
-    refusal = handler.retype(f"0 1\n\x01")
-    ok_refuse = refusal.startswith("refuse") and subject.document[0] != "\x01"
+    mid = len(subject.document) // 2
+    refusal = handler.retype(f"{mid} {mid + 1}\n\x01")
+    head, _, words = refusal.partition("\n")
+    pos = int(head.split()[1]) if head.startswith("refuse") else -2
+    ok_refuse = head.startswith("refuse") and subject.document[mid] != "\x01"
+    ok_frontier = pos >= 0 if subject.resolve is None else pos == -1
     print(f"{subject.key}: {len(subject.document):,} chars · {len(subject.spans):,} spans · "
           f"{len(subject.rule_lines())} rules in reader · parse {subject.seconds:.2f}s · scene {len(scene):,} bytes")
     print(f"faithful {subject.faithful} · scene integrity {ok_scene} · identity retype ok {ok_edit} · "
-          f"garbage retype refused {ok_refuse} ({refusal[8:60]}…)")
-    ok = subject.faithful and ok_scene and ok_edit and ok_refuse
+          f"garbage retype refused {ok_refuse} · frontier {pos} ({words[:48]}…)")
+    ok = subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 

@@ -77,3 +77,14 @@ Newest last. One line per meaningful step; enough to resume cold.
   inversion when the PDA fails. No route flag enters the parse API (the
   no-PDA-opt-out ruling stands). Recorded as THINKING.md §6b; inserted into
   the iteration ladder as step 2.
+- ITERATION 1 (refusal frontier) IMPLEMENTED in atlas/: PdaFail spells its
+  position in prose ("no arm at N") — no attribute carries it (lexic gap
+  refined: the position EXISTS, it lives in words). Server reads it via the
+  engine floor (PdaKernel + cg.pda_tables() + cg.fold) on the PDA route;
+  responds `refuse <pos>\n<words>`; Earley-route fixtures honestly report -1.
+  Leaf draws the frontier: red caret + underline at the char, cursor jumps
+  there, banner = engine words + frontier statement; ?break=OFF query for
+  deterministic demos. Census: long frontier == exact corruption offset
+  (7,884/7,884); meta -1 as ruled. Screenshot-verified at ?break=5000: red
+  mark at char 5,000, spine of the last good reading at the frontier,
+  generation unchanged. Server on :8903 stopped at wrap.
