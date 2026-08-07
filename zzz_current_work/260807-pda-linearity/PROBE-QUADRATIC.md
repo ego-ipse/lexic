@@ -146,3 +146,45 @@ signature (frames' item indices, counts and sink lengths — not a deep compare)
 and the value comparison moves from "root values at EOF" to "values accumulated
 to the convergence point", which must be shown equivalent. Gate is the parity
 differentials, as ever.
+
+---
+
+## Item 1, first answer: it is NOT vyx-shaped — it is `ws`-shaped
+
+`verdictcensus.py`, extended to tally which RULE pays the two run-to-EOF probes
+(answerable now that `FlatClone` carries its name — PLAN item 4), over the whole
+suite:
+
+```
+── which rules pay the run-to-EOF probes ──
+  4736  ws
+   237  envelope
+    48  m-imports
+     6  pipe-list-item3
+```
+
+**A whitespace rule pays 94% of them.** Not vyx's pipe-lists — those are 6 of
+5,027. `ws` is the most ordinary construct a grammar can have, and it appears in
+five of the ten ground-truth grammars.
+
+That reverses the framing this document opened with. The quadratic is not a vyx
+curiosity reachable only by an 11 KB pipe-heavy packet; it is what any grammar
+with a noise rule in a repeated position pays, and vyx merely had a document
+long enough to make it visible. The pipe-heavy measurement was the symptom that
+happened to be measurable, not the cause worth fixing.
+
+**Consequences for the plan:**
+
+- The generality question in PLAN item 1 is answered: **general**. The lockstep
+  fix (item 2) is a lexic priority, not a vyx footnote.
+- The prize is larger than the 73 s figure suggested, because it is paid by
+  every grammar with whitespace — just usually on inputs too short to notice.
+- The second half of item 1 (the `STOP_FORCED` reachability argument, which
+  could halve the work) is now MORE worth doing before item 2, not less.
+
+**Caveat, stated:** this counts fork *verdicts*, not their cost, and the suite's
+inputs are short. It establishes which rules reach the expensive path and how
+often — not how much each one costs at size. `probes/probecount.py` was written
+to measure cost per grammar but `lexic.generate`'s depth budget produces inputs
+of 3–43 characters, far too short to show growth; it needs per-grammar growth
+templates (the `scaling.py` shape) before it can answer the cost half.

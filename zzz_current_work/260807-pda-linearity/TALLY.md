@@ -76,3 +76,30 @@ history lives in `../260807-opsis-radical/atlas/TALLY.md` (the entries from
   3776 — five new tests), check_generated CLEAN, run_examples exit 0.
 - Next per PLAN.md: item 1 (scope the quadratic — corpus-wide probe counts, and
   the STOP_FORCED reachability argument), then item 2 (lockstep convergence).
+- **ITEM 5 SECOND HALF DONE** (`948879b`) — the user corrected my scope
+  narrowing ("I did not say to only half"), rightly: I had deferred it on a
+  consumer-wait argument I made up. `UnsupportedConstructError.readout` now
+  carries a `Refusal` (pos, rule, expected, negated, undecidable) on a refused
+  parse. `PdaFail` carries the facts; the product seam attaches them when the
+  gated engine ALSO declines, so the message and the verdict are untouched —
+  additive. `Refusal` is primitives because `exceptions.py` imports nothing
+  from lexic. `expected`/`negated` travel as one `wanted` pair because they are
+  one fact (the engine's own `(chars, negated)` shape) — that came out of a
+  pylint too-many-arguments finding which was a real design smell, not noise.
+  New `flatten.arm_expected` supplies the set at no-arm refusals. atlas now
+  reads the frontier off the PUBLIC surface (`e048242`) and no longer reaches
+  past the product into the engine floor — the lexic ask is closed end to end.
+  Gates: run_checks 0, suite 3787 passed, check_generated CLEAN, examples 0.
+  Wiki: `error-vocabulary.md` gains "The refusal readout"; `log.md` an entry.
+- **ITEM 1, FIRST HALF ANSWERED — and it reframes everything.** Tallying which
+  RULE pays the run-to-EOF probes (possible only because item 4 gave FlatClone
+  a name): **`ws` pays 4,736 of 5,027 fork verdicts — 94%.** vyx's pipe-lists
+  are 6. So the quadratic is NOT vyx-shaped, it is whitespace-shaped: any
+  grammar with a noise rule in a repeated position pays it, and vyx merely had
+  a document long enough to make it visible. Item 2 is a lexic priority, not a
+  vyx footnote, and the prize is larger than the 73s figure implied. Caveat
+  recorded: this counts verdicts, not cost — `probes/probecount.py` was written
+  for the cost half but `lexic.generate`'s depth budget yields 3-43 char
+  inputs, so it needs per-grammar growth templates first.
+- Next: the STOP_FORCED reachability argument (item 1's second half, could halve
+  item 2), then lockstep convergence.
