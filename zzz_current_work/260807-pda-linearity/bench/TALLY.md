@@ -216,3 +216,35 @@ history so nothing is re-derived or re-run.
   Measurement that sizes it, before any change: for each of the 648 decisions,
   count admitted entries under k=1 (today) against k=2/3/4. If a meaningful
   share collapses to one, the lever is admission, not the sub-run.
+- **THE LEVER, SIZED — 83% of wasted speculative work dies within 4 characters.**
+  Of vyx's 2,005 sub-runs, **784 (39%) FAIL and roll back**. Their failure depth
+  (chars consumed before the failure, read off `PdaFail.pos` — which exists
+  because this effort put it there):
+
+  ```
+  depth  1: 296   cumulative  37.8%
+  depth  2:  66              46.2%
+  depth  3:  74              55.6%
+  depth  4: 218              83.4%   ← k=4 excludes five sixths of the waste
+  depth  5:  32              87.5%
+  depth  8:  26              96.9%
+  depth 11:  14             100.0%   ← deepest failure in the whole parse
+  ```
+
+  **Size of the prize:** 784 × 25.6 µs ≈ 20 ms of vyx's ~41 ms of entry time.
+  Excluding 83% of them ≈ **16.7 ms, ~40% of entry time**, without touching the
+  audit, the driver, or anything the parity gate rests on. vyx at 4.9 µs/char
+  would land near parsimonious's 2.773.
+- **Why it should work, and why it is sound.** `sole_admitted` admits an arm on
+  first char + leading-terminal prefix; an arm that survives that but dies at
+  depth 4 was admitted on evidence one character deep. FIRST_k is an
+  OVER-approximation of what an arm can begin with, so text matching no k-window
+  of an arm proves the arm cannot match — excluding it is sound by construction,
+  the same argument the existing `GATE_KWIN` loop and arm gates already run on.
+  The machinery exists on both sides: `analysis/gates/kwindow.py` computes the
+  windows, `_window_admits` matches them. Neither is wired to attempt admission.
+- **NEXT: prototype it.** Compute FIRST_k (k=4) per attempt entry, filter
+  candidates with it before the sub-runs, and measure. Watch for: the windows
+  are computed per decision point today, not per attempt entry, so the analysis
+  may need to be asked a question it does not currently answer — establish that
+  before assuming the wiring is free.
