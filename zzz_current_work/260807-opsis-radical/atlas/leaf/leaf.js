@@ -51,6 +51,7 @@ let pinZ = 30;
 let view0 = 0;           // chart viewport (leaf-local)
 let chartZoom = 1;       // plain scroll on the chart: zoom the lane window
 let chartClock = 'model';  // model | pda | earley — which clock the lanes tell
+let clockHover = -1;       // hovered document position in a clock view
 let clockData = null;      // { gen, enters, tries, items, entersTop, itemsTop, pdaEnd }
 let clockWaiting = false;
 let lastPost = 0;
@@ -358,6 +359,10 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
       cx.fillRect(sx(off), lanesY, Math.max(1.5, pitch - 0.5), 4);
     }
   }
+  if (clockHover >= view0 && clockHover <= view0 + win) {
+    cx.strokeStyle = C.ink || '#e8e2d6';
+    cx.strokeRect(sx(clockHover) - 0.5, lanesY, Math.max(2, pitch), y1 - lanesY);
+  }
   if (pda && clockData.pdaEnd >= 0 && clockData.pdaEnd >= view0 && clockData.pdaEnd <= view0 + win) {
     cx.strokeStyle = C.red || '#e06060';
     cx.beginPath(); cx.moveTo(sx(clockData.pdaEnd), lanesY); cx.lineTo(sx(clockData.pdaEnd), y1); cx.stroke();
@@ -521,7 +526,17 @@ function render() {
   $('tb-play').textContent = cur.playing ? '⏸' : '▶';
   $('tb-speed').textContent = speedWord();
   const focus = cur.sel >= 0 ? cur.sel : cur.hover;
-  $('readout').textContent = focus < 0 ? (cur.rule ? `rule ${cur.rule} — its spans outlined violet` : '') : spanWords(focus);
+  let words = focus < 0 ? (cur.rule ? `rule ${cur.rule} — its spans outlined violet` : '') : spanWords(focus);
+  if (chartClock !== 'model' && clockHover >= 0 && clockReady()) {
+    const clk = chartClock === 'pda'
+      ? (clockData.enters[clockHover]
+          ? `the PDA entered ${clockData.enters[clockHover]} frame${clockData.enters[clockHover] === 1 ? '' : 's'} here`
+            + (clockData.tries[clockHover] ? ` · ${clockData.tries[clockHover]} real attempt${clockData.tries[clockHover] === 1 ? '' : 's'}` : '')
+          : 'frameless — a leaf run carried this char')
+      : `Earley's column holds ${clockData.items[clockHover]} item${clockData.items[clockHover] === 1 ? '' : 's'}`;
+    words = `char ${clockHover.toLocaleString()} — ${clk}` + (words ? ` · ${words}` : '');
+  }
+  $('readout').textContent = words;
   if (performance.now() - lastPost > 300) {
     lastPost = performance.now();
     fetch('/cursor', { method: 'POST', body: `t ${cur.t.toFixed(1)} sel ${cur.sel}` }).catch(() => {});
@@ -1880,12 +1895,22 @@ function wire() {
     const { pad, lanesY, laneH, pitch, win } = S.chartHit;
     const y = e.clientY - r.top;
     let hover = -1;
+    let clkh = -1;
     if (y >= lanesY) {
-      const d = Math.floor((y - lanesY) / laneH);
       const off = view0 + (e.clientX - r.left - pad) / pitch;
-      S.spans.forEach((s, i) => { if (s.d === d && s.s <= off && off < s.e) hover = i; });
+      if (chartClock === 'model') {
+        const d = Math.floor((y - lanesY) / laneH);
+        S.spans.forEach((s, i) => { if (s.d === d && s.s <= off && off < s.e) hover = i; });
+      } else if (off >= 0 && off <= S.doc.length) {
+        // a clock bar is a position: read its numbers, co-select what lives there
+        clkh = Math.round(off);
+        hover = deepestAt(Math.min(clkh, S.doc.length - 1));
+      }
     }
-    if (hover !== cur.hover) { cur.hover = hover; ask(); }
+    if (hover !== cur.hover || clkh !== clockHover) { cur.hover = hover; clockHover = clkh; ask(); }
+  });
+  chart.addEventListener('mouseleave', () => {
+    if (cur.hover !== -1 || clockHover !== -1) { cur.hover = -1; clockHover = -1; ask(); }
   });
   for (const host of [$('spineBody'), $('closedBody')]) {
     host.addEventListener('click', (e) => {

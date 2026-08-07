@@ -846,3 +846,29 @@ meta 1,453/30,981 · vyx 2,635/32,471 · long 8,225/294,262 · abnf
 untouched and green (chart.clock is browser policy; the TUI ignores it).
 
 Screenshots: /tmp/clock_pda.png, /tmp/clock_earley.png.
+
+## Round: the clocks answer the hand — 2026-08-07
+
+The user's catch on rung 8: the model view's chart answers a hover (span
+words in the readout, co-selection everywhere) — the clock views answered
+nothing.
+
+Fix, three parts in the same gesture channel the model view uses:
+
+- **Hover hit-test knows clocks.** In a clock view the lanes region
+  resolves the hovered CHARACTER (the same math the scrub uses), outlines
+  the hovered bar, and co-selects the deepest span at that position — so
+  the document highlights, the reader lights, and the span's own words
+  arrive exactly as they do in model view. The chart also gained the
+  mouseleave clear it never had.
+- **The readout speaks the clock's numbers first**: "char 1,204 — the PDA
+  entered 5 frames here · 1 real attempt · <span words>", or "frameless —
+  a leaf run carried this char" where the fused kernel skipped frames
+  (the honest sentence for the comment-interior silence measured last
+  round); Earley: "Earley's column holds 41 items".
+- Clicking (scrub) already set the cursor in every view, so the spine
+  followed — unchanged.
+
+Hover can't be driven headless; sanity boot screenshot clean
+(/tmp/clock_hover_sanity.png), hit-test math shared with the proven
+scrub. User-side feel test, as usual.
