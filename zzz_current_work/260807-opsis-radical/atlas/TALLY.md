@@ -77,3 +77,18 @@ Forked from `../facets/` at commit 80ede43; the facets-era ledger is
   and the model-product ambiguity (resolver, invoked once, site unknown) are
   SEPARATE. If this one gate becomes decidable the PDA may carry the whole
   metagrammar — the 160x win may hinge on one loop.
+- "CAN WE DO IT?" — investigation banked for a fresh session. SOLID: (1)
+  ten-char repro on the real metagrammar — `ab ::= "x"\n` probe-forks at pos
+  1 (second name char); `a ::= "x"\n` rides the PDA. (2) The forking site is
+  gate_take's GATE_ATTEMPT (terminal attempt loop, flatten.py): fork iff char
+  ∈ take-set ∩ stored soft-continuation set. (3) FALSIFIED: synthetic
+  shapes do NOT reproduce — bare tail loop, ws/noise+literal follows, two
+  occurrences with disjoint follows, and even one occurrence with a
+  letter-follow all ride the PDA — so the continuation-set pollution is
+  specific to the metagrammar's authored formulation (suspects: the
+  atom/-nonname machinery, token terminals, semantic flags), NOT generic
+  FOLLOW-union conservatism. NEXT SESSION, first move: compile
+  GBNF_FLAVOUR.grammar, find the namechar* clone's gate spec (compiler/specs
+  vocabulary), print gate[0]/gate[1] char sets, and trace which letters
+  entered the continuation and from which occurrence. Fix follows diagnosis;
+  full run_checks + parity differentials gate any engine change.
