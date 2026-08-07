@@ -29,3 +29,19 @@ history so nothing is re-derived or re-run.
   structure-dense, likely one cause; (3) arithmetic / csv vs lark-lalr —
   smallest gap and the most likely to be "we build more" rather than "we are
   slower", so price it before chasing it.
+- **TARGET 1 PROFILED (lexic-earley, arithmetic, 63.8 µs/char) — the time is in
+  the FOLD, not the parse.** Of 2.583s over 3 runs:
+  · `fold.py:378 apply` cumtime **1.196s = 46%** of the whole run
+  · `model.py:275 __new__` 42,456 calls, cumtime 0.764s (30%)
+  · `model.py:324 _check_fields` cumtime 0.394s — **field VALIDATION**
+  · `records.py:232 __new__` 82,431 calls, 0.322s
+  · the Earley loop proper (`splits.py` ~0.19s, ambiguity 0.18s) is a MINORITY
+  **The suspicion this raises, not yet confirmed:** `model.py`'s docstring says
+  the trusted parse paths (`_from_parts` / `fast_construct`) bypass `__new__`
+  and are unchecked — yet `__new__` and `_check_fields` are both hot here. If
+  the Earley fold is not taking the fast-construct path while the PDA fold is,
+  that would explain a large share of BOTH the 12–30× PDA/Earley gap and the
+  lark-earley loss, and it is a fold-side fix rather than an engine one.
+  NEXT: confirm by counting fast_construct vs __new__ on both routes over the
+  same grammar. If confirmed, prototype the Earley fold taking the same
+  licence.
