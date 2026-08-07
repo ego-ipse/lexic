@@ -69,9 +69,16 @@ screenshot-verified.
   reader line and spans; rail windows join the per-frame render for it.
   Leaves are interpreters: the browser applies policy at boot and
   posts every presentation gesture back; the TUI obeys speed, shares, and
-  reader.mode — its flat rule graph IS `graph.view` in cells. Leaves polling
-  `/policy` (browser: not yet; planned) get cross-leaf sync. Policy dies
-  with the server process — accepted for now.
+  reader.mode — its flat rule graph IS `graph.view` in cells. Both leaves
+  POLL `/policy` (browser ~2s with a 2.5s quiet window after local
+  gestures — the hand on the wheel wins; TUI on its 2.5s tick) and apply
+  the delta: scalars re-apply, pins reconcile in place (add/remove/nudge —
+  a window's element, camera, tree and history survive a remote move).
+  Cross-leaf sync is live: a gesture in one leaf lands in the other within
+  a tick. The TUI renders pins as PANES (rung 7): a column between
+  document and spine (≥176 cols) — span pins show their text, rail pins
+  their structural lines in the rail registers, graph pins name
+  themselves. Policy dies with the server process — accepted for now.
 - `POST /cursor` — `t <float> sel <int>` (fire-and-forget, throttled).
 - `POST /edit` — `<start> <end>\n<replacement>` → re-read WITHOUT saving.
   Reply `ok <secs>` or `refuse <pos>\n<engine words>` (`pos` −1 when

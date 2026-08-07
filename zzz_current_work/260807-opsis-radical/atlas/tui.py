@@ -182,6 +182,8 @@ class Tui:
         self.speed = float(scene.policy.get("speed", "1") or 1)
         self.reader_frac = float(scene.policy.get("arrange.reader", "0") or 0)
         self.reader_graph = scene.policy.get("reader.mode") == "graph"
+        self.pins = parse_pins(scene.policy)
+        self.rails: dict[str, list[tuple[int, str, str]]] = {}
         self.port = 0
         self.mode = "view"
         self.buf = ""
@@ -200,6 +202,26 @@ class Tui:
             return max(30, min(self.cols // 2, int(self.cols * self.reader_frac)))
         return 42
 
+    def panes_w(self) -> int:
+        """The pane column's width — pins render when the terminal affords them."""
+        return 34 if (self.pins and self.cols >= 176) else 0
+
+    def load_rails(self) -> None:
+        """Fetch structural lines for rail panes not yet cached."""
+        for pin in self.pins:
+            if pin["kind"] != "rail" or pin["rule"] in self.rails or not self.port:
+                continue
+            try:
+                raw = fetch(self.port, "/rail?rule=" + pin["rule"])
+            except OSError:
+                continue
+            lines = []
+            for ln in raw.split("\n")[1:]:
+                parts = ln.split(" ", 2)
+                if len(parts) >= 2 and parts[0].isdigit():
+                    lines.append((int(parts[0]), parts[1], parts[2] if len(parts) > 2 else ""))
+            self.rails[pin["rule"]] = lines
+
     def chart_rows(self) -> int:
         """Rows the chart band occupies — 0 when the terminal is too short."""
         return (min(self.sc.maxdepth, 11) + 3) if (self.show_chart and self.rows >= 34) else 0
@@ -214,7 +236,7 @@ class Tui:
 
     def doc_w(self) -> int:
         """Columns available to document text."""
-        return self.cols - self.reader_w() - SPINE_W - GUTTER_W - 3
+        return self.cols - self.reader_w() - SPINE_W - GUTTER_W - 3 - self.panes_w()
 
     def doc_rows(self) -> int:
         """Rows available to the document pane."""
@@ -265,6 +287,8 @@ class Tui:
         if self.chart_rows():
             out.append(self.render_chart())
         out.append(self.render_doc())
+        if self.panes_w():
+            out.append(self.render_panes())
         if self.reader_w():
             out.append(self.render_reader())
         out.append(self.render_spine())
@@ -497,6 +521,49 @@ class Tui:
             row += 1
         return "".join(out)
 
+    def render_panes(self) -> str:
+        """PANES — the policy's pinned windows, as stacked cells."""
+        sc = self.sc
+        w = self.panes_w() - 2
+        x = self.cols - SPINE_W - self.panes_w()
+        row = self.doc_row0()
+        maxrow = self.rows - 3
+        out = [f"\x1b[{row};{x}H{bg(FIELD)}{fg(COOL)}\x1b[1mPANES{SGR0}{bg(FIELD)}{fg(DIM)} pinned {len(self.pins)}\x1b[K"]
+        row += 1
+        shown = 0
+        for pin in self.pins:
+            if row >= maxrow - 1:
+                break
+            shown += 1
+            if pin["kind"] == "span":
+                head = f"{pin['rule']} {pin['s']:,}..{pin['e']:,}"
+                out.append(f"\x1b[{row};{x}H{fg(WARM)}{head[:w]}\x1b[K")
+                row += 1
+                snip = sc.doc[pin["s"] : pin["e"]].replace("\n", "↵")
+                for k in range(0, min(len(snip), w * 3), w):
+                    if row >= maxrow:
+                        break
+                    out.append(f"\x1b[{row};{x}H{fg(INK)}{snip[k : k + w]}\x1b[K")
+                    row += 1
+            elif pin["kind"] == "rail":
+                out.append(f"\x1b[{row};{x}H{fg(VIOLET)}RAIL {pin['rule'][: w - 5]}\x1b[K")
+                row += 1
+                for d, kind, payload in self.rails.get(pin["rule"], [])[:7]:
+                    if row >= maxrow:
+                        break
+                    colour = {"ref": COOL, "lit": WARM, "class": VIOLET}.get(kind, DIM)
+                    label = payload if kind in ("ref", "lit", "class") else kind + (" " + payload if payload else "")
+                    out.append(f"\x1b[{row};{x}H{fg(DIMMER)}{'· ' * d}{fg(colour)}{label[: max(4, w - 2 * d)]}\x1b[K")
+                    row += 1
+            else:
+                head = f"RULE GRAPH · {pin.get('mode', '')} — lives in the browser"
+                out.append(f"\x1b[{row};{x}H{fg(COOL)}{head[:w]}\x1b[K")
+                row += 1
+            row += 1
+        if shown < len(self.pins):
+            out.append(f"\x1b[{row};{x}H{fg(DIMMER)}+{len(self.pins) - shown} more — taller terminal\x1b[K")
+        return "".join(out)
+
     def render_status(self) -> str:
         """Bottom strip: readout, position and keys, the routes line."""
         sc = self.sc
@@ -599,6 +666,24 @@ class Tui:
         self.note = f"refused: {words[:110]} — frontier at char {pos:,}" if pos >= 0 else f"refused: {words[:130]}"
 
 
+def parse_pins(policy: dict[str, str]) -> list[dict]:
+    """The policy's pin records, in id order — the TUI's pane list."""
+    pins = []
+    for key, value in policy.items():
+        if not key.startswith("pin."):
+            continue
+        t = value.split(" ")
+        pin: dict = {"id": int(key[4:]), "kind": t[0] if t[0] in ("graph", "rail") else "span"}
+        if pin["kind"] == "span":
+            pin.update(s=int(t[1]), e=int(t[2]), d=int(t[3]), rule=t[4])
+        elif pin["kind"] == "rail":
+            pin["rule"] = t[1]
+        else:
+            pin["mode"] = t[10] if len(t) > 10 else "depth3d"
+        pins.append(pin)
+    return sorted(pins, key=lambda p: p["id"])
+
+
 def line_in(starts: list[int], off: int) -> int:
     """The line containing ``off`` in an arbitrary line-start table."""
     lo, hi = 0, len(starts) - 1
@@ -677,6 +762,24 @@ def ensure_server(fixture: str, port: int) -> subprocess.Popen | None:
     raise SystemExit(f"server for '{fixture}' did not come up on :{port}")
 
 
+def refresh_policy(ui: Tui, port: int) -> None:
+    """One policy read — speed, shares, reader mode and pins follow the record live."""
+    try:
+        raw = fetch(port, "/policy")
+    except OSError:
+        return
+    policy: dict[str, str] = {}
+    for ln in raw.split("\n"):
+        if ln.strip():
+            key, _, value = ln.partition(" ")
+            policy[key] = value
+    ui.speed = float(policy.get("speed", "1") or 1)
+    ui.reader_frac = float(policy.get("arrange.reader", "0") or 0)
+    ui.reader_graph = policy.get("reader.mode") == "graph"
+    ui.pins = parse_pins(policy)
+    ui.load_rails()
+
+
 def routes_line(port: int) -> str:
     """The routes strip, as one sentence."""
     r = {}
@@ -742,6 +845,8 @@ def run(fixture: str, port: int) -> int:
             if now - last_routes > 2.5:
                 last_routes = now
                 ui.routes = routes_line(port)
+                if ui.mode != "edit":
+                    refresh_policy(ui, port)
             if now - last_post > 0.4:
                 last_post = now
                 post(port, "/cursor", f"t {ui.t:.1f} sel {max(ui.sel, ui.hover)}")
@@ -950,6 +1055,25 @@ def census(fixture: str, port: int) -> int:
         checks["policy: speed applied"] = ui2.speed == 0.5
         checks["policy: reader share applied"] = ui2.reader_w() == 57
         checks["policy: flat graph drawn"] = "flat graph (policy)" in plain2
+        # rung 7 — pins render as panes, from the same record every leaf reads
+        span0 = scene2.spans[len(scene2.spans) // 2]
+        start_rule = next(n for n, d in scene2.depths.items() if d == 0)
+        urllib.request.urlopen(urllib.request.Request(
+            f"http://127.0.0.1:{port}/policy",
+            data=(f"pin.1 span {span0[0]} {span0[1]} {span0[2]} {scene2.rule_names[span0[3]]} 100 100 300 200\n"
+                  f"pin.2 rail {start_rule} 470 90 480 320").encode())).read()
+        scene3 = Scene(fetch(port, "/scene"))
+        ui3 = Tui(scene3, 190, 48)
+        ui3.port = port
+        ui3.load_rails()
+        plain3 = ANSI.sub("", ui3.render())
+        snip = scene3.doc[span0[0] : span0[1]].replace("\n", "↵")[:10]
+        checks["panes drawn"] = "PANES" in plain3
+        checks["span pane carries its text"] = (not snip) or snip in plain3
+        checks["rail pane shows the rule"] = f"RAIL {start_rule}"[:32] in plain3
+        checks["rail pane shows structure"] = bool(ui3.rails.get(start_rule))
+        urllib.request.urlopen(urllib.request.Request(
+            f"http://127.0.0.1:{port}/policy", data=b"pin.1 -\npin.2 -")).read()
         print(f"{fixture}: {len(scene.doc):,} chars · {len(scene.spans):,} spans · "
               f"frame {len(frame):,} bytes ({len(plain):,} visible)")
         print(" · ".join(f"{k} {v}" for k, v in checks.items()))

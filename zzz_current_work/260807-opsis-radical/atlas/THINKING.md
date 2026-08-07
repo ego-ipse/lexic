@@ -201,7 +201,9 @@ open dispatch table); its facet kind is reserved in the policy schema now.
    bypass/loop arches, split/join curves, class/literal/ref/negation
    registers; `▤ rail` on the marked rule; refs click through to their own
    railroad; `pin.<id> rail` policy + `?rail=` deep link).
-7. **TUI panes-for-pins** — the policy's pane rendering.
+7. ~~TUI panes-for-pins~~ — DONE (the PANES column from the same policy
+   record; span text, rail structure in registers, graph pins named; live
+   `/policy` tick in both leaves closed rung 5's polling leftover).
 8. **Engine clocks** (rung 2's second half) — cheaper now: FlatClone names
    + the Refusal readout landed.
 9. **Ports bay** — reducer docking; transpile peer lane.

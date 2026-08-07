@@ -750,3 +750,41 @@ switch. Policy still persists the current camera only — per-mode cameras
 are session memory, the wire schema is unchanged.
 
 Boot sanity DOM-checked; interaction is user-side as usual.
+
+## Round: cross-leaf sync live + rung 7, panes-for-pins — 2026-08-07
+
+Two items: rung 5's last leftover, and rung 7.
+
+**Browser /policy polling.** The leaf polls every 2s, diffs against a
+snapshot, and applies the delta — with a 2.5s quiet window after any local
+post (the hand on the wheel wins; last-writer-wins across leaves at tick
+cadence). Own posts stamp the snapshot so echoes aren't deltas; skipped
+polls keep the OLD snapshot so a remote change deferred by the quiet
+window still applies on the next tick. Scalars re-apply through one
+`applyPolicyKey` (speed, zooms, reader.mode, graph.view with camera
+banking, tunables, camera, shares); pins reconcile IN PLACE
+(`syncPinsFromPolicy`): new ids build, missing ids remove, existing pins
+take geometry/camera/mode/rule nudges without losing their element, view,
+tree or history. `parsePinValue` is now the ONE pin parser (boot rebuild
+and live sync share it — they had started to drift).
+
+**Rung 7 — TUI panes.** Pins render as a PANES column between document and
+spine (≥176 cols; the document facet yields width): span pins show their
+rule + span + wrapped text, rail pins their structural lines in the rail
+registers (refs cool, literals warm, classes violet, depth as dot-indent),
+graph pins name themselves and their view honestly ("lives in the
+browser"). The TUI's 2.5s tick now also re-reads /policy (speed, shares,
+reader mode, pins) — the browser's gestures land in the terminal live,
+and the reverse already held. Census +4: panes drawn, span pane carries
+its text, rail pane names the rule, rail structure fetched. All green;
+serve census untouched and green.
+
+**Verification honesty.** The live-sync screenshot attempt exposed a
+harness limit, not a defect: chrome-headless's --screenshot fires on load
+(status bar showed char 0 · paused — before even autoplay's 600ms timer),
+so a post 5s later can never appear in the capture. Live browser apply is
+code-verified; boot apply is screenshot-proven; the TUI census proves the
+same record driving a second leaf. The browser's live tick joins the
+gesture list the user's hands verify.
+
+SPEC §2 rewritten for polling + panes; THINKING ladder rung 7 struck.
