@@ -388,3 +388,35 @@ history so nothing is re-derived or re-run.
   seam location is known (it 10), the patch target is known (it 8), the sizing
   is corrected (it 11), and the mapping holds (this one). What remains is one
   full context budget of writing and measuring — not investigation.
+- **PROTOTYPE BUILT AND RUN — the lever cashes out in sub-runs and LOSES in
+  time.** `bench/kproto.py`, FIRST_4 windows attached to all 31 attempt entries,
+  filtering before any speculative sub-run, on vyx:
+
+  ```
+  baseline         4.821 µs/char   sub-runs 2005
+  FIRST_4 filter   6.119 µs/char   sub-runs 1635      -26.9% SLOWER
+  round-trip True  ·  2,354 candidate exclusions
+  ```
+
+  **The sizing was right; the economics are not.** 370 sub-runs eliminated
+  against iteration 11's prediction of ~436 — the model held. But the parse got
+  **27% slower**, because the filter runs far more often than the sub-runs it
+  saves: `_window_admits` is a Python loop over windows × positions, executed
+  per candidate at every attempt decision (2,354 exclusions plus every
+  non-exclusion), to avoid 370 sub-runs at 25.6 µs each. The check is cheap per
+  call and ruinous in aggregate.
+  This is the failure mode iteration 12 could not rule out by proxy — not
+  "windows too loose" (they excluded plenty) but "the exclusion costs more than
+  the exclusion saves". Only running it could show that.
+- **SALVAGE CANDIDATE, untested:** the prototype filters EVERY admitted
+  candidate. The cheap filters (`admits` + `prefix_admits`) already resolve most
+  decisions to a single survivor, and those never needed a window at all — the
+  window is only decisive when ≥2 candidates survive the cheap pass. Restructure
+  to run the cheap pass first, and consult windows ONLY on the multi-survivor
+  remainder. That is a strictly smaller number of window checks for the same
+  370 sub-runs saved. Whether it is small enough to turn −27% positive is
+  unknown and is the next measurement.
+- **HONEST STATUS at iteration 14: no optimization delivered.** One lever
+  located, sized, de-risked and now prototyped — and the prototype says it loses
+  as designed. That is a result, but it is not a win, and the mission's goal
+  (beat every parser on every grammar) is not closer than it was at iteration 1.
