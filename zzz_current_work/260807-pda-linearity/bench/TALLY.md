@@ -187,3 +187,32 @@ history so nothing is re-derived or re-run.
   matching the same span is the ambiguity refusal), so the target is not
   removing it but establishing whether it can be decided without a second full
   sub-run.
+- **THE AUDIT IS NOT THE LEVER — it is 9%.** Timing the attempt seam's parts on
+  vyx (cumulative, so nesting is counted under the caller):
+
+  ```
+    2005 ×  25.6 µs =  51.28 ms   _attempt_run
+     648 ×  55.8 µs =  36.18 ms   attempt
+     572 ×   5.8 µs =   3.32 ms   _attempt_audit      ← 9% of attempt
+  ```
+
+  So last iteration's "live question" is answered and closed: the second-success
+  audit costs 3.3 ms of 36.2 ms. Making it cheaper, even free, buys ~9% of 82%
+  of vyx's entry time — a few percent of the row. Not worth the soundness risk
+  of touching an ambiguity check.
+- **THE REAL COST IS THE NUMBER OF SPECULATIVE SUB-RUNS.** 648 attempt decisions
+  produce **2,005 `_attempt_run` calls — 3.1 speculative arm parses per
+  decision**, at 25.6 µs each. The seam is doing three full speculative parses
+  to settle one arm choice.
+- **NEXT PROTOTYPE, and it has existing machinery to borrow.** `sole_admitted`
+  filters candidate arms by first char plus a leading-terminal prefix match;
+  when exactly one survives it skips the sub-runs entirely (that path is already
+  taken and is why only 648 of the attempt entries reach `attempt()`). The
+  question is whether a LONGER lookahead collapses more decisions to one
+  survivor: the analysis already computes FIRST_k windows
+  (`analysis/gates/kwindow.py`) and the runtime already matches them for loop
+  and arm gates (`GATE_KWIN`, `kwin_selectors`) — none of that is wired into
+  attempt admission.
+  Measurement that sizes it, before any change: for each of the 648 decisions,
+  count admitted entries under k=1 (today) against k=2/3/4. If a meaningful
+  share collapses to one, the lever is admission, not the sub-run.
