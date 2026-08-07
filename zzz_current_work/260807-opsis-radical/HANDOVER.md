@@ -1,5 +1,26 @@
 # opsis-radical — HANDOVER (2026-08-07, end of day)
 
+## NEXT SESSION — start here
+
+**The gate investigation** (full state: `atlas/TALLY.md`, last entries;
+banked at `ddac70e`). The PDA probe-forks one character into the FIRST
+RULENAME of any grammar the metagrammar reads — ten-char repro:
+`ab ::= "x"\n` forks at pos 1, `a ::= "x"\n` rides the PDA. Site:
+`gate_take`'s GATE_ATTEMPT branch (`parsing/pda/compiler/flatten.py`) — a
+terminal attempt loop forks iff the char is in BOTH the take-set and a
+stored soft-continuation set. Falsified already: generic FOLLOW-union
+conservatism (synthetic shapes, including a letter-followed occurrence, all
+ride the PDA). First move: compile `GBNF_FLAVOUR.grammar`, find the
+`namechar*` clone's gate spec (compiler/specs vocabulary), print both char
+sets, trace which letters entered the continuation and from which
+occurrence. Fix follows diagnosis; any engine change gates on
+`tools/run_checks.sh` exit 0 + the parity differentials. The prize,
+measured: vyx ~5s → ~30ms (the Earley fallback is ~n^3.2 on this grammar;
+the PDA route is 313K chars/s), and the metagrammar may have NO other fork
+site. Otherwise: rung 2's remaining half (the two engine clocks, switchable).
+
+---
+
 State: everything committed on `opsis_proto` (`80ede43` onward), including
 this gitignored folder (added with `-f`; the user granted `--no-verify` for
 zzz-only commits). Cold start reads, in order: **`VISION.md`** (the position),
@@ -88,11 +109,16 @@ screenshots.
   (`UnsupportedConstructError`, words only, no attrs). Wanted: a readout-shaped,
   additive surface carrying frontier position (and eventually expected-next).
   Until then atlas regex-reads the kernel's words — honest but fragile.
-- **De-ambiguate the GBNF self-grammar's model product** (noise attribution on
-  comment/ws). Measured: PDA route 313,593 chars/s vs metagrammar
-  Earley+resolver route 1,974 chars/s (159×), resolver invoked once — the
-  cost is the route. Fixing this puts grammar-reading-grammar on the fast road
-  and makes the meta/vyx frontier measurable.
+- **The namechar\* attempt-loop gate** (supersedes the earlier "de-ambiguate
+  noise attribution" framing — user-corrected: the fork is one char into the
+  first rulename, NOT at the noise seam; see NEXT SESSION block). Two
+  separate facts: (a) the route-forcing fork is the terminal attempt loop's
+  soft-continuation overlap, metagrammar-specific, repro'd in ten chars;
+  (b) the model-product ambiguity (resolver invoked once, site not yet
+  located) is a DIFFERENT finding. Measured stakes: Earley fallback is
+  ~n^3.2 on this grammar (4.3K chars 0.37s → 8.75K chars 3.79s); PDA route
+  313K chars/s; and the fallback is whole-document — the fork does not
+  island, which is its own question.
 
 ## Traps (each cost time today)
 
