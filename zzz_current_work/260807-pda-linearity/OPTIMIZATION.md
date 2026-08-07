@@ -76,7 +76,13 @@ Counting structural work in both variants:
 | **time** | — | — | **16%** |
 
 The 46% model cut moved time 16%; the 11% *entry* cut moved it 16%. **Time
-tracks clone entries, not models.** The lever is `_enter` at **1.56 per
+tracks clone entries, not models.**
+
+**Calibration correction (measured later, `PROPOSAL.md` §5):** do not read 16%
+as the yield of an entry cut. A 31% entry cut from dispatch conversion bought
+**7.1%**. The 16% figure came from a grammar-side rewrite that moved entries,
+models and `_run_leaf` together, and it over-predicts a change that removes only
+a frame push and a completion. The lever is `_enter` at **1.56 per
 character** — every character of vyx traffic passes through more than one rule
 frame, because the grammar's lexical layer is built from per-character rules
 chained several deep (`nl-text → nl-word → nl-tail → charclass`).
@@ -106,6 +112,13 @@ typed model the source is recoverable from, while antlr returns a
 semantic actions. The honest read of §4 is that lexic pays ~1.6 rule frames per
 character to build that, and the interpreter loop over those frames is the cost.
 Closing the gap means fewer frames per character, not a faster frame.
+
+**Reading a by-name entry census, a trap worth knowing:** `_attempt_sub` copies
+the parent's `name` onto every attempt sub-clone, so sub-clone frames are counted
+under their PARENT's name and never their own. A by-name diff across a change
+that collapses sub-clones therefore shows the removals on the *target* rules, not
+on the sub-clones — which is how this effort's own §7 census came to measure the
+wrong side of the chase (`PROPOSAL.md` §4b).
 
 **Do not re-run these:** micro-levers were measured at ~0% here previously;
 model-count reduction is now measured at a 16% ceiling for a 46% cut; GC and

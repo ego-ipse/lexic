@@ -43,7 +43,8 @@ wrong values. Today `reduce_rewrite` bakes every reachable clone to
 as a side effect; that is a mode-value coincidence, and `reduce_rewrite`'s own
 docstring says the model specialisations are "deliberately skipped" there.
 `_attempt_entries` already receives `reduce_mode` — gate on it and state the
-reason, or this proposal ships the very defect-shape its §2 condemns. `_unit_ref_target` must widen from `OP_REF` to
+reason, or this proposal ships the very defect-shape part 2 exists to remove:
+one configuration that works, and nothing saying so. `_unit_ref_target` must widen from `OP_REF` to
 `kind in (OP_REF, OP_REF1)`: a sub-clone shares its parent's arm, which
 `_specialize_calls` has already rewritten. `OP_REF1` is the same fact — an
 exactly-once reference with a `FlatClone` payload — and the widening is a no-op
@@ -140,6 +141,11 @@ The §1 census attributes 1,396 entries to sub-clones, but the change removes
 `labeled-val` −222 — because a converted sub-clone's chase folds the target's
 separate entry into its own.
 
+**A trap for anyone reading a by-name entry diff across this boundary:**
+`_attempt_sub` copies the parent's `name`, so sub-clone frames were always
+counted under their *parent's* name, never their own. Removals therefore surface
+on target names, and a naive by-name diff will mis-attribute the change.
+
 The excess over 1,396 is **multi-hop chases**. Hops per entering call, measured:
 
 ```
@@ -149,8 +155,14 @@ The excess over 1,396 is **multi-hop chases**. Hops per entering call, measured:
 ```
 
 A single `_enter` that chases N hops collapses N+1 baseline entries into one, so
-long chains remove more than the sub-clone count. Nothing is unaccounted for,
-and the arithmetic closes.
+long chains remove more than the sub-clone count.
+
+**This is the mechanism, not a tie-out.** The four target attributions above sum
+to −1,071 of −1,667, and the hop histogram mixes chases that pre-date this change
+with the ones it adds, so the numbers on this page cannot be added to 1,667. The
+excess over the 1,396 census is *accounted for* — it is target-side removal plus
+chain collapse — but a full attribution table was not produced, and a reader
+should not take the phrase for one.
 
 ## 5 — Scope, honestly
 
