@@ -27,45 +27,113 @@ const policyTimers = {};
 const FACETS = ['grammar', 'document', 'chart', 'spine'];
 const FACET_WORD = { grammar: 'reader', document: 'document', chart: 'derivation', spine: 'spine' };
 const facetOn = { grammar: true, document: true, chart: true, spine: true };
-// slots are the grid's four regions: L (left col), C (center col), RT, RB (right rows)
-const SLOTS = ['L', 'C', 'RT', 'RB'];
-const SLOT_STYLE = {
-  L: ['1', '1 / 3'], C: ['2', '1 / 3'], RT: ['3', '1'], RB: ['3', '2'],
-};
-let facetSlot = { grammar: 'L', document: 'C', chart: 'RT', spine: 'RB' };
+// ── the arrangement is a TREE (THINKING §9b): internal nodes are h/v
+//    splits carrying the a-side share; leaves are facets. Nothing imposes
+//    columns; a one-leaf tree IS fullscreen; N facets = a deeper tree.
+function defaultTree() {
+  return ['h', 0.24, 'grammar', ['h', 0.61, 'document', ['v', 0.58, 'chart', 'spine']]];
+}
+let layoutTree = defaultTree();
+let seamEdges = [];
 
-function slotOccupant(slot) {
-  return FACETS.find((n) => facetSlot[n] === slot) || null;
+function treeToText(node) {
+  if (typeof node === 'string') return node;
+  return `(${node[0]} ${node[1].toFixed(3)} ${treeToText(node[2])} ${treeToText(node[3])})`;
 }
 
-function slotOn(slot) {
-  const name = slotOccupant(slot);
-  return name !== null && facetOn[name];
+function treeOk(node) {
+  if (typeof node === 'string') return FACETS.includes(node);
+  return Array.isArray(node) && (node[0] === 'h' || node[0] === 'v')
+    && treeOk(node[2]) && treeOk(node[3]);
+}
+
+function treeFromText(text) {
+  const toks = (text || '').replace(/[()]/g, (m) => ' ' + m + ' ').trim().split(/\s+/);
+  let i = 0;
+  function parse() {
+    if (toks[i] === '(') {
+      i++;
+      const kind = toks[i++];
+      const share = parseFloat(toks[i++]);
+      const a = parse();
+      const b = parse();
+      i++;
+      return [kind, Math.max(0.05, Math.min(0.95, share || 0.5)), a, b];
+    }
+    return toks[i++];
+  }
+  try {
+    const tree = parse();
+    return treeOk(tree) ? tree : null;
+  } catch { return null; }
+}
+
+function treeLeaves(node, out = []) {
+  if (typeof node === 'string') out.push(node);
+  else { treeLeaves(node[2], out); treeLeaves(node[3], out); }
+  return out;
+}
+
+function visibleTree(node) {
+  if (typeof node === 'string') return facetOn[node] ? node : null;
+  const a = visibleTree(node[2]);
+  const b = visibleTree(node[3]);
+  if (a === null) return b;
+  if (b === null) return a;
+  return [node[0], node[1], a, b, node];  // [4]: the REAL node a seam edits
+}
+
+function layoutFacets() {
+  const g = $('grid');
+  const W = g.clientWidth, H = g.clientHeight;
+  if (!W || !H) return;
+  seamEdges = [];
+  const placed = new Set();
+  function place(node, x, y, w, h) {
+    if (typeof node === 'string') {
+      const el = $(node);
+      el.style.left = x + 'px';
+      el.style.top = y + 'px';
+      el.style.width = w + 'px';
+      el.style.height = h + 'px';
+      placed.add(node);
+      return;
+    }
+    const [kind, share, a, b] = node;
+    const real = node[4] || node;
+    if (kind === 'h') {
+      const aw = w * share;
+      place(a, x, y, aw, h);
+      place(b, x + aw, y, w - aw, h);
+      seamEdges.push({ axis: 'x', at: x + aw, from: y, to: y + h, real, base: x, size: w });
+    } else {
+      const ah = h * share;
+      place(a, x, y, w, ah);
+      place(b, x, y + ah, w, h - ah);
+      seamEdges.push({ axis: 'y', at: y + ah, from: x, to: x + w, real, base: y, size: h });
+    }
+  }
+  const vis = visibleTree(layoutTree);
+  if (vis !== null) place(vis, 0, 0, W, H);
+  for (const name of FACETS) $(name).style.display = placed.has(name) ? '' : 'none';
 }
 
 function applyFacets(post = false) {
-  for (const name of FACETS) {
-    document.body.classList.toggle('off-' + name, !facetOn[name]);
-    const el = $(name);
-    const [col, row] = SLOT_STYLE[facetSlot[name]];
-    el.style.gridColumn = col;
-    el.style.gridRow = row;
-  }
-  // collapse by SLOT occupancy, not facet name — facets move
-  document.body.classList.toggle('off-c1', !slotOn('L'));
-  document.body.classList.toggle('off-c3', !slotOn('RT') && !slotOn('RB'));
-  const root = document.documentElement.style;
-  root.setProperty('--atop', !slotOn('RT') ? '0%' : (!slotOn('RB') ? '100%' : ''));
-  const P = policySnap || {};
-  if (slotOn('RT') && slotOn('RB') && P['arrange.top']) {
-    root.setProperty('--atop', (parseFloat(P['arrange.top']) * 100) + '%');
-  }
+  for (const name of FACETS) document.body.classList.toggle('off-' + name, !facetOn[name]);
+  layoutFacets();
   buildDock();
   if (post) {
     for (const name of FACETS) postPolicy('facet.' + name, facetOn[name] ? 'on' : 'off');
-    postPolicy('arrange.order', SLOTS.map((sl) => slotOccupant(sl) || '-').join(' '));
+    postPolicy('arrange.tree', treeToText(layoutTree));
   }
   ask();
+}
+
+function swapLeaves(node, a, b) {
+  if (typeof node === 'string') return node === a ? b : node === b ? a : node;
+  node[2] = swapLeaves(node[2], a, b);
+  node[3] = swapLeaves(node[3], a, b);
+  return node;
 }
 
 let dockDrag = null;
@@ -74,9 +142,7 @@ function buildDock() {
   const dock = $('dock');
   if (!dock) return;
   dock.textContent = '';
-  for (const slot of SLOTS) {
-    const name = slotOccupant(slot);
-    if (!name) continue;
+  for (const name of treeLeaves(layoutTree)) {
     const chip = document.createElement('span');
     chip.className = 'fnode-chip' + (facetOn[name] ? '' : ' off');
     chip.dataset.name = name;
@@ -94,23 +160,13 @@ function buildDock() {
       e.preventDefault();
       chip.classList.remove('over');
       if (dockDrag && dockDrag !== name) {
-        const a = facetSlot[dockDrag];
-        facetSlot[dockDrag] = facetSlot[name];
-        facetSlot[name] = a;
+        swapLeaves(layoutTree, dockDrag, name);
         applyFacets(true);
       }
       dockDrag = null;
     });
     dock.appendChild(chip);
   }
-}
-
-function applyOrder(value) {
-  const names = (value || '').split(' ');
-  if (names.length !== 4) return;
-  SLOTS.forEach((slot, i) => {
-    if (FACETS.includes(names[i])) facetSlot[names[i]] = slot;
-  });
 }
 
 let policySnap = null;
@@ -913,7 +969,10 @@ function applyPolicy() {
   for (const name of FACETS) {
     if (P['facet.' + name]) facetOn[name] = P['facet.' + name] !== 'off';
   }
-  if (P['arrange.order']) applyOrder(P['arrange.order']);
+  if (P['arrange.tree']) {
+    const tree = treeFromText(P['arrange.tree']);
+    if (tree) layoutTree = tree;
+  }
   applyFacets();
   if (P['graph.camera'] && gViews[0]) {
     const [yw, pt, zm, px, py] = P['graph.camera'].split(' ').map(parseFloat);
@@ -938,10 +997,17 @@ function rebuildPinsFromPolicy(P) {
 }
 
 function setShare(which, frac, post = true) {
-  const vars = { reader: '--ar', right: '--aright', top: '--atop' };
+  // legacy keys, honored while the tree keeps its default shape
   const lim = { reader: [0.06, 0.86], right: [0.06, 0.86], top: [0.12, 0.92] };
   const v = Math.max(lim[which][0], Math.min(lim[which][1], frac));
-  document.documentElement.style.setProperty(vars[which], (v * 100).toFixed(1) + '%');
+  const t = layoutTree;
+  if (which === 'reader' && Array.isArray(t) && t[2] === 'grammar') t[1] = v;
+  else if (which === 'right' && Array.isArray(t) && Array.isArray(t[3]) && t[3][2] === 'document') {
+    t[3][1] = Math.max(0.05, Math.min(0.95, 1 - v / (1 - t[1])));
+  } else if (which === 'top' && Array.isArray(t) && Array.isArray(t[3]) && Array.isArray(t[3][3]) && t[3][3][0] === 'v') {
+    t[3][3][1] = v;
+  } else return;
+  layoutFacets();
   if (post) postPolicyDebounced('arrange.' + which, v.toFixed(3));
   ask();
 }
@@ -2039,43 +2105,41 @@ function wireTune() {
 }
 
 function wireSeams() {
-  let seam = null;
+  let drag = null;
+  const seamAt = (e) => {
+    const g = $('grid').getBoundingClientRect();
+    if (e.clientY <= g.top) return null;
+    const px = e.clientX - g.left, py = e.clientY - g.top;
+    return seamEdges.find((sm) => sm.axis === 'x'
+      ? Math.abs(px - sm.at) <= 7 && py >= sm.from && py <= sm.to
+      : Math.abs(py - sm.at) <= 7 && px >= sm.from && px <= sm.to) || null;
+  };
   window.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.pin') || e.target.closest('#pinchip')) return;
-    const g = $('grid').getBoundingClientRect();
-    const rd = $('document').getBoundingClientRect();
-    const rc = $('chart').getBoundingClientRect();
-    const rs = $('spine').getBoundingClientRect();
-    if (slotOn('L') && Math.abs(e.clientX - rd.left) <= 10 && e.clientY > g.top) seam = 'reader';
-    else if ((slotOn('RT') || slotOn('RB')) && Math.abs(e.clientX - rc.left) <= 10 && e.clientY > g.top) seam = 'right';
-    else if (slotOn('RT') && slotOn('RB') && e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 8) seam = 'top';
-    if (seam) {
+    const sm = seamAt(e);
+    if (sm) {
+      drag = sm;
       e.preventDefault();
-      document.body.style.cursor = seam === 'top' ? 'row-resize' : 'col-resize';
+      document.body.style.cursor = sm.axis === 'x' ? 'col-resize' : 'row-resize';
     }
   }, true);
   window.addEventListener('pointermove', (e) => {
-    if (!seam) {
+    if (!drag) {
       if (e.buttons) return;
-      const g = $('grid').getBoundingClientRect();
-      if (e.clientY <= g.top) { document.body.style.cursor = ''; return; }
-      const rd = $('document').getBoundingClientRect();
-      const rc = $('chart').getBoundingClientRect();
-      const rs = $('spine').getBoundingClientRect();
-      const near =
-        (Math.abs(e.clientX - rd.left) <= 10 || Math.abs(e.clientX - rc.left) <= 10) ? 'col-resize'
-        : (e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 8) ? 'row-resize' : '';
-      document.body.style.cursor = near;
+      const sm = seamAt(e);
+      document.body.style.cursor = sm ? (sm.axis === 'x' ? 'col-resize' : 'row-resize') : '';
       return;
     }
     const g = $('grid').getBoundingClientRect();
-    if (seam === 'reader') setShare('reader', (e.clientX - g.left) / g.width);
-    else if (seam === 'right') setShare('right', (g.right - e.clientX) / g.width);
-    else setShare('top', (e.clientY - g.top) / g.height);
+    const p = drag.axis === 'x' ? e.clientX - g.left : e.clientY - g.top;
+    drag.real[1] = Math.max(0.06, Math.min(0.94, (p - drag.base) / drag.size));
+    layoutFacets();
+    postPolicyDebounced('arrange.tree', treeToText(layoutTree));
+    ask();
   });
   window.addEventListener('pointerup', () => {
-    if (seam) {
-      seam = null;
+    if (drag) {
+      drag = null;
       document.body.style.cursor = '';
     }
   });
@@ -2497,7 +2561,7 @@ function wire() {
       if (h !== cur.hover) { cur.hover = h; ask(); }
     });
   }
-  window.addEventListener('resize', ask);
+  window.addEventListener('resize', () => { layoutFacets(); ask(); });
   window.addEventListener('keydown', onKey);
 }
 
@@ -2675,9 +2739,9 @@ function applyPolicyKey(k, v) {
     }
   } else if (k.startsWith('arrange.')) {
     if (v) setShare(k.slice(8), parseFloat(v), false);
-  } else if (k === 'arrange.order') {
-    applyOrder(v);
-    applyFacets();
+  } else if (k === 'arrange.tree') {
+    const tree = treeFromText(v);
+    if (tree) { layoutTree = tree; applyFacets(); }
   } else if (k.startsWith('facet.')) {
     const name = k.slice(6);
     if (FACETS.includes(name)) { facetOn[name] = v !== 'off'; applyFacets(); }

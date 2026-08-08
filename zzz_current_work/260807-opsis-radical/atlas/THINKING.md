@@ -239,3 +239,26 @@ one level up: the SESSION's facet set drawn and handled as nodes.
 
 Build order: dock + minimize/reopen + reflow (this round) → move → clone →
 pop for the remaining facet kinds → pin-minimize into the dock.
+
+### 9b. The layout is a split tree (ruled 2026-08-08, second pass)
+
+The user's findings on the dock+slots round: a dozen facets explodes the
+complexity, and the whole thing PRESUPPOSES the layout — nothing imposes
+three columns with one split in half, nor that only the center can fill
+the screen. Correct: slots were the old grid wearing a new name.
+
+**The arrangement is a tree.** Internal nodes are H/V splits carrying a
+share; leaves are facets. The grid CSS is gone — the leaf walks the
+visible tree and places facets absolutely. Consequences, each a fix to a
+named flaw: any facet anywhere (movement = leaf swaps, later subtree
+moves); any facet fullscreen (minimize the rest — the tree merges to one
+leaf); N facets = a deeper tree (clone-ready); every internal edge IS a
+seam (resize generalizes); one policy line (`arrange.tree`, an
+s-expression: `(h 0.24 grammar (h 0.61 document (v 0.58 chart spine)))`).
+
+**Order ruling (mine, stated):** layout tree → clone → pop. Clone cannot
+exist without a place for a fifth facet; pop's re-dock needs an insertion
+point. The dock's scale redesign follows clone, when instance counts are
+real. Legacy `arrange.reader|right|top` stay honored while the tree is
+default-shaped (the TUI still reads them); the tree supersedes them
+otherwise.

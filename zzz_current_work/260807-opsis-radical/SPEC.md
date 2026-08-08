@@ -128,10 +128,19 @@ screenshot-verified.
   reader line and spans; rail windows join the per-frame render for it.
   `facet.<name> on|off` (name ∈ grammar|document|chart|spine) — facet
   PRESENCE (THINKING §9): the masthead dock draws every facet as a node
-  (lit = present, dim = minimized; click toggles); a minimized facet keeps
-  all its state in policy and the grid reflows (explicit grid placements —
-  auto-placement shifts when a section vanishes; measured). Seams guard
-  against hidden neighbours. Move/clone/pop-as-window build on this.
+  (lit = present, dim = minimized; click toggles; drag one onto another
+  to swap places); a minimized facet keeps all its state in policy.
+  `arrange.tree` — THE ARRANGEMENT IS A TREE (§9b): one s-expression,
+  `(h 0.24 grammar (h 0.61 document (v 0.58 chart spine)))` — internal
+  nodes are h/v splits carrying the a-side share, leaves are facets. The
+  leaf walks the visible tree (minimized leaves merge away) and places
+  facets absolutely; EVERY internal edge is a draggable seam that edits
+  its split's share and posts the tree back. Nothing imposes columns; a
+  one-leaf tree is fullscreen; N facets are a deeper tree (clone-ready).
+  Legacy `arrange.reader|right|top` stay honored while the tree is
+  default-shaped (the TUI speaks them); the tree supersedes otherwise.
+  Next per §9b's order: clone, pop-as-window, pin-minimize, dock scale
+  redesign.
   Leaves are interpreters: the browser applies policy at boot and
   posts every presentation gesture back; the TUI obeys speed, shares, and
   reader.mode — its flat rule graph IS `graph.view` in cells. Both leaves

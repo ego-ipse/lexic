@@ -1158,3 +1158,33 @@ Still open from §9's build order: clone, pop-as-window for the remaining
 facet kinds, pin-minimize into the dock, and the dock scale redesign.
 Censuses green (meta spot + earlier full run). Screenshot:
 /tmp/move1.png — the rearranged instrument, derivation-first.
+
+## Round: the arrangement is a tree — 2026-08-08
+
+The user's two findings on the dock round, plus an order decision left to
+me. Findings: a dozen facets explodes the slot model, and the layout was
+PRESUPPOSED — nothing imposes three columns with a split right, nor that
+only the center can fill the screen. Order ruling (mine, stated in §9b):
+layout tree → clone → pop, because clone cannot exist without a place
+for a fifth facet and pop's re-dock needs an insertion point.
+
+**Built: the split tree.** The grid CSS is gone. `layoutTree` — internal
+nodes `['h'|'v', share, a, b]`, leaves facet names — is walked over the
+grid rect; facets place absolutely; minimized leaves merge away
+(visibleTree), so ANY facet can be fullscreen and collapse needs no
+special cases (off-c1/off-c3 CSS deleted). EVERY internal edge is a
+seam: hit-tested from the walk's recorded edges, dragging edits that
+split's share and posts `arrange.tree` (one s-expression line, no JSON).
+The dock orders by tree walk; drag-swap swaps leaves. Legacy
+`arrange.reader|right|top` map onto the default-shaped tree (the TUI
+still speaks them); the tree supersedes them once reshaped.
+
+Verified: default boot unchanged; a topology the old grid could never
+say — document+derivation splitting the TOP row, reader+spine the
+BOTTOM (/tmp/tree_novel.png), all facets fully functional in foreign
+positions (badges pinned, clock lanes, stack); solo derivation
+full-bleed from the origin (DOM-checked). Censuses green.
+
+Named next: clone (`facet.<id> <kind>` instances — the tree now has room),
+pop-as-window + re-dock, pin-minimize into the dock, and the dock's scale
+design pass (grouping, many instances) once clones make counts real.
