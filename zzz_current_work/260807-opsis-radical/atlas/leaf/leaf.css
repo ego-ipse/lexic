@@ -78,6 +78,7 @@ body {
 }
 .tabbar .tab.on { color: var(--cool); border-color: var(--cool); background: var(--field); }
 .tabbar .tab:hover { color: var(--warm); border-color: var(--warm); }
+#dropzone[hidden] { display: none; }
 #dropzone {
   position: absolute;
   z-index: 30;
