@@ -1046,3 +1046,26 @@ exit 0; gates route-aware (a positionless island failure is still a
 failure; resolver routes measure no frontier). Screenshots:
 /tmp/decide4.png (badges, red probe fates, decision band, clean stack),
 /tmp/amb1.png (island badge, violet density, ambiguity-as-items).
+
+## Round: legend and badge polish — 2026-08-08
+
+The user's read of the pda-clock round:
+
+1. **Automaton legend** collided with the tune sliders and ran off the
+   facet without wrapping → all canvas legends now draw through one
+   `drawLegend` at the BOTTOM edge, ellipsis-truncated to the canvas
+   width.
+3. **Clock legends clipped into the minimap** → same fix; the lanes
+   floor rose to make room (y1 = h−18). Legends shortened.
+2/2a. **Verdict badges**: right-justified (absolute right on the
+   relatively-positioned reader line — float loses inside the pre line)
+   and visible ONLY under the pda clock (`body.clock-pda` toggled by one
+   `setClock` used by select/boot/poll). On earley/model the reader is
+   clean; the machine's reactions appear exactly when the machine's
+   clock is telling.
+4. Held by the user's word: resolver-passing UI and the SPPF view over
+   amb's 429-derivation forest — next.
+
+Verified: /tmp/polish1.png (automaton legend bottom), /tmp/polish2.png
+(earley legend bottom, no badges, CAN COME NEXT "a"/"b"/"x" — the
+undecidability itself), /tmp/polish4.png (badges right-edge, pda clock).

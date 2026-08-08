@@ -359,6 +359,16 @@ function clockReady() {
 
 let clockHit = null;
 
+function drawLegend(cx, w, h, text) {
+  cx.fillStyle = '#66707f';
+  cx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+  let line = text;
+  while (line.length > 8 && cx.measureText(line).width > w - 20) {
+    line = line.slice(0, -8) + '…';
+  }
+  cx.fillText(line, 12, h - 5);
+}
+
 function withA(hex, a) {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
@@ -419,7 +429,7 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   if (pda && !autoData) fetchAutomaton();
   const list = pda ? clockData.frames : clockData.hyp;
   const rows = pda ? clockData.frameRows : clockData.hypRows;
-  const y1 = h - 6;
+  const y1 = h - 18;
   const laneH = Math.max(2, Math.min(16, Math.floor((y1 - lanesY - 4) / Math.max(1, rows))));
   const win = S.chartHit.win;
   clockHit = { lanesY: lanesY + 4, laneH, pda };
@@ -478,13 +488,11 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
     cx.strokeStyle = C.red || '#e06060';
     cx.beginPath(); cx.moveTo(sx(clockData.pdaEnd), lanesY); cx.lineTo(sx(clockData.pdaEnd), y1); cx.stroke();
   }
-  cx.fillStyle = C.dim;
-  cx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
   const legend = pda
-    ? `the PDA's own frames, coloured by clone mode (grey seq · cool dispatch · violet value_str · amber alt) · gaps: frameless leaf runs · warm ticks: decisions${clockData.pdaEnd >= 0 ? ' · red: where the fast road stops' : ''}`
-    : `Earley's hypotheses — every (rule, origin) it considered · red outline: abandoned · ${clockData.hypRows} live at the widest`
-      + (clockData.dropped ? ` · ${clockData.dropped.toLocaleString()} short extents not shipped` : '');
-  cx.fillText(legend, 12, lanesY - 8);
+    ? `frames by clone mode (grey seq · cool dispatch · violet value_str · amber alt) · red: rolled back · warm ticks: decisions${clockData.pdaEnd >= 0 ? ' · red line: the fast road stops' : ''}`
+    : `hypotheses (rule, origin) · red: abandoned · ${clockData.hypRows} live at the widest`
+      + (clockData.dropped ? ` · ${clockData.dropped.toLocaleString()} not shipped` : '');
+  drawLegend(cx, w, h, legend);
 }
 
 function drawChart() {
@@ -781,7 +789,7 @@ function applyPolicy() {
   if (P['speed']) speed = parseFloat(P['speed']) || speed;
   if (P['doc.zoom']) { docZoom = parseFloat(P['doc.zoom']) || 1; applyDocZoom(); }
   if (P['chart.zoom']) chartZoom = parseFloat(P['chart.zoom']) || 1;
-  if (P['chart.clock']) { chartClock = P['chart.clock']; $('cclock').value = chartClock; }
+  if (P['chart.clock']) setClock(P['chart.clock']);
   if (P['spine.zoom']) { spineZoom = parseFloat(P['spine.zoom']) || 1; applySpineZoom(); }
   if (P['graph.view']) gView = P['graph.view'];
   for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
@@ -1682,13 +1690,9 @@ function drawAutoView(v) {
     }
   }
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  cx.fillStyle = '#66707f';
-  cx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
   const litWord = lit ? ` · warm = the stack at t (${inNow.size} in)` : '';
-  cx.fillText(
-    `the compiled machine — ${autoData.clones.length} clones, ${autoData.edges.length} calls · `
-    + `■ seq · ● dispatch · violet value_str · warm ring = attempt clone · violet box = gated${litWord}`,
-    12, 14);
+  drawLegend(cx, w, h,
+    `the machine — ${autoData.clones.length} clones · ■ seq · ● dispatch · violet value_str · warm ring: attempt · violet box: gated${litWord}`);
 }
 
 function railPin(rule) {
@@ -1836,9 +1840,15 @@ function wireTextZoom() {
   }
 }
 
+function setClock(value) {
+  chartClock = value || 'model';
+  $('cclock').value = chartClock;
+  document.body.classList.toggle('clock-pda', chartClock === 'pda');
+}
+
 function wireClockSelect() {
   $('cclock').addEventListener('change', () => {
-    chartClock = $('cclock').value;
+    setClock($('cclock').value);
     postPolicy('chart.clock', chartClock);
     ask();
   });
@@ -2513,7 +2523,7 @@ function applyPolicyKey(k, v) {
   if (k === 'speed') speed = parseFloat(v) || 1;
   else if (k === 'doc.zoom') { docZoom = parseFloat(v) || 1; applyDocZoom(); }
   else if (k === 'chart.zoom') chartZoom = parseFloat(v) || 1;
-  else if (k === 'chart.clock') { chartClock = v || 'model'; $('cclock').value = chartClock; }
+  else if (k === 'chart.clock') setClock(v);
   else if (k === 'spine.zoom') { spineZoom = parseFloat(v) || 1; applySpineZoom(); }
   else if (k === 'reader.mode') setGraph(v === 'graph', true);
   else if (k === 'graph.view') {

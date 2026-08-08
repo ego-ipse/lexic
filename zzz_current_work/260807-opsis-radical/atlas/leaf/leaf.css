@@ -370,8 +370,12 @@ body {
 #spineBody .row .dr { color: var(--ink); margin-left: 6px; }
 #spineBody .row.role-complete .dr { color: #79c99a; }
 #spineBody .row.role-advance .dr { color: var(--warm); }
+#grammarBody .ln { position: relative; }
 .vbadge {
-  margin-left: 10px;
+  display: none;
+  position: absolute;
+  right: 10px;
+  top: 1px;
   padding: 0 6px;
   font-size: 9px;
   letter-spacing: 0.08em;
@@ -379,6 +383,7 @@ body {
   color: var(--dim);
   user-select: none;
 }
+body.clock-pda .vbadge { display: inline-block; }
 .vbadge.v-attempt { border-color: var(--warm); color: var(--warm); }
 .vbadge.v-island { border-color: var(--violet); color: var(--violet); }
 .vbadge.v-hard { border-color: var(--red); color: var(--red); }
