@@ -1292,3 +1292,22 @@ One parser corruption caught by node --check (the ladder-parse insert
 landed mid-block in parseScene's tag chain — repaired). Censuses green
 (long incl. fixpoint gate). Named next in §10: anchored facets (clone,
 now definable), the constellation, the IR rung, the opsis node.
+
+## Round: the IR floor + the ring — 2026-08-08
+
+THINKING §10b carries the account. Headlines: the ladder descends to the
+IR (the metagrammar's generated twin module read by MODULE_GRAMMAR —
+34,740 chars, PDA, 0.07s, faithful); the ⟲ label honestly demoted (text
+self-hosting ≠ fixpoint); the ABSOLUTE fixpoint blocked by a real engine
+gap (the self-grammar's esc-u/esc-U collide under name folding — no
+flavour can spell it, so it cannot be exported; read via a
+language-identical rename; ENGINE ASK recorded); and opsis entered its
+own session graph as the ⚙ policy rung — the record under policy.gbnf,
+save APPLIES, the leaves poll, the screen rearranges itself. The ring,
+census-gated on every fixture and screenshot-proven (/tmp/ir_rung.png,
+/tmp/opsis_rung.png, /tmp/ring.png — the last one shows the arrangement
+the record commanded, drawn by the instrument that read it).
+
+Also: the policy grammar refused a record missing its final newline
+during the live test (shell $() strips it) — the refusal machinery
+working on opsis's own state, unprompted.

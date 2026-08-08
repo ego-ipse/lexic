@@ -356,8 +356,8 @@ function parseScene(text) {
       }
     } else if (tag === '#LADDER') {
       for (const ln of lines) {
-        const m = ln.match(/^(\d+) (\d) (.*)$/);
-        if (m) scene.ladder.push({ i: +m[1], focused: m[2] === '1', label: m[3] });
+        const m = ln.match(/^(\d+) (\d) (\w) (.*)$/);
+        if (m) scene.ladder.push({ i: +m[1], focused: m[2] === '1', kind: m[3], label: m[4] });
       }
     } else if (tag === '#RULENAMES') scene.ruleNames = lines;
     else if (tag === '#FIELDNAMES') scene.fieldNames = lines;
@@ -2998,9 +2998,16 @@ function renderLadder() {
   const strip = $('ladder');
   if (!strip) return;
   strip.textContent = '';
+  let lastKind = 'r';
   for (const rung of S.ladder) {
+    if (rung.kind === 'o' && lastKind !== 'o') {
+      const gap = document.createElement('span');
+      gap.className = 'rgap';
+      strip.appendChild(gap);
+    }
+    lastKind = rung.kind;
     const chip = document.createElement('span');
-    chip.className = 'rung' + (rung.focused ? ' on' : '');
+    chip.className = 'rung' + (rung.focused ? ' on' : '') + (rung.kind === 'o' ? ' opsis' : '');
     chip.textContent = rung.label;
     chip.title = rung.focused
       ? 'the focused reading'

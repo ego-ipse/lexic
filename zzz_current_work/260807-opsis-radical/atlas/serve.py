@@ -533,6 +533,63 @@ def _terminal_spelling(element) -> str | None:
     return None
 
 
+def _rename_walk(node, ren):
+    """Rebuild a rule body with rule references renamed — language identical."""
+    if isinstance(node, IrRuleRef):
+        return IrRuleRef(ren.get(str(node), str(node)))
+    if isinstance(node, IrItem):
+        return IrItem(_rename_walk(node.atom, ren), node.quantifier)
+    if isinstance(node, IrSequence):
+        return IrSequence(*(_rename_walk(x, ren) for x in node))
+    if isinstance(node, IrAlternation):
+        return IrAlternation(*(_rename_walk(x, ren) for x in node))
+    if isinstance(node, IrNot):
+        return IrNot(_rename_walk(node[0], ren))
+    if isinstance(node, IrAlphabet):
+        return IrAlphabet(str(node.encoding), _rename_walk(node.inner, ren))
+    return node
+
+
+_MODULE_READER = None
+
+
+def module_reader():
+    """The generated-module self-grammar, compiled through the standard
+    pipeline. One rename (esc-U → esc-u-cap) clears GBNF name folding —
+    the language is identical; the ENGINE ASK stands: the self-grammar
+    cannot be exported (no flavour can spell it), so the absolute fixpoint
+    (the module grammar reading its OWN export) is not yet reachable."""
+    global _MODULE_READER
+    if _MODULE_READER is None:
+        from lexic.compile.module.selfgrammar import MODULE_GRAMMAR
+        from lexic.ir import IrAst, IrRule
+        seen, ren = {}, {}
+        for rule in MODULE_GRAMMAR.rules:
+            name = str(rule.name)
+            folded = name.lower()
+            if folded in seen and name != seen[folded]:
+                ren[name] = folded + "-cap"
+            else:
+                seen[folded] = name
+        rules = [IrRule(ren.get(str(r.name), str(r.name)), _rename_walk(r.body, ren), semantic=bool(r.semantic))
+                 for r in MODULE_GRAMMAR.rules]
+        _MODULE_READER = compile_ast(IrAst(rules=rules, start=MODULE_GRAMMAR.start))
+    return _MODULE_READER
+
+
+_EXPORTS = {}
+
+
+def export_doc(flavour) -> str:
+    """The metagrammar of ``flavour`` as its export module — IR constructors."""
+    key = id(flavour)
+    if key not in _EXPORTS:
+        from lexic.compile.module.export import export_source
+        from lexic.compile import compile_text as _ct
+        _EXPORTS[key] = export_source(_ct(str(flavour.apply(flavour.grammar)), flavour=flavour.name))
+    return _EXPORTS[key]
+
+
 _META_CG = {}
 
 
@@ -566,34 +623,57 @@ class Session:
     def _ladder(self, key, doc):
         gt = ROOT / "resources" / "ground_truth"
         meta_spell = lambda: str(GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar))
+        rungs = self._ladder_readings(key, doc, gt, meta_spell)
+        flavour = ABNF_FLAVOUR if key == "abnf" else GBNF_FLAVOUR
+        if key != "policy":
+            rungs.append(("metagrammar.export.py ⊳ the module self-grammar", "r", lambda: Subject.from_reading(
+                key, module_reader(), str(GBNF_FLAVOUR.apply(module_reader().grammar)),
+                "the generated-module self-grammar — lexic parses its own exports",
+                export_doc(flavour), None)))
+        rungs.append(("⚙ the session policy ⊳ policy.gbnf", "o", self._policy_rung))
+        return rungs
+
+    def _policy_rung(self):
+        subj = Subject.from_reading(
+            self.key, compile_from_path(str(HERE / "fixtures" / "policy.gbnf")),
+            (HERE / "fixtures" / "policy.gbnf").read_text(),
+            "policy.gbnf — the instrument's own state; saving APPLIES the record",
+            self.policy_text(), None)
+        subj.is_policy = True
+        return subj
+
+    def policy_text(self) -> str:
+        return "".join(f"{k} {v}\n" for k, v in self.policy.items())
+
+    def _ladder_readings(self, key, doc, gt, meta_spell):
         rungs = []
         if key == "long":
-            rungs.append(("long.json ⊳ json.gbnf", lambda: Subject(key, doc)))
-            rungs.append(("json.gbnf ⊳ metagrammar", lambda: Subject.from_reading(
+            rungs.append(("long.json ⊳ json.gbnf", "r", lambda: Subject(key, doc)))
+            rungs.append(("json.gbnf ⊳ metagrammar", "r", lambda: Subject.from_reading(
                 key, flavour_cg(GBNF_FLAVOUR), meta_spell(),
                 "the GBNF metagrammar (90 rules), spelled by its own emitter",
                 (gt / "json.gbnf").read_text(), gt / "json.gbnf")))
         elif key in ("decide", "amb"):
             fx = HERE / "fixtures"
-            rungs.append((f"{key}.txt ⊳ {key}.gbnf", lambda: Subject(key, doc)))
-            rungs.append((f"{key}.gbnf ⊳ metagrammar", lambda: Subject.from_reading(
+            rungs.append((f"{key}.txt ⊳ {key}.gbnf", "r", lambda: Subject(key, doc)))
+            rungs.append((f"{key}.gbnf ⊳ metagrammar", "r", lambda: Subject.from_reading(
                 key, flavour_cg(GBNF_FLAVOUR), meta_spell(),
                 "the GBNF metagrammar (90 rules), spelled by its own emitter",
                 (fx / f"{key}.gbnf").read_text(), fx / f"{key}.gbnf")))
         elif key in ("meta", "vyx"):
             name = "json.gbnf" if key == "meta" else "vyx.gbnf"
-            rungs.append((f"{name} ⊳ metagrammar", lambda: Subject(key, doc)))
+            rungs.append((f"{name} ⊳ metagrammar", "r", lambda: Subject(key, doc)))
         elif key == "abnf":
-            rungs.append(("json.abnf ⊳ abnf metagrammar", lambda: Subject(key, doc)))
+            rungs.append(("json.abnf ⊳ abnf metagrammar", "r", lambda: Subject(key, doc)))
         else:
-            rungs.append((f"{key} ⊳ its grammar", lambda: Subject(key, doc)))
+            rungs.append((f"{key} ⊳ its grammar", "r", lambda: Subject(key, doc)))
         if key == "abnf":
             spell = str(ABNF_FLAVOUR.apply(ABNF_FLAVOUR.grammar))
-            rungs.append(("⟲ the abnf metagrammar reads its own spelling", lambda: Subject.from_reading(
+            rungs.append(("the abnf metagrammar reads its own spelling", "r", lambda: Subject.from_reading(
                 key, flavour_cg(ABNF_FLAVOUR), spell,
                 "the ABNF metagrammar, spelled by its own emitter", spell, None)))
         elif key in ("long", "meta", "vyx", "decide", "amb"):
-            rungs.append(("⟲ the metagrammar reads its own spelling", lambda: Subject.from_reading(
+            rungs.append(("the metagrammar reads its own spelling", "r", lambda: Subject.from_reading(
                 key, flavour_cg(GBNF_FLAVOUR), meta_spell(),
                 "the GBNF metagrammar (90 rules), spelled by its own emitter",
                 meta_spell(), None)))
@@ -602,10 +682,15 @@ class Session:
     def subject(self, i: int | None = None) -> Subject:
         i = self.focus if i is None else max(0, min(i, len(self.rungs) - 1))
         if i not in self.subjects:
-            subj = self.rungs[i][1]()
+            subj = self.rungs[i][-1]()
             subj.policy = self.policy  # one record for the whole session
             self.subjects[i] = subj
-        return self.subjects[i]
+        subj = self.subjects[i]
+        if getattr(subj, "is_policy", False):
+            fresh = self.policy_text()
+            if fresh != subj.document:
+                subj.read(fresh)  # the record moved on — the reading follows
+        return subj
 
 
 def rule_verdicts(cg) -> list[tuple[str, str, list[str]]]:
@@ -770,7 +855,7 @@ class Handler(BaseHTTPRequestHandler):
         # the census drives a bare handler with one subject — wrap it
         holder = Session.__new__(Session)
         holder.key = value.key
-        holder.rungs = [("census", None)]
+        holder.rungs = [("census", "r", None)]
         holder.subjects = {0: value}
         holder.focus = 0
         holder.policy = value.policy
@@ -803,8 +888,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/scene":
             with self.subject.lock:
                 scene = build_scene(self.subject)
-            rungs = [f"{i} {1 if i == self.session.focus else 0} {label}"
-                     for i, (label, _b) in enumerate(self.session.rungs)]
+            rungs = [f"{i} {1 if i == self.session.focus else 0} {kind} {label}"
+                     for i, (label, kind, *_b) in enumerate(self.session.rungs)]
             scene = scene.replace("#RULEDEFS", f"#LADDER {len(rungs)}\n" + "\n".join(rungs) + "\n#RULEDEFS", 1)
             self.send_text(scene)
             return
@@ -938,7 +1023,7 @@ class Handler(BaseHTTPRequestHandler):
             i = int(body.split()[-1])
             self.session.focus = max(0, min(i, len(self.session.rungs) - 1))
             self.session.subject()  # build the rung now, synchronously
-            print(f"focus → rung {self.session.focus}: {self.session.rungs[self.session.focus][0]}")
+            print(f"focus -> rung {self.session.focus}: {self.session.rungs[self.session.focus][0]}")
             self.send_text("ok")
             return
         if self.path == "/policy":
@@ -988,6 +1073,14 @@ class Handler(BaseHTTPRequestHandler):
             print(f"generation {self.subject.generation}: re-read {len(candidate):,} chars in {self.subject.seconds:.2f}s")
             if not persist:
                 return f"ok {self.subject.seconds:.2f}"
+            if getattr(self.subject, "is_policy", False):
+                self.session.policy.clear()
+                for line in candidate.split("\n"):
+                    if line.strip():
+                        key, _, value = line.partition(" ")
+                        self.session.policy[key] = value
+                print(f"policy applied from the record — {len(self.session.policy)} keys")
+                return f"ok {self.subject.seconds:.2f} applied — the session takes this record"
             held = self.subject.save_held()
             if held:
                 return f"ok {self.subject.seconds:.2f} held {held}"
@@ -1109,12 +1202,23 @@ def main() -> int:
           f"{len(subject.spans):,} spans · faithful {subject.faithful}")
     if "--census" in sys.argv:
         rc = census(subject)
-        if len(session.rungs) > 1:
-            top = session.subject(len(session.rungs) - 1)
-            ok_ladder = (top.faithful and top.document == top.reader_text)
-            print(f"ladder: {len(session.rungs)} rungs · fixpoint reader==document {ok_ladder}")
-            rc = rc or (0 if ok_ladder else 1)
-            if not ok_ladder:
+        if len(session.rungs) > 2:
+            export_rung = session.subject(len(session.rungs) - 2)
+            ok_export = export_rung.faithful and "class " in export_rung.document
+            session.policy["graph.view"] = "rails"
+            opsis = session.subject(len(session.rungs) - 1)
+            ok_opsis = opsis.faithful and "graph.view rails" in opsis.document
+            handler = Handler.__new__(Handler)
+            handler.session = session
+            session.focus = len(session.rungs) - 1
+            reply = handler.retype("0 0\narrange.top 0.5\n" + opsis.document.partition("\n")[0] + "\n"
+                                   if False else f"0 {len(opsis.document)}\narrange.top 0.5\ngraph.view rails\n",
+                                   persist=True)
+            ok_ring = "applied" in reply and session.policy.get("arrange.top") == "0.5"
+            session.focus = 0
+            print(f"ladder: {len(session.rungs)} rungs · export rung faithful {ok_export} · "
+                  f"opsis rung reads the record {ok_opsis} · the ring applies {ok_ring}")
+            if not (ok_export and ok_opsis and ok_ring):
                 rc = 1
         return rc
     Handler.session = session

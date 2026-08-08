@@ -290,3 +290,38 @@ now DEFINABLE in this model, deferred); the constellation view (the
 graph drawn whole, opsis-2's picture) when the session goes non-linear
 (peers, the opsis node); the IR rung (the notation as a readable text);
 the opsis node itself (the policy record as a subject — the ring).
+
+### 10b. The IR floor and the ring (built 2026-08-08)
+
+The user's two challenges on §10: where does opsis-representing-itself
+FIT, and the "fixpoint" wasn't one — the IR was untouched. Both answered
+structurally:
+
+**The IR rung.** The ladder now descends below the spelling rung to
+`metagrammar.export.py ⊳ the module self-grammar` — the metagrammar AS
+ITS GENERATED TWIN MODULE (IR constructors: `class Grammar(GrammarModel)`,
+`IrRule(...)`) read by `MODULE_GRAMMAR`, lexic's own "parses its own
+exports" surface. 34,740 chars, PDA route, 0.07s, faithful; census-gated
+per fixture. The old ⟲ label was honestly demoted to "reads its own
+spelling" — text-level self-hosting, not the fixpoint.
+
+**The absolute fixpoint is BLOCKED, and that is a finding:** the module
+self-grammar's own rule names (`esc-u` / `esc-U`) collide under name
+folding, so no flavour can spell it and `export_source` cannot export it —
+the self-grammar cannot yet enter its own language. Atlas reads it via a
+language-identical rename (esc-U → esc-u-cap). ENGINE ASK: exportability
+for IR-authored grammars (or fold-safe self-grammar names) would close
+`module-grammar ⟲ its own export` — the true fixpoint.
+
+**Where opsis fits: as a reading.** The session policy record — already
+a line-oriented text on the wire — got a grammar (atlas/fixtures/
+policy.gbnf) and became the ⚙ rung, violet in the strip, refreshed on
+focus. The document facet IS the instrument's state; spans, spine and
+verdicts work over it like any subject. And the ring closes: **saving a
+valid record APPLIES it** — Handler.retype's persist path pours the
+parsed record back into session.policy; the leaves poll; the instrument
+rearranges. Census-gated ("the ring applies"); screenshot-proven: a
+saved `arrange.tree (v 0.55 document grammar)` line REARRANGED the
+screen that displayed it, with the policy grammar's own railroads in
+the reader. No special machinery anywhere: opsis is one more subject of
+the standard pipeline.
