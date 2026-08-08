@@ -126,6 +126,12 @@ screenshot-verified.
   ascent is a choice, not a jump). A NEW window is only ever the chip.
   Hovering any ref co-selects its rule — the same light as its chip,
   reader line and spans; rail windows join the per-frame render for it.
+  `facet.<name> on|off` (name ∈ grammar|document|chart|spine) — facet
+  PRESENCE (THINKING §9): the masthead dock draws every facet as a node
+  (lit = present, dim = minimized; click toggles); a minimized facet keeps
+  all its state in policy and the grid reflows (explicit grid placements —
+  auto-placement shifts when a section vanishes; measured). Seams guard
+  against hidden neighbours. Move/clone/pop-as-window build on this.
   Leaves are interpreters: the browser applies policy at boot and
   posts every presentation gesture back; the TUI obeys speed, shares, and
   reader.mode — its flat rule graph IS `graph.view` in cells. Both leaves

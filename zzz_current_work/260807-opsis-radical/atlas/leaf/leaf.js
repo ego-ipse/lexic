@@ -24,6 +24,41 @@ let gView = 'depth3d';
 let gTune = { levelstep: 150, ringscale: 1, flatten: 0.78, labelscale: 1 };
 const policyTimers = {};
 
+const FACETS = ['grammar', 'document', 'chart', 'spine'];
+const facetOn = { grammar: true, document: true, chart: true, spine: true };
+
+function applyFacets(post = false) {
+  for (const name of FACETS) {
+    document.body.classList.toggle('off-' + name, !facetOn[name]);
+  }
+  document.body.classList.toggle('off-right', !facetOn.chart && !facetOn.spine);
+  const root = document.documentElement.style;
+  // the grid REFLOWS via template overrides; rows collapse by share var
+  root.setProperty('--atop', !facetOn.chart ? '0%' : (!facetOn.spine ? '100%' : ''));
+  const P = policySnap || {};
+  if (facetOn.chart && facetOn.spine && P['arrange.top']) {
+    root.setProperty('--atop', (parseFloat(P['arrange.top']) * 100) + '%');
+  }
+  const dock = $('dock');
+  if (dock) {
+    dock.textContent = '';
+    for (const name of FACETS) {
+      const chip = document.createElement('span');
+      chip.className = 'fnode-chip' + (facetOn[name] ? '' : ' off');
+      chip.textContent = name === 'grammar' ? 'reader' : name === 'chart' ? 'derivation' : name;
+      chip.addEventListener('click', () => {
+        facetOn[name] = !facetOn[name];
+        applyFacets(true);
+      });
+      dock.appendChild(chip);
+    }
+  }
+  if (post) {
+    for (const name of FACETS) postPolicy('facet.' + name, facetOn[name] ? 'on' : 'off');
+  }
+  ask();
+}
+
 let policySnap = null;
 let lastLocalPost = 0;
 
@@ -821,6 +856,10 @@ function applyPolicy() {
   for (const which of ['reader', 'right', 'top']) {
     if (P['arrange.' + which]) setShare(which, parseFloat(P['arrange.' + which]), false);
   }
+  for (const name of FACETS) {
+    if (P['facet.' + name]) facetOn[name] = P['facet.' + name] !== 'off';
+  }
+  applyFacets();
   if (P['graph.camera'] && gViews[0]) {
     const [yw, pt, zm, px, py] = P['graph.camera'].split(' ').map(parseFloat);
     Object.assign(gViews[0], { yaw: yw, pitch: pt, zoom: zm });
@@ -1952,9 +1991,9 @@ function wireSeams() {
     const rd = $('document').getBoundingClientRect();
     const rc = $('chart').getBoundingClientRect();
     const rs = $('spine').getBoundingClientRect();
-    if (Math.abs(e.clientX - rd.left) <= 10 && e.clientY > g.top) seam = 'reader';
-    else if (Math.abs(e.clientX - rc.left) <= 10 && e.clientY > g.top) seam = 'right';
-    else if (e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 8) seam = 'top';
+    if (facetOn.grammar && Math.abs(e.clientX - rd.left) <= 10 && e.clientY > g.top) seam = 'reader';
+    else if ((facetOn.chart || facetOn.spine) && Math.abs(e.clientX - rc.left) <= 10 && e.clientY > g.top) seam = 'right';
+    else if (facetOn.chart && facetOn.spine && e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 8) seam = 'top';
     if (seam) {
       e.preventDefault();
       document.body.style.cursor = seam === 'top' ? 'row-resize' : 'col-resize';
@@ -2581,6 +2620,9 @@ function applyPolicyKey(k, v) {
     }
   } else if (k.startsWith('arrange.')) {
     if (v) setShare(k.slice(8), parseFloat(v), false);
+  } else if (k.startsWith('facet.')) {
+    const name = k.slice(6);
+    if (FACETS.includes(name)) { facetOn[name] = v !== 'off'; applyFacets(); }
   }
 }
 

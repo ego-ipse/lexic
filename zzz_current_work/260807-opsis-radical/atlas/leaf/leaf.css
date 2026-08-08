@@ -53,6 +53,26 @@ body {
 #pos { font-family: var(--mono); color: var(--ink); min-width: 30ch; }
 #readout { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--warm); }
 
+/* ── the dock: every facet is a node; presence toggles here ── */
+#dock { display: flex; gap: 6px; margin-left: 18px; align-items: center; }
+#dock .fnode-chip {
+  border: 1px solid var(--cool);
+  color: var(--cool);
+  font: 10px var(--mono);
+  letter-spacing: 0.08em;
+  padding: 1px 8px;
+  cursor: pointer;
+  user-select: none;
+}
+#dock .fnode-chip.off { border-color: var(--dimmer); color: var(--dimmer); }
+#dock .fnode-chip:hover { border-color: var(--warm); color: var(--warm); }
+
+body.off-grammar #grammar, body.off-document #document,
+body.off-chart #chart, body.off-spine #spine { display: none; }
+body.off-grammar #grid { grid-template-columns: 0 1fr minmax(260px, var(--aright, 30%)); }
+body.off-right #grid { grid-template-columns: minmax(220px, var(--ar, 24%)) 1fr 0; }
+body.off-grammar.off-right #grid { grid-template-columns: 0 1fr 0; }
+
 /* ── the facet grid — regions, not windows ── */
 #grid {
   flex: 1;
@@ -62,8 +82,10 @@ body {
   min-height: 0;
 }
 .facet { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--hair); }
-#grammar { grid-row: 1 / 3; border-left: none; }
-#document { grid-row: 1 / 3; }
+#grammar { grid-column: 1; grid-row: 1 / 3; border-left: none; }
+#document { grid-column: 2; grid-row: 1 / 3; }
+#chart { grid-column: 3; grid-row: 1; }
+#spine { grid-column: 3; grid-row: 2; }
 .facet h2 {
   flex: none;
   font-size: 10.5px;

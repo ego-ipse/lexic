@@ -1098,3 +1098,32 @@ Four findings on the polish round:
 Censuses green (decide/amb/meta spot + earlier full run). Screenshots:
 /tmp/amb_fix.png (the honest machineless subject), /tmp/badge_fix.png
 (full badge coverage pinned to a narrow facet's edge).
+
+## Round: the dock — facet presence as nodes — 2026-08-08
+
+The user's ruling at the stable point: facets must move, minimize,
+reopen, clone, and pop as windows — WITHOUT becoming windows; the node
+philosophy uncompromising; closing stateful things implies a place to
+reopen from. Design written as THINKING §9 (the facet set is itself a
+node-space); this round built the foundation:
+
+**The dock.** A node rail in the masthead: every facet a chip, lit =
+present, dim = minimized, click toggles. Presence is policy
+(`facet.<name> on|off`) — it persists, survives reload, and syncs
+cross-leaf like every session value. A minimized facet keeps ALL its
+state (shares, views, clocks, cameras live in policy already). The grid
+REFLOWS: neighbours take the freed share; `arrange.*` restores on
+reopen; seams guard hidden neighbours.
+
+Two CSS truths measured on the way: `minmax(220px, 0%)` floors at the
+minimum (collapse needs template overrides per off-state), and grid
+auto-placement SHIFTS when a section display:nones away — explicit
+`grid-column`/`grid-row` per facet was load-bearing (the derivation
+swallowed the document's column before it).
+
+Verified: /tmp/dock2.png — reader+spine minimized from policy, document
+wide, derivation full-column with the pda clock; dock states correct;
+reopen round-trips (body classes clear). Censuses green (meta, decide,
+amb, TUI). Named next on §9's build order: move (arrange.order), clone
+(`facet.<id> <kind>`), pop for the remaining facet kinds, pin-minimize
+into the dock.

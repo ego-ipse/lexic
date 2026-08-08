@@ -212,3 +212,30 @@ open dispatch table); its facet kind is reserved in the policy schema now.
 10. **The ring** — focus opsis's own configuration as a subject.
 
 One iteration per session, tally updated each time, census before screenshots.
+
+## 9. Facet management (ruled 2026-08-08) — the facet set is itself a node-space
+
+The user's ruling at the rung-8 stable point: complexity is growing and no
+single facet can host what comes next; facets need move, minimize, reopen,
+clone, and pop-as-window. **This is not making facets windows** — a pane
+still cannot overlap; a window still can. It is the node philosophy applied
+one level up: the SESSION's facet set drawn and handled as nodes.
+
+- **The dock** — the place to close to and reopen from. A slim node rail in
+  the masthead: every facet is a chip (lit = present, dim = minimized).
+  Clicking toggles presence. The dock is a registry drawn as nodes, not a
+  menu; a minimized facet keeps ALL its state (policy holds it — shares,
+  views, clocks, cameras survive minimize/reopen and cross-leaf sync).
+- **Presence is policy**: `facet.<name> on|off`. The grid REFLOWS —
+  neighbours take the freed share; reopening restores from `arrange.*`.
+- **Move** = reordering panes in the grid (`arrange.order`), never overlap.
+- **Clone** = a second projection of the same kind with its own presentation
+  state (`facet.<id> <kind> …`) — two readers (text beside automaton) is the
+  motivating case. Clones are nodes in the dock like any facet.
+- **Pop as window** = the existing pinned-window machinery, generalized: any
+  facet can pop a pinned twin (the reader already does — graph and rail
+  pins). Windows stay the ruled exception. Closed windows should MINIMIZE
+  to the dock rather than delete, so they reopen.
+
+Build order: dock + minimize/reopen + reflow (this round) → move → clone →
+pop for the remaining facet kinds → pin-minimize into the dock.
