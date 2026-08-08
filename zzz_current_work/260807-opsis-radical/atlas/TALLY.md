@@ -1127,3 +1127,34 @@ reopen round-trips (body classes clear). Censuses green (meta, decide,
 amb, TUI). Named next on §9's build order: move (arrange.order), clone
 (`facet.<id> <kind>`), pop for the remaining facet kinds, pin-minimize
 into the dock.
+
+## Round: movement + the dock's first design pass — 2026-08-08
+
+The user's read on the dock: the idea works; it will strain as facets
+multiply; rethink look and feel while building movement and the rest.
+
+**Slots.** The grid's four regions became first-class: L, C, RT, RB.
+Facets map to slots (`facetSlot`), placement is inline per facet, and
+every consumer that used facet NAMES for geometry (column collapse,
+seams) now asks SLOT OCCUPANCY — facets move without breaking collapse
+or resize. Order persists as `arrange.order` ("chart document grammar
+spine" = slot order), boot-applied and live-synced like all policy.
+
+**Movement is a dock gesture.** Dock nodes are draggable; dropping one
+onto another swaps their slots — the dock IS the facet graph's rail, so
+rearranging the graph rearranges the grid. Verified: the derivation
+moved to the left column (clock lanes at full height), the reader to
+right-top (verdict badges still pinned to its edge — sticky earned its
+keep in a new slot), spine right-bottom.
+
+**Dock restyle, first pass.** Chips became node-pills: status dot
+(cool = present, dim = minimized), hairline border, grab cursor, violet
+target highlight while dragging. Ordered by slot, wrap-safe. The DEEPER
+design pass the user called for (scale to many facets: clones, minimized
+windows, grouping) is still owed — this is the small pass that came free
+with movement.
+
+Still open from §9's build order: clone, pop-as-window for the remaining
+facet kinds, pin-minimize into the dock, and the dock scale redesign.
+Censuses green (meta spot + earlier full run). Screenshot:
+/tmp/move1.png — the rearranged instrument, derivation-first.

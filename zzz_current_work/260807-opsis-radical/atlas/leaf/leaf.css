@@ -56,22 +56,33 @@ body {
 /* ── the dock: every facet is a node; presence toggles here ── */
 #dock { display: flex; gap: 6px; margin-left: 18px; align-items: center; }
 #dock .fnode-chip {
-  border: 1px solid var(--cool);
-  color: var(--cool);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--hair);
+  color: var(--dim);
   font: 10px var(--mono);
   letter-spacing: 0.08em;
-  padding: 1px 8px;
-  cursor: pointer;
+  padding: 1px 8px 1px 6px;
+  cursor: grab;
   user-select: none;
 }
-#dock .fnode-chip.off { border-color: var(--dimmer); color: var(--dimmer); }
+#dock .fnode-chip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cool);
+}
+#dock .fnode-chip.off { color: var(--dimmer); }
+#dock .fnode-chip.off i { background: var(--dimmer); }
 #dock .fnode-chip:hover { border-color: var(--warm); color: var(--warm); }
+#dock .fnode-chip.over { border-color: var(--violet); color: var(--violet); }
 
 body.off-grammar #grammar, body.off-document #document,
 body.off-chart #chart, body.off-spine #spine { display: none; }
-body.off-grammar #grid { grid-template-columns: 0 1fr minmax(260px, var(--aright, 30%)); }
-body.off-right #grid { grid-template-columns: minmax(220px, var(--ar, 24%)) 1fr 0; }
-body.off-grammar.off-right #grid { grid-template-columns: 0 1fr 0; }
+body.off-c1 #grid { grid-template-columns: 0 1fr minmax(260px, var(--aright, 30%)); }
+body.off-c3 #grid { grid-template-columns: minmax(220px, var(--ar, 24%)) 1fr 0; }
+body.off-c1.off-c3 #grid { grid-template-columns: 0 1fr 0; }
 
 /* ── the facet grid — regions, not windows ── */
 #grid {

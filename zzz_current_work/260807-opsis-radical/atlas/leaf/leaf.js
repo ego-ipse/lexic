@@ -25,38 +25,92 @@ let gTune = { levelstep: 150, ringscale: 1, flatten: 0.78, labelscale: 1 };
 const policyTimers = {};
 
 const FACETS = ['grammar', 'document', 'chart', 'spine'];
+const FACET_WORD = { grammar: 'reader', document: 'document', chart: 'derivation', spine: 'spine' };
 const facetOn = { grammar: true, document: true, chart: true, spine: true };
+// slots are the grid's four regions: L (left col), C (center col), RT, RB (right rows)
+const SLOTS = ['L', 'C', 'RT', 'RB'];
+const SLOT_STYLE = {
+  L: ['1', '1 / 3'], C: ['2', '1 / 3'], RT: ['3', '1'], RB: ['3', '2'],
+};
+let facetSlot = { grammar: 'L', document: 'C', chart: 'RT', spine: 'RB' };
+
+function slotOccupant(slot) {
+  return FACETS.find((n) => facetSlot[n] === slot) || null;
+}
+
+function slotOn(slot) {
+  const name = slotOccupant(slot);
+  return name !== null && facetOn[name];
+}
 
 function applyFacets(post = false) {
   for (const name of FACETS) {
     document.body.classList.toggle('off-' + name, !facetOn[name]);
+    const el = $(name);
+    const [col, row] = SLOT_STYLE[facetSlot[name]];
+    el.style.gridColumn = col;
+    el.style.gridRow = row;
   }
-  document.body.classList.toggle('off-right', !facetOn.chart && !facetOn.spine);
+  // collapse by SLOT occupancy, not facet name — facets move
+  document.body.classList.toggle('off-c1', !slotOn('L'));
+  document.body.classList.toggle('off-c3', !slotOn('RT') && !slotOn('RB'));
   const root = document.documentElement.style;
-  // the grid REFLOWS via template overrides; rows collapse by share var
-  root.setProperty('--atop', !facetOn.chart ? '0%' : (!facetOn.spine ? '100%' : ''));
+  root.setProperty('--atop', !slotOn('RT') ? '0%' : (!slotOn('RB') ? '100%' : ''));
   const P = policySnap || {};
-  if (facetOn.chart && facetOn.spine && P['arrange.top']) {
+  if (slotOn('RT') && slotOn('RB') && P['arrange.top']) {
     root.setProperty('--atop', (parseFloat(P['arrange.top']) * 100) + '%');
   }
-  const dock = $('dock');
-  if (dock) {
-    dock.textContent = '';
-    for (const name of FACETS) {
-      const chip = document.createElement('span');
-      chip.className = 'fnode-chip' + (facetOn[name] ? '' : ' off');
-      chip.textContent = name === 'grammar' ? 'reader' : name === 'chart' ? 'derivation' : name;
-      chip.addEventListener('click', () => {
-        facetOn[name] = !facetOn[name];
-        applyFacets(true);
-      });
-      dock.appendChild(chip);
-    }
-  }
+  buildDock();
   if (post) {
     for (const name of FACETS) postPolicy('facet.' + name, facetOn[name] ? 'on' : 'off');
+    postPolicy('arrange.order', SLOTS.map((sl) => slotOccupant(sl) || '-').join(' '));
   }
   ask();
+}
+
+let dockDrag = null;
+
+function buildDock() {
+  const dock = $('dock');
+  if (!dock) return;
+  dock.textContent = '';
+  for (const slot of SLOTS) {
+    const name = slotOccupant(slot);
+    if (!name) continue;
+    const chip = document.createElement('span');
+    chip.className = 'fnode-chip' + (facetOn[name] ? '' : ' off');
+    chip.dataset.name = name;
+    chip.title = `${FACET_WORD[name]} — click: minimize/reopen · drag onto another: swap places`;
+    chip.innerHTML = `<i></i>${FACET_WORD[name]}`;
+    chip.draggable = true;
+    chip.addEventListener('click', () => {
+      facetOn[name] = !facetOn[name];
+      applyFacets(true);
+    });
+    chip.addEventListener('dragstart', () => { dockDrag = name; });
+    chip.addEventListener('dragover', (e) => { e.preventDefault(); chip.classList.add('over'); });
+    chip.addEventListener('dragleave', () => chip.classList.remove('over'));
+    chip.addEventListener('drop', (e) => {
+      e.preventDefault();
+      chip.classList.remove('over');
+      if (dockDrag && dockDrag !== name) {
+        const a = facetSlot[dockDrag];
+        facetSlot[dockDrag] = facetSlot[name];
+        facetSlot[name] = a;
+        applyFacets(true);
+      }
+      dockDrag = null;
+    });
+    dock.appendChild(chip);
+  }
+}
+
+function applyOrder(value) {
+  const names = (value || '').split(' ');
+  if (names.length !== 4) return;
+  SLOTS.forEach((slot, i) => {
+    if (FACETS.includes(names[i])) facetSlot[names[i]] = slot;
+  });
 }
 
 let policySnap = null;
@@ -859,6 +913,7 @@ function applyPolicy() {
   for (const name of FACETS) {
     if (P['facet.' + name]) facetOn[name] = P['facet.' + name] !== 'off';
   }
+  if (P['arrange.order']) applyOrder(P['arrange.order']);
   applyFacets();
   if (P['graph.camera'] && gViews[0]) {
     const [yw, pt, zm, px, py] = P['graph.camera'].split(' ').map(parseFloat);
@@ -1991,9 +2046,9 @@ function wireSeams() {
     const rd = $('document').getBoundingClientRect();
     const rc = $('chart').getBoundingClientRect();
     const rs = $('spine').getBoundingClientRect();
-    if (facetOn.grammar && Math.abs(e.clientX - rd.left) <= 10 && e.clientY > g.top) seam = 'reader';
-    else if ((facetOn.chart || facetOn.spine) && Math.abs(e.clientX - rc.left) <= 10 && e.clientY > g.top) seam = 'right';
-    else if (facetOn.chart && facetOn.spine && e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 8) seam = 'top';
+    if (slotOn('L') && Math.abs(e.clientX - rd.left) <= 10 && e.clientY > g.top) seam = 'reader';
+    else if ((slotOn('RT') || slotOn('RB')) && Math.abs(e.clientX - rc.left) <= 10 && e.clientY > g.top) seam = 'right';
+    else if (slotOn('RT') && slotOn('RB') && e.clientX >= rc.left && Math.abs(e.clientY - rs.top) <= 8) seam = 'top';
     if (seam) {
       e.preventDefault();
       document.body.style.cursor = seam === 'top' ? 'row-resize' : 'col-resize';
@@ -2620,6 +2675,9 @@ function applyPolicyKey(k, v) {
     }
   } else if (k.startsWith('arrange.')) {
     if (v) setShare(k.slice(8), parseFloat(v), false);
+  } else if (k === 'arrange.order') {
+    applyOrder(v);
+    applyFacets();
   } else if (k.startsWith('facet.')) {
     const name = k.slice(6);
     if (FACETS.includes(name)) { facetOn[name] = v !== 'off'; applyFacets(); }
