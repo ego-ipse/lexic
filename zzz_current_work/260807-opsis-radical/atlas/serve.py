@@ -39,6 +39,7 @@ from lexic.ir import (
 )
 from lexic.model import GrammarModel
 from lexic.parsing import Kernel, PdaKernel, compile_tables, decode_item, earley_model, lift_optional_nullables, normalize
+from lexic.parsing.pda.compiler import flatten as _flat
 from lexic.parsing.pda.runtime.build import F_CLONE, F_START
 from lexic.parsing.pda.core.errors import PdaFail
 
@@ -130,6 +131,12 @@ class Subject:
         self.route2: dict[str, str] = {}
         self.clock: dict = {"status": "pending"}
         self._instance_tables = None
+        self._earley_kernel = None
+        clones, aedges, adepth = automaton_walk(self.compiled.pda_tables().program.start)
+        self.auto_clones = clones
+        self.auto_edges = aedges
+        self.auto_depth = adepth
+        self.auto_cid = {id(c): i for i, c in enumerate(clones)}
         self.read(self.document)
 
     def read(self, text: str) -> None:
@@ -186,7 +193,8 @@ class Subject:
         """
         result: dict = {"status": "done"}
         try:
-            ck = ClockKernel(self.compiled.pda_tables(), self.document, self.compiled.fold)
+            ck = ClockKernel(self.compiled.pda_tables(), self.document, self.compiled.fold,
+                             cid_of=self.auto_cid)
             try:
                 ck.run()
                 result["pda_end"] = -1
@@ -196,7 +204,7 @@ class Subject:
                 if rec[1] < 0:
                     rec[1] = ck.pos  # the live stack at death closes here
             result["frames"] = ck.frames
-            result["tries"] = ck.tries
+            result["events"] = ck.events
         except Exception as err:
             result["pda_error"] = str(err)[:160]
         try:
@@ -204,6 +212,7 @@ class Subject:
                 instance = normalize(lift_optional_nullables(self.compiled.codegen_grammar))
                 self._instance_tables = compile_tables(instance)
             kernel = Kernel(self._instance_tables, self.document, record_links=False).run()
+            self._earley_kernel = kernel  # retained for /column — the at-cursor item sets
             # every hypothesis (rule, origin) — born at origin, alive to its
             # last column, completed if a final-dot item ever appeared
             ext: dict[tuple[str, int], list] = {}
@@ -301,6 +310,82 @@ def rule_graph(ast) -> tuple[list[tuple[str, str]], dict[str, int]]:
     return edges, depth
 
 
+_MODE_WORD = {
+    _flat.BUILD_ALT: "alt",
+    _flat.BUILD_SEQ: "seq",
+    _flat.BUILD_DISPATCH: "dispatch",
+    _flat.BUILD_VALUE_STR: "value_str",
+    _flat.BUILD_TRANSPARENT: "group",
+}
+
+
+def automaton_walk(start) -> tuple[list, list[tuple[int, int]], dict[int, int]]:
+    """The compiled machine — every reachable clone, its calls, its BFS depth.
+
+    Follows what the runtime follows: arm refs (``OP_REF``/``OP_REF1``/
+    ``OP_GRP``/``OP_VSTR``), dispatch targets, dispatch defaults, and attempt
+    sub-clones. Nodes are CLONES, not rules — the same rule name appearing
+    many times IS the machine (context clones per FOLLOW tail).
+    """
+    seen: dict[int, int] = {}
+    clones: list = []
+    edges: list[tuple[int, int]] = []
+    work = [start]
+    while work:
+        clone = work.pop()
+        if id(clone) in seen:
+            continue
+        seen[id(clone)] = len(clones)
+        clones.append(clone)
+        targets = []
+        if clone.mode == _flat.BUILD_DISPATCH:
+            targets.extend(target for _ch, _neg, target in clone.selectors)
+            if clone.default is not None and clone.default is not _flat.DISPATCH_EMPTY:
+                targets.append(clone.default)
+        else:
+            for arm in _flat._clone_arms(clone):
+                for kind, payload in zip(arm.kinds, arm.payloads):
+                    if kind in (_flat.OP_REF, _flat.OP_REF1, _flat.OP_GRP, _flat.OP_VSTR):
+                        targets.append(payload)
+        if clone.attempt is not None:
+            targets.extend(entry[-1] for entry in clone.attempt[1])
+        for target in targets:
+            if isinstance(target, _flat.FlatClone):
+                edges.append((id(clone), id(target)))
+                work.append(target)
+    edge_idx = [(seen[a], seen[b]) for a, b in edges]
+    depth = {0: 0}
+    adj: dict[int, list[int]] = {}
+    for a, b in edge_idx:
+        adj.setdefault(a, []).append(b)
+    frontier = [0]
+    while frontier:
+        nxt = []
+        for a in frontier:
+            for b in adj.get(a, []):
+                if b not in depth:
+                    depth[b] = depth[a] + 1
+                    nxt.append(b)
+        frontier = nxt
+    return clones, edge_idx, depth
+
+
+def clone_flags(clone) -> str:
+    """The clone's decision structure as flag letters (a=attempt, l=leaf, k/p/s gates)."""
+    flags = ""
+    if clone.attempt is not None:
+        flags += "a"
+    if clone.leaf:
+        flags += "l"
+    if clone.kwin_selectors is not None:
+        flags += "k"
+    if clone.pn_selectors is not None:
+        flags += "p"
+    if clone.struct_arm is not None:
+        flags += "s"
+    return flags or "-"
+
+
 class ClockKernel(PdaKernel):
     """The PDA's own trace — every frame the fused kernel pushes, as an extent.
 
@@ -314,20 +399,28 @@ class ClockKernel(PdaKernel):
     is real work, and the clock shows work.
     """
 
-    __slots__ = ("frames", "open_frames", "tries")
+    __slots__ = ("frames", "open_frames", "events", "cid_of")
 
-    def __init__(self, tables, text, fold) -> None:
+    def __init__(self, tables, text, fold, cid_of=None) -> None:
         super().__init__(tables, text, fold)
-        self.frames: list[list] = []  # [start, end, depth, clone name]
+        self.frames: list[list] = []  # [start, end, depth, clone name, clone idx]
         self.open_frames: dict[int, int] = {}
-        self.tries: list[tuple[int, str]] = []
+        self.events: list[list] = []  # [pos, kind, detail]
+        self.cid_of = cid_of or {}
+
+    def _note(self, pos, kind, detail) -> None:
+        if not self._caches.probing and len(self.events) < 20000:
+            self.events.append([pos, kind, detail])
 
     def _enter(self, clone, out):
         pushed = super()._enter(clone, out)
         if pushed:
             frame = self.stack[-1]
             self.open_frames[id(frame)] = len(self.frames)
-            self.frames.append([frame[F_START], -1, len(self.stack) - 1, str(frame[F_CLONE].name)])
+            self.frames.append([
+                frame[F_START], -1, len(self.stack) - 1,
+                str(frame[F_CLONE].name), self.cid_of.get(id(frame[F_CLONE]), -1),
+            ])
         return pushed
 
     def _complete(self, frame):
@@ -337,8 +430,52 @@ class ClockKernel(PdaKernel):
         return super()._complete(frame)
 
     def attempt(self, clone, out):
-        self.tries.append((self.pos, str(clone.name)))
+        self._note(self.pos, "attempt", f"arm choice at {clone.name} — admission cannot decide; sub-runs try the arms")
         return super().attempt(clone, out)
+
+    def attempt_iteration(self, frame, arm, i, pos):
+        got = super().attempt_iteration(frame, arm, i, pos)
+        self._note(pos, "loop", f"attempted iteration {'takes' if got == i else 'closes'}")
+        return got
+
+    def _fork_verdict(self, arm, i, pos, taken):
+        verdict = super()._fork_verdict(arm, i, pos, taken)
+        self._note(pos, "verdict", f"both-viable boundary → {('TAKE', 'STOP', 'FORK')[verdict]}")
+        return verdict
+
+    def _probe(self, arm, i, pos, taken):
+        got = super()._probe(arm, i, pos, taken)
+        side = "take" if taken is not None else "stop"
+        self._note(pos, "probe", f"{side}-side probe {'completes' if got[0] is not None else 'dies'}")
+        return got
+
+    def _island(self, name, sink):
+        start = self.pos
+        super()._island(name, sink)
+        self._note(start, "island", f"{name} · Earley window [{start},{self.pos})")
+
+
+def _spell(element) -> str:
+    """A sequence element's display spelling — the rail registers' language."""
+    atom = getattr(element, "atom", element)
+    if isinstance(atom, IrRuleRef):
+        return str(atom)
+    if isinstance(atom, IrLiteral):
+        return '"' + str(atom).replace("\\", "\\\\").replace("\n", "\\n") + '"'
+    if isinstance(atom, IrCharClass):
+        pattern = atom.pattern()
+        return "[" + (pattern if len(pattern) <= 14 else pattern[:13] + "…") + "]"
+    if isinstance(atom, IrAlternation):
+        return "(…)"
+    return type(atom).__name__
+
+
+def _terminal_spelling(element) -> str | None:
+    """The element's spelling when it scans text directly, else None."""
+    atom = getattr(element, "atom", element)
+    if isinstance(atom, (IrLiteral, IrCharClass)):
+        return _spell(element)
+    return None
 
 
 def rail_lines(ast, name: str) -> list[str] | None:
@@ -496,6 +633,43 @@ class Handler(BaseHTTPRequestHandler):
                 body = "\n".join(f"{k} {v}" for k, v in self.subject.policy.items())
             self.send_text(body)
             return
+        if self.path == "/automaton":
+            subj = self.subject
+            names: dict[str, int] = {}
+            rows = []
+            for i, clone in enumerate(subj.auto_clones):
+                idx = names.setdefault(str(clone.name), len(names))
+                mode = _MODE_WORD.get(clone.mode, str(clone.mode))
+                rows.append(f"{idx} {mode} {clone_flags(clone)} {subj.auto_depth.get(i, -1)}")
+            out = [f"#ACLONES {len(rows)}", *rows,
+                   f"#ANAMES {len(names)}", *names,
+                   f"#AEDGES {len(subj.auto_edges)}",
+                   *(f"{a} {b}" for a, b in subj.auto_edges)]
+            self.send_text("\n".join(out))
+            return
+        if self.path.startswith("/column?i="):
+            i = int(self.path.split("=", 1)[1])
+            with self.subject.lock:
+                kernel = self.subject._earley_kernel
+                tables = self.subject._instance_tables
+            if kernel is None or not (0 <= i < len(kernel.cols)):
+                self.send_text("status pending")
+                return
+            rows, expect = [], []
+            for packed in kernel.cols[i]:
+                rule, seq, dot, origin = decode_item(tables, packed)
+                role = "predict" if dot == 0 else ("complete" if dot == len(seq) else "advance")
+                done = " ".join(_spell(e) for e in seq[:dot])
+                todo = " ".join(_spell(e) for e in seq[dot:])
+                rows.append(f"{origin} {role} {rule} ::= {done} \u25cf {todo}")
+                if dot < len(seq):
+                    term = _terminal_spelling(seq[dot])
+                    if term and term not in expect:
+                        expect.append(term)
+            out = [f"#COLUMN {i} {len(rows)}", *rows,
+                   f"#EXPECT {len(expect)}", *sorted(expect)]
+            self.send_text("\n".join(out))
+            return
         if self.path == "/clock":
             with self.subject.lock:
                 clock = dict(self.subject.clock)
@@ -509,16 +683,16 @@ class Handler(BaseHTTPRequestHandler):
             frames = clock.get("frames", [])
             fnames: dict[str, int] = {}
             rows = []
-            for start, end, depth, name in frames:
+            for start, end, depth, name, cid in frames:
                 idx = fnames.setdefault(name, len(fnames))
-                rows.append(f"{start} {end} {depth} {idx}")
+                rows.append(f"{start} {end} {depth} {idx} {cid}")
             out.append(f"#PDAFRAMES {len(rows)}")
             out.extend(rows)
             out.append(f"#PDANAMES {len(fnames)}")
             out.extend(fnames)
-            tries = clock.get("tries", [])
-            out.append(f"#TRIES {len(tries)}")
-            out.extend(f"{pos} {name}" for pos, name in tries)
+            events = clock.get("events", [])
+            out.append(f"#EVENTS {len(events)}")
+            out.extend(f"{pos} {kind} {detail}" for pos, kind, detail in events)
             hyp = clock.get("hyp", [])
             hnames: dict[str, int] = {}
             rows = []
@@ -681,10 +855,18 @@ def census(subject: Subject) -> int:
                 and len(hyp) > 0
                 and all(0 <= h[0] <= h[1] <= n_doc for h in hyp)
                 and any(h[0] == 0 and h[1] == n_doc and h[2] for h in hyp))
+    n_clones = len(subject.auto_clones)
+    ok_auto = (n_clones > 0
+               and all(0 <= a < n_clones and 0 <= b < n_clones for a, b in subject.auto_edges)
+               and subject.auto_depth.get(0) == 0
+               and all(len(f) == 5 and -1 <= f[4] < n_clones for f in frames)
+               and sum(1 for f in frames if f[4] >= 0) > 0)
     print(f"clocks: pda {len(frames)} frames (depth {max((f[2] for f in frames), default=0)}, "
-          f"{len(ck.get('tries', []))} attempts, end {ck.get('pda_end')}) · "
+          f"{len(ck.get('events', []))} events, end {ck.get('pda_end')}) · "
           f"earley {len(hyp)} hypotheses ({sum(1 for h in hyp if h[2])} completed, "
           f"{ck.get('dropped', 0)} dropped) · well-formed {ok_clock}")
+    print(f"automaton: {n_clones} clones · {len(subject.auto_edges)} edges · "
+          f"{len({str(c.name) for c in subject.auto_clones})} names · frames wired {ok_auto}")
     rails = rail_lines(subject.graph_ast, start)
     ok_rail = (rails is not None and len(rails) > 0
                and all(len(ln.split(None, 1)) >= 2 for ln in rails)
@@ -704,7 +886,8 @@ def census(subject: Subject) -> int:
         ok_routes = r2.get("status") == "failed" and int(r2.get("pos", "-1")) >= 0
     print(f"other route: {r2} · as expected {ok_routes}")
     ok = (subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier
-          and ok_save and ok_routes and ok_graph and ok_policy and ok_rail and ok_clock)
+          and ok_save and ok_routes and ok_graph and ok_policy and ok_rail and ok_clock
+          and ok_auto)
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 

@@ -367,6 +367,17 @@ body {
   appearance: none;
 }
 #gview:hover, .pin .pview:hover, #cclock:hover { border-color: var(--cool); color: var(--cool); }
+#spineBody .row .dr { color: var(--ink); margin-left: 6px; }
+#spineBody .row.role-complete .dr { color: #79c99a; }
+#spineBody .row.role-advance .dr { color: var(--warm); }
+.echip {
+  display: inline-block;
+  border: 1px solid var(--warm);
+  color: var(--warm);
+  padding: 1px 7px;
+  margin: 2px 4px 0 0;
+  font: 11px var(--mono);
+}
 .pin .rback {
   margin-left: 8px;
   background: none;

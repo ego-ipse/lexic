@@ -309,7 +309,7 @@ async function loadClock() {
     }
     const data = {
       gen: S.meta.generation, pdaEnd: -1, dropped: 0,
-      frames: [], tries: [], hyp: [], fnames: [], hnames: [], frameRows: 1, hypRows: 1,
+      frames: [], events: [], hyp: [], fnames: [], hnames: [], frameRows: 1, hypRows: 1,
     };
     let section = '';
     for (const ln of text.split('\n')) {
@@ -319,17 +319,17 @@ async function loadClock() {
       else if (ln.startsWith('dropped ')) data.dropped = +ln.slice(8);
       else if (ln.startsWith('#PDAFRAMES')) section = 'f';
       else if (ln.startsWith('#PDANAMES')) section = 'fn';
-      else if (ln.startsWith('#TRIES')) section = 't';
+      else if (ln.startsWith('#EVENTS')) section = 't';
       else if (ln.startsWith('#EARLEYNAMES')) section = 'hn';
       else if (ln.startsWith('#EARLEY')) section = 'h';
       else if (section === 'f') {
-        const [a, b, c, d] = ln.split(' ');
-        data.frames.push({ s: +a, e: +b, d: +c, n: +d });
+        const [a, b, c, d, e] = ln.split(' ');
+        data.frames.push({ s: +a, e: +b, d: +c, n: +d, cid: +e });
         data.frameRows = Math.max(data.frameRows, +c + 1);
       } else if (section === 'fn') data.fnames.push(ln);
       else if (section === 't') {
-        const sp = ln.indexOf(' ');
-        data.tries.push({ pos: +ln.slice(0, sp), name: ln.slice(sp + 1) });
+        const m = ln.match(/^(\d+) (\S+) (.*)$/);
+        if (m) data.events.push({ pos: +m[1], kind: m[2], detail: m[3] });
       } else if (section === 'h') {
         const [a, b, c, d] = ln.split(' ');
         data.hyp.push({ s: +a, e: +b, c: +c, n: +d });
@@ -403,9 +403,9 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   }
   if (pda) {
     cx.fillStyle = C.warm;
-    for (const t of clockData.tries) {
-      if (t.pos < view0 || t.pos > view0 + win) continue;
-      cx.fillRect(sx(t.pos), lanesY - 2, Math.max(2, pitch / 2), 4);
+    for (const ev of clockData.events) {
+      if (ev.pos < view0 || ev.pos > view0 + win) continue;
+      cx.fillRect(sx(ev.pos), lanesY - 2, Math.max(2, pitch / 2), 4);
     }
   }
   if (pda && clockData.pdaEnd >= 0 && clockData.pdaEnd >= view0 && clockData.pdaEnd <= view0 + win) {
@@ -501,7 +501,115 @@ function drawChart() {
 /* ── spine facet ── */
 
 let lastSpineKey = '';
+let colCache = new Map();
+let colWaiting = false;
+
+async function fetchColumn(i) {
+  if (colCache.has(i) || colWaiting) return;
+  colWaiting = true;
+  try {
+    const text = await (await fetch('/column?i=' + i)).text();
+    if (!text.startsWith('#COLUMN')) { colWaiting = false; return; }
+    const items = [], expect = [];
+    let section = 'c';
+    for (const ln of text.split('\n').slice(1)) {
+      if (ln.startsWith('#EXPECT')) { section = 'e'; continue; }
+      if (section === 'c') {
+        const m = ln.match(/^(\d+) (\S+) (.*)$/);
+        if (m) items.push({ origin: +m[1], role: m[2], rule: m[3] });
+      } else if (ln) expect.push(ln);
+    }
+    colCache.set(i, { items, expect });
+  } catch { /* retry on next cursor move */ }
+  colWaiting = false;
+  ask();
+}
+
+function spineClock(head) {
+  $('spineHead').textContent = head;
+}
+
+function drawPdaSpine() {
+  const body = $('spineBody');
+  const closedBody = $('closedBody');
+  if (!clockReady()) {
+    spineClock('the PDA at t — clock running…');
+    body.innerHTML = '<div class="none">the pda clock is still running</div>';
+    closedBody.textContent = '';
+    return;
+  }
+  spineClock("the PDA's stack at t");
+  const t = cur.t;
+  const open = clockData.frames.filter((f) => f.s <= t && t < f.e).sort((a, b) => a.d - b.d);
+  body.textContent = '';
+  if (!open.length) {
+    body.innerHTML = '<div class="none">no frame open — a frameless leaf run carries this stretch</div>';
+  }
+  open.forEach((f, k) => {
+    const row = document.createElement('div');
+    row.className = 'row' + (k === open.length - 1 ? ' deep' : '');
+    row.innerHTML = `<span class="d">d${f.d}</span>${f.name} <span class="f">${f.s.toLocaleString()}..${f.e.toLocaleString()}</span>`;
+    body.appendChild(row);
+  });
+  closedBody.textContent = '';
+  $('closedHead').textContent = 'DECISIONS';
+  const evs = clockData.events.filter((e) => e.pos <= t).slice(-7);
+  if (!clockData.events.length) {
+    closedBody.innerHTML = '<div class="none">none — the whole walk is deterministic descent;'
+      + ' the automaton view shows where decisions COULD arise</div>';
+  }
+  for (const e of evs) {
+    const row = document.createElement('div');
+    row.className = 'row' + (Math.abs(e.pos - t) < 2 ? ' fresh' : '');
+    row.innerHTML = `<span class="d">@${e.pos}</span>${e.kind} <span class="f">${e.detail}</span>`;
+    closedBody.appendChild(row);
+  }
+}
+
+function drawEarleySpine() {
+  const i = Math.min(Math.floor(cur.t), S.doc.length);
+  const col = colCache.get(i);
+  const body = $('spineBody');
+  const closedBody = $('closedBody');
+  if (!col) {
+    fetchColumn(i);
+    spineClock(`Earley column ${i} — loading…`);
+    return;
+  }
+  spineClock(`Earley column ${i} — ${col.items.length} items`);
+  body.textContent = '';
+  if (!col.items.length) {
+    body.innerHTML = '<div class="none">empty — inside a lexical run; the kernel scanned past this column</div>';
+  }
+  for (const it of col.items.slice(0, 40)) {
+    const row = document.createElement('div');
+    row.className = 'row role-' + it.role;
+    row.innerHTML = `<span class="d">@${it.origin}</span><span class="dr">${it.rule}</span>`
+      + `<span class="f">${it.role}</span>`;
+    body.appendChild(row);
+  }
+  if (col.items.length > 40) {
+    const row = document.createElement('div');
+    row.className = 'none';
+    row.textContent = `+${col.items.length - 40} more items`;
+    body.appendChild(row);
+  }
+  $('closedHead').textContent = 'CAN COME NEXT';
+  closedBody.textContent = '';
+  for (const term of col.expect) {
+    const chip = document.createElement('span');
+    chip.className = 'echip';
+    chip.textContent = term;
+    closedBody.appendChild(chip);
+  }
+  if (!col.expect.length) closedBody.innerHTML = '<div class="none">nothing — every item is complete</div>';
+}
+
 function drawSpine() {
+  if (chartClock === 'pda') { lastSpineKey = ''; drawPdaSpine(); return; }
+  if (chartClock === 'earley') { lastSpineKey = ''; drawEarleySpine(); return; }
+  spineClock('open at the cursor');
+  $('closedHead').textContent = 'JUST CLOSED';
   const open = openAt(cur.t);
   const key = open.join(',') + '|' + Math.floor(cur.t);
   if (key === lastSpineKey) return;
@@ -759,6 +867,7 @@ function drawGraphView(v, smooth = false) {
   const mode = viewMode(v);
   if (mode === 'text') return;
   if (mode === 'rails') { drawRailsView(v); return; }
+  if (mode === 'automaton') { drawAutoView(v); return; }
   const wrap = v.wrap;
   const cv = v.cv;
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -910,6 +1019,18 @@ function wireGraphView(v) {
     drawGraphView(v);
   }, { passive: false });
   v.cv.addEventListener('click', (e) => {
+    if (viewMode(v) === 'automaton' && !v.dragMoved && v.autoHits) {
+      const r = v.cv.getBoundingClientRect();
+      const ux = (e.clientX - r.left - v.rtx) / v.rk;
+      const uy = (e.clientY - r.top - v.rty) / v.rk;
+      const hit = v.autoHits.find((b) => ux >= b.x - 2 && ux <= b.x + b.w + 2 && uy >= b.y - 2 && uy <= b.y + b.h + 2);
+      if (hit) {
+        cur.rule = cur.rule === hit.c.name ? '' : hit.c.name;
+        if (cur.rule) railChipShow(cur.rule, e.clientX, e.clientY);
+        ask();
+      }
+      return;
+    }
     if (viewMode(v) !== 'rails' || v.dragMoved || !v.railHits) return;
     const r = v.cv.getBoundingClientRect();
     const ux = (e.clientX - r.left - v.rtx) / v.rk;
@@ -922,6 +1043,16 @@ function wireGraphView(v) {
     ask();
   });
   v.cv.addEventListener('mousemove', (e) => {
+    if (viewMode(v) === 'automaton' && v.autoHits) {
+      const r = v.cv.getBoundingClientRect();
+      const ux = (e.clientX - r.left - v.rtx) / v.rk;
+      const uy = (e.clientY - r.top - v.rty) / v.rk;
+      const hit = v.autoHits.find((b) => ux >= b.x - 2 && ux <= b.x + b.w + 2 && uy >= b.y - 2 && uy <= b.y + b.h + 2);
+      v.cv.style.cursor = hit ? 'pointer' : '';
+      const name = hit ? hit.c.name : '';
+      if (name !== graphHover) { graphHover = name; ask(); }
+      return;
+    }
     if (viewMode(v) !== 'rails' || !v.railHits) { v.cv.style.cursor = ''; return; }
     const r = v.cv.getBoundingClientRect();
     const ux = (e.clientX - r.left - v.rtx) / v.rk;
@@ -1316,6 +1447,133 @@ function railsGoto(v, rule) {
   drawGraphView(v);
 }
 
+/* ── the automaton view — the compiled machine itself, walk-lit at t ── */
+
+let autoData = null;
+let autoLoading = false;
+
+async function fetchAutomaton() {
+  if (autoData || autoLoading) return;
+  autoLoading = true;
+  const text = await (await fetch('/automaton')).text();
+  const clones = [], names = [], edges = [];
+  let section = '';
+  for (const ln of text.split('\n')) {
+    if (ln.startsWith('#ACLONES')) section = 'c';
+    else if (ln.startsWith('#ANAMES')) section = 'n';
+    else if (ln.startsWith('#AEDGES')) section = 'e';
+    else if (section === 'c') {
+      const [ni, mode, flags, depth] = ln.split(' ');
+      clones.push({ n: +ni, mode, flags, depth: +depth });
+    } else if (section === 'n') names.push(ln);
+    else if (section === 'e') {
+      const [a, b] = ln.split(' ');
+      edges.push([+a, +b]);
+    }
+  }
+  const levels = new Map();
+  for (const c of clones) {
+    c.name = names[c.n];
+    const d = c.depth < 0 ? 0 : c.depth;
+    if (!levels.has(d)) levels.set(d, []);
+    c.li = levels.get(d).length;
+    levels.get(d).push(c);
+  }
+  for (const c of clones) c.ln = levels.get(c.depth < 0 ? 0 : c.depth).length;
+  autoData = { clones, edges, maxDepth: Math.max(...levels.keys()) };
+  drawGraph();
+}
+
+const AUTO_INK = { dispatch: '#6fc3c9', alt: '#e2a65c', seq: '#8fa3b8', value_str: '#d98cf5', group: '#66707f' };
+
+function autoPos(c) {
+  const step = gTune.levelstep * 1.15;
+  const spread = 15 * gTune.ringscale;
+  return { x: (c.depth < 0 ? 0 : c.depth) * step, y: (c.li - c.ln / 2) * spread };
+}
+
+function drawAutoView(v) {
+  const wrap = v.wrap, cv = v.cv;
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  if (!w || !h) return;
+  if (!autoData) { fetchAutomaton(); return; }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  const cx = cv.getContext('2d');
+  const step = gTune.levelstep * 1.15;
+  const cw = (autoData.maxDepth + 1) * step;
+  const k = Math.max(Math.min((w - 40) / Math.max(120, cw), 1.4), 0.55) * v.zoom;
+  const mx = cw / 2, my = 0;
+  if (!v.touched) {
+    v.pan.x = 24 - w / 2 + mx * k;
+    v.pan.y = 0;
+  }
+  const tx = w / 2 - mx * k + v.pan.x, ty = h / 2 + v.pan.y;
+  v.rk = k; v.rtx = tx; v.rty = ty;
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.clearRect(0, 0, w, h);
+  cx.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty);
+  // the walk at t: which clones the kernel is IN, has VISITED
+  const inNow = new Set(), visited = new Set();
+  const lit = chartClock === 'pda' && clockReady();
+  if (lit) {
+    for (const f of clockData.frames) {
+      if (f.cid < 0) continue;
+      if (f.s <= cur.t && cur.t < f.e) inNow.add(f.cid);
+      else if (f.e <= cur.t) visited.add(f.cid);
+    }
+  }
+  cx.lineWidth = 1 / k;
+  for (const [a, b] of autoData.edges) {
+    const A = autoPos(autoData.clones[a]), B = autoPos(autoData.clones[b]);
+    const hotEdge = inNow.has(a) && inNow.has(b);
+    cx.strokeStyle = hotEdge ? 'rgba(226,166,92,0.8)' : 'rgba(111,195,201,0.10)';
+    cx.beginPath();
+    cx.moveTo(A.x + 4, A.y);
+    cx.bezierCurveTo(A.x + step * 0.4, A.y, B.x - step * 0.4, B.y, B.x - 4, B.y);
+    cx.stroke();
+  }
+  cx.font = `${Math.max(8, 10 / Math.sqrt(k))}px ${getComputedStyle(document.documentElement).getPropertyValue('--mono')}`;
+  const mark = markedRule();
+  v.autoHits = [];
+  for (let ci = 0; ci < autoData.clones.length; ci++) {
+    const c = autoData.clones[ci];
+    const P = autoPos(c);
+    const base = AUTO_INK[c.mode] || '#66707f';
+    const isIn = inNow.has(ci);
+    v.autoHits.push({ x: P.x - 4, y: P.y - 4, w: 8, h: 8, c });
+    cx.fillStyle = isIn ? '#e2a65c'
+      : visited.has(ci) ? base
+      : 'rgba(102,112,127,0.45)';
+    if (c.mode === 'dispatch') {
+      cx.beginPath(); cx.arc(P.x, P.y, 3.4, 0, Math.PI * 2); cx.fill();
+    } else {
+      cx.fillRect(P.x - 3, P.y - 3, 6, 6);
+    }
+    if (c.flags.includes('a')) {
+      cx.strokeStyle = '#e2a65c';
+      cx.beginPath(); cx.arc(P.x, P.y, 5.5, 0, Math.PI * 2); cx.stroke();
+    }
+    if (c.flags.includes('k') || c.flags.includes('p') || c.flags.includes('s')) {
+      cx.strokeStyle = 'rgba(217,140,245,0.7)';
+      cx.strokeRect(P.x - 5, P.y - 5, 10, 10);
+    }
+    const showLabel = isIn || c.name === mark || c.name === hotRule() || k > 1.15 || c.depth <= 1;
+    if (showLabel) {
+      cx.fillStyle = isIn ? '#e2a65c' : c.name === mark ? '#d98cf5' : '#66707f';
+      cx.fillText(c.name, P.x + 7, P.y + 3);
+    }
+  }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.fillStyle = '#66707f';
+  cx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+  const litWord = lit ? ` · warm = the stack at t (${inNow.size} in)` : '';
+  cx.fillText(
+    `the compiled machine — ${autoData.clones.length} clones, ${autoData.edges.length} calls · `
+    + `■ seq · ● dispatch · violet value_str · warm ring = attempt clone · violet box = gated${litWord}`,
+    12, 14);
+}
+
 function railPin(rule) {
   const k = pins.length;
   const p = { id: ++pinSeq, kind: 'rail', rule, x: 320 + (k % 8) * 40, y: 120 + (k % 8) * 40, w: 0, h: 0 };
@@ -1483,6 +1741,7 @@ const TUNE_PANEL = {
   flat: { levelstep: 'cols', ringscale: 'rows', labelscale: 'label' },
   arcs: { levelstep: 'pitch', ringscale: 'lift', labelscale: 'label' },
   rails: { levelstep: 'gap', labelscale: 'label' },
+  automaton: { levelstep: 'depth', ringscale: 'spread', labelscale: 'label' },
 };
 
 function syncTunePanel() {
@@ -1653,7 +1912,7 @@ function buildPin(p, layer) {
     el.innerHTML =
       `<header><span>RULE GRAPH</span><select class="pview"><option value="depth3d">depth 3d</option>`
       + `<option value="flat">flat</option><option value="arcs">arcs</option><option value="rails">rails</option>`
-      + `<option value="text">text</option></select>`
+      + `<option value="automaton">automaton</option><option value="text">text</option></select>`
       + `<span class="stalemark"></span><button class="x" title="close">×</button></header>`
       + `<div class="body gbody"><div class="gwrap"><canvas></canvas><div class="gchips"></div></div>`
       + `<div class="gtext"></div></div>`;

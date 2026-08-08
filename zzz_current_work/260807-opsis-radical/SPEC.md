@@ -43,6 +43,16 @@ screenshot-verified.
   columns via `decode_item`; completed = a final-dot item appeared) and
   `#EARLEYNAMES k`. Hypotheses cap at 60k, longest/completed kept,
   `dropped` counts the rest — stated on the legend, never silent.
+- `GET /automaton` — the compiled machine itself: `#ACLONES n`
+  (`nameIdx mode flags depth` — every reachable clone; modes
+  alt/seq/dispatch/value_str/group; flags a=attempt l=leaf k/p/s=gates;
+  BFS depth from the start clone), `#ANAMES k`, `#AEDGES n`. Nodes are
+  CLONES, not rules — the same rule as several context clones IS the
+  machine. Static per session.
+- `GET /column?i=N` — Earley column N on demand, from the retained
+  recognizer kernel: `#COLUMN i n` (`origin role rule ::= done ● todo`)
+  + `#EXPECT n` (the terminals that can come next). The leaf fetches the
+  cursor's column as t moves; whole-document item sets never ship.
 - `GET /rails` — every rule's structural lines in one frame, sections
   headed `#RAIL <rule> <n>` in AST order — the all-rules rails view reads
   this once and caches it (the reader grammar never changes across document
@@ -77,7 +87,17 @@ screenshot-verified.
   rule chip in any graph view, raises `▤ rail` beside the pointer — the
   same gesture shape as the text pin chip. The tune panel is per-view
   (depth3d: depth/ring/flat/label · flat: cols/rows/label · arcs:
-  pitch/lift/label · rails: gap/label). Railroads are navigable spaces:
+  pitch/lift/label · rails: gap/label · automaton: depth/spread/label).
+  The reader's view set gained `automaton` — the machine drawn walk-lit:
+  when `chart.clock` is `pda`, the frames open at the cursor light their
+  exact clones warm (frames carry clone ids), visited clones tint by
+  mode, attempt clones wear the warm ring, gated clones the violet box.
+  THE SPINE follows the clock: `model` = the open model spans (as ever);
+  `pda` = the kernel's own stack at t plus the decision events near t
+  (or the honest none-sentence pointing at the automaton view);
+  `earley` = the cursor's column as dotted items (@origin, role) with
+  CAN COME NEXT — fetched per cursor move, cached per generation.
+  Railroads are navigable spaces:
   the rails view scrolls on wheel (Ctrl+wheel zooms, like the text
   planes) and clicking a ref scrolls to that rule; in a rail window a
   ref click re-targets the window in place (`↩` walks back, `▲ n`

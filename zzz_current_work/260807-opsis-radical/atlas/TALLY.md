@@ -953,3 +953,51 @@ Deterministic states: `?t=`, `?fam=`. Screenshots /tmp/clockmock1.png,
 read; then the atlas integration (wire sections for items/events; the
 SPPF panel needs an ambiguous subject, which atlas fixtures by design
 are not — the annex-as-subject question is theirs to rule).
+
+## Round: the clock rethink lands on atlas — the automaton, the column, the stack — 2026-08-08
+
+The user's verdict on the mock: worse than useless — toy input, a 2-way
+ambiguity toggle that ducks the 100-way question, and a PDA panel that
+shrugs "deterministic descent" instead of showing the machine. Mock
+deleted (f9f70df). Built directly on atlas at fixture scale.
+
+**The automaton is a reader view.** `GET /automaton` ships the compiled
+machine — every clone the runtime can reach (refs, dispatch targets,
+attempt sub-clones), mode, decision flags, BFS depth. Nodes are CLONES,
+not rules: meta's 90 rules ARE 489 clones / 755 edges (`ws` × 11 context
+clones — the FOLLOW-tail cloning made visible); long's machine is 734.
+Drawn as depth columns with mode glyphs (■ seq · ● dispatch · violet
+value_str · warm ring = attempt clone · violet box = gated) — the
+decision STRUCTURE shows even when a walk is deterministic, which is the
+honest answer to "the walk was boring": the machine says where decisions
+COULD arise. With the pda clock on, the walk lights it: frames carry
+their exact clone ids (pda_tables is memoised, identity is stable), so
+the stack at t threads a warm path through the machine — verified
+matching THE SPINE frame for frame at char 600.
+
+**THE SPINE follows the clock.** model = open spans (unchanged) · pda =
+the kernel's own stack at t (22 deep at char 600, real extents) + the
+decision events near t, with the none-sentence pointing at the automaton
+· earley = the cursor's column as dotted items (`@598 group ::= "("
+alternation __rep_1 ● ")" advance`) + CAN COME NEXT chips — fetched per
+cursor move over `GET /column?i=` from the retained recognizer kernel
+(whole-document item sets never cross the wire; scale-safe by
+construction).
+
+**Events, full vocabulary.** ClockKernel now records
+attempt/loop/verdict/probe/island through the same seams
+opsis_proto_0's TraceKernel proved, capped at 20k. All four fixtures
+record ZERO decision events — measured, and now VISIBLE as machine
+structure instead of an empty log.
+
+**The SPPF question, put honestly:** atlas subjects parse unambiguously
+by constitution (ambiguity is refused by both engines), so a forest with
+N families cannot exist in any current fixture. The at-scale SPPF view
+(family lists per node, not toggles) needs a subject whose READING keeps
+the forest when the model refuses — a structural ruling on Subject
+(reading-without-model), flagged to the user rather than half-built.
+
+Censuses all green (meta/long/vyx/abnf + TUI), each asserting: automaton
+edges resolve, start depth 0, frames carry valid clone ids, >0 wired.
+Screenshots: /tmp/auto1.png (the lit walk + pda spine),
+/tmp/auto2.png (earley column spine + CAN COME NEXT).
