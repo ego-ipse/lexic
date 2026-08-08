@@ -1311,3 +1311,20 @@ the record commanded, drawn by the instrument that read it).
 Also: the policy grammar refused a record missing its final newline
 during the live test (shell $() strips it) — the refusal machinery
 working on opsis's own state, unprompted.
+
+## Round: the type correction — 2026-08-08
+
+User-taught, inscribed as THINKING §10c: §10b's "IR floor" was a TYPE
+ERROR — the export module is the OUTWARD projection (compiled artifact,
+available at every node, merge-find-set style: self-contained or
+referencing the level above), not deeper IR. The real inward axis is the
+.ir/.py representations (grammars/json.ir, *.flavour.ir — the notation
+over the src/lexic/ir substrate), and the graph has three axes plus
+intersections (transpile; the IrFlavour components — reducers, actions,
+escapes, tokenizers — as objects connected through IR). The implied
+facet — the LAYERS COMPASS — is design-only until inward readers exist.
+
+Landed now: the masthead render bug fixed (one line: desc ellipsizes,
+the strip scrolls, chips truncate); the export rung re-typed `x` on the
+wire and drawn dashed after a gap; labels shortened. Verified
+/tmp/mast_fix.png at the worst-case rung. Census green.
