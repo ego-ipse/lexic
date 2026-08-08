@@ -370,6 +370,20 @@ body {
 #spineBody .row .dr { color: var(--ink); margin-left: 6px; }
 #spineBody .row.role-complete .dr { color: #79c99a; }
 #spineBody .row.role-advance .dr { color: var(--warm); }
+.vbadge {
+  margin-left: 10px;
+  padding: 0 6px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  border: 1px solid var(--dimmer);
+  color: var(--dim);
+  user-select: none;
+}
+.vbadge.v-attempt { border-color: var(--warm); color: var(--warm); }
+.vbadge.v-island { border-color: var(--violet); color: var(--violet); }
+.vbadge.v-hard { border-color: var(--red); color: var(--red); }
+.vbadge.v-gated { border-color: var(--cool); color: var(--cool); }
+
 .echip {
   display: inline-block;
   border: 1px solid var(--warm);

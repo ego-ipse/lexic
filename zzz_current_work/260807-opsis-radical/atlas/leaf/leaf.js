@@ -323,8 +323,8 @@ async function loadClock() {
       else if (ln.startsWith('#EARLEYNAMES')) section = 'hn';
       else if (ln.startsWith('#EARLEY')) section = 'h';
       else if (section === 'f') {
-        const [a, b, c, d, e] = ln.split(' ');
-        data.frames.push({ s: +a, e: +b, d: +c, n: +d, cid: +e });
+        const [a, b, c, d, e, f2] = ln.split(' ');
+        data.frames.push({ s: +a, e: +b, d: +c, n: +d, cid: +e, ok: f2 === undefined ? 1 : +f2 });
         data.frameRows = Math.max(data.frameRows, +c + 1);
       } else if (section === 'fn') data.fnames.push(ln);
       else if (section === 't') {
@@ -359,8 +359,64 @@ function clockReady() {
 
 let clockHit = null;
 
+function withA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+function clockBandTex() {
+  // per-char textures, built once per clock load: the band's raw material
+  if (clockData.tex) return clockData.tex;
+  const N = S.doc.length;
+  const depth = new Int16Array(N + 2);
+  for (const f of clockData.frames) { depth[f.s]++; depth[Math.max(f.e, f.s + 1)]--; }
+  let run = 0, top = 1;
+  for (let i = 0; i <= N; i++) { run += depth[i]; depth[i] = run; top = Math.max(top, run); }
+  const live = new Int16Array(N + 2), dead = new Int16Array(N + 2);
+  for (const hh of clockData.hyp) {
+    const arr = hh.c ? live : dead;
+    arr[hh.s]++; arr[Math.max(hh.e, hh.s + 1)]--;
+  }
+  let lr = 0, dr = 0, ltop = 1;
+  const liveC = new Int16Array(N + 1), deadC = new Int16Array(N + 1);
+  for (let i = 0; i <= N; i++) {
+    lr += live[i]; dr += dead[i];
+    liveC[i] = lr; deadC[i] = dr; ltop = Math.max(ltop, lr);
+  }
+  const decided = new Uint8Array(N + 1);
+  for (const ev of clockData.events) if (ev.pos <= N) decided[ev.pos] = 1;
+  clockData.tex = { depth, top, liveC, deadC, ltop, decided };
+  return clockData.tex;
+}
+
+function drawClockBand(cx, pad, bandH, step, ox, N) {
+  const tex = clockBandTex();
+  const pda = chartClock === 'pda';
+  for (let off = 0; off < N; off += step) {
+    let v = 0, mark = 0, dead = 0;
+    for (let k = off; k < Math.min(off + step, N); k++) {
+      v = Math.max(v, pda ? tex.depth[k] : tex.liveC[k]);
+      if (pda && tex.decided[k]) mark = 1;
+      if (!pda) dead = Math.max(dead, tex.deadC[k]);
+    }
+    const x = ox(off), bw = Math.max(1, ox(off + step) - x);
+    if (pda) {
+      // the machine's stack depth is the walk's texture; warm where it decided
+      cx.fillStyle = mark ? '#e2a65c'
+        : v === 0 ? '#12161f'
+        : withA('#6fc3c9', 0.10 + 0.55 * Math.min(1, v / tex.top));
+    } else {
+      cx.fillStyle = dead && !v ? withA('#e06060', 0.4)
+        : withA('#d98cf5', 0.08 + 0.6 * Math.min(1, v / tex.ltop));
+      if (dead && v) cx.fillStyle = withA('#c77b9b', 0.25 + 0.45 * Math.min(1, v / tex.ltop));
+    }
+    cx.fillRect(x, 8, bw, bandH);
+  }
+}
+
 function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   const pda = chartClock === 'pda';
+  if (pda && !autoData) fetchAutomaton();
   const list = pda ? clockData.frames : clockData.hyp;
   const rows = pda ? clockData.frameRows : clockData.hypRows;
   const y1 = h - 6;
@@ -378,12 +434,22 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
     const x2 = Math.max(sx(Math.min(f.e, view0 + win)), x1 + 1.5);
     const done = f.e <= cur.t, live = !done && f.s < cur.t;
     if (pda) {
-      if (done) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 1); cx.strokeStyle = C.cool; }
+      const cmode = f.cid >= 0 && autoData && autoData.clones[f.cid] ? autoData.clones[f.cid].mode : null;
+      const base = cmode ? (AUTO_INK[cmode] || '#8fa3b8') : '#8fa3b8';
+      if (!f.ok) {
+        // an attempt sub-run pushed it, the rollback took it away — the same
+        // fate register as Earley's abandoned hypotheses
+        cx.strokeStyle = 'rgba(224,96,96,0.55)';
+        if (done) { cx.fillStyle = 'rgba(224,96,96,0.12)'; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
+        cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
+        continue;
+      }
+      if (done) { cx.fillStyle = withA(base, 0.20); cx.fillRect(x1, y, x2 - x1, laneH - 1); cx.strokeStyle = withA(base, 0.9); }
       else if (live) {
         cx.fillStyle = C.active;
         cx.fillRect(x1, y, sx(Math.min(cur.t, view0 + win)) - x1, laneH - 1);
         cx.strokeStyle = C.warm;
-      } else cx.strokeStyle = C.pending;
+      } else cx.strokeStyle = withA(base, 0.35);
     } else if (f.c) {
       if (done) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
       cx.strokeStyle = done ? C.cool : C.pending;
@@ -415,7 +481,7 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   cx.fillStyle = C.dim;
   cx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
   const legend = pda
-    ? `the PDA's own frames — every push, at its stack depth · gaps: frameless leaf runs · warm ticks: real attempt forks${clockData.pdaEnd >= 0 ? ' · red: where the fast road stops' : ''}`
+    ? `the PDA's own frames, coloured by clone mode (grey seq · cool dispatch · violet value_str · amber alt) · gaps: frameless leaf runs · warm ticks: decisions${clockData.pdaEnd >= 0 ? ' · red: where the fast road stops' : ''}`
     : `Earley's hypotheses — every (rule, origin) it considered · red outline: abandoned · ${clockData.hypRows} live at the widest`
       + (clockData.dropped ? ` · ${clockData.dropped.toLocaleString()} short extents not shipped` : '');
   cx.fillText(legend, 12, lanesY - 8);
@@ -440,11 +506,15 @@ function drawChart() {
   }
   const shades = ['#0e151d', '#152230', '#1d3143', '#274257'];
   const step = Math.max(1, Math.floor(N / (w - 2 * pad)));
-  for (let off = 0; off < N; off += step) {
-    let m = 0;
-    for (let k = off; k < Math.min(off + step, N); k++) m = Math.max(m, S.cov[k]);
-    cx.fillStyle = shades[Math.min(3, Math.floor((m * 4) / (S.covTop + 1)))];
-    cx.fillRect(ox(off), 8, Math.max(1, ox(off + step) - ox(off)), bandH);
+  if (chartClock !== 'model' && clockReady()) {
+    drawClockBand(cx, pad, bandH, step, ox, N);
+  } else {
+    for (let off = 0; off < N; off += step) {
+      let m = 0;
+      for (let k = off; k < Math.min(off + step, N); k++) m = Math.max(m, S.cov[k]);
+      cx.fillStyle = shades[Math.min(3, Math.floor((m * 4) / (S.covTop + 1)))];
+      cx.fillRect(ox(off), 8, Math.max(1, ox(off + step) - ox(off)), bandH);
+    }
   }
   // a small document fills the width; a large one gets a 5px-per-char window
   const base = N * 5 < (w - 2 * pad) ? Math.min(12, Math.floor((w - 2 * pad) / Math.max(1, N))) : 5;
@@ -540,7 +610,8 @@ function drawPdaSpine() {
   }
   spineClock("the PDA's stack at t");
   const t = cur.t;
-  const open = clockData.frames.filter((f) => f.s <= t && t < f.e).sort((a, b) => a.d - b.d);
+  const open = clockData.frames.filter((f) => f.s <= t && t < f.e && f.ok).sort((a, b) => a.d - b.d);
+  const probing = clockData.frames.filter((f) => f.s <= t && t < f.e && !f.ok);
   body.textContent = '';
   if (!open.length) {
     body.innerHTML = '<div class="none">no frame open — a frameless leaf run carries this stretch</div>';
@@ -551,6 +622,12 @@ function drawPdaSpine() {
     row.innerHTML = `<span class="d">d${f.d}</span>${f.name} <span class="f">${f.s.toLocaleString()}..${f.e.toLocaleString()}</span>`;
     body.appendChild(row);
   });
+  if (probing.length) {
+    const row = document.createElement('div');
+    row.className = 'none';
+    row.textContent = `+ ${probing.length} probe frame${probing.length === 1 ? '' : 's'} here — pushed by the attempt machinery, rolled back (red in the lanes)`;
+    body.appendChild(row);
+  }
   closedBody.textContent = '';
   $('closedHead').textContent = 'DECISIONS';
   const evs = clockData.events.filter((e) => e.pos <= t).slice(-7);
@@ -868,6 +945,7 @@ function drawGraphView(v, smooth = false) {
   if (mode === 'text') return;
   if (mode === 'rails') { drawRailsView(v); return; }
   if (mode === 'automaton') { drawAutoView(v); return; }
+  v.chips.style.display = '';
   const wrap = v.wrap;
   const cv = v.cv;
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -1362,6 +1440,7 @@ function drawRailsView(v) {
   const wrap = v.wrap, cv = v.cv;
   const w = wrap.clientWidth, h = wrap.clientHeight;
   if (!w || !h) return;
+  v.chips.style.display = '';
   if (!railsAll) { fetchRails(); return; }  // a guarded call schedules nothing
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
@@ -1452,6 +1531,43 @@ function railsGoto(v, rule) {
 let autoData = null;
 let autoLoading = false;
 
+let verdictMap = null;
+let verdictLoading = false;
+
+async function fetchVerdicts() {
+  if (verdictMap || verdictLoading) return;
+  verdictLoading = true;
+  const text = await (await fetch('/verdicts')).text();
+  verdictMap = new Map();
+  const lines = text.split('\n').slice(1);
+  let i = 0;
+  while (i < lines.length) {
+    const m = lines[i].match(/^(\S+) (\d+) (.*)$/);
+    i++;
+    if (!m) continue;
+    const notes = lines.slice(i, i + +m[2]);
+    i += +m[2];
+    verdictMap.set(m[3], { cls: m[1], notes });
+  }
+  decorateVerdicts();
+}
+
+function decorateVerdicts() {
+  if (!verdictMap) return;
+  document.querySelectorAll('#grammarBody .vbadge').forEach((el) => el.remove());
+  for (const def of S.ruledefs) {
+    const v = verdictMap.get(def.name);
+    if (!v || v.cls === 'predictive') continue;  // silence IS the deterministic verdict
+    const ln = document.querySelector(`#grammarBody .ln[data-l="${def.a}"]`);
+    if (!ln) continue;
+    const badge = document.createElement('span');
+    badge.className = 'vbadge v-' + v.cls;
+    badge.textContent = v.cls;
+    badge.title = v.notes.join('\n') || v.cls;
+    ln.appendChild(badge);
+  }
+}
+
 async function fetchAutomaton() {
   if (autoData || autoLoading) return;
   autoLoading = true;
@@ -1496,6 +1612,7 @@ function drawAutoView(v) {
   const wrap = v.wrap, cv = v.cv;
   const w = wrap.clientWidth, h = wrap.clientHeight;
   if (!w || !h) return;
+  v.chips.style.display = 'none';  // canvas-only view: stale chips must not overlay
   if (!autoData) { fetchAutomaton(); return; }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
@@ -1518,7 +1635,7 @@ function drawAutoView(v) {
   const lit = chartClock === 'pda' && clockReady();
   if (lit) {
     for (const f of clockData.frames) {
-      if (f.cid < 0) continue;
+      if (f.cid < 0 || !f.ok) continue;
       if (f.s <= cur.t && cur.t < f.e) inNow.add(f.cid);
       else if (f.e <= cur.t) visited.add(f.cid);
     }
@@ -2371,6 +2488,8 @@ async function boot(keep) {
   $('docText').textContent = S.doc;
   buildGutter(S.lineStarts.length);
   buildCode($('grammarBody'), S.readerLines, false);
+  fetchVerdicts();
+  decorateVerdicts();
   measure();
   view0 = 0;
   sizeDocCanvases();

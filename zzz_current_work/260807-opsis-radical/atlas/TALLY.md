@@ -1001,3 +1001,48 @@ Censuses all green (meta/long/vyx/abnf + TUI), each asserting: automaton
 edges resolve, start depth 0, frames carry valid clone ids, >0 wired.
 Screenshots: /tmp/auto1.png (the lit walk + pda spine),
 /tmp/auto2.png (earley column spine + CAN COME NEXT).
+
+## Round: the PDA clock earns its name — 2026-08-08
+
+The user's six findings on the automaton round, all landed:
+
+1/3/4. **The pda clock now DOES something everywhere.** The overview band
+recontextualizes per clock (stack-depth texture + warm decision marks for
+pda; violet hypothesis density + abandoned red for earley) — switching
+clocks visibly re-derives the whole facet. The frame lanes stopped being
+a colourless copy of the model view: frames colour by their clone's MODE
+(grey seq · cool dispatch · violet value_str · amber alt), and rolled-back
+probe frames draw RED — the attempt machinery's discarded work, the same
+fate register as Earley's abandoned hypotheses.
+2. **The overlay bug**: the automaton is canvas-only; stale chips from
+the previous view stayed visible over it. Chip layer now shows/hides per
+view.
+5. **The verdicts, from the older prototypes**: `GET /verdicts` ships
+the analysis' per-rule reaction in its own words (attempt / island /
+hard / gated / predictive — opsis_proto_0's explainer vocabulary; the
+analysis is the oracle). The reader badges every non-predictive rule;
+notes ride the title. decide.gbnf shows `choice [attempt]`,
+`xs [attempt]`; amb.gbnf shows `expr [island]`.
+6. **The observation fixtures.** `decide` — an undecidable arm choice,
+393 chars, the attempt machinery fires at every entry: 738 decision
+events, 144 rolled-back probe frames. `amb` — a genuinely ambiguous sum
+(429 derivations), readable via the `first` resolver (the explicit
+opt-out): the route strip states the honest inversion ("start rule
+'expr' is an island — no PDA"), the spine's column shows ambiguity AS
+ITEMS (four `expr-arm1 ::= expr "+" ● expr` at origins 0/2/4/6, all
+alive), and the field carries the abandoned reds.
+
+**The recording bug the fixtures caught:** attempt sub-run frames that
+rolled back never `_complete`, so the end-of-run close stamped them to
+the document end and they polluted the stack readout. The stack
+discipline gives the true fix: a frame popped without completing IS a
+rollback — swept at the next push at its depth AND at any shallower
+completion (`_sweep`), marked abandoned. Verified: zero leaked extents,
+the committed chain reads clean (`entry 145..157 · xa 145..156 · …`),
+probes counted separately in the spine.
+
+Census: six fixtures now (meta/long/vyx/abnf/decide/amb) + TUI, all
+exit 0; gates route-aware (a positionless island failure is still a
+failure; resolver routes measure no frontier). Screenshots:
+/tmp/decide4.png (badges, red probe fates, decision band, clean stack),
+/tmp/amb1.png (island badge, violet density, ambiguity-as-items).

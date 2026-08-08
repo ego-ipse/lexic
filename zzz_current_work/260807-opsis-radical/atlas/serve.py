@@ -103,6 +103,19 @@ class Subject:
             # (cmchar admits \x00-\t) — measured, not assumed. Corrupt at 0,
             # where no line form can start with \x01.
             self.corrupt_at = 0
+        elif key in ("decide", "amb"):
+            # The observation fixtures: decisions (an undecidable arm choice —
+            # the attempt machinery fires at every entry) and ambiguity (429
+            # derivations; the reading exists via the `first` resolver, the
+            # explicit opt-out — ambiguity becomes OBSERVABLE, never silent).
+            gpath = HERE / "fixtures" / f"{key}.gbnf"
+            self.compiled = compile_from_path(str(gpath))
+            self.reader_text = gpath.read_text()
+            self.reader_desc = (f"{key}.gbnf — an undecidable arm choice" if key == "decide"
+                                else f"{key}.gbnf — an ambiguous sum, read via the first resolver")
+            self.doc_path = HERE / "fixtures" / f"{key}.txt"
+            self.graph_ast = self.compiled.grammar
+            self.corrupt_at = 0
         else:
             # A file pair: any grammar the pipeline compiles, any document it reads.
             gpath = Path(key)
@@ -117,7 +130,7 @@ class Subject:
             self.graph_ast = self.compiled.grammar
             self.corrupt_at = 0
         self.document = self.doc_path.read_text()
-        self.resolve = None
+        self.resolve = first if key == "amb" else None
         self.edges, self.rule_depth = rule_graph(self.graph_ast)
         self.generation = 0
         self.t = 0.0
@@ -132,11 +145,16 @@ class Subject:
         self.clock: dict = {"status": "pending"}
         self._instance_tables = None
         self._earley_kernel = None
-        clones, aedges, adepth = automaton_walk(self.compiled.pda_tables().program.start)
+        start_clone = self.compiled.pda_tables().program.start
+        if isinstance(start_clone, _flat.FlatClone):
+            clones, aedges, adepth = automaton_walk(start_clone)
+        else:
+            clones, aedges, adepth = [], [], {}  # the start itself is an island — no PDA machine
         self.auto_clones = clones
         self.auto_edges = aedges
         self.auto_depth = adepth
         self.auto_cid = {id(c): i for i, c in enumerate(clones)}
+        self.verdicts = rule_verdicts(self.compiled)
         self.read(self.document)
 
     def read(self, text: str) -> None:
@@ -200,9 +218,10 @@ class Subject:
                 result["pda_end"] = -1
             except PdaFail as fork:
                 result["pda_end"] = fork.pos  # the inversion is content
+                result["pda_failed"] = "1"  # even a positionless failure is a failure
             for rec in ck.frames:
                 if rec[1] < 0:
-                    rec[1] = ck.pos  # the live stack at death closes here
+                    rec[1] = max(ck.pos, rec[0])  # the live stack at death closes here
             result["frames"] = ck.frames
             result["events"] = ck.events
         except Exception as err:
@@ -412,14 +431,28 @@ class ClockKernel(PdaKernel):
         if not self._caches.probing and len(self.events) < 20000:
             self.events.append([pos, kind, detail])
 
+    def _sweep(self, depth, keep=None) -> None:
+        """Close every open frame at ``depth`` or deeper — popped without
+        completing means an attempt sub-run rolled it back (stack discipline:
+        a completing frame's subtree has already completed, so anything still
+        open below it was abandoned)."""
+        for fid, idx in list(self.open_frames.items()):
+            rec = self.frames[idx]
+            if rec[2] >= depth and fid is not keep:
+                rec[1] = max(self.pos, rec[0])
+                rec[5] = 0
+                del self.open_frames[fid]
+
     def _enter(self, clone, out):
         pushed = super()._enter(clone, out)
         if pushed:
             frame = self.stack[-1]
+            depth = len(self.stack) - 1
+            self._sweep(depth, keep=id(frame))
             self.open_frames[id(frame)] = len(self.frames)
             self.frames.append([
-                frame[F_START], -1, len(self.stack) - 1,
-                str(frame[F_CLONE].name), self.cid_of.get(id(frame[F_CLONE]), -1),
+                frame[F_START], -1, depth,
+                str(frame[F_CLONE].name), self.cid_of.get(id(frame[F_CLONE]), -1), 1,
             ])
         return pushed
 
@@ -427,6 +460,7 @@ class ClockKernel(PdaKernel):
         idx = self.open_frames.pop(id(frame), None)
         if idx is not None:
             self.frames[idx][1] = self.pos
+            self._sweep(self.frames[idx][2] + 1)
         return super()._complete(frame)
 
     def attempt(self, clone, out):
@@ -476,6 +510,37 @@ def _terminal_spelling(element) -> str | None:
     if isinstance(atom, (IrLiteral, IrCharClass)):
         return _spell(element)
     return None
+
+
+def rule_verdicts(cg) -> list[tuple[str, str, list[str]]]:
+    """Per rule: the PDA's reaction, in the analysis' own words.
+
+    The verdict vocabulary from opsis_proto_0's explainer: attempt (ordered
+    attempts decide) · island (windowed Earley sub-parse) · hard (unresolved
+    conflict) · gated (demoted to a stored gate) · predictive (single-pass
+    deterministic). Nothing computed here — the analysis is the oracle.
+    """
+    from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+    analysis = GrammarAnalysis(lift_optional_nullables(cg.codegen_grammar))
+    attempts = set(analysis.taxonomy.attempts)
+    islands = set(analysis.islands) - attempts
+    hard = {k: list(v) for k, v in analysis.taxonomy.conflicts.items() if v}
+    soft = {k: list(v) for k, v in analysis.demoted.items() if v}
+    out = []
+    for name in analysis.rules:
+        notes = hard.get(name, []) + soft.get(name, [])
+        if name in attempts:
+            cls = "attempt"
+        elif name in islands:
+            cls = "island"
+        elif hard.get(name):
+            cls = "hard"
+        elif soft.get(name):
+            cls = "gated"
+        else:
+            cls = "predictive"
+        out.append((str(name), cls, [str(n) for n in notes]))
+    return out
 
 
 def rail_lines(ast, name: str) -> list[str] | None:
@@ -633,6 +698,13 @@ class Handler(BaseHTTPRequestHandler):
                 body = "\n".join(f"{k} {v}" for k, v in self.subject.policy.items())
             self.send_text(body)
             return
+        if self.path == "/verdicts":
+            rows = []
+            for name, cls, notes in self.subject.verdicts:
+                rows.append(f"{cls} {len(notes)} {name}")
+                rows.extend(notes)
+            self.send_text(f"#VERDICTS {len(self.subject.verdicts)}\n" + "\n".join(rows))
+            return
         if self.path == "/automaton":
             subj = self.subject
             names: dict[str, int] = {}
@@ -683,9 +755,9 @@ class Handler(BaseHTTPRequestHandler):
             frames = clock.get("frames", [])
             fnames: dict[str, int] = {}
             rows = []
-            for start, end, depth, name, cid in frames:
+            for start, end, depth, name, cid, ok in frames:
                 idx = fnames.setdefault(name, len(fnames))
-                rows.append(f"{start} {end} {depth} {idx} {cid}")
+                rows.append(f"{start} {end} {depth} {idx} {cid} {ok}")
             out.append(f"#PDAFRAMES {len(rows)}")
             out.extend(rows)
             out.append(f"#PDANAMES {len(fnames)}")
@@ -815,8 +887,8 @@ def census(subject: Subject) -> int:
     head, _, words = refusal.partition("\n")
     pos = int(head.split()[1]) if head.startswith("refuse") else -2
     ok_refuse = head.startswith("refuse") and subject.document[mid] != "\x01"
-    # every fixture is PDA-routed now, so every frontier is measurable
-    ok_frontier = pos >= 0
+    # PDA-routed fixtures measure the frontier; resolver routes honestly cannot
+    ok_frontier = pos >= 0 if subject.resolve is None else True
     span0 = subject.spans[0]
     saved = handler.retype(
         f"{span0.start} {span0.end}\n{subject.document[span0.start:span0.end]}", persist=True
@@ -848,25 +920,30 @@ def census(subject: Subject) -> int:
     frames = ck.get("frames", [])
     hyp = ck.get("hyp", [])
     n_doc = len(subject.document)
+    pda_ok = ck.get("pda_end", -1) == -1 and "pda_error" not in ck and "pda_failed" not in ck
     ok_clock = (ck.get("status") == "done"
-                and len(frames) > 0
                 and all(0 <= f[0] <= f[1] <= n_doc for f in frames)
-                and any(f[0] == 0 and f[1] == n_doc for f in frames)
+                and (not pda_ok or (len(frames) > 0 and any(f[0] == 0 and f[1] == n_doc for f in frames)))
                 and len(hyp) > 0
                 and all(0 <= h[0] <= h[1] <= n_doc for h in hyp)
                 and any(h[0] == 0 and h[1] == n_doc and h[2] for h in hyp))
     n_clones = len(subject.auto_clones)
-    ok_auto = (n_clones > 0
-               and all(0 <= a < n_clones and 0 <= b < n_clones for a, b in subject.auto_edges)
-               and subject.auto_depth.get(0) == 0
-               and all(len(f) == 5 and -1 <= f[4] < n_clones for f in frames)
-               and sum(1 for f in frames if f[4] >= 0) > 0)
+    ok_auto = (all(0 <= a < n_clones and 0 <= b < n_clones for a, b in subject.auto_edges)
+               and all(len(f) == 6 and -1 <= f[4] < n_clones for f in frames)
+               and (n_clones == 0 or subject.auto_depth.get(0) == 0)
+               and (not pda_ok or (n_clones > 0 and sum(1 for f in frames if f[4] >= 0) > 0)))
+    ok_verdicts = (len(subject.verdicts) > 0
+                   and all(cls in ("attempt", "island", "hard", "gated", "predictive")
+                           for _n, cls, _o in subject.verdicts))
     print(f"clocks: pda {len(frames)} frames (depth {max((f[2] for f in frames), default=0)}, "
           f"{len(ck.get('events', []))} events, end {ck.get('pda_end')}) · "
           f"earley {len(hyp)} hypotheses ({sum(1 for h in hyp if h[2])} completed, "
           f"{ck.get('dropped', 0)} dropped) · well-formed {ok_clock}")
+    from collections import Counter as _Counter
+    vcount = _Counter(cls for _n, cls, _o in subject.verdicts)
     print(f"automaton: {n_clones} clones · {len(subject.auto_edges)} edges · "
           f"{len({str(c.name) for c in subject.auto_clones})} names · frames wired {ok_auto}")
+    print(f"verdicts: {dict(vcount)} · well-formed {ok_verdicts}")
     rails = rail_lines(subject.graph_ast, start)
     ok_rail = (rails is not None and len(rails) > 0
                and all(len(ln.split(None, 1)) >= 2 for ln in rails)
@@ -883,11 +960,12 @@ def census(subject: Subject) -> int:
     if subject.resolve is None:
         ok_routes = r2.get("status") == "done" and r2.get("parity") == "holds"
     else:
-        ok_routes = r2.get("status") == "failed" and int(r2.get("pos", "-1")) >= 0
+        # a resolver route's PDA honestly fails; an island-start failure has no position
+        ok_routes = r2.get("status") == "failed"
     print(f"other route: {r2} · as expected {ok_routes}")
     ok = (subject.faithful and ok_scene and ok_edit and ok_refuse and ok_frontier
           and ok_save and ok_routes and ok_graph and ok_policy and ok_rail and ok_clock
-          and ok_auto)
+          and ok_auto and ok_verdicts)
     print("census ok" if ok else "census FAILED")
     return 0 if ok else 1
 

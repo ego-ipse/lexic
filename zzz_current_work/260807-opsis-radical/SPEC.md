@@ -17,7 +17,13 @@ screenshot-verified.
   `meta` / `vyx` (the GBNF metagrammar — `compile_ast(GBNF_FLAVOUR.grammar)`
   — reads `resources/ground_truth/{json,vyx}.gbnf`; reader text =
   `GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar)`), `abnf` (the ABNF metagrammar
-  reads `json.abnf` — the second flavour through the same pipeline). Any
+  reads `json.abnf` — the second flavour through the same pipeline),
+  `decide` (`atlas/fixtures/decide.gbnf` — an undecidable arm choice; the
+  attempt machinery fires at every entry: the DECISION observation
+  fixture) and `amb` (`atlas/fixtures/amb.gbnf` — a genuinely ambiguous
+  sum, 429 derivations over 15 chars, read via the `first` resolver — the
+  explicit opt-out — so ambiguity is OBSERVABLE, never silent; its PDA
+  honestly has no machine: the start rule is an island). Any
   other first argument is a **file pair**: `serve.py <grammar> <doc> [port]`
   compiles the grammar file and reads the document — any grammar the
   pipeline compiles, any document it reads.
@@ -37,12 +43,27 @@ screenshot-verified.
   (`start end depth nameIdx` — every frame the fused kernel pushed, from
   `ClockKernel(PdaKernel)` recording in `_enter`/`_complete`/`attempt`
   before delegating; frames open at death close at the failure position),
-  `#PDANAMES k`, `#TRIES n` (`pos name` — real attempt invocations),
+  `#PDANAMES k`, `#EVENTS n` (`pos kind detail` — the decision
+  vocabulary: attempt / loop / verdict / probe / island, recorded through
+  the TraceKernel seams; capped 20k). Frames carry `ok` (6th token): a
+  frame popped without completing was ROLLED BACK by the attempt
+  machinery — abandoned, the same fate register as Earley's dead
+  hypotheses, drawn red in the lanes and counted as probe frames in the
+  spine. The overview band recontextualizes per clock: pda = stack-depth
+  texture with warm decision marks; earley = hypothesis density in
+  violet, red where only abandoned hypotheses touched a char.
   `#EARLEY n` (`origin last completed nameIdx` — every hypothesis
   `(rule, origin)` the explicit `Kernel` ever held, decoded from its own
   columns via `decode_item`; completed = a final-dot item appeared) and
   `#EARLEYNAMES k`. Hypotheses cap at 60k, longest/completed kept,
   `dropped` counts the rest — stated on the legend, never silent.
+- `GET /verdicts` — per rule, the PDA analysis' reaction in its own
+  words: `#VERDICTS n`, rows `class noteCount name` + note lines. Classes:
+  attempt (ordered attempts decide) · island (windowed Earley sub-parse) ·
+  hard (unresolved conflict) · gated (demoted to a stored gate) ·
+  predictive (single-pass deterministic). The reader badges every
+  non-predictive rule (silence IS the deterministic verdict); notes ride
+  the badge title. The analysis is the oracle; this is its transcript.
 - `GET /automaton` — the compiled machine itself: `#ACLONES n`
   (`nameIdx mode flags depth` — every reachable clone; modes
   alt/seq/dispatch/value_str/group; flags a=attempt l=leaf k/p/s=gates;
