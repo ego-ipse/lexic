@@ -915,3 +915,41 @@ meta 2,543 frames/10,328 hyp · vyx 1,360/8,999 (786 abandoned) · long
 Screenshots: /tmp/trace_pda.png (the stack breathing over a comment
 stretch, spine agreeing), /tmp/trace_earley.png (completed extents over
 the dense per-char hypothesis band).
+
+## Round: the clock rethink — a mock, from the developed languages — 2026-08-08
+
+The user's redirect: the clocks need rethinking, and the languages were
+already developed — VISION_6's `1-watching-a-parse.html` (the Earley
+stepper), opsis-2 visual_2's automaton-level PDA (whose real engine is
+`260731-opsis/opsis_proto_0/trace.py`'s TraceKernel), and visual_4's
+ambiguity annex — with the ruling that no Earley conversation lives
+without the SPPF. Chose (with the user) a mock before implementation:
+`clockmock/mockup.py` → self-contained `clockmock.html`, every payload
+extracted from live runs, generation IS the census.
+
+**What the mock demonstrates, all real:**
+- THE PDA as a stepper: the frame lanes + THE STACK AT t as a sentence
+  (7 frames open: json-text ▸ … ▸ value), decision events through the
+  TraceKernel seams (all four hooks verified alive in today's kernel),
+  owner-colored text. The json walk is honestly deterministic — so the
+  decision vocabulary got a live annex: an undecidable arm choice
+  (`s ::= xa | xb` over unbounded x's) whose 11 attempt events SHOW the
+  re-walk cost. Islands stay a legend note: the nested-leftrec trial
+  refused honestly ("arm choice spans two ends"), and a succeeding
+  island subject is a rabbit hole this mock didn't need.
+- THE EARLEY COLUMN as the watching-mock's read, re-extracted from
+  today's kernel via `decode_item`: the item set at t as dotted rules
+  (done ● todo, @origin, predict/advance/complete), CAN COME NEXT, the
+  hypothesis field demoted to overview. Empty columns are REAL (the
+  kernel scans lexical runs past interior columns) and say so.
+- THE FOREST from the chart's own links: 6 symbol nodes, the ONE
+  ambiguity point (expr 0..5, two families — Scott's definition), family
+  edges warm-vs-dashed-red, derivation toggle, exclusive subtrees marked
+  "⟵ not in the twin". The refusal doctrine stated on the panel.
+
+Deterministic states: `?t=`, `?fam=`. Screenshots /tmp/clockmock1.png,
+/tmp/clockmock_t_20.png (7-deep stack mid-"true"), /tmp/clockmock_t_5_fam_1.png
+(the mirrored family choice). Next: the user reads it and rules on the
+read; then the atlas integration (wire sections for items/events; the
+SPPF panel needs an ambiguous subject, which atlas fixtures by design
+are not — the annex-as-subject question is theirs to rule).
