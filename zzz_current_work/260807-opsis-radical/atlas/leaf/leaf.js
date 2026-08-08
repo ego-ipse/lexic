@@ -316,6 +316,7 @@ async function loadClock() {
       if (ln.startsWith('generation ')) {
         if (ln.slice(11) !== S.meta.generation) { setTimeout(() => { clockWaiting = false; ask(); }, 1500); return; }
       } else if (ln.startsWith('pda_end ')) data.pdaEnd = +ln.slice(8);
+      else if (ln.startsWith('pda_words ')) data.pdaWords = ln.slice(10);
       else if (ln.startsWith('dropped ')) data.dropped = +ln.slice(8);
       else if (ln.startsWith('#PDAFRAMES')) section = 'f';
       else if (ln.startsWith('#PDANAMES')) section = 'fn';
@@ -359,14 +360,18 @@ function clockReady() {
 
 let clockHit = null;
 
+function truncLine(cx, text, maxW) {
+  let line = text;
+  while (line.length > 8 && cx.measureText(line).width > maxW) {
+    line = line.slice(0, -8) + '…';
+  }
+  return line;
+}
+
 function drawLegend(cx, w, h, text) {
   cx.fillStyle = '#66707f';
   cx.font = '10px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
-  let line = text;
-  while (line.length > 8 && cx.measureText(line).width > w - 20) {
-    line = line.slice(0, -8) + '…';
-  }
-  cx.fillText(line, 12, h - 5);
+  cx.fillText(truncLine(cx, text, w - 20), 12, h - 5);
 }
 
 function withA(hex, a) {
@@ -427,6 +432,13 @@ function drawClockBand(cx, pad, bandH, step, ox, N) {
 function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   const pda = chartClock === 'pda';
   if (pda && !autoData) fetchAutomaton();
+  if (pda && !clockData.frames.length) {
+    cx.fillStyle = C.dim;
+    cx.font = '11px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+    cx.fillText(truncLine(cx, 'the PDA never ran' + (clockData.pdaWords ? ' — ' + clockData.pdaWords : ''), w - 24), 12, lanesY + 18);
+    cx.fillText(truncLine(cx, 'this reading came from Earley' + (S.meta.resolver === '1' ? ' + the supplied resolver' : '') + ' — the earley clock tells its time', w - 24), 12, lanesY + 34);
+    return;
+  }
   const list = pda ? clockData.frames : clockData.hyp;
   const rows = pda ? clockData.frameRows : clockData.hypRows;
   const y1 = h - 18;
@@ -614,6 +626,16 @@ function drawPdaSpine() {
     spineClock('the PDA at t — clock running…');
     body.innerHTML = '<div class="none">the pda clock is still running</div>';
     closedBody.textContent = '';
+    return;
+  }
+  if (!clockData.frames.length) {
+    spineClock('the PDA — no machine');
+    body.innerHTML = '<div class="none">the PDA never ran'
+      + (clockData.pdaWords ? ': ' + clockData.pdaWords : '')
+      + (S.meta.resolver === '1' ? ' · the reading came from Earley + the supplied resolver' : '')
+      + ' · the earley clock tells this subject\'s time</div>';
+    $('closedHead').textContent = 'DECISIONS';
+    closedBody.innerHTML = '<div class="none">none — there is no machine to decide</div>';
     return;
   }
   spineClock("the PDA's stack at t");
@@ -1565,7 +1587,7 @@ function decorateVerdicts() {
   document.querySelectorAll('#grammarBody .vbadge').forEach((el) => el.remove());
   for (const def of S.ruledefs) {
     const v = verdictMap.get(def.name);
-    if (!v || v.cls === 'predictive') continue;  // silence IS the deterministic verdict
+    if (!v) continue;
     const ln = document.querySelector(`#grammarBody .ln[data-l="${def.a}"]`);
     if (!ln) continue;
     const badge = document.createElement('span');
@@ -1622,6 +1644,18 @@ function drawAutoView(v) {
   if (!w || !h) return;
   v.chips.style.display = 'none';  // canvas-only view: stale chips must not overlay
   if (!autoData) { fetchAutomaton(); return; }
+  if (!autoData.clones.length) {
+    const dpr0 = Math.min(window.devicePixelRatio || 1, 2);
+    if (cv.width !== w * dpr0) { cv.width = w * dpr0; cv.height = h * dpr0; }
+    const cx0 = cv.getContext('2d');
+    cx0.setTransform(dpr0, 0, 0, dpr0, 0, 0);
+    cx0.clearRect(0, 0, w, h);
+    cx0.fillStyle = '#66707f';
+    cx0.font = '11px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+    cx0.fillText(truncLine(cx0, 'no machine — the start rule is an island; the whole document is an Earley window.', w - 28), 14, h - 40);
+    cx0.fillText(truncLine(cx0, "the earley clock tells this subject's time; the rule views (flat / rails) still apply.", w - 28), 14, h - 22);
+    return;
+  }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
   const cx = cv.getContext('2d');
@@ -1640,7 +1674,8 @@ function drawAutoView(v) {
   cx.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty);
   // the walk at t: which clones the kernel is IN, has VISITED
   const inNow = new Set(), visited = new Set();
-  const lit = chartClock === 'pda' && clockReady();
+  if (!clockReady()) loadClock();
+  const lit = clockReady() && clockData.frames.length > 0;
   if (lit) {
     for (const f of clockData.frames) {
       if (f.cid < 0 || !f.ok) continue;

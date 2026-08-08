@@ -1069,3 +1069,32 @@ The user's read of the pda-clock round:
 Verified: /tmp/polish1.png (automaton legend bottom), /tmp/polish2.png
 (earley legend bottom, no badges, CAN COME NEXT "a"/"b"/"x" — the
 undecidability itself), /tmp/polish4.png (badges right-edge, pda clock).
+
+## Round: the machineless truth + badge coverage — 2026-08-08
+
+Four findings on the polish round:
+
+1. **Badges justified to the text, not the facet** — absolute-in-line
+   pins to the LINE's right edge, which lives past the viewport when the
+   facet is narrow. Fix: `position: sticky; right; margin-left: auto` —
+   the badge rides the visible scrollport edge at any share. Verified at
+   reader share 0.2.
+2. **Rules without designation** — "silence is the deterministic
+   verdict" was too clever; every rule now carries its badge, predictive
+   in the dim register. The reader reads as a complete verdict table.
+3. **The automaton only lit on the pda clock** — the walk exists
+   regardless of which clock the derivation facet tells; lighting now
+   loads and applies from the clock data unconditionally.
+4. **amb broke both views with nonsense** — the machineless case now
+   speaks the engine's own words everywhere, shipped over the wire
+   (`pda_words`): the pda lanes and spine say "the PDA never ran — start
+   rule 'expr' is an island — no PDA · the reading came from Earley + the
+   supplied resolver · the earley clock tells this subject's time";
+   DECISIONS says "none — there is no machine to decide"; the automaton
+   view states the island honestly and points at the views that still
+   apply. All sentences truncate to their facet (truncLine shared with
+   the legends).
+
+Censuses green (decide/amb/meta spot + earlier full run). Screenshots:
+/tmp/amb_fix.png (the honest machineless subject), /tmp/badge_fix.png
+(full badge coverage pinned to a narrow facet's edge).

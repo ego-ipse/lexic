@@ -219,6 +219,7 @@ class Subject:
             except PdaFail as fork:
                 result["pda_end"] = fork.pos  # the inversion is content
                 result["pda_failed"] = "1"  # even a positionless failure is a failure
+                result["pda_words"] = str(fork)[:200]
             for rec in ck.frames:
                 if rec[1] < 0:
                     rec[1] = max(ck.pos, rec[0])  # the live stack at death closes here
@@ -752,6 +753,9 @@ class Handler(BaseHTTPRequestHandler):
             out = [f"status done", f"generation {generation}",
                    f"pda_end {clock.get('pda_end', -1)}",
                    f"dropped {clock.get('dropped', 0)}"]
+            words = clock.get("pda_words") or clock.get("pda_error")
+            if words:
+                out.append(f"pda_words {words.splitlines()[0]}")
             frames = clock.get("frames", [])
             fnames: dict[str, int] = {}
             rows = []
