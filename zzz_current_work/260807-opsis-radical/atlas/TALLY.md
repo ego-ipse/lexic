@@ -1241,3 +1241,24 @@ and it was already on the traps list when I wrote it again. New
 discipline, stated: any element that toggles `hidden` and carries an
 authored `display` gets an explicit `[hidden] { display: none }` rule in
 the same breath. Fixed with exactly that (`73a029f`).
+
+## REVERTED: the §9b bundle (b9e2a73) — 2026-08-08
+
+The user reverted the clone/pin-minimize/re-dock bundle: clone only
+cloned the reader, the window did not appear in real use, and the
+solution was fundamentally broken. They are right, and the root cause
+is worth the ledger:
+
+**The leaf's facet renderers are singletons.** Every facet is hardwired
+to fixed DOM ids and module globals ($('grammarBody'), $('chartCv'),
+$('spineBody'), S, cur, view0, chartClock…). The bundle dodged that by
+instancing only the one piece that was ALREADY multi-instance (the
+graph-view machinery) and calling it "clone" — which is why it could
+only clone the reader, and why pop for the other facet kinds was
+impossible. A capability built on the exception instead of the rule.
+
+The real shape, if clone/pop are wanted: per-kind facet RENDERERS as
+instances — a constructor taking (container, own presentation state),
+today's facets becoming instance zero, windows and panes two containers
+for the same instance. That is a substantial refactor of the leaf, not
+a round; it should be decided as such.
