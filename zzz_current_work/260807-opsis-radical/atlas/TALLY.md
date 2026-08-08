@@ -1262,3 +1262,33 @@ instances — a constructor taking (container, own presentation state),
 today's facets becoming instance zero, windows and panes two containers
 for the same instance. That is a substantial refactor of the leaf, not
 a round; it should be decided as such.
+
+## Round: the ladder — focus and travel — 2026-08-08
+
+After the stop-and-think (two reverts taught it): the self-representation
+question answered structurally. Design in THINKING §10; built:
+
+- **Session** (serve.py): the ladder of readings per fixture, subjects
+  lazy-built on focus, one shared policy record. Subject grew
+  `from_reading` (the common tail extracted); the census drives a bare
+  handler through a setter shim. The top rung of every gbnf fixture is
+  the FIXPOINT: the metagrammar reading its own emitter spelling —
+  census asserts reader == document and faithful.
+- **Wire**: `#LADDER n` in the scene (i, focused, label), `POST /focus i`
+  (synchronous rung build — travel takes the compile cost once).
+- **Leaf**: the lineage strip — reading-chips in the masthead, focus
+  warm, click = travel = focus POST + full subject-cache reset
+  (rails/verdicts/automaton/clock/columns) + re-boot. Everything
+  re-derives; the arrangement persists (policy is session-wide).
+
+The three-shot story (/tmp/rung0.png, rung1.png, rung2.png): the json
+document under json.gbnf → ONE CLICK → json.gbnf itself as the document
+under the metagrammar (the duality: yesterday's reader is today's text,
+spans and spine and clocks all speaking metagrammar) → ONE CLICK → the
+fixpoint: reader and document the same text, the instrument watching
+the metagrammar read itself.
+
+One parser corruption caught by node --check (the ladder-parse insert
+landed mid-block in parseScene's tag chain — repaired). Censuses green
+(long incl. fixpoint gate). Named next in §10: anchored facets (clone,
+now definable), the constellation, the IR rung, the opsis node.

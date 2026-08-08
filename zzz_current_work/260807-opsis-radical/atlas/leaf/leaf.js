@@ -325,7 +325,7 @@ let needsDraw = false;
 /* ── scene wire: line-oriented text, length-prefixed blocks ── */
 
 function parseScene(text) {
-  const scene = { meta: {}, ruledefs: [], ruleNames: [], fieldNames: [], spans: [] };
+  const scene = { meta: {}, ruledefs: [], ruleNames: [], fieldNames: [], spans: [], ladder: [] };
   let i = 0;
   const nextLine = () => {
     const j = text.indexOf('\n', i);
@@ -353,6 +353,11 @@ function parseScene(text) {
       for (const ln of lines) {
         const parts = ln.split(' ');
         scene.ruledefs.push({ name: parts.slice(0, -2).join(' '), a: +parts.at(-2), b: +parts.at(-1) });
+      }
+    } else if (tag === '#LADDER') {
+      for (const ln of lines) {
+        const m = ln.match(/^(\d+) (\d) (.*)$/);
+        if (m) scene.ladder.push({ i: +m[1], focused: m[2] === '1', label: m[3] });
       }
     } else if (tag === '#RULENAMES') scene.ruleNames = lines;
     else if (tag === '#FIELDNAMES') scene.fieldNames = lines;
@@ -2818,6 +2823,7 @@ async function boot(keep) {
   gNodes = null;
   if (graphOn) buildGraph();
   applyPolicy();
+  renderLadder();
   $('sub').textContent =
     `${S.meta.reader} read ${S.doc.length.toLocaleString()} chars in ${S.meta.seconds}s · `
     + `${S.spans.length.toLocaleString()} spans · depth ${S.maxdepth}`
@@ -2963,6 +2969,50 @@ async function pollPolicy() {
     // inside the quiet window: keep the old snapshot — the delta re-diffs next tick
   } catch { /* the wire owns retries: next tick */ }
   setTimeout(pollPolicy, 2000);
+}
+
+function resetSubjectCaches() {
+  railCache.clear();
+  railsAll = null;
+  railsLoading = false;
+  railsLayout = null;
+  verdictMap = null;
+  verdictLoading = false;
+  autoData = null;
+  autoLoading = false;
+  clockData = null;
+  clockWaiting = false;
+  colCache = new Map();
+  colWaiting = false;
+  clockHover = -1;
+  clockHoverExt = null;
+}
+
+async function travel(i) {
+  await fetch('/focus', { method: 'POST', body: 'focus ' + i }).catch(() => {});
+  resetSubjectCaches();
+  await boot(false);
+}
+
+function renderLadder() {
+  const strip = $('ladder');
+  if (!strip) return;
+  strip.textContent = '';
+  for (const rung of S.ladder) {
+    const chip = document.createElement('span');
+    chip.className = 'rung' + (rung.focused ? ' on' : '');
+    chip.textContent = rung.label;
+    chip.title = rung.focused
+      ? 'the focused reading'
+      : 'travel here — the whole instrument re-derives against this reading';
+    if (!rung.focused) chip.addEventListener('click', () => travel(rung.i));
+    strip.appendChild(chip);
+    const sep = document.createElement('span');
+    sep.className = 'rsep';
+    sep.textContent = '⊳';
+    strip.appendChild(sep);
+  }
+  if (strip.lastChild) strip.removeChild(strip.lastChild);
 }
 
 async function pollRoutes() {

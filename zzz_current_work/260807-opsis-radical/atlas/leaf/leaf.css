@@ -93,6 +93,22 @@ body {
   box-sizing: border-box;
 }
 
+/* ── the ladder: the lineage strip — readings as travel ── */
+#ladder { display: flex; gap: 5px; align-items: center; margin-left: 16px; }
+#ladder .rung {
+  border: 1px solid var(--hair);
+  color: var(--dim);
+  font: 10px var(--mono);
+  letter-spacing: 0.06em;
+  padding: 1px 8px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+#ladder .rung.on { border-color: var(--warm); color: var(--warm); cursor: default; }
+#ladder .rung:not(.on):hover { border-color: var(--cool); color: var(--cool); }
+#ladder .rsep { color: var(--dimmer); font-size: 10px; }
+
 /* ── the dock: every facet is a node; presence toggles here ── */
 #dock { display: flex; gap: 6px; margin-left: 18px; align-items: center; }
 #dock .fnode-chip {

@@ -129,8 +129,26 @@ class Subject:
             self.doc_path = Path(doc)
             self.graph_ast = self.compiled.grammar
             self.corrupt_at = 0
-        self.document = self.doc_path.read_text()
-        self.resolve = first if key == "amb" else None
+        self._init_common(self.doc_path.read_text())
+
+    @classmethod
+    def from_reading(cls, key, compiled, reader_text, reader_desc, document, doc_path=None):
+        """A reading assembled from parts — the ladder's non-base rungs."""
+        self = cls.__new__(cls)
+        self.key = key
+        self.compiled = compiled
+        self.reader_text = reader_text
+        self.reader_desc = reader_desc
+        self.doc_path = doc_path
+        self.graph_ast = compiled.grammar
+        self.corrupt_at = 0
+        self._init_common(document)
+        return self
+
+    def _init_common(self, document: str) -> None:
+        """Everything after the fixture branch — one tail for every reading."""
+        self.document = document
+        self.resolve = first if self.key == "amb" else None
         self.edges, self.rule_depth = rule_graph(self.graph_ast)
         self.generation = 0
         self.t = 0.0
@@ -263,6 +281,8 @@ class Subject:
                 self.clock = result
 
     def save_held(self) -> str:
+        if self.doc_path is None:
+            return "this reading's document is an emitter's own spelling — nothing on disk to save"
         """Why a save must not write, or empty when writing is allowed."""
         if "ground_truth" in str(self.doc_path):
             return "the document is repo ground-truth corpus; the instrument will not overwrite it"
@@ -513,6 +533,81 @@ def _terminal_spelling(element) -> str | None:
     return None
 
 
+_META_CG = {}
+
+
+def flavour_cg(flavour):
+    """The metagrammar compiled once per flavour, shared by every rung."""
+    key = id(flavour)
+    if key not in _META_CG:
+        _META_CG[key] = compile_ast(flavour.grammar)
+    return _META_CG[key]
+
+
+class Session:
+    """The ladder of readings a fixture implies — subjects built lazily.
+
+    Every reader is also a text; every text may also be a reader. The base
+    rung is the fixture; above it, the grammar read by its metagrammar; at
+    the top, the metagrammar reading ITS OWN spelling — the self-hosting
+    fixpoint, where reader and document are the same text. Travel moves
+    focus; the whole instrument re-derives. One policy record spans the
+    session (the arrangement survives travel).
+    """
+
+    def __init__(self, key: str, doc: str | None = None) -> None:
+        self.key = key
+        self.rungs = self._ladder(key, doc)
+        self.subjects: dict[int, Subject] = {}
+        self.focus = 0
+        self.policy: dict[str, str] = {}
+        self.subject(0)
+
+    def _ladder(self, key, doc):
+        gt = ROOT / "resources" / "ground_truth"
+        meta_spell = lambda: str(GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar))
+        rungs = []
+        if key == "long":
+            rungs.append(("long.json ⊳ json.gbnf", lambda: Subject(key, doc)))
+            rungs.append(("json.gbnf ⊳ metagrammar", lambda: Subject.from_reading(
+                key, flavour_cg(GBNF_FLAVOUR), meta_spell(),
+                "the GBNF metagrammar (90 rules), spelled by its own emitter",
+                (gt / "json.gbnf").read_text(), gt / "json.gbnf")))
+        elif key in ("decide", "amb"):
+            fx = HERE / "fixtures"
+            rungs.append((f"{key}.txt ⊳ {key}.gbnf", lambda: Subject(key, doc)))
+            rungs.append((f"{key}.gbnf ⊳ metagrammar", lambda: Subject.from_reading(
+                key, flavour_cg(GBNF_FLAVOUR), meta_spell(),
+                "the GBNF metagrammar (90 rules), spelled by its own emitter",
+                (fx / f"{key}.gbnf").read_text(), fx / f"{key}.gbnf")))
+        elif key in ("meta", "vyx"):
+            name = "json.gbnf" if key == "meta" else "vyx.gbnf"
+            rungs.append((f"{name} ⊳ metagrammar", lambda: Subject(key, doc)))
+        elif key == "abnf":
+            rungs.append(("json.abnf ⊳ abnf metagrammar", lambda: Subject(key, doc)))
+        else:
+            rungs.append((f"{key} ⊳ its grammar", lambda: Subject(key, doc)))
+        if key == "abnf":
+            spell = str(ABNF_FLAVOUR.apply(ABNF_FLAVOUR.grammar))
+            rungs.append(("⟲ the abnf metagrammar reads its own spelling", lambda: Subject.from_reading(
+                key, flavour_cg(ABNF_FLAVOUR), spell,
+                "the ABNF metagrammar, spelled by its own emitter", spell, None)))
+        elif key in ("long", "meta", "vyx", "decide", "amb"):
+            rungs.append(("⟲ the metagrammar reads its own spelling", lambda: Subject.from_reading(
+                key, flavour_cg(GBNF_FLAVOUR), meta_spell(),
+                "the GBNF metagrammar (90 rules), spelled by its own emitter",
+                meta_spell(), None)))
+        return rungs
+
+    def subject(self, i: int | None = None) -> Subject:
+        i = self.focus if i is None else max(0, min(i, len(self.rungs) - 1))
+        if i not in self.subjects:
+            subj = self.rungs[i][1]()
+            subj.policy = self.policy  # one record for the whole session
+            self.subjects[i] = subj
+        return self.subjects[i]
+
+
 def rule_verdicts(cg) -> list[tuple[str, str, list[str]]]:
     """Per rule: the PDA's reaction, in the analysis' own words.
 
@@ -664,7 +759,22 @@ def build_scene(subject: Subject) -> str:
 class Handler(BaseHTTPRequestHandler):
     """The seam — frames out, gestures in. Addresses travel; subjects never do."""
 
-    subject: Subject
+    session: Session
+
+    @property
+    def subject(self) -> Subject:
+        return self.session.subject()
+
+    @subject.setter
+    def subject(self, value: Subject) -> None:
+        # the census drives a bare handler with one subject — wrap it
+        holder = Session.__new__(Session)
+        holder.key = value.key
+        holder.rungs = [("census", None)]
+        holder.subjects = {0: value}
+        holder.focus = 0
+        holder.policy = value.policy
+        self.session = holder
 
     def log_message(self, *_args: object) -> None:
         """Quiet; the interesting events print themselves."""
@@ -692,7 +802,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/scene":
             with self.subject.lock:
-                self.send_text(build_scene(self.subject))
+                scene = build_scene(self.subject)
+            rungs = [f"{i} {1 if i == self.session.focus else 0} {label}"
+                     for i, (label, _b) in enumerate(self.session.rungs)]
+            scene = scene.replace("#RULEDEFS", f"#LADDER {len(rungs)}\n" + "\n".join(rungs) + "\n#RULEDEFS", 1)
+            self.send_text(scene)
             return
         if self.path == "/policy":
             with self.subject.lock:
@@ -818,6 +932,13 @@ class Handler(BaseHTTPRequestHandler):
             with self.subject.lock:
                 self.subject.t = float(head[1])
                 self.subject.selection = int(head[3])
+            self.send_text("ok")
+            return
+        if self.path == "/focus":
+            i = int(body.split()[-1])
+            self.session.focus = max(0, min(i, len(self.session.rungs) - 1))
+            self.session.subject()  # build the rung now, synchronously
+            print(f"focus → rung {self.session.focus}: {self.session.rungs[self.session.focus][0]}")
             self.send_text("ok")
             return
         if self.path == "/policy":
@@ -982,12 +1103,21 @@ def main() -> int:
     tail = args[2:] if doc is not None else args[1:]
     port = int(tail[0]) if tail else 8901
     print(f"reading fixture '{key}' …")
-    subject = Subject(key, doc)
+    session = Session(key, doc)
+    subject = session.subject(0)
     print(f"{subject.reader_desc} read {len(subject.document):,} chars in {subject.seconds:.2f}s · "
           f"{len(subject.spans):,} spans · faithful {subject.faithful}")
     if "--census" in sys.argv:
-        return census(subject)
-    Handler.subject = subject
+        rc = census(subject)
+        if len(session.rungs) > 1:
+            top = session.subject(len(session.rungs) - 1)
+            ok_ladder = (top.faithful and top.document == top.reader_text)
+            print(f"ladder: {len(session.rungs)} rungs · fixpoint reader==document {ok_ladder}")
+            rc = rc or (0 if ok_ladder else 1)
+            if not ok_ladder:
+                rc = 1
+        return rc
+    Handler.session = session
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     print(f"facets at http://127.0.0.1:{port}/")
     server.serve_forever()

@@ -262,3 +262,31 @@ point. The dock's scale redesign follows clone, when instance counts are
 real. Legacy `arrange.reader|right|top` stay honored while the tree is
 default-shaped (the TUI still reads them); the tree supersedes them
 otherwise.
+
+## 10. Focus and travel — the session becomes a ladder (built 2026-08-08)
+
+The user's redirect, after two wrong answers (a popup map, a facet map):
+"how does opsis represent itself" is not furniture — it is the LADDER.
+A facet is (subject, projection, presentation); atlas had hardwired the
+first coordinate. The clone problem and the layout problem were both
+fragments of that: clone tried to multiply presentation with the subject
+pinned; the map drew the third coordinate only.
+
+**Built: Session = the ladder of readings a fixture implies.** Every
+reader is also a text; every text may also be a reader. long climbs:
+long.json ⊳ json.gbnf → json.gbnf ⊳ metagrammar → the metagrammar ⟲ its
+own spelling (the self-hosting fixpoint — reader and document the SAME
+TEXT, census-gated). Subjects build lazily on first focus; one policy
+record spans the session, so the arrangement survives travel. The wire:
+`#LADDER` in the scene, `POST /focus i`. The leaf: the lineage strip in
+the masthead — readings as chips, focus lit warm, click travels; every
+subject-scoped cache resets and the WHOLE instrument re-derives (spans,
+spine, clocks, verdicts, automaton, rails — all of it, against the new
+reading). The travel moment is the duality made kinesthetic: json.gbnf
+flips from reader to document in one click.
+
+Not yet: anchored facets (clone = a facet pinned to an off-focus rung —
+now DEFINABLE in this model, deferred); the constellation view (the
+graph drawn whole, opsis-2's picture) when the session goes non-linear
+(peers, the opsis node); the IR rung (the notation as a readable text);
+the opsis node itself (the policy record as a subject — the ring).
