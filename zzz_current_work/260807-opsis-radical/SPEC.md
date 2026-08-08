@@ -137,6 +137,13 @@ screenshot-verified.
   facets absolutely; EVERY internal edge is a draggable seam that edits
   its split's share and posts the tree back. Nothing imposes columns; a
   one-leaf tree is fullscreen; N facets are a deeper tree (clone-ready).
+  A third node kind `t` (tabs) shares the grammar: `(t 1 chart spine)` —
+  the group's leaves render as a tab strip, the active index is the
+  node's number, clicking switches and posts the tree. RESTRUCTURING is
+  a drag gesture: drag a dock chip onto a facet region — edges split on
+  that side (h/v by edge), the center tabs the two; a violet drop-zone
+  overlay previews the landing; dropping a minimized facet reopens it
+  where it lands. The wire accepts any topology directly.
   Legacy `arrange.reader|right|top` stay honored while the tree is
   default-shaped (the TUI speaks them); the tree supersedes otherwise.
   Next per §9b's order: clone, pop-as-window, pin-minimize, dock scale

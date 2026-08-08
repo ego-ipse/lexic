@@ -38,12 +38,13 @@ let seamEdges = [];
 
 function treeToText(node) {
   if (typeof node === 'string') return node;
-  return `(${node[0]} ${node[1].toFixed(3)} ${treeToText(node[2])} ${treeToText(node[3])})`;
+  const num = node[0] === 't' ? String(Math.round(node[1])) : node[1].toFixed(3);
+  return `(${node[0]} ${num} ${treeToText(node[2])} ${treeToText(node[3])})`;
 }
 
 function treeOk(node) {
   if (typeof node === 'string') return FACETS.includes(node);
-  return Array.isArray(node) && (node[0] === 'h' || node[0] === 'v')
+  return Array.isArray(node) && (node[0] === 'h' || node[0] === 'v' || node[0] === 't')
     && treeOk(node[2]) && treeOk(node[3]);
 }
 
@@ -58,6 +59,7 @@ function treeFromText(text) {
       const a = parse();
       const b = parse();
       i++;
+      if (kind === 't') return ['t', Math.max(0, Math.round(share || 0)), a, b];
       return [kind, Math.max(0.05, Math.min(0.95, share || 0.5)), a, b];
     }
     return toks[i++];
@@ -89,6 +91,7 @@ function layoutFacets() {
   if (!W || !H) return;
   seamEdges = [];
   const placed = new Set();
+  $('grid').querySelectorAll('.tabbar').forEach((el) => el.remove());
   function place(node, x, y, w, h) {
     if (typeof node === 'string') {
       const el = $(node);
@@ -101,6 +104,28 @@ function layoutFacets() {
     }
     const [kind, share, a, b] = node;
     const real = node[4] || node;
+    if (kind === 't') {
+      const leaves = treeLeaves([kind, share, a, b]);
+      const act = Math.max(0, Math.min(Math.round(real[1]), leaves.length - 1));
+      const bar = document.createElement('div');
+      bar.className = 'tabbar';
+      bar.style.cssText = `left:${x}px;top:${y}px;width:${w}px`;
+      leaves.forEach((nm, i) => {
+        const tab = document.createElement('span');
+        tab.className = 'tab' + (i === act ? ' on' : '');
+        tab.textContent = FACET_WORD[nm] || nm;
+        tab.addEventListener('click', () => {
+          real[1] = i;
+          layoutFacets();
+          postPolicyDebounced('arrange.tree', treeToText(layoutTree));
+          ask();
+        });
+        bar.appendChild(tab);
+      });
+      $('grid').appendChild(bar);
+      place(leaves[act], x, y + 22, w, h - 22);
+      return;
+    }
     if (kind === 'h') {
       const aw = w * share;
       place(a, x, y, aw, h);
@@ -127,6 +152,84 @@ function applyFacets(post = false) {
     postPolicy('arrange.tree', treeToText(layoutTree));
   }
   ask();
+}
+
+function removeLeaf(node, name) {
+  if (typeof node === 'string') return node === name ? null : node;
+  const a = removeLeaf(node[2], name);
+  const b = removeLeaf(node[3], name);
+  if (a === null) return b;
+  if (b === null) return a;
+  return [node[0], node[1], a, b];
+}
+
+function moveLeaf(dragged, target, zone) {
+  if (dragged === target) return;
+  const without = removeLeaf(layoutTree, dragged);
+  if (without === null) return;  // the last leaf stays
+  function insert(node) {
+    if (node === target) {
+      if (zone === 'tab') return ['t', 1, node, dragged];
+      const kind = zone === 'left' || zone === 'right' ? 'h' : 'v';
+      const first = zone === 'left' || zone === 'top';
+      return [kind, 0.5, first ? dragged : node, first ? node : dragged];
+    }
+    if (typeof node === 'string') return node;
+    node[2] = insert(node[2]);
+    node[3] = insert(node[3]);
+    return node;
+  }
+  layoutTree = insert(without);
+  facetOn[dragged] = true;  // dropping a minimized facet reopens it where it lands
+  applyFacets(true);
+}
+
+function dropZone(el, e) {
+  const r = el.getBoundingClientRect();
+  const fx = (e.clientX - r.left) / r.width;
+  const fy = (e.clientY - r.top) / r.height;
+  if (fx < 0.28) return 'left';
+  if (fx > 0.72) return 'right';
+  if (fy < 0.28) return 'top';
+  if (fy > 0.72) return 'bottom';
+  return 'tab';
+}
+
+function zoneRect(el, zone) {
+  const g = $('grid').getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  const x = r.left - g.left, y = r.top - g.top;
+  if (zone === 'left') return [x, y, r.width / 2, r.height];
+  if (zone === 'right') return [x + r.width / 2, y, r.width / 2, r.height];
+  if (zone === 'top') return [x, y, r.width, r.height / 2];
+  if (zone === 'bottom') return [x, y + r.height / 2, r.width, r.height / 2];
+  return [x + r.width * 0.2, y + r.height * 0.2, r.width * 0.6, r.height * 0.6];
+}
+
+function wireFacetDrops() {
+  const overlay = document.createElement('div');
+  overlay.id = 'dropzone';
+  overlay.hidden = true;
+  $('grid').appendChild(overlay);
+  for (const name of FACETS) {
+    const el = $(name);
+    el.addEventListener('dragover', (e) => {
+      if (!dockDrag || dockDrag === name) return;
+      e.preventDefault();
+      const zone = dropZone(el, e);
+      const [x, y, w, h] = zoneRect(el, zone);
+      overlay.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+      overlay.hidden = false;
+      overlay.textContent = zone === 'tab' ? 'tab with ' + FACET_WORD[name] : 'split ' + zone;
+    });
+    el.addEventListener('dragleave', () => { overlay.hidden = true; });
+    el.addEventListener('drop', (e) => {
+      e.preventDefault();
+      overlay.hidden = true;
+      if (dockDrag && dockDrag !== name) moveLeaf(dockDrag, name, dropZone(el, e));
+      dockDrag = null;
+    });
+  }
 }
 
 function swapLeaves(node, a, b) {
@@ -2880,6 +2983,7 @@ async function pollRoutes() {
   wireTextZoom();
   wireChartZoom();
   wireClockSelect();
+  wireFacetDrops();
   wireRailChip();
   wireTune();
   wireSeams();

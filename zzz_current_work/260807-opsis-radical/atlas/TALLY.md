@@ -1188,3 +1188,34 @@ full-bleed from the origin (DOM-checked). Censuses green.
 Named next: clone (`facet.<id> <kind>` instances — the tree now has room),
 pop-as-window + re-dock, pin-minimize into the dock, and the dock's scale
 design pass (grouping, many instances) once clones make counts real.
+
+## Round: topology is a gesture — splits by edge, tabs by center — 2026-08-08
+
+The user's question on the tree: how does one CHANGE the topology — the
+debugger-at-the-bottom shape, or two facets sharing a region as tabs?
+
+**Tabs joined the tree grammar.** A third node kind `t`: `(t 1 chart
+spine)` — same [kind, num, a, b] shape, num = the active leaf index.
+Renders as a tab strip over the region; clicking switches and posts the
+tree; visibility filtering composes (a tab group of one is just the
+facet). Nested t-nodes flatten into one strip. (Splits INSIDE a tab
+group can't arise from gestures yet and would misrender — named limit.)
+
+**Restructuring is a drag.** Dragging a dock chip onto a facet REGION:
+the edges split on that side (left/right → h, top/bottom → v, dropped
+side first), the center tabs the two. A violet drop-zone overlay
+previews the landing zone with words ("split left" / "tab with
+derivation"). Dropping a MINIMIZED facet reopens it where it lands —
+reopen-by-placement. Chip-onto-chip still swaps.
+
+Verified over the wire (drag is user-side): the VSCode-debugger shape —
+`(v 0.68 (h 0.26 grammar document) (h 0.5 chart spine))`, derivation and
+spine side-by-side across the bottom (/tmp/debugger.png) — and the tab
+group `(h 0.24 grammar (h 0.61 document (t 1 chart spine)))` with the
+derivation|spine strip and spine active (/tmp/tabs.png). Every facet
+functional in every position; censuses green (leaf-only change).
+
+So: topology changes three ways — seams edit SHARES, drags edit
+STRUCTURE (edge-split / center-tab / chip-swap), and the wire accepts
+any tree whole. Next per §9b: clone, pop/re-dock, pin-minimize, dock
+scale pass.

@@ -53,6 +53,45 @@ body {
 #pos { font-family: var(--mono); color: var(--ink); min-width: 30ch; }
 #readout { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--warm); }
 
+/* ── tab groups + drop zones: the tree's t-nodes and its restructuring gesture ── */
+.tabbar {
+  position: absolute;
+  height: 22px;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  background: var(--field2);
+  border-bottom: 1px solid var(--hair);
+  z-index: 4;
+  padding-left: 6px;
+  box-sizing: border-box;
+}
+.tabbar .tab {
+  font: 10px var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--dim);
+  border: 1px solid var(--hair);
+  border-bottom: none;
+  padding: 2px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.tabbar .tab.on { color: var(--cool); border-color: var(--cool); background: var(--field); }
+.tabbar .tab:hover { color: var(--warm); border-color: var(--warm); }
+#dropzone {
+  position: absolute;
+  z-index: 30;
+  background: rgba(217, 140, 245, 0.12);
+  border: 1px dashed var(--violet);
+  color: var(--violet);
+  font: 11px var(--mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
 /* ── the dock: every facet is a node; presence toggles here ── */
 #dock { display: flex; gap: 6px; margin-left: 18px; align-items: center; }
 #dock .fnode-chip {
