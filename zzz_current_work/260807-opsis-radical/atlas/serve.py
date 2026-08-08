@@ -626,7 +626,10 @@ class Session:
         rungs = self._ladder_readings(key, doc, gt, meta_spell)
         flavour = ABNF_FLAVOUR if key == "abnf" else GBNF_FLAVOUR
         if key != "policy":
-            rungs.append(("metagrammar.export.py ⊳ the module self-grammar", "r", lambda: Subject.from_reading(
+            # OUTWARD, not deeper: the export is the compiled-artifact
+            # projection — it exists for every level (the merge-find-set
+            # axis), it is not the IR floor. Typed 'x' on the wire.
+            rungs.append(("⧉ export.py ⊳ module self-grammar", "x", lambda: Subject.from_reading(
                 key, module_reader(), str(GBNF_FLAVOUR.apply(module_reader().grammar)),
                 "the generated-module self-grammar — lexic parses its own exports",
                 export_doc(flavour), None)))

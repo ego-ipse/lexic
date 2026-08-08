@@ -3000,14 +3000,15 @@ function renderLadder() {
   strip.textContent = '';
   let lastKind = 'r';
   for (const rung of S.ladder) {
-    if (rung.kind === 'o' && lastKind !== 'o') {
+    if ((rung.kind === 'o' || rung.kind === 'x') && lastKind !== rung.kind) {
       const gap = document.createElement('span');
       gap.className = 'rgap';
       strip.appendChild(gap);
     }
     lastKind = rung.kind;
     const chip = document.createElement('span');
-    chip.className = 'rung' + (rung.focused ? ' on' : '') + (rung.kind === 'o' ? ' opsis' : '');
+    chip.className = 'rung' + (rung.focused ? ' on' : '')
+      + (rung.kind === 'o' ? ' opsis' : '') + (rung.kind === 'x' ? ' outward' : '');
     chip.textContent = rung.label;
     chip.title = rung.focused
       ? 'the focused reading'

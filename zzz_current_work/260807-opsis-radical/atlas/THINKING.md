@@ -325,3 +325,39 @@ saved `arrange.tree (v 0.55 document grammar)` line REARRANGED the
 screen that displayed it, with the policy grammar's own railroads in
 the reader. No special machinery anywhere: opsis is one more subject of
 the standard pipeline.
+
+### 10c. The corrected type model — axes, not a ladder (user-taught, 2026-08-08)
+
+§10b carried a TYPE ERROR, corrected by the user: the export module is
+not "the IR floor" — it is the COMPILED-ARTIFACT projection, which exists
+for every level (grammars, flavours, and parsed text via the payload
+exports), self-contained or referencing the level above — the
+merge-find-set property. The real taxonomy:
+
+- **The IR substrate**: the node classes of src/lexic/ir — not a rung,
+  the material everything else is made of.
+- **INWARD representations**: a thing spelled AS IR — grammars/*.py
+  (constructor-authored) and grammars/*.ir (the notation: json.ir, the
+  *.flavour.ir manifests). Going inward = toward the canonical form.
+- **OUTWARD projections**: compiled artifacts — export modules, payload
+  exports, synthesized class instances. Available at EVERY node.
+- **VERTICAL**: the abstraction chain (text ⊳ grammar ⊳ metagrammar) —
+  what the strip's spine shows today.
+- **HORIZONTAL/DIAGONAL**: transpilation peers; and the flavour's own
+  components — reducers, emit actions, escapes, tokenizers (everything
+  IrFlavour bundles) — objects in their own right, connected through IR,
+  where paths INTERSECT (a reducer serves many grammars; a transpile
+  crosses flavours at the same abstraction level).
+
+**The facet this implies — the LAYERS COMPASS**: for the focused
+reading, its position in this graph and the moves from it: ↑ abstraction
+· ⊙ inward (its .ir/.py spelling — needs the notation as a readable
+grammar: engine ask alongside §10b's exportability ask) · ⧉ outward (its
+export/payload) · ↔ lateral (peers, flavour components). A node graph
+with three axes and intersections — the constellation, typed correctly
+at last. The strip meanwhile renders honestly: the vertical chain, then
+dashed OUTWARD moves (kind x), then the ⚙ instrument node.
+
+Status: masthead render bug fixed (one line, strip scrolls); export rung
+re-typed x; the compass facet is DESIGN ONLY until the inward readers
+exist and the flavour-component nodes are wired.

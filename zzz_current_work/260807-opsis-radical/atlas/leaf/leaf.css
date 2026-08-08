@@ -93,9 +93,33 @@ body {
   box-sizing: border-box;
 }
 
+/* ── the masthead stays one line: the strip scrolls, text ellipsizes ── */
+#mast { flex-wrap: nowrap; overflow: hidden; }
+#sub {
+  flex: none;
+  max-width: 30ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── the ladder: the lineage strip — readings as travel ── */
-#ladder { display: flex; gap: 5px; align-items: center; margin-left: 16px; }
+#ladder {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin-left: 16px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  scrollbar-width: none;
+}
 #ladder .rung {
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
   border: 1px solid var(--hair);
   color: var(--dim);
   font: 10px var(--mono);
@@ -109,6 +133,7 @@ body {
 #ladder .rung:not(.on):hover { border-color: var(--cool); color: var(--cool); }
 #ladder .rsep { color: var(--dimmer); font-size: 10px; }
 #ladder .rung.opsis { border-color: var(--violet); color: var(--violet); }
+#ladder .rung.outward { border-style: dashed; }
 #ladder .rung.opsis.on { border-color: var(--warm); color: var(--warm); }
 #ladder .rgap { width: 10px; }
 
