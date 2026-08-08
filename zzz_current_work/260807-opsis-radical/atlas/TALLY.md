@@ -1219,3 +1219,17 @@ So: topology changes three ways — seams edit SHARES, drags edit
 STRUCTURE (edge-split / center-tab / chip-swap), and the wire accepts
 any tree whole. Next per §9b: clone, pop/re-dock, pin-minimize, dock
 scale pass.
+
+## Round: drag polish — the overlay dies with the drag; aliases — 2026-08-08
+
+1. **The stranded violet overlay**: it only hid on drop/dragleave, so a
+   cancelled drag (or one released over the source facet, where dragover
+   never allowed a drop) left it on screen forever. `dragend` fires on
+   the drag SOURCE no matter how the drag ends — the one reliable
+   cleanup; it now hides the overlay and clears the drag state.
+2. **Aliases**: a facet's node has three bodies — its dock chip, its
+   header, its tab button — and all three now drag as the node (headers
+   guard their buttons/selects from starting drags). Grab a tab and
+   throw it at an edge; grab a header and tab it into another region.
+
+Boot-verified draggables present; interaction user-side as ever.

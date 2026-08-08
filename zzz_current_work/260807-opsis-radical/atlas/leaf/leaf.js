@@ -114,6 +114,8 @@ function layoutFacets() {
         const tab = document.createElement('span');
         tab.className = 'tab' + (i === act ? ' on' : '');
         tab.textContent = FACET_WORD[nm] || nm;
+        tab.draggable = true;  // a tab is an alias of its node too
+        tab.addEventListener('dragstart', () => { dockDrag = nm; });
         tab.addEventListener('click', () => {
           real[1] = i;
           layoutFacets();
@@ -211,8 +213,22 @@ function wireFacetDrops() {
   overlay.id = 'dropzone';
   overlay.hidden = true;
   $('grid').appendChild(overlay);
+  // dragend fires on the SOURCE whatever happens — the one reliable cleanup
+  window.addEventListener('dragend', () => {
+    overlay.hidden = true;
+    dockDrag = null;
+  });
   for (const name of FACETS) {
     const el = $(name);
+    const head = el.querySelector('h2');
+    if (head) {
+      // the facet's header is an alias of its node — drag it like the chip
+      head.draggable = true;
+      head.addEventListener('dragstart', (e) => {
+        if (e.target.closest('button,select,input')) { e.preventDefault(); return; }
+        dockDrag = name;
+      });
+    }
     el.addEventListener('dragover', (e) => {
       if (!dockDrag || dockDrag === name) return;
       e.preventDefault();
