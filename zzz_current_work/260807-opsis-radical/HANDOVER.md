@@ -1,159 +1,123 @@
-# opsis-radical — HANDOVER (2026-08-07, end of day)
+# opsis-radical — HANDOVER (2026-08-08, end of day 3)
 
 ## NEXT SESSION — start here
 
-**The gate investigation is CLOSED and the fix has LANDED** (solution A, after
-external review). Read **`../260807-pda-linearity/FINDING.md`** — §0–9 the account, §10 the
-review, §11 what shipped. In one line: the codegen pass `relax_non_semantic`
-was deleting the metagrammar's authored maximal-munch discipline
-(`seq-rest ::= n item` → `n? item`, and `n ::= nunit+` → `nunit*`, so `n`
-itself went nullable), which made the grammar the engines see genuinely
-ambiguous — the probe-fork was the engine being right. The pass now relaxes
-only refs to **nullable** noise rules, which is exactly where the rewrite is
-language-preserving. All ten ground-truth grammars ride the PDA with no
-resolver: **vyx 4.451s → 0.029s**. Gates green: run_checks exit 0, suite 3776
-passed, parity + property 141 passed, check_generated CLEAN, examples exit 0.
+**The user's parting corrections, verbatim intent — they define tomorrow:**
 
-**What to do next is argued in `../260807-pda-linearity/PLAN.md`** — the ordering over everything
-this investigation left open. Headline: the biggest item is NOT solution D. The
-PDA is **quadratic** on pipe-heavy vyx packets (`../260807-pda-linearity/PROBE-QUADRATIC.md`) — no
-fork, no fallback, the predictive runtime succeeding at 73 s for an 11 KB
-packet, 92% of it inside `_probe`, which runs one side of every boundary to
-end-of-input. Pre-existing, measured NOT a regression from the relaxation fix
-(and that A/B also answers the "gbnf-meta regressed" question: it did not,
-5.508 → 5.471 µs/char inside a 2.80% noise floor). Solution D stays sound with
-affordable economics but a narrower subject and a bounded ×7-8 prize.
+1. **The inward readers are a NONISSUE.** I had framed "the notation isn't
+   readable" as an engine ask. Wrong: lexic already reads its own compiled
+   and notation forms — `compile/notation/parse.py` (notation text → real
+   lexic.ir objects), the module self-grammar (exports), the manifest
+   loader (`*.flavour.ir` → a live IrFlavour). The inward axis is readable
+   TODAY through existing surfaces. **Start with this tomorrow.**
+2. **IrFlavour is an IrSelf and an IrNamedTuple.** Not magic — topology
+   already defined. Flavour components (reducers, emit actions, escapes,
+   tokenizers) are IR values on the record spine; they enter the layers
+   graph as nodes through the SAME machinery as everything else. The
+   `*.flavour.ir` files in `src/lexic/grammars/` are literally their
+   notation spellings.
 
-**Otherwise next:** rung 2's remaining half (the two engine clocks,
-switchable). Note atlas's `meta`/`vyx` fixtures no longer need the `first`
-resolver and now measure the frontier — `serve.py`'s route caveat is stale.
+So the first build of tomorrow: **the layers compass over existing
+surfaces** — inward readings via the notation surfaces, outward via the
+module self-grammar (already a rung), flavour nodes as IR values, no new
+engine work. THINKING §10c holds the corrected axes model (vertical /
+inward / outward / lateral+intersections — the export module is OUTWARD,
+the merge-find-set axis; my "IR floor" labeling was a type error the user
+corrected).
 
----
+## Where the instrument stands (all committed, `opsis_proto` through `91f653f`)
 
-State: everything committed on `opsis_proto` (`80ede43` onward), including
-this gitignored folder (added with `-f`; the user granted `--no-verify` for
-zzz-only commits). Cold start reads, in order: **`VISION.md`** (the position),
-**`SPEC.md`** (the as-built contract), this file, `atlas/TALLY.md` (the live
-ledger), `atlas/THINKING.md` (the iteration map).
+Cold start reads, in order: VISION.md · SPEC.md · this file ·
+`atlas/TALLY.md` (the live ledger — every round, including both reverts) ·
+`atlas/THINKING.md` (§9 facet management · §9b split-tree · §10 the
+ladder · §10b IR floor + the ring · §10c the corrected axes).
 
-## What exists, oldest to newest
+**Day 3 delivered, in order:**
+- **Layout**: the arrangement is a split TREE (`arrange.tree`, one
+  s-expression; h/v splits + `t` tab groups); every internal edge a seam;
+  topology by gesture (edge-split / centre-tab drops; chip, header and
+  tab all drag as the node's aliases); the dock (presence nodes, grouped).
+  THE ARRANGEMENT map was built twice and REVERTED twice (popup, then
+  facet) — the real answer became §10.
+- **The ladder** (§10): `Session` = readings per fixture, lazily built;
+  focus + travel (`POST /focus`, `#LADDER` on the wire, the lineage strip
+  in the masthead); one policy record spans the session. Travel is the
+  duality made kinesthetic: json.gbnf flips reader→document in one click.
+- **The outward rung + the ring** (§10b, retyped by §10c): the
+  metagrammar's export module read by the module self-grammar (34.7K
+  chars, PDA, 0.07s, faithful — census-gated), now correctly typed as an
+  OUTWARD move (`x` kind, dashed chip). **The ring**: the session policy
+  record is a reading (`atlas/fixtures/policy.gbnf`, the ⚙ rung, violet);
+  travel to it, edit it as text, **save APPLIES it** — census-gated and
+  screenshot-proven (a saved `arrange.tree` line rearranged the screen
+  that displayed it). The engine finding that stands: the module
+  self-grammar's own names (`esc-u`/`esc-U`) collide under name folding →
+  no flavour can spell it → `export_source` cannot export it → the true
+  fixpoint (`module-grammar ⟲ its own export`) is blocked; atlas reads it
+  via a language-identical rename.
+- **Earlier day 3**: engine clocks rebuilt as the machines (PDA frame
+  trace with rollback fates, Earley hypothesis field), the automaton view
+  (walk-lit clone graph), verdict badges (the analysis' per-rule
+  reaction), the `decide` (738 attempt events) and `amb` (429
+  derivations, resolver `first`) observation fixtures, `/column`
+  on-demand Earley items, the spine following the clock, live cross-leaf
+  policy sync, TUI panes-for-pins.
 
-| where | what | state |
-|---|---|---|
-| `tk/` | in-process tkinter probes: `demonstrator.py` (the four spine kinds + the instrument editing its own Style), `spectacle.py` (a parse watched, 50 chars), `wolf.py` (same at hostile scale, 3 fixtures) | done; superseded as a medium (canvas text is not selectable — the litmus); each has `--census` and `--shot` |
-| `facets/` | the composition answer: Python instrument ⇄ browser leaf, four facets of one reading, subject-level cursors, native selection → co-selection, edits as re-readings | done as built; ledger closed with a pointer to atlas |
-| `atlas/` | the ergonomics fork — the live line | rung 1 done (refusal frontier + edit-in-place); rung 2 first half done (background route, parity verdict, inversion marks) |
-| `gate/` | **MOVED** — the engine line outgrew this effort and is now `../260807-pda-linearity/` (its `PLAN.md` is the order of work). Everything below the relaxation fix, the quadratic and solution D lives there | split out 2026-08-07 |
-| `STACK.md` | the stack position: answered before building, after building, amended after the selection litmus | current |
+**Both reverts, ledgered honestly:** the §9b clone/pin-minimize/re-dock
+bundle (clone dodged the singleton-renderer truth) and the map rounds
+(furniture instead of the ladder). Root causes in TALLY + §10c.
 
 ## Run
 
 ```bash
-uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py             # vyx on :8901 (slow route, ~5s boot)
-uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py long 8903   # json.gbnf route, fast, frontier-capable
-uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py meta 8902   # metagrammar reading json.gbnf
-uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py long --census   # the gate, exit 0
-
-zzz_current_work/260807-opsis-radical/atlas/shot.sh long 'break=5000'   # frame, inline in a kitty-graphics terminal
-zzz_current_work/260807-opsis-radical/atlas/shot.sh vyx 't=4205&sel=4205' > frame.term   # frozen .term artifact; replay with cat
+# fixtures: vyx | meta | long | abnf | decide | amb — or <grammar> <doc> [port]
+uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py long 8901
+uv run python zzz_current_work/260807-opsis-radical/atlas/serve.py meta --census   # every fixture gates
+uv run python zzz_current_work/260807-opsis-radical/atlas/tui.py meta --census
 ```
 
-Then open the printed URL. **The server does not hot-reload** — after any
-change to `serve.py` or `leaf/`, restart it (leaf files are re-read per
-request, but the subject/scene state is built at boot).
+Deterministic states: `?t= ?sel= ?rule= ?break= ?graph ?gpin ?rail=a,b ?map
+?focus`; travel via `POST /focus i`; policy over `POST /policy`. The
+census asserts the ladder (export rung faithful, opsis rung reads the
+record, THE RING APPLIES) on every gbnf fixture.
 
-## How to trigger the refusal
+## Open threads, ranked for tomorrow
 
-Three ways, all leaving the document untouched (generation does not bump):
+1. **The layers compass on existing surfaces** (the user's directive):
+   inward readings (notation parse / manifests), flavour nodes as
+   IrNamedTuple values, the compass facet showing position + moves
+   (↑ abstraction · ⊙ inward · ⧉ outward · ↔ lateral). Existing rungs
+   become edges of this graph; the strip is its 1-D projection.
+2. **Anchored facets** (clone, correctly defined): a facet pinned to an
+   off-focus node — needs per-facet subject pointers; defined in §10,
+   costed but not started.
+3. **The SPPF view over amb** (429 derivations, N families — "any Earley
+   conversation without the SPPF is dead on start"); the forest surfaces
+   (`to_chart`, Links families) are proven reachable.
+4. Engine asks parked: exportability for IR-authored grammars (the true
+   fixpoint); the other agent's PROPOSAL was GO'd and they were
+   implementing — expect src/ commits from their lane; do not touch src/.
+5. Dock scale pass · pop for non-reader facets · TUI parity for
+   travel/ladder (TUI ignores them today, censuses green).
 
-1. **By hand (the real flow):** run the `long` fixture → click into THE
-   DOCUMENT and **type** — it is an editable text plane. While edited, the
-   derived facets go stale (dimmed; they show the last good reading) and the
-   status reads `edited — unread`. **Ctrl+Enter re-reads without saving;
-   Ctrl+S saves, and saving compiles** (the write goes to the document's own
-   file — held with a stated reason for ground-truth corpus fixtures). Type
-   something the grammar cannot derive and re-read: the banner carries the
-   engine's words plus the measured frontier, and a red caret marks the
-   deepest verified position inside the text you typed. Esc reverts to the
-   last good reading.
-2. **Deterministically (for screenshots):** open
-   `http://127.0.0.1:8903/?break=5000` — the leaf POSTs a one-char corruption
-   at offset 5000 on boot and renders the refusal state.
-3. **Scripted:** `serve.py long --census` splices garbage mid-document and
-   asserts the frontier equals the exact corruption offset.
+## Traps (cumulative; day-3 additions first)
 
-No route caveat any more: since the relaxation fix, **every** fixture is
-PDA-routed, so every frontier is measured and every derivation header carries a
-real parity verdict (`both engines built the same value — holds`). Each subject
-carries its own `corrupt_at` offset with the reason — on a metagrammar-read
-document a control char mid-file is *legal* inside a comment (`cmchar` admits
-`\x00-\t`), so those corrupt at 0 instead.
-
-## TODO — the iteration ladder (atlas/THINKING.md owns the detail)
-
-1. ~~**Refusal frontier**~~ — DONE (`2e3c5aa`), then reworked: the edit box
-   (whose Enter was broken by a selectionchange race, and which was a UX
-   killer regardless) is gone; the document is an editable text plane with
-   dirty/stale state, Ctrl+Enter (re-read) and Ctrl+S (save — saving
-   compiles), Esc revert, and the frontier drawn in the typed text.
-2. **Both engines** (§6b) — FIRST HALF DONE: a daemon thread runs the road
-   not taken after every read; `/routes` reports it; the derivation header
-   shows running… → timings + `both engines built the same value — holds`
-   (green) on the PDA route, or `PDA ended at char N — where the fast road
-   stops` on resolver routes (meta 202, vyx 3,306). The instance-grammar
-   recipe that makes the explicit Earley run work is
-   `normalize(lift_optional_nullables(cg.codegen_grammar))` — recorded in
-   SPEC.md §5. REMAINING HALF: the two engine *clocks* as switchable
-   visualizations (PDA decision sequence via a TraceKernel subclass; Earley
-   chart columns via the readout seam) — the switch appears when there are
-   two things to switch between.
-3. **Seam resize** — shares as session values; facets degrade by deriving
-   less, never by clipping.
-4. **Rule graph facet** — flat first (IrRuleRef edges + name-addressed
-   co-selection), then z = derivation distance.
-5. **Ports bay** — reducer docking (adds a product; products multiply
-   facets), then transpile as a peer lane.
-6. **The ring** — focus opsis's own configuration as a subject.
-
-One iteration per session; update `atlas/TALLY.md` each time; census before
-screenshots.
-
-## Lexic asks — BOTH LANDED (see 260807-pda-linearity/)
-
-Historical section; kept for the reasoning. FlatClone carries its rule name;
-refusals carry a public `Refusal` readout (pos, rule, expected, negated,
-undecidable) on `UnsupportedConstructError` — atlas reads it directly and the
-regex-over-prose is deleted.
-
-### (original asks follow)
-
-- **Refusal position on the record.** `PdaFail` spells its position only in
-  prose ("no arm at N"); the public parse surface discards even that
-  (`UnsupportedConstructError`, words only, no attrs). Wanted: a readout-shaped,
-  additive surface carrying frontier position (and eventually expected-next).
-  Until then atlas regex-reads the kernel's words — honest but fragile.
-- ~~**The namechar\* attempt-loop gate**~~ — **ANSWERED AND FIXED**
-  (`../260807-pda-linearity/FINDING.md`). Both halves turned out to be one bug: the codegen pass
-  `relax_non_semantic` was widening the metagrammar into ambiguity, so the
-  "route-forcing fork" and the "model-product ambiguity" were the same cause
-  seen at two sites. The pass now relaxes only nullable noise refs.
-- **The fallback does not island** — the one part of that ask still open. A
-  probe-fork hands the WHOLE document to Earley (~n^3.2 here), not just the
-  undecidable span; and because an attemptable rule carries one canonical
-  clone with a rule-level union FOLLOW, a rule ambiguous at one reference site
-  forks at every site. See `../260807-pda-linearity/FINDING.md` §7 D — the review ranks the
-  islanding half as constitutional (escapes are islands), not an optimisation.
-
-## Traps (each cost time today)
-
-- The browse daemon's chromium cannot sandbox here (AppArmor userns);
-  `firefox --headless` hangs. Screenshots: drive playwright's shell directly —
-  `~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell
-  --no-sandbox --headless --window-size=1720,1000 --virtual-time-budget=8000
-  --screenshot=out.png URL`.
-- Repeated path slip: after `cd` into the effort folder, repo-rooted
-  `zzz_current_work/...` paths double up. Run git from the repo root.
-- `pkill`'s nonzero exit aborts `&&` chains — it ate a tally append once.
-  Verify a server is down by curl on its port, not by pkill's exit code.
-- Ledger discipline (user-corrected): **the tally lives where the work lives.**
-  atlas work goes in `atlas/TALLY.md`, nowhere else.
+- Patch scripts: assert every anchor, END WITH THE WRITE — two more
+  crash-before-write incidents today; one anchor probe CLOBBERED its
+  target (repaired). `grep -c` the disk after every batch.
+- `[hidden]` loses to any authored `display` — third occurrence; the rule:
+  every hidden-toggling element gets `[hidden]{display:none}` in the same
+  breath.
+- Shell `$()` strips trailing newlines — the policy grammar refused a
+  record over it (honestly). Use heredocs for record bodies.
+- The masthead must stay one line (desc ellipsizes, strip scrolls) — it
+  ate half the screen once.
+- The census drives a bare Handler through the `subject` property SETTER
+  shim (wraps a solo session) — keep it in mind when touching Handler.
+- chrome-headless screenshots capture at LOAD; polling/gesture behavior
+  is code-verified + user-verified only. The browse daemon's chromium
+  cannot sandbox (AppArmor); drive playwright's shell directly with
+  `--no-sandbox`.
+- `pkill` exit 144 aborts `&&` chains — verify ports by curl. Run git
+  from the repo root (cd path-doubling). The tally lives where the work
+  lives: `atlas/TALLY.md`, nowhere else.
