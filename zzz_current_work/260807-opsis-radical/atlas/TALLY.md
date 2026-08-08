@@ -1233,3 +1233,11 @@ scale pass.
    throw it at an edge; grab a header and tab it into another region.
 
 Boot-verified draggables present; interaction user-side as ever.
+
+Addendum: the stranded overlay's REAL cause — `#dropzone { display: flex }`
+defeats the `hidden` attribute (UA `[hidden]{display:none}` loses to any
+authored display). Third occurrence of this exact trap in this effort,
+and it was already on the traps list when I wrote it again. New
+discipline, stated: any element that toggles `hidden` and carries an
+authored `display` gets an explicit `[hidden] { display: none }` rule in
+the same breath. Fixed with exactly that (`73a029f`).
