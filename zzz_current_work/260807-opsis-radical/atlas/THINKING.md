@@ -361,3 +361,66 @@ dashed OUTWARD moves (kind x), then the ⚙ instrument node.
 Status: masthead render bug fixed (one line, strip scrolls); export rung
 re-typed x; the compass facet is DESIGN ONLY until the inward readers
 exist and the flavour-component nodes are wired.
+
+### 11. The relation graph — rooms, roles, casts; order is emergent (2026-08-09, RULED)
+
+Grounded in READING.md (the code-read that preceded this), designed in
+dialogue, both questions ruled by the user. This supersedes §10c's compass
+framing where they disagree: positions are not places on axes, they are
+ROLES in relations.
+
+**The unit is the relation instance.** A reading = (reader, text,
+reduction) → value. "Reader", "document", "metagrammar", "value" are
+roles, not object types; one object may hold different roles in different
+relations at once (json.gbnf is reader in one, document in another).
+Atlas's facets — text, derivation, spine, rails, clocks — are facets OF
+the relation, not of any single object. That is why travel changes the
+whole screen: the room IS the relation. (Ruled: "righter than anything so
+far".)
+
+**Travel is re-rooting, and "up" is not special.** The one gesture: take
+an object visible in the current relation, cast it into a role in another
+relation, make that relation the room. "Up a virtual desktop" = cast the
+current READER into the DOCUMENT role under the metagrammar's reading.
+Zoom is the smallest cast: any IrSelf subtree re-rooted as the subject of
+a fresh reading (the generic IrSelf viewer — _fields/children()/
+repr_args, one protocol for every node — furnishes the room; the payload
+format's subtree() is the same idea already native in the engine).
+
+**Chirality — which texts get to be readers.** compile_text factors as
+value-parse (grammar file as DOCUMENT under the metagrammar → IrAst
+value) then THE TURN (compile_ast: value → reader). The turn exists iff
+the value lands in the compilable image; a json document value-parses to
+a JsonText model and is chiral-inert. The turn is total from IR and
+partial from text (the esc-u/esc-U block: IR carries what no flavour can
+spell). Grammars have both hands; plain text has one.
+
+**The gate is COMPUTED, never declared (ruled).** "Use as reader" is
+offered exactly when compile_ast accepts the object — census-checkable,
+not authored. The user's ruling, verbatim spirit: order is an emergent
+property — that is what a formal grammar IS. A grammar does not list its
+sentences, it licenses them; the ladder does not store its rungs, it
+licenses casts. Membership is checked. The census is the parser of the
+instrument itself.
+
+**Outward is typed by the role you stand on.** No "the compiled file":
+reader → the twin; value/IR → the ir-value artefact; parse result → the
+model-value molecule (the one artefact that SPANS the text/reader split:
+value file importing the reader file, SHAPE as witness); plain reduction
+→ the plain artefact. Lexic already enforces this ("there is no target
+flag" — the reading's codomain decides). "Which version?" dissolves.
+
+**The map between rooms.** The node prototypes had the fractal truth and
+died of uniform node soup (no roles, no rooms). The synthesis: the room
+stays a relation instance (atlas as-is is the right display for ONE
+reading); the node graph moves up a level and becomes the map BETWEEN
+rooms — nodes are the relation instances the session holds (lazily),
+edges are the casts that created them, typed by role. Lateral
+(transpilation) is relational too: one IrAst standing in two emit
+relations. The lineage strip is the 1-D projection of this graph —
+derived, never the storage.
+
+**The seam this names:** Session.rungs as an ordered list, travel as an
+index. The linear spine must become a derived projection of the relation
+graph. That is the not-easily-fixable seam of the current atlas, now
+named and owned.
