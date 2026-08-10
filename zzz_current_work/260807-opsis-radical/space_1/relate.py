@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from facets import Facet, Rows
 from lexic.ir.spine.spine import IrSelf
 from lexic.model import GrammarModel
 
@@ -144,6 +145,35 @@ class Relation:
         """Everything visible here: what you can see is what you can cast."""
         return [*self.cast.values(), *self.products().values()]
 
+    def facets(self) -> Sequence[Facet]:
+        """What this relation shows. The default says what it holds, plainly."""
+        pairs = [(role, thing.about()) for role, thing in self.cast.items()]
+        return [Rows("cast", "the cast", "who is standing where", pairs)]
+
+    def arrangement(self, count: int) -> str:
+        """Where the facets go, as a value the room authors — never a layout."""
+        if count < 2:
+            return "0"
+        tree = str(count - 1)
+        for index in range(count - 2, 0, -1):
+            tree = f"(v {round(1 / (count - index), 3)} {index} {tree})"
+        return f"(h 0.34 0 {tree})"
+
+    def frame(self) -> list[str]:
+        """This relation, spelled — the same discipline its facets follow."""
+        shown = list(self.facets())
+        out = [
+            f"#ROOM {self.rid} {self.kind} {self.label()}",
+            f"#ARRANGE {self.arrangement(len(shown))}",
+        ]
+        for facet in shown:
+            out.extend(facet.wire())
+        return out
+
+    def facet(self, name: str) -> Facet | None:
+        """The facet that owns an ask, by name."""
+        return next((f for f in self.facets() if f.name == name), None)
+
 
 class Edge:
     """A cast that happened: a thing, from one relation, into a role of another."""
@@ -234,3 +264,48 @@ class Session:
         if relation is None:
             return None
         return next((t for t in relation.parts() if t.tid == tid), None)
+
+    def frame(self, rid: str) -> str | None:
+        """The room, and how it was reached, and where it can go from here.
+
+        The session adds only what it alone knows — the strip and the licensed
+        casts. The relation spells itself; the facets spell themselves.
+        """
+        relation = self.relations.get(rid)
+        if relation is None:
+            return None
+        out = relation.frame()[:2]
+        for step in self.strip(rid):
+            state = "on" if step == rid else "off"
+            out.append(f"#RUNG {step} {state} {self.relations[step].label()}")
+        out += [
+            f"#CAST {offer.thing.tid} {offer.kind} {offer.role.name} {offer.thing.name}"
+            for offer in self.offers(rid)
+        ]
+        out.extend(relation.frame()[2:])
+        return "\n".join(out) + "\n"
+
+    def ask(self, query: Mapping[str, str]) -> str | None:
+        """Route one ask to the facet that owns it. Nothing here knows kinds."""
+        relation = self.relations.get(query.get("room", ""))
+        if relation is None:
+            return None
+        facet = relation.facet(query.get("facet", ""))
+        return None if facet is None else facet.ask(query)
+
+    def strip(self, rid: str) -> Sequence[str]:
+        """The lineage strip: DERIVED from the edges, never stored as a list.
+
+        This is the seam the ruling named — an ordered list with an index
+        cannot say that a relation was reached two ways, and the graph can.
+        """
+        path = [rid]
+        seen = {rid}
+        at = rid
+        while True:
+            back = next((edge.frm for edge in self.edges if edge.to == at), "")
+            if not back or back in seen:
+                return list(reversed(path))
+            path.append(back)
+            seen.add(back)
+            at = back

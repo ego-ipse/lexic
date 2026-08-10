@@ -8,8 +8,9 @@ engine compiles it.
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
+from facets import Ask, Facet, Plane
 from lexic.compile import CompiledGrammar, compile_ast, compile_text
 from lexic.exceptions import LexicError
 from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR
@@ -210,6 +211,88 @@ class Reading(Relation):
 
     def products(self) -> Mapping[str, Thing]:
         return {} if self.value is None else {"value": self.value}
+
+    def facets(self) -> Sequence[Facet]:
+        """The four atlas earned, meaning here what they meant there."""
+        reader = self.cast[READER.name]
+        return [
+            Plane(
+                "reader",
+                "the reader",
+                "grammar is the ground truth",
+                reader.spelling() or _spelled(reader),
+            ),
+            Plane(
+                "document",
+                "the document",
+                "the text this reading is of",
+                self.cast[DOCUMENT.name].spelling(),
+            ),
+            Chart("derivation", "the derivation", "text is the time axis", self),
+            Stack("spine", "the spine", "what is open at the cursor", self),
+        ]
+
+    def arrangement(self, count: int) -> str:
+        """The reader narrow, the document wide, the derived facets beside."""
+        if count != 4:
+            return super().arrangement(count)
+        return "(h 0.24 0 (h 0.62 1 (v 0.58 2 3)))"
+
+
+def _spelled(thing: Thing) -> str:
+    """A value reader has no text of its own — spell it through its flavour."""
+    turned = turn(thing)
+    if turned is None:
+        return ""
+    return GBNF_FLAVOUR.apply(turned.machine.grammar)
+
+
+class Chart(Facet):
+    """The parse on the text axis — asked per cursor, never shipped whole."""
+
+    kind = "chart"
+
+    def __init__(self, name: str, title: str, note: str, reading: Reading) -> None:
+        super().__init__(name, title, note)
+        self.reading = reading
+
+    def body(self) -> Sequence[str]:
+        return [
+            f"#SIZE {len(self.reading.spans)} "
+            f"{len(self.reading.cast[DOCUMENT.name].spelling())}"
+        ]
+
+    def ask(self, query: Ask) -> str | None:
+        """The spans that touch a window — a facet asks for what it can use."""
+        low = int(query.get("from", "0"))
+        high = int(query.get("to", "0")) or low + 400
+        rows = [
+            f"{s.start} {s.end} {s.depth} {s.rule} {s.field}"
+            for s in self.reading.spans
+            if s.start < high and s.end > low
+        ]
+        return f"#SPANS {len(rows)}\n" + "\n".join(rows) + "\n"
+
+
+class Stack(Facet):
+    """What is open at the cursor, and what just closed under it."""
+
+    kind = "spine"
+
+    def __init__(self, name: str, title: str, note: str, reading: Reading) -> None:
+        super().__init__(name, title, note)
+        self.reading = reading
+
+    def ask(self, query: Ask) -> str | None:
+        at = int(query.get("at", "0"))
+        open_here = [s for s in self.reading.spans if s.start <= at < s.end]
+        closed = [s for s in self.reading.spans if s.end == at]
+        rows = [
+            f"#OPEN {s.depth} {s.rule} {s.start} {s.end}"
+            for s in sorted(open_here, key=lambda s: s.depth)
+        ]
+        rows += [f"#CLOSED {s.depth} {s.rule} {s.start} {s.end}" for s in closed[-6:]]
+        return "\n".join(rows) + "\n"
 
 
 KINDS[Reading.kind] = Reading
