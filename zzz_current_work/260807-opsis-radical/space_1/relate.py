@@ -240,6 +240,23 @@ class Session:
             if (offer.kind, offer.role.name, id(offer.thing)) not in held
         ]
 
+    def expand(self) -> None:
+        """Make every licensed, completable cast a real node — unheld.
+
+        A ghost is not a menu entry: it is a node of the graph nobody has
+        visited. Creating it costs nothing; holding it is what parses. Both
+        the strip and the map ask for this, so neither can see a different
+        session than the other.
+        """
+        for rid in list(self.relations):
+            for offer in self.moves(rid):
+                cast = KINDS[offer.kind].complete({offer.role.name: offer.thing})
+                if cast is None:
+                    continue
+                to = self.enter(offer.kind, cast, hold=False)
+                if to != rid and not any(edge.to == to for edge in self.edges):
+                    self.edges.append(Edge(rid, offer.thing.tid, to, offer.role.name))
+
     def cast(self, frm: str, tid: str, kind: str, role: str) -> str | None:
         """The one gesture: a visible thing, into a role, of a relation kind."""
         thing = self.visible(frm, tid)
