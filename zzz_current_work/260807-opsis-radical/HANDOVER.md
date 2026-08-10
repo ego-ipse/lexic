@@ -1,4 +1,52 @@
-# opsis-radical — HANDOVER (2026-08-08, end of day 3)
+# opsis-radical — HANDOVER
+
+## 2026-08-11 — `space_1/`: the relation graph under space's leaf
+
+**What the halves are.** The leaf is `space/`'s, kept whole and now edited
+where it is wrong; the back end is new and answers its wire.
+
+**`space/` does not run as committed** — `serve.py` imports `irview`, whose
+source exists only in the earlier commit (the later one dropped the file and
+left `__pycache__/irview.cpython-314.pyc`). Keeping its leaf was therefore
+the only half that could be kept.
+
+**The meaning layer.** A relation instance is things cast into roles; the
+room IS the relation. Roles are positions, never object types, so one
+grammar is reader of one relation and document of another at once.
+
+- Chirality is COMPUTED: a thing may stand as READER exactly when the engine
+  compiles it. Nothing lists what may be a reader.
+- A cast completes itself: a document alone finds the metagrammar that
+  accepts it, which is why "up a level" needs no notion of level.
+- The strip and the map are PROJECTIONS of the graph, derived per ask. The
+  ordered-list-with-an-index seam is gone.
+- A GHOST is a relation instance nobody has visited — it exists because the
+  cast is licensed. Holding one costs a parse, not a node.
+
+**Derived, not stubbed.** Both clocks off the real kernels (a slotted
+`ClockKernel` subclass reports frames and decisions; the Earley half decodes
+its own columns and STATES what it dropped), Earley columns per cursor,
+per-rule verdicts and the 126-clone automaton off the compiled artifact, and
+the IR DAG by object identity — the authored GBNF metagrammar shows its one
+`IrQuantifier` reached 193x, which a `children()`-filtered walk cannot see
+(a record IS its field tuple; walk the tuple).
+
+**Two defects worth remembering.**
+
+1. Names must be spelled as the GRAMMAR spells them. The engine folds
+   (`json-text`), the reader shows `JSON-text`, and co-selection is a name
+   match — so highlighting lit nothing and the graph's start node anchored
+   nothing. A codegen piece (`<rule>-item`, `<rule>-arm<N>`) lights the rule
+   it was cut out of, by the namer's own inverse.
+2. A throwing frame killed the transport: `tick()` skipped its
+   `requestAnimationFrame` and left `cur.playing` true, so the next click
+   read as a pause and the instrument played every other press. A frame now
+   costs a frame, and what threw is said in the status line.
+
+**Not there yet.** Rails are derived but unwired; `/routes` never runs the
+road not taken, so there is no parity verdict; editing (`/edit`, `/save`) is
+absent; the map holds readings and value rooms only — no artefacts, no
+compiler room, no transpile ghosts.
 
 ## 2026-08-10, night — `space/`: built, committed, then deleted from the tree
 

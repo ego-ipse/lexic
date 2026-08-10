@@ -27,24 +27,51 @@ class Section:
 
 
 def sections(relation: Relation) -> list[Section]:
-    """What this room shows. A relation kind that says nothing says so."""
+    """What this room shows, DIVIDED INTO FACETS.
+
+    A ``facet`` section opens one; everything after it belongs to it until the
+    next. A room that spells none is one undivided pane with no seams and no
+    doors — which is what "the new windows have no real facets" meant.
+    """
     if isinstance(relation, Viewing):
-        return [
-            Section("title", [relation.label()]),
-            Section(
-                "kv",
-                [
-                    f"nodes\t{len(relation.nodes):,}",
-                    f"edges\t{len(relation.edges):,}",
-                    f"shared\t{sum(1 for n in relation.nodes if n.refs)}",
-                ],
-            ),
-            Section("irvalue", [relation.rid]),
-        ]
+        return _value_room(relation)
     return [
+        Section("facet", ["the cast — who is standing where"]),
         Section("title", [relation.label()]),
         Section(
             "kv", [f"{role}\t{thing.about()}" for role, thing in relation.cast.items()]
+        ),
+    ]
+
+
+def _value_room(relation: Viewing) -> list[Section]:
+    """A value has more than one thing to say about itself, so it gets facets."""
+    shared = [node for node in relation.nodes if node.refs]
+    tiers: dict[str, int] = {}
+    for node in relation.nodes:
+        tiers[node.tier] = tiers.get(node.tier, 0) + 1
+    return [
+        Section("facet", ["the value — as IR"]),
+        Section("irvalue", [relation.rid]),
+        Section("facet", ["what it is"]),
+        Section(
+            "kv",
+            [
+                f"nodes\t{len(relation.nodes):,}",
+                f"edges\t{len(relation.edges):,}",
+                f"shared\t{len(shared)}",
+                *(f"{tier}\t{count:,}" for tier, count in sorted(tiers.items())),
+            ],
+        ),
+        Section("facet", ["what is SHARED — one object, reached many ways"]),
+        Section(
+            "list",
+            [
+                f"{node.type} — reached {node.refs + 1}x"
+                + (f"  {node.payload}" if node.payload else "")
+                for node in sorted(shared, key=lambda n: -n.refs)[:40]
+            ]
+            or ["nothing is shared — this value was built fresh, not authored"],
         ),
     ]
 
@@ -64,11 +91,31 @@ def index(session: Session) -> str:
 
 def frame(session: Session, pid: str) -> str | None:
     """The room by address, with everything it shows."""
+    # any address may be asked for before the map was ever opened: the graph
+    # grows on demand, or a room that exists reads as missing by accident
+    session.expand()
     if pid == "index":
         return index(session)
     relation = session.relations.get(pid)
     if relation is None:
-        return None
+        # a miss is a ROOM that says so: a 404 leaves the leaf parsing an
+        # empty body, and an empty frame is how a blank screen happens
+        known = ", ".join(session.relations) or "none"
+        return (
+            "\n".join(
+                [
+                    f"#PLACE {pid} missing no such room",
+                    *Section("title", ["NO SUCH ROOM"]).wire(),
+                    *Section(
+                        "refusal",
+                        [
+                            f"nothing here is addressed {pid!r} — the session holds {known}"
+                        ],
+                    ).wire(),
+                ]
+            )
+            + "\n"
+        )
     relation.hold()
     out = [f"#PLACE {relation.rid} {relation.kind} {relation.label()}"]
     for section in sections(relation):

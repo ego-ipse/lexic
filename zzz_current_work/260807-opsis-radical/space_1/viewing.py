@@ -162,10 +162,22 @@ class Viewing(Relation):
 
     def frame(self) -> str:
         """The value's graph, in the leaf's own IR vocabulary."""
+        shared = [node for node in self.nodes if node.refs]
+        tiers: dict[str, int] = {}
+        for node in self.nodes:
+            tiers[node.tier] = tiers.get(node.tier, 0) + 1
+        root = self.nodes[0] if self.nodes else None
         return "\n".join(
             [
                 f"root {self.cast[SUBJECT.name].name}",
+                f"type {root.type if root else ''}",
+                f"tier {root.tier if root else ''}",
                 f"nodes {len(self.nodes)}",
+                f"edges {len(self.edges)}",
+                f"shared {len(shared)}",
+                f"sharedrefs {sum(node.refs for node in shared)}",
+                "refused 0",
+                "tiers " + " ".join(f"{k} {v}" for k, v in sorted(tiers.items())),
                 f"#NODES {len(self.nodes)}",
                 *(
                     f"{n.place} {n.type} {n.tier} {n.kids} {n.subtree} {n.refs} 0"

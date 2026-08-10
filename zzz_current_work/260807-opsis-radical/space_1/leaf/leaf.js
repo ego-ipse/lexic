@@ -2585,7 +2585,19 @@ function spanWords(i) {
     + (cur.docSel ? ' · E retypes the selection' : '');
 }
 
-function ask() { if (!needsDraw) { needsDraw = true; requestAnimationFrame(render); } }
+function ask() {
+  if (needsDraw) return;
+  needsDraw = true;
+  requestAnimationFrame(() => { try { render(); } catch (err) { thrown(err); } });
+}
+
+// what threw, said once, where the instrument speaks: a silent dead frame is
+// indistinguishable from a paused one, and that is how it stayed hidden
+function thrown(err) {
+  window.__thrown = String((err && err.message) || err);
+  const out = document.getElementById('readout');
+  if (out) out.textContent = `a frame threw — ${window.__thrown}`;
+}
 
 let followT = -1;
 function followCursor() {
@@ -2610,7 +2622,10 @@ function tick(now) {
   lastTick = now;
   cur.t = Math.min(cur.t + (S.doc.length / 22) * speed * dt, S.doc.length);
   if (cur.t >= S.doc.length) cur.playing = false;
-  render();
+  // a throwing frame costs a FRAME, never the clock: without this the loop
+  // dies with cur.playing still true, so the next click reads as a pause and
+  // the transport plays every other press
+  try { render(); } catch (err) { thrown(err); }
   if (cur.playing) requestAnimationFrame(tick);
 }
 function play() {
@@ -3848,6 +3863,36 @@ function drawIr(view, ir) {
 /* ── the gesture probe: this instrument has never had one, so "does it
    work" was always the user's hand. ?probe drives the real handlers and
    writes the verdict into document.title, which dump-dom can read. */
+window.__thrown = null;
+window.addEventListener('error', (e) => { window.__thrown = e.message; });
+window.addEventListener('unhandledrejection', (e) => {
+  window.__thrown = String(e.reason && e.reason.message || e.reason);
+});
+
+async function probeTransport() {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const out = [];
+  let frames = 0;
+  const count = () => { frames++; requestAnimationFrame(count); };
+  requestAnimationFrame(count);
+  const beat = (n) => { for (let k = 1; k <= n; k++) tick(k * 40); };
+  play();
+  beat(12);
+  await wait(300);
+  out.push(`frames=${frames}`, `doclen=${S.doc.length}`,
+           `playing=${cur.playing}`, `t1=${Math.round(cur.t)}`);
+  cur.playing = false; ask();
+  await wait(200);
+  const held = Math.round(cur.t);
+  lastTick = 0;
+  play();
+  beat(12);
+  await wait(300);
+  out.push(`restarted=${cur.playing && Math.round(cur.t) > held}`,
+           `t2=${Math.round(cur.t)}`, `thrown=${window.__thrown || 'none'}`);
+  document.title = 'TRANSPORT ' + out.join(' | ');
+}
+
 async function probeGestures() {
   const out = [];
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -3909,3 +3954,4 @@ async function probeGestures() {
   document.title = 'PROBE ' + out.join(' | ');
 }
 if (new URLSearchParams(location.search).has('probe')) setTimeout(probeGestures, 1500);
+if (new URLSearchParams(location.search).has('transport')) setTimeout(probeTransport, 1500);
