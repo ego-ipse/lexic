@@ -18,6 +18,10 @@ __all__ = ["band", "cards", "frame"]
 
 BUCKETS = 44
 
+# The leaf draws a door per room KIND it knows; a relation kind it has never
+# heard of gets no door, so the mapping is stated here rather than assumed.
+DOOR = {"viewing": "value"}
+
 
 def cards(session: Session) -> list[str]:
     """Every relation instance the session holds, in index order.
@@ -54,13 +58,31 @@ def frame(session: Session) -> str:
         root = session.strip(rid)[0]
         lane = lanes.setdefault(root, len(lanes))
         seen = 1 if relation.held else 0
+        if not isinstance(relation, Reading):
+            continue
         rows.append(
             f"c {place} {session.level(rid)} {lane} r {seen} {relation.label()}"
         )
         rows.extend(_facts(place, relation))
     for root, lane in lanes.items():
         out.append(f"L {lane} {session.relations[root].label()}")
+    rows.extend(_rooms(session))
     return "\n".join([*out, *rows]) + "\n"
+
+
+def _rooms(session: Session) -> list[str]:
+    """Rooms that are not readings — they hang off the thing they are of."""
+    out = []
+    for rid, relation in session.relations.items():
+        if isinstance(relation, Reading):
+            continue
+        level = session.level(rid)
+        state = "ok" if relation.held else "no"
+        out.append(
+            f"P {rid} 0 {level} {DOOR.get(relation.kind, relation.kind)} {state} "
+            f"{relation.label()}\t{relation.facts()}"
+        )
+    return out
 
 
 def _facts(place: int, relation: Relation) -> list[str]:

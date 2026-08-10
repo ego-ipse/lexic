@@ -21,9 +21,13 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+import clocks  # noqa: E402
+import machine  # noqa: E402
+import places  # noqa: E402
 import scene as scenes  # noqa: E402
 import strata as maps  # noqa: E402
-from reading import Reading  # noqa: E402, F401 — importing registers the kind
+import viewing  # noqa: E402, F401 — importing registers the kind
+from reading import Reading, Turn, turn  # noqa: E402, F401 — registers the kind
 from relate import DOCUMENT, READER, Session, Text  # noqa: E402
 
 __all__ = ["Handler", "gate", "main", "open_session"]
@@ -35,10 +39,6 @@ FILES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript"}
 PENDING = {
     "/routes": "primary the engine's own composition\nprimary_seconds 0.00\n"
     "status pending\n",
-    "/clock": "status pending\ngeneration 1\npda_end -1\ndropped 0\n",
-    "/verdicts": "#VERDICTS 0\n",
-    "/automaton": "#ACLONES 0\n#ANAMES 0\n#AEDGES 0\n",
-    "/column": "#COLUMN 0 0\n#EXPECT 0\n",
     "/rails": "",
 }
 
@@ -102,7 +102,39 @@ class Handler(BaseHTTPRequestHandler):
             return maps.frame(session)
         if path == "/policy":
             return "".join(f"{k} {v}\n" for k, v in session.policy.items())
+        if path == "/clock":
+            turned = self.reader()
+            relation = session.relations.get(session.focus)
+            if turned is None or not isinstance(relation, Reading):
+                return None
+            return clocks.pda_clock(turned.machine, relation.document())
+        if path == "/column":
+            turned = self.reader()
+            relation = session.relations.get(session.focus)
+            if turned is None or not isinstance(relation, Reading):
+                return None
+            return clocks.column(
+                turned.machine, relation.document(), int(query.get("i", "0"))
+            )
+        if path == "/automaton":
+            turned = self.reader()
+            return machine.automaton(turned.machine.pda_tables()) if turned else None
+        if path == "/verdicts":
+            turned = self.reader()
+            return machine.verdicts(turned.machine) if turned else None
+        if path == "/place":
+            return places.frame(session, query.get("id", ""))
+        if path == "/irvalue":
+            room = session.relations.get(query.get("place", ""))
+            return room.frame() if isinstance(room, viewing.Viewing) else None
         return PENDING.get(path)
+
+    def reader(self) -> Turn | None:
+        """The focused reading's reader, as a machine — or nothing to ask."""
+        relation = self.session.relations.get(self.session.focus)
+        if not isinstance(relation, Reading):
+            return None
+        return turn(relation.cast[READER.name])
 
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))

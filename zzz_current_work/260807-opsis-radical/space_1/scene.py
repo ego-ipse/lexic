@@ -72,6 +72,34 @@ def _depths(ast: IrAst, refs: dict[str, list[str]]) -> dict[str, int]:
     return depth
 
 
+def as_written(rules: list[tuple[str, int, int]]) -> dict[str, str]:
+    """Folded rule name → the spelling the reader text actually uses.
+
+    Name folding is the engine's business, but the graph is drawn beside the
+    TEXT: a node called ``json-text`` where the grammar says ``JSON-text``
+    matches nothing, and the start rule — the layout's anchor — goes missing.
+    """
+    return {name.casefold(): name for name, _, _ in rules}
+
+
+HOISTED = re.compile(r"^(.*)-(?:item|arm)\d*$")
+
+
+def _said(written: dict[str, str], name: str) -> str:
+    """This rule, spelled the way the grammar spells it.
+
+    A codegen rule has no line of its own: ``<rule>-item[N]`` and
+    ``<rule>-arm<N>`` are what the hoisting passes name the pieces they cut
+    out of ``<rule>``, so an occurrence of one is an occurrence INSIDE that
+    rule and lights its line. The inverse is the namer's own, not a guess.
+    """
+    said = written.get(name.casefold())
+    if said is not None:
+        return said
+    cut = HOISTED.match(name)
+    return _said(written, cut.group(1)) if cut else name
+
+
 def ladder(session: Session, rid: str) -> list[str]:
     """The strip: every instance the session holds, focus lit.
 
@@ -95,12 +123,19 @@ def scene(session: Session, rid: str) -> str | None:
     reader_text = relation.reader_text()
     document = relation.document()
     rules = ruledefs(reader_text)
-    names = sorted({span.rule for span in relation.spans})
+    written = as_written(rules)
+    # a span names the rule that BUILT it, in the engine's folded spelling;
+    # the reader shows the grammar's. Co-selection is a name match, so the
+    # names have to be the same names — a generated rule keeps its own,
+    # because there is no line in the text for it to light
+    names = sorted({_said(written, span.rule) for span in relation.spans})
     fields = sorted({span.field for span in relation.spans})
     rule_at = {name: index for index, name in enumerate(names)}
     field_at = {name: index for index, name in enumerate(fields)}
     turned = turn(relation.cast[READER.name])
     edges, depth = rule_graph(turned.machine.grammar) if turned else ([], {})
+    edges = [(_said(written, a), _said(written, b)) for a, b in edges]
+    depth = {_said(written, name): at for name, at in depth.items()}
     rungs = ladder(session, rid)
     return "\n".join(
         [
@@ -128,7 +163,8 @@ def scene(session: Session, rid: str) -> str | None:
             *(f"{name} {d}" for name, d in depth.items()),
             f"#SPANS {len(relation.spans)}",
             *(
-                f"{s.start} {s.end} {s.depth} {rule_at[s.rule]} {field_at[s.field]}"
+                f"{s.start} {s.end} {s.depth} {rule_at[_said(written, s.rule)]} "
+                f"{field_at[s.field]}"
                 for s in relation.spans
             ),
             f"#READER {len(reader_text)}",
