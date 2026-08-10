@@ -159,6 +159,10 @@ class Relation:
             tree = f"(v {round(1 / (count - index), 3)} {index} {tree})"
         return f"(h 0.34 0 {tree})"
 
+    def verdict(self) -> str:
+        """What was checked here, and what it said. Empty when nothing was."""
+        return ""
+
     def frame(self) -> list[str]:
         """This relation, spelled — the same discipline its facets follow."""
         shown = list(self.facets())
@@ -166,6 +170,8 @@ class Relation:
             f"#ROOM {self.rid} {self.kind} {self.label()}",
             f"#ARRANGE {self.arrangement(len(shown))}",
         ]
+        if self.verdict():
+            out.append(f"#VERDICT {self.verdict()}")
         for facet in shown:
             out.extend(facet.wire())
         return out
@@ -206,6 +212,9 @@ class Session:
         self.edges: list[Edge] = []
         self.focus = ""
         self.made = 0
+        # presentation state: the leaves interpret it, the instrument only
+        # holds it, and a gesture in one leaf reaches the other through it
+        self.policy: dict[str, str] = {}
 
     def enter(self, kind: str, cast: Mapping[str, Thing]) -> str:
         """Hold this relation (or find the one already holding it) and focus it."""
@@ -241,6 +250,24 @@ class Session:
             licensed = [role for role in kind.slots if kind.licenses(role, thing)]
             out.extend(Offer(thing, name, role) for role in licensed)
         return out
+
+    def moves(self, rid: str) -> list[Offer]:
+        """The casts from here that would reach somewhere new.
+
+        A move whose thing already stands in that role in some relation is not
+        a move: entering would land on the instance already held. Identity is
+        the object, never its name — two things may be called the same.
+        """
+        held = {
+            (relation.kind, role, id(thing))
+            for relation in self.relations.values()
+            for role, thing in relation.cast.items()
+        }
+        return [
+            offer
+            for offer in self.offers(rid)
+            if (offer.kind, offer.role.name, id(offer.thing)) not in held
+        ]
 
     def cast(self, frm: str, tid: str, kind: str, role: str) -> str | None:
         """The one gesture: a visible thing, into a role, of a relation kind."""

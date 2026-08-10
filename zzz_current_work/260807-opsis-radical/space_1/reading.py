@@ -212,6 +212,13 @@ class Reading(Relation):
     def products(self) -> Mapping[str, Thing]:
         return {} if self.value is None else {"value": self.value}
 
+    def verdict(self) -> str:
+        """Round-trip fidelity, measured on this very text."""
+        if self.words:
+            return "fails the reader refused — see the document"
+        state = "holds" if self.faithful else "fails"
+        return f"{state} model.to_text() == document — {state}"
+
     def facets(self) -> Sequence[Facet]:
         """The four atlas earned, meaning here what they meant there."""
         reader = self.cast[READER.name]
