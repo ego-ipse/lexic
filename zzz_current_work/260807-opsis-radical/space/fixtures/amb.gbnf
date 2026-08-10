@@ -1,0 +1,5 @@
+# The ambiguity observation fixture: a genuinely ambiguous sum. The model
+# product REFUSES this language without a resolver; the amb fixture mounts
+# the `first` resolver — the explicit opt-out — so the reading exists and
+# the engines' speculation is observable at N-derivation scale.
+expr ::= expr "+" expr | [0-9]
