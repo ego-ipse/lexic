@@ -58,6 +58,19 @@ width still reads; a graph cannot wrap — below its ask the names collide.
 Judging both by one number is why four rounds of layout work never fixed the
 graphs while the arrangement kept reporting them fine.
 
+## Where the time goes (measured, not guessed)
+
+```
+read total 581ms · of which parse 53ms · facets 1.7ms   # the rest is the
+scene build 81ms → 0.00ms per poll after                # engine compiling
+```
+
+Startup is dominated by compiling the grammar — the engine's work, memoised
+by content — not by anything the instrument does. The scene used to be
+rebuilt on every poll (a quarter-megabyte of spans and text); it is now built
+once per state of the text, with facts for both the speed and the
+invalidation, because a cache that never invalidates is worse than none.
+
 ## Why each fact exists
 
 Every line in the gate defends something this project got wrong:
