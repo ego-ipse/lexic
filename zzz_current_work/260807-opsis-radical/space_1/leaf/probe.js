@@ -476,3 +476,52 @@ async function probeGestures() {
   document.title = 'PROBE ' + out.join(' | ');
 }
 if (new URLSearchParams(location.search).has('probe')) setTimeout(probeGestures, 1500);
+
+
+/* ?resize — one question, asked alone so no other gesture can pollute it:
+   does a facet that changes height re-fit its picture, or does the canvas
+   keep an old bitmap and let CSS stretch what was drawn for a bigger box? */
+function splitFor(node, name) {
+  if (typeof node === 'string') return null;
+  if (node[2] === name) return node;
+  return splitFor(node[2], name) || splitFor(node[3], name);
+}
+
+async function probeResize() {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const out = [];
+  await wait(1800);
+  cur.t = 4000;
+  ask();
+  await wait(900);
+  const cv = $('chartCv');
+  const floor = () => {
+    const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    for (let row = cv.height - 1; row >= 0; row--) {
+      for (let col = 0; col < cv.width; col += 4) {
+        if (px[(row * cv.width + col) * 4 + 3] > 8) return row;
+      }
+    }
+    return -1;
+  };
+  out.push(`start=${floor()}/${cv.height}`);
+  const split = splitFor(layoutTree, 'chart');
+  if (!split) { document.title = 'RESIZE no split for the chart'; return; }
+  split[1] = Math.max(0.15, split[1] * 0.45);
+  layoutFacets();
+  render();
+  await wait(800);
+  const small = floor(), smallH = cv.height;
+  split[1] = Math.min(0.9, split[1] / 0.45);
+  layoutFacets();
+  render();
+  await wait(800);
+  const big = floor(), bigH = cv.height;
+  out.push(`shrunk=${small}/${smallH}`, `grown=${big}/${bigH}`,
+    // the bitmap must follow the box, and the ink must stay inside it
+    `bitmapFollows=${smallH !== bigH}`,
+    `insideSmall=${small > 0 && small <= smallH}`,
+    `insideBig=${big > 0 && big <= bigH}`);
+  document.title = 'RESIZE ' + out.join(' | ');
+}
+if (new URLSearchParams(location.search).has('resize')) setTimeout(probeResize, 1200);
