@@ -35,6 +35,21 @@ codegen piece lights the rule it was cut from; artefacts count only when they
 load back; an edit is a re-reading with the frontier MEASURED off the kernel;
 the instrument reads its own state and saving the record applies it.
 
+**The graphs were never a layout problem — they were a PLACEMENT problem.**
+The same rule graph is legible in a pinned window and a smear in the reader
+facet, from identical data (compare the window against the left column in one
+frame). 32 rules barely fit a 400px column; the automaton's 126 clones over 12
+levels cannot at any spacing. Layout fixes that did land and were worth having:
+placement measures label width, crowded levels wrap into sub-columns, a tall
+facet is read top-to-bottom, and a large graph may shrink to fit. None of them
+can beat the geometry — a graph view opened in the reader needs real room.
+
+**The front end is carved into surfaces that own their state and failures:**
+chart.js (the derivation, three clocks), automaton.js, graph.js, rails.js,
+rooms.js (the map and the rooms) — leaf.js 3,911 → 2,183, holding planes,
+spine, pins, time, gestures, policy, boot. Every carve was proved by driving
+the surface it owns, never by the file parsing.
+
 **Open.** The graph is cramped where fan-out is dense (it fits now, but the
 placement is poor). The Earley chart is honest and still hard to read. What a
 legible one needs was not settled — the aggregate was proposed and rejected.
