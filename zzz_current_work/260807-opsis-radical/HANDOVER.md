@@ -2,136 +2,53 @@
 
 ## NEXT SESSION — start here
 
+**Where this actually stands (2026-08-11, end of session).** The chart and
+clock conversions were REVERTED at the user's instruction — `space_1` sits at
+`32de05c` plus the railroad's geometry ported on top. Read that as: the leaf
+draws the derivation, both clocks and the overview band itself again; the
+railroad, the automaton and the relations are served drawings.
+
 **Run it.**
 
 ```bash
 uv run python zzz_current_work/260807-opsis-radical/space_1/serve.py \
     resources/ground_truth/json.gbnf \
     zzz_current_work/260807-opsis-radical/tk/fixtures_long.json 8917
-uv run python zzz_current_work/260807-opsis-radical/space_1/gate.py   # 42 facts, exit 0
+uv run python zzz_current_work/260807-opsis-radical/space_1/gate.py   # 43 facts, exit 0
 ```
 
-Drive it, never eyeball it: `?probe=1` runs the real handlers and writes its
-verdicts into `document.title`.
+**Verify by driving, never by eye:** `?probe=1` runs the real handlers and
+writes verdicts into `document.title`; `?resize=1` asks the single question
+of whether a facet that changes height re-fits its picture. A screenshot
+cannot see anything that arrives after the first paint — headless does not
+fire `requestAnimationFrame` under `--virtual-time-budget`, and every redraw
+goes through `ask()`. Believe the probe; screenshots are for shape and colour.
 
-**A screenshot is not a test, and here is why.** Headless does not fire
-`requestAnimationFrame` under `--virtual-time-budget`, and `ask()` schedules
-every redraw through it. So anything that arrives AFTER the first paint — the
-cursor's point, a fetched drawing — is missing from a screenshot while being
-perfectly fine in a browser. The spine looked broken next to atlas's for
-exactly this reason; the probe (which drives and then reads state) showed
-`pointOpen=3 spineRows=3 closedRows=2`. Believe the probe; use screenshots
-for shape and colour only. Read them with a headless dump. Anything that
-reads `MISSING`, `NONE`, `MISMATCH` or `THREW` is a defect, and any capability
-the probe does not drive is a defect waiting to be reported by the user —
-that is how all three rail breaks got out.
+**Commits worth cherry-picking back, if wanted** (each is self-contained):
 
-**Two structural faults, fixed structurally** (both had been getting tweaks):
+| commit | what it does |
+|---|---|
+| `ab01f01` | resize a canvas in BOTH dimensions — without it a facet that changes height stretches its picture instead of re-fitting |
+| `d5c6ab3` | per-mode band registers (`modelband2`, `pdaband2`, …) so the three clocks read as different engines |
+| `2369e01` | the `?resize` probe |
+| `b86b1aa` | pictures in document coordinates — the window becomes a transform, so playback stops refetching |
 
-1. **The clock died on unpause.** Every picture was keyed to the WINDOW, so
-   each frame of playback scrolled it, invalidated the key and refetched a
-   whole-document computation. Pictures now live in **document coordinates**
-   — `x` IS the character offset — and the window is a transform the leaf
-   applies, because the window belongs to the side doing the looking. One
-   fetch per reading: `clockKeys` does not grow across playback, and the
-   294,262-mark drawing is reused. The derivation moved the same way.
-2. **The railroad's fork read as a vase.** FIVE curve shapes were tried
-   before anyone looked at a working reference — and there were two on
-   disk (`atlas/`, `space/`) plus a rendered mockup (`visual_4`). Running
-   `atlas/serve.py` and photographing its `value` rule settled it in one
-   look: atlas fits seven arms in ~150px because its arms nearly touch.
-   The curve was never wrong; `VGAP` of a full row between arms doubled the
-   vertical span the fork had to reach across, which forces any curve
-   near-vertical. `VGAP = 0.25` rows, and `bracket_for(tall)` scaling the
-   fork's width with what it must reach, and it sweeps.
+**The three rules this session cost, in the order they were learned:**
 
-   **The rule this earns:** when a picture is wrong and a working version
-   exists, PHOTOGRAPH THE WORKING ONE before touching the geometry. Reading
-   its source (or worse, its notes) is not looking at it.
-
-The lesson both share: when a picture keeps being wrong, check what its
-geometry is a function of before changing what it looks like.
-
-**The standing aim: a 75% cut in the leaf's JavaScript** (4,713 today, from
-5,144 when the display list began; the derivation, the railroad — including
-its pinned windows — the automaton, the relations, the room graphs and the
-overview band are all served pictures now).
-The lever is the display list — `opsis/paint.py` speaks `box`, `line`,
-`curve`, `arc`, `text`, in pixels, with tones named rather than coloured, and
-a `box` may carry an ADDRESS so a drawing is clickable without the leaf
-knowing what it is looking at. Served so far: the railroad (whole list, and
-one rule for a pinned window), the automaton, the relations in flat/arcs.
-
-**Next, in order:**
-
-1. ~~The derivation chart~~ — **done**. Each box carries its extent as its
-   address (`start:end:index`), so the drawing depends on the window and
-   nothing else: one fetch survives a whole playback. The leaf keeps three
-   things and only these — the window (it chose it), the cursor (it moves
-   it) and the tint that follows from comparing the two. Hover still agrees
-   with what is painted (`chartHover=same`). What remains in `chart.js` is
-   the overview band and the clock lanes for the pda/earley modes; those are
-   different data and are the next thing to serve.
-2. ~~The pda / earley clock lanes~~ — **done**, and it broke three times on
-   the way, all three worth remembering. Deleting the coverage array took
-   `step` (the band's pixels-per-character) with it. `pad` is a local of
-   `drawChart`, not of `drawClockLanes` — it is `sx(at)`, the window's own
-   left edge. And the one that mattered: **a hypothesis has no depth**, so
-   its row is something the picture INVENTS; sending them all in row zero
-   drew one dense stripe and called it a clock. `packed()` gives each the
-   first row it fits, and a fact holds that nothing in a row overlaps.
-   `clockBandTex` is gone too: ONE band path now serves all three modes —
-   the reading's own structure, or an engine's clock, textured the same way
-   in document coordinates. **Known gap**: all three bands are textured by
-   coverage count and so look alike. The earlier build distinguished them
-   (pda = stack depth, earley = hypothesis density in violet). Restoring
-   that is four lines — name the tones per mode server-side
-   (`{mode}band{shade}`) and add them to the leaf's `BAND` register.
-3. **The document plane's under/over canvases** (~150).
-4. **The IR rows and the room sections** (~300) — these are DOM, not canvas;
-   they want a row vocabulary rather than a display list.
-5. **The rings view** (~120 of `graph.js`) — the camera stays in the leaf;
-   only the node marks move.
-
-**What must not regress** (each has a fact): the relations ship on the wire ·
-every rung carries its own numbers · an edit moves everything derived · every
-automaton edge points at a clone it also sent · in every form what the model
-names is what the graph draws · every track is measured in columns · a
-drawing carries its doors.
-
-**The lesson from tonight, because it will recur.** Deleting code by slicing
-between function names took two live bindings out with it, and a stale
-duplicate drifted back above the file's banner and silently won by being
-declared later. Before removing a region: `grep -c` every identifier it
-assigns, and re-run the probe with the capability that region served.
-
-## 2026-08-11, night — the rails, broken three ways by my own deletions
-
-Converting the railroad to a served drawing broke it three times over, and
-every break was the same mistake in a different place: **deleting code by
-slicing between function names**, which took live bindings out with it.
-
-1. **The pop-up never appeared.** `railChipRule` and `railPin()` lost their
-   declarations. In strict mode, assigning to an undeclared name THROWS, so
-   the chip died before it could open a window — silent, and total.
-2. **Nothing was clickable.** The old draw kept its own hit boxes; the new
-   one had none. A `box` mark now carries an ADDRESS (`box … ref ws ws`), the
-   painter records the rectangles it painted, and a click hit-tests them.
-   The leaf still knows nothing about railroads.
-3. **The lines were off, and a pinned rule had no sizes.** `seq` drew no
-   connectors, and a **stale duplicate `fetchRail`** had drifted back above
-   the banner during a header shuffle — being the later declaration, it
-   silently won, and it was the copy that ignored the `#BOX` block.
-
-**What the probe now drives** (it drove none of this before, which is why you
-found all three): `railPin` (canvas size), `railPinDrew` (actual pixels in
-the bitmap), `railDoors` (54), `railGoto`. A gate fact holds the invariant
-that outlives them: *a drawing carries its doors — every ref in a track says
-where it leads*.
-
-The lesson, recorded because it will recur: a deletion that spans a region
-must be checked for what ELSE lived there. `grep -c` on every identifier the
-region assigned would have caught all three in one pass.
+1. **Photograph the working one first.** There were two running builds on
+   disk (`atlas/`, `space/`) and a rendered mockup (`visual_4`). Five passes
+   went into guessing the railroad's fork before anyone ran `atlas/serve.py`
+   and looked at its `value` rule — which answered it immediately (its arms
+   nearly touch; a full row of gap was doubling the span the fork had to
+   cross). Reading the source, or its notes, is not looking at it.
+2. **A deletion spans more than it looks.** Cutting code between function
+   names took live bindings with it three separate times (`railChipRule`,
+   `railPin`, `step`, `shades`). `grep -c` every identifier a region assigns
+   before removing it, and re-run the probe against what it served.
+3. **`git checkout <old> -- one_file.js` is not a revert.** It restores a
+   file whose neighbours have moved on. Revert the whole directory to a
+   commit, or port specific hunks deliberately — mixing the two produced
+   `CORNER is not defined` and a painter that silently dropped 49 curves.
 
 ## 2026-08-11, evening — drawings, not geometry
 
