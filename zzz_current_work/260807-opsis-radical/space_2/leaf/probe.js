@@ -50,6 +50,23 @@ async function probe() {
        && paper.height === Math.round(paper.clientHeight * dpr),
        `${paper.width}x${paper.height} for ${paper.clientWidth}x${paper.clientHeight}@${dpr}`);
 
+  /* 1b. AND ITS BOX IS THE BOX IT WAS PUT IN. A canvas is a replaced element:
+     it has an intrinsic size, so `inset: 0` does not stretch it and its
+     LAYOUT size becomes its bitmap size. At 1× the two coincide and nothing
+     looks wrong; at 2× the canvas lays out twice as large as the room it
+     sits in, the drawing goes with it, and anything positioned in CSS pixels
+     — every text plane, every chip — stays behind. This is measured against
+     the window rather than against the canvas's own numbers, because its own
+     numbers are exactly what is wrong when this breaks. */
+  for (const [name, el] of [['paper', paper], ['over', over]]) {
+    const box = el.getBoundingClientRect();
+    fact(`the ${name} canvas lays out in the room it was put in`,
+         Math.abs(box.width - window.innerWidth) < 2
+         && Math.abs(box.height - window.innerHeight) < 2,
+         `${Math.round(box.width)}x${Math.round(box.height)} `
+         + `in ${window.innerWidth}x${window.innerHeight} @${dpr}`);
+  }
+
   /* 2. every text plane sits exactly on the geometry it was given */
   let placed = 0, wrong = '';
   for (const plane of frame.planes) {

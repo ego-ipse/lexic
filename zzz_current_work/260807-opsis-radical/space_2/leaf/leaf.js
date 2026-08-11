@@ -238,11 +238,15 @@ paper.addEventListener('click', (ev) => {
     return;
   }
   if (target.kind === 'pop' || target.kind === 'clone') {
-    /* a clone is a SECOND window on the same facet, with its own layer: the
-       id is what keeps their cameras and scrolls apart */
+    /* Two different things. POPPING takes the facet OUT of the grid — it is
+       somewhere else now, and the dock is where it comes back from, so a
+       window that gets closed leaves a dim chip rather than nothing.
+       CLONING opens a SECOND one and leaves the grid alone; the id is what
+       keeps two windows on one facet from sharing a camera. */
     const seen = (opened[target.goes] = (opened[target.goes] || 0) + 1);
     const id = `${target.goes}-${seen}`;
     window.open(`/?only=${target.goes}&win=${id}`, '_blank', 'width=1000,height=760');
+    if (target.kind === 'pop') ask(`at facet ${target.goes}`);
     return;
   }
   if (target.kind.includes('.')) {

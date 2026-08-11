@@ -218,6 +218,36 @@ It found two things on its first run that were not gate bugs:
 - **`value` has no spans of its own** — it is spelled by whichever arm it
   took — so a check written against it was testing nothing.
 
+## The bug the probe could not see
+
+space_1 rendered its rule graph with the labels detached from the lines, on
+the user's screen and not on mine. The cause: **a canvas is a replaced
+element.** It has an intrinsic size from its `width`/`height` attributes, so
+`position: absolute; inset: 0` does NOT stretch it — its layout size becomes
+its BITMAP size. The bitmap is set to `w × devicePixelRatio`, so at 1× the
+two numbers coincide and everything looks right, and at 2× the canvas lays
+out at twice the box it sits in: the drawing goes with it, and the chips —
+DOM elements positioned in CSS pixels — stay where they belong.
+
+Measured, before and after:
+
+```
+before  dpr=1  wrap=587x603  cv.css=587x603     ← coincidence
+        dpr=2  wrap=587x604  cv.css=1174x1208   ← twice its box
+after   dpr=2  wrap=587x604  cv.css=587x604     bitmap 1174x1208
+```
+
+space_2 never had it — its canvases say `width: 100%; height: 100%` — but
+the probe could not have told me so, because it only ever ran at 1×. **It
+runs at 1× and 2× now**, and asserts each canvas lays out in the room it was
+put in, measured against the WINDOW rather than against the canvas's own
+numbers, since those numbers are exactly what is wrong when this breaks.
+
+The lesson is about the harness, not the CSS: a check that cannot distinguish
+two values which happen to be equal in the only environment it runs in is not
+a check. Every screenshot I took of the "broken" render was at 1×, where
+there was nothing to see.
+
 ## The probe
 
 ```bash
