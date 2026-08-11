@@ -897,10 +897,21 @@ frame — its `k`, its `mx`, its `my` — can be computed against the layout of
 the view you just left, and then kept, because the key already matches. That
 is a race in the reference, and its picture is what the race looks like.
 
+CAUGHT IN THE ACT. Two loads of the same settled reference session, arcs
+view, differ across nearly the whole facet — the diff's bounding box is
+(147, 23) to (800, 640). Its graph rendering is NOT REPRODUCIBLE ACROSS
+LOADS. (Flat happened to settle the same way twice, which is why the first
+check looked clean and nearly sent this the wrong way.)
+
 DO NOT PORT IT. This port computes its fit from the drawing it is about to
-place, in the same frame, and cannot have that bug. The graphs here should
-be judged against `graph.js`'s ARITHMETIC — which they now follow — and not
-against a screenshot of it losing that race.
+place, in the same frame, and cannot have that bug. The graphs here are to be
+judged against `graph.js`'s ARITHMETIC — which they now follow — and never
+against a screenshot of it, because two screenshots of it do not agree with
+each other.
+
+That is also the answer to a whole day spent trying to match its picture: the
+picture was never going to converge. Compare CODE and NUMBERS with a
+reference; compare pictures only with something that has one.
 
 The overflow nudge is still unported either way, and that is real: `pan.x =
 70 - w/2 - (x0 - mx) * k` when the picture is wider than the room.
