@@ -15,7 +15,7 @@ import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -28,6 +28,8 @@ from machine import machine_facet  # noqa: E402
 from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
 from read import Facet, Reading, as_written, read  # noqa: E402
+from track import rail, rails  # noqa: E402
+from wire_machine import automaton, verdicts  # noqa: E402
 
 __all__ = ["Handler", "main", "scene"]
 
@@ -45,9 +47,6 @@ PENDING = {
     "status pending\n",
     "/clock": "status pending\ngeneration 1\npda_end -1\ndropped 0\n"
     "#PDAFRAMES 0\n#PDANAMES 0\n#EVENTS 0\n#EARLEY 0\n#EARLEYNAMES 0\n",
-    "/verdicts": "#VERDICTS 0\n",
-    "/automaton": "#ACLONES 0\n#ANAMES 0\n#AEDGES 0\n",
-    "/rails": "",
     "/column": "#COLUMN 0 0\n#EXPECT 0\n",
     "/strata": "#STRATA 1 0\nL 0 this reading\nc 0 0 0 r 1 the only reading\n",
 }
@@ -194,7 +193,32 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/scene":
             self.send(drawn(self.reading))
             return
+        answer = self.derived(path, urlparse(self.path).query)
+        if answer is not None:
+            self.send(answer)
+            return
         self.send(PENDING.get(path, ""))
+
+    def derived(self, path: str, query: str) -> str | None:
+        """The routes the leaf calls that this instrument can already answer."""
+        if path not in ("/rails", "/rail", "/verdicts", "/automaton"):
+            return None
+        try:
+            machine = compile_text(
+                self.reading.reader_text, flavour=self.reading.flavour or "gbnf"
+            )
+        except LexicError, RecursionError, ValueError:
+            return "no reader to draw\n"
+        if path == "/rails":
+            return rails(machine.grammar)
+        if path == "/rail":
+            name = dict(
+                part.split("=", 1) for part in query.split("&") if "=" in part
+            ).get("rule", "")
+            return rail(machine.grammar, unquote(name))
+        if path == "/verdicts":
+            return verdicts(machine)
+        return automaton(machine.pda_tables())
 
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))
