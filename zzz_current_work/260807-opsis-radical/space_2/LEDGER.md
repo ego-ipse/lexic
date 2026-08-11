@@ -663,11 +663,15 @@ MEASURED PROPERLY:
 The lane heights agree. `chart_drawing` is byte-identical on both sides and
 neither scales the drawing when it paints it.
 
-What is left, and what to look at instead: the reference's lanes read as thin
-OUTLINED bars with gaps and mine read as filled amber slabs. That is the
-fill, not the geometry — `chart.js` fills a lane box only when the span is
-closed or live, and strokes it otherwise. So compare the tones, not the
-sizes.
+Traced to the end: both sides emit `lane - 2` for a box's height and both
+compute `lane = max(6, min(22, (tall - 24) / deep))`. Mine reaches the 22px
+CAP — box height 20 — because my chart facet is about 508px inside, where the
+reference's canvas is 467. At the same size both draw 19.35.
+
+So the derivation's geometry is right, its tones are right, and what is left
+is that the arrangement gives the chart column more room here than space_1
+gives it. That is a question about `arrange` and the facets' declared
+appetites, not about the chart.
 
 DO NOT MEASURE A PICTURE BY LOOKING AT IT. Every real finding this session
 came from dumping the numbers — the frame's marks, the canvas's own width and
