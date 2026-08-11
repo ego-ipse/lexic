@@ -386,13 +386,7 @@ def _pinchip(
     was = said.lift()
     wide = runs("chip", "⌖ pin") + 14
     said.box(run + column * CELL, top, wide, 15, "field2")
-    for x1, y1, x2, y2 in (
-        (run + column * CELL, top, run + column * CELL + wide, top),
-        (run + column * CELL, top + 15, run + column * CELL + wide, top + 15),
-        (run + column * CELL, top, run + column * CELL, top + 15),
-        (run + column * CELL + wide, top, run + column * CELL + wide, top + 15),
-    ):
-        said.line(x1, y1, x2, y2, "warm")
+    said.ring(run + column * CELL, top, wide, 15, "warm")
     said.text(run + column * CELL + 7, top + 11, "warm", "⌖ pin", face="chip")
     said.hit(run + column * CELL, top, wide, 15, "pin", f"{start}:{end}")
     said.drop(was)
@@ -473,13 +467,7 @@ def _badge(said: Frame, right: float, top: float, kind: str) -> None:
     """One rule's verdict, worn on its own head line, in that class's colour."""
     tone = BADGE.get(kind, "dimmer")
     wide = runs("chip", kind) + 12
-    for x1, y1, x2, y2 in (
-        (right - wide, top, right, top),
-        (right - wide, top + 13, right, top + 13),
-        (right - wide, top, right - wide, top + 13),
-        (right, top, right, top + 13),
-    ):
-        said.line(x1, y1, x2, y2, tone)
+    said.ring(right - wide, top, wide, 13, tone)
     said.text(right - wide + 6, top + 10, tone, kind, face="chip")
 
 
@@ -700,15 +688,12 @@ def _tuned(look: Look) -> dict[str, float]:
 
 def _flat(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
-    px, py, k = camera(look, room)
-    said.place(
-        graph_drawing(
-            look.it.shown, "flat", int(w), int(h), _tuned(look), look.lit(), look.keep()
-        ),
-        x + px + w / 2 * (1 - k),
-        y + py + h / 2 * (1 - k),
-        k,
+    px, py, zoom = camera(look, room)
+    drawn = graph_drawing(
+        look.it.shown, "flat", int(w), int(h), _tuned(look), look.lit(), look.keep()
     )
+    k, ox, oy = fitted(drawn, room)
+    said.place(drawn, x + px + ox, y + py + oy, k * zoom)
 
 
 def _arcs(said: Frame, room: Room, look: Look) -> None:
@@ -733,14 +718,26 @@ def _arcs(said: Frame, room: Room, look: Look) -> None:
     # line sits at y≈20 and the tallest curve reaches −148. Placing it at the
     # top of the room put every arc off the screen and left the line jammed
     # under the head. Its OWN bounds are what gets centred.
+    fit, ox, oy = fitted(drawn, room)
+    said.place(drawn, x + px + ox, y + py + oy, fit * k, dots=frozenset(named))
+
+
+def fitted(drawn: Drawing, room: Room, pad: float = 14.0) -> tuple[float, float, float]:
+    """FILL THE FACET, whatever the grammar's size — `graph.js`'s auto-fit.
+
+    A layout is laid out in its own units and the room is whatever the hand
+    left it; without a fit the picture sits in a corner of a facet that is
+    mostly empty. Fitted against the drawing's own extent, capped at 2.4 as
+    the reference caps it, and centred on what it measured.
+
+    :returns: the scale, and where to put the drawing's origin.
+    """
     low, high = _bounds(drawn)
-    said.place(
-        drawn,
-        x + px + w / 2 * (1 - k),
-        y + py + (h - (high - low) * k) / 2 - low * k,
-        k,
-        dots=frozenset(named),
-    )
+    wide = max(40.0, drawn.wide)
+    tall = max(40.0, high - low)
+    _x, _y, w, h = room
+    k = min((w - 2 * pad) / wide, (h - 2 * pad) / tall, 2.4)
+    return k, (w - wide * k) / 2, (h - tall * k) / 2 - low * k
 
 
 def _bounds(drawn: Drawing) -> tuple[float, float]:
@@ -885,14 +882,20 @@ def window_of(look: Look, w: float) -> tuple[int, int, float]:
     """Which slice of the document the lanes are of: where it starts, how
     wide, and what one character is worth in pixels.
 
-    One answer, used by the lanes AND by the frame drawn on the band above
-    them — a second guess at it is how a picture and the outline of that
-    picture end up describing different stretches of text.
+    THE WINDOW STAYS PUT until the cursor leaves it. `chart.js` keeps `view0`
+    and only re-centres when the cursor falls before the window or past 72%
+    of it — a window recomputed from the cursor on every frame slides out
+    from under the hand that just clicked in it, which is what made clicking
+    the right-hand side of the lanes throw the picture somewhere else.
     """
     pitch = PITCH * look.zoom("chart")
     window = max(8, int((w - 2 * PAD) / pitch))
-    text = look.reading.text
-    start = max(0, min(int(look.at) - int(window * 0.6), max(0, len(text) - window)))
+    length = len(look.reading.text)
+    said = look.says("chart.at", "")
+    was = int(said) if said.isdigit() else 0
+    start = max(0, min(was, max(0, length - window)))
+    if look.at < start or look.at > start + window * 0.72:
+        start = max(0, min(int(look.at - window * 0.6), max(0, length - window)))
     return start, window, pitch
 
 
@@ -963,12 +966,15 @@ def chart(said: Frame, room: Room, look: Look) -> None:
         band = _kept(
             f"band:{stamp}", lambda: band_drawing(look.reading, 18, None, "model")
         )
+        # the band is a TEXTURE — buckets of colour, filled. `drawChartBand`
+        # fills them; only a graph's nodes are outlines.
         said.place(
             band,
             x + PAD,
             y + 6,
             (w - 2 * PAD) / max(1.0, band.wide),
             22.0 / max(1.0, band.tall),
+            fills=True,
         )
     else:
         _texture(said, (x + PAD, y + 6, w - 2 * PAD, 22.0), look, which, stamp)
@@ -978,6 +984,9 @@ def chart(said: Frame, room: Room, look: Look) -> None:
     # moves it within the window they show. Two different sums, so two hits,
     # each carrying what the leaf needs to do its own half in one subtraction.
     start, _window_, pitch = window_of(look, w)
+    # the session remembers where the lanes are looking, because only the
+    # frame knows how wide they are
+    said.reported["chart.at"] = str(start)
     said.hit(x + PAD, y + 4, w - 2 * PAD, 28, "scrub", "band", x + PAD, w - 2 * PAD)
     said.hit(x, y + 36, w, h - 40, "scrub", f"lanes:{start}", x + PAD, pitch)
     deep = int(max(20, h - 44))
@@ -1007,13 +1016,7 @@ def _window(said: Frame, room: Room, look: Look) -> None:
     length = max(1, len(look.reading.text))
     left = x + PAD + (w - 2 * PAD) * start / length
     right = x + PAD + (w - 2 * PAD) * min(start + window, length) / length
-    for x1, y1, x2, y2 in (
-        (left, y + 5, max(right, left + 2), y + 5),
-        (left, y + 29, max(right, left + 2), y + 29),
-        (left, y + 5, left, y + 29),
-        (max(right, left + 2), y + 5, max(right, left + 2), y + 29),
-    ):
-        said.line(x1, y1, x2, y2, "warm")
+    said.ring(left, y + 5, max(right, left + 2) - left, 24, "warm")
 
 
 _TEXTURE: dict[str, tuple[list[int], list[int], list[int]]] = {}

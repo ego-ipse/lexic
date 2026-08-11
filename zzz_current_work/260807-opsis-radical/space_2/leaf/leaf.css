@@ -32,6 +32,10 @@ html, body { height: 100%; overflow: hidden; background: #0b0e14; }
 /* A dropdown is a REAL control: it opens over the page, it is arrowed
    through, it is typed at. leaf.css's own #gview/#gform/#cclock rule,
    verbatim, minus the margin a flex row gave it — this one is placed. */
+/* the glass over a window: it takes the pointer so the plane beneath it
+   cannot, and the canvas's own hit test decides what happens */
+.pane { position: absolute; background: transparent; }
+
 .pick {
   position: absolute;
   background: #0e1219;

@@ -12,6 +12,7 @@ const over = document.getElementById('over');
 const planes = document.getElementById('planes');
 const held = new Map();
 const chosen = new Map();
+const panes = [];
 const opened = {};
 const asked = new URLSearchParams(location.search);
 const only = asked.get('only') || '';
@@ -44,7 +45,7 @@ async function ask(gesture, body) {
         + (body === undefined ? '' : `\n${body}`),
     }).then((r) => r.text());
     const got = read(said);
-    if (got) { frame = got; paint(); weld(); dropdowns(); }
+    if (got) { frame = got; paint(); weld(); dropdowns(); glazing(); }
   } finally {
     asking = false;
     if (queued) { const next = queued; queued = null; ask(next.gesture, next.body); }
@@ -199,6 +200,29 @@ function strokes(canvas, marks) {
   }
 }
 
+/* A PANE OF GLASS over each window. The text planes are real elements, so a
+   window drawn above one on the canvas still lets every click through into
+   the textarea underneath — a window you can see and cannot touch. This is
+   the smallest thing that makes the canvas's own hit test win: an empty div
+   on the window's rectangle, above the planes, forwarding nothing. */
+function glazing() {
+  const want = (frame.hits || []).filter((h) => h.kind === 'win');
+  while (panes.length > want.length) panes.pop().remove();
+  while (panes.length < want.length) {
+    const pane = document.createElement('div');
+    pane.className = 'pane';
+    planes.appendChild(pane);
+    panes.push(pane);
+  }
+  want.forEach((h, i) => {
+    const pane = panes[i];
+    pane.style.left = `${h.x}px`;
+    pane.style.top = `${h.y}px`;
+    pane.style.width = `${h.w}px`;
+    pane.style.height = `${h.h}px`;
+  });
+}
+
 /* One real control per pick, on the geometry the frame sent. */
 function dropdowns() {
   const want = new Set(frame.picks.map((p) => p.key));
@@ -297,6 +321,16 @@ function scrubAt(ev) {
   return null;
 }
 
+/* WHOSE EVENT IS THIS? The canvas is not the only thing under the hand: a
+   text plane is a real element with its own handling, a dropdown is a real
+   control, and a window's pane of glass is neither — it exists precisely so
+   the canvas's hit test can answer for the rectangle it covers. */
+function ours(ev) {
+  const on = ev.target;
+  return !on || !on.classList
+    || (!on.classList.contains('plane') && !on.classList.contains('pick'));
+}
+
 function under(ev, wanted) {
   const box = paper.getBoundingClientRect();
   const x = ev.clientX - box.left, y = ev.clientY - box.top;
@@ -309,7 +343,8 @@ function under(ev, wanted) {
   return null;
 }
 
-paper.addEventListener('click', (ev) => {
+document.addEventListener('click', (ev) => {
+  if (!ours(ev)) return;
   const target = under(ev, false);
   if (!target) return;
   const box = paper.getBoundingClientRect();
@@ -340,12 +375,17 @@ paper.addEventListener('click', (ev) => {
 });
 
 /* dragging: a seam resizes, anything else in a picture turns it */
-paper.addEventListener('pointerdown', (ev) => {
+document.addEventListener('pointerdown', (ev) => {
+  if (!ours(ev)) return;
   /* what a drag STARTED on, falling back to the region it is in: a drag
      across a picture is about that picture even where nothing was hit */
   dragging = { x: ev.clientX, y: ev.clientY, on: under(ev, false) || under(ev, true) };
-  const scrub = scrubAt(ev);
-  if (scrub) { dragging.scrub = true; ask(`scrub ${scrub.h.goes} ${scrub.said.toFixed(4)}`); }
+  // a window dragged ACROSS the chart is still a window being dragged
+  const held = dragging.on && dragging.on.kind;
+  if (held !== 'winhead' && held !== 'wincorner') {
+    const scrub = scrubAt(ev);
+    if (scrub) { dragging.scrub = true; ask(`scrub ${scrub.h.goes} ${scrub.said.toFixed(4)}`); }
+  }
 });
 window.addEventListener('pointerup', (ev) => {
   /* a head dragged onto another surface is a TOPOLOGY change: where it was
@@ -405,7 +445,8 @@ window.addEventListener('pointermove', (ev) => {
 });
 
 /* a stack of diagrams reads like a document: wheel scrolls, Ctrl+wheel zooms */
-paper.addEventListener('wheel', (ev) => {
+document.addEventListener('wheel', (ev) => {
+  if (!ours(ev)) return;
   const target = under(ev, true);
   if (!target) return;
   ev.preventDefault();
@@ -437,7 +478,8 @@ window.addEventListener('keydown', (ev) => {
 /* hover: reported only when what is under the pointer CHANGES, so a hand
    moving across a facet is one gesture, not a thousand */
 let over_what = '';
-paper.addEventListener('pointermove', (ev) => {
+document.addEventListener('pointermove', (ev) => {
+  if (!ours(ev)) return;
   if (dragging) return;
   const target = under(ev, false);
   const now = target ? `${target.kind} ${target.goes}` : '';

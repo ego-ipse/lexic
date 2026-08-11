@@ -117,22 +117,25 @@ class Handler(BaseHTTPRequestHandler):
         Held.other.ask(
             reader_of(session.reading), session.reading.text, session.generation
         )
-        self.send(
-            compose(
-                session.reading,
-                wide,
-                tall,
-                session.at,
-                state,
-                Held.watched(),
-                session.generation,
-                climbed=session.climbed,
-                typed=session.typed,
-                frontier=session.frontier(),
-                routes=Held.other.line(),
-                only=only,
-            ).wire(session.generation, session.playing)
+        drawn = compose(
+            session.reading,
+            wide,
+            tall,
+            session.at,
+            state,
+            Held.watched(),
+            session.generation,
+            climbed=session.climbed,
+            typed=session.typed,
+            frontier=session.frontier(),
+            routes=Held.other.line(),
+            only=only,
         )
+        # what the frame WORKED OUT belongs to the session: the lanes' window
+        # depends on a width only the frame has, and a window recomputed from
+        # the cursor every time slides out from under the hand
+        state.update(drawn.reported)
+        self.send(drawn.wire(session.generation, session.playing))
 
 
 def main() -> None:

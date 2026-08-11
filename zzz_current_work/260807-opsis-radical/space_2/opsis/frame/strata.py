@@ -121,13 +121,7 @@ def draw(said: Frame, wire: str, wide: int, tall: int) -> None:
 def _card(said: Frame, card: Card, x: float, y: float) -> None:
     """One rung: what it is, its numbers, and the shape of its own reading."""
     tone = "warm" if card.here else ("hair" if card.visited else "dimmer")
-    for x1, y1, x2, y2 in (
-        (x, y, x + CARD, y),
-        (x, y + 84, x + CARD, y + 84),
-        (x, y, x, y + 84),
-        (x + CARD, y, x + CARD, y + 84),
-    ):
-        said.line(x1, y1, x2, y2, tone)
+    said.ring(x, y, CARD, 84, tone)
     said.text(x + 10, y + 20, "ink" if card.visited else "dim", card.label, CARD - 20)
     _band(said, card, x + 10, y + 30)
     said.text(

@@ -27,6 +27,7 @@ class Frame:
 
     __slots__ = (
         "hits",
+        "reported",
         "lifted",
         "marks",
         "over",
@@ -48,6 +49,11 @@ class Frame:
         self.lifted = False
         self.hits: list[str] = []
         self.picks: list[str] = []
+        # what the frame WORKED OUT that the session should remember — the
+        # window the lanes are showing, which depends on a width only the
+        # frame has. A picture that recomputes it from the cursor every time
+        # moves under the hand that just clicked it.
+        self.reported: dict[str, str] = {}
         self.planes: list[str] = []
         self.texts: list[str] = []
         self.wide = wide
@@ -236,11 +242,16 @@ class Frame:
         scale: float = 1.0,
         down: float = 0.0,
         dots: frozenset[str] | None = None,
+        fills: bool = False,
     ) -> None:
         """A drawing's own marks, moved into the room it was given.
 
         :param down: the vertical scale, when it differs from the horizontal —
             a band stretched across a column must not also stretch down it.
+        :param fills: FILL the boxes instead of outlining them. Which one is
+            right belongs to the consumer, not to the mark: `paint.js` strokes
+            a graph's nodes and `drawChartBand` fills the band's buckets, and
+            they read the same drawing vocabulary to do it.
         :param dots: draw every node as `.gchip.dot` — a small filled circle
             with no label — EXCEPT these, which keep their box and their name.
             Thirty-two names on one line is thirty-two names nobody can read;
@@ -269,6 +280,9 @@ class Frame:
                 wide, high = float(parts[3]) * scale, float(parts[4]) * tall
                 tone = parts[5]
                 label = " ".join(parts[7:]) if len(parts) > 7 else ""
+                if fills:
+                    self.box(at, top, wide, high, tone)
+                    continue
                 if dots is not None and label not in dots:
                     self.dot(at + wide / 2, top + high / 2, 3.0, tone)
                     continue

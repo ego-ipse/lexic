@@ -787,12 +787,15 @@ def main() -> int:
 
     def window(at: float) -> float:
         """Where the outline on the band sits — the stretch the lanes are of."""
-        uprights = [
+        # it is one ring now, not four lines drawn by hand
+        outlines = [
             float(m[1])
-            for m in marks(frame({}, at=at), "line")
-            if m[5] == "warm" and m[1] == m[3] and float(m[1]) > 1060
+            for m in marks(frame({}, at=at), "ring")
+            # the outline on the BAND — above where the lanes start, which
+            # carry warm rings of their own
+            if m[5] == "warm" and float(m[1]) > 1060 and float(m[2]) < 90
         ]
-        return min(uprights) if uprights else -1.0
+        return min(outlines) if outlines else -1.0
 
     check(
         "the band says WHICH stretch the lanes below are of, and follows",

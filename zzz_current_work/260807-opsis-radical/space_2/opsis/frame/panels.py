@@ -281,13 +281,7 @@ def _controls(
             at += wide + 6
             continue
         said.box(at, y + 6, wide, 15, "field2")
-        for x1, y1, x2, y2 in (
-            (at, y + 6, at + wide, y + 6),
-            (at, y + 21, at + wide, y + 21),
-            (at, y + 6, at, y + 21),
-            (at + wide, y + 6, at + wide, y + 21),
-        ):
-            said.line(x1, y1, x2, y2, "cool" if on else "hair")
+        said.ring(at, y + 6, wide, 15, "cool" if on else "hair")
         said.text(at + 5, y + 17, "cool" if on else "chip", word, face="chip")
         said.hit(at, y + 6, wide, 15, kind, goes)
         at += wide + 6

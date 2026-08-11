@@ -157,13 +157,7 @@ def _zone(said: Frame, look: Look, grid: object, titles: dict[str, str]) -> None
             ry, rh = ry + rh / 2, rh / 2
         was = said.lift()
         said.box(rx, ry, rw, rh, "cool_wash")
-        for x1, y1, x2, y2 in (
-            (rx, ry, rx + rw, ry),
-            (rx, ry + rh, rx + rw, ry + rh),
-            (rx, ry, rx, ry + rh),
-            (rx + rw, ry, rx + rw, ry + rh),
-        ):
-            said.line(x1, y1, x2, y2, "cool")
+        said.ring(rx, ry, rw, rh, "cool")
         word = (
             f"tab with {called(titles.get(target, target))[0].lower()}"
             if zone == "tab"
@@ -205,15 +199,10 @@ def _windows(
         x, y = min(x, wide - 80), min(y, tall - 40)
         w, h = min(w, wide - x - 8), min(h, tall - y - 8)
         said.box(x, y, w, h, "field2")
-        for x1, y1, x2, y2 in (
-            (x, y, x + w, y),
-            (x, y + h, x + w, y + h),
-            (x, y, x, y + h),
-            (x + w, y, x + w, y + h),
-        ):
-            said.line(x1, y1, x2, y2, "warm")
+        said.ring(x, y, w, h, "warm")
         # the head IS the handle: dragging it moves the window, and the
         # corner resizes it — the same two gestures every window has ever had
+        said.hit(x, y, w, h, "win", wid)
         said.hit(x, y, w - 22, 20, "winhead", wid)
         said.hit(x + w - 14, y + h - 14, 14, 14, "wincorner", wid)
         said.line(x + w - 14, y + h, x + w, y + h - 14, "warm")
@@ -225,7 +214,10 @@ def _windows(
         said.line(x, y + 20, x + w, y + 20, "hair")
         # nothing reaches THROUGH a window: its own rectangle takes the
         # pointer before anything it happens to be floating over
-        said.hit(x, y + 20, w, h - 20, "win", wid)
+        # THE WHOLE WINDOW, head included. The leaf lays a pane of glass over
+        # this rectangle so the window takes the pointer: the text planes are
+        # real elements and a canvas drawn above one still lets every click
+        # through to it, which is a window you can see and cannot touch.
         said.clip(x, y + 20, w, h - 20)
         _inside(said, look, wid, facet, about, (x, y + 20, w, h - 20))
         said.unclip()
@@ -288,13 +280,7 @@ def _railchip(said: Frame, look: Look, wide: int, tall: int) -> None:
     y = max(8.0, min(float(down) - 34, tall - 42.0))
     said.lift()
     said.box(x, y, room, 22, "field2")
-    for x1, y1, x2, y2 in (
-        (x, y, x + room, y),
-        (x, y + 22, x + room, y + 22),
-        (x, y, x, y + 22),
-        (x + room, y, x + room, y + 22),
-    ):
-        said.line(x1, y1, x2, y2, "violet")
+    said.ring(x, y, room, 22, "violet")
     said.text(x + 10, y + 15, "violet", "▤ rail", face="railchip")
     said.hit(x, y, room, 22, "rail", rule)
     said.drop()
@@ -317,13 +303,7 @@ def _banner(said: Frame, reading: Reading, wide: int, tall: int) -> None:
     x = max(24.0, wide * 0.24)
     y = tall - STATUS - 58
     said.box(x, y, min(room, wide - x - 24), 40, "field2")
-    for x1, y1, x2, y2 in (
-        (x, y, x + min(room, wide - x - 24), y),
-        (x, y + 40, x + min(room, wide - x - 24), y + 40),
-        (x, y, x, y + 40),
-        (x + min(room, wide - x - 24), y, x + min(room, wide - x - 24), y + 40),
-    ):
-        said.line(x1, y1, x2, y2, "red")
+    said.ring(x, y, min(room, wide - x - 24), 40, "red")
     said.text(
         x + 16, y + 25, "red", words, min(room, wide - x - 24) - 32, face="verdict"
     )
@@ -400,13 +380,7 @@ def _ladder(said: Frame, it: Staged, at: float) -> float:
     pair, _, _seen = rest.partition(" · ")
     word = f"{pair or '…'}  ∴"
     wide = min(26 * 6.6, runs("chip", word)) + 16
-    for x1, y1, x2, y2 in (
-        (at, 8, at + wide, 8),
-        (at, 26, at + wide, 26),
-        (at, 8, at, 26),
-        (at + wide, 8, at + wide, 26),
-    ):
-        said.line(x1, y1, x2, y2, "warm")
+    said.ring(at, 8, wide, 26 - 8, "warm")
     said.text(at + 8, 21, "warm", word, wide - 14, face="chip")
     said.hit(at, 8, wide, 18, "strata", "on")
     return at + wide + 14
@@ -425,13 +399,7 @@ def _dock(
         here = any(f.name == facet for f in it.facets)
         word = worded(titles, facet)
         wide = runs("chip", word) + 22
-        for x1, y1, x2, y2 in (
-            (at, 8, at + wide, 8),
-            (at, 26, at + wide, 26),
-            (at, 8, at, 26),
-            (at + wide, 8, at + wide, 26),
-        ):
-            said.line(x1, y1, x2, y2, "hair")
+        said.ring(at, 8, wide, 26 - 8, "hair")
         # .fnode-chip i — a ROUND dot, 6px, cool when the facet is present
         said.box(at + 6, 14, 6, 6, "cool" if here else "dimmer")
         said.text(at + 16, 21, "chip" if here else "dimmer", word, face="chip")
@@ -559,13 +527,7 @@ def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> 
         ("+", "speed~+"),
     ):
         said.box(at_x, y + 12, 20, 16, "field")
-        for x1, y1, x2, y2 in (
-            (at_x, y + 12, at_x + 20, y + 12),
-            (at_x, y + 28, at_x + 20, y + 28),
-            (at_x, y + 12, at_x, y + 28),
-            (at_x + 20, y + 12, at_x + 20, y + 28),
-        ):
-            said.line(x1, y1, x2, y2, "hair")
+        said.ring(at_x, y + 12, 20, 16, "hair")
         said.text(at_x + 6, y + 24, "chip", glyph)
         said.hit(at_x, y + 12, 20, 16, "do", gesture)
         at_x += 22
