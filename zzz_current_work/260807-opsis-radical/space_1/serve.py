@@ -23,7 +23,7 @@ if str(HERE) not in sys.path:
 
 from chain import chain  # noqa: E402
 from draw import graph_facet  # noqa: E402
-from lexic.compile import compile_text  # noqa: E402
+from lexic.compile import CompiledGrammar, compile_text  # noqa: E402
 from machine import machine_facet  # noqa: E402
 from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
@@ -31,6 +31,8 @@ from chain import Rung  # noqa: E402
 from read import Facet, Reading, as_written, read, read_up, upward  # noqa: E402
 from retype import retype  # noqa: E402
 from draw import edges, levels  # noqa: E402
+from keep import keep  # noqa: E402
+from machine import of  # noqa: E402
 from track import rail, rails  # noqa: E402
 from watch import watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
@@ -215,6 +217,63 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send(PENDING.get(path, ""))
 
+    def room(self, which: str, machine: CompiledGrammar) -> str:
+        """One room, spelled. A room nobody authored says so, in place."""
+        if which in ("index", ""):
+            rows = [
+                "the machine — clones, not rules\tplace:machine",
+                "the artefacts — each one loaded back\tplace:artefacts",
+            ]
+            return "\n".join(
+                [
+                    "#PLACE index rooms the rooms this reading holds",
+                    "#SEC title 1",
+                    "ROOMS",
+                    f"#SEC list {len(rows)}",
+                    *rows,
+                    "",
+                ]
+            )
+        if which == "machine":
+            built = of(machine)
+            return "\n".join(
+                [
+                    "#PLACE machine compiler the machine this grammar compiles to",
+                    "#SEC title 1",
+                    built.line(),
+                    "#SEC kv 3",
+                    f"clones built\t{built.clones}",
+                    f"rules\t{built.rules}",
+                    f"deep\t{built.deepest}",
+                    "",
+                ]
+            )
+        if which == "artefacts":
+            made = keep(machine)
+            return "\n".join(
+                [
+                    "#PLACE artefacts artefacts what this reader can be written as",
+                    "#SEC title 1",
+                    "ARTEFACTS — none counts until it loads back",
+                    f"#SEC kv {len(made)}",
+                    *(
+                        f"{a.name}\t{a.chars:,} chars · {a.witness} — {a.words}"
+                        for a in made
+                    ),
+                    "",
+                ]
+            )
+        return "\n".join(
+            [
+                f"#PLACE {which} missing no such room",
+                "#SEC title 1",
+                "NO SUCH ROOM",
+                "#SEC refusal 1",
+                f"nothing here is addressed {which!r} — index, machine, artefacts",
+                "",
+            ]
+        )
+
     def travel(self, rung: int) -> str:
         """Enter a rung of the chain — up OR down.
 
@@ -245,6 +304,7 @@ class Handler(BaseHTTPRequestHandler):
             "/clock",
             "/strata",
             "/rulegraph",
+            "/place",
         ):
             return None
         try:
@@ -253,6 +313,11 @@ class Handler(BaseHTTPRequestHandler):
             )
         except LexicError, RecursionError, ValueError:
             return "no reader to draw\n"
+        if path == "/place":
+            which = dict(
+                part.split("=", 1) for part in query.split("&") if "=" in part
+            ).get("id", "index")
+            return self.room(unquote(which), machine)
         if path == "/rulegraph":
             names = levels(machine.grammar)
             return "\n".join(
