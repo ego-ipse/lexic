@@ -44,7 +44,10 @@ __all__ = ["DRAWN", "HEADS", "Look", "Room"]
 Room = tuple[float, float, float, float]
 # one row of the spine, whichever clock is answering: what stands in the
 # gutter, the thing itself, its extent, and the tone the thing is said in
-Row = tuple[str, str, str, str]
+# ...and what that row IS, when a hand can land on it. Only the model spine's
+# rows carry one: `drawPdaSpine` and `drawEarleySpine` build rows with no
+# `dataset.i`, so clicking those does nothing in the reference either.
+Row = tuple[str, str, str, str, str]
 
 # #gview's own option list, in its own words
 GRAPHS = (
@@ -1304,7 +1307,13 @@ def _rows(
     # and a column of origins clipped to `@41…` says nothing at all
     step = max((len(row[0]) for row in rows), default=0) * CELL + (8 if rows else 0)
     top = y + 12
-    for gutter, words, extent, tone in rows[first : first + fits]:
+    for gutter, words, extent, tone, goes in rows[first : first + fits]:
+        # A ROW IS A THING YOU CAN POINT AT. `gestures.js` binds click to the
+        # selection and mousemove to the hover on both spine panels, and the
+        # warm readout says whichever the hand is on. These were emitted at
+        # ZERO WIDTH, so no row could be hovered or clicked at all.
+        if goes:
+            said.hit(x + 8, top, w - 24, ROW, "span", goes)
         if gutter:
             said.text(x + 14, top + 10, "dimmer", gutter)
         room_for = w - 34 - step
@@ -1328,7 +1337,9 @@ def _rows(
     top = y + h - keep
     said.text(x + 14, top + 10, "ftitle", title)
     top += ROW + 2
-    for gutter, words, extent, tone in under[:4]:
+    for gutter, words, extent, tone, goes in under[:4]:
+        if goes:
+            said.hit(x + 8, top, w - 24, ROW, "span", goes)
         if gutter:
             said.text(x + 14, top + 10, "dimmer", gutter)
         at = x + 14 + (len(gutter) + 1) * CELL if gutter else x + 14
@@ -1353,6 +1364,7 @@ def _model_stack(said: Frame, room: Room, look: Look) -> None:
             as_written(look.it.rules, span.rule),
             f"{span.start:,}..{span.end:,}",
             "warm" if span is live[-1] else "ink",
+            f"{span.start}:{span.end}",
         )
         for span in live
     ]
@@ -1364,6 +1376,7 @@ def _model_stack(said: Frame, room: Room, look: Look) -> None:
             as_written(look.it.rules, span.rule),
             f"{span.start:,}..{span.end:,}",
             "dim",
+            f"{span.start}:{span.end}",
         )
         for span in closed_before(look.reading, look.at)[:4]
     ]
@@ -1389,6 +1402,7 @@ def _pda_stack(said: Frame, room: Room, look: Look) -> None:
             ("warm" if (s0, e0, depth, name, ok) is deep[-1] else "ink")
             if ok
             else "red",
+            "",
         )
         for s0, e0, depth, name, ok in deep
     ]
@@ -1403,11 +1417,17 @@ def _pda_stack(said: Frame, room: Room, look: Look) -> None:
         if at <= look.at
     ][-4:]
     made: list[Row] = [
-        (f"@{at}", f"{words} → {chose}", "", "warm" if abs(at - look.at) < 2 else "dim")
+        (
+            f"@{at}",
+            f"{words} → {chose}",
+            "",
+            "warm" if abs(at - look.at) < 2 else "dim",
+            "",
+        )
         for at, words, chose in near
     ]
     if not made:
-        made = [("", "none — the whole walk is deterministic descent", "", "dim")]
+        made = [("", "none — the whole walk is deterministic descent", "", "dim", "")]
     _rows(said, room, look, "the PDA's stack at t", rows, ("DECISIONS", made))
 
 
@@ -1435,7 +1455,7 @@ def _earley_stack(said: Frame, room: Room, look: Look) -> None:
         origin, _, rest = line.partition(" ")
         role, _, item = rest.partition(" ")
         rows.append(
-            (f"@{origin}", item, role, "green" if role == "complete" else "ink")
+            (f"@{origin}", item, role, "green" if role == "complete" else "ink", "")
         )
     if not rows:
         said.text(x + 14, y + 40, "fsub", "empty — inside a lexical run, scanned past")
@@ -1452,16 +1472,16 @@ def _earley_stack(said: Frame, room: Room, look: Look) -> None:
 def _echips(expect: list[str]) -> list[Row]:
     """.echip — what can come next, warm, as many to a line as fit."""
     if not expect:
-        return [("", "nothing — every item is complete", "", "dim")]
+        return [("", "nothing — every item is complete", "", "dim", "")]
     lines: list[Row] = []
     said = ""
     for term in expect:
         if len(said) + len(term) > 46:
-            lines.append(("", said, "", "warm"))
+            lines.append(("", said, "", "warm", ""))
             said = ""
         said += ("  " if said else "") + term
     if said:
-        lines.append(("", said, "", "warm"))
+        lines.append(("", said, "", "warm", ""))
     return lines
 
 
