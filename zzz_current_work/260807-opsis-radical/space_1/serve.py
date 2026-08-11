@@ -317,12 +317,11 @@ class Handler(BaseHTTPRequestHandler):
                 return rails_drawing(rails(shown), wide).wire("rails")
             if what == "chart":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 400
-                at = float(asked.get("t", ["0"])[0] or 0)
                 start = int(float(asked.get("from", ["0"])[0] or 0))
                 win = int(float(asked.get("win", ["400"])[0] or 400))
-                return chart_drawing(self.reading, at, start, win, wide, tall).wire(
-                    "chart"
-                )
+                return chart_drawing(
+                    self.reading, start, win, wide, tall
+                ).wire("chart")
             if what == "rail":
                 shown = form_of(
                     machine, self.reading, Handler.state.get("form", "source")

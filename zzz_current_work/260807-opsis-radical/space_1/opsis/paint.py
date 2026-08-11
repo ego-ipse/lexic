@@ -28,6 +28,7 @@ from praxis.reading import columns
 __all__ = [
     "Drawing",
     "automaton_drawing",
+    "chart_drawing",
     "graph_drawing",
     "chart_drawing",
     "rail_drawing",
@@ -335,38 +336,38 @@ def rail_drawing(tracks: str, name: str) -> Drawing:
 
 
 def chart_drawing(
-    reading: object, at: float, view0: int, win: int, wide: int, tall: int
+    reading: object, view0: int, win: int, wide: int, tall: int
 ) -> Drawing:
     """The derivation over a window of the text — spans as boxes in lanes.
 
-    The chart is the one picture that changes with every cursor move, so it
-    is drawn for a WINDOW: which stretch of the document, and where the
-    cursor stands in it. Everything else about it — which span sits in which
-    lane, what has closed, what is still open — is the reading's own.
+    Every box carries its EXTENT as its address (``start:end:index``), for
+    two reasons. The leaf hit-tests painted rectangles, so hovering needs no
+    second geometry — the same mechanism the railroad's doors use. And the
+    tone that changes with the cursor (closed behind it, open across it,
+    still to come) is a comparison against the one number the leaf genuinely
+    owns: the cursor it is moving. Nothing here depends on where the cursor
+    is, so this drawing survives a whole playback unchanged.
     """
     draw = Drawing()
-    spans = getattr(reading, "spans", [])
-    if not spans:
+    spans = list(getattr(reading, "spans", []))
+    if not spans or win <= 0:
         return draw
     deep = max(span.depth for span in spans) + 1
-    lane = max(6.0, min(22.0, (tall - 30) / deep))
-    pitch = wide / max(1, win)
-    for span in spans:
+    lane = max(6.0, min(22.0, (tall - 24) / deep))
+    pitch = wide / win
+    for index, span in enumerate(spans):
         if span.end <= view0 or span.start >= view0 + win:
             continue
         x1 = (max(span.start, view0) - view0) * pitch
         x2 = (min(span.end, view0 + win) - view0) * pitch
-        y = 20 + span.depth * lane
+        y = span.depth * lane
+        goes = f"{span.start}:{span.end}:{index}"
         if span.end == span.start:
-            # an ε match holds no text: a mark AT a place, never a box
-            draw.line(
-                x1, y + 1, x1, y + lane - 3, "dim" if span.start <= at else "cool"
-            )
+            # an ε match holds no text — a mark AT a place, never a box the
+            # width of two characters, of which this reading has 1,403
+            draw.box(x1 - 0.5, y, 1.0, lane - 2, "eps", "", goes)
             continue
-        tone = "closed" if span.end <= at else ("live" if span.start < at else "cool")
-        draw.box(x1, y, max(1.5, x2 - x1), lane - 2, tone)
-    where = (min(max(at, view0), view0 + win) - view0) * pitch
-    draw.line(where, 12, where, 20 + deep * lane, "hot")
+        draw.box(x1, y, max(1.5, x2 - x1), lane - 2, "span", "", goes)
     draw.wide = float(wide)
-    draw.tall = 20 + deep * lane
+    draw.tall = deep * lane
     return draw
