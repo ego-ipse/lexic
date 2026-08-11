@@ -442,8 +442,62 @@ The probe also caught its own weak fact on the first run — it clicked the tab
 that was already showing, so "landing on a tab changes what is shown" could
 not fail. A fact that cannot fail is worse than no fact.
 
+## Read the reference. Every one of these was a guess that cost a session
+
+A list of defects came back from real use. Each one below was fixed by
+opening the space_1 file that already answered it, and several had been
+"fixed" once before from memory, which is why they came back.
+
+- **The PDA clock was the model's clock with other numbers in it.**
+  `leaf/chart.js` does not draw them the same way at all: a frame's row is
+  its STACK DEPTH, its colour is the kind of clone that pushed it
+  (`AUTO_INK`: dispatch cool, alt warm, seq token, value_str violet, group
+  dim), a frame the attempt machinery rolled back is red — the same fate
+  register as Earley's abandoned hypotheses — and a frame wide enough to
+  read says WHAT IT IS inside its own box. Boxes alone made the two clocks
+  look like the same picture twice. Hovering one names it in the readout.
+- **The reader badged only the rules that gave the machine trouble.**
+  `_badges` dropped every `predictive` verdict, so a grammar of 39
+  classified rules looked like a grammar of one — and it hid the thing the
+  badges are FOR: that the other 38 are settled without a decision at
+  runtime. `leaf.css` styles all five classes and `automaton.js` badges
+  every rule it has a verdict for.
+- **The status bar had been paraphrased.** `index.html` spells `#pos`,
+  `#transport`, `#hint` and `#readout`; `frame.js` spells what each says.
+  It says them again, including the readout on the right edge — what is
+  under the hand, in the words of the thing it is on.
+- **The clocks were not slow; the CLOCK was.** Playback advanced a fixed
+  fraction of the document per tick and the leaf ticked every 110ms, so the
+  cursor lurched nine times a second. The session now advances by real
+  elapsed time and the leaf asks as fast as the socket allows. Measured at
+  1500x850 over a 15,769-char document: 132 frames/s on the model clock, 133
+  on the PDA, 43 on Earley — and all three cross the document in the same
+  ten seconds, which is the point.
+- **Choosing a rule highlighted nothing.** `planes.js` draws four things
+  under the document's real text, in an order that matters because they
+  overlap: what the cursor stands inside, every span of the chosen rule
+  outlined violet, what is under the hand, and the selection.
+- **A window was a browser window.** `window.open` for popping, cloning and
+  pinning — a different document, which cannot overlap the thing it was torn
+  from, and overlapping is the entire reason to tear one off. space_1's are
+  in-page `.pin` divs. Here a window is a rectangle over the arrangement:
+  the session says which exist, where each sits and what it is about; the
+  frame draws them last, over the text.
+- **`▤ rail` showed the whole railway scrolled to a rule.** `paint.py` has
+  carried `rail_drawing` — "one rule's track, alone — what a pinned railroad
+  window shows" — beside `rails_drawing` the entire time.
+- **The graphs could not be panned and only the railroad zoomed.**
+  `graph.js`: a drag pans every view but the three-space one, where it
+  turns; the wheel zooms, except on the railroads where it scrolls and
+  Ctrl+wheel zooms. The zoom is anchored at the pointer.
+- **A picture drew straight over the facet beside it.** In the leaf each
+  view had its own element and CSS clipped it. One canvas has no layout to
+  clip with, so the frame says it as a mark: `clip`/`unclip` around every
+  region and every window.
+
 ## Not ported yet
 
-The dock · the ladder · pins and the pin chip · the rail chip · pop-as-window
-· strata · places · verdict badges · the routes strip · Earley's column and
-CAN COME NEXT in the spine · the gate.
+Places · the routes strip · Earley's column and CAN COME NEXT in the spine ·
+the codegen and notation forms in the reader · window topology (dropping a
+window back into the grid) · the graph dropdowns · strata as the landing
+page.
