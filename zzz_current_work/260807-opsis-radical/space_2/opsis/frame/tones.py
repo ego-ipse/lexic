@@ -37,6 +37,8 @@ FONTS = {
     # #railchip: 11px var(--sans), not mono — it is a BUTTON floating over
     # the picture, not a word set into one
     "railchip": f"11px {SANS}",
+    # `.pin header`: 11px, warm, sans — a window's head is not a facet's
+    "winhead": f"11px {SANS}",
     # `paint.js` sets every DRAWING in 11px mono — the graphs, the rails, the
     # automaton, the lanes. It is not the body face and it is not a chip.
     "drawn": f"11px {CODE}",
@@ -67,6 +69,7 @@ TONES = {
     # .gchip is --dim at every size: a name's DISTANCE is its size, and its
     # ROLE is its colour, and neither may be read off the other
     "railchip": "#d98cf5",
+    "winhead": "#e2a65c",
     "drawn": "#66707f",
     "gnear": "#66707f",
     "gfar": "#66707f",
@@ -161,6 +164,7 @@ ADVANCE = {
     "verdict": 6.6,
     "chip": 6.0,
     "railchip": 5.6,
+    "winhead": 5.6,
     "drawn": 6.6,
     "gnear": 7.2,
     "gfar": 4.8,

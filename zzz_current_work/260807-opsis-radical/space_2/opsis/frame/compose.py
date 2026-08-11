@@ -229,7 +229,12 @@ def _windows(
         said.hit(x + w - 14, y + h - 14, 14, 14, "wincorner", wid)
         said.line(x + w - 14, y + h, x + w, y + h - 14, "warm")
         said.text(
-            x + 10, y + 14, "ftitle", f"{facet}{f' · {about}' if about else ''}", w - 40
+            x + 10,
+            y + 14,
+            "warm",
+            f"{facet}{f' · {about}' if about else ''}",
+            w - 40,
+            face="winhead",
         )
         said.text(x + w - 8, y + 14, "dim", "×", anchor="r", face="chip")
         said.hit(x + w - 22, y, 22, 20, "shut", wid)
