@@ -77,6 +77,7 @@ def compose(
             wide,
             tall,
             subject(reading, where.removeprefix("ir:"), it.machine),
+            it.shown,
         )
         return said
 

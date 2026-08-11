@@ -184,9 +184,21 @@ which is bounded by the cloud's radius, on purpose — takes up the slack. That
 is the ported behaviour doing its job, not a dial that failed to connect; the
 difference shows as perspective, not as scale.
 
-## Deviations still to redo
+## Ported since
 
-- `graphview` sections in a room name themselves but draw no shape.
+- **`graphview`** — a rule's own NEIGHBOURHOOD, in columns by distance: the
+  rule, what it reaches in one step, then two. `eidolon.topology.reachable`
+  says a rule's neighbourhood is a different graph from the whole grammar's,
+  and answering a question about one rule with a picture of everything is
+  what it exists to avoid. Every node in it is a door to that rule's room.
+
+Every deviation and every unbuilt facet named in this ledger is now built.
+
+## What is NOT here, and is next
+
+space_1's `gate.py` — 44 census facts, driven, exit 0 or not done. space_2
+has no equivalent, which means everything above is verified by having been
+DRIVEN once, not by anything that would notice if it broke tomorrow.
 
 ## Not ported yet
 

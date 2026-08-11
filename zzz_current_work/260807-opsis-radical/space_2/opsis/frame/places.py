@@ -14,8 +14,10 @@ of the reading either.
 from __future__ import annotations
 
 from opsis.frame.marks import ROW, Frame
+from lexic.ir import IrAst
 from lexic.ir.spine.spine import IrSelf
 
+from eidolon.topology import reachable
 from eidolon.value import wire
 from opsis.frame.tones import runs
 
@@ -57,7 +59,12 @@ def read(wire: str) -> tuple[str, str, str, list[Section]]:
 
 
 def _title(
-    said: Frame, section: Section, _wide: int, y: float, _value: IrSelf | None
+    said: Frame,
+    section: Section,
+    _wide: int,
+    y: float,
+    _value: IrSelf | None,
+    _ast: IrAst | None,
 ) -> float:
     for line in section.lines:
         said.text(PAD, y, "ink", line)
@@ -66,7 +73,12 @@ def _title(
 
 
 def _kv(
-    said: Frame, section: Section, wide: int, y: float, _value: IrSelf | None
+    said: Frame,
+    section: Section,
+    wide: int,
+    y: float,
+    _value: IrSelf | None,
+    _ast: IrAst | None,
 ) -> float:
     """Facts as pairs — the name on the left, what it is on the right."""
     keys = [line.split("\t")[0] for line in section.lines]
@@ -80,7 +92,12 @@ def _kv(
 
 
 def _list(
-    said: Frame, section: Section, wide: int, y: float, _value: IrSelf | None
+    said: Frame,
+    section: Section,
+    wide: int,
+    y: float,
+    _value: IrSelf | None,
+    _ast: IrAst | None,
 ) -> float:
     """Doors — each one a place this room opens onto."""
     for line in section.lines:
@@ -96,7 +113,12 @@ def _list(
 
 
 def _refusal(
-    said: Frame, section: Section, wide: int, y: float, _value: IrSelf | None
+    said: Frame,
+    section: Section,
+    wide: int,
+    y: float,
+    _value: IrSelf | None,
+    _ast: IrAst | None,
 ) -> float:
     """A room nobody authored says so, in place — in the words it has."""
     for line in section.lines:
@@ -106,7 +128,12 @@ def _refusal(
 
 
 def _unbuilt(
-    said: Frame, section: Section, _wide: int, y: float, _value: IrSelf | None
+    said: Frame,
+    section: Section,
+    _wide: int,
+    y: float,
+    _value: IrSelf | None,
+    _ast: IrAst | None,
 ) -> float:
     """A section this frame draws no shape for — named, never silently dropped.
 
@@ -118,7 +145,12 @@ def _unbuilt(
 
 
 def _irvalue(
-    said: Frame, section: Section, wide: int, y: float, value: IrSelf | None
+    said: Frame,
+    section: Section,
+    wide: int,
+    y: float,
+    value: IrSelf | None,
+    _ast: IrAst | None,
 ) -> float:
     """A VALUE as the value it is — what it HOLDS, one row per child.
 
@@ -128,7 +160,7 @@ def _irvalue(
     colour, because the tier is what the thing IS.
     """
     if not section.lines or value is None:
-        return _unbuilt(said, section, wide, y, value)
+        return _unbuilt(said, section, wide, y, value, _ast)
     kids: list[str] = []
     lines = wire(value).split("\n")
     for at, line in enumerate(lines):
@@ -171,23 +203,84 @@ TIERS = {
     "map": "warm",
 }
 
+
+def _graphview(
+    said: Frame,
+    section: Section,
+    wide: int,
+    y: float,
+    _value: IrSelf | None,
+    ast: IrAst | None,
+) -> float:
+    """A rule's own NEIGHBOURHOOD — what it reaches, and how far.
+
+    A rule's neighbourhood is a different graph from the whole grammar's, and
+    answering a question about one rule with a picture of everything is the
+    thing `reachable` exists to avoid. Columns are distance: the rule itself,
+    then what it reaches in one step, then two.
+    """
+    name = section.lines[0] if section.lines else ""
+    name = name.removeprefix("rule:")
+    if ast is None or not name:
+        return _unbuilt(said, section, wide, y, _value, ast)
+    kept, depth = reachable(ast, name)
+    if len(depth) <= 1:
+        said.text(
+            PAD, y, "fsub", f"{name} reaches nothing — it is a leaf of the grammar"
+        )
+        return y + ROW
+    bands: dict[int, list[str]] = {}
+    for rule, at in sorted(depth.items(), key=lambda kv: (kv[1], kv[0])):
+        bands.setdefault(at, []).append(rule)
+    step = min(260.0, (wide - PAD * 2) / max(1, len(bands)))
+    tall = ROW + 6
+    at_of: dict[str, tuple[float, float]] = {}
+    for band, rules in sorted(bands.items()):
+        for row, rule in enumerate(rules[:14]):
+            at_of[rule] = (PAD + band * step, y + row * tall)
+    for a, b in kept:
+        one, two = at_of.get(a), at_of.get(b)
+        if one is None or two is None or one == two:
+            continue
+        said.line(one[0] + 120, one[1] + 6, two[0], two[1] + 6, "cool_wash")
+    for rule, (rx, ry) in at_of.items():
+        here = rule == name
+        room = min(118.0, runs("chip", rule) + 14)
+        said.box(rx, ry - 4, room, 16, "field2")
+        said.text(
+            rx + 6, ry + 8, "warm" if here else "ink", rule, room - 10, face="chip"
+        )
+        if not here:
+            said.hit(rx, ry - 4, room, 16, "place", f"rule:{rule}")
+    deepest = max(len(rules) for rules in bands.values())
+    return y + min(deepest, 14) * tall + 8
+
+
 DRAWN = {
     "title": _title,
     "kv": _kv,
     "list": _list,
     "refusal": _refusal,
     "irvalue": _irvalue,
+    "graphview": _graphview,
 }
 
 
 def draw(
-    said: Frame, said_wire: str, wide: int, tall: int, value: IrSelf | None = None
+    said: Frame,
+    said_wire: str,
+    wide: int,
+    tall: int,
+    value: IrSelf | None = None,
+    ast: IrAst | None = None,
 ) -> None:
     """The room, whole — its name, its facts, and the doors it opens onto.
 
     :param value: what this room is ABOUT, when it is about a value — handed
         to every section rather than reached for, so a section that needs it
         says so in its own signature.
+    :param ast: the grammar the room's subject lives in, for the sections that
+        draw a neighbourhood rather than a value.
     """
     pid, kind, says, sections = read(said_wire)
     said.box(0, 0, wide, tall, "field")
@@ -201,7 +294,7 @@ def draw(
 
     y = 92.0
     for section in sections:
-        y = DRAWN.get(section.kind, _unbuilt)(said, section, wide, y, value)
+        y = DRAWN.get(section.kind, _unbuilt)(said, section, wide, y, value, ast)
         y += 14
         if y > tall - 40:
             break
