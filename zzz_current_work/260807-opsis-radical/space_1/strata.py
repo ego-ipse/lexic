@@ -34,15 +34,33 @@ def lanes(session: Session) -> tuple[dict[int, int], list[Thing]]:
     reading is the document of the next, so the columns come out as strata
     without anything storing a ladder.
     """
+    # A COLUMN IS A THING SOMETHING WAS READ OF. Giving one to every thing in
+    # any role put the instrument in two columns — its record and its grammar
+    # — where it is one thing being read. A pure reader has no column: it is
+    # the reader of the column it reads, and gets its own only when some
+    # reading is OF it.
     order: list[Thing] = []
     at: dict[int, int] = {}
     for relation in session.relations.values():
-        for role in (DOCUMENT, READER):
-            thing = relation.cast.get(role.name)
-            if thing is not None and id(thing) not in at:
-                at[id(thing)] = len(order)
-                order.append(thing)
+        thing = relation.cast.get(DOCUMENT.name)
+        if thing is not None and id(thing) not in at:
+            at[id(thing)] = len(order)
+            order.append(thing)
+    for relation in session.relations.values():
+        for thing in relation.cast.values():
+            if id(thing) not in at:
+                at[id(thing)] = _reads(session, thing, at)
     return at, order
+
+
+def _reads(session: Session, thing: Thing, at: dict[int, int]) -> int:
+    """The column of a thing that only ever reads: the one it reads."""
+    for relation in session.relations.values():
+        if relation.cast.get(READER.name) is thing:
+            document = relation.cast.get(DOCUMENT.name)
+            if document is not None and id(document) in at:
+                return at[id(document)]
+    return 0
 
 
 def lane_of(session: Session, relation: Relation, at: dict[int, int]) -> int:
