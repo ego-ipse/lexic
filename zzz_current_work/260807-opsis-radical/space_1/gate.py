@@ -185,10 +185,14 @@ def main() -> int:
     for other in (ROOT / "resources/ground_truth").glob("*.gbnf"):
         if other.name == "json.gbnf":
             continue
-        far = read(other, other)  # a grammar read by its own flavour
+        # a grammar read by ITSELF is a wrong pairing — arithmetic.gbnf
+        # describes arithmetic, not grammar text. What this proves is that the
+        # measurement works on a grammar the build never saw, and that the
+        # wrong pairing is refused rather than smoothed over.
+        far = read(other, other)
         check(
-            f"a grammar it was not shaped around still measures: {other.name}",
-            far.facets()[0].wide > 0 and len(far.facets()) == 4,
+            f"an unfamiliar grammar measures, its wrong pairing refused: {other.name}",
+            len(far.facets()) == 4 and far.facets()[0].wide > 0 and not far.faithful,
             " ".join(f"{x.name}:{x.wide}" for x in far.facets()),
         )
         break
