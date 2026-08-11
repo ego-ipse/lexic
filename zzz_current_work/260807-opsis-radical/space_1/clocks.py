@@ -26,8 +26,7 @@ from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 __all__ = ["ClockKernel", "column", "earley_clock", "pda_clock"]
 
 CEILING = 20000
-HYPOTHESES = 60000
-PER_COLUMN = 6
+HYPOTHESES = 400000
 
 
 class ClockKernel(PdaKernel[Any]):
@@ -131,28 +130,13 @@ def earley_clock(
             at = names.setdefault(name, len(names))
             done = 1 if dot >= len(seq) else 0
             rows.append(f"{origin} {last} {done} {at}")
-    # Cap PER COLUMN, not globally. A global "worthiest" cut keeps the
-    # completed, longest hypotheses — exactly the ones that draw as full
-    # blocks — so the chart fills solid and says only "many". A per-column cap
-    # keeps the SHAPE: every column that held anything still shows something,
-    # and no column can swamp the picture.
-    by_column: dict[int, list[str]] = {}
-    for row in rows:
-        by_column.setdefault(int(row.split(" ")[1]), []).append(row)
-    # The budget is SPENT per column, never truncated at the end: a trailing
-    # cut is a prefix cut by another name, and leaves the document's tail
-    # looking like nothing was ever hypothesised there.
-    each = max(1, min(PER_COLUMN, HYPOTHESES // max(1, len(by_column))))
-    kept: list[str] = []
-    for column in sorted(by_column):
-        kept.extend(sorted(by_column[column], key=_worth, reverse=True)[:each])
-    return kept, list(names), len(rows) - len(kept)
-
-
-def _worth(row: str) -> tuple[int, int]:
-    """A hypothesis is worth keeping if it completed, or if it reached far."""
-    origin, last, done, _ = row.split(" ")
-    return (int(done), int(last) - int(origin))
+    # NO SAMPLING. Three-per-column drew a regular diagonal staircase that
+    # is not in the parse — a picture that invents structure is worse than a
+    # dense one. Every hypothesis goes, in column order, and the ceiling is
+    # high enough that nothing is dropped silently; what a legible Earley
+    # chart needs is an AGGREGATE per column, not a subset of items.
+    dropped = max(0, len(rows) - HYPOTHESES)
+    return rows[:HYPOTHESES], list(names), dropped
 
 
 def _meant(plain: dict[str, str], item: object) -> str:
