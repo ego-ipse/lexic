@@ -12,13 +12,7 @@ CHS="$(ls "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless
 [ -x "$CHS" ] || { echo "no chrome-headless-shell under ~/.cache/ms-playwright" >&2; exit 1; }
 
 cd "$ROOT"
-uv run python "$HERE/serve.py" "$READER" "$DOC" "$PORT" >/tmp/opsis_probe_serve.log 2>&1 &
-SERVER=$!
-trap 'kill "$SERVER" 2>/dev/null || true' EXIT
-for _ in $(seq 1 200); do
-  curl -s -m 1 -X POST --data "size 800 600" "http://127.0.0.1:$PORT/frame" >/dev/null 2>&1 && break
-  sleep 0.5
-done
+trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
 
 # BOTH SCALES. A canvas whose layout size is its own bitmap size looks
 # perfect at 1× — there the two numbers are equal — and lays out at twice its
@@ -27,6 +21,17 @@ done
 # that class at all, which is exactly how it was missed.
 bad=0
 for scale in 1 2; do
+  # A SERVER PER SCALE. The session holds the policy, so a run that pops a
+  # facet or moves a clock hands the next run an instrument someone has
+  # already used — and a fact that passes on the run before it left behind
+  # is not a fact. Each scale meets it in the same condition.
+  PORT=$((PORT + 1))
+  uv run python "$HERE/serve.py" "$READER" "$DOC" "$PORT" >/tmp/opsis_probe_serve.log 2>&1 &
+  SERVER=$!
+  for _ in $(seq 1 200); do
+    curl -s -m 1 -X POST --data "size 800 600" "http://127.0.0.1:$PORT/frame" >/dev/null 2>&1 && break
+    sleep 0.5
+  done
   SAID="$("$CHS" --no-sandbox --disable-gpu --headless --window-size=1500,850 \
     --force-device-scale-factor="$scale" \
     --virtual-time-budget=15000 --dump-dom "http://127.0.0.1:$PORT/?probe=1" 2>/dev/null \
@@ -35,9 +40,12 @@ for scale in 1 2; do
   if [ -z "$SAID" ]; then
     echo "  the probe said nothing — the leaf did not run" >&2
     bad=1
+    kill "$SERVER" 2>/dev/null || true
     continue
   fi
   echo "$SAID" | tr ':' '\n' | grep -v '^ *$' | sed 's/^ */  /'
   case "$SAID" in "PROBE 0 failures"*) ;; *) bad=1 ;; esac
+  kill "$SERVER" 2>/dev/null || true
+  wait "$SERVER" 2>/dev/null || true
 done
 exit "$bad"

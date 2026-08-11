@@ -658,6 +658,117 @@ def main() -> int:
         "NO SUCH ROOM" in words(frame({"place": "nowhere"})),
     )
 
+    print("what came back from real use")
+    model_frame, pda_frame = (
+        frame({"chart.clock": "model"}),
+        frame({"chart.clock": "pda"}),
+    )
+    check(
+        "the PDA clock is not the model clock with other numbers in it",
+        {m[5] for m in marks(pda_frame, "ring")}
+        != {m[5] for m in marks(model_frame, "ring")}
+        and len(
+            {m[5] for m in marks(pda_frame, "ring")}
+            & {"cool", "warm", "token", "violet", "dim"}
+        )
+        > 1,
+        " ".join(sorted({m[5] for m in marks(pda_frame, "ring")})),
+    )
+    check(
+        "a frame wide enough to read says what it IS",
+        sum(1 for m in marks(pda_frame, "text") if m[4] == "chip") > 20,
+        f"{sum(1 for m in marks(pda_frame, 'text') if m[4] == 'chip')} named",
+    )
+    check(
+        "and hovering one names it in the readout",
+        any(
+            w.startswith("frame ") and "stack depth" in w
+            for w in words(
+                frame(
+                    {
+                        "chart.clock": "pda",
+                        "hover": f"frame {hits(pda_frame, 'frame')[0]}",
+                    }
+                )
+            )
+        ),
+        hits(pda_frame, "frame")[0]
+        if hits(pda_frame, "frame")
+        else "no frame to hover",
+    )
+    said_badges = [
+        w
+        for w in words(pda_frame)
+        if w in ("predictive", "gated", "attempt", "island", "hard")
+    ]
+    check(
+        "EVERY classified rule wears its class, predictive included",
+        said_badges.count("predictive") > 5,
+        f"{len(said_badges)} badges · {said_badges.count('predictive')} predictive",
+    )
+    lit = frame({"chosen": "member"})
+    check(
+        "choosing a rule outlines its spans in the document",
+        sum(1 for m in marks(lit, "ring") if m[5] == "violet") > 4,
+        f"{sum(1 for m in marks(lit, 'ring') if m[5] == 'violet')} outlined",
+    )
+    check(
+        "the status bar says where, how fast, and what is under the hand",
+        any(
+            w.startswith("char ") and " · line " in w and w.endswith("gen 1")
+            for w in words(lit)
+        )
+        and any("outlined violet" in w for w in words(lit)),
+        next((w for w in words(lit) if w.startswith("char ")), "no position"),
+    )
+    railed = frame({"windows": "w0", "win.w0": "rail 200 200 560 200 member"})
+    every_rail = frame({"windows": "w0", "win.w0": "rails 200 200 560 200"})
+    check(
+        "▤ rail opens ONE rule's track, not the whole railway",
+        0 < len(railed.over) < len(every_rail.marks),
+        f"{len(railed.over)} marks for one · {len(every_rail.marks)} for the facet",
+    )
+    check(
+        "a window is drawn IN the frame, over the text it floats on",
+        len(railed.over) > len(frame({}).over)
+        and {"winhead", "wincorner", "shut"} <= {h.split(" ")[4] for h in railed.hits},
+    )
+    check(
+        "and nothing reaches through it",
+        "win" in {h.split(" ")[4] for h in railed.hits},
+    )
+    check(
+        "a facet clips: what runs past its edge stops there",
+        sum(1 for m in frame({}).marks if m.startswith("clip ")) >= 4
+        and sum(1 for m in frame({}).marks if m == "unclip")
+        == sum(1 for m in frame({}).marks if m.startswith("clip ")),
+    )
+    check(
+        "a control with more than one value is a real dropdown",
+        {"form", "chart.clock"} <= {p.split(" ")[0] for p in frame({}).picks}
+        and all(len(p.split(" ")[6].split("|")) > 1 for p in frame({}).picks),
+        " · ".join(p.split(" ")[0] for p in frame({}).picks),
+    )
+    # THE SAME ROWS ON THE SAME LINES, whichever clock is asked. The name
+    # column follows the widest gutter — `@4,188` is not `d7` — so it is the
+    # gutter and the pitch that must not move, and three panels that each
+    # invented their own tones and spacing is what the defect was.
+    shapes = {
+        clock: sorted(
+            {
+                (float(m[1]), float(m[2]))
+                for m in marks(frame({"chart.clock": clock}, at=900.0), "text")
+                if m[3] == "dimmer" and float(m[1]) > 1060 and 590 < float(m[2]) < 700
+            }
+        )[:4]
+        for clock in ("model", "pda", "earley")
+    }
+    check(
+        "the spine keeps one voice, whichever clock answers",
+        len({tuple(rows) for rows in shapes.values() if rows}) == 1,
+        " · ".join(f"{c}:{len(r)}" for c, r in shapes.items()),
+    )
+
     print("what it costs")
     frame({})
     clock = time.perf_counter()

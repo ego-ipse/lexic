@@ -40,6 +40,18 @@ function rgbOf(css) {
   return m ? `${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)}` : css;
 }
 
+/* A GESTURE IS APPLIED WHEN THE FRAME ANSWERING IT HAS BEEN PAINTED, and
+   `ask` resolves as soon as it has QUEUED — which is not the same thing, and
+   is not the same thing in exactly the case a probe creates: a control that
+   fires its own un-awaited ask, followed by one of ours. The queue runs
+   detached, so waiting on our own call proves nothing. Wait for quiet. */
+async function settle() {
+  for (let i = 0; i < 400 && (asking || queued); i += 1) {
+    await new Promise((go) => setTimeout(go, 5));
+  }
+  await ask('');
+}
+
 async function probe() {
   await ask('');
 
@@ -166,6 +178,68 @@ async function probe() {
         harness measured a canvas that had not been drawn yet */
   fact('the leaf paints without waiting for an animation frame',
        !/requestAnimationFrame/.test(paperSource), 'leaf.js');
+
+  /* 9. a dropdown is a REAL control, on the geometry it was sent, showing
+        what it is on. A chip that cycles cannot be arrowed through, cannot
+        show what else there is, and cannot be got back from without going
+        all the way round — which is why these are selects. */
+  let picked = 0, off = '';
+  for (const pick of frame.picks) {
+    const el = document.querySelector(`.pick[data-key="${pick.key}"]`);
+    if (!el) { off += `${pick.key} missing `; continue; }
+    const box = el.getBoundingClientRect();
+    if (el.tagName === 'SELECT' && el.value === pick.on
+        && el.options.length === pick.options.length
+        && near(box.left, pick.x) && near(box.top, pick.y)) picked += 1;
+    else off += `${pick.key} ${el.tagName} ${el.value}/${pick.on} `
+      + `${Math.round(box.left)},${Math.round(box.top)} not ${pick.x},${pick.y} `;
+  }
+  fact('every dropdown is a real select, where it was placed, on its value',
+       picked === frame.picks.length && frame.picks.length > 0,
+       off || `${picked} picks`);
+
+  /* 9b. AND CHANGING ONE CHANGES THE INSTRUMENT. A control that reports
+         nowhere is a picture of a control. */
+  const clock = document.querySelector('.pick[data-key="chart.clock"]');
+  if (clock && clock.options.length > 1) {
+    const was = clock.value;
+    const other = [...clock.options].map((o) => o.value).find((v) => v !== was);
+    clock.value = other;
+    clock.dispatchEvent(new Event('change'));
+    await settle();
+    const now = document.querySelector('.pick[data-key="chart.clock"]');
+    fact('changing a dropdown changes what the instrument shows',
+         now && now.value === other, `${was} → ${now ? now.value : 'gone'}`);
+    now.value = was;
+    now.dispatchEvent(new Event('change'));
+    await settle();
+  } else {
+    fact('changing a dropdown changes what the instrument shows', false, 'no clock pick');
+  }
+
+  /* 10. a window is IN the page: a rectangle over the arrangement, not a
+         browser window, which is a different document and cannot overlap
+         the thing it was torn from. */
+  const head = (frame.hits || []).find((h) => h.kind === 'pop');
+  if (head) {
+    const opened = window.open;
+    let asked = false;
+    window.open = () => { asked = true; return null; };
+    await ask(`pop ${head.goes}`);
+    await settle();
+    window.open = opened;
+    fact('popping a facet opens no browser window',
+         !asked && frame.hits.some((h) => h.kind === 'winhead'),
+         `${frame.hits.filter((h) => h.kind === 'winhead').length} windows in the page`);
+    /* and put it back: this probe runs twice, and a fact that only passes
+       because the run before it left something behind is not a fact */
+    const shut = frame.hits.find((h) => h.kind === 'shut');
+    if (shut) { await ask(`at shut ${shut.goes}`); await settle(); }
+    await ask(`at facet ${head.goes}`);
+    await settle();
+  } else {
+    fact('popping a facet opens no browser window', false, 'nothing to pop');
+  }
 
   const bad = said.filter((s) => s.startsWith('FAIL')).length;
   document.title = `PROBE ${bad} failures :: ${said.join(' :: ')}`;
