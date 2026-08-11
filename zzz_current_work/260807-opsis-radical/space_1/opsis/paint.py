@@ -22,7 +22,7 @@ from __future__ import annotations
 from eidolon.layout import positions
 from eidolon.topology import edges
 from lexic.ir import IrAst
-from opsis.measure import BRACKET, GAP, LOOP, VGAP, Box
+from opsis.measure import GAP, LOOP, VGAP, Box, bracket_for
 from praxis.reading import columns
 
 __all__ = [
@@ -210,7 +210,7 @@ def _track(
         # drew and the one that reads as track. A shared vertical bus reads
         # as a bracket; a single long diagonal reads as a funnel.
         top = y
-        arm_left = x + BRACKET / 2 * CELL
+        arm_left = x + bracket_for(box.tall) / 2 * CELL
         for kid in kids:
             kid_box = room[at[0]]
             mid = top + kid_box.spine * ROW
