@@ -821,44 +821,32 @@ that fact made the probe exit silently — the plumbing is green on its own, so
 it is the fact's own code. Write it small, run the probe after every line,
 and remember that a harness which says nothing is worse than a known gap.
 
-## The graphs — the comparison that finally shows it
+## The graphs — found, and it is what `x1 - x0` MEANS
 
-Both instruments, flat view, 1600x900, and the REFERENCE HAS NO CAMERA IN ITS
-POLICY — zoom 1, pan 0, its resting state.
+Both instruments, flat, 1600x900, reference at rest with no camera in its
+policy. It shows three levels at a readable size with the rest overflowing
+right; this port shows all six crammed in with labels colliding.
 
-- the reference shows THREE levels at a readable size (`JSON-text` → `ws` and
-  `value` → the seven value arms) with the rest running off the right edge
-- this port shows ALL SIX levels crammed into the facet, labels colliding
+THE NUMBERS, BOTH SIDES:
 
-So the reference does not fit its graph into the room; it keeps the layout at
-a readable scale and lets it OVERFLOW, panning so the start rule sits 70px
-in — `graph.js` has exactly that nudge:
+- the reference's own `/rulegraph?view=flat` places span x 94..690 = **596**
+  and y -143..143 = **286**
+- this port measures its drawing's BOXES: 704 x 304
 
-    if (mode !== 'depth3d' && !v.touched && (x1 - x0) * k > availW + 2)
-      v.pan.x = 70 - w / 2 - (x0 - mx) * k
+Those are not the same measurement. `graph.js` fits against the extent of the
+node CENTRES and then pads by half a label — which is why its pad is
+per-axis, padX from half the widest label and padY from half its height.
+This port fits against boxes that already include their labels AND pads by
+half a label on top, so it subtracts the label twice and fits a picture that
+is 704 wide into 676 of room: k = 0.96, everything shrinks, nothing is
+readable.
 
-This port has no such nudge and fits by width instead, which is what makes
-its graphs unreadable.
+The reference, fitting 596 into the same 676, gets k = 1.13 and lets what
+does not fit run off the right — with `pan.x = 70 - w/2 - (x0 - mx) * k` to
+put the start rule 70px in, a nudge this port does not have.
 
-HALF THE NUMBERS, DUMPED. This port's flat layout has an extent of 704 x 304
-in a room of 784 x 793, so with per-axis pads the fit is
-`min(676/704, 771/304, 2.4)` = 0.96 — nearly full scale, all six levels
-across 704px, which is what its picture shows.
-
-The reference's picture shows THREE levels across about 640px on the same
-layout, which the same formula only reaches at k of roughly 2. They do not
-reconcile, so one of the inputs differs and it is not the formula:
-
-- `levelstep` is 140 in `TUNE` here; `#gt-levelstep` is a range 60..280 with
-  NO value attribute, and a range with no value rests at its midpoint, 170.
-  A leaf that reads its own input for the default starts from 170, not 140.
-- so dump the reference's `x1 - x0` before anything else. If its layout is
-  wider than this port's, the dials' resting values are the difference and
-  the fit was never wrong at all.
-
-Note also that the reference's pads are PER AXIS — padX from half the widest
-label, padY from half its HEIGHT — where this port uses the label width for
-both and loses about eighty pixels of vertical room doing it.
+SO: fit against the centres, pad per-axis, and add the overflow nudge. The
+formula was never the problem; `x1 - x0` meant two different things.
 
 ## Not ported yet
 
