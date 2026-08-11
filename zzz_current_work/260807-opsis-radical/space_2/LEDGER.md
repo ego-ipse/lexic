@@ -845,8 +845,24 @@ The reference, fitting 596 into the same 676, gets k = 1.13 and lets what
 does not fit run off the right — with `pan.x = 70 - w/2 - (x0 - mx) * k` to
 put the start rule 70px in, a nudge this port does not have.
 
-SO: fit against the centres, pad per-axis, and add the overflow nudge. The
-formula was never the problem; `x1 - x0` meant two different things.
+DONE: fits against the centres, pads per-axis. The flat view's nodes span 84%
+of the facet's width where they spanned 73%, and their names are readable.
+
+STILL NOT THE REFERENCE, and the arithmetic says it should be. Measured:
+
+- the reference's graph canvas is **783 x 757**; this port's facet is 784 x
+  793, so the BOX is not the difference
+- its places span 596 x 286, so `min(691/596, 739/286, 2.4)` = **1.16**,
+  against this port's 1.13 — the same picture, near enough
+- that k predicts `JSON-text` at x = 70 once the overflow nudge fires. Its
+  screenshot puts it at about 365, and shows three levels where 1.16 would
+  show all six
+
+So a number feeding its projection is not the one its `/rulegraph` returns.
+Read `loadPlaces` and what `proj` holds for flat — between the fetch and
+`P.x = w/2 + (P.x - mx) * k + pan.x` something rescales, and every attempt to
+match the picture without knowing what it is has been a guess. FIND THAT,
+then add the overflow nudge, which this port still does not have.
 
 ## Not ported yet
 
