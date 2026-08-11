@@ -1030,6 +1030,22 @@ def main() -> int:
         f"{len(before)} → {len(during)} → {len(placed(torn))} surfaces",
     )
 
+    # ONE STATE, ONE FRAME. The reference's graph is not reproducible across
+    # loads — its frame cache is keyed by a value assigned before the fetch
+    # that fills it resolves, so two captures of one settled session differ
+    # across most of the facet. Everything here is worked out from the
+    # drawing it is about to place, in the same frame, and that is why this
+    # port can be compared to anything at all.
+    for view in ("depth3d", "flat", "arcs", "rails", "automaton"):
+        state = {"graph.view": view, "tab.reader": "1"}
+        once = frame(state).wire(1)
+        twice = frame(state).wire(1)
+        check(
+            f"the {view} graph draws the same picture twice",
+            once == twice,
+            f"{len(once):,} bytes",
+        )
+
     print("what it costs")
     frame({})
     clock = time.perf_counter()
