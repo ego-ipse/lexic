@@ -51,15 +51,19 @@ async function fetchAutomaton() {
   if (autoData || autoLoading) return;
   autoLoading = true;
   const text = await (await fetch('/automaton')).text();
-  const clones = [], names = [], edges = [];
+  const clones = [], names = [], edges = [], places = [];
   let section = '';
   for (const ln of text.split('\n')) {
     if (ln.startsWith('#ACLONES')) section = 'c';
     else if (ln.startsWith('#ANAMES')) section = 'n';
+    else if (ln.startsWith('#APLACES')) section = 'p';
     else if (ln.startsWith('#AEDGES')) section = 'e';
     else if (section === 'c') {
       const [ni, mode, flags, depth] = ln.split(' ');
       clones.push({ n: +ni, mode, flags, depth: +depth });
+    } else if (section === 'p') {
+      const [x, y] = ln.split(' ');
+      places.push({ x: +x, y: +y });
     } else if (section === 'n') names.push(ln);
     else if (section === 'e') {
       const [a, b] = ln.split(' ');
@@ -67,14 +71,13 @@ async function fetchAutomaton() {
     }
   }
   const levels = new Map();
-  for (const c of clones) {
+  clones.forEach((c, i) => {
     c.name = names[c.n];
+    c.at = places[i] || { x: 0, y: 0 };
     const d = c.depth < 0 ? 0 : c.depth;
     if (!levels.has(d)) levels.set(d, []);
-    c.li = levels.get(d).length;
     levels.get(d).push(c);
-  }
-  for (const c of clones) c.ln = levels.get(c.depth < 0 ? 0 : c.depth).length;
+  });
   autoData = { clones, edges, maxDepth: Math.max(...levels.keys()) };
   drawGraph();
 }
@@ -82,9 +85,9 @@ async function fetchAutomaton() {
 const AUTO_INK = { dispatch: '#6fc3c9', alt: '#e2a65c', seq: '#8fa3b8', value_str: '#d98cf5', group: '#66707f' };
 
 function autoPos(c) {
-  const step = gTune.levelstep * 1.15;
-  const spread = 15 * gTune.ringscale;
-  return { x: (c.depth < 0 ? 0 : c.depth) * step, y: (c.li - c.ln / 2) * spread };
+  // the machine says where its clones sit — a column per depth, a seat per
+  // clone. Deriving it here made the machine's shape a fact about the leaf.
+  return c.at || { x: 0, y: 0 };
 }
 
 function drawAutoView(v) {

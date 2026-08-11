@@ -59,7 +59,7 @@ def _flags(spec: CloneSpec) -> str:
     return out or "-"
 
 
-def automaton(tables: PdaTables) -> str:
+def automaton(tables: PdaTables, step: float = 161.0, spread: float = 15.0) -> str:
     """The clone set, walked breadth-first from the start — depth is distance."""
     start = tables.start_key
     order: list[CloneKey] = []
@@ -85,6 +85,19 @@ def automaton(tables: PdaTables) -> str:
                     order.append(target)
                 edges.append((at, order.index(target)))
         at += 1
+    # WHERE each clone sits: a column per depth, a seat per clone in it.
+    # The leaf had this as `autoPos`, which made the machine's shape a fact
+    # about the leaf rather than about the machine.
+    seats: dict[int, int] = {}
+    places: list[tuple[float, float]] = []
+    tall = {
+        at: sum(1 for key in order if depth[key] == at) for at in set(depth.values())
+    }
+    for key in order:
+        at = depth[key]
+        seat = seats.get(at, 0)
+        seats[at] = seat + 1
+        places.append((at * step, (seat - tall[at] / 2) * spread))
     names = sorted({key.name for key in order})
     at_name = {name: index for index, name in enumerate(names)}
     rows = [
@@ -98,6 +111,8 @@ def automaton(tables: PdaTables) -> str:
             *rows,
             f"#ANAMES {len(names)}",
             *names,
+            f"#APLACES {len(places)}",
+            *(f"{x:.1f} {y:.1f}" for x, y in places),
             f"#AEDGES {len(edges)}",
             *(f"{a} {b}" for a, b in edges),
             "",
