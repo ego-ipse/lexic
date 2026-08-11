@@ -30,6 +30,7 @@ FONTS = {
     "verdict": f"11px {CODE}",
     # .tabbar .tab, #dock .fnode-chip, #ladder .rung, the selects: mono 10px
     "chip": f"10px {CODE}",
+    "node": f"10px {CODE}",
     # .gchip: font-size: calc(10px * var(--glabel)) and the projection scales
     # it — a node's distance is in the SIZE of its name, clamped 0.55..1.2 as
     # the reference clamps it. Three bands, because a face is a registered
@@ -66,6 +67,7 @@ TONES = {
     "hsub": "#66707f",
     "verdict": "#66707f",
     "chip": "#66707f",
+    "node": "#66707f",
     # .gchip is --dim at every size: a name's DISTANCE is its size, and its
     # ROLE is its colour, and neither may be read off the other
     "railchip": "#d98cf5",
@@ -169,6 +171,7 @@ ADVANCE = {
     "hsub": 6.8,
     "verdict": 6.6,
     "chip": 6.0,
+    "node": 6.0,
     "railchip": 5.6,
     "winhead": 5.6,
     "drawn": 6.6,
@@ -195,9 +198,16 @@ def runs(tone: str, said: str) -> float:
 
 # letter-spacing is part of a face, not decoration: #title is 0.18em and a
 # rung is 0.06em, and a canvas that ignores it draws a different word.
-TRACKING = {"title": "0.18em", "chip": "0.06em", "ftitle": "0.14em"}
+TRACKING = {
+    "title": "0.18em",
+    # `#ladder .rung` is 0.06em and `#dock .fnode-chip` is 0.08em — the same
+    # size and family, tracked differently, so they are two faces
+    "chip": "0.06em",
+    "node": "0.08em",
+    "ftitle": "0.14em",
+}
 # what that tracking is WORTH per glyph, in the widths `runs` adds up
-SPACING = {"title": 2.5, "chip": 0.6, "ftitle": 1.5}
+SPACING = {"title": 2.5, "chip": 0.6, "node": 0.8, "ftitle": 1.5}
 
 
 def register() -> list[str]:

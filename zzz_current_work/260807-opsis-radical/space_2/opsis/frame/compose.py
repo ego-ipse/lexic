@@ -356,7 +356,7 @@ def worded(titles: dict[str, str], facet: str) -> str:
 
 def _docked(titles: dict[str, str], shown: list[str]) -> float:
     """How wide the dock is — where whatever follows it starts."""
-    return sum(runs("chip", worded(titles, f)) + 28 for f in shown)
+    return sum(runs("node", worded(titles, f)) + 31 for f in shown)
 
 
 def _masthead(
@@ -392,20 +392,26 @@ def _masthead(
     # #ladder is `flex: 1` — it takes what is left, so the dock and the
     # verdict sit at the RIGHT edge. Packing them beside the chip put five
     # chips in the middle of a bar that is mostly empty on the right.
-    holds = (
-        "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
+    # `boot.js` writes the verdict as a CLAIM and a FINDING: the claim in the
+    # inherited ink, `— holds` in green or `— FAILS` in red. One tone for the
+    # whole line said the instrument was pleased with itself.
+    claim = "model.to_text() == document "
+    found = "— holds" if reading.faithful else "— FAILS"
+    said.text(wide - PAD, 22, "green" if reading.faithful else "red", found, anchor="r")
+    said.text(
+        wide - PAD - runs("verdict", found),
+        22,
+        "ink",
+        claim,
+        face="verdict",
+        anchor="r",
     )
-    said.text(wide - PAD, 22, "green" if reading.faithful else "red", holds, anchor="r")
-    right = wide - PAD - runs("verdict", holds) - 34
+    right = wide - PAD - runs("verdict", claim + found) - 34
     windows = [w for w in look.says("windows", "").split(" ") if w]
     if windows:
         right -= runs("verdict", f"pinned {len(windows)}") + 16
         said.text(right + 8, 22, "warm", f"pinned {len(windows)}", face="verdict")
     _dock(said, it, titles, shown, right - _docked(titles, shown))
-    holds = (
-        "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
-    )
-    said.text(wide - PAD, 22, "green" if reading.faithful else "red", holds, anchor="r")
 
 
 def _ladder(said: Frame, it: Staged, at: float) -> float:
@@ -439,11 +445,13 @@ def _dock(
     for facet in shown:
         here = any(f.name == facet for f in it.facets)
         word = worded(titles, facet)
-        wide = runs("chip", word) + 22
+        wide = runs("node", word) + 25
         said.ring(at, 8, wide, 26 - 8, "hair")
         # .fnode-chip i — a ROUND dot, 6px, cool when the facet is present
-        said.box(at + 6, 14, 6, 6, "cool" if here else "dimmer")
-        said.text(at + 16, 21, "chip" if here else "dimmer", word, face="chip")
+        # `#dock .fnode-chip i`: 6px, border-radius 50%, cool — or dimmer
+        # when the facet is minimized
+        said.dot(at + 9, 17, 3, "cool" if here else "dimmer")
+        said.text(at + 17, 21, "node" if here else "dimmer", word, face="node")
         said.hit(at, 8, wide, 18, "facet", facet)
         at += wide + 6
 

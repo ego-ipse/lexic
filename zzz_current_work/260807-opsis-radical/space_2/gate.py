@@ -1036,13 +1036,24 @@ def main() -> int:
     # across most of the facet. Everything here is worked out from the
     # drawing it is about to place, in the same frame, and that is why this
     # port can be compared to anything at all.
-    for view in ("depth3d", "flat", "arcs", "rails", "automaton"):
-        state = {"graph.view": view, "tab.reader": "1"}
+    twice_over: list[tuple[str, dict[str, str]]] = [
+        *(
+            (view, {"graph.view": view, "tab.reader": "1"})
+            for view in ("depth3d", "flat", "arcs", "rails", "automaton")
+        ),
+        *(
+            (f"{clock} clock", {"chart.clock": clock})
+            for clock in ("model", "pda", "earley")
+        ),
+        ("strata", {"showing": "strata"}),
+        ("a room", {"place": "machine"}),
+    ]
+    for says, state in twice_over:
         once = frame(state).wire(1)
-        twice = frame(state).wire(1)
+        again = frame(state).wire(1)
         check(
-            f"the {view} graph draws the same picture twice",
-            once == twice,
+            f"{says} draws the same picture twice",
+            once == again,
             f"{len(once):,} bytes",
         )
 
