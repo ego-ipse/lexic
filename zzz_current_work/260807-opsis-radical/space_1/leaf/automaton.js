@@ -89,9 +89,12 @@ let autoTall = false;
 function autoPos(c) {
   if (!c) { autoMissed++; return null; }
   const step = gTune.levelstep * 1.15;
-  const spread = 15 * gTune.ringscale;
+  // siblings are spaced by the width of the NAMES they carry, not by a flat
+  // constant: 30 clones on one level at 15px each is a smear, whatever the
+  // fit does afterwards
+  const wide = Math.max(34, (c.name || '·').length * 6.2 + 16) * gTune.ringscale;
   const along = (c.depth < 0 ? 0 : c.depth) * step;
-  const across = (c.li - c.ln / 2) * spread;
+  const across = (c.li - c.ln / 2) * wide;
   return autoTall ? { x: across, y: along } : { x: along, y: across };
 }
 
