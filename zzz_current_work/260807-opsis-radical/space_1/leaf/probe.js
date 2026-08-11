@@ -158,7 +158,8 @@ async function probeGestures() {
       `railCanvas=${$('graphCv').clientWidth}x${$('graphCv').clientHeight}`,
       `railBitmap=${$('graphCv').width}x${$('graphCv').height}`,
       `railWrap=${$('graphWrap').clientWidth}x${$('graphWrap').clientHeight}`,
-      `railDoors=${(railSaid && railSaid.hits || []).length}`);
+      `railDoors=${(railSaid && railSaid.marks || [])
+        .filter((m) => m.startsWith('box ') && m.split(' ')[6] !== '-').length}`);
     // clicking a door must move the view to that rule
     const v0 = gViews[0];
     const panWas = v0 ? v0.pan.y : 0;

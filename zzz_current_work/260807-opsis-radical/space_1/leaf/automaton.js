@@ -91,46 +91,32 @@ function autoPos(c) {
 }
 
 function drawRailPin(p, el) {
+  // the pinned railroad is the SAME drawing the rails view paints, asked
+  // for one rule. Everything it used to compute — measure, lay out, stroke
+  // every line — was a second copy of what the reading already says.
   const body = el.querySelector('.railbody');
   const cv = el.querySelector('canvas');
+  const said = drawings.get(`rail:${p.rule}`);
+  if (!said) { loadDrawing(`rail:${p.rule}`, `&name=${encodeURIComponent(p.rule)}`, 'rail'); return; }
   const w = body.clientWidth, h = body.clientHeight;
-  if (!w || !h || !p.tree) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cv.width = w * dpr;
-  cv.height = h * dpr;
-  const cx = cv.getContext('2d');
-  const full = p.tree.w + 28;
-  const s = Math.min(1.5, (w - 20) / full, (h - 16) / p.tree.h);
-  p.scale = s;
-  p.ox = (w - full * s) / 2 + 14 * s;
-  p.oy = (h - p.tree.h * s) / 2;
-  cx.setTransform(dpr * s, 0, 0, dpr * s, dpr * p.ox, dpr * p.oy);
-  cx.font = railFont();
-  p.hits = [];
-  const yE = p.tree.cy;
-  railLine(cx, -14, yE, 0, yE);
-  railLine(cx, p.tree.w, yE, p.tree.w + 14, yE);
-  cx.fillStyle = railColors().dim;
-  for (const ex of [-14, p.tree.w + 14]) {
-    cx.beginPath();
-    cx.arc(ex, yE, 2.5, 0, Math.PI * 2);
-    cx.fill();
-  }
-  railDraw(p.tree, cx, 0, 0, p.hits);
+  if (!w || !h) return;
+  const scale = Math.min(1.4, Math.max(0.4,
+    Math.min((w - 16) / Math.max(1, said.w), (h - 16) / Math.max(1, said.h))));
+  p.scale = scale;
+  paint(cv, said, { x: 8, y: 8 }, scale);
+  p.painted = said;
 }
 
 async function railPinLoad(p, el) {
   const body = el.querySelector('.railbody');
   const cv = el.querySelector('canvas');
-  const tree = await fetchRail(p.rule);
-  if (!tree) { body.textContent = 'no such rule ' + p.rule; return; }
-  p.tree = tree;
-  const cx = cv.getContext('2d');
-  cx.font = railFont();
-  railMeasure(tree, cx);
+  const said = await loadDrawing(`rail:${p.rule}`,
+    `&name=${encodeURIComponent(p.rule)}`, 'rail');
+  if (!said || !said.marks.length) { body.textContent = 'no such rule ' + p.rule; return; }
+  p.tree = said;
   if (!p.w) {
-    p.w = Math.min(tree.w + 52, Math.floor(window.innerWidth * 0.72));
-    p.h = Math.min(tree.h + 58, Math.floor(window.innerHeight * 0.72));
+    p.w = Math.min(said.w + 52, Math.floor(window.innerWidth * 0.72));
+    p.h = Math.min(said.h + 58, Math.floor(window.innerHeight * 0.72));
     el.style.width = p.w + 'px';
     el.style.height = p.h + 'px';
   }
