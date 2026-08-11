@@ -122,6 +122,17 @@ async function probeGestures() {
       out.push(`graphChips=${chips.length} clipped=${out_.length}`
         + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
     }
+    // the band must have ARRIVED and have marks the register can colour
+    setClock('model');
+    ask();
+    await wait(1500);
+    const bandSaid = drawings.get([...drawings.keys()]
+      .find((k) => k.startsWith('band:')) || '');
+    out.push(`band=${bandSaid ? bandSaid.marks.length + ' marks' : 'NONE'}`,
+      `bandTone=${bandSaid && bandSaid.marks.length
+        ? bandSaid.marks[0].split(' ')[5] : '-'}`,
+      `bandKnown=${bandSaid && bandSaid.marks.length
+        ? !!BAND[bandSaid.marks[0].split(' ')[5]] : false}`);
     // THE SPINE: what is open at the cursor must actually reach the screen
     cur.t = 4000;
     ask();

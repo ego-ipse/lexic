@@ -10,7 +10,14 @@
 // how the served band's tones look here. A drawing names a tone; what that
 // tone IS belongs to the leaf, which is the only side that knows the dark.
 const BAND = {
-  band0: '#0e151d', band1: '#152230', band2: '#1d3143', band3: '#274257',
+  // each clock's band reads as its own: the reading's structure in blue,
+  // the PDA's stack in slate, Earley's hypotheses in violet
+  modelband0: '#0e151d', modelband1: '#152230',
+  modelband2: '#1d3143', modelband3: '#274257',
+  pdaband0: '#101820', pdaband1: '#1b2733',
+  pdaband2: '#27384a', pdaband3: '#35506b',
+  earleyband0: '#140f1c', earleyband1: '#241733',
+  earleyband2: '#3a2350', earleyband3: '#54326f',
 };
 
 async function loadClock() {
@@ -161,56 +168,65 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx, view = chartMain) {
   const laneH = Math.max(2, Math.min(16, Math.floor((y1 - lanesY - 4) / Math.max(1, rows))));
   const win = (view.hit || S.chartHit).win;
   clockHit = { lanesY: lanesY + 4, laneH, pda };
-  // the same, and for the same reason: one drawing per reading, the window
-  // a transform. Keyed to the window, this refetched a whole-document
-  // computation on every frame of playback — the clock simply died.
-  const pad = sx(at);
-  const key = `clock:${pda ? 'pda' : 'earley'}:${S.meta.generation}`;
-  const said = drawings.get(key);
-  if (!said) {
-    loadDrawing(key, `&mode=${pda ? 'pda' : 'earley'}`
-      + `&box=${Math.round(w)}x${Math.round(y1 - lanesY - 8)}`, 'clock');
-  } else {
-    cx.save();
-    cx.beginPath();
-    cx.rect(pad, clockHit.lanesY, w - 2 * pad, y1 - clockHit.lanesY);
-    cx.clip();
-    for (const mark of said.marks) {
-      const m = mark.split(' ');
-      if (m[0] !== 'box') continue;
-      const [s0, e0, index] = m[6].split(':').map(Number);
-      if (e0 < at || s0 > at + win) continue;
-      const x1 = sx(s0), x2 = Math.max(sx(e0), x1 + 1.5);
-      const y = clockHit.lanesY + (+m[2]);
-      const bh = +m[4];
-      const done = e0 <= T, live = !done && s0 < T;
-      if (m[5] !== 'kept') {
+  const abandoned = 'rgba(224,96,96,0.55)';
+  const abandonedFill = 'rgba(224,96,96,0.16)';
+  for (const f of list) {
+    if (f.e <= at || f.s >= at + win) continue;
+    const row = pda ? f.d : f.row;
+    const y = clockHit.lanesY + row * laneH;
+    if (y + laneH > y1) continue;
+    const x1 = sx(Math.max(f.s, at));
+    const x2 = Math.max(sx(Math.min(f.e, at + win)), x1 + 1.5);
+    const done = f.e <= T, live = !done && f.s < T;
+    if (pda) {
+      const cmode = f.cid >= 0 && autoData && autoData.clones[f.cid] ? autoData.clones[f.cid].mode : null;
+      const base = cmode ? (AUTO_INK[cmode] || '#8fa3b8') : '#8fa3b8';
+      if (!f.ok) {
+        // an attempt sub-run pushed it, the rollback took it away — the same
+        // fate register as Earley's abandoned hypotheses
         cx.strokeStyle = 'rgba(224,96,96,0.55)';
-        if (done) {
-          cx.fillStyle = 'rgba(224,96,96,0.12)';
-          cx.fillRect(x1, y, x2 - x1, bh);
-        }
-      } else if (done) {
-        cx.fillStyle = pda ? withA('#8fa3b8', 0.20) : C.closed;
-        cx.fillRect(x1, y, x2 - x1, bh);
-        cx.strokeStyle = pda ? withA('#8fa3b8', 0.9) : C.cool;
-      } else if (live) {
+        if (done) { cx.fillStyle = 'rgba(224,96,96,0.12)'; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
+        cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
+        continue;
+      }
+      if (done) { cx.fillStyle = withA(base, 0.20); cx.fillRect(x1, y, x2 - x1, laneH - 1); cx.strokeStyle = withA(base, 0.9); }
+      else if (live) {
         cx.fillStyle = C.active;
-        cx.fillRect(x1, y, sx(Math.min(T, at + win)) - x1, bh);
+        cx.fillRect(x1, y, sx(Math.min(T, at + win)) - x1, laneH - 1);
         cx.strokeStyle = C.warm;
-      } else {
-        cx.strokeStyle = pda ? withA('#8fa3b8', 0.35) : C.pending;
-      }
-      cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), bh);
-      const holds = pda ? clockData.frames[index] : clockData.hyp[index];
-      if (clockHoverExt && holds === clockHoverExt) {
-        cx.strokeStyle = C.ink;
-        cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, bh + 2);
-      }
+      } else cx.strokeStyle = withA(base, 0.35);
+    } else if (f.c) {
+      if (done) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
+      cx.strokeStyle = done ? C.cool : C.pending;
+    } else {
+      if (done) { cx.fillStyle = abandonedFill; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
+      cx.strokeStyle = abandoned;
     }
-    cx.restore();
+    cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
+    // a frame wide enough to read says WHAT IT IS. Boxes alone made the two
+    // clocks look like the same picture twice, and made a machine of 126
+    // distinct clones read as one rule entered over and over.
+    const said = pda ? clockData.fnames[f.n] : clockData.hnames[f.n];
+    if (said && x2 - x1 > 34 && laneH >= 9) {
+      cx.save();
+      cx.beginPath();
+      cx.rect(x1 + 1, y, x2 - x1 - 2, laneH - 1);
+      cx.clip();
+      cx.fillStyle = f.ok === 0 || (!pda && !f.c) ? 'rgba(224,96,96,0.85)' : C.dim;
+      cx.font = `${Math.min(10, laneH - 2)}px ` + getComputedStyle(
+        document.documentElement).getPropertyValue('--mono');
+      cx.fillText(said, x1 + 3, y + laneH - 3);
+      cx.restore();
+    }
+    if (clockHoverExt === f) {
+      cx.strokeStyle = C.ink || '#e8e2d6';
+      cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 2);
+    }
+    if (markedRule() && f.name === markedRule()) {
+      cx.strokeStyle = C.violet;
+      cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 2);
+    }
   }
-  // the decision ticks the machine made, above the lanes
   if (pda) {
     cx.fillStyle = C.warm;
     for (const ev of clockData.events) {
@@ -252,25 +268,27 @@ function drawChart(view = chartMain) {
   const T = chartAt(view), zoom = chartZoomOf(view), clock = chartClockOf(view);
   const ox = (off) => pad + (off / N) * (w - 2 * pad);
   // how many characters one pixel of the overview stands for — the clock
-  // band still needs it, and it went out with the coverage array it fed
+  // band's texture is bucketed by it
   const step = Math.max(1, Math.floor(N / Math.max(1, w - 2 * pad)));
-  // THE BAND IS A DRAWING, in document coordinates like everything else.
-  // Which stretch is dense is a property of what happened; the leaf only
-  // says where the document is on screen.
-  const bandKey = `band:${clock}:${S.meta.generation}`;
+  // THE BAND IS A DRAWING: how much structure sits where is a property of
+  // the reading, not something to sum over twelve thousand spans per frame.
+  const bandKey = `band:${Math.round(w)}:${S.meta.generation}`;
   const band = drawings.get(bandKey);
-  if (!band) {
-    loadDrawing(bandKey, `&mode=${clock}&box=${Math.round(w - 2 * pad)}x${bandH}`,
-      'band');
-  } else {
-    const across = (off) => pad + (off / N) * (w - 2 * pad);
+  if (clock !== 'model' && clockReady()) {
+    drawClockBand(cx, pad, bandH, step, ox, N, view);
+  } else if (band) {
+    // the band arrives in DOCUMENT coordinates — x is the character offset,
+    // not a pixel. Painting those numbers straight put the whole strip off
+    // the right-hand edge, which reads as a band that never drew.
     for (const mark of band.marks) {
       const m = mark.split(' ');
       if (m[0] !== 'box') continue;
-      cx.fillStyle = BAND[m[5]] || shades[0];
-      cx.fillRect(across(+m[1]), 8, Math.max(1, across(+m[1] + (+m[3])) - across(+m[1])),
-        bandH);
+      const x1 = ox(+m[1]), x2 = ox(+m[1] + (+m[3]));
+      cx.fillStyle = BAND[m[5]] || '#0e151d';
+      cx.fillRect(x1, 8, Math.max(1, x2 - x1), bandH);
     }
+  } else {
+    loadDrawing(bandKey, `&box=${Math.round(w - 2 * pad)}x${bandH}`, 'band');
   }
   // a small document fills the width; a large one gets a 5px-per-char window
   const base = N * 5 < (w - 2 * pad) ? Math.min(12, Math.floor((w - 2 * pad) / Math.max(1, N))) : 5;
@@ -307,48 +325,37 @@ function drawChart(view = chartMain) {
   }
   // one pass, carrying the index: `indexOf` inside this loop was a linear
   // scan of 12k spans per drawn span — quadratic, on every frame
-  // THE LANES ARE A DRAWING, in DOCUMENT coordinates: x is the offset
-  // itself. The window is a transform — which is why playing costs nothing
-  // now, where keying the picture to the window refetched it every frame.
-  const key = `chart:${S.meta.generation}:${Math.round(h)}`;
+  // THE LANES ARE A DRAWING. Which span sits where, how wide, in which
+  // lane — all of that is the reading's, addressed by the span it is. What
+  // stays here is the window (the leaf chose it), the cursor (the leaf
+  // moves it) and the tint that follows from the two.
+  const key = `chart:${Math.round(at)}:${win}:${Math.round(w)}:${S.meta.generation}`;
   const lanes = drawings.get(key);
   if (!lanes) {
-    loadDrawing(key, `&box=${Math.round(w)}x${Math.round(h - lanesY - 8)}`, 'chart');
+    loadDrawing(key, `&from=${Math.round(at)}&win=${win}`
+      + `&box=${Math.round(w - 2 * pad)}x${Math.round(h - lanesY - 8)}`, 'chart');
   } else {
     cx.save();
-    cx.beginPath();
-    cx.rect(pad, lanesY, w - 2 * pad, h - lanesY - 4);
-    cx.clip();
+    cx.translate(pad, lanesY);
     for (const mark of lanes.marks) {
       const m = mark.split(' ');
       if (m[0] !== 'box') continue;
-      const [s0, e0, index] = m[6].split(':').map(Number);
-      if (e0 < at || s0 > at + win) continue;
-      const x1 = sx(s0), x2 = sx(e0);
-      const y = lanesY + (+m[2]);
-      const bh = +m[4];
-      if (m[5] === 'eps') {
-        cx.strokeStyle = s0 <= T ? C.dimmer : C.pending;
-        cx.beginPath();
-        cx.moveTo(x1 + 0.5, y + 1);
-        cx.lineTo(x1 + 0.5, y + bh - 1);
-        cx.stroke();
-        continue;
+      const [bx, by, bw, bh] = [+m[1], +m[2], +m[3], +m[4]];
+      const [s0, e0, idx] = m[6].split(':').map(Number);
+      const tone = m[5] === 'eps'
+        ? (s0 <= T ? C.dimmer : C.pending)
+        : (e0 <= T ? C.cool : (s0 < T ? C.warm : C.pending));
+      if (e0 <= T && m[5] !== 'eps') { cx.fillStyle = C.closed; cx.fillRect(bx, by, bw, bh); }
+      else if (s0 < T && m[5] !== 'eps') { cx.fillStyle = C.active; cx.fillRect(bx, by, bw, bh); }
+      cx.strokeStyle = tone;
+      cx.strokeRect(bx + 0.5, by + 0.5, Math.max(bw, 1), bh);
+      if (idx === cur.sel || idx === cur.hover) {
+        cx.strokeStyle = idx === cur.hover ? C.ink : C.warm;
+        cx.strokeRect(bx - 1.5, by - 1.5, bw + 3, bh + 3);
       }
-      if (e0 <= T) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, bh); }
-      else if (s0 < T) {
-        cx.fillStyle = C.active;
-        cx.fillRect(x1, y, sx(Math.min(T, at + win)) - x1, bh);
-      }
-      cx.strokeStyle = e0 <= T ? C.cool : (s0 < T ? C.warm : C.pending);
-      cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), bh);
-      if (index === cur.sel || index === cur.hover) {
-        cx.strokeStyle = index === cur.hover ? C.ink : C.warm;
-        cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, bh + 3);
-      }
-      if (markedRule() && S.ruleNames[S.spans[index].r] === markedRule()) {
+      if (markedRule() && S.ruleNames[S.spans[idx].r] === markedRule()) {
         cx.strokeStyle = C.violet;
-        cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, bh + 3);
+        cx.strokeRect(bx - 1.5, by - 1.5, bw + 3, bh + 3);
       }
     }
     cx.restore();

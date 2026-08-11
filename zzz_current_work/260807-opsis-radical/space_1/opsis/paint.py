@@ -458,7 +458,10 @@ def chart_drawing(reading: object, tall: int) -> Drawing:
 
 
 def band_drawing(
-    reading: object, tall: int, rows: list[tuple[int, int, int, int]] | None = None
+    reading: object,
+    tall: int,
+    rows: list[tuple[int, int, int, int]] | None = None,
+    mode: str = "model",
 ) -> Drawing:
     """The whole document at a glance — how much sits where, in document units.
 
@@ -488,7 +491,9 @@ def band_drawing(
     top = max(cover) or 1
     for at, deep in enumerate(cover):
         shade = min(3, (deep * 4) // (top + 1))
-        draw.box(float(at * size), 0.0, float(size), float(tall), f"band{shade}")
+        # the tone says WHICH clock as well as how dense: three bands that
+        # look alike are three bands that say nothing about which engine
+        draw.box(float(at * size), 0.0, float(size), float(tall), f"{mode}band{shade}")
     draw.wide = float(len(text))
     draw.tall = float(tall)
     return draw

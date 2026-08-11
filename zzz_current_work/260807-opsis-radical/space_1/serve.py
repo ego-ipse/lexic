@@ -357,7 +357,7 @@ class Handler(BaseHTTPRequestHandler):
                     ]
                 else:
                     held = None
-                return band_drawing(self.reading, tall, held).wire("band")
+                return band_drawing(self.reading, tall, held, mode).wire("band")
             if what == "chart":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 400
                 return chart_drawing(self.reading, tall).wire("chart")
