@@ -184,7 +184,7 @@ def runs(tone: str, said: str) -> float:
     cell = ADVANCE.get(tone, CELL)
     # tracked-out text is WIDER, and a width that forgets it overlaps the
     # next thing along
-    space = {"title": 2.5, "chip": 0.6, "ftitle": 1.5}.get(tone, 0.0)
+    space = SPACING.get(tone, 0.0)
     return sum(
         cell + space if glyph.isascii() else cell * 1.6 + space for glyph in said
     )
@@ -193,6 +193,8 @@ def runs(tone: str, said: str) -> float:
 # letter-spacing is part of a face, not decoration: #title is 0.18em and a
 # rung is 0.06em, and a canvas that ignores it draws a different word.
 TRACKING = {"title": "0.18em", "chip": "0.06em", "ftitle": "0.14em"}
+# what that tracking is WORTH per glyph, in the widths `runs` adds up
+SPACING = {"title": 2.5, "chip": 0.6, "ftitle": 1.5}
 
 
 def register() -> list[str]:
@@ -207,5 +209,11 @@ def register() -> list[str]:
         # what the frame BELIEVES each face measures. Every wrap, every
         # right-aligned string and every head's packing rides on these, and
         # only the mono plane's has ever been checked against a browser.
-        *(f"advance {name} {said}" for name, said in ADVANCE.items()),
+        # the EFFECTIVE width — what `runs` actually adds up per glyph,
+        # tracking included. Sending the bare advance made the probe compare
+        # a face against a number the frame never uses.
+        *(
+            f"advance {name} {said + SPACING.get(name, 0.0):g}"
+            for name, said in ADVANCE.items()
+        ),
     ]

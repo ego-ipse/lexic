@@ -241,6 +241,37 @@ async function probe() {
     fact('popping a facet opens no browser window', false, 'nothing to pop');
   }
 
+  /* EVERY OTHER FACE. The mono plane is checked above because a highlight
+     sits under its characters; nothing has ever checked the sans faces, and
+     the frame wraps the hint, right-aligns the verdict and packs every head
+     from what it believes they measure. Too wide and a line wraps early; too
+     narrow and two things overlap.
+
+     Guarded, because a fact that throws takes the whole harness down with it
+     and a probe that says nothing is worse than a gap it names. */
+  try {
+    /* each face measured on what it actually SETS: a title is uppercase and
+       tracked out, a subtitle is a sentence, a chip is one word */
+    const samples = { fsub: 'the chart scrubs and select text to co-select',
+                      ftitle: 'THE DERIVATION THE DOCUMENT THE READER',
+                      chip: 'derivation relations document' };
+    const gauge = paper.getContext('2d');
+    let off = '';
+    for (const name of ['fsub', 'ftitle', 'chip']) {
+      const sample = samples[name];
+      const believed = +(frame.advance || {})[name];
+      if (!believed || !frame.fonts[name]) continue;
+      gauge.font = frame.fonts[name];
+      gauge.letterSpacing = (frame.tracks || {})[name] || '0px';
+      const real = gauge.measureText(sample).width / sample.length;
+      gauge.letterSpacing = '0px';
+      if (Math.abs(real - believed) > 0.7) off += `${name} ${real.toFixed(2)}/${believed} `;
+    }
+    fact('every face is the width the frame believes', !off, off || 'fsub ftitle chip');
+  } catch (e) {
+    fact('every face is the width the frame believes', false, `threw: ${e.message}`);
+  }
+
   const bad = said.filter((s) => s.startsWith('FAIL')).length;
   document.title = `PROBE ${bad} failures :: ${said.join(' :: ')}`;
 }
