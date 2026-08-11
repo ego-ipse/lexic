@@ -91,13 +91,19 @@ function popFacet(name) {
   const sec = $(name);
   if (!sec) return;
   const win = floatWindow(facetTitle(name), popped.size);
-  const home = { next: sec.nextElementSibling, style: sec.getAttribute('style') || '' };
+  const home = {
+    next: sec.nextElementSibling,
+    style: sec.getAttribute('style') || '',
+    tree: JSON.parse(JSON.stringify(layoutTree)),
+  };
   sec.classList.add('inwin');
   win.querySelector('.winbody').appendChild(sec);
   sec.removeAttribute('style');
   popped.set(name, { win, home });
-  // out of the grid means out of the TREE: the arrangement is over the
-  // surfaces that are in it, and a floating one no longer takes a column
+  // out of the grid means out of the TREE. Leaving it in left a TAB you
+  // could click onto a surface that is not there — the column went blank
+  // and the facet read as broken.
+  layoutTree = removeLeaf(layoutTree, name) || layoutTree;
   facetOn[name] = false;
   applyFacets(true);
   win.querySelector('.x').addEventListener('click', () => dockFacet(name));
@@ -114,6 +120,8 @@ function dockFacet(name) {
   held.win.remove();
   popped.delete(name);
   facetOn[name] = true;
+  // back into the arrangement it left, exactly where it was
+  layoutTree = held.home.tree;
   applyFacets(true);
   ask();
 }

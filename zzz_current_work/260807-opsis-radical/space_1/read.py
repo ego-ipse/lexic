@@ -24,7 +24,16 @@ from lexic.exceptions import LexicError
 from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR, get_flavour
 from lexic.model import GrammarModel
 
-__all__ = ["Facet", "Reading", "Span", "as_written", "read", "read_up", "upward"]
+__all__ = [
+    "Facet",
+    "Reading",
+    "Span",
+    "as_written",
+    "profile",
+    "read",
+    "read_up",
+    "upward",
+]
 
 CANDIDATES = (GBNF_FLAVOUR, ABNF_FLAVOUR, EBNF_FLAVOUR)
 
@@ -313,3 +322,21 @@ def read(reader: Path, document: Path) -> Reading:
     reading = Reading(reader, document)
     reading.hold()
     return reading
+
+
+def profile(reading: Reading, buckets: int = 60) -> list[int]:
+    """How deep the reading goes across the document, in a few buckets.
+
+    The shape of a reading at a glance: where it nests and where it runs
+    flat. Scaled to 0..9 because the band that draws it is nine pixels of
+    meaning, not because depth stops at nine.
+    """
+    if not reading.spans or not reading.text:
+        return []
+    size = max(1, len(reading.text) // buckets)
+    deepest = [0] * (len(reading.text) // size + 1)
+    for span in reading.spans:
+        at = min(span.start // size, len(deepest) - 1)
+        deepest[at] = max(deepest[at], span.depth)
+    top = max(deepest) or 1
+    return [round(9 * value / top) for value in deepest]

@@ -226,6 +226,10 @@ function renderPlaceSection(sec) {
         return `<div class="prow paddr" data-place="${stEsc(addr.slice(6))}">`
           + `${stEsc(text)}</div>`;
       }
+      if (addr && addr.startsWith('form:')) {
+        return `<div class="prow paddr" data-form="${stEsc(addr.slice(5))}">`
+          + `${stEsc(text)}</div>`;
+      }
       if (addr && addr.startsWith('cast:')) {
         return `<div class="prow paddr" data-cast="${stEsc(addr.slice(5))}">`
           + `${stEsc(text)}</div>`;
@@ -329,6 +333,13 @@ function drawPlace(place) {
   const body = $('placeGrid');
   for (const el of body.querySelectorAll('.paddr[data-place]')) {
     el.addEventListener('click', () => openPlace(el.dataset.place));
+  }
+  for (const el of body.querySelectorAll('.paddr[data-form]')) {
+    el.addEventListener('click', async () => {
+      postPolicy('form', el.dataset.form);
+      await boot(true);
+      openPlace('pipeline', false);
+    });
   }
   for (const el of body.querySelectorAll('.paddr[data-cast]')) {
     el.addEventListener('click', async () => {

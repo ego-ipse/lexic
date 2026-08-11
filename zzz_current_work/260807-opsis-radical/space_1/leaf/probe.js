@@ -183,6 +183,19 @@ async function probeGestures() {
     drawGraph();
     // pop a facet out, and clone one: both must be REAL — the section moves
     // into the window, and the clone keeps drawing what its source draws
+    // a TABBED facet is the hard case: popping it must take its tab with it
+    popFacet('graph');
+    await wait(600);
+    const tabsNow = [...document.querySelectorAll('#grid .tabbar .tab')]
+      .map((el) => el.textContent);
+    out.push(`poppedTab=${!!document.querySelector('.facetwin #graph')}`,
+      `tabsLeft=${tabsNow.join('+') || 'none'}`,
+      `readerBox=${Math.round($('grammar').getBoundingClientRect().width)}`);
+    document.querySelector('.facetwin .x').click();
+    await wait(700);
+    out.push(`tabsBack=${[...document.querySelectorAll('#grid .tabbar .tab')]
+      .map((el) => el.textContent).join('+') || 'none'}`,
+      `graphBack=${!!document.querySelector('#grid > #graph')}`);
     popFacet('chart');
     await wait(600);
     const inWin = document.querySelector('.facetwin .winbody > #chart');
@@ -194,9 +207,19 @@ async function probeGestures() {
     out.push(`cloned=${document.querySelectorAll('.facetwin').length}`,
       `mirror=${(document.querySelector('.winbody.mirror') || {}).textContent
         ? 'has content' : 'EMPTY'}`);
-    dockFacet('chart');
-    await wait(500);
-    out.push(`docked=${!!document.querySelector('#grid > #chart')}`);
+    // closing the window is the SAME as docking it: the facet must come
+    // back whole — in the grid, sized by the layout, drawing again
+    document.querySelector('.facetwin .x').click();
+    await wait(700);
+    const back = $('chart');
+    const box = back.getBoundingClientRect();
+    const cv2 = $('chartCv');
+    out.push(`docked=${!!document.querySelector('#grid > #chart')}`,
+      `backBox=${Math.round(box.width)}x${Math.round(box.height)}`,
+      `backCanvas=${cv2.width}x${cv2.height}`,
+      `backStyle=${back.style.display || 'shown'}`,
+      `inTree=${JSON.stringify(layoutTree).includes('chart')}`,
+      `stillInWin=${back.classList.contains('inwin')}`);
     for (const win of document.querySelectorAll('.facetwin')) win.remove();
     twins.length = 0;
     await wait(300);

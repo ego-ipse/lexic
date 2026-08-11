@@ -33,6 +33,7 @@ from machine import machine_facet  # noqa: E402
 from place import arrange, shares  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
 from lexic.grammars import get_flavour  # noqa: E402
+from lexic.parsing.fold import lift_optional_nullables  # noqa: E402
 from chain import Rung  # noqa: E402
 from read import Facet, Reading, as_written, read, read_up, upward  # noqa: E402
 from retype import retype  # noqa: E402
@@ -77,11 +78,16 @@ def ruledefs(text: str) -> list[tuple[str, int, int]]:
 # and as codegen cut it for the parser. The views disagreed because each was
 # drawing a different one — the automaton is built from the codegen form, so
 # a choice it makes has no node in the source form at all.
-FORMS = ("source", "canonical", "codegen")
+FORMS = ("source", "canonical", "codegen", "lifted")
 
 
 def form_of(machine: CompiledGrammar, reading: Reading, which: str) -> IrAst:
     """This reader at one moment of the pipeline."""
+    if which == "lifted":
+        # what the Earley engine actually runs: the codegen grammar with its
+        # optional nullables lifted. The last moment before the parse, and
+        # the one no view was drawing.
+        return lift_optional_nullables(machine.codegen_grammar)
     if which == "codegen":
         return machine.codegen_grammar
     if which == "canonical":
@@ -435,6 +441,7 @@ class Handler(BaseHTTPRequestHandler):
         """One room, spelled. A room nobody authored says so, in place."""
         if which in ("index", ""):
             rows = [
+                "the pipeline — the same language, four moments\tplace:pipeline",
                 "the rules — each one, by what it accounts for\tplace:rules",
                 "the machine — clones, not rules\tplace:machine",
                 "the artefacts — each one loaded back\tplace:artefacts",
@@ -464,6 +471,51 @@ class Handler(BaseHTTPRequestHandler):
                     f"clones built\t{built.clones}",
                     f"rules\t{built.rules}",
                     f"deep\t{built.deepest}",
+                    "",
+                ]
+            )
+        if which == "pipeline":
+            # the pipeline as STEPS with checked claims, not a list of names.
+            # What each moment did to the one before is a fact about two
+            # grammars, so it is computed from them rather than described.
+            here = Handler.state.get("form", "source")
+            rows: list[str] = []
+            facts: list[str] = []
+            before: IrAst | None = None
+            for which_form in FORMS:
+                now = form_of(machine, self.reading, which_form)
+                names = [str(rule.name) for rule in now.rules]
+                spelled_now = spelled(self.reading, now, which_form)
+                if before is None:
+                    said = f"{len(names)} rules · {len(spelled_now):,} chars"
+                else:
+                    was = {str(rule.name) for rule in before.rules}
+                    cut = sorted(set(names) - was)
+                    gone = sorted(was - set(names))
+                    said = (
+                        f"{len(names)} rules"
+                        + (f" · +{len(cut)}: {', '.join(cut[:3])}" if cut else "")
+                        + (f" · −{len(gone)}: {', '.join(gone[:3])}" if gone else "")
+                        + ("" if cut or gone else " · same rules, respelled")
+                    )
+                facts.append(f"{which_form}\t{said}")
+                rows.append(
+                    f"{'▸ ' if which_form == here else ''}{which_form} — {said}"
+                    f"\tform:{which_form}"
+                )
+                before = now
+            reads = self.reading.faithful
+            return "\n".join(
+                [
+                    "#PLACE pipeline pipeline the same language, four moments",
+                    "#SEC title 1",
+                    f"{self.reading.reader_name} — showing the {here} form",
+                    f"#SEC kv {len(facts) + 1}",
+                    *facts,
+                    "the parse of this document\t"
+                    + ("re-emits its own text" if reads else "IS NOT FAITHFUL"),
+                    f"#SEC list {len(rows)}",
+                    *rows,
                     "",
                 ]
             )
