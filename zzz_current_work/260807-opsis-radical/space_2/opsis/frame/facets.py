@@ -245,9 +245,87 @@ def _plane(
             anchor="r",
             face="chip",
         )
+    if name == "document":
+        _under(said, room, look, text, first, run, rows)
     _frontier(said, room, look, text, first, run, rows)
     if name == "document":
         _pinchip(said, room, look, text, first, run, rows)
+
+
+def _starts(text: str) -> list[int]:
+    """Where each line begins — the one number a character offset needs."""
+    out, at = [0], text.find("\n")
+    while at >= 0:
+        out.append(at + 1)
+        at = text.find("\n", at + 1)
+    return out
+
+
+def _segments(
+    starts: list[int], s0: int, e0: int, first: int, rows: int
+) -> list[tuple[int, int, int]]:
+    """One span as the rows it actually covers: (row on screen, from, to).
+
+    A span is a range of the TEXT; the page is lines. Anything that draws
+    under real text has to cross that, and doing it once here is why the
+    highlight lands on the characters it is about.
+    """
+    out: list[tuple[int, int, int]] = []
+    for i in range(rows):
+        line = first + i
+        if line >= len(starts):
+            break
+        at = starts[line]
+        end = starts[line + 1] - 1 if line + 1 < len(starts) else 1 << 62
+        if e0 < at or s0 > end:
+            continue
+        out.append((i, max(s0, at) - at, min(e0, end) - at))
+    return out
+
+
+def _under(
+    said: Frame, room: Room, look: Look, text: str, first: int, run: float, rows: int
+) -> None:
+    """What is true about the document, drawn under its own characters.
+
+    In the reference's order, because they overlap and the last one drawn
+    wins: what the cursor stands inside, then every span of the chosen rule
+    outlined violet, then what is under the hand, then what is selected.
+    """
+    _x, y, _w, _h = room
+    starts = _starts(text)
+
+    def paint(s0: int, e0: int, tone: str, ring: bool) -> None:
+        for i, c0, c1 in _segments(starts, s0, e0, first, rows):
+            x1, top = run + c0 * CELL, y + 8 + i * ROW
+            wide = max(1.5, (c1 - c0) * CELL)
+            if ring:
+                said.ring(x1, top + 1, wide, ROW - 2, tone)
+            else:
+                said.box(x1, top, wide, ROW, tone)
+
+    for span in look.live():
+        paint(span.start, span.end, "open", False)
+    if look.chosen:
+        for span in look.reading.spans:
+            if span.rule == look.chosen:
+                paint(span.start, span.end, "violet", True)
+    kind, _, goes = look.says("hover", "").partition(" ")
+    if kind == "span" and ":" in goes:
+        s0, _, e0 = goes.partition(":")
+        paint(int(s0), int(e0), "faded", False)
+    where = look.says("sel", "")
+    if ":" in where:
+        s0, _, e0 = where.partition(":")
+        paint(int(s0), int(e0), "hotline", False)
+        for i, c0, c1 in _segments(starts, int(s0), int(e0), first, rows):
+            said.ring(
+                run + c0 * CELL,
+                y + 8 + i * ROW,
+                max(1.5, (c1 - c0) * CELL),
+                ROW,
+                "warm",
+            )
 
 
 def _pinchip(

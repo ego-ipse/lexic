@@ -73,6 +73,8 @@ TONES = {
     "lost": "#4a1f22",
     # co-selection: #grammarBody .ln.lit / .ln.hot / .ln.live
     "lit": "rgba(111,195,201,0.07)",
+    # what the cursor stands INSIDE, washed under the document's own text
+    "open": "rgba(111,195,201,0.045)",
     "hotline": "rgba(226,166,92,0.12)",
     "liveline": "rgba(226,166,92,0.10)",
     # a clone's mode at the weight a finished frame is filled with
