@@ -24,7 +24,7 @@ from keep import keep  # noqa: E402
 from lexic.compile import compile_text  # noqa: E402
 from machine import machine_facet, of  # noqa: E402
 from place import arrange, shares, windowed  # noqa: E402
-from read import as_written, columns, read, upward  # noqa: E402
+from read import as_written, columns, read, read_up, upward  # noqa: E402
 from retype import retype  # noqa: E402
 from ring import GRAMMAR as POLICY  # noqa: E402
 from ring import apply_record, record  # noqa: E402
@@ -262,6 +262,23 @@ def main() -> int:
         "rebuilt on change",
     )
     reading.text = reading.text[:-1]
+
+    # travel: the ladder must walk BOTH ways. Climbing used to replace the
+    # current reading, so the rungs below vanished and only "up" existed.
+    above = read_up(reading)
+    check(
+        "the rung above is a real reading, not the one below repeated",
+        above is not None
+        and above.faithful
+        and above.text == reading.reader_text
+        and above.reader_name != reading.reader_name,
+        f"{above.document.name} ⊳ {above.reader_name}" if above else "nothing above",
+    )
+    check(
+        "the climb ends at the fixpoint — a metagrammar reads its own spelling",
+        above is not None and (upward(above) or (None, ""))[1] == above.reader_name,
+        (upward(above) or (None, "nothing"))[1] if above else "nothing above",
+    )
 
     leaf = HERE / "leaf"
     parts = ["index.html", "leaf.css", "leaf.js"]
