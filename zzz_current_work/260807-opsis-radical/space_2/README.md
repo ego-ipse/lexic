@@ -79,6 +79,12 @@ draws the frontier where derivation died — measured off the kernel's own
 cursor, never scraped out of prose — and the derivation says it is showing the
 last good reading.
 
+## The ring
+
+`◌ ring` opens the instrument's own state as a reading — its presentation
+record, read by `fixtures/policy.gbnf`, with spans and a spine like any other
+document. Saving that record applies it.
+
 ## The gate
 
 ```bash

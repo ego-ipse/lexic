@@ -381,6 +381,46 @@ def main() -> int:
         climber.reading is climber.climbed[0],
     )
 
+    print("the ring")
+    ringer = Session(Reading(READER, DOCUMENT))
+    ringer.reading.hold()
+    ringer.gesture("set chart.clock pda")
+    ringer.gesture("at ring on")
+    check(
+        "the instrument opens as a reading of its own state",
+        ringer.reading.reader_name == "the policy grammar",
+        ringer.reading.reader_name,
+    )
+    check(
+        "and that reading READS — spans, spine, verdict, like any other",
+        ringer.reading.faithful and bool(ringer.reading.spans),
+        f"{len(ringer.reading.spans)} spans over {len(ringer.reading.text)} chars",
+    )
+    check(
+        "what it says is what the instrument is",
+        "chart.clock pda" in ringer.reading.text,
+        ringer.reading.text.strip()[:44],
+    )
+    ringer.gesture("text document", "chart.clock earley\nfacet.spine off\n")
+    ringer.gesture("key Ctrl+s")
+    check(
+        "saving that record APPLIES it — the ring closes",
+        ringer.main.get("chart.clock") == "earley"
+        and ringer.main.get("facet.spine") == "off",
+        " ".join(f"{k}={v}" for k, v in sorted(ringer.main.items()) if v),
+    )
+    # a record the grammar REFUSES: a key is [a-z0-9._-], so this is not one
+    ringer.gesture("text document", "CHART.CLOCK model\n")
+    ringer.gesture("key Ctrl+s")
+    check(
+        "a record the grammar refuses is not applied",
+        ringer.main.get("chart.clock") == "earley"
+        and ringer.said is not None
+        and ringer.said.state == "refused",
+        f"still {ringer.main.get('chart.clock')}"
+        + (f" · {ringer.said.words[:44]}" if ringer.said else ""),
+    )
+
     print("where the reading sits")
     check(
         "the strata draws the climb",

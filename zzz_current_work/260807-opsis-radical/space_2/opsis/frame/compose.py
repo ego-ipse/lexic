@@ -230,6 +230,18 @@ def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
         said.line(x1, y1, x2, y2, "hair")
     said.text(at + 18, 21, "violet", "⌗ strata", face="chip")
     said.hit(at + 8, 8, wide, 18, "strata", "on")
+    at += wide + 14
+    # the ring: this instrument, as a reading of its own state
+    wide = runs("chip", "◌ ring") + 22
+    for x1, y1, x2, y2 in (
+        (at, 8, at + wide, 8),
+        (at, 26, at + wide, 26),
+        (at, 8, at, 26),
+        (at + wide, 8, at + wide, 26),
+    ):
+        said.line(x1, y1, x2, y2, "hair")
+    said.text(at + 10, 21, "violet", "◌ ring", face="chip")
+    said.hit(at, 8, wide, 18, "ring", "on")
 
 
 def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> None:

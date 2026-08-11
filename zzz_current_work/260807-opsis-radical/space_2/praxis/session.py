@@ -20,6 +20,8 @@ from collections.abc import Callable, MutableMapping
 
 from praxis.history import Retype, retype
 from praxis.reading import Reading, read_up
+from praxis.roots import GRAMMAR as POLICY
+from praxis.roots import apply_record, record
 
 __all__ = ["Session"]
 
@@ -219,6 +221,29 @@ class Session:
         self.playing = False
         self.generation += 1
 
+    def _ring(self, _words: list[str]) -> None:
+        """THE RING — the instrument's own state, opened as a reading.
+
+        Opsis fits its own picture as a reading, not as furniture: the
+        presentation record is line-oriented text, so given a grammar it has
+        spans, a spine, a verdict and a layout like any other document. This
+        is the ladder closing into a ring — focus moving along a lineage edge
+        that points at the instrument itself.
+
+        Saving it APPLIES it. The parse already proved the record
+        well-formed, so applying is reading the lines it holds.
+        """
+        self.main["showing"] = ""
+        self.main["place"] = ""
+        held = Reading(POLICY, POLICY)
+        held.reader_name = "the policy grammar"
+        held.reader_text = POLICY.read_text()
+        held.text = record({k: v for k, v in self.main.items() if v})
+        held.hold()
+        if held not in self.climbed:
+            self.climbed.append(held)
+        self.enter(held)
+
     def _place(self, words: list[str]) -> None:
         """Enter a room the reading holds — or leave the one you are in."""
         self.main["place"] = words[0] if words else ""
@@ -274,10 +299,19 @@ class Session:
             self.at = min(self.at, float(len(self.reading.text)))
 
     def _save(self, _words: list[str]) -> None:
-        """Read it again, and — if it read — write it to the document's own file."""
+        """Read it again, and — if it read — commit it.
+
+        Committing means something different where you are STANDING: in the
+        instrument's own record it means APPLYING those lines, which is the
+        ring closing. Everywhere else it means writing the document's file.
+        """
         self._reread([])
-        if self.said is not None and self.said.state != "refused":
-            self.reading.document.write_text(self.reading.text)
+        if self.said is not None and self.said.state == "refused":
+            return
+        if self.reading.reader == POLICY:
+            self.main.update(apply_record(self.reading.text))
+            return
+        self.reading.document.write_text(self.reading.text)
 
     def _revert(self, _words: list[str]) -> None:
         """Back to the last good reading; the typing since then goes with it."""
@@ -418,6 +452,7 @@ LANDED: dict[str, Said] = {
     "place": Session._place,
     "rail": Session._rail,
     "rung": Session._rung,
+    "ring": Session._ring,
     "strata": Session._strata,
     "rule": Session._rule,
     "span": Session._span,

@@ -244,6 +244,23 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## The ring
+
+`praxis/roots.py` and `fixtures/policy.gbnf` were both here, unused: the
+instrument's own state as a text it can read. `◌ ring` in the masthead opens
+it — `policy.gbnf ⊳ the policy grammar`, whose document is the presentation
+record, with spans, a spine and a verdict like any other reading.
+
+**And saving it APPLIES it.** The parse already proved the record
+well-formed, so applying is reading the lines it holds: write
+`chart.clock earley` and `facet.spine off` into the instrument's own
+document, save, travel back down, and the derivation is on the Earley clock
+with the spine minimized. A record the grammar REFUSES — a key outside
+`[a-z0-9._-]` — is not applied, and says why.
+
+That is the ladder closing into a ring: focus moving along a lineage edge
+that points at the instrument itself.
+
 ## Travel
 
 The strata drew a rung nobody could enter: `at rung n` closed the overlay and
