@@ -63,8 +63,13 @@ one rule for a pinned window), the automaton, the relations in flat/arcs.
    its row is something the picture INVENTS; sending them all in row zero
    drew one dense stripe and called it a clock. `packed()` gives each the
    first row it fits, and a fact holds that nothing in a row overlaps.
-   What remains in `chart.js` is `clockBandTex` (the band's texture for the
-   two clock modes) — the same conversion, one step smaller.
+   `clockBandTex` is gone too: ONE band path now serves all three modes —
+   the reading's own structure, or an engine's clock, textured the same way
+   in document coordinates. **Known gap**: all three bands are textured by
+   coverage count and so look alike. The earlier build distinguished them
+   (pda = stack depth, earley = hypothesis density in violet). Restoring
+   that is four lines — name the tones per mode server-side
+   (`{mode}band{shade}`) and add them to the leaf's `BAND` register.
 3. **The document plane's under/over canvases** (~150).
 4. **The IR rows and the room sections** (~300) — these are DOM, not canvas;
    they want a row vocabulary rather than a display list.
