@@ -426,10 +426,12 @@ body.off-chart #chart:not(.inwin), body.off-spine #spine:not(.inwin) { display: 
 
 #status #transport { margin-left: 0; }
 
+/* the dials sit out of the picture's way — bottom-right, where a railroad
+   list and a graph both have their least content — and fade until wanted */
 #gtune {
   position: absolute;
-  top: 6px;
-  left: 8px;
+  bottom: 8px;
+  right: 10px;
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -441,6 +443,7 @@ body.off-chart #chart:not(.inwin), body.off-spine #spine:not(.inwin) { display: 
   transition: opacity 0.15s;
 }
 #gtune:hover { opacity: 1; }
+#gtune { opacity: 0.45; transition: opacity .15s; }
 #gtune label {
   display: grid;
   grid-template-columns: 4ch 1fr;
