@@ -530,6 +530,23 @@ def main() -> int:
         "a window on any facet draws that facet",
         all(bool(frame({}, only=name).marks) for name in every_facet),
     )
+    popper = Session(reading)
+    popper.gesture("pop spine")
+    check(
+        "⧉ takes the facet OUT of the grid — it is somewhere else now",
+        popper.main.get("facet.spine") == "off"
+        and "THE SPINE"
+        not in words(compose(reading, 1500, 850, 0.0, popper.main, watched, 1)),
+        "and the dock is where it comes back from",
+    )
+    cloner = Session(reading)
+    cloner.gesture("clone spine")
+    check(
+        "⊞ leaves the grid the one it has",
+        cloner.main.get("facet.spine") is None
+        and "THE SPINE"
+        in words(compose(reading, 1500, 850, 0.0, cloner.main, watched, 1)),
+    )
     one, two = ChainMap({}, session.main), ChainMap({}, session.main)
     session.gesture("set chart.clock pda", into=one)
     check(

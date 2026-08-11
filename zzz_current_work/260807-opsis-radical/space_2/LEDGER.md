@@ -288,6 +288,20 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## Popping and cloning were the same thing
+
+Both opened a window and left the grid alone, so `⧉` and `⊞` differed only in
+their glyph. They mean different things: **⧉ takes the facet OUT of the grid**
+— it is somewhere else now — and **⊞ leaves the grid the one it has** and
+opens a second view beside it.
+
+The meaning is the SESSION's, not the leaf's. The leaf opens the window,
+because only a browser can, and then says what happened; what popping means
+is a gesture the session answers, which is why it can be gated at all. And
+the dock is where a popped facet comes back from, so closing its window
+leaves a dim chip rather than a facet nobody can find — which is exactly what
+made a popped-out facet feel broken in space_1.
+
 ## A window is not something only the graph can be
 
 `⧉ window` was written on the graph's head alone, which made popping out a

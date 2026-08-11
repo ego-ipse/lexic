@@ -246,7 +246,9 @@ paper.addEventListener('click', (ev) => {
     const seen = (opened[target.goes] = (opened[target.goes] || 0) + 1);
     const id = `${target.goes}-${seen}`;
     window.open(`/?only=${target.goes}&win=${id}`, '_blank', 'width=1000,height=760');
-    if (target.kind === 'pop') ask(`at facet ${target.goes}`);
+    /* opening the window is all this can do itself; what popping MEANS —
+       that the facet has left the grid — is the session's to say */
+    ask(`${target.kind} ${target.goes}`);
     return;
   }
   if (target.kind.includes('.')) {

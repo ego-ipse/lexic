@@ -180,6 +180,20 @@ class Session:
         key = f"facet.{words[0]}"
         self.state[key] = "off" if self.state.get(key, "on") == "on" else "on"
 
+    def _pop(self, words: list[str]) -> None:
+        """⧉ — that facet LEAVES the grid. It is somewhere else now.
+
+        The window is the leaf's to open; what popping MEANS is this. The
+        dock is where it comes back from, so closing the window leaves a dim
+        chip rather than a facet nobody can find — which is what made a
+        popped-out facet feel broken before.
+        """
+        if words:
+            self.main[f"facet.{words[0]}"] = "off"
+
+    def _clone(self, _words: list[str]) -> None:
+        """⊞ — a SECOND view of it. The grid keeps the one it has."""
+
     def _strata(self, words: list[str]) -> None:
         """Pull back to the whole climb, or come back down into the reading."""
         self.main["showing"] = "" if (words and words[0] == "off") else "strata"
@@ -490,7 +504,9 @@ SAYS: dict[str, Said] = {
     "go": Session._go,
     "hover": Session._hover,
     "key": Session._key,
+    "clone": Session._clone,
     "play": Session._play,
+    "pop": Session._pop,
     "scroll": Session._scroll,
     "scrolled": Session._scrolled,
     "seam": Session._seam,
