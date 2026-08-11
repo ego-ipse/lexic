@@ -42,7 +42,6 @@ HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 # What this build does not derive yet. Each says what it is; an empty body is
 # not an answer, and the leaf's parsers cannot read one.
 PENDING = {
-    "/policy": "",
     "/routes": "primary the engine's own composition\nprimary_seconds 0.00\n"
     "status pending\n",
     "/clock": "status pending\ngeneration 1\npda_end -1\ndropped 0\n"
@@ -80,7 +79,7 @@ def offered(reading: Reading) -> list[Facet]:
     return [graph_facet(machine.grammar), machine_facet(machine)]
 
 
-def scene(reading: Reading) -> str:
+def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
     """The reading, spelled — with the arrangement its surfaces asked for."""
     facets = reading.facets()
     rules = ruledefs(reading.reader_text)
@@ -118,6 +117,10 @@ def scene(reading: Reading) -> str:
         or "none",
         "chain": " | ".join(rung.line() for rung in chain(reading)),
     }
+    # what the leaf remembers about how it is looking at this reading — modes,
+    # views, pins — belongs in the frame it boots from, or a reload silently
+    # drops back to the primary view
+    policy.update(state or {})
     return "\n".join(
         [
             "#META",
@@ -153,17 +156,19 @@ def scene(reading: Reading) -> str:
 _DRAWN: dict[int, str] = {}
 
 
-def drawn(reading: Reading) -> str:
+def drawn(reading: Reading, state: dict[str, str] | None = None) -> str:
     """The scene, built once per state of the text.
 
     A quarter of a megabyte was being rebuilt — spans, both text blocks, every
     measurement — on every poll the leaf makes. It changes when the text
     changes, so that is when it is rebuilt.
     """
-    key = hash((reading.text, reading.reader_text))
+    key = hash(
+        (reading.text, reading.reader_text, tuple(sorted((state or {}).items())))
+    )
     if key not in _DRAWN:
         _DRAWN.clear()
-        _DRAWN[key] = scene(reading)
+        _DRAWN[key] = scene(reading, state)
     return _DRAWN[key]
 
 
@@ -171,6 +176,10 @@ class Handler(BaseHTTPRequestHandler):
     """One socket over one reading. It serves; it does not know."""
 
     reading: Reading
+    # the leaf keeps its pins, arrangement and view state HERE: it posts a
+    # gesture and reconciles against the next poll. Discarding writes made it
+    # delete every pin it had just created, one poll later.
+    state: dict[str, str] = {}
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         """Silence: the instrument's own output is the interesting one."""
@@ -190,8 +199,11 @@ class Handler(BaseHTTPRequestHandler):
         if artifact.is_file() and artifact.parent == (HERE / "leaf").resolve():
             self.send(artifact.read_text(), FILES.get(artifact.suffix, "text/plain"))
             return
+        if path == "/policy":
+            self.send("".join(f"{k} {v}\n" for k, v in Handler.state.items()))
+            return
         if path == "/scene":
-            self.send(drawn(self.reading))
+            self.send(drawn(self.reading, Handler.state))
             return
         answer = self.derived(path, urlparse(self.path).query)
         if answer is not None:
@@ -222,7 +234,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))
-        self.rfile.read(length)
+        body = self.rfile.read(length).decode("utf-8")
+        if urlparse(self.path).path == "/policy":
+            for line in body.splitlines():
+                key, _, value = line.partition(" ")
+                if not key:
+                    continue
+                if value == "-":
+                    Handler.state.pop(key, None)
+                else:
+                    Handler.state[key] = value
         self.send("ok\n")
 
 
