@@ -19,6 +19,8 @@ from __future__ import annotations
 from collections.abc import Callable, MutableMapping
 from time import monotonic
 
+from opsis.grammar import rails
+from opsis.paint import rail_drawing
 from opsis.scene import ruledefs, staged
 from opsis.space import moved, shared, showing, zone_at
 from praxis.history import Retype, retype
@@ -253,7 +255,9 @@ class Session:
         if words:
             self.open_window(words[0], words[0])
 
-    def open_window(self, facet: str, about: str, wide: int = 0, tall: int = 0) -> str:
+    def open_window(
+        self, facet: str, about: str, wide: int = 0, tall: int = 0, pin: bool = False
+    ) -> str:
         """A window over the arrangement, cascaded the way the reference does.
 
         Simultaneity is the one thing a tiling cannot express, so a window is
@@ -265,8 +269,11 @@ class Session:
         at = len(held)
         wid = f"w{self.windows}"
         self.windows += 1
-        # `floatWindow`: 620x460, cascaded by 26 from 240,110
-        x, y = 240 + (at % 6) * 26, 110 + (at % 6) * 26
+        # TWO CASCADES, because there are two kinds. `floatWindow` puts a
+        # popped facet at 240,110 stepping 26; `railPin` puts a pin at
+        # 260,120 stepping 30, and a pin is sized to what it holds.
+        step, from_x, from_y = (30, 260, 120) if pin else (26, 240, 110)
+        x, y = from_x + (at % 6) * step, from_y + (at % 6) * step
         self.main["windows"] = " ".join([*held, wid])
         self.main[f"win.{wid}"] = f"{facet} {x} {y} {wide or 620} {tall or 460} {about}"
         return wid
@@ -402,7 +409,7 @@ class Session:
         """⌖ pin — this span, held still in its own window while time moves on."""
         if not words or ":" not in words[0]:
             return
-        wid = self.open_window("pin", words[0], 520, 300)
+        wid = self.open_window("pin", words[0], 520, 300, pin=True)
         self.main[f"gen.{wid}"] = str(self.generation)
 
     def _rail(self, words: list[str]) -> None:
@@ -412,8 +419,20 @@ class Session:
         single rule and what it opens is that rule's track alone.
         """
         self.main["railchip"] = ""
-        if words:
-            self.open_window("rail", words[0], 560, 200)
+        if not words:
+            return
+        # `railPinLoad`: the window is the size of the TRACK it holds, plus
+        # 52 across and 58 down for its own chrome, and never more than
+        # seven tenths of the screen. A fixed box either crops the rail or
+        # leaves it swimming.
+        drawn = rail_drawing(rails(staged(self.reading, self.main).shown), words[0])
+        self.open_window(
+            "rail",
+            words[0],
+            int(min(drawn.wide + 52, 1100)),
+            int(min(max(drawn.tall, 40) + 58, 620)),
+            pin=True,
+        )
 
     def _sel(self, words: list[str]) -> None:
         """Text selected in a plane — the smallest covering occurrence co-selects.
