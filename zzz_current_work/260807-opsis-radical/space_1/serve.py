@@ -124,8 +124,10 @@ class Handler(BaseHTTPRequestHandler):
             relation = session.relations.get(session.focus)
             if turned is None or not isinstance(relation, Reading):
                 return None
-            # the SAME table the frames index: a clone id must mean one clone
-            return clocks.walked(turned.machine, relation.document())
+            # THE MACHINE, not the walk: serving only the clones this reading
+            # entered showed a decomposed view and called it the automaton.
+            # The walk lights the machine; it does not replace it.
+            return machine.automaton(turned.machine.pda_tables())
         if path == "/verdicts":
             turned = self.reader()
             return machine.verdicts(turned.machine) if turned else None

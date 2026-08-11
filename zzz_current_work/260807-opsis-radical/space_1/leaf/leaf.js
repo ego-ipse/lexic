@@ -1326,17 +1326,22 @@ const AUTO_INK = { dispatch: '#6fc3c9', alt: '#e2a65c', seq: '#8fa3b8', value_st
 // misses, and say so, rather than throwing and leaving the facet blank.
 let autoMissed = 0;
 
+let autoTall = false;
+
 function autoPos(c) {
   if (!c) { autoMissed++; return null; }
   const step = gTune.levelstep * 1.15;
   const spread = 15 * gTune.ringscale;
-  return { x: (c.depth < 0 ? 0 : c.depth) * step, y: (c.li - c.ln / 2) * spread };
+  const along = (c.depth < 0 ? 0 : c.depth) * step;
+  const across = (c.li - c.ln / 2) * spread;
+  return autoTall ? { x: across, y: along } : { x: along, y: across };
 }
 
 function drawAutoView(v) {
   const wrap = v.wrap, cv = v.cv;
   const w = wrap.clientWidth, h = wrap.clientHeight;
   if (!w || !h) return;
+  autoTall = h > w * 1.25;         // read the machine down a tall facet
   v.chips.style.display = 'none';  // canvas-only view: stale chips must not overlay
   if (!autoData) { fetchAutomaton(); return; }
   if (!autoData.clones.length) {

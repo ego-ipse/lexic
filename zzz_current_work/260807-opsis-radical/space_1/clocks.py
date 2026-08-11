@@ -194,7 +194,9 @@ def pda_clock(compiled: CompiledGrammar, text: str) -> str:
             f"dropped {dropped}",
             f"#PDAFRAMES {len(kernel.frames)}",
             *(
-                f"{s} {e} {d} {at[str(n)]} {seat} {ok}"
+                # -1 until a runtime clone can be mapped to the compiled
+                # table's seat: a wrong id would light the wrong clone
+                f"{s} {e} {d} {at[str(n)]} -1 {ok}"
                 for s, e, d, n, ok, seat in kernel.frames
             ),
             f"#PDANAMES {len(names)}",
