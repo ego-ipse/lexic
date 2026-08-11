@@ -195,6 +195,23 @@ class Frame:
         said = "|".join(f"{value}:{label}" for value, label in options)
         self.picks.append(f"{key} {x:.1f} {y:.1f} {w:.1f} {h:.1f} {chosen} {said}")
 
+    def slider(
+        self,
+        key: str,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        now: float,
+        low: float,
+        high: float,
+        by: float,
+    ) -> None:
+        """A real range input, at a place — `#gtune`'s own kind of control."""
+        self.picks.append(
+            f"{key} {x:.1f} {y:.1f} {w:.1f} {h:.1f} {now:g} range:{low:g}:{high:g}:{by:g}"
+        )
+
     def hit(
         self,
         x: float,

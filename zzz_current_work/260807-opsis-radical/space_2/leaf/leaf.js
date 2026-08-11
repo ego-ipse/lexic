@@ -102,8 +102,12 @@ function read(said) {
     const n = +lines[i].split(' ')[1] || 0;
     for (const row of lines.slice(i + 1, i + 1 + n)) {
       const p = row.split(' ');
+      const said = p.slice(6).join(' ');
+      /* a range carries its bounds where a select carries its options */
+      const span = said.startsWith('range:') ? said.slice(6).split(':') : null;
       picks.push({ key: p[0], x: +p[1], y: +p[2], w: +p[3], h: +p[4], on: p[5],
-                   options: p.slice(6).join(' ').split('|').map((o) => {
+                   range: span && { low: +span[0], high: +span[1], by: +span[2] },
+                   options: span ? [] : said.split('|').map((o) => {
                      const at = o.indexOf(':');
                      return { value: o.slice(0, at), label: o.slice(at + 1) };
                    }) });
@@ -207,7 +211,12 @@ function strokes(canvas, marks) {
    the smallest thing that makes the canvas's own hit test win: an empty div
    on the window's rectangle, above the planes, forwarding nothing. */
 function glazing() {
-  const want = (frame.hits || []).filter((h) => h.kind === 'win');
+  /* A WINDOW, AND ANY CHIP DRAWN OVER A TEXT PLANE. The planes are real
+     elements: ⌖ pin sits over the document and ▤ rail over the reader, so
+     without glass the click lands in the textarea and the chip never fires.
+     That is why neither of them popped. */
+  const want = (frame.hits || []).filter(
+    (h) => h.kind === 'win' || h.kind === 'pin' || h.kind === 'rail');
   while (panes.length > want.length) panes.pop().remove();
   while (panes.length < want.length) {
     const pane = document.createElement('div');
@@ -233,20 +242,26 @@ function dropdowns() {
   for (const pick of frame.picks) {
     let el = chosen.get(pick.key);
     if (!el) {
-      el = document.createElement('select');
-      el.className = 'pick';
+      el = document.createElement(pick.range ? 'input' : 'select');
+      el.className = pick.range ? 'dial' : 'pick';
+      if (pick.range) {
+        el.type = 'range';
+        el.min = pick.range.low; el.max = pick.range.high; el.step = pick.range.by;
+      }
       el.dataset.key = pick.key;
-      el.addEventListener('change', () => ask(`set ${el.dataset.key} ${el.value}`));
+      el.addEventListener(pick.range ? 'input' : 'change',
+        () => ask(`set ${el.dataset.key} ${el.value}`));
       planes.appendChild(el);
       chosen.set(pick.key, el);
     }
+    if (pick.range) { el.value = pick.on; }
     const said = pick.options.map((o) => o.value).join(' ');
-    if (el.dataset.options !== said) {
+    if (!pick.range && el.dataset.options !== said) {
       el.dataset.options = said;
       el.innerHTML = pick.options
         .map((o) => `<option value="${o.value}">${o.label}</option>`).join('');
     }
-    el.value = pick.on;
+    if (!pick.range) el.value = pick.on;
     el.style.left = `${pick.x}px`;
     el.style.top = `${pick.y}px`;
     el.style.width = `${pick.w}px`;

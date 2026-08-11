@@ -987,7 +987,7 @@ def main() -> int:
     boxed = {m[5] for m in marks(graphed, "line") if float(m[2]) == float(m[4])}
     check(
         "a graph's node is a NAME IN A BOX, and the box says what it is",
-        {"cool", "warm", "dimmer"} <= boxed,
+        {"cool", "warm"} <= boxed,
         " ".join(sorted(boxed)),
     )
     check(

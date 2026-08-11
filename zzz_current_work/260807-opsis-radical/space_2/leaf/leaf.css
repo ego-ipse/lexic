@@ -36,6 +36,9 @@ html, body { height: 100%; overflow: hidden; background: #0b0e14; }
    cannot, and the canvas's own hit test decides what happens */
 .pane { position: absolute; background: transparent; }
 
+/* #gtune input[type=range] — the browser's own control, placed by the frame */
+.dial { position: absolute; accent-color: #6fc3c9; cursor: pointer; }
+
 .pick {
   position: absolute;
   background: #0e1219;

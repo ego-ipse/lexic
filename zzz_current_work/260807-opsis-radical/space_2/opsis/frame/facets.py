@@ -561,54 +561,54 @@ def graph(said: Frame, room: Room, look: Look) -> None:
 # #gtune — what the hand can change about a layout. The dials sit out of the
 # picture's way, bottom-right, where a railroad list and a graph both have
 # their least content. What each view offers is its own business.
+# `index.html`'s own four, with their own bounds and steps: a control the
+# browser owns cannot be painted, and a drawn slider cannot be grabbed,
+# arrowed or tabbed to. `labelscale` is --glabel, and was never here at all.
+DIAL = {
+    "levelstep": ("depth", 60.0, 280.0, 10.0),
+    "ringscale": ("ring", 0.4, 2.0, 0.05),
+    "flatten": ("flat", 0.2, 1.2, 0.05),
+    "labelscale": ("label", 0.7, 1.8, 0.05),
+}
 DIALS = {
-    "depth3d": (
-        ("levelstep", 60.0, 280.0),
-        ("ringscale", 0.4, 2.0),
-        ("flatten", 0.2, 1.2),
-    ),
-    "flat": (("levelstep", 60.0, 280.0), ("ringscale", 0.4, 2.0)),
-    "arcs": (("ringscale", 0.4, 2.0),),
-    "rails": (),
-    "automaton": (),
+    "depth3d": ("levelstep", "ringscale", "flatten", "labelscale"),
+    "flat": ("levelstep", "ringscale", "labelscale"),
+    "arcs": ("ringscale", "labelscale"),
+    "rails": ("labelscale",),
+    "automaton": ("labelscale",),
 }
 
 
 def _dials(said: Frame, room: Room, look: Look) -> None:
-    """The sliders, drawn where they are least in the way, and read as state.
+    """#gtune — REAL range inputs, placed where they are least in the way.
 
-    A slider is configuration, and configuration is the server's: what the
-    hand drags is posted, and what comes back are new places. Nothing here
-    keeps a second copy of a number the layout already has.
+    A slider is a control the browser owns: it can be grabbed, arrowed and
+    tabbed to, and none of that can be painted. The frame says where each one
+    goes, what it spans and where it stands; the browser draws it.
     """
     x, y, w, h = room
-    dials = DIALS.get(look.says("graph.view", "depth3d"), ())
-    if not dials:
+    wanted = DIALS.get(look.says("graph.view", "depth3d"), ())
+    if not wanted:
         return
-    wide, step = 96.0, 18.0
-    left = x + w - wide - 78
-    top = y + h - len(dials) * step - 14
-    for i, (name, low, high) in enumerate(dials):
+    step = 18.0
+    left = x + w - 150
+    top = y + h - len(wanted) * step - 14
+    for i, name in enumerate(wanted):
+        word, low, high, by = DIAL[name]
         at = top + i * step
-        now = float(look.says(f"graph.{name}", str(TUNE[name])))
-        part = max(0.0, min(1.0, (now - low) / (high - low)))
-        said.text(left - 8, at + 4, "chip", name[:4], anchor="r", face="chip")
-        said.line(left, at, left + wide, at, "dimmer")
-        said.box(left + part * wide - 4, at - 4, 8, 8, "cool")
-        said.hit(left, at - 7, wide, 14, f"dial.{name}", f"{low}:{high}")
+        now = float(look.says(f"graph.{name}", str(TUNE.get(name, low))))
+        said.text(left - 8, at + 11, "chip", word, anchor="r", face="chip")
+        said.slider(f"graph.{name}", left, at, 110, 14, now, low, high, by)
 
 
 def camera(look: Look, room: Room) -> tuple[float, float, float]:
     """Where the hand has put this picture, and how close: pan x, pan y, zoom.
 
-    The pan is kept in FRACTIONS of the room, so the same numbers mean the
-    same view whatever size the region is — and a window torn off a facet
-    shows the same picture at a different size rather than a different one.
+    A CAMERA PER VIEW. `v.cams[mode]` saves the one you are leaving and
+    restores the one you are entering — the railroad you had scrolled and the
+    orbit you had turned are not the same camera and never were.
     """
     _x, _y, w, h = room
-    # A CAMERA PER VIEW. `v.cams[mode]` saves the one you are leaving and
-    # restores the one you are entering — the railroad you had scrolled and
-    # the orbit you had turned are not the same camera and never were.
     view = look.says("graph.view", "depth3d")
     return (
         float(look.says(f"graph.{view}.pan.x", "0")) * w,
@@ -772,7 +772,7 @@ def _arcs(said: Frame, room: Room, look: Look) -> None:
     said.place(drawn, x + px + ox, y + py + oy, fit * k, dots=frozenset(named))
 
 
-def fitted(drawn: Drawing, room: Room, pad: float = 14.0) -> tuple[float, float, float]:
+def fitted(drawn: Drawing, room: Room, pad: float = 0.0) -> tuple[float, float, float]:
     """FILL THE FACET, whatever the grammar's size — `graph.js`'s auto-fit.
 
     A layout is laid out in its own units and the room is whatever the hand
@@ -783,6 +783,21 @@ def fitted(drawn: Drawing, room: Room, pad: float = 14.0) -> tuple[float, float,
     :returns: the scale, and where to put the drawing's origin.
     """
     left, right, low, high = _bounds(drawn)
+    # FIT AGAINST THE LABELS, NOT THE DOTS. `graph.js` pads by half the
+    # WIDEST label: a node centred one pixel inside the edge still hangs its
+    # name over the side, and a crowded rim loses every name — which is the
+    # "graph crops out" everyone sees. A flat pad fits the picture larger
+    # than the room can hold its words.
+    if not pad:
+        widest = max(
+            (
+                runs("drawn", " ".join(m.split(" ")[7:]))
+                for m in drawn.marks
+                if m.startswith("box ") and len(m.split(" ")) > 7
+            ),
+            default=20.0,
+        )
+        pad = max(10.0, widest / 2 + 4)
     wide = max(40.0, right - left)
     tall = max(40.0, high - low)
     _x, _y, w, h = room
