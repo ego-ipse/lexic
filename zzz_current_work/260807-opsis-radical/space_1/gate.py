@@ -117,6 +117,16 @@ def main() -> int:
         bool(made) and all(a.witness == "holds" for a in made),
         " · ".join(a.line() for a in made),
     )
+    from retype import retype
+
+    before = reading.text
+    legal = retype(reading, 0, 0, "")
+    broke = retype(reading, 5000, 5001, chr(1))
+    check(
+        "a refused re-read restores the document and MEASURES the frontier",
+        broke.state == "refused" and broke.pos == 5000 and reading.text == before,
+        f"{legal.line()} · {broke.line()[:60]}",
+    )
     drawn = scene(reading)
     check(
         "the scene carries the reader, the document, the spans and the tree",
