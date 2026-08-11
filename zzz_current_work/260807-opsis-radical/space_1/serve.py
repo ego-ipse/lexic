@@ -91,16 +91,16 @@ def scene(reading: Reading) -> str:
     # the split it actually got, and what is merely OFFERED is judged against
     # the widest column that split leaves. Mixing them made every surface
     # read as not fitting.
-    room = max(shares(facets, 200).values())
+    given = shares(facets, 200)
+    widest = max(given.values())
+    elsewhere = offered(reading)
     wants = [
         *windowed(facets, 200),
-        *(
-            f.name
-            for f in offered(reading)
-            if f.wide * ENOUGH.get(f.kind, DEFAULT) > room
-        ),
+        *(f.name for f in elsewhere if f.wide * ENOUGH.get(f.kind, DEFAULT) > widest),
     ]
     policy = {
+        "needs": " ".join(f"{f.name}:{f.wide}x{f.tall}" for f in [*facets, *elsewhere]),
+        "offered": " ".join(f"{name}:{cols}" for name, cols in given.items()),
         "arrange.tree": arrange(facets),
         "wants.window": ",".join(wants) or "none",
         "chain": " | ".join(rung.line() for rung in chain(reading)),
