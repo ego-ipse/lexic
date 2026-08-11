@@ -161,65 +161,57 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx, view = chartMain) {
   const laneH = Math.max(2, Math.min(16, Math.floor((y1 - lanesY - 4) / Math.max(1, rows))));
   const win = (view.hit || S.chartHit).win;
   clockHit = { lanesY: lanesY + 4, laneH, pda };
-  const abandoned = 'rgba(224,96,96,0.55)';
-  const abandonedFill = 'rgba(224,96,96,0.16)';
-  for (const f of list) {
-    if (f.e <= at || f.s >= at + win) continue;
-    const row = pda ? f.d : f.row;
-    const y = clockHit.lanesY + row * laneH;
-    if (y + laneH > y1) continue;
-    const x1 = sx(Math.max(f.s, at));
-    const x2 = Math.max(sx(Math.min(f.e, at + win)), x1 + 1.5);
-    const done = f.e <= T, live = !done && f.s < T;
-    if (pda) {
-      const cmode = f.cid >= 0 && autoData && autoData.clones[f.cid] ? autoData.clones[f.cid].mode : null;
-      const base = cmode ? (AUTO_INK[cmode] || '#8fa3b8') : '#8fa3b8';
-      if (!f.ok) {
-        // an attempt sub-run pushed it, the rollback took it away — the same
-        // fate register as Earley's abandoned hypotheses
+  // THE LANES ARE A DRAWING. Which frame sits in which row, how wide, is
+  // the engine's own shape — it was being re-derived here every frame from
+  // a list the leaf had already been handed. What stays is the tint, which
+  // is the cursor's, and the marks that are not lanes at all.
+  // where the window starts on screen: sx maps an offset to a pixel, so
+  // the left edge is simply where the window's first character lands
+  const pad = sx(at);
+  const key = `clock:${pda ? 'pda' : 'earley'}:${Math.round(at)}:${win}`
+    + `:${Math.round(w)}:${S.meta.generation}`;
+  const said = drawings.get(key);
+  if (!said) {
+    loadDrawing(key, `&mode=${pda ? 'pda' : 'earley'}&from=${Math.round(at)}`
+      + `&win=${win}&box=${Math.round(w - 2 * pad)}x${Math.round(y1 - lanesY - 8)}`,
+      'clock');
+  } else {
+    cx.save();
+    cx.translate(pad, clockHit.lanesY);
+    for (const mark of said.marks) {
+      const m = mark.split(' ');
+      if (m[0] !== 'box') continue;
+      const [bx, by, bw, bh] = [+m[1], +m[2], +m[3], +m[4]];
+      const [s0, e0, index] = m[6].split(':').map(Number);
+      const kept = m[5] === 'kept';
+      const done = e0 <= T, live = !done && s0 < T;
+      if (!kept) {
         cx.strokeStyle = 'rgba(224,96,96,0.55)';
-        if (done) { cx.fillStyle = 'rgba(224,96,96,0.12)'; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
-        cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
-        continue;
-      }
-      if (done) { cx.fillStyle = withA(base, 0.20); cx.fillRect(x1, y, x2 - x1, laneH - 1); cx.strokeStyle = withA(base, 0.9); }
-      else if (live) {
+        if (done) {
+          cx.fillStyle = 'rgba(224,96,96,0.12)';
+          cx.fillRect(bx, by, bw, bh);
+        }
+      } else if (done) {
+        cx.fillStyle = pda ? withA('#8fa3b8', 0.20) : C.closed;
+        cx.fillRect(bx, by, bw, bh);
+        cx.strokeStyle = pda ? withA('#8fa3b8', 0.9) : C.cool;
+      } else if (live) {
         cx.fillStyle = C.active;
-        cx.fillRect(x1, y, sx(Math.min(T, at + win)) - x1, laneH - 1);
+        cx.fillRect(bx, by, bw, bh);
         cx.strokeStyle = C.warm;
-      } else cx.strokeStyle = withA(base, 0.35);
-    } else if (f.c) {
-      if (done) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
-      cx.strokeStyle = done ? C.cool : C.pending;
-    } else {
-      if (done) { cx.fillStyle = abandonedFill; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
-      cx.strokeStyle = abandoned;
+      } else {
+        cx.strokeStyle = pda ? withA('#8fa3b8', 0.35) : C.pending;
+      }
+      cx.strokeRect(bx + 0.5, by + 0.5, Math.max(bw - 1, 1.5), bh);
+      const holds = pda ? clockData.frames[index] : clockData.hyp[index];
+      if (clockHoverExt && holds === clockHoverExt) {
+        cx.strokeStyle = C.ink;
+        cx.strokeRect(bx - 1.5, by - 1.5, bw + 3, bh + 2);
+      }
     }
-    cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
-    // a frame wide enough to read says WHAT IT IS. Boxes alone made the two
-    // clocks look like the same picture twice, and made a machine of 126
-    // distinct clones read as one rule entered over and over.
-    const said = pda ? clockData.fnames[f.n] : clockData.hnames[f.n];
-    if (said && x2 - x1 > 34 && laneH >= 9) {
-      cx.save();
-      cx.beginPath();
-      cx.rect(x1 + 1, y, x2 - x1 - 2, laneH - 1);
-      cx.clip();
-      cx.fillStyle = f.ok === 0 || (!pda && !f.c) ? 'rgba(224,96,96,0.85)' : C.dim;
-      cx.font = `${Math.min(10, laneH - 2)}px ` + getComputedStyle(
-        document.documentElement).getPropertyValue('--mono');
-      cx.fillText(said, x1 + 3, y + laneH - 3);
-      cx.restore();
-    }
-    if (clockHoverExt === f) {
-      cx.strokeStyle = C.ink || '#e8e2d6';
-      cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 2);
-    }
-    if (markedRule() && f.name === markedRule()) {
-      cx.strokeStyle = C.violet;
-      cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 2);
-    }
+    cx.restore();
   }
+
   if (pda) {
     cx.fillStyle = C.warm;
     for (const ev of clockData.events) {
@@ -260,6 +252,9 @@ function drawChart(view = chartMain) {
   const pad = 10, bandH = 26, N = S.doc.length;
   const T = chartAt(view), zoom = chartZoomOf(view), clock = chartClockOf(view);
   const ox = (off) => pad + (off / N) * (w - 2 * pad);
+  // how many characters one pixel of the overview stands for — the clock
+  // band still needs it, and it went out with the coverage array it fed
+  const step = Math.max(1, Math.floor(N / Math.max(1, w - 2 * pad)));
   // THE BAND IS A DRAWING: how much structure sits where is a property of
   // the reading, not something to sum over twelve thousand spans per frame.
   const bandKey = `band:${Math.round(w)}:${S.meta.generation}`;

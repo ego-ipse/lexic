@@ -40,6 +40,7 @@ from opsis.paint import (  # noqa: E402
     automaton_drawing,
     band_drawing,
     clock_drawing,
+    packed,
     chart_drawing,
     graph_drawing,
     rail_drawing,
@@ -330,13 +331,14 @@ class Handler(BaseHTTPRequestHandler):
                     ]
                 else:
                     said_hyps, _names = hypotheses(machine, self.reading.text)
-                    rows = []
-                    for line in said_hyps:
-                        parts = line.split(" ")
-                        if len(parts) >= 3:
-                            rows.append(
-                                (int(parts[0]), int(parts[1]), 0, int(parts[2]))
-                            )
+                    held = [
+                        (int(p[0]), int(p[1]), int(p[2]))
+                        for p in (line.split(" ") for line in said_hyps)
+                        if len(p) >= 3
+                    ]
+                    # a hypothesis has no depth of its own, so its row is
+                    # something the picture must invent — first row it fits
+                    rows = packed(held)
                 return clock_drawing(rows, start, win, wide, tall).wire("clock")
             if what == "band":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 26

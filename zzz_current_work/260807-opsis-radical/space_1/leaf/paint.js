@@ -100,6 +100,12 @@ function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1, tint = null) {
       cx.moveTo(+p[1], +p[2]);
       cx.quadraticCurveTo(+p[3], +p[4], +p[5], +p[6]);
       cx.stroke();
+    } else if (p[0] === 'bez') {
+      cx.strokeStyle = toneOf(p[9]);
+      cx.beginPath();
+      cx.moveTo(+p[1], +p[2]);
+      cx.bezierCurveTo(+p[3], +p[4], +p[5], +p[6], +p[7], +p[8]);
+      cx.stroke();
     } else if (p[0] === 'arc') {
       cx.fillStyle = toneOf(p[4]);
       cx.beginPath();

@@ -22,7 +22,7 @@ from __future__ import annotations
 from eidolon.layout import positions
 from eidolon.topology import edges
 from lexic.ir import IrAst
-from opsis.measure import GAP, LOOP, VGAP, Box
+from opsis.measure import BRACKET, GAP, LOOP, VGAP, Box
 from praxis.reading import columns
 
 __all__ = [
@@ -30,10 +30,12 @@ __all__ = [
     "automaton_drawing",
     "band_drawing",
     "clock_drawing",
+    "packed",
     "chart_drawing",
     "graph_drawing",
     "band_drawing",
     "clock_drawing",
+    "packed",
     "chart_drawing",
     "rail_drawing",
     "rails_drawing",
@@ -89,6 +91,26 @@ class Drawing:
     ) -> None:
         self.marks.append(
             f"curve {x1:.1f} {y1:.1f} {cx:.1f} {cy:.1f} {x2:.1f} {y2:.1f} {tone}"
+        )
+        self.wide = max(self.wide, x1, x2)
+        self.tall = max(self.tall, y1, y2)
+
+    def bez(
+        self,
+        x1: float,
+        y1: float,
+        ax: float,
+        ay: float,
+        bx: float,
+        by: float,
+        x2: float,
+        y2: float,
+        tone: str,
+    ) -> None:
+        """An S-curve: the branch a railroad actually draws off its line."""
+        self.marks.append(
+            f"bez {x1:.1f} {y1:.1f} {ax:.1f} {ay:.1f} {bx:.1f} {by:.1f} "
+            f"{x2:.1f} {y2:.1f} {tone}"
         )
         self.wide = max(self.wide, x1, x2)
         self.tall = max(self.tall, y1, y2)
@@ -183,25 +205,33 @@ def _track(
                 cursor += GAP * CELL
         return
     if kind == "alt":
-        # A fork TURNS. The line leaves the spine horizontally, rounds a
-        # corner, runs down, rounds back into the arm's line — and mirrors
-        # that on the way out. Straight right angles read as a bracket and
-        # one long diagonal per arm reads as a funnel; neither is track.
-        left_bus = x + 2 * CELL
-        right_bus = x + w - 2 * CELL
+        # A branch is an S-CURVE off the line, one per arm, with its control
+        # points at the horizontal midpoint — the shape the earlier build
+        # drew and the one that reads as track. A shared vertical bus reads
+        # as a bracket; a single long diagonal reads as a funnel.
         top = y
+        arm_left = x + BRACKET / 2 * CELL
         for kid in kids:
             kid_box = room[at[0]]
             mid = top + kid_box.spine * ROW
-            arm_left = left_bus + CELL
             _track(kid, room, at, draw, arm_left, top)
             arm_right = arm_left + kid_box.wide * CELL
-            if abs(mid - (y + spine)) < 0.5:  # the arm on the line
-                draw.line(x, mid, arm_left, mid, "rail")
-                draw.line(arm_right, mid, x + w, mid, "rail")
-            else:
-                _turn(draw, x, y + spine, left_bus, mid, arm_left, out=True)
-                _turn(draw, x + w, y + spine, right_bus, mid, arm_right, out=False)
+            middle = (x + arm_left) / 2
+            draw.bez(
+                x, y + spine, middle, y + spine, middle, mid, arm_left, mid, "rail"
+            )
+            out_middle = (arm_right + x + w) / 2
+            draw.bez(
+                arm_right,
+                mid,
+                out_middle,
+                mid,
+                out_middle,
+                y + spine,
+                x + w,
+                y + spine,
+                "rail",
+            )
             top += kid_box.tall * ROW + VGAP * ROW
         return
     if kind == "many":
@@ -214,12 +244,23 @@ def _track(
         right_of_kid = inner_x + kid_box.wide * CELL
         draw.line(x, mid, inner_x, mid, "rail")
         draw.line(right_of_kid, mid, x + w, mid, "rail")
-        if low == "0":  # the bypass turns up and over
-            over = y + ROW * 0.4
-            _arch(draw, x, x + w, mid, over, "loop")
-        if high != "1":  # the repeat turns down and back
-            under = inner_y + kid_box.tall * ROW + ROW * 0.5
-            _arch(draw, x, x + w, mid, under, "loop")
+        if low == "0":  # the bypass arches over
+            draw.bez(
+                x,
+                mid,
+                x + 2,
+                mid - LOOP * ROW * 0.7,
+                x + w - 2,
+                mid - LOOP * ROW * 0.7,
+                x + w,
+                mid,
+                "loop",
+            )
+        if high != "1":  # the repeat arches back under
+            drop = kid_box.tall * ROW + ROW * 0.7
+            draw.bez(
+                x + w, mid, x + w - 2, mid + drop, x + 2, mid + drop, x, mid, "loop"
+            )
         return
 
     if kind in ("not", "alpha"):
@@ -481,3 +522,22 @@ def clock_drawing(
     draw.wide = float(wide)
     draw.tall = deep * lane_tall
     return draw
+
+
+def packed(rows: list[tuple[int, int, int]]) -> list[tuple[int, int, int, int]]:
+    """Give every extent a row where it does not overlap what is already there.
+
+    Earley holds thousands of hypotheses at once and they have no natural
+    depth, so a row is something a picture must INVENT — the leaf used to,
+    and dropping that on the way over put every one of them in row zero.
+    Rows are filled in order, first that fits.
+    """
+    ends: list[int] = []
+    out: list[tuple[int, int, int, int]] = []
+    for start, end, fate in rows:
+        lane = next((i for i, free in enumerate(ends) if free <= start), len(ends))
+        if lane == len(ends):
+            ends.append(0)
+        ends[lane] = max(end, start + 1)
+        out.append((start, end, lane, fate))
+    return out

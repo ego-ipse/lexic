@@ -24,7 +24,9 @@ PAD = 2
 GAP = 3
 VGAP = 1
 LOOP = 2
-BRACKET = 6
+# the room a fork needs on each side to BEND. Too tight and seven arms
+# bunch into a funnel; the earlier build gave it eight columns.
+BRACKET = 8
 
 
 class Box:
