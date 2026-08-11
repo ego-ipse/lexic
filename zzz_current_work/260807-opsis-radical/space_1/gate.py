@@ -442,11 +442,11 @@ def main() -> int:
                 f"{head.split()[0]}: {len(box_lines)} boxes for {len(node_lines)}"
             )
             continue
-        for said in box_lines:
-            parts = said.split(" ", 3)
-            label = parts[3] if len(parts) > 3 else ""
-            if label and float(parts[0]) < columns(label):
-                tight.append(f"{label!r} in {float(parts[0]):.0f} columns")
+        for measured in box_lines:
+            fields = measured.split(" ", 3)
+            label = fields[3] if len(fields) > 3 else ""
+            if label and float(fields[0]) < columns(label):
+                tight.append(f"{label!r} in {float(fields[0]):.0f} columns")
     check(
         "every track is measured in columns, and nothing is smaller than it says",
         not tight and pairs > 0,
