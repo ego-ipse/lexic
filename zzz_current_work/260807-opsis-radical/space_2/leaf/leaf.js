@@ -377,7 +377,7 @@ paper.addEventListener('wheel', (ev) => {
 /* Keys are REPORTED, not interpreted: whether Space is a letter or the
    transport depends on what has the hand, and that is not known here. */
 const NAMED = new Set(['Space', 'Escape', 'Home', 'End', 'ArrowLeft', 'ArrowRight',
-                       'Ctrl+Enter', 'Ctrl+s']);
+                       'Ctrl+Enter', 'Ctrl+s', 'Ctrl+p', 'p', 'g', '[', ']']);
 window.addEventListener('keydown', (ev) => {
   const typing = document.activeElement && document.activeElement.classList.contains('plane');
   const name = (ev.ctrlKey ? 'Ctrl+' : '') + (ev.key === ' ' ? 'Space' : ev.key);

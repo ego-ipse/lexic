@@ -917,6 +917,32 @@ def main() -> int:
         f"back to {reader_top(dict(torn_reader.main))}",
     )
 
+    # THE STATUS BAR PROMISES THESE. A promise the instrument does not keep
+    # is worse than one it never made.
+    keyed = Session(reading)
+    keyed.gesture("key ]")
+    keyed.gesture("key ]")
+    check(
+        "] and [ are the speed the hint says they are",
+        keyed.main.get("speed") == "4",
+        f"×{keyed.main.get('speed')}",
+    )
+    keyed.gesture("key [")
+    check("and back", keyed.main.get("speed") == "2", f"×{keyed.main.get('speed')}")
+    keyed.gesture("key g")
+    check(
+        "g takes the relations out of the arrangement, and brings them back",
+        keyed.main.get("facet.graph") == "off",
+        keyed.main.get("facet.graph", "unset"),
+    )
+    keyed.gesture("sel document 100 140")
+    keyed.gesture("key p")
+    check(
+        "p pins what is selected",
+        bool(keyed.main.get("windows")),
+        keyed.main.get("win.w0", "no window"),
+    )
+
     def doc_top(state: dict[str, str]) -> int:
         return next(
             (

@@ -589,6 +589,12 @@ opening the space_1 file that already answered it, and several had been
   reader's `scrollIntoView({block: "nearest"})` and the document's 40% are
   two different behaviours in the reference, and they are two here.
 
+- **The status bar promised keys the instrument did not have.** The hint is
+  ported verbatim from `index.html` and says *g graph · [ ] speed*, and
+  `gestures.js` also binds `p` to pinning what is selected. None of the four
+  existed. A promise the instrument does not keep is worse than one it never
+  made — the gate now counts thirteen keys where it counted eight.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.

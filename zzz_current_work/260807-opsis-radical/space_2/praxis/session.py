@@ -627,6 +627,23 @@ class Session:
         if self.state.get("hover", "") != said:
             self.state["hover"] = said
 
+    def _pinkey(self, _words: list[str]) -> None:
+        """p — pin what is selected, or failing that what is under the hand."""
+        where = self.main.get("sel", "") or self.main.get("hover", "").partition(" ")[2]
+        if ":" in where:
+            self._pin([where])
+
+    def _graphkey(self, _words: list[str]) -> None:
+        """g — the relations, in or out of the arrangement."""
+        here = self.main.get("facet.graph", "on")
+        self.main["facet.graph"] = "off" if here == "on" else "on"
+
+    def _slower(self, _words: list[str]) -> None:
+        self._speed(["-"])
+
+    def _faster(self, _words: list[str]) -> None:
+        self._speed(["+"])
+
     def _step(self, words: list[str]) -> None:
         by = float(words[0]) if words and words[0].lstrip("-").isdigit() else 1.0
         self.at = max(0.0, min(self.at + by, float(len(self.reading.text))))
@@ -744,4 +761,11 @@ KEYS: dict[str, Said] = {
     "Escape": Session._revert,
     "Home": Session._home,
     "Space": Session._play,
+    # the status bar promises these, and a promise the instrument does not
+    # keep is worse than one it never made
+    "p": Session._pinkey,
+    "Ctrl+p": Session._pinkey,
+    "g": Session._graphkey,
+    "[": Session._slower,
+    "]": Session._faster,
 }
