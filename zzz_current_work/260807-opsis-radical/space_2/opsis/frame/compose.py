@@ -29,6 +29,13 @@ from praxis.strata import strata
 
 __all__ = ["compose"]
 
+# what each clock's spine is SHOWING, said where `spineClock` says it
+CAPTION = {
+    "model": "open at the cursor",
+    "pda": "the PDA's stack at t",
+    "earley": "the chart's column at t",
+}
+
 
 def _every(reading: Reading) -> list[str]:
     """Every facet this reading HAS, present or not — what the dock lists."""
@@ -74,6 +81,12 @@ def compose(
     look = Look(reading, it, at, state, watched, typed, frontier, routes, generation)
     titles = {facet.name: facet.title for facet in it.facets}
     titles["pin"] = "PINNED · one span, held still"
+    # `spineClock` writes the caption into the head's own `<em>`, beside the
+    # title — not as a line inside the body, which pushed every row down and
+    # gave the panel a second heading it does not have
+    titles["spine"] = (
+        f"THE SPINE · {CAPTION.get(state.get('chart.clock', 'model'), '')}"
+    )
     columns = {facet.name: facet.column or facet.name for facet in it.facets}
     said.box(0, 0, wide, tall, "field")
 

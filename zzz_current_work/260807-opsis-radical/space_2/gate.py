@@ -809,7 +809,7 @@ def main() -> int:
     for clock, caption, foot in (
         ("model", "open at the cursor", "JUST CLOSED"),
         ("pda", "the PDA's stack at t", "DECISIONS"),
-        ("earley", "Earley column", "CAN COME NEXT"),
+        ("earley", "the chart's column at t", "CAN COME NEXT"),
     ):
         spoken = words(frame({"chart.clock": clock}, at=900.0))
         check(

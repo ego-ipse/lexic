@@ -1272,17 +1272,16 @@ def _rows(
     invented their own furniture made one panel read as three.
     """
     x, y, w, h = room
-    said.text(x + 14, y + 20, "fsub", caption, w - 28)
     keep = ROW * (len(foot[1][:4]) + 2) + 14 if foot else 0.0
     if h < keep + ROW * 3:
         keep = 0.0
-    body = max(ROW, h - keep - 24 - (ROW if keep else 0))
-    fits = max(1, int(min(body, h - 32) // ROW))
+    body = max(ROW, h - keep - 12 - (ROW if keep else 0))
+    fits = max(1, int(min(body, h - 20) // ROW))
     first = min(look.top("spine"), max(0, len(rows) - fits))
     # the gutter is as wide as the widest thing IN it: `@4,188` is not `d7`,
     # and a column of origins clipped to `@41…` says nothing at all
     step = max((len(row[0]) for row in rows), default=0) * CELL + (8 if rows else 0)
-    top = y + 30
+    top = y + 12
     for gutter, words, extent, tone in rows[first : first + fits]:
         if gutter:
             said.text(x + 14, top + 10, "dimmer", gutter)
