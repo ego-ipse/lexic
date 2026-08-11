@@ -505,6 +505,17 @@ opening the space_1 file that already answered it, and several had been
   door in the strata — in its own column, tagged *the instrument*, which is
   what `rooms.js` does with a lane outside the chain.
 
+- **Resizing was finnicky for two reasons, both arithmetic.** A share was
+  measured against the WHOLE WINDOW when a split divides only its own
+  subtree, so a nested seam jumped away from the hand by the ratio between
+  the two — `wire.js` carries `base` and `size` on every seam edge for
+  exactly this, and the hit carries them here. And the share list was padded
+  with `0` up to the seam being dragged, so moving the second seam set the
+  first split to zero width, changed the shape of the tree, and renumbered
+  the seams mid-drag. The placeholder is negative now: a share is a fraction,
+  so no real one can be, and "the hand has not said" is a thing the layout
+  can be told.
+
 ## Not ported yet
 
 Places · the routes strip · Earley's column and CAN COME NEXT in the spine ·

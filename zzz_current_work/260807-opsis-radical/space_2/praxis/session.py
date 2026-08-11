@@ -550,8 +550,12 @@ class Session:
             return
         at, share = int(words[0]), max(0.08, min(0.92, float(words[1])))
         shares = self.state.get("arrange.shares", "").split()
+        # -1 IS "THE HAND HAS NOT SAID". Padding with 0 made every seam before
+        # the one being dragged a zero-width split — so moving the second seam
+        # collapsed the first column, the tree came back a different shape,
+        # and the seam jumped out from under the hand.
         while len(shares) <= at:
-            shares.append("0")
+            shares.append("-1")
         shares[at] = f"{share:.3f}"
         self.state["arrange.shares"] = " ".join(shares)
 

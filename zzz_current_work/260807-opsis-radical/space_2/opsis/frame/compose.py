@@ -110,7 +110,9 @@ def compose(
         draw(said, inside, look)
         said.unclip()
     for seam in grid.seams:
-        said.hit(seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at))
+        said.hit(
+            seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at), seam.base, seam.size
+        )
     _windows(said, look, titles, columns, wide, tall)
     _status(said, reading, look, wide, tall)
     _banner(said, reading, wide, tall)

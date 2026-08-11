@@ -58,10 +58,19 @@ class Seam:
     arrangement is measured against.
     """
 
-    __slots__ = ("across", "at", "h", "sits", "w", "x", "y")
+    __slots__ = ("across", "at", "base", "h", "sits", "size", "w", "x", "y")
 
     def __init__(
-        self, at: int, x: float, y: float, w: float, h: float, across: bool, sits: float
+        self,
+        at: int,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        across: bool,
+        sits: float,
+        base: float = 0.0,
+        size: float = 1.0,
     ) -> None:
         self.at = at
         self.x = x
@@ -70,6 +79,12 @@ class Seam:
         self.h = h
         self.across = across
         self.sits = sits
+        # WHOSE BOX this share is a share OF. A split divides its own subtree,
+        # not the window: a share measured against the whole page is wrong by
+        # the ratio between the two, and a nested seam jumps away from the
+        # hand the moment it is touched.
+        self.base = base
+        self.size = size
 
 
 class Walk:
@@ -115,12 +130,12 @@ class Walk:
         at = len(self.seams)
         if kind == "h":
             cut = w * float(share)
-            self.seams.append(Seam(at, x + cut - 2, y, 4, h, True, float(share)))
+            self.seams.append(Seam(at, x + cut - 3, y, 6, h, True, float(share), x, w))
             self.put(left, x, y, cut, h)
             self.put(right, x + cut, y, w - cut, h)
         else:
             cut = h * float(share)
-            self.seams.append(Seam(at, x, y + cut - 2, w, 4, False, float(share)))
+            self.seams.append(Seam(at, x, y + cut - 3, w, 6, False, float(share), y, h))
             self.put(left, x, y, w, cut)
             self.put(right, x, y + cut, w, h - cut)
 

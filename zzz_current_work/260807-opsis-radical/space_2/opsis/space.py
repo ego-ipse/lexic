@@ -106,9 +106,16 @@ def arrange(
     seen = [0]
 
     def taken(measured: float) -> float:
+        """This split's share: what the hand said about it, or the measurement.
+
+        A hand that has moved one seam has said nothing about the others, and
+        the placeholder for that is negative — a share is a fraction, so no
+        real one can be.
+        """
         at = seen[0]
         seen[0] += 1
-        return hand[at] if at < len(hand) else measured
+        said = hand[at] if at < len(hand) else -1.0
+        return measured if said < 0 else said
 
     def split(at: int) -> str:
         if at == len(groups) - 1:

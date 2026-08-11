@@ -210,7 +210,9 @@ def _stage(reading: Reading, state: Mapping[str, str] | None = None) -> Staged:
             dragged=[
                 float(word)
                 for word in (state or {}).get("arrange.shares", "").split()
-                if word.replace(".", "", 1).isdigit()
+                # a placeholder is a share too: dropping it would shift every
+                # share after it onto the wrong split
+                if word.lstrip("-").replace(".", "", 1).isdigit()
             ],
             showing={
                 key[len("tab.") :]: int(value)

@@ -769,6 +769,37 @@ def main() -> int:
         " · ".join(f"{c}:{len(r)}" for c, r in shapes.items()),
     )
 
+    def seams(state: dict[str, str]) -> list[tuple[int, float, float, float]]:
+        """Every seam: which split, where it sits, and whose box it divides."""
+        return [
+            (int(h[5]), float(h[0]), float(h[6]), float(h[7]))
+            for h in (said.split(" ") for said in frame(state).hits)
+            if h[4] == "seam"
+        ]
+
+    was = seams({})
+    check(
+        "a seam knows WHOSE box its share is a share of",
+        len(was) > 2 and any(base > 0 for _at, _x, base, _size in was),
+        " · ".join(f"{at}:{base:.0f}+{size:.0f}" for at, _x, base, size in was),
+    )
+    # the hand puts a nested seam at 1200: (1200 - base) / size is what the
+    # leaf sends, and the cut must land back under the pointer
+    at, _x, base, size = was[1]
+    moved = seams(
+        {"arrange.shares": " ".join(["-1"] * at + [f"{(1200 - base) / size:.3f}"])}
+    )
+    check(
+        "a seam lands where the hand put it",
+        abs(moved[1][1] + 3 - 1200) < 2,
+        f"asked 1200 · got {moved[1][1] + 3:.0f}",
+    )
+    check(
+        "and moving one seam moves NOTHING else",
+        abs(moved[0][1] - was[0][1]) < 0.5,
+        f"seam 0 was {was[0][1]:.0f}, now {moved[0][1]:.0f}",
+    )
+
     print("what it costs")
     frame({})
     clock = time.perf_counter()

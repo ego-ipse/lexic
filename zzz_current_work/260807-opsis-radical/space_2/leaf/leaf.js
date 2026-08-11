@@ -322,10 +322,11 @@ window.addEventListener('pointermove', (ev) => {
     return;
   }
   if (on && on.kind === 'seam') {
+    /* a split divides ITS OWN subtree: the share is measured inside the box
+       the seam sits in, which the hit carries, not across the window */
     const box = paper.getBoundingClientRect();
-    const part = on.w < on.h
-      ? (ev.clientX - box.left) / box.width
-      : (ev.clientY - box.top) / box.height;
+    const along = on.w < on.h ? ev.clientX - box.left : ev.clientY - box.top;
+    const part = (along - on.run) / (on.cell || 1);
     ask(`seam ${on.goes} ${part.toFixed(3)}`);
     return;
   }
