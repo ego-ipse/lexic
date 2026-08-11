@@ -17,6 +17,7 @@ from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.ir.flavour import IrFlavour
 from lexic.ir.grammar.nodes import IrAst
 from lexic.model import GrammarModel
+import routes
 from relate import DOCUMENT, KINDS, READER, Relation, Role, Thing, Value
 
 __all__ = ["Reading", "Span", "fold", "metagrammar", "read_by", "turn"]
@@ -227,6 +228,8 @@ class Reading(Relation):
         spelling, self.spans = fold(model)
         self.faithful = spelling == text
         self.value = Value(f"{self.rid}.value", f"{self.label()} — the value", model)
+        # the road not taken runs behind the parse, never on its path
+        routes.start(self.rid, turned.machine, text, model)
 
     def products(self) -> Mapping[str, Thing]:
         return {} if self.value is None else {"value": self.value}

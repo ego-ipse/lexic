@@ -1032,6 +1032,13 @@ function drawEarleySpine() {
     const chip = document.createElement('span');
     chip.className = 'echip';
     chip.textContent = term;
+    // a name here is a RULE: clicking it opens that rule's own room, where
+    // it can be read as track instead of guessed at from one line
+    if (/^[A-Za-z_][A-Za-z0-9_-]*$/.test(term)) {
+      chip.classList.add('echip-rule');
+      chip.title = `open ${term} as a railroad`;
+      chip.addEventListener('click', () => railPin(term));
+    }
     closedBody.appendChild(chip);
   }
   if (!col.expect.length) closedBody.innerHTML = '<div class="none">nothing — every item is complete</div>';

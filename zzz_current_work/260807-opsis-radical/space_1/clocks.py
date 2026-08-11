@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import rails
 from lexic.compile import CompiledGrammar
 from lexic.parsing.earley.kernel.forest.readout import decode_item
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
@@ -94,10 +95,7 @@ def pda_clock(compiled: CompiledGrammar, text: str) -> str:
             f"pda_end {end}",
             f"dropped {dropped}",
             f"#PDAFRAMES {len(kernel.frames)}",
-            *(
-                f"{s} {e} {d} {at[str(n)]} {at[str(n)]} {ok}"
-                for s, e, d, n, ok in kernel.frames
-            ),
+            *(f"{s} {e} {d} {at[str(n)]} -1 {ok}" for s, e, d, n, ok in kernel.frames),
             f"#PDANAMES {len(names)}",
             *names,
             f"#EVENTS {len(kernel.events)}",
@@ -136,8 +134,9 @@ def earley_clock(
     if dropped:
         # keep the longest and the completed: a prefix cut would leave the
         # tail of the document looking like nothing was ever hypothesised
-        rows.sort(key=_worth, reverse=True)
-        rows = rows[:HYPOTHESES]
+        kept = sorted(rows, key=_worth, reverse=True)[:HYPOTHESES]
+        order = {row: at for at, row in enumerate(rows)}
+        rows = sorted(kept, key=lambda row: order[row])
     return rows, list(names), dropped
 
 
@@ -172,12 +171,12 @@ def column(compiled: CompiledGrammar, text: str, at: int) -> str:
     expect: set[str] = set()
     for packed in kernel.cols[at]:
         rule, seq, dot, origin = decode_item(tables, packed)
-        done = " ".join(str(part) for part in seq[:dot])
-        todo = " ".join(str(part) for part in seq[dot:])
+        done = " ".join(rails.said(part) for part in seq[:dot])
+        todo = " ".join(rails.said(part) for part in seq[dot:])
         role = "complete" if dot >= len(seq) else "active"
         items.append(f"{origin} {role} {rule} ::= {done} ● {todo}".rstrip())
-        if todo:
-            expect.add(str(seq[dot]))
+        if dot < len(seq):
+            expect.add(rails.said(seq[dot]))
     return "\n".join(
         [
             f"#COLUMN {at} {len(items)}",

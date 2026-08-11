@@ -25,6 +25,7 @@ import clocks  # noqa: E402
 import machine  # noqa: E402
 import places  # noqa: E402
 import rails as tracks  # noqa: E402
+import routes  # noqa: E402
 import scene as scenes  # noqa: E402
 import strata as maps  # noqa: E402
 import viewing  # noqa: E402, F401 — importing registers the kind
@@ -37,10 +38,7 @@ FILES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript"}
 
 # What this instrument does not derive yet. The leaf polls them; each says
 # what it is instead of failing, so a missing capability reads as missing.
-PENDING = {
-    "/routes": "primary the engine's own composition\nprimary_seconds 0.00\n"
-    "status pending\n",
-}
+PENDING = {}
 
 
 def open_session(grammar: Path, document: Path) -> Session:
@@ -122,6 +120,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/verdicts":
             turned = self.reader()
             return machine.verdicts(turned.machine) if turned else None
+        if path == "/routes":
+            relation = session.relations.get(session.focus)
+            if not isinstance(relation, Reading):
+                return None
+            return routes.frame(relation.rid, relation.seconds)
         if path in ("/rails", "/rail"):
             turned = self.reader()
             if turned is None:

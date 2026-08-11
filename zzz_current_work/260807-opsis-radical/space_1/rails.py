@@ -20,9 +20,9 @@ from lexic.ir import (
     IrSequence,
 )
 
-__all__ = ["rail", "rails"]
+__all__ = ["rail", "rails", "said"]
 
-ESCAPES = {"\n": "\\n", "\t": "\\t", "\r": "\\r", "\\": "\\\\"}
+ESCAPES = {"\n": "\\n", "\t": "\\t", "\r": "\\r", "\\": "\\\\", chr(34): chr(92) + chr(34)}
 
 
 def rails(ast: IrAst) -> str:
@@ -39,6 +39,43 @@ def rail(ast: IrAst, name: str) -> str:
         return f"no such rule {name}\n"
     lines = _alt(found.body, 0)
     return f"#RAIL {name} {len(lines)}\n" + "".join(f"{line}\n" for line in lines)
+
+
+def said(item: object) -> str:
+    """One item, spelled the way the grammar spells it — never as a repr.
+
+    A person reading "what can come next" is owed the grammar's own words;
+    ``IrItem(IrRuleRef('quotation-mark'))`` is the notation of the notation.
+    """
+    atom = getattr(item, "atom", item)
+    low, high = _bounds(getattr(item, "quantifier", None))
+    body = _said_atom(atom)
+    if (low, high) == (1, 1):
+        return body
+    if (low, high) == (0, 1):
+        return f"{body}?"
+    if (low, high) == (0, -1):
+        return f"{body}*"
+    if (low, high) == (1, -1):
+        return f"{body}+"
+    return f"{body}{{{low},{'' if high < 0 else high}}}"
+
+
+def _said_atom(atom: object) -> str:
+    """The atom itself: a name, a quoted literal, a bracketed class."""
+    if isinstance(atom, IrRuleRef):
+        return str(atom)
+    if isinstance(atom, IrLiteral):
+        return f'"{_spell(str(atom))}"'
+    if isinstance(atom, IrCharClass):
+        return f"[{_klass(atom)}]"
+    if isinstance(atom, IrAlternation):
+        return (
+            "( "
+            + " | ".join(" ".join(said(item) for item in arm) or "ε" for arm in atom)
+            + " )"
+        )
+    return type(atom).__name__
 
 
 def _alt(node: IrAlternation, depth: int) -> list[str]:

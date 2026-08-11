@@ -734,3 +734,7 @@ body.clock-pda .vbadge { display: inline-block; }
   color: #7d8794; border-bottom: 1px solid #1c222c; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .pinner { flex: 1 1 auto; overflow: auto; padding: 8px 10px; }
+
+/* an expected TERM that names a rule is a door, and says so */
+.echip-rule { cursor: pointer; border-color: var(--cool); color: var(--cool); }
+.echip-rule:hover { border-color: var(--warm); color: var(--warm); }
