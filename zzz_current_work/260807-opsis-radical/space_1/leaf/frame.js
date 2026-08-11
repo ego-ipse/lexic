@@ -94,34 +94,6 @@ function applyPolicy() {
   // must be BUILT before it can be drawn into the column it was given
   graphOn = facetOn['graph'] !== false;
   if (graphOn && !gNodes && S.edges) buildGraph();
-  // what the instrument measured as not fitting here: say it on the surface
-  // itself, so the reason is where the problem is
-  if (P['wants.window']) {
-    // the graph and the machine are MODES of the reader, not facets of their
-    // own, so the mark belongs on the surface that would have to host them
-    const hosts = { machine: 'grammar' };  // the graph hosts on itself
-    for (const want of P['wants.window'].split(',').filter(Boolean)) {
-      const name = hosts[want] || want;
-      const head = document.querySelector(`#${name} h2, #facet-${name} h2`);
-      // per WANT, not per head: the graph and the machine host on the same
-      // surface, so a head-wide guard silently dropped the second one and
-      // the machine's door was never drawn
-      if (head && !head.querySelector(`.wantsWindow[data-want="${want}"]`)) {
-        const mark = document.createElement('span');
-        mark.className = 'wantsWindow';
-        mark.dataset.want = want;
-        mark.textContent = ` ⧉ ${want} needs a window`;
-        mark.style.cursor = 'pointer';
-        mark.title = `${want} asked for more room than this column has —`
-          + ` click to open it where it fits\n${P['needs'] || ''}`;
-        mark.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          openAddress(opensFor(P)[want]);
-        });
-        head.appendChild(mark);
-      }
-    }
-  }
   if (P['arrange.tree']) {
     const tree = treeFromText(P['arrange.tree']);
     if (tree) layoutTree = tree;

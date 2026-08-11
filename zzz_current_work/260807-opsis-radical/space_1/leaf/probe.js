@@ -68,6 +68,42 @@ async function probeGestures() {
     } else {
       out.push('seamDrag=NO-SEAMS');
     }
+    // AN EDIT MOVES EVERYTHING. Every derived surface is a function of the
+    // text; after a re-read only the model used to come back new, so the
+    // clocks, the automaton and the graph kept answering for the old text.
+    await loadClock();
+    await fetchAutomaton();
+    await wait(900);
+    const was = {
+      gen: S.meta.generation,
+      spans: S.spans.length,
+      frames: (clockData && clockData.frames.length) || 0,
+      clones: (autoData && autoData.clones.length) || 0,
+      edges: S.edges.length,
+    };
+    const reply = await (await fetch('/edit', { method: 'POST',
+      body: `1 1\n\n  "opsis-probe": [1, 2, 3],` })).text();
+    await boot(true);
+    await wait(900);
+    await loadClock();
+    await fetchAutomaton();
+    await wait(1800);
+    const now = {
+      gen: S.meta.generation,
+      spans: S.spans.length,
+      frames: (clockData && clockData.frames.length) || 0,
+      clones: (autoData && autoData.clones.length) || 0,
+      edges: S.edges.length,
+    };
+    out.push(`edit=${reply.split('\n')[0]}`,
+      `gen ${was.gen}->${now.gen}`,
+      `spans ${was.spans}->${now.spans}`,
+      `pdaFrames ${was.frames}->${now.frames}`,
+      `clones ${was.clones}->${now.clones}`);
+    // put the document back the way it was found
+    await (await fetch('/edit', { method: 'POST', body: '1 28\n' })).text();
+    await boot(true);
+    await wait(700);
     // the relations: nothing may hang off the edge of its own facet
     const wrap = $('graphWrap');
     if (wrap) {

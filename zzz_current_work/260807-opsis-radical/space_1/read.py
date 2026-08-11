@@ -53,16 +53,36 @@ class Facet:
     belongs here, because only the surface knows how big it is.
     """
 
-    __slots__ = ("kind", "name", "tall", "wide")
+    __slots__ = ("column", "kind", "name", "relation", "tall", "title", "wide")
 
-    def __init__(self, name: str, kind: str, wide: int, tall: int) -> None:
+    def __init__(
+        self,
+        name: str,
+        kind: str,
+        wide: int,
+        tall: int,
+        title: str = "",
+        column: str = "",
+        relation: str = "beside",
+    ) -> None:
         self.name = name
         self.kind = kind
         self.wide = wide
         self.tall = tall
+        # what it is CALLED on screen, and where it lives. Both belong here:
+        # the leaf should be able to draw this instrument without knowing
+        # that a thing called "grammar" is the reader, or that the relations
+        # are a second view of it.
+        self.title = title or name
+        self.column = column or name
+        self.relation = relation
 
     def wire(self) -> str:
-        return f"#FACET {self.name} {self.kind} needs {self.wide} {self.tall}"
+        return (
+            f"#FACET {self.name} {self.kind} needs {self.wide} {self.tall} "
+            # the title runs last because it is the only field with spaces
+            f"in {self.column} {self.relation} {self.title}"
+        )
 
 
 def turn(text: str) -> tuple[CompiledGrammar, str] | None:
@@ -122,14 +142,46 @@ class Reading:
         # named as the LEAF names them: a tree whose leaves nothing recognises
         # is silently dropped, and the measured layout never reaches the screen
         return [
-            Facet("grammar", "plane", wide_rules, len(rules)),
-            Facet("document", "plane", wide_lines, len(lines)),
+            Facet(
+                "grammar",
+                "plane",
+                wide_rules,
+                len(rules),
+                title="THE READER · grammar is the ground truth",
+                column="reader",
+            ),
+            Facet(
+                "document",
+                "plane",
+                wide_lines,
+                len(lines),
+                title="THE DOCUMENT · real text — select it",
+                column="document",
+            ),
             # The chart shows a WINDOW over the text, so what it needs is the
             # window it scrubs: as many columns as the longest line it must
             # place, and one row per depth. A typed 120 was the last guess
             # left in a build that measures everything else.
-            Facet("chart", "chart", max(wide_lines, deep * 4), deep),
-            Facet("spine", "stack", 48, deep),
+            Facet(
+                "chart",
+                "chart",
+                max(wide_lines, deep * 4),
+                deep,
+                title="THE DERIVATION · text is the time axis",
+                column="derivation",
+                relation="stacked",
+            ),
+            # the spine is read AT the cursor the chart is scrubbing, so it
+            # shares that column rather than taking one of its own
+            Facet(
+                "spine",
+                "stack",
+                48,
+                max(4, deep // 2),
+                title="THE SPINE",
+                column="derivation",
+                relation="stacked",
+            ),
         ]
 
 

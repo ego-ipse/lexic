@@ -1,15 +1,22 @@
-"""The arrangement — give each surface the room it asked for, or a window.
+"""The arrangement — where every surface goes, decided here.
 
 Every arrangement before this one was a shape someone liked: reader narrow,
 document wide, the rest stacked beside. Measuring says that shape was
-backwards — the reader needs 93 columns and the document 30 — which is why
+backwards — the reader needs 70 columns and the document 25 — which is why
 the grammar was cut off mid-rule in every frame while the document had space
 to spare.
 
-So the arrangement is COMPUTED from what the surfaces need. Shares are their
-widths, normalised. A surface that cannot fit even at its share does not get
-squeezed: it is named as wanting a window, because a view crushed below its
-own size is not a smaller view, it is a wrong one.
+So the arrangement is COMPUTED, and it is computed HERE. The leaf receives a
+tree and applies it; it decides nothing about where anything lives. Three
+relations, and every surface declares which one it is in:
+
+- **beside** — its own column, sized by what it asked for;
+- **tabbed** — two views of ONE subject share a column, so each gets the
+  whole width when it is the one you are looking at. The relations graph
+  spent four rounds being crushed into a slice of the reader's column when
+  what it needed was the reader's column;
+- **stacked** — a surface and its companion split a column vertically,
+  because the spine is read AT the cursor the chart is scrubbing.
 """
 
 from __future__ import annotations
@@ -18,7 +25,7 @@ from collections.abc import Sequence
 
 from read import Facet
 
-__all__ = ["arrange", "windowed"]
+__all__ = ["FLOOR", "arrange", "columns_of", "shares"]
 
 # Below this a monospace column shows nothing but ellipsis: a name, a colon
 # and a hint of the body. Measured off the shortest useful rule line.
@@ -33,48 +40,54 @@ def shares(facets: Sequence[Facet], columns: int) -> dict[str, int]:
     }
 
 
-# What a surface can lose before it stops being itself. Below this it is not
-# a smaller view, it is a wrong one — measured against what it ASKED for, not
-# against a floor, because a floor says "64 columns is enough" to a graph
-# that needs 132.
-# How much of its ask a surface can lose and still be ITSELF — which depends
-# on what it is, not on a number that fits today's case. A text plane wraps
-# and scrolls, so half its width still reads. A graph cannot wrap: below its
-# ask the names collide and it stops being a picture of anything. That
-# difference is why four rounds of layout tuning never fixed the graph.
-ENOUGH = {"plane": 0.5, "chart": 0.5, "stack": 0.5, "graph": 0.95}
-DEFAULT = 0.6
+def columns_of(facets: Sequence[Facet]) -> list[list[Facet]]:
+    """The surfaces grouped into columns, in the order they were declared.
 
-
-def windowed(facets: Sequence[Facet], columns: int) -> list[str]:
-    """The surfaces this width cannot honour — they want a window, not a share.
-
-    Judged against the OTHERS, not against an absolute: when a narrow window
-    squeezes everything equally that is a small window, and flagging all of
-    them says nothing. A surface wants a window when it is squeezed
-    materially harder than its neighbours — which is what "this does not
-    belong here" actually means.
+    A facet's ``column`` is the subject it belongs to; two facets naming the
+    same column occupy one column together, tabbed or stacked as they say.
     """
-    given = shares(facets, columns)
-    return [
-        f.name for f in facets if given[f.name] < f.wide * ENOUGH.get(f.kind, DEFAULT)
-    ]
+    out: list[list[Facet]] = []
+    seen: dict[str, list[Facet]] = {}
+    for facet in facets:
+        key = facet.column or facet.name
+        if key not in seen:
+            seen[key] = []
+            out.append(seen[key])
+        seen[key].append(facet)
+    return out
+
+
+def _group(group: Sequence[Facet]) -> str:
+    """One column's contents — a leaf, a tab set, or a vertical split."""
+    if len(group) == 1:
+        return group[0].name
+    if group[0].relation == "stacked":
+        # the share is the first surface's height against the pair's
+        top = group[0].tall / max(1, sum(f.tall for f in group))
+        return f"(v {min(0.8, max(0.2, round(top, 3)))} {group[0].name} {_group(group[1:])})"
+    return f"(t 0 {' '.join(f.name for f in group)})"
 
 
 def arrange(facets: Sequence[Facet], columns: int = 200) -> str:
-    """The arrangement as a value: splits carrying the share each side gets.
+    """The arrangement as a value the leaf applies without deciding anything.
 
     Left to right in the order the surfaces were declared, each split's share
     being that side's columns over what remains — so the tree says the same
     thing the measurements do.
     """
-    if not facets:
+    groups = columns_of(facets)
+    if not groups:
         return ""
+    # a column asks for what its WIDEST member asks for: tab-mates take turns
+    # at the full width, so the column is not the sum of their appetites
     given = shares(facets, columns)
-    names = [facet.name for facet in facets]
-    left = given[names[0]]
-    rest = sum(given[name] for name in names[1:])
-    if len(names) == 1:
-        return names[0]
-    share = round(left / max(1, left + rest), 3)
-    return f"(h {share} {names[0]} {arrange(facets[1:], rest)})"
+    wide = [max(given[f.name] for f in group) for group in groups]
+
+    def split(at: int) -> str:
+        if at == len(groups) - 1:
+            return _group(groups[at])
+        rest = sum(wide[at + 1 :])
+        share = round(wide[at] / max(1, wide[at] + rest), 3)
+        return f"(h {share} {_group(groups[at])} {split(at + 1)})"
+
+    return split(0)

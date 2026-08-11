@@ -38,9 +38,11 @@ const policyTimers = {};
 // places elements by id. Which facets exist, and which container they live
 // in, belong to the ROOM — a value room's facets are as real as the
 // reader's, in the same tree, seams, dock and tabs.
-let FACETS = ['grammar', 'document', 'graph', 'chart', 'spine'];
-const FACET_WORD = { grammar: 'reader', document: 'document', graph: 'relations',
-                     chart: 'derivation', spine: 'spine' };
+// what surfaces exist, what they are called, and where they live all come
+// from the reading. The leaf used to declare them here, which meant the
+// instrument could not grow a surface without the leaf being edited.
+let FACETS = [];
+const FACET_WORD = {};
 let facetOn = { grammar: true, document: true, graph: true, chart: true, spine: true };
 let GRID = 'grid';
 const ROOMS = {};
@@ -189,6 +191,28 @@ function layoutFacets() {
   const vis = visibleTree(layoutTree);
   if (vis !== null) place(vis, 0, 0, W, H);
   for (const name of FACETS) $(name).style.display = placed.has(name) ? '' : 'none';
+}
+
+function applyFacetNames() {
+  // titles are written where the reading says, not carried in the markup
+  if (!S.facets || !S.facets.length) return;
+  if (roomId === 'parse') {
+    FACETS = S.facets.map((f) => f.name);
+    for (const f of S.facets) {
+      if (!(f.name in facetOn)) facetOn[f.name] = true;
+    }
+  }
+  for (const f of S.facets) {
+    FACET_WORD[f.name] = f.title.split('·')[0].replace(/^THE /, '').trim().toLowerCase();
+    const head = document.querySelector(`#${f.name} h2`);
+    if (!head) continue;
+    const [name, ...rest] = f.title.split('·');
+    const bold = head.querySelector('.ftitle');
+    const sub = head.querySelector('.fsub');
+    if (bold) bold.textContent = name.trim();
+    const said = rest.join('·').trim();
+    if (sub && said) sub.textContent = said;
+  }
 }
 
 function applyFacets(post = false) {
@@ -403,6 +427,7 @@ function parseScene(text) {
     scene.meta[line.slice(0, k)] = line.slice(k + 1);
     if (text[i] === '#') break;
   }
+  scene.facets = [];
   scene.edges = [];
   scene.depths = {};
   scene.policy = {};
@@ -430,6 +455,13 @@ function parseScene(text) {
         const p = ln.split(' ');
         scene.spans.push({ s: +p[0], e: +p[1], d: +p[2], r: +p[3], f: +p[4] });
       }
+    } else if (tag === '#FACETS') {
+      // name kind wide tall column relation, then the title as written
+      scene.facets = lines.map((ln) => {
+        const p = ln.split(' ');
+        return { name: p[0], kind: p[1], wide: +p[3], tall: +p[4],
+                 column: p[6], relation: p[7], title: p.slice(8).join(' ') };
+      });
     } else if (tag === '#EDGES') {
       scene.edges = lines.map((ln) => ln.split(' '));
     } else if (tag === '#DEPTHS') {

@@ -7,10 +7,38 @@
 
 /* ── boot ── */
 
+// which reading the caches below were built from. EVERY derived surface is
+// a function of the text; when the text moves they are all old, and only
+// the model was being rebuilt — the clocks, the automaton, the verdicts,
+// the rails and the graph all kept answering for the text before the edit.
+let builtFor = null;
+
+function dropDerived() {
+  autoData = null;
+  autoLoading = false;
+  verdictMap = null;
+  verdictLoading = false;
+  clockData = null;
+  clockWaiting = false;
+  railsAll = null;
+  railsLayout = null;
+  gNodes = null;
+  gFlat = new Map();
+  gArc = new Map();
+  colCache = new Map();
+  for (const view of document.querySelectorAll('.gview[data-armed], .irv[data-armed]')) {
+    view.removeAttribute('data-armed');
+  }
+}
+
 async function boot(keep) {
   const text = await (await fetch('/scene')).text();
   const t0 = keep ? Math.min(cur.t, 1e12) : 0;
   S = parseScene(text);
+  if (builtFor !== S.meta.generation) {
+    builtFor = S.meta.generation;
+    dropDerived();
+  }
   cur.sel = -1; cur.hover = -1; cur.docSel = null;
   $('docText').textContent = S.doc;
   buildGutter(S.lineStarts.length);
@@ -22,6 +50,7 @@ async function boot(keep) {
   sizeDocCanvases();
   gNodes = null;
   // the graph is a facet now — if it is open, it has something to draw
+  applyFacetNames();
   graphOn = facetOn['graph'] !== false;
   if (graphOn) buildGraph();
   applyPolicy();

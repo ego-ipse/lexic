@@ -73,7 +73,16 @@ def graph_facet(ast: IrAst) -> Facet:
         (sum(len(n) + 3 for n in names) for names in rows.values()),
         default=24,
     )
-    return Facet("graph", "graph", wide, max(len(rows), 1))
+    return Facet(
+        "graph",
+        "graph",
+        wide,
+        max(len(rows), 1),
+        title="THE RELATIONS · which rule refers to which",
+        # a second view of the reader, not a competitor for its width
+        column="reader",
+        relation="tabbed",
+    )
 
 
 def reachable(ast: IrAst, start: str) -> tuple[list[tuple[str, str]], dict[str, int]]:

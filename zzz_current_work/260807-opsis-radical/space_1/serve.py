@@ -25,7 +25,7 @@ from chain import chain  # noqa: E402
 from draw import graph_facet  # noqa: E402
 from lexic.compile import CompiledGrammar, compile_text  # noqa: E402
 from machine import machine_facet  # noqa: E402
-from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
+from place import arrange, shares  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
 from lexic.grammars import get_flavour  # noqa: E402
 from chain import Rung  # noqa: E402
@@ -46,10 +46,6 @@ __all__ = ["Handler", "main", "scene"]
 
 FILES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript"}
 
-# Where a surface too big for its column can be opened at full size, spelled
-# as the query the leaf already boots from — so an address is a thing the
-# instrument can actually be sent to, not a label for one.
-OPENS = {"graph": "?graph=1&gpin=1", "machine": "?place=machine"}
 HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 
 # What this build does not derive yet. Each says what it is; an empty body is
@@ -92,6 +88,19 @@ def offered(machine: CompiledGrammar | None, placed: bool = False) -> list[Facet
     return rest if placed else [graph_facet(machine.grammar), *rest]
 
 
+# Which reading this is. Every derived surface — the clocks, the automaton,
+# the verdicts, the value — is a function of the text, so the leaf must be
+# able to tell that the text moved. It was a literal 1, so after a re-read
+# only the model came back new and every other surface stayed stale.
+GENERATION = [1]
+
+
+def moved() -> None:
+    """The text (or the rung) changed: everything derived from it is old."""
+    GENERATION[0] += 1
+    _DRAWN.clear()
+
+
 def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
     """The reading, spelled — with the arrangement its surfaces asked for."""
     machine = reader_of(reading)
@@ -112,33 +121,16 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
     # the widest column that split leaves. Mixing them made every surface
     # read as not fitting.
     given = shares(facets, 200)
-    widest = max(given.values())
     elsewhere = offered(machine, placed=True)
     # WHICH RULE REFERS TO WHICH — the relationships. The leaf's wire reader
     # has always had a place for these two blocks; nothing ever filled it, so
     # every graph drew rules as unrelated dots and read as broken.
     relations = edges(machine.grammar) if machine else []
     deep = levels(machine.grammar) if machine else {}
-    wants = [
-        *windowed(facets, 200),
-        *(f.name for f in elsewhere if f.wide * ENOUGH.get(f.kind, DEFAULT) > widest),
-    ]
     policy = {
         "needs": " ".join(f"{f.name}:{f.wide}x{f.tall}" for f in [*facets, *elsewhere]),
         "offered": " ".join(f"{name}:{cols}" for name, cols in given.items()),
         "arrange.tree": arrange(facets),
-        "wants.window": ",".join(wants) or "none",
-        # where a refused surface can be opened at full size. Only the rule
-        # graph has an address today; the machine is a view inside the same
-        # window and has none yet, which is said rather than faked with the
-        # graph's address.
-        "opens": " ".join(
-            # a value with spaces cannot survive a space-separated field —
-            # the gate caught "machine:no address yet" parsing as three
-            f"{name}:{OPENS.get(name, 'none-yet')}"
-            for name in wants
-        )
-        or "none",
         "chain": " | ".join(rung.line() for rung in chain(reading)),
     }
     # what the leaf remembers about how it is looking at this reading — modes,
@@ -153,7 +145,7 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
             f"seconds {reading.seconds:.2f}",
             "resolver 0",
             f"faithful {1 if reading.faithful else 0}",
-            "generation 1",
+            f"generation {GENERATION[0]}",
             "t 0.0",
             f"#POLICY {len(policy)}",
             *(f"{k} {v}" for k, v in policy.items()),
@@ -163,6 +155,11 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
             *names,
             f"#FIELDNAMES {len(fields)}",
             *fields,
+            # what each surface is CALLED and where it lives. The leaf used
+            # to carry "THE READER" in its own markup and a facet list in its
+            # own source, so adding a surface meant editing the leaf.
+            f"#FACETS {len(facets)}",
+            *(f.wire()[len("#FACET ") :] for f in facets),
             f"#EDGES {len(relations)}",
             *(f"{a} {b}" for a, b in relations),
             f"#DEPTHS {len(deep)}",
@@ -192,7 +189,12 @@ def drawn(reading: Reading, state: dict[str, str] | None = None) -> str:
     changes, so that is when it is rebuilt.
     """
     key = hash(
-        (reading.text, reading.reader_text, tuple(sorted((state or {}).items())))
+        (
+            GENERATION[0],
+            reading.text,
+            reading.reader_text,
+            tuple(sorted((state or {}).items())),
+        )
     )
     if key not in _DRAWN:
         _DRAWN.clear()
@@ -539,7 +541,7 @@ class Handler(BaseHTTPRequestHandler):
                 return "refuse nothing reads that\n"
             Handler.climbed.append(above)
         Handler.reading = Handler.climbed[rung]
-        _DRAWN.clear()
+        moved()
         return "ok\n"
 
     def derived(self, path: str, query: str) -> str | None:
@@ -624,7 +626,7 @@ class Handler(BaseHTTPRequestHandler):
             return "\n".join(
                 [
                     "status done",
-                    "generation 1",
+                    f"generation {GENERATION[0]}",
                     "pda_end -1",
                     "dropped 0",
                     f"#PDAFRAMES {len(frames)}",
@@ -673,7 +675,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send("refuse an edit says WHERE before it says what\n")
                 return
             done = retype(self.reading, int(bounds[0]), int(bounds[1]), put)
-            _DRAWN.clear()
+            # a REFUSED edit did not change the text, so nothing derived from
+            # it is stale — saying otherwise makes every surface recompute to
+            # arrive at what it already had
+            if done.state != "refused":
+                moved()
             if done.state == "refused":
                 self.send(f"refuse {done.pos}\n{done.words}\n")
             else:
@@ -708,7 +714,6 @@ def main() -> int:
         f"{reading.document.name} ⊳ {reading.reader.name} · {len(reading.spans):,} spans"
     )
     print(f"arrangement {arrange(facets)}")
-    print(f"wants a window: {windowed(facets, 200) or 'nothing'}")
     Handler.reading = reading
     Handler.climbed = [reading]
     port = int(args[2]) if len(args) > 2 else 8917

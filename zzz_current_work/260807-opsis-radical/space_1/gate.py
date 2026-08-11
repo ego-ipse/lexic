@@ -23,15 +23,15 @@ from chain import chain  # noqa: E402
 from draw import graph_facet  # noqa: E402
 from keep import keep  # noqa: E402
 from lexic.compile import compile_text  # noqa: E402
-from machine import machine_facet, of  # noqa: E402
-from place import arrange, shares, windowed  # noqa: E402
+from machine import of  # noqa: E402
+from place import FLOOR, arrange, shares  # noqa: E402
 from read import as_written, columns, read, read_up, upward  # noqa: E402
 from retype import retype  # noqa: E402
 from ring import GRAMMAR as POLICY  # noqa: E402
 from ring import apply_record, record  # noqa: E402
 from irvalue import graph as ir_graph  # noqa: E402
 from irvalue import wire as ir_wire  # noqa: E402
-from serve import PENDING, drawn, ruledefs, strata  # noqa: E402
+from serve import PENDING, drawn, moved, ruledefs, strata  # noqa: E402
 from watch import watch  # noqa: E402
 
 ROOT = HERE.parents[2]
@@ -82,10 +82,16 @@ def main() -> int:
         not other.faithful and not other.spans and "does not derive" in other.words,
         other.words[:60],
     )
+    # a share is a proportion of what was ASKED for: a surface that asks for
+    # twice as much gets more room, and nothing falls under the floor, where
+    # a column shows nothing but a name and an ellipsis.
+    given = shares(facets, 200)
+    order = [f.name for f in sorted(facets, key=lambda f: f.wide)]
+    got = [given[name] for name in order]
     check(
-        "ordinary squeezing is tolerated; a halving is not",
-        not windowed(facets, 200) and bool(windowed(facets, 100)),
-        f"at 200: none · at 100: {', '.join(windowed(facets, 100)) or 'none'}",
+        "room is given in proportion to what was asked, and never under the floor",
+        got == sorted(got) and min(got) >= FLOOR,
+        " · ".join(f"{n}:{given[n]}" for n in order),
     )
     up = upward(reading)
     check(
@@ -150,34 +156,36 @@ def main() -> int:
         [r.level for r in rungs] == list(range(len(rungs))),
         " ".join(str(r.level) for r in rungs),
     )
+    # the relations SHARE the reader's column, as tabs. Two views of one
+    # subject do not compete for width — each takes the whole column when it
+    # is the one being looked at, which is what the graph needed all along.
     graph = graph_facet(machine.grammar)
-    room = shares([*facets, graph], 200)["graph"]
+    tree = arrange([*facets[:1], graph, *facets[1:]])
     check(
-        "the graph says what it needs, and asks for a window when it cannot fit",
-        graph.wide > room and "graph" in windowed([*facets, graph], 200),
-        f"needs {graph.wide} cols over {graph.tall} levels, offered {room}",
+        "the relations share the reader's column instead of competing for it",
+        "(t 0 grammar graph)" in tree,
+        tree,
     )
     built = of(machine)
-    room = machine_facet(machine)
     check(
-        "the machine is the whole clone set, and it asks for a window",
-        built.clones > built.rules and "machine" in windowed([*facets, room], 200),
+        "the machine is the whole clone set, not the rules it was cut from",
+        built.clones > built.rules,
         built.line(),
     )
     from read import Facet
 
-    # sized so both are offered ~70% of an identical ask: comfortable for a
-    # plane, a collision for a graph. Same width, same share, different kind.
-    same = [
-        Facet("plane-ish", "plane", 100, 10),
-        Facet("graph-ish", "graph", 100, 10),
-        Facet("filler", "plane", 85, 10),
+    # a column asks for its WIDEST member, not the sum: tab-mates take turns
+    # at the full width, so pairing two views must not halve either of them.
+    pair = [
+        Facet("a", "plane", 100, 10, column="one", relation="tabbed"),
+        Facet("b", "graph", 100, 10, column="one", relation="tabbed"),
+        Facet("c", "plane", 100, 10),
     ]
-    flagged = windowed(same, 200)
+    paired = arrange(pair)
     check(
-        "the same squeeze a plane survives is a misfit for a graph",
-        "graph-ish" in flagged and "plane-ish" not in flagged,
-        f"flagged {', '.join(flagged) or 'nothing'}",
+        "two views of one subject take turns at a column, they do not halve it",
+        "(t 0 a b)" in paired and paired.startswith("(h 0.5"),
+        paired,
     )
     frame = drawn(reading)
     check(
@@ -212,21 +220,24 @@ def main() -> int:
         head >= 0 and len(lines) == count > 0,
         f"{len(lines)} of {count} lines",
     )
+    # the arrangement names surfaces, and every one must be a surface this
+    # reading actually placed — a tree naming a facet nobody sends is a
+    # layout the leaf silently drops on the floor
+    at = next(i for i, line in enumerate(said) if line.startswith("#FACETS "))
+    placed = {
+        line.split(" ", 1)[0]
+        for line in said[at + 1 : at + 1 + int(said[at].split()[1])]
+    }
+    named = {
+        word.strip("()")
+        for word in lines.get("arrange.tree", "").split(" ")
+        if word.strip("()") and not word.strip("()")[0].isdigit()
+    } - {"h", "v", "t"}
     check(
-        "every surface named in wants.window appears in needs",
-        bool(lines)
-        and all(
-            name in lines["needs"]
-            for name in lines["wants.window"].split(",")
-            if name != "none"
-        ),
-        lines.get("wants.window", "MISSING"),
-    )
-    check(
-        "every refused surface says where it opens, or says it cannot",
-        bool(lines)
-        and all(":" in part for part in lines["opens"].split(" ") if part != "none"),
-        lines.get("opens", "MISSING"),
+        "the arrangement places every surface, and invents none",
+        bool(lines) and named == placed,
+        " ".join(sorted(named))
+        + (f" · UNPLACED {named - placed}" if named - placed else ""),
     )
 
     # the length-prefixed blocks are the wire's other contract: the leaf
@@ -327,6 +338,27 @@ def main() -> int:
         " · ".join(rungs),
     )
 
+    # an edit moves EVERYTHING derived from the text. The scene said
+    # "generation 1" as a literal, so the leaf never learned the text had
+    # moved: only the model came back new while every clock, automaton and
+    # graph kept answering for the text before the edit.
+    from serve import GENERATION
+
+    put = '\n  "gate-probe": [1, 2, 3],'
+    was = (GENERATION[0], len(reading.spans), len(watch(machine, reading.text)))
+    edited = retype(reading, 1, 1, put)
+    if edited.state != "refused":
+        moved()
+    now = (GENERATION[0], len(reading.spans), len(watch(machine, reading.text)))
+    retype(reading, 1, 1 + len(put), "")
+    moved()
+    check(
+        "an edit moves the generation AND everything derived from the text",
+        edited.state != "refused" and all(a != b for a, b in zip(was, now)),
+        f"generation {was[0]}→{now[0]} · spans {was[1]:,}→{now[1]:,} · "
+        f"pda frames {was[2]:,}→{now[2]:,}",
+    )
+
     # the relationships. The leaf's scene reader has always had a place for
     # these two blocks and the server never filled it, so every graph drew
     # rules as unrelated dots — for the life of the build, unnoticed.
@@ -382,27 +414,6 @@ def main() -> int:
         " · ".join(identity) + (f" · TORN {torn[:3]}" if torn else ""),
     )
 
-    # a surface refused its room must say WHERE it can be opened. "none-yet"
-    # is honest but useless, and the leaf used to send every ⧉ to the graph —
-    # answering one surface's question with another surface's answer.
-    policy = dict(
-        line.split(" ", 1)
-        for line in frame.split("#POLICY", 1)[1].split("\n")[1:]
-        if " " in line and not line.startswith("#")
-    )
-    refused = [w for w in policy.get("wants.window", "none").split(",") if w != "none"]
-    addressed = dict(
-        pair.split(":", 1) for pair in policy.get("opens", "").split(" ") if ":" in pair
-    )
-    unplaced = [w for w in refused if addressed.get(w, "none-yet") == "none-yet"]
-    leaf_js = "".join(path.read_text() for path in sorted((HERE / "leaf").glob("*.js")))
-    check(
-        "a surface that wants a window names an address, and the leaf goes there",
-        not unplaced and "openAddress(opensFor(P)[want])" in leaf_js,
-        f"{len(refused)} refused · "
-        + " ".join(f"{w}→{addressed.get(w, 'none-yet')}" for w in refused),
-    )
-
     # the routes the leaf calls. A capability can be fully built and still be
     # invisible if nothing answers the address the leaf asks for — which is
     # how rails, verdicts, the automaton and the rooms all sat unreachable.
@@ -443,11 +454,10 @@ def main() -> int:
         f"{len(named)} parts · {sum((leaf / n).stat().st_size for n in named if (leaf / n).is_file()) // 1024}KB"
         + (f" · MISSING {', '.join(absent)}" if absent else ""),
     )
-    wanted = {"grammar", "document", "chart", "spine"}
     check(
         "the leaf hosts every surface this reading places",
-        all(f'id="{name}"' in page for name in wanted),
-        " ".join(sorted(wanted)),
+        all(f'id="{name}"' in page for name in placed),
+        " ".join(sorted(placed)),
     )
     print(f"{len(facets)} surfaces · {len(failed)} failures")
     return 1 if failed else 0
