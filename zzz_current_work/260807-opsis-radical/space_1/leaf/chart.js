@@ -189,6 +189,21 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
       cx.strokeStyle = abandoned;
     }
     cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
+    // a frame wide enough to read says WHAT IT IS. Boxes alone made the two
+    // clocks look like the same picture twice, and made a machine of 126
+    // distinct clones read as one rule entered over and over.
+    const said = pda ? clockData.fnames[f.n] : clockData.hnames[f.n];
+    if (said && x2 - x1 > 34 && laneH >= 9) {
+      cx.save();
+      cx.beginPath();
+      cx.rect(x1 + 1, y, x2 - x1 - 2, laneH - 1);
+      cx.clip();
+      cx.fillStyle = f.ok === 0 || (!pda && !f.c) ? 'rgba(224,96,96,0.85)' : C.dim;
+      cx.font = `${Math.min(10, laneH - 2)}px ` + getComputedStyle(
+        document.documentElement).getPropertyValue('--mono');
+      cx.fillText(said, x1 + 3, y + laneH - 3);
+      cx.restore();
+    }
     if (clockHoverExt === f) {
       cx.strokeStyle = C.ink || '#e8e2d6';
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 2);

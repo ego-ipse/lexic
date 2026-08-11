@@ -37,12 +37,37 @@ __all__ = ["Clock", "column", "hypotheses", "parity", "watch"]
 CEILING = 20000
 
 
+def spell(clones: dict[int, FlatClone]) -> dict[int, str]:
+    """Name every clone that ran — numbered only where its rule has kin.
+
+    126 clones from 39 rules is the machine's whole shape: the same rule
+    compiled for two hard continuations IS two different machines, and
+    naming a frame after its rule collapsed those five into one word
+    repeated five times — which reads as duplication and hides the only
+    detail that would explain it.
+
+    The census is only known once the run is over, so the naming happens
+    there: numbering as you go gave one clone two different names.
+    """
+    kin: dict[str, list[int]] = {}
+    for key, clone in clones.items():
+        kin.setdefault(clone.name, []).append(key)
+    said: dict[int, str] = {}
+    for name, keys in kin.items():
+        for at, key in enumerate(keys):
+            if not name:
+                said[key] = f"«group»#{at}"
+            else:
+                said[key] = name if len(keys) == 1 else f"{name}#{at}"
+    return said
+
+
 class Clock(PdaKernel[Any]):
     """The predictive kernel, reporting. It decides nothing differently."""
 
     # the kernel is slotted and carries no __dict__ — a watcher that wants
     # state declares it, and pays the discipline the hot path pays
-    __slots__ = ("frames", "open", "seats")
+    __slots__ = ("clones", "frames", "open", "seats")
 
     def __init__(
         self, tables: PdaTables, text: str, fold: ModelFold[Any] | None = None
@@ -51,6 +76,9 @@ class Clock(PdaKernel[Any]):
         self.frames: list[list[Any]] = []
         self.open: dict[int, list[Any]] = {}
         self.seats: dict[int, int] = {}
+        # every clone this run entered, by identity — named once the run is
+        # over, when how many kin its rule has is finally known
+        self.clones: dict[int, FlatClone] = {}
 
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """A frame opens where the cursor stands, at the depth of the stack."""
@@ -58,7 +86,8 @@ class Clock(PdaKernel[Any]):
         entered = super()._enter(clone, out)
         if entered and len(self.stack) > depth and len(self.frames) < CEILING:
             seat = self.seats.setdefault(id(clone), len(self.seats))
-            record = [self.pos, -1, depth, clone.name or "·", 1, seat]
+            self.clones.setdefault(id(clone), clone)
+            record = [self.pos, -1, depth, id(clone), 1, seat]
             self.frames.append(record)
             self.open[id(self.stack[-1])] = record
         return entered
@@ -86,6 +115,9 @@ def watch(compiled: CompiledGrammar, text: str) -> list[list[Any]]:
     except PdaFail:
         pass
     kernel.close()
+    said = spell(kernel.clones)
+    for record in kernel.frames:
+        record[3] = said.get(record[3], "·")
     return kernel.frames
 
 
