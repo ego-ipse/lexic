@@ -386,13 +386,17 @@ function wireTune() {
   for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {
     $('gt-' + k).addEventListener('input', (e) => {
       gTune[k] = parseFloat(e.target.value);
+      // a slider changes the LAYOUT, and the layout is derived: the leaf
+      // reports what was dragged and asks for the places again. Only the
+      // label scale is the leaf's, because it is type size, not a position.
       if (k === 'labelscale') {
         document.documentElement.style.setProperty('--glabel', gTune.labelscale);
-      } else if (gNodes) {
-        buildGraph();
+        drawGraph();
+      } else {
+        postPolicy('graph.' + k, gTune[k]);
+        loadPlaces(gView, true);
       }
       postPolicyDebounced('graph.' + k, gTune[k]);
-      drawGraph();
     });
   }
 }

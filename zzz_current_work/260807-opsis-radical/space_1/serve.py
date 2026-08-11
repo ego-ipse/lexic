@@ -233,7 +233,15 @@ class Handler(BaseHTTPRequestHandler):
             box = parse_qs(query).get("box", ["900x600"])[0].split("x")
             wide = int(box[0]) if box[0].isdigit() else 900
             tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 600
-            placed = positions(shown, asked_view, wide, tall)
+            # the sliders are configuration, and configuration is state:
+            # the hand posts what it dragged and receives new places
+            dial = {
+                key[len("graph.") :]: float(value)
+                for key, value in Handler.state.items()
+                if key.startswith("graph.")
+                and value.replace(".", "", 1).replace("-", "", 1).isdigit()
+            }
+            placed = positions(shown, asked_view, wide, tall, dial)
             # spelled the way this form spells it, like every other name the
             # leaf receives — a position keyed on a name nothing else uses
             # lights nothing and moves nothing

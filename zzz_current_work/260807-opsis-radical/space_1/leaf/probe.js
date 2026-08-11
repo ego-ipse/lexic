@@ -128,6 +128,21 @@ async function probeGestures() {
       .find((el) => el.textContent === 'relations');
     click(relFirst);
     await wait(700);
+    // a slider is configuration: dragging it must change what the READING
+    // sends back, not something the leaf keeps to itself
+    const dial = $('gt-ringscale');
+    const wasPlaces = gNodes ? [...gNodes.values()][1] : null;
+    if (dial && wasPlaces) {
+      dial.value = String(Math.min(2, (parseFloat(dial.value) || 1) + 0.5));
+      dial.dispatchEvent(new Event('input', { bubbles: true }));
+      await wait(1200);
+      const nowPlaces = [...gNodes.values()][1];
+      out.push(`tuneMoved=${Math.abs(nowPlaces.x - wasPlaces.x) > 1
+        || Math.abs(nowPlaces.y - wasPlaces.y) > 1}`);
+      dial.value = '1';
+      dial.dispatchEvent(new Event('input', { bubbles: true }));
+      await wait(1000);
+    }
     // ROTATING MUST NOT RESIZE. The scale is the layout's and the room's;
     // the camera's angle is not allowed a vote.
     gView = 'depth3d';
