@@ -54,6 +54,17 @@ CLOCKS = (("model", "model"), ("pda", "pda clock"), ("earley", "earley clock"))
 
 PITCH = 5.0
 
+# AUTO_INK — what a clone IS, in colour. A frame is tinted by the KIND of
+# clone that pushed it, which is how a machine of 126 distinct clones reads as
+# 126 distinct things rather than one rule entered over and over.
+AUTO_INK = {
+    "dispatch": "cool",
+    "alt": "warm",
+    "seq": "token",
+    "value_str": "violet",
+    "group": "dim",
+}
+
 
 class Look:
     """One reading at one moment, and how the hand is looking at it.
@@ -283,6 +294,11 @@ BADGE = {
 def _badges(look: Look) -> dict[str, str]:
     """Each rule's class, from the analysis' own transcript.
 
+    EVERY rule the analysis classified, `predictive` included. Showing only
+    the ones that gave the machine trouble made a grammar of 39 rules look
+    like a grammar of one, and hid the very thing the badges are for: that
+    the other 38 are settled without a single decision at runtime.
+
     Only drawn on the PDA clock, and only where there is something to say:
     SILENCE IS THE DETERMINISTIC VERDICT, so a predictive rule wears nothing.
     """
@@ -293,11 +309,16 @@ def _badges(look: Look) -> dict[str, str]:
         _VERDICTS.clear()
         said = verdicts(look.it.machine).split("\n")
         out: dict[str, str] = {}
-        for line in said[1:]:
-            words = line.split(" ")
-            if len(words) >= 3 and words[0] in BADGE and words[1].isdigit():
-                if words[0] != "predictive":
-                    out[" ".join(words[2:])] = words[0]
+        # `class notes name`, then exactly that many note lines — walked by
+        # the count, because a note is free text and may say anything
+        i = 1
+        while i < len(said):
+            words = said[i].split(" ")
+            i += 1
+            if len(words) < 3 or words[0] not in BADGE or not words[1].isdigit():
+                continue
+            out[" ".join(words[2:])] = words[0]
+            i += int(words[1])
         _VERDICTS[key] = out
     return _VERDICTS[key]
 
@@ -670,6 +691,9 @@ def chart(said: Frame, room: Room, look: Look) -> None:
     deep = int(max(20, h - 44))
     drawn = _kept(f"clock:{stamp}:{which}:{deep}", lambda: _clock(look, deep))
     picked = _picked(look, stamp)
+    if which == "pda":
+        pda_lanes(said, room, look)
+        return
     lanes_of(
         said,
         room,
@@ -715,6 +739,81 @@ def _spans(
         _SPANS.clear()
         _SPANS[key] = _boxes(drawn)
     return _SPANS[key]
+
+
+_MODES: dict[str, list[str]] = {}
+
+
+def modes(look: Look) -> list[str]:
+    """Each clone's mode, by seat — static per machine, read once."""
+    if look.it.machine is None:
+        return []
+    key = f"{look.reading.reader_name}:{len(look.reading.reader_text)}"
+    if key not in _MODES:
+        said = automaton(look.it.machine.pda_tables()).split("\n")
+        count = (
+            int(said[0].split(" ")[1]) if said and said[0].startswith("#ACLONES") else 0
+        )
+        _MODES.clear()
+        _MODES[key] = [row.split(" ")[1] for row in said[1 : 1 + count]]
+    return _MODES[key]
+
+
+def pda_lanes(said: Frame, room: Room, look: Look) -> None:
+    """The PDA's own clock: every frame the kernel pushed, at ITS depth.
+
+    Not the model's lanes with different numbers in them. A frame's row is
+    its STACK DEPTH, its colour is the kind of clone that pushed it, a frame
+    the attempt machinery rolled back is red — abandoned, the same fate
+    register as Earley's dead hypotheses — and a frame wide enough to read
+    SAYS WHAT IT IS. Boxes alone made the two clocks look like the same
+    picture twice.
+    """
+    x, y, w, h = room
+    lanes, floor = y + 36, y + h - 4
+    text = look.reading.text
+    pitch = PITCH * look.zoom("chart")
+    window = max(8, int((w - 12) / pitch))
+    start = max(0, min(int(look.at) - int(window * 0.6), max(0, len(text) - window)))
+    seated = modes(look)
+    deep = max((int(f[2]) for f in look.watched), default=0) + 1
+    lane = max(2.0, min(16.0, (floor - lanes - 4) / max(1, deep)))
+    for s0, e0, depth, name, ok, seat in look.watched:
+        if e0 <= start or s0 >= start + window:
+            continue
+        top = lanes + int(depth) * lane
+        if top + lane > floor:
+            continue
+        x1 = x + 6 + (max(int(s0), start) - start) * pitch
+        x2 = max(x + 6 + (min(int(e0), start + window) - start) * pitch, x1 + 1.5)
+        mode = seated[int(seat)] if 0 <= int(seat) < len(seated) else "seq"
+        base = AUTO_INK.get(mode, "token")
+        done, live = e0 <= look.at, e0 > look.at and s0 < look.at
+        if not ok:
+            # pushed by an attempt, taken away by the rollback
+            if done:
+                said.box(x1, top, x2 - x1, lane - 1, "lost")
+            said.ring(x1, top, x2 - x1, lane - 1, "red")
+        else:
+            if done:
+                said.box(x1, top, x2 - x1, lane - 1, f"{base}20")
+            elif live:
+                here = x + 6 + (min(look.at, start + window) - start) * pitch
+                said.box(x1, top, max(1.5, here - x1), lane - 1, "active")
+            said.ring(x1, top, x2 - x1, lane - 1, "warm" if live else base)
+        # what it IS, when there is room to say it
+        if x2 - x1 > 34 and lane >= 9:
+            said.text(
+                x1 + 3,
+                top + lane - 3,
+                "red" if not ok else "dim",
+                str(name),
+                x2 - x1 - 6,
+                face="chip",
+            )
+        said.hit(x1, top, max(3.0, x2 - x1), lane, "frame", f"{s0}:{e0}:{depth}:{name}")
+    cursor = x + 6 + (min(max(look.at, start), start + window) - start) * pitch
+    said.line(cursor, y + 32, cursor, y + h, "cursor")
 
 
 def _clock(look: Look, tall: int) -> Drawing:

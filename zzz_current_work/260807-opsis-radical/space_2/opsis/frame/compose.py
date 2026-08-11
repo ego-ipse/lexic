@@ -244,38 +244,107 @@ def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
     said.hit(at, 8, wide, 18, "ring", "on")
 
 
+HINT = (
+    "select text → a pin chip appears · g graph · [ ] speed · type in the "
+    "document — Ctrl+Enter re-reads · Ctrl+S saves, and saving compiles · Esc "
+    "reverts · select text to co-select · click a line number to set the "
+    "cursor · Space plays · the chart scrubs"
+)
+
+
+def _readout(reading: Reading, look: Look) -> str:
+    """#readout — what the hand is on, in the words of the thing it is on.
+
+    THE HAND WINS. A selection persists; a hover is where the pointer is right
+    now, and reading out the selection while the pointer is elsewhere is the
+    instrument describing a different thing than the one it is highlighting.
+    """
+    kind, _, goes = look.says("hover", "").partition(" ")
+    words = ""
+    if kind == "span" and ":" in goes:
+        words = "under the hand · " + _span_words(reading, goes)
+    elif look.says("sel", ""):
+        words = "selected · " + _span_words(reading, look.says("sel", ""))
+    elif look.chosen:
+        words = f"rule {look.chosen} — its spans outlined violet"
+    if kind == "frame":
+        s0, e0, depth, name = goes.split(":", 3)
+        clock = look.says("chart.clock", "model")
+        said = (
+            f"frame {name} · {int(s0):,}..{int(e0):,} · stack depth {depth}"
+            if clock == "pda"
+            else f"hypothesis {name} · {int(s0):,}..{int(e0):,}"
+        )
+        words = said + (f" · {words}" if words else "")
+    return words
+
+
+def _span_words(reading: Reading, goes: str) -> str:
+    """One span, said: its rule, its field, its extent, its depth.
+
+    A span that covers nothing is not a defect and not a gap — the rule
+    derived ε, so the model holds an object the text does not show. Saying so
+    is the difference between structure and noise.
+    """
+    s0, _, e0 = goes.partition(":")
+    start, end = int(s0), int(e0 or s0)
+    for span in reading.spans:
+        if span.start == start and span.end == end:
+            extent = (
+                f"{start:,}..{end:,}"
+                if end > start
+                else f"at {start:,} — matched NO text (the rule derives ε)"
+            )
+            field = f" · field {span.field}" if span.field else ""
+            return f"{span.rule}{field} · {extent} · d{span.depth}"
+    return f"{start:,}..{end:,}"
+
+
 def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> None:
-    """#status — where the cursor is, the transport, and what the hand can do."""
+    """#status — where the cursor is, the transport, and what the hand is on."""
     y = tall - BAR
     said.line(0, y, wide, y, "hair")
-    where = f"char {int(look.at):,} / {len(reading.text):,}"
+    playing = look.says("playing", "0") == "1"
+    at = int(min(look.at, len(reading.text)))
+    state = (
+        "playing" if playing else ("complete" if at >= len(reading.text) else "paused")
+    )
+    speed = look.says("speed", "1")
+    where = (
+        f"char {at:,} / {len(reading.text):,}"
+        f" · line {reading.text.count(chr(10), 0, at) + 1:,}"
+        f" / {reading.text.count(chr(10)) + 1:,} · {state}"
+        + (f" · speed {speed}" if speed != "1" else "")
+        + f" · gen {look.generation}"
+    )
     said.text(PAD, y + 22, "verdict", where, face="verdict")
-    at = PAD + 32 * 6.6
+    at_x = PAD + max(32 * 6.6, runs("verdict", where) + 18)
     # #transport — − ‹ ▶ › + ×n
     for glyph, gesture in (
         ("−", "speed~-"),
         ("‹", "step~-1"),
-        ("▶", "play"),
+        ("⏸" if playing else "▶", "play"),
         ("›", "step~1"),
         ("+", "speed~+"),
     ):
-        said.box(at, y + 8, 20, 16, "field")
+        said.box(at_x, y + 8, 20, 16, "field")
         for x1, y1, x2, y2 in (
-            (at, y + 8, at + 20, y + 8),
-            (at, y + 24, at + 20, y + 24),
-            (at, y + 8, at, y + 24),
-            (at + 20, y + 8, at + 20, y + 24),
+            (at_x, y + 8, at_x + 20, y + 8),
+            (at_x, y + 24, at_x + 20, y + 24),
+            (at_x, y + 8, at_x, y + 24),
+            (at_x + 20, y + 8, at_x + 20, y + 24),
         ):
             said.line(x1, y1, x2, y2, "hair")
-        said.text(at + 6, y + 20, "chip", glyph)
-        said.hit(at, y + 8, 20, 16, "do", gesture)
-        at += 22
-    said.text(at + 6, y + 20, "dimmer", f"×{look.says('speed', '1')}", 40, face="chip")
-    at += 52
-    hint = (
-        "select text to co-select · click a rule to choose it · "
-        "click a line number to set the cursor · type in the document — "
-        "Ctrl+Enter re-reads · Ctrl+S saves, and saving compiles · Esc reverts · "
-        "Space plays · the chart scrubs"
-    )
-    said.text(at, y + 22, "fsub", hint, wide - at - PAD)
+        said.text(at_x + 6, y + 20, "chip", glyph)
+        said.hit(at_x, y + 8, 20, 16, "do", gesture)
+        at_x += 22
+    said.text(at_x + 6, y + 20, "dimmer", f"×{speed}", 40, face="chip")
+    at_x += 52
+    # the readout takes the right edge — margin-left: auto — and the hint
+    # fills only what is left over, because what the hand is ON matters more
+    # than a standing list of what it COULD do
+    words = _readout(reading, look)
+    room = runs("verdict", words) if words else 0.0
+    if words:
+        said.text(wide - PAD, y + 22, "warm", words, face="verdict", anchor="r")
+    said.text(at_x, y + 22, "fsub", HINT, max(0.0, wide - at_x - PAD - room - 24))

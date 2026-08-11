@@ -75,6 +75,12 @@ TONES = {
     "lit": "rgba(111,195,201,0.07)",
     "hotline": "rgba(226,166,92,0.12)",
     "liveline": "rgba(226,166,92,0.10)",
+    # a clone's mode at the weight a finished frame is filled with
+    "cool20": "rgba(111,195,201,0.20)",
+    "warm20": "rgba(226,166,92,0.20)",
+    "token20": "rgba(143,163,184,0.20)",
+    "violet20": "rgba(217,140,245,0.20)",
+    "dim20": "rgba(102,112,127,0.20)",
     # the model band's depths
     "modelband0": "#0e151d",
     "modelband1": "#152230",
