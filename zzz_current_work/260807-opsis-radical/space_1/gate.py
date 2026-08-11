@@ -18,9 +18,17 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+from chain import chain  # noqa: E402
+from draw import graph_facet  # noqa: E402
+from keep import keep  # noqa: E402
+from lexic.compile import compile_text  # noqa: E402
 from place import arrange, shares, windowed  # noqa: E402
 from read import as_written, read, upward  # noqa: E402
-from serve import scene  # noqa: E402
+from retype import retype  # noqa: E402
+from ring import GRAMMAR as POLICY  # noqa: E402
+from ring import apply_record, record  # noqa: E402
+from serve import ruledefs, scene  # noqa: E402
+from watch import watch  # noqa: E402
 
 ROOT = HERE.parents[2]
 GRAMMAR = ROOT / "resources/ground_truth/json.gbnf"
@@ -81,8 +89,6 @@ def main() -> int:
         up is not None and up[1].endswith("metagrammar"),
         " ⊳ ".join(up) if up else "nothing reads it",
     )
-    from serve import ruledefs
-
     rules = ruledefs(reading.reader_text)
     lit = {as_written(rules, s.rule) for s in reading.spans}
     named = {n for n, _, _ in rules}
@@ -93,9 +99,6 @@ def main() -> int:
         if lit <= named
         else f"dark: {sorted(lit - named)}",
     )
-    from lexic.compile import compile_text
-    from watch import watch
-
     machine = compile_text(reading.reader_text, flavour="gbnf")
     frames = watch(machine, reading.text)
     seats = {row[5] for row in frames}
@@ -109,16 +112,12 @@ def main() -> int:
         all(row[1] >= row[0] for row in frames),
         f"{sum(1 for row in frames if not row[4])} abandoned",
     )
-    from keep import keep
-
     made = keep(machine)
     check(
         "an artefact counts only once it has been LOADED BACK",
         bool(made) and all(a.witness == "holds" for a in made),
         " · ".join(a.line() for a in made),
     )
-    from retype import retype
-
     before = reading.text
     legal = retype(reading, 0, 0, "")
     broke = retype(reading, 5000, 5001, chr(1))
@@ -127,9 +126,6 @@ def main() -> int:
         broke.state == "refused" and broke.pos == 5000 and reading.text == before,
         f"{legal.line()} · {broke.line()[:60]}",
     )
-    from ring import GRAMMAR as POLICY
-    from ring import apply_record, record
-
     kept = {"arrange.tree": arrange(facets), "chart.clock": "model"}
     said = Path("/tmp/opsis_record.txt")
     said.write_text(record(kept))
@@ -139,8 +135,6 @@ def main() -> int:
         mirror.faithful and apply_record(mirror.text) == kept,
         f"{len(mirror.spans)} spans over its own record",
     )
-    from chain import chain
-
     rungs = chain(reading)
     check(
         "the chain names the rung above without parsing it",
@@ -151,6 +145,13 @@ def main() -> int:
         "a stratum is a DEPTH, not a position in a row",
         [r.level for r in rungs] == list(range(len(rungs))),
         " ".join(str(r.level) for r in rungs),
+    )
+    graph = graph_facet(machine.grammar)
+    room = shares([*facets, graph], 200)["graph"]
+    check(
+        "the graph says what it needs, and asks for a window when it cannot fit",
+        graph.wide > room and "graph" in windowed([*facets, graph], 200),
+        f"needs {graph.wide} cols over {graph.tall} levels, offered {room}",
     )
     drawn = scene(reading)
     check(

@@ -33,14 +33,21 @@ def shares(facets: Sequence[Facet], columns: int) -> dict[str, int]:
     }
 
 
+# What a surface can lose before it stops being itself. Below this it is not
+# a smaller view, it is a wrong one — measured against what it ASKED for, not
+# against a floor, because a floor says "64 columns is enough" to a graph
+# that needs 132.
+ENOUGH = 0.7
+
+
 def windowed(facets: Sequence[Facet], columns: int) -> list[str]:
     """The surfaces this width cannot honour — they want a window, not a share.
 
-    Stated rather than silently crushed: the instrument should say "this does
-    not fit here" the way it says every other refusal.
+    Stated rather than silently crushed: the instrument says "this does not
+    fit here" the way it says every other refusal.
     """
     given = shares(facets, columns)
-    return [f.name for f in facets if given[f.name] < min(f.wide, FLOOR * 2)]
+    return [f.name for f in facets if given[f.name] < f.wide * ENOUGH]
 
 
 def arrange(facets: Sequence[Facet], columns: int = 200) -> str:
