@@ -730,6 +730,22 @@ still the FIRST MARK in the drawing after the scroll, and I read its name
 instead of its position. It is drawn at y = -1124 afterwards, which is the
 list having moved 1,237px. Read the number, not the order.
 
+## What is IDENTICAL, so nobody chases it again
+
+Checked with `diff`, not by eye:
+
+- `praxis/reading.py` — byte-identical
+- `eidolon/layout.py` — byte-identical
+- `opsis/paint.py` — differs only by the `keep` argument this port added, so
+  `graph_drawing`, `rails_drawing`, `chart_drawing` and `automaton_drawing`
+  all produce the same marks from the same reading
+- `opsis/space.py` — differs only by this port's own additions
+
+So every remaining visual difference in a graph, a railroad or the derivation
+is in how the FRAME PLACES what those files drew — the fit, the pan, the
+dots, the tones — and not in what was drawn. Diff first. Two of this
+afternoon's wrong diagnoses would have died in one command.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.
