@@ -212,7 +212,7 @@ paper.addEventListener('click', (ev) => {
     ? ` ${Math.max(0, Math.round((ev.clientX - box.left - target.run) / target.cell))}`
     : '';
   if (target.kind === 'seam') return;
-  if (['form', 'graph.view', 'chart.clock'].includes(target.kind)) {
+  if (target.kind.includes('.')) {
     ask(`set ${target.kind} ${target.goes}`);
     return;
   }

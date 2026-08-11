@@ -17,10 +17,19 @@ from opsis.frame.facets import DRAWN, HEADS, Look
 from opsis.frame.marks import Frame
 from opsis.frame.panels import head, walked
 from opsis.frame.tones import runs
-from opsis.scene import staged
+from opsis.scene import Staged, staged
 from praxis.reading import Reading
 
 __all__ = ["compose"]
+
+
+def _every(reading: Reading) -> list[str]:
+    """Every facet this reading HAS, present or not — what the dock lists."""
+    return [facet.name for facet in reading.facets()[:1]] + [
+        "graph",
+        *(facet.name for facet in reading.facets()[1:]),
+    ]
+
 
 # #mast / #status: padding 10px 18px over a 12px line
 BAR = 34.0
@@ -55,7 +64,7 @@ def compose(
         DRAWN[only](said, head(said, region, titles, HEADS(look, only), columns), look)
         return said
 
-    _masthead(said, reading, it, wide, generation)
+    _masthead(said, reading, it, wide, generation, _every(reading))
     grid = walked(str(it.policy["arrange.tree"]), 0, BAR, wide, tall - BAR * 2)
     for region in grid.regions:
         draw = DRAWN.get(region.name)
@@ -70,24 +79,81 @@ def compose(
 
 
 def _masthead(
-    said: Frame, reading: Reading, it: object, wide: int, generation: int
+    said: Frame,
+    reading: Reading,
+    it: Staged,
+    wide: int,
+    generation: int,
+    shown: list[str],
 ) -> None:
-    """#mast — the name, what is loaded, the ladder, and the parity verdict."""
+    """#mast — the name, what is loaded, the ladder, the dock, the verdict."""
     said.line(0, BAR, wide, BAR, "hair")
     said.text(PAD, 22, "title", "FACETS")
     at = PAD + runs("title", "FACETS") + 18
-    said.text(
-        at,
-        22,
-        "fsub",
+    sub = (
         f"{reading.document.name} ⊳ {reading.reader_name} · "
-        f"{len(reading.text):,} chars in {reading.seconds:.2f}s · gen {generation}",
-        wide - at - 320,
+        f"{len(reading.text):,} chars in {reading.seconds:.2f}s · gen {generation}"
     )
+    said.text(at, 22, "fsub", sub, 30 * 6.4)
+    at += min(runs("fsub", sub), 30 * 6.4) + 16
+    at = _ladder(said, it, at)
+    _dock(said, it, shown, at)
     holds = (
         "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
     )
     said.text(wide - PAD, 22, "green" if reading.faithful else "red", holds, anchor="r")
+
+
+def _ladder(said: Frame, it: Staged, at: float) -> float:
+    """#ladder — the lineage strip: every reader is also a text.
+
+    Each rung is a reading this one implies. The one you are in is warm; a
+    rung not yet visited is dim, and entering it is what builds it.
+    """
+    said_chain = str(it.policy.get("chain", ""))
+    for rung in [r for r in said_chain.split(" | ") if r.strip()]:
+        level, _, rest = rung.partition(" ")
+        pair, _, seen = rest.partition(" · ")
+        here = level == "0"
+        wide = min(26 * 6.0, runs("chip", pair)) + 16
+        for x1, y1, x2, y2 in (
+            (at, 8, at + wide, 8),
+            (at, 26, at + wide, 26),
+            (at, 8, at, 26),
+            (at + wide, 8, at + wide, 26),
+        ):
+            said.line(x1, y1, x2, y2, "warm" if here else "hair")
+        said.text(at + 8, 21, "warm" if here else "chip", pair, wide - 14)
+        if not here:
+            said.hit(at, 8, wide, 18, "rung", level)
+        at += wide + 5
+        said.text(at, 21, "dimmer", "›")
+        at += 12
+    return at + 6
+
+
+def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
+    """#dock — every facet as a node: lit is present, dim is minimized.
+
+    Clicking one toggles it. A minimized facet is not gone: it keeps all its
+    state in policy, and the tree simply closes over the space it had.
+    """
+    for facet in shown:
+        here = any(f.name == facet for f in it.facets)
+        word = facet
+        wide = runs("chip", word) + 22
+        for x1, y1, x2, y2 in (
+            (at, 8, at + wide, 8),
+            (at, 26, at + wide, 26),
+            (at, 8, at, 26),
+            (at + wide, 8, at + wide, 26),
+        ):
+            said.line(x1, y1, x2, y2, "hair")
+        # the chip's own dot: cool when the facet is present, dimmer when not
+        said.box(at + 6, 15, 6, 6, "cool" if here else "dimmer")
+        said.text(at + 16, 21, "chip" if here else "dimmer", word)
+        said.hit(at, 8, wide, 18, "facet", facet)
+        at += wide + 6
 
 
 def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> None:

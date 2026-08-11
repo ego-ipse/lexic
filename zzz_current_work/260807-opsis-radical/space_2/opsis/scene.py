@@ -131,7 +131,11 @@ def staged(reading: Reading, state: dict[str, str] | None = None) -> Staged:
             said.get("form", "source"),
             said.get("arrange.shape", ""),
             said.get("arrange.shares", ""),
-            tuple(sorted((k, v) for k, v in said.items() if k.startswith("tab."))),
+            tuple(
+                sorted(
+                    (k, v) for k, v in said.items() if k.startswith(("tab.", "facet."))
+                )
+            ),
         )
     )
     if key not in _STAGED:
@@ -150,6 +154,14 @@ def _stage(reading: Reading, state: dict[str, str] | None = None) -> Staged:
     it.facets = reading.facets()
     if it.machine is not None:
         it.facets = [*it.facets[:1], graph_facet(it.machine.grammar), *it.facets[1:]]
+    # FACET PRESENCE: a minimized facet keeps all of its state in policy and
+    # merges out of the tree. The dock is where it is brought back, so the
+    # arrangement never has to hold a region nobody can see.
+    it.facets = [
+        facet
+        for facet in it.facets
+        if (state or {}).get(f"facet.{facet.name}", "on") != "off"
+    ] or it.facets
     # THE FORM IS A PROPERTY OF THE READER: it decides what the reader
     # displays. The grammar as written, its canonical normal form, or the
     # form codegen cut for the parser — each spelled by the flavour, so the

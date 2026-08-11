@@ -474,12 +474,16 @@ def spine(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
     live = look.live()
     closed = closed_before(look.reading, look.at)
-    # the foot is reserved before anything is drawn into the body
+    # the foot is reserved before anything is drawn into the body, and it is
+    # dropped entirely when the room cannot hold it: a facet under pressure
+    # derives LESS, it does not draw over its neighbour
     foot = ROW * (1 + min(len(closed), 4)) + 14
-    # the line that says how much more there is needs a line of its own, or
-    # it lands on top of JUST CLOSED
-    body = max(ROW, h - foot - 12 - ROW)
-    fits = max(1, int(body // ROW))
+    if h < foot + ROW * 3:
+        foot = 0.0
+    # the line saying how much more there is needs a line of its own, or it
+    # lands on top of JUST CLOSED
+    body = max(ROW, h - foot - 12 - (ROW if foot else 0))
+    fits = max(1, int(min(body, h - 20) // ROW))
     first = min(look.top("spine"), max(0, len(live) - fits))
     top = y + 12
     if not live:
@@ -500,6 +504,8 @@ def spine(said: Frame, room: Room, look: Look) -> None:
         said.text(
             x + 14, top + 10, "dimmer", f"{len(live) - first - fits} deeper — scroll"
         )
+    if not foot:
+        return
     # #closedHead / #closedBody — the foot, where it has always been
     top = y + h - foot
     said.text(x + 14, top + 10, "ftitle", "JUST CLOSED")

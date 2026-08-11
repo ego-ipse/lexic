@@ -135,6 +135,13 @@ class Session:
             if index.isdigit():
                 self.state[f"tab.{column}"] = index
 
+    def _facet(self, words: list[str]) -> None:
+        """A dock chip — that facet's presence, toggled."""
+        if not words:
+            return
+        key = f"facet.{words[0]}"
+        self.state[key] = "off" if self.state.get(key, "on") == "on" else "on"
+
     def _sel(self, words: list[str]) -> None:
         """Text selected in a plane — the smallest covering occurrence co-selects."""
         if len(words) < 3 or words[0] != "document":
@@ -303,6 +310,7 @@ SAYS: dict[str, Said] = {
 
 # what it landed on
 LANDED: dict[str, Said] = {
+    "facet": Session._facet,
     "gutter": Session._gutter,
     "rule": Session._rule,
     "span": Session._span,
