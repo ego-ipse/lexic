@@ -26,13 +26,14 @@ one rule for a pinned window), the automaton, the relations in flat/arcs.
 
 **Next, in order:**
 
-1. **The derivation chart** (~250 leaf lines). The care needed: its hit test
-   must not drift from its drawing. Do it by giving each span box an ADDRESS
-   (its index), so hovering hit-tests painted rectangles the way the rails'
-   doors already do — one mechanism, no second geometry. The open question is
-   the time-dependent tone (closed / live / pending): serving per cursor post
-   like the automaton makes it up to 300ms stale during playback, which may
-   be fine and may not. Decide that before writing it.
+1. ~~The derivation chart~~ — **done**. Each box carries its extent as its
+   address (`start:end:index`), so the drawing depends on the window and
+   nothing else: one fetch survives a whole playback. The leaf keeps three
+   things and only these — the window (it chose it), the cursor (it moves
+   it) and the tint that follows from comparing the two. Hover still agrees
+   with what is painted (`chartHover=same`). What remains in `chart.js` is
+   the overview band and the clock lanes for the pda/earley modes; those are
+   different data and are the next thing to serve.
 2. **The document plane's under/over canvases** (~150).
 3. **The IR rows and the room sections** (~300) — these are DOM, not canvas;
    they want a row vocabulary rather than a display list.
