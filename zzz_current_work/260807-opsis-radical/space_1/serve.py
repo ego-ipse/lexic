@@ -32,6 +32,9 @@ from read import Facet, Reading, as_written, read  # noqa: E402
 __all__ = ["Handler", "main", "scene"]
 
 FILES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript"}
+
+# the addresses the leaf understands for opening a surface at full size
+OPENS = {"graph": "?graph=1&gpin=1"}
 HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 
 # What this build does not derive yet. Each says what it is; an empty body is
@@ -103,6 +106,15 @@ def scene(reading: Reading) -> str:
         "offered": " ".join(f"{name}:{cols}" for name, cols in given.items()),
         "arrange.tree": arrange(facets),
         "wants.window": ",".join(wants) or "none",
+        # where a refused surface can be opened at full size. Only the rule
+        # graph has an address today; the machine is a view inside the same
+        # window and has none yet, which is said rather than faked with the
+        # graph's address.
+        "opens": " ".join(
+            f"{name}:{OPENS[name]}" if name in OPENS else f"{name}:no address yet"
+            for name in wants
+        )
+        or "none",
         "chain": " | ".join(rung.line() for rung in chain(reading)),
     }
     return "\n".join(
