@@ -886,11 +886,21 @@ the reference's `k` can never be far from 1. Its picture shows three levels
 across about 640px, which needs k near 2.7 — above its own 2.4 cap. THAT
 PICTURE CANNOT COME FROM THE FIT AT ANY BOX.
 
-So it is not the fit and not the box: look at `v.zoom`. `k = v.frame.k *
-v.zoom`, and a view's zoom is 1 only until something sets it — the wheel,
-a restored `graph.camera`, or a default this port never read. Find what the
-reference's flat view holds for `zoom` when it draws that picture, and the
-whole comparison resolves.
+Not the zoom either: `v.zoom` is 1 at rest and only the wheel sets it. So
+k = 1.16, and `JSON-text` should land at `w/2 + (94.4 - 392) * 1.16` = 46.
+Its picture puts it at about 390 — which is `w/2` EXACTLY, the value you get
+when `mx` is `x0` rather than the midpoint of the extent.
+
+And `v.frame` is cached under `frameKey = placedFor|mode|WxH`, where
+`placedFor` is assigned BEFORE the fetch that fills `gNodes` resolves. So the
+frame — its `k`, its `mx`, its `my` — can be computed against the layout of
+the view you just left, and then kept, because the key already matches. That
+is a race in the reference, and its picture is what the race looks like.
+
+DO NOT PORT IT. This port computes its fit from the drawing it is about to
+place, in the same frame, and cannot have that bug. The graphs here should
+be judged against `graph.js`'s ARITHMETIC — which they now follow — and not
+against a screenshot of it losing that race.
 
 The overflow nudge is still unported either way, and that is real: `pan.x =
 70 - w/2 - (x0 - mx) * k` when the picture is wider than the room.
