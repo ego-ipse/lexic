@@ -105,6 +105,7 @@ async function loadPlaces(mode = gView, force = false) {
   }
   if (!places.size) return;
   gNodes = places;
+  gRecentre();
   buildChipsInto(gViews[0] ? gViews[0].chips : $('graphChips'));
   for (const v of gViews) if (v.chips) buildChipsInto(v.chips);
   drawGraph();
@@ -123,15 +124,47 @@ function buildChipsInto(chips) {
   }
 }
 
+// How far away the eye stands. A fixed focal length means a big grammar
+// swings a long way toward the camera as it turns, and the whole picture
+// pumps — badly on the metagrammar, whose rings are wide. So the distance
+// is derived from the layout's own reach, which bounds how much nearness
+// can change a node's size no matter how far you rotate.
+let gDepth = { reach: 0, focal: 900 };
+let gCentre = { x: 0, y: 0, z: 0 };
+
+function gRecentre() {
+  // a layout whose middle is not the origin orbits around a point outside
+  // itself: it swings across the panel and sits off-centre at rest. The
+  // depth axis runs 0..−N, so this was the whole picture hanging low.
+  let n = 0, sx = 0, sy = 0, sz = 0;
+  for (const [, p] of gNodes || []) { n++; sx += p.x; sy += p.y; sz += p.z; }
+  gCentre = n ? { x: sx / n, y: sy / n, z: sz / n } : { x: 0, y: 0, z: 0 };
+}
+
+function gFocal() {
+  if (!gNodes) return gDepth.focal;
+  let reach = 0;
+  for (const [, p] of gNodes) {
+    reach = Math.max(reach, Math.hypot(p.x - gCentre.x, p.y - gCentre.y,
+                                       p.z - gCentre.z));
+  }
+  if (reach !== gDepth.reach) {
+    // near/far no wider than ~1.25:1 — depth still reads, size stays put
+    gDepth = { reach, focal: Math.max(900, reach * 9) };
+  }
+  return gDepth.focal;
+}
+
 function gProject(v, p, w, h) {
+  const px = p.x - gCentre.x, py = p.y - gCentre.y, pz = p.z - gCentre.z;
   const cy = Math.cos(v.yaw), sy = Math.sin(v.yaw);
-  const x = p.x * cy + p.z * sy;
-  let z = -p.x * sy + p.z * cy;
+  const x = px * cy + pz * sy;
+  let z = -px * sy + pz * cy;
   const cp = Math.cos(v.pitch), sp = Math.sin(v.pitch);
-  const y = p.y * cp - z * sp;
-  z = p.y * sp + z * cp;
-  const f = 780;
-  const s = f / Math.max(220, f - z + 420);  // near-plane clamp: no pole, no mirror
+  const y = py * cp - z * sp;
+  z = py * sp + z * cp;
+  const f = gFocal();
+  const s = f / Math.max(f * 0.4, f - z);   // no pole, no mirror
   return { x: w / 2 + x * s, y: h / 2 + y * s, s };
 }
 
@@ -193,39 +226,50 @@ function drawGraphView(v, smooth = false) {
   const frameKey = `${placedFor}|${mode}|${Math.round(w)}x${Math.round(h)}`;
   if (v.frameKey !== frameKey || !v.frame) {
     v.frameKey = frameKey;
-    // measured over the layout's own extent, sampled around the orbit so no
-    // one angle decides the scale for all of them
-    let ex = 0, ey = 0;
-    for (const turn of (mode === 'depth3d' ? [0, 0.5, 1, 1.5] : [0])) {
-      const look = mode === 'depth3d'
-        ? { yaw: turn * Math.PI, pitch: v.pitch, zoom: 1, pan: { x: 0, y: 0 } }
-        : null;
-      let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9;
+    if (mode === 'depth3d') {
+      // A BOUND, not a sample. Whatever the yaw and pitch, a node's
+      // projected offset cannot exceed its distance from the axis it turns
+      // around — so the frame that holds one angle holds every angle.
+      // Sampling four of them left the widest silhouettes (which fall
+      // between samples) hanging over the edge, and the picture appeared to
+      // zoom as it turned.
+      let radial = 0, vertical = 0, near = 0;
       for (const [, p] of gNodes) {
-        const P = look ? gProject(look, p, w, h) : { x: p.x, y: p.y };
-        a0 = Math.min(a0, P.x); a1 = Math.max(a1, P.x);
-        b0 = Math.min(b0, P.y); b1 = Math.max(b1, P.y);
+        const dx = p.x - gCentre.x, dy = p.y - gCentre.y, dz = p.z - gCentre.z;
+        radial = Math.max(radial, Math.hypot(dx, dz));
+        vertical = Math.max(vertical, Math.hypot(dy, dz));
+        near = Math.max(near, Math.hypot(dx, dy, dz));
       }
-      ex = Math.max(ex, a1 - a0);
-      ey = Math.max(ey, b1 - b0);
+      const f = gFocal();
+      const closest = f / Math.max(f * 0.4, f - near);   // the biggest scale
+      v.frame = {
+        k: Math.min(
+          availW / Math.max(40, 2 * radial * closest),
+          availH / Math.max(40, 2 * vertical * closest),
+          2.4,
+        ),
+        mx: 0,
+        my: 0,
+      };
+    } else {
+      v.frame = {
+        k: Math.min(availW / Math.max(40, x1 - x0),
+                    availH / Math.max(40, y1 - y0), 2.4),
+        mx: (x0 + x1) / 2,
+        my: (y0 + y1) / 2,
+      };
     }
-    v.frame = {
-      k: Math.min(availW / Math.max(40, ex), availH / Math.max(40, ey), 2.4),
-      mx: (x0 + x1) / 2,
-      my: (y0 + y1) / 2,
-    };
   }
   v.fitScale = v.frame.k;
   const k = v.frame.k * v.zoom;
-  // the centre still follows the picture, so an orbit stays centred without
-  // changing how big anything is
-  const tmx = (x0 + x1) / 2, tmy = (y0 + y1) / 2;
-  if (!v.fit || !smooth) v.fit = { mx: tmx, my: tmy };
-  else {
-    v.fit.mx += (tmx - v.fit.mx) * 0.22;
-    v.fit.my += (tmy - v.fit.my) * 0.22;
-  }
-  const { mx, my } = v.fit;
+  // the centre is the LAYOUT's, held still. Re-centring on the projected
+  // silhouette every frame slides the picture under the hand as it turns,
+  // which reads as zooming even when the scale never moved.
+  // the projection already centres itself on the canvas, so the fixed
+  // centre for an orbit is that centre — not the origin, which would place
+  // the whole picture a screen's width away
+  const mx = mode === 'depth3d' ? w / 2 : v.frame.mx;
+  const my = mode === 'depth3d' ? h / 2 : v.frame.my;
   // frame the start rule's edge ONLY when the picture is wider than the
   // room — then panning is how you explore it. When it already fits, this
   // shoved the fitted picture sideways and pushed its far edge back out.

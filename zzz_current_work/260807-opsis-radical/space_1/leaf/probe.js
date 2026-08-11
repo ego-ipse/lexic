@@ -122,17 +122,35 @@ async function probeGestures() {
       out.push(`graphChips=${chips.length} clipped=${out_.length}`
         + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
     }
+    // the relations must be the ACTIVE tab or there is nothing to measure:
+    // a hidden facet has no size, and a view with no size draws nothing
+    const relFirst = [...document.querySelectorAll('#grid .tabbar .tab')]
+      .find((el) => el.textContent === 'relations');
+    click(relFirst);
+    await wait(700);
     // ROTATING MUST NOT RESIZE. The scale is the layout's and the room's;
     // the camera's angle is not allowed a vote.
     gView = 'depth3d';
     if (gViews[0]) {
       const v3 = gViews[0];
-      const scales = [], offAt = [];
+      const scales = [], offAt = [], drawnAt = [];
       for (const yaw of [0, 0.6, 1.2, 2.0, 3.1]) {
         v3.yaw = yaw;
         drawGraph();
         await wait(120);
         scales.push(+(v3.fitScale || 0).toFixed(4));
+        // what the EYE sees: the drawn extent of the labels, which is what
+        // "the image zooms in and out" is actually about
+        const boxes = [...$('graphChips').children]
+          .filter((c) => c.style.display !== 'none')
+          .map((c) => c.getBoundingClientRect());
+        if (boxes.length) {
+          const wSpan = Math.max(...boxes.map((r) => r.right))
+            - Math.min(...boxes.map((r) => r.left));
+          const hSpan = Math.max(...boxes.map((r) => r.bottom))
+            - Math.min(...boxes.map((r) => r.top));
+          drawnAt.push(Math.round(Math.max(wSpan, hSpan)));
+        }
         const b = $('graphWrap').getBoundingClientRect();
         offAt.push([...$('graphChips').children].filter((c) => {
           if (c.style.display === 'none') return false;
@@ -143,7 +161,10 @@ async function probeGestures() {
       }
       const spread = Math.max(...scales) - Math.min(...scales);
       out.push(`rotateScale=${scales.join('/')} spread=${spread.toFixed(4)}`,
-        `rotateClipped=${offAt.join('/')}`);
+        `rotateClipped=${offAt.join('/')}`,
+        `rotateDrawn=${drawnAt.join('/')} swing=${
+          drawnAt.length ? Math.round(100 * (Math.max(...drawnAt) - Math.min(...drawnAt))
+            / Math.max(...drawnAt)) : 0}%`);
     }
     // ... and in every mode, not just the one it booted in
     for (const mode of ['flat', 'arcs']) {
