@@ -40,6 +40,7 @@ from eidolon.value import graph as ir_graph  # noqa: E402
 from eidolon.value import wire as ir_wire  # noqa: E402
 from kairos.pipeline import FORMS  # noqa: E402
 from opsis.grammar import rails  # noqa: E402
+from opsis.paint import rails_drawing  # noqa: E402
 from opsis.scene import drawn, moved, ruledefs  # noqa: E402
 from praxis.strata import strata  # noqa: E402
 from serve import PENDING  # noqa: E402
@@ -451,6 +452,22 @@ def main() -> int:
         "every track is measured in columns, and nothing is smaller than it says",
         not tight and pairs > 0,
         f"{pairs} nodes measured" + (f" · TIGHT {tight[:2]}" if tight else ""),
+    )
+
+    # a drawing carries its own DOORS: every ref in a track names the rule
+    # it points at, so the leaf can be clicked through without knowing what
+    # a railroad is. Losing that is invisible — the picture still draws.
+    picture = rails_drawing(rails(machine.grammar), 900)
+    doors = [m for m in picture.marks if m.startswith("box ") and m.split()[6] != "-"]
+    refs = sum(
+        1
+        for said in rails(machine.grammar).split("\n")
+        if said.startswith("1 ref ") or said.startswith("2 ref ")
+    )
+    check(
+        "a drawing carries its doors — every ref in a track says where it leads",
+        len(doors) >= refs > 0,
+        f"{len(doors)} doors over {len(picture.marks)} marks",
     )
 
     # the relationships. The leaf's scene reader has always had a place for

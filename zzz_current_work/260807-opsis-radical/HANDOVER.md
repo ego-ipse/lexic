@@ -1,5 +1,33 @@
 # opsis-radical — HANDOVER
 
+## 2026-08-11, night — the rails, broken three ways by my own deletions
+
+Converting the railroad to a served drawing broke it three times over, and
+every break was the same mistake in a different place: **deleting code by
+slicing between function names**, which took live bindings out with it.
+
+1. **The pop-up never appeared.** `railChipRule` and `railPin()` lost their
+   declarations. In strict mode, assigning to an undeclared name THROWS, so
+   the chip died before it could open a window — silent, and total.
+2. **Nothing was clickable.** The old draw kept its own hit boxes; the new
+   one had none. A `box` mark now carries an ADDRESS (`box … ref ws ws`), the
+   painter records the rectangles it painted, and a click hit-tests them.
+   The leaf still knows nothing about railroads.
+3. **The lines were off, and a pinned rule had no sizes.** `seq` drew no
+   connectors, and a **stale duplicate `fetchRail`** had drifted back above
+   the banner during a header shuffle — being the later declaration, it
+   silently won, and it was the copy that ignored the `#BOX` block.
+
+**What the probe now drives** (it drove none of this before, which is why you
+found all three): `railPin` (canvas size), `railPinDrew` (actual pixels in
+the bitmap), `railDoors` (54), `railGoto`. A gate fact holds the invariant
+that outlives them: *a drawing carries its doors — every ref in a track says
+where it leads*.
+
+The lesson, recorded because it will recur: a deletion that spans a region
+must be checked for what ELSE lived there. `grep -c` on every identifier the
+region assigned would have caught all three in one pass.
+
 ## 2026-08-11, evening — drawings, not geometry
 
 The aim is a 75% cut in the leaf's JavaScript. The lever is a **display
