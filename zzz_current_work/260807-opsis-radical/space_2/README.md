@@ -46,6 +46,13 @@ window with its OWN layer over the session's policy — its view, its camera,
 its scroll — while the cursor stays shared, because a cursor lives on the
 subject and being visible everywhere at once is what it is for.
 
+## Where the reading sits
+
+`⌗ strata` in the masthead pulls the session back to the whole climb: every
+rung walked, the one above it, each rung's depth band, and the doors it holds.
+A door opens a ROOM — the rules by what they account for, the machine, the
+artefacts, a value as the value it is — and `‹ back` returns.
+
 ## The whole protocol
 
 ```

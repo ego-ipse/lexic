@@ -175,15 +175,15 @@ class Session:
     def _strata(self, words: list[str]) -> None:
         """Pull back to the whole climb, or come back down into the reading."""
         self.main["showing"] = "" if (words and words[0] == "off") else "strata"
+        self.main["place"] = ""
 
     def _rung(self, words: list[str]) -> None:
         """Travel to a rung of the ladder — and come back into the reading."""
         self.main["showing"] = ""
 
     def _place(self, words: list[str]) -> None:
-        """Enter a door a rung holds."""
-        if words:
-            self.main["place"] = words[0]
+        """Enter a room the reading holds — or leave the one you are in."""
+        self.main["place"] = words[0] if words else ""
         self.main["showing"] = ""
 
     def _rail(self, words: list[str]) -> None:

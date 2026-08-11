@@ -17,8 +17,10 @@ from typing import Any
 from opsis.frame.facets import DRAWN, HEADS, Look
 from opsis.frame.marks import Frame
 from opsis.frame.panels import head, walked
+from opsis.frame.places import draw as places_draw
 from opsis.frame.strata import draw as strata_draw
 from opsis.frame.tones import runs
+from opsis.rooms import room
 from opsis.scene import Staged, staged
 from praxis.reading import Reading
 from praxis.routes import Aside
@@ -66,6 +68,12 @@ def compose(
     columns = {facet.name: facet.column or facet.name for facet in it.facets}
     said.box(0, 0, wide, tall, "field")
 
+    where = state.get("place", "")
+    if where and not only:
+        # a room the reading holds — reached through a door in the strata
+        places_draw(said, room(where, it.machine, reading, dict(state)), wide, tall)
+        return said
+
     if state.get("showing", "") == "strata" and not only:
         strata_draw(said, strata(reading, climbed or [reading]), wide, tall)
         return said
@@ -81,7 +89,9 @@ def compose(
         draw = DRAWN.get(region.name)
         if draw is None:
             continue
-        room = head(
+        # what a head hands back is the INSIDE of the region, which is not
+        # the same word as the room a reading holds
+        inside = head(
             said,
             region,
             titles,
@@ -89,7 +99,7 @@ def compose(
             columns,
             look.routes if region.name == "chart" else None,
         )
-        draw(said, room, look)
+        draw(said, inside, look)
     for seam in grid.seams:
         said.hit(seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at))
     _status(said, reading, look, wide, tall)

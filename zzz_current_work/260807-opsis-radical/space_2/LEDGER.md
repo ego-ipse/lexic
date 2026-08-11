@@ -143,11 +143,30 @@ reads as its opposite.
   rung's little depth band, and the doors it holds — its value, its machine,
   its artefacts. Reached by `⌗ strata` in the masthead, left by `✕`.
 
+## Ported since — the rooms
+
+`opsis/rooms.py` has written these since the first build and nothing had ever
+drawn one: **the rules** by what they account for (each a door to its own
+room), **one rule** with everything it is, **the machine**, **the artefacts**,
+and **any value as the value it IS**. A room nobody authored says so in place,
+with what this reading DOES hold. Reached through the strata's doors, left by
+`‹ back`.
+
+A section kind this frame draws no shape for prints its own name rather than
+vanishing — the raising default, said on screen. Two kinds are in that state
+today: `graphview` and `irvalue`.
+
+## Noticed, not touched
+
+The rules room lists `object` three times (299, 117, 117) and `array` twice.
+That is several codegen rules spelling back to one source name, which is what
+the room was asked for; making them look unique would be the frame inventing
+an answer the reading did not give.
+
 ## Deviations still to redo
 
 - The tune dials (`#gtune`) are not drawn.
-- A door in the strata sets `place` and nothing reads it yet: `opsis/rooms.py`
-  writes those rooms and they are still not drawn.
+- `graphview` / `irvalue` sections name themselves but draw no shape.
 
 ## Not ported yet
 
