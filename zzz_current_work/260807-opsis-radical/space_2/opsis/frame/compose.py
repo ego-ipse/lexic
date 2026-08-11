@@ -168,6 +168,13 @@ def _zone(said: Frame, look: Look, grid: object, titles: dict[str, str]) -> None
             rh /= 2
         elif zone == "bottom":
             ry, rh = ry + rh / 2, rh / 2
+        else:
+            # `zoneRect`'s tab case: INSET a fifth on every side, a smaller
+            # box floating inside the surface. A split takes half and says
+            # so by covering that half; joining a tab set takes no half at
+            # all, and covering the whole region said it did.
+            rx, ry = rx + rw * 0.2, ry + rh * 0.2
+            rw, rh = rw * 0.6, rh * 0.6
         was = said.lift()
         said.box(rx, ry, rw, rh, "drop_wash")
         said.dashes(rx, ry, rw, rh, "violet")

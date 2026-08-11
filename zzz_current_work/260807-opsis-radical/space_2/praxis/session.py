@@ -546,6 +546,12 @@ class Session:
         if words[0] == "graph" and self.state.get("graph.view", "depth3d") != "rails":
             self._zoom(words)
             return
+        # "plain scroll on the chart: zoom the lane window" — the derivation
+        # has nothing to scroll THROUGH, it has a window onto time, and the
+        # wheel is how wide that window is. A `top.chart` is read by nothing.
+        if words[0] == "chart":
+            self._zoom(words)
+            return
         was = self.state.get(f"top.{words[0]}", "0")
         now = max(0, (int(was) if was.isdigit() else 0) + int(words[1]) * STEP)
         self.state[f"top.{words[0]}"] = str(now)
@@ -576,7 +582,10 @@ class Session:
             key = f"graph.{self.state.get('graph.view', 'depth3d')}.zoom"
         was = float(self.state.get(key, "1"))
         # `wireTextZoom` clamps a text pane 0.6 to 2.2; a picture goes wider
-        low, high = (0.6, 2.2) if key == "doc.zoom" else (0.35, 5.0)
+        low, high = {
+            "doc.zoom": (0.6, 2.2),
+            "chart.zoom": (0.25, 8.0),
+        }.get(key, (0.35, 5.0))
         now = max(low, min(high, was * (1.12 if int(words[1]) < 0 else 1 / 1.12)))
         self.state[key] = f"{now:.3f}"
         if words[0] != "graph" or len(words) < 4:
