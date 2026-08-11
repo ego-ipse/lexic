@@ -320,8 +320,6 @@ class Handler(BaseHTTPRequestHandler):
                 return rails_drawing(rails(shown), wide).wire("rails")
             if what == "clock":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 400
-                start = int(float(asked.get("from", ["0"])[0] or 0))
-                win = int(float(asked.get("win", ["400"])[0] or 400))
                 if asked.get("mode", ["pda"])[0] == "pda":
                     rows = [
                         (s0, e0, d0, ok)
@@ -339,15 +337,13 @@ class Handler(BaseHTTPRequestHandler):
                     # a hypothesis has no depth of its own, so its row is
                     # something the picture must invent — first row it fits
                     rows = packed(held)
-                return clock_drawing(rows, start, win, wide, tall).wire("clock")
+                return clock_drawing(rows, len(self.reading.text), tall).wire("clock")
             if what == "band":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 26
                 return band_drawing(self.reading, wide, tall).wire("band")
             if what == "chart":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 400
-                start = int(float(asked.get("from", ["0"])[0] or 0))
-                win = int(float(asked.get("win", ["400"])[0] or 400))
-                return chart_drawing(self.reading, start, win, wide, tall).wire("chart")
+                return chart_drawing(self.reading, tall).wire("chart")
             if what == "rail":
                 shown = form_of(
                     machine, self.reading, Handler.state.get("form", "source")

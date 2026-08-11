@@ -422,40 +422,37 @@ def rail_drawing(tracks: str, name: str) -> Drawing:
     return draw
 
 
-def chart_drawing(
-    reading: object, view0: int, win: int, wide: int, tall: int
-) -> Drawing:
-    """The derivation over a window of the text — spans as boxes in lanes.
+def chart_drawing(reading: object, tall: int) -> Drawing:
+    """The whole derivation, in DOCUMENT coordinates — x IS the offset.
 
-    Every box carries its EXTENT as its address (``start:end:index``), for
-    two reasons. The leaf hit-tests painted rectangles, so hovering needs no
-    second geometry — the same mechanism the railroad's doors use. And the
-    tone that changes with the cursor (closed behind it, open across it,
-    still to come) is a comparison against the one number the leaf genuinely
-    owns: the cursor it is moving. Nothing here depends on where the cursor
-    is, so this drawing survives a whole playback unchanged.
+    Drawn once per reading, not once per window. Keying a drawing to the
+    window meant every frame of playback scrolled it, invalidated it and
+    refetched a whole-document computation — which is why the clock died
+    the moment you pressed play. A window is a transform, and a transform
+    belongs to the side doing the looking.
     """
     draw = Drawing()
     spans = list(getattr(reading, "spans", []))
-    if not spans or win <= 0:
+    if not spans:
         return draw
     deep = max(span.depth for span in spans) + 1
     lane = max(6.0, min(22.0, (tall - 24) / deep))
-    pitch = wide / win
     for index, span in enumerate(spans):
-        if span.end <= view0 or span.start >= view0 + win:
-            continue
-        x1 = (max(span.start, view0) - view0) * pitch
-        x2 = (min(span.end, view0 + win) - view0) * pitch
         y = span.depth * lane
         goes = f"{span.start}:{span.end}:{index}"
         if span.end == span.start:
-            # an ε match holds no text — a mark AT a place, never a box the
-            # width of two characters, of which this reading has 1,403
-            draw.box(x1 - 0.5, y, 1.0, lane - 2, "eps", "", goes)
+            draw.box(float(span.start), y, 0.0, lane - 2, "eps", "", goes)
             continue
-        draw.box(x1, y, max(1.5, x2 - x1), lane - 2, "span", "", goes)
-    draw.wide = float(wide)
+        draw.box(
+            float(span.start),
+            y,
+            float(span.end - span.start),
+            lane - 2,
+            "span",
+            "",
+            goes,
+        )
+    draw.wide = float(len(getattr(reading, "text", "")) or 1)
     draw.tall = deep * lane
     return draw
 
@@ -490,36 +487,30 @@ def band_drawing(reading: object, wide: int, tall: int, steps: int = 240) -> Dra
 
 
 def clock_drawing(
-    rows: list[tuple[int, int, int, int]], view0: int, win: int, wide: int, tall: int
+    rows: list[tuple[int, int, int, int]], across: int, tall: int
 ) -> Drawing:
-    """An engine's clock over a window — one box per thing it held.
+    """An engine's clock, in DOCUMENT coordinates — one box per thing held.
 
-    ``rows`` are ``(start, end, lane, fate)``: where it opened, where it
-    closed, which row it belongs in, and whether it survived. Addressed by
-    index, like the derivation, so the readout and the hover keep reading
-    the engine's own list and this says only where each one sits.
+    ``rows`` are ``(start, end, lane, fate)``. Like the derivation, this is
+    the whole document at once: the window is the leaf's transform, so
+    scrubbing and playing cost nothing and change nothing here.
     """
     draw = Drawing()
-    if not rows or win <= 0:
+    if not rows:
         return draw
     deep = max(lane for _s, _e, lane, _f in rows) + 1
     lane_tall = max(2.0, min(16.0, (tall - 12) / deep))
-    pitch = wide / win
     for index, (start, end, lane, fate) in enumerate(rows):
-        if end <= view0 or start >= view0 + win:
-            continue
-        x1 = (max(start, view0) - view0) * pitch
-        x2 = (min(end, view0 + win) - view0) * pitch
         draw.box(
-            x1,
+            float(start),
             lane * lane_tall,
-            max(1.5, x2 - x1),
+            float(max(end - start, 0)),
             lane_tall - 1,
             "kept" if fate else "lost",
             "",
             f"{start}:{end}:{index}",
         )
-    draw.wide = float(wide)
+    draw.wide = float(across or 1)
     draw.tall = deep * lane_tall
     return draw
 

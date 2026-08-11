@@ -122,6 +122,28 @@ async function probeGestures() {
       out.push(`graphChips=${chips.length} clipped=${out_.length}`
         + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
     }
+    // UNPAUSING MUST NOT REFETCH. A picture keyed to the window is a new
+    // picture on every frame of playback — which is a whole-document
+    // computation per frame, and why the clock died when you pressed play.
+    setClock('pda');
+    cur.t = 1000;
+    ask();
+    await wait(2500);
+    const keysBefore = [...drawings.keys()].filter((k) => k.startsWith('clock:')).length;
+    for (const step of [3000, 6000, 9000, 12000, 15000]) {
+      cur.t = step;
+      view0 = Math.max(0, step - 200);
+      render();
+      await wait(120);
+    }
+    const keysAfter = [...drawings.keys()].filter((k) => k.startsWith('clock:')).length;
+    out.push(`clockKeys=${keysBefore}->${keysAfter}`,
+      `clockDrew=${(drawings.get([...drawings.keys()]
+        .find((k) => k.startsWith('clock:')) || '') || { marks: [] }).marks.length}`);
+    setClock('model');
+    cur.t = 4000;
+    ask();
+    await wait(400);
     // THE RAILS, DRIVEN: a pinned rule must draw, and a ref must be a door
     const pinned = await fetchRail('member');
     out.push(`railTree=${pinned ? pinned.k : 'NONE'}`,
