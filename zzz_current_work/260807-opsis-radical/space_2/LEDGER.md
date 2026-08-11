@@ -648,34 +648,30 @@ stacks, the pin and seven module-level caches. It wants splitting — but not
 before the rest of the duplication in it is gone, or the split just moves the
 slop into four files.
 
-## The derivation, measured — NEXT SESSION STARTS HERE
+## The derivation — and two wrong diagnoses, kept as a warning
 
-Put side by side with space_1 at the same cursor (525), the same document and
-the same facet size, the lanes are the wrong SHAPE:
+I said the lanes were 20px against the reference's 11, then that the two
+instruments were folding the document to different depths. Both were wrong,
+and both were "measured" by eye off a screenshot crop.
 
-- my lane boxes are **20px tall**; the reference's are about **11**
-- so mine shows roughly **14 lanes** where the reference shows **24**, and an
-  open span reads as a fat amber slab rather than a thin bar
+MEASURED PROPERLY:
 
-`chart.js` does not choose a lane height: it takes the DRAWING's own, and
-requests that drawing at `h - lanesY - 8`. Both `chart_drawing`s are
-byte-identical and both say
+- both readings are the same: **12,219 spans, max depth 19**
+- the reference's chart canvas is **476x467**, so its lane is
+  `(467 - 48 - 8 - 24) / 20` = **19.35px**, and mine is **20**
 
-    lane = max(6, min(22, (tall - 24) / deep))
+The lane heights agree. `chart_drawing` is byte-identical on both sides and
+neither scales the drawing when it paints it.
 
-with `deep = max(span.depth) + 1`. The heights passed differ by twelve
-pixels, which cannot make 20 into 11. **`deep` is what differs**: an 11px
-lane over that `tall` needs about 42 lanes, and mine draws 20px because it
-has about 25.
+What is left, and what to look at instead: the reference's lanes read as thin
+OUTLINED bars with gaps and mine read as filled amber slabs. That is the
+fill, not the geometry — `chart.js` fills a lane box only when the span is
+closed or live, and strokes it otherwise. So compare the tones, not the
+sizes.
 
-So the derivation is not drawing the lanes wrongly. It is drawing a
-DIFFERENT MODEL — the same document folded to roughly half the depth — and
-the lane height is only the first place that shows. Start by comparing
-`reading.spans` between the two: how many, and how deep.
-
-Do this by putting the two pictures beside each other first. Every defect in
-both of the lists above was found that way, and every one of them was
-introduced by reading a reference file and then writing from memory of it.
+DO NOT MEASURE A PICTURE BY LOOKING AT IT. Every real finding this session
+came from dumping the numbers — the frame's marks, the canvas's own width and
+height, a policy value — and every wrong one came from squinting at a crop.
 
 ## Not ported yet
 
