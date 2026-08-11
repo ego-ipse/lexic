@@ -235,7 +235,12 @@ def _windows(
             x + 10,
             y + 14,
             "warm",
-            f"{facet}{f' · {about}' if about else ''}",
+            # `floatWindow(facetTitle(name))` — a window wears the facet's
+            # own title. Only a pin or a rail has something else to add: the
+            # span it holds, the rule it draws. A popped facet saying
+            # "spine · spine" is the name printed twice.
+            called(titles.get(facet, facet))[0]
+            + (f" · {about}" if about and about != facet else ""),
             w - 40,
             face="winhead",
         )

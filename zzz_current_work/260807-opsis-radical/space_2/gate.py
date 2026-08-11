@@ -540,9 +540,15 @@ def main() -> int:
     popper.gesture("pop spine")
     check(
         "⧉ takes the facet OUT of the grid — it is somewhere else now",
+        # out of the GRID — the window it went to wears the facet's own
+        # title, so its NAME is still on the screen and should be
         popper.main.get("facet.spine") == "off"
-        and "THE SPINE"
-        not in words(compose(reading, 1500, 850, 0.0, popper.main, watched, 1)),
+        and "spine"
+        not in {
+            h.split(" ")[5]
+            for h in compose(reading, 1500, 850, 0.0, popper.main, watched, 1).hits
+            if h.split(" ")[4] == "head"
+        },
         "and the dock is where it comes back from",
     )
     cloner = Session(reading)
