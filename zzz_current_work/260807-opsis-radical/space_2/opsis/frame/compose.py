@@ -110,7 +110,37 @@ def compose(
     for seam in grid.seams:
         said.hit(seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at))
     _status(said, reading, look, wide, tall)
+    _banner(said, reading, wide, tall)
     return said
+
+
+def _banner(said: Frame, reading: Reading, wide: int, tall: int) -> None:
+    """#banner — a refusal, in the engine's own words, verbatim.
+
+    A reading that did not read says so in the words of the thing that
+    refused it. `NOT FAITHFUL` on its own is a flag, and a flag is not a
+    reason: the engine already said what went wrong, and passing that on is
+    the whole of what is owed here.
+    """
+    if not reading.words:
+        return
+    # a refusal is read OVER the text it is about
+    said.lift()
+    words = reading.words if len(reading.words) < 140 else reading.words[:139] + "…"
+    room = runs("verdict", words) + 36
+    x = max(24.0, wide * 0.24)
+    y = tall - BAR - 58
+    said.box(x, y, min(room, wide - x - 24), 40, "field2")
+    for x1, y1, x2, y2 in (
+        (x, y, x + min(room, wide - x - 24), y),
+        (x, y + 40, x + min(room, wide - x - 24), y + 40),
+        (x, y, x, y + 40),
+        (x + min(room, wide - x - 24), y, x + min(room, wide - x - 24), y + 40),
+    ):
+        said.line(x1, y1, x2, y2, "red")
+    said.text(
+        x + 16, y + 25, "red", words, min(room, wide - x - 24) - 32, face="verdict"
+    )
 
 
 def _masthead(

@@ -9,6 +9,13 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; background: #0b0e14; }
 #paper { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* the over canvas: what must be read OVER the text — a refusal, a chip
+   raised beside the thing it is about. It never takes the pointer; the hit
+   rectangles under it do. */
+#over {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 3;
+}
 
 .plane {
   position: absolute;

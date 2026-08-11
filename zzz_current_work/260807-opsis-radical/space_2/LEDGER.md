@@ -244,6 +244,24 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## Every reading, not one
+
+The gate reads FOUR pairings now — the json grammar, its ABNF spelling, a
+grammar whose arms cannot be decided, and a reader that REFUSES its document.
+Everything above had only ever been driven on one, and that is exactly how
+long the next fault stayed invisible:
+
+- **A refusal said only `NOT FAITHFUL`.** The engine had already said
+  `parsing: input does not derive from 'root'` and the instrument was keeping
+  it to itself. VISION: refusals speak the engine's words, verbatim. There is
+  a banner now, and the gate reads it on the pairing that refuses.
+- **The banner was drawn UNDER the document's text.** The planes are real
+  elements, so anything the one canvas painted in their rectangle was behind
+  them — the refusal, the `⌖ pin` chip, the `▤ rail` chip, all of them. The
+  instrument has always welded an under and an over canvas around its text;
+  the frame carries an `#OVER` block now and the leaf paints it above. Found
+  by looking at a screenshot, which is what screenshots are for.
+
 The probe also caught its own weak fact on the first run — it clicked the tab
 that was already showing, so "landing on a tab changes what is shown" could
 not fail. A fact that cannot fail is worse than no fact.

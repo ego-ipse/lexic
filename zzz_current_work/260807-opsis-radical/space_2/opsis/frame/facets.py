@@ -221,6 +221,7 @@ def _pinchip(
     if not first <= row < first + rows:
         return
     top = y + 8 + (row - first) * ROW - ROW
+    said.lift()
     wide = runs("chip", "⌖ pin") + 14
     said.box(run + column * CELL, top, wide, 15, "field2")
     for x1, y1, x2, y2 in (
@@ -232,6 +233,7 @@ def _pinchip(
         said.line(x1, y1, x2, y2, "warm")
     said.text(run + column * CELL + 7, top + 11, "warm", "⌖ pin", face="chip")
     said.hit(run + column * CELL, top, wide, 15, "pin", f"{start}:{end}")
+    said.drop()
 
 
 # .vbadge — what the PDA analysis decided about a rule, in its own words.
@@ -285,6 +287,7 @@ def _held(look: Look, name: str) -> dict[int, str]:
 
 def _chip(said: Frame, x: float, top: float, rule: str) -> None:
     """▤ rail — the chip that opens this rule as the track it describes."""
+    said.lift()
     wide = runs("chip", "▤ rail") + 14
     said.box(x, top, wide, 15, "field2")
     for x1, y1, x2, y2 in (
@@ -296,6 +299,7 @@ def _chip(said: Frame, x: float, top: float, rule: str) -> None:
         said.line(x1, y1, x2, y2, "violet")
     said.text(x + 7, top + 11, "violet", "▤ rail", face="chip")
     said.hit(x, top, wide, 15, "rail", rule)
+    said.drop()
 
 
 def _badge(said: Frame, right: float, top: float, kind: str) -> None:

@@ -25,21 +25,40 @@ POINTS = {"line": 2, "curve": 3, "bez": 4}
 class Frame:
     """One frame: marks, hit rectangles, and the text planes welded into it."""
 
-    __slots__ = ("hits", "marks", "planes", "tall", "texts", "wide")
+    __slots__ = ("hits", "lifted", "marks", "over", "planes", "tall", "texts", "wide")
 
     def __init__(self, wide: int, tall: int) -> None:
         self.marks: list[str] = []
+        # what is drawn ABOVE the text planes. They are real elements, so
+        # anything the one canvas painted in their rectangle was behind them:
+        # a refusal banner nobody could read, a chip under the line it is
+        # about. The instrument has always welded an under and an over canvas
+        # around its text; this is that over.
+        self.over: list[str] = []
+        self.lifted = False
         self.hits: list[str] = []
         self.planes: list[str] = []
         self.texts: list[str] = []
         self.wide = wide
         self.tall = tall
 
+    def _put(self, mark: str) -> None:
+        """One mark, onto whichever canvas is being drawn on."""
+        (self.over if self.lifted else self.marks).append(mark)
+
+    def lift(self) -> None:
+        """Draw above the text from here — for what must be read over it."""
+        self.lifted = True
+
+    def drop(self) -> None:
+        """Back below the text."""
+        self.lifted = False
+
     def box(self, x: float, y: float, w: float, h: float, tone: str) -> None:
-        self.marks.append(f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
+        self._put(f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
 
     def line(self, x1: float, y1: float, x2: float, y2: float, tone: str) -> None:
-        self.marks.append(f"line {x1:.1f} {y1:.1f} {x2:.1f} {y2:.1f} {tone}")
+        self._put(f"line {x1:.1f} {y1:.1f} {x2:.1f} {y2:.1f} {tone}")
 
     def curve(
         self,
@@ -75,11 +94,11 @@ class Frame:
         )
 
     def arc(self, x: float, y: float, r: float, tone: str) -> None:
-        self.marks.append(f"arc {x:.1f} {y:.1f} {r:.1f} {tone}")
+        self._put(f"arc {x:.1f} {y:.1f} {r:.1f} {tone}")
 
     def ring(self, x: float, y: float, w: float, h: float, tone: str) -> None:
         """An outline and nothing else — what a lane's span is drawn WITH."""
-        self.marks.append(f"ring {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
+        self._put(f"ring {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
 
     def text(
         self,
@@ -109,7 +128,7 @@ class Frame:
             fits = max(1, int(room / ADVANCE.get(put, CELL)))
             if len(said) > fits:
                 said = said[: fits - 1] + "…"
-        self.marks.append(f"text {x:.1f} {y:.1f} {tone} {put} {anchor} {said}")
+        self._put(f"text {x:.1f} {y:.1f} {tone} {put} {anchor} {said}")
 
     def hit(
         self,
@@ -168,7 +187,7 @@ class Frame:
                     (x + float(n) * scale) if i % 2 == 0 else (y + float(n) * tall)
                     for i, n in enumerate(parts[1 : 1 + count])
                 ]
-                self.marks.append(
+                self._put(
                     " ".join([kind, *(f"{n:.1f}" for n in moved), *parts[1 + count :]])
                 )
             elif kind == "box":
@@ -212,6 +231,8 @@ class Frame:
                 *self.marks,
                 f"#HITS {len(self.hits)}",
                 *self.hits,
+                f"#OVER {len(self.over)}",
+                *self.over,
                 f"#PLANES {len(self.planes)}",
                 *self.planes,
                 "#TEXT",

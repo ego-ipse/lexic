@@ -112,7 +112,19 @@ async function probe() {
     fact('landing on a tab changes which facet is shown', false, 'no tab to land on');
   }
 
-  /* 6. nothing is scheduled through a frame callback — the reason an earlier
+  /* 6. what must be read OVER the text is actually over it. The planes are
+        real elements, so a canvas painted behind them is a banner nobody can
+        read — which is exactly what a refusal was until this existed. */
+  const planes = document.getElementById('planes');
+  const lifted = +getComputedStyle(over).zIndex || 0;
+  const under = +getComputedStyle(planes).zIndex || 0;
+  fact('what is drawn over the text is above the text',
+       lifted > under && over.compareDocumentPosition(planes) === 2,
+       `over z=${lifted} · planes z=${under}`);
+  fact('the over canvas takes no pointer of its own',
+       getComputedStyle(over).pointerEvents === 'none');
+
+  /* 7. nothing is scheduled through a frame callback — the reason an earlier
         harness measured a canvas that had not been drawn yet */
   fact('the leaf paints without waiting for an animation frame',
        !/requestAnimationFrame/.test(paperSource), 'leaf.js');

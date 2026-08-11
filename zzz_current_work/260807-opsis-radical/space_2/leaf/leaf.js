@@ -8,6 +8,7 @@
 'use strict';
 
 const paper = document.getElementById('paper');
+const over = document.getElementById('over');
 const planes = document.getElementById('planes');
 const held = new Map();
 const asked = new URLSearchParams(location.search);
@@ -87,6 +88,12 @@ function read(said) {
     }
     i += 1 + n;
   }
+  const above = [];
+  if ((lines[i] || '').startsWith('#OVER ')) {
+    const n = +lines[i].split(' ')[1] || 0;
+    above.push(...lines.slice(i + 1, i + 1 + n));
+    i += 1 + n;
+  }
   const shown = [];
   if ((lines[i] || '').startsWith('#PLANES ')) {
     const n = +lines[i].split(' ')[1] || 0;
@@ -103,20 +110,25 @@ function read(said) {
     plane.text = said.slice(where, where + plane.chars);
     where += plane.chars;
   }
-  return { font, fills, edges, fonts, marks, hits, planes: shown };
+  return { font, fills, edges, fonts, marks, hits, planes: shown, over: above };
 }
 
 function paint() {
+  strokes(paper, frame.marks);
+  strokes(over, frame.over);
+}
+
+function strokes(canvas, marks) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = paper.clientWidth, h = paper.clientHeight;
-  if (paper.width !== w * dpr || paper.height !== h * dpr) {
-    paper.width = w * dpr; paper.height = h * dpr;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+    canvas.width = w * dpr; canvas.height = h * dpr;
   }
-  const cx = paper.getContext('2d');
+  const cx = canvas.getContext('2d');
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, w, h);
   cx.font = frame.font;
-  for (const mark of frame.marks) {
+  for (const mark of marks) {
     const p = mark.split(' ');
     if (p[0] === 'box') {
       cx.fillStyle = fill(p[5]);

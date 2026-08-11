@@ -16,6 +16,7 @@ true of what the leaf would be sent.
 
 from __future__ import annotations
 
+import re
 import sys
 import time
 from pathlib import Path
@@ -33,8 +34,26 @@ from praxis.reading import Reading  # noqa: E402
 from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 
 ROOT = HERE.parents[2]
-READER = ROOT / "resources" / "ground_truth" / "json.gbnf"
+GROUND = ROOT / "resources" / "ground_truth"
+READER = GROUND / "json.gbnf"
 DOCUMENT = HERE.parent / "tk" / "fixtures_long.json"
+
+# every pairing this gate reads. One fixture proves one fixture: the refusal
+# banner was missing for as long as this only ever read a document that read.
+PAIRINGS = (
+    ("the json grammar reading a real document", READER, DOCUMENT),
+    ("the ABNF spelling of it, reading the same", GROUND / "json.abnf", DOCUMENT),
+    (
+        "a grammar whose arms cannot be decided",
+        HERE / "fixtures" / "decide.gbnf",
+        HERE / "fixtures" / "decide.txt",
+    ),
+    (
+        "a reader that REFUSES its document",
+        GROUND / "arithmetic.gbnf",
+        GROUND / "json.gbnf",
+    ),
+)
 
 failed: list[str] = []
 
@@ -51,8 +70,16 @@ def marks(frame: Frame, kind: str) -> list[list[str]]:
 
 
 def words(frame: Frame) -> list[str]:
-    """What a frame SAYS — `text x y tone face anchor said…`."""
-    return [" ".join(m.split(" ")[6:]) for m in frame.marks if m.startswith("text ")]
+    """What a frame SAYS — on BOTH canvases.
+
+    A refusal is drawn over the text, so a reader of frames that looks only
+    at what is under it will report that the instrument said nothing.
+    """
+    return [
+        " ".join(m.split(" ")[6:])
+        for m in [*frame.marks, *frame.over]
+        if m.startswith("text ")
+    ]
 
 
 # where a mark carries its tone, per kind. Reading them all at one index is
@@ -63,7 +90,7 @@ TONE_AT = {"box": 5, "ring": 5, "line": 5, "curve": 7, "bez": 9, "arc": 4, "text
 def asked(frame: Frame) -> set[str]:
     """Every tone the frame asked for, wherever that kind keeps it."""
     said: set[str] = set()
-    for mark in frame.marks:
+    for mark in [*frame.marks, *frame.over]:
         parts = mark.split(" ")
         at = TONE_AT.get(parts[0])
         if at is not None and len(parts) > at:
@@ -75,8 +102,47 @@ def hits(frame: Frame, kind: str) -> list[str]:
     return [h.split(" ")[5] for h in frame.hits if h.split(" ")[4] == kind]
 
 
+def every() -> int:
+    """Every pairing: the facts that must hold of ANY reading, not one."""
+    print("every reading, not one")
+    for says, reader, document in PAIRINGS:
+        held = Reading(reader, document)
+        held.hold()
+        machine = reader_of(held)
+        seen = watch(machine, held.text) if machine and held.spans else []
+        frames = {}
+        for state in (
+            {},
+            {"showing": "strata"},
+            {"place": "machine"},
+            {"tab.reader": "1"},
+            {"chart.clock": "pda"},
+        ):
+            try:
+                frames[str(state)] = compose(held, 1500, 850, 0.0, state, seen, 1)
+            except Exception as burst:  # noqa: BLE001 — a raise IS the finding
+                check(
+                    f"{says}: {state} draws", False, f"{type(burst).__name__}: {burst}"
+                )
+                frames[str(state)] = None
+        check(
+            f"{says}: every way of looking at it draws",
+            all(f is not None and f.marks for f in frames.values()),
+            f"{len(held.text):,} chars · {len(held.spans):,} spans"
+            + ("" if held.faithful else " · REFUSED"),
+        )
+        if not held.faithful and held.words:
+            check(
+                f"{says}: the refusal is in the engine's own words",
+                any(held.words[:30] in w for w in words(frames["{}"])),
+                held.words[:52],
+            )
+    return 0
+
+
 def main() -> int:
     """Drive the composer over one real reading and read what came out."""
+    every()
     reading = Reading(READER, DOCUMENT)
     reading.hold()
     session = Session(reading)
@@ -321,13 +387,9 @@ def main() -> int:
     js = (leaf / "leaf.js").read_text()
     check(
         "the leaf holds no colour of its own",
-        "#"
-        not in js.replace("#FRAME", "")
-        .replace("#HITS", "")
-        .replace("#TONES", "")
-        .replace("#PLANES", "")
-        .replace("#TEXT", "")
-        .replace("#FONT", ""),
+        # a colour LITERAL — not a wire block, which is also spelled with a
+        # hash and is the leaf reading what it was sent
+        not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", js),
         f"{len(js.splitlines())} lines",
     )
 
