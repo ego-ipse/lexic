@@ -46,7 +46,6 @@ PENDING = {
     "/routes": "primary the engine's own composition\nprimary_seconds 0.00\n"
     "status pending\n",
     "/column": "#COLUMN 0 0\n#EXPECT 0\n",
-    "/strata": "#STRATA 1 0\nL 0 this reading\nc 0 0 0 r 1 the only reading\n",
 }
 
 
@@ -212,7 +211,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def derived(self, path: str, query: str) -> str | None:
         """The routes the leaf calls that this instrument can already answer."""
-        if path not in ("/rails", "/rail", "/verdicts", "/automaton", "/clock"):
+        if path not in (
+            "/rails",
+            "/rail",
+            "/verdicts",
+            "/automaton",
+            "/clock",
+            "/strata",
+        ):
             return None
         try:
             machine = compile_text(
@@ -220,6 +226,27 @@ class Handler(BaseHTTPRequestHandler):
             )
         except LexicError, RecursionError, ValueError:
             return "no reader to draw\n"
+        if path == "/strata":
+            rungs = chain(self.reading)
+            lanes = [rung.document for rung in rungs]
+            return "\n".join(
+                [
+                    f"#STRATA {len(rungs)} 0",
+                    *(f"L {i} {name}" for i, name in enumerate(lanes)),
+                    *(
+                        f"c {i} {rung.level} {i} r {1 if rung.visited else 0} "
+                        f"{rung.document} ⊳ {rung.reader}"
+                        for i, rung in enumerate(rungs)
+                    ),
+                    # one string, not a splat: *(f"...") unpacks it into
+                    # characters, which is how a card became 24 lines
+                    f"k 0 {len(self.reading.text)} {len(self.reading.spans)}"
+                    f" {self.reading.reader_text.count('::=')}"
+                    f" {self.reading.seconds:.2f}"
+                    f" {1 if self.reading.faithful else 0} 0",
+                    "",
+                ]
+            )
         if path == "/clock":
             frames = watch(machine, self.reading.text)
             names = sorted({str(row[3]) for row in frames})
