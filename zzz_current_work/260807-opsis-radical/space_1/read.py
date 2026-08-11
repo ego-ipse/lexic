@@ -21,10 +21,10 @@ from pathlib import Path
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import LexicError
-from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR
+from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR, get_flavour
 from lexic.model import GrammarModel
 
-__all__ = ["Facet", "Reading", "Span", "as_written", "read", "upward"]
+__all__ = ["Facet", "Reading", "Span", "as_written", "read", "read_up", "upward"]
 
 CANDIDATES = (GBNF_FLAVOUR, ABNF_FLAVOUR, EBNF_FLAVOUR)
 
@@ -90,6 +90,9 @@ class Reading:
         self.faithful = False
         self.words = ""
         self.flavour = ""
+        # what the reader is CALLED: a metagrammar is not a file, so the
+        # label cannot come from a path without lying about the pairing
+        self.reader_name = reader.name
 
     def hold(self) -> None:
         """Read it. A refusal is a result, not an exception that escapes."""
@@ -232,6 +235,25 @@ def upward(reading: Reading) -> tuple[str, str] | None:
     if turned is None:
         return None
     return (str(reading.reader), f"the {turned[1].upper()} metagrammar")
+
+
+def read_up(below: Reading) -> Reading | None:
+    """The rung above: this reader, read as a document by its metagrammar.
+
+    The metagrammar is not a file — it is the flavour's own grammar — so the
+    reading is built with its SPELLING as the reader text. Chirality already
+    named this pair; here it is held.
+    """
+    turned = turn(below.reader_text)
+    if turned is None:
+        return None
+    machine, flavour = turned
+    above = Reading(below.reader, below.reader)
+    above.reader_name = f"the {flavour.upper()} metagrammar"
+    above.reader_text = get_flavour(flavour).apply(get_flavour(flavour).grammar)
+    above.text = below.reader_text
+    above.hold()
+    return above
 
 
 def read(reader: Path, document: Path) -> Reading:

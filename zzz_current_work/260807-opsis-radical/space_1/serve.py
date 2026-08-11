@@ -27,7 +27,7 @@ from lexic.compile import compile_text  # noqa: E402
 from machine import machine_facet  # noqa: E402
 from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
-from read import Facet, Reading, as_written, read  # noqa: E402
+from read import Facet, Reading, as_written, read, read_up  # noqa: E402
 from track import rail, rails  # noqa: E402
 from watch import watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
@@ -122,8 +122,8 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
     return "\n".join(
         [
             "#META",
-            f"fixture {reading.document.name} ⊳ {reading.reader.name}",
-            f"reader {reading.reader.name}",
+            f"fixture {reading.document.name} ⊳ {reading.reader_name}",
+            f"reader {reading.reader_name}",
             f"seconds {reading.seconds:.2f}",
             "resolver 0",
             f"faithful {1 if reading.faithful else 0}",
@@ -209,6 +209,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send(PENDING.get(path, ""))
 
+    def travel(self, rung: int) -> str:
+        """Enter a rung of the chain. Entering is what parses it.
+
+        Rung 0 is where we are. Rung 1 is this reader read as a document —
+        the pair chirality already named, held for the first time here.
+        """
+        rungs = chain(self.reading)
+        if not 0 <= rung < len(rungs):
+            return "refuse no such rung\n"
+        if rung == 0:
+            return "ok\n"
+        above = read_up(self.reading)
+        if above is None:
+            return "refuse nothing reads this\n"
+        Handler.reading = above
+        _DRAWN.clear()
+        return "ok\n"
+
     def derived(self, path: str, query: str) -> str | None:
         """The routes the leaf calls that this instrument can already answer."""
         if path not in (
@@ -284,6 +302,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length).decode("utf-8")
+        if urlparse(self.path).path == "/focus":
+            self.send(self.travel(int(body.strip() or "0")))
+            return
         if urlparse(self.path).path == "/policy":
             for line in body.splitlines():
                 key, _, value = line.partition(" ")
