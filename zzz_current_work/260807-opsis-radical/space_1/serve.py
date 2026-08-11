@@ -15,7 +15,7 @@ import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
@@ -35,6 +35,10 @@ from draw import edges, levels  # noqa: E402
 from keep import keep  # noqa: E402
 from machine import of  # noqa: E402
 from track import rail, rails  # noqa: E402
+from irvalue import graph as ir_graph  # noqa: E402
+from irvalue import refused as ir_refused  # noqa: E402
+from irvalue import wire as ir_wire  # noqa: E402
+from lexic.ir.spine.spine import IrSelf  # noqa: E402
 from watch import column, hypotheses, parity, watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
 
@@ -248,12 +252,31 @@ class Handler(BaseHTTPRequestHandler):
             f"{'reads back equal' if same else 'reads back DIFFERENT'}\n"
         )
 
+    def subject(self, pid: str, machine: CompiledGrammar) -> IrSelf | None:
+        """What a place id NAMES, as a live value — never a description of one."""
+        if pid == "grammar":
+            return machine.grammar
+        if pid == "reducer":
+            return get_flavour(self.reading.flavour or "gbnf").reducer
+        if pid == "codegen":
+            return machine.codegen_grammar
+        if pid.startswith("rule:"):
+            wanted = pid[5:].casefold()
+            for rule in machine.grammar.rules:
+                if str(rule.name).casefold() == wanted:
+                    return rule
+        return None
+
     def room(self, which: str, machine: CompiledGrammar) -> str:
         """One room, spelled. A room nobody authored says so, in place."""
         if which in ("index", ""):
             rows = [
                 "the machine — clones, not rules\tplace:machine",
                 "the artefacts — each one loaded back\tplace:artefacts",
+                "the grammar as a VALUE — the IR it loaded to\tplace:ir:grammar",
+                "what codegen made of it — the grammar the parser runs"
+                "\tplace:ir:codegen",
+                "the reducer as a VALUE — where meaning attaches\tplace:ir:reducer",
             ]
             return "\n".join(
                 [
@@ -279,6 +302,34 @@ class Handler(BaseHTTPRequestHandler):
                     "",
                 ]
             )
+        if which.startswith("ir:"):
+            pid = which[3:]
+            value = self.subject(pid, machine)
+            if value is None:
+                return self.nothing(which, "no value here is addressed")
+            walk = ir_graph(value)
+            shared = [at for at, n in walk.refs.items() if n > 1]
+            return "\n".join(
+                [
+                    f"#PLACE {which} value the {pid} as the value it IS",
+                    "#SEC title 1",
+                    f"{type(value).__name__} — {len(walk.nodes)} unique nodes, "
+                    f"{len(walk.edges)} edges",
+                    "#SEC kv 4",
+                    f"unique nodes\t{len(walk.nodes)}",
+                    f"edges\t{len(walk.edges)}",
+                    f"shared objects\t{len(shared)} reached "
+                    f"{sum(walk.refs[at] for at in shared)} times",
+                    f"the notation refuses\t"
+                    f"{sum(1 for n in walk.nodes if ir_refused(n))} nodes",
+                    "#SEC irvalue 1",
+                    pid,
+                    "#SEC list 2",
+                    "the grammar as a value\tplace:ir:grammar",
+                    "the reducer as a value\tplace:ir:reducer",
+                    "",
+                ]
+            )
         if which == "artefacts":
             made = keep(machine)
             return "\n".join(
@@ -294,13 +345,22 @@ class Handler(BaseHTTPRequestHandler):
                     "",
                 ]
             )
+        return self.nothing(which, "no room here is addressed")
+
+    def nothing(self, which: str, why: str) -> str:
+        """A refusal, in place — with what this reading DOES hold."""
         return "\n".join(
             [
                 f"#PLACE {which} missing no such room",
                 "#SEC title 1",
                 "NO SUCH ROOM",
                 "#SEC refusal 1",
-                f"nothing here is addressed {which!r} — index, machine, artefacts",
+                f"{why} {which!r}",
+                "#SEC list 4",
+                "the machine\tplace:machine",
+                "the artefacts\tplace:artefacts",
+                "the grammar as a value\tplace:ir:grammar",
+                "the reducer as a value\tplace:ir:reducer",
                 "",
             ]
         )
@@ -338,6 +398,7 @@ class Handler(BaseHTTPRequestHandler):
             "/place",
             "/column",
             "/routes",
+            "/irvalue",
         ):
             return None
         try:
@@ -361,6 +422,14 @@ class Handler(BaseHTTPRequestHandler):
                     "",
                 ]
             )
+        if path == "/irvalue":
+            asked = parse_qs(query)
+            value = self.subject(asked.get("place", [""])[0], machine)
+            if value is None:
+                # the surface reads a value; absence IS one, so it is spelled
+                # as a value rather than sent as an empty body it cannot parse
+                return "type nothing\ntier absence\nnodes 0\nedges 0\n"
+            return ir_wire(value, asked.get("path", [""])[0])
         if path == "/column":
             at = dict(
                 part.split("=", 1) for part in query.split("&") if "=" in part

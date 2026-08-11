@@ -23,7 +23,7 @@ async function probeGestures() {
     await wait(700);
     out.push(`fromMenu room=${roomId} place=${currentPlace}`,
              `menuClosed=${!$('strata') || !$('strata').classList.contains('on')}`);
-    await openPlace('v1i', false);
+    await openPlace('ir:reducer', false);
     await wait(400);
     out.push(`room=${roomId}`, `facets=${FACETS.join('+')}`,
              `placed=${[...document.querySelectorAll('#placeGrid > .facet')]
@@ -39,8 +39,13 @@ async function probeGestures() {
     out.push(`dockToggle=${chip ? chip.dataset.name + ':' + facetOn[chip.dataset.name] : 'none'}`);
     click(chip);
     await wait(150);
-    click($('placeBack'));
-    await wait(500);
+    // leave the rooms ENTIRELY before testing the layout: a seam drag inside
+    // a room measures the room's grid, which has no seams, and reads as a
+    // regression in the instrument rather than a mistake in the probe
+    for (let i = 0; i < 6 && currentPlace; i++) {
+      click($('placeBack'));
+      await wait(320);
+    }
     out.push(`back->${currentPlace}`);
     const before = JSON.stringify(layoutTree);
     if (seamEdges.length) {
@@ -62,6 +67,19 @@ async function probeGestures() {
       out.push(`seamDrag=${JSON.stringify(layoutTree) !== before}`);
     } else {
       out.push('seamDrag=NO-SEAMS');
+    }
+    // the value room: the IR surface must actually DRAW, and zoom must move
+    await openPlace('ir:grammar', false);
+    await wait(900);
+    const irv = document.querySelector('.irv');
+    const rows = irv ? irv.querySelectorAll('.irrow').length : 0;
+    out.push(`irRoom=${currentPlace} rows=${rows}`,
+             `irHead=${irv ? (irv.querySelector('.irhead b') || {}).textContent : 'NONE'}`);
+    const kid = irv && [...irv.querySelectorAll('.irrow')][1];
+    if (kid) {
+      click(kid);
+      await wait(700);
+      out.push(`irZoom=${(irv.querySelector('.irhead b') || {}).textContent}`);
     }
     // the ⧉ marks: each must open the surface that ASKED, not the graph
     const marks = [...document.querySelectorAll('.wantsWindow')];

@@ -97,9 +97,13 @@ function irRow(row) {
       + `<span class="irtype">${stEsc(n.type)}</span>`
       + `<span class="irkids">the same object, drawn above</span>${share}</div>`;
   }
+  // a record can be BOTH: it carries payload (its primitive fields — a
+  // rule's name, a quantifier's bound) and it has children. Showing only the
+  // subtree count made every rule row anonymous.
+  const pay = n.payload ? `<span class="irpay">${stEsc(n.payload)}</span>` : '';
   const body = n.kids
-    ? `<span class="irkids">${n.subtree} in subtree</span>`
-    : `<span class="irpay">${stEsc(n.payload || '')}</span>`;
+    ? pay + `<span class="irkids">${n.subtree} in subtree</span>`
+    : pay;
   return `<div class="irrow t-${n.tier}${n.refused ? ' refused' : ''}" ${pad}`
     + ` data-zoom="${n.i}">${field}<span class="irtype">${stEsc(n.type)}</span>`
     + `${body}${share}</div>`;

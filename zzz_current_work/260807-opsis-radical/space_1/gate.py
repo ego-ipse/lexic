@@ -29,6 +29,8 @@ from read import as_written, columns, read, read_up, upward  # noqa: E402
 from retype import retype  # noqa: E402
 from ring import GRAMMAR as POLICY  # noqa: E402
 from ring import apply_record, record  # noqa: E402
+from irvalue import graph as ir_graph  # noqa: E402
+from irvalue import wire as ir_wire  # noqa: E402
 from serve import PENDING, drawn, ruledefs  # noqa: E402
 from watch import watch  # noqa: E402
 
@@ -296,6 +298,41 @@ def main() -> int:
         " · ".join(
             f"{n} {c:,} chars {'equal' if s else 'DIFFERENT'}" for n, c, s in peers
         ),
+    )
+
+    # the value surface: what a grammar IS once loaded. Two things must
+    # hold or the picture lies — the wire must survive values whose payload
+    # contains a newline (the reducer's own literals do), and a shared object
+    # must be ONE node reached N times, never N copies.
+    loaded = compile_text(reading.reader_text, flavour="gbnf")
+    subjects = {
+        "grammar": loaded.grammar,
+        "codegen": loaded.codegen_grammar,
+        "reducer": get_flavour("gbnf").reducer,
+    }
+    torn: list[str] = []
+    identity: list[str] = []
+    sharing: list[int] = []
+    for name, value in subjects.items():
+        body = ir_wire(value)
+        rows = body.split("#NODES ", 1)[1].split("\n")
+        count = int(rows[0])
+        torn += [
+            f"{name}:{i}"
+            for i, row in enumerate(rows[1 : count + 1])
+            if not row.split(" ", 1)[0].isdigit()
+        ]
+        walk = ir_graph(value)
+        shared = [at for at, n in walk.refs.items() if n > 1]
+        sharing.append(len(shared))
+        identity.append(
+            f"{name} {len(walk.nodes)} nodes · {len(shared)} shared "
+            f"reached {sum(walk.refs[at] for at in shared)}×"
+        )
+    check(
+        "a value's wire survives its own payloads, and sharing is identity",
+        not torn and all(sharing),
+        " · ".join(identity) + (f" · TORN {torn[:3]}" if torn else ""),
     )
 
     # a surface refused its room must say WHERE it can be opened. "none-yet"
