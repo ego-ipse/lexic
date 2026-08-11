@@ -324,5 +324,8 @@ window.addEventListener('resize', () => ask(''));
 /* the reading is playing when the FRAME says it is — not when this leaf
    thinks it is. Starting playback from the transport is a gesture the leaf
    never sees, and it drove nothing for as long as this kept its own flag. */
-setInterval(() => { if (frame && frame.running) ask('tick'); }, 110);
+/* The clock asks as often as it can, and the server paces it in real
+   seconds — `ask` serialises, so this self-throttles to the round trip
+   instead of lurching at whatever the interval happened to be. */
+setInterval(() => { if (frame && frame.running) ask('tick'); }, 16);
 ask(asked.get('pin') ? `set pin.span ${asked.get('pin')}` : '');

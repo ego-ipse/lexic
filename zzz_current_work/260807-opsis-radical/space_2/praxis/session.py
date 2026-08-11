@@ -17,6 +17,7 @@ row, never an edit through a cascade.
 from __future__ import annotations
 
 from collections.abc import Callable, MutableMapping
+from time import monotonic
 
 from opsis.scene import ruledefs
 from praxis.history import Retype, retype
@@ -38,6 +39,7 @@ class Session:
         "body",
         "generation",
         "playing",
+        "since",
         "climbed",
         "main",
         "reading",
@@ -54,6 +56,10 @@ class Session:
         self.climbed: list[Reading] = [reading]
         self.at = 0.0
         self.playing = False
+        # when the clock last moved. Playback is paced in REAL SECONDS, so a
+        # tick that arrives late — or not at all — costs nothing: the reading
+        # crosses the document in the same time whatever the frame rate.
+        self.since = 0.0
         self.generation = 1
         # the session's own policy, and whichever layer is being written to
         self.main: dict[str, str] = {}
@@ -234,6 +240,10 @@ class Session:
         self.said = None
         self.at = 0.0
         self.playing = False
+        # when the clock last moved. Playback is paced in REAL SECONDS, so a
+        # tick that arrives late — or not at all — costs nothing: the reading
+        # crosses the document in the same time whatever the frame rate.
+        self.since = 0.0
         self.generation += 1
 
     def _ring(self, _words: list[str]) -> None:
@@ -478,6 +488,7 @@ class Session:
 
     def _play(self, _words: list[str]) -> None:
         self.playing = not self.playing
+        self.since = monotonic()
 
     def _speed(self, words: list[str]) -> None:
         was = float(self.state.get("speed", "1"))
@@ -486,11 +497,20 @@ class Session:
         )
 
     def _tick(self, _words: list[str]) -> None:
+        """The clock, moved by however much time has actually passed.
+
+        A fixed step per tick makes the pace a function of the round trip: at
+        one frame every 110ms the cursor lurched nine times a second, which is
+        what a laggy instrument IS. Ten seconds to cross the document, and the
+        frame rate is free to be whatever the socket can carry.
+        """
         if not self.playing:
             return
+        now = monotonic()
+        gone, self.since = min(0.5, now - self.since), now
         length = len(self.reading.text)
         self.at = min(
-            self.at + length / 90 * float(self.state.get("speed", "1")), length
+            self.at + gone * length / 10 * float(self.state.get("speed", "1")), length
         )
         self.playing = self.at < length
 
