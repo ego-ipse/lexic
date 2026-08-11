@@ -106,9 +106,24 @@ reads as its opposite.
 - The spine's gutter is as wide as the widest thing in it: a column of
   origins clipped to `@41…` says nothing at all.
 
+## Ported since
+
+- **`▤ rail`** — the chip raised beside a rule when you choose it, in the
+  reader, which is where the pointer was. Clicking it shows that rule as the
+  track it describes and scrolls the rails TO it: the drawing already labels
+  every rule's row, so the scroll can be a NAME and nobody computes a layout
+  twice or holds a second copy of one.
+- Co-selection reaches the lanes: a chosen rule's spans are ringed violet
+  wherever they appear, which is what "click a rule → its spans outline
+  violet everywhere" means.
+
 ## Deviations still to redo
 
 - The tune dials (`#gtune`) are not drawn.
+- `⌖ pin` is NOT built. Pins are windows carrying their own camera, view and
+  history — per-window state, where a popped window today shares the one
+  session. Half a pin (a window that silently steers the main instrument)
+  would be worse than none, so it is stated here instead.
 
 ## Not ported yet
 

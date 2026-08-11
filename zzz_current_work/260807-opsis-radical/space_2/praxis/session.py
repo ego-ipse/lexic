@@ -151,6 +151,14 @@ class Session:
         key = f"facet.{words[0]}"
         self.state[key] = "off" if self.state.get(key, "on") == "on" else "on"
 
+    def _rail(self, words: list[str]) -> None:
+        """▤ rail — show this rule as the track it describes, and go to it."""
+        if not words:
+            return
+        self.state["graph.view"] = "rails"
+        self.state["top.rails"] = f"rule:{words[0]}"
+        self.state["tab.reader"] = "1"
+
     def _sel(self, words: list[str]) -> None:
         """Text selected in a plane — the smallest covering occurrence co-selects."""
         if len(words) < 3 or words[0] != "document":
@@ -321,6 +329,7 @@ SAYS: dict[str, Said] = {
 LANDED: dict[str, Said] = {
     "facet": Session._facet,
     "gutter": Session._gutter,
+    "rail": Session._rail,
     "rule": Session._rule,
     "span": Session._span,
     "tab": Session._tab,

@@ -165,7 +165,7 @@ def _plane(
     rows = max(0, int((h - 8) // ROW))
     lit = _held(look, name)
     badges = _badges(look) if name == "grammar" else {}
-    heads = {at: rule for rule, at, _last in look.it.rules} if badges else {}
+    heads = {at: rule for rule, at, _last in look.it.rules} if name == "grammar" else {}
     for i in range(rows):
         line = first + i
         if line >= len(lines):
@@ -177,6 +177,10 @@ def _plane(
         badge = badges.get(heads.get(line, ""), "")
         if badge:
             _badge(said, x + w - 12, top + 3, badge)
+        # ▤ rail — raised beside the rule that was just clicked, the same
+        # gesture shape as the pin chip: a NEW window is only ever the chip
+        if name == "grammar" and heads.get(line, "") == look.chosen and look.chosen:
+            _chip(said, x + 14 + runs("chip", lines[line]) + 20, top, look.chosen)
         if numbered:
             said.text(
                 x + 1.5 * CELL, top + ROW - 5, "dimmer", f"{line + 1:>4}", 5 * CELL
@@ -233,6 +237,21 @@ def _held(look: Look, name: str) -> dict[int, str]:
         for line in range(first, last + 1):
             out[line] = tone
     return out
+
+
+def _chip(said: Frame, x: float, top: float, rule: str) -> None:
+    """▤ rail — the chip that opens this rule as the track it describes."""
+    wide = runs("chip", "▤ rail") + 14
+    said.box(x, top, wide, 15, "field2")
+    for x1, y1, x2, y2 in (
+        (x, top, x + wide, top),
+        (x, top + 15, x + wide, top + 15),
+        (x, top, x, top + 15),
+        (x + wide, top, x + wide, top + 15),
+    ):
+        said.line(x1, y1, x2, y2, "violet")
+    said.text(x + 7, top + 11, "violet", "▤ rail", face="chip")
+    said.hit(x, top, wide, 15, "rail", rule)
 
 
 def _badge(said: Frame, right: float, top: float, kind: str) -> None:
@@ -360,13 +379,28 @@ def _arcs(said: Frame, room: Room, look: Look) -> None:
 
 
 def _rails(said: Frame, room: Room, look: Look) -> None:
-    """A list of railroads is READ, not surveyed: full size, and you drag it."""
+    """A list of railroads is READ, not surveyed: full size, and you drag it.
+
+    Its scroll can also be a NAME. The drawing labels every rule's row, so
+    `▤ rail` scrolls to the rule it was raised on without anyone having to
+    compute a layout twice or hold a second copy of one.
+    """
     x, y, w, _h = room
-    said.place(
-        rails_drawing(rails(look.it.shown), int(w - 20)),
-        x + 10,
-        y + 8 - look.top("rails"),
-    )
+    drawn = rails_drawing(rails(look.it.shown), int(w - 20))
+    said.place(drawn, x + 10, y + 8 - _railtop(drawn, look))
+
+
+def _railtop(drawn: Drawing, look: Look) -> float:
+    """How far down the rails are scrolled — by rows, or to a named rule."""
+    where = look.says("top.rails", "0")
+    if not where.startswith("rule:"):
+        return float(look.top("rails"))
+    wanted = where[len("rule:") :]
+    for mark in drawn.marks:
+        parts = mark.split(" ")
+        if parts[0] == "text" and parts[3] == "name" and " ".join(parts[4:]) == wanted:
+            return max(0.0, float(parts[2]) - ROW)
+    return 0.0
 
 
 def _automaton(said: Frame, room: Room, look: Look) -> None:
