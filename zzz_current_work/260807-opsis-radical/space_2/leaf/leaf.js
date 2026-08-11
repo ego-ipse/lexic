@@ -392,8 +392,12 @@ function scrubAt(ev) {
    the canvas's hit test can answer for the rectangle it covers. */
 function ours(ev) {
   const on = ev.target;
+  /* a plane, a dropdown and a DIAL are all real controls with their own
+     handling — a drag on a slider that also reaches the canvas moves the
+     camera while you are setting a number */
   return !on || !on.classList
-    || (!on.classList.contains('plane') && !on.classList.contains('pick'));
+    || !(on.classList.contains('plane') || on.classList.contains('pick')
+         || on.classList.contains('dial'));
 }
 
 function under(ev, wanted) {
@@ -516,7 +520,10 @@ window.addEventListener('pointermove', (ev) => {
   /* A drag says WHAT IT STARTED ON. Where it goes — a window moved, a
      graph turned, a corner resized — is the session's to decide, and it
      cannot decide it from two numbers alone. */
-  ask(`spin ${on ? `${on.kind} ${on.goes}` : '- -'} ${dx} ${dy}`);
+  /* `drag = { pan: viewMode(v) !== 'depth3d' || e.shiftKey }` — in the
+     three-space view a plain drag TURNS it and Shift PANS it */
+  ask(`spin ${on ? `${on.kind} ${on.goes}` : '- -'} ${dx} ${dy}`
+    + (ev.shiftKey ? ' shift' : ''));
 });
 
 /* a stack of diagrams reads like a document: wheel scrolls, Ctrl+wheel zooms */

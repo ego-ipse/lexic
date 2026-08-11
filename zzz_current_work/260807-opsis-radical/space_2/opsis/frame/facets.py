@@ -30,7 +30,6 @@ from opsis.paint import (
     band_drawing,
     chart_drawing,
     clock_drawing,
-    graph_drawing,
     packed,
     rail_drawing,
     rails_drawing,
@@ -554,7 +553,7 @@ def graph(said: Frame, room: Room, look: Look) -> None:
     if look.it.machine is None or look.it.shown is None:
         said.text(room[0] + 14, room[1] + 20, "fsub", "this reading has no machine")
         return
-    GRAPHVIEWS.get(look.says("graph.view", "depth3d"), _depth3d)(said, room, look)
+    GRAPHVIEWS.get(look.says("graph.view", "depth3d"), _flat)(said, room, look)
     _dials(said, room, look)
 
 
@@ -626,20 +625,35 @@ def camera(look: Look, room: Room) -> tuple[float, float, float]:
     )
 
 
-def _depth3d(said: Frame, room: Room, look: Look) -> None:
-    """A ring per level in three-space — z is derivation distance, earned."""
+def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
+    """The three PROJECTED views — places in, edges and chips out.
+
+    `drawGraphView` builds only TWO of the five from a drawing: the railroads
+    and the automaton. depth3d, flat and arcs project their places and draw
+    their own edges and chips, because a node has to know whether it is lit,
+    chosen or under the hand, and a drawing made before any of that was asked
+    cannot say.
+    """
     x, y, w, h = room
     px, py, _k = camera(look, room)
     x, y = x + px, y + py
     shown = look.it.shown
-    at = project(
-        positions(shown, "rings", int(w), int(h), _tuned(look)),
-        float(look.says("graph.depth3d.yaw", "0.42")),
-        float(look.says("graph.depth3d.pitch", "0.92")),
-        w,
-        h,
-        look.zoom("graph"),
+    laid = positions(
+        shown, {"depth3d": "rings"}.get(view, view), int(w), int(h), _tuned(look)
     )
+    if view == "depth3d":
+        at = project(
+            laid,
+            float(look.says("graph.depth3d.yaw", "0.42")),
+            float(look.says("graph.depth3d.pitch", "0.92")),
+            w,
+            h,
+            # ITS OWN zoom: this was reading `graph.zoom`, a key nothing
+            # writes, which is why three-space would not zoom at all.
+            look.zoom("graph.depth3d"),
+        )
+    else:
+        at = _spread(laid, w, h, look.zoom(f"graph.{view}"))
     lit = look.lit()
     keep = look.keep()
     named = {name: as_written(look.it.rules, name) for name in at}
@@ -741,6 +755,34 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
         said.hit(x + px - wide / 2, y + py - tall / 2, wide, tall, "rule", says)
 
 
+def _spread(
+    laid: dict[str, tuple[float, float, float]], w: float, h: float, zoom: float
+) -> dict[str, tuple[float, float, float]]:
+    """A flat layout, fitted and centred — `{x, y, s: 1}` with the camera on.
+
+    `drawGraphView` projects a non-3d view as the place itself, then fits
+    against the extent and centres on its middle. Every node's `s` is 1, so
+    every chip is `.near`: ink on cool, whatever its depth.
+    """
+    if not laid:
+        return {}
+    xs = [p[0] for p in laid.values()]
+    ys = [p[1] for p in laid.values()]
+    mx, my = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    k = (
+        min(
+            (w - 120) / max(40.0, max(xs) - min(xs)),
+            (h - 40) / max(40.0, max(ys) - min(ys)),
+            2.4,
+        )
+        * zoom
+    )
+    return {
+        name: (w / 2 + (p[0] - mx) * k, h / 2 + (p[1] - my) * k, 1.0)
+        for name, p in laid.items()
+    }
+
+
 def _tuned(look: Look) -> dict[str, float]:
     """What the hand has said about this layout, in the layout's own words."""
     return {
@@ -749,121 +791,32 @@ def _tuned(look: Look) -> dict[str, float]:
     }
 
 
+def _depth3d(said: Frame, room: Room, look: Look) -> None:
+    """A ring per level in three-space — z is derivation distance, earned."""
+    _nodes(said, room, look, "depth3d")
+
+
 def _flat(said: Frame, room: Room, look: Look) -> None:
-    x, y, w, h = room
-    px, py, zoom = camera(look, room)
-    drawn = graph_drawing(
-        look.it.shown, "flat", int(w), int(h), _tuned(look), look.lit(), look.keep()
-    )
-    k, ox, oy = fitted(drawn, room)
-    said.place(drawn, x + px + ox, y + py + oy, k * zoom)
+    """Levels left to right — the SAME path as three-space, flattened.
+
+    `drawGraphView` builds only TWO of the five views from a drawing: the
+    railroads and the automaton. This one projects the places and draws its
+    own edges and its own chips, exactly as the three-space view does, and
+    for the same reason — a node has to know whether it is lit, chosen or
+    under the hand, and a drawing made before any of that was asked cannot.
+    """
+    _nodes(said, room, look, "flat")
 
 
 def _arcs(said: Frame, room: Room, look: Look) -> None:
-    """The arcs — a line of rules, and every reference as a curve over it.
+    """One line of rules, every reference an arc over it.
 
-    Only the START, the chosen and the hovered are named. `graph.js` makes
-    every other node a `.gchip.dot`, because thirty-two names on one line is
-    thirty-two names nobody can read.
+    A forward reference lifts ABOVE the line and a backward one below, by
+    `(12 + |dx| * 0.28) * ringscale`, and a rule that refers to itself is a
+    ring. Only the start, the chosen and the hovered are named; the rest are
+    `.gchip.dot`.
     """
-    x, y, w, h = room
-    px, py, k = camera(look, room)
-    # BOTH SPELLINGS. The drawing labels its nodes with the codegen name
-    # (`json-text`) and everything the hand touches is the written one
-    # (`JSON-text`), so a set of one spelling names nothing.
-    wanted = {name for name, at_ in look.it.deep.items() if at_ == 0}
-    wanted |= {look.chosen, look.hovered()} - {""}
-    named = wanted | {name.casefold() for name in wanted}
-    drawn = graph_drawing(
-        look.it.shown, "arcs", int(w), int(h), _tuned(look), look.lit(), look.keep()
-    )
-    # AN ARC RISES ABOVE ITS LINE, so this drawing's marks run negative — the
-    # line sits at y≈20 and the tallest curve reaches −148. Placing it at the
-    # top of the room put every arc off the screen and left the line jammed
-    # under the head. Its OWN bounds are what gets centred.
-    fit, ox, oy = fitted(drawn, room)
-    said.place(drawn, x + px + ox, y + py + oy, fit * k, dots=frozenset(named))
-
-
-def centres(drawn: Drawing) -> tuple[float, float, float, float]:
-    """The extent of the node CENTRES — what `graph.js` fits against.
-
-    Not the extent of their boxes. A box already contains its label, so
-    fitting to boxes AND padding by half a label subtracts the label twice:
-    this port fitted 704 units into 676 of room where the reference fits 596
-    into the same 676, which is the whole of why its graphs came out too
-    small to read.
-    """
-    xs: list[float] = []
-    ys: list[float] = []
-    for mark in drawn.marks:
-        parts = mark.split(" ")
-        if parts[0] != "box":
-            continue
-        xs.append(float(parts[1]) + float(parts[3]) / 2)
-        ys.append(float(parts[2]) + float(parts[4]) / 2)
-    if not xs:
-        return (0.0, 0.0, 0.0, 0.0)
-    return (min(xs), max(xs), min(ys), max(ys))
-
-
-def fitted(drawn: Drawing, room: Room, pad: float = 0.0) -> tuple[float, float, float]:
-    """FILL THE FACET, whatever the grammar's size — `graph.js`'s auto-fit.
-
-    A layout is laid out in its own units and the room is whatever the hand
-    left it; without a fit the picture sits in a corner of a facet that is
-    mostly empty. Fitted against the drawing's own extent, capped at 2.4 as
-    the reference caps it, and centred on what it measured.
-
-    :returns: the scale, and where to put the drawing's origin.
-    """
-    left, right, low, high = centres(drawn)
-    # PADDED PER AXIS, as `graph.js` pads: padX from half the widest label,
-    # padY from half its HEIGHT. One pad for both takes a label's width out
-    # of the vertical room as well, and loses eighty pixels of it.
-    wides = [
-        runs("drawn", " ".join(m.split(" ")[7:]))
-        for m in drawn.marks
-        if m.startswith("box ") and len(m.split(" ")) > 7
-    ]
-    talls = [float(m.split(" ")[4]) for m in drawn.marks if m.startswith("box ")]
-    pad_x = pad or max(10.0, max(wides, default=20.0) / 2 + 4)
-    pad_y = pad or max(10.0, max(talls, default=16.0) / 2 + 4)
-    wide = max(40.0, right - left)
-    tall = max(40.0, high - low)
-    _x, _y, w, h = room
-    k = min((w - 2 * pad_x) / wide, (h - 2 * pad_y) / tall, 2.4)
-    return k, (w - wide * k) / 2 - left * k, (h - tall * k) / 2 - low * k
-
-
-def _bounds(drawn: Drawing) -> tuple[float, float, float, float]:
-    """How far a drawing actually REACHES — left, right, top, bottom.
-
-    `graph.js` fits against the extent of the nodes it projected, not against
-    the box the layout was asked for. A drawing laid out to fill its room
-    reports a width of about that room, so fitting to `drawn.wide` scales it
-    by 0.96 and calls that a fit: the picture stays wherever the layout put
-    it, in a corner of a facet that is mostly empty.
-    """
-    xs: list[float] = []
-    ys: list[float] = []
-    for mark in drawn.marks:
-        parts = mark.split(" ")
-        if parts[0] == "box":
-            xs += [float(parts[1]), float(parts[1]) + float(parts[3])]
-            ys += [float(parts[2]), float(parts[2]) + float(parts[4])]
-        elif parts[0] == "line":
-            xs += [float(parts[1]), float(parts[3])]
-            ys += [float(parts[2]), float(parts[4])]
-        elif parts[0] == "curve":
-            xs += [float(parts[1]), float(parts[3]), float(parts[5])]
-            ys += [float(parts[2]), float(parts[4]), float(parts[6])]
-        elif parts[0] == "bez":
-            xs += [float(parts[i]) for i in (1, 3, 5, 7)]
-            ys += [float(parts[i]) for i in (2, 4, 6, 8)]
-    if not xs:
-        return (0.0, 0.0, 0.0, 0.0)
-    return (min(xs), max(xs), min(ys), max(ys))
+    _nodes(said, room, look, "arcs")
 
 
 def _rails(said: Frame, room: Room, look: Look) -> None:
@@ -1433,6 +1386,14 @@ def _rows(
         top += ROW
 
 
+def _snip(said: str) -> str:
+    """What a closed span HELD, in one line — `''` when it held nothing."""
+    if not said:
+        return "''"
+    one = said.replace("\n", "⏎").replace("\t", "→")
+    return one if len(one) <= 28 else one[:27] + "…"
+
+
 def _model_stack(said: Frame, room: Room, look: Look) -> None:
     """model — the open model spans, as ever."""
     x, y, _w, _h = room
@@ -1449,12 +1410,15 @@ def _model_stack(said: Frame, room: Room, look: Look) -> None:
     ]
     if not rows:
         said.text(x + 14, y + 40, "fsub", "nothing open — before the first span")
+    # `#closedBody` rows carry `d{depth}` and the span's TEXT — not its
+    # extent, which is what the OPEN rows carry — and a row is `.fresh`,
+    # warm, when the cursor has only just passed its end.
     closed: list[Row] = [
         (
-            "",
+            f"d{span.depth}",
             as_written(look.it.rules, span.rule),
-            f"{span.start:,}..{span.end:,}",
-            "dim",
+            _snip(look.reading.text[span.start : span.end]),
+            "warm" if look.at - span.end < 3 else "dim",
             f"{span.start}:{span.end}",
         )
         for span in closed_before(look.reading, look.at)[:4]

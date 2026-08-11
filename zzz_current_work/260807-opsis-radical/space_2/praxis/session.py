@@ -658,7 +658,9 @@ class Session:
         if kind in ("winhead", "wincorner"):
             self._window([goes, "size" if kind == "wincorner" else "move", *words[2:]])
             return
-        if goes == "graph" and self.state.get("graph.view", "depth3d") != "depth3d":
+        if goes == "graph" and (
+            self.state.get("graph.view", "depth3d") != "depth3d" or words[-1] == "shift"
+        ):
             # every picture but the three-space one is FLAT: dragging it moves
             # it. There is nothing to turn.
             self._pan(words[2:])
