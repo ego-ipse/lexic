@@ -694,9 +694,11 @@ Only the MODEL spine's rows carry an index in the reference: `drawPdaSpine`
 and `drawEarleySpine` build rows with no `dataset.i`, so clicking those does
 nothing there either. Do not invent behaviour for them.
 
-Also unfinished: clicking a railroad now chooses the rule and raises the
-chip, but `railsGoto` does not take — `top.graph` is written and the view
-does not scroll to it.
+Clicking a railroad chooses the rule, raises the chip and scrolls the list to
+it. I reported `railsGoto` as not taking; that was wrong — `json-text` is
+still the FIRST MARK in the drawing after the scroll, and I read its name
+instead of its position. It is drawn at y = -1124 afterwards, which is the
+list having moved 1,237px. Read the number, not the order.
 
 ## Not ported yet
 
