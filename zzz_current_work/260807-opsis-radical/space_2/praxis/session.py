@@ -288,15 +288,38 @@ class Session:
                 work(self, [])
 
     def _reread(self, _words: list[str]) -> None:
-        """Read what has been typed, without saving. An edit is a RE-READING."""
-        typed = self.typed.get("document")
-        if typed is None:
+        """Read what has been typed, without saving. An edit is a RE-READING.
+
+        BOTH planes: grammar is the ground truth, so typing in the reader is
+        not a note in the margin — it changes what reads the document, and
+        the only way to find out what it says now is to read again. A reader
+        that no longer compiles is a refusal like any other, and the text you
+        typed stays where you typed it.
+        """
+        grammar, document = self.typed.get("grammar"), self.typed.get("document")
+        if grammar is None and document is None:
             return
-        self.said = retype(self.reading, 0, len(self.reading.text), typed)
-        if self.said.state != "refused":
-            self.typed.pop("document", None)
-            self.generation += 1
-            self.at = min(self.at, float(len(self.reading.text)))
+        if grammar is not None:
+            was = self.reading.reader_text
+            self.reading.reader_text = grammar
+            self.said = retype(
+                self.reading,
+                0,
+                len(self.reading.text),
+                self.reading.text if document is None else document,
+            )
+            if self.said.state == "refused":
+                self.reading.reader_text = was
+                self.reading.hold()
+                return
+            self.typed.pop("grammar", None)
+        elif document is not None:
+            self.said = retype(self.reading, 0, len(self.reading.text), document)
+            if self.said.state == "refused":
+                return
+        self.typed.pop("document", None)
+        self.generation += 1
+        self.at = min(self.at, float(len(self.reading.text)))
 
     def _save(self, _words: list[str]) -> None:
         """Read it again, and — if it read — commit it.

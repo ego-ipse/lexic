@@ -362,8 +362,13 @@ def graph_drawing(
     tall: int,
     tune: dict[str, float] | None = None,
     lit: set[str] | None = None,
+    keep: set[str] | None = None,
 ) -> Drawing:
     """The relations as a drawing — nodes where they sit, edges between them.
+
+    :param keep: what ◉ focus keeps, when it is on. Focus belongs to the
+        FACET, not to one of its views: a rule's neighbourhood is the same
+        neighbourhood whether it is drawn flat, arced or in three-space.
 
     The flat and arc views are two dimensions, so the whole picture can be
     said here. The ring view keeps its camera in the leaf, because a camera
@@ -381,6 +386,8 @@ def graph_drawing(
         one, two = at.get(a), at.get(b)
         if one is None or two is None:
             continue
+        if keep is not None and not (a in keep and b in keep):
+            continue
         tone = "hot" if a in alight and b in alight else "cool"
         if view == "arcs":
             lift = min(160.0, abs(two[0] - one[0]) * 0.4) + 12
@@ -396,6 +403,8 @@ def graph_drawing(
         else:
             draw.line(one[0], one[1], two[0], two[1], tone)
     for name, (x, y) in at.items():
+        if keep is not None and name not in keep:
+            continue
         tone = "hot" if name in alight else "ref"
         said = name if len(name) <= 24 else name[:23] + "…"
         draw.box(x - 4, y - ROW / 2, columns(said) * CELL + 8, ROW * 0.8, tone, said)

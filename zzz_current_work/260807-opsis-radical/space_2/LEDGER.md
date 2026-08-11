@@ -244,6 +244,24 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## Grammar is the ground truth — including when you type in it
+
+Re-reading only ever looked at the DOCUMENT. Typing in THE READER and
+pressing `Ctrl+Enter` did nothing at all, which makes the reader a note in
+the margin rather than the thing that decides what the document says.
+
+It reads both planes now. Rename a rule throughout the grammar and the
+document re-reads under it — the same language, 12,219 spans either way, but
+the spans are now CALLED `sp` where they were called `ws`, which is what
+proves the new reader is the one that read. A reader that no longer compiles
+is a refusal like any other: the old reader stands, the reading keeps its
+spans, and what you typed stays where you typed it.
+
+**Focus belongs to the facet, not to one view.** `◉ focus` faded the ring
+graph and nothing else; a rule's neighbourhood is the same neighbourhood
+whether it is drawn flat, arced or in three-space, so `graph_drawing` takes
+what focus keeps.
+
 ## The ring
 
 `praxis/roots.py` and `fixtures/policy.gbnf` were both here, unused: the

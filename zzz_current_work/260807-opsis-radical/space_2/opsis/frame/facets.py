@@ -462,7 +462,9 @@ def _tuned(look: Look) -> dict[str, float]:
 def _flat(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
     said.place(
-        graph_drawing(look.it.shown, "flat", int(w), int(h), _tuned(look), look.lit()),
+        graph_drawing(
+            look.it.shown, "flat", int(w), int(h), _tuned(look), look.lit(), look.keep()
+        ),
         x,
         y,
     )
@@ -471,7 +473,9 @@ def _flat(said: Frame, room: Room, look: Look) -> None:
 def _arcs(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
     said.place(
-        graph_drawing(look.it.shown, "arcs", int(w), int(h), _tuned(look), look.lit()),
+        graph_drawing(
+            look.it.shown, "arcs", int(w), int(h), _tuned(look), look.lit(), look.keep()
+        ),
         x,
         y + h / 3,
     )

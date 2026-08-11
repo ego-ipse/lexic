@@ -29,8 +29,8 @@ from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
 from opsis.frame.marks import Frame  # noqa: E402
 from opsis.frame.tones import EDGES, FONTS, TONES  # noqa: E402
-from opsis.scene import reader_of  # noqa: E402
-from praxis.reading import Reading  # noqa: E402
+from opsis.scene import reader_of, ruledefs  # noqa: E402
+from praxis.reading import Reading, as_written  # noqa: E402
 from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 from praxis.state import chain  # noqa: E402
 
@@ -323,6 +323,46 @@ def main() -> int:
     )
     session.gesture("key Escape")
     check("reverting puts the reading back", reading.text == was and not session.typed)
+
+    print("the grammar is the ground truth")
+    typer = Session(Reading(READER, DOCUMENT))
+    typer.reading.hold()
+    # renaming a rule everywhere is the SAME LANGUAGE under new names: the
+    # span count is expected to hold, and what must change is what the spans
+    # are CALLED — which is read off the reader's text, so it proves the new
+    # reader is the one that read
+    typer.gesture("text grammar", typer.reading.reader_text.replace("ws", "sp"))
+    typer.gesture("key Ctrl+Enter")
+    named = {
+        as_written(ruledefs(typer.reading.reader_text), s.rule)
+        for s in typer.reading.spans
+    }
+    check(
+        "typing in the READER re-reads the document with the new reader",
+        typer.said is not None
+        and typer.said.state != "refused"
+        and "sp" in named
+        and "ws" not in named,
+        f"{len(typer.reading.spans):,} spans, now called "
+        + " ".join(sorted(n for n in named if n in ("sp", "ws")) or ["—"]),
+    )
+    broke = Session(Reading(READER, DOCUMENT))
+    broke.reading.hold()
+    held = broke.reading.reader_text
+    broke.gesture("text grammar", "this is not a grammar at all\n")
+    broke.gesture("key Ctrl+Enter")
+    check(
+        "a reader that no longer compiles is a refusal, and the old one stands",
+        broke.reading.reader_text == held
+        and broke.said is not None
+        and broke.said.state == "refused"
+        and bool(broke.reading.spans),
+        f"{len(broke.reading.spans):,} spans still",
+    )
+    check(
+        "and what was typed is still where it was typed",
+        broke.typed.get("grammar", "").startswith("this is not"),
+    )
 
     print("windows are their own")
     from collections import ChainMap
