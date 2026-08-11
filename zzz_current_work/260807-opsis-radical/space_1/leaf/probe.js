@@ -133,7 +133,7 @@ async function probeGestures() {
     // facet changes height, which is what a seam drag or a window resize
     // actually does to it.
     setClock('model');
-    ask();
+    render();   // force the paint this check reads
     await wait(900);
     const inkFloor = (cv) => {
       const cx2 = cv.getContext('2d');
@@ -163,7 +163,7 @@ async function probeGestures() {
     await wait(300);
     // the band must have ARRIVED and have marks the register can colour
     setClock('model');
-    ask();
+    render();   // force the paint this check reads
     await wait(1500);
     const bandSaid = drawings.get([...drawings.keys()]
       .find((k) => k.startsWith('band:')) || '');
@@ -174,7 +174,7 @@ async function probeGestures() {
         ? !!BAND[bandSaid.marks[0].split(' ')[5]] : false}`);
     // THE SPINE: what is open at the cursor must actually reach the screen
     cur.t = 4000;
-    ask();
+    render();   // force the paint this check reads
     await wait(1200);
     out.push(`pointOpen=${pointHere.open.length} lit=${pointHere.lit.length}`,
       `spineRows=${document.querySelectorAll('#spineBody .row').length}`,
@@ -184,7 +184,7 @@ async function probeGestures() {
     // computation per frame, and why the clock died when you pressed play.
     setClock('pda');
     cur.t = 1000;
-    ask();
+    render();   // force the paint this check reads
     await wait(2500);
     const keysBefore = [...drawings.keys()].filter((k) => k.startsWith('clock:')).length;
     for (const step of [3000, 6000, 9000, 12000, 15000]) {
@@ -199,7 +199,7 @@ async function probeGestures() {
         .find((k) => k.startsWith('clock:')) || '') || { marks: [] }).marks.length}`);
     setClock('model');
     cur.t = 4000;
-    ask();
+    render();   // force the paint this check reads
     await wait(400);
     // THE RAILS, DRIVEN: a pinned rule must draw, and a ref must be a door
     const pinned = await fetchRail('member');
@@ -345,7 +345,7 @@ async function probeGestures() {
     out.push(`autoPlay=${cur.playing} t=${ticks.join('/')}`);
     cur.playing = false;
     cur.t = 4000;
-    ask();
+    render();   // force the paint this check reads
     await wait(400);
     // the relations must be the ACTIVE tab before its chips can light: a
     // hidden facet has no width, and a view with no width draws nothing
@@ -401,7 +401,7 @@ async function probeGestures() {
     await wait(700);
     const twinView = chartTwins[chartTwins.length - 1];
     cur.t = 9000;
-    ask();
+    render();   // force the paint this check reads
     await wait(500);
     drawChartTwins();
     out.push(`chartTwin=${!!twinView}`,
@@ -565,7 +565,7 @@ async function probeResize() {
   const out = [];
   await wait(1800);
   cur.t = 4000;
-  ask();
+  render();   // force the paint this check reads
   await wait(900);
   const cv = $('chartCv');
   const floor = () => {
