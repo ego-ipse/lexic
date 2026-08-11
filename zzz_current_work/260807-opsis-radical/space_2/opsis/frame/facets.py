@@ -241,10 +241,15 @@ def _plane(
     """A block of REAL text, with what is true about it drawn underneath."""
     x, y, w, h = room
     lines = text.split("\n")
-    rows = max(0, int((h - 8) // ROW))
+    # Ctrl+wheel over a text pane is `applyDocZoom`: --fs and --lh both scale,
+    # so every number under the text scales with them or the drawing lands on
+    # the wrong characters
+    zoom = look.zoom("doc")
+    cell, row = CELL * zoom, ROW * zoom
+    rows = max(0, int((h - 8) // row))
     first = _showing(look, name, look.top(name), rows)
     # .ln .g { width: 5ch; padding-right: 1.5ch } — the gutter is 6.5ch
-    run = x + (6.5 * CELL if numbered else 1.5 * CELL)
+    run = x + (6.5 * cell if numbered else 1.5 * cell)
     lit = _held(look, name)
     badges = _badges(look) if name == "grammar" else {}
     heads = {at: rule for rule, at, _last in look.it.rules} if name == "grammar" else {}
@@ -252,24 +257,32 @@ def _plane(
         line = first + i
         if line >= len(lines):
             break
-        top = y + 8 + i * ROW
+        top = y + 8 + i * row
         tone = lit.get(line, "")
         if tone:
-            said.box(x, top, w, ROW, tone)
+            said.box(x, top, w, row, tone)
         badge = badges.get(heads.get(line, ""), "")
         if badge:
             _badge(said, x + w - 12, top + 3, badge)
         if numbered:
             said.text(
-                x + 1.5 * CELL, top + ROW - 5, "dimmer", f"{line + 1:>4}", 5 * CELL
+                x + 1.5 * cell, top + row - 5, "dimmer", f"{line + 1:>4}", 5 * cell
             )
-            said.hit(x, top, 6.5 * CELL, ROW, "gutter", str(line))
+            said.hit(x, top, 6.5 * cell, row, "gutter", str(line))
     # ONLY THE DOCUMENT IS TYPED IN. `#grammarBody` is built of `.ln` rows
     # and is not editable, which is what lets Space play, `g` show the graph
     # and `[` `]` change speed while the reader has the hand — a reader you
     # can type into swallows every key the status bar promises.
     said.plane(
-        name, run, y + 8, w - (run - x) - 8, h - 12, text, first, name == "document"
+        name,
+        run,
+        y + 8,
+        w - (run - x) - 8,
+        h - 12,
+        text,
+        first,
+        name == "document",
+        zoom,
     )
     # a plane holding text that has not been read says so, where the eye
     # leaves the plane: everything derived beside it is of the LAST reading
@@ -283,7 +296,7 @@ def _plane(
             face="chip",
         )
     if name == "document":
-        _under(said, room, look, text, first, run, rows)
+        _under(said, room, look, text, first, run, rows, cell, row)
     _frontier(said, room, look, text, first, run, rows)
     if name == "document":
         _pinchip(said, room, look, text, first, run, rows)
@@ -321,7 +334,15 @@ def _segments(
 
 
 def _under(
-    said: Frame, room: Room, look: Look, text: str, first: int, run: float, rows: int
+    said: Frame,
+    room: Room,
+    look: Look,
+    text: str,
+    first: int,
+    run: float,
+    rows: int,
+    cell: float = CELL,
+    row: float = ROW,
 ) -> None:
     """What is true about the document, drawn under its own characters.
 
@@ -334,12 +355,12 @@ def _under(
 
     def paint(s0: int, e0: int, tone: str, ring: bool) -> None:
         for i, c0, c1 in _segments(starts, s0, e0, first, rows):
-            x1, top = run + c0 * CELL, y + 8 + i * ROW
-            wide = max(1.5, (c1 - c0) * CELL)
+            x1, top = run + c0 * cell, y + 8 + i * row
+            wide = max(1.5, (c1 - c0) * cell)
             if ring:
-                said.ring(x1, top + 1, wide, ROW - 2, tone)
+                said.ring(x1, top + 1, wide, row - 2, tone)
             else:
-                said.box(x1, top, wide, ROW, tone)
+                said.box(x1, top, wide, row, tone)
 
     for span in look.live():
         paint(span.start, span.end, "open", False)
@@ -560,10 +581,14 @@ def camera(look: Look, room: Room) -> tuple[float, float, float]:
     shows the same picture at a different size rather than a different one.
     """
     _x, _y, w, h = room
+    # A CAMERA PER VIEW. `v.cams[mode]` saves the one you are leaving and
+    # restores the one you are entering — the railroad you had scrolled and
+    # the orbit you had turned are not the same camera and never were.
+    view = look.says("graph.view", "depth3d")
     return (
-        float(look.says("graph.pan.x", "0")) * w,
-        float(look.says("graph.pan.y", "0")) * h,
-        look.zoom("graph"),
+        float(look.says(f"graph.{view}.pan.x", "0")) * w,
+        float(look.says(f"graph.{view}.pan.y", "0")) * h,
+        look.zoom(f"graph.{view}"),
     )
 
 
@@ -575,8 +600,8 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
     shown = look.it.shown
     at = project(
         positions(shown, "rings", int(w), int(h), _tuned(look)),
-        float(look.says("graph.yaw", "0.42")),
-        float(look.says("graph.pitch", "0.92")),
+        float(look.says("graph.depth3d.yaw", "0.42")),
+        float(look.says("graph.depth3d.pitch", "0.92")),
         w,
         h,
         look.zoom("graph"),

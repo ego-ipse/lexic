@@ -116,7 +116,8 @@ function read(said) {
     for (const row of lines.slice(i + 1, i + 1 + n)) {
       const p = row.split(' ');
       shown.push({ name: p[0], x: +p[1], y: +p[2], w: +p[3], h: +p[4], row: +p[5],
-                   cell: +p[6], top: +p[7], editable: p[8] === '1', chars: +p[9] });
+                   cell: +p[6], top: +p[7], editable: p[8] === '1', zoom: +p[9],
+                   chars: +p[10] });
     }
   }
   /* the texts ride raw at the end, counted in characters */
@@ -279,6 +280,9 @@ function weld() {
     el.style.width = `${plane.w}px`;
     el.style.height = `${plane.h}px`;
     el.readOnly = !plane.editable;
+    /* `applyDocZoom`: --fs is 12.5 × the zoom and --lh is 19 × it */
+    el.style.fontSize = `${(12.5 * (plane.zoom || 1)).toFixed(2)}px`;
+    el.style.lineHeight = `${plane.row.toFixed(2)}px`;
     if (el.value !== plane.text && document.activeElement !== el) el.value = plane.text;
     const top = plane.top * plane.row;
     if (Math.abs(el.scrollTop - top) > plane.row) el.scrollTop = top;
@@ -446,6 +450,15 @@ window.addEventListener('pointermove', (ev) => {
 
 /* a stack of diagrams reads like a document: wheel scrolls, Ctrl+wheel zooms */
 document.addEventListener('wheel', (ev) => {
+  /* Ctrl+wheel over a text pane is its ZOOM — `wireTextZoom` binds it to the
+     scroll containers, which are exactly the elements this otherwise skips */
+  const pane = ev.target && ev.target.classList
+    && ev.target.classList.contains('plane');
+  if (pane && ev.ctrlKey) {
+    ev.preventDefault();
+    ask(`zoom document ${ev.deltaY > 0 ? 1 : -1}`);
+    return;
+  }
   if (!ours(ev)) return;
   const target = under(ev, true);
   if (!target) return;

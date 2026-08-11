@@ -226,11 +226,17 @@ class Frame:
         said: str,
         top: int,
         editable: bool,
+        zoom: float = 1.0,
     ) -> None:
-        """Real text, at a place, on this frame's own glyph geometry."""
+        """Real text, at a place, on this frame's own glyph geometry.
+
+        :param zoom: what `applyDocZoom` sets — `--fs` is 12.5 × this and
+            `--lh` is 19 × this. The geometry sent here is already scaled by
+            it, so the drawing under the text stays on the characters.
+        """
         self.planes.append(
-            f"{name} {x:.1f} {y:.1f} {w:.1f} {h:.1f} {ROW} {CELL} {top} "
-            f"{1 if editable else 0} {len(said)}"
+            f"{name} {x:.1f} {y:.1f} {w:.1f} {h:.1f} {ROW * zoom:.2f} "
+            f"{CELL * zoom:.3f} {top} {1 if editable else 0} {zoom:.3f} {len(said)}"
         )
         self.texts.append(said)
 
