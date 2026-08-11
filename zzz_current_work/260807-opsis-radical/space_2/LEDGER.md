@@ -668,10 +668,15 @@ compute `lane = max(6, min(22, (tall - 24) / deep))`. Mine reaches the 22px
 CAP — box height 20 — because my chart facet is about 508px inside, where the
 reference's canvas is 467. At the same size both draw 19.35.
 
-So the derivation's geometry is right, its tones are right, and what is left
-is that the arrangement gives the chart column more room here than space_1
-gives it. That is a question about `arrange` and the facets' declared
-appetites, not about the chart.
+So the derivation's geometry is right and its tones are right. And the room
+is not a code difference either: `praxis/reading.py` is BYTE-IDENTICAL on both
+sides and `opsis/space.py` differs only by this port's own additions, so the
+appetites and the arrangement maths are the same. The 508 I measured came
+from a session whose seams I had been dragging all afternoon.
+
+MEASURE A FRESH SESSION BEFORE CHASING THIS. Every number in a served
+instrument is a number about that session's policy as much as about the
+code.
 
 DO NOT MEASURE A PICTURE BY LOOKING AT IT. Every real finding this session
 came from dumping the numbers — the frame's marks, the canvas's own width and
