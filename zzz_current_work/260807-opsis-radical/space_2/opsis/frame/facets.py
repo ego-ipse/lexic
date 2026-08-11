@@ -701,16 +701,51 @@ def _flat(said: Frame, room: Room, look: Look) -> None:
 
 
 def _arcs(said: Frame, room: Room, look: Look) -> None:
+    """The arcs — a line of rules, and every reference as a curve over it.
+
+    Only the START, the chosen and the hovered are named. `graph.js` makes
+    every other node a `.gchip.dot`, because thirty-two names on one line is
+    thirty-two names nobody can read.
+    """
     x, y, w, h = room
     px, py, k = camera(look, room)
-    said.place(
-        graph_drawing(
-            look.it.shown, "arcs", int(w), int(h), _tuned(look), look.lit(), look.keep()
-        ),
-        x + px + w / 2 * (1 - k),
-        y + h / 3 + py + h / 2 * (1 - k),
-        k,
+    # BOTH SPELLINGS. The drawing labels its nodes with the codegen name
+    # (`json-text`) and everything the hand touches is the written one
+    # (`JSON-text`), so a set of one spelling names nothing.
+    wanted = {name for name, at_ in look.it.deep.items() if at_ == 0}
+    wanted |= {look.chosen, look.hovered()} - {""}
+    named = wanted | {name.casefold() for name in wanted}
+    drawn = graph_drawing(
+        look.it.shown, "arcs", int(w), int(h), _tuned(look), look.lit(), look.keep()
     )
+    # AN ARC RISES ABOVE ITS LINE, so this drawing's marks run negative — the
+    # line sits at y≈20 and the tallest curve reaches −148. Placing it at the
+    # top of the room put every arc off the screen and left the line jammed
+    # under the head. Its OWN bounds are what gets centred.
+    low, high = _bounds(drawn)
+    said.place(
+        drawn,
+        x + px + w / 2 * (1 - k),
+        y + py + (h - (high - low) * k) / 2 - low * k,
+        k,
+        dots=frozenset(named),
+    )
+
+
+def _bounds(drawn: Drawing) -> tuple[float, float]:
+    """How far up and down a drawing actually reaches, marks and all."""
+    ys: list[float] = []
+    for mark in drawn.marks:
+        parts = mark.split(" ")
+        if parts[0] == "box":
+            ys += [float(parts[2]), float(parts[2]) + float(parts[4])]
+        elif parts[0] == "line":
+            ys += [float(parts[2]), float(parts[4])]
+        elif parts[0] == "curve":
+            ys += [float(parts[2]), float(parts[4]), float(parts[6])]
+        elif parts[0] == "bez":
+            ys += [float(parts[i]) for i in (2, 4, 6, 8)]
+    return (min(ys), max(ys)) if ys else (0.0, 0.0)
 
 
 def _rails(said: Frame, room: Room, look: Look) -> None:

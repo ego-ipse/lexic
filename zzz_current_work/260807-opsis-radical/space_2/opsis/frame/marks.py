@@ -114,6 +114,11 @@ class Frame:
     def arc(self, x: float, y: float, r: float, tone: str) -> None:
         self._put(f"arc {x:.1f} {y:.1f} {r:.1f} {tone}")
 
+    def dot(self, x: float, y: float, r: float, tone: str) -> None:
+        """`.gchip.dot` — a FILLED circle, which is what a node is when its
+        name would not be readable anyway."""
+        self._put(f"dot {x:.1f} {y:.1f} {r:.1f} {tone}")
+
     def ring(self, x: float, y: float, w: float, h: float, tone: str) -> None:
         """An outline and nothing else — what a lane's span is drawn WITH."""
         self._put(f"ring {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
@@ -224,12 +229,23 @@ class Frame:
         self.texts.append(said)
 
     def place(
-        self, drawing: object, x: float, y: float, scale: float = 1.0, down: float = 0.0
+        self,
+        drawing: object,
+        x: float,
+        y: float,
+        scale: float = 1.0,
+        down: float = 0.0,
+        dots: frozenset[str] | None = None,
     ) -> None:
         """A drawing's own marks, moved into the room it was given.
 
         :param down: the vertical scale, when it differs from the horizontal —
             a band stretched across a column must not also stretch down it.
+        :param dots: draw every node as `.gchip.dot` — a small filled circle
+            with no label — EXCEPT these, which keep their box and their name.
+            Thirty-two names on one line is thirty-two names nobody can read;
+            the reference names the start, the chosen and the hovered, and
+            leaves the rest as marks on a line.
         """
         tall = down or scale
         for mark in getattr(drawing, "marks", []):
@@ -245,21 +261,29 @@ class Frame:
                     " ".join([kind, *(f"{n:.1f}" for n in moved), *parts[1 + count :]])
                 )
             elif kind == "box":
-                self.box(
-                    x + float(parts[1]) * scale,
-                    y + float(parts[2]) * tall,
-                    float(parts[3]) * scale,
-                    float(parts[4]) * tall,
-                    parts[5],
-                )
+                # A DRAWING'S BOX IS AN OUTLINE. `paint.js` strokes it and
+                # fills only `closed` and `live`, with a fill variant of the
+                # tone — filling every box in its edge colour turned every
+                # node of every graph into a solid slab with dark text on it.
+                at, top = x + float(parts[1]) * scale, y + float(parts[2]) * tall
+                wide, high = float(parts[3]) * scale, float(parts[4]) * tall
+                tone = parts[5]
                 label = " ".join(parts[7:]) if len(parts) > 7 else ""
+                if dots is not None and label not in dots:
+                    self.dot(at + wide / 2, top + high / 2, 3.0, tone)
+                    continue
+                if tone in ("closed", "live"):
+                    self.box(at, top, wide, high, f"{tone}fill")
+                self.ring(at, top, wide, high, tone)
                 if label:
+                    # in the box's OWN tone, vertically centred, 11px mono
                     self.text(
-                        x + float(parts[1]) * scale + 4,
-                        y + (float(parts[2]) + float(parts[4]) * 0.72) * tall,
-                        "ink",
+                        at + 5,
+                        top + high / 2 + 4,
+                        tone,
                         label,
-                        float(parts[3]) * scale - 6,
+                        wide - 6,
+                        face="drawn",
                     )
             elif kind == "arc":
                 self.arc(

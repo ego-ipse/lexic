@@ -209,14 +209,16 @@ def head(
             room -= runs("fsub", rest) + 10
         words = aside.said if runs("fsub", aside.said) <= room else aside.brief
         said.text(at, y + 18, aside.tone, words, room)
+        at += min(runs("fsub", words), room) + 12
     elif rest:
         said.text(at, y + 18, "fsub", rest, room)
+        at += min(runs("fsub", rest), room) + 12
     # THE HEAD IS AN ALIAS OF ITS NODE. Dragging it is how a surface is moved
     # somewhere else in the arrangement — the same gesture as its dock chip,
     # because they name the same thing. The controls sit above it and take
     # their own clicks first.
     said.hit(region.x, y, region.w - _taken(controls) - 10, HEAD, "head", region.name)
-    _controls(said, region, y, controls)
+    _controls(said, region, y, controls, at)
     said.line(region.x, y + HEAD, region.x + region.w, y + HEAD, "hair")
     said.hit(region.x, y + HEAD, region.w, region.h - HEAD, "scroll", region.name)
     return (region.x, y + HEAD, region.w, region.h - (y - region.y) - HEAD)
@@ -260,22 +262,21 @@ def _controls(
     region: Region,
     y: float,
     controls: list[Control],
+    at: float,
 ) -> None:
-    """The selects a head carries — field2, hairline, dim mono, right-aligned."""
-    if not controls:
-        return
-    wides = [
-        runs("chip", word) + 10 + (14 if len(c) > 4 else 0)
-        for c, word in ((c, c[0]) for c in controls)
-    ]
-    at = region.x + region.w - 10 - sum(wides) - 6 * len(controls)
-    for control, wide in zip(controls, wides, strict=True):
+    """The controls a head carries, in order, packed LEFT after its subtitle.
+
+    `.facet h2` is one line and everything on it follows what came before —
+    the select saying what this facet is showing, then the window buttons
+    every facet has. Right-aligning them put the controls at the far edge of
+    a head that is empty in between.
+    """
+    for control in controls:
         word, kind, goes, on = control[:4]
+        wide = runs("chip", word) + 10 + (ARROW if len(control) > 4 else 0)
+        if at + wide > region.x + region.w - 8:
+            return
         if len(control) > 4:
-            # more than one value: a REAL dropdown, because a chip that
-            # cycles is a different instrument — it cannot show what else
-            # there is, and you cannot get back without going all the way
-            # round
             said.pick(kind, at, y + 6, wide, 15, goes, control[4])
             at += wide + 6
             continue

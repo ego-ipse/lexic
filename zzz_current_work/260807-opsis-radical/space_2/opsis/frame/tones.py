@@ -33,6 +33,9 @@ FONTS = {
     # #railchip: 11px var(--sans), not mono — it is a BUTTON floating over
     # the picture, not a word set into one
     "railchip": f"11px {SANS}",
+    # `paint.js` sets every DRAWING in 11px mono — the graphs, the rails, the
+    # automaton, the lanes. It is not the body face and it is not a chip.
+    "drawn": f"11px {CODE}",
     "gnear": f"12px {CODE}",
     "gfar": f"8px {CODE}",
 }
@@ -59,6 +62,7 @@ TONES = {
     # .gchip is --dim at every size: a name's DISTANCE is its size, and its
     # ROLE is its colour, and neither may be read off the other
     "railchip": "#d98cf5",
+    "drawn": "#66707f",
     "gnear": "#66707f",
     "gfar": "#66707f",
     "caret": "#e2a65c",
@@ -78,6 +82,10 @@ TONES = {
     # for what is closed, the DARK amber for what is open, and nothing at all
     # for what is still ahead — which is why the lanes read as structure
     "span": "#2a3140",
+    # what a FILLED drawing-box is filled with — the reference fills only
+    # `closed` and `live`, and with a fill variant, never with the edge tone
+    "closedfill": "#10282e",
+    "livefill": "#3a2f18",
     "closed": "#10282e",
     "active": "#3a2f18",
     "pending": "#2a3140",
@@ -145,6 +153,7 @@ ADVANCE = {
     "verdict": 6.6,
     "chip": 6.0,
     "railchip": 5.6,
+    "drawn": 6.6,
     "gnear": 7.2,
     "gfar": 4.8,
 }

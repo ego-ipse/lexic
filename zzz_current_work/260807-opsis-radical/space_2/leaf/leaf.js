@@ -168,6 +168,10 @@ function strokes(canvas, marks) {
       if (n === 6) cx.quadraticCurveTo(+p[3], +p[4], +p[5], +p[6]);
       else cx.bezierCurveTo(+p[3], +p[4], +p[5], +p[6], +p[7], +p[8]);
       cx.stroke();
+    } else if (p[0] === 'dot') {
+      /* .gchip.dot — border-radius: 50%, background: var(--cool) */
+      cx.fillStyle = fill(p[4]);
+      cx.beginPath(); cx.arc(+p[1], +p[2], +p[3], 0, Math.PI * 2); cx.fill();
     } else if (p[0] === 'arc') {
       cx.strokeStyle = fill(p[4]);
       cx.beginPath(); cx.arc(+p[1], +p[2], +p[3], 0, Math.PI * 2); cx.stroke();

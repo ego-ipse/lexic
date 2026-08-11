@@ -720,10 +720,9 @@ def main() -> int:
     )
     check(
         "the status bar says where, how fast, and what is under the hand",
-        any(
-            w.startswith("char ") and " · line " in w and w.endswith("gen 1")
-            for w in words(lit)
-        )
+        # it WRAPS, so "char …" and "gen 1" are two different marks now
+        any(w.startswith("char ") and " · line " in w for w in words(lit))
+        and any(w.endswith("gen 1") for w in words(lit))
         and any("outlined violet" in w for w in words(lit)),
         next((w for w in words(lit) if w.startswith("char ")), "no position"),
     )
