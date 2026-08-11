@@ -185,6 +185,12 @@ def _most(lines: list[str]) -> int:
 
     One 300-character rule would otherwise starve every other surface to feed
     an outlier nobody reads in full.
+
+    KNOWN GAP: this counts CHARACTERS, and a wide glyph takes two columns.
+    A CJK grammar (japanese.gbnf) therefore under-reports what it needs by up
+    to half. Fixing it means an east-asian width table; until then the number
+    is honest about what it measures and wrong about what it implies, which
+    is worth saying out loud rather than discovering on screen.
     """
     widths = sorted(len(line) for line in lines) or [0]
     return max(24, widths[min(len(widths) - 1, int(len(widths) * 0.9))])
