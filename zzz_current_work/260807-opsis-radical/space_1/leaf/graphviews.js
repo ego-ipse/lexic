@@ -313,6 +313,9 @@ async function pollRoutes() {
 })();
 
 const _q = new URLSearchParams(location.search);
+// the instrument can be SENT to a state, not only navigated into one
+if (_q.has('pop')) setTimeout(() => popFacet(_q.get('pop')), 800);
+if (_q.has('clone')) setTimeout(() => cloneFacet(_q.get('clone')), 900);
 if (_q.has('strata')) setTimeout(openStrata, 700);
 if (_q.has('place')) setTimeout(() => openPlace(_q.get('place')), 900);
 if (_q.has('rooms')) setTimeout(() => openPlace('index'), 900);

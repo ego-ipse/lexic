@@ -129,41 +129,64 @@ function drawEarleySpine() {
   if (!col.expect.length) closedBody.innerHTML = '<div class="none">nothing — every item is complete</div>';
 }
 
+// The spine is a STATE the reading sends, not a scan the leaf performs.
+// "What is open at this point" is derivation — it was being recomputed from
+// twelve thousand spans on every frame, in the one place a fact cannot see.
+// The cursor post now comes back carrying it.
+let pointHere = { open: [], closed: [], lit: [] };
+
+function readPoint(text) {
+  const out = { open: [], closed: [], lit: [] };
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const head = lines[i].match(/^#(OPEN|CLOSED|LIT) (\d+)$/);
+    if (!head) continue;
+    const n = +head[2];
+    const rows = lines.slice(i + 1, i + 1 + n);
+    i += n;
+    if (head[1] === 'LIT') { out.lit = rows; continue; }
+    const where = head[1] === 'OPEN' ? out.open : out.closed;
+    for (const row of rows) {
+      const m = row.match(/^(\d+) (\S+) (\d+) (\d+) (.*)$/);
+      if (m) where.push({ d: +m[1], rule: m[2], s: +m[3], e: +m[4], text: m[5] });
+    }
+  }
+  pointHere = out;
+  ask();
+}
+
 function drawSpine() {
   if (chartClock === 'pda') { lastSpineKey = ''; drawPdaSpine(); return; }
   if (chartClock === 'earley') { lastSpineKey = ''; drawEarleySpine(); return; }
   spineClock('open at the cursor');
   $('closedHead').textContent = 'JUST CLOSED';
-  const open = openAt(cur.t);
-  const key = open.join(',') + '|' + Math.floor(cur.t);
+  const key = pointHere.open.map((r) => r.d + r.rule + r.s).join(',');
   if (key === lastSpineKey) return;
   lastSpineKey = key;
   const body = $('spineBody');
   body.textContent = '';
-  if (!open.length) body.innerHTML = '<div class="none">nothing open — before the first span, or complete</div>';
-  open.forEach((i, k) => {
-    const s = S.spans[i];
+  if (!pointHere.open.length) {
+    body.innerHTML = '<div class="none">nothing open — before the first span,'
+      + ' or complete</div>';
+  }
+  pointHere.open.forEach((r, k) => {
     const row = document.createElement('div');
-    row.className = 'row' + (k === open.length - 1 ? ' deep' : '');
-    row.dataset.i = i;
-    row.innerHTML = `<span class="d">d${s.d}</span>${S.ruleNames[s.r]} <span class="f">${s.s.toLocaleString()}..${s.e.toLocaleString()}</span>`;
+    row.className = 'row' + (k === pointHere.open.length - 1 ? ' deep' : '');
+    row.dataset.rule = r.rule;
+    row.innerHTML = `<span class="d">d${r.d}</span>${stEsc(r.rule)}`
+      + ` <span class="f">${r.s.toLocaleString()}..${r.e.toLocaleString()}</span>`;
     body.appendChild(row);
   });
   const closedBody = $('closedBody');
   closedBody.textContent = '';
-  const done = S.byEnd.filter((i) => S.spans[i].e <= cur.t).slice(-7);
-  done.forEach((i) => {
-    const s = S.spans[i];
-    const snip = S.doc.slice(s.s, s.e).replace(/\n/g, '↵');
+  for (const r of pointHere.closed) {
     const row = document.createElement('div');
-    row.className = 'row' + (cur.t - s.e < 3 ? ' fresh' : '');
-    row.dataset.i = i;
-    row.innerHTML = `<span class="d">d${s.d}</span>${S.ruleNames[s.r]}  '${snip.length > 22 ? snip.slice(0, 21) + '…' : snip}'`;
+    row.className = 'row' + (cur.t - r.e < 3 ? ' fresh' : '');
+    row.dataset.rule = r.rule;
+    row.innerHTML = `<span class="d">d${r.d}</span>${stEsc(r.rule)}  ${stEsc(r.text)}`;
     closedBody.appendChild(row);
-  });
+  }
 }
-
-/* ── grammar facet co-selection ── */
 
 function litRules() {
   const selRule = cur.sel >= 0 ? S.ruleNames[S.spans[cur.sel].r] : null;
@@ -172,7 +195,7 @@ function litRules() {
   const hotDef = hotRule() ? ruleDef(hotRule()) : null;
   // and the rules the derivation is INSIDE right now, so playing walks the
   // grammar itself rather than only the picture of it
-  const liveDefs = [...liveRules()].map(ruleDef).filter(Boolean);
+  const liveDefs = pointHere.lit.map(ruleDef).filter(Boolean);
   document.querySelectorAll('#grammarBody .ln').forEach((ln) => {
     const i = +ln.dataset.l;
     const inDef = (d) => d && d.a <= i && i <= d.b;

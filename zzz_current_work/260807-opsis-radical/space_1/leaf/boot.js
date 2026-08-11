@@ -23,8 +23,7 @@ function dropDerived() {
   railsAll = null;
   railsLayout = null;
   gNodes = null;
-  gFlat = new Map();
-  gArc = new Map();
+  placedFor = '';  // positions are per view, per reading
   colCache = new Map();
   for (const view of document.querySelectorAll('.gview[data-armed], .irv[data-armed]')) {
     view.removeAttribute('data-armed');
@@ -54,7 +53,7 @@ async function boot(keep) {
   applyForms();
   armFacetButtons();
   graphOn = facetOn['graph'] !== false;
-  if (graphOn) buildGraph();
+  if (graphOn) loadPlaces(gView, true);
   applyPolicy();
   renderLadder();
   $('sub').textContent =

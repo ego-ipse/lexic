@@ -380,6 +380,7 @@ function wireTune() {
     }
     postPolicy('graph.view', gView);
     syncTunePanel();
+    loadPlaces(gView, true);   // a different view is a different layout
     drawGraph();
   });
   for (const k of ['levelstep', 'ringscale', 'flatten', 'labelscale']) {

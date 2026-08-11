@@ -191,9 +191,19 @@ async function probeGestures() {
     out.push(`poppedTab=${!!document.querySelector('.facetwin #graph')}`,
       `tabsLeft=${tabsNow.join('+') || 'none'}`,
       `readerBox=${Math.round($('grammar').getBoundingClientRect().width)}`);
+    document.querySelector('.facetwin .x').dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true }));
     document.querySelector('.facetwin .x').click();
     await wait(700);
-    out.push(`tabsBack=${[...document.querySelectorAll('#grid .tabbar .tab')]
+    // and again: a facet that came back must be able to leave again
+    popFacet('graph');
+    await wait(500);
+    const twice = !!document.querySelector('.facetwin #graph');
+    if (twice) document.querySelector('.facetwin .x').click();
+    await wait(600);
+    out.push(`popTwice=${twice}`,
+      `popBtnHidden=${(($('graph').querySelector('h2 .fpop')) || {}).hidden}`,
+      `tabsBack=${[...document.querySelectorAll('#grid .tabbar .tab')]
       .map((el) => el.textContent).join('+') || 'none'}`,
       `graphBack=${!!document.querySelector('#grid > #graph')}`);
     popFacet('chart');
@@ -201,6 +211,20 @@ async function probeGestures() {
     const inWin = document.querySelector('.facetwin .winbody > #chart');
     out.push(`popped=${!!inWin} visible=${inWin
       ? getComputedStyle(inWin).display !== 'none' : false}`);
+    // a cloned chart is a REAL second view: its own moment, drawing on its own
+    cur.t = 3000;
+    cloneFacet('chart');
+    await wait(700);
+    const twinView = chartTwins[chartTwins.length - 1];
+    cur.t = 9000;
+    ask();
+    await wait(500);
+    drawChartTwins();
+    out.push(`chartTwin=${!!twinView}`,
+      `twinT=${twinView ? Math.round(twinView.view.t) : -1} mainT=${Math.round(cur.t)}`,
+      `twinCanvas=${twinView ? twinView.view.cv.width + 'x' + twinView.view.cv.height : 'NONE'}`,
+      `mainHit=${S.chartHit ? Math.round(S.chartHit.at) : -1} twinHit=${
+        twinView && twinView.view.hit ? Math.round(twinView.view.hit.at) : -1}`);
     cloneFacet('spine');
     await wait(500);
     drawTwins();

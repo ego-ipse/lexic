@@ -17,7 +17,8 @@ function render() {
   }
   followCursor();
   drawUnder(); drawOver(); drawChart(); drawSpine(); litRules(); drawGraph();
-  drawTwins();  // a cloned surface is the same surface, drawn again
+  drawTwins();        // a mirrored surface follows its source
+  drawChartTwins();   // a cloned chart is its own view, at its own moment
   const state = cur.playing ? 'playing' : (cur.t >= S.doc.length ? 'complete' : 'paused');
   const line = lineOf(Math.min(Math.floor(cur.t), S.doc.length - 1)) + 1;
   $('pos').textContent =
@@ -44,7 +45,8 @@ function render() {
   $('readout').textContent = words;
   if (performance.now() - lastPost > 300) {
     lastPost = performance.now();
-    fetch('/cursor', { method: 'POST', body: `t ${cur.t.toFixed(1)} sel ${cur.sel}` }).catch(() => {});
+    fetch('/cursor', { method: 'POST', body: `t ${cur.t.toFixed(1)} sel ${cur.sel}` })
+      .then((r) => r.text()).then(readPoint).catch(() => {});
   }
 }
 
@@ -94,7 +96,7 @@ function applyPolicy() {
   // whether the relations are on is the facet's own state, and the graph
   // must be BUILT before it can be drawn into the column it was given
   graphOn = facetOn['graph'] !== false;
-  if (graphOn && !gNodes && S.edges) buildGraph();
+  if (graphOn && !gNodes && S.edges) loadPlaces(gView, true);
   if (P['arrange.tree']) {
     const tree = treeFromText(P['arrange.tree']);
     if (tree) layoutTree = tree;

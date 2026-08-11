@@ -19,28 +19,31 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from chain import chain  # noqa: E402
-from draw import graph_facet  # noqa: E402
-from keep import keep  # noqa: E402
+from praxis.state import chain  # noqa: E402
+from eidolon.topology import graph_facet  # noqa: E402
+from kairos.artefacts import keep  # noqa: E402
 from lexic.compile import compile_text  # noqa: E402
-from machine import of  # noqa: E402
-from place import FLOOR, arrange, shares  # noqa: E402
-from read import as_written, columns, read, read_up, upward  # noqa: E402
-from retype import retype  # noqa: E402
-from ring import GRAMMAR as POLICY  # noqa: E402
-from ring import apply_record, record  # noqa: E402
-from irvalue import graph as ir_graph  # noqa: E402
-from irvalue import wire as ir_wire  # noqa: E402
-from serve import (  # noqa: E402
-    FORMS,
-    PENDING,
-    drawn,
-    moved,
-    ruledefs,
-    strata,
+from kairos.machine import of  # noqa: E402
+from opsis.space import FLOOR, arrange, shares  # noqa: E402
+from praxis.reading import (  # noqa: E402
+    Facet,
+    as_written,
+    columns,
+    read,
+    read_up,
+    upward,
 )
-from watch import watch  # noqa: E402
-from wire_machine import automaton  # noqa: E402
+from praxis.history import retype  # noqa: E402
+from praxis.roots import GRAMMAR as POLICY  # noqa: E402
+from praxis.roots import apply_record, record  # noqa: E402
+from eidolon.value import graph as ir_graph  # noqa: E402
+from eidolon.value import wire as ir_wire  # noqa: E402
+from kairos.pipeline import FORMS  # noqa: E402
+from opsis.scene import drawn, moved, ruledefs  # noqa: E402
+from praxis.strata import strata  # noqa: E402
+from serve import PENDING  # noqa: E402
+from kairos.parse import watch  # noqa: E402
+from kairos.engine import automaton  # noqa: E402
 
 ROOT = HERE.parents[2]
 GRAMMAR = ROOT / "resources/ground_truth/json.gbnf"
@@ -180,8 +183,6 @@ def main() -> int:
         built.clones > built.rules,
         built.line(),
     )
-    from read import Facet
-
     # a column asks for its WIDEST member, not the sum: tab-mates take turns
     # at the full width, so pairing two views must not halve either of them.
     pair = [
@@ -373,7 +374,7 @@ def main() -> int:
     # "generation 1" as a literal, so the leaf never learned the text had
     # moved: only the model came back new while every clock, automaton and
     # graph kept answering for the text before the edit.
-    from serve import GENERATION
+    from opsis.scene import GENERATION
 
     put = '\n  "gate-probe": [1, 2, 3],'
     was = (GENERATION[0], len(reading.spans), len(watch(machine, reading.text)))

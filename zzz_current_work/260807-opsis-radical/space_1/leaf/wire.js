@@ -54,8 +54,29 @@ function saveArrangement(now = false) {
   // the reader/document/derivation/spine layout for the whole session.
   if (ROOMS[roomId]) ROOMS[roomId].tree = layoutTree;
   if (roomId !== 'parse') return;
-  if (now) postPolicy('arrange.tree', treeToText(layoutTree));
-  else postPolicyDebounced('arrange.tree', treeToText(layoutTree));
+  // The hand can do two things to an arrangement: resize a split, and MOVE
+  // a surface somewhere else. The first is a number, the second is a shape —
+  // and a shape recomputed from measurement on the next frame is a hand's
+  // work thrown away, which is what happened on every form change.
+  const said = splitShares(layoutTree);
+  const shape = treeToText(layoutTree);
+  if (now) {
+    postPolicy('arrange.shares', said);
+    postPolicy('arrange.shape', shape);
+  } else {
+    postPolicyDebounced('arrange.shares', said);
+    postPolicyDebounced('arrange.shape', shape);
+  }
+}
+
+function splitShares(node, out = []) {
+  // left-to-right, the share each horizontal split gives its left side —
+  // the same order the server's arrangement produces them in
+  if (typeof node === 'string') return out;
+  if (node[0] === 'h' || node[0] === 'v') out.push(node[1].toFixed(3));
+  splitShares(node[2], out);
+  splitShares(node[3], out);
+  return out.join(' ');
 }
 
 function enterRoom(id, spec) {
@@ -167,7 +188,10 @@ function layoutFacets() {
         tab.addEventListener('click', () => {
           real[1] = i;
           layoutFacets();
-          saveArrangement();
+          // report the GESTURE, not the layout: the server decides the tree,
+          // and a leaf that posts its own tree back overrides that forever
+          const owner = (S.facets || []).find((f) => f.name === nm);
+          postPolicy(`tab.${owner ? owner.column : nm}`, String(i));
           ask();
         });
         bar.appendChild(tab);

@@ -477,7 +477,7 @@ body.off-chart #chart:not(.inwin), body.off-spine #spine:not(.inwin) { display: 
   border: none;
   border-radius: 0;
 }
-#gview, .pin .pview, #cclock {
+#gview, .pin .pview, #cclock, #gform {
   margin-left: 6px;
   background: var(--field2);
   border: 1px solid var(--hair);
@@ -487,7 +487,13 @@ body.off-chart #chart:not(.inwin), body.off-spine #spine:not(.inwin) { display: 
   cursor: pointer;
   appearance: none;
 }
-#gview:hover, .pin .pview:hover, #cclock:hover { border-color: var(--cool); color: var(--cool); }
+#gview:hover, .pin .pview:hover, #cclock:hover, #gform:hover {
+  border-color: var(--cool); color: var(--cool);
+}
+/* the form is what the reader is SHOWING — it reads as part of the title,
+   not as a control bolted onto it */
+#gform { color: var(--warm); border-color: #2a3140; letter-spacing: .5px; }
+#gform option { background: var(--field2); color: var(--ink); }
 #spineBody .row .dr { color: var(--ink); margin-left: 6px; }
 #spineBody .row.role-complete .dr { color: #79c99a; }
 #spineBody .row.role-advance .dr { color: var(--warm); }
@@ -776,3 +782,7 @@ button.fpop {
   font: inherit; font-size: 11px; padding: 0 5px; margin-left: 4px; cursor: pointer;
 }
 button.fpop:hover { color: var(--warm); border-color: var(--warm); }
+
+/* a cloned canvas fills its window rather than scrolling inside it */
+.twinchart { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.pin.facetwin .winbody.holds-canvas { overflow: hidden; }

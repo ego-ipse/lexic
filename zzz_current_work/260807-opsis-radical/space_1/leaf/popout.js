@@ -46,7 +46,8 @@ function floatWindow(title, at) {
   el.style.height = '460px';
   el.style.zIndex = ++winZ;
   el.innerHTML = `<header><span>${stEsc(title)}</span>`
-    + '<button class="x" title="close">×</button></header>'
+    + '<button class="x" title="close — the facet goes back where it was">×</button>'
+    + '</header>'
     + '<div class="body winbody"></div>'
     + '<div class="wingrip" title="drag to resize"></div>';
   $('pinlayer').appendChild(el);
@@ -100,6 +101,8 @@ function popFacet(name) {
   win.querySelector('.winbody').appendChild(sec);
   sec.removeAttribute('style');
   popped.set(name, { win, home });
+  const button = sec.querySelector('h2 .fpop');
+  if (button) button.hidden = true;
   // out of the grid means out of the TREE. Leaving it in left a TAB you
   // could click onto a surface that is not there — the column went blank
   // and the facet read as broken.
@@ -116,6 +119,8 @@ function dockFacet(name) {
   const sec = $(name);
   $('grid').insertBefore(sec, held.home.next);
   sec.classList.remove('inwin');
+  const button = sec.querySelector('h2 .fpop');
+  if (button) button.hidden = false;
   sec.setAttribute('style', held.home.style);
   held.win.remove();
   popped.delete(name);
@@ -133,6 +138,7 @@ function cloneFacet(name) {
   // its own mode. Everything else is mirrored live: the same surface, drawn
   // again, so two windows can sit at two places in the same document.
   if (name === 'graph' && typeof graphPin === 'function') { graphPin(); return; }
+  if (name === 'chart') { cloneChart(); return; }
   const sec = $(name);
   if (!sec) return;
   const win = floatWindow(facetTitle(name) + ' — a second view', twins.length + popped.size);
@@ -171,5 +177,48 @@ function drawTwins() {
     }
     const scroll = sec.querySelector('.scroll');
     if (scroll) twin.body.innerHTML = scroll.innerHTML;
+  }
+}
+
+
+const chartTwins = [];
+
+function cloneChart() {
+  // a real second chart: its own window into the text and its own MOMENT,
+  // pinned where you cloned it. Two moments of one parse, side by side —
+  // which a picture of a picture could never give you.
+  const win = floatWindow('THE DERIVATION — pinned at ' + Math.round(cur.t),
+    chartTwins.length + popped.size);
+  const body = win.querySelector('.winbody');
+  const cv = document.createElement('canvas');
+  cv.className = 'twinchart';
+  body.classList.add('holds-canvas');
+  body.appendChild(cv);
+  const view = { cv, zoom: chartZoom, clock: chartClock, t: cur.t, at: view0, hit: null };
+  const head = win.querySelector('header span');
+  chartTwins.push({ view, win });
+  // scrubbing INSIDE the clone moves only the clone
+  cv.addEventListener('mousedown', (ev) => {
+    const box = cv.getBoundingClientRect();
+    const hit = view.hit;
+    if (!hit) return;
+    const x = ev.clientX - box.left;
+    view.t = ev.clientY - box.top < hit.lanesY
+      ? Math.max(0, Math.min((x - hit.pad) / (box.width - 2 * hit.pad), 1)) * S.doc.length
+      : Math.max(0, Math.min(hit.at + (x - hit.pad) / hit.pitch, S.doc.length));
+    head.textContent = 'THE DERIVATION — pinned at ' + Math.round(view.t);
+    drawChart(view);
+  });
+  win.querySelector('.x').addEventListener('click', () => {
+    win.remove();
+    chartTwins.splice(chartTwins.findIndex((c) => c.view === view), 1);
+  });
+  drawChart(view);
+  ask();
+}
+
+function drawChartTwins() {
+  for (const twin of chartTwins) {
+    drawChart(twin.view);  // the canvas fills the window; CSS sizes it
   }
 }

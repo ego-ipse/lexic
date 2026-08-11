@@ -204,6 +204,10 @@ function wirePins() {
   layer.addEventListener('pointerdown', (e) => {
     const el = e.target.closest('.pin');
     if (!el) return;
+    // a floated FACET is not a pin: this handler would drop it from the pin
+    // list and rebuild the layer, destroying the facet living inside it —
+    // which is why a closed pop-out could never be opened again
+    if (el.classList.contains('facetwin')) return;
     el.style.zIndex = ++pinZ;
     if (e.target.closest('.pview') || e.target.closest('.rback') || e.target.closest('.rup')) return;
     if (e.target.closest('.x')) {

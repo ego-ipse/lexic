@@ -12,10 +12,7 @@ let graphOn = true;
 let gNodes = null;
 let graphHover = '';
 let gViews = [];  // [0] is the facet view; others live inside pinned windows
-let gFlat = new Map();
 let gLevels = new Map();
-let gArc = new Map();
-let gArcIndex = new Map();
 
 function viewMode(v) { return v.pin ? (v.pin.mode || 'depth3d') : gView; }
 
@@ -38,24 +35,15 @@ function markedRule() { return cur.rule || graphHover; }
 // WHAT IS LIVE AT t — the spans open at the cursor, which is the derivation's
 // own stack. The automaton lit itself from the PDA's frames and nothing else
 // lit at all, so playing the derivation animated one view out of five.
-let liveNow = { t: -1, names: new Set(), path: [] };
 
 function liveRules() {
-  if (liveNow.t === cur.t) return liveNow.names;
-  const names = new Set();
-  const byDepth = [];
-  for (const s of S.spans) {
-    if (s.s <= cur.t && cur.t < s.e) {
-      const name = S.ruleNames[s.r];
-      names.add(name);
-      byDepth[s.d] = name;
-    }
-  }
-  liveNow = { t: cur.t, names, path: byDepth.filter(Boolean) };
-  return names;
+  // what is live comes from the POINT the reading answered with — one
+  // resolution, shared by every surface, instead of three scans that could
+  // disagree with each other
+  return new Set(pointHere.lit);
 }
 
-function livePath() { liveRules(); return liveNow.path; }
+function livePath() { return pointHere.open.map((r) => r.rule); }
 
 function liveEdge(a, b) {
   // an edge is live when it is a STEP the derivation is standing on: one
@@ -80,66 +68,49 @@ function ruleDef(name) {
   return ci ? { a: ci.a, b: ci.b } : null;
 }
 
-function buildGraph() {
-  const maxd = Math.max(0, ...Object.values(S.depths).filter((d) => d >= 0));
-  const levels = new Map();
-  const names = Object.keys(S.depths).length ? Object.keys(S.depths) : S.ruledefs.map((r) => r.name);
-  for (const name of names) {
-    const d = S.depths[name] ?? -1;
-    const lvl = d < 0 ? maxd + 1 : d;
-    if (!levels.has(lvl)) levels.set(lvl, []);
-    levels.get(lvl).push(name);
-  }
-  gNodes = new Map();
-  for (const [lvl, names] of levels) {
-    const k = names.length;
-    const R = (k === 1 ? 0 : 46 + Math.min(230, k * 15)) * gTune.ringscale;
-    names.forEach((n, i) => {
-      const a = (i / k) * Math.PI * 2 + lvl * 0.7;
-      gNodes.set(n, {
-        x: Math.cos(a) * R,
-        y: Math.sin(a) * R * gTune.flatten,
-        z: -lvl * gTune.levelstep,
-      });
-    });
-  }
-  gLevels = levels;
-  gFlat = flatLayout(900, 600);  // a first guess; the real one knows the room
-  railsLayout = null;
-  gArc = new Map();
-  gArcIndex = new Map();
-  const order = S.ruledefs.map((r) => r.name).filter((n) => names.includes(n));
-  for (const n of names) if (!order.includes(n)) order.push(n);
-  order.forEach((n, i) => {
-    gArcIndex.set(n, i);
-    gArc.set(n, { x: i * (gTune.levelstep / 6), y: 0 });
-  });
-  for (const v of gViews) buildChipsInto(v.chips);
+// Positions ARRIVE. The ring maths, the band wrapping and the
+// declaration-order row all lived here and were derivation, not drawing —
+// the one kind of logic a fact cannot reach. The leaf now asks for a view
+// and paints what comes back; the camera stays here, because the camera is
+// the hand's, not the reading's.
+let placedFor = '';
+
+function graphBox() {
+  const wrap = $('graphWrap');
+  const w = Math.max(320, wrap ? wrap.clientWidth : 900);
+  const h = Math.max(240, wrap ? wrap.clientHeight : 600);
+  return `${Math.round(w)}x${Math.round(h)}`;
 }
 
-function flatLayout(w, h) {
-  // laid out IN THE ROOM, not in abstract units that get shrunk to fit.
-  // Levels are bands across the width; a level too crowded for one column
-  // wraps into as many sub-columns as a name's width allows. Nothing is
-  // scaled down afterwards, so nothing collides that did not have to.
-  const out = new Map();
-  const maxLvl = Math.max(0, ...gLevels.keys());
-  const bandW = Math.max(90, (w - 40) / (maxLvl + 1));
-  const nameW = 78 * gTune.labelscale;
-  for (const [lvl, list] of gLevels) {
-    const cols = Math.max(1, Math.min(list.length, Math.floor(bandW / nameW) || 1));
-    const rows = Math.ceil(list.length / cols);
-    const rowH = Math.min(26 * gTune.ringscale, Math.max(14, (h - 40) / rows));
-    list.forEach((n, i) => {
-      const col = i % cols, row = Math.floor(i / cols);
-      out.set(n, {
-        x: 20 + lvl * bandW + (col + 0.5) * (bandW / cols),
-        y: (row - (rows - 1) / 2) * rowH,
-      });
-    });
+function viewName(mode) { return mode === 'depth3d' ? 'rings' : mode; }
+
+async function loadPlaces(mode = gView, force = false) {
+  const view = viewName(mode);
+  if (view !== 'flat' && view !== 'arcs' && view !== 'rings') return;
+  const key = `${view}|${graphBox()}|${S.meta.generation}|${S.policy.form || ''}`;
+  if (!force && key === placedFor) return;
+  placedFor = key;
+  const text = await (await fetch(
+    `/rulegraph?view=${view}&box=${graphBox()}`)).text();
+  const places = new Map();
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('#PLACES ')) continue;
+    const n = parseInt(lines[i].split(' ')[1], 10) || 0;
+    for (const row of lines.slice(i + 1, i + 1 + n)) {
+      const p = row.split(' ');
+      places.set(p.slice(3).join(' '), { x: +p[0], y: +p[1], z: +p[2] });
+    }
+    break;
   }
-  return out;
+  if (!places.size) return;
+  gNodes = places;
+  buildChipsInto(gViews[0] ? gViews[0].chips : $('graphChips'));
+  for (const v of gViews) if (v.chips) buildChipsInto(v.chips);
+  drawGraph();
 }
+
+function buildGraph() { loadPlaces(gView, true); }
 
 function buildChipsInto(chips) {
   chips.textContent = '';
@@ -192,11 +163,11 @@ function drawGraphView(v, smooth = false) {
   cx.clearRect(0, 0, w, h);
   const proj = new Map();
   if (mode === 'depth3d') {
+    // the camera is the hand's: the reading gives a place in 3-space, the
+    // camera says where you are standing to look at it
     for (const [name, p] of gNodes) proj.set(name, gProject(v, p, w, h));
   } else {
-    if (mode === 'flat') gFlat = flatLayout(w * (gTune.levelstep / 140), h);
-    const src = mode === 'flat' ? gFlat : gArc;
-    for (const [name, q] of src) proj.set(name, { x: q.x, y: q.y, s: 1 });
+    for (const [name, p] of gNodes) proj.set(name, { x: p.x, y: p.y, s: 1 });
   }
   // auto-fit: fill the facet whatever the grammar's size or the orbit's angle
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;

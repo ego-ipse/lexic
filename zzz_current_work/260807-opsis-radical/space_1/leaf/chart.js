@@ -113,9 +113,9 @@ function clockBandTex() {
   return clockData.tex;
 }
 
-function drawClockBand(cx, pad, bandH, step, ox, N) {
+function drawClockBand(cx, pad, bandH, step, ox, N, view = chartMain) {
   const tex = clockBandTex();
-  const pda = chartClock === 'pda';
+  const pda = chartClockOf(view) === 'pda';
   for (let off = 0; off < N; off += step) {
     let v = 0, mark = 0, dead = 0;
     for (let k = off; k < Math.min(off + step, N); k++) {
@@ -138,8 +138,9 @@ function drawClockBand(cx, pad, bandH, step, ox, N) {
   }
 }
 
-function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
-  const pda = chartClock === 'pda';
+function drawClockLanes(cx, w, h, lanesY, pitch, sx, view = chartMain) {
+  const pda = chartClockOf(view) === 'pda';
+  const T = chartAt(view), at = view.hit ? view.hit.at : view0;
   if (pda && !autoData) fetchAutomaton();
   if (pda && !clockData.frames.length) {
     cx.fillStyle = C.dim;
@@ -152,18 +153,18 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   const rows = pda ? clockData.frameRows : clockData.hypRows;
   const y1 = h - 18;
   const laneH = Math.max(2, Math.min(16, Math.floor((y1 - lanesY - 4) / Math.max(1, rows))));
-  const win = S.chartHit.win;
+  const win = (view.hit || S.chartHit).win;
   clockHit = { lanesY: lanesY + 4, laneH, pda };
   const abandoned = 'rgba(224,96,96,0.55)';
   const abandonedFill = 'rgba(224,96,96,0.16)';
   for (const f of list) {
-    if (f.e <= view0 || f.s >= view0 + win) continue;
+    if (f.e <= at || f.s >= at + win) continue;
     const row = pda ? f.d : f.row;
     const y = clockHit.lanesY + row * laneH;
     if (y + laneH > y1) continue;
-    const x1 = sx(Math.max(f.s, view0));
-    const x2 = Math.max(sx(Math.min(f.e, view0 + win)), x1 + 1.5);
-    const done = f.e <= cur.t, live = !done && f.s < cur.t;
+    const x1 = sx(Math.max(f.s, at));
+    const x2 = Math.max(sx(Math.min(f.e, at + win)), x1 + 1.5);
+    const done = f.e <= T, live = !done && f.s < T;
     if (pda) {
       const cmode = f.cid >= 0 && autoData && autoData.clones[f.cid] ? autoData.clones[f.cid].mode : null;
       const base = cmode ? (AUTO_INK[cmode] || '#8fa3b8') : '#8fa3b8';
@@ -178,7 +179,7 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
       if (done) { cx.fillStyle = withA(base, 0.20); cx.fillRect(x1, y, x2 - x1, laneH - 1); cx.strokeStyle = withA(base, 0.9); }
       else if (live) {
         cx.fillStyle = C.active;
-        cx.fillRect(x1, y, sx(Math.min(cur.t, view0 + win)) - x1, laneH - 1);
+        cx.fillRect(x1, y, sx(Math.min(T, at + win)) - x1, laneH - 1);
         cx.strokeStyle = C.warm;
       } else cx.strokeStyle = withA(base, 0.35);
     } else if (f.c) {
@@ -216,11 +217,11 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   if (pda) {
     cx.fillStyle = C.warm;
     for (const ev of clockData.events) {
-      if (ev.pos < view0 || ev.pos > view0 + win) continue;
+      if (ev.pos < at || ev.pos > at + win) continue;
       cx.fillRect(sx(ev.pos), lanesY - 2, Math.max(2, pitch / 2), 4);
     }
   }
-  if (pda && clockData.pdaEnd >= 0 && clockData.pdaEnd >= view0 && clockData.pdaEnd <= view0 + win) {
+  if (pda && clockData.pdaEnd >= 0 && clockData.pdaEnd >= at && clockData.pdaEnd <= at + win) {
     cx.strokeStyle = C.red || '#e06060';
     cx.beginPath(); cx.moveTo(sx(clockData.pdaEnd), lanesY); cx.lineTo(sx(clockData.pdaEnd), y1); cx.stroke();
   }
@@ -231,15 +232,27 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   drawLegend(cx, w, h, legend);
 }
 
-function drawChart() {
-  const cv = $('chartCv');
+// The chart drawn for the facet — the view every gesture edits. A second
+// chart is a second one of these, with its own window and its own moment,
+// which is what makes a clone a view rather than a picture of a view.
+const chartMain = { cv: 'chartCv', zoom: null, clock: null, t: null, hit: null };
+
+function chartAt(view) { return view.t === null ? cur.t : view.t; }
+function chartZoomOf(view) { return view.zoom === null ? chartZoom : view.zoom; }
+function chartClockOf(view) { return view.clock === null ? chartClock : view.clock; }
+
+function drawChart(view = chartMain) {
+  const cv = typeof view.cv === 'string' ? $(view.cv) : view.cv;
+  if (!cv || !S) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
   if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
   const cx = cv.getContext('2d');
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, w, h);
   const pad = 10, bandH = 26, N = S.doc.length;
+  const T = chartAt(view), zoom = chartZoomOf(view), clock = chartClockOf(view);
   const ox = (off) => pad + (off / N) * (w - 2 * pad);
   if (!S.cov) {
     const diff = new Int32Array(N + 1);
@@ -250,8 +263,8 @@ function drawChart() {
   }
   const shades = ['#0e151d', '#152230', '#1d3143', '#274257'];
   const step = Math.max(1, Math.floor(N / (w - 2 * pad)));
-  if (chartClock !== 'model' && clockReady()) {
-    drawClockBand(cx, pad, bandH, step, ox, N);
+  if (clock !== 'model' && clockReady()) {
+    drawClockBand(cx, pad, bandH, step, ox, N, view);
   } else {
     for (let off = 0; off < N; off += step) {
       let m = 0;
@@ -262,27 +275,33 @@ function drawChart() {
   }
   // a small document fills the width; a large one gets a 5px-per-char window
   const base = N * 5 < (w - 2 * pad) ? Math.min(12, Math.floor((w - 2 * pad) / Math.max(1, N))) : 5;
-  const pitch = Math.max(0.5, base * chartZoom);
+  const pitch = Math.max(0.5, base * zoom);
   const win = Math.max(8, Math.floor((w - 2 * pad) / pitch));
-  view0 = Math.max(0, Math.min(view0, Math.max(0, N - win)));
-  if (cur.t < view0 || cur.t > view0 + win * 0.72) {
-    view0 = Math.max(0, Math.min(cur.t - win * 0.6, Math.max(0, N - win)));
+  // each view keeps its own window into the text; the facet's is the shared
+  // one, so scrubbing still moves what you are looking at
+  let at = view === chartMain ? view0 : (view.at || 0);
+  at = Math.max(0, Math.min(at, Math.max(0, N - win)));
+  if (T < at || T > at + win * 0.72) {
+    at = Math.max(0, Math.min(T - win * 0.6, Math.max(0, N - win)));
   }
+  if (view === chartMain) view0 = at; else view.at = at;
   cx.strokeStyle = C.warm;
-  cx.strokeRect(ox(view0), 5, ox(Math.min(view0 + win, N)) - ox(view0), bandH + 6);
+  cx.strokeRect(ox(at), 5, ox(Math.min(at + win, N)) - ox(at), bandH + 6);
   const lanesY = bandH + 22;
   const laneH = Math.max(6, Math.min(22, Math.floor((h - lanesY - 8) / (S.maxdepth + 1))));
-  const sx = (off) => pad + (off - view0) * pitch;
-  S.chartHit = { pad, bandH, lanesY, laneH, pitch, win, ox };
-  if (chartClock !== 'model') {
+  const sx = (off) => pad + (off - at) * pitch;
+  const hit = { pad, bandH, lanesY, laneH, pitch, win, ox, at };
+  view.hit = hit;
+  if (view === chartMain) S.chartHit = hit;
+  if (clock !== 'model') {
     if (!clockReady()) {
       loadClock();
       cx.fillStyle = C.dim;
-      cx.fillText(`the ${chartClock} clock is running…`, 12, lanesY + 14);
+      cx.fillText(`the ${clock} clock is running…`, 12, lanesY + 14);
     } else {
-      drawClockLanes(cx, w, h, lanesY, pitch, sx);
+      drawClockLanes(cx, w, h, lanesY, pitch, sx, view);
     }
-    const cxx0 = sx(Math.min(Math.max(cur.t, view0), view0 + win));
+    const cxx0 = sx(Math.min(Math.max(T, at), at + win));
     cx.strokeStyle = C.warm;
     cx.beginPath(); cx.moveTo(cxx0, lanesY - 6); cx.lineTo(cxx0, h - 4); cx.stroke();
     return;
@@ -290,14 +309,14 @@ function drawChart() {
   // one pass, carrying the index: `indexOf` inside this loop was a linear
   // scan of 12k spans per drawn span — quadratic, on every frame
   S.spans.forEach((s, idx) => {
-    if (s.e <= view0 || s.s >= view0 + win) return;
-    const x1 = sx(Math.max(s.s, view0)), x2 = sx(Math.min(s.e, view0 + win));
+    if (s.e <= at || s.s >= at + win) return;
+    const x1 = sx(Math.max(s.s, at)), x2 = sx(Math.min(s.e, at + win));
     const y = lanesY + s.d * laneH;
     if (s.e === s.s) {
       // an ε match holds no text: drawing it as a box the width of two
       // characters puts 1,400 objects on screen that the document does not
       // contain. It is a mark AT a place, so it is drawn as one.
-      cx.strokeStyle = s.s <= cur.t ? C.dimmer : C.pending;
+      cx.strokeStyle = s.s <= T ? C.dimmer : C.pending;
       cx.beginPath();
       cx.moveTo(x1 + 0.5, y + 1);
       cx.lineTo(x1 + 0.5, y + laneH - 3);
@@ -308,9 +327,9 @@ function drawChart() {
       }
       return;
     }
-    if (s.e <= cur.t) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 2); cx.strokeStyle = C.cool; }
-    else if (s.s < cur.t) {
-      cx.fillStyle = C.active; cx.fillRect(x1, y, sx(Math.min(cur.t, view0 + win)) - x1, laneH - 2);
+    if (s.e <= T) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 2); cx.strokeStyle = C.cool; }
+    else if (s.s < T) {
+      cx.fillStyle = C.active; cx.fillRect(x1, y, sx(Math.min(T, at + win)) - x1, laneH - 2);
       cx.strokeStyle = C.warm;
     } else cx.strokeStyle = C.pending;
     cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 2), laneH - 2);
@@ -324,7 +343,7 @@ function drawChart() {
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
     }
   });
-  const cxx = sx(Math.min(Math.max(cur.t, view0), view0 + win));
+  const cxx = sx(Math.min(Math.max(T, at), at + win));
   cx.strokeStyle = C.warm;
   cx.beginPath(); cx.moveTo(cxx, lanesY - 6); cx.lineTo(cxx, h - 4); cx.stroke();
 }
