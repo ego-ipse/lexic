@@ -1,5 +1,37 @@
 # opsis-radical — HANDOVER
 
+## 2026-08-11 — space_1 rebuilt on measurement; the old build is FUCKUP/
+
+**The finding that changed it.** Every picture that failed today failed on
+PLACEMENT, not drawing. The same rule graph is legible in a window and a
+smear in a quarter-width column. Measuring settled it: reading
+fixtures_long.json, the grammar needs 70 columns and the document 25 — the
+layouts had given the grammar 24% and the document 46% all along, which is
+why the rules were cut off mid-line in every frame while nobody called it a
+defect.
+
+**So a surface declares the room it needs and the arrangement answers.** The
+shares invert when the reading changes (json.gbnf under json.abnf: grammar
+18%, document 29%) — one instrument, a shape per reading. What cannot be
+honoured is NAMED (`wants.window graph,machine`) rather than crushed.
+
+**Everything worth keeping came across carrying its correction, as a fact:**
+the grammar's own spelling for co-selection (the folded-name bug that ate a
+day), the clock's four corrections, artefacts that count only once loaded
+back, an edit as a re-reading with the frontier measured off the kernel, a
+stratum as a depth rather than a column position, the machine as the whole
+clone set rather than the subset a run entered, and the ring. 18 facts,
+exit 0, ~1,100 lines against the old build's ~2,700.
+
+**Two of those facts have already earned their place:** the gate caught my
+own placement floor telling a graph needing 132 columns that 64 was enough,
+and ruff caught the gate shadowing its own imports twice.
+
+**The honest note on the day.** Measured facts improved all day — names,
+ids, depths, edges, witnesses — while the surfaces on screen did not, and I
+kept reporting the former as though it answered the latter. The rebuild
+exists because the user said start over, repeatedly, and was right to.
+
 ## 2026-08-11 — `space_1/`: the relation graph, and the clocks made honest
 
 **The halves.** The leaf is `space/`'s, kept whole and edited where it is
