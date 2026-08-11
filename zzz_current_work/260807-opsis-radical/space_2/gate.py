@@ -768,6 +768,20 @@ def main() -> int:
         )[:4]
         for clock in ("model", "pda", "earley")
     }
+    # every clock says WHAT IT IS SHOWING, and carries a second panel under
+    # its stack — three clocks that each invented their own furniture made
+    # one panel read as three
+    for clock, caption, foot in (
+        ("model", "open at the cursor", "JUST CLOSED"),
+        ("pda", "the PDA's stack at t", "DECISIONS"),
+        ("earley", "Earley column", "CAN COME NEXT"),
+    ):
+        spoken = words(frame({"chart.clock": clock}, at=900.0))
+        check(
+            f"the {clock} spine says what it is showing, and what is beside it",
+            any(w.startswith(caption) for w in spoken) and foot in spoken,
+            f"{caption} · {foot}",
+        )
     check(
         "the spine keeps one voice, whichever clock answers",
         len({tuple(rows) for rows in shapes.values() if rows}) == 1,

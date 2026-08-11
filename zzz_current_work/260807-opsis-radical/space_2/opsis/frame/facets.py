@@ -1038,26 +1038,35 @@ def spine(said: Frame, room: Room, look: Look) -> None:
     STACKS.get(look.says("chart.clock", "model"), _model_stack)(said, room, look)
 
 
-def _rows(said: Frame, room: Room, look: Look, rows: list[Row], foot: bool) -> float:
-    """A stack, scrolled — `(gutter, words, extent, tone)` per row, deepest last.
+def _rows(
+    said: Frame,
+    room: Room,
+    look: Look,
+    caption: str,
+    rows: list[Row],
+    foot: tuple[str, list[Row]] | None = None,
+) -> None:
+    """A stack, scrolled — and the panel under it, whichever clock answers.
 
-    ONE row shape, whichever clock is answering. `leaf.css` gives the spine a
-    single rule: the gutter dimmer in a 4ch column, the thing itself in ink
-    (warm on the deepest row), and its extent dim beside it. Three clocks
-    that each invented their own tones made the same panel read as three
-    panels, which is the one thing a spine must not do.
+    ONE row shape and TWO panels, always. `leaf.css` gives the spine a single
+    rule: the gutter dimmer in its own column, the thing itself in ink and
+    warm on the deepest row, its extent dim beside it. And the spine always
+    has a caption saying what it is showing and a second panel under it —
+    JUST CLOSED, DECISIONS or CAN COME NEXT — because three clocks that each
+    invented their own furniture made one panel read as three.
     """
     x, y, w, h = room
-    keep = ROW * 5 + 14 if foot else 0.0
+    said.text(x + 14, y + 20, "fsub", caption, w - 28)
+    keep = ROW * (len(foot[1][:4]) + 2) + 14 if foot else 0.0
     if h < keep + ROW * 3:
         keep = 0.0
-    body = max(ROW, h - keep - 12 - (ROW if keep else 0))
-    fits = max(1, int(min(body, h - 20) // ROW))
+    body = max(ROW, h - keep - 24 - (ROW if keep else 0))
+    fits = max(1, int(min(body, h - 32) // ROW))
     first = min(look.top("spine"), max(0, len(rows) - fits))
     # the gutter is as wide as the widest thing IN it: `@4,188` is not `d7`,
     # and a column of origins clipped to `@41…` says nothing at all
     step = max((len(row[0]) for row in rows), default=0) * CELL + (8 if rows else 0)
-    top = y + 12
+    top = y + 30
     for gutter, words, extent, tone in rows[first : first + fits]:
         if gutter:
             said.text(x + 14, top + 10, "dimmer", gutter)
@@ -1076,12 +1085,30 @@ def _rows(said: Frame, room: Room, look: Look, rows: list[Row], foot: bool) -> f
         said.text(
             x + 14, top + 10, "dimmer", f"{len(rows) - first - fits} more — scroll"
         )
-    return keep
+    if not keep or foot is None:
+        return
+    title, under = foot
+    top = y + h - keep
+    said.text(x + 14, top + 10, "ftitle", title)
+    top += ROW + 2
+    for gutter, words, extent, tone in under[:4]:
+        if gutter:
+            said.text(x + 14, top + 10, "dimmer", gutter)
+        at = x + 14 + (len(gutter) + 1) * CELL if gutter else x + 14
+        said.text(at, top + 10, tone, words, w - (at - x) - 16)
+        if extent:
+            said.text(
+                at + min(runs(tone, words), w - (at - x) - 16) + 8,
+                top + 10,
+                "dim",
+                extent,
+            )
+        top += ROW
 
 
 def _model_stack(said: Frame, room: Room, look: Look) -> None:
     """model — the open model spans, as ever."""
-    x, y, w, h = room
+    x, y, _w, _h = room
     live = look.live()
     rows: list[Row] = [
         (
@@ -1093,22 +1120,19 @@ def _model_stack(said: Frame, room: Room, look: Look) -> None:
         for span in live
     ]
     if not rows:
-        said.text(x + 14, y + 22, "fsub", "nothing open here")
-    keep = _rows(said, room, look, rows, foot=True)
+        said.text(x + 14, y + 40, "fsub", "nothing open — before the first span")
+    closed: list[Row] = [
+        (
+            "",
+            as_written(look.it.rules, span.rule),
+            f"{span.start:,}..{span.end:,}",
+            "dim",
+        )
+        for span in closed_before(look.reading, look.at)[:4]
+    ]
+    _rows(said, room, look, "open at the cursor", rows, ("JUST CLOSED", closed))
     for span in live:
         said.hit(x, y, 0, 0, "span", f"{span.start}:{span.end}")
-    if not keep:
-        return
-    top = y + h - keep
-    said.text(x + 14, top + 10, "ftitle", "JUST CLOSED")
-    top += ROW + 2
-    for span in closed_before(look.reading, look.at)[:4]:
-        name = as_written(look.it.rules, span.rule)
-        said.text(
-            x + 14, top + 10, "dim", f"{name} {span.start:,}..{span.end:,}", w - 30
-        )
-        said.hit(x, top, w, ROW, "span", f"{span.start}:{span.end}")
-        top += ROW
 
 
 def _pda_stack(said: Frame, room: Room, look: Look) -> None:
@@ -1133,47 +1157,75 @@ def _pda_stack(said: Frame, room: Room, look: Look) -> None:
     ]
     if not rows:
         said.text(
-            x + 14, y + 22, "fsub", "the machine holds no frame here — see the graph"
+            x + 14, y + 40, "fsub", "no frame open — a frameless leaf run carries this"
         )
+    # DECISIONS — the last few the walk made, warm where it just made one
     near = [
-        (at, said_words, chose)
-        for at, said_words, chose in decisions(look.watched)
-        if abs(at - look.at) < 400
-    ][:6]
-    rows += [
-        (f"@{at}", f"{words} → {chose}", "", "violet") for at, words, chose in near
+        (at, words, chose)
+        for at, words, chose in decisions(look.watched)
+        if at <= look.at
+    ][-4:]
+    made: list[Row] = [
+        (f"@{at}", f"{words} → {chose}", "", "warm" if abs(at - look.at) < 2 else "dim")
+        for at, words, chose in near
     ]
-    _rows(said, room, look, rows, foot=False)
+    if not made:
+        made = [("", "none — the whole walk is deterministic descent", "", "dim")]
+    _rows(said, room, look, "the PDA's stack at t", rows, ("DECISIONS", made))
 
 
 def _earley_stack(said: Frame, room: Room, look: Look) -> None:
     """earley — the cursor's own column, as dotted items, and what can follow."""
     x, y, _w, _h = room
-    machine = look.it.machine
-    if machine is None:
-        said.text(x + 14, y + 22, "fsub", "this reading has no machine")
+    if look.it.machine is None:
+        said.text(x + 14, y + 40, "fsub", "this reading has no machine")
         return
     said_column = _column(look, int(look.at))
     rows: list[Row] = []
+    expect: list[str] = []
     expecting = False
     for line in said_column.split("\n"):
         if line.startswith("#COLUMN"):
             continue
         if line.startswith("#EXPECT"):
             expecting = True
-            rows.append(("", "CAN COME NEXT", "", "ftitle"))
             continue
         if not line.strip():
             continue
         if expecting:
-            rows.append(("", line, "", "cool"))
+            expect.append(line)
             continue
         origin, _, rest = line.partition(" ")
         role, _, item = rest.partition(" ")
-        rows.append((f"@{origin}", item, "", "green" if role == "complete" else "ink"))
+        rows.append(
+            (f"@{origin}", item, role, "green" if role == "complete" else "ink")
+        )
     if not rows:
-        said.text(x + 14, y + 22, "fsub", "the chart holds nothing at this character")
-    _rows(said, room, look, rows, foot=False)
+        said.text(x + 14, y + 40, "fsub", "empty — inside a lexical run, scanned past")
+    _rows(
+        said,
+        room,
+        look,
+        f"Earley column {int(look.at):,} — {len(rows)} items",
+        rows,
+        ("CAN COME NEXT", _echips(expect)),
+    )
+
+
+def _echips(expect: list[str]) -> list[Row]:
+    """.echip — what can come next, warm, as many to a line as fit."""
+    if not expect:
+        return [("", "nothing — every item is complete", "", "dim")]
+    lines: list[Row] = []
+    said = ""
+    for term in expect:
+        if len(said) + len(term) > 46:
+            lines.append(("", said, "", "warm"))
+            said = ""
+        said += ("  " if said else "") + term
+    if said:
+        lines.append(("", said, "", "warm"))
+    return lines
 
 
 _COLUMNS: dict[str, str] = {}

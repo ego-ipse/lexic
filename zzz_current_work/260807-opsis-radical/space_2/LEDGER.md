@@ -541,6 +541,18 @@ opening the space_1 file that already answered it, and several had been
   window and left a dim chip you had to find and click, which put the surface
   back wherever the measurement felt like. The window remembers its home now.
 
+- **The spine had one panel where the reference has two.** `spine.js` gives
+  every clock a CAPTION saying what it is showing — *open at the cursor* /
+  *the PDA's stack at t* / *Earley column N — M items* — and a second panel
+  under the stack: JUST CLOSED, DECISIONS, or CAN COME NEXT as warm chips.
+  Only the model had a footer here, and the PDA's decisions and Earley's
+  expected terminals were mixed into the stack rows as if they were frames.
+  All three go through one shape now, so a clock cannot invent its own
+  furniture. (`decisions()` returns nothing for `json.gbnf` — the walk really
+  is deterministic descent, and the footer says so in the reference's own
+  words. The `decide.gbnf` fixture yields 96, so the panel is not empty
+  because it is broken.)
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.
