@@ -1047,8 +1047,8 @@ function drawEarleySpine() {
     // it can be read as track instead of guessed at from one line
     if (/^[A-Za-z_][A-Za-z0-9_-]*$/.test(term)) {
       chip.classList.add('echip-rule');
-      chip.title = `open ${term} as a railroad`;
-      chip.addEventListener('click', () => railPin(term));
+      chip.title = `open ${term} in its own room`;
+      chip.addEventListener('click', () => openPlace('rule.' + term));
     }
     closedBody.appendChild(chip);
   }
