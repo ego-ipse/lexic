@@ -261,3 +261,23 @@ def _spell(node: object) -> str:
     if node[0] == "t":
         return f"(t {node[1]} {' '.join(str(m) for m in node[2])})"
     return f"({node[0]} {node[1]} {_spell(node[2])} {_spell(node[3])})"
+
+
+def showing(tree: str, mate: str, at: int) -> str:
+    """That tab group, showing this one instead.
+
+    `walked` reads a `t` node's index OUT OF THE TREE, so once a hand has
+    made a shape the index lives there and `tab.<column>` is no longer read
+    by anything. Clicking a tab has to move the number where the tree keeps
+    it, or it does nothing at all after a topology change.
+    """
+    node = _parse(tree)
+
+    def into(said: object) -> object:
+        if not isinstance(said, tuple):
+            return said
+        if said[0] == "t":
+            return ("t", at, said[2]) if mate in said[2] else said
+        return (said[0], said[1], into(said[2]), into(said[3]))
+
+    return _spell(into(node))

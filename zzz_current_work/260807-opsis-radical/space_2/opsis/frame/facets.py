@@ -1364,11 +1364,13 @@ def _rows(
     invented their own furniture made one panel read as three.
     """
     x, y, w, h = room
-    keep = ROW * (len(foot[1][:4]) + 2) + 14 if foot else 0.0
+    # `#spineBody`, `<h3 id="closedHead">` and `#closedBody` share ONE
+    # `.scroll`: the second panel FOLLOWS the stack — `padding: 12px 14px 4px`
+    # — it is not pinned to the bottom of the facet with a hole above it.
+    keep = ROW * (len(foot[1][:4]) + 1) + 16 if foot else 0.0
     if h < keep + ROW * 3:
         keep = 0.0
-    body = max(ROW, h - keep - 12 - (ROW if keep else 0))
-    fits = max(1, int(min(body, h - 20) // ROW))
+    fits = max(1, int((h - keep - 24) // ROW))
     first = min(look.top("spine"), max(0, len(rows) - fits))
     # the gutter is as wide as the widest thing IN it: `@4,188` is not `d7`,
     # and a column of origins clipped to `@41…` says nothing at all
@@ -1401,7 +1403,8 @@ def _rows(
     if not keep or foot is None:
         return
     title, under = foot
-    top = y + h - keep
+    # right after the rows, not at the foot of the facet
+    top = y + 12 + min(len(rows), fits) * ROW + 12
     said.text(x + 14, top + 10, "ftitle", title)
     top += ROW + 2
     for gutter, words, extent, tone, goes in under[:4]:

@@ -20,7 +20,7 @@ from collections.abc import Callable, MutableMapping
 from time import monotonic
 
 from opsis.scene import ruledefs, staged
-from opsis.space import moved, zone_at
+from opsis.space import moved, showing, zone_at
 from praxis.history import Retype, retype
 from praxis.reading import Reading, read_up
 from praxis.roots import GRAMMAR as POLICY
@@ -211,11 +211,19 @@ class Session:
         The chip carries the column and the index, because the frame is what
         knows the arrangement; nothing here reconstructs it.
         """
-        if words and ":" in words[0]:
-            column, _, rest = words[0].partition(":")
-            index = rest.partition(":")[0]
-            if index.isdigit():
-                self.state[f"tab.{column}"] = index
+        if not words or ":" not in words[0]:
+            return
+        column, _, rest = words[0].partition(":")
+        index, _, mate = rest.partition(":")
+        if not index.isdigit():
+            return
+        self.state[f"tab.{column}"] = index
+        # AND IN THE TREE, when a hand has made one. `walked` reads a `t`
+        # node's index out of the shape, so after any topology change the
+        # policy key is read by nothing and the tab does not switch.
+        shape = self.main.get("arrange.shape", "")
+        if shape and mate:
+            self.main["arrange.shape"] = showing(shape, mate, int(index))
 
     def _facet(self, words: list[str]) -> None:
         """A dock chip — that facet's presence, toggled."""

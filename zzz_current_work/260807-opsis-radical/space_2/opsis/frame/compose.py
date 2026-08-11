@@ -171,16 +171,17 @@ def _zone(said: Frame, look: Look, grid: object, titles: dict[str, str]) -> None
         was = said.lift()
         said.box(rx, ry, rw, rh, "drop_wash")
         said.dashes(rx, ry, rw, rh, "violet")
+        # `wire.js`: `zone === 'tab' ? 'tab with ' + FACET_WORD[name]
+        # : 'split ' + zone` — and FACET_WORD is the facet's own word, with
+        # its "THE " gone. Not the dragged surface's name, not "the document".
         word = (
-            f"tab with {called(titles.get(target, target))[0].lower()}"
-            if zone == "tab"
-            else f"split {zone}"
+            f"tab with {worded(titles, target)}" if zone == "tab" else f"split {zone}"
         )
         # in the MIDDLE of the zone it names: at the top it sat on the head
         # of the surface it was covering, and two lines of text in one place
         # is worse than none
         # centred both ways, as `#dropzone` centres its own text
-        says = f"{dragged} — {word}"
+        says = word
         said.text(
             rx + max(8.0, (rw - runs("drawn", says)) / 2),
             ry + rh / 2,
