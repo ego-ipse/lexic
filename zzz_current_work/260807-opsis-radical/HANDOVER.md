@@ -27,6 +27,20 @@ exit 0, ~1,100 lines against the old build's ~2,700.
 own placement floor telling a graph needing 132 columns that 64 was enough,
 and ruff caught the gate shadowing its own imports twice.
 
+**The gate has caught four of my own defects since it existed**, which is the
+argument for writing facts rather than prose: a placement floor telling a
+graph needing 132 columns that 64 was enough; a docstring claiming one rule
+while the body did another; two checks passing vacuously while printing
+"missing"; and a space inside a wire field (`machine:no address yet`) that
+made a space-separated line parse as three broken entries. None of these were
+visible by reading the code — all four were visible the moment something
+asserted the claim.
+
+**A working habit that earned its place**: after a scripted edit, assert the
+edit landed. Three edits today silently failed to match after `ruff format`
+reshaped their anchors, and the only reason I noticed was behaviour that made
+no sense. `assert "…" in path.read_text()` turns that into an immediate error.
+
 **The honest note on the day.** Measured facts improved all day — names,
 ids, depths, edges, witnesses — while the surfaces on screen did not, and I
 kept reporting the former as though it answered the latter. The rebuild
