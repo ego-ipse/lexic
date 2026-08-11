@@ -80,9 +80,9 @@ def main() -> int:
         other.words[:60],
     )
     check(
-        "a surface that cannot be honoured asks for a window",
-        bool(windowed(facets, 120)),
-        ", ".join(windowed(facets, 120)),
+        "ordinary squeezing is tolerated; a halving is not",
+        not windowed(facets, 200) and bool(windowed(facets, 100)),
+        f"at 200: none · at 100: {', '.join(windowed(facets, 100)) or 'none'}",
     )
     up = upward(reading)
     check(
