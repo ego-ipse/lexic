@@ -94,6 +94,28 @@ TONES = {
     "violet20": "rgba(217,140,245,0.20)",
     "dim20": "rgba(102,112,127,0.20)",
     # the model band's depths
+    # the clock bands: a texture, not a picture. The PDA's is stack depth in
+    # cool with a warm mark where it DECIDED; Earley's is live hypotheses in
+    # violet, red where they died and blended where both happened at once.
+    # `chart.js` ramps the alpha continuously; a tone is a name, so these are
+    # its endpoints in four steps.
+    "pdaband0": "rgba(111,195,201,0.10)",
+    "pdaband1": "rgba(111,195,201,0.28)",
+    "pdaband2": "rgba(111,195,201,0.47)",
+    "pdaband3": "rgba(111,195,201,0.65)",
+    "pdadecided": "#e2a65c",
+    "hypband0": "rgba(217,140,245,0.08)",
+    "hypband1": "rgba(217,140,245,0.25)",
+    "hypband2": "rgba(217,140,245,0.45)",
+    "hypband3": "rgba(217,140,245,0.68)",
+    "hypdead": "rgba(224,96,96,0.40)",
+    # where hypotheses both stood and died, the blend still RAMPS with how
+    # many stood — a flat tone made every bucket the same and the band said
+    # nothing at all about a document where both happen everywhere
+    "hypboth0": "rgba(199,123,155,0.25)",
+    "hypboth1": "rgba(199,123,155,0.40)",
+    "hypboth2": "rgba(199,123,155,0.55)",
+    "hypboth3": "rgba(199,123,155,0.70)",
     "modelband0": "#0e151d",
     "modelband1": "#152230",
     "modelband2": "#1d3143",

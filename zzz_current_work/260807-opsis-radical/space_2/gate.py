@@ -768,6 +768,23 @@ def main() -> int:
         )[:4]
         for clock in ("model", "pda", "earley")
     }
+    # the band's own tones, wherever the region put it — a y that happened to
+    # be right in one arrangement is a fact about the arrangement
+    bands = {
+        clock: {
+            m[5]
+            for m in marks(frame({"chart.clock": clock}), "box")
+            if m[5].startswith(("modelband", "pdaband", "hypband", "hypboth"))
+            or m[5] in ("pdadecided", "hypdead")
+        }
+        for clock in ("model", "pda", "earley")
+    }
+    check(
+        "the overview band is the CLOCK's, not the model's three times over",
+        len({frozenset(said) for said in bands.values()}) == 3,
+        " · ".join(f"{c}:{len(s)}" for c, s in bands.items()),
+    )
+
     # every clock says WHAT IT IS SHOWING, and carries a second panel under
     # its stack — three clocks that each invented their own furniture made
     # one panel read as three

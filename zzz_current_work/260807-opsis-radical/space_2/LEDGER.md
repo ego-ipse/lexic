@@ -553,6 +553,16 @@ opening the space_1 file that already answered it, and several had been
   words. The `decide.gbnf` fixture yields 96, so the panel is not empty
   because it is broken.)
 
+- **The overview band stayed the model's on every clock.** `chart.js`
+  chooses: `clock !== 'model'` draws the RUN's own texture instead — the
+  PDA's stack depth in cool with a warm mark wherever it decided, Earley's
+  live hypotheses in violet, red where they died, blended where both
+  happened in one bucket. A band that says the same thing about three
+  different runs is furniture. The alpha ramps continuously there; a tone is
+  a name, so these are its endpoints in four steps, and the blend ramps too —
+  flat, it made every bucket identical on a document where both happen
+  everywhere.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.

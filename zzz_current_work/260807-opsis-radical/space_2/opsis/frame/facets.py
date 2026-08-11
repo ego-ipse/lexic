@@ -875,9 +875,18 @@ def chart(said: Frame, room: Room, look: Look) -> None:
     """THE DERIVATION — the overview band, then the lanes under a cursor."""
     x, y, w, h = room
     stamp = f"{len(look.reading.text)}:{len(look.reading.spans)}"
-    band = _kept(f"band:{stamp}", lambda: band_drawing(look.reading, 18, None, "model"))
-    said.place(band, x, y + 6, w / max(1.0, band.wide), 22.0 / max(1.0, band.tall))
     which = look.says("chart.clock", "model")
+    # THE BAND IS THE CLOCK'S OWN. Only the model's overview is the reading's
+    # structure; the PDA's is its stack depth and Earley's is how many
+    # hypotheses were alive — a band that stayed the model's while the lanes
+    # changed underneath it said the same thing about three different runs.
+    if which == "model" or look.it.machine is None:
+        band = _kept(
+            f"band:{stamp}", lambda: band_drawing(look.reading, 18, None, "model")
+        )
+        said.place(band, x, y + 6, w / max(1.0, band.wide), 22.0 / max(1.0, band.tall))
+    else:
+        _texture(said, (x + 10, y + 6, w - 20, 22.0), look, which, stamp)
     deep = int(max(20, h - 44))
     drawn = _kept(f"clock:{stamp}:{which}:{deep}", lambda: _clock(look, deep))
     picked = _picked(look, stamp)
@@ -892,6 +901,75 @@ def chart(said: Frame, room: Room, look: Look) -> None:
         picked,
         PITCH * look.zoom("chart"),
     )
+
+
+_TEXTURE: dict[str, tuple[list[int], list[int], list[int]]] = {}
+
+
+def texture(
+    look: Look, which: str, stamp: str, buckets: int
+) -> tuple[list[int], list[int], list[int]]:
+    """The band's texture, bucketed: what stood here, what died here, and where.
+
+    A fact about the whole RUN, so it is worked out once per reading and per
+    width rather than summed over six thousand frames because a cursor moved.
+    """
+    key = f"{stamp}:{which}:{buckets}"
+    if key in _TEXTURE:
+        return _TEXTURE[key]
+    length = max(1, len(look.reading.text))
+    high = [0] * buckets
+    lost = [0] * buckets
+    marks = [0] * buckets
+    at = lambda off: min(buckets - 1, int(off * buckets / length))  # noqa: E731
+    if which == "pda":
+        for s0, e0, depth, _name, ok, _seat in look.watched:
+            for b in range(at(int(s0)), at(max(int(e0) - 1, int(s0))) + 1):
+                high[b] = max(high[b], int(depth))
+                if not ok:
+                    lost[b] = 1
+        for point, _kind, _said in decisions(look.watched):
+            marks[at(int(point))] = 1
+    elif look.it.machine is not None:
+        said, _names = hypotheses(look.it.machine, look.reading.text)
+        for line in said:
+            parts = line.split(" ")
+            if len(parts) < 3:
+                continue
+            start, last, done = int(parts[0]), int(parts[1]), parts[2] == "1"
+            for b in range(at(start), at(max(last - 1, start)) + 1):
+                if done:
+                    high[b] += 1
+                else:
+                    lost[b] += 1
+    _TEXTURE.clear()
+    _TEXTURE[key] = (high, lost, marks)
+    return _TEXTURE[key]
+
+
+def _texture(said: Frame, room: Room, look: Look, which: str, stamp: str) -> None:
+    """`drawClockBand` — the run's own texture, bucketed by the pixel."""
+    x, y, w, h = room
+    buckets = max(8, int(w))
+    high, lost, marks = texture(look, which, stamp, buckets)
+    top = max(1, max(high, default=1))
+    step = w / buckets
+    for b in range(buckets):
+        if which == "pda":
+            tone = (
+                "pdadecided"
+                if marks[b]
+                else (
+                    "field2" if not high[b] else f"pdaband{min(3, high[b] * 4 // top)}"
+                )
+            )
+        elif lost[b] and not high[b]:
+            tone = "hypdead"
+        elif lost[b] and high[b]:
+            tone = f"hypboth{min(3, high[b] * 4 // top)}"
+        else:
+            tone = f"hypband{min(3, high[b] * 4 // top)}" if high[b] else "field2"
+        said.box(x + b * step, y, max(1.0, step), h, tone)
 
 
 _PICKED: dict[str, set[tuple[int, int]]] = {}
