@@ -409,6 +409,12 @@ class Session:
             )
             if named:
                 self.state["chosen"] = named
+                # ▤ rail, where the hand is. A plane is a real element, so
+                # this is the ONLY report that a rule was chosen in the
+                # reader — the click never reaches the canvas at all.
+                self.main["railchip"] = (
+                    f"{named} {words[3]} {words[4]}" if len(words) >= 5 else ""
+                )
             return
         if words[0] != "document":
             return
@@ -691,10 +697,10 @@ class Session:
         self.main["playing"] = "1" if self.playing else "0"
 
     def _speed(self, words: list[str]) -> None:
+        """Halve or double it. `setSpeed`: 1/512 to 16, and nothing invented."""
         was = float(self.state.get("speed", "1"))
-        self.state["speed"] = (
-            f"{max(0.25, min(8.0, was * (2 if words and words[0] == '+' else 0.5))):g}"
-        )
+        now = was * (2 if words and words[0] == "+" else 0.5)
+        self.state["speed"] = f"{max(1 / 512, min(16.0, now)):g}"
 
     def _tick(self, _words: list[str]) -> None:
         """The clock, moved by however much time has actually passed.

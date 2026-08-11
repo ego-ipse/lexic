@@ -240,9 +240,9 @@ function weld() {
       el.dataset.name = plane.name;
       el.addEventListener('input', () => ask(`text ${el.dataset.name}`, el.value));
       el.addEventListener('scroll', () => scrolled(el, plane));
-      el.addEventListener('select', () => chose(el));
-      el.addEventListener('mouseup', () => chose(el));
-      el.addEventListener('keyup', () => chose(el));
+      el.addEventListener('select', (ev) => chose(el, ev));
+      el.addEventListener('mouseup', (ev) => chose(el, ev));
+      el.addEventListener('keyup', (ev) => chose(el, ev));
       planes.appendChild(el);
       held.set(plane.name, el);
     }
@@ -262,11 +262,18 @@ function scrolled(el, plane) {
   if (line !== plane.top) { plane.top = line; ask(`scrolled ${plane.name} ${line}`); }
 }
 
-function chose(el) {
+function chose(el, ev) {
   const a = el.selectionStart, b = el.selectionEnd;
   if (a === chose.was && b === chose.until) return;
   chose.was = a; chose.until = b;
-  ask(`sel ${el.dataset.name} ${a} ${b}`);
+  /* a plane is a REAL element, so a click in it never reaches the canvas:
+     the only thing that says a rule was chosen in the reader is this. It
+     carries where the hand was, because ▤ rail is raised there. */
+  const box = paper.getBoundingClientRect();
+  const at = ev && ev.clientX !== undefined
+    ? ` ${Math.round(ev.clientX - box.left)} ${Math.round(ev.clientY - box.top)}`
+    : '';
+  ask(`sel ${el.dataset.name} ${a} ${b}${at}`);
 }
 
 function under(ev, wanted) {

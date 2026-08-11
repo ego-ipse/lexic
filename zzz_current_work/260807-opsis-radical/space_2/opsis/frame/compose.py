@@ -38,9 +38,17 @@ def _every(reading: Reading) -> list[str]:
     ]
 
 
-# #mast / #status: padding 10px 18px over a 12px line
+# #mast / #status: padding 10px 18px over a 12px line. #pos is `min-width:
+# 30ch` and WRAPS inside that, which is why the transport beside it does not
+# move when the reading starts playing or the speed gains a character — so
+# the status bar is two lines tall and the masthead is one.
 BAR = 34.0
+STATUS = 46.0
 PAD = 18.0
+# `min-width: 30ch`, but flex lets it take its natural width and wrap only
+# when the row runs out — which lands `char N / M · line L / T ·` on the
+# first line and the rest on the second. That is what the box measures.
+POS = 44 * 6.6
 
 
 def compose(
@@ -92,7 +100,7 @@ def compose(
         return said
 
     _masthead(said, reading, it, wide, generation, _every(reading), look, titles)
-    grid = walked(str(it.policy["arrange.tree"]), 0, BAR, wide, tall - BAR * 2)
+    grid = walked(str(it.policy["arrange.tree"]), 0, BAR, wide, tall - BAR - STATUS)
     for region in grid.regions:
         draw = DRAWN.get(region.name)
         if draw is None:
@@ -307,7 +315,7 @@ def _banner(said: Frame, reading: Reading, wide: int, tall: int) -> None:
     words = reading.words if len(reading.words) < 140 else reading.words[:139] + "…"
     room = runs("verdict", words) + 36
     x = max(24.0, wide * 0.24)
-    y = tall - BAR - 58
+    y = tall - STATUS - 58
     said.box(x, y, min(room, wide - x - 24), 40, "field2")
     for x1, y1, x2, y2 in (
         (x, y, x + min(room, wide - x - 24), y),
@@ -499,9 +507,30 @@ def _span_words(reading: Reading, goes: str) -> str:
     return f"{start:,}..{end:,}"
 
 
+def spoken(said: str) -> str:
+    """×2, or ×1/4 — `speedWord`. A speed under one is a FRACTION."""
+    rate = float(said)
+    return f"×{rate:g}" if rate >= 1 else f"×1/{round(1 / rate)}"
+
+
+def _wrap(said: str, room: float, face: str) -> list[str]:
+    """Those words, broken where they fit — what a flex box does for free."""
+    out: list[str] = []
+    line = ""
+    for word in said.split(" "):
+        if line and runs(face, f"{line} {word}") > room:
+            out.append(line)
+            line = word
+        else:
+            line = f"{line} {word}" if line else word
+    if line:
+        out.append(line)
+    return out
+
+
 def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> None:
     """#status — where the cursor is, the transport, and what the hand is on."""
-    y = tall - BAR
+    y = tall - STATUS
     said.line(0, y, wide, y, "hair")
     playing = look.says("playing", "0") == "1"
     at = int(min(look.at, len(reading.text)))
@@ -510,15 +539,18 @@ def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> 
     )
     speed = look.says("speed", "1")
     where = (
-        f"char {at:,} / {len(reading.text):,}"
-        f" · line {reading.text.count(chr(10), 0, at) + 1:,}"
-        f" / {reading.text.count(chr(10)) + 1:,} · {state}"
-        + (f" · speed {speed}" if speed != "1" else "")
-        + f" · gen {look.generation}"
+        f"char {at:,} / {len(reading.text):,} · "
+        f"line {reading.text.count(chr(10), 0, at) + 1:,} / "
+        f"{reading.text.count(chr(10)) + 1:,} · {state} · "
+        + (f"speed {spoken(speed)} · " if speed != "1" else "")
+        + f"gen {look.generation}"
     )
-    said.text(PAD, y + 22, "verdict", where, face="verdict")
-    at_x = PAD + max(32 * 6.6, runs("verdict", where) + 18)
-    # #transport — − ‹ ▶ › + ×n
+    for i, line in enumerate(_wrap(where, POS, "verdict")[:2]):
+        # #pos { color: var(--ink) } — it is the one thing in this bar that
+        # is not commentary
+        said.text(PAD, y + 18 + i * 15, "ink", line, POS, face="verdict")
+    # a FIXED place, because #pos is a box that wraps rather than one that grows
+    at_x = PAD + POS + 18
     for glyph, gesture in (
         ("−", "speed~-"),
         ("‹", "step~-1"),
@@ -526,24 +558,27 @@ def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> 
         ("›", "step~1"),
         ("+", "speed~+"),
     ):
-        said.box(at_x, y + 8, 20, 16, "field")
+        said.box(at_x, y + 12, 20, 16, "field")
         for x1, y1, x2, y2 in (
-            (at_x, y + 8, at_x + 20, y + 8),
-            (at_x, y + 24, at_x + 20, y + 24),
-            (at_x, y + 8, at_x, y + 24),
-            (at_x + 20, y + 8, at_x + 20, y + 24),
+            (at_x, y + 12, at_x + 20, y + 12),
+            (at_x, y + 28, at_x + 20, y + 28),
+            (at_x, y + 12, at_x, y + 28),
+            (at_x + 20, y + 12, at_x + 20, y + 28),
         ):
             said.line(x1, y1, x2, y2, "hair")
-        said.text(at_x + 6, y + 20, "chip", glyph)
-        said.hit(at_x, y + 8, 20, 16, "do", gesture)
+        said.text(at_x + 6, y + 24, "chip", glyph)
+        said.hit(at_x, y + 12, 20, 16, "do", gesture)
         at_x += 22
-    said.text(at_x + 6, y + 20, "dimmer", f"×{speed}", 40, face="chip")
-    at_x += 52
-    # the readout takes the right edge — margin-left: auto — and the hint
-    # fills only what is left over, because what the hand is ON matters more
-    # than a standing list of what it COULD do
+    # #tb-speed: min-width 4ch, so the hint after it does not shuffle either
+    said.text(at_x + 6, y + 24, "dimmer", spoken(speed), 4 * 6.0, face="chip")
+    at_x += 6 + 4 * 6.0 + 18
+    # #readout takes the right edge; the hint fills what is left, over two
+    # lines, because what the hand is ON matters more than a standing list of
+    # what it COULD do
     words = _readout(reading, look)
     room = runs("verdict", words) if words else 0.0
     if words:
-        said.text(wide - PAD, y + 22, "warm", words, face="verdict", anchor="r")
-    said.text(at_x, y + 22, "fsub", HINT, max(0.0, wide - at_x - PAD - room - 24))
+        said.text(wide - PAD, y + 18, "warm", words, face="verdict", anchor="r")
+    left = max(120.0, wide - at_x - PAD - room - 24)
+    for i, line in enumerate(_wrap(HINT, left, "fsub")[:2]):
+        said.text(at_x, y + 18 + i * 15, "fsub", line, left)
