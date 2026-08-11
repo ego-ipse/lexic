@@ -385,6 +385,19 @@ class Handler(BaseHTTPRequestHandler):
             named = upward(top)
             if named is not None and top.reader_name != named[1]:
                 rungs.append(Rung(top.reader_name, named[1], len(rungs), False))
+            # the rooms, as doors under the column of the thing they are of.
+            # They existed at /place with nothing pointing at them, which is
+            # how a whole capability stays on the wire and off the screen.
+            built = of(machine)
+            made = keep(machine)
+            witnessed = sum(1 for a in made if a.witness == "holds")
+            doors = [
+                f"P machine {here} {rungs[here].level} compiler ok "
+                f"{self.reading.reader_name} — as a machine\t{built.line()}",
+                f"P artefacts {here} {rungs[here].level} artefacts ok "
+                f"{self.reading.reader_name} — as artefacts\t"
+                f"{len(made)} artefacts · {witnessed} witnessed",
+            ]
             lanes = [rung.document for rung in rungs]
             return "\n".join(
                 [
@@ -397,6 +410,7 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                     # one string, not a splat: *(f"...") unpacks it into
                     # characters, which is how a card became 24 lines
+                    *doors,
                     f"k 0 {len(self.reading.text)} {len(self.reading.spans)}"
                     f" {self.reading.reader_text.count('::=')}"
                     f" {self.reading.seconds:.2f}"
