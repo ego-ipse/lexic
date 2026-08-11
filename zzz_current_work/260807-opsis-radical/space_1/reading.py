@@ -231,6 +231,19 @@ class Reading(Relation):
         # the road not taken runs behind the parse, never on its path
         routes.start(self.rid, turned.machine, text, model)
 
+    def reread(self) -> None:
+        """Read the text again — because an edit is a RE-READING, not a patch.
+
+        Everything derived is dropped first: a reading that kept its old
+        spans beside new text is the one lie the whole instrument rests on
+        not telling.
+        """
+        self.held = False
+        self.words = ""
+        self.spans = []
+        self.value = None
+        self.hold()
+
     def products(self) -> Mapping[str, Thing]:
         return {} if self.value is None else {"value": self.value}
 

@@ -29,6 +29,8 @@ import routes  # noqa: E402
 import scene as scenes  # noqa: E402
 import strata as maps  # noqa: E402
 import compiling  # noqa: E402, F401 — importing registers the kind
+import edits  # noqa: E402
+import instrument  # noqa: E402
 import keeping  # noqa: E402, F401 — importing registers the kind
 import viewing  # noqa: E402, F401 — importing registers the kind
 from reading import Reading, Turn, turn  # noqa: E402, F401 — registers the kind
@@ -99,6 +101,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/scene":
             return scenes.scene(session, session.focus)
         if path == "/strata":
+            instrument.refresh(session)
             return maps.frame(session)
         if path == "/policy":
             return "".join(f"{k} {v}\n" for k, v in session.policy.items())
@@ -164,11 +167,20 @@ class Handler(BaseHTTPRequestHandler):
                     session.policy.pop(key, None)
                 else:
                     session.policy[key] = value
+            instrument.refresh(session)
             return "ok\n"
         if path == "/focus":
             return self.travel(int(body.strip() or "0"))
         if path == "/cursor":
             return "ok\n"
+        if path in ("/edit", "/save"):
+            head, _, put = body.partition("\n")
+            bounds = head.split(" ")
+            if len(bounds) != 2 or not all(b.lstrip("-").isdigit() for b in bounds):
+                return "refuse -1\nan edit says WHERE before it says what\n"
+            start, end = int(bounds[0]), int(bounds[1])
+            take = edits.retype if path == "/edit" else edits.save
+            return take(session, session.focus, start, end, put).spell()
         return "refuse unknown route\n"
 
     def travel(self, place: int) -> str:
@@ -230,6 +242,56 @@ def gate(session: Session) -> int:
         "a miss is said in words, not drawn as a blank",
         scenes.scene(session, "nope") is None,
     )
+    picture = maps.frame(session)
+    doors = {
+        line.split(" ")[4] for line in picture.splitlines() if line.startswith("P ")
+    }
+    check(
+        "the map has a column per thing and a door per room kind",
+        picture.count("\nL ") >= 3 and {"value", "compiler", "artefacts"} <= doors,
+        f"{picture.count(chr(10) + 'L ')} columns · doors {sorted(doors)}",
+    )
+    kept = next((r for r in session.relations.values() if r.kind == "keeping"), None)
+    if kept is not None:
+        kept.hold()
+        made = getattr(kept, "artefacts", [])
+        check(
+            "every artefact is LOADED BACK before it counts",
+            bool(made) and all(a.witness == "holds" for a in made),
+            " · ".join(f"{a.name}: {a.witness}" for a in made),
+        )
+    base = session.relations[session.focus]
+    if isinstance(base, Reading):
+        text = base.document()
+        legal = edits.retype(session, base.rid, 0, 0, "")
+        broke = edits.retype(session, base.rid, 5000, 5001, chr(1))
+        check(
+            "a refused re-read reverts the document and MEASURES the frontier",
+            broke.state == "refuse" and broke.pos == 5000 and base.document() == text,
+            f"frontier {broke.pos} · legal {legal.state}",
+        )
+    # the record must exist before it can be read: an empty policy would skip
+    # this check silently, and a skipped check reads exactly like a passing one
+    session.policy.setdefault("chart.clock", "model")
+    rid = instrument.refresh(session)
+    check("the instrument reads its own state", rid is not None, str(rid))
+    if rid is not None:
+        record = session.relations[rid]
+        record.hold()
+        was = dict(session.policy)
+        done = edits.save(
+            session,
+            rid,
+            len(record.document()),
+            len(record.document()),
+            "arrange.tree (v 0.5 document grammar)\n",
+        )
+        check(
+            "the ring closes — saving the instrument's own record applies it",
+            done.state == "ok"
+            and session.policy.get("arrange.tree", "") != was.get("arrange.tree", ""),
+            session.policy.get("arrange.tree", "nothing applied"),
+        )
     print(f"{len(session.relations)} relations · {len(failures)} failures")
     return 1 if failures else 0
 
