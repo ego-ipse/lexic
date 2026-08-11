@@ -68,6 +68,36 @@ async function probeGestures() {
     } else {
       out.push('seamDrag=NO-SEAMS');
     }
+    // the relations: nothing may hang off the edge of its own facet
+    const wrap = $('graphWrap');
+    if (wrap) {
+      const box = wrap.getBoundingClientRect();
+      const chips = [...$('graphChips').children].filter((c) => c.style.display !== 'none');
+      const out_ = chips.filter((c) => {
+        const r = c.getBoundingClientRect();
+        return r.left < box.left - 1 || r.right > box.right + 1
+          || r.top < box.top - 1 || r.bottom > box.bottom + 1;
+      });
+      out.push(`graphChips=${chips.length} clipped=${out_.length}`
+        + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
+    }
+    // ... and in every mode, not just the one it booted in
+    for (const mode of ['flat', 'arcs']) {
+      gView = mode;
+      if (gViews[0]) { switchViewMode(gViews[0], 'depth3d', mode); }
+      drawGraph();
+      await wait(400);
+      const box2 = $('graphWrap').getBoundingClientRect();
+      const bad = [...$('graphChips').children].filter((c) => {
+        if (c.style.display === 'none') return false;
+        const r = c.getBoundingClientRect();
+        return r.right > box2.right + 1 || r.bottom > box2.bottom + 1
+          || r.left < box2.left - 1 || r.top < box2.top - 1;
+      });
+      out.push(`${mode}Clipped=${bad.length}`);
+    }
+    gView = 'depth3d';
+    drawGraph();
     // the strata, clicked TWICE: up then back down. One card's worth of
     // missing stats used to throw mid-render and everything after the first
     // stratum vanished, which reads as "only the first layer is shown".

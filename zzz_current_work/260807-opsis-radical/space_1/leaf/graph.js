@@ -13,6 +13,7 @@ let gNodes = null;
 let graphHover = '';
 let gViews = [];  // [0] is the facet view; others live inside pinned windows
 let gFlat = new Map();
+let gLevels = new Map();
 let gArc = new Map();
 let gArcIndex = new Map();
 
@@ -69,15 +70,8 @@ function buildGraph() {
       });
     });
   }
-  gFlat = new Map();
-  for (const [lvl, list] of levels) {
-    list.forEach((n, i) => {
-      gFlat.set(n, {
-        x: lvl * gTune.levelstep * 1.15,
-        y: (i - list.length / 2) * 24 * gTune.ringscale + (lvl % 2) * 9,
-      });
-    });
-  }
+  gLevels = levels;
+  gFlat = flatLayout(900, 600);  // a first guess; the real one knows the room
   railsLayout = null;
   gArc = new Map();
   gArcIndex = new Map();
@@ -88,6 +82,30 @@ function buildGraph() {
     gArc.set(n, { x: i * (gTune.levelstep / 6), y: 0 });
   });
   for (const v of gViews) buildChipsInto(v.chips);
+}
+
+function flatLayout(w, h) {
+  // laid out IN THE ROOM, not in abstract units that get shrunk to fit.
+  // Levels are bands across the width; a level too crowded for one column
+  // wraps into as many sub-columns as a name's width allows. Nothing is
+  // scaled down afterwards, so nothing collides that did not have to.
+  const out = new Map();
+  const maxLvl = Math.max(0, ...gLevels.keys());
+  const bandW = Math.max(90, (w - 40) / (maxLvl + 1));
+  const nameW = 78 * gTune.labelscale;
+  for (const [lvl, list] of gLevels) {
+    const cols = Math.max(1, Math.min(list.length, Math.floor(bandW / nameW) || 1));
+    const rows = Math.ceil(list.length / cols);
+    const rowH = Math.min(26 * gTune.ringscale, Math.max(14, (h - 40) / rows));
+    list.forEach((n, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      out.set(n, {
+        x: 20 + lvl * bandW + (col + 0.5) * (bandW / cols),
+        y: (row - (rows - 1) / 2) * rowH,
+      });
+    });
+  }
+  return out;
 }
 
 function buildChipsInto(chips) {
@@ -143,6 +161,7 @@ function drawGraphView(v, smooth = false) {
   if (mode === 'depth3d') {
     for (const [name, p] of gNodes) proj.set(name, gProject(v, p, w, h));
   } else {
+    if (mode === 'flat') gFlat = flatLayout(w * (gTune.levelstep / 140), h);
     const src = mode === 'flat' ? gFlat : gArc;
     for (const [name, q] of src) proj.set(name, { x: q.x, y: q.y, s: 1 });
   }
@@ -152,8 +171,21 @@ function drawGraphView(v, smooth = false) {
     x0 = Math.min(x0, P.x); x1 = Math.max(x1, P.x);
     y0 = Math.min(y0, P.y); y1 = Math.max(y1, P.y);
   }
-  let fitk = Math.min((w * 0.84) / Math.max(40, x1 - x0), (h * 0.78) / Math.max(40, y1 - y0), 2.4);
-  if (mode !== 'depth3d') fitk = Math.max(fitk, 0.8);  // flat/arcs stay readable; pan explores
+  // fit against the LABELS, not the dots. A node centred one pixel inside
+  // the edge still hangs its name over the side, and a crowded level lost
+  // every name at the rim — which is the "graph crops out" everyone sees.
+  let padX = 10, padY = 10;
+  for (const el of v.chips.children) {
+    padX = Math.max(padX, el.offsetWidth / 2 + 4);
+    padY = Math.max(padY, el.offsetHeight / 2 + 4);
+  }
+  const availW = Math.max(60, w - 2 * padX), availH = Math.max(60, h - 2 * padY);
+  let fitk = Math.min(availW / Math.max(40, x1 - x0),
+                      availH / Math.max(40, y1 - y0), 2.4);
+  // no floor: a floor is a decision to crop. If the picture does not fit at
+  // a legible scale that is a fact about the room, said below, not a reason
+  // to push three quarters of the grammar off the edge.
+  v.fitScale = fitk;
   const tk = fitk * v.zoom;
   const tmx = (x0 + x1) / 2, tmy = (y0 + y1) / 2;
   if (!v.fit || !smooth) v.fit = { k: tk, mx: tmx, my: tmy };
@@ -163,8 +195,11 @@ function drawGraphView(v, smooth = false) {
     v.fit.my += (tmy - v.fit.my) * 0.22;
   }
   const { k, mx, my } = v.fit;
-  if (mode !== 'depth3d' && !v.touched) {
-    v.pan.x = 70 - w / 2 - (x0 - mx) * k;  // untouched camera frames the start rule's edge
+  // frame the start rule's edge ONLY when the picture is wider than the
+  // room — then panning is how you explore it. When it already fits, this
+  // shoved the fitted picture sideways and pushed its far edge back out.
+  if (mode !== 'depth3d' && !v.touched && (x1 - x0) * k > availW + 2) {
+    v.pan.x = 70 - w / 2 - (x0 - mx) * k;
   }
   for (const P of proj.values()) {
     P.x = w / 2 + (P.x - mx) * k + v.pan.x;
