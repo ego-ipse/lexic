@@ -595,6 +595,59 @@ opening the space_1 file that already answered it, and several had been
   existed. A promise the instrument does not keep is worse than one it never
   made — the gate now counts thirteen keys where it counted eight.
 
+## What using it found — a second list, and what each one really was
+
+Every item here came back from real use, and every one had the same cause:
+code written from a memory of a reference file that was open at the time.
+
+- **The status bar's buttons landed on nothing.** `do` — the kind every
+  transport chip carries — was not in `LANDED`. The gate's "answered" set
+  NAMED it by hand instead of reading the table, so a list of what should be
+  answered passed while nothing answered it. It reads `LANDED` and `SAYS`
+  now.
+- **The bar walked about.** `#pos` is `min-width: 30ch` and WRAPS; mine grew
+  with its text and shoved the transport along. And the speed had limits I
+  invented — `setSpeed` is 1/512 to 16, and `speedWord` spells anything under
+  one as a fraction.
+- **▤ rail did not appear at all**, because a text plane is a REAL element:
+  a click in the reader never reaches the canvas, so `sel` is the only report
+  that a rule was chosen there and it carried no pointer. The chip itself was
+  the wrong object — `#railchip` is one floating button at the pointer, 11px
+  sans, raised from the reader, the rails, the automaton and the graph alike.
+- **The space bar did nothing** because both planes were editable. Only
+  `#docText` is: `#grammarBody` takes no letters, which is what lets Space,
+  `g` and `[` `]` work while the reader has the hand.
+- **Clicking the derivation landed on the wrong character.** The facet had
+  three left edges — 0, 6 and 10. `chart.js` has one: `pad = 10`.
+- **The lanes slid out from under the hand**, because the window was
+  recomputed from the cursor every frame. `chart.js` keeps `view0` and moves
+  it only when the cursor leaves. Only the frame knows the width, so the
+  frame reports what it worked out and the session remembers it.
+- **Playback ran at twice the pace.** `tick` crosses the document in 22
+  seconds; mine did 10.
+- **A window could be seen and not touched.** The planes are real elements,
+  so a canvas drawn over one still passes every click into the textarea
+  underneath — which is also why closing a window did nothing. Each window
+  carries a pane of glass now.
+- **Every graph was the wrong size**: `graph.js` auto-fits each view to the
+  facet, capped at 2.4, and every view here was placed at scale 1.
+- **A drawing's box is an OUTLINE** in `paint.js` and a FILL in
+  `drawChartBand` — the consumer decides. Filling every box in its edge tone
+  turned every graph node into a solid slab; then stroking them all flattened
+  the overview band to a row of empty rectangles.
+
+## The slop, counted
+
+Thirteen places drew a rectangle as four `said.line` calls over four corner
+tuples — a hundred lines doing what `said.ring` already does. Converting them
+found two bugs that had been hiding in the duplication: the transport's
+buttons were forty pixels tall instead of sixteen and clipped to two strips,
+and a verdict badge was drawn at a negative width. `facets.py` is still 1,570
+lines and still holds the planes, five graph views, three clocks, three spine
+stacks, the pin and seven module-level caches. It wants splitting — but not
+before the rest of the duplication in it is gone, or the split just moves the
+slop into four files.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.
