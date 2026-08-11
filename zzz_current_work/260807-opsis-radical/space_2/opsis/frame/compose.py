@@ -90,7 +90,7 @@ def compose(
         DRAWN[only](said, head(said, region, titles, HEADS(look, only), columns), look)
         return said
 
-    _masthead(said, reading, it, wide, generation, _every(reading))
+    _masthead(said, reading, it, wide, generation, _every(reading), look)
     grid = walked(str(it.policy["arrange.tree"]), 0, BAR, wide, tall - BAR * 2)
     for region in grid.regions:
         draw = DRAWN.get(region.name)
@@ -239,6 +239,11 @@ def _banner(said: Frame, reading: Reading, wide: int, tall: int) -> None:
     )
 
 
+def _docked(shown: list[str]) -> float:
+    """How wide the dock is — where whatever follows it starts."""
+    return sum(runs("chip", facet) + 28 for facet in shown)
+
+
 def _masthead(
     said: Frame,
     reading: Reading,
@@ -246,6 +251,7 @@ def _masthead(
     wide: int,
     generation: int,
     shown: list[str],
+    look: Look,
 ) -> None:
     """#mast — the name, what is loaded, the ladder, the dock, the verdict."""
     said.line(0, BAR, wide, BAR, "hair")
@@ -259,6 +265,7 @@ def _masthead(
     at += min(runs("fsub", sub), 30 * 6.4) + 16
     at = _ladder(said, it, at)
     _dock(said, it, shown, at)
+    _pincount(said, look, at + _docked(shown) + 14)
     holds = (
         "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
     )
@@ -266,30 +273,28 @@ def _masthead(
 
 
 def _ladder(said: Frame, it: Staged, at: float) -> float:
-    """#ladder — the lineage strip: every reader is also a text.
+    """The one chip in the masthead: WHERE YOU ARE, and the way back out.
 
-    Each rung is a reading this one implies. The one you are in is warm; a
-    rung not yet visited is dim, and entering it is what builds it.
+    The strip is dead. A row of rungs with separators was a map of the climb
+    drawn in the one place with no room for a map — and the climb already has
+    its own picture. This chip says where you are standing and opens it.
     """
     said_chain = str(it.policy.get("chain", ""))
-    for rung in [r for r in said_chain.split(" | ") if r.strip()]:
-        level, _, rest = rung.partition(" ")
-        pair, _, seen = rest.partition(" · ")
-        here = level == "0"
-        wide = min(26 * 6.0, runs("chip", pair)) + 16
-        for x1, y1, x2, y2 in (
-            (at, 8, at + wide, 8),
-            (at, 26, at + wide, 26),
-            (at, 8, at, 26),
-            (at + wide, 8, at + wide, 26),
-        ):
-            said.line(x1, y1, x2, y2, "warm" if here else "hair")
-        said.text(at + 8, 21, "warm" if here else "chip", pair, wide - 14, face="chip")
-        if not here:
-            said.hit(at, 8, wide, 18, "rung", level)
-        at += wide + 5
-        said.text(at, 21, "dimmer", "›")
-        at += 12
+    here = next((r for r in said_chain.split(" | ") if r.strip().startswith("0 ")), "")
+    _level, _, rest = here.partition(" ")
+    pair, _, _seen = rest.partition(" · ")
+    word = f"{pair or '…'}  ∴"
+    wide = min(34 * 6.0, runs("chip", word)) + 16
+    for x1, y1, x2, y2 in (
+        (at, 8, at + wide, 8),
+        (at, 26, at + wide, 26),
+        (at, 8, at, 26),
+        (at + wide, 8, at + wide, 26),
+    ):
+        said.line(x1, y1, x2, y2, "warm")
+    said.text(at + 8, 21, "warm", word, wide - 14, face="chip")
+    said.hit(at, 8, wide, 18, "strata", "on")
+    return at + wide + 14
     return at + 6
 
 
@@ -315,29 +320,18 @@ def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
         said.text(at + 16, 21, "chip" if here else "dimmer", word, face="chip")
         said.hit(at, 8, wide, 18, "facet", facet)
         at += wide + 6
-    # the way OUT of the reading and into the climb it sits in
-    wide = runs("chip", "⌗ strata") + 22
-    for x1, y1, x2, y2 in (
-        (at + 8, 8, at + 8 + wide, 8),
-        (at + 8, 26, at + 8 + wide, 26),
-        (at + 8, 8, at + 8, 26),
-        (at + 8 + wide, 8, at + 8 + wide, 26),
-    ):
-        said.line(x1, y1, x2, y2, "hair")
-    said.text(at + 18, 21, "violet", "⌗ strata", face="chip")
-    said.hit(at + 8, 8, wide, 18, "strata", "on")
-    at += wide + 14
-    # the ring: this instrument, as a reading of its own state
-    wide = runs("chip", "◌ ring") + 22
-    for x1, y1, x2, y2 in (
-        (at, 8, at + wide, 8),
-        (at, 26, at + wide, 26),
-        (at, 8, at, 26),
-        (at + wide, 8, at + wide, 26),
-    ):
-        said.line(x1, y1, x2, y2, "hair")
-    said.text(at + 10, 21, "violet", "◌ ring", face="chip")
-    said.hit(at, 8, wide, 18, "ring", "on")
+
+
+def _pincount(said: Frame, look: Look, at: float) -> None:
+    """#pincount — how many windows are open, where the masthead says it.
+
+    The strata is reached through the ladder's own chip, and the instrument's
+    own state is a door IN the strata, so neither is a button up here. Two
+    chips for one door is how a masthead fills with things nobody presses.
+    """
+    windows = [w for w in look.says("windows", "").split(" ") if w]
+    if windows:
+        said.text(at, 21, "warm", f"pinned {len(windows)}", face="verdict")
 
 
 HINT = (

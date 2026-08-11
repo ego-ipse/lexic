@@ -59,7 +59,16 @@ def strata(reading: Reading, climbed: list[Reading]) -> str:
         f"{reading.reader_name} — as artefacts\t"
         f"{len(made)} artefacts · {witnessed} witnessed",
     ]
-    lanes = [rung.document for rung in rungs]
+    # THE INSTRUMENT IS ITS OWN LANE. It is not a stratum of this climb —
+    # it is the thing doing the climbing — so it stands in its own column
+    # with its own door, which is where the reference puts a lane that is
+    # not in the chain. A door in the masthead beside the way INTO the
+    # strata was two buttons for one place.
+    doors.append(
+        f"P ring {len(rungs)} 0 policy ok the instrument — as a reading of its "
+        f"own state\tits policy, read by the policy grammar"
+    )
+    lanes = [rung.document for rung in rungs] + ["the instrument"]
     return "\n".join(
         [
             f"#STRATA {len(rungs)} {here}",

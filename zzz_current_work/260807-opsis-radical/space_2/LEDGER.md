@@ -495,6 +495,16 @@ opening the space_1 file that already answered it, and several had been
   clip with, so the frame says it as a mark: `clip`/`unclip` around every
   region and every window.
 
+- **The masthead carried buttons the reference had dropped.** `boot.js`
+  says it in as many words — *"The strip is dead: the masthead carries ONE
+  chip — where you are"* — and clicking it opens the strata. A row of rungs
+  with separators, plus a `⌗ strata` chip, plus a `◌ ring` chip, was a map of
+  the climb drawn in the one place with no room for a map and two more
+  buttons for a door that already had one. One chip now, `#pincount` beside
+  the dock where `index.html` puts it, and the instrument's own state is a
+  door in the strata — in its own column, tagged *the instrument*, which is
+  what `rooms.js` does with a lane outside the chain.
+
 ## Not ported yet
 
 Places · the routes strip · Earley's column and CAN COME NEXT in the spine ·

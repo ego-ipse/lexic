@@ -101,6 +101,21 @@ def draw(said: Frame, wire: str, wide: int, tall: int) -> None:
         x += LANE
         if x > wide - CARD:
             break
+    # A LANE WITH NO CARD IS STILL A LANE. The instrument is not a stratum of
+    # the climb — it is the thing doing the climbing — so it stands in its
+    # own column, which is what the reference does with every lane outside
+    # the chain. Hanging the doors off cards alone left it drawn nowhere.
+    standing = {card.lane for card in cards}
+    for lane in sorted({door.lane for door in doors} - standing):
+        if x > wide - CARD:
+            break
+        said.text(x + 10, 74.0 + 20, "dim", "the instrument", CARD - 20)
+        said.line(x, 74.0 + 34, x + CARD, 74.0 + 34, "hair")
+        y = 74.0 + 96
+        for door in [d for d in doors if d.lane == lane]:
+            _door(said, door, x, y)
+            y += 52
+        x += LANE
 
 
 def _card(said: Frame, card: Card, x: float, y: float) -> None:
@@ -144,9 +159,12 @@ def _band(said: Frame, card: Card, x: float, y: float) -> None:
 
 def _door(said: Frame, door: Door, x: float, y: float) -> None:
     """A room this rung holds — a value, a machine, a set of artefacts."""
-    edge = {"value": "cool", "compiler": "violet", "artefacts": "green"}.get(
-        door.kind, "hair"
-    )
+    edge = {
+        "value": "cool",
+        "compiler": "violet",
+        "artefacts": "green",
+        "policy": "warm",
+    }.get(door.kind, "hair")
     said.line(x, y, x, y + 44, edge)
     said.line(x + 2, y, x + CARD, y, "hair")
     said.line(x + 2, y + 44, x + CARD, y + 44, "hair")
@@ -157,4 +175,6 @@ def _door(said: Frame, door: Door, x: float, y: float) -> None:
     at = x + 10 + runs("chip", door.kind.upper()) + 16
     said.text(at, y + 16, "ink", door.label, x + CARD - at - 10)
     said.text(x + 10, y + 34, "fsub", door.facts, CARD - 20)
-    said.hit(x, y, CARD, 44, "place", door.pid)
+    # the instrument's own state is not a room the reading HOLDS — it is the
+    # ladder closing into a ring, which is a travel, so it lands as one
+    said.hit(x, y, CARD, 44, "ring" if door.kind == "policy" else "place", door.pid)
