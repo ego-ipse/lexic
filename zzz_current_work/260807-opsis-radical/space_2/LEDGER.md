@@ -243,6 +243,20 @@ runs at 1× and 2× now**, and asserts each canvas lays out in the room it was
 put in, measured against the WINDOW rather than against the canvas's own
 numbers, since those numbers are exactly what is wrong when this breaks.
 
+### And a canvas that keeps yesterday's bitmap
+
+Measuring space_1's other canvases turned up a second one of the family: its
+chart sits in a **431px box holding a 503px bitmap** — the picture squashed
+14% — because only its PINNED windows observe their size. Nothing redraws the
+main grid's canvases when a facet's box changes, so the bitmap is whatever it
+was when something last happened to draw.
+
+space_2 cannot have that fault, and the reason is structural rather than
+careful: the server owns the layout, so every layout change ARRIVES AS A
+FRAME, and the size is re-measured on the way in. The probe now proves it by
+shrinking the canvas's box and checking the bitmap follows — `box 520 ·
+bitmap 520 @1`, `box 520 · bitmap 1040 @2`.
+
 The lesson is about the harness, not the CSS: a check that cannot distinguish
 two values which happen to be equal in the only environment it runs in is not
 a check. Every screenshot I took of the "broken" render was at 1×, where

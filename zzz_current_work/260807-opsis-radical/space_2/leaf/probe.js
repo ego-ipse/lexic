@@ -67,6 +67,21 @@ async function probe() {
          + `in ${window.innerWidth}x${window.innerHeight} @${dpr}`);
   }
 
+  /* 1c. AND IT FOLLOWS ITS BOX. A canvas that keeps yesterday's bitmap is a
+     picture CSS is stretching: space_1's chart sits in a 431px box holding a
+     503px bitmap — 14% squashed — because only its pinned windows observe
+     their size. Here every layout change arrives as a FRAME, so the size is
+     re-measured on the way in. This shrinks the page and checks that. */
+  paper.style.height = '520px';
+  await ask('');
+  const after = paper.getBoundingClientRect();
+  fact('a canvas follows its box when the box changes',
+       Math.abs(after.height - 520) < 2
+       && paper.height === Math.round(after.height * dpr),
+       `box ${Math.round(after.height)} · bitmap ${paper.height} @${dpr}`);
+  paper.style.height = '';
+  await ask('');
+
   /* 2. every text plane sits exactly on the geometry it was given */
   let placed = 0, wrong = '';
   for (const plane of frame.planes) {
