@@ -27,6 +27,7 @@ from lexic.compile import CompiledGrammar, compile_text  # noqa: E402
 from machine import machine_facet  # noqa: E402
 from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
+from lexic.grammars import get_flavour  # noqa: E402
 from chain import Rung  # noqa: E402
 from read import Facet, Reading, as_written, read, read_up, upward  # noqa: E402
 from retype import retype  # noqa: E402
@@ -215,6 +216,38 @@ class Handler(BaseHTTPRequestHandler):
             self.send(answer)
             return
         self.send(PENDING.get(path, ""))
+
+    def cast(self, asked: str) -> str:
+        """Transpile: this grammar, spelled through another flavour.
+
+        Computed, never declared — the flavour is asked to spell the AST and
+        the answer is whether it can. A flavour that cannot say what this
+        grammar means refuses in its own words rather than producing text
+        that reads back as something else.
+        """
+        want = asked.removeprefix("transpile").strip()
+        if not want:
+            return "refuse name a flavour to spell it through\n"
+        try:
+            flavour = get_flavour(want)
+        except LexicError:
+            return f"refuse no flavour called {want!r}\n"
+        try:
+            machine = compile_text(
+                self.reading.reader_text, flavour=self.reading.flavour or "gbnf"
+            )
+            spelled = flavour.apply(machine.grammar)
+        except (LexicError, RecursionError, ValueError) as refusal:
+            return f"refuse {want} cannot spell this — {str(refusal)[:120]}\n"
+        try:
+            back = compile_text(spelled, flavour=flavour)
+        except (LexicError, RecursionError, ValueError) as refusal:
+            return f"refuse {want} spelled it but cannot read it back — {refusal}\n"
+        same = back.grammar == machine.grammar
+        return (
+            f"ok {want} {len(spelled):,} chars · "
+            f"{'reads back equal' if same else 'reads back DIFFERENT'}\n"
+        )
 
     def room(self, which: str, machine: CompiledGrammar) -> str:
         """One room, spelled. A room nobody authored says so, in place."""
@@ -438,7 +471,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send("ok\n")  # fire-and-forget, by design
             return
         if path == "/cast":
-            self.send("refuse this build has no casts yet\n")
+            self.send(self.cast(body.strip()))
             return
         if path == "/policy":
             for line in body.splitlines():

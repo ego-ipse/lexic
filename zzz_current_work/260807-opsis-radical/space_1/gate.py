@@ -280,6 +280,23 @@ def main() -> int:
         (upward(above) or (None, "nothing"))[1] if above else "nothing above",
     )
 
+    # transpile: a peer spelling, witnessed. A flavour that spells a grammar
+    # but reads it back as something else has not transpiled it.
+    from lexic.grammars import get_flavour
+
+    peers = []
+    for want in ("abnf", "ebnf"):
+        spelled = get_flavour(want).apply(machine.grammar)
+        back = compile_text(spelled, flavour=want)
+        peers.append((want, len(spelled), back.grammar == machine.grammar))
+    check(
+        "a transpiled peer reads back EQUAL, or it is not a transpilation",
+        all(same for _, _, same in peers),
+        " · ".join(
+            f"{n} {c:,} chars {'equal' if s else 'DIFFERENT'}" for n, c, s in peers
+        ),
+    )
+
     leaf = HERE / "leaf"
     parts = ["index.html", "leaf.css", "leaf.js"]
     there = [name for name in parts if (leaf / name).is_file()]
