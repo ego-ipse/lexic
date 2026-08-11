@@ -673,7 +673,28 @@ DO NOT MEASURE A PICTURE BY LOOKING AT IT. Every real finding this session
 came from dumping the numbers — the frame's marks, the canvas's own width and
 height, a policy value — and every wrong one came from squinting at a crop.
 
-## The spine, exactly — NEXT
+## The spine — done, and seen
+
+`gestures.js` binds click to the selection and mousemove to the hover on both
+spine panels; `frame.js` reads `focus = hover >= 0 ? hover : sel`, so the warm
+readout says `under the hand · …` or `selected · …` and THE HAND WINS while
+the pointer is on a row.
+
+Every row here emitted a hit of ZERO WIDTH, so nothing could be hovered or
+clicked and the readout could never change from the spine at all. A row
+carries its address now and is a real rectangle. Only the model spine's rows
+carry one — `drawPdaSpine` and `drawEarleySpine` build rows without
+`dataset.i`, and clicking those does nothing in the reference either.
+
+And `chart.js` draws THREE outlines over a model lane, not one: ink for the
+span under the hand, warm for the selected one, violet for every span of the
+chosen rule, each 1.5px outside the box. Only the violet was here, so the
+derivation said nothing about what the spine was pointing at.
+
+Seen, not just measured: hovering `member 4..1,263` — the spine's d3 — draws
+a bright outline around that exact lane.
+
+## The spine, as it was
 
 `gestures.js` binds both spine panels the same way:
 
