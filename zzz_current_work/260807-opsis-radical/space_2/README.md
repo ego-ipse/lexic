@@ -64,3 +64,13 @@ the railroad, the automaton, both engine clocks, the rooms, the strata, pins,
 pop-outs — are not in it. They are all the same shape of work: derive on this
 side, emit marks and hits, and the leaf needs no new code to show them, which
 is the point of the protocol.
+
+## Known, and stated rather than hidden
+
+`pyright` reports three unresolved imports (`praxis.reading`,
+`deixis.points`). They resolve at runtime — space_2 puts `space_1/` on
+`sys.path` and reuses its reading and pointing, because what is being tried
+here is the PROTOCOL, not a second copy of the derivation. Fixing the static
+resolution means either a config file (which would reach the repo's own
+checks) or duplicating those packages; neither is worth it while the two
+builds sit side by side for comparison. `ruff` is clean.
