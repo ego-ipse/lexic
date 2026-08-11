@@ -660,7 +660,11 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
         # rather than out of existence — you can still see the shape it left
         faded = keep is not None and says not in keep
         # .gchip: a NAME IN A BOX, and its distance is in the size of it
-        face = "gnear" if near > 0.92 else ("chip" if near > 0.72 else "gfar")
+        # `--glabel` scales `.gchip`'s font-size. Three faces are what a mark
+        # can name, so the dial biases WHICH of them a node's distance earns:
+        # at 1.8 every name is near-sized, at 0.7 every name is far.
+        lit_by = near * float(look.says("graph.labelscale", "1"))
+        face = "gnear" if lit_by > 0.92 else ("chip" if lit_by > 0.72 else "gfar")
         wide = runs(face, says) + 12
         tall = 16.0 if face != "gfar" else 13.0
         # .near / .start / .marked / .hot — the four things a node can be
