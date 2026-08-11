@@ -601,7 +601,7 @@ body.clock-pda .vbadge { display: inline-block; }
 .stGhost.no .stK { color: #e0685e; }
 
 /* strata v2 — every THING a column; artefact family below its readings */
-.stCols { display: flex; align-items: flex-start; gap: 18px; }
+.stCols { display: flex; align-items: flex-start; gap: 18px; width: 100%; }
 .stCol { display: flex; flex-direction: column; gap: 10px; width: 280px;
   flex: 0 0 auto; }
 .stColName {
@@ -687,7 +687,14 @@ body.clock-pda .vbadge { display: inline-block; }
 
 /* the menu is the CHAIN: one column per thing, readings inside */
 .stChain { display: flex; gap: 16px; align-items: flex-start; }
-.stCol { width: 300px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.stCol {
+  flex: 1 1 0;
+  min-width: 260px;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
 /* the IR as a nested SHAPE — tiers, payloads inline, sharing marked */
 .irtree { font-size: 12px; }
