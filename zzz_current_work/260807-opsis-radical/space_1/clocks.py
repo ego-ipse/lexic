@@ -34,7 +34,7 @@ class ClockKernel(PdaKernel[Any]):
 
     # the kernel is slotted and carries no __dict__ — a watcher that wants
     # state declares it, and pays the same discipline the hot path pays
-    __slots__ = ("events", "frames", "open")
+    __slots__ = ("clones", "events", "frames", "open")
 
     def __init__(
         self, tables: PdaTables, text: str, fold: ModelFold[Any] | None = None
@@ -43,13 +43,15 @@ class ClockKernel(PdaKernel[Any]):
         self.frames: list[list[Any]] = []
         self.events: list[tuple[int, str, str]] = []
         self.open: dict[int, list[Any]] = {}
+        self.clones: dict[int, tuple[int, FlatClone]] = {}
 
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """A frame opens where the cursor stands, at the depth of the stack."""
         depth = len(self.stack)
         entered = super()._enter(clone, out)
         if entered and len(self.stack) > depth and len(self.frames) < CEILING:
-            record = [self.pos, -1, depth, clone.name or "·", 1]
+            seat = self.clones.setdefault(id(clone), (len(self.clones), clone))[0]
+            record = [self.pos, -1, depth, clone.name or "·", 1, seat]
             self.frames.append(record)
             self.open[id(self.stack[-1])] = record
         return entered
@@ -95,7 +97,10 @@ def pda_clock(compiled: CompiledGrammar, text: str) -> str:
             f"pda_end {end}",
             f"dropped {dropped}",
             f"#PDAFRAMES {len(kernel.frames)}",
-            *(f"{s} {e} {d} {at[str(n)]} -1 {ok}" for s, e, d, n, ok in kernel.frames),
+            *(
+                f"{s} {e} {d} {at[str(n)]} {seat} {ok}"
+                for s, e, d, n, ok, seat in kernel.frames
+            ),
             f"#PDANAMES {len(names)}",
             *names,
             f"#EVENTS {len(kernel.events)}",
