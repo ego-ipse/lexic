@@ -1,8 +1,9 @@
 """A rule as track — the structural lines the leaf draws as a railroad.
 
-The leaf owns every millimetre of geometry; this owns what the rule IS.
 Lines are ``<depth> <kind> [payload]``, children one depth deeper, so a
-nesting is a nesting and nothing here decides how wide a bracket should be.
+nesting is a nesting. Each track carries its measurement beside it, in
+columns and rows — the unit every other surface here is measured in — and
+the leaf scales that by the cell it is drawing into.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from lexic.ir import (
     IrRuleRef,
     IrSequence,
 )
+
+from opsis.measure import boxes
 
 __all__ = ["rail", "rails", "said"]
 
@@ -44,7 +47,16 @@ def rail(ast: IrAst, name: str) -> str:
     if found is None:
         return f"no such rule {name}\n"
     lines = _alt(found.body, 0)
-    return f"#RAIL {name} {len(lines)}\n" + "".join(f"{line}\n" for line in lines)
+    # measured HERE, in columns and rows. The leaf multiplied text metrics
+    # from whatever font a browser had, which made a railroad's shape a fact
+    # about that browser — underivable, and different in every window.
+    room = boxes(lines)
+    return (
+        f"#RAIL {name} {len(lines)}\n"
+        + "".join(f"{line}\n" for line in lines)
+        + f"#BOX {len(room)}\n"
+        + "".join(f"{box.wire()} {box.label}\n" for box in room)
+    )
 
 
 def said(item: object) -> str:

@@ -47,6 +47,11 @@ function render() {
     lastPost = performance.now();
     fetch('/cursor', { method: 'POST', body: `t ${cur.t.toFixed(1)} sel ${cur.sel}` })
       .then((r) => r.text()).then(readPoint).catch(() => {});
+    // the automaton's drawing is lit at t, so it is asked for again as time
+    // moves — one request per cursor post, not one per frame
+    if (gView === 'automaton' && graphOn) {
+      loadDrawing('automaton', `&t=${Math.round(cur.t)}`);
+    }
   }
 }
 

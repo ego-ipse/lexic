@@ -182,8 +182,25 @@ function drawGraph() {
 function drawGraphView(v, smooth = false) {
   const mode = viewMode(v);
   if (mode === 'text') return;
-  if (mode === 'rails') { drawRailsView(v); return; }
-  if (mode === 'automaton') { drawAutoView(v); return; }
+  // two of the five views are DRAWINGS now: the reading says what to paint,
+  // and painting is all that happens here
+  if (mode === 'rails' || mode === 'automaton') {
+    v.chips.style.display = 'none';
+    const said = drawings.get(mode);
+    if (!said) {
+      loadDrawing(mode, mode === 'automaton' ? `&t=${Math.round(cur.t)}` : '');
+      return;
+    }
+    const box = v.wrap.getBoundingClientRect();
+    // a list of railroads is READ, not surveyed: it stays at full size and
+    // you drag through it. The automaton is a shape, so it is fitted.
+    const fit = mode === 'rails'
+      ? 1
+      : Math.min(1, Math.max(0.25, Math.min(box.width / Math.max(1, said.w),
+                                            box.height / Math.max(1, said.h))));
+    paint(v.cv, said, v.pan, fit * v.zoom);
+    return;
+  }
   v.chips.style.display = '';
   const wrap = v.wrap;
   const cv = v.cv;

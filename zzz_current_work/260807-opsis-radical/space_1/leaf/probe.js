@@ -122,6 +122,25 @@ async function probeGestures() {
       out.push(`graphChips=${chips.length} clipped=${out_.length}`
         + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
     }
+    // the painter: what did it actually receive, and how big is its canvas
+    const tabForPaint = [...document.querySelectorAll('#grid .tabbar .tab')]
+      .find((el) => el.textContent === 'relations');
+    click(tabForPaint);
+    await wait(700);
+    gView = 'rails';
+    if (gViews[0]) switchViewMode(gViews[0], 'depth3d', 'rails');
+    await loadDrawing('rails');
+    await wait(600);
+    drawGraph();
+    await wait(300);
+    const railSaid = drawings.get('rails');
+    out.push(`railMarks=${railSaid ? railSaid.marks.length : 'NONE'}`,
+      `railSize=${railSaid ? railSaid.w + 'x' + railSaid.h : '-'}`,
+      `railCanvas=${$('graphCv').clientWidth}x${$('graphCv').clientHeight}`,
+      `railBitmap=${$('graphCv').width}x${$('graphCv').height}`,
+      `railWrap=${$('graphWrap').clientWidth}x${$('graphWrap').clientHeight}`);
+    gView = 'depth3d';
+    if (gViews[0]) switchViewMode(gViews[0], 'rails', 'depth3d');
     // the relations must be the ACTIVE tab or there is nothing to measure:
     // a hidden facet has no size, and a view with no size draws nothing
     const relFirst = [...document.querySelectorAll('#grid .tabbar .tab')]

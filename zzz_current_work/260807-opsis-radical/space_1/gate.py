@@ -39,6 +39,7 @@ from praxis.roots import apply_record, record  # noqa: E402
 from eidolon.value import graph as ir_graph  # noqa: E402
 from eidolon.value import wire as ir_wire  # noqa: E402
 from kairos.pipeline import FORMS  # noqa: E402
+from opsis.grammar import rails  # noqa: E402
 from opsis.scene import drawn, moved, ruledefs  # noqa: E402
 from praxis.strata import strata  # noqa: E402
 from serve import PENDING  # noqa: E402
@@ -422,6 +423,34 @@ def main() -> int:
         "in every form, what the model names is what the graph draws",
         all("NOT in the picture" not in said for said in joins),
         " · ".join(joins),
+    )
+
+    # a track is measured HERE, in columns, because a railroad measured by
+    # a browser's font metrics is a shape nothing can check. What must hold:
+    # nothing is given less room than what it says, and every node line has
+    # a box — an off-by-one in the pairing silently shifts every size.
+    tracks = rails(machine.grammar)
+    pairs, tight = 0, []
+    for block_text in tracks.split("#RAIL ")[1:]:
+        head, _, body = block_text.partition("\n")
+        count = int(head.split()[-1])
+        rows = body.split("\n")
+        node_lines, box_lines = rows[:count], rows[count + 1 : count + 1 + count]
+        pairs += len(node_lines)
+        if len(box_lines) != len(node_lines):
+            tight.append(
+                f"{head.split()[0]}: {len(box_lines)} boxes for {len(node_lines)}"
+            )
+            continue
+        for said in box_lines:
+            parts = said.split(" ", 3)
+            label = parts[3] if len(parts) > 3 else ""
+            if label and float(parts[0]) < columns(label):
+                tight.append(f"{label!r} in {float(parts[0]):.0f} columns")
+    check(
+        "every track is measured in columns, and nothing is smaller than it says",
+        not tight and pairs > 0,
+        f"{pairs} nodes measured" + (f" · TIGHT {tight[:2]}" if tight else ""),
     )
 
     # the relationships. The leaf's scene reader has always had a place for

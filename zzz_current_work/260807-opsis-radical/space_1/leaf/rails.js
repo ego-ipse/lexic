@@ -43,39 +43,27 @@ async function fetchRail(rule) {
   return tree;
 }
 
-function railMeasure(n, cx) {
-  for (const kid of n.kids) railMeasure(kid, cx);
-  if (n.k === 'seq') {
-    n.cy = Math.max(...n.kids.map((kid) => kid.cy));
-    n.w = n.kids.reduce((a, kid) => a + kid.w, 0) + RAIL.gap * (n.kids.length - 1);
-    n.h = n.cy + Math.max(...n.kids.map((kid) => kid.h - kid.cy));
-  } else if (n.k === 'alt') {
-    n.w = Math.max(...n.kids.map((kid) => kid.w)) + 56;
-    n.h = n.kids.reduce((a, kid) => a + kid.h, 0) + RAIL.vgap * (n.kids.length - 1);
-    n.cy = n.kids[0].cy;
-  } else if (n.k === 'many') {
+function railCell(cx) {
+  // the cell this railroad is being drawn into: one character wide, one row
+  // tall. Everything else about its size was decided by the reading.
+  cx.font = railFont();
+  return { w: Math.max(5, cx.measureText('0').width), h: RAIL.bh };
+}
+
+function railMeasure(n, cx, cell) {
+  const box = cell || railCell(cx);
+  n.w = (n.cw || 6) * box.w;
+  n.h = (n.ch || 1) * box.h;
+  n.cy = (n.ccy || 0.5) * box.h;
+  if (n.k === 'many') {
     const [lo, hi] = n.payload.split(' ').map(Number);
-    const kid = n.kids[0];
     n.bypass = lo === 0;
     n.loop = hi !== 1;
     n.count = lo > 1 || hi > 1 ? `${lo}..${hi < 0 ? '∞' : hi}` : '';
-    n.w = kid.w + 40;
-    n.h = kid.h + (n.bypass ? RAIL.loop : 0) + (n.loop ? RAIL.loop : 0) + (n.count ? 10 : 0);
-    n.cy = kid.cy + (n.bypass ? RAIL.loop : 0);
   } else if (n.k === 'not' || n.k === 'alpha') {
-    const kid = n.kids[0];
     n.tag = n.k === 'not' ? '¬ none of' : '⟨' + n.payload + '⟩';
-    n.w = Math.max(kid.w + 12, cx.measureText(n.tag).width + 12);
-    n.h = kid.h + 20;
-    n.cy = kid.cy + 16;
-  } else {
-    let label = n.k === 'nil' ? 'ε' : n.k === 'class' ? '[' + n.payload + ']' : n.payload || 'ε';
-    if (label.length > 30) label = label.slice(0, 29) + '…';
-    n.label = label;
-    n.w = Math.max(26, Math.ceil(cx.measureText(label).width) + RAIL.padx * 2);
-    n.h = RAIL.bh;
-    n.cy = RAIL.bh / 2;
   }
+  for (const kid of n.kids) railMeasure(kid, cx, box);
 }
 
 function railLine(cx, x0, y0, x1, y1) {
@@ -179,17 +167,32 @@ let railsAll = null;
 let railsLoading = false;
 let railsLayout = null;
 
-function parseRailTree(lines) {
+function parseRailTree(lines, boxes) {
+  // the nodes and their ROOM arrive together, box i for line i, measured in
+  // columns and rows. The leaf multiplies by the cell it draws into — the
+  // one measurement it genuinely owns.
   const root = { k: 'seq', payload: '', kids: [] };
   const stack = [root];
+  let at = 0;
   for (const ln of lines) {
     const m = ln.match(/^(\d+) (\S+)(?: (.*))?$/);
     if (!m) continue;
-    const node = { k: m[2], payload: m[3] || '', kids: [] };
+    const box = boxes[at++] || { w: 6, h: 1, cy: 0.5, label: '' };
+    const node = {
+      k: m[2], payload: m[3] || '', kids: [],
+      cw: box.w, ch: box.h, ccy: box.cy, label: box.label,
+    };
     stack[+m[1]].kids.push(node);
     stack[+m[1] + 1] = node;
   }
   return root.kids.length === 1 ? root.kids[0] : root;
+}
+
+function parseRailBoxes(lines) {
+  return lines.map((ln) => {
+    const p = ln.split(' ');
+    return { w: +p[0], h: +p[1], cy: +p[2], label: p.slice(3).join(' ') };
+  });
 }
 
 async function fetchRails() {
@@ -197,17 +200,22 @@ async function fetchRails() {
   railsLoading = true;
   const text = await fetch('/rails').then((r) => r.text());
   railsAll = new Map();
-  let name = null, lines = [];
+  let name = null, lines = [], boxes = [], where = 'lines';
+  const keep = () => {
+    if (name !== null) railsAll.set(name, parseRailTree(lines, parseRailBoxes(boxes)));
+  };
   for (const ln of text.split('\n')) {
     if (ln.startsWith('#RAIL ')) {
-      if (name !== null) railsAll.set(name, parseRailTree(lines));
+      keep();
       name = ln.split(' ')[1];
-      lines = [];
-    } else {
-      lines.push(ln);
+      lines = []; boxes = []; where = 'lines';
+    } else if (ln.startsWith('#BOX ')) {
+      where = 'boxes';
+    } else if (ln) {
+      (where === 'lines' ? lines : boxes).push(ln);
     }
   }
-  if (name !== null) railsAll.set(name, parseRailTree(lines));
+  keep();
   railsLayout = null;
   drawGraph();  // one redraw, when the rails arrive
 }
@@ -218,82 +226,6 @@ function railsOrder() {
   for (const n of names) if (!order.includes(n)) order.push(n);
   return order;
 }
-
-function buildRailsLayout(cx) {
-  cx.font = railFont();
-  const gap = 10 + gTune.levelstep / 8;
-  const entries = [];
-  let y = 0, maxw = 0;
-  for (const name of railsOrder()) {
-    const tree = railsAll.get(name);
-    if (!tree) continue;
-    railMeasure(tree, cx);
-    entries.push({ rule: name, tree, x: 26, y: y + 14 });
-    maxw = Math.max(maxw, tree.w + 66);
-    y += 14 + tree.h + gap;
-  }
-  railsLayout = { entries, byName: new Map(entries.map((e) => [e.rule, e])), w: maxw, h: y };
-}
-
-function drawRailsView(v) {
-  const wrap = v.wrap, cv = v.cv;
-  const w = wrap.clientWidth, h = wrap.clientHeight;
-  if (!w || !h) return;
-  v.chips.style.display = '';
-  if (!railsAll) { fetchRails(); return; }  // a guarded call schedules nothing
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
-  const cx = cv.getContext('2d');
-  if (!railsLayout) buildRailsLayout(cx);
-  const L = railsLayout;
-  const k = Math.max(Math.min((w - 24) / Math.max(60, L.w), 1.35), 0.8) * v.zoom;
-  const mx = L.w / 2, my = L.h / 2;
-  if (!v.touched) {
-    v.pan.x = 16 - w / 2 + mx * k;  // untouched camera frames the top-left —
-    v.pan.y = 12 - h / 2 + my * k;  // the start rule; pan explores downward
-  }
-  const tx = w / 2 - mx * k + v.pan.x, ty = h / 2 - my * k + v.pan.y;
-  v.rk = k; v.rtx = tx; v.rty = ty;
-  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  cx.clearRect(0, 0, w, h);
-  cx.setTransform(dpr * k, 0, 0, dpr * k, dpr * tx, dpr * ty);
-  cx.font = railFont();
-  const hits = [];
-  const uy0 = -ty / k - 40, uy1 = (h - ty) / k + 40;
-  for (const e of L.entries) {
-    if (e.y + e.tree.h < uy0 || e.y > uy1) continue;
-    const yE = e.y + e.tree.cy;
-    railLine(cx, e.x - 14, yE, e.x, yE);
-    railLine(cx, e.x + e.tree.w, yE, e.x + e.tree.w + 14, yE);
-    cx.fillStyle = railColors().dim;
-    for (const ex of [e.x - 14, e.x + e.tree.w + 14]) {
-      cx.beginPath();
-      cx.arc(ex, yE, 2.5, 0, Math.PI * 2);
-      cx.fill();
-    }
-    railDraw(e.tree, cx, e.x, e.y, hits);
-  }
-  v.railHits = hits;
-  const start = Object.keys(S.depths).find((n) => S.depths[n] === 0) || '';
-  const hot = hotRule();
-  for (const el of v.chips.children) {
-    const e = L.byName.get(el.dataset.name);
-    if (!e) { el.style.display = 'none'; continue; }
-    el.style.display = '';
-    el.style.left = (e.x - 12) * k + tx + 'px';
-    el.style.top = (e.y - 6) * k + ty + 'px';
-    el.style.transform = 'translate(0, -100%)';
-    el.style.zIndex = 5;
-    el.classList.add('near');
-    el.classList.remove('dot');
-    el.classList.toggle('start', el.dataset.name === start);
-    el.classList.toggle('marked', el.dataset.name === cur.rule);
-    el.classList.toggle('hot', el.dataset.name === hot);
-    el.classList.remove('faded');
-  }
-}
-
-let railChipRule = '';
 
 function railChipShow(rule, x, y) {
   railChipRule = rule;

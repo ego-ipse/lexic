@@ -36,6 +36,7 @@ from deixis.points import wire as point  # noqa: E402
 from eidolon.layout import positions  # noqa: E402
 from eidolon.topology import edges, levels, reachable  # noqa: E402
 from opsis.grammar import rail, rails  # noqa: E402
+from opsis.paint import automaton_drawing, rails_drawing  # noqa: E402
 from eidolon.value import wire as ir_wire  # noqa: E402
 from kairos.pipeline import form_of, spelled  # noqa: E402
 from opsis.scene import (  # noqa: E402
@@ -170,6 +171,7 @@ class Handler(BaseHTTPRequestHandler):
             "/place",
             "/column",
             "/routes",
+            "/draw",
             "/irvalue",
         ):
             return None
@@ -294,6 +296,28 @@ class Handler(BaseHTTPRequestHandler):
                     "",
                 ]
             )
+        if path == "/draw":
+            # the picture itself, said in full. A surface that computes its
+            # own geometry is a surface no fact can check — and both of
+            # these are geometry over things this side already knows.
+            asked = parse_qs(query)
+            what = asked.get("what", ["rails"])[0]
+            box = asked.get("box", ["900x600"])[0].split("x")
+            wide = int(box[0]) if box[0].isdigit() else 900
+            if what == "rails":
+                shown = form_of(
+                    machine, self.reading, Handler.state.get("form", "source")
+                )
+                return rails_drawing(rails(shown), wide).wire("rails")
+            if what == "automaton":
+                at = float(asked.get("t", ["0"])[0] or 0)
+                frames = watch(machine, self.reading.text)
+                lit = {seat for s, e, _d, _n, ok, seat in frames if ok and s <= at < e}
+                seen = {seat for s, e, _d, _n, ok, seat in frames if ok and e <= at}
+                return automaton_drawing(
+                    automaton(machine.pda_tables()), lit, seen - lit
+                ).wire("automaton")
+            return f"#DRAW 0 {what} 0 0\n"
         if path == "/rails":
             return rails(machine.grammar)
         if path == "/rail":

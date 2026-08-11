@@ -1,0 +1,91 @@
+/* opsis leaf — the painter.
+
+   Five words, painted where they say. Everything about WHAT a picture is
+   was decided by the reading; this decides nothing, which is the point: a
+   surface that computes its own geometry is a surface no fact can reach.
+
+   The register lives here because it is a look, not a meaning: a drawing
+   names a tone, never a colour. */
+
+'use strict';
+
+const TONE = {
+  rail: '#6fc3c9', loop: '#d98cf5', token: '#8fa3b8', ref: '#6fc3c9',
+  class: '#d98cf5', name: '#e2a65c', dim: '#66707f', hot: '#e2a65c',
+  cool: 'rgba(111,195,201,0.18)', seen: '#4a5568', dispatch: '#6fc3c9',
+  alt: '#e2a65c', seq: '#8fa3b8', value_str: '#d98cf5', group: '#66707f',
+};
+
+const drawings = new Map();     // what → { marks, w, h }
+
+function toneOf(name) { return TONE[name] || '#8fa3b8'; }
+
+async function loadDrawing(what, query = '') {
+  const text = await (await fetch(`/draw?what=${what}${query}`)).text();
+  const lines = text.split('\n');
+  const head = (lines[0] || '').split(' ');
+  if (head[0] !== '#DRAW') return null;
+  const said = {
+    marks: lines.slice(1, 1 + (+head[1] || 0)),
+    w: +head[3] || 0,
+    h: +head[4] || 0,
+  };
+  drawings.set(what, said);
+  ask();
+  return said;
+}
+
+function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
+  if (!cv || !said) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  // a canvas with no layout yet keeps its 300×150 default, and painting into
+  // that silently cuts everything past the corner — which looks exactly like
+  // a drawing that stops halfway
+  // the ROOM decides, not the canvas: a canvas keeps its 300×150 default
+  // until CSS lays it out, and reading that back (then writing it as an
+  // inline style, as this did) locks the picture into the corner forever
+  const host = cv.parentElement;
+  const w = (host ? host.clientWidth : 0) || cv.clientWidth;
+  const h = (host ? host.clientHeight : 0) || cv.clientHeight;
+  if (!w || !h) return;
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  const cx = cv.getContext('2d');
+  cx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * pan.x, dpr * pan.y);
+  cx.clearRect(-pan.x / scale, -pan.y / scale, w / scale, h / scale);
+  cx.lineWidth = 1;
+  cx.font = `11px ${getComputedStyle(document.documentElement)
+    .getPropertyValue('--mono')}`;
+  for (const mark of said.marks) {
+    const p = mark.split(' ');
+    if (p[0] === 'box') {
+      const [x, y, bw, bh] = [+p[1], +p[2], +p[3], +p[4]];
+      cx.strokeStyle = toneOf(p[5]);
+      cx.strokeRect(x + 0.5, y + 0.5, bw, bh);
+      const label = p.slice(6).join(' ');
+      if (label) {
+        cx.fillStyle = toneOf(p[5]);
+        cx.fillText(label, x + 5, y + bh / 2 + 4);
+      }
+    } else if (p[0] === 'line') {
+      cx.strokeStyle = toneOf(p[5]);
+      cx.beginPath();
+      cx.moveTo(+p[1], +p[2]);
+      cx.lineTo(+p[3], +p[4]);
+      cx.stroke();
+    } else if (p[0] === 'curve') {
+      cx.strokeStyle = toneOf(p[7]);
+      cx.beginPath();
+      cx.moveTo(+p[1], +p[2]);
+      cx.quadraticCurveTo(+p[3], +p[4], +p[5], +p[6]);
+      cx.stroke();
+    } else if (p[0] === 'arc') {
+      cx.fillStyle = toneOf(p[4]);
+      cx.beginPath();
+      cx.arc(+p[1], +p[2], +p[3], 0, Math.PI * 2);
+      cx.fill();
+    } else if (p[0] === 'text') {
+      cx.fillStyle = toneOf(p[3]);
+      cx.fillText(p.slice(4).join(' '), +p[1], +p[2]);
+    }
+  }
+}

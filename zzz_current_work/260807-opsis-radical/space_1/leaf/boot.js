@@ -21,7 +21,6 @@ function dropDerived() {
   clockData = null;
   clockWaiting = false;
   railsAll = null;
-  railsLayout = null;
   gNodes = null;
   placedFor = '';  // positions are per view, per reading
   colCache = new Map();
@@ -207,7 +206,6 @@ function resetSubjectCaches() {
   railCache.clear();
   railsAll = null;
   railsLoading = false;
-  railsLayout = null;
   verdictMap = null;
   verdictLoading = false;
   autoData = null;
