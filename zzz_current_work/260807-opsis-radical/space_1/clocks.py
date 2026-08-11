@@ -106,15 +106,39 @@ def seats(compiled: CompiledGrammar, text: str) -> list[tuple[int, FlatClone, in
     return _SEATS.get(key, [])
 
 
+def _distance(edges: set[tuple[int, int]], count: int) -> dict[int, int]:
+    """Distance from the start clone along the walked edges — BFS, not entry.
+
+    A clone first entered near the top of a recursive grammar keeps saying
+    "depth 0" however deep the machine actually goes; the view then draws
+    every node on one line. Distance answers the question the layout asks.
+    """
+    out: dict[int, list[int]] = {}
+    for frm, to in edges:
+        out.setdefault(frm, []).append(to)
+    depth = {0: 0}
+    frontier = [0]
+    while frontier:
+        onward = []
+        for seat in frontier:
+            for nxt in out.get(seat, ()):
+                if nxt not in depth:
+                    depth[nxt] = depth[seat] + 1
+                    onward.append(nxt)
+        frontier = onward
+    return {seat: depth.get(seat, 0) for seat in range(count)}
+
+
 def walked(compiled: CompiledGrammar, text: str) -> str:
-    """The machine as the run met it — clones seated, edges by entry order."""
+    """The machine as the run met it — clones seated, edges as walked."""
     rows = seats(compiled, text)
     edges = _WALKS.get((id(compiled), hash(text)), set())
+    far = _distance(edges, len(rows))
     names = sorted({clone.name or "·" for _seat, clone, _deep in rows})
     at = {name: index for index, name in enumerate(names)}
     drawn = [
-        f"{at[clone.name or '·']} {_mode(clone)} {_flags(clone)} {deep}"
-        for _seat, clone, deep in rows
+        f"{at[clone.name or '·']} {_mode(clone)} {_flags(clone)} {far[seat]}"
+        for seat, clone, _deep in rows
     ]
     return "\n".join(
         [
