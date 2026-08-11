@@ -221,7 +221,9 @@ TRACKING = {
     "ftitle": "0.14em",
 }
 # what that tracking is WORTH per glyph, in the widths `runs` adds up
-SPACING = {"title": 2.5, "chip": 0.6, "node": 0.8, "ftitle": 1.5}
+# ONE ENTRY PER TRACKED FACE. A face tracked in `TRACKING` and missing here
+# is measured as if it were not tracked at all, and the probe catches it.
+SPACING = {"title": 2.5, "chip": 0.6, "node": 0.8, "dial": 0.74, "ftitle": 1.5}
 
 
 def register() -> list[str]:
