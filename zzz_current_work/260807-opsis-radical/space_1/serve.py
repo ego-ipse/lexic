@@ -38,6 +38,7 @@ from eidolon.topology import edges, levels, reachable  # noqa: E402
 from opsis.grammar import rail, rails  # noqa: E402
 from opsis.paint import (  # noqa: E402
     automaton_drawing,
+    band_drawing,
     chart_drawing,
     graph_drawing,
     rail_drawing,
@@ -315,13 +316,14 @@ class Handler(BaseHTTPRequestHandler):
                     machine, self.reading, Handler.state.get("form", "source")
                 )
                 return rails_drawing(rails(shown), wide).wire("rails")
+            if what == "band":
+                tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 26
+                return band_drawing(self.reading, wide, tall).wire("band")
             if what == "chart":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 400
                 start = int(float(asked.get("from", ["0"])[0] or 0))
                 win = int(float(asked.get("win", ["400"])[0] or 400))
-                return chart_drawing(
-                    self.reading, start, win, wide, tall
-                ).wire("chart")
+                return chart_drawing(self.reading, start, win, wide, tall).wire("chart")
             if what == "rail":
                 shown = form_of(
                     machine, self.reading, Handler.state.get("form", "source")

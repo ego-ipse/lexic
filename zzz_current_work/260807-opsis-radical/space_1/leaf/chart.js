@@ -7,6 +7,12 @@
 
 /* ── chart facet: overview density + depth lanes ── */
 
+// how the served band's tones look here. A drawing names a tone; what that
+// tone IS belongs to the leaf, which is the only side that knows the dark.
+const BAND = {
+  band0: '#0e151d', band1: '#152230', band2: '#1d3143', band3: '#274257',
+};
+
 async function loadClock() {
   if (clockWaiting) return;
   clockWaiting = true;
@@ -254,24 +260,24 @@ function drawChart(view = chartMain) {
   const pad = 10, bandH = 26, N = S.doc.length;
   const T = chartAt(view), zoom = chartZoomOf(view), clock = chartClockOf(view);
   const ox = (off) => pad + (off / N) * (w - 2 * pad);
-  if (!S.cov) {
-    const diff = new Int32Array(N + 1);
-    S.spans.forEach((s) => { diff[s.s]++; diff[s.e]--; });
-    S.cov = new Int32Array(N); let run = 0, top = 1;
-    for (let i = 0; i < N; i++) { run += diff[i]; S.cov[i] = run; top = Math.max(top, run); }
-    S.covTop = top;
-  }
-  const shades = ['#0e151d', '#152230', '#1d3143', '#274257'];
-  const step = Math.max(1, Math.floor(N / (w - 2 * pad)));
+  // THE BAND IS A DRAWING: how much structure sits where is a property of
+  // the reading, not something to sum over twelve thousand spans per frame.
+  const bandKey = `band:${Math.round(w)}:${S.meta.generation}`;
+  const band = drawings.get(bandKey);
   if (clock !== 'model' && clockReady()) {
     drawClockBand(cx, pad, bandH, step, ox, N, view);
-  } else {
-    for (let off = 0; off < N; off += step) {
-      let m = 0;
-      for (let k = off; k < Math.min(off + step, N); k++) m = Math.max(m, S.cov[k]);
-      cx.fillStyle = shades[Math.min(3, Math.floor((m * 4) / (S.covTop + 1)))];
-      cx.fillRect(ox(off), 8, Math.max(1, ox(off + step) - ox(off)), bandH);
+  } else if (band) {
+    cx.save();
+    cx.translate(pad, 8);
+    for (const mark of band.marks) {
+      const m = mark.split(' ');
+      if (m[0] !== 'box') continue;
+      cx.fillStyle = BAND[m[5]] || shades[0];
+      cx.fillRect(+m[1], +m[2], +m[3], +m[4]);
     }
+    cx.restore();
+  } else {
+    loadDrawing(bandKey, `&box=${Math.round(w - 2 * pad)}x${bandH}`, 'band');
   }
   // a small document fills the width; a large one gets a 5px-per-char window
   const base = N * 5 < (w - 2 * pad) ? Math.min(12, Math.floor((w - 2 * pad) / Math.max(1, N))) : 5;

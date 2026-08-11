@@ -22,14 +22,16 @@ from __future__ import annotations
 from eidolon.layout import positions
 from eidolon.topology import edges
 from lexic.ir import IrAst
-from opsis.measure import BRACKET, GAP, LOOP, VGAP, Box
+from opsis.measure import GAP, LOOP, VGAP, Box
 from praxis.reading import columns
 
 __all__ = [
     "Drawing",
     "automaton_drawing",
+    "band_drawing",
     "chart_drawing",
     "graph_drawing",
+    "band_drawing",
     "chart_drawing",
     "rail_drawing",
     "rails_drawing",
@@ -106,6 +108,11 @@ class Drawing:
         )
 
 
+def inner_left(bus: float) -> float:
+    """Where an arm starts: one column clear of the bus it hangs from."""
+    return bus + CELL
+
+
 def _track(
     node: tuple[str, str, list],
     room: list[Box],
@@ -135,27 +142,40 @@ def _track(
                 cursor += GAP * CELL
         return
     if kind == "alt":
-        # one fork out, one fork back, and every arm on its own line between
-        inner = x + BRACKET / 2 * CELL
-        edge = x + w
+        # a fork is a BUS, not a fan of diagonals: a stub out of the line, a
+        # vertical down to each arm, a stub into it — and the mirror of that
+        # on the way back. Drawing one long curve per arm is what made the
+        # choice read as a funnel instead of a set of alternatives.
+        left_bus = x + 2 * CELL
+        right_bus = x + w - 2 * CELL
         top = y
+        entries: list[float] = []
         for kid in kids:
             kid_box = room[at[0]]
             mid = top + kid_box.spine * ROW
-            draw.curve(x, y + spine, inner - CELL, y + spine, inner, mid, "rail")
-            _track(kid, room, at, draw, inner, top)
-            right = inner + kid_box.wide * CELL
-            draw.line(right, mid, edge - BRACKET / 2 * CELL, mid, "rail")
-            draw.curve(
-                edge - BRACKET / 2 * CELL,
-                mid,
-                edge - CELL,
-                y + spine,
-                edge,
-                y + spine,
+            entries.append(mid)
+            draw.line(left_bus, mid, inner_left(left_bus), mid, "rail")
+            _track(kid, room, at, draw, inner_left(left_bus), top)
+            right = inner_left(left_bus) + kid_box.wide * CELL
+            draw.line(right, mid, right_bus, mid, "rail")
+            top += kid_box.tall * ROW + VGAP * ROW
+        draw.line(x, y + spine, left_bus, y + spine, "rail")
+        draw.line(right_bus, y + spine, x + w, y + spine, "rail")
+        if entries:
+            draw.line(
+                left_bus,
+                min(entries[0], y + spine),
+                left_bus,
+                max(entries[-1], y + spine),
                 "rail",
             )
-            top += kid_box.tall * ROW + VGAP * ROW
+            draw.line(
+                right_bus,
+                min(entries[0], y + spine),
+                right_bus,
+                max(entries[-1], y + spine),
+                "rail",
+            )
         return
     if kind == "many":
         low, high = (payload.split() + ["1", "1"])[:2]
@@ -167,15 +187,18 @@ def _track(
         right_of_kid = inner_x + kid_box.wide * CELL
         draw.line(x, mid, inner_x, mid, "rail")
         draw.line(right_of_kid, mid, x + w, mid, "rail")
-        if low == "0":  # the bypass arches over
-            over = y + ROW * 0.5
-            draw.curve(x, mid, x, over, (x + x + w) / 2, over, "loop")
-            draw.curve((x + x + w) / 2, over, x + w, over, x + w, mid, "loop")
+        if low == "0":  # the bypass goes over the top
+            over = y + ROW * 0.4
+            draw.line(x, mid, x, over, "loop")
+            draw.line(x, over, x + w, over, "loop")
+            draw.line(x + w, over, x + w, mid, "loop")
         if high != "1":  # the repeat returns underneath
-            under = inner_y + kid_box.tall * ROW + ROW * 0.6
-            draw.curve(x + w, mid, x + w, under, (x + x + w) / 2, under, "loop")
-            draw.curve((x + x + w) / 2, under, x, under, x, mid, "loop")
+            under = inner_y + kid_box.tall * ROW + ROW * 0.5
+            draw.line(x + w, mid, x + w, under, "loop")
+            draw.line(x + w, under, x, under, "loop")
+            draw.line(x, under, x, mid, "loop")
         return
+
     if kind in ("not", "alpha"):
         tag = "¬ none of" if kind == "not" else f"⟨{payload}⟩"
         draw.text(x, y + ROW * 0.7, "dim", tag)
@@ -370,4 +393,33 @@ def chart_drawing(
         draw.box(x1, y, max(1.5, x2 - x1), lane - 2, "span", "", goes)
     draw.wide = float(wide)
     draw.tall = deep * lane
+    return draw
+
+
+def band_drawing(reading: object, wide: int, tall: int, steps: int = 240) -> Drawing:
+    """The whole document at a glance — how much structure sits where.
+
+    The overview strip above the derivation. The leaf built this by summing
+    a coverage array over twelve thousand spans; it is a property of the
+    reading, so it is one here, and it does not change as the cursor moves.
+    """
+    draw = Drawing()
+    spans = list(getattr(reading, "spans", []))
+    text = getattr(reading, "text", "")
+    if not spans or not text:
+        return draw
+    size = max(1, len(text) // steps)
+    cover = [0] * (len(text) // size + 1)
+    for span in spans:
+        first = span.start // size
+        last = min(span.end // size, len(cover) - 1)
+        for at in range(first, last + 1):
+            cover[at] += 1
+    top = max(cover) or 1
+    pitch = wide / max(1, len(cover))
+    for at, deep in enumerate(cover):
+        shade = min(3, (deep * 4) // (top + 1))
+        draw.box(at * pitch, 0.0, max(1.0, pitch), float(tall), f"band{shade}")
+    draw.wide = float(wide)
+    draw.tall = float(tall)
     return draw
