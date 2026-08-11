@@ -821,6 +821,30 @@ that fact made the probe exit silently — the plumbing is green on its own, so
 it is the fact's own code. Write it small, run the probe after every line,
 and remember that a harness which says nothing is worse than a known gap.
 
+## The graphs — the comparison that finally shows it
+
+Both instruments, flat view, 1600x900, and the REFERENCE HAS NO CAMERA IN ITS
+POLICY — zoom 1, pan 0, its resting state.
+
+- the reference shows THREE levels at a readable size (`JSON-text` → `ws` and
+  `value` → the seven value arms) with the rest running off the right edge
+- this port shows ALL SIX levels crammed into the facet, labels colliding
+
+So the reference does not fit its graph into the room; it keeps the layout at
+a readable scale and lets it OVERFLOW, panning so the start rule sits 70px
+in — `graph.js` has exactly that nudge:
+
+    if (mode !== 'depth3d' && !v.touched && (x1 - x0) * k > availW + 2)
+      v.pan.x = 70 - w / 2 - (x0 - mx) * k
+
+This port has no such nudge and fits by width instead, which is what makes
+its graphs unreadable. But the fit formula is the same on both sides and
+`layout.py` is byte-identical, so the two cannot both be right about `k`:
+DUMP `x1 - x0`, `y1 - y0`, `availW` and `availH` ON BOTH SIDES before
+changing anything. The reference's pads are per-axis — padX from half the
+widest label, padY from half its HEIGHT — where this port uses the label
+width for both, which alone makes its availH about eighty pixels too small.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.
