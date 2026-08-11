@@ -126,6 +126,7 @@ class Handler(BaseHTTPRequestHandler):
                 state,
                 Held.watched(),
                 session.generation,
+                climbed=session.climbed,
                 typed=session.typed,
                 frontier=session.frontier(),
                 routes=Held.other.line(),

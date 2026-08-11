@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable, MutableMapping
 
 from praxis.history import Retype, retype
-from praxis.reading import Reading
+from praxis.reading import Reading, read_up
 
 __all__ = ["Session"]
 
@@ -35,6 +35,7 @@ class Session:
         "body",
         "generation",
         "playing",
+        "climbed",
         "main",
         "reading",
         "said",
@@ -44,6 +45,10 @@ class Session:
 
     def __init__(self, reading: Reading) -> None:
         self.reading = reading
+        # every rung stood on, in the order climbed: the ladder is what has
+        # been WALKED plus the one above it, so the rungs below do not vanish
+        # the moment you step up
+        self.climbed: list[Reading] = [reading]
         self.at = 0.0
         self.playing = False
         self.generation = 1
@@ -178,8 +183,41 @@ class Session:
         self.main["place"] = ""
 
     def _rung(self, words: list[str]) -> None:
-        """Travel to a rung of the ladder — and come back into the reading."""
+        """TRAVEL to a rung of the ladder. Entering it is what builds it.
+
+        A rung is not a page: going up is the same question asked of the
+        other text — who reads THIS one — and the answer is a reading like
+        any other, with its own spans, spine, verdict and layout. An unvisited
+        rung costs nothing until you enter it, which is why the ladder can be
+        drawn without parsing anything.
+        """
         self.main["showing"] = ""
+        self.main["place"] = ""
+        if not words or not words[0].isdigit():
+            return
+        want = int(words[0])
+        while len(self.climbed) <= want:
+            above = read_up(self.climbed[-1])
+            if above is None:
+                return
+            self.climbed.append(above)
+        self.enter(self.climbed[want])
+
+    def enter(self, reading: Reading) -> None:
+        """Stand in a reading — everything derived is of THIS one now.
+
+        A generation, because that is what says the reading moved: a pin made
+        against the one below goes stale rather than quietly describing a
+        text that is no longer under it.
+        """
+        if reading is self.reading:
+            return
+        self.reading = reading
+        self.typed.clear()
+        self.said = None
+        self.at = 0.0
+        self.playing = False
+        self.generation += 1
 
     def _place(self, words: list[str]) -> None:
         """Enter a room the reading holds — or leave the one you are in."""

@@ -244,6 +244,28 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## Travel
+
+The strata drew a rung nobody could enter: `at rung n` closed the overlay and
+did nothing else. Entering one now BUILDS it — `read_up` was already here and
+unused — and the ladder below stays climbed, so coming back is a rung, not a
+reload. Standing somewhere new is a new generation, which is what makes a pin
+taken on the rung below go stale rather than quietly describing a text that
+is no longer under it.
+
+Two faults it uncovered in `praxis/state.py`, both ported forward without
+being noticed:
+
+- **The ladder named the reader by its FILE.** `reading.py` says in as many
+  words that a metagrammar is not a file and the label cannot come from a
+  path without lying about the pairing — and `chain()` took the path anyway.
+  After travelling, the ladder said `json.gbnf ⊳ json.gbnf` while the
+  masthead beside it said the truth.
+- **The fixpoint could never be found.** The test compared a file name to a
+  reader name — never equal — so at the top of the ladder the rung you were
+  standing on was drawn twice. It compares the PAIRING now, and the climb
+  stops where a text is read by its own metagrammar.
+
 ## Every reading, not one
 
 The gate reads FOUR pairings now — the json grammar, its ABNF spelling, a

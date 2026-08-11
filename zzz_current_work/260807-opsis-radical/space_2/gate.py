@@ -32,6 +32,7 @@ from opsis.frame.tones import EDGES, FONTS, TONES  # noqa: E402
 from opsis.scene import reader_of  # noqa: E402
 from praxis.reading import Reading  # noqa: E402
 from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
+from praxis.state import chain  # noqa: E402
 
 ROOT = HERE.parents[2]
 GROUND = ROOT / "resources" / "ground_truth"
@@ -346,6 +347,38 @@ def main() -> int:
             "STALE" in w
             for w in words(frame({"pin.span": "20:46", "pin.gen": "0"}, only="pin"))
         ),
+    )
+
+    print("travel")
+    climber = Session(Reading(READER, DOCUMENT))
+    climber.reading.hold()
+    was = climber.reading.reader_name
+    climber.gesture("at rung 1")
+    check(
+        "entering a rung builds it",
+        climber.reading is not climber.climbed[0] and bool(climber.reading.spans),
+        f"{was} → {climber.reading.reader_name} · {len(climber.reading.spans):,} spans",
+    )
+    check(
+        "the metagrammar is named as what it IS, not as a file",
+        "metagrammar" in climber.reading.reader_name,
+        climber.reading.reader_name,
+    )
+    rungs = chain(climber.reading)
+    check(
+        "the ladder stops at the fixpoint",
+        len(rungs) == 1,
+        " | ".join(r.line()[:44] for r in rungs),
+    )
+    check(
+        "standing somewhere new is a new generation",
+        climber.generation > 1,
+        f"gen {climber.generation}",
+    )
+    climber.gesture("at rung 0")
+    check(
+        "and the rung below is still there to come back to",
+        climber.reading is climber.climbed[0],
     )
 
     print("where the reading sits")

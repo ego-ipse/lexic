@@ -82,7 +82,7 @@ def compose(
         return said
 
     if state.get("showing", "") == "strata" and not only:
-        strata_draw(said, strata(reading, climbed or [reading]), wide, tall)
+        strata_draw(said, strata(reading, list(climbed or [reading])), wide, tall)
         return said
 
     if only in DRAWN:

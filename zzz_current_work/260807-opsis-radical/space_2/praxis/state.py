@@ -45,14 +45,22 @@ def chain(reading: Reading) -> list[Rung]:
     answers. Nothing is parsed to build this — the climb stops when a text
     reads itself, which is the fixpoint, or at the ceiling.
     """
-    rungs = [Rung(Path(reading.document).name, Path(reading.reader).name, 0, True)]
+    # what the reader is CALLED, not what file it came from: a metagrammar is
+    # not a file, and after travelling to one the ladder said `json.gbnf ⊳
+    # json.gbnf` while the masthead said the truth beside it
+    rungs = [Rung(Path(reading.document).name, reading.reader_name, 0, True)]
     step = upward(reading)
     level = 1
     while step is not None and level < CEILING:
         document, reader = step
-        rungs.append(Rung(Path(document).name, reader, level, False))
-        if Path(document).name == reader:
-            break  # a text read by itself: the fixpoint
+        above = Rung(Path(document).name, reader, level, False)
+        # THE FIXPOINT: the rung above is the same pairing as the one below —
+        # a metagrammar read by its own metagrammar. Comparing a file name to
+        # a reader's name never found it, because those are not the same kind
+        # of thing, so the ladder drew the rung you were standing on twice.
+        if above.document == rungs[-1].document and above.reader == rungs[-1].reader:
+            break
+        rungs.append(above)
         step = None  # the rung above is named, not opened
         level += 1
     return rungs
