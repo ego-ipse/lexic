@@ -15,7 +15,7 @@ from typing import Any
 
 from deixis.points import closed_before, open_at
 from eidolon.camera import project
-from eidolon.layout import positions
+from eidolon.layout import TUNE, positions
 from eidolon.topology import edges
 from kairos.engine import automaton, verdicts
 from kairos.parse import column, decisions, hypotheses
@@ -339,6 +339,47 @@ def graph(said: Frame, room: Room, look: Look) -> None:
         said.text(room[0] + 14, room[1] + 20, "fsub", "this reading has no machine")
         return
     GRAPHVIEWS.get(look.says("graph.view", "depth3d"), _depth3d)(said, room, look)
+    _dials(said, room, look)
+
+
+# #gtune — what the hand can change about a layout. The dials sit out of the
+# picture's way, bottom-right, where a railroad list and a graph both have
+# their least content. What each view offers is its own business.
+DIALS = {
+    "depth3d": (
+        ("levelstep", 60.0, 280.0),
+        ("ringscale", 0.4, 2.0),
+        ("flatten", 0.2, 1.2),
+    ),
+    "flat": (("levelstep", 60.0, 280.0), ("ringscale", 0.4, 2.0)),
+    "arcs": (("ringscale", 0.4, 2.0),),
+    "rails": (),
+    "automaton": (),
+}
+
+
+def _dials(said: Frame, room: Room, look: Look) -> None:
+    """The sliders, drawn where they are least in the way, and read as state.
+
+    A slider is configuration, and configuration is the server's: what the
+    hand drags is posted, and what comes back are new places. Nothing here
+    keeps a second copy of a number the layout already has.
+    """
+    x, y, w, h = room
+    dials = DIALS.get(look.says("graph.view", "depth3d"), ())
+    if not dials:
+        return
+    wide, step = 96.0, 18.0
+    left = x + w - wide - 78
+    top = y + h - len(dials) * step - 14
+    for i, (name, low, high) in enumerate(dials):
+        at = top + i * step
+        now = float(look.says(f"graph.{name}", str(TUNE[name])))
+        part = max(0.0, min(1.0, (now - low) / (high - low)))
+        said.text(left - 8, at + 4, "chip", name[:4], anchor="r", face="chip")
+        said.line(left, at, left + wide, at, "dimmer")
+        said.box(left + part * wide - 4, at - 4, 8, 8, "cool")
+        said.hit(left, at - 7, wide, 14, f"dial.{name}", f"{low}:{high}")
 
 
 def _depth3d(said: Frame, room: Room, look: Look) -> None:
@@ -346,7 +387,7 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
     shown = look.it.shown
     at = project(
-        positions(shown, "rings", int(w), int(h)),
+        positions(shown, "rings", int(w), int(h), _tuned(look)),
         float(look.says("graph.yaw", "0.42")),
         float(look.says("graph.pitch", "0.92")),
         w,
@@ -395,17 +436,27 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
             said.hit(x + px - wide / 2, y + py - 8, wide, 16, "rule", says)
 
 
+def _tuned(look: Look) -> dict[str, float]:
+    """What the hand has said about this layout, in the layout's own words."""
+    return {
+        name: float(look.says(f"graph.{name}", str(fallback)))
+        for name, fallback in TUNE.items()
+    }
+
+
 def _flat(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
     said.place(
-        graph_drawing(look.it.shown, "flat", int(w), int(h), None, look.lit()), x, y
+        graph_drawing(look.it.shown, "flat", int(w), int(h), _tuned(look), look.lit()),
+        x,
+        y,
     )
 
 
 def _arcs(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
     said.place(
-        graph_drawing(look.it.shown, "arcs", int(w), int(h), None, look.lit()),
+        graph_drawing(look.it.shown, "arcs", int(w), int(h), _tuned(look), look.lit()),
         x,
         y + h / 3,
     )

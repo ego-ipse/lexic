@@ -163,10 +163,30 @@ That is several codegen rules spelling back to one source name, which is what
 the room was asked for; making them look unique would be the frame inventing
 an answer the reading did not give.
 
+## Ported since
+
+- **`irvalue`** — a value as the value it IS: what it HOLDS, one row per
+  child, the field that names it, what it is, and its payload where it has
+  one. Tier is the colour, because the tier is what the thing is. It does not
+  repeat the counts the room's own section already gave.
+- **The tune dials** (`#gtune`) — drawn bottom-right, where a railroad list
+  and a graph both have their least content, and only for the views that
+  offer them. A slider is configuration and configuration is the server's:
+  the hand posts where along the track it let go, and what comes back are new
+  places. `eidolon.layout.TUNE` was already the vocabulary.
+
+Verified end to end: dragging `levelstep` moves its knob 653 → 557, and
+`flatten` changes the picture's y spread 557 → 636.
+
+**And one thing that correctly does NOT change.** Dragging `levelstep` leaves
+the picture the same SIZE: the rings move apart in z and the camera's fit —
+which is bounded by the cloud's radius, on purpose — takes up the slack. That
+is the ported behaviour doing its job, not a dial that failed to connect; the
+difference shows as perspective, not as scale.
+
 ## Deviations still to redo
 
-- The tune dials (`#gtune`) are not drawn.
-- `graphview` / `irvalue` sections name themselves but draw no shape.
+- `graphview` sections in a room name themselves but draw no shape.
 
 ## Not ported yet
 

@@ -14,6 +14,9 @@ of the reading either.
 from __future__ import annotations
 
 from opsis.frame.marks import ROW, Frame
+from lexic.ir.spine.spine import IrSelf
+
+from eidolon.value import wire
 from opsis.frame.tones import runs
 
 __all__ = ["draw", "read"]
@@ -53,14 +56,18 @@ def read(wire: str) -> tuple[str, str, str, list[Section]]:
     return pid, kind, says, out
 
 
-def _title(said: Frame, section: Section, _wide: int, y: float) -> float:
+def _title(
+    said: Frame, section: Section, _wide: int, y: float, _value: IrSelf | None
+) -> float:
     for line in section.lines:
         said.text(PAD, y, "ink", line)
         y += ROW + 4
     return y
 
 
-def _kv(said: Frame, section: Section, wide: int, y: float) -> float:
+def _kv(
+    said: Frame, section: Section, wide: int, y: float, _value: IrSelf | None
+) -> float:
     """Facts as pairs — the name on the left, what it is on the right."""
     keys = [line.split("\t")[0] for line in section.lines]
     step = max((runs("fsub", key) for key in keys), default=0.0) + 24
@@ -72,7 +79,9 @@ def _kv(said: Frame, section: Section, wide: int, y: float) -> float:
     return y
 
 
-def _list(said: Frame, section: Section, wide: int, y: float) -> float:
+def _list(
+    said: Frame, section: Section, wide: int, y: float, _value: IrSelf | None
+) -> float:
     """Doors — each one a place this room opens onto."""
     for line in section.lines:
         label, _, pid = line.partition("\t")
@@ -86,7 +95,9 @@ def _list(said: Frame, section: Section, wide: int, y: float) -> float:
     return y
 
 
-def _refusal(said: Frame, section: Section, wide: int, y: float) -> float:
+def _refusal(
+    said: Frame, section: Section, wide: int, y: float, _value: IrSelf | None
+) -> float:
     """A room nobody authored says so, in place — in the words it has."""
     for line in section.lines:
         said.text(PAD, y, "red", line, wide - PAD * 2)
@@ -94,7 +105,9 @@ def _refusal(said: Frame, section: Section, wide: int, y: float) -> float:
     return y
 
 
-def _unbuilt(said: Frame, section: Section, _wide: int, y: float) -> float:
+def _unbuilt(
+    said: Frame, section: Section, _wide: int, y: float, _value: IrSelf | None
+) -> float:
     """A section this frame draws no shape for — named, never silently dropped.
 
     The raising default, said on screen: an unauthored kind draws its own
@@ -104,17 +117,79 @@ def _unbuilt(said: Frame, section: Section, _wide: int, y: float) -> float:
     return y + ROW
 
 
+def _irvalue(
+    said: Frame, section: Section, wide: int, y: float, value: IrSelf | None
+) -> float:
+    """A VALUE as the value it is — what it HOLDS, one row per child.
+
+    Not a tree dump, and not the facts again: the room's own section already
+    counted the nodes. This is the value's own children — the field that
+    names each one, what it is, and its payload where it has one. Tier is the
+    colour, because the tier is what the thing IS.
+    """
+    if not section.lines or value is None:
+        return _unbuilt(said, section, wide, y, value)
+    kids: list[str] = []
+    lines = wire(value).split("\n")
+    for at, line in enumerate(lines):
+        if line.startswith("#KIDS"):
+            count = int(line.split(" ")[1])
+            kids = lines[at + 1 : at + 1 + count]
+            break
+    if not kids:
+        said.text(PAD, y, "fsub", "this value holds nothing — it IS its payload")
+        return y + ROW
+    for line in kids[:26]:
+        parts = line.split(" ")
+        if len(parts) < 5:
+            continue
+        _i, label, kind, tier_of, count = parts[:5]
+        payload = " ".join(parts[5:])
+        said.line(PAD, y - 13, PAD, y + 5, TIERS.get(tier_of, "dimmer"))
+        said.text(PAD + 12, y, "violet", label, 150)
+        said.text(PAD + 172, y, "ink", kind, 210)
+        said.text(
+            PAD + 392,
+            y,
+            "green" if payload else "fsub",
+            payload or f"{count} children",
+            wide - PAD - 402,
+        )
+        y += ROW + 2
+    if len(kids) > 26:
+        said.text(PAD + 12, y, "dimmer", f"{len(kids) - 26} more")
+        y += ROW
+    return y
+
+
+# .irrow.t-record / .t-tuple / .t-scalar / .t-absence / .t-map
+TIERS = {
+    "record": "violet",
+    "tuple": "cool",
+    "scalar": "green",
+    "absence": "dimmer",
+    "map": "warm",
+}
+
 DRAWN = {
     "title": _title,
     "kv": _kv,
     "list": _list,
     "refusal": _refusal,
+    "irvalue": _irvalue,
 }
 
 
-def draw(said: Frame, wire: str, wide: int, tall: int) -> None:
-    """The room, whole — its name, its facts, and the doors it opens onto."""
-    pid, kind, says, sections = read(wire)
+def draw(
+    said: Frame, said_wire: str, wide: int, tall: int, value: IrSelf | None = None
+) -> None:
+    """The room, whole — its name, its facts, and the doors it opens onto.
+
+    :param value: what this room is ABOUT, when it is about a value — handed
+        to every section rather than reached for, so a section that needs it
+        says so in its own signature.
+    """
+    pid, kind, says, sections = read(said_wire)
     said.box(0, 0, wide, tall, "field")
     said.text(PAD, 38, "chip", kind.upper(), face="chip")
     at = PAD + runs("chip", kind) + 18
@@ -126,7 +201,7 @@ def draw(said: Frame, wire: str, wide: int, tall: int) -> None:
 
     y = 92.0
     for section in sections:
-        y = DRAWN.get(section.kind, _unbuilt)(said, section, wide, y)
+        y = DRAWN.get(section.kind, _unbuilt)(said, section, wide, y, value)
         y += 14
         if y > tall - 40:
             break

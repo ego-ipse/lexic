@@ -246,6 +246,12 @@ window.addEventListener('pointermove', (ev) => {
   if (Math.abs(dx) + Math.abs(dy) < 3) return;
   dragging.x = ev.clientX; dragging.y = ev.clientY;
   const on = dragging.on;
+  if (on && on.kind.startsWith('dial.')) {
+    const box = paper.getBoundingClientRect();
+    const part = (ev.clientX - box.left - on.x) / on.w;
+    ask(`dial ${on.kind.slice(5)} ${on.goes} ${Math.max(0, Math.min(1, part)).toFixed(3)}`);
+    return;
+  }
   if (on && on.kind === 'seam') {
     const box = paper.getBoundingClientRect();
     const part = on.w < on.h

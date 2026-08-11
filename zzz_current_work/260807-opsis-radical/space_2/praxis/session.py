@@ -286,6 +286,16 @@ class Session:
         self.state["graph.yaw"] = f"{yaw:.3f}"
         self.state["graph.pitch"] = f"{max(-1.4, min(1.4, pitch)):.3f}"
 
+    def _dial(self, words: list[str]) -> None:
+        """A dial dragged — where along its own track the hand let go."""
+        if len(words) < 3 or ":" not in words[1]:
+            return
+        low, _, high = words[1].partition(":")
+        part = max(0.0, min(1.0, float(words[2])))
+        self.state[f"graph.{words[0]}"] = (
+            f"{float(low) + (float(high) - float(low)) * part:.3f}"
+        )
+
     def _seam(self, words: list[str]) -> None:
         """A seam moved: its number is the split it stands for, in tree order."""
         if len(words) < 2:
@@ -355,6 +365,7 @@ SAYS: dict[str, Said] = {
     "sel": Session._sel,
     "set": Session._set,
     "speed": Session._speed,
+    "dial": Session._dial,
     "spin": Session._spin,
     "step": Session._step,
     "text": Session._text,

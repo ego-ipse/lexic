@@ -20,7 +20,7 @@ from opsis.frame.panels import head, walked
 from opsis.frame.places import draw as places_draw
 from opsis.frame.strata import draw as strata_draw
 from opsis.frame.tones import runs
-from opsis.rooms import room
+from opsis.rooms import room, subject
 from opsis.scene import Staged, staged
 from praxis.reading import Reading
 from praxis.routes import Aside
@@ -71,7 +71,13 @@ def compose(
     where = state.get("place", "")
     if where and not only:
         # a room the reading holds — reached through a door in the strata
-        places_draw(said, room(where, it.machine, reading, dict(state)), wide, tall)
+        places_draw(
+            said,
+            room(where, it.machine, reading, dict(state)),
+            wide,
+            tall,
+            subject(reading, where.removeprefix("ir:"), it.machine),
+        )
         return said
 
     if state.get("showing", "") == "strata" and not only:
