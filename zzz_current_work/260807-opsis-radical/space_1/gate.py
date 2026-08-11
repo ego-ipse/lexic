@@ -109,6 +109,14 @@ def main() -> int:
         all(row[1] >= row[0] for row in frames),
         f"{sum(1 for row in frames if not row[4])} abandoned",
     )
+    from keep import keep
+
+    made = keep(machine)
+    check(
+        "an artefact counts only once it has been LOADED BACK",
+        bool(made) and all(a.witness == "holds" for a in made),
+        " · ".join(a.line() for a in made),
+    )
     drawn = scene(reading)
     check(
         "the scene carries the reader, the document, the spans and the tree",
