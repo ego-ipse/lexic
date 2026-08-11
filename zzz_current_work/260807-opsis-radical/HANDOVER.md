@@ -41,6 +41,26 @@ probe; screenshots are for shape and colour.
   PAINTED BOXES: they carry the y they were drawn at and the span they are.
   Defended by `chartHover` / `afterResize` in the probe.
 
+**The thin-shell experiment (`space_2`), built and deleted.** One route —
+`POST /frame`: the leaf says how big it is and what the hand did, and
+receives the whole instrument in final pixels with named tones, plus hit
+rectangles carrying the address to post when clicked. The leaf was 124 lines
+against space_1's 4,268 shipped, held no geometry, and when the relations
+graph was added afterwards it did not change by one character.
+
+It was deleted because the packaging was careless: copied modules were
+dropped into `read/` and `shape/` — generic nouns that throw away the one
+thing this effort's package names carry, which is a RESPONSIBILITY
+(`deixis` points, `eidolon` shapes, `praxis` does, `kairos` times, `opsis`
+shows). If it is rebuilt, keep those names, and treat "it renders" as the
+start of the work rather than the end of it.
+
+What the experiment did establish, and what makes it worth rebuilding: every
+late failure in space_1 was two geometries disagreeing — lane heights
+computed on both sides, window maths here and coordinates there, tone names
+here and the colour register there. None of those are expressible when the
+far side holds no geometry at all.
+
 **The three rules this session cost:**
 
 1. **Photograph the working one first.** Two running builds (`atlas/`,
