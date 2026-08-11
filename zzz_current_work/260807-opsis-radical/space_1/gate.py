@@ -127,6 +127,18 @@ def main() -> int:
         broke.state == "refused" and broke.pos == 5000 and reading.text == before,
         f"{legal.line()} · {broke.line()[:60]}",
     )
+    from ring import GRAMMAR as POLICY
+    from ring import apply_record, record
+
+    kept = {"arrange.tree": arrange(facets), "chart.clock": "model"}
+    said = Path("/tmp/opsis_record.txt")
+    said.write_text(record(kept))
+    mirror = read(POLICY, said)
+    check(
+        "the instrument reads its own state, and saving it applies it",
+        mirror.faithful and apply_record(mirror.text) == kept,
+        f"{len(mirror.spans)} spans over its own record",
+    )
     drawn = scene(reading)
     check(
         "the scene carries the reader, the document, the spans and the tree",
