@@ -22,7 +22,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from place import arrange, windowed  # noqa: E402
-from read import Reading, read  # noqa: E402
+from read import Reading, as_written, read  # noqa: E402
 
 __all__ = ["Handler", "main", "scene"]
 
@@ -63,8 +63,7 @@ def scene(reading: Reading) -> str:
     """The reading, spelled — with the arrangement its surfaces asked for."""
     facets = reading.facets()
     rules = ruledefs(reading.reader_text)
-    written = {name.casefold(): name for name, _, _ in rules}
-    said = [written.get(s.rule.casefold(), s.rule) for s in reading.spans]
+    said = [as_written(rules, s.rule) for s in reading.spans]
     names = sorted(set(said))
     fields = sorted({s.field for s in reading.spans})
     at = {name: i for i, name in enumerate(names)}

@@ -14,6 +14,7 @@ crushes a view into a column and calls the result broken.
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from lexic.exceptions import LexicError
 from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.model import GrammarModel
 
-__all__ = ["Facet", "Reading", "Span", "read"]
+__all__ = ["Facet", "Reading", "Span", "as_written", "read", "upward"]
 
 CANDIDATES = (GBNF_FLAVOUR, ABNF_FLAVOUR, EBNF_FLAVOUR)
 
@@ -186,6 +187,25 @@ def _most(lines: list[str]) -> int:
     """
     widths = sorted(len(line) for line in lines) or [0]
     return max(24, widths[min(len(widths) - 1, int(len(widths) * 0.9))])
+
+
+HOISTED = re.compile(r"^(.*)-(?:item|arm)\d*$")
+
+
+def as_written(rules: list[tuple[str, int, int]], name: str) -> str:
+    """This rule, spelled the way the GRAMMAR spells it.
+
+    The engine folds (``json-text``) where the text says ``JSON-text``, and
+    co-selection is a name match — so the folded name lights nothing. A
+    codegen piece (``<rule>-item``, ``<rule>-arm<N>``) is a part cut out of a
+    rule, so it lights the rule it came from, by the namer's own inverse.
+    """
+    written = {n.casefold(): n for n, _, _ in rules}
+    said = written.get(name.casefold())
+    if said is not None:
+        return said
+    cut = HOISTED.match(name)
+    return as_written(rules, cut.group(1)) if cut else name
 
 
 def upward(reading: Reading) -> tuple[str, str] | None:
