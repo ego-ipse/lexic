@@ -20,6 +20,7 @@ from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
 from opsis.scene import reader_of  # noqa: E402
 from praxis.reading import Reading  # noqa: E402
+from praxis.routes import Routes  # noqa: E402
 from praxis.session import Session  # noqa: E402
 
 __all__ = ["Handler", "main"]
@@ -38,6 +39,7 @@ class Held:
     here: Session
     key: tuple[int, int] = (-1, -1)
     rows: list[list[object]] = []
+    other: Routes = Routes()
 
     @classmethod
     def watched(cls) -> list[list[object]]:
@@ -95,6 +97,10 @@ class Handler(BaseHTTPRequestHandler):
         session = Held.here
         if gesture:
             session.gesture(gesture, said)
+        # the road not taken, started once per reading and drawn while it runs
+        Held.other.ask(
+            reader_of(session.reading), session.reading.text, session.generation
+        )
         self.send(
             compose(
                 session.reading,
@@ -106,6 +112,7 @@ class Handler(BaseHTTPRequestHandler):
                 session.generation,
                 session.typed,
                 session.frontier(),
+                Held.other.line(),
                 only,
             ).wire(session.generation)
         )

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from opsis.frame.marks import Frame
 from opsis.frame.tones import runs
+from praxis.routes import Aside
 
 __all__ = ["Region", "Seam", "Walk", "head", "walked"]
 
@@ -146,6 +147,7 @@ def head(
     titles: dict[str, str],
     controls: list[tuple[str, str, str, bool]],
     columns: dict[str, str] | None = None,
+    aside: Aside | None = None,
 ) -> tuple[float, float, float, float]:
     """Draw a region's seams, tab strip and head; hand back what is left.
 
@@ -153,6 +155,8 @@ def head(
     :param columns: which column each facet belongs to, so a tab can say what
         it switches. The frame knows the arrangement; the session should not
         have to reconstruct it.
+    :param aside: a sentence this head carries after its own — where THE
+        DERIVATION says what the other engine made of the same text.
     """
     # .facet { border-left: 1px solid --hair; border-top: 1px solid --hair }
     said.line(region.x, region.y, region.x, region.y + region.h, "hair")
@@ -164,8 +168,21 @@ def head(
     name, rest = called(titles.get(region.name, region.name))
     said.text(region.x + PAD, y + 18, "ftitle", name)
     at = region.x + PAD + runs("ftitle", name) + 10
-    if rest:
-        said.text(at, y + 18, "fsub", rest, region.w - (at - region.x) - 24)
+    # what the head can hold, once its own controls have taken theirs
+    room = region.w - (at - region.x) - _taken(controls) - 14
+    if aside is not None and aside.said:
+        # a finding outranks a description: when both cannot fit, the sentence
+        # saying what this facet IS gives way to the one saying what it FOUND,
+        # and the finding itself is said shorter rather than said half
+        want = runs("fsub", aside.said)
+        if room - want >= runs("fsub", rest) + 10:
+            said.text(at, y + 18, "fsub", rest)
+            at += runs("fsub", rest) + 10
+            room -= runs("fsub", rest) + 10
+        words = aside.said if runs("fsub", aside.said) <= room else aside.brief
+        said.text(at, y + 18, aside.tone, words, room)
+    elif rest:
+        said.text(at, y + 18, "fsub", rest, room)
     _controls(said, region, y, controls)
     said.line(region.x, y + HEAD, region.x + region.w, y + HEAD, "hair")
     said.hit(region.x, y + HEAD, region.w, region.h - HEAD, "scroll", region.name)
@@ -198,6 +215,11 @@ def _tabs(
         said.text(at + 10, region.y + 15, "cool" if here else "chip", word, face="chip")
         said.hit(at, region.y + 2, wide, TABS - 2, "tab", f"{column}:{index}")
         at += wide + 2
+
+
+def _taken(controls: list[tuple[str, str, str, bool]]) -> float:
+    """How much of a head its own controls have already spoken for."""
+    return sum(runs("chip", word) + 16 for word, _kind, _goes, _on in controls)
 
 
 def _controls(

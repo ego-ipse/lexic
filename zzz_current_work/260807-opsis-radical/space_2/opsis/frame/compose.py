@@ -19,6 +19,7 @@ from opsis.frame.panels import head, walked
 from opsis.frame.tones import runs
 from opsis.scene import Staged, staged
 from praxis.reading import Reading
+from praxis.routes import Aside
 
 __all__ = ["compose"]
 
@@ -46,6 +47,7 @@ def compose(
     generation: int,
     typed: dict[str, str] | None = None,
     frontier: int = -1,
+    routes: Aside | None = None,
     only: str = "",
 ) -> Frame:
     """The instrument, at this size, at this moment, as one frame.
@@ -54,7 +56,7 @@ def compose(
     """
     said = Frame(wide, tall)
     it = staged(reading, state)
-    look = Look(reading, it, at, state, watched, typed, frontier)
+    look = Look(reading, it, at, state, watched, typed, frontier, routes)
     titles = {facet.name: facet.title for facet in it.facets}
     columns = {facet.name: facet.column or facet.name for facet in it.facets}
     said.box(0, 0, wide, tall, "field")
@@ -70,7 +72,14 @@ def compose(
         draw = DRAWN.get(region.name)
         if draw is None:
             continue
-        room = head(said, region, titles, HEADS(look, region.name), columns)
+        room = head(
+            said,
+            region,
+            titles,
+            HEADS(look, region.name),
+            columns,
+            look.routes if region.name == "chart" else None,
+        )
         draw(said, room, look)
     for seam in grid.seams:
         said.hit(seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at))

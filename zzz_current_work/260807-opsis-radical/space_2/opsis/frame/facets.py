@@ -16,7 +16,7 @@ from deixis.points import closed_before, open_at
 from eidolon.camera import project
 from eidolon.layout import positions
 from eidolon.topology import edges
-from kairos.engine import automaton
+from kairos.engine import automaton, verdicts
 from kairos.parse import hypotheses
 from kairos.pipeline import FORMS
 from opsis.frame.marks import CELL, ROW, Frame
@@ -34,6 +34,7 @@ from opsis.paint import (
 )
 from opsis.scene import Staged
 from praxis.reading import Reading, as_written
+from praxis.routes import Aside
 
 __all__ = ["DRAWN", "HEADS", "Look", "Room"]
 
@@ -66,6 +67,7 @@ class Look:
         "frontier",
         "it",
         "reading",
+        "routes",
         "state",
         "typed",
         "watched",
@@ -80,6 +82,7 @@ class Look:
         watched: list[list[Any]],
         typed: dict[str, str] | None = None,
         frontier: int = -1,
+        routes: Aside | None = None,
     ) -> None:
         self.reading = reading
         self.it = it
@@ -90,6 +93,8 @@ class Look:
         # what has been typed but not yet read, per plane
         self.typed = typed or {}
         self.frontier = frontier
+        # what the other engine made of this reading, and the tone to say it in
+        self.routes = routes
 
     def says(self, key: str, fallback: str) -> str:
         """One policy key, as the hand left it."""
@@ -159,6 +164,8 @@ def _plane(
     run = x + (6.5 * CELL if numbered else 1.5 * CELL)
     rows = max(0, int((h - 8) // ROW))
     lit = _held(look, name)
+    badges = _badges(look) if name == "grammar" else {}
+    heads = {at: rule for rule, at, _last in look.it.rules} if badges else {}
     for i in range(rows):
         line = first + i
         if line >= len(lines):
@@ -167,6 +174,9 @@ def _plane(
         tone = lit.get(line, "")
         if tone:
             said.box(x, top, w, ROW, tone)
+        badge = badges.get(heads.get(line, ""), "")
+        if badge:
+            _badge(said, x + w - 12, top + 3, badge)
         if numbered:
             said.text(
                 x + 1.5 * CELL, top + ROW - 5, "dimmer", f"{line + 1:>4}", 5 * CELL
@@ -174,6 +184,40 @@ def _plane(
             said.hit(x, top, 6.5 * CELL, ROW, "gutter", str(line))
     said.plane(name, run, y + 8, w - (run - x) - 8, h - 12, text, first, True)
     _frontier(said, room, look, text, first, run, rows)
+
+
+# .vbadge — what the PDA analysis decided about a rule, in its own words.
+# Static per grammar: the machine does not change because a cursor moved.
+_VERDICTS: dict[str, dict[str, str]] = {}
+BADGE = {
+    "attempt": "warm",
+    "island": "violet",
+    "hard": "red",
+    "gated": "cool",
+    "predictive": "dimmer",
+}
+
+
+def _badges(look: Look) -> dict[str, str]:
+    """Each rule's class, from the analysis' own transcript.
+
+    Only drawn on the PDA clock, and only where there is something to say:
+    SILENCE IS THE DETERMINISTIC VERDICT, so a predictive rule wears nothing.
+    """
+    if look.it.machine is None or look.says("chart.clock", "model") != "pda":
+        return {}
+    key = str(look.reading.reader_text.__hash__())
+    if key not in _VERDICTS:
+        _VERDICTS.clear()
+        said = verdicts(look.it.machine).split("\n")
+        out: dict[str, str] = {}
+        for line in said[1:]:
+            words = line.split(" ")
+            if len(words) >= 3 and words[0] in BADGE and words[1].isdigit():
+                if words[0] != "predictive":
+                    out[" ".join(words[2:])] = words[0]
+        _VERDICTS[key] = out
+    return _VERDICTS[key]
 
 
 def _held(look: Look, name: str) -> dict[int, str]:
@@ -189,6 +233,20 @@ def _held(look: Look, name: str) -> dict[int, str]:
         for line in range(first, last + 1):
             out[line] = tone
     return out
+
+
+def _badge(said: Frame, right: float, top: float, kind: str) -> None:
+    """One rule's verdict, worn on its own head line, in that class's colour."""
+    tone = BADGE.get(kind, "dimmer")
+    wide = runs("chip", kind) + 12
+    for x1, y1, x2, y2 in (
+        (right - wide, top, right, top),
+        (right - wide, top + 13, right, top + 13),
+        (right - wide, top, right - wide, top + 13),
+        (right, top, right, top + 13),
+    ):
+        said.line(x1, y1, x2, y2, tone)
+    said.text(right - wide + 6, top + 10, tone, kind, face="chip")
 
 
 def _frontier(

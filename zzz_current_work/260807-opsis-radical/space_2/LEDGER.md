@@ -74,6 +74,25 @@ these, a frame cost 230 ms and typing felt like a slideshow.
   fallback face and take about half again the room, which is the rest of that
   overlap.
 
+## Ported since
+
+- **The routes strip** — the road not taken, run on a thread once per reading
+  and drawn while it runs. `kairos.parse.parity` was already here and unused.
+  Pending is drawn, never blank: a strip that is empty while it thinks reads
+  exactly like a strip with nothing to say.
+- **Verdict badges** — the PDA analysis' own class per rule (`attempt`,
+  `island`, `gated`, `hard`), worn on the rule's head line, on the PDA clock
+  only. Silence IS the deterministic verdict, so a predictive rule wears
+  nothing. `kairos.engine.verdicts` was here and unused too.
+
+## A head under pressure derives less
+
+THE DERIVATION cannot hold its name, its sentence and a parity verdict at
+once. So a finding outranks a description — the subtitle gives way first —
+and the verdict is said SHORT rather than said half: `both engines built the
+same value` clipped mid-phrase still reads as a finding, and clipped earlier
+reads as its opposite.
+
 ## Deviations still to redo
 
 - The tune dials (`#gtune`) are not drawn.
