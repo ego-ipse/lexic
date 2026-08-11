@@ -324,19 +324,23 @@ def read(reader: Path, document: Path) -> Reading:
     return reading
 
 
-def profile(reading: Reading, buckets: int = 60) -> list[int]:
-    """How deep the reading goes across the document, in a few buckets.
+def profile(reading: Reading, buckets: int = 120) -> list[int]:
+    """The shape of a reading across its document — how deep it runs, where.
 
-    The shape of a reading at a glance: where it nests and where it runs
-    flat. Scaled to 0..9 because the band that draws it is nine pixels of
-    meaning, not because depth stops at nine.
+    The MEAN depth of what opens in each stretch, not the deepest: one
+    deeply-nested value in a bucket makes the maximum say 9 everywhere, and
+    a bar chart of nines is a rectangle. The mean moves with the document,
+    which is the only reason to draw it.
     """
     if not reading.spans or not reading.text:
         return []
     size = max(1, len(reading.text) // buckets)
-    deepest = [0] * (len(reading.text) // size + 1)
+    total = [0] * (len(reading.text) // size + 1)
+    count = [0] * len(total)
     for span in reading.spans:
-        at = min(span.start // size, len(deepest) - 1)
-        deepest[at] = max(deepest[at], span.depth)
-    top = max(deepest) or 1
-    return [round(9 * value / top) for value in deepest]
+        at = min(span.start // size, len(total) - 1)
+        total[at] += span.depth
+        count[at] += 1
+    means = [t / n if n else 0.0 for t, n in zip(total, count)]
+    top = max(means) or 1.0
+    return [round(9 * mean / top) for mean in means]

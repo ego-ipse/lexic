@@ -223,6 +223,24 @@ async function probeGestures() {
     for (const win of document.querySelectorAll('.facetwin')) win.remove();
     twins.length = 0;
     await wait(300);
+    // the pipeline room: a step must actually SEND the reader to that form
+    await openPlace('pipeline', false);
+    await wait(700);
+    const steps = [...document.querySelectorAll('#placeGrid .paddr[data-form]')];
+    const wasText = S.reader.length;
+    out.push(`pipeline=${steps.map((el) => el.dataset.form).join('+') || 'NONE'}`);
+    const codegenStep = steps.find((el) => el.dataset.form === 'codegen');
+    click(codegenStep);
+    await wait(1600);
+    out.push(`formNow=${S.policy['form']} readerChars ${wasText}->${S.reader.length}`,
+      `hasArm=${/-arm\d/.test(S.reader)}`);
+    const sourceStep = [...document.querySelectorAll('#placeGrid .paddr[data-form]')]
+      .find((el) => el.dataset.form === 'source');
+    click(sourceStep);
+    await wait(1600);
+    out.push(`formBack=${S.policy['form']}`);
+    if (currentPlace) click($('placeBack'));
+    await wait(400);
     // the strata, clicked TWICE: up then back down. One card's worth of
     // missing stats used to throw mid-render and everything after the first
     // stratum vanished, which reads as "only the first layer is shown".

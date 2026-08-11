@@ -35,7 +35,15 @@ from lexic.exceptions import LexicError  # noqa: E402
 from lexic.grammars import get_flavour  # noqa: E402
 from lexic.parsing.fold import lift_optional_nullables  # noqa: E402
 from chain import Rung  # noqa: E402
-from read import Facet, Reading, as_written, read, read_up, upward  # noqa: E402
+from read import (  # noqa: E402
+    Facet,
+    Reading,
+    as_written,
+    profile,
+    read,
+    read_up,
+    upward,
+)
 from retype import retype  # noqa: E402
 from draw import edges, levels, reachable  # noqa: E402
 from keep import keep  # noqa: E402
@@ -336,6 +344,14 @@ def strata(reading: Reading, climbed: list[Reading]) -> str:
             # climbed to marked visited with no stats at all — which
             # threw the leaf's card renderer mid-draw, so everything
             # after the first stratum simply never appeared.
+            # the little graph on a visited card: how deep that reading goes
+            # across its own document. A card with a number and no shape says
+            # almost nothing about the reading it stands for.
+            *(
+                f"b {i} {' '.join(str(v) for v in profile(r))}"
+                for i, r in enumerate(walked)
+                if r.spans
+            ),
             *(
                 f"k {i} {len(r.text)} {len(r.spans)}"
                 f" {len(ruledefs(r.reader_text))}"
