@@ -949,6 +949,13 @@ def window_of(look: Look, w: float) -> tuple[int, int, float]:
     return start, window, pitch
 
 
+def _pointed(said: str) -> tuple[int, int]:
+    """A span a cursor is on, as the pair the lanes are keyed by."""
+    where = said.partition(" ")[2] if said.startswith("span ") else said
+    start, _, end = where.partition(":")
+    return (int(start), int(end)) if start.isdigit() and end.isdigit() else (-1, -1)
+
+
 def lanes_of(
     said: Frame,
     room: Room,
@@ -967,6 +974,7 @@ def lanes_of(
     x, y, w, h = room
     lanes = y + 36
     start, window, _pitch = window_of(look, w)
+    hand, chose = _pointed(look.says("hover", "")), _pointed(look.says("sel", ""))
     for s0, e0, lane, deep, tone in spans:
         top = lanes + lane
         if e0 < start or s0 > start + window or top + deep > y + h:
@@ -996,6 +1004,14 @@ def lanes_of(
             deep,
             "cool" if e0 <= look.at else ("warm" if s0 < look.at else "pending"),
         )
+        # THE SAME SPAN, WHEREVER IT IS. A span under the hand or chosen in
+        # the spine is outlined here too — ink for the hand, warm for the
+        # selection, violet for every span of the chosen rule. Three cursors,
+        # one highlight, each facet in its own coordinates.
+        if (s0, e0) == hand:
+            said.ring(x1 - 1.5, top - 1.5, max(1.5, x2 - x1) + 3, deep + 3, "ink")
+        elif (s0, e0) == chose:
+            said.ring(x1 - 1.5, top - 1.5, max(1.5, x2 - x1) + 3, deep + 3, "warm")
         if (s0, e0) in picked:
             said.ring(x1 - 1.5, top - 1.5, max(1.5, x2 - x1) + 3, deep + 3, "violet")
         said.hit(x1, top, max(3.0, x2 - x1), deep, "span", f"{s0}:{e0}")
