@@ -40,7 +40,11 @@ from eidolon.value import graph as ir_graph  # noqa: E402
 from eidolon.value import wire as ir_wire  # noqa: E402
 from kairos.pipeline import FORMS  # noqa: E402
 from opsis.grammar import rails  # noqa: E402
-from opsis.paint import chart_drawing, rails_drawing  # noqa: E402
+from opsis.paint import (  # noqa: E402
+    chart_drawing,
+    packed,
+    rails_drawing,
+)
 from opsis.scene import drawn, moved, ruledefs  # noqa: E402
 from praxis.strata import strata  # noqa: E402
 from serve import PENDING  # noqa: E402
@@ -475,6 +479,28 @@ def main() -> int:
         not wrong and bool(said_spans),
         f"{len(said_spans)} boxes over {window[1]} chars"
         + (f" · WRONG {wrong[:2]}" if wrong else ""),
+    )
+
+    # a clock's ROW is something the picture invents: Earley holds thousands
+    # of hypotheses with no depth of their own. Putting them all in row zero
+    # draws one dense stripe and calls it a clock — which is what shipped.
+    # What must hold: within a row, nothing overlaps anything else.
+    held = [(s, e, ok) for s, e, ok in ((0, 5, 1), (2, 9, 0), (6, 8, 1), (9, 12, 1))]
+    lanes: dict[int, list[tuple[int, int]]] = {}
+    for start, end, lane, _fate in packed(held):
+        lanes.setdefault(lane, []).append((start, end))
+    clash = [
+        (lane, a, b)
+        for lane, spans in lanes.items()
+        for i, a in enumerate(spans)
+        for b in spans[i + 1 :]
+        if a[0] < b[1] and b[0] < a[1]
+    ]
+    check(
+        "a clock's rows are invented so nothing in one overlaps anything else",
+        not clash and len(lanes) > 1,
+        f"{len(held)} extents over {len(lanes)} rows"
+        + (f" · CLASH {clash[:1]}" if clash else ""),
     )
 
     # a drawing carries its own DOORS: every ref in a track names the rule

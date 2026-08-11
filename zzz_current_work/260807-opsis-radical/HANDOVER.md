@@ -17,7 +17,18 @@ reads `MISSING`, `NONE`, `MISMATCH` or `THREW` is a defect, and any capability
 the probe does not drive is a defect waiting to be reported by the user —
 that is how all three rail breaks got out.
 
-**The standing aim: a 75% cut in the leaf's JavaScript** (4,712 today, from
+**On the railroad's fork, ask before drawing.** Three shapes have been
+tried: one long diagonal per arm (a funnel), a vertical bus with rounded
+corners (called "too straight"), and the cubic S-curve with controls at the
+horizontal midpoint — which is what the earlier build drew
+(`bezierCurveTo((x0+x1)/2, y0, (x0+x1)/2, y1, x1, y1)` in
+`FUCKUP/leaf/rails.js`). A seven-way choice still reads as a vase because
+the arms span ~300px vertically and the fork has ~58px across; any curve
+reaching them is near-vertical. The two real options are a MUCH wider fork
+(150px+, so the curves bend) or a shared trunk with short turns. This is a
+look, not a derivation — get the call before spending another pass on it.
+
+**The standing aim: a 75% cut in the leaf's JavaScript** (4,713 today, from
 5,144 when the display list began; the derivation, the railroad — including
 its pinned windows — the automaton, the relations, the room graphs and the
 overview band are all served pictures now).
@@ -37,12 +48,16 @@ one rule for a pinned window), the automaton, the relations in flat/arcs.
    with what is painted (`chartHover=same`). What remains in `chart.js` is
    the overview band and the clock lanes for the pda/earley modes; those are
    different data and are the next thing to serve.
-2. **The pda / earley clock lanes** (~140 in `chart.js`, incl.
-   `clockBandTex`). Same shape as the derivation's conversion: frames and
-   hypotheses as boxes addressed `start:end:index`, tone from `ok` /
-   `completed`, tinted against the cursor here. The readout and the hover
-   keep reading `clockData.frames` — the address IS the index into it, so
-   nothing else changes. Serve `what=clock&mode=pda|earley&from=&win=`.
+2. ~~The pda / earley clock lanes~~ — **done**, and it broke three times on
+   the way, all three worth remembering. Deleting the coverage array took
+   `step` (the band's pixels-per-character) with it. `pad` is a local of
+   `drawChart`, not of `drawClockLanes` — it is `sx(at)`, the window's own
+   left edge. And the one that mattered: **a hypothesis has no depth**, so
+   its row is something the picture INVENTS; sending them all in row zero
+   drew one dense stripe and called it a clock. `packed()` gives each the
+   first row it fits, and a fact holds that nothing in a row overlaps.
+   What remains in `chart.js` is `clockBandTex` (the band's texture for the
+   two clock modes) — the same conversion, one step smaller.
 3. **The document plane's under/over canvases** (~150).
 4. **The IR rows and the room sections** (~300) — these are DOM, not canvas;
    they want a row vocabulary rather than a display list.
