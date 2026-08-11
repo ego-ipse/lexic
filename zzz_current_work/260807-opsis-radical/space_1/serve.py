@@ -200,6 +200,80 @@ def drawn(reading: Reading, state: dict[str, str] | None = None) -> str:
     return _DRAWN[key]
 
 
+def strata(reading: Reading, climbed: list[Reading]) -> str:
+    """The ladder: every rung walked, the one above it, and the doors it holds.
+
+    A function of the two things it depends on — where you stand and what
+    you have climbed — so what the leaf is sent can be asked for and
+    checked without a socket in the way.
+    """
+    machine = reader_of(reading)
+    if machine is None:
+        return "#STRATA 0 0\n"
+    # the ladder is what has been CLIMBED plus the one rung above it,
+    # named. Computing it from the current reading made the rungs
+    # below vanish the moment you stepped up.
+    walked = climbed or [reading]
+    here = walked.index(reading) if reading in walked else 0
+    rungs = [
+        Rung(r.document.name, r.reader_name, i, True) for i, r in enumerate(walked)
+    ]
+    # the rung above is THIS reader read as a document. Once the
+    # reader IS a metagrammar, the next rung would be it reading its
+    # own spelling — the fixpoint — and naming it again just repeated
+    # the rung you are standing on.
+    top = walked[-1]
+    named = upward(top)
+    if named is not None and top.reader_name != named[1]:
+        rungs.append(Rung(top.reader_name, named[1], len(rungs), False))
+    # the rooms, as doors under the column of the thing they are of.
+    # They existed at /place with nothing pointing at them, which is
+    # how a whole capability stays on the wire and off the screen.
+    built = of(machine)
+    made = keep(machine)
+    witnessed = sum(1 for a in made if a.witness == "holds")
+    walk = ir_graph(machine.grammar)
+    doors = [
+        f"P ir:grammar {here} {rungs[here].level} value ok "
+        f"{reading.reader_name} — as a value\t"
+        f"{len(walk.nodes)} nodes · {len(walk.edges)} edges",
+        f"P machine {here} {rungs[here].level} compiler ok "
+        f"{reading.reader_name} — as a machine\t{built.line()}",
+        f"P artefacts {here} {rungs[here].level} artefacts ok "
+        f"{reading.reader_name} — as artefacts\t"
+        f"{len(made)} artefacts · {witnessed} witnessed",
+    ]
+    lanes = [rung.document for rung in rungs]
+    return "\n".join(
+        [
+            f"#STRATA {len(rungs)} {here}",
+            *(f"L {i} {name}" for i, name in enumerate(lanes)),
+            *(
+                f"c {i} {rung.level} {i} r {1 if rung.visited else 0} "
+                f"{rung.document} ⊳ {rung.reader}"
+                for i, rung in enumerate(rungs)
+            ),
+            # one string, not a splat: *(f"...") unpacks it into
+            # characters, which is how a card became 24 lines
+            *doors,
+            # ONE PER VISITED RUNG, each carrying its own numbers.
+            # A single line pinned to card 0 gave every rung the
+            # current reading's stats, and left the rung you had just
+            # climbed to marked visited with no stats at all — which
+            # threw the leaf's card renderer mid-draw, so everything
+            # after the first stratum simply never appeared.
+            *(
+                f"k {i} {len(r.text)} {len(r.spans)}"
+                f" {len(ruledefs(r.reader_text))}"
+                f" {r.seconds:.2f}"
+                f" {1 if r.faithful else 0} 0"
+                for i, r in enumerate(walked)
+            ),
+            "",
+        ]
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     """One socket over one reading. It serves; it does not know."""
 
@@ -541,69 +615,7 @@ class Handler(BaseHTTPRequestHandler):
                 ]
             )
         if path == "/strata":
-            # the ladder is what has been CLIMBED plus the one rung above it,
-            # named. Computing it from the current reading made the rungs
-            # below vanish the moment you stepped up.
-            walked = Handler.climbed or [self.reading]
-            here = walked.index(self.reading) if self.reading in walked else 0
-            rungs = [
-                Rung(r.document.name, r.reader_name, i, True)
-                for i, r in enumerate(walked)
-            ]
-            # the rung above is THIS reader read as a document. Once the
-            # reader IS a metagrammar, the next rung would be it reading its
-            # own spelling — the fixpoint — and naming it again just repeated
-            # the rung you are standing on.
-            top = walked[-1]
-            named = upward(top)
-            if named is not None and top.reader_name != named[1]:
-                rungs.append(Rung(top.reader_name, named[1], len(rungs), False))
-            # the rooms, as doors under the column of the thing they are of.
-            # They existed at /place with nothing pointing at them, which is
-            # how a whole capability stays on the wire and off the screen.
-            built = of(machine)
-            made = keep(machine)
-            witnessed = sum(1 for a in made if a.witness == "holds")
-            walk = ir_graph(machine.grammar)
-            doors = [
-                f"P ir:grammar {here} {rungs[here].level} value ok "
-                f"{self.reading.reader_name} — as a value\t"
-                f"{len(walk.nodes)} nodes · {len(walk.edges)} edges",
-                f"P machine {here} {rungs[here].level} compiler ok "
-                f"{self.reading.reader_name} — as a machine\t{built.line()}",
-                f"P artefacts {here} {rungs[here].level} artefacts ok "
-                f"{self.reading.reader_name} — as artefacts\t"
-                f"{len(made)} artefacts · {witnessed} witnessed",
-            ]
-            lanes = [rung.document for rung in rungs]
-            return "\n".join(
-                [
-                    f"#STRATA {len(rungs)} {here}",
-                    *(f"L {i} {name}" for i, name in enumerate(lanes)),
-                    *(
-                        f"c {i} {rung.level} {i} r {1 if rung.visited else 0} "
-                        f"{rung.document} ⊳ {rung.reader}"
-                        for i, rung in enumerate(rungs)
-                    ),
-                    # one string, not a splat: *(f"...") unpacks it into
-                    # characters, which is how a card became 24 lines
-                    *doors,
-                    # ONE PER VISITED RUNG, each carrying its own numbers.
-                    # A single line pinned to card 0 gave every rung the
-                    # current reading's stats, and left the rung you had just
-                    # climbed to marked visited with no stats at all — which
-                    # threw the leaf's card renderer mid-draw, so everything
-                    # after the first stratum simply never appeared.
-                    *(
-                        f"k {i} {len(r.text)} {len(r.spans)}"
-                        f" {len(ruledefs(r.reader_text))}"
-                        f" {r.seconds:.2f}"
-                        f" {1 if r.faithful else 0} 0"
-                        for i, r in enumerate(walked)
-                    ),
-                    "",
-                ]
-            )
+            return strata(self.reading, Handler.climbed or [self.reading])
         if path == "/clock":
             frames = watch(machine, self.reading.text)
             hyps, hnames = hypotheses(machine, self.reading.text)

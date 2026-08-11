@@ -31,7 +31,7 @@ from ring import GRAMMAR as POLICY  # noqa: E402
 from ring import apply_record, record  # noqa: E402
 from irvalue import graph as ir_graph  # noqa: E402
 from irvalue import wire as ir_wire  # noqa: E402
-from serve import PENDING, drawn, ruledefs  # noqa: E402
+from serve import PENDING, drawn, ruledefs, strata  # noqa: E402
 from watch import watch  # noqa: E402
 
 ROOT = HERE.parents[2]
@@ -300,6 +300,53 @@ def main() -> int:
         ),
     )
 
+    # the ladder, walked. Climbing and descending is the one navigation this
+    # instrument has, and a rung marked visited with no numbers threw the
+    # leaf's renderer mid-draw — which looks like "only the first layer".
+    climbed = [reading]
+    rungs: list[str] = []
+    for step in (1, 0, 1):
+        while len(climbed) <= step:
+            above = read_up(climbed[-1])
+            if above is None:
+                break
+            climbed.append(above)
+        said = strata(climbed[step], climbed)
+        stats = [ln for ln in said.split("\n") if ln.startswith("k ")]
+        cards = [ln for ln in said.split("\n") if ln.startswith("c ")]
+        visited = [ln for ln in cards if ln.split(" ")[5] == "1"]
+        rungs.append(
+            f"rung {step}: {len(cards)} cards · {len(visited)} visited · "
+            f"{len(stats)} with numbers"
+        )
+        if len(stats) != len(visited):
+            rungs[-1] += " ← MISMATCH"
+    check(
+        "every rung the ladder says is visited carries its own numbers",
+        all("MISMATCH" not in said for said in rungs),
+        " · ".join(rungs),
+    )
+
+    # the relationships. The leaf's scene reader has always had a place for
+    # these two blocks and the server never filled it, so every graph drew
+    # rules as unrelated dots — for the life of the build, unnoticed.
+    frame = drawn(reading)
+
+    def block(tag: str) -> list[str]:
+        if f"#{tag} " not in frame:
+            return []
+        head, rest = frame.split(f"#{tag} ", 1)[1].split("\n", 1)
+        return rest.split("\n")[: int(head)]
+
+    relations, depths = block("EDGES"), block("DEPTHS")
+    reached = [line for line in depths if not line.endswith(" -1")]
+    check(
+        "the scene carries WHICH RULE REFERS TO WHICH, not just the names",
+        bool(relations) and len(reached) > 1,
+        f"{len(relations)} edges · {len(reached)}/{len(depths)} rules reachable "
+        f"from the start rule",
+    )
+
     # the value surface: what a grammar IS once loaded. Two things must
     # hold or the picture lies — the wire must survive values whose payload
     # contains a newline (the reducer's own literals do), and a shared object
@@ -338,7 +385,6 @@ def main() -> int:
     # a surface refused its room must say WHERE it can be opened. "none-yet"
     # is honest but useless, and the leaf used to send every ⧉ to the graph —
     # answering one surface's question with another surface's answer.
-    frame = drawn(reading)
     policy = dict(
         line.split(" ", 1)
         for line in frame.split("#POLICY", 1)[1].split("\n")[1:]
