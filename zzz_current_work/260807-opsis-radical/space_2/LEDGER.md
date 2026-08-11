@@ -648,6 +648,25 @@ stacks, the pin and seven module-level caches. It wants splitting — but not
 before the rest of the duplication in it is gone, or the split just moves the
 slop into four files.
 
+## The derivation, measured — NEXT SESSION STARTS HERE
+
+Put side by side with space_1 at the same cursor (525), the same document and
+the same facet size, the lanes are the wrong SHAPE:
+
+- my lane boxes are **20px tall**; the reference's are about **11**
+- so mine shows roughly **14 lanes** where the reference shows **24**, and an
+  open span reads as a fat amber slab rather than a thin bar
+
+`chart.js` does not choose a lane height: it takes the DRAWING's own —
+`laneH = firstBox.split(' ')[4] + 2`, falling back to
+`max(6, min(22, (h - lanesY - 8) / (maxdepth + 1)))`. So the height comes
+from `chart_drawing`, and the question is what `tall` it is being given and
+what it does with it — not anything in the facet.
+
+Do this by putting the two pictures beside each other first. Every defect in
+both of the lists above was found that way, and every one of them was
+introduced by reading a reference file and then writing from memory of it.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.
