@@ -112,7 +112,10 @@ function drawStrata(st) {
   const chain = laneIds.filter((l) => level.has(l) && level.get(l) < 90);
   const cells = [];
   laneIds.forEach((lane, li) => {
-    const rank = chain.indexOf(lane);
+    // the stratum is the LEVEL of what stands in this column, not the
+    // column's position: two things read at the same depth are both stratum
+    // 0 however many columns sit between them
+    const rank = chain.includes(lane) ? level.get(lane) : -1;
     const tag = rank < 0 ? 'the instrument' : `stratum ${rank}`;
     cells.push(`<div class="stCol"><div class="stHead">`
       + `<span class="stTag">${tag}</span>${stEsc(st.lanes.get(lane))}</div>`
