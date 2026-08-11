@@ -582,26 +582,81 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
             "hot" if hot else "cool_wash",
         )
     # far first, so what is nearest is drawn last and reads as nearest
+    # .gchip.start — where every derivation begins, and it is warm
+    start = next((name for name, at_ in look.it.deep.items() if at_ == 0), "")
     for name in sorted(at, key=lambda n: at[n][2]):
         px, py, near = at[name]
         says = named.get(name, name)
         # ◉ focus: what the chosen rule cannot reach fades out of the way
         # rather than out of existence — you can still see the shape it left
         faded = keep is not None and says not in keep
-        wide = runs("chip", says) + 12
-        if not faded:
-            said.box(x + px - wide / 2, y + py - 8, wide, 16, "field2")
+        # .gchip: a NAME IN A BOX, and its distance is in the size of it
+        face = "gnear" if near > 0.92 else ("chip" if near > 0.72 else "gfar")
+        wide = runs(face, says) + 12
+        tall = 16.0 if face != "gfar" else 13.0
+        # .near / .start / .marked / .hot — the four things a node can be
+        hot = says in lit
+        edge = (
+            "warm"
+            if says == start or hot
+            else (
+                "violet"
+                if says == look.chosen
+                else ("cool" if near > 0.85 else "dimmer")
+            )
+        )
+        if faded:
+            said.text(px + x - wide / 2 + 6, y + py + 3, "faded", says, face=face)
+            continue
+        # .gchip.hot: the warm fills, and the name is read out of it
+        said.box(
+            x + px - wide / 2, y + py - tall / 2, wide, tall, "hot" if hot else "field2"
+        )
+        for x1, y1, x2, y2 in (
+            (
+                x + px - wide / 2,
+                y + py - tall / 2,
+                x + px + wide / 2,
+                y + py - tall / 2,
+            ),
+            (
+                x + px - wide / 2,
+                y + py + tall / 2,
+                x + px + wide / 2,
+                y + py + tall / 2,
+            ),
+            (
+                x + px - wide / 2,
+                y + py - tall / 2,
+                x + px - wide / 2,
+                y + py + tall / 2,
+            ),
+            (
+                x + px + wide / 2,
+                y + py - tall / 2,
+                x + px + wide / 2,
+                y + py + tall / 2,
+            ),
+        ):
+            said.line(x1, y1, x2, y2, edge)
         said.text(
             x + px - wide / 2 + 6,
             y + py + 3,
-            "faded"
-            if faded
-            else ("hot" if says in lit else ("ink" if near > 0.9 else "chip")),
+            "field"
+            if hot
+            else (
+                "warm"
+                if says == start
+                else (
+                    "violet"
+                    if says == look.chosen
+                    else ("ink" if near > 0.85 else "dim")
+                )
+            ),
             says,
-            face="chip",
+            face=face,
         )
-        if not faded:
-            said.hit(x + px - wide / 2, y + py - 8, wide, 16, "rule", says)
+        said.hit(x + px - wide / 2, y + py - tall / 2, wide, tall, "rule", says)
 
 
 def _tuned(look: Look) -> dict[str, float]:

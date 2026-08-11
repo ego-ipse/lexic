@@ -26,6 +26,12 @@ FONTS = {
     "verdict": f"11px {CODE}",
     # .tabbar .tab, #dock .fnode-chip, #ladder .rung, the selects: mono 10px
     "chip": f"10px {CODE}",
+    # .gchip: font-size: calc(10px * var(--glabel)) and the projection scales
+    # it — a node's distance is in the SIZE of its name, clamped 0.55..1.2 as
+    # the reference clamps it. Three bands, because a face is a registered
+    # thing and a scale is not something a mark can carry.
+    "gnear": f"12px {CODE}",
+    "gfar": f"8px {CODE}",
 }
 
 TONES = {
@@ -47,6 +53,10 @@ TONES = {
     "fsub": "#66707f",
     "verdict": "#66707f",
     "chip": "#66707f",
+    # .gchip is --dim at every size: a name's DISTANCE is its size, and its
+    # ROLE is its colour, and neither may be read off the other
+    "gnear": "#66707f",
+    "gfar": "#66707f",
     "caret": "#e2a65c",
     "cursor": "#e2a65c",
     "rail": "#6fc3c9",
@@ -102,7 +112,15 @@ EDGES = {
 # a character short per glyph — enough that a name's own extent, placed after
 # it, sat on top of its last letter.
 CELL = 7.5
-ADVANCE = {"title": 9.4, "ftitle": 6.6, "fsub": 6.4, "verdict": 6.6, "chip": 6.0}
+ADVANCE = {
+    "title": 9.4,
+    "ftitle": 6.6,
+    "fsub": 6.4,
+    "verdict": 6.6,
+    "chip": 6.0,
+    "gnear": 7.2,
+    "gfar": 4.8,
+}
 
 
 def runs(tone: str, said: str) -> float:

@@ -527,7 +527,15 @@ opening the space_1 file that already answered it, and several had been
   beside a tabbed surface splits the region it shows in — there is only one
   box there.
 
+- **A graph's nodes were words floating in space.** `.gchip` is a name in a
+  BOX: field2, a hairline, 10px mono, centred on the node — and four things
+  it can be, each with its own edge and colour. `.near` is cool and ink,
+  `.start` is warm, `.marked` is violet, and `.hot` fills warm and reads the
+  name out of it. Distance is in the SIZE: the projection scales the chip
+  between 0.55 and 1.2, so three faces stand in for that here, because a
+  registered face is a thing and a scale is not something a mark can carry.
+
 ## Not ported yet
 
-The graph's own look at its labels · dropping a torn-off window back into the
-grid · strata as the landing page, and adding files from there.
+Dropping a torn-off window back into the grid · strata as the landing page,
+and adding files from there.

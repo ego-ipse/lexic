@@ -845,6 +845,26 @@ def main() -> int:
         ),
     )
 
+    graphed = frame({"tab.reader": "1"})
+    boxed = {m[5] for m in marks(graphed, "line") if float(m[2]) == float(m[4])}
+    check(
+        "a graph's node is a NAME IN A BOX, and the box says what it is",
+        {"cool", "warm", "dimmer"} <= boxed,
+        " ".join(sorted(boxed)),
+    )
+    check(
+        "and its distance is in the size of its name",
+        len(
+            {
+                m[4]
+                for m in marks(graphed, "text")
+                if m[4].startswith("g") or m[4] == "chip"
+            }
+        )
+        > 1,
+        " ".join(sorted({m[4] for m in marks(graphed, "text")})),
+    )
+
     print("what it costs")
     frame({})
     clock = time.perf_counter()
