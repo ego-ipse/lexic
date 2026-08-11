@@ -12,7 +12,16 @@ uv run python zzz_current_work/260807-opsis-radical/space_1/gate.py   # 42 facts
 ```
 
 Drive it, never eyeball it: `?probe=1` runs the real handlers and writes its
-verdicts into `document.title`. Read them with a headless dump. Anything that
+verdicts into `document.title`.
+
+**A screenshot is not a test, and here is why.** Headless does not fire
+`requestAnimationFrame` under `--virtual-time-budget`, and `ask()` schedules
+every redraw through it. So anything that arrives AFTER the first paint — the
+cursor's point, a fetched drawing — is missing from a screenshot while being
+perfectly fine in a browser. The spine looked broken next to atlas's for
+exactly this reason; the probe (which drives and then reads state) showed
+`pointOpen=3 spineRows=3 closedRows=2`. Believe the probe; use screenshots
+for shape and colour only. Read them with a headless dump. Anything that
 reads `MISSING`, `NONE`, `MISMATCH` or `THREW` is a defect, and any capability
 the probe does not drive is a defect waiting to be reported by the user —
 that is how all three rail breaks got out.

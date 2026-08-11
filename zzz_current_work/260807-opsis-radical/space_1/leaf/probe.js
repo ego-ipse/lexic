@@ -122,6 +122,13 @@ async function probeGestures() {
       out.push(`graphChips=${chips.length} clipped=${out_.length}`
         + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
     }
+    // THE SPINE: what is open at the cursor must actually reach the screen
+    cur.t = 4000;
+    ask();
+    await wait(1200);
+    out.push(`pointOpen=${pointHere.open.length} lit=${pointHere.lit.length}`,
+      `spineRows=${document.querySelectorAll('#spineBody .row').length}`,
+      `closedRows=${document.querySelectorAll('#closedBody .row').length}`);
     // UNPAUSING MUST NOT REFETCH. A picture keyed to the window is a new
     // picture on every frame of playback — which is a whole-document
     // computation per frame, and why the clock died when you pressed play.
