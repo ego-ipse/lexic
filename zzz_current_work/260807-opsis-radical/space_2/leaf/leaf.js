@@ -394,11 +394,18 @@ document.addEventListener('pointerdown', (ev) => {
 window.addEventListener('pointerup', (ev) => {
   /* a head dragged onto another surface is a TOPOLOGY change: where it was
      let go decides what happens, and deciding is the session's */
-  if (dragging && dragging.on && dragging.on.kind === 'head' && dragging.moved) {
+  /* A TAB IS AN ALIAS OF ITS NODE TOO — `wire.js` makes both the head and
+     the tab draggable, and dropping either one moves that surface. */
+  const handle = dragging && dragging.on
+    && (dragging.on.kind === 'head' || dragging.on.kind === 'tab');
+  if (handle && dragging.moved) {
     const over = under(ev, true);
-    if (over && over.goes !== dragging.on.goes) {
+    const moving = dragging.on.kind === 'tab'
+      ? dragging.on.goes.split(':')[2] || ''
+      : dragging.on.goes;
+    if (over && moving && over.goes !== moving) {
       const box = paper.getBoundingClientRect();
-      ask(`move ${dragging.on.goes} ${over.goes}`
+      ask(`move ${moving} ${over.goes}`
         + ` ${((ev.clientX - box.left - over.x) / over.w).toFixed(3)}`
         + ` ${((ev.clientY - box.top - over.y) / over.h).toFixed(3)}`);
     } else {
@@ -419,10 +426,11 @@ window.addEventListener('pointermove', (ev) => {
     return;
   }
   const on = dragging.on;
-  if (on && on.kind === 'head') {
+  if (on && (on.kind === 'head' || on.kind === 'tab')) {
+    const named = on.kind === 'tab' ? on.goes.split(':')[2] || '' : on.goes;
     const over = under(ev, true);
     const box = paper.getBoundingClientRect();
-    ask(over ? `zone ${on.goes} ${over.goes}`
+    ask(over && named ? `zone ${named} ${over.goes}`
       + ` ${((ev.clientX - box.left - over.x) / over.w).toFixed(3)}`
       + ` ${((ev.clientY - box.top - over.y) / over.h).toFixed(3)}` : 'zone');
     return;

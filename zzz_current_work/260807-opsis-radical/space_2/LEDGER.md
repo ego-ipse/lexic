@@ -766,6 +766,26 @@ all afternoon AND letting the status bar's own rings into the maximum. Twice
 in one measurement. Filter to the facet's room and use a server nobody has
 touched.
 
+## Still wrong, reported from use — DO THESE
+
+- **flat, arcs and the automaton are broken.** The fit now measures against
+  what a drawing REACHES rather than the box it was laid out in, and flat
+  measures centred on a fresh session — but the user says all three are still
+  wrong, so the measurement is not the picture. `layout.py` and `paint.py`
+  are byte-identical, so it is placement: compare against `graph.js`'s
+  `v.frame.k`, `mx` and `my`, which fit against the PROJECTED extent with a
+  per-view pad taken from the widest label, and centre on the LAYOUT's middle
+  — not on the drawing's bounding box, which is what this port does.
+- **The dials are drawn, and a drawn slider is not a slider.** `index.html`
+  gives `#gtune` four real `<input type="range">` elements — depth 60..280
+  step 10, ring 0.4..2 step 0.05, flat 0.2..1.2 step 0.05, and LABEL 0.7..1.8
+  step 0.05, which this port never had at all. The same lesson as the
+  dropdowns: a control the browser owns cannot be painted. They need the
+  `#PICKS` treatment — placed by the frame, rendered by the browser.
+- **A tab is an alias of its node**, and dragging one now moves that surface
+  as dragging its head does. The drop overlay this port draws is not the
+  reference's `#dropzone`; compare them.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.

@@ -248,7 +248,10 @@ def _tabs(
         )
         said.line(at, region.y + 2, at + wide, region.y + 2, "cool" if here else "hair")
         said.text(at + 10, region.y + 15, "cool" if here else "chip", word, face="chip")
-        said.hit(at, region.y + 2, wide, TABS - 2, "tab", f"{column}:{index}")
+        # ...and the surface it stands for, because a tab is an ALIAS of its
+        # node: `wire.js` makes both the head and the tab draggable, and
+        # dropping either one moves that surface
+        said.hit(at, region.y + 2, wide, TABS - 2, "tab", f"{column}:{index}:{mate}")
         at += wide + 2
 
 

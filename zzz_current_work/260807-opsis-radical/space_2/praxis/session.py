@@ -212,7 +212,8 @@ class Session:
         knows the arrangement; nothing here reconstructs it.
         """
         if words and ":" in words[0]:
-            column, _, index = words[0].partition(":")
+            column, _, rest = words[0].partition(":")
+            index = rest.partition(":")[0]
             if index.isdigit():
                 self.state[f"tab.{column}"] = index
 
