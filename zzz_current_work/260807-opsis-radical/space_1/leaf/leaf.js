@@ -1162,6 +1162,13 @@ function applyPolicy() {
         const mark = document.createElement('span');
         mark.className = 'wantsWindow';
         mark.textContent = ` ⧉ ${want} needs a window`;
+        mark.style.cursor = 'pointer';
+        mark.title = `${want} asked for more room than this column has`
+          + ` — click to open it where it fits`;
+        mark.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (typeof graphPin === 'function') graphPin();
+        });
         mark.title = P['needs'] || '';
         head.appendChild(mark);
       }
