@@ -746,6 +746,24 @@ is in how the FRAME PLACES what those files drew — the fit, the pan, the
 dots, the tones — and not in what was drawn. Diff first. Two of this
 afternoon's wrong diagnoses would have died in one command.
 
+## The graphs — where the pass got to
+
+`graph.js` fits against the extent of the nodes it PROJECTED. Mine fitted
+against `drawn.wide`, the width the layout was asked for — and a drawing laid
+out to fill its room reports about that room, so the fit computed 0.96 and
+did nothing at all. That is what "flat and arcs look like shit" was: the
+picture wherever the layout dropped it, in a corner of an empty facet.
+`_bounds` measures left and right now as well as top and bottom.
+
+MEASURED AFTER, AND NOT YET RIGHT: the flat view's 37 node rings span
+y 305..866 in a facet whose inside is y 83..876. So it scales (560px of
+picture in a 793px room) and sits about 106px LOW. Either the centring in
+`fitted` is wrong or the session had a pan in it from earlier gestures — the
+port has been measured all afternoon on servers whose policy was dragged
+about, and that has already produced one wrong finding. CHECK A FRESH SESSION
+FIRST, then compare against `graph.js`'s `mx`/`my`, which centre on the
+LAYOUT's middle rather than on the drawing's bounding box.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.
