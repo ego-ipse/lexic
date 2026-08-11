@@ -21,13 +21,25 @@ different reading, different shape — and the grammar reads whole in both,
 which it never did before.
 
 A surface that cannot be honoured is NAMED (`wants.window graph,machine`)
-rather than crushed into a column and redrawn until someone gives up.
+rather than crushed into a column and redrawn until someone gives up — and
+the mark it puts on itself opens it at the address it named, which is not
+the same address for every surface.
+
+The relations are a **facet**, not a mode of the reader. Living inside the
+reader, the graph could only appear by hiding the grammar it is a picture
+of, and it inherited a column measured for text. It is now laid out in the
+room it actually has: levels are bands across the width, a level too crowded
+for one column wraps into as many as a rule name's width allows, and the fit
+frames the LABELS rather than the dots. Nothing is scaled down afterwards,
+so nothing collides that did not have to, and nothing hangs off the edge —
+which the probe measures rather than assumes (`flatClipped=0`).
 
 ## The files
 
 | file | what it owns |
 |---|---|
 | `read.py` | a reading, its spans, and what each surface needs |
+| `irvalue.py` | a value as the value it IS — identity, tier, absence, refusal |
 | `place.py` | the arrangement, computed from those needs |
 | `chain.py` | the rungs this reading implies — named, not parsed |
 | `watch.py` | the predictive kernel, reporting what it did |
@@ -37,7 +49,6 @@ rather than crushed into a column and redrawn until someone gives up.
 | `retype.py` | an edit is a re-reading; a refusal measures where it died |
 | `ring.py` | the instrument's own state, read and applied |
 | `serve.py` | the socket, and the scene the leaf reads |
-| `irvalue.py` | a value as the value it IS — identity, tier, absence, refusal |
 | `track.py` | one rule's body as track — the grammar's own spelling |
 | `wire_machine.py` | the automaton and the verdicts, as the leaf reads them |
 | `gate.py` | what must hold, printed as facts |
@@ -125,5 +136,15 @@ Every line in the gate defends something this project got wrong:
 - a value's payload contained a newline, and the line-oriented wire tore
 - `<class 'lexic.ir.spine.scalars.IrChr'>` appeared where `IrChr` is the fact
 - a route answered with a stub while the leaf drew the empty result
+- the scene never carried `#EDGES`/`#DEPTHS`, so every graph drew rules as
+  unrelated dots — the relationships were never on the wire at all
+- the strata sent one stats line pinned to card 0, so the rung you had just
+  climbed to was marked visited with no numbers, and the leaf's card renderer
+  threw mid-draw: everything after the first stratum simply never appeared
+- the readout followed the SELECTION while the pointer was somewhere else
+- 1,403 of 12,230 spans occupy no text (a rule derived ε) and were drawn as
+  boxes two characters wide — model structure the document does not contain
+- every PDA frame was named for its RULE, so five clones of `object` read as
+  one word repeated five times: the machine's whole shape, hidden as noise
 
 The previous build is `../FUCKUP/`.

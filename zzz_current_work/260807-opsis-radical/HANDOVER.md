@@ -1,5 +1,49 @@
 # opsis-radical — HANDOVER
 
+## 2026-08-11 — space_1: the six defects named from the screen, and what each was
+
+Reported by eye, found by driving the instrument rather than reading the wire.
+Every one of them was a WIRE or PLACEMENT fault, not a drawing fault.
+
+1. **"The graphs do not recognize relationships."** The leaf's scene reader
+   has always had `#EDGES` / `#DEPTHS` blocks. `scene()` never emitted them.
+   Every graph drew rules as unrelated dots for the life of the build.
+2. **"Split the graphs off to another facet."** Done: `THE RELATIONS` is a
+   facet, placed by the same measurement as the rest, no longer a mode that
+   can only appear by hiding the grammar it is a picture of.
+3. **"The graph crops out when there are too many things on the layers."**
+   The fit framed node CENTRES (labels hung over the side), flat/arcs had a
+   hard 0.8× floor that overrode the fit, and an untouched-camera pan shoved
+   the fitted picture sideways. Flat now lays out in the room's units and
+   wraps crowded levels. Measured: 90 rules, 0 clipped, in every mode.
+4. **"Where you hover is not what is highlighted."** The readout took the
+   selection over the hover. The hand wins now, and says which it is.
+5. **"The model shows synthetic classes not shown on the text."** 1,403 of
+   12,230 spans are ε matches — real model objects covering no text, drawn as
+   boxes. They are marks now, and the readout says *matched NO text*.
+6. **"The PDA shows duplications and not enough detail."** Frames were named
+   for their RULE. 126 clones from 39 rules means five `object` clones read as
+   one word five times. Frames now carry the clone (`object#2`, `«group»#0`),
+   named after the run when the census is known, and every frame wide enough
+   to read is labelled in place.
+7. **"Strata broken after the first click, only the first layer shown."** The
+   server sent ONE stats line pinned to card 0 while carrying the current
+   reading's numbers. The rung just climbed to was marked visited with no
+   stats, and the card renderer threw mid-draw — so the render simply stopped.
+   Every visited rung now carries its own numbers.
+
+Also this session: `/routes` computes real parity (both engines, one text,
+compared by VALUE and by re-emission); the value surface `/irvalue` is served
+and drawn (identity, tier, absence, refusal); rooms for `rules`, `rule:<name>`,
+`ir:grammar|codegen|reducer`; the leaf carved into fifteen files along its own
+section boundaries; 36 gate facts, exit 0.
+
+**How each fix was verified.** By driving the instrument: `?probe=1` runs the
+real handlers and writes verdicts into `document.title`. It now measures
+clipping (`flatClipped=0`), hover agreement (`chartHover=same`), strata travel
+both ways (`afterClimb` / `afterDescend`), and the IR surface (`irRoom`,
+`irZoom`). A screenshot confirms what the numbers claim.
+
 ## 2026-08-11 — space_1 rebuilt on measurement; the old build is FUCKUP/
 
 **The finding that changed it.** Every picture that failed today failed on
