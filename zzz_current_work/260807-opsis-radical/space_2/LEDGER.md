@@ -805,6 +805,22 @@ MATCHING A PICTURE IS NOT THE GOAL. The reference is the authority on what
 the instrument MEANS, and it can still be broken; a difference is a question,
 not an instruction. This one would have been ported as a bug.
 
+## The faces are believed, not measured — the next gap
+
+The probe checks that a MONO character is the width the frame believes,
+because a highlight sits under those characters. It has never checked the
+sans faces, and the frame wraps the hint, right-aligns the verdict and packs
+every head's controls from `ADVANCE`. Believed too wide, a line wraps early —
+which is why the status hint breaks mid-phrase where the reference breaks a
+clause later. Believed too narrow, two things overlap, which is how head
+chips collided earlier.
+
+The register now SENDS `advance <face> <px>` and the leaf reads it into
+`frame.advance`, so the measurement is one fact away. Two attempts at writing
+that fact made the probe exit silently — the plumbing is green on its own, so
+it is the fact's own code. Write it small, run the probe after every line,
+and remember that a harness which says nothing is worse than a known gap.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.

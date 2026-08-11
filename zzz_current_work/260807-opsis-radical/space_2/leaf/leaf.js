@@ -68,8 +68,8 @@ function read(said) {
   const lines = said.split('\n');
   const font = (lines[0] || '').startsWith('#FONT ') ? lines[0].slice(6) : '';
   const tones = +(lines[1] || '').split(' ')[1] || 0;
-  const fills = {}, edges = {}, fonts = {}, tracks = {};
-  const into = { fill: fills, edge: edges, font: fonts, track: tracks };
+  const fills = {}, edges = {}, fonts = {}, tracks = {}, advance = {};
+  const into = { fill: fills, edge: edges, font: fonts, track: tracks, advance };
   for (const row of lines.slice(2, 2 + tones)) {
     const p = row.split(' ');
     if (into[p[0]]) into[p[0]][p[1]] = p.slice(2).join(' ');
@@ -131,7 +131,7 @@ function read(said) {
     plane.text = said.slice(where, where + plane.chars);
     where += plane.chars;
   }
-  return { font, fills, edges, fonts, tracks, marks, hits, running,
+  return { font, fills, edges, fonts, tracks, advance, marks, hits, running,
            planes: shown, over: above, picks };
 }
 

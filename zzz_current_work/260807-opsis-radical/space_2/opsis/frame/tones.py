@@ -199,9 +199,13 @@ def register() -> list[str]:
     """The palette as wire lines — fills, edges and faces."""
     return [
         f"#FONT {MONO}",
-        f"#TONES {len(TONES) + len(EDGES) + len(FONTS) + len(TRACKING)}",
+        f"#TONES {len(TONES) + len(EDGES) + len(FONTS) + len(TRACKING) + len(ADVANCE)}",
         *(f"fill {name} {said}" for name, said in TONES.items()),
         *(f"edge {name} {said}" for name, said in EDGES.items()),
         *(f"font {name} {said}" for name, said in FONTS.items()),
         *(f"track {name} {said}" for name, said in TRACKING.items()),
+        # what the frame BELIEVES each face measures. Every wrap, every
+        # right-aligned string and every head's packing rides on these, and
+        # only the mono plane's has ever been checked against a browser.
+        *(f"advance {name} {said}" for name, said in ADVANCE.items()),
     ]
