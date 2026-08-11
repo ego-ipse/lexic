@@ -161,6 +161,21 @@ def main() -> int:
         built.clones > built.rules and "machine" in windowed([*facets, room], 200),
         built.line(),
     )
+    from read import Facet
+
+    # sized so both are offered ~70% of an identical ask: comfortable for a
+    # plane, a collision for a graph. Same width, same share, different kind.
+    same = [
+        Facet("plane-ish", "plane", 100, 10),
+        Facet("graph-ish", "graph", 100, 10),
+        Facet("filler", "plane", 85, 10),
+    ]
+    flagged = windowed(same, 200)
+    check(
+        "the same squeeze a plane survives is a misfit for a graph",
+        "graph-ish" in flagged and "plane-ish" not in flagged,
+        f"flagged {', '.join(flagged) or 'nothing'}",
+    )
     drawn = scene(reading)
     check(
         "the scene carries the reader, the document, the spans and the tree",
