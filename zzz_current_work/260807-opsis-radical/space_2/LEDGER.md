@@ -838,12 +838,27 @@ in — `graph.js` has exactly that nudge:
       v.pan.x = 70 - w / 2 - (x0 - mx) * k
 
 This port has no such nudge and fits by width instead, which is what makes
-its graphs unreadable. But the fit formula is the same on both sides and
-`layout.py` is byte-identical, so the two cannot both be right about `k`:
-DUMP `x1 - x0`, `y1 - y0`, `availW` and `availH` ON BOTH SIDES before
-changing anything. The reference's pads are per-axis — padX from half the
-widest label, padY from half its HEIGHT — where this port uses the label
-width for both, which alone makes its availH about eighty pixels too small.
+its graphs unreadable.
+
+HALF THE NUMBERS, DUMPED. This port's flat layout has an extent of 704 x 304
+in a room of 784 x 793, so with per-axis pads the fit is
+`min(676/704, 771/304, 2.4)` = 0.96 — nearly full scale, all six levels
+across 704px, which is what its picture shows.
+
+The reference's picture shows THREE levels across about 640px on the same
+layout, which the same formula only reaches at k of roughly 2. They do not
+reconcile, so one of the inputs differs and it is not the formula:
+
+- `levelstep` is 140 in `TUNE` here; `#gt-levelstep` is a range 60..280 with
+  NO value attribute, and a range with no value rests at its midpoint, 170.
+  A leaf that reads its own input for the default starts from 170, not 140.
+- so dump the reference's `x1 - x0` before anything else. If its layout is
+  wider than this port's, the dials' resting values are the difference and
+  the fit was never wrong at all.
+
+Note also that the reference's pads are PER AXIS — padX from half the widest
+label, padY from half its HEIGHT — where this port uses the label width for
+both and loses about eighty pixels of vertical room doing it.
 
 ## Not ported yet
 
