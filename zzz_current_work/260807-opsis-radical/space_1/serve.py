@@ -34,7 +34,7 @@ from draw import edges, levels  # noqa: E402
 from keep import keep  # noqa: E402
 from machine import of  # noqa: E402
 from track import rail, rails  # noqa: E402
-from watch import column, watch  # noqa: E402
+from watch import column, hypotheses, watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
 
 __all__ = ["Handler", "main", "scene"]
@@ -373,6 +373,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         if path == "/clock":
             frames = watch(machine, self.reading.text)
+            hyps, hnames = hypotheses(machine, self.reading.text)
             names = sorted({str(row[3]) for row in frames})
             at = {name: i for i, name in enumerate(names)}
             return "\n".join(
@@ -389,8 +390,10 @@ class Handler(BaseHTTPRequestHandler):
                     f"#PDANAMES {len(names)}",
                     *names,
                     "#EVENTS 0",
-                    "#EARLEY 0",
-                    "#EARLEYNAMES 0",
+                    f"#EARLEY {len(hyps)}",
+                    *hyps,
+                    f"#EARLEYNAMES {len(hnames)}",
+                    *hnames,
                     "",
                 ]
             )

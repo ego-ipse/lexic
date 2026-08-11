@@ -28,7 +28,7 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 
-__all__ = ["Clock", "column", "watch"]
+__all__ = ["Clock", "column", "hypotheses", "watch"]
 
 CEILING = 20000
 
@@ -128,3 +128,22 @@ def column(compiled: CompiledGrammar, text: str, at: int) -> str:
             "",
         ]
     )
+
+
+def hypotheses(compiled: CompiledGrammar, text: str) -> tuple[list[str], list[str]]:
+    """Every hypothesis the other engine held, in COLUMN ORDER.
+
+    Two attempts at this were wrong before: a prefix cut left the tail of the
+    document looking like nothing was ever hypothesised, and sampling drew a
+    regular staircase that is not in the parse. All of them go, in the order
+    the chart built them, and the leaf decides what it can draw.
+    """
+    kernel, tables = chart(compiled, text)
+    names: dict[str, int] = {}
+    rows: list[str] = []
+    for last, column_items in enumerate(kernel.cols):
+        for item in column_items:
+            rule, seq, dot, origin = decode_item(tables, item)
+            at = names.setdefault(str(rule), len(names))
+            rows.append(f"{origin} {last} {1 if dot >= len(seq) else 0} {at}")
+    return rows, list(names)
