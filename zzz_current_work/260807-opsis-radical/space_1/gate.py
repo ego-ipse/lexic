@@ -28,7 +28,7 @@ from read import as_written, columns, read, upward  # noqa: E402
 from retype import retype  # noqa: E402
 from ring import GRAMMAR as POLICY  # noqa: E402
 from ring import apply_record, record  # noqa: E402
-from serve import ruledefs, scene  # noqa: E402
+from serve import drawn, ruledefs  # noqa: E402
 from watch import watch  # noqa: E402
 
 ROOT = HERE.parents[2]
@@ -176,11 +176,11 @@ def main() -> int:
         "graph-ish" in flagged and "plane-ish" not in flagged,
         f"flagged {', '.join(flagged) or 'nothing'}",
     )
-    drawn = scene(reading)
+    frame = drawn(reading)
     check(
         "the scene carries the reader, the document, the spans and the tree",
-        all(t in drawn for t in ("#READER ", "#DOC ", "#SPANS ", "arrange.tree (")),
-        f"{len(drawn):,} chars",
+        all(t in frame for t in ("#READER ", "#DOC ", "#SPANS ", "arrange.tree (")),
+        f"{len(frame):,} chars",
     )
     for other in (ROOT / "resources/ground_truth").glob("*.gbnf"):
         if other.name == "json.gbnf":
@@ -200,7 +200,7 @@ def main() -> int:
     # parse the policy block as it IS, not at a hardcoded size: guarding on
     # "#POLICY 7" made these pass vacuously while printing "missing", which is
     # the exact failure a gate exists to prevent.
-    said = drawn.splitlines()
+    said = frame.splitlines()
     head = next((i for i, line in enumerate(said) if line.startswith("#POLICY ")), -1)
     count = int(said[head].split()[1]) if head >= 0 else 0
     lines = dict(line.split(" ", 1) for line in said[head + 1 : head + 1 + count])
@@ -233,7 +233,7 @@ def main() -> int:
         marker = f"{tag} {len(text)}\n"
         check(
             f"{tag} says its own length, and the text follows it exactly",
-            marker in drawn and drawn.split(marker, 1)[1].startswith(text[:80]),
+            marker in frame and frame.split(marker, 1)[1].startswith(text[:80]),
             f"{len(text):,} chars",
         )
 
@@ -242,6 +242,26 @@ def main() -> int:
         columns("ですが") == 6 and columns("abc") == 3,
         f"ですが={columns('ですが')} abc={columns('abc')}",
     )
+
+    from time import perf_counter
+
+    drawn(reading)  # warm
+    mark = perf_counter()
+    for _ in range(20):
+        drawn(reading)
+    poll = (perf_counter() - mark) / 20
+    check(
+        "a poll costs nothing while the text stands still",
+        poll < 0.001,
+        f"{poll * 1000:.3f}ms per poll",
+    )
+    reading.text += " "
+    check(
+        "and the scene is rebuilt the moment the text moves",
+        drawn(reading) != frame,
+        "rebuilt on change",
+    )
+    reading.text = reading.text[:-1]
 
     leaf = HERE / "leaf"
     parts = ["index.html", "leaf.css", "leaf.js"]

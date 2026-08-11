@@ -151,6 +151,23 @@ def scene(reading: Reading) -> str:
     )
 
 
+_DRAWN: dict[int, str] = {}
+
+
+def drawn(reading: Reading) -> str:
+    """The scene, built once per state of the text.
+
+    A quarter of a megabyte was being rebuilt — spans, both text blocks, every
+    measurement — on every poll the leaf makes. It changes when the text
+    changes, so that is when it is rebuilt.
+    """
+    key = hash((reading.text, reading.reader_text))
+    if key not in _DRAWN:
+        _DRAWN.clear()
+        _DRAWN[key] = scene(reading)
+    return _DRAWN[key]
+
+
 class Handler(BaseHTTPRequestHandler):
     """One socket over one reading. It serves; it does not know."""
 
@@ -175,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send(artifact.read_text(), FILES.get(artifact.suffix, "text/plain"))
             return
         if path == "/scene":
-            self.send(scene(self.reading))
+            self.send(drawn(self.reading))
             return
         self.send(PENDING.get(path, ""))
 
