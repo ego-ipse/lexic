@@ -1,5 +1,44 @@
 # opsis-radical — HANDOVER
 
+## 2026-08-11 — `space_1/`: the relation graph, and the clocks made honest
+
+**The halves.** The leaf is `space/`'s, kept whole and edited where it is
+wrong. The back end is new. `space/` itself only runs because `irview.py` was
+restored from `9127e03` — a later commit dropped the source and left the
+`.pyc`, which is why it appeared broken.
+
+**The meaning layer.** A relation instance is things cast into roles; the room
+IS the relation. Chirality is COMPUTED (a thing may read exactly when the
+engine compiles it); a cast completes itself (a document alone finds the
+metagrammar that accepts it); a GHOST is a licensed instance nobody visited;
+the strip and the map are projections of the graph, never storage.
+
+**What the clocks taught, in order of being wrong:**
+
+1. A wall. Every enclosing PDA frame drawn as a full-width bar. Fixed: a
+   frame that merely spans the window is a context hairline; only frames that
+   open or close inside it are structure.
+2. A lie. Sampling "the worthiest" hypotheses drew a regular diagonal
+   staircase that is not in the parse. A picture that invents structure is
+   worse than a dense one — the sampling came out.
+3. A meaningless axis. Earley rows were greedy packing slots. Now a lane IS a
+   rule, so a band says which rule was entertained across that stretch.
+4. A false id. Frames carried `-1` where a clone id belongs, so nothing could
+   light. The kernel now seats the FlatClone objects it actually enters, and
+   `/automaton` is served from those same seats — one table, one meaning per
+   id. Clones built (126) and clones entered (35) are separate facts and the
+   compiler room says which.
+
+**Also true and gated:** names are spelled as the GRAMMAR spells them (the
+engine folds; co-selection is a name match, so folded names lit nothing); a
+codegen piece lights the rule it was cut from; artefacts count only when they
+load back; an edit is a re-reading with the frontier MEASURED off the kernel;
+the instrument reads its own state and saving the record applies it.
+
+**Open.** The graph is cramped where fan-out is dense (it fits now, but the
+placement is poor). The Earley chart is honest and still hard to read. What a
+legible one needs was not settled — the aggregate was proposed and rejected.
+
 ## 2026-08-11 — `space_1/`: the relation graph under space's leaf
 
 **What the halves are.** The leaf is `space/`'s, kept whole and now edited
