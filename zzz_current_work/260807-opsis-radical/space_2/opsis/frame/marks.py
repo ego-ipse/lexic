@@ -286,6 +286,14 @@ class Frame:
                 wide, high = float(parts[3]) * scale, float(parts[4]) * tall
                 tone = parts[5]
                 label = " ".join(parts[7:]) if len(parts) > 7 else ""
+                # A MARK THAT CARRIES AN ADDRESS IS A DOOR. `paint.js` keeps
+                # every one of them as a rectangle it can hit-test — which is
+                # what gives the railroads and the automaton their clicks.
+                # Dropping the address here left every drawing-based view
+                # painted and dead.
+                goes = parts[6] if len(parts) > 6 else "-"
+                if goes and goes != "-":
+                    self.hit(at, top, wide, high, "rule", goes)
                 if fills:
                     self.box(at, top, wide, high, tone)
                     continue

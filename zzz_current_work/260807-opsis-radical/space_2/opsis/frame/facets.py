@@ -333,6 +333,34 @@ def _segments(
     return out
 
 
+# where a chosen rule OCCURS — a fact about the reading and the rule, not
+# about the page. Scanning twelve thousand spans and respelling every one of
+# them per frame cost 39.6ms against 7.3, so scrolling with a rule chosen
+# outran the server and the document jumped.
+_WHERE: dict[str, list[tuple[int, int]]] = {}
+
+
+def occurrences(look: Look) -> list[tuple[int, int]]:
+    """Every span of the chosen rule, worked out once for that rule.
+
+    AS WRITTEN: a span carries the codegen name — `json-text` — and the
+    reader shows the source's spelling, `JSON-text`. Comparing the two
+    directly meant the start rule, and every rule codegen respelled,
+    highlighted nothing at all.
+    """
+    if not look.chosen:
+        return []
+    key = f"{look.generation}:{len(look.reading.spans)}:{look.chosen}"
+    if key not in _WHERE:
+        _WHERE.clear()
+        _WHERE[key] = [
+            (span.start, span.end)
+            for span in look.reading.spans
+            if as_written(look.it.rules, span.rule) == look.chosen
+        ]
+    return _WHERE[key]
+
+
 def _under(
     said: Frame,
     room: Room,
@@ -364,14 +392,8 @@ def _under(
 
     for span in look.live():
         paint(span.start, span.end, "open", False)
-    if look.chosen:
-        # AS WRITTEN. A span carries the codegen name — `json-text` — and the
-        # reader shows the source's spelling, `JSON-text`. Comparing the two
-        # directly meant the start rule, and every rule codegen respelled,
-        # highlighted nothing at all.
-        for span in look.reading.spans:
-            if as_written(look.it.rules, span.rule) == look.chosen:
-                paint(span.start, span.end, "violet", True)
+    for start, end in occurrences(look):
+        paint(start, end, "violet", True)
     kind, _, goes = look.says("hover", "").partition(" ")
     if kind == "span" and ":" in goes:
         s0, _, e0 = goes.partition(":")
