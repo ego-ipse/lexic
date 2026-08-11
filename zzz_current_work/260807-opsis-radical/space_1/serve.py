@@ -111,7 +111,9 @@ def scene(reading: Reading) -> str:
         # window and has none yet, which is said rather than faked with the
         # graph's address.
         "opens": " ".join(
-            f"{name}:{OPENS[name]}" if name in OPENS else f"{name}:no address yet"
+            # a value with spaces cannot survive a space-separated field —
+            # the gate caught "machine:no address yet" parsing as three
+            f"{name}:{OPENS.get(name, 'none-yet')}"
             for name in wants
         )
         or "none",

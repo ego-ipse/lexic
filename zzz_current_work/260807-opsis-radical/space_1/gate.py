@@ -197,6 +197,35 @@ def main() -> int:
         )
         break
 
+    # parse the policy block as it IS, not at a hardcoded size: guarding on
+    # "#POLICY 7" made these pass vacuously while printing "missing", which is
+    # the exact failure a gate exists to prevent.
+    said = drawn.splitlines()
+    head = next((i for i, line in enumerate(said) if line.startswith("#POLICY ")), -1)
+    count = int(said[head].split()[1]) if head >= 0 else 0
+    lines = dict(line.split(" ", 1) for line in said[head + 1 : head + 1 + count])
+    check(
+        "the policy block is there and says how long it is",
+        head >= 0 and len(lines) == count > 0,
+        f"{len(lines)} of {count} lines",
+    )
+    check(
+        "every surface named in wants.window appears in needs",
+        bool(lines)
+        and all(
+            name in lines["needs"]
+            for name in lines["wants.window"].split(",")
+            if name != "none"
+        ),
+        lines.get("wants.window", "MISSING"),
+    )
+    check(
+        "every refused surface says where it opens, or says it cannot",
+        bool(lines)
+        and all(":" in part for part in lines["opens"].split(" ") if part != "none"),
+        lines.get("opens", "MISSING"),
+    )
+
     leaf = HERE / "leaf"
     parts = ["index.html", "leaf.css", "leaf.js"]
     there = [name for name in parts if (leaf / name).is_file()]
