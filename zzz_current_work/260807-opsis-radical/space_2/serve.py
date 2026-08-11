@@ -131,7 +131,7 @@ class Handler(BaseHTTPRequestHandler):
                 frontier=session.frontier(),
                 routes=Held.other.line(),
                 only=only,
-            ).wire(session.generation)
+            ).wire(session.generation, session.playing)
         )
 
 

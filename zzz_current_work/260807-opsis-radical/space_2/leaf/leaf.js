@@ -20,7 +20,6 @@ const win = asked.get('win') || '';
 let frame = null;
 let asking = false;
 let queued = null;
-let playing = false;
 let dragging = null;
 
 const fill = (name) => frame.fills[name] || frame.fills.dim;
@@ -76,6 +75,7 @@ function read(said) {
   const head = (lines[i] || '').split(' ');
   if (head[0] !== '#FRAME') return null;
   const count = +head[4] || 0;
+  const running = head[5] === '1';
   const marks = lines.slice(i + 1, i + 1 + count);
   i += 1 + count;
   const hits = [];
@@ -110,7 +110,8 @@ function read(said) {
     plane.text = said.slice(where, where + plane.chars);
     where += plane.chars;
   }
-  return { font, fills, edges, fonts, marks, hits, planes: shown, over: above };
+  return { font, fills, edges, fonts, marks, hits, running,
+           planes: shown, over: above };
 }
 
 function paint() {
@@ -294,7 +295,6 @@ window.addEventListener('keydown', (ev) => {
   if (typing && !ev.ctrlKey && name !== 'Escape') return;
   if (!NAMED.has(name)) return;
   ev.preventDefault();
-  if (name === 'Space' && !typing) playing = !playing;
   ask(`key ${name}`);
 });
 
@@ -311,5 +311,8 @@ paper.addEventListener('pointermove', (ev) => {
 });
 
 window.addEventListener('resize', () => ask(''));
-setInterval(() => { if (playing) ask('tick'); }, 110);
+/* the reading is playing when the FRAME says it is — not when this leaf
+   thinks it is. Starting playback from the transport is a gesture the leaf
+   never sees, and it drove nothing for as long as this kept its own flag. */
+setInterval(() => { if (frame && frame.running) ask('tick'); }, 110);
 ask(asked.get('pin') ? `set pin.span ${asked.get('pin')}` : '');

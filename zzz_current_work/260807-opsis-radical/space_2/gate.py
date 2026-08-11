@@ -293,6 +293,48 @@ def main() -> int:
         ),
     )
 
+    print("one truth about what is running")
+    player = Session(reading)
+    check(
+        "a frame at rest says it is not playing",
+        player.reading is reading and not player.playing,
+    )
+    player.gesture("do play")
+    check(
+        "the transport starts it — the same gesture the leaf's Space sends",
+        player.playing,
+    )
+    was = player.at
+    player.gesture("tick")
+    check(
+        "and a tick moves the reading while it is running",
+        player.at > was,
+        f"{was:.0f} → {player.at:.0f}",
+    )
+    player.gesture("do play")
+    stopped = player.at
+    player.gesture("tick")
+    check("a tick moves nothing when it is not", player.at == stopped)
+
+    def running(wire: str) -> str:
+        """What the frame's own head says about whether it is playing."""
+        return next(
+            (
+                line.split(" ")[5]
+                for line in wire.split("\n")
+                if line.startswith("#FRAME")
+            ),
+            "—",
+        )
+
+    told = compose(reading, 800, 600, 0.0, {}, [], 1)
+    check(
+        "the frame SAYS which it is, so nothing has to keep its own answer",
+        running(told.wire(1, True)) == "1" and running(told.wire(1, False)) == "0",
+        f"playing → {running(told.wire(1, True))} · "
+        f"at rest → {running(told.wire(1, False))}",
+    )
+
     print("the hand moves the arrangement")
 
     def head_at(state: dict[str, str], name: str = "THE DOCUMENT") -> float:
@@ -441,12 +483,12 @@ def main() -> int:
     )
     broke = Session(Reading(READER, DOCUMENT))
     broke.reading.hold()
-    held = broke.reading.reader_text
+    stood = broke.reading.reader_text
     broke.gesture("text grammar", "this is not a grammar at all\n")
     broke.gesture("key Ctrl+Enter")
     check(
         "a reader that no longer compiles is a refusal, and the old one stands",
-        broke.reading.reader_text == held
+        broke.reading.reader_text == stood
         and broke.said is not None
         and broke.said.state == "refused"
         and bool(broke.reading.spans),

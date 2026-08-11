@@ -244,6 +244,24 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## Two answers to "is it playing"
+
+The leaf kept its own flag to decide whether to send ticks; the session kept
+one to decide whether a tick advances. Two copies of one truth, and they
+disagreed the moment playback started from anywhere the leaf could not see:
+clicking ▶ in the transport set the session running and the leaf, knowing
+nothing about it, sent no ticks. The reading sat still while the instrument
+believed it was moving.
+
+The frame's own head says it now — `#FRAME w h gen marks playing` — and the
+leaf ticks while the frame says so. It holds no answer of its own, and the
+probe asserts that it does not.
+
+This is the same fault as every other one this rebuild exists to prevent,
+wearing different clothes: not two GEOMETRIES disagreeing, but two copies of
+one fact. The rule is the same either way — one truth, and it is the
+server's.
+
 ## Two keys for one scroll
 
 The rail chip wrote `top.rails`, the wheel wrote `top.graph`, and the drawing

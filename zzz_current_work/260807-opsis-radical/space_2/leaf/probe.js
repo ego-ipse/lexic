@@ -124,7 +124,13 @@ async function probe() {
   fact('the over canvas takes no pointer of its own',
        getComputedStyle(over).pointerEvents === 'none');
 
-  /* 7. nothing is scheduled through a frame callback — the reason an earlier
+  /* 7. the leaf keeps no answer of its own about what is running. It kept
+        one, and starting playback from the transport — a gesture this never
+        sees — drove nothing at all. */
+  fact('the leaf holds no play state of its own',
+       !/\blet playing\b/.test(paperSource) && /frame && frame\.running/.test(paperSource));
+
+  /* 8. nothing is scheduled through a frame callback — the reason an earlier
         harness measured a canvas that had not been drawn yet */
   fact('the leaf paints without waiting for an animation frame',
        !/requestAnimationFrame/.test(paperSource), 'leaf.js');

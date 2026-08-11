@@ -222,12 +222,19 @@ class Frame:
                     " ".join(parts[4:]),
                 )
 
-    def wire(self, generation: int) -> str:
-        """The whole frame. Text blocks go LAST, raw, counted in characters."""
+    def wire(self, generation: int, playing: bool = False) -> str:
+        """The whole frame. Text blocks go LAST, raw, counted in characters.
+
+        :param playing: whether the reading is running. The leaf used to keep
+            its own answer to that and tick from it, so starting playback
+            from the transport — which the leaf never sees — began a
+            playback nobody drove. One truth, and it is this one.
+        """
         return "\n".join(
             [
                 *register(),
-                f"#FRAME {self.wide} {self.tall} {generation} {len(self.marks)}",
+                f"#FRAME {self.wide} {self.tall} {generation} {len(self.marks)} "
+                f"{1 if playing else 0}",
                 *self.marks,
                 f"#HITS {len(self.hits)}",
                 *self.hits,
