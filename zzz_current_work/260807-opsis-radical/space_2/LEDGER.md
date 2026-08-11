@@ -874,10 +874,23 @@ So the contradiction is real too, and one of these measured inputs is wrong:
 - `min(691/596, 739/286, 2.4)` = 1.16, predicting all six levels and the
   start rule at x = 70
 
-The place to look next is what its leaf ASKS for versus what I asked for:
-`graphBox()` measures `#graphWrap`, not the canvas, and I queried the box
-using the canvas's numbers. If the wrap is materially wider than 783, its
-layout is laid out for a bigger box and every number above shifts.
+MEASURED, AND IT RULES THE FIT OUT ENTIRELY. The layout SCALES WITH THE BOX
+it is asked for:
+
+    box 400x400   → x extent 360
+    box 784x793   → x extent 596
+    box 1400x900  → x extent 1179
+
+So `availW / (x1 - x0)` is about 1.1 whatever the box, by construction, and
+the reference's `k` can never be far from 1. Its picture shows three levels
+across about 640px, which needs k near 2.7 — above its own 2.4 cap. THAT
+PICTURE CANNOT COME FROM THE FIT AT ANY BOX.
+
+So it is not the fit and not the box: look at `v.zoom`. `k = v.frame.k *
+v.zoom`, and a view's zoom is 1 only until something sets it — the wheel,
+a restored `graph.camera`, or a default this port never read. Find what the
+reference's flat view holds for `zoom` when it draws that picture, and the
+whole comparison resolves.
 
 The overflow nudge is still unported either way, and that is real: `pan.x =
 70 - w/2 - (x0 - mx) * k` when the picture is wider than the room.
