@@ -343,7 +343,13 @@ body.off-chart #chart:not(.inwin), body.off-spine #spine:not(.inwin) { display: 
 .facet h2 { display: flex; align-items: center; }
 #graphWrap { position: relative; flex: 1; overflow: hidden; cursor: grab; min-height: 0; z-index: 0; }
 #graphWrap:active { cursor: grabbing; }
-#graphCv { position: absolute; inset: 0; }
+/* A CANVAS IS A REPLACED ELEMENT: it has an intrinsic size, so `inset: 0`
+   does not stretch it — its layout size becomes its BITMAP size. The bitmap
+   is set to w × devicePixelRatio, so on a 1× screen the two coincide and on
+   a 2× screen the canvas lays out twice as large as the box it sits in.
+   The chips are DOM and stay put, so the labels part company with the lines.
+   The size has to be said. */
+#graphCv { position: absolute; inset: 0; width: 100%; height: 100%; }
 #graphChips { position: absolute; inset: 0; pointer-events: none; }
 .gchip {
   position: absolute;
@@ -382,7 +388,7 @@ body.off-chart #chart:not(.inwin), body.off-spine #spine:not(.inwin) { display: 
   overflow: hidden;
   min-height: 0;
 }
-.pin.rail canvas { position: absolute; inset: 0; }
+.pin.rail canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 #gpop {
   margin-left: 6px;
@@ -397,7 +403,7 @@ body.off-chart #chart:not(.inwin), body.off-spine #spine:not(.inwin) { display: 
 .pin.graph .body.gbody { padding: 0; flex: 1; display: flex; min-height: 0; }
 .pin.graph .gwrap { position: relative; flex: 1; overflow: hidden; cursor: grab; }
 .pin.graph .gwrap:active { cursor: grabbing; }
-.pin.graph canvas { position: absolute; inset: 0; }
+.pin.graph canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .pin.graph .gchips { position: absolute; inset: 0; pointer-events: none; }
 .pin.graph .gchips .gchip { pointer-events: auto; }
 
