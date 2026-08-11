@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from time import perf_counter
+
 from lexic.compile import CompiledGrammar
+from lexic.exceptions import LexicError
+from lexic.parsing.products import earley_model
 from track import said
 from lexic.parsing.earley.kernel.forest.readout import decode_item
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
@@ -28,7 +32,7 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 
-__all__ = ["Clock", "column", "hypotheses", "watch"]
+__all__ = ["Clock", "column", "hypotheses", "parity", "watch"]
 
 CEILING = 20000
 
@@ -147,3 +151,30 @@ def hypotheses(compiled: CompiledGrammar, text: str) -> tuple[list[str], list[st
             at = names.setdefault(str(rule), len(names))
             rows.append(f"{origin} {last} {1 if dot >= len(seq) else 0} {at}")
     return rows, list(names)
+
+
+def parity(compiled: CompiledGrammar, text: str) -> tuple[float, str, str]:
+    """Run the road not taken and compare the VALUES, not the timings.
+
+    One parse, two observations: the product comes from the engine's own
+    composition, and the instrument additionally runs the explicit Earley
+    route. Agreement is structural equality AND the same re-emission — two
+    engines that build different values from one text is the finding, not a
+    detail.
+    """
+    grammar = normalize(lift_optional_nullables(compiled.codegen_grammar))
+    clock = perf_counter()
+    try:
+        other = earley_model(grammar, text, compiled.fold)
+    except (LexicError, RecursionError, ValueError) as refusal:
+        return perf_counter() - clock, "failed", str(refusal)[:120]
+    seconds = perf_counter() - clock
+    mine = compiled.parse(text)
+    same = other == mine and other.to_text() == mine.to_text()
+    return (
+        seconds,
+        "holds" if same else "fails",
+        "both engines built the same value"
+        if same
+        else "the engines built DIFFERENT values from one text",
+    )

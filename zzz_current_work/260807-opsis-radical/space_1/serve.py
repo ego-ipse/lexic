@@ -35,7 +35,7 @@ from draw import edges, levels  # noqa: E402
 from keep import keep  # noqa: E402
 from machine import of  # noqa: E402
 from track import rail, rails  # noqa: E402
-from watch import column, hypotheses, watch  # noqa: E402
+from watch import column, hypotheses, parity, watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
 
 __all__ = ["Handler", "main", "scene"]
@@ -48,10 +48,7 @@ HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 
 # What this build does not derive yet. Each says what it is; an empty body is
 # not an answer, and the leaf's parsers cannot read one.
-PENDING = {
-    "/routes": "primary the engine's own composition\nprimary_seconds 0.00\n"
-    "status pending\n",
-}
+PENDING: dict[str, str] = {}
 
 
 def ruledefs(text: str) -> list[tuple[str, int, int]]:
@@ -338,6 +335,7 @@ class Handler(BaseHTTPRequestHandler):
             "/rulegraph",
             "/place",
             "/column",
+            "/routes",
         ):
             return None
         try:
@@ -346,6 +344,21 @@ class Handler(BaseHTTPRequestHandler):
             )
         except LexicError, RecursionError, ValueError:
             return "no reader to draw\n"
+        if path == "/routes":
+            seconds, verdict, words = parity(machine, self.reading.text)
+            return "\n".join(
+                [
+                    "primary the engine's own composition",
+                    f"primary_seconds {self.reading.seconds:.2f}",
+                    "status done",
+                    "name Earley (explicit)",
+                    f"seconds {seconds:.2f}",
+                    f"parity {verdict}",
+                    "pos -1",
+                    f"words {words}",
+                    "",
+                ]
+            )
         if path == "/column":
             at = dict(
                 part.split("=", 1) for part in query.split("&") if "=" in part

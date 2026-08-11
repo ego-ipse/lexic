@@ -28,7 +28,7 @@ from read import as_written, columns, read, read_up, upward  # noqa: E402
 from retype import retype  # noqa: E402
 from ring import GRAMMAR as POLICY  # noqa: E402
 from ring import apply_record, record  # noqa: E402
-from serve import drawn, ruledefs  # noqa: E402
+from serve import PENDING, drawn, ruledefs  # noqa: E402
 from watch import watch  # noqa: E402
 
 ROOT = HERE.parents[2]
@@ -295,6 +295,30 @@ def main() -> int:
         " · ".join(
             f"{n} {c:,} chars {'equal' if s else 'DIFFERENT'}" for n, c, s in peers
         ),
+    )
+
+    # the routes the leaf calls. A capability can be fully built and still be
+    # invisible if nothing answers the address the leaf asks for — which is
+    # how rails, verdicts, the automaton and the rooms all sat unreachable.
+    asked = [
+        "/scene",
+        "/policy",
+        "/strata",
+        "/place",
+        "/clock",
+        "/column",
+        "/rails",
+        "/rail",
+        "/rulegraph",
+        "/verdicts",
+        "/automaton",
+    ]
+    served = sorted(set(asked) - set(PENDING))
+    check(
+        "every route the leaf calls is answered by derivation, not a stub",
+        not PENDING,
+        f"{len(served)} answered · {len(PENDING)} stubbed"
+        + (f": {', '.join(sorted(PENDING))}" if PENDING else ""),
     )
 
     leaf = HERE / "leaf"
