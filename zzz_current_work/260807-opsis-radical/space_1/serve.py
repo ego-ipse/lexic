@@ -29,6 +29,7 @@ from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
 from read import Facet, Reading, as_written, read  # noqa: E402
 from track import rail, rails  # noqa: E402
+from watch import watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
 
 __all__ = ["Handler", "main", "scene"]
@@ -44,8 +45,6 @@ HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 PENDING = {
     "/routes": "primary the engine's own composition\nprimary_seconds 0.00\n"
     "status pending\n",
-    "/clock": "status pending\ngeneration 1\npda_end -1\ndropped 0\n"
-    "#PDAFRAMES 0\n#PDANAMES 0\n#EVENTS 0\n#EARLEY 0\n#EARLEYNAMES 0\n",
     "/column": "#COLUMN 0 0\n#EXPECT 0\n",
     "/strata": "#STRATA 1 0\nL 0 this reading\nc 0 0 0 r 1 the only reading\n",
 }
@@ -213,7 +212,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def derived(self, path: str, query: str) -> str | None:
         """The routes the leaf calls that this instrument can already answer."""
-        if path not in ("/rails", "/rail", "/verdicts", "/automaton"):
+        if path not in ("/rails", "/rail", "/verdicts", "/automaton", "/clock"):
             return None
         try:
             machine = compile_text(
@@ -221,6 +220,29 @@ class Handler(BaseHTTPRequestHandler):
             )
         except LexicError, RecursionError, ValueError:
             return "no reader to draw\n"
+        if path == "/clock":
+            frames = watch(machine, self.reading.text)
+            names = sorted({str(row[3]) for row in frames})
+            at = {name: i for i, name in enumerate(names)}
+            return "\n".join(
+                [
+                    "status done",
+                    "generation 1",
+                    "pda_end -1",
+                    "dropped 0",
+                    f"#PDAFRAMES {len(frames)}",
+                    *(
+                        f"{s} {e} {d} {at[str(n)]} {seat} {ok}"
+                        for s, e, d, n, ok, seat in frames
+                    ),
+                    f"#PDANAMES {len(names)}",
+                    *names,
+                    "#EVENTS 0",
+                    "#EARLEY 0",
+                    "#EARLEYNAMES 0",
+                    "",
+                ]
+            )
         if path == "/rails":
             return rails(machine.grammar)
         if path == "/rail":
