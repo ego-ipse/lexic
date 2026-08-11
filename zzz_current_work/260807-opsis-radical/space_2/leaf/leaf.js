@@ -231,23 +231,13 @@ paper.addEventListener('click', (ev) => {
     ? ` ${Math.max(0, Math.round((ev.clientX - box.left - target.run) / target.cell))}`
     : '';
   if (target.kind === 'seam') return;
-  if (target.kind === 'pin') {
-    const id = `pin-${target.goes.replace(':', '-')}`;
-    window.open(`/?only=pin&win=${id}&pin=${target.goes}`, '_blank',
-                'width=520,height=380');
-    return;
-  }
   if (target.kind === 'pop' || target.kind === 'clone') {
-    /* Two different things. POPPING takes the facet OUT of the grid — it is
-       somewhere else now, and the dock is where it comes back from, so a
-       window that gets closed leaves a dim chip rather than nothing.
-       CLONING opens a SECOND one and leaves the grid alone; the id is what
-       keeps two windows on one facet from sharing a camera. */
-    const seen = (opened[target.goes] = (opened[target.goes] || 0) + 1);
-    const id = `${target.goes}-${seen}`;
-    window.open(`/?only=${target.goes}&win=${id}`, '_blank', 'width=1000,height=760');
-    /* opening the window is all this can do itself; what popping MEANS —
-       that the facet has left the grid — is the session's to say */
+    /* Two different things, and NEITHER is a browser window. POPPING takes
+       the facet OUT of the grid — it is a window in the page now, floating
+       over the arrangement, and the dock is where it comes back from.
+       CLONING opens a SECOND one and leaves the grid alone. A real browser
+       window is a different DOCUMENT: it cannot overlap the thing it was
+       torn from, which is the entire reason to tear one off. */
     ask(`${target.kind} ${target.goes}`);
     return;
   }
@@ -283,7 +273,10 @@ window.addEventListener('pointermove', (ev) => {
     ask(`seam ${on.goes} ${part.toFixed(3)}`);
     return;
   }
-  ask(`spin ${dx} ${dy}`);
+  /* A drag says WHAT IT STARTED ON. Where it goes — a window moved, a
+     graph turned, a corner resized — is the session's to decide, and it
+     cannot decide it from two numbers alone. */
+  ask(`spin ${on ? `${on.kind} ${on.goes}` : '- -'} ${dx} ${dy}`);
 });
 
 /* a stack of diagrams reads like a document: wheel scrolls, Ctrl+wheel zooms */

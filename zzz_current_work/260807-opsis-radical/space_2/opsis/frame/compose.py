@@ -109,9 +109,101 @@ def compose(
         draw(said, inside, look)
     for seam in grid.seams:
         said.hit(seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at))
+    _windows(said, look, titles, columns, wide, tall)
     _status(said, reading, look, wide, tall)
     _banner(said, reading, wide, tall)
     return said
+
+
+def _windows(
+    said: Frame,
+    look: Look,
+    titles: dict[str, str],
+    columns: dict[str, str],
+    wide: int,
+    tall: int,
+) -> None:
+    """The windows, over the grid — the ruled exception to a tiling.
+
+    Simultaneity is the one thing an arrangement cannot express: two things
+    at once, one of them held still. They are drawn last so they are on top,
+    and they are drawn HERE, over the same picture, because a browser window
+    is a different document and cannot overlap what it was torn from.
+    """
+    # a window is READ OVER the picture it floats on, and the text planes are
+    # real elements: anything a window draws on the under canvas is behind
+    # the very text it was torn off to sit beside
+    was = said.lift()
+    for wid in [w for w in look.says("windows", "").split(" ") if w]:
+        parts = look.says(f"win.{wid}", "").split(" ", 5)
+        if len(parts) < 5:
+            continue
+        facet, x, y, w, h = parts[0], *(float(n) for n in parts[1:5])
+        about = parts[5] if len(parts) > 5 else ""
+        x, y = min(x, wide - 80), min(y, tall - 40)
+        w, h = min(w, wide - x - 8), min(h, tall - y - 8)
+        said.box(x, y, w, h, "field2")
+        for x1, y1, x2, y2 in (
+            (x, y, x + w, y),
+            (x, y + h, x + w, y + h),
+            (x, y, x, y + h),
+            (x + w, y, x + w, y + h),
+        ):
+            said.line(x1, y1, x2, y2, "warm")
+        # the head IS the handle: dragging it moves the window, and the
+        # corner resizes it — the same two gestures every window has ever had
+        said.hit(x, y, w - 22, 20, "winhead", wid)
+        said.hit(x + w - 14, y + h - 14, 14, 14, "wincorner", wid)
+        said.line(x + w - 14, y + h, x + w, y + h - 14, "warm")
+        said.text(
+            x + 10, y + 14, "ftitle", f"{facet}{f' · {about}' if about else ''}", w - 40
+        )
+        said.text(x + w - 8, y + 14, "dim", "×", anchor="r", face="chip")
+        said.hit(x + w - 22, y, 22, 20, "shut", wid)
+        said.line(x, y + 20, x + w, y + 20, "hair")
+        # nothing reaches THROUGH a window: its own rectangle takes the
+        # pointer before anything it happens to be floating over
+        said.hit(x, y + 20, w, h - 20, "win", wid)
+        _inside(said, look, wid, facet, about, (x, y + 20, w, h - 20))
+    said.drop(was)
+
+
+def _inside(
+    said: Frame,
+    look: Look,
+    wid: str,
+    facet: str,
+    about: str,
+    room: tuple[float, float, float, float],
+) -> None:
+    """What one window SHOWS — the facet it was torn from, in its own room."""
+    draw = DRAWN.get(facet)
+    if draw is None:
+        said.text(room[0] + 12, room[1] + 22, "dim", f"nothing draws a {facet}")
+        return
+    # a window carries what it is ABOUT in its own layer, so it keeps saying
+    # that after the cursor has gone elsewhere
+    layer = dict(look.state)
+    if facet == "pin":
+        layer["pin.span"] = about
+        layer["pin.gen"] = look.says(f"gen.{wid}", str(look.generation))
+    elif facet == "rail":
+        layer["rail.rule"] = about
+    draw(
+        said,
+        room,
+        Look(
+            look.reading,
+            look.it,
+            look.at,
+            layer,
+            look.watched,
+            look.typed,
+            look.frontier,
+            look.routes,
+            look.generation,
+        ),
+    )
 
 
 def _banner(said: Frame, reading: Reading, wide: int, tall: int) -> None:

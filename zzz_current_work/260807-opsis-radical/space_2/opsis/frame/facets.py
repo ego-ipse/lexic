@@ -31,6 +31,7 @@ from opsis.paint import (
     clock_drawing,
     graph_drawing,
     packed,
+    rail_drawing,
     rails_drawing,
 )
 from opsis.scene import Staged
@@ -342,7 +343,7 @@ def _pinchip(
     if not first <= row < first + rows:
         return
     top = y + 8 + (row - first) * ROW - ROW
-    said.lift()
+    was = said.lift()
     wide = runs("chip", "⌖ pin") + 14
     said.box(run + column * CELL, top, wide, 15, "field2")
     for x1, y1, x2, y2 in (
@@ -354,7 +355,7 @@ def _pinchip(
         said.line(x1, y1, x2, y2, "warm")
     said.text(run + column * CELL + 7, top + 11, "warm", "⌖ pin", face="chip")
     said.hit(run + column * CELL, top, wide, 15, "pin", f"{start}:{end}")
-    said.drop()
+    said.drop(was)
 
 
 # .vbadge — what the PDA analysis decided about a rule, in its own words.
@@ -418,7 +419,7 @@ def _held(look: Look, name: str) -> dict[int, str]:
 
 def _chip(said: Frame, x: float, top: float, rule: str) -> None:
     """▤ rail — the chip that opens this rule as the track it describes."""
-    said.lift()
+    was = said.lift()
     wide = runs("chip", "▤ rail") + 14
     said.box(x, top, wide, 15, "field2")
     for x1, y1, x2, y2 in (
@@ -430,7 +431,7 @@ def _chip(said: Frame, x: float, top: float, rule: str) -> None:
         said.line(x1, y1, x2, y2, "violet")
     said.text(x + 7, top + 11, "violet", "▤ rail", face="chip")
     said.hit(x, top, wide, 15, "rail", rule)
-    said.drop()
+    said.drop(was)
 
 
 def _badge(said: Frame, right: float, top: float, kind: str) -> None:
@@ -622,6 +623,33 @@ def _rails(said: Frame, room: Room, look: Look) -> None:
     x, y, w, _h = room
     drawn = rails_drawing(rails(look.it.shown), int(w - 20))
     said.place(drawn, x + 10, y + 8 - _railtop(drawn, look))
+
+
+def rail(said: Frame, room: Room, look: Look) -> None:
+    """ONE rule's track, alone — what the ▤ chip beside a rule opens.
+
+    Not the whole railway scrolled to it: the chip is raised beside a single
+    rule, and the window it opens is that rule and nothing else.
+    """
+    x, y, w, h = room
+    name = look.says("rail.rule", "")
+    drawn = _kept(
+        f"rail:{name}:{look.reading.reader_name}",
+        lambda: rail_drawing(rails(look.it.shown), name),
+    )
+    if not drawn.marks:
+        said.text(x + 12, y + 22, "dim", f"no track for {name or 'nothing'}")
+        return
+    said.place(drawn, x + 12, y + 10, min(1.0, (w - 24) / max(1.0, drawn.wide)))
+    if drawn.tall * min(1.0, (w - 24) / max(1.0, drawn.wide)) > h - 18:
+        said.text(
+            x + w - 10,
+            y + h - 6,
+            "dimmer",
+            "resize to see more",
+            anchor="r",
+            face="chip",
+        )
 
 
 # what one notch of a wheel moves a DRAWING. A plane scrolls in lines and the
@@ -1139,6 +1167,7 @@ def _wrapped(said: str, room: int) -> list[str]:
 
 DRAWN: dict[str, Callable[[Frame, Room, Look], None]] = {
     "pin": pin,
+    "rail": rail,
     "grammar": grammar,
     "graph": graph,
     "document": document,

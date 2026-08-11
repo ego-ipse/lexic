@@ -46,13 +46,20 @@ class Frame:
         """One mark, onto whichever canvas is being drawn on."""
         (self.over if self.lifted else self.marks).append(mark)
 
-    def lift(self) -> None:
-        """Draw above the text from here — for what must be read over it."""
-        self.lifted = True
+    def lift(self) -> bool:
+        """Draw above the text from here — for what must be read over it.
 
-    def drop(self) -> None:
-        """Back below the text."""
-        self.lifted = False
+        :returns: whether it was ALREADY above, so that something drawn
+            inside a window — which is itself over the text — can put the
+            frame back where it found it instead of dropping the window.
+        """
+        was = self.lifted
+        self.lifted = True
+        return was
+
+    def drop(self, was: bool = False) -> None:
+        """Back below the text, or back to whatever a nested lift found."""
+        self.lifted = was
 
     def box(self, x: float, y: float, w: float, h: float, tone: str) -> None:
         self._put(f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")

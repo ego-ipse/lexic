@@ -40,6 +40,7 @@ class Session:
         "generation",
         "playing",
         "since",
+        "windows",
         "climbed",
         "main",
         "reading",
@@ -60,6 +61,9 @@ class Session:
         # tick that arrives late — or not at all — costs nothing: the reading
         # crosses the document in the same time whatever the frame rate.
         self.since = 0.0
+        # how many windows have ever been opened — an id is never reused, so
+        # a window's camera cannot be inherited by the next one in its place
+        self.windows = 0
         self.generation = 1
         # the session's own policy, and whichever layer is being written to
         self.main: dict[str, str] = {}
@@ -187,18 +191,67 @@ class Session:
         self.state[key] = "off" if self.state.get(key, "on") == "on" else "on"
 
     def _pop(self, words: list[str]) -> None:
-        """⧉ — that facet LEAVES the grid. It is somewhere else now.
+        """⧉ — that facet LEAVES the grid and becomes a window over it.
 
-        The window is the leaf's to open; what popping MEANS is this. The
-        dock is where it comes back from, so closing the window leaves a dim
-        chip rather than a facet nobody can find — which is what made a
-        popped-out facet feel broken before.
+        The dock is where it comes back from, so closing the window leaves a
+        dim chip rather than a facet nobody can find.
         """
-        if words:
-            self.main[f"facet.{words[0]}"] = "off"
+        if not words:
+            return
+        self.main[f"facet.{words[0]}"] = "off"
+        self.open_window(words[0], words[0])
 
-    def _clone(self, _words: list[str]) -> None:
+    def _clone(self, words: list[str]) -> None:
         """⊞ — a SECOND view of it. The grid keeps the one it has."""
+        if words:
+            self.open_window(words[0], words[0])
+
+    def open_window(self, facet: str, about: str, wide: int = 0, tall: int = 0) -> str:
+        """A window over the arrangement, cascaded the way the reference does.
+
+        Simultaneity is the one thing a tiling cannot express, so a window is
+        the ruled exception to regions — and it lives HERE, over the same
+        picture, because a browser window is a different document and cannot
+        overlap the thing it was torn from.
+        """
+        held = [w for w in self.main.get("windows", "").split(" ") if w]
+        at = len(held)
+        wid = f"w{self.windows}"
+        self.windows += 1
+        x, y = 260 + (at % 6) * 30, 120 + (at % 6) * 30
+        self.main["windows"] = " ".join([*held, wid])
+        self.main[f"win.{wid}"] = f"{facet} {x} {y} {wide or 520} {tall or 380} {about}"
+        return wid
+
+    def _win(self, words: list[str]) -> None:
+        """A click INSIDE a window, on nothing in particular — it stays put.
+
+        The window still takes it: reaching through to whatever it is
+        floating over is what makes a window feel like a picture of one.
+        """
+
+    def _shut(self, words: list[str]) -> None:
+        """× — the window is gone. What it was ABOUT is not."""
+        if not words:
+            return
+        held = [w for w in self.main.get("windows", "").split(" ") if w != words[0]]
+        self.main["windows"] = " ".join(held)
+        self.main.pop(f"win.{words[0]}", None)
+
+    def _window(self, words: list[str]) -> None:
+        """A window moved or resized — the drag, in the window's own numbers."""
+        if len(words) < 4:
+            return
+        wid, dx, dy = words[0], float(words[2]), float(words[3])
+        said = self.main.get(f"win.{wid}", "")
+        if not said:
+            return
+        facet, x, y, w, h, about = (said.split(" ", 5) + [""] * 6)[:6]
+        if words[1] == "size":
+            w, h = str(max(220, int(w) + int(dx))), str(max(120, int(h) + int(dy)))
+        else:
+            x, y = str(max(0, int(x) + int(dx))), str(max(34, int(y) + int(dy)))
+        self.main[f"win.{wid}"] = f"{facet} {x} {y} {w} {h} {about}"
 
     def _strata(self, words: list[str]) -> None:
         """Pull back to the whole climb, or come back down into the reading."""
@@ -244,6 +297,9 @@ class Session:
         # tick that arrives late — or not at all — costs nothing: the reading
         # crosses the document in the same time whatever the frame rate.
         self.since = 0.0
+        # how many windows have ever been opened — an id is never reused, so
+        # a window's camera cannot be inherited by the next one in its place
+        self.windows = 0
         self.generation += 1
 
     def _ring(self, _words: list[str]) -> None:
@@ -274,13 +330,21 @@ class Session:
         self.main["place"] = words[0] if words else ""
         self.main["showing"] = ""
 
-    def _rail(self, words: list[str]) -> None:
-        """▤ rail — show this rule as the track it describes, and go to it."""
-        if not words:
+    def _pin(self, words: list[str]) -> None:
+        """⌖ pin — this span, held still in its own window while time moves on."""
+        if not words or ":" not in words[0]:
             return
-        self.state["graph.view"] = "rails"
-        self.state["top.graph"] = f"rule:{words[0]}"
-        self.state["tab.reader"] = "1"
+        wid = self.open_window("pin", words[0], 520, 300)
+        self.main[f"gen.{wid}"] = str(self.generation)
+
+    def _rail(self, words: list[str]) -> None:
+        """▤ rail — this ONE rule, as the track it describes, in its own window.
+
+        Not the whole railway scrolled to it. The chip is raised beside a
+        single rule and what it opens is that rule's track alone.
+        """
+        if words:
+            self.open_window("rail", words[0], 560, 200)
 
     def _sel(self, words: list[str]) -> None:
         """Text selected in a plane — the smallest covering occurrence co-selects.
@@ -420,11 +484,22 @@ class Session:
         )
 
     def _spin(self, words: list[str]) -> None:
-        """The graph, turned — the same rates the leaf's drag used."""
-        if len(words) < 2:
+        """A drag: what it started ON decides what it MEANS.
+
+        A window head moves it, a corner resizes it, a graph turns. The leaf
+        reports the origin and the distance and nothing else — deciding is
+        not its job, and it does not have what it would take to decide.
+        """
+        if len(words) < 4:
             return
-        yaw = float(self.state.get("graph.yaw", "0.42")) + float(words[0]) * 0.006
-        pitch = float(self.state.get("graph.pitch", "0.92")) + float(words[1]) * 0.005
+        kind, goes = words[0], words[1]
+        if kind in ("winhead", "wincorner"):
+            self._window([goes, "size" if kind == "wincorner" else "move", *words[2:]])
+            return
+        if kind == "pan" or (kind == "-" and goes == "-"):
+            pass
+        yaw = float(self.state.get("graph.yaw", "0.42")) + float(words[2]) * 0.006
+        pitch = float(self.state.get("graph.pitch", "0.92")) + float(words[3]) * 0.005
         self.state["graph.yaw"] = f"{yaw:.3f}"
         self.state["graph.pitch"] = f"{max(-1.4, min(1.4, pitch)):.3f}"
 
@@ -546,7 +621,10 @@ LANDED: dict[str, Said] = {
     "facet": Session._facet,
     "gutter": Session._gutter,
     "place": Session._place,
+    "pin": Session._pin,
     "rail": Session._rail,
+    "shut": Session._shut,
+    "win": Session._win,
     "rung": Session._rung,
     "ring": Session._ring,
     "strata": Session._strata,
