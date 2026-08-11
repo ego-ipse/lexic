@@ -28,6 +28,8 @@ import rails as tracks  # noqa: E402
 import routes  # noqa: E402
 import scene as scenes  # noqa: E402
 import strata as maps  # noqa: E402
+import compiling  # noqa: E402, F401 — importing registers the kind
+import keeping  # noqa: E402, F401 — importing registers the kind
 import viewing  # noqa: E402, F401 — importing registers the kind
 from reading import Reading, Turn, turn  # noqa: E402, F401 — registers the kind
 from relate import DOCUMENT, READER, Session, Text  # noqa: E402

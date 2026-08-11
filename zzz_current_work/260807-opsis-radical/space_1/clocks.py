@@ -146,6 +146,12 @@ def _worth(row: str) -> tuple[int, int]:
     return (int(done), int(last) - int(origin))
 
 
+def _meant(plain: dict[str, str], item: object) -> str:
+    """An item, with synthetic references replaced by what they stand for."""
+    said = rails.said(item)
+    return plain.get(said, said)
+
+
 _CHART: dict[tuple[int, int], tuple[Kernel, ParserTables]] = {}
 
 
@@ -159,24 +165,43 @@ def chart(compiled: CompiledGrammar, text: str) -> tuple[Kernel, ParserTables]:
     return _CHART[key]
 
 
+def _plain(grammar: object) -> dict[str, str]:
+    """Synthetic rule name → what it stands for, spelled.
+
+    ``normalize`` cuts ``__rep_N`` helpers out of quantifiers; they are real
+    rules of the instance grammar and meaningless to a reader — there is no
+    line for them in the text and no room behind their name.
+    """
+    out: dict[str, str] = {}
+    for rule in getattr(grammar, "rules", ()):
+        name = str(rule.name)
+        if not name.startswith("__"):
+            continue
+        arms = [" ".join(rails.said(item) for item in arm) or "ε" for arm in rule.body]
+        out[name] = arms[0] if len(arms) == 1 else "( " + " | ".join(arms) + " )"
+    return out
+
+
 def column(compiled: CompiledGrammar, text: str, at: int) -> str:
     """One Earley column, as dotted items — what the chart believed there.
 
     Fetched per cursor move; whole-document item sets never ship.
     """
     kernel, tables = chart(compiled, text)
+    plain = _plain(normalize(lift_optional_nullables(compiled.codegen_grammar)))
     if not 0 <= at < len(kernel.cols):
         return f"#COLUMN {at} 0\n#EXPECT 0\n"
     items: list[str] = []
     expect: set[str] = set()
     for packed in kernel.cols[at]:
         rule, seq, dot, origin = decode_item(tables, packed)
-        done = " ".join(rails.said(part) for part in seq[:dot])
-        todo = " ".join(rails.said(part) for part in seq[dot:])
+        done = " ".join(_meant(plain, part) for part in seq[:dot])
+        todo = " ".join(_meant(plain, part) for part in seq[dot:])
         role = "complete" if dot >= len(seq) else "active"
-        items.append(f"{origin} {role} {rule} ::= {done} ● {todo}".rstrip())
+        name = plain.get(str(rule), str(rule))
+        items.append(f"{origin} {role} {name} ::= {done} ● {todo}".rstrip())
         if dot < len(seq):
-            expect.add(rails.said(seq[dot]))
+            expect.add(_meant(plain, seq[dot]))
     return "\n".join(
         [
             f"#COLUMN {at} {len(items)}",

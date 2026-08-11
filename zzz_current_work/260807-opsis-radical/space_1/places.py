@@ -9,7 +9,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from relate import Relation, Session
+import machine
+from compiling import Compiling
+from keeping import Keeping
+from reading import turn
+from relate import SUBJECT, Relation, Session
 from viewing import Viewing
 
 __all__ = ["Section", "frame", "sections"]
@@ -35,12 +39,66 @@ def sections(relation: Relation) -> list[Section]:
     """
     if isinstance(relation, Viewing):
         return _value_room(relation)
+    if isinstance(relation, Compiling):
+        return _machine_room(relation)
+    if isinstance(relation, Keeping):
+        return _artefact_room(relation)
     return [
         Section("facet", ["the cast — who is standing where"]),
         Section("title", [relation.label()]),
         Section(
             "kv", [f"{role}\t{thing.about()}" for role, thing in relation.cast.items()]
         ),
+    ]
+
+
+def _machine_room(relation: Compiling) -> list[Section]:
+    """What the compiler made, and what it decided — its own words."""
+    turned = turn(relation.cast[SUBJECT.name])
+    said = machine.verdicts(turned.machine).splitlines()[1:] if turned else []
+    rows: list[str] = []
+    for row in said:
+        parts = row.split(" ", 2)
+        if len(parts) == 3 and parts[1].isdigit():
+            rows.append(f"{parts[2]} — {parts[0]}")
+    return [
+        Section("facet", ["the machine — clones, not rules"]),
+        Section(
+            "kv",
+            [
+                f"clones\t{relation.clones}",
+                f"rules\t{relation.rules}",
+                *(
+                    f"{kind}\t{count}"
+                    for kind, count in sorted(relation.classes.items())
+                ),
+            ],
+        ),
+        Section("facet", ["what the compiler decided, per rule"]),
+        Section("list", rows or ["nothing compiled"]),
+    ]
+
+
+def _artefact_room(relation: Keeping) -> list[Section]:
+    """Every form this thing can be written as, each with its witness."""
+    out: list[Section] = []
+    for made in relation.artefacts:
+        out.append(Section("facet", [f"{made.name} — {made.witness}"]))
+        out.append(
+            Section(
+                "kv",
+                [
+                    f"chars\t{made.chars:,}",
+                    f"witness\t{made.witness}",
+                    f"words\t{made.words}",
+                ],
+            )
+        )
+        head = made.text.split("\n")[:60]
+        out.append(Section("textlines", [f"|{line}" for line in head]))
+    return out or [
+        Section("facet", ["nothing to keep"]),
+        Section("refusal", ["this thing has no artefact family — nothing compiles it"]),
     ]
 
 

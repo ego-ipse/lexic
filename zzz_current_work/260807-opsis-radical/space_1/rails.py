@@ -22,7 +22,13 @@ from lexic.ir import (
 
 __all__ = ["rail", "rails", "said"]
 
-ESCAPES = {"\n": "\\n", "\t": "\\t", "\r": "\\r", "\\": "\\\\", chr(34): chr(92) + chr(34)}
+ESCAPES = {
+    "\n": "\\n",
+    "\t": "\\t",
+    "\r": "\\r",
+    "\\": "\\\\",
+    chr(34): chr(92) + chr(34),
+}
 
 
 def rails(ast: IrAst) -> str:
