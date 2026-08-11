@@ -88,6 +88,16 @@ uv run python .../space_2/gate.py    # exit 0, or it is not done
 35 facts over the real composer. The frame is data, so the gate reads what
 the leaf would be sent.
 
+## The probe
+
+```bash
+.../space_2/probe.sh    # exit 0, or it is not done
+```
+
+What only a browser can answer: that a plane sits on the geometry it was
+sent, that a box paints where the frame put it, and that a character is the
+width the frame believes it is.
+
 ## What it costs
 
 4 ms a gesture. Four things are facts about a READING rather than a cursor and

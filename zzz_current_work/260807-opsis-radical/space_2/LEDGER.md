@@ -218,11 +218,35 @@ It found two things on its first run that were not gate bugs:
 - **`value` has no spans of its own** — it is spelled by whichever arm it
   took — so a check written against it was testing nothing.
 
-## What is NOT here
+## The probe
 
-The probe harness. `gate.py` drives the composer, not the browser, so
-anything that can only be wrong in a leaf — a mark painted at the wrong
-place, an element positioned off its geometry — is still checked by eye.
+```bash
+zzz_current_work/260807-opsis-radical/space_2/probe.sh    # 0 = done
+```
+
+Seven facts the gate cannot reach, checked by the leaf standing in the
+browser looking at the result: the canvas is sized to its element rather than
+stretched into it · every text plane sits on the geometry it was sent · a
+character is the width the frame believes · a line is the height it believes
+· a box paints where the frame put it, in the tone it named · landing on a
+tab changes which facet is shown · the leaf paints without waiting for an
+animation frame.
+
+Two of those are there because of specific failures:
+
+- **`requestAnimationFrame`.** An earlier harness scheduled through it, and
+  headless Chrome does not fire it under `--virtual-time-budget`, so every
+  "verified" measurement read a canvas that had not been drawn. The probe
+  awaits `ask()` and asserts the leaf schedules nothing.
+- **The glyph geometry.** Every highlight drawn under the text is placed with
+  `CELL` and `ROW`, which were my estimates. The browser now says: 7.526
+  against a believed 7.5, and 19 against 19. Guessed widths are what clipped
+  the parity verdict, the graph chips and the strata's doors; this is the
+  measurement that stops it being a guess.
+
+The probe also caught its own weak fact on the first run — it clicked the tab
+that was already showing, so "landing on a tab changes what is shown" could
+not fail. A fact that cannot fail is worse than no fact.
 
 ## Not ported yet
 

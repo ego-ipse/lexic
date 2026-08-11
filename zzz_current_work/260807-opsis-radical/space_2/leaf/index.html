@@ -9,5 +9,12 @@
 <canvas id="paper"></canvas>
 <div id="planes"></div>
 <script src="/leaf.js"></script>
+<script>
+  if (new URLSearchParams(location.search).has("probe")) {
+    const s = document.createElement("script");
+    s.src = "/probe.js";
+    document.body.appendChild(s);
+  }
+</script>
 </body>
 </html>
