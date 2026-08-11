@@ -255,7 +255,7 @@ class Session:
         if not words:
             return
         self.state["graph.view"] = "rails"
-        self.state["top.rails"] = f"rule:{words[0]}"
+        self.state["top.graph"] = f"rule:{words[0]}"
         self.state["tab.reader"] = "1"
 
     def _sel(self, words: list[str]) -> None:

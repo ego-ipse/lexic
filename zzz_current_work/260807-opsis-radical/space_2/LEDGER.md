@@ -244,6 +244,18 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## Two keys for one scroll
+
+The rail chip wrote `top.rails`, the wheel wrote `top.graph`, and the drawing
+read `top.rails` — so the chip worked and the wheel did nothing at all. It is
+the facet's own key now, and a notch is worth what the FACET says it is
+worth: a plane scrolls in lines because a plane knows what a line is, and a
+stack of railroads has no lines, so it says 26px.
+
+Seams were never verified either. They hold: dragging the first one moves
+THE DOCUMENT's head 389 · 749 · 914 across a quarter, the measured rest, and
+six tenths.
+
 ## Three cursors on one subject
 
 Cursors live on the SUBJECT — time, selection, hover — and every facet

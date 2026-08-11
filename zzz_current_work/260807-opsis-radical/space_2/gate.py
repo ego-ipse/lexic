@@ -293,6 +293,43 @@ def main() -> int:
         ),
     )
 
+    print("the hand moves the arrangement")
+
+    def head_at(state: dict[str, str], name: str = "THE DOCUMENT") -> float:
+        for mark in frame(state).marks:
+            if mark.startswith("text ") and " ".join(mark.split(" ")[6:]) == name:
+                return float(mark.split(" ")[1])
+        return -1.0
+
+    rest = head_at({})
+    check(
+        "a seam the hand moved is where the next arrangement is measured from",
+        head_at({"arrange.shares": "0.25"}) < rest < head_at({"arrange.shares": "0.6"}),
+        f"{head_at({'arrange.shares': '0.25'}):.0f} < {rest:.0f} "
+        f"< {head_at({'arrange.shares': '0.6'}):.0f}",
+    )
+
+    def rail_at(state: dict[str, str]) -> float:
+        for mark in frame({**state, "tab.reader": "1", "graph.view": "rails"}).marks:
+            parts = mark.split(" ")
+            if (
+                mark.startswith("text ")
+                and parts[3] == "name"
+                and " ".join(parts[6:]) == "json-text"
+            ):
+                return float(parts[2])
+        return -1.0
+
+    check(
+        "the rails scroll on the wheel, on the facet's own key",
+        rail_at({"top.graph": "3"}) < rail_at({}),
+        f"{rail_at({}):.0f} → {rail_at({'top.graph': '3'}):.0f}",
+    )
+    check(
+        "and ▤ rail scrolls them to a rule BY NAME",
+        rail_at({"top.graph": "rule:number"}) < rail_at({}),
+    )
+
     print("three cursors on one subject")
 
     def held(state: dict[str, str]) -> set[str]:

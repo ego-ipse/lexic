@@ -525,11 +525,21 @@ def _rails(said: Frame, room: Room, look: Look) -> None:
     said.place(drawn, x + 10, y + 8 - _railtop(drawn, look))
 
 
+# what one notch of a wheel moves a DRAWING. A plane scrolls in lines and the
+# plane knows what a line is; a stack of railroads has no lines, so the facet
+# says what a notch is worth in it.
+NOTCH = 26.0
+
+
 def _railtop(drawn: Drawing, look: Look) -> float:
-    """How far down the rails are scrolled — by rows, or to a named rule."""
-    where = look.says("top.rails", "0")
+    """How far down the rails are scrolled — by notches, or to a named rule.
+
+    On the facet's OWN key. The chip wrote `top.rails` and the wheel wrote
+    `top.graph`, so the chip worked and the wheel did nothing at all.
+    """
+    where = look.says("top.graph", "0")
     if not where.startswith("rule:"):
-        return float(look.top("rails"))
+        return float(look.top("graph")) * NOTCH
     wanted = where[len("rule:") :]
     for mark in drawn.marks:
         parts = mark.split(" ")
