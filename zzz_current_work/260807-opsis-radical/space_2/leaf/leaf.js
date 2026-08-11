@@ -67,8 +67,8 @@ function read(said) {
   const lines = said.split('\n');
   const font = (lines[0] || '').startsWith('#FONT ') ? lines[0].slice(6) : '';
   const tones = +(lines[1] || '').split(' ')[1] || 0;
-  const fills = {}, edges = {}, fonts = {};
-  const into = { fill: fills, edge: edges, font: fonts };
+  const fills = {}, edges = {}, fonts = {}, tracks = {};
+  const into = { fill: fills, edge: edges, font: fonts, track: tracks };
   for (const row of lines.slice(2, 2 + tones)) {
     const p = row.split(' ');
     if (into[p[0]]) into[p[0]][p[1]] = p.slice(2).join(' ');
@@ -125,7 +125,7 @@ function read(said) {
     plane.text = said.slice(where, where + plane.chars);
     where += plane.chars;
   }
-  return { font, fills, edges, fonts, marks, hits, running,
+  return { font, fills, edges, fonts, tracks, marks, hits, running,
            planes: shown, over: above, picks };
 }
 
@@ -183,10 +183,14 @@ function strokes(canvas, marks) {
       cx.font = frame.font;
     } else if (p[0] === 'text') {
       cx.font = face(p[4]);
+      /* letter-spacing is part of a face: #title is tracked 0.18em, and a
+         canvas that ignores it draws a visibly different word */
+      cx.letterSpacing = frame.tracks[p[4]] || '0px';
       cx.fillStyle = fill(p[3]);
       cx.textAlign = p[5] === 'r' ? 'right' : 'left';
       cx.fillText(p.slice(6).join(' '), +p[1], +p[2]);
       cx.textAlign = 'left';
+      cx.letterSpacing = '0px';
     }
   }
 }

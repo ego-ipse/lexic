@@ -153,15 +153,24 @@ def runs(tone: str, said: str) -> float:
     two chips in a facet's head ended up overlapping each other.
     """
     cell = ADVANCE.get(tone, CELL)
-    return sum(cell if glyph.isascii() else cell * 1.6 for glyph in said)
+    # tracked-out text is WIDER, and a width that forgets it overlaps the
+    # next thing along
+    space = {"title": 2.5, "chip": 0.6, "ftitle": 1.5}.get(tone, 0.0)
+    return sum(cell + space if glyph.isascii() else cell * 1.6 + space for glyph in said)
+
+
+# letter-spacing is part of a face, not decoration: #title is 0.18em and a
+# rung is 0.06em, and a canvas that ignores it draws a different word.
+TRACKING = {"title": "0.18em", "chip": "0.06em", "ftitle": "0.14em"}
 
 
 def register() -> list[str]:
     """The palette as wire lines — fills, edges and faces."""
     return [
         f"#FONT {MONO}",
-        f"#TONES {len(TONES) + len(EDGES) + len(FONTS)}",
+        f"#TONES {len(TONES) + len(EDGES) + len(FONTS) + len(TRACKING)}",
         *(f"fill {name} {said}" for name, said in TONES.items()),
         *(f"edge {name} {said}" for name, said in EDGES.items()),
         *(f"font {name} {said}" for name, said in FONTS.items()),
+        *(f"track {name} {said}" for name, said in TRACKING.items()),
     ]

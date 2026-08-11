@@ -91,7 +91,7 @@ def compose(
         DRAWN[only](said, head(said, region, titles, HEADS(look, only), columns), look)
         return said
 
-    _masthead(said, reading, it, wide, generation, _every(reading), look)
+    _masthead(said, reading, it, wide, generation, _every(reading), look, titles)
     grid = walked(str(it.policy["arrange.tree"]), 0, BAR, wide, tall - BAR * 2)
     for region in grid.regions:
         draw = DRAWN.get(region.name)
@@ -290,9 +290,19 @@ def _banner(said: Frame, reading: Reading, wide: int, tall: int) -> None:
     )
 
 
-def _docked(shown: list[str]) -> float:
+def worded(titles: dict[str, str], facet: str) -> str:
+    """What a facet is CALLED in the dock — its own title's first word.
+
+    `FACET_WORD` — "THE DERIVATION · text is the time axis" is `derivation`.
+    A dock spelling the internal names (grammar, graph, chart) named things
+    the instrument never calls them anywhere else on the screen.
+    """
+    return called(titles.get(facet, facet))[0].removeprefix("THE ").strip().lower()
+
+
+def _docked(titles: dict[str, str], shown: list[str]) -> float:
     """How wide the dock is — where whatever follows it starts."""
-    return sum(runs("chip", facet) + 28 for facet in shown)
+    return sum(runs("chip", worded(titles, f)) + 28 for f in shown)
 
 
 def _masthead(
@@ -303,20 +313,35 @@ def _masthead(
     generation: int,
     shown: list[str],
     look: Look,
+    titles: dict[str, str],
 ) -> None:
     """#mast — the name, what is loaded, the ladder, the dock, the verdict."""
     said.line(0, BAR, wide, BAR, "hair")
     said.text(PAD, 22, "title", "FACETS")
     at = PAD + runs("title", "FACETS") + 18
+    # #sub — what READ what, and how long it took. Not the pairing again: the
+    # ladder chip beside it already says that, and saying it twice cost the
+    # room the reading's own numbers needed.
     sub = (
-        f"{reading.document.name} ⊳ {reading.reader_name} · "
-        f"{len(reading.text):,} chars in {reading.seconds:.2f}s · gen {generation}"
+        f"{reading.reader_name} read {len(reading.text):,} chars "
+        f"in {reading.seconds:.2f}s"
     )
     said.text(at, 22, "fsub", sub, 30 * 6.4)
     at += min(runs("fsub", sub), 30 * 6.4) + 16
-    at = _ladder(said, it, at)
-    _dock(said, it, shown, at)
-    _pincount(said, look, at + _docked(shown) + 14)
+    _ladder(said, it, at)
+    # #ladder is `flex: 1` — it takes what is left, so the dock and the
+    # verdict sit at the RIGHT edge. Packing them beside the chip put five
+    # chips in the middle of a bar that is mostly empty on the right.
+    holds = (
+        "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
+    )
+    said.text(wide - PAD, 22, "green" if reading.faithful else "red", holds, anchor="r")
+    right = wide - PAD - runs("verdict", holds) - 34
+    windows = [w for w in look.says("windows", "").split(" ") if w]
+    if windows:
+        right -= runs("verdict", f"pinned {len(windows)}") + 16
+        said.text(right + 8, 22, "warm", f"pinned {len(windows)}", face="verdict")
+    _dock(said, it, titles, shown, right - _docked(titles, shown))
     holds = (
         "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
     )
@@ -335,7 +360,7 @@ def _ladder(said: Frame, it: Staged, at: float) -> float:
     _level, _, rest = here.partition(" ")
     pair, _, _seen = rest.partition(" · ")
     word = f"{pair or '…'}  ∴"
-    wide = min(34 * 6.0, runs("chip", word)) + 16
+    wide = min(26 * 6.6, runs("chip", word)) + 16
     for x1, y1, x2, y2 in (
         (at, 8, at + wide, 8),
         (at, 26, at + wide, 26),
@@ -349,7 +374,9 @@ def _ladder(said: Frame, it: Staged, at: float) -> float:
     return at + 6
 
 
-def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
+def _dock(
+    said: Frame, it: Staged, titles: dict[str, str], shown: list[str], at: float
+) -> None:
     """#dock — every facet as a node: lit is present, dim is minimized.
 
     Clicking one toggles it. A minimized facet is not gone: it keeps all its
@@ -357,7 +384,7 @@ def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
     """
     for facet in shown:
         here = any(f.name == facet for f in it.facets)
-        word = facet
+        word = worded(titles, facet)
         wide = runs("chip", word) + 22
         for x1, y1, x2, y2 in (
             (at, 8, at + wide, 8),
@@ -366,8 +393,8 @@ def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
             (at + wide, 8, at + wide, 26),
         ):
             said.line(x1, y1, x2, y2, "hair")
-        # the chip's own dot: cool when the facet is present, dimmer when not
-        said.box(at + 6, 15, 6, 6, "cool" if here else "dimmer")
+        # .fnode-chip i — a ROUND dot, 6px, cool when the facet is present
+        said.box(at + 6, 14, 6, 6, "cool" if here else "dimmer")
         said.text(at + 16, 21, "chip" if here else "dimmer", word, face="chip")
         said.hit(at, 8, wide, 18, "facet", facet)
         at += wide + 6

@@ -673,6 +673,9 @@ class Session:
     def _play(self, _words: list[str]) -> None:
         self.playing = not self.playing
         self.since = monotonic()
+        # the frame reads it as policy, so it has to BE policy: the bar said
+        # "paused" through an entire playback because nothing wrote this
+        self.main["playing"] = "1" if self.playing else "0"
 
     def _speed(self, words: list[str]) -> None:
         was = float(self.state.get("speed", "1"))
@@ -697,6 +700,7 @@ class Session:
             self.at + gone * length / 10 * float(self.state.get("speed", "1")), length
         )
         self.playing = self.at < length
+        self.main["playing"] = "1" if self.playing else "0"
         self.follow()
 
     def follow(self) -> None:
@@ -736,6 +740,9 @@ SAYS: dict[str, Said] = {
 
 # what it landed on
 LANDED: dict[str, Said] = {
+    # a chip standing for a gesture. It was never here, so every button in
+    # the status bar — the transport, the speed — landed on nothing at all.
+    "do": Session._do,
     "facet": Session._facet,
     "gutter": Session._gutter,
     "place": Session._place,

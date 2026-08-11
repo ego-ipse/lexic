@@ -219,15 +219,10 @@ def main() -> int:
     # arrives as `spin`, `seam`, `zone` or `move` — gestures the session
     # answers, from a hit nobody ever clicks
     handles = {"head", "winhead", "wincorner"}
-    by_session = set(LANDED) | {
-        "scroll",
-        "seam",
-        "pin",
-        "rail",
-        "facet",
-        "strata",
-        "place",
-        "do",
+    # NOT a list of what SHOULD be answered — the tables themselves. Naming
+    # `do` here while `LANDED` had no such key is how every button in the
+    # status bar passed this gate and did nothing.
+    by_session = set(LANDED) | set(SAYS) | {
         "form",
         "graph.view",
         "chart.clock",
