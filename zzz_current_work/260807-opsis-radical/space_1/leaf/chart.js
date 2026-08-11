@@ -311,7 +311,14 @@ function drawChart(view = chartMain) {
   cx.strokeStyle = C.warm;
   cx.strokeRect(ox(at), 5, ox(Math.min(at + win, N)) - ox(at), bandH + 6);
   const lanesY = bandH + 22;
-  const laneH = Math.max(6, Math.min(22, Math.floor((h - lanesY - 8) / (S.maxdepth + 1))));
+  // THE DRAWING'S lane, not a second guess at it. The hit test computing
+  // its own lane height while the picture used another is how hovering
+  // landed one lane deep — the exact drift a served picture invites.
+  const drawn = drawings.get(`chart:${S.meta.generation}:${Math.round(h)}`);
+  const firstBox = drawn && drawn.marks.find((m) => m.startsWith('box '));
+  const laneH = firstBox
+    ? (+firstBox.split(' ')[4]) + 2
+    : Math.max(6, Math.min(22, Math.floor((h - lanesY - 8) / (S.maxdepth + 1))));
   const sx = (off) => pad + (off - at) * pitch;
   const hit = { pad, bandH, lanesY, laneH, pitch, win, ox, at };
   view.hit = hit;

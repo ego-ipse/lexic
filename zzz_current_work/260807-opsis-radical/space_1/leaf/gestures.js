@@ -90,8 +90,25 @@ function wire() {
     if (y >= lanesY) {
       const off = view0 + (e.clientX - r.left - pad) / pitch;
       if (chartClock === 'model') {
-        const d = Math.floor((y - lanesY) / laneH);
-        S.spans.forEach((s, i) => { if (s.d === d && s.s <= off && off < s.e) hover = i; });
+        // hit-test the DRAWING's own boxes: they carry both the y they were
+        // painted at and the span they are. Recomputing a lane here is a
+        // second geometry, and a second geometry drifts — it was landing a
+        // lane deep, so hovering one span reported the one nested inside it.
+        const said = drawings.get(`chart:${S.meta.generation}:${Math.round(
+          $('chartCv').clientHeight)}`);
+        if (said) {
+          for (const mark of said.marks) {
+            const m = mark.split(' ');
+            if (m[0] !== 'box') continue;
+            const top = lanesY + (+m[2]), bottom = top + (+m[4]);
+            if (y < top || y > bottom) continue;
+            const [s0, e0, index] = m[6].split(':').map(Number);
+            if (s0 <= off && off < e0) hover = index;
+          }
+        } else {
+          const d = Math.floor((y - lanesY) / laneH);
+          S.spans.forEach((s, i) => { if (s.d === d && s.s <= off && off < s.e) hover = i; });
+        }
       } else if (off >= 0 && off <= S.doc.length && clockHit && clockReady()) {
         // a clock lane holds extents: find the one under the hand
         clkh = Math.round(off);
