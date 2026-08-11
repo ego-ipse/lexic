@@ -27,7 +27,9 @@ from lexic.compile import compile_text  # noqa: E402
 from machine import machine_facet  # noqa: E402
 from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
-from read import Facet, Reading, as_written, read, read_up  # noqa: E402
+from chain import Rung  # noqa: E402
+from read import Facet, Reading, as_written, read, read_up, upward  # noqa: E402
+from retype import retype  # noqa: E402
 from draw import edges, levels  # noqa: E402
 from track import rail, rails  # noqa: E402
 from watch import watch  # noqa: E402
@@ -179,6 +181,9 @@ class Handler(BaseHTTPRequestHandler):
     # gesture and reconciles against the next poll. Discarding writes made it
     # delete every pin it had just created, one poll later.
     state: dict[str, str] = {}
+    # every rung entered so far, bottom first: the ladder you can walk BACK
+    # down. Without it, climbing threw away the reading below.
+    climbed: list[Reading] = []
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         """Silence: the instrument's own output is the interesting one."""
@@ -211,20 +216,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send(PENDING.get(path, ""))
 
     def travel(self, rung: int) -> str:
-        """Enter a rung of the chain. Entering is what parses it.
+        """Enter a rung of the chain — up OR down.
 
-        Rung 0 is where we are. Rung 1 is this reader read as a document —
-        the pair chirality already named, held for the first time here.
+        The climb is a STACK, not a replacement. Overwriting the current
+        reading on the way up left nothing to come back to: the chain is
+        computed from where you stand, so descending had no floor to stand
+        on. Every rung already entered is kept, so going down costs nothing
+        and going up costs one parse, once.
         """
-        rungs = chain(self.reading)
-        if not 0 <= rung < len(rungs):
+        if rung < 0:
             return "refuse no such rung\n"
-        if rung == 0:
-            return "ok\n"
-        above = read_up(self.reading)
-        if above is None:
-            return "refuse nothing reads this\n"
-        Handler.reading = above
+        while len(Handler.climbed) <= rung:
+            above = read_up(Handler.climbed[-1])
+            if above is None:
+                return "refuse nothing reads that\n"
+            Handler.climbed.append(above)
+        Handler.reading = Handler.climbed[rung]
         _DRAWN.clear()
         return "ok\n"
 
@@ -258,11 +265,27 @@ class Handler(BaseHTTPRequestHandler):
                 ]
             )
         if path == "/strata":
-            rungs = chain(self.reading)
+            # the ladder is what has been CLIMBED plus the one rung above it,
+            # named. Computing it from the current reading made the rungs
+            # below vanish the moment you stepped up.
+            walked = Handler.climbed or [self.reading]
+            here = walked.index(self.reading) if self.reading in walked else 0
+            rungs = [
+                Rung(r.document.name, r.reader_name, i, True)
+                for i, r in enumerate(walked)
+            ]
+            # the rung above is THIS reader read as a document. Once the
+            # reader IS a metagrammar, the next rung would be it reading its
+            # own spelling — the fixpoint — and naming it again just repeated
+            # the rung you are standing on.
+            top = walked[-1]
+            named = upward(top)
+            if named is not None and top.reader_name != named[1]:
+                rungs.append(Rung(top.reader_name, named[1], len(rungs), False))
             lanes = [rung.document for rung in rungs]
             return "\n".join(
                 [
-                    f"#STRATA {len(rungs)} 0",
+                    f"#STRATA {len(rungs)} {here}",
                     *(f"L {i} {name}" for i, name in enumerate(lanes)),
                     *(
                         f"c {i} {rung.level} {i} r {1 if rung.visited else 0} "
@@ -324,7 +347,27 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send(self.travel(int(digits[-1])))
             return
-        if urlparse(self.path).path == "/policy":
+        path = urlparse(self.path).path
+        if path in ("/edit", "/save"):
+            head, _, put = body.partition("\n")
+            bounds = [w for w in head.split() if w.lstrip("-").isdigit()]
+            if len(bounds) != 2:
+                self.send("refuse an edit says WHERE before it says what\n")
+                return
+            done = retype(self.reading, int(bounds[0]), int(bounds[1]), put)
+            _DRAWN.clear()
+            if done.state == "refused":
+                self.send(f"refuse {done.pos}\n{done.words}\n")
+            else:
+                self.send(f"ok {done.seconds:.2f}\n")
+            return
+        if path == "/cursor":
+            self.send("ok\n")  # fire-and-forget, by design
+            return
+        if path == "/cast":
+            self.send("refuse this build has no casts yet\n")
+            return
+        if path == "/policy":
             for line in body.splitlines():
                 key, _, value = line.partition(" ")
                 if not key:
@@ -349,6 +392,7 @@ def main() -> int:
     print(f"arrangement {arrange(facets)}")
     print(f"wants a window: {windowed(facets, 200) or 'nothing'}")
     Handler.reading = reading
+    Handler.climbed = [reading]
     port = int(args[2]) if len(args) > 2 else 8917
     print(f"space_1 at http://127.0.0.1:{port}/")
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
