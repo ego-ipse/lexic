@@ -858,11 +858,24 @@ STILL NOT THE REFERENCE, and the arithmetic says it should be. Measured:
   screenshot puts it at about 365, and shows three levels where 1.16 would
   show all six
 
-So a number feeding its projection is not the one its `/rulegraph` returns.
-Read `loadPlaces` and what `proj` holds for flat — between the fetch and
-`P.x = w/2 + (P.x - mx) * k + pan.x` something rescales, and every attempt to
-match the picture without knowing what it is has been a guess. FIND THAT,
-then add the overflow nudge, which this port still does not have.
+READ, AND NOTHING DOES. `loadPlaces` sets `proj` straight from the fetched
+places for flat; `gRecentre` only computes a mean the THREE-SPACE projection
+uses. So the arithmetic stands: k = 1.16, `JSON-text` at x = 70, six levels.
+
+Which points at the CAPTURE, not the port. The reference's graph loads
+asynchronously — `loadPlaces` fetches, and `placedFor` keys the cache by
+view, box and generation. A screenshot taken while that key still held the
+previous view shows the previous view's picture. The three-level image this
+whole comparison rests on may be exactly that.
+
+BEFORE ANY MORE WORK ON THE FIT: screenshot the reference twice in a row on
+the same settled session and check the two agree. If they do not, every
+number taken off the first one is worthless — including the ones above. This
+would be the fifth wrong diagnosis of the day, and the first four all came
+from trusting one picture.
+
+The overflow nudge is still unported either way, and that is real: `pan.x =
+70 - w/2 - (x0 - mx) * k` when the picture is wider than the room.
 
 ## Not ported yet
 
