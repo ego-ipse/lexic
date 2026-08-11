@@ -257,17 +257,32 @@ class Session:
         at = len(held)
         wid = f"w{self.windows}"
         self.windows += 1
-        x, y = 260 + (at % 6) * 30, 120 + (at % 6) * 30
+        # `floatWindow`: 620x460, cascaded by 26 from 240,110
+        x, y = 240 + (at % 6) * 26, 110 + (at % 6) * 26
         self.main["windows"] = " ".join([*held, wid])
-        self.main[f"win.{wid}"] = f"{facet} {x} {y} {wide or 520} {tall or 380} {about}"
+        self.main[f"win.{wid}"] = f"{facet} {x} {y} {wide or 620} {tall or 460} {about}"
         return wid
 
+    def raise_window(self, wid: str) -> None:
+        """`zIndex = ++winZ` — what you touch comes to the front.
+
+        Windows are drawn in the order they are listed, so being touched IS
+        being moved to the end of that list. Without it a window behind
+        another can never be brought forward, which is most of what makes
+        three of them a mess.
+        """
+        held = [w for w in self.main.get("windows", "").split(" ") if w]
+        if wid in held:
+            self.main["windows"] = " ".join([*(w for w in held if w != wid), wid])
+
     def _win(self, words: list[str]) -> None:
-        """A click INSIDE a window, on nothing in particular — it stays put.
+        """A click INSIDE a window: it comes to the front and stays put.
 
         The window still takes it: reaching through to whatever it is
         floating over is what makes a window feel like a picture of one.
         """
+        if words:
+            self.raise_window(words[0])
 
     def _shut(self, words: list[str]) -> None:
         """× — the window is gone, and a POPPED facet goes back where it was."""
@@ -287,6 +302,7 @@ class Session:
         if len(words) < 4:
             return
         wid, dx, dy = words[0], float(words[2]), float(words[3])
+        self.raise_window(wid)
         said = self.main.get(f"win.{wid}", "")
         if not said:
             return
