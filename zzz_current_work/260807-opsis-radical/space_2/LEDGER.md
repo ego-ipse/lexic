@@ -755,14 +755,16 @@ did nothing at all. That is what "flat and arcs look like shit" was: the
 picture wherever the layout dropped it, in a corner of an empty facet.
 `_bounds` measures left and right now as well as top and bottom.
 
-MEASURED AFTER, AND NOT YET RIGHT: the flat view's 37 node rings span
-y 305..866 in a facet whose inside is y 83..876. So it scales (560px of
-picture in a 793px room) and sits about 106px LOW. Either the centring in
-`fitted` is wrong or the session had a pan in it from earlier gestures — the
-port has been measured all afternoon on servers whose policy was dragged
-about, and that has already produced one wrong finding. CHECK A FRESH SESSION
-FIRST, then compare against `graph.js`'s `mx`/`my`, which centre on the
-LAYOUT's middle rather than on the drawing's bounding box.
+MEASURED ON A FRESH SESSION, AND RIGHT: flat's rings span y 305.5..612.6 in
+a facet whose inside is y 83..876 — 307px of picture with 222 above and 264
+below, centred within about twenty pixels. Width binds, because the flat
+layout is wide and short and the fit preserves aspect, which is what
+`min(availW/(x1-x0), availH/(y1-y0), 2.4)` does.
+
+I first read this as "106px low" by measuring a session I had been dragging
+all afternoon AND letting the status bar's own rings into the maximum. Twice
+in one measurement. Filter to the facet's room and use a server nobody has
+touched.
 
 ## Not ported yet
 
