@@ -786,19 +786,24 @@ touched.
   as dragging its head does. The drop overlay this port draws is not the
   reference's `#dropzone`; compare them.
 
-## The masthead's last inch
+## The masthead's last inch — and a reference bug NOT to port
 
-Put side by side at 1600x900, one difference is left: the ladder's chip. The
-reference's is about forty pixels — its `focused.label` is nearly empty, so
-the chip reads as little more than the `∴` — and this port's is a hundred and
-ninety, carrying the whole pairing that `#sub` already says two inches to the
-left. Find what `#LADDER`'s fourth field actually holds for the rung you are
-standing on before copying a guess into it.
+The ladder's chip is forty pixels there and a hundred and ninety here, and I
+was ready to shrink ours to match. Do not.
 
-Note the inversion while you are there: it is the REFERENCE whose `#sub`
-truncates, because `#ladder` is `flex: 1` and squeezes it. Ours has room
-because our chip is wider — fixing the chip may bring the truncation with it,
-and that is correct rather than a regression.
+Nothing in space_1's Python ever emits a `#LADDER` block. `wire.js` parses
+one, so `S.ladder` is always EMPTY, and `renderLadder` falls through its own
+fallback:
+
+    chip.textContent = (focused ? focused.label : '…') + '  ∴'
+
+The reference's tiny chip is `…  ∴` — a placeholder for data that never
+arrives. This port shows the pairing it stands on, which is what that chip
+was meant to say.
+
+MATCHING A PICTURE IS NOT THE GOAL. The reference is the authority on what
+the instrument MEANS, and it can still be broken; a difference is a question,
+not an instruction. This one would have been ported as a bug.
 
 ## Not ported yet
 
