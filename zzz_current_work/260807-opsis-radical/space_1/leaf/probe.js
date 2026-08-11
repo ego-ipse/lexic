@@ -417,16 +417,14 @@ async function probeGestures() {
       await wait(700);
       out.push(`irZoom=${(irv.querySelector('.irhead b') || {}).textContent}`);
     }
-    // the ⧉ marks: each must open the surface that ASKED, not the graph
-    const marks = [...document.querySelectorAll('.wantsWindow')];
-    out.push(`marks=${marks.map((m) => m.textContent.trim().split(' ')[1]).join('+')
-      || 'NONE'}`);
-    const wm = marks.find((m) => m.textContent.includes('machine'));
-    if (wm) {
-      click(wm);
-      await wait(700);
-      out.push(`machineMark->${currentPlace}`);
-    }
+    // every facet carries its own doors: float it, or open a second one.
+    // This replaced the "x needs a window" marks, which diagnosed a problem
+    // and then sent every surface to the same place.
+    const doors = (S.facets || []).map((f) => {
+      const head = document.querySelector(`#${f.name} h2`);
+      return head ? head.querySelectorAll('.fpop').length : 0;
+    });
+    out.push(`doors=${doors.join('/')} on ${(S.facets || []).length} facets`);
   } catch (err) {
     out.push(`THREW ${err && err.message}`);
   }

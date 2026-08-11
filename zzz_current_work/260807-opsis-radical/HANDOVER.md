@@ -1,5 +1,33 @@
 # opsis-radical — HANDOVER
 
+## 2026-08-11, later — hollowing the leaf, and what is still in it
+
+Everything the leaf DERIVES is a fact no gate can reach, so each move below
+took a derivation out of it:
+
+| moved | to | the leaf now |
+|---|---|---|
+| ring maths, band wrapping, declaration-order row | `eidolon/layout.py` | asks for a view, paints `#PLACES x y z name` |
+| "what is open at this cursor" (a 12,000-span scan per frame) | `deixis/points.py` | prints `#OPEN`/`#CLOSED` and lights `#LIT` |
+| the tune sliders' effect on layout | `eidolon/layout.py` (state) | posts what was dragged, re-asks for places |
+| the automaton's seating (`autoPos`) | `kairos/engine.py` | reads `#APLACES` |
+| which tab shows, which shares were dragged, the shape the hand made | `opsis/space.py` (state) | reports gestures, receives a tree |
+
+**Still in the leaf, and why.** The railroad's layout needs font metrics
+(`measureText`) — moving it means laying out in CHARACTER units, which is the
+instrument's own measure, and scaling by the leaf's `charW`. That is the next
+piece. The camera (yaw, pitch, zoom, pan) stays: a camera is the hand's, not
+the reading's. Canvas painting stays.
+
+**The 3-D graph's resizing, in three passes.** First the fit was recomputed
+per frame from the projected silhouette — rotating rescaled everything.
+Fixing that per-angle left the picture pumping worse, because four sampled
+angles do not bound a silhouette whose widest yaw falls between them, and the
+layout was orbiting the ORIGIN while its own middle sat elsewhere. The
+answer: turn around the layout's own centroid, and frame it by a BOUND no
+angle can exceed (`hypot(x, z)`, `hypot(y, z)`, nearest-point scale). Measured
+over five angles: scale spread 0.0000, clipped 0/0/0/0/0.
+
 ## 2026-08-11 — space_1 restructured onto opsis' five names; the leaf hollowed
 
 **The restructure is the point, not the folders.** `deixis/` came out empty on
