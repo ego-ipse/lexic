@@ -182,6 +182,21 @@ def main() -> int:
         all(t in drawn for t in ("#READER ", "#DOC ", "#SPANS ", "arrange.tree (")),
         f"{len(drawn):,} chars",
     )
+    leaf = HERE / "leaf"
+    parts = ["index.html", "leaf.css", "leaf.js"]
+    there = [name for name in parts if (leaf / name).is_file()]
+    check(
+        "the leaf is present — the measurement has somewhere to arrive",
+        there == parts,
+        ", ".join(there) or "nothing",
+    )
+    page = (leaf / "index.html").read_text() if (leaf / "index.html").is_file() else ""
+    wanted = {"grammar", "document", "chart", "spine"}
+    check(
+        "the leaf hosts every surface this reading places",
+        all(f'id="{name}"' in page for name in wanted),
+        " ".join(sorted(wanted)),
+    )
     print(f"{len(facets)} surfaces · {len(failed)} failures")
     return 1 if failed else 0
 
