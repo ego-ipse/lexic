@@ -38,9 +38,10 @@ const policyTimers = {};
 // places elements by id. Which facets exist, and which container they live
 // in, belong to the ROOM — a value room's facets are as real as the
 // reader's, in the same tree, seams, dock and tabs.
-let FACETS = ['grammar', 'document', 'chart', 'spine'];
-const FACET_WORD = { grammar: 'reader', document: 'document', chart: 'derivation', spine: 'spine' };
-let facetOn = { grammar: true, document: true, chart: true, spine: true };
+let FACETS = ['grammar', 'document', 'graph', 'chart', 'spine'];
+const FACET_WORD = { grammar: 'reader', document: 'document', graph: 'relations',
+                     chart: 'derivation', spine: 'spine' };
+let facetOn = { grammar: true, document: true, graph: true, chart: true, spine: true };
 let GRID = 'grid';
 const ROOMS = {};
 let roomId = 'parse';

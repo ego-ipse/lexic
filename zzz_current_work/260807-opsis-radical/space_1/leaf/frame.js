@@ -90,12 +90,16 @@ function applyPolicy() {
   for (const name of FACETS) {
     if (P['facet.' + name]) facetOn[name] = P['facet.' + name] !== 'off';
   }
+  // whether the relations are on is the facet's own state, and the graph
+  // must be BUILT before it can be drawn into the column it was given
+  graphOn = facetOn['graph'] !== false;
+  if (graphOn && !gNodes && S.edges) buildGraph();
   // what the instrument measured as not fitting here: say it on the surface
   // itself, so the reason is where the problem is
   if (P['wants.window']) {
     // the graph and the machine are MODES of the reader, not facets of their
     // own, so the mark belongs on the surface that would have to host them
-    const hosts = { graph: 'grammar', machine: 'grammar' };
+    const hosts = { machine: 'grammar' };  // the graph hosts on itself
     for (const want of P['wants.window'].split(',').filter(Boolean)) {
       const name = hosts[want] || want;
       const head = document.querySelector(`#${name} h2, #facet-${name} h2`);
@@ -128,7 +132,6 @@ function applyPolicy() {
     Object.assign(gViews[0], { yaw: yw, pitch: pt, zoom: zm });
     if (!Number.isNaN(px)) gViews[0].pan = { x: px, y: py || 0 };
   }
-  if (P['reader.mode'] === 'graph' && !graphOn) setGraph(true, true);
   syncTunePanel();
   rebuildPinsFromPolicy(P);
 }

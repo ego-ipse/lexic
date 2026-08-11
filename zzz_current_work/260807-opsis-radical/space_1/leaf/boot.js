@@ -21,6 +21,8 @@ async function boot(keep) {
   view0 = 0;
   sizeDocCanvases();
   gNodes = null;
+  // the graph is a facet now — if it is open, it has something to draw
+  graphOn = facetOn['graph'] !== false;
   if (graphOn) buildGraph();
   applyPolicy();
   renderLadder();

@@ -7,7 +7,8 @@
 
 /* ── the 3D rule graph — z is derivation distance, the earned axis ── */
 
-let graphOn = false;
+// the relations facet is open by default: it is a surface, not a mode
+let graphOn = true;
 let gNodes = null;
 let graphHover = '';
 let gViews = [];  // [0] is the facet view; others live inside pinned windows
@@ -215,14 +216,14 @@ function drawGraphView(v, smooth = false) {
 }
 
 function setGraph(on, fromPolicy = false) {
+  // the relations are their OWN facet now. Living inside the reader, the
+  // graph could only appear by hiding the grammar it is a picture of, and
+  // it inherited a column measured for text — which is the placement
+  // failure this whole build exists to stop making.
   graphOn = on;
-  if (!fromPolicy) postPolicy('reader.mode', on ? 'graph' : 'text');
-  $('grammarScroll').hidden = on;
-  $('graphWrap').hidden = !on;
-  $('gmode').textContent = on ? 'text' : 'graph';
-  $('gpop').hidden = !on;
-  $('gfocus').hidden = !on;
-  $('gview').hidden = !on;
+  facetOn['graph'] = on;
+  if (!fromPolicy) postPolicy('facet.graph', on ? 'on' : 'off');
+  applyFacets();
   if (on && !gNodes) buildGraph();
   if (on) drawGraph();
 }

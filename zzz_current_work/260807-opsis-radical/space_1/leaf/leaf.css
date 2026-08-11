@@ -163,6 +163,7 @@ body {
 #dock .fnode-chip.over { border-color: var(--violet); color: var(--violet); }
 
 body.off-grammar #grammar, body.off-document #document,
+body.off-graph #graph,
 body.off-chart #chart, body.off-spine #spine { display: none; }
 
 

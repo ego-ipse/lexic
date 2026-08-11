@@ -71,23 +71,36 @@ def ruledefs(text: str) -> list[tuple[str, int, int]]:
     return out
 
 
-def offered(reading: Reading) -> list[Facet]:
+def reader_of(reading: Reading) -> CompiledGrammar | None:
+    """This reading's reader, compiled — or nothing, if nothing reads it."""
+    try:
+        return compile_text(reading.reader_text, flavour=reading.flavour or "gbnf")
+    except LexicError, RecursionError, ValueError:
+        return None
+
+
+def offered(machine: CompiledGrammar | None, placed: bool = False) -> list[Facet]:
     """The surfaces this reading COULD show, each already sized.
 
     They are not placed — they are offered, with the room each needs, so the
     arrangement can answer "here" or "in a window" instead of drawing a
     picture nobody can read.
     """
-    try:
-        machine = compile_text(reading.reader_text, flavour=reading.flavour or "gbnf")
-    except LexicError, RecursionError, ValueError:
+    if machine is None:
         return []  # an unreadable reader offers nothing to look at
-    return [graph_facet(machine.grammar), machine_facet(machine)]
+    rest = [machine_facet(machine)]
+    return rest if placed else [graph_facet(machine.grammar), *rest]
 
 
 def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
     """The reading, spelled — with the arrangement its surfaces asked for."""
+    machine = reader_of(reading)
+    # the relations are a PLACED surface, between the reader they are a
+    # picture of and the document. Offered-but-never-placed is how the graph
+    # spent four rounds being drawn into a column measured for text.
     facets = reading.facets()
+    if machine is not None:
+        facets = [*facets[:1], graph_facet(machine.grammar), *facets[1:]]
     rules = ruledefs(reading.reader_text)
     said = [as_written(rules, s.rule) for s in reading.spans]
     names = sorted(set(said))
@@ -100,7 +113,12 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
     # read as not fitting.
     given = shares(facets, 200)
     widest = max(given.values())
-    elsewhere = offered(reading)
+    elsewhere = offered(machine, placed=True)
+    # WHICH RULE REFERS TO WHICH — the relationships. The leaf's wire reader
+    # has always had a place for these two blocks; nothing ever filled it, so
+    # every graph drew rules as unrelated dots and read as broken.
+    relations = edges(machine.grammar) if machine else []
+    deep = levels(machine.grammar) if machine else {}
     wants = [
         *windowed(facets, 200),
         *(f.name for f in elsewhere if f.wide * ENOUGH.get(f.kind, DEFAULT) > widest),
@@ -145,6 +163,10 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
             *names,
             f"#FIELDNAMES {len(fields)}",
             *fields,
+            f"#EDGES {len(relations)}",
+            *(f"{a} {b}" for a, b in relations),
+            f"#DEPTHS {len(deep)}",
+            *(f"{name} {at_}" for name, at_ in deep.items()),
             f"#SPANS {len(reading.spans)}",
             *(
                 f"{s.start} {s.end} {s.depth} {at[r]} {fat[s.field]}"
