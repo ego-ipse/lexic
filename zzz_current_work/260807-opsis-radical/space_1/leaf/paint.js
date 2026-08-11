@@ -13,6 +13,8 @@ const TONE = {
   rail: '#6fc3c9', loop: '#d98cf5', token: '#8fa3b8', ref: '#6fc3c9',
   class: '#d98cf5', name: '#e2a65c', dim: '#66707f', hot: '#e2a65c',
   cool: 'rgba(111,195,201,0.18)', seen: '#4a5568', dispatch: '#6fc3c9',
+  span: '#2a3140', eps: '#3a4250', closed: '#6fc3c9', live: '#e2a65c',
+  closedfill: '#10282e', livefill: '#3a2f18',
   alt: '#e2a65c', seq: '#8fa3b8', value_str: '#d98cf5', group: '#66707f',
 };
 
@@ -42,7 +44,7 @@ function doorAt(said, x, y, pan = { x: 0, y: 0 }, scale = 1) {
     (h) => dx >= h.x && dx <= h.x + h.w && dy >= h.y && dy <= h.y + h.h);
 }
 
-function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
+function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1, tint = null) {
   if (!cv || !said) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   // a canvas with no layout yet keeps its 300×150 default, and painting into
@@ -55,9 +57,9 @@ function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
   const w = (host ? host.clientWidth : 0) || cv.clientWidth;
   const h = (host ? host.clientHeight : 0) || cv.clientHeight;
   if (!w || !h) return;
-  // BOTH dimensions. Tracking only the width means a facet that grows
-  // or shrinks vertically keeps its old bitmap, and CSS stretches the
-  // picture instead of the picture re-fitting its box.
+  // BOTH dimensions: checking only the width meant a facet that grew or
+  // shrank vertically kept its old bitmap and the picture was stretched
+  // by CSS — lanes running off the bottom of a box they no longer fit
   if (cv.width !== w * dpr || cv.height !== h * dpr) {
     cv.width = w * dpr;
     cv.height = h * dpr;
@@ -74,11 +76,19 @@ function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
     const p = mark.split(' ');
     if (p[0] === 'box') {
       const [x, y, bw, bh] = [+p[1], +p[2], +p[3], +p[4]];
-      cx.strokeStyle = toneOf(p[5]);
+      // a mark may be recoloured by the one thing the leaf owns — the
+      // cursor it is moving. Where it IS never changes; what it is doing
+      // right now does, and that is state, not derivation.
+      const tone = tint ? tint(p[5], p[6]) : p[5];
+      cx.strokeStyle = toneOf(tone);
+      if (tone === 'closed' || tone === 'live') {
+        cx.fillStyle = toneOf(tone === 'live' ? 'livefill' : 'closedfill');
+        cx.fillRect(x, y, bw, bh);
+      }
       cx.strokeRect(x + 0.5, y + 0.5, bw, bh);
       const label = p.slice(7).join(' ');
       if (label) {
-        cx.fillStyle = toneOf(p[5]);
+        cx.fillStyle = toneOf(tone);
         cx.fillText(label, x + 5, y + bh / 2 + 4);
       }
       // a mark that carries an address is a DOOR: the leaf remembers where
@@ -97,7 +107,6 @@ function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
       cx.quadraticCurveTo(+p[3], +p[4], +p[5], +p[6]);
       cx.stroke();
     } else if (p[0] === 'bez') {
-      // the S-curve a railroad branches on
       cx.strokeStyle = toneOf(p[9]);
       cx.beginPath();
       cx.moveTo(+p[1], +p[2]);

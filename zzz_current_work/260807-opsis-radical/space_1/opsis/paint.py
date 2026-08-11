@@ -28,8 +28,14 @@ from praxis.reading import columns
 __all__ = [
     "Drawing",
     "automaton_drawing",
+    "band_drawing",
+    "clock_drawing",
+    "packed",
     "chart_drawing",
     "graph_drawing",
+    "band_drawing",
+    "clock_drawing",
+    "packed",
     "chart_drawing",
     "rail_drawing",
     "rails_drawing",
@@ -416,39 +422,126 @@ def rail_drawing(tracks: str, name: str) -> Drawing:
     return draw
 
 
-def chart_drawing(
-    reading: object, view0: int, win: int, wide: int, tall: int
-) -> Drawing:
-    """The derivation over a window of the text — spans as boxes in lanes.
+def chart_drawing(reading: object, tall: int) -> Drawing:
+    """The whole derivation, in DOCUMENT coordinates — x IS the offset.
 
-    Every box carries its EXTENT as its address (``start:end:index``), for
-    two reasons. The leaf hit-tests painted rectangles, so hovering needs no
-    second geometry — the same mechanism the railroad's doors use. And the
-    tone that changes with the cursor (closed behind it, open across it,
-    still to come) is a comparison against the one number the leaf genuinely
-    owns: the cursor it is moving. Nothing here depends on where the cursor
-    is, so this drawing survives a whole playback unchanged.
+    Drawn once per reading, not once per window. Keying a drawing to the
+    window meant every frame of playback scrolled it, invalidated it and
+    refetched a whole-document computation — which is why the clock died
+    the moment you pressed play. A window is a transform, and a transform
+    belongs to the side doing the looking.
     """
     draw = Drawing()
     spans = list(getattr(reading, "spans", []))
-    if not spans or win <= 0:
+    if not spans:
         return draw
     deep = max(span.depth for span in spans) + 1
     lane = max(6.0, min(22.0, (tall - 24) / deep))
-    pitch = wide / win
     for index, span in enumerate(spans):
-        if span.end <= view0 or span.start >= view0 + win:
-            continue
-        x1 = (max(span.start, view0) - view0) * pitch
-        x2 = (min(span.end, view0 + win) - view0) * pitch
         y = span.depth * lane
         goes = f"{span.start}:{span.end}:{index}"
         if span.end == span.start:
-            # an ε match holds no text — a mark AT a place, never a box the
-            # width of two characters, of which this reading has 1,403
-            draw.box(x1 - 0.5, y, 1.0, lane - 2, "eps", "", goes)
+            draw.box(float(span.start), y, 0.0, lane - 2, "eps", "", goes)
             continue
-        draw.box(x1, y, max(1.5, x2 - x1), lane - 2, "span", "", goes)
-    draw.wide = float(wide)
+        draw.box(
+            float(span.start),
+            y,
+            float(span.end - span.start),
+            lane - 2,
+            "span",
+            "",
+            goes,
+        )
+    draw.wide = float(len(getattr(reading, "text", "")) or 1)
     draw.tall = deep * lane
     return draw
+
+
+def band_drawing(
+    reading: object,
+    tall: int,
+    rows: list[tuple[int, int, int, int]] | None = None,
+    mode: str = "model",
+) -> Drawing:
+    """The whole document at a glance — how much sits where, in document units.
+
+    Without ``rows`` this is the reading's own structure (how many spans
+    cover each stretch). With them it is an engine's clock, textured the
+    same way. Either is a property of what happened, not of where you are
+    looking, so it is drawn once in document coordinates like everything
+    else and the window is the leaf's transform.
+    """
+    draw = Drawing()
+    text = getattr(reading, "text", "")
+    if not text:
+        return draw
+    steps = 240
+    size = max(1, len(text) // steps)
+    cover = [0] * (len(text) // size + 1)
+    held = rows or [
+        (span.start, span.end, 0, 1) for span in getattr(reading, "spans", [])
+    ]
+    if not held:
+        return draw
+    for start, end, _lane, _fate in held:
+        first = min(start // size, len(cover) - 1)
+        last = min(max(end - 1, start) // size, len(cover) - 1)
+        for at in range(first, last + 1):
+            cover[at] += 1
+    top = max(cover) or 1
+    for at, deep in enumerate(cover):
+        shade = min(3, (deep * 4) // (top + 1))
+        # the tone says WHICH clock as well as how dense: three bands that
+        # look alike are three bands that say nothing about which engine
+        draw.box(float(at * size), 0.0, float(size), float(tall), f"{mode}band{shade}")
+    draw.wide = float(len(text))
+    draw.tall = float(tall)
+    return draw
+
+
+def clock_drawing(
+    rows: list[tuple[int, int, int, int]], across: int, tall: int
+) -> Drawing:
+    """An engine's clock, in DOCUMENT coordinates — one box per thing held.
+
+    ``rows`` are ``(start, end, lane, fate)``. Like the derivation, this is
+    the whole document at once: the window is the leaf's transform, so
+    scrubbing and playing cost nothing and change nothing here.
+    """
+    draw = Drawing()
+    if not rows:
+        return draw
+    deep = max(lane for _s, _e, lane, _f in rows) + 1
+    lane_tall = max(2.0, min(16.0, (tall - 12) / deep))
+    for index, (start, end, lane, fate) in enumerate(rows):
+        draw.box(
+            float(start),
+            lane * lane_tall,
+            float(max(end - start, 0)),
+            lane_tall - 1,
+            "kept" if fate else "lost",
+            "",
+            f"{start}:{end}:{index}",
+        )
+    draw.wide = float(across or 1)
+    draw.tall = deep * lane_tall
+    return draw
+
+
+def packed(rows: list[tuple[int, int, int]]) -> list[tuple[int, int, int, int]]:
+    """Give every extent a row where it does not overlap what is already there.
+
+    Earley holds thousands of hypotheses at once and they have no natural
+    depth, so a row is something a picture must INVENT — the leaf used to,
+    and dropping that on the way over put every one of them in row zero.
+    Rows are filled in order, first that fits.
+    """
+    ends: list[int] = []
+    out: list[tuple[int, int, int, int]] = []
+    for start, end, fate in rows:
+        lane = next((i for i, free in enumerate(ends) if free <= start), len(ends))
+        if lane == len(ends):
+            ends.append(0)
+        ends[lane] = max(end, start + 1)
+        out.append((start, end, lane, fate))
+    return out
