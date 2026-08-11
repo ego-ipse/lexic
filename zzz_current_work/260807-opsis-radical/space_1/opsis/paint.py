@@ -457,31 +457,39 @@ def chart_drawing(reading: object, tall: int) -> Drawing:
     return draw
 
 
-def band_drawing(reading: object, wide: int, tall: int, steps: int = 240) -> Drawing:
-    """The whole document at a glance — how much structure sits where.
+def band_drawing(
+    reading: object, tall: int, rows: list[tuple[int, int, int, int]] | None = None
+) -> Drawing:
+    """The whole document at a glance — how much sits where, in document units.
 
-    The overview strip above the derivation. The leaf built this by summing
-    a coverage array over twelve thousand spans; it is a property of the
-    reading, so it is one here, and it does not change as the cursor moves.
+    Without ``rows`` this is the reading's own structure (how many spans
+    cover each stretch). With them it is an engine's clock, textured the
+    same way. Either is a property of what happened, not of where you are
+    looking, so it is drawn once in document coordinates like everything
+    else and the window is the leaf's transform.
     """
     draw = Drawing()
-    spans = list(getattr(reading, "spans", []))
     text = getattr(reading, "text", "")
-    if not spans or not text:
+    if not text:
         return draw
+    steps = 240
     size = max(1, len(text) // steps)
     cover = [0] * (len(text) // size + 1)
-    for span in spans:
-        first = span.start // size
-        last = min(span.end // size, len(cover) - 1)
+    held = rows or [
+        (span.start, span.end, 0, 1) for span in getattr(reading, "spans", [])
+    ]
+    if not held:
+        return draw
+    for start, end, _lane, _fate in held:
+        first = min(start // size, len(cover) - 1)
+        last = min(max(end - 1, start) // size, len(cover) - 1)
         for at in range(first, last + 1):
             cover[at] += 1
     top = max(cover) or 1
-    pitch = wide / max(1, len(cover))
     for at, deep in enumerate(cover):
         shade = min(3, (deep * 4) // (top + 1))
-        draw.box(at * pitch, 0.0, max(1.0, pitch), float(tall), f"band{shade}")
-    draw.wide = float(wide)
+        draw.box(float(at * size), 0.0, float(size), float(tall), f"band{shade}")
+    draw.wide = float(len(text))
     draw.tall = float(tall)
     return draw
 

@@ -254,24 +254,23 @@ function drawChart(view = chartMain) {
   // how many characters one pixel of the overview stands for — the clock
   // band still needs it, and it went out with the coverage array it fed
   const step = Math.max(1, Math.floor(N / Math.max(1, w - 2 * pad)));
-  // THE BAND IS A DRAWING: how much structure sits where is a property of
-  // the reading, not something to sum over twelve thousand spans per frame.
-  const bandKey = `band:${Math.round(w)}:${S.meta.generation}`;
+  // THE BAND IS A DRAWING, in document coordinates like everything else.
+  // Which stretch is dense is a property of what happened; the leaf only
+  // says where the document is on screen.
+  const bandKey = `band:${clock}:${S.meta.generation}`;
   const band = drawings.get(bandKey);
-  if (clock !== 'model' && clockReady()) {
-    drawClockBand(cx, pad, bandH, step, ox, N, view);
-  } else if (band) {
-    cx.save();
-    cx.translate(pad, 8);
+  if (!band) {
+    loadDrawing(bandKey, `&mode=${clock}&box=${Math.round(w - 2 * pad)}x${bandH}`,
+      'band');
+  } else {
+    const across = (off) => pad + (off / N) * (w - 2 * pad);
     for (const mark of band.marks) {
       const m = mark.split(' ');
       if (m[0] !== 'box') continue;
       cx.fillStyle = BAND[m[5]] || shades[0];
-      cx.fillRect(+m[1], +m[2], +m[3], +m[4]);
+      cx.fillRect(across(+m[1]), 8, Math.max(1, across(+m[1] + (+m[3])) - across(+m[1])),
+        bandH);
     }
-    cx.restore();
-  } else {
-    loadDrawing(bandKey, `&box=${Math.round(w - 2 * pad)}x${bandH}`, 'band');
   }
   // a small document fills the width; a large one gets a 5px-per-char window
   const base = N * 5 < (w - 2 * pad) ? Math.min(12, Math.floor((w - 2 * pad) / Math.max(1, N))) : 5;
