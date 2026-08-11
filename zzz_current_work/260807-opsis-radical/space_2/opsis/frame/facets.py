@@ -776,6 +776,28 @@ def _arcs(said: Frame, room: Room, look: Look) -> None:
     said.place(drawn, x + px + ox, y + py + oy, fit * k, dots=frozenset(named))
 
 
+def centres(drawn: Drawing) -> tuple[float, float, float, float]:
+    """The extent of the node CENTRES — what `graph.js` fits against.
+
+    Not the extent of their boxes. A box already contains its label, so
+    fitting to boxes AND padding by half a label subtracts the label twice:
+    this port fitted 704 units into 676 of room where the reference fits 596
+    into the same 676, which is the whole of why its graphs came out too
+    small to read.
+    """
+    xs: list[float] = []
+    ys: list[float] = []
+    for mark in drawn.marks:
+        parts = mark.split(" ")
+        if parts[0] != "box":
+            continue
+        xs.append(float(parts[1]) + float(parts[3]) / 2)
+        ys.append(float(parts[2]) + float(parts[4]) / 2)
+    if not xs:
+        return (0.0, 0.0, 0.0, 0.0)
+    return (min(xs), max(xs), min(ys), max(ys))
+
+
 def fitted(drawn: Drawing, room: Room, pad: float = 0.0) -> tuple[float, float, float]:
     """FILL THE FACET, whatever the grammar's size — `graph.js`'s auto-fit.
 
@@ -786,26 +808,22 @@ def fitted(drawn: Drawing, room: Room, pad: float = 0.0) -> tuple[float, float, 
 
     :returns: the scale, and where to put the drawing's origin.
     """
-    left, right, low, high = _bounds(drawn)
-    # FIT AGAINST THE LABELS, NOT THE DOTS. `graph.js` pads by half the
-    # WIDEST label: a node centred one pixel inside the edge still hangs its
-    # name over the side, and a crowded rim loses every name — which is the
-    # "graph crops out" everyone sees. A flat pad fits the picture larger
-    # than the room can hold its words.
-    if not pad:
-        widest = max(
-            (
-                runs("drawn", " ".join(m.split(" ")[7:]))
-                for m in drawn.marks
-                if m.startswith("box ") and len(m.split(" ")) > 7
-            ),
-            default=20.0,
-        )
-        pad = max(10.0, widest / 2 + 4)
+    left, right, low, high = centres(drawn)
+    # PADDED PER AXIS, as `graph.js` pads: padX from half the widest label,
+    # padY from half its HEIGHT. One pad for both takes a label's width out
+    # of the vertical room as well, and loses eighty pixels of it.
+    wides = [
+        runs("drawn", " ".join(m.split(" ")[7:]))
+        for m in drawn.marks
+        if m.startswith("box ") and len(m.split(" ")) > 7
+    ]
+    talls = [float(m.split(" ")[4]) for m in drawn.marks if m.startswith("box ")]
+    pad_x = pad or max(10.0, max(wides, default=20.0) / 2 + 4)
+    pad_y = pad or max(10.0, max(talls, default=16.0) / 2 + 4)
     wide = max(40.0, right - left)
     tall = max(40.0, high - low)
     _x, _y, w, h = room
-    k = min((w - 2 * pad) / wide, (h - 2 * pad) / tall, 2.4)
+    k = min((w - 2 * pad_x) / wide, (h - 2 * pad_y) / tall, 2.4)
     return k, (w - wide * k) / 2 - left * k, (h - tall * k) / 2 - low * k
 
 
