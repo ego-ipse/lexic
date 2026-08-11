@@ -111,12 +111,14 @@ class Reading:
         """Each surface, with the room it needs — measured, never assumed."""
         lines = self.text.split("\n")
         rules = self.reader_text.split("\n")
+        wide_rules = _most(rules)
+        wide_lines = _most(lines)
         deep = max((span.depth for span in self.spans), default=0) + 1
         # named as the LEAF names them: a tree whose leaves nothing recognises
         # is silently dropped, and the measured layout never reaches the screen
         return [
-            Facet("grammar", "plane", max(len(r) for r in rules), len(rules)),
-            Facet("document", "plane", max(len(line) for line in lines), len(lines)),
+            Facet("grammar", "plane", wide_rules, len(rules)),
+            Facet("document", "plane", wide_lines, len(lines)),
             # the chart is as wide as the text is long, in columns of one char,
             # and as tall as the derivation is deep — it never fits, which is
             # why it scrubs a window over the text rather than showing it all
@@ -174,6 +176,16 @@ def _part(part: object, field: str, depth: int) -> object:
     if isinstance(part, (list, tuple)):
         return [_part(item, field, depth) for item in part]
     return str(part)
+
+
+def _most(lines: list[str]) -> int:
+    """The width nine lines in ten fit inside — not the longest.
+
+    One 300-character rule would otherwise starve every other surface to feed
+    an outlier nobody reads in full.
+    """
+    widths = sorted(len(line) for line in lines) or [0]
+    return max(24, widths[min(len(widths) - 1, int(len(widths) * 0.9))])
 
 
 def read(reader: Path, document: Path) -> Reading:
