@@ -55,7 +55,13 @@ function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
   const w = (host ? host.clientWidth : 0) || cv.clientWidth;
   const h = (host ? host.clientHeight : 0) || cv.clientHeight;
   if (!w || !h) return;
-  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  // BOTH dimensions. Tracking only the width means a facet that grows
+  // or shrinks vertically keeps its old bitmap, and CSS stretches the
+  // picture instead of the picture re-fitting its box.
+  if (cv.width !== w * dpr || cv.height !== h * dpr) {
+    cv.width = w * dpr;
+    cv.height = h * dpr;
+  }
   const cx = cv.getContext('2d');
   cx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * pan.x, dpr * pan.y);
   cx.clearRect(-pan.x / scale, -pan.y / scale, w / scale, h / scale);

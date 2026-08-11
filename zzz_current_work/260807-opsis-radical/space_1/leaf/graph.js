@@ -209,7 +209,13 @@ function drawGraphView(v, smooth = false) {
   const w = wrap.clientWidth, h = wrap.clientHeight;
   if (!w || !h) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  // BOTH dimensions. Tracking only the width means a facet that grows
+  // or shrinks vertically keeps its old bitmap, and CSS stretches the
+  // picture instead of the picture re-fitting its box.
+  if (cv.width !== w * dpr || cv.height !== h * dpr) {
+    cv.width = w * dpr;
+    cv.height = h * dpr;
+  }
   const cx = cv.getContext('2d');
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, w, h);

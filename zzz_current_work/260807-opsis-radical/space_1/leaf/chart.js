@@ -247,7 +247,13 @@ function drawChart(view = chartMain) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = cv.clientWidth, h = cv.clientHeight;
   if (!w || !h) return;
-  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  // BOTH dimensions. Tracking only the width means a facet that grows
+  // or shrinks vertically keeps its old bitmap, and CSS stretches the
+  // picture instead of the picture re-fitting its box.
+  if (cv.width !== w * dpr || cv.height !== h * dpr) {
+    cv.width = w * dpr;
+    cv.height = h * dpr;
+  }
   const cx = cv.getContext('2d');
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, w, h);
