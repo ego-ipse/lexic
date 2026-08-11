@@ -189,6 +189,7 @@ function drawGraphView(v, smooth = false) {
     const said = drawings.get(mode);
     if (!said) {
       loadDrawing(mode, mode === 'automaton' ? `&t=${Math.round(cur.t)}` : '');
+      if (mode === 'rails') fetchRails();   // the chips and pins read the trees
       return;
     }
     const box = v.wrap.getBoundingClientRect();
@@ -369,7 +370,10 @@ function wireGraphView(v) {
     const box = v.cv.getBoundingClientRect();
     const door = doorAt(v.painted.said, ev.clientX - box.left,
       ev.clientY - box.top, v.pan, v.painted.scale);
-    if (door) { cur.rule = door.goes; postPolicy('focus.rule', door.goes); ask(); }
+    if (!door) return;
+    cur.rule = door.goes;
+    if (viewMode(v) === 'rails') railsGoto(v, door.goes);
+    ask();
   });
   let drag = null;
   v.wrap.addEventListener('pointerdown', (e) => {

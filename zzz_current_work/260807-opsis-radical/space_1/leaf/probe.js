@@ -122,6 +122,25 @@ async function probeGestures() {
       out.push(`graphChips=${chips.length} clipped=${out_.length}`
         + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
     }
+    // THE RAILS, DRIVEN: a pinned rule must draw, and a ref must be a door
+    const pinned = await fetchRail('member');
+    out.push(`railTree=${pinned ? pinned.k : 'NONE'}`,
+      `railSized=${pinned ? JSON.stringify({ cw: pinned.cw, ch: pinned.ch,
+        kids: pinned.kids.length, k0: pinned.kids[0] && pinned.kids[0].cw }) : '-'}`);
+    // and a PINNED rail must actually draw: a tree with no measurement
+    // draws a window with nothing in it
+    railChipShow('member', 300, 300);
+    const railBtn = $('railchip');
+    if (railBtn && !railBtn.hidden) railBtn.click();
+    await wait(900);
+    const railPin = document.querySelector('.pin.rail canvas');
+    out.push(`railPin=${railPin ? railPin.width + 'x' + railPin.height : 'NONE'}`);
+    const pinInk = railPin && railPin.getContext('2d')
+      .getImageData(0, 0, railPin.width, Math.min(60, railPin.height)).data
+      .some((v, i) => i % 4 === 3 && v > 0);
+    out.push(`railPinDrew=${!!pinInk}`);
+    for (const el of document.querySelectorAll('.pin.rail .x')) el.click();
+    await wait(200);
     // the painter: what did it actually receive, and how big is its canvas
     const tabForPaint = [...document.querySelectorAll('#grid .tabbar .tab')]
       .find((el) => el.textContent === 'relations');
@@ -138,7 +157,14 @@ async function probeGestures() {
       `railSize=${railSaid ? railSaid.w + 'x' + railSaid.h : '-'}`,
       `railCanvas=${$('graphCv').clientWidth}x${$('graphCv').clientHeight}`,
       `railBitmap=${$('graphCv').width}x${$('graphCv').height}`,
-      `railWrap=${$('graphWrap').clientWidth}x${$('graphWrap').clientHeight}`);
+      `railWrap=${$('graphWrap').clientWidth}x${$('graphWrap').clientHeight}`,
+      `railDoors=${(railSaid && railSaid.hits || []).length}`);
+    // clicking a door must move the view to that rule
+    const v0 = gViews[0];
+    const panWas = v0 ? v0.pan.y : 0;
+    if (v0) railsGoto(v0, 'value');
+    await wait(300);
+    out.push(`railGoto=${v0 && v0.pan.y !== panWas}`);
     gView = 'depth3d';
     if (gViews[0]) switchViewMode(gViews[0], 'rails', 'depth3d');
     // the relations must be the ACTIVE tab or there is nothing to measure:

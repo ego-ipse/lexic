@@ -12,6 +12,26 @@ const RAIL = { bh: 20, padx: 7, gap: 16, vgap: 9, loop: 13 };
 const railCache = new Map();
 let railInk = null;
 
+async function fetchRail(rule) {
+  // one rule's track, with its MEASUREMENT — the boxes arrive in a #BOX
+  // block beside the lines, and a tree parsed without them has no sizes at
+  // all, which is a pinned window drawing nothing you can see.
+  if (railCache.has(rule)) return railCache.get(rule);
+  const text = await fetch('/rail?rule=' + encodeURIComponent(rule))
+    .then((r) => r.text());
+  if (text.startsWith('no such rule')) { railCache.set(rule, null); return null; }
+  const rows = text.split('\n');
+  const lines = [], boxes = [];
+  let where = 'lines';
+  for (const ln of rows.slice(1)) {
+    if (ln.startsWith('#BOX ')) { where = 'boxes'; continue; }
+    if (ln) (where === 'lines' ? lines : boxes).push(ln);
+  }
+  const tree = parseRailTree(lines, parseRailBoxes(boxes));
+  railCache.set(rule, tree);
+  return tree;
+}
+
 function railColors() {
   if (!railInk) {
     const cs = getComputedStyle(document.documentElement);
@@ -23,24 +43,6 @@ function railColors() {
 
 function railFont() {
   return '11px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
-}
-
-async function fetchRail(rule) {
-  if (railCache.has(rule)) return railCache.get(rule);
-  const text = await fetch('/rail?rule=' + encodeURIComponent(rule)).then((r) => r.text());
-  if (text.startsWith('no such rule')) { railCache.set(rule, null); return null; }
-  const root = { k: 'seq', payload: '', kids: [] };
-  const stack = [root];
-  for (const ln of text.split('\n').slice(1)) {
-    const m = ln.match(/^(\d+) (\S+)(?: (.*))?$/);
-    if (!m) continue;
-    const node = { k: m[2], payload: m[3] || '', kids: [] };
-    stack[+m[1]].kids.push(node);
-    stack[+m[1] + 1] = node;
-  }
-  const tree = root.kids.length === 1 ? root.kids[0] : root;
-  railCache.set(rule, tree);
-  return tree;
 }
 
 function railCell(cx) {
@@ -227,6 +229,26 @@ function railsOrder() {
   return order;
 }
 
+// which rule the chip is offering to pin. Its declaration went out with a
+// deletion; in strict mode assigning to an undeclared name THROWS, so the
+// chip stopped appearing at all rather than appearing wrong.
+let railChipRule = '';
+
+function railPin(rule) {
+  // a railroad in its own window: the pin machinery draws it, loads it and
+  // remembers it like any other pin. This went out with a deletion, so the
+  // chip had nothing to call and the pop-up never appeared.
+  const at = pins.length;
+  const p = {
+    id: ++pinSeq, kind: 'rail', rule, gen: S.meta.generation,
+    x: 260 + (at % 6) * 30, y: 120 + (at % 6) * 30, w: 0, h: 0, hist: [],
+  };
+  pins.push(p);
+  renderPins();
+  postPolicy(`pin.${p.id}`, pinPolicyValue(p));
+  return p;
+}
+
 function railChipShow(rule, x, y) {
   railChipRule = rule;
   const chip = $('railchip');
@@ -249,10 +271,13 @@ function wireRailChip() {
 }
 
 function railsGoto(v, rule) {
-  const e = railsLayout && railsLayout.byName.get(rule);
-  if (!e || v.rk === undefined) return;
+  // the drawing says where every rule's name was painted; going to one is
+  // panning until that place is at the top of the view
+  const said = v.painted && v.painted.said;
+  if (!said) return;
+  const at = (said.hits || []).find((h) => h.goes === rule);
+  if (!at) return;
   v.touched = true;
-  v.pan.y += 34 - (e.y * v.rk + v.rty);
-  persistView(v);
+  v.pan = { x: v.pan.x, y: 24 - at.y * (v.painted.scale || 1) };
   drawGraphView(v);
 }
