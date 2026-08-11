@@ -16,7 +16,7 @@ row, never an edit through a cascade.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 
 from praxis.history import Retype, retype
 from praxis.reading import Reading
@@ -35,6 +35,7 @@ class Session:
         "body",
         "generation",
         "playing",
+        "main",
         "reading",
         "said",
         "state",
@@ -46,7 +47,9 @@ class Session:
         self.at = 0.0
         self.playing = False
         self.generation = 1
-        self.state: dict[str, str] = {}
+        # the session's own policy, and whichever layer is being written to
+        self.main: dict[str, str] = {}
+        self.state: MutableMapping[str, str] = self.main
         # what has been typed but not yet read, per plane, and the last
         # re-reading's answer — a refusal is a result, and it is shown
         self.typed: dict[str, str] = {}
@@ -71,19 +74,31 @@ class Session:
         )
 
     # ── the gesture, applied ─────────────────────────────────────────────
-    def gesture(self, said: str, body: str = "") -> None:
+    def gesture(
+        self, said: str, body: str = "", into: MutableMapping[str, str] | None = None
+    ) -> None:
         """One gesture, applied.
 
         :param body: whatever rode along after it — a plane's whole text, when
             what happened is that someone typed in it.
+        :param into: where this gesture's POLICY goes. A window carries its own
+            view, camera and scroll, so a gesture made in one writes to that
+            window's own layer; a `ChainMap` over the session's means it still
+            reads everything the session knows. The CURSOR is not policy — it
+            lives on the subject and stays visible everywhere at once.
         """
         words = said.strip().replace("~", " ").split()
         if not words:
             return
+        was = self.state
+        self.state = self.main if into is None else into
         self.body = body
-        work = SAYS.get(words[0])
-        if work is not None:
-            work(self, words[1:])
+        try:
+            work = SAYS.get(words[0])
+            if work is not None:
+                work(self, words[1:])
+        finally:
+            self.state = was
 
     def _do(self, words: list[str]) -> None:
         """A chip standing for a gesture carries the gesture it stands for."""
@@ -165,6 +180,8 @@ class Session:
             return
         a, b = int(words[1]), int(words[2])
         self.at = float(a)
+        # where the hand is, so the chip can be raised there
+        self.state["sel"] = f"{a}:{b}" if b > a else ""
         covering = [
             span
             for span in self.reading.spans

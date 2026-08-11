@@ -8,6 +8,7 @@ arrangement rides in the same frame: the leaf applies it.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import LexicError
@@ -110,7 +111,7 @@ class Staged:
 _STAGED: dict[int, Staged] = {}
 
 
-def staged(reading: Reading, state: dict[str, str] | None = None) -> Staged:
+def staged(reading: Reading, state: Mapping[str, str] | None = None) -> Staged:
     """Everything this reading decides, before anyone presents it.
 
     Kept against the question that produced it: the form is compiled, the
@@ -144,7 +145,7 @@ def staged(reading: Reading, state: dict[str, str] | None = None) -> Staged:
     return _STAGED[key]
 
 
-def _stage(reading: Reading, state: dict[str, str] | None = None) -> Staged:
+def _stage(reading: Reading, state: Mapping[str, str] | None = None) -> Staged:
     """Work them out."""
     it = Staged()
     it.machine = reader_of(reading)

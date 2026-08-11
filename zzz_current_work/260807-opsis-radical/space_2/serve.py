@@ -9,6 +9,8 @@ because there is nothing left for the leaf to decide.
 from __future__ import annotations
 
 import sys
+from collections import ChainMap
+from collections.abc import MutableMapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -40,6 +42,17 @@ class Held:
     key: tuple[int, int] = (-1, -1)
     rows: list[list[object]] = []
     other: Routes = Routes()
+    # a window's own layer over the session's policy — its view, its camera,
+    # its scroll. The cursor is NOT in here: it is a cursor on the subject,
+    # and the whole point of it is being visible everywhere at once.
+    windows: dict[str, dict[str, str]] = {}
+
+    @classmethod
+    def layer(cls, window: str) -> MutableMapping[str, str]:
+        """What this window is looking through — its own layer, then the session's."""
+        if not window:
+            return cls.here.main
+        return ChainMap(cls.windows.setdefault(window, {}), cls.here.main)
 
     @classmethod
     def watched(cls) -> list[list[object]]:
@@ -81,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
-        wide, tall, only, gesture, said = 1400, 800, "", "", ""
+        wide, tall, only, window, gesture, said = 1400, 800, "", "", "", ""
         lines = body.split("\n")
         for i, line in enumerate(lines):
             word, _, rest = line.partition(" ")
@@ -89,14 +102,17 @@ class Handler(BaseHTTPRequestHandler):
                 wide, tall = (int(n) for n in rest.split())
             elif word == "only":
                 only = rest.strip()
+            elif word == "win":
+                window = rest.strip()
             elif line.strip():
                 # a gesture that carries text carries ALL of it: the rest of
                 # the body is the payload, newlines and all
                 gesture, said = line.strip(), "\n".join(lines[i + 1 :])
                 break
         session = Held.here
+        state = Held.layer(window)
         if gesture:
-            session.gesture(gesture, said)
+            session.gesture(gesture, said, state)
         # the road not taken, started once per reading and drawn while it runs
         Held.other.ask(
             reader_of(session.reading), session.reading.text, session.generation
@@ -107,7 +123,7 @@ class Handler(BaseHTTPRequestHandler):
                 wide,
                 tall,
                 session.at,
-                session.state,
+                state,
                 Held.watched(),
                 session.generation,
                 session.typed,

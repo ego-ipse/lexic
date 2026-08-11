@@ -117,13 +117,25 @@ reads as its opposite.
   wherever they appear, which is what "click a rule → its spans outline
   violet everywhere" means.
 
+## Ported since — windows that are their own
+
+- **Per-window state.** A window looks through its OWN layer over the
+  session's policy (`ChainMap`): its view, its camera, its scroll are its own,
+  and a gesture made in it writes there. Measured: a window switched to
+  `rails` leaves the main instrument on `depth 3d`, and both hold. The CURSOR
+  is deliberately not in that layer — it is a cursor on the subject, and being
+  visible everywhere at once is the whole point of it.
+- **`⌖ pin`** — raised at the selection, because that is where the hand is.
+  Clicking it opens a window on that span with its own layer. The pin says
+  what the range IS: the exact occurrence if there is one, otherwise the
+  smallest span covering it — the same answer selecting text gets, because it
+  is the same question — and says plainly when nothing covers it any more.
+- A pin wraps its text to the window rather than clipping it.
+
 ## Deviations still to redo
 
 - The tune dials (`#gtune`) are not drawn.
-- `⌖ pin` is NOT built. Pins are windows carrying their own camera, view and
-  history — per-window state, where a popped window today shares the one
-  session. Half a pin (a window that silently steers the main instrument)
-  would be worse than none, so it is stated here instead.
+- A pin does not yet mark itself STALE against the generation it was made in.
 
 ## Not ported yet
 

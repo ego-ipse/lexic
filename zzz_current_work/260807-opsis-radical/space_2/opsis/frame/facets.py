@@ -10,6 +10,7 @@ row; nothing else in the frame dispatches on which facet this is.
 from __future__ import annotations
 
 from collections.abc import Callable
+from collections.abc import Mapping
 from typing import Any
 
 from deixis.points import closed_before, open_at
@@ -78,7 +79,7 @@ class Look:
         reading: Reading,
         it: Staged,
         at: float,
-        state: dict[str, str],
+        state: Mapping[str, str],
         watched: list[list[Any]],
         typed: dict[str, str] | None = None,
         frontier: int = -1,
@@ -188,6 +189,35 @@ def _plane(
             said.hit(x, top, 6.5 * CELL, ROW, "gutter", str(line))
     said.plane(name, run, y + 8, w - (run - x) - 8, h - 12, text, first, True)
     _frontier(said, room, look, text, first, run, rows)
+    if name == "document":
+        _pinchip(said, room, look, text, first, run, rows)
+
+
+def _pinchip(
+    said: Frame, room: Room, look: Look, text: str, first: int, run: float, rows: int
+) -> None:
+    """⌖ pin — raised at the selection, because that is where the hand is."""
+    where = look.says("sel", "")
+    start, _, end = where.partition(":")
+    _x, y, _w, _h = room
+    if not start.isdigit() or not end.isdigit() or start == end:
+        return
+    before = text[: min(int(start), len(text))].split("\n")
+    row, column = len(before) - 1, len(before[-1])
+    if not first <= row < first + rows:
+        return
+    top = y + 8 + (row - first) * ROW - ROW
+    wide = runs("chip", "⌖ pin") + 14
+    said.box(run + column * CELL, top, wide, 15, "field2")
+    for x1, y1, x2, y2 in (
+        (run + column * CELL, top, run + column * CELL + wide, top),
+        (run + column * CELL, top + 15, run + column * CELL + wide, top + 15),
+        (run + column * CELL, top, run + column * CELL, top + 15),
+        (run + column * CELL + wide, top, run + column * CELL + wide, top + 15),
+    ):
+        said.line(x1, y1, x2, y2, "warm")
+    said.text(run + column * CELL + 7, top + 11, "warm", "⌖ pin", face="chip")
+    said.hit(run + column * CELL, top, wide, 15, "pin", f"{start}:{end}")
 
 
 # .vbadge — what the PDA analysis decided about a rule, in its own words.
@@ -741,7 +771,70 @@ STACKS: dict[str, Callable[[Frame, Room, Look], None]] = {
 }
 
 
+def pin(said: Frame, room: Room, look: Look) -> None:
+    """A PIN — one span, held still while the reading moves on around it.
+
+    The ruled exception to regions: a window, because simultaneity is the one
+    thing a tiling cannot express. It carries what it is about in its own
+    layer, so it keeps saying that even when the cursor has gone elsewhere,
+    and it says out loud when the reading it was made against is gone.
+    """
+    x, y, w, h = room
+    where = look.says("pin.span", "")
+    start, _, end = where.partition(":")
+    if not start.isdigit() or not end.isdigit():
+        said.text(x + 14, y + 22, "fsub", "this window is about nothing yet")
+        return
+    s0, e0 = int(start), int(end)
+    # what this range IS: the exact span if there is one, else the smallest
+    # occurrence covering it — the same answer selecting text gets, because
+    # it is the same question
+    covering = [
+        span
+        for span in look.reading.spans
+        if span.start <= s0 and span.end >= max(e0, s0 + 1)
+    ]
+    span = min(covering, key=lambda s: s.end - s.start) if covering else None
+    said.text(x + 14, y + 22, "ftitle", f"{s0:,}..{e0:,}")
+    at = x + 14 + runs("ftitle", f"{s0:,}..{e0:,}") + 12
+    if span is not None:
+        name = as_written(look.it.rules, span.rule)
+        exact = span.start == s0 and span.end == e0
+        said.text(
+            at,
+            y + 22,
+            "warm" if exact else "dim",
+            f"{name} · d{span.depth}"
+            + ("" if exact else f" · covering {span.start:,}..{span.end:,}"),
+            w - (at - x) - 20,
+        )
+        said.hit(x, y + 8, w, ROW, "rule", name)
+    else:
+        said.text(at, y + 22, "red", "no occurrence covers this any more")
+    # the text it is about, wrapped to the window rather than clipped
+    room_chars = max(8, int((w - 28) / CELL))
+    lines = _wrapped(look.reading.text[s0:e0], room_chars)
+    for i, line in enumerate(lines[: max(1, int((h - 52) // ROW))]):
+        said.text(x + 14, y + 52 + i * ROW, "ink", line)
+    if len(lines) > (h - 52) // ROW:
+        said.text(
+            x + 14, y + h - 8, "dimmer", f"{len(lines)} lines · resize to see more"
+        )
+
+
+def _wrapped(said: str, room: int) -> list[str]:
+    """Text broken to a width — a window shows what it holds, it does not clip."""
+    out: list[str] = []
+    for line in said.split("\n"):
+        while len(line) > room:
+            out.append(line[:room])
+            line = line[room:]
+        out.append(line)
+    return out
+
+
 DRAWN: dict[str, Callable[[Frame, Room, Look], None]] = {
+    "pin": pin,
     "grammar": grammar,
     "graph": graph,
     "document": document,

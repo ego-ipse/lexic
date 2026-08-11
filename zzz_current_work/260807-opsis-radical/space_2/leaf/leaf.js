@@ -10,7 +10,11 @@
 const paper = document.getElementById('paper');
 const planes = document.getElementById('planes');
 const held = new Map();
-const only = new URLSearchParams(location.search).get('only') || '';
+const asked = new URLSearchParams(location.search);
+const only = asked.get('only') || '';
+/* a window looks through its own layer over the session's policy: its view,
+   its camera, its scroll are its own, and the cursor stays everyone's */
+const win = asked.get('win') || '';
 
 let frame = null;
 let asking = false;
@@ -33,6 +37,7 @@ async function ask(gesture, body) {
       method: 'POST',
       body: `size ${Math.round(box.width)} ${Math.round(box.height)}\n`
         + (only ? `only ${only}\n` : '')
+        + (win ? `win ${win}\n` : '')
         + (gesture || '')
         + (body === undefined ? '' : `\n${body}`),
     }).then((r) => r.text());
@@ -212,8 +217,15 @@ paper.addEventListener('click', (ev) => {
     ? ` ${Math.max(0, Math.round((ev.clientX - box.left - target.run) / target.cell))}`
     : '';
   if (target.kind === 'seam') return;
+  if (target.kind === 'pin') {
+    const id = `pin-${target.goes.replace(':', '-')}`;
+    window.open(`/?only=pin&win=${id}&pin=${target.goes}`, '_blank',
+                'width=520,height=380');
+    return;
+  }
   if (target.kind === 'pop') {
-    window.open(`/?only=${target.goes}`, '_blank', 'width=1000,height=760');
+    const id = `${target.goes}-${held.size}-${frame.marks.length}`;
+    window.open(`/?only=${target.goes}&win=${id}`, '_blank', 'width=1000,height=760');
     return;
   }
   if (target.kind.includes('.')) {
@@ -270,4 +282,4 @@ window.addEventListener('keydown', (ev) => {
 
 window.addEventListener('resize', () => ask(''));
 setInterval(() => { if (playing) ask('tick'); }, 110);
-ask('');
+ask(asked.get('pin') ? `set pin.span ${asked.get('pin')}` : '');

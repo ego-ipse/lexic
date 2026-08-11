@@ -11,6 +11,7 @@ hairline between them and the grid, and every region carries its own head.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from opsis.frame.facets import DRAWN, HEADS, Look
@@ -42,7 +43,7 @@ def compose(
     wide: int,
     tall: int,
     at: float,
-    state: dict[str, str],
+    state: Mapping[str, str],
     watched: list[list[Any]],
     generation: int,
     typed: dict[str, str] | None = None,
@@ -58,6 +59,7 @@ def compose(
     it = staged(reading, state)
     look = Look(reading, it, at, state, watched, typed, frontier, routes)
     titles = {facet.name: facet.title for facet in it.facets}
+    titles["pin"] = "PINNED · one span, held still"
     columns = {facet.name: facet.column or facet.name for facet in it.facets}
     said.box(0, 0, wide, tall, "field")
 
