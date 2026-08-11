@@ -563,6 +563,15 @@ opening the space_1 file that already answered it, and several had been
   flat, it made every bucket identical on a document where both happen
   everywhere.
 
+- **The reader lit two states where the reference lights three.** They are
+  three different questions: `.live` is the rules the derivation is inside
+  RIGHT NOW — so playing walks the grammar itself rather than only the
+  picture of it — `.lit` is what has been chosen, and `.hot` is what the hand
+  is on. Here everything that lit at all was washed the same, and the chosen
+  rule wore `.hot`, which belongs to the pointer. Drawn weakest first, so the
+  hand always wins the line it is over. One gate fact had encoded the wrong
+  mapping and was corrected against the CSS rather than around it.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.

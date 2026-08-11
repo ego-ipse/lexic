@@ -407,17 +407,29 @@ def _badges(look: Look) -> dict[str, str]:
 
 
 def _held(look: Look, name: str) -> dict[int, str]:
-    """Which lines are lit, and in what: #grammarBody .ln.lit / .ln.hot."""
+    """Which lines are lit, and in what — `.ln.live`, `.ln.lit`, `.ln.hot`.
+
+    THREE STATES, not two, and they are three different questions. `.live` is
+    the rules the derivation is inside RIGHT NOW, so playing walks the grammar
+    itself rather than only the picture of it. `.lit` is what has been chosen.
+    `.hot` is what the hand is on. They are drawn weakest first, so the hand
+    always wins the line it is over.
+    """
     if name != "grammar":
         return {}
-    lit = look.lit()
+    live = {as_written(look.it.rules, span.rule) for span in look.live()}
+    hovered = look.hovered()
     out: dict[int, str] = {}
-    for rule, first, last in look.it.rules:
-        if rule not in lit:
-            continue
-        tone = "hotline" if rule == look.chosen else "lit"
-        for line in range(first, last + 1):
-            out[line] = tone
+    for tone, wanted in (
+        ("liveline", live),
+        ("lit", {look.chosen} if look.chosen else set()),
+        ("hotline", {hovered} if hovered else set()),
+    ):
+        for rule, first, last in look.it.rules:
+            if rule not in wanted:
+                continue
+            for line in range(first, last + 1):
+                out[line] = tone
     return out
 
 

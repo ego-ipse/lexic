@@ -295,7 +295,9 @@ def main() -> int:
     )
     check(
         "the rule's own lines are held in the reader",
-        any(m[5] == "hotline" for m in marks(chosen, "box")),
+        # `.lit` is what has been CHOSEN; `.hot` is what the hand is on. This
+        # asked for hot, which is a different question about a different rule
+        any(m[5] == "lit" for m in marks(chosen, "box")),
     )
     check(
         "focus fades what the chosen rule cannot reach",
@@ -889,6 +891,19 @@ def main() -> int:
             ),
             "said nothing",
         ),
+    )
+
+    reader_lines = {
+        m[5]
+        for m in marks(
+            frame({"chosen": "member", "hover": "rule value"}, at=900.0), "box"
+        )
+        if m[5] in ("liveline", "lit", "hotline")
+    }
+    check(
+        "the reader lights three different questions, not one",
+        reader_lines == {"liveline", "lit", "hotline"},
+        " ".join(sorted(reader_lines)),
     )
 
     graphed = frame({"tab.reader": "1"})
