@@ -39,6 +39,7 @@ from opsis.grammar import rail, rails  # noqa: E402
 from opsis.paint import (  # noqa: E402
     automaton_drawing,
     band_drawing,
+    clock_drawing,
     chart_drawing,
     graph_drawing,
     rail_drawing,
@@ -316,6 +317,27 @@ class Handler(BaseHTTPRequestHandler):
                     machine, self.reading, Handler.state.get("form", "source")
                 )
                 return rails_drawing(rails(shown), wide).wire("rails")
+            if what == "clock":
+                tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 400
+                start = int(float(asked.get("from", ["0"])[0] or 0))
+                win = int(float(asked.get("win", ["400"])[0] or 400))
+                if asked.get("mode", ["pda"])[0] == "pda":
+                    rows = [
+                        (s0, e0, d0, ok)
+                        for s0, e0, d0, _n, ok, _seat in watch(
+                            machine, self.reading.text
+                        )
+                    ]
+                else:
+                    said_hyps, _names = hypotheses(machine, self.reading.text)
+                    rows = []
+                    for line in said_hyps:
+                        parts = line.split(" ")
+                        if len(parts) >= 3:
+                            rows.append(
+                                (int(parts[0]), int(parts[1]), 0, int(parts[2]))
+                            )
+                return clock_drawing(rows, start, win, wide, tall).wire("clock")
             if what == "band":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 26
                 return band_drawing(self.reading, wide, tall).wire("band")

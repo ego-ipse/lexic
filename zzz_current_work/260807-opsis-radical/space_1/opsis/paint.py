@@ -29,9 +29,11 @@ __all__ = [
     "Drawing",
     "automaton_drawing",
     "band_drawing",
+    "clock_drawing",
     "chart_drawing",
     "graph_drawing",
     "band_drawing",
+    "clock_drawing",
     "chart_drawing",
     "rail_drawing",
     "rails_drawing",
@@ -39,6 +41,7 @@ __all__ = [
 
 CELL = 7.2  # one column, in pixels, at the leaf's rail font
 ROW = 22.0  # one row
+CORNER = 7.0  # how tightly the track turns
 
 
 class Drawing:
@@ -108,6 +111,44 @@ class Drawing:
         )
 
 
+def _arch(
+    draw: Drawing, left: float, right: float, line: float, away: float, tone: str
+) -> None:
+    """A line that leaves the track, runs parallel and comes back."""
+    radius = min(CORNER, abs(away - line) / 2)
+    step = 1.0 if away > line else -1.0
+    draw.curve(left, line, left, away, left + radius, away, tone)
+    draw.line(left + radius, away, right - radius, away, tone)
+    draw.curve(right - radius, away, right, away, right, line, tone)
+    _ = step
+
+
+def _turn(
+    draw: Drawing,
+    edge: float,
+    spine: float,
+    bus: float,
+    mid: float,
+    arm: float,
+    out: bool,
+) -> None:
+    """One branch off the line: leave, round down, run, round back in."""
+    radius = min(CORNER, abs(mid - spine) / 2)
+    step = 1.0 if mid > spine else -1.0
+    if out:
+        draw.line(edge, spine, bus - radius, spine, "rail")
+        draw.curve(bus - radius, spine, bus, spine, bus, spine + step * radius, "rail")
+        draw.line(bus, spine + step * radius, bus, mid - step * radius, "rail")
+        draw.curve(bus, mid - step * radius, bus, mid, bus + radius, mid, "rail")
+        draw.line(bus + radius, mid, arm, mid, "rail")
+        return
+    draw.line(arm, mid, bus - radius, mid, "rail")
+    draw.curve(bus - radius, mid, bus, mid, bus, mid - step * radius, "rail")
+    draw.line(bus, mid - step * radius, bus, spine + step * radius, "rail")
+    draw.curve(bus, spine + step * radius, bus, spine, bus + radius, spine, "rail")
+    draw.line(bus + radius, spine, edge, spine, "rail")
+
+
 def inner_left(bus: float) -> float:
     """Where an arm starts: one column clear of the bus it hangs from."""
     return bus + CELL
@@ -142,40 +183,26 @@ def _track(
                 cursor += GAP * CELL
         return
     if kind == "alt":
-        # a fork is a BUS, not a fan of diagonals: a stub out of the line, a
-        # vertical down to each arm, a stub into it — and the mirror of that
-        # on the way back. Drawing one long curve per arm is what made the
-        # choice read as a funnel instead of a set of alternatives.
+        # A fork TURNS. The line leaves the spine horizontally, rounds a
+        # corner, runs down, rounds back into the arm's line — and mirrors
+        # that on the way out. Straight right angles read as a bracket and
+        # one long diagonal per arm reads as a funnel; neither is track.
         left_bus = x + 2 * CELL
         right_bus = x + w - 2 * CELL
         top = y
-        entries: list[float] = []
         for kid in kids:
             kid_box = room[at[0]]
             mid = top + kid_box.spine * ROW
-            entries.append(mid)
-            draw.line(left_bus, mid, inner_left(left_bus), mid, "rail")
-            _track(kid, room, at, draw, inner_left(left_bus), top)
-            right = inner_left(left_bus) + kid_box.wide * CELL
-            draw.line(right, mid, right_bus, mid, "rail")
+            arm_left = left_bus + CELL
+            _track(kid, room, at, draw, arm_left, top)
+            arm_right = arm_left + kid_box.wide * CELL
+            if abs(mid - (y + spine)) < 0.5:  # the arm on the line
+                draw.line(x, mid, arm_left, mid, "rail")
+                draw.line(arm_right, mid, x + w, mid, "rail")
+            else:
+                _turn(draw, x, y + spine, left_bus, mid, arm_left, out=True)
+                _turn(draw, x + w, y + spine, right_bus, mid, arm_right, out=False)
             top += kid_box.tall * ROW + VGAP * ROW
-        draw.line(x, y + spine, left_bus, y + spine, "rail")
-        draw.line(right_bus, y + spine, x + w, y + spine, "rail")
-        if entries:
-            draw.line(
-                left_bus,
-                min(entries[0], y + spine),
-                left_bus,
-                max(entries[-1], y + spine),
-                "rail",
-            )
-            draw.line(
-                right_bus,
-                min(entries[0], y + spine),
-                right_bus,
-                max(entries[-1], y + spine),
-                "rail",
-            )
         return
     if kind == "many":
         low, high = (payload.split() + ["1", "1"])[:2]
@@ -187,16 +214,12 @@ def _track(
         right_of_kid = inner_x + kid_box.wide * CELL
         draw.line(x, mid, inner_x, mid, "rail")
         draw.line(right_of_kid, mid, x + w, mid, "rail")
-        if low == "0":  # the bypass goes over the top
+        if low == "0":  # the bypass turns up and over
             over = y + ROW * 0.4
-            draw.line(x, mid, x, over, "loop")
-            draw.line(x, over, x + w, over, "loop")
-            draw.line(x + w, over, x + w, mid, "loop")
-        if high != "1":  # the repeat returns underneath
+            _arch(draw, x, x + w, mid, over, "loop")
+        if high != "1":  # the repeat turns down and back
             under = inner_y + kid_box.tall * ROW + ROW * 0.5
-            draw.line(x + w, mid, x + w, under, "loop")
-            draw.line(x + w, under, x, under, "loop")
-            draw.line(x, under, x, mid, "loop")
+            _arch(draw, x, x + w, mid, under, "loop")
         return
 
     if kind in ("not", "alpha"):
@@ -422,4 +445,39 @@ def band_drawing(reading: object, wide: int, tall: int, steps: int = 240) -> Dra
         draw.box(at * pitch, 0.0, max(1.0, pitch), float(tall), f"band{shade}")
     draw.wide = float(wide)
     draw.tall = float(tall)
+    return draw
+
+
+def clock_drawing(
+    rows: list[tuple[int, int, int, int]], view0: int, win: int, wide: int, tall: int
+) -> Drawing:
+    """An engine's clock over a window — one box per thing it held.
+
+    ``rows`` are ``(start, end, lane, fate)``: where it opened, where it
+    closed, which row it belongs in, and whether it survived. Addressed by
+    index, like the derivation, so the readout and the hover keep reading
+    the engine's own list and this says only where each one sits.
+    """
+    draw = Drawing()
+    if not rows or win <= 0:
+        return draw
+    deep = max(lane for _s, _e, lane, _f in rows) + 1
+    lane_tall = max(2.0, min(16.0, (tall - 12) / deep))
+    pitch = wide / win
+    for index, (start, end, lane, fate) in enumerate(rows):
+        if end <= view0 or start >= view0 + win:
+            continue
+        x1 = (max(start, view0) - view0) * pitch
+        x2 = (min(end, view0 + win) - view0) * pitch
+        draw.box(
+            x1,
+            lane * lane_tall,
+            max(1.5, x2 - x1),
+            lane_tall - 1,
+            "kept" if fate else "lost",
+            "",
+            f"{start}:{end}:{index}",
+        )
+    draw.wide = float(wide)
+    draw.tall = deep * lane_tall
     return draw
