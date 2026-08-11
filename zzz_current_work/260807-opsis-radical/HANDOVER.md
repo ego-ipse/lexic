@@ -41,25 +41,27 @@ probe; screenshots are for shape and colour.
   PAINTED BOXES: they carry the y they were drawn at and the span they are.
   Defended by `chartHover` / `afterResize` in the probe.
 
-**The thin-shell experiment (`space_2`), built and deleted.** One route —
-`POST /frame`: the leaf says how big it is and what the hand did, and
-receives the whole instrument in final pixels with named tones, plus hit
+**The thin-shell experiment (`space_2`), built twice and deleted twice.**
+One route — `POST /frame`: the leaf says how big it is and what the hand did,
+and receives the instrument in final pixels with named tones plus hit
 rectangles carrying the address to post when clicked. The leaf was 124 lines
-against space_1's 4,268 shipped, held no geometry, and when the relations
-graph was added afterwards it did not change by one character.
+against space_1's 4,268 shipped and held no geometry at all. Three surfaces
+were added after it was written — relations, then the railroad — and it did
+not change by one character.
 
-It was deleted because the packaging was careless: copied modules were
-dropped into `read/` and `shape/` — generic nouns that throw away the one
-thing this effort's package names carry, which is a RESPONSIBILITY
-(`deixis` points, `eidolon` shapes, `praxis` does, `kairos` times, `opsis`
-shows). If it is rebuilt, keep those names, and treat "it renders" as the
-start of the work rather than the end of it.
+Deleted the first time for careless packaging (`read/`, `shape/` — generic
+nouns that throw away what this effort's package names carry). Rebuilt on
+`opsis` / `deixis` / `eidolon` / `praxis`, and deleted again for the reason
+that matters more: **it had nothing to do with what space_1 looks like.** It
+was a protocol demo wearing three columns — no facet furniture, no tabs, no
+measured arrangement until the last minute, text spilling across column
+boundaries because nothing was clipped to the room it was given.
 
-What the experiment did establish, and what makes it worth rebuilding: every
-late failure in space_1 was two geometries disagreeing — lane heights
-computed on both sides, window maths here and coordinates there, tone names
-here and the colour register there. None of those are expressible when the
-far side holds no geometry at all.
+If it is attempted a third time, that is the lesson: the protocol is not the
+hard part and has already been shown to work. **Reproducing the instrument
+is the work** — start from space_1's arrangement, its facets and its
+surfaces, and treat a frame as finished only when it looks like the thing it
+replaces. Do not ship three columns and call it a comparison.
 
 **The three rules this session cost:**
 
