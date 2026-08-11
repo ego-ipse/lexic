@@ -134,6 +134,9 @@ function drawAutoView(v) {
   }
   cx.lineWidth = 1 / k;
   for (const [a, b] of autoData.edges) {
+    // an edge whose ends are not both here is not drawable. It should never
+    // arrive — but a bad index must not be able to stop time.
+    if (!autoData.clones[a] || !autoData.clones[b]) continue;
     const A = autoPos(autoData.clones[a]), B = autoPos(autoData.clones[b]);
     const hotEdge = inNow.has(a) && inNow.has(b);
     cx.strokeStyle = hotEdge ? 'rgba(226,166,92,0.8)' : 'rgba(111,195,201,0.10)';

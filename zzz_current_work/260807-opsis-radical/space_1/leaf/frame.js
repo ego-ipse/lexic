@@ -17,6 +17,7 @@ function render() {
   }
   followCursor();
   drawUnder(); drawOver(); drawChart(); drawSpine(); litRules(); drawGraph();
+  drawTwins();  // a cloned surface is the same surface, drawn again
   const state = cur.playing ? 'playing' : (cur.t >= S.doc.length ? 'complete' : 'paused');
   const line = lineOf(Math.min(Math.floor(cur.t), S.doc.length - 1)) + 1;
   $('pos').textContent =

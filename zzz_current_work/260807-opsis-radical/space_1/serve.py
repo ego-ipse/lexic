@@ -23,7 +23,12 @@ if str(HERE) not in sys.path:
 
 from chain import chain  # noqa: E402
 from draw import graph_facet  # noqa: E402
-from lexic.compile import CompiledGrammar, compile_text  # noqa: E402
+from lexic.compile import (  # noqa: E402
+    CompiledGrammar,
+    canonical_grammar,
+    compile_text,
+)
+from lexic.ir import IrAst  # noqa: E402
 from machine import machine_facet  # noqa: E402
 from place import arrange, shares  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
@@ -39,7 +44,7 @@ from irvalue import graph as ir_graph  # noqa: E402
 from irvalue import refused as ir_refused  # noqa: E402
 from irvalue import wire as ir_wire  # noqa: E402
 from lexic.ir.spine.spine import IrSelf  # noqa: E402
-from watch import column, hypotheses, parity, watch  # noqa: E402
+from watch import column, decisions, hypotheses, parity, watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
 
 __all__ = ["Handler", "main", "scene"]
@@ -65,6 +70,40 @@ def ruledefs(text: str) -> list[tuple[str, int, int]]:
         stop = heads[place + 1][1] - 1 if place + 1 < len(heads) else text.count("\n")
         out.append((name, start, stop))
     return out
+
+
+# The same language, at three moments of the pipeline. None of them is more
+# true than the others: a grammar as WRITTEN, in its canonical normal form,
+# and as codegen cut it for the parser. The views disagreed because each was
+# drawing a different one — the automaton is built from the codegen form, so
+# a choice it makes has no node in the source form at all.
+FORMS = ("source", "canonical", "codegen")
+
+
+def form_of(machine: CompiledGrammar, reading: Reading, which: str) -> IrAst:
+    """This reader at one moment of the pipeline."""
+    if which == "codegen":
+        return machine.codegen_grammar
+    if which == "canonical":
+        return canonical_grammar(
+            reading.reader_text, get_flavour(reading.flavour or "gbnf")
+        )
+    return machine.grammar
+
+
+def spelled(reading: Reading, shown: IrAst | None, form: str) -> str:
+    """This form as grammar TEXT — what the reader displays.
+
+    The source form is the file as written; the other two are spelled by the
+    flavour that read it, so a form is never shown as a description of
+    itself. If it cannot be spelled, the reader keeps showing what it has.
+    """
+    if form == "source" or shown is None:
+        return reading.reader_text
+    try:
+        return get_flavour(reading.flavour or "gbnf").apply(shown)
+    except LexicError, RecursionError, ValueError:
+        return reading.reader_text
 
 
 def reader_of(reading: Reading) -> CompiledGrammar | None:
@@ -110,8 +149,17 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
     facets = reading.facets()
     if machine is not None:
         facets = [*facets[:1], graph_facet(machine.grammar), *facets[1:]]
-    rules = ruledefs(reading.reader_text)
-    said = [as_written(rules, s.rule) for s in reading.spans]
+    # THE FORM IS A PROPERTY OF THE READER: it decides what the reader
+    # displays. The grammar as written, its canonical normal form, or the
+    # form codegen cut for the parser — each spelled by the flavour, so the
+    # reader shows real grammar text in every one of them, and every name
+    # downstream (the graph's nodes, the spans' rules, the spine) is read off
+    # THAT text. One spelling, one picture, whichever form you are in.
+    form = (state or {}).get("form", "source")
+    shown = form_of(machine, reading, form) if machine else None
+    reader_text = spelled(reading, shown, form)
+    rules = ruledefs(reader_text)
+    said = [as_written(rules, span.rule) for span in reading.spans]
     names = sorted(set(said))
     fields = sorted({s.field for s in reading.spans})
     at = {name: i for i, name in enumerate(names)}
@@ -125,13 +173,31 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
     # WHICH RULE REFERS TO WHICH — the relationships. The leaf's wire reader
     # has always had a place for these two blocks; nothing ever filled it, so
     # every graph drew rules as unrelated dots and read as broken.
-    relations = edges(machine.grammar) if machine else []
-    deep = levels(machine.grammar) if machine else {}
+    relations = (
+        [(as_written(rules, a), as_written(rules, b)) for a, b in edges(shown)]
+        if shown
+        else []
+    )
+    deep = (
+        {as_written(rules, name): at for name, at in levels(shown).items()}
+        if shown
+        else {}
+    )
     policy = {
         "needs": " ".join(f"{f.name}:{f.wide}x{f.tall}" for f in [*facets, *elsewhere]),
         "offered": " ".join(f"{name}:{cols}" for name, cols in given.items()),
-        "arrange.tree": arrange(facets),
+        "arrange.tree": arrange(
+            facets,
+            showing={
+                key[len("tab.") :]: int(value)
+                for key, value in (state or {}).items()
+                if key.startswith("tab.") and value.isdigit()
+            },
+        ),
         "chain": " | ".join(rung.line() for rung in chain(reading)),
+        # which moment of the pipeline every view is drawing
+        "form": form,
+        "forms": " ".join(FORMS),
     }
     # what the leaf remembers about how it is looking at this reading — modes,
     # views, pins — belongs in the frame it boots from, or a reload silently
@@ -169,8 +235,8 @@ def scene(reading: Reading, state: dict[str, str] | None = None) -> str:
                 f"{s.start} {s.end} {s.depth} {at[r]} {fat[s.field]}"
                 for s, r in zip(reading.spans, said, strict=True)
             ),
-            f"#READER {len(reading.reader_text)}",
-            reading.reader_text,
+            f"#READER {len(reader_text)}",
+            reader_text,
             f"#DOC {len(reading.text)}",
             reading.text,
             "",
@@ -603,10 +669,11 @@ class Handler(BaseHTTPRequestHandler):
             # a graph view can be about ONE rule: asked from a rule's room,
             # the answer is that rule's neighbourhood, not the whole grammar
             asked = parse_qs(query).get("place", [""])[0]
+            shown = form_of(machine, self.reading, Handler.state.get("form", "source"))
             if asked.startswith("rule:") and self.subject(asked, machine) is not None:
-                drawn_edges, names = reachable(machine.grammar, asked[5:])
+                drawn_edges, names = reachable(shown, asked[5:])
             else:
-                drawn_edges, names = edges(machine.grammar), levels(machine.grammar)
+                drawn_edges, names = edges(shown), levels(shown)
             return "\n".join(
                 [
                     f"#EDGES {len(drawn_edges)}",
@@ -620,6 +687,7 @@ class Handler(BaseHTTPRequestHandler):
             return strata(self.reading, Handler.climbed or [self.reading])
         if path == "/clock":
             frames = watch(machine, self.reading.text)
+            chose = decisions(frames)
             hyps, hnames = hypotheses(machine, self.reading.text)
             names = sorted({str(row[3]) for row in frames})
             at = {name: i for i, name in enumerate(names)}
@@ -636,7 +704,11 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                     f"#PDANAMES {len(names)}",
                     *names,
-                    "#EVENTS 0",
+                    # where the machine had to choose — the lanes have always
+                    # shown the rollbacks; nothing read them as decisions, so
+                    # the panel said "none" on a grammar of nothing but
+                    f"#EVENTS {len(chose)}",
+                    *(f"{at} {kind} {said}" for at, kind, said in chose),
                     f"#EARLEY {len(hyps)}",
                     *hyps,
                     f"#EARLEYNAMES {len(hnames)}",

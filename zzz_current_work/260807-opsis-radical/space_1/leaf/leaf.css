@@ -162,9 +162,11 @@ body {
 #dock .fnode-chip:hover { border-color: var(--warm); color: var(--warm); }
 #dock .fnode-chip.over { border-color: var(--violet); color: var(--violet); }
 
-body.off-grammar #grammar, body.off-document #document,
-body.off-graph #graph,
-body.off-chart #chart, body.off-spine #spine { display: none; }
+/* a minimized facet is hidden — unless it is IN A WINDOW, where being
+   minimized in the grid is exactly why it is somewhere else */
+body.off-grammar #grammar:not(.inwin), body.off-document #document:not(.inwin),
+body.off-graph #graph:not(.inwin),
+body.off-chart #chart:not(.inwin), body.off-spine #spine:not(.inwin) { display: none; }
 
 
 /* ── the facet grid — regions, not windows ── */
@@ -750,3 +752,27 @@ body.clock-pda .vbadge { display: inline-block; }
   font: inherit; font-size: 11px; padding: 1px 8px; cursor: pointer;
 }
 .gview .gtab.on { color: var(--cool); border-color: var(--cool); }
+
+/* what the derivation is inside RIGHT NOW — the same warm the automaton
+   uses for the clones it is standing in, so one colour means one thing */
+.gchip.live { color: var(--warm); border-color: var(--warm); opacity: 1; }
+#grammarBody .ln.live { background: rgba(226,166,92,0.10); }
+
+/* a facet that left the grid, and a facet opened a second time */
+.pin.facetwin { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.pin.facetwin .winbody { flex: 1; min-height: 0; position: relative; overflow: auto; }
+.pin.facetwin .winbody > .facet.inwin {
+  position: static; width: 100%; height: 100%; display: flex; flex-direction: column;
+}
+.pin.facetwin .winbody.mirror { padding: 6px 8px; font: inherit; }
+.pin.facetwin .winbody.mirror canvas { display: block; width: 100%; height: 100%; }
+.wingrip {
+  position: absolute; right: 0; bottom: 0; width: 14px; height: 14px;
+  cursor: nwse-resize; background:
+    linear-gradient(135deg, transparent 50%, var(--dimmer) 50%, var(--dimmer) 100%);
+}
+button.fpop {
+  background: none; border: 1px solid #232b3a; color: var(--dim);
+  font: inherit; font-size: 11px; padding: 0 5px; margin-left: 4px; cursor: pointer;
+}
+button.fpop:hover { color: var(--warm); border-color: var(--warm); }

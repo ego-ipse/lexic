@@ -57,18 +57,29 @@ def columns_of(facets: Sequence[Facet]) -> list[list[Facet]]:
     return out
 
 
-def _group(group: Sequence[Facet]) -> str:
+def _group(group: Sequence[Facet], showing: dict[str, int]) -> str:
     """One column's contents — a leaf, a tab set, or a vertical split."""
     if len(group) == 1:
         return group[0].name
     if group[0].relation == "stacked":
         # the share is the first surface's height against the pair's
         top = group[0].tall / max(1, sum(f.tall for f in group))
-        return f"(v {min(0.8, max(0.2, round(top, 3)))} {group[0].name} {_group(group[1:])})"
-    return f"(t 0 {' '.join(f.name for f in group)})"
+        return (
+            f"(v {min(0.8, max(0.2, round(top, 3)))} {group[0].name} "
+            f"{_group(group[1:], showing)})"
+        )
+    # WHICH TAB IS SHOWING is remembered here, with the rest of how you are
+    # looking at this reading. The leaf keeping it meant a reload dropped
+    # back to the first tab, and the server could not say what you were on.
+    at = showing.get(group[0].column, 0)
+    return f"(t {max(0, min(at, len(group) - 1))} {' '.join(f.name for f in group)})"
 
 
-def arrange(facets: Sequence[Facet], columns: int = 200) -> str:
+def arrange(
+    facets: Sequence[Facet],
+    columns: int = 200,
+    showing: dict[str, int] | None = None,
+) -> str:
     """The arrangement as a value the leaf applies without deciding anything.
 
     Left to right in the order the surfaces were declared, each split's share
@@ -82,12 +93,13 @@ def arrange(facets: Sequence[Facet], columns: int = 200) -> str:
     # at the full width, so the column is not the sum of their appetites
     given = shares(facets, columns)
     wide = [max(given[f.name] for f in group) for group in groups]
+    on = showing or {}
 
     def split(at: int) -> str:
         if at == len(groups) - 1:
-            return _group(groups[at])
+            return _group(groups[at], on)
         rest = sum(wide[at + 1 :])
         share = round(wide[at] / max(1, wide[at] + rest), 3)
-        return f"(h {share} {_group(groups[at])} {split(at + 1)})"
+        return f"(h {share} {_group(groups[at], on)} {split(at + 1)})"
 
     return split(0)

@@ -51,6 +51,8 @@ async function boot(keep) {
   gNodes = null;
   // the graph is a facet now — if it is open, it has something to draw
   applyFacetNames();
+  applyForms();
+  armFacetButtons();
   graphOn = facetOn['graph'] !== false;
   if (graphOn) buildGraph();
   applyPolicy();

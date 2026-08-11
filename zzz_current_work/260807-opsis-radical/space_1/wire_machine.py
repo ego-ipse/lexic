@@ -64,7 +64,11 @@ def automaton(tables: PdaTables) -> str:
     start = tables.start_key
     order: list[CloneKey] = []
     depth: dict[CloneKey, int] = {}
-    if isinstance(start, CloneKey):
+    # only keys that ARE in the table go into the order: the edges are
+    # indices into it, and emitting a filtered list afterwards shifted every
+    # index past the first missing clone onto the wrong clone — or onto
+    # nothing, which threw mid-draw and took the play loop with it
+    if isinstance(start, CloneKey) and start in tables.clones:
         order.append(start)
         depth[start] = 0
     at = 0
@@ -87,7 +91,6 @@ def automaton(tables: PdaTables) -> str:
         f"{at_name[key.name]} {_mode(tables.clones[key])} "
         f"{_flags(tables.clones[key])} {depth[key]}"
         for key in order
-        if key in tables.clones
     ]
     return "\n".join(
         [

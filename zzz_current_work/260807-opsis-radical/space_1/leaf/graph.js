@@ -35,6 +35,39 @@ function makeGraphView(wrap, cv, chips) {
 
 function markedRule() { return cur.rule || graphHover; }
 
+// WHAT IS LIVE AT t — the spans open at the cursor, which is the derivation's
+// own stack. The automaton lit itself from the PDA's frames and nothing else
+// lit at all, so playing the derivation animated one view out of five.
+let liveNow = { t: -1, names: new Set(), path: [] };
+
+function liveRules() {
+  if (liveNow.t === cur.t) return liveNow.names;
+  const names = new Set();
+  const byDepth = [];
+  for (const s of S.spans) {
+    if (s.s <= cur.t && cur.t < s.e) {
+      const name = S.ruleNames[s.r];
+      names.add(name);
+      byDepth[s.d] = name;
+    }
+  }
+  liveNow = { t: cur.t, names, path: byDepth.filter(Boolean) };
+  return names;
+}
+
+function livePath() { liveRules(); return liveNow.path; }
+
+function liveEdge(a, b) {
+  // an edge is live when it is a STEP the derivation is standing on: one
+  // open rule directly inside the next. Lighting every edge between two
+  // live rules would light the whole grammar at depth.
+  const path = livePath();
+  for (let i = 0; i + 1 < path.length; i++) {
+    if (path[i] === a && path[i + 1] === b) return true;
+  }
+  return false;
+}
+
 function hotRule() {
   if (graphHover) return graphHover;
   if (cur.hover >= 0) return S.ruleNames[S.spans[cur.hover].r];
@@ -212,9 +245,12 @@ function drawGraphView(v, smooth = false) {
     if (!A || !B) continue;
     if (keepE !== null && !(keepE.has(a) && keepE.has(b))) continue;
     const touched = mark && (a === mark || b === mark);
-    cx.strokeStyle = touched
-      ? 'rgba(217,140,245,0.75)'
-      : `rgba(111,195,201,${(0.06 + 0.22 * Math.min(A.s, B.s)).toFixed(3)})`;
+    cx.strokeStyle = liveEdge(a, b)
+      ? 'rgba(226,166,92,0.9)'
+      : touched
+        ? 'rgba(217,140,245,0.75)'
+        : `rgba(111,195,201,${(0.06 + 0.22 * Math.min(A.s, B.s)).toFixed(3)})`;
+    cx.lineWidth = liveEdge(a, b) ? 2 : 1;
     cx.beginPath();
     if (mode === 'arcs' && a !== b) {
       const dir = B.x >= A.x ? 1 : -1;  // forward references arc above, backward below
@@ -231,6 +267,7 @@ function drawGraphView(v, smooth = false) {
   }
   const start = Object.keys(S.depths).find((n) => S.depths[n] === 0) || '';
   const hot = hotRule();
+  const live = liveRules();
   const keep = focusSet();
   for (const el of v.chips.children) {
     const P = proj.get(el.dataset.name);
@@ -246,6 +283,7 @@ function drawGraphView(v, smooth = false) {
     el.classList.toggle('start', el.dataset.name === start);
     el.classList.toggle('marked', el.dataset.name === cur.rule);
     el.classList.toggle('hot', el.dataset.name === hot);
+    el.classList.toggle('live', live.has(el.dataset.name));
     el.classList.toggle('faded', keep !== null && !keep.has(el.dataset.name));
   }
 }

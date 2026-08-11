@@ -190,7 +190,12 @@ function layoutFacets() {
   }
   const vis = visibleTree(layoutTree);
   if (vis !== null) place(vis, 0, 0, W, H);
-  for (const name of FACETS) $(name).style.display = placed.has(name) ? '' : 'none';
+  for (const name of FACETS) {
+    // a facet living in a window is not unplaced — it is placed SOMEWHERE
+    // ELSE, and the grid has no say over whether it is visible
+    if ($(name).classList.contains('inwin')) continue;
+    $(name).style.display = placed.has(name) ? '' : 'none';
+  }
 }
 
 function applyFacetNames() {
@@ -212,6 +217,29 @@ function applyFacetNames() {
     if (bold) bold.textContent = name.trim();
     const said = rest.join('·').trim();
     if (sub && said) sub.textContent = said;
+  }
+}
+
+function applyForms() {
+  // WHICH FORM every view draws — the same language as written, in its
+  // canonical normal form, or as codegen cut it for the parser. The views
+  // used to disagree silently: the automaton is built from the codegen form,
+  // so a choice it made had no node in the source form to light.
+  const sel = $('gform');
+  if (!sel || !S.policy) return;
+  const forms = (S.policy['forms'] || 'source').split(' ').filter(Boolean);
+  const on = S.policy['form'] || 'source';
+  if (sel.dataset.forms !== forms.join(' ')) {
+    sel.dataset.forms = forms.join(' ');
+    sel.innerHTML = forms.map((f) => `<option value="${f}">${f}</option>`).join('');
+  }
+  sel.value = on;
+  if (!sel.dataset.armed) {
+    sel.dataset.armed = '1';
+    sel.addEventListener('change', async () => {
+      postPolicy('form', sel.value);
+      await boot(true);
+    });
   }
 }
 

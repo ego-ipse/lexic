@@ -170,11 +170,15 @@ function litRules() {
   const selDef = selRule ? ruleDef(selRule) : null;
   const curDef = cur.rule ? ruleDef(cur.rule) : null;
   const hotDef = hotRule() ? ruleDef(hotRule()) : null;
+  // and the rules the derivation is INSIDE right now, so playing walks the
+  // grammar itself rather than only the picture of it
+  const liveDefs = [...liveRules()].map(ruleDef).filter(Boolean);
   document.querySelectorAll('#grammarBody .ln').forEach((ln) => {
     const i = +ln.dataset.l;
     const inDef = (d) => d && d.a <= i && i <= d.b;
     ln.classList.toggle('lit', inDef(selDef) || inDef(curDef));
     ln.classList.toggle('hot', inDef(hotDef));
+    ln.classList.toggle('live', liveDefs.some(inDef));
   });
   const target = selDef || hotDef || curDef;
   if (target) {

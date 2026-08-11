@@ -31,8 +31,16 @@ from ring import GRAMMAR as POLICY  # noqa: E402
 from ring import apply_record, record  # noqa: E402
 from irvalue import graph as ir_graph  # noqa: E402
 from irvalue import wire as ir_wire  # noqa: E402
-from serve import PENDING, drawn, moved, ruledefs, strata  # noqa: E402
+from serve import (  # noqa: E402
+    FORMS,
+    PENDING,
+    drawn,
+    moved,
+    ruledefs,
+    strata,
+)
 from watch import watch  # noqa: E402
+from wire_machine import automaton  # noqa: E402
 
 ROOT = HERE.parents[2]
 GRAMMAR = ROOT / "resources/ground_truth/json.gbnf"
@@ -338,6 +346,29 @@ def main() -> int:
         " · ".join(rungs),
     )
 
+    # the automaton's edges are INDICES into its clone list. Emitting a
+    # filtered list after building the edges shifted every index past the
+    # first missing clone, and a dangling index threw inside the draw — which
+    # killed the animation frame chain, so the derivation could not be played
+    # at all while that view was open.
+    said_auto = automaton(machine.pda_tables())
+    parts: dict[str, list[str]] = {}
+    where = ""
+    for line in said_auto.split("\n"):
+        if line.startswith("#"):
+            where = line.split()[0]
+            parts[where] = []
+        elif where and line:
+            parts[where].append(line)
+    drawable = len(parts.get("#ACLONES", []))
+    links = [tuple(map(int, line.split())) for line in parts.get("#AEDGES", [])]
+    dangling = [e for e in links if e[0] >= drawable or e[1] >= drawable]
+    check(
+        "every automaton edge points at a clone the automaton also sent",
+        not dangling and bool(links),
+        f"{drawable} clones · {len(links)} edges · {len(dangling)} dangling",
+    )
+
     # an edit moves EVERYTHING derived from the text. The scene said
     # "generation 1" as a literal, so the leaf never learned the text had
     # moved: only the model came back new while every clock, automaton and
@@ -357,6 +388,39 @@ def main() -> int:
         edited.state != "refused" and all(a != b for a, b in zip(was, now)),
         f"generation {was[0]}→{now[0]} · spans {was[1]:,}→{now[1]:,} · "
         f"pda frames {was[2]:,}→{now[2]:,}",
+    )
+
+    # FORMS. The same language at three moments of the pipeline — as
+    # written, canonical, as codegen cut it. Each is a legitimate picture,
+    # and a view drawing one while another view draws a second is why a
+    # choice the machine made never lit: the node was not in that picture.
+    # What must hold in EVERY form: every rule a span names is a node of the
+    # graph that form draws, or the light has nowhere to land.
+    joins: list[str] = []
+    for which in FORMS:
+        said = drawn(reading, {"form": which})
+        block_at = next(
+            i for i, line in enumerate(said.split("\n")) if line.startswith("#DEPTHS ")
+        )
+        rows = said.split("\n")[block_at:]
+        nodes = {
+            line.rsplit(" ", 1)[0] for line in rows[1 : 1 + int(rows[0].split()[1])]
+        }
+        names_at = next(
+            i
+            for i, line in enumerate(said.split("\n"))
+            if line.startswith("#RULENAMES ")
+        )
+        rows2 = said.split("\n")[names_at:]
+        used = set(rows2[1 : 1 + int(rows2[0].split()[1])])
+        joins.append(f"{which}: {len(used & nodes)}/{len(used)} of the spans' rules")
+        if used - nodes:
+            joins[-1] += f" ← {sorted(used - nodes)[:2]} NOT in the picture"
+    moved()
+    check(
+        "in every form, what the model names is what the graph draws",
+        all("NOT in the picture" not in said for said in joins),
+        " · ".join(joins),
     )
 
     # the relationships. The leaf's scene reader has always had a place for

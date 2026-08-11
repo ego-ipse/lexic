@@ -79,10 +79,11 @@ async function probeGestures() {
       spans: S.spans.length,
       frames: (clockData && clockData.frames.length) || 0,
       clones: (autoData && autoData.clones.length) || 0,
-      edges: S.edges.length,
+      len: S.doc.length,
     };
+    const put = '\n  "opsis-probe": [1, 2, 3],';
     const reply = await (await fetch('/edit', { method: 'POST',
-      body: `1 1\n\n  "opsis-probe": [1, 2, 3],` })).text();
+      body: `1 1\n${put}` })).text();
     await boot(true);
     await wait(900);
     await loadClock();
@@ -93,15 +94,19 @@ async function probeGestures() {
       spans: S.spans.length,
       frames: (clockData && clockData.frames.length) || 0,
       clones: (autoData && autoData.clones.length) || 0,
-      edges: S.edges.length,
+      len: S.doc.length,
     };
     out.push(`edit=${reply.split('\n')[0]}`,
+      `docLen ${was.len}->${now.len}`,
       `gen ${was.gen}->${now.gen}`,
       `spans ${was.spans}->${now.spans}`,
       `pdaFrames ${was.frames}->${now.frames}`,
       `clones ${was.clones}->${now.clones}`);
     // put the document back the way it was found
-    await (await fetch('/edit', { method: 'POST', body: '1 28\n' })).text();
+    // put the document back EXACTLY: an off-by-one here leaves a character
+    // behind on every run, and the fixture drifts
+    await (await fetch('/edit', { method: 'POST',
+      body: `1 ${1 + put.length}\n` })).text();
     await boot(true);
     await wait(700);
     // the relations: nothing may hang off the edge of its own facet
@@ -134,6 +139,67 @@ async function probeGestures() {
     }
     gView = 'depth3d';
     drawGraph();
+    // playing, in the automaton view: the transport must work wherever you
+    // are standing, and time must light every view, not only this one
+    // first in the DEFAULT view, so a frozen clock here means the harness,
+    // not the instrument
+    cur.t = 0;
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    await wait(700);
+    out.push(`plainPlay=${cur.playing} t=${Math.round(cur.t)}`);
+    cur.playing = false;
+    gView = 'automaton';
+    if (gViews[0]) switchViewMode(gViews[0], 'depth3d', 'automaton');
+    drawGraph();
+    await wait(600);
+    cur.t = 0;
+    document.body.dispatchEvent(new KeyboardEvent('keydown',
+      { key: ' ', bubbles: true }));
+    await wait(900);
+    const ticks = [];
+    for (let i = 0; i < 4; i++) { await wait(300); ticks.push(Math.round(cur.t)); }
+    out.push(`autoPlay=${cur.playing} t=${ticks.join('/')}`);
+    cur.playing = false;
+    cur.t = 4000;
+    ask();
+    await wait(400);
+    // the relations must be the ACTIVE tab before its chips can light: a
+    // hidden facet has no width, and a view with no width draws nothing
+    const relTab = [...document.querySelectorAll('#grid .tabbar .tab')]
+      .find((el) => el.textContent === 'relations');
+    click(relTab);
+    await wait(700);
+    drawGraph();
+    await wait(300);
+    out.push(`tab=${relTab ? relTab.textContent : 'NONE'}`,
+      `liveAtT=${[...liveRules()].length} rules`,
+      `chips=${document.querySelectorAll('#graphChips .gchip').length}`,
+      `graphBox=${$('graphWrap').clientWidth}x${$('graphWrap').clientHeight}`,
+      `mode=${gView} t=${Math.round(cur.t)}`,
+      `litChips=${document.querySelectorAll('#graphChips .gchip.live').length}`,
+      `litRules=${document.querySelectorAll('#grammarBody .ln.live').length}`);
+    gView = 'depth3d';
+    if (gViews[0]) switchViewMode(gViews[0], 'automaton', 'depth3d');
+    drawGraph();
+    // pop a facet out, and clone one: both must be REAL — the section moves
+    // into the window, and the clone keeps drawing what its source draws
+    popFacet('chart');
+    await wait(600);
+    const inWin = document.querySelector('.facetwin .winbody > #chart');
+    out.push(`popped=${!!inWin} visible=${inWin
+      ? getComputedStyle(inWin).display !== 'none' : false}`);
+    cloneFacet('spine');
+    await wait(500);
+    drawTwins();
+    out.push(`cloned=${document.querySelectorAll('.facetwin').length}`,
+      `mirror=${(document.querySelector('.winbody.mirror') || {}).textContent
+        ? 'has content' : 'EMPTY'}`);
+    dockFacet('chart');
+    await wait(500);
+    out.push(`docked=${!!document.querySelector('#grid > #chart')}`);
+    for (const win of document.querySelectorAll('.facetwin')) win.remove();
+    twins.length = 0;
+    await wait(300);
     // the strata, clicked TWICE: up then back down. One card's worth of
     // missing stats used to throw mid-render and everything after the first
     // stratum vanished, which reads as "only the first layer is shown".

@@ -210,3 +210,39 @@ def parity(compiled: CompiledGrammar, text: str) -> tuple[float, str, str]:
         if same
         else "the engines built DIFFERENT values from one text",
     )
+
+
+def decisions(frames: list[list[Any]]) -> list[tuple[int, str, str]]:
+    """Where the machine had to CHOOSE — derived from what it actually did.
+
+    A predictive parser that never backtracks makes no decisions worth
+    reporting; this one does, and says so by rolling frames back. So a
+    decision point is a position where some frame was pushed and undone, and
+    what was chosen there is the frame at the same depth that survived.
+
+    Nothing here is a new observation: it is the same frames the lanes draw,
+    read for the question "was there a choice here". Inventing a decision the
+    walk did not make would be worse than reporting none.
+    """
+    tried: dict[tuple[int, int], list[str]] = {}
+    took: dict[tuple[int, int], str] = {}
+    for start, _end, depth, name, ok, _seat in frames:
+        where = (start, depth)
+        if ok:
+            took.setdefault(where, str(name))
+        else:
+            tried.setdefault(where, []).append(str(name))
+    out: list[tuple[int, str, str]] = []
+    for (start, depth), names in sorted(tried.items()):
+        rolled = ", ".join(sorted(set(names)))
+        chosen = took.get((start, depth), "")
+        out.append(
+            (
+                start,
+                "choice",
+                f"tried {rolled} — rolled back · "
+                + (f"took {chosen}" if chosen else "no arm survived here")
+                + f" · at depth {depth}",
+            )
+        )
+    return out
