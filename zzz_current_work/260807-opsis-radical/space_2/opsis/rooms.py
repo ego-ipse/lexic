@@ -12,13 +12,12 @@ from lexic.ir import IrAst
 from lexic.ir.spine.spine import IrSelf
 from lexic.grammars import get_flavour
 from kairos.machine import of
-from praxis.reading import Reading, as_written
+from praxis.reading import Reading, as_written, ruledefs
 from eidolon.topology import reachable
 from eidolon.value import graph as ir_graph
 from eidolon.value import refused as ir_refused
 from kairos.artefacts import keep
 from kairos.pipeline import FORMS, form_of, spelled
-from opsis.scene import ruledefs
 
 __all__ = ["room", "subject"]
 

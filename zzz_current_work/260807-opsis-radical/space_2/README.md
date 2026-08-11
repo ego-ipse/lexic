@@ -42,26 +42,25 @@ x y w h <kind> <address>        ← what the pointer can land on, and what to
                                   post when it does
 ```
 
-## Surfaces
+## Surfaces are nodes
 
-Six, switched by clicking a tab, all composed here: **derivation**,
-**relations**, **railroad**, **machine**, **pda** and **earley**. The reader
-lights the lines of every rule open at the cursor; the stack under it names
-them; the status line says where the cursor stands.
+Each one is a class in `opsis/surfaces/`: it says what it is called, which
+column it belongs to, how much room it needs, and how to draw itself into the
+room it got. `compose` has no list of them and no branch on which is which —
+it measures, arranges, and hands each node a rectangle. Adding a surface is
+one class; the tabs, the header, the scrolling and the hit rectangles all
+fall out.
 
 ## The measure
 
 | | space_1 | space_2 |
 |---|---|---|
-| leaf, shipped | 4,268 lines | **125** |
+| leaf, shipped | 4,268 lines | **172** |
 | leaf files | 17 | 2 |
 | wire routes | 12 | 1 |
 | geometry in the leaf | window, tint, lanes, hit tests, layout, camera | none |
 | server | 4,377 lines | 3,692 (the same derivations, one composer) |
 
-## Known
+## What is done and what is not
 
-A curve is drawn as its chord: the frame's vocabulary is box, line and text,
-so the railroad's bezier branches arrive straight. Adding `curve` to the
-protocol is four lines on each side, and is stated here rather than hidden.
-Rooms, strata, pins and pop-outs are not composed yet.
+[LEDGER.md](LEDGER.md) — kept honest, not rounded up.

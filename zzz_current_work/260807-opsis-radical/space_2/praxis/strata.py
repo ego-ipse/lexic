@@ -7,11 +7,10 @@ sent can be asked for and checked without a socket in the way.
 from __future__ import annotations
 
 from praxis.state import Rung
-from praxis.reading import Reading, profile, upward
+from praxis.reading import Reading, reader_of, ruledefs, profile, upward
 from kairos.machine import of
 from eidolon.value import graph as ir_graph
 from kairos.artefacts import keep
-from opsis.scene import reader_of, ruledefs
 
 __all__ = ["strata"]
 

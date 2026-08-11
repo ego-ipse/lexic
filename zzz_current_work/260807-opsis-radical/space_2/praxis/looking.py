@@ -16,6 +16,9 @@ class Looking(Protocol):
 
     surface: str
     clock: str
+    graph: str
+    yaw: float
+    pitch: float
     reader_top: int
     doc_top: int
     rail_top: int

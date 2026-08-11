@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from opsis.compose import compose  # noqa: E402
+from opsis.frame import compose  # noqa: E402
 from praxis.reading import read  # noqa: E402
 from praxis.session import Session  # noqa: E402
 
@@ -61,15 +61,27 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
-        head, _, gesture = body.partition("\n")
-        parts = head.split()
-        wide = int(parts[1]) if len(parts) > 2 and parts[1].isdigit() else 1400
-        tall = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 800
-        if gesture.strip():
+        # one line per thing said: how big the paper is, which room this
+        # window is (a popped-out one is only ever one), and what the hand did
+        wide, tall, only, gesture = 1400, 800, "", ""
+        for line in body.split("\n"):
+            word, _, rest = line.strip().partition(" ")
+            if word == "size" and len(rest.split()) == 2:
+                wide, tall = (int(n) for n in rest.split())
+            elif word == "only":
+                only = rest.strip()
+            elif line.strip():
+                gesture = line.strip()
+        if gesture:
             SESSION.here.gesture(gesture)
         self.send(
             compose(
-                SESSION.here.reading, wide, tall, SESSION.here.at, SESSION.here
+                SESSION.here.reading,
+                wide,
+                tall,
+                SESSION.here.at,
+                SESSION.here,
+                only,
             ).wire(SESSION.here.generation)
         )
 
