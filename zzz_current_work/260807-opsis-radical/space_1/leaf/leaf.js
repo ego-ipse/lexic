@@ -662,17 +662,20 @@ async function loadClock() {
       } else if (section === 'hn') data.hnames.push(ln);
     }
     for (const f of data.frames) f.name = data.fnames[f.n];
-    // hypotheses pack into rows greedily — the row count IS the maximum
-    // number of simultaneously live hypotheses, itself a measurement
-    const rowEnd = [];
+    // A LANE IS A RULE. Greedy packing put a hypothesis in whatever slot was
+    // free, so its height meant nothing and the chart was noise by
+    // construction — the PDA clock reads because its row is stack depth.
+    // Here the row is the rule being hypothesised, so a band of ink says
+    // WHICH rule the engine was entertaining across that stretch of text,
+    // and the rules are ordered by where they first appear.
+    const laneOf = new Map();
     for (const hh of data.hyp) {
       hh.name = data.hnames[hh.n];
-      let r = 0;
-      while (r < rowEnd.length && rowEnd[r] > hh.s) r++;
-      rowEnd[r] = Math.max(hh.e, hh.s + 0.5);
-      hh.row = r;
+      if (!laneOf.has(hh.n)) laneOf.set(hh.n, laneOf.size);
+      hh.row = laneOf.get(hh.n);
     }
-    data.hypRows = Math.max(1, rowEnd.length);
+    data.hypRows = Math.max(1, laneOf.size);
+    data.hypLanes = [...laneOf.keys()].map((n) => data.hnames[n]);
     clockData = data;
     clockWaiting = false;
     ask();
@@ -850,7 +853,7 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
   }
   const legend = pda
     ? `frames by clone mode (grey seq · cool dispatch · violet value_str · amber alt) · red: rolled back · warm ticks: decisions${clockData.pdaEnd >= 0 ? ' · red line: the fast road stops' : ''}`
-    : `hypotheses (rule, origin) · red: abandoned · ${clockData.hypRows} live at the widest`
+    : `one lane per rule · ${clockData.hypRows} rules hypothesised · red: abandoned`
       + (clockData.dropped ? ` · ${clockData.dropped.toLocaleString()} not shipped` : '');
   drawLegend(cx, w, h, legend);
 }
