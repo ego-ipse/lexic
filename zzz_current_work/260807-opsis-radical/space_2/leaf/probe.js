@@ -257,6 +257,7 @@ async function probe() {
                       chip: 'derivation relations document' };
     const gauge = paper.getContext('2d');
     let off = '';
+    const measured = [];
     for (const name of ['fsub', 'ftitle', 'chip']) {
       const sample = samples[name];
       const believed = +(frame.advance || {})[name];
@@ -265,9 +266,13 @@ async function probe() {
       gauge.letterSpacing = (frame.tracks || {})[name] || '0px';
       const real = gauge.measureText(sample).width / sample.length;
       gauge.letterSpacing = '0px';
+      /* REPORTED EVERY TIME, not only when it fails. A tolerance wide
+         enough to pass is still wide enough to move a wrap by a dozen
+         characters, and the only way to set these exactly is to see them. */
+      measured.push(`${name} ${real.toFixed(2)}/${believed}`);
       if (Math.abs(real - believed) > 0.7) off += `${name} ${real.toFixed(2)}/${believed} `;
     }
-    fact('every face is the width the frame believes', !off, off || 'fsub ftitle chip');
+    fact('every face is the width the frame believes', !off, measured.join(' · '));
   } catch (e) {
     fact('every face is the width the frame believes', false, `threw: ${e.message}`);
   }

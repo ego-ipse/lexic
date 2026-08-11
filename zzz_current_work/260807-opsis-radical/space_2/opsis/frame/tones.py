@@ -159,10 +159,13 @@ EDGES = {
 # a character short per glyph — enough that a name's own extent, placed after
 # it, sat on top of its last letter.
 CELL = 7.5
+# MEASURED, not guessed: the probe reports what each face really sets and
+# these are those numbers less their tracking. A face believed half a pixel
+# too wide per character wraps a 140-character line a whole clause early.
 ADVANCE = {
     "title": 9.4,
-    "ftitle": 7.0,
-    "fsub": 6.4,
+    "ftitle": 7.2,
+    "fsub": 5.9,
     "hsub": 6.8,
     "verdict": 6.6,
     "chip": 6.0,
