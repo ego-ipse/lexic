@@ -809,13 +809,25 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
         cx.strokeStyle = C.warm;
       } else cx.strokeStyle = withA(base, 0.35);
     } else if (f.c) {
+      // COMPLETED hypotheses are the events worth seeing; filling every one
+      // turns a thousand live hypotheses into a solid block that says only
+      // "many". Fill what completed, outline what is still standing.
       if (done) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
-      cx.strokeStyle = done ? C.cool : C.pending;
+      cx.strokeStyle = done ? C.cool : withA(C.pending, 0.45);
     } else {
       if (done) { cx.fillStyle = abandonedFill; cx.fillRect(x1, y, x2 - x1, laneH - 1); }
-      cx.strokeStyle = abandoned;
+      cx.strokeStyle = withA(abandoned, 0.5);
     }
-    cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
+    if (pda || f.c || x2 - x1 > 2) {
+      cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), laneH - 1);
+    } else {
+      // a hypothesis narrower than a couple of pixels reads as a tick, not a
+      // box: drawn as a box it is pure ink, and ink is what buried the chart
+      cx.beginPath();
+      cx.moveTo(x1 + 0.5, y + 0.5);
+      cx.lineTo(x1 + 0.5, y + laneH - 1);
+      cx.stroke();
+    }
     if (clockHoverExt === f) {
       cx.strokeStyle = C.ink || '#e8e2d6';
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 2);
