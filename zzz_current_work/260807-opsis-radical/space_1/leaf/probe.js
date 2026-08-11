@@ -594,3 +594,52 @@ async function probeResize() {
   document.title = 'RESIZE ' + out.join(' | ');
 }
 if (new URLSearchParams(location.search).has('resize')) setTimeout(probeResize, 1200);
+
+
+/* ?model — the three symptoms, measured one at a time: does the picture
+   FOLLOW the cursor, does it ZOOM, does it survive PLAYING. */
+async function probeModel() {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const out = [];
+  await wait(1800);
+  setClock('model');
+  const cv = $('chartCv');
+  const ink = () => {
+    const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0, left = cv.width, right = 0;
+    for (let row = 0; row < cv.height; row += 3) {
+      for (let col = 0; col < cv.width; col += 3) {
+        if (px[(row * cv.width + col) * 4 + 3] > 8) {
+          n++;
+          if (col < left) left = col;
+          if (col > right) right = col;
+        }
+      }
+    }
+    return { n, left, right };
+  };
+  // render() DIRECTLY: ask() goes through rAF, which headless never
+  // fires, so every measurement after it reads the same stale canvas
+  cur.t = 2000; view0 = 1800; render(); await wait(700);
+  const a = ink();
+  cur.t = 9000; view0 = 8800; render(); await wait(700);
+  const b = ink();
+  out.push(`follows=${a.n !== b.n || a.left !== b.left} (${a.n}/${b.n})`);
+  const zoomWas = chartZoom;
+  chartZoom = 4; render(); await wait(700);
+  const c = ink();
+  out.push(`zooms=${c.n !== b.n} (${b.n}->${c.n})`);
+  chartZoom = zoomWas; render(); await wait(400);
+  // playing: step time the way tick() does, and watch the ink survive
+  const seen = [];
+  for (const step of [3000, 5000, 7000, 9000, 11000]) {
+    cur.t = step;
+    render();
+    await wait(150);
+    seen.push(ink().n);
+  }
+  out.push(`playing=${seen.join('/')}`,
+    `survives=${seen.every((n) => n > 50)}`);
+  document.title = 'MODEL ' + out.join(' | ');
+}
+if (new URLSearchParams(location.search).has('model')) setTimeout(probeModel, 1200);

@@ -338,37 +338,48 @@ function drawChart(view = chartMain) {
   }
   // one pass, carrying the index: `indexOf` inside this loop was a linear
   // scan of 12k spans per drawn span — quadratic, on every frame
-  // THE LANES ARE A DRAWING. Which span sits where, how wide, in which
-  // lane — all of that is the reading's, addressed by the span it is. What
-  // stays here is the window (the leaf chose it), the cursor (the leaf
-  // moves it) and the tint that follows from the two.
-  const key = `chart:${Math.round(at)}:${win}:${Math.round(w)}:${S.meta.generation}`;
+  // THE LANES ARE A DRAWING, in DOCUMENT coordinates: x IS the character
+  // offset. The leaf maps it through the window with sx(), which is the one
+  // thing it owns. Painting those numbers as pixels drew the whole document
+  // at one pixel per character — the same picture at every cursor position,
+  // deaf to zoom, and mostly off the canvas.
+  const key = `chart:${S.meta.generation}:${Math.round(h)}`;
   const lanes = drawings.get(key);
   if (!lanes) {
-    loadDrawing(key, `&from=${Math.round(at)}&win=${win}`
-      + `&box=${Math.round(w - 2 * pad)}x${Math.round(h - lanesY - 8)}`, 'chart');
+    loadDrawing(key, `&box=${Math.round(w)}x${Math.round(h - lanesY - 8)}`, 'chart');
   } else {
     cx.save();
-    cx.translate(pad, lanesY);
+    cx.beginPath();
+    cx.rect(pad, lanesY, w - 2 * pad, h - lanesY - 4);
+    cx.clip();
     for (const mark of lanes.marks) {
       const m = mark.split(' ');
       if (m[0] !== 'box') continue;
-      const [bx, by, bw, bh] = [+m[1], +m[2], +m[3], +m[4]];
       const [s0, e0, idx] = m[6].split(':').map(Number);
-      const tone = m[5] === 'eps'
-        ? (s0 <= T ? C.dimmer : C.pending)
-        : (e0 <= T ? C.cool : (s0 < T ? C.warm : C.pending));
-      if (e0 <= T && m[5] !== 'eps') { cx.fillStyle = C.closed; cx.fillRect(bx, by, bw, bh); }
-      else if (s0 < T && m[5] !== 'eps') { cx.fillStyle = C.active; cx.fillRect(bx, by, bw, bh); }
-      cx.strokeStyle = tone;
-      cx.strokeRect(bx + 0.5, by + 0.5, Math.max(bw, 1), bh);
+      if (e0 < at || s0 > at + win) continue;
+      const x1 = sx(s0), x2 = sx(e0), y = lanesY + (+m[2]), bh = +m[4];
+      if (m[5] === 'eps') {
+        cx.strokeStyle = s0 <= T ? C.dimmer : C.pending;
+        cx.beginPath();
+        cx.moveTo(x1 + 0.5, y + 1);
+        cx.lineTo(x1 + 0.5, y + bh - 1);
+        cx.stroke();
+        continue;
+      }
+      if (e0 <= T) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, bh); }
+      else if (s0 < T) {
+        cx.fillStyle = C.active;
+        cx.fillRect(x1, y, sx(Math.min(T, at + win)) - x1, bh);
+      }
+      cx.strokeStyle = e0 <= T ? C.cool : (s0 < T ? C.warm : C.pending);
+      cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 1.5), bh);
       if (idx === cur.sel || idx === cur.hover) {
         cx.strokeStyle = idx === cur.hover ? C.ink : C.warm;
-        cx.strokeRect(bx - 1.5, by - 1.5, bw + 3, bh + 3);
+        cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, bh + 3);
       }
       if (markedRule() && S.ruleNames[S.spans[idx].r] === markedRule()) {
         cx.strokeStyle = C.violet;
-        cx.strokeRect(bx - 1.5, by - 1.5, bw + 3, bh + 3);
+        cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, bh + 3);
       }
     }
     cx.restore();
