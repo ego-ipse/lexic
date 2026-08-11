@@ -26,11 +26,19 @@ that is how all three rail breaks got out.
    applies, because the window belongs to the side doing the looking. One
    fetch per reading: `clockKeys` does not grow across playback, and the
    294,262-mark drawing is reused. The derivation moved the same way.
-2. **The railroad's fork read as a vase.** Three curve shapes had been tried
-   and the shape was never the problem: a branch dropping thirteen rows
-   cannot bend inside eight columns. `bracket_for(tall)` gives a fork room
-   PROPORTIONAL to what it must reach (1.6 columns per row, floored at 8,
-   capped at 30), and the same curve now sweeps.
+2. **The railroad's fork read as a vase.** FIVE curve shapes were tried
+   before anyone looked at a working reference — and there were two on
+   disk (`atlas/`, `space/`) plus a rendered mockup (`visual_4`). Running
+   `atlas/serve.py` and photographing its `value` rule settled it in one
+   look: atlas fits seven arms in ~150px because its arms nearly touch.
+   The curve was never wrong; `VGAP` of a full row between arms doubled the
+   vertical span the fork had to reach across, which forces any curve
+   near-vertical. `VGAP = 0.25` rows, and `bracket_for(tall)` scaling the
+   fork's width with what it must reach, and it sweeps.
+
+   **The rule this earns:** when a picture is wrong and a working version
+   exists, PHOTOGRAPH THE WORKING ONE before touching the geometry. Reading
+   its source (or worse, its notes) is not looking at it.
 
 The lesson both share: when a picture keeps being wrong, check what its
 geometry is a function of before changing what it looks like.
