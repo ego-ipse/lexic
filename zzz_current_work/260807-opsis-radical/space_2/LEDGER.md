@@ -657,11 +657,21 @@ the same facet size, the lanes are the wrong SHAPE:
 - so mine shows roughly **14 lanes** where the reference shows **24**, and an
   open span reads as a fat amber slab rather than a thin bar
 
-`chart.js` does not choose a lane height: it takes the DRAWING's own —
-`laneH = firstBox.split(' ')[4] + 2`, falling back to
-`max(6, min(22, (h - lanesY - 8) / (maxdepth + 1)))`. So the height comes
-from `chart_drawing`, and the question is what `tall` it is being given and
-what it does with it — not anything in the facet.
+`chart.js` does not choose a lane height: it takes the DRAWING's own, and
+requests that drawing at `h - lanesY - 8`. Both `chart_drawing`s are
+byte-identical and both say
+
+    lane = max(6, min(22, (tall - 24) / deep))
+
+with `deep = max(span.depth) + 1`. The heights passed differ by twelve
+pixels, which cannot make 20 into 11. **`deep` is what differs**: an 11px
+lane over that `tall` needs about 42 lanes, and mine draws 20px because it
+has about 25.
+
+So the derivation is not drawing the lanes wrongly. It is drawing a
+DIFFERENT MODEL — the same document folded to roughly half the depth — and
+the lane height is only the first place that shows. Start by comparing
+`reading.spans` between the two: how many, and how deep.
 
 Do this by putting the two pictures beside each other first. Every defect in
 both of the lists above was found that way, and every one of them was
