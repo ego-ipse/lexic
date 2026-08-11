@@ -34,7 +34,7 @@ class ClockKernel(PdaKernel[Any]):
 
     # the kernel is slotted and carries no __dict__ — a watcher that wants
     # state declares it, and pays the same discipline the hot path pays
-    __slots__ = ("clones", "events", "frames", "open")
+    __slots__ = ("clones", "events", "frames", "open", "seated", "walk")
 
     def __init__(
         self, tables: PdaTables, text: str, fold: ModelFold[Any] | None = None
@@ -44,6 +44,10 @@ class ClockKernel(PdaKernel[Any]):
         self.events: list[tuple[int, str, str]] = []
         self.open: dict[int, list[Any]] = {}
         self.clones: dict[int, tuple[int, FlatClone, int]] = {}
+        # parent → child, as the run walked it: a clone entered beneath
+        # another IS an edge, and the view cannot lay out nodes without them
+        self.walk: set[tuple[int, int]] = set()
+        self.seated: list[int] = []
 
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """A frame opens where the cursor stands, at the depth of the stack."""
@@ -53,6 +57,10 @@ class ClockKernel(PdaKernel[Any]):
             seat = self.clones.setdefault(id(clone), (len(self.clones), clone, depth))[
                 0
             ]
+            # a clone entered BENEATH another is an edge, walked not declared
+            if self.seated:
+                self.walk.add((self.seated[-1], seat))
+            self.seated.append(seat)
             record = [self.pos, -1, depth, clone.name or "·", 1, seat]
             self.frames.append(record)
             self.open[id(self.stack[-1])] = record
@@ -61,6 +69,8 @@ class ClockKernel(PdaKernel[Any]):
     def _complete(self, frame: list[Any]) -> None:
         """A frame closes where the cursor now stands."""
         record = self.open.pop(id(frame), None)
+        if record is not None and self.seated:
+            self.seated.pop()
         super()._complete(frame)
         if record is not None:
             record[1] = self.pos
@@ -80,6 +90,7 @@ class ClockKernel(PdaKernel[Any]):
 
 
 _SEATS: dict[tuple[int, int], list[tuple[int, FlatClone, int]]] = {}
+_WALKS: dict[tuple[int, int], set[tuple[int, int]]] = {}
 
 
 def seats(compiled: CompiledGrammar, text: str) -> list[tuple[int, FlatClone, int]]:
@@ -98,6 +109,7 @@ def seats(compiled: CompiledGrammar, text: str) -> list[tuple[int, FlatClone, in
 def walked(compiled: CompiledGrammar, text: str) -> str:
     """The machine as the run met it — clones seated, edges by entry order."""
     rows = seats(compiled, text)
+    edges = _WALKS.get((id(compiled), hash(text)), set())
     names = sorted({clone.name or "·" for _seat, clone, _deep in rows})
     at = {name: index for index, name in enumerate(names)}
     drawn = [
@@ -110,7 +122,8 @@ def walked(compiled: CompiledGrammar, text: str) -> str:
             *drawn,
             f"#ANAMES {len(names)}",
             *names,
-            "#AEDGES 0",
+            f"#AEDGES {len(edges)}",
+            *(f"{a} {b}" for a, b in sorted(edges)),
             "",
         ]
     )
@@ -145,6 +158,7 @@ def pda_clock(compiled: CompiledGrammar, text: str) -> str:
         kernel.events.append((kernel.pos, "verdict", str(stop)[:80]))
     kernel.close()
     _SEATS[(id(compiled), hash(text))] = sorted(kernel.clones.values())
+    _WALKS[(id(compiled), hash(text))] = kernel.walk
     hyps, hnames, dropped = earley_clock(compiled, text)
     names = sorted({str(record[3]) for record in kernel.frames})
     at = {name: index for index, name in enumerate(names)}
