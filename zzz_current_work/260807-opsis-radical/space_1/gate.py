@@ -40,7 +40,11 @@ from eidolon.value import graph as ir_graph  # noqa: E402
 from eidolon.value import wire as ir_wire  # noqa: E402
 from kairos.pipeline import FORMS  # noqa: E402
 from opsis.grammar import rails  # noqa: E402
-from opsis.paint import chart_drawing, rails_drawing  # noqa: E402
+from opsis.paint import (  # noqa: E402
+    automaton_drawing,
+    chart_drawing,
+    rails_drawing,
+)
 from opsis.scene import drawn, moved, ruledefs  # noqa: E402
 from praxis.strata import strata  # noqa: E402
 from serve import PENDING  # noqa: E402
@@ -475,6 +479,36 @@ def main() -> int:
         not wrong and bool(said_spans),
         f"{len(said_spans)} boxes over {window[1]} chars"
         + (f" · WRONG {wrong[:2]}" if wrong else ""),
+    )
+
+    # every tone a drawing NAMES must be one the leaf can colour. An unknown
+    # tone falls back to the darkest ink, which is invisible against the
+    # field — a whole band once drew as nothing that way, and nothing said so.
+    register = {
+        name
+        for leafside in ("paint.js", "chart.js")
+        for name in re.findall(
+            r"([A-Za-z0-9_]+):\s*'", (HERE / "leaf" / leafside).read_text()
+        )
+    }
+    # each mark names its tone in a different slot, so read it by kind
+    where = {"box": 5, "line": 5, "arc": 4, "curve": 7, "bez": 9, "text": 3}
+    painted = set()
+    for said in (
+        rails_drawing(rails(machine.grammar), 900),
+        automaton_drawing(automaton(machine.pda_tables()), set(), set()),
+    ):
+        for mark in said.marks:
+            parts = mark.split()
+            at = where.get(parts[0])
+            if at is not None and len(parts) > at:
+                painted.add(parts[at])
+    unknown = sorted(t for t in painted if t not in register and not t[0].isdigit())
+    check(
+        "every tone a drawing names is one the leaf can colour",
+        not unknown,
+        f"{len(painted)} tones used · {len(register)} known"
+        + (f" · UNKNOWN {unknown}" if unknown else ""),
     )
 
     # a drawing carries its own DOORS: every ref in a track names the rule
