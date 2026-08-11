@@ -785,6 +785,21 @@ def main() -> int:
         " · ".join(f"{c}:{len(s)}" for c, s in bands.items()),
     )
 
+    def window(at: float) -> float:
+        """Where the outline on the band sits — the stretch the lanes are of."""
+        uprights = [
+            float(m[1])
+            for m in marks(frame({}, at=at), "line")
+            if m[5] == "warm" and m[1] == m[3] and float(m[1]) > 1060
+        ]
+        return min(uprights) if uprights else -1.0
+
+    check(
+        "the band says WHICH stretch the lanes below are of, and follows",
+        0 < window(1000.0) < window(8000.0) < window(15000.0),
+        f"{window(1000.0):.0f} → {window(8000.0):.0f} → {window(15000.0):.0f}",
+    )
+
     # every clock says WHAT IT IS SHOWING, and carries a second panel under
     # its stack — three clocks that each invented their own furniture made
     # one panel read as three

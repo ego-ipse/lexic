@@ -815,6 +815,21 @@ def _boxes(drawn: Drawing) -> list[tuple[int, int, float, float, str]]:
     return out
 
 
+def window_of(look: Look, w: float) -> tuple[int, int, float]:
+    """Which slice of the document the lanes are of: where it starts, how
+    wide, and what one character is worth in pixels.
+
+    One answer, used by the lanes AND by the frame drawn on the band above
+    them — a second guess at it is how a picture and the outline of that
+    picture end up describing different stretches of text.
+    """
+    pitch = PITCH * look.zoom("chart")
+    window = max(8, int((w - 12) / pitch))
+    text = look.reading.text
+    start = max(0, min(int(look.at) - int(window * 0.6), max(0, len(text) - window)))
+    return start, window, pitch
+
+
 def lanes_of(
     said: Frame,
     room: Room,
@@ -832,9 +847,7 @@ def lanes_of(
     """
     x, y, w, h = room
     lanes = y + 36
-    text = look.reading.text
-    window = max(8, int((w - 12) / pitch))
-    start = max(0, min(int(look.at) - int(window * 0.6), max(0, len(text) - window)))
+    start, window, _pitch = window_of(look, w)
     for s0, e0, lane, deep, tone in spans:
         top = lanes + lane
         if e0 < start or s0 > start + window or top + deep > y + h:
@@ -887,6 +900,7 @@ def chart(said: Frame, room: Room, look: Look) -> None:
         said.place(band, x, y + 6, w / max(1.0, band.wide), 22.0 / max(1.0, band.tall))
     else:
         _texture(said, (x + 10, y + 6, w - 20, 22.0), look, which, stamp)
+    _window(said, room, look)
     deep = int(max(20, h - 44))
     drawn = _kept(f"clock:{stamp}:{which}:{deep}", lambda: _clock(look, deep))
     picked = _picked(look, stamp)
@@ -901,6 +915,26 @@ def chart(said: Frame, room: Room, look: Look) -> None:
         picked,
         PITCH * look.zoom("chart"),
     )
+
+
+def _window(said: Frame, room: Room, look: Look) -> None:
+    """The outline on the band saying WHICH STRETCH the lanes below are of.
+
+    An overview and a window into it are two pictures of one text, and
+    without this they are two pictures of nothing in particular.
+    """
+    x, y, w, _h = room
+    start, window, _pitch = window_of(look, w)
+    length = max(1, len(look.reading.text))
+    left = x + 10 + (w - 20) * start / length
+    right = x + 10 + (w - 20) * min(start + window, length) / length
+    for x1, y1, x2, y2 in (
+        (left, y + 5, max(right, left + 2), y + 5),
+        (left, y + 29, max(right, left + 2), y + 29),
+        (left, y + 5, left, y + 29),
+        (max(right, left + 2), y + 5, max(right, left + 2), y + 29),
+    ):
+        said.line(x1, y1, x2, y2, "warm")
 
 
 _TEXTURE: dict[str, tuple[list[int], list[int], list[int]]] = {}
@@ -1039,10 +1073,7 @@ def pda_lanes(said: Frame, room: Room, look: Look) -> None:
     """
     x, y, w, h = room
     lanes, floor = y + 36, y + h - 4
-    text = look.reading.text
-    pitch = PITCH * look.zoom("chart")
-    window = max(8, int((w - 12) / pitch))
-    start = max(0, min(int(look.at) - int(window * 0.6), max(0, len(text) - window)))
+    start, window, pitch = window_of(look, w)
     seated = modes(look)
     deep = max((int(f[2]) for f in look.watched), default=0) + 1
     lane = max(2.0, min(16.0, (floor - lanes - 4) / max(1, deep)))
