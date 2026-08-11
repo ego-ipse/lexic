@@ -17,16 +17,23 @@ reads `MISSING`, `NONE`, `MISMATCH` or `THREW` is a defect, and any capability
 the probe does not drive is a defect waiting to be reported by the user —
 that is how all three rail breaks got out.
 
-**On the railroad's fork, ask before drawing.** Three shapes have been
-tried: one long diagonal per arm (a funnel), a vertical bus with rounded
-corners (called "too straight"), and the cubic S-curve with controls at the
-horizontal midpoint — which is what the earlier build drew
-(`bezierCurveTo((x0+x1)/2, y0, (x0+x1)/2, y1, x1, y1)` in
-`FUCKUP/leaf/rails.js`). A seven-way choice still reads as a vase because
-the arms span ~300px vertically and the fork has ~58px across; any curve
-reaching them is near-vertical. The two real options are a MUCH wider fork
-(150px+, so the curves bend) or a shared trunk with short turns. This is a
-look, not a derivation — get the call before spending another pass on it.
+**Two structural faults, fixed structurally** (both had been getting tweaks):
+
+1. **The clock died on unpause.** Every picture was keyed to the WINDOW, so
+   each frame of playback scrolled it, invalidated the key and refetched a
+   whole-document computation. Pictures now live in **document coordinates**
+   — `x` IS the character offset — and the window is a transform the leaf
+   applies, because the window belongs to the side doing the looking. One
+   fetch per reading: `clockKeys` does not grow across playback, and the
+   294,262-mark drawing is reused. The derivation moved the same way.
+2. **The railroad's fork read as a vase.** Three curve shapes had been tried
+   and the shape was never the problem: a branch dropping thirteen rows
+   cannot bend inside eight columns. `bracket_for(tall)` gives a fork room
+   PROPORTIONAL to what it must reach (1.6 columns per row, floored at 8,
+   capped at 30), and the same curve now sweeps.
+
+The lesson both share: when a picture keeps being wrong, check what its
+geometry is a function of before changing what it looks like.
 
 **The standing aim: a 75% cut in the leaf's JavaScript** (4,713 today, from
 5,144 when the display list began; the derivation, the railroad — including
