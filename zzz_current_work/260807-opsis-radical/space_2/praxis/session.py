@@ -199,8 +199,13 @@ class Session:
         """
         if not words:
             return
+        # WHERE IT LEFT FROM. Out of the grid is out of the tree, and closing
+        # the window puts it back exactly where it was — not into whatever
+        # the arrangement has become, and not as a dim chip you have to find.
+        home = str(staged(self.reading, self.main).policy["arrange.tree"])
         self.main[f"facet.{words[0]}"] = "off"
-        self.open_window(words[0], words[0])
+        wid = self.open_window(words[0], words[0])
+        self.main[f"home.{wid}"] = home
 
     def _clone(self, words: list[str]) -> None:
         """⊞ — a SECOND view of it. The grid keeps the one it has."""
@@ -232,12 +237,17 @@ class Session:
         """
 
     def _shut(self, words: list[str]) -> None:
-        """× — the window is gone. What it was ABOUT is not."""
+        """× — the window is gone, and a POPPED facet goes back where it was."""
         if not words:
             return
-        held = [w for w in self.main.get("windows", "").split(" ") if w != words[0]]
+        wid = words[0]
+        held = [w for w in self.main.get("windows", "").split(" ") if w != wid]
         self.main["windows"] = " ".join(held)
-        self.main.pop(f"win.{words[0]}", None)
+        said = self.main.pop(f"win.{wid}", "")
+        home = self.main.pop(f"home.{wid}", "")
+        if home and said:
+            self.main["arrange.shape"] = home
+            self.main[f"facet.{said.split(' ')[0]}"] = "on"
 
     def _window(self, words: list[str]) -> None:
         """A window moved or resized — the drag, in the window's own numbers."""

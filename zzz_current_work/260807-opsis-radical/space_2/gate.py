@@ -865,6 +865,27 @@ def main() -> int:
         " ".join(sorted({m[4] for m in marks(graphed, "text")})),
     )
 
+    def placed(session_state: Session) -> dict[str, tuple[float, float]]:
+        said_frame = compose(
+            reading, 1500, 850, 4200.0, dict(session_state.main), watched, 1
+        )
+        return {
+            h.split(" ")[5]: (float(h.split(" ")[0]), float(h.split(" ")[1]))
+            for h in said_frame.hits
+            if h.split(" ")[4] == "head"
+        }
+
+    torn = Session(reading)
+    before = placed(torn)
+    torn.gesture("pop spine")
+    during = placed(torn)
+    torn.gesture("at shut w0")
+    check(
+        "a popped facet leaves the tree, and comes back exactly where it was",
+        "spine" not in during and placed(torn) == before,
+        f"{len(before)} → {len(during)} → {len(placed(torn))} surfaces",
+    )
+
     print("what it costs")
     frame({})
     clock = time.perf_counter()

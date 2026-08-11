@@ -535,7 +535,12 @@ opening the space_1 file that already answered it, and several had been
   between 0.55 and 1.2, so three faces stand in for that here, because a
   registered face is a thing and a scale is not something a mark can carry.
 
+- **A popped facet could not come home.** `popout.js` keeps the tree the
+  facet left from and `dockFacet` restores it — *"back into the arrangement
+  it left, exactly where it was"*. Closing the window here just deleted the
+  window and left a dim chip you had to find and click, which put the surface
+  back wherever the measurement felt like. The window remembers its home now.
+
 ## Not ported yet
 
-Dropping a torn-off window back into the grid · strata as the landing page,
-and adding files from there.
+Strata as the landing page, and adding files from there.
