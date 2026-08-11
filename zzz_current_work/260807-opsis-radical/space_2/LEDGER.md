@@ -786,6 +786,20 @@ touched.
   as dragging its head does. The drop overlay this port draws is not the
   reference's `#dropzone`; compare them.
 
+## The masthead's last inch
+
+Put side by side at 1600x900, one difference is left: the ladder's chip. The
+reference's is about forty pixels — its `focused.label` is nearly empty, so
+the chip reads as little more than the `∴` — and this port's is a hundred and
+ninety, carrying the whole pairing that `#sub` already says two inches to the
+left. Find what `#LADDER`'s fourth field actually holds for the rung you are
+standing on before copying a guess into it.
+
+Note the inversion while you are there: it is the REFERENCE whose `#sub`
+truncates, because `#ladder` is `flex: 1` and squeezes it. Ours has room
+because our chip is wider — fixing the chip may bring the truncation with it,
+and that is correct rather than a regression.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.
