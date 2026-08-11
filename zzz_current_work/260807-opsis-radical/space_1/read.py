@@ -120,10 +120,11 @@ class Reading:
         return [
             Facet("grammar", "plane", wide_rules, len(rules)),
             Facet("document", "plane", wide_lines, len(lines)),
-            # the chart is as wide as the text is long, in columns of one char,
-            # and as tall as the derivation is deep — it never fits, which is
-            # why it scrubs a window over the text rather than showing it all
-            Facet("chart", "chart", 120, deep),
+            # The chart shows a WINDOW over the text, so what it needs is the
+            # window it scrubs: as many columns as the longest line it must
+            # place, and one row per depth. A typed 120 was the last guess
+            # left in a build that measures everything else.
+            Facet("chart", "chart", max(wide_lines, deep * 4), deep),
             Facet("spine", "stack", 48, deep),
         ]
 

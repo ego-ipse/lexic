@@ -25,7 +25,7 @@ from chain import chain  # noqa: E402
 from draw import graph_facet  # noqa: E402
 from lexic.compile import compile_text  # noqa: E402
 from machine import machine_facet  # noqa: E402
-from place import ENOUGH, arrange, shares, windowed  # noqa: E402
+from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
 from read import Facet, Reading, as_written, read  # noqa: E402
 
@@ -94,7 +94,11 @@ def scene(reading: Reading) -> str:
     room = max(shares(facets, 200).values())
     wants = [
         *windowed(facets, 200),
-        *(f.name for f in offered(reading) if f.wide * ENOUGH > room),
+        *(
+            f.name
+            for f in offered(reading)
+            if f.wide * ENOUGH.get(f.kind, DEFAULT) > room
+        ),
     ]
     policy = {
         "arrange.tree": arrange(facets),

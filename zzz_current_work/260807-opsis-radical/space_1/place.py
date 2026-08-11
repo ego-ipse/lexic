@@ -37,11 +37,13 @@ def shares(facets: Sequence[Facet], columns: int) -> dict[str, int]:
 # a smaller view, it is a wrong one — measured against what it ASKED for, not
 # against a floor, because a floor says "64 columns is enough" to a graph
 # that needs 132.
-# Marginal squeezing is ordinary — four surfaces in 200 columns each land near
-# two thirds of what they asked for and are still themselves. A HALVING is
-# not: that is where a view stops being a smaller view and becomes a wrong
-# one. Measured against the graph, which needs 132 and is offered 67.
-ENOUGH = 0.55
+# How much of its ask a surface can lose and still be ITSELF — which depends
+# on what it is, not on a number that fits today's case. A text plane wraps
+# and scrolls, so half its width still reads. A graph cannot wrap: below its
+# ask the names collide and it stops being a picture of anything. That
+# difference is why four rounds of layout tuning never fixed the graph.
+ENOUGH = {"plane": 0.5, "chart": 0.5, "stack": 0.5, "graph": 0.95}
+DEFAULT = 0.6
 
 
 def windowed(facets: Sequence[Facet], columns: int) -> list[str]:
@@ -54,7 +56,9 @@ def windowed(facets: Sequence[Facet], columns: int) -> list[str]:
     belong here" actually means.
     """
     given = shares(facets, columns)
-    return [f.name for f in facets if given[f.name] < f.wide * ENOUGH]
+    return [
+        f.name for f in facets if given[f.name] < f.wide * ENOUGH.get(f.kind, DEFAULT)
+    ]
 
 
 def arrange(facets: Sequence[Facet], columns: int = 200) -> str:
