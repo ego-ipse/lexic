@@ -24,13 +24,9 @@ from lexic.exceptions import LexicError
 from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR, get_flavour
 from lexic.model import GrammarModel
 
-from praxis.memory import Memory
-
 __all__ = [
     "Facet",
     "Reading",
-    "reader_of",
-    "ruledefs",
     "Span",
     "as_written",
     "profile",
@@ -40,9 +36,6 @@ __all__ = [
 ]
 
 CANDIDATES = (GBNF_FLAVOUR, ABNF_FLAVOUR, EBNF_FLAVOUR)
-
-# a rule head, in any of the three notations — where a name is DEFINED
-HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 
 
 class Span:
@@ -101,43 +94,6 @@ class Facet:
         )
 
 
-def ruledefs(text: str) -> list[tuple[str, int, int]]:
-    """Where each rule lives in the reader text — line ranges, addressable."""
-    heads = [
-        (m.group(1), i)
-        for i, line in enumerate(text.split("\n"))
-        if (m := HEAD.match(line))
-    ]
-    out = []
-    for place, (name, start) in enumerate(heads):
-        stop = heads[place + 1][1] - 1 if place + 1 < len(heads) else text.count("\n")
-        out.append((name, start, stop))
-    return out
-
-
-# The same language, at three moments of the pipeline. None of them is more
-# true than the others: a grammar as WRITTEN, in its canonical normal form,
-# and as codegen cut it for the parser. The views disagreed because each was
-# drawing a different one — the automaton is built from the codegen form, so
-# a choice it makes has no node in the source form at all.
-
-
-READERS: Memory[CompiledGrammar | None] = Memory()
-
-
-def reader_of(reading: Reading) -> CompiledGrammar | None:
-    """This reading's reader, compiled — or nothing, if nothing reads it."""
-    return READERS.once(reading.reader_text, lambda: _compile(reading))
-
-
-def _compile(reading: Reading) -> CompiledGrammar | None:
-    """Compile it, once. A refusal is a result, not an exception that escapes."""
-    try:
-        return compile_text(reading.reader_text, flavour=reading.flavour or "gbnf")
-    except LexicError, RecursionError, ValueError:
-        return None
-
-
 def turn(text: str) -> tuple[CompiledGrammar, str] | None:
     """This text as a reader, and which metagrammar accepted it — asked."""
     if not text.strip():
@@ -159,7 +115,6 @@ class Reading:
         self.reader_text = reader.read_text()
         self.text = document.read_text()
         self.spans: list[Span] = []
-        self.stamp = 0
         self.seconds = 0.0
         self.faithful = False
         self.words = ""
@@ -170,7 +125,6 @@ class Reading:
 
     def hold(self) -> None:
         """Read it. A refusal is a result, not an exception that escapes."""
-        self.stamp += 1
         turned = turn(self.reader_text)
         if turned is None:
             self.words = "nothing compiles this as a reader"
@@ -186,6 +140,58 @@ class Reading:
         self.seconds = time.perf_counter() - clock
         spelled, self.spans = fold(model)
         self.faithful = spelled == self.text
+
+    def facets(self) -> list[Facet]:
+        """Each surface, with the room it needs — measured, never assumed."""
+        lines = self.text.split("\n")
+        rules = self.reader_text.split("\n")
+        wide_rules = _most(rules)
+        wide_lines = _most(lines)
+        deep = max((span.depth for span in self.spans), default=0) + 1
+        # named as the LEAF names them: a tree whose leaves nothing recognises
+        # is silently dropped, and the measured layout never reaches the screen
+        return [
+            Facet(
+                "grammar",
+                "plane",
+                wide_rules,
+                len(rules),
+                title="THE READER · grammar is the ground truth",
+                column="reader",
+            ),
+            Facet(
+                "document",
+                "plane",
+                wide_lines,
+                len(lines),
+                title="THE DOCUMENT · real text — select it",
+                column="document",
+            ),
+            # The chart shows a WINDOW over the text, so what it needs is the
+            # window it scrubs: as many columns as the longest line it must
+            # place, and one row per depth. A typed 120 was the last guess
+            # left in a build that measures everything else.
+            Facet(
+                "chart",
+                "chart",
+                max(wide_lines, deep * 4),
+                deep,
+                title="THE DERIVATION · text is the time axis",
+                column="derivation",
+                relation="stacked",
+            ),
+            # the spine is read AT the cursor the chart is scrubbing, so it
+            # shares that column rather than taking one of its own
+            Facet(
+                "spine",
+                "stack",
+                48,
+                max(4, deep // 2),
+                title="THE SPINE",
+                column="derivation",
+                relation="stacked",
+            ),
+        ]
 
 
 class Opening:

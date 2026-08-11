@@ -1,51 +1,59 @@
-/* opsis — the thin leaf. It paints marks and reports gestures.
+/* opsis — the leaf. It paints what it is sent, welds the text planes to the
+   same geometry, and reports what the hand did.
 
-   No window maths, no tint, no layout, no hit geometry, and no idea what a
-   grammar is. One geometry exists and it is not here, which is why nothing
-   here can disagree with the picture. */
+   It holds no tones, no fonts, no layout, no camera, no hit geometry and no
+   idea what a grammar is. There is one geometry and it is not here, which is
+   why nothing here can disagree with the picture. */
 
 'use strict';
 
 const paper = document.getElementById('paper');
+const planes = document.getElementById('planes');
+const held = new Map();
+const only = new URLSearchParams(location.search).get('only') || '';
+
 let frame = null;
 let asking = false;
 let queued = null;
 let playing = false;
-const only = new URLSearchParams(location.search).get('only') || '';
+let dragging = null;
 
-const fill = (name) => (frame.fills[name] || frame.fills.dim);
-const face = (name) => (frame.fonts[name] || frame.font);
+const fill = (name) => frame.fills[name] || frame.fills.dim;
 const edge = (name) => frame.edges[name];
+const face = (name) => frame.fonts[name] || frame.font;
 
-/* A gesture that arrives mid-flight is NOT dropped: scrolls and steps add up
-   and the last one wins, so a fast hand is answered instead of ignored. */
-async function ask(gesture) {
-  if (asking) { queued = merge(queued, gesture); return; }
+/* A gesture arriving mid-flight is NOT dropped: nudges of the same kind add
+   up and the last of anything else wins, so a fast hand is answered. */
+async function ask(gesture, body) {
+  if (asking) { queued = merge(queued, gesture, body); return; }
   asking = true;
   try {
     const box = paper.getBoundingClientRect();
     const said = await fetch('/frame', {
       method: 'POST',
       body: `size ${Math.round(box.width)} ${Math.round(box.height)}\n`
-        + `${only ? `only ${only}\n` : ''}${gesture || ''}`,
+        + (only ? `only ${only}\n` : '')
+        + (gesture || '')
+        + (body === undefined ? '' : `\n${body}`),
     }).then((r) => r.text());
     const got = read(said);
-    if (got) { frame = got; paint(); }
+    if (got) { frame = got; paint(); weld(); }
   } finally {
     asking = false;
-    if (queued !== null) { const next = queued; queued = null; ask(next); }
+    if (queued) { const next = queued; queued = null; ask(next.gesture, next.body); }
   }
 }
 
-/* two of the same kind of nudge are one bigger nudge */
-function merge(waiting, gesture) {
-  if (!waiting) return gesture;
-  const a = waiting.split(' '), b = (gesture || '').split(' ');
-  if (a[0] === b[0] && (a[0] === 'scroll' || a[0] === 'spin') && a[1] === b[1]) {
-    return [...a.slice(0, 2), ...a.slice(2).map((n, i) => +n + +b[i + 2])].join(' ');
+function merge(waiting, gesture, body) {
+  if (!waiting) return { gesture, body };
+  const a = waiting.gesture.split(' '), b = (gesture || '').split(' ');
+  const adds = a[0] === b[0] && (a[0] === 'scroll' || a[0] === 'spin' || a[0] === 'step');
+  if (adds && a[1] === b[1] && a[0] !== 'step') {
+    return { gesture: [...a.slice(0, 2),
+      ...a.slice(2).map((n, i) => +n + +b[i + 2])].join(' '), body };
   }
-  if (a[0] === 'step' && b[0] === 'step') return `step ${+a[1] + +b[1]}`;
-  return gesture;
+  if (a[0] === 'step' && b[0] === 'step') return { gesture: `step ${+a[1] + +b[1]}`, body };
+  return { gesture, body };
 }
 
 function read(said) {
@@ -53,33 +61,51 @@ function read(said) {
   const font = (lines[0] || '').startsWith('#FONT ') ? lines[0].slice(6) : '';
   const tones = +(lines[1] || '').split(' ')[1] || 0;
   const fills = {}, edges = {}, fonts = {};
+  const into = { fill: fills, edge: edges, font: fonts };
   for (const row of lines.slice(2, 2 + tones)) {
     const p = row.split(' ');
-    ({ edge: edges, font: fonts, fill: fills })[p[0]][p[1]] = p.slice(2).join(' ');
+    if (into[p[0]]) into[p[0]][p[1]] = p.slice(2).join(' ');
   }
-  const lead = 2 + tones;
-  const head = (lines[lead] || '').split(' ');
+  let i = 2 + tones;
+  const head = (lines[i] || '').split(' ');
   if (head[0] !== '#FRAME') return null;
   const count = +head[4] || 0;
-  const rest = lines.slice(lead + 1 + count);
-  return {
-    font, fills, edges, fonts,
-    marks: lines.slice(lead + 1, lead + 1 + count),
-    hits: rest[0] && rest[0].startsWith('#HITS ')
-      ? rest.slice(1, 1 + (+rest[0].split(' ')[1] || 0)).map((row) => {
-        const p = row.split(' ');
-        return { x: +p[0], y: +p[1], w: +p[2], h: +p[3], kind: p[4], goes: p[5] };
-      })
-      : [],
-  };
+  const marks = lines.slice(i + 1, i + 1 + count);
+  i += 1 + count;
+  const hits = [];
+  if ((lines[i] || '').startsWith('#HITS ')) {
+    const n = +lines[i].split(' ')[1] || 0;
+    for (const row of lines.slice(i + 1, i + 1 + n)) {
+      const p = row.split(' ');
+      hits.push({ x: +p[0], y: +p[1], w: +p[2], h: +p[3], kind: p[4], goes: p[5],
+                  run: +p[6] || 0, cell: +p[7] || 0 });
+    }
+    i += 1 + n;
+  }
+  const shown = [];
+  if ((lines[i] || '').startsWith('#PLANES ')) {
+    const n = +lines[i].split(' ')[1] || 0;
+    for (const row of lines.slice(i + 1, i + 1 + n)) {
+      const p = row.split(' ');
+      shown.push({ name: p[0], x: +p[1], y: +p[2], w: +p[3], h: +p[4], row: +p[5],
+                   cell: +p[6], top: +p[7], editable: p[8] === '1', chars: +p[9] });
+    }
+  }
+  /* the texts ride raw at the end, counted in characters */
+  let where = said.indexOf('\n#TEXT\n');
+  where = where < 0 ? said.length : where + 7;
+  for (const plane of shown) {
+    plane.text = said.slice(where, where + plane.chars);
+    where += plane.chars;
+  }
+  return { font, fills, edges, fonts, marks, hits, planes: shown };
 }
 
 function paint() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = paper.clientWidth, h = paper.clientHeight;
   if (paper.width !== w * dpr || paper.height !== h * dpr) {
-    paper.width = w * dpr;
-    paper.height = h * dpr;
+    paper.width = w * dpr; paper.height = h * dpr;
   }
   const cx = paper.getContext('2d');
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -95,12 +121,12 @@ function paint() {
         cx.strokeStyle = around;
         cx.strokeRect(+p[1] + 0.5, +p[2] + 0.5, Math.max(+p[3] - 1, 1), +p[4]);
       }
+    } else if (p[0] === 'ring') {
+      cx.strokeStyle = fill(p[5]);
+      cx.strokeRect(+p[1] + 0.5, +p[2] + 0.5, Math.max(+p[3] - 1, 1.5), +p[4]);
     } else if (p[0] === 'line') {
       cx.strokeStyle = fill(p[5]);
-      cx.beginPath();
-      cx.moveTo(+p[1], +p[2]);
-      cx.lineTo(+p[3], +p[4]);
-      cx.stroke();
+      cx.beginPath(); cx.moveTo(+p[1], +p[2]); cx.lineTo(+p[3], +p[4]); cx.stroke();
     } else if (p[0] === 'curve' || p[0] === 'bez') {
       const n = p[0] === 'curve' ? 6 : 8;
       cx.strokeStyle = fill(p[n + 1]);
@@ -111,9 +137,7 @@ function paint() {
       cx.stroke();
     } else if (p[0] === 'arc') {
       cx.strokeStyle = fill(p[4]);
-      cx.beginPath();
-      cx.arc(+p[1], +p[2], +p[3], 0, Math.PI * 2);
-      cx.stroke();
+      cx.beginPath(); cx.arc(+p[1], +p[2], +p[3], 0, Math.PI * 2); cx.stroke();
     } else if (p[0] === 'text') {
       cx.font = face(p[3]);
       cx.fillStyle = fill(p[3]);
@@ -122,51 +146,120 @@ function paint() {
   }
 }
 
+/* One real text element per plane, on the geometry the frame sent. */
+function weld() {
+  const want = new Set(frame.planes.map((p) => p.name));
+  for (const [name, el] of held) {
+    if (!want.has(name)) { el.remove(); held.delete(name); }
+  }
+  for (const plane of frame.planes) {
+    let el = held.get(plane.name);
+    if (!el) {
+      el = document.createElement('textarea');
+      el.className = 'plane';
+      el.spellcheck = false;
+      el.dataset.name = plane.name;
+      el.addEventListener('input', () => ask(`text ${el.dataset.name}`, el.value));
+      el.addEventListener('scroll', () => scrolled(el, plane));
+      el.addEventListener('select', () => chose(el));
+      el.addEventListener('mouseup', () => chose(el));
+      el.addEventListener('keyup', () => chose(el));
+      planes.appendChild(el);
+      held.set(plane.name, el);
+    }
+    el.style.left = `${plane.x}px`;
+    el.style.top = `${plane.y}px`;
+    el.style.width = `${plane.w}px`;
+    el.style.height = `${plane.h}px`;
+    el.readOnly = !plane.editable;
+    if (el.value !== plane.text && document.activeElement !== el) el.value = plane.text;
+    const top = plane.top * plane.row;
+    if (Math.abs(el.scrollTop - top) > plane.row) el.scrollTop = top;
+  }
+}
+
+function scrolled(el, plane) {
+  const line = Math.round(el.scrollTop / plane.row);
+  if (line !== plane.top) { plane.top = line; ask(`scrolled ${plane.name} ${line}`); }
+}
+
+function chose(el) {
+  const a = el.selectionStart, b = el.selectionEnd;
+  if (a === chose.was && b === chose.until) return;
+  chose.was = a; chose.until = b;
+  ask(`sel ${el.dataset.name} ${a} ${b}`);
+}
+
 function under(ev, wanted) {
   const box = paper.getBoundingClientRect();
   const x = ev.clientX - box.left, y = ev.clientY - box.top;
-  return (frame ? frame.hits : []).find(
-    (h) => (h.kind === 'scroll') === wanted
-      && x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h);
+  const hits = frame ? frame.hits : [];
+  for (let i = hits.length - 1; i >= 0; i -= 1) {
+    const h = hits[i];
+    if ((h.kind === 'scroll') !== wanted) continue;
+    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h;
+  }
+  return null;
 }
 
 paper.addEventListener('click', (ev) => {
   const target = under(ev, false);
   if (!target) return;
-  if (target.kind === 'pop' || target.kind === 'clone') {
-    window.open(`/?only=${target.goes}`, '_blank', 'width=900,height=700');
+  const box = paper.getBoundingClientRect();
+  const into = target.cell > 0
+    ? ` ${Math.max(0, Math.round((ev.clientX - box.left - target.run) / target.cell))}`
+    : '';
+  if (target.kind === 'seam') return;
+  if (['form', 'graph.view', 'chart.clock'].includes(target.kind)) {
+    ask(`set ${target.kind} ${target.goes}`);
     return;
   }
-  ask(`at ${target.kind} ${target.goes}`);
+  ask(`at ${target.kind} ${target.goes}${into}`);
 });
 
-/* dragging turns whatever is under the hand; what that MEANS is the server's */
-let held = null;
-paper.addEventListener('pointerdown', (ev) => { held = [ev.clientX, ev.clientY]; });
-window.addEventListener('pointerup', () => { held = null; });
+/* dragging: a seam resizes, anything else in a picture turns it */
+paper.addEventListener('pointerdown', (ev) => {
+  dragging = { x: ev.clientX, y: ev.clientY, on: under(ev, false) };
+});
+window.addEventListener('pointerup', () => { dragging = null; });
 window.addEventListener('pointermove', (ev) => {
-  if (!held) return;
-  const dx = ev.clientX - held[0], dy = ev.clientY - held[1];
+  if (!dragging) return;
+  const dx = ev.clientX - dragging.x, dy = ev.clientY - dragging.y;
   if (Math.abs(dx) + Math.abs(dy) < 3) return;
-  held = [ev.clientX, ev.clientY];
+  dragging.x = ev.clientX; dragging.y = ev.clientY;
+  const on = dragging.on;
+  if (on && on.kind === 'seam') {
+    const box = paper.getBoundingClientRect();
+    const part = on.w < on.h
+      ? (ev.clientX - box.left) / box.width
+      : (ev.clientY - box.top) / box.height;
+    ask(`seam ${on.goes} ${part.toFixed(3)}`);
+    return;
+  }
   ask(`spin ${dx} ${dy}`);
 });
 
 paper.addEventListener('wheel', (ev) => {
-  ev.preventDefault();
   const target = under(ev, true);
-  if (target) ask(`scroll ${target.goes} ${ev.deltaY > 0 ? 1 : -1}`);
+  if (!target) return;
+  ev.preventDefault();
+  ask(`scroll ${target.goes} ${ev.deltaY > 0 ? 1 : -1}`);
 }, { passive: false });
 
+/* Keys are REPORTED, not interpreted: whether Space is a letter or the
+   transport depends on what has the hand, and that is not known here. */
+const NAMED = new Set(['Space', 'Escape', 'Home', 'End', 'ArrowLeft', 'ArrowRight',
+                       'Ctrl+Enter', 'Ctrl+s']);
 window.addEventListener('keydown', (ev) => {
-  const said = { ' ': 'play', ArrowRight: 'step 1', ArrowLeft: 'step -1',
-                 Home: 'go 0', End: 'go end' }[ev.key];
-  if (!said) return;
+  const typing = document.activeElement && document.activeElement.classList.contains('plane');
+  const name = (ev.ctrlKey ? 'Ctrl+' : '') + (ev.key === ' ' ? 'Space' : ev.key);
+  if (typing && !ev.ctrlKey && name !== 'Escape') return;
+  if (!NAMED.has(name)) return;
   ev.preventDefault();
-  if (said === 'play') playing = !playing;
-  ask(said);
+  if (name === 'Space' && !typing) playing = !playing;
+  ask(`key ${name}`);
 });
 
-window.addEventListener('resize', () => ask('resized'));
-setInterval(() => { if (playing) ask('tick'); }, 110);  // the pace is the server's; this only wakes it
+window.addEventListener('resize', () => ask(''));
+setInterval(() => { if (playing) ask('tick'); }, 110);
 ask('');

@@ -1,7 +1,11 @@
-"""What a frame is made of — marks to paint, and rectangles to land on.
+"""What a frame is made of — marks to paint, rectangles to land on, real text.
 
-Its own module because every surface needs the vocabulary and the composer
-needs every surface.
+A text plane is NOT painted. The browser's own text engine draws it: native
+selection, a real caret, a double-click on a word, an input method — none of
+which a canvas can answer for, and the reason a drawn document feels broken
+to the hand. What the frame decides is WHERE it goes and on what geometry;
+the drawn half and the text half are welded by that one geometry, which is
+what keeps a highlight on the character it is about.
 """
 
 from __future__ import annotations
@@ -10,7 +14,8 @@ from opsis.frame.tones import ADVANCE, register
 
 __all__ = ["CELL", "ROW", "Frame"]
 
-CELL = 7.0
+# --fs 12.5px in --mono is 7.5px per glyph; --lh is 19px
+CELL = 7.5
 ROW = 19.0
 
 # how many x,y pairs lead a mark of each kind; the rest rides along unchanged
@@ -18,23 +23,20 @@ POINTS = {"line": 2, "curve": 3, "bez": 4}
 
 
 class Frame:
-    """Marks to paint, and the rectangles a pointer can land on."""
+    """One frame: marks, hit rectangles, and the text planes welded into it."""
 
-    __slots__ = ("hits", "marks", "tall", "wide")
+    __slots__ = ("hits", "marks", "planes", "tall", "texts", "wide")
 
     def __init__(self, wide: int, tall: int) -> None:
         self.marks: list[str] = []
         self.hits: list[str] = []
+        self.planes: list[str] = []
+        self.texts: list[str] = []
         self.wide = wide
         self.tall = tall
 
-    def box(
-        self, x: float, y: float, w: float, h: float, tone: str, said: str = ""
-    ) -> None:
-        """A rectangle, and — if it is labelled — the words that sit in it."""
+    def box(self, x: float, y: float, w: float, h: float, tone: str) -> None:
         self.marks.append(f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
-        if said:
-            self.text(x + 4, y + h / 2 + 4, "ink", said, w - 6)
 
     def line(self, x1: float, y1: float, x2: float, y2: float, tone: str) -> None:
         self.marks.append(f"line {x1:.1f} {y1:.1f} {x2:.1f} {y2:.1f} {tone}")
@@ -49,7 +51,7 @@ class Frame:
         y2: float,
         tone: str,
     ) -> None:
-        """A quadratic bend — a rail turning off its line, and the graph's edges."""
+        """A quadratic bend — a rail turning off its line."""
         self.marks.append(
             f"curve {x1:.1f} {y1:.1f} {cx:.1f} {cy:.1f} {x2:.1f} {y2:.1f} {tone}"
         )
@@ -75,24 +77,60 @@ class Frame:
     def arc(self, x: float, y: float, r: float, tone: str) -> None:
         self.marks.append(f"arc {x:.1f} {y:.1f} {r:.1f} {tone}")
 
+    def ring(self, x: float, y: float, w: float, h: float, tone: str) -> None:
+        """An outline and nothing else — what a lane's span is drawn WITH."""
+        self.marks.append(f"ring {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
+
     def text(self, x: float, y: float, tone: str, said: str, room: float = 0.0) -> None:
-        """Words at a place, clipped to the room they were given."""
+        """Words at a place. A facet under pressure derives less; it does not
+        clip — so `room` is given only where a name genuinely cannot wrap."""
         if room > 0:
             fits = max(1, int(room / ADVANCE.get(tone, CELL)))
             if len(said) > fits:
                 said = said[: fits - 1] + "…"
         self.marks.append(f"text {x:.1f} {y:.1f} {tone} {said}")
 
-    def hit(self, x: float, y: float, w: float, h: float, kind: str, goes: str) -> None:
-        self.hits.append(f"{x:.1f} {y:.1f} {w:.1f} {h:.1f} {kind} {goes}")
-
-    def place(
+    def hit(
         self,
-        drawing: object,
         x: float,
         y: float,
-        scale: float = 1.0,
-        down: float = 0.0,
+        w: float,
+        h: float,
+        kind: str,
+        goes: str,
+        run: float = 0.0,
+        cell: float = 0.0,
+    ) -> None:
+        """A rectangle a pointer can land on, and what to say when it does.
+
+        :param run: where text inside it starts, when landing WITHIN it means
+            something — a click in a line of text names a column.
+        :param cell: how wide one of those steps is.
+        """
+        self.hits.append(
+            f"{x:.1f} {y:.1f} {w:.1f} {h:.1f} {kind} {goes} {run:.1f} {cell:.1f}"
+        )
+
+    def plane(
+        self,
+        name: str,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        said: str,
+        top: int,
+        editable: bool,
+    ) -> None:
+        """Real text, at a place, on this frame's own glyph geometry."""
+        self.planes.append(
+            f"{name} {x:.1f} {y:.1f} {w:.1f} {h:.1f} {ROW} {CELL} {top} "
+            f"{1 if editable else 0} {len(said)}"
+        )
+        self.texts.append(said)
+
+    def place(
+        self, drawing: object, x: float, y: float, scale: float = 1.0, down: float = 0.0
     ) -> None:
         """A drawing's own marks, moved into the room it was given.
 
@@ -119,8 +157,16 @@ class Frame:
                     float(parts[3]) * scale,
                     float(parts[4]) * tall,
                     parts[5],
-                    " ".join(parts[7:]) if len(parts) > 7 else "",
                 )
+                label = " ".join(parts[7:]) if len(parts) > 7 else ""
+                if label:
+                    self.text(
+                        x + float(parts[1]) * scale + 4,
+                        y + (float(parts[2]) + float(parts[4]) * 0.72) * tall,
+                        "ink",
+                        label,
+                        float(parts[3]) * scale - 6,
+                    )
             elif kind == "arc":
                 self.arc(
                     x + float(parts[1]) * scale,
@@ -137,6 +183,7 @@ class Frame:
                 )
 
     def wire(self, generation: int) -> str:
+        """The whole frame. Text blocks go LAST, raw, counted in characters."""
         return "\n".join(
             [
                 *register(),
@@ -144,6 +191,9 @@ class Frame:
                 *self.marks,
                 f"#HITS {len(self.hits)}",
                 *self.hits,
+                f"#PLANES {len(self.planes)}",
+                *self.planes,
+                "#TEXT",
                 "",
             ]
-        )
+        ) + "".join(self.texts)

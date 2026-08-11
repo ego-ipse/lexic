@@ -1,7 +1,7 @@
 """The frame — what leaves for the leaf, and everything that decides it.
 
-Marks and tones are the vocabulary, panels are where things go, and the
-composer fills them. Nothing downstream of here makes a decision.
+`scene.staged` makes the decisions; this presents them. Marks and tones are
+the vocabulary, panels place the arrangement tree, and the composer fills it.
 """
 
 from opsis.frame.compose import compose

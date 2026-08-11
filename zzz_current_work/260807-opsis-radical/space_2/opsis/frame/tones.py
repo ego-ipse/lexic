@@ -1,52 +1,54 @@
-"""What the instrument is coloured with — the register, on the server.
+"""The visual system — `leaf.css`, moved to the server without changing it.
 
-A tone is a NAME everywhere upstream: the drawings say `rail`, `live`,
-`lost`, and only this module knows what those are made of. It used to live in
-the leaf, which meant the leaf held a judgement — which boxes are outlined,
-and in what — that no one downstream could see or change. It ships with the
-frame now, so the picture and its colours arrive together.
+Nothing here is new. Every colour, face and metric below is the one the
+instrument already uses; the only change is WHERE it lives, so a frame
+arrives with its own appearance instead of the leaf holding a second opinion
+about it. Monospace is lexic's output; sans-serif is opsis speaking.
 """
 
 from __future__ import annotations
 
 __all__ = ["ADVANCE", "EDGES", "FONTS", "MONO", "TONES", "register", "runs"]
 
+# --mono, --sans, --fs, --lh
 MONO = '12.5px "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace'
 SANS = '"Inter", "DejaVu Sans", system-ui, sans-serif'
+CODE = '"JetBrains Mono", "DejaVu Sans Mono", monospace'
 
-# a tone that is set differently — the chrome is sans, the reading is mono
 FONTS = {
-    "title": f"600 12px {SANS}",
-    "label": f"600 11.5px {SANS}",
-    "note": f"11.5px {SANS}",
+    # #title: cool, 700, 14px, letter-spacing .18em
+    "title": f"700 14px {SANS}",
+    # .facet h2: 10.5px, letter-spacing .14em, cool
+    "ftitle": f"10.5px {SANS}",
+    # .facet h2 em, #sub, #status: 12px sans, dim
+    "fsub": f"12px {SANS}",
+    # #verdict, #readout, #pos, #pincount: mono 11px
+    "verdict": f"11px {CODE}",
+    # .tabbar .tab, #dock .fnode-chip, #ladder .rung, the selects: mono 10px
+    "chip": f"10px {CODE}",
 }
 
-# what one glyph of a tone's face costs in width — how the server knows what
-# fits before it says it, and where the next word starts
-ADVANCE = {"title": 7.6, "label": 7.4, "note": 5.9}
-
 TONES = {
-    # the ground the instrument sits on
+    # :root, verbatim
     "field": "#0b0e14",
-    "head": "#0e131c",
-    "panel": "#0e1219",
-    "hair": "#1a2230",
+    "field2": "#0e1219",
     "ink": "#e8e2d6",
     "dim": "#66707f",
-    "note": "#66707f",
     "dimmer": "#3a4250",
-    "title": "#e8e2d6",
-    "label": "#6fc3c9",
-    "lit": "#141b26",
-    # a span's standing against the cursor
-    "closed": "#10282e",
-    "live": "#e2a65c",
-    "open": "#33271a",
-    "ahead": "#2a3140",
-    "kept": "#8fa3b8",
-    "lost": "#4a1f22",
+    "cool": "#6fc3c9",
+    "warm": "#e2a65c",
+    "violet": "#d98cf5",
+    "red": "#e06060",
+    "green": "#79c99a",
+    "hair": "#1a2230",
+    # the same values under the names the renderers say them in
+    "title": "#6fc3c9",
+    "ftitle": "#6fc3c9",
+    "fsub": "#66707f",
+    "verdict": "#66707f",
+    "chip": "#66707f",
+    "caret": "#e2a65c",
     "cursor": "#e2a65c",
-    # what a thing IS — the grammar's own kinds
     "rail": "#6fc3c9",
     "loop": "#d98cf5",
     "token": "#8fa3b8",
@@ -54,11 +56,24 @@ TONES = {
     "class": "#d98cf5",
     "name": "#e2a65c",
     "eps": "#3a4250",
-    "good": "#79c99a",
-    "bad": "#e06060",
     "hot": "#e2a65c",
-    "cool": "rgba(111,195,201,0.18)",
+    "cool_wash": "rgba(111,195,201,0.18)",
     "seen": "#4a5568",
+    # a span against the cursor, as the lanes have always drawn it: the fill
+    # for what is closed, the DARK amber for what is open, and nothing at all
+    # for what is still ahead — which is why the lanes read as structure
+    "span": "#2a3140",
+    "closed": "#10282e",
+    "active": "#3a2f18",
+    "pending": "#2a3140",
+    "live": "#e2a65c",
+    "ahead": "#2a3140",
+    "kept": "#8fa3b8",
+    "lost": "#4a1f22",
+    # co-selection: #grammarBody .ln.lit / .ln.hot / .ln.live
+    "lit": "rgba(111,195,201,0.07)",
+    "hotline": "rgba(226,166,92,0.12)",
+    "liveline": "rgba(226,166,92,0.10)",
     # the model band's depths
     "modelband0": "#0e151d",
     "modelband1": "#152230",
@@ -66,19 +81,23 @@ TONES = {
     "modelband3": "#274257",
 }
 
-# which fills are outlined, and in what — the judgement the leaf used to make
+# which fills are outlined, and in what
 EDGES = {
-    "closed": "#6fc3c9",
-    "live": "#e2a65c",
-    "open": "#6d5433",
-    "ahead": "#3a4250",
     "kept": "#8fa3b8",
     "lost": "#e06060",
 }
 
+# what one glyph costs, in the face a tone is set in
+ADVANCE = {"title": 9.4, "ftitle": 6.6, "fsub": 6.4, "verdict": 6.6, "chip": 6.0}
+
+
+def runs(tone: str, said: str) -> float:
+    """How wide those words are, in the face that tone is set in."""
+    return len(said) * ADVANCE.get(tone, 7.0)
+
 
 def register() -> list[str]:
-    """The palette as wire lines — `tone <name> <colour>`, edges and all."""
+    """The palette as wire lines — fills, edges and faces."""
     return [
         f"#FONT {MONO}",
         f"#TONES {len(TONES) + len(EDGES) + len(FONTS)}",
@@ -86,8 +105,3 @@ def register() -> list[str]:
         *(f"edge {name} {said}" for name, said in EDGES.items()),
         *(f"font {name} {said}" for name, said in FONTS.items()),
     ]
-
-
-def runs(tone: str, said: str) -> float:
-    """How wide those words are, in the face that tone is set in."""
-    return len(said) * ADVANCE.get(tone, 7.0)

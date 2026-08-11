@@ -1,72 +1,30 @@
-"""One frame — the arrangement, applied, with every surface drawn into it.
+"""One frame: the masthead, the grid of regions, and the status bar.
 
-There is no list of surfaces here and no branch on which one is which.
-`surfaces` is the open table: it measures, `space.arrange` decides the
-arrangement, `panels` applies it, and each node draws itself into the room it
-was handed. A new surface changes nothing in this file.
+`scene.staged` decides; this presents. There is no list of facets here and no
+branch on which one is which — the arrangement tree says what goes where,
+`facets.DRAWN` says how each one draws itself, and a new facet changes
+nothing in this file.
+
+The chrome is `leaf.css`'s: #mast and #status are one line each with a
+hairline between them and the grid, and every region carries its own head.
 """
 
 from __future__ import annotations
 
+from typing import Any
+
+from opsis.frame.facets import DRAWN, HEADS, Look
 from opsis.frame.marks import Frame
-from opsis.frame.panels import chrome, rooms
+from opsis.frame.panels import head, walked
 from opsis.frame.tones import runs
-from opsis.space import arrange, columns_of
-from opsis.surfaces import SHOWN, by_name, facets
-from praxis.looking import Looking
+from opsis.scene import staged
 from praxis.reading import Reading
-from praxis.view import View
 
 __all__ = ["compose"]
 
-BAR = 32.0
-FOOT = 28.0
-EDGE = 8.0
-
-
-def _masthead(said: Frame, reading: Reading, wide: int) -> None:
-    """The instrument's name, what is loaded, and whether the reading holds."""
-    said.box(0, 0, wide, BAR, "head")
-    said.line(0, BAR, wide, BAR, "hair")
-    said.text(14, 21, "title", "FACETS")
-    said.text(
-        86,
-        21,
-        "note",
-        f"{reading.reader_name} read {len(reading.text):,} chars "
-        f"in {reading.seconds:.2f}s",
-        420,
-    )
-    holds = (
-        "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
-    )
-    said.text(
-        wide - 14 - runs("label", holds),
-        21,
-        "label" if reading.faithful else "bad",
-        holds,
-    )
-
-
-def _footer(said: Frame, reading: Reading, at: float, wide: int, tall: int) -> None:
-    """The transport, and what the cursor stands on."""
-    y = tall - FOOT
-    said.box(0, y, wide, FOOT, "head")
-    said.line(0, y, wide, y, "hair")
-    chip = 14.0
-    for glyph, gesture in (("‹", "step~-1"), ("▶", "play"), ("›", "step~1")):
-        said.box(chip, y + 6, 22, 16, "panel")
-        said.text(chip + 8, y + 18, "ink", glyph)
-        said.hit(chip, y + 6, 22, 16, "do", gesture)
-        chip += 26
-    said.text(
-        chip + 8,
-        y + 18,
-        "note",
-        f"char {int(at):,} / {len(reading.text):,} · {len(reading.spans):,} spans · "
-        "click a tab, a span, a rule · space plays · ⧉ pops a room out",
-        wide - chip - 24,
-    )
+# #mast / #status: padding 10px 18px over a 12px line
+BAR = 34.0
+PAD = 18.0
 
 
 def compose(
@@ -74,41 +32,99 @@ def compose(
     wide: int,
     tall: int,
     at: float,
-    looking: Looking,
+    state: dict[str, str],
+    watched: list[list[Any]],
+    generation: int,
+    typed: dict[str, str] | None = None,
+    frontier: int = -1,
     only: str = "",
 ) -> Frame:
     """The instrument, at this size, at this moment, as one frame.
 
-    :param only: a single surface's name — what a popped-out window asks for.
+    :param only: one facet's name — what a window popped off the grid asks for.
     """
     said = Frame(wide, tall)
-    view = View(reading, at, looking)
+    it = staged(reading, state)
+    look = Look(reading, it, at, state, watched, typed, frontier)
+    titles = {facet.name: facet.title for facet in it.facets}
     said.box(0, 0, wide, tall, "field")
-    titles = {surface.name: surface.title for surface in SHOWN}
 
-    alone = by_name(only)
-    if alone is not None:
-        room = rooms(alone.name, EDGE, EDGE, wide - EDGE * 2, tall - EDGE * 2)[0]
-        alone.draw(said, chrome(said, room, titles, keep=False), view)
+    if only in DRAWN:
+        region = walked(only, 0, 0, wide, tall).regions[0]
+        DRAWN[only](said, head(said, region, titles, HEADS(look, only)), look)
         return said
 
-    _masthead(said, reading, wide)
-    measured = facets(view)
-    showing = {
-        group[0].column or group[0].name: next(
-            (i for i, facet in enumerate(group) if facet.name == looking.surface), 0
-        )
-        for group in columns_of(measured)
-    }
-    for room in rooms(
-        arrange(measured, 200, showing),
-        EDGE,
-        BAR + EDGE,
-        wide - EDGE * 2,
-        tall - BAR - FOOT - EDGE * 2,
-    ):
-        surface = by_name(room.name)
-        if surface is not None:
-            surface.draw(said, chrome(said, room, titles), view)
-    _footer(said, reading, at, wide, tall)
+    _masthead(said, reading, it, wide, generation)
+    grid = walked(str(it.policy["arrange.tree"]), 0, BAR, wide, tall - BAR * 2)
+    for region in grid.regions:
+        draw = DRAWN.get(region.name)
+        if draw is None:
+            continue
+        draw(said, head(said, region, titles, HEADS(look, region.name)), look)
+    for seam in grid.seams:
+        said.hit(seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at))
+    _status(said, reading, look, wide, tall)
     return said
+
+
+def _masthead(
+    said: Frame, reading: Reading, it: object, wide: int, generation: int
+) -> None:
+    """#mast — the name, what is loaded, the ladder, and the parity verdict."""
+    said.line(0, BAR, wide, BAR, "hair")
+    said.text(PAD, 22, "title", "FACETS")
+    at = PAD + runs("title", "FACETS") + 18
+    said.text(
+        at,
+        22,
+        "fsub",
+        f"{reading.document.name} ⊳ {reading.reader_name} · "
+        f"{len(reading.text):,} chars in {reading.seconds:.2f}s · gen {generation}",
+        wide - at - 320,
+    )
+    holds = (
+        "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
+    )
+    said.text(
+        wide - PAD - runs("verdict", holds),
+        22,
+        "green" if reading.faithful else "red",
+        holds,
+    )
+
+
+def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> None:
+    """#status — where the cursor is, the transport, and what the hand can do."""
+    y = tall - BAR
+    said.line(0, y, wide, y, "hair")
+    where = f"char {int(look.at):,} / {len(reading.text):,}"
+    said.text(PAD, y + 22, "verdict", where)
+    at = PAD + 32 * 6.6
+    # #transport — − ‹ ▶ › + ×n
+    for glyph, gesture in (
+        ("−", "speed~-"),
+        ("‹", "step~-1"),
+        ("▶", "play"),
+        ("›", "step~1"),
+        ("+", "speed~+"),
+    ):
+        said.box(at, y + 8, 20, 16, "field")
+        for x1, y1, x2, y2 in (
+            (at, y + 8, at + 20, y + 8),
+            (at, y + 24, at + 20, y + 24),
+            (at, y + 8, at, y + 24),
+            (at + 20, y + 8, at + 20, y + 24),
+        ):
+            said.line(x1, y1, x2, y2, "hair")
+        said.text(at + 6, y + 20, "chip", glyph)
+        said.hit(at, y + 8, 20, 16, "do", gesture)
+        at += 22
+    said.text(at + 6, y + 20, "dimmer", f"×{look.says('speed', '1')}", 40)
+    at += 52
+    hint = (
+        "select text to co-select · click a rule to choose it · "
+        "click a line number to set the cursor · type in the document — "
+        "Ctrl+Enter re-reads · Ctrl+S saves, and saving compiles · Esc reverts · "
+        "Space plays · the chart scrubs"
+    )
+    said.text(at, y + 22, "fsub", hint, wide - at - PAD)

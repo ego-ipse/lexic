@@ -1,10 +1,9 @@
-"""The socket — files out, frames out, gestures in. Nothing else.
+"""The instrument, over one socket — a size and a gesture in, a frame out.
 
-    uv run python .../space_2/serve.py <grammar> <document> [port]
-
-space_1's derivation is here whole; what changed is where the picture is
-assembled. One route answers with the instrument drawn, and the leaf holds
-no geometry to disagree with it.
+One route. The leaf posts how big its paper is and what the hand just did;
+what comes back is the whole instrument as final pixels, hit rectangles and
+the text planes the browser draws itself. There is nothing else to ask for,
+because there is nothing left for the leaf to decide.
 """
 
 from __future__ import annotations
@@ -15,23 +14,42 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE))
 
+from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
-from praxis.reading import read  # noqa: E402
+from opsis.scene import reader_of  # noqa: E402
+from praxis.reading import Reading  # noqa: E402
 from praxis.session import Session  # noqa: E402
-
-
-class SESSION:
-    """The one session this socket serves."""
-
-    here: Session
-
 
 __all__ = ["Handler", "main"]
 
 FILES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}
+
+
+class Held:
+    """The one session this socket serves, and what has been worked out about it.
+
+    The predictive run over the whole document is the same answer for every
+    surface that asks and for every frame until the text changes, so it is
+    kept against the reading that produced it rather than re-run per gesture.
+    """
+
+    here: Session
+    key: tuple[int, int] = (-1, -1)
+    rows: list[list[object]] = []
+
+    @classmethod
+    def watched(cls) -> list[list[object]]:
+        """What the predictive machine did to this document."""
+        key = (cls.here.generation, len(cls.here.reading.text))
+        if cls.key != key:
+            machine = reader_of(cls.here.reading)
+            cls.key = key
+            cls.rows = (
+                watch(machine, cls.here.reading.text) if machine is not None else []
+            )
+        return cls.rows
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -61,48 +79,51 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
-        # one line per thing said: how big the paper is, which room this
-        # window is (a popped-out one is only ever one), and what the hand did
-        wide, tall, only, gesture = 1400, 800, "", ""
-        for line in body.split("\n"):
-            word, _, rest = line.strip().partition(" ")
+        wide, tall, only, gesture, said = 1400, 800, "", "", ""
+        lines = body.split("\n")
+        for i, line in enumerate(lines):
+            word, _, rest = line.partition(" ")
             if word == "size" and len(rest.split()) == 2:
                 wide, tall = (int(n) for n in rest.split())
             elif word == "only":
                 only = rest.strip()
             elif line.strip():
-                gesture = line.strip()
+                # a gesture that carries text carries ALL of it: the rest of
+                # the body is the payload, newlines and all
+                gesture, said = line.strip(), "\n".join(lines[i + 1 :])
+                break
+        session = Held.here
         if gesture:
-            SESSION.here.gesture(gesture)
+            session.gesture(gesture, said)
         self.send(
             compose(
-                SESSION.here.reading,
+                session.reading,
                 wide,
                 tall,
-                SESSION.here.at,
-                SESSION.here,
+                session.at,
+                session.state,
+                Held.watched(),
+                session.generation,
+                session.typed,
+                session.frontier(),
                 only,
-            ).wire(SESSION.here.generation)
+            ).wire(session.generation)
         )
 
 
-def main() -> int:
-    """Read the pair, then serve frames of it."""
-    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+def main() -> None:
+    """Read the pair named on the command line, then serve frames of it."""
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if len(args) < 2:
-        print("serve.py <grammar> <document> [port]")
-        return 2
-    reading = read(Path(args[0]), Path(args[1]))
+        print("usage: serve.py <grammar> <document> [port]")
+        raise SystemExit(2)
+    reading = Reading(Path(args[0]), Path(args[1]))
+    reading.hold()
+    Held.here = Session(reading)
     port = int(args[2]) if len(args) > 2 else 8918
-    print(
-        f"{reading.reader_name} read {len(reading.text):,} chars in "
-        f"{reading.seconds:.2f}s · {len(reading.spans):,} spans"
-    )
-    SESSION.here = Session(reading)
-    print(f"http://127.0.0.1:{port}/")
+    print(f"opsis · {args[0]} ⊳ {args[1]} · http://127.0.0.1:{port}/")
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
-    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

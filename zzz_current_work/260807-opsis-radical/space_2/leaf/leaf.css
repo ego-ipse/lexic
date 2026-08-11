@@ -1,0 +1,27 @@
+/* opsis leaf — the two halves of one picture.
+
+   The drawn half is a canvas whose colours arrive with the frame: nothing
+   here names a tone, because the register is the server's. The text half is
+   the browser's own text engine — real selection, a real caret, real word
+   double-clicks — positioned by the geometry the frame sends, so a highlight
+   drawn under a character lands on that character. */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; background: #0b0e14; }
+#paper { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.plane {
+  position: absolute;
+  margin: 0; padding: 0; border: 0; outline: 0;
+  background: transparent;
+  color: #e8e2d6;
+  caret-color: #e2a65c;
+  resize: none;
+  overflow: auto;
+  white-space: pre;
+  tab-size: 4;
+  font: 12.5px/19px "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+}
+.plane::selection { background: rgba(226, 166, 92, 0.35); color: #e8e2d6; }
+.plane::-webkit-scrollbar { width: 8px; height: 8px; }
+.plane::-webkit-scrollbar-thumb { background: #1a2230; }

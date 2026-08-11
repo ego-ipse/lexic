@@ -1,44 +1,39 @@
-# space_2 — what is built, and what is not
+# space_2 — a port, not a redesign
 
-Kept here rather than in the README: the README says what space_2 IS, this
-says how far along it is. Nothing below is rounded up.
+space_1's whole server, with the leaf reduced to two halves it cannot have an
+opinion about: a canvas that paints marks, and real text planes the browser
+draws. Every visual decision below comes from a space_1 file, named.
 
-## Built and driven
+## Where each thing came from
 
-| | |
+| here | ported from |
 |---|---|
-| the frame protocol | `box · line · curve · bez · arc · text` + `hit`, and the tone register |
-| the tone register | on the server: fills, edges, faces, glyph widths — the leaf holds no style |
-| surfaces as nodes | `opsis/surfaces/` — one class each, an open table, no branch on which |
-| the arrangement | `space.arrange` measured AND applied server-side (`opsis/frame/panels.py`) |
-| rooms | panel, header, tab strip, dock chips, per-room scroll |
-| tabs | reader · relations · railroad · machine share the reader's column |
-| the derivation | band + model/pda/earley clocks + lanes under a scrubbing cursor |
-| the spine | the open stack at the cursor, indented by depth |
-| the ring graph | three-space rings with the camera ON THE SERVER, size fixed by the cloud's radius |
-| pop-out / clone | `⧉ ⊞` open `/?only=<room>`; a popped window is one room, same session |
-| responsiveness | 3–5 ms a gesture (was 230); the reader compiles once per spelling, each engine runs once per reading |
-| the leaf | 172 lines: paint marks, post gestures, coalesce what arrives mid-flight |
+| `opsis/frame/tones.py` | `leaf/leaf.css` `:root` — the eleven variables, the faces, the line height |
+| lane tones (closed · active · pending) | `leaf/chart.js` — fill to the CURSOR, not across the span; ahead-spans carry no fill |
+| `eidolon/camera.py` | `leaf/graph.js` — layout-centred orbit, focal `max(900, reach·9)`, the fit as a BOUND so the picture cannot pump as it turns |
+| facet titles, tab words | `praxis/reading.py` + `eidolon/topology.py` `graph_facet` — unchanged |
+| the head (`h2`), the tab strip, the selects | `leaf.css` `.facet h2` / `.tabbar` / `#gview` |
+| masthead, status, the hint sentence | `leaf/index.html` |
+| the arrangement tree | `opsis/space.py` + `scene.staged` — the same tree, walked here instead of in the leaf |
+| editing | `praxis/history.py` `retype` — an edit is a re-reading; the frontier is the kernel's own cursor, never scraped from prose |
 
-## Not built yet
+## What changed, and only this
 
-- **editing** — space_1 could type into the document, `Ctrl+Enter` to re-read,
-  `Ctrl+S` to save. space_2 cannot. This is the biggest gap and the next thing.
-- **forms** — source · canonical · codegen · lifted as a property of the
-  reader. `kairos/pipeline.py` is here and unused.
-- **strata** — `praxis/strata.py` is here and unused; no rung, no travel.
-- **places** — `opsis/rooms.py` (the rules/machine/artefacts/IR-value browser)
-  is here and unused.
-- **pins**, **selection**, **drag-to-resize seams** (`arrange` already takes
-  `dragged`; nothing sends it).
-- **the gate** — space_1's `gate.py` (44 facts) has no counterpart here.
+`scene.py` grew `staged()`: the decisions `scene()` was already making, in a
+record, so the drawn frame reads the same ones instead of making its own.
+`scene()` still spells exactly what it spelled.
 
-## Known, and not silently
+## Deviations still to redo
 
-- **The railroad's geometry is space_1's, byte for byte** (`opsis/paint.py`
-  and `opsis/measure.py` are unchanged copies). space_2 renders its curves
-  properly now, where space_1's leaf drew some of them straight — but if the
-  shape itself is still wrong, it is wrong in both, and fixing it is a change
-  to the measurement, not to the frame.
-- The first `earley` clock costs ~1.5 s (the engine runs over the whole
-  document). It is kept after that; every later frame is ~25 ms.
+- The parity verdict clips at the right edge — the mono advance in `ADVANCE`
+  is a measurement, and it is wrong.
+- THE SPINE overruns its region; it needs the region's own bound.
+- Ctrl+wheel zoom (`doc.zoom`, `chart.zoom`, `spine.zoom`) is not wired.
+- The graph's own controls — `◉ focus`, `⧉ window`, the tune dials — are not
+  drawn; only the view selector is.
+
+## Not ported yet
+
+The dock · the ladder · pins and the pin chip · the rail chip · pop-as-window
+· strata · places · verdict badges · the routes strip · Earley's column and
+CAN COME NEXT in the spine · the gate.
