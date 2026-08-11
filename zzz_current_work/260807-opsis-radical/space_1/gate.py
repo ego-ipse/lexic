@@ -11,6 +11,7 @@ smoothed over, a name the leaf cannot recognise.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -311,7 +312,7 @@ def main() -> int:
         pair.split(":", 1) for pair in policy.get("opens", "").split(" ") if ":" in pair
     )
     unplaced = [w for w in refused if addressed.get(w, "none-yet") == "none-yet"]
-    leaf_js = (HERE / "leaf" / "leaf.js").read_text()
+    leaf_js = "".join(path.read_text() for path in sorted((HERE / "leaf").glob("*.js")))
     check(
         "a surface that wants a window names an address, and the leaf goes there",
         not unplaced and "openAddress(opensFor(P)[want])" in leaf_js,
@@ -344,14 +345,21 @@ def main() -> int:
     )
 
     leaf = HERE / "leaf"
-    parts = ["index.html", "leaf.css", "leaf.js"]
-    there = [name for name in parts if (leaf / name).is_file()]
+    page = (leaf / "index.html").read_text()
+    # the leaf is one program living in several files, so its parts are
+    # whatever the page NAMES — a script that stops being served takes its
+    # whole section down silently, and nothing else would notice
+    named = [
+        *re.findall(r'<script src="/([^"]+)"', page),
+        *re.findall(r'<link[^>]+href="/([^"]+)"', page),
+    ]
+    absent = [name for name in named if not (leaf / name).is_file()]
     check(
-        "the leaf is present — the measurement has somewhere to arrive",
-        there == parts,
-        ", ".join(there) or "nothing",
+        "every part the leaf's page names is a file the socket can serve",
+        not absent and bool(named),
+        f"{len(named)} parts · {sum((leaf / n).stat().st_size for n in named if (leaf / n).is_file()) // 1024}KB"
+        + (f" · MISSING {', '.join(absent)}" if absent else ""),
     )
-    page = (leaf / "index.html").read_text() if (leaf / "index.html").is_file() else ""
     wanted = {"grammar", "document", "chart", "spine"}
     check(
         "the leaf hosts every surface this reading places",
