@@ -572,6 +572,15 @@ opening the space_1 file that already answered it, and several had been
   hand always wins the line it is over. One gate fact had encoded the wrong
   mapping and was corrected against the CSS rather than around it.
 
+- **Choosing a rule did not SHOW it.** `litRules` ends by scrolling the
+  reader to whichever rule is selected, hot or chosen —
+  `scrollIntoView({block: "nearest"})`. A rule chosen from the graph or the
+  lanes is usually not the one on screen, and a highlight you have to go
+  looking for reads as a highlight that did not happen. The session says
+  which line must be seen; the frame does the nearest-scrolling, because only
+  it knows how many rows fit. Scrolling by hand says where you want to be and
+  clears it.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.

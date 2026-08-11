@@ -205,16 +205,34 @@ class Look:
 
 
 # ── the reader and the document ──────────────────────────────────────────
+def _showing(look: Look, name: str, first: int, rows: int) -> int:
+    """Where the plane really starts — NEAREST, when something must be seen.
+
+    `scrollIntoView({block: "nearest"})`: a line that is already on screen
+    does not move the page, and one that is not is brought just inside.
+    Scrolling by hand says where you want to be, and clears this.
+    """
+    said = look.says(f"show.{name}", "")
+    if not said.isdigit() or rows < 3:
+        return first
+    line = int(said)
+    if line < first:
+        return line
+    if line >= first + rows - 2:
+        return max(0, line - rows + 3)
+    return first
+
+
 def _plane(
     said: Frame, room: Room, look: Look, name: str, text: str, numbered: bool
 ) -> None:
     """A block of REAL text, with what is true about it drawn underneath."""
     x, y, w, h = room
     lines = text.split("\n")
-    first = look.top(name)
+    rows = max(0, int((h - 8) // ROW))
+    first = _showing(look, name, look.top(name), rows)
     # .ln .g { width: 5ch; padding-right: 1.5ch } — the gutter is 6.5ch
     run = x + (6.5 * CELL if numbered else 1.5 * CELL)
-    rows = max(0, int((h - 8) // ROW))
     lit = _held(look, name)
     badges = _badges(look) if name == "grammar" else {}
     heads = {at: rule for rule, at, _last in look.it.rules} if name == "grammar" else {}

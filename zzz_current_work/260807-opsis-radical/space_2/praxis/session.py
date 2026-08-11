@@ -168,10 +168,25 @@ class Session:
         A rule is a what, not a when: choosing one does not move the cursor.
         Clicking it again lets it go.
         """
-        if words:
-            self.state["chosen"] = (
-                "" if self.state.get("chosen") == words[0] else words[0]
+        if not words:
+            return
+        letting_go = self.state.get("chosen") == words[0]
+        self.state["chosen"] = "" if letting_go else words[0]
+        # AND THE READER SHOWS IT. A rule chosen from the graph or the lanes
+        # is usually not the one on screen, and a highlight you have to go
+        # looking for reads as a highlight that did not happen.
+        self.state["show.grammar"] = (
+            ""
+            if letting_go
+            else next(
+                (
+                    str(first)
+                    for name, first, _last in ruledefs(self.reading.reader_text)
+                    if name == words[0]
+                ),
+                "",
             )
+        )
 
     def _tab(self, words: list[str]) -> None:
         """A tab in a t-node — which of the group's leaves that region shows.
@@ -480,11 +495,14 @@ class Session:
         was = self.state.get(f"top.{words[0]}", "0")
         now = max(0, (int(was) if was.isdigit() else 0) + int(words[1]) * STEP)
         self.state[f"top.{words[0]}"] = str(now)
+        # a hand that scrolled has said where it wants to be
+        self.state[f"show.{words[0]}"] = ""
 
     def _scrolled(self, words: list[str]) -> None:
         """A real text plane scrolled itself; the drawing under it must follow."""
         if len(words) >= 2 and words[1].lstrip("-").isdigit():
             self.state[f"top.{words[0]}"] = str(max(0, int(words[1])))
+            self.state[f"show.{words[0]}"] = ""
 
     def _zoom(self, words: list[str]) -> None:
         """Ctrl+wheel — a plane's own scale, on the key the policy already has.

@@ -893,6 +893,30 @@ def main() -> int:
         ),
     )
 
+    def reader_top(state: dict[str, str]) -> int:
+        return next(
+            (
+                int(p.split(" ")[7])
+                for p in frame(state).planes
+                if p.startswith("grammar ")
+            ),
+            -1,
+        )
+
+    torn_reader = Session(reading)
+    torn_reader.gesture("at rule digit")
+    check(
+        "choosing a rule SHOWS it — a highlight you must go looking for is none",
+        reader_top({}) == 0 and reader_top(dict(torn_reader.main)) > 0,
+        f"{reader_top({})} → {reader_top(dict(torn_reader.main))}",
+    )
+    torn_reader.gesture("scrolled grammar 0")
+    check(
+        "and a hand that scrolls says where it wants to be",
+        reader_top(dict(torn_reader.main)) == 0,
+        f"back to {reader_top(dict(torn_reader.main))}",
+    )
+
     reader_lines = {
         m[5]
         for m in marks(
