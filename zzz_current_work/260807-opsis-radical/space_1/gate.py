@@ -41,6 +41,7 @@ from eidolon.value import wire as ir_wire  # noqa: E402
 from kairos.pipeline import FORMS  # noqa: E402
 from opsis.grammar import rails  # noqa: E402
 from opsis.paint import (  # noqa: E402
+    band_drawing,
     chart_drawing,
     packed,
     rails_drawing,
@@ -483,6 +484,36 @@ def main() -> int:
         not wrong and bool(said_spans),
         f"{len(said_spans)} boxes, in document coordinates"
         + (f" · WRONG {wrong[:2]}" if wrong else ""),
+    )
+
+    # every tone a drawing NAMES must be one the leaf can colour. An unknown
+    # tone falls back to the darkest ink, which is invisible against the
+    # field — a whole band drew as nothing because the server had started
+    # saying `modelband2` while the register still only knew `band2`.
+    # tones share lines in both registers, so the scan cannot be anchored
+    register = {
+        name
+        for leafside in ("chart.js", "paint.js")
+        for name in re.findall(
+            r"([A-Za-z0-9]+):\s*'", (HERE / "leaf" / leafside).read_text()
+        )
+    }
+    tones = {
+        mark.split()[5]
+        for said in (
+            band_drawing(reading, 26, None, "model"),
+            rails_drawing(rails(machine.grammar), 900),
+            chart_drawing(reading, 400),
+        )
+        for mark in said.marks
+        if mark.startswith("box ")
+    }
+    unknown = sorted(tones - register)
+    check(
+        "every tone a drawing names is one the leaf can colour",
+        not unknown,
+        f"{len(tones)} tones used · {len(register)} known"
+        + (f" · UNKNOWN {unknown}" if unknown else ""),
     )
 
     # a clock's ROW is something the picture invents: Earley holds thousands
