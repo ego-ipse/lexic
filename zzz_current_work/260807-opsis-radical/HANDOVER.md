@@ -1,5 +1,56 @@
 # opsis-radical — HANDOVER
 
+## NEXT SESSION — start here
+
+**Run it.**
+
+```bash
+uv run python zzz_current_work/260807-opsis-radical/space_1/serve.py \
+    resources/ground_truth/json.gbnf \
+    zzz_current_work/260807-opsis-radical/tk/fixtures_long.json 8917
+uv run python zzz_current_work/260807-opsis-radical/space_1/gate.py   # 42 facts, exit 0
+```
+
+Drive it, never eyeball it: `?probe=1` runs the real handlers and writes its
+verdicts into `document.title`. Read them with a headless dump. Anything that
+reads `MISSING`, `NONE`, `MISMATCH` or `THREW` is a defect, and any capability
+the probe does not drive is a defect waiting to be reported by the user —
+that is how all three rail breaks got out.
+
+**The standing aim: a 75% cut in the leaf's JavaScript** (4,842 today).
+The lever is the display list — `opsis/paint.py` speaks `box`, `line`,
+`curve`, `arc`, `text`, in pixels, with tones named rather than coloured, and
+a `box` may carry an ADDRESS so a drawing is clickable without the leaf
+knowing what it is looking at. Served so far: the railroad (whole list, and
+one rule for a pinned window), the automaton, the relations in flat/arcs.
+
+**Next, in order:**
+
+1. **The derivation chart** (~250 leaf lines). The care needed: its hit test
+   must not drift from its drawing. Do it by giving each span box an ADDRESS
+   (its index), so hovering hit-tests painted rectangles the way the rails'
+   doors already do — one mechanism, no second geometry. The open question is
+   the time-dependent tone (closed / live / pending): serving per cursor post
+   like the automaton makes it up to 300ms stale during playback, which may
+   be fine and may not. Decide that before writing it.
+2. **The document plane's under/over canvases** (~150).
+3. **The IR rows and the room sections** (~300) — these are DOM, not canvas;
+   they want a row vocabulary rather than a display list.
+4. **The rings view** (~120 of `graph.js`) — the camera stays in the leaf;
+   only the node marks move.
+
+**What must not regress** (each has a fact): the relations ship on the wire ·
+every rung carries its own numbers · an edit moves everything derived · every
+automaton edge points at a clone it also sent · in every form what the model
+names is what the graph draws · every track is measured in columns · a
+drawing carries its doors.
+
+**The lesson from tonight, because it will recur.** Deleting code by slicing
+between function names took two live bindings out with it, and a stale
+duplicate drifted back above the file's banner and silently won by being
+declared later. Before removing a region: `grep -c` every identifier it
+assigns, and re-run the probe with the capability that region served.
+
 ## 2026-08-11, night — the rails, broken three ways by my own deletions
 
 Converting the railroad to a served drawing broke it three times over, and
