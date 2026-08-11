@@ -1321,7 +1321,13 @@ async function fetchAutomaton() {
 
 const AUTO_INK = { dispatch: '#6fc3c9', alt: '#e2a65c', seq: '#8fa3b8', value_str: '#d98cf5', group: '#66707f' };
 
+// A clone the frame set names but the clone table does not carry is a REAL
+// disagreement between two halves of the machine — draw the rest, count the
+// misses, and say so, rather than throwing and leaving the facet blank.
+let autoMissed = 0;
+
 function autoPos(c) {
+  if (!c) { autoMissed++; return null; }
   const step = gTune.levelstep * 1.15;
   const spread = 15 * gTune.ringscale;
   return { x: (c.depth < 0 ? 0 : c.depth) * step, y: (c.li - c.ln / 2) * spread };
@@ -1375,6 +1381,7 @@ function drawAutoView(v) {
   cx.lineWidth = 1 / k;
   for (const [a, b] of autoData.edges) {
     const A = autoPos(autoData.clones[a]), B = autoPos(autoData.clones[b]);
+    if (!A || !B) continue;
     const hotEdge = inNow.has(a) && inNow.has(b);
     cx.strokeStyle = hotEdge ? 'rgba(226,166,92,0.8)' : 'rgba(111,195,201,0.10)';
     cx.beginPath();
@@ -1388,6 +1395,7 @@ function drawAutoView(v) {
   for (let ci = 0; ci < autoData.clones.length; ci++) {
     const c = autoData.clones[ci];
     const P = autoPos(c);
+    if (!P) continue;
     const base = AUTO_INK[c.mode] || '#66707f';
     const isIn = inNow.has(ci);
     v.autoHits.push({ x: P.x - 4, y: P.y - 4, w: 8, h: 8, c });
