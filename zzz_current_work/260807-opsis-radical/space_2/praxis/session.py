@@ -454,7 +454,17 @@ class Session:
 
     # ── looking around ───────────────────────────────────────────────────
     def _scroll(self, words: list[str]) -> None:
+        """A wheel over something, and what a wheel MEANS there.
+
+        A stack of railroads reads like a document, so the wheel scrolls it.
+        Every other picture of the graph is a SURVEY, not a list: there is
+        nothing to scroll through, so the wheel is its zoom — the reference
+        keeps Ctrl+wheel for the one view where the plain wheel is spoken for.
+        """
         if len(words) < 2 or not words[1].lstrip("-").isdigit():
+            return
+        if words[0] == "graph" and self.state.get("graph.view", "depth3d") != "rails":
+            self._zoom(words)
             return
         was = self.state.get(f"top.{words[0]}", "0")
         now = max(0, (int(was) if was.isdigit() else 0) + int(words[1]) * STEP)
@@ -479,9 +489,19 @@ class Session:
             "spine": "spine.zoom",
         }.get(words[0], f"{words[0]}.zoom")
         was = float(self.state.get(key, "1"))
-        self.state[key] = (
-            f"{max(0.35, min(3.0, was * (1.1 if int(words[1]) < 0 else 0.9))):.3f}"
-        )
+        now = max(0.35, min(5.0, was * (1.12 if int(words[1]) < 0 else 1 / 1.12)))
+        self.state[key] = f"{now:.3f}"
+        if words[0] != "graph" or len(words) < 4:
+            return
+        # ANCHOR IT AT THE POINTER: the point under the hand stays under the
+        # hand. A zoom that moves what you are looking at is a zoom you have
+        # to chase. The leaf says WHERE as a fraction of the picture; the pan
+        # is kept in those same units, so neither side needs the other's size.
+        factor = now / was
+        for axis, said in (("x", words[2]), ("y", words[3])):
+            anchor = float(said) - 0.5
+            pan = float(self.state.get(f"graph.pan.{axis}", "0"))
+            self.state[f"graph.pan.{axis}"] = f"{anchor - (anchor - pan) * factor:.4f}"
 
     def _spin(self, words: list[str]) -> None:
         """A drag: what it started ON decides what it MEANS.
@@ -496,12 +516,23 @@ class Session:
         if kind in ("winhead", "wincorner"):
             self._window([goes, "size" if kind == "wincorner" else "move", *words[2:]])
             return
-        if kind == "pan" or (kind == "-" and goes == "-"):
-            pass
+        if goes == "graph" and self.state.get("graph.view", "depth3d") != "depth3d":
+            # every picture but the three-space one is FLAT: dragging it moves
+            # it. There is nothing to turn.
+            self._pan(words[2:])
+            return
         yaw = float(self.state.get("graph.yaw", "0.42")) + float(words[2]) * 0.006
         pitch = float(self.state.get("graph.pitch", "0.92")) + float(words[3]) * 0.005
         self.state["graph.yaw"] = f"{yaw:.3f}"
         self.state["graph.pitch"] = f"{max(-1.4, min(1.4, pitch)):.3f}"
+
+    def _pan(self, words: list[str]) -> None:
+        """The graph, dragged — in fractions of the room, as the zoom keeps it."""
+        if len(words) < 2:
+            return
+        for axis, said, span in (("x", words[0], 1400.0), ("y", words[1], 800.0)):
+            pan = float(self.state.get(f"graph.pan.{axis}", "0"))
+            self.state[f"graph.pan.{axis}"] = f"{pan + float(said) / span:.4f}"
 
     def _dial(self, words: list[str]) -> None:
         """A dial dragged — where along its own track the hand let go."""

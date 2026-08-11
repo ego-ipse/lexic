@@ -529,9 +529,26 @@ def _dials(said: Frame, room: Room, look: Look) -> None:
         said.hit(left, at - 7, wide, 14, f"dial.{name}", f"{low}:{high}")
 
 
+def camera(look: Look, room: Room) -> tuple[float, float, float]:
+    """Where the hand has put this picture, and how close: pan x, pan y, zoom.
+
+    The pan is kept in FRACTIONS of the room, so the same numbers mean the
+    same view whatever size the region is — and a window torn off a facet
+    shows the same picture at a different size rather than a different one.
+    """
+    _x, _y, w, h = room
+    return (
+        float(look.says("graph.pan.x", "0")) * w,
+        float(look.says("graph.pan.y", "0")) * h,
+        look.zoom("graph"),
+    )
+
+
 def _depth3d(said: Frame, room: Room, look: Look) -> None:
     """A ring per level in three-space — z is derivation distance, earned."""
     x, y, w, h = room
+    px, py, _k = camera(look, room)
+    x, y = x + px, y + py
     shown = look.it.shown
     at = project(
         positions(shown, "rings", int(w), int(h), _tuned(look)),
@@ -593,23 +610,27 @@ def _tuned(look: Look) -> dict[str, float]:
 
 def _flat(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
+    px, py, k = camera(look, room)
     said.place(
         graph_drawing(
             look.it.shown, "flat", int(w), int(h), _tuned(look), look.lit(), look.keep()
         ),
-        x,
-        y,
+        x + px + w / 2 * (1 - k),
+        y + py + h / 2 * (1 - k),
+        k,
     )
 
 
 def _arcs(said: Frame, room: Room, look: Look) -> None:
     x, y, w, h = room
+    px, py, k = camera(look, room)
     said.place(
         graph_drawing(
             look.it.shown, "arcs", int(w), int(h), _tuned(look), look.lit(), look.keep()
         ),
-        x,
-        y + h / 3,
+        x + px + w / 2 * (1 - k),
+        y + h / 3 + py + h / 2 * (1 - k),
+        k,
     )
 
 
@@ -621,8 +642,9 @@ def _rails(said: Frame, room: Room, look: Look) -> None:
     compute a layout twice or hold a second copy of one.
     """
     x, y, w, _h = room
+    px, py, k = camera(look, room)
     drawn = rails_drawing(rails(look.it.shown), int(w - 20))
-    said.place(drawn, x + 10, y + 8 - _railtop(drawn, look))
+    said.place(drawn, x + 10 + px, y + 8 + py - _railtop(drawn, look), k)
 
 
 def rail(said: Frame, room: Room, look: Look) -> None:
@@ -678,11 +700,14 @@ def _railtop(drawn: Drawing, look: Look) -> float:
 def _automaton(said: Frame, room: Room, look: Look) -> None:
     """The machine, walk-lit: the frames open at the cursor light their clones."""
     x, y, w, _h = room
+    px, py, k = camera(look, room)
     seats = {
         seat for s0, e0, _d, _n, ok, seat in look.watched if ok and s0 <= look.at < e0
     }
     drawn = automaton_drawing(automaton(look.it.machine.pda_tables()), seats, set())
-    said.place(drawn, x + 10, y + 8, min(1.0, (w - 20) / max(1.0, drawn.wide)))
+    said.place(
+        drawn, x + 10 + px, y + 8 + py, min(1.0, (w - 20) / max(1.0, drawn.wide)) * k
+    )
 
 
 GRAPHVIEWS: dict[str, Callable[[Frame, Room, Look], None]] = {

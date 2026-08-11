@@ -107,6 +107,21 @@ class Frame:
         """An outline and nothing else — what a lane's span is drawn WITH."""
         self._put(f"ring {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
 
+    def clip(self, x: float, y: float, w: float, h: float) -> None:
+        """Nothing drawn from here leaves this rectangle.
+
+        A facet is a WINDOW ONTO a picture, not a picture the right size: a
+        graph you have panned, a railroad taller than its room, a track wider
+        than the window it is in. Every one of those is meant to run past the
+        edge — and to stop there. One canvas cannot say that with layout, so
+        it is said as a mark.
+        """
+        self._put(f"clip {x:.1f} {y:.1f} {w:.1f} {h:.1f}")
+
+    def unclip(self) -> None:
+        """Back to the whole frame."""
+        self._put("unclip")
+
     def text(
         self,
         x: float,

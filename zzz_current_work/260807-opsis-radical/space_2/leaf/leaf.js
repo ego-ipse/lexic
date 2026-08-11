@@ -157,6 +157,16 @@ function strokes(canvas, marks) {
     } else if (p[0] === 'arc') {
       cx.strokeStyle = fill(p[4]);
       cx.beginPath(); cx.arc(+p[1], +p[2], +p[3], 0, Math.PI * 2); cx.stroke();
+    } else if (p[0] === 'clip') {
+      /* a facet is a window ONTO a picture: what runs past its edge stops
+         there. One canvas has no layout to say that with, so it is a mark. */
+      cx.save();
+      cx.beginPath();
+      cx.rect(+p[1], +p[2], +p[3], +p[4]);
+      cx.clip();
+    } else if (p[0] === 'unclip') {
+      cx.restore();
+      cx.font = frame.font;
     } else if (p[0] === 'text') {
       cx.font = face(p[4]);
       cx.fillStyle = fill(p[3]);
@@ -250,7 +260,9 @@ paper.addEventListener('click', (ev) => {
 
 /* dragging: a seam resizes, anything else in a picture turns it */
 paper.addEventListener('pointerdown', (ev) => {
-  dragging = { x: ev.clientX, y: ev.clientY, on: under(ev, false) };
+  /* what a drag STARTED on, falling back to the region it is in: a drag
+     across a picture is about that picture even where nothing was hit */
+  dragging = { x: ev.clientX, y: ev.clientY, on: under(ev, false) || under(ev, true) };
 });
 window.addEventListener('pointerup', () => { dragging = null; });
 window.addEventListener('pointermove', (ev) => {
@@ -284,8 +296,13 @@ paper.addEventListener('wheel', (ev) => {
   const target = under(ev, true);
   if (!target) return;
   ev.preventDefault();
+  const box = paper.getBoundingClientRect();
   const by = ev.deltaY > 0 ? 1 : -1;
-  ask(`${ev.ctrlKey ? 'zoom' : 'scroll'} ${target.goes} ${by}`);
+  /* WHERE in the thing, as a fraction of it. A zoom that does not keep the
+     point under the pointer under the pointer is a zoom you have to chase. */
+  const fx = ((ev.clientX - box.left - target.x) / target.w).toFixed(3);
+  const fy = ((ev.clientY - box.top - target.y) / target.h).toFixed(3);
+  ask(`${ev.ctrlKey ? 'zoom' : 'scroll'} ${target.goes} ${by} ${fx} ${fy}`);
 }, { passive: false });
 
 /* Keys are REPORTED, not interpreted: whether Space is a letter or the

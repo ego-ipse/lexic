@@ -106,7 +106,9 @@ def compose(
             columns,
             look.routes if region.name == "chart" else None,
         )
+        said.clip(*inside)
         draw(said, inside, look)
+        said.unclip()
     for seam in grid.seams:
         said.hit(seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at))
     _windows(said, look, titles, columns, wide, tall)
@@ -164,7 +166,9 @@ def _windows(
         # nothing reaches THROUGH a window: its own rectangle takes the
         # pointer before anything it happens to be floating over
         said.hit(x, y + 20, w, h - 20, "win", wid)
+        said.clip(x, y + 20, w, h - 20)
         _inside(said, look, wid, facet, about, (x, y + 20, w, h - 20))
+        said.unclip()
     said.drop(was)
 
 
