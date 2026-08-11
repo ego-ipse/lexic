@@ -139,10 +139,10 @@ function paint() {
       cx.strokeStyle = fill(p[4]);
       cx.beginPath(); cx.arc(+p[1], +p[2], +p[3], 0, Math.PI * 2); cx.stroke();
     } else if (p[0] === 'text') {
-      cx.font = face(p[3]);
+      cx.font = face(p[4]);
       cx.fillStyle = fill(p[3]);
-      cx.textAlign = p[4] === 'r' ? 'right' : 'left';
-      cx.fillText(p.slice(5).join(' '), +p[1], +p[2]);
+      cx.textAlign = p[5] === 'r' ? 'right' : 'left';
+      cx.fillText(p.slice(6).join(' '), +p[1], +p[2]);
       cx.textAlign = 'left';
     }
   }
@@ -212,6 +212,10 @@ paper.addEventListener('click', (ev) => {
     ? ` ${Math.max(0, Math.round((ev.clientX - box.left - target.run) / target.cell))}`
     : '';
   if (target.kind === 'seam') return;
+  if (target.kind === 'pop') {
+    window.open(`/?only=${target.goes}`, '_blank', 'width=1000,height=760');
+    return;
+  }
   if (target.kind.includes('.')) {
     ask(`set ${target.kind} ${target.goes}`);
     return;

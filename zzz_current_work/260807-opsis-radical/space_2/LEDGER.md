@@ -48,10 +48,35 @@ which rules the reader defines), the overview band, the clock's boxes read off
 once instead of re-split per frame, and the chosen rule's occurrences. Before
 these, a frame cost 230 ms and typing felt like a slideshow.
 
+## Ported since
+
+- **The dock** — every facet as a node, lit present, dim minimized. A
+  minimized facet merges out of the arrangement tree rather than being drawn
+  and hidden, and keeps all its state in policy (`facet.<name> on|off`).
+- **The ladder** — the lineage strip, from the `chain` the policy already
+  carried. The rung you are in is warm; the rest are dim.
+- **`◉ focus`** — keeps the chosen rule, everything it reaches, and its direct
+  referrers; the rest fades. Measured: 32 rules → 12 kept, 20 faded, 44 edges
+  → 14. With nothing chosen it fades nothing, because a focus with nothing to
+  focus on would fade the whole picture.
+- **`⧉ window`** — opens that facet alone, on the same session.
+- **The selects are selects.** `#gform`, `#gview` and `#cclock` are single
+  controls showing the value they are ON, and clicking advances them. I had
+  drawn a row of every option, which is both a different instrument and too
+  wide for the head it has to sit in.
+
+## Two measurement faults, and what they were
+
+- **A colour is not a size.** The frame derived a text mark's FACE from its
+  TONE, so a chip lit `cool` had no face of its own and fell back to 12.5px —
+  head chips overlapped each other. A text mark now carries its face.
+- **A glyph outside ASCII is not one cell wide.** `◉`, `⧉` and `⊳` come from a
+  fallback face and take about half again the room, which is the rest of that
+  overlap.
+
 ## Deviations still to redo
 
-- The graph's own controls — `◉ focus`, `⧉ window`, the tune dials — are not
-  drawn; only the view selector is.
+- The tune dials (`#gtune`) are not drawn.
 
 ## Not ported yet
 

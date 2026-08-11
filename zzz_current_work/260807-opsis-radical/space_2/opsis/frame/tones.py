@@ -59,6 +59,7 @@ TONES = {
     "hot": "#e2a65c",
     "cool_wash": "rgba(111,195,201,0.18)",
     "seen": "#4a5568",
+    "faded": "rgba(102,112,127,0.16)",
     # a span against the cursor, as the lanes have always drawn it: the fill
     # for what is closed, the DARK amber for what is open, and nothing at all
     # for what is still ahead — which is why the lanes read as structure
@@ -92,8 +93,14 @@ ADVANCE = {"title": 9.4, "ftitle": 6.6, "fsub": 6.4, "verdict": 6.6, "chip": 6.0
 
 
 def runs(tone: str, said: str) -> float:
-    """How wide those words are, in the face that tone is set in."""
-    return len(said) * ADVANCE.get(tone, 7.0)
+    """How wide those words are, in the face that tone is set in.
+
+    A glyph outside ASCII is not one cell wide: `◉`, `⧉` and `⊳` are drawn
+    from a fallback face and take about half again as much room, which is how
+    two chips in a facet's head ended up overlapping each other.
+    """
+    cell = ADVANCE.get(tone, 7.0)
+    return sum(cell if glyph.isascii() else cell * 1.6 for glyph in said)
 
 
 def register() -> list[str]:

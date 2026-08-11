@@ -89,22 +89,27 @@ class Frame:
         said: str,
         room: float = 0.0,
         anchor: str = "l",
+        face: str = "",
     ) -> None:
         """Words at a place.
 
         :param room: what it must fit in. A facet under pressure derives less
             rather than clipping, so this is given only where a name genuinely
             cannot wrap.
-        :param anchor: which edge `x` is — ``l`` or ``r``. Right-aligning by
-            an ESTIMATE of the width is how the parity verdict ended up
-            hanging off the edge of the masthead; the engine that knows the
-            true width is the one that should do it.
+        :param anchor: which edge `x` is — ``l`` or ``r``. Right-aligning by an
+            ESTIMATE of the width is how the parity verdict ended up hanging
+            off the masthead; the engine that knows the true width does it.
+        :param face: which face to set it in, when that is not the tone's own.
+            A COLOUR is not a SIZE: a chip lit `cool` is still a chip, and
+            deriving one from the other set head chips at 12.5px and made them
+            overlap each other.
         """
+        put = face or tone
         if room > 0:
-            fits = max(1, int(room / ADVANCE.get(tone, CELL)))
+            fits = max(1, int(room / ADVANCE.get(put, CELL)))
             if len(said) > fits:
                 said = said[: fits - 1] + "…"
-        self.marks.append(f"text {x:.1f} {y:.1f} {tone} {anchor} {said}")
+        self.marks.append(f"text {x:.1f} {y:.1f} {tone} {put} {anchor} {said}")
 
     def hit(
         self,

@@ -123,7 +123,7 @@ def _ladder(said: Frame, it: Staged, at: float) -> float:
             (at + wide, 8, at + wide, 26),
         ):
             said.line(x1, y1, x2, y2, "warm" if here else "hair")
-        said.text(at + 8, 21, "warm" if here else "chip", pair, wide - 14)
+        said.text(at + 8, 21, "warm" if here else "chip", pair, wide - 14, face="chip")
         if not here:
             said.hit(at, 8, wide, 18, "rung", level)
         at += wide + 5
@@ -151,7 +151,7 @@ def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
             said.line(x1, y1, x2, y2, "hair")
         # the chip's own dot: cool when the facet is present, dimmer when not
         said.box(at + 6, 15, 6, 6, "cool" if here else "dimmer")
-        said.text(at + 16, 21, "chip" if here else "dimmer", word)
+        said.text(at + 16, 21, "chip" if here else "dimmer", word, face="chip")
         said.hit(at, 8, wide, 18, "facet", facet)
         at += wide + 6
 
@@ -161,7 +161,7 @@ def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> 
     y = tall - BAR
     said.line(0, y, wide, y, "hair")
     where = f"char {int(look.at):,} / {len(reading.text):,}"
-    said.text(PAD, y + 22, "verdict", where)
+    said.text(PAD, y + 22, "verdict", where, face="verdict")
     at = PAD + 32 * 6.6
     # #transport — − ‹ ▶ › + ×n
     for glyph, gesture in (
@@ -182,7 +182,7 @@ def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> 
         said.text(at + 6, y + 20, "chip", glyph)
         said.hit(at, y + 8, 20, 16, "do", gesture)
         at += 22
-    said.text(at + 6, y + 20, "dimmer", f"×{look.says('speed', '1')}", 40)
+    said.text(at + 6, y + 20, "dimmer", f"×{look.says('speed', '1')}", 40, face="chip")
     at += 52
     hint = (
         "select text to co-select · click a rule to choose it · "

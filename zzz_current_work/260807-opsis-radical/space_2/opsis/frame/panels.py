@@ -195,7 +195,7 @@ def _tabs(
             "cool" if here else "hair",
         )
         said.line(at, region.y + 2, at + wide, region.y + 2, "cool" if here else "hair")
-        said.text(at + 10, region.y + 15, "cool" if here else "chip", word)
+        said.text(at + 10, region.y + 15, "cool" if here else "chip", word, face="chip")
         said.hit(at, region.y + 2, wide, TABS - 2, "tab", f"{column}:{index}")
         at += wide + 2
 
@@ -220,6 +220,6 @@ def _controls(
             (at + wide, y + 6, at + wide, y + 21),
         ):
             said.line(x1, y1, x2, y2, "cool" if on else "hair")
-        said.text(at + 5, y + 17, "cool" if on else "chip", word)
+        said.text(at + 5, y + 17, "cool" if on else "chip", word, face="chip")
         said.hit(at, y + 6, wide, 15, kind, goes)
         at += wide + 6

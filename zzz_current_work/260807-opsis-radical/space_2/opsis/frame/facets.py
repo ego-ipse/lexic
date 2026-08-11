@@ -116,6 +116,29 @@ class Look:
         """What is open at the cursor — the spans the reading is standing in."""
         return open_at(self.reading, self.at)
 
+    def keep(self) -> set[str] | None:
+        """What ◉ focus keeps: the chosen rule, its reach, and who refers to it.
+
+        Nothing when no rule is chosen or focus is off — a focus with nothing
+        to focus ON would simply fade the whole picture.
+        """
+        if self.says("graph.focus", "off") != "on" or not self.chosen:
+            return None
+        pairs = self.it.relations
+        keep = {self.chosen}
+        for a, b in pairs:
+            if b == self.chosen:
+                keep.add(a)
+        frontier = [self.chosen]
+        while frontier:
+            onward = []
+            for a, b in pairs:
+                if a in frontier and b not in keep:
+                    keep.add(b)
+                    onward.append(b)
+            frontier = onward
+        return keep
+
     def lit(self) -> set[str]:
         """The rules that light: what is open, and whatever was chosen."""
         names = {as_written(self.it.rules, span.rule) for span in self.live()}
@@ -221,10 +244,15 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
         look.zoom("graph"),
     )
     lit = look.lit()
+    keep = look.keep()
     named = {name: as_written(look.it.rules, name) for name in at}
     for a, b in edges(shown):
         one, two = at.get(a), at.get(b)
         if one is None or two is None:
+            continue
+        if keep is not None and not (
+            named.get(a, a) in keep and named.get(b, b) in keep
+        ):
             continue
         hot = named.get(a, a) in lit and named.get(b, b) in lit
         said.line(
@@ -238,16 +266,23 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
     for name in sorted(at, key=lambda n: at[n][2]):
         px, py, near = at[name]
         says = named.get(name, name)
+        # ◉ focus: what the chosen rule cannot reach fades out of the way
+        # rather than out of existence — you can still see the shape it left
+        faded = keep is not None and says not in keep
         wide = runs("chip", says) + 12
-        said.box(x + px - wide / 2, y + py - 8, wide, 16, "field2")
+        if not faded:
+            said.box(x + px - wide / 2, y + py - 8, wide, 16, "field2")
         said.text(
             x + px - wide / 2 + 6,
             y + py + 3,
-            "hot" if says in lit else ("ink" if near > 0.9 else "chip"),
+            "faded"
+            if faded
+            else ("hot" if says in lit else ("ink" if near > 0.9 else "chip")),
             says,
-            wide - 10,
+            face="chip",
         )
-        said.hit(x + px - wide / 2, y + py - 8, wide, 16, "rule", says)
+        if not faded:
+            said.hit(x + px - wide / 2, y + py - 8, wide, 16, "rule", says)
 
 
 def _flat(said: Frame, room: Room, look: Look) -> None:
@@ -528,17 +563,37 @@ DRAWN: dict[str, Callable[[Frame, Room, Look], None]] = {
 }
 
 
+def _next(options: tuple[str, ...], here: str) -> str:
+    """The one after this one, wrapping — what a select does when you use it."""
+    at = options.index(here) if here in options else -1
+    return options[(at + 1) % len(options)]
+
+
 def _heads(look: Look, name: str) -> list[tuple[str, str, str, bool]]:
-    """What a facet's head carries — its own selects, and nothing else's."""
+    """What a facet's head carries — its own controls, and nothing else's.
+
+    A select is ONE control showing the value it is on, not a row of every
+    value it could be: `#gform`, `#gview` and `#cclock` are `<select>`s, and a
+    row of five chips is both a different instrument and too wide for the head
+    it has to sit in.
+    """
     if name == "grammar":
-        here = look.it.form
-        return [(form, "form", form, form == here) for form in FORMS]
+        forms = tuple(FORMS)
+        return [(look.it.form, "form", _next(forms, look.it.form), True)]
     if name == "graph":
+        keys = tuple(key for key, _word in GRAPHS)
         here = look.says("graph.view", "depth3d")
-        return [(word, "graph.view", key, key == here) for key, word in GRAPHS]
+        word = dict(GRAPHS).get(here, here)
+        return [
+            (word, "graph.view", _next(keys, here), True),
+            ("◉ focus", "graph.focus", "on", look.says("graph.focus", "off") == "on"),
+            ("⧉ window", "pop", "graph", False),
+        ]
     if name == "chart":
+        keys = tuple(key for key, _word in CLOCKS)
         here = look.says("chart.clock", "model")
-        return [(word, "chart.clock", key, key == here) for key, word in CLOCKS]
+        word = dict(CLOCKS).get(here, here)
+        return [(word, "chart.clock", _next(keys, here), True)]
     return []
 
 

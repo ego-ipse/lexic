@@ -97,9 +97,18 @@ class Session:
                 work(self, words[1:])
 
     def _set(self, words: list[str]) -> None:
-        """A select in a facet's head — policy, said in its own key."""
-        if len(words) >= 2:
-            self.state[words[0]] = words[1]
+        """A select in a facet's head — policy, said in its own key.
+
+        A control whose value is already what it says is a control that turns
+        itself off: that is what makes ◉ focus a switch rather than a latch.
+        """
+        if len(words) < 2:
+            return
+        key, value = words[0], words[1]
+        if key.endswith(".focus"):
+            self.state[key] = "off" if self.state.get(key, "off") == value else value
+        else:
+            self.state[key] = value
 
     # ── what a click landed on ───────────────────────────────────────────
     def _span(self, words: list[str]) -> None:
