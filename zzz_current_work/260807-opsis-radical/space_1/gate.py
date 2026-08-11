@@ -226,6 +226,17 @@ def main() -> int:
         lines.get("opens", "MISSING"),
     )
 
+    # the length-prefixed blocks are the wire's other contract: the leaf
+    # slices #READER and #DOC by the count we send, so a wrong count hands it
+    # the wrong text and nothing says why.
+    for tag, text in (("#READER", reading.reader_text), ("#DOC", reading.text)):
+        marker = f"{tag} {len(text)}\n"
+        check(
+            f"{tag} says its own length, and the text follows it exactly",
+            marker in drawn and drawn.split(marker, 1)[1].startswith(text[:80]),
+            f"{len(text):,} chars",
+        )
+
     leaf = HERE / "leaf"
     parts = ["index.html", "leaf.css", "leaf.js"]
     there = [name for name in parts if (leaf / name).is_file()]
