@@ -39,6 +39,25 @@ rather than crushed into a column and redrawn until someone gives up.
 | `serve.py` | the socket, and the scene the leaf reads |
 | `gate.py` | what must hold, printed as facts |
 
+## What it says on the wire
+
+```
+needs    grammar:70x46  document:25x986  chart:80x20  spine:48x20  graph:132x5  machine:756x10
+offered  grammar:63  document:32  chart:72  spine:43
+wants.window  graph,machine
+```
+
+The instrument publishes its reasoning, so every verdict is checkable rather
+than trusted. `machine:756x10` is why the automaton can never live in a
+column: 126 clones need 756 characters of width. On screen the shortfall is
+said where the problem is — `⧉ graph needs a window` on the reader's own
+head, clickable, opening the view where it fits.
+
+**Tolerance belongs to the KIND.** A plane wraps and scrolls, so half its
+width still reads; a graph cannot wrap — below its ask the names collide.
+Judging both by one number is why four rounds of layout work never fixed the
+graphs while the arrangement kept reporting them fine.
+
 ## Why each fact exists
 
 Every line in the gate defends something this project got wrong:
