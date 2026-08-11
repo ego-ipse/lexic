@@ -463,8 +463,10 @@ def main() -> int:
     # geometry beside the first. What must hold: the address names a span
     # this reading actually has, and nothing outside the asked window is
     # drawn (a box for an off-window span is a box in the wrong place).
-    window = (3800, 400)
-    frame_marks = chart_drawing(reading, window[0], window[1], 900, 400).marks
+    # the drawing is the WHOLE document now, in document coordinates, so
+    # what must hold is the addressing: a box names the span it is, and
+    # sits where that span sits — the window is the leaf's transform.
+    frame_marks = chart_drawing(reading, 400).marks
     said_spans = [m.split()[6] for m in frame_marks if m.startswith("box ")]
     wrong = []
     for address in said_spans:
@@ -472,12 +474,14 @@ def main() -> int:
         span = reading.spans[index]
         if (span.start, span.end) != (start, end):
             wrong.append(f"{address} is not span {index}")
-        elif end <= window[0] or start >= window[0] + window[1]:
-            wrong.append(f"{address} is outside the window")
+        elif (
+            abs(float(frame_marks[said_spans.index(address)].split()[1]) - start) > 0.5
+        ):
+            wrong.append(f"{address} is not drawn where it sits")
     check(
-        "every box in the derivation names the span it IS, and stays in frame",
+        "every box in the derivation names the span it IS, and sits where it is",
         not wrong and bool(said_spans),
-        f"{len(said_spans)} boxes over {window[1]} chars"
+        f"{len(said_spans)} boxes, in document coordinates"
         + (f" · WRONG {wrong[:2]}" if wrong else ""),
     )
 
