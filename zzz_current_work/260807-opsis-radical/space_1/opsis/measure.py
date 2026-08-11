@@ -22,15 +22,18 @@ __all__ = ["Box", "boxes", "bracket_for"]
 # return line needs above or below what it wraps.
 PAD = 2
 GAP = 3
-VGAP = 1
+# atlas fits seven arms in 150px because its arms nearly touch. A full row
+# between them doubles the span a fork must reach across, which is what
+# forced the curves near-vertical — the shape was never the problem.
+VGAP = 0.25
 LOOP = 2
 # A fork's room is PROPORTIONAL to what it must reach. A branch dropping
 # thirteen rows cannot bend inside eight columns — it comes out near
 # vertical, and seven of them read as a vase. So the bracket scales with the
 # arms' span, floored so a two-way choice still has somewhere to turn.
 BRACKET = 8
-REACH = 1.6  # columns of horizontal room per row of vertical drop
-BRACKET_MAX = 30
+REACH = 1.1  # columns of horizontal room per row of vertical drop
+BRACKET_MAX = 18
 
 
 def bracket_for(tall: float) -> float:
