@@ -92,9 +92,14 @@ function buildGraph() {
       const row = i % per;
       const tall = Math.min(per, list.length - col * per);
       const into = widest.slice(0, col).reduce((a, b) => a + b, 0);
+      // sy is the sibling offset spaced by NAME WIDTH, for when this graph
+      // is read down the page and the siblings run across it
+      const before = list.slice(0, i).reduce((a, m) => a + m.length * WIDE + 22, 0);
+      const line = list.reduce((a, m) => a + m.length * WIDE + 22, 0);
       gFlat.set(n, {
         x: shove + into,
         y: (row - tall / 2) * 26 * gTune.ringscale + (lvl % 2) * 9,
+        sy: before - line / 2,
       });
     });
     shove += widest.reduce((a, b) => a + b, 0) + gTune.levelstep * 0.35;
@@ -165,7 +170,21 @@ function drawGraphView(v, smooth = false) {
     for (const [name, p] of gNodes) proj.set(name, gProject(v, p, w, h));
   } else {
     const src = mode === 'flat' ? gFlat : gArc;
-    for (const [name, q] of src) proj.set(name, { x: q.x, y: q.y, s: 1 });
+    // The flat layout runs LEVELS ACROSS, which needs width; the reader facet
+    // is tall and narrow, so the fit had to shrink to a fifth of the space
+    // and left the height empty. In a tall facet the same layout is read
+    // top-to-bottom instead — the derivation still flows away from the start
+    // rule, just along the axis there is room for.
+    const tall = mode === 'flat' && h > w * 1.25;
+    for (const [name, q] of src) {
+      if (!tall) {
+        proj.set(name, { x: q.x, y: q.y, s: 1 });
+        continue;
+      }
+      // read top-to-bottom: levels go DOWN, siblings go ACROSS — and across
+      // is where the names are, so siblings are spaced by their own width
+      proj.set(name, { x: q.sy !== undefined ? q.sy : q.y, y: q.x, s: 1 });
+    }
   }
   // auto-fit: fill the facet whatever the grammar's size or the orbit's angle
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
