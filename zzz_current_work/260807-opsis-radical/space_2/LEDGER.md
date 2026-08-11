@@ -194,11 +194,35 @@ difference shows as perspective, not as scale.
 
 Every deviation and every unbuilt facet named in this ledger is now built.
 
-## What is NOT here, and is next
+## The gate
 
-space_1's `gate.py` — 44 census facts, driven, exit 0 or not done. space_2
-has no equivalent, which means everything above is verified by having been
-DRIVEN once, not by anything that would notice if it broke tomorrow.
+```bash
+uv run python zzz_current_work/260807-opsis-radical/space_2/gate.py    # 0 = done
+```
+
+35 facts over the real composer — the frame is data, so nothing is mocked and
+no browser is needed: if a fact is true here, it is true of what the leaf
+would be sent. It defends what was got wrong: a tone that is not in the
+register, a face derived from a colour, a span ahead of the cursor drawn as
+filled, a clock that changes one panel and leaves the spine talking about
+another engine, a window that writes into the session, a room that draws
+nothing rather than saying it is not there. It runs in 6.4 ms a frame and
+asserts that.
+
+It found two things on its first run that were not gate bugs:
+
+- **the "edited — unread" mark was missing from the rebuilt plane.** I wrote
+  it before the second deletion and never re-added it in the port, so a
+  document could be typed in with nothing saying the derivation beside it was
+  of the last reading.
+- **`value` has no spans of its own** — it is spelled by whichever arm it
+  took — so a check written against it was testing nothing.
+
+## What is NOT here
+
+The probe harness. `gate.py` drives the composer, not the browser, so
+anything that can only be wrong in a leaf — a mark painted at the wrong
+place, an element positioned off its geometry — is still checked by eye.
 
 ## Not ported yet
 

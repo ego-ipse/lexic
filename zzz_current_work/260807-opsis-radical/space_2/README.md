@@ -79,6 +79,15 @@ draws the frontier where derivation died — measured off the kernel's own
 cursor, never scraped out of prose — and the derivation says it is showing the
 last good reading.
 
+## The gate
+
+```bash
+uv run python .../space_2/gate.py    # exit 0, or it is not done
+```
+
+35 facts over the real composer. The frame is data, so the gate reads what
+the leaf would be sent.
+
 ## What it costs
 
 4 ms a gesture. Four things are facts about a READING rather than a cursor and

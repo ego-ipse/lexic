@@ -191,6 +191,17 @@ def _plane(
             )
             said.hit(x, top, 6.5 * CELL, ROW, "gutter", str(line))
     said.plane(name, run, y + 8, w - (run - x) - 8, h - 12, text, first, True)
+    # a plane holding text that has not been read says so, where the eye
+    # leaves the plane: everything derived beside it is of the LAST reading
+    if name in look.typed:
+        said.text(
+            x + w - 12,
+            y + h - 6,
+            "red",
+            "edited — unread · ⏎ re-reads · ⎋ reverts",
+            anchor="r",
+            face="chip",
+        )
     _frontier(said, room, look, text, first, run, rows)
     if name == "document":
         _pinchip(said, room, look, text, first, run, rows)
