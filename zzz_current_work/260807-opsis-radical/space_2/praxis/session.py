@@ -125,6 +125,9 @@ class Session:
 
     def _at(self, words: list[str]) -> None:
         """A click, on whatever the frame said was there."""
+        # any click that is not on the chip itself lets it go
+        if words and words[0] not in ("rule", "rail"):
+            self.main["railchip"] = ""
         if words:
             work = LANDED.get(words[0])
             if work is not None:
@@ -173,6 +176,14 @@ class Session:
             return
         letting_go = self.state.get("chosen") == words[0]
         self.state["chosen"] = "" if letting_go else words[0]
+        # ▤ rail is raised AT THE POINTER, wherever the rule was chosen —
+        # the reader, the rails, the automaton, the graph. It is one chip
+        # that floats, not a chip per picture.
+        self.main["railchip"] = (
+            f"{words[0]} {words[1]} {words[2]}"
+            if not letting_go and len(words) >= 3
+            else ""
+        )
         # AND THE READER SHOWS IT. A rule chosen from the graph or the lanes
         # is usually not the one on screen, and a highlight you have to go
         # looking for reads as a highlight that did not happen.
@@ -370,6 +381,7 @@ class Session:
         Not the whole railway scrolled to it. The chip is raised beside a
         single rule and what it opens is that rule's track alone.
         """
+        self.main["railchip"] = ""
         if words:
             self.open_window("rail", words[0], 560, 200)
 
@@ -498,6 +510,7 @@ class Session:
         self.state[f"top.{words[0]}"] = str(now)
         # a hand that scrolled has said where it wants to be
         self.state[f"show.{words[0]}"] = ""
+        self.main["railchip"] = ""
 
     def _scrolled(self, words: list[str]) -> None:
         """A real text plane scrolled itself; the drawing under it must follow."""

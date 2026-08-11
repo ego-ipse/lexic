@@ -116,6 +116,7 @@ def compose(
         )
     _zone(said, look, grid, titles)
     _windows(said, look, titles, columns, wide, tall)
+    _railchip(said, look, wide, tall)
     _status(said, reading, look, wide, tall)
     _banner(said, reading, wide, tall)
     return said
@@ -259,6 +260,36 @@ def _inside(
             look.generation,
         ),
     )
+
+
+def _railchip(said: Frame, look: Look, wide: int, tall: int) -> None:
+    """#railchip — ONE chip, floating, raised where the rule was chosen.
+
+    `rails.js`: fixed at the pointer, six across and thirty-four up, clamped
+    to the window. It is raised from the reader, the rails, the automaton and
+    the graph alike, because a rule you have just chosen is a rule you might
+    want the track of, and which picture you chose it in has nothing to do
+    with that. Any other click, or a scroll, lets it go.
+    """
+    rule, _, at = look.says("railchip", "").partition(" ")
+    across, _, down = at.partition(" ")
+    if not rule or not across or not down:
+        return
+    room = runs("railchip", "▤ rail") + 20
+    x = max(8.0, min(float(across) + 6, wide - 86.0))
+    y = max(8.0, min(float(down) - 34, tall - 42.0))
+    said.lift()
+    said.box(x, y, room, 22, "field2")
+    for x1, y1, x2, y2 in (
+        (x, y, x + room, y),
+        (x, y + 22, x + room, y + 22),
+        (x, y, x, y + 22),
+        (x + room, y, x + room, y + 22),
+    ):
+        said.line(x1, y1, x2, y2, "violet")
+    said.text(x + 10, y + 15, "violet", "▤ rail", face="railchip")
+    said.hit(x, y, room, 22, "rail", rule)
+    said.drop()
 
 
 def _banner(said: Frame, reading: Reading, wide: int, tall: int) -> None:

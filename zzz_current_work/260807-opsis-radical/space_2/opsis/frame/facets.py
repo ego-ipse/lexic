@@ -254,13 +254,6 @@ def _plane(
         badge = badges.get(heads.get(line, ""), "")
         if badge:
             _badge(said, x + w - 12, top + 3, badge)
-        # ▤ rail — raised beside the rule that was just clicked, the same
-        # gesture shape as the pin chip: a NEW window is only ever the chip
-        if name == "grammar" and heads.get(line, "") == look.chosen and look.chosen:
-            # AFTER the rule, on its own line, measured in the face the line
-            # is actually SET in — measuring a body line in the chip face put
-            # the chip four fifths of the way along and on top of the text
-            _chip(said, run + len(lines[line]) * CELL + 12, top + 2, look.chosen)
         if numbered:
             said.text(
                 x + 1.5 * CELL, top + ROW - 5, "dimmer", f"{line + 1:>4}", 5 * CELL
@@ -340,8 +333,12 @@ def _under(
     for span in look.live():
         paint(span.start, span.end, "open", False)
     if look.chosen:
+        # AS WRITTEN. A span carries the codegen name — `json-text` — and the
+        # reader shows the source's spelling, `JSON-text`. Comparing the two
+        # directly meant the start rule, and every rule codegen respelled,
+        # highlighted nothing at all.
         for span in look.reading.spans:
-            if span.rule == look.chosen:
+            if as_written(look.it.rules, span.rule) == look.chosen:
                 paint(span.start, span.end, "violet", True)
     kind, _, goes = look.says("hover", "").partition(" ")
     if kind == "span" and ":" in goes:
@@ -461,23 +458,6 @@ def _held(look: Look, name: str) -> dict[int, str]:
     return out
 
 
-def _chip(said: Frame, x: float, top: float, rule: str) -> None:
-    """▤ rail — the chip that opens this rule as the track it describes."""
-    was = said.lift()
-    wide = runs("chip", "▤ rail") + 14
-    said.box(x, top, wide, 15, "field2")
-    for x1, y1, x2, y2 in (
-        (x, top, x + wide, top),
-        (x, top + 15, x + wide, top + 15),
-        (x, top, x, top + 15),
-        (x + wide, top, x + wide, top + 15),
-    ):
-        said.line(x1, y1, x2, y2, "violet")
-    said.text(x + 7, top + 11, "violet", "▤ rail", face="chip")
-    said.hit(x, top, wide, 15, "rail", rule)
-    said.drop(was)
-
-
 def _badge(said: Frame, right: float, top: float, kind: str) -> None:
     """One rule's verdict, worn on its own head line, in that class's colour."""
     tone = BADGE.get(kind, "dimmer")
@@ -529,9 +509,7 @@ def graph(said: Frame, room: Room, look: Look) -> None:
     if look.it.machine is None or look.it.shown is None:
         said.text(room[0] + 14, room[1] + 20, "fsub", "this reading has no machine")
         return
-    was = len(said.marks)
     GRAPHVIEWS.get(look.says("graph.view", "depth3d"), _depth3d)(said, room, look)
-    _beside(said, was, room, look)
     _dials(said, room, look)
 
 
@@ -549,31 +527,6 @@ DIALS = {
     "rails": (),
     "automaton": (),
 }
-
-
-def _beside(said: Frame, was: int, room: Room, look: Look) -> None:
-    """▤ rail, raised beside the chosen rule WHEREVER it is drawn.
-
-    `gestures.js` and `graph.js` both raise it — from the reader, from the
-    rails, from the automaton, from the graph — because a rule you have just
-    chosen is a rule you might want to see the track of, and which picture
-    you chose it in has nothing to do with that. Here it goes beside the node
-    itself rather than beside the pointer, which the frame does not have and
-    should not need.
-    """
-    x, y, w, h = room
-    if not look.chosen:
-        return
-    for mark in said.marks[was:]:
-        parts = mark.split(" ")
-        if parts[0] != "text" or " ".join(parts[6:]) != look.chosen:
-            continue
-        at, top = float(parts[1]), float(parts[2])
-        wide = runs("chip", "▤ rail") + 14
-        if not (x <= at <= x + w - wide and y + 10 <= top <= y + h - 10):
-            return
-        _chip(said, at + runs(parts[4], look.chosen) + 10, top - 12, look.chosen)
-        return
 
 
 def _dials(said: Frame, room: Room, look: Look) -> None:

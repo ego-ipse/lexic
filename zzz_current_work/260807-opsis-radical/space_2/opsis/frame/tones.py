@@ -30,6 +30,9 @@ FONTS = {
     # it — a node's distance is in the SIZE of its name, clamped 0.55..1.2 as
     # the reference clamps it. Three bands, because a face is a registered
     # thing and a scale is not something a mark can carry.
+    # #railchip: 11px var(--sans), not mono — it is a BUTTON floating over
+    # the picture, not a word set into one
+    "railchip": f"11px {SANS}",
     "gnear": f"12px {CODE}",
     "gfar": f"8px {CODE}",
 }
@@ -55,6 +58,7 @@ TONES = {
     "chip": "#66707f",
     # .gchip is --dim at every size: a name's DISTANCE is its size, and its
     # ROLE is its colour, and neither may be read off the other
+    "railchip": "#d98cf5",
     "gnear": "#66707f",
     "gfar": "#66707f",
     "caret": "#e2a65c",
@@ -140,6 +144,7 @@ ADVANCE = {
     "fsub": 6.4,
     "verdict": 6.6,
     "chip": 6.0,
+    "railchip": 5.6,
     "gnear": 7.2,
     "gfar": 4.8,
 }
@@ -156,7 +161,9 @@ def runs(tone: str, said: str) -> float:
     # tracked-out text is WIDER, and a width that forgets it overlaps the
     # next thing along
     space = {"title": 2.5, "chip": 0.6, "ftitle": 1.5}.get(tone, 0.0)
-    return sum(cell + space if glyph.isascii() else cell * 1.6 + space for glyph in said)
+    return sum(
+        cell + space if glyph.isascii() else cell * 1.6 + space for glyph in said
+    )
 
 
 # letter-spacing is part of a face, not decoration: #title is 0.18em and a

@@ -303,7 +303,12 @@ paper.addEventListener('click', (ev) => {
     ask(`set ${target.kind} ${target.goes}`);
     return;
   }
-  ask(`at ${target.kind} ${target.goes}${into}`);
+  /* a rule chosen anywhere raises ▤ rail AT THE POINTER, so the click has
+     to carry where it was — the frame has no other way to know */
+  const where = target.kind === 'rule'
+    ? ` ${Math.round(ev.clientX - box.left)} ${Math.round(ev.clientY - box.top)}`
+    : '';
+  ask(`at ${target.kind} ${target.goes}${into}${where}`);
 });
 
 /* dragging: a seam resizes, anything else in a picture turns it */

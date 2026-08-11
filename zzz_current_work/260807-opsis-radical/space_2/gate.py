@@ -222,15 +222,19 @@ def main() -> int:
     # NOT a list of what SHOULD be answered — the tables themselves. Naming
     # `do` here while `LANDED` had no such key is how every button in the
     # status bar passed this gate and did nothing.
-    by_session = set(LANDED) | set(SAYS) | {
-        "form",
-        "graph.view",
-        "chart.clock",
-        "graph.focus",
-        "dial.levelstep",
-        "dial.ringscale",
-        "dial.flatten",
-    }
+    by_session = (
+        set(LANDED)
+        | set(SAYS)
+        | {
+            "form",
+            "graph.view",
+            "chart.clock",
+            "graph.focus",
+            "dial.levelstep",
+            "dial.ringscale",
+            "dial.flatten",
+        }
+    )
     kinds = {h.split(" ")[4] for h in said.hits} - handles
     check(
         "every hit is answered by the session, or by the leaf opening a window",
