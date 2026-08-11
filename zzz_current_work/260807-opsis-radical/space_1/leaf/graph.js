@@ -184,21 +184,48 @@ function drawGraphView(v, smooth = false) {
     padY = Math.max(padY, el.offsetHeight / 2 + 4);
   }
   const availW = Math.max(60, w - 2 * padX), availH = Math.max(60, h - 2 * padY);
-  let fitk = Math.min(availW / Math.max(40, x1 - x0),
-                      availH / Math.max(40, y1 - y0), 2.4);
-  // no floor: a floor is a decision to crop. If the picture does not fit at
-  // a legible scale that is a fact about the room, said below, not a reason
-  // to push three quarters of the grammar off the edge.
-  v.fitScale = fitk;
-  const tk = fitk * v.zoom;
+  // The fit belongs to the LAYOUT AND THE ROOM, not to the camera's angle.
+  // Refitting the projected extent every frame meant the picture breathed
+  // in and out as you rotated it: the same graph, rescaled because its
+  // silhouette got narrower. A camera moves within a frame; it is not the
+  // frame. So the fit is computed once per layout and per box, and the
+  // angle changes nothing about it.
+  const frameKey = `${placedFor}|${mode}|${Math.round(w)}x${Math.round(h)}`;
+  if (v.frameKey !== frameKey || !v.frame) {
+    v.frameKey = frameKey;
+    // measured over the layout's own extent, sampled around the orbit so no
+    // one angle decides the scale for all of them
+    let ex = 0, ey = 0;
+    for (const turn of (mode === 'depth3d' ? [0, 0.5, 1, 1.5] : [0])) {
+      const look = mode === 'depth3d'
+        ? { yaw: turn * Math.PI, pitch: v.pitch, zoom: 1, pan: { x: 0, y: 0 } }
+        : null;
+      let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9;
+      for (const [, p] of gNodes) {
+        const P = look ? gProject(look, p, w, h) : { x: p.x, y: p.y };
+        a0 = Math.min(a0, P.x); a1 = Math.max(a1, P.x);
+        b0 = Math.min(b0, P.y); b1 = Math.max(b1, P.y);
+      }
+      ex = Math.max(ex, a1 - a0);
+      ey = Math.max(ey, b1 - b0);
+    }
+    v.frame = {
+      k: Math.min(availW / Math.max(40, ex), availH / Math.max(40, ey), 2.4),
+      mx: (x0 + x1) / 2,
+      my: (y0 + y1) / 2,
+    };
+  }
+  v.fitScale = v.frame.k;
+  const k = v.frame.k * v.zoom;
+  // the centre still follows the picture, so an orbit stays centred without
+  // changing how big anything is
   const tmx = (x0 + x1) / 2, tmy = (y0 + y1) / 2;
-  if (!v.fit || !smooth) v.fit = { k: tk, mx: tmx, my: tmy };
+  if (!v.fit || !smooth) v.fit = { mx: tmx, my: tmy };
   else {
-    v.fit.k += (tk - v.fit.k) * 0.22;
     v.fit.mx += (tmx - v.fit.mx) * 0.22;
     v.fit.my += (tmy - v.fit.my) * 0.22;
   }
-  const { k, mx, my } = v.fit;
+  const { mx, my } = v.fit;
   // frame the start rule's edge ONLY when the picture is wider than the
   // room — then panning is how you explore it. When it already fits, this
   // shoved the fitted picture sideways and pushed its far edge back out.

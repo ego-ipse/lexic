@@ -122,6 +122,29 @@ async function probeGestures() {
       out.push(`graphChips=${chips.length} clipped=${out_.length}`
         + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
     }
+    // ROTATING MUST NOT RESIZE. The scale is the layout's and the room's;
+    // the camera's angle is not allowed a vote.
+    gView = 'depth3d';
+    if (gViews[0]) {
+      const v3 = gViews[0];
+      const scales = [], offAt = [];
+      for (const yaw of [0, 0.6, 1.2, 2.0, 3.1]) {
+        v3.yaw = yaw;
+        drawGraph();
+        await wait(120);
+        scales.push(+(v3.fitScale || 0).toFixed(4));
+        const b = $('graphWrap').getBoundingClientRect();
+        offAt.push([...$('graphChips').children].filter((c) => {
+          if (c.style.display === 'none') return false;
+          const r = c.getBoundingClientRect();
+          return r.right > b.right + 1 || r.left < b.left - 1
+            || r.bottom > b.bottom + 1 || r.top < b.top - 1;
+        }).length);
+      }
+      const spread = Math.max(...scales) - Math.min(...scales);
+      out.push(`rotateScale=${scales.join('/')} spread=${spread.toFixed(4)}`,
+        `rotateClipped=${offAt.join('/')}`);
+    }
     // ... and in every mode, not just the one it booted in
     for (const mode of ['flat', 'arcs']) {
       gView = mode;
