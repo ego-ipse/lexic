@@ -22,7 +22,7 @@ from __future__ import annotations
 from eidolon.layout import positions
 from eidolon.topology import edges
 from lexic.ir import IrAst
-from opsis.measure import BRACKET, GAP, LOOP, VGAP, Box
+from opsis.measure import GAP, LOOP, VGAP, Box, bracket_for
 from praxis.reading import columns
 
 __all__ = [
@@ -37,6 +37,7 @@ __all__ = [
 
 CELL = 7.2  # one column, in pixels, at the leaf's rail font
 ROW = 22.0  # one row
+CORNER = 7.0  # how tightly the track turns
 
 
 class Drawing:
@@ -88,6 +89,26 @@ class Drawing:
         self.wide = max(self.wide, x1, x2)
         self.tall = max(self.tall, y1, y2)
 
+    def bez(
+        self,
+        x1: float,
+        y1: float,
+        ax: float,
+        ay: float,
+        bx: float,
+        by: float,
+        x2: float,
+        y2: float,
+        tone: str,
+    ) -> None:
+        """An S-curve: the branch a railroad actually draws off its line."""
+        self.marks.append(
+            f"bez {x1:.1f} {y1:.1f} {ax:.1f} {ay:.1f} {bx:.1f} {by:.1f} "
+            f"{x2:.1f} {y2:.1f} {tone}"
+        )
+        self.wide = max(self.wide, x1, x2)
+        self.tall = max(self.tall, y1, y2)
+
     def dot(self, x: float, y: float, r: float, tone: str) -> None:
         self.marks.append(f"arc {x:.1f} {y:.1f} {r:.1f} {tone}")
 
@@ -104,6 +125,49 @@ class Drawing:
                 "",
             ]
         )
+
+
+def _arch(
+    draw: Drawing, left: float, right: float, line: float, away: float, tone: str
+) -> None:
+    """A line that leaves the track, runs parallel and comes back."""
+    radius = min(CORNER, abs(away - line) / 2)
+    step = 1.0 if away > line else -1.0
+    draw.curve(left, line, left, away, left + radius, away, tone)
+    draw.line(left + radius, away, right - radius, away, tone)
+    draw.curve(right - radius, away, right, away, right, line, tone)
+    _ = step
+
+
+def _turn(
+    draw: Drawing,
+    edge: float,
+    spine: float,
+    bus: float,
+    mid: float,
+    arm: float,
+    out: bool,
+) -> None:
+    """One branch off the line: leave, round down, run, round back in."""
+    radius = min(CORNER, abs(mid - spine) / 2)
+    step = 1.0 if mid > spine else -1.0
+    if out:
+        draw.line(edge, spine, bus - radius, spine, "rail")
+        draw.curve(bus - radius, spine, bus, spine, bus, spine + step * radius, "rail")
+        draw.line(bus, spine + step * radius, bus, mid - step * radius, "rail")
+        draw.curve(bus, mid - step * radius, bus, mid, bus + radius, mid, "rail")
+        draw.line(bus + radius, mid, arm, mid, "rail")
+        return
+    draw.line(arm, mid, bus - radius, mid, "rail")
+    draw.curve(bus - radius, mid, bus, mid, bus, mid - step * radius, "rail")
+    draw.line(bus, mid - step * radius, bus, spine + step * radius, "rail")
+    draw.curve(bus, spine + step * radius, bus, spine, bus + radius, spine, "rail")
+    draw.line(bus + radius, spine, edge, spine, "rail")
+
+
+def inner_left(bus: float) -> float:
+    """Where an arm starts: one column clear of the bus it hangs from."""
+    return bus + CELL
 
 
 def _track(
@@ -135,23 +199,30 @@ def _track(
                 cursor += GAP * CELL
         return
     if kind == "alt":
-        # one fork out, one fork back, and every arm on its own line between
-        inner = x + BRACKET / 2 * CELL
-        edge = x + w
+        # A branch is an S-CURVE off the line, one per arm, with its control
+        # points at the horizontal midpoint — the shape the earlier build
+        # drew and the one that reads as track. A shared vertical bus reads
+        # as a bracket; a single long diagonal reads as a funnel.
         top = y
+        arm_left = x + bracket_for(box.tall) / 2 * CELL
         for kid in kids:
             kid_box = room[at[0]]
             mid = top + kid_box.spine * ROW
-            draw.curve(x, y + spine, inner - CELL, y + spine, inner, mid, "rail")
-            _track(kid, room, at, draw, inner, top)
-            right = inner + kid_box.wide * CELL
-            draw.line(right, mid, edge - BRACKET / 2 * CELL, mid, "rail")
-            draw.curve(
-                edge - BRACKET / 2 * CELL,
+            _track(kid, room, at, draw, arm_left, top)
+            arm_right = arm_left + kid_box.wide * CELL
+            middle = (x + arm_left) / 2
+            draw.bez(
+                x, y + spine, middle, y + spine, middle, mid, arm_left, mid, "rail"
+            )
+            out_middle = (arm_right + x + w) / 2
+            draw.bez(
+                arm_right,
                 mid,
-                edge - CELL,
+                out_middle,
+                mid,
+                out_middle,
                 y + spine,
-                edge,
+                x + w,
                 y + spine,
                 "rail",
             )
@@ -168,14 +239,24 @@ def _track(
         draw.line(x, mid, inner_x, mid, "rail")
         draw.line(right_of_kid, mid, x + w, mid, "rail")
         if low == "0":  # the bypass arches over
-            over = y + ROW * 0.5
-            draw.curve(x, mid, x, over, (x + x + w) / 2, over, "loop")
-            draw.curve((x + x + w) / 2, over, x + w, over, x + w, mid, "loop")
-        if high != "1":  # the repeat returns underneath
-            under = inner_y + kid_box.tall * ROW + ROW * 0.6
-            draw.curve(x + w, mid, x + w, under, (x + x + w) / 2, under, "loop")
-            draw.curve((x + x + w) / 2, under, x, under, x, mid, "loop")
+            draw.bez(
+                x,
+                mid,
+                x + 2,
+                mid - LOOP * ROW * 0.7,
+                x + w - 2,
+                mid - LOOP * ROW * 0.7,
+                x + w,
+                mid,
+                "loop",
+            )
+        if high != "1":  # the repeat arches back under
+            drop = kid_box.tall * ROW + ROW * 0.7
+            draw.bez(
+                x + w, mid, x + w - 2, mid + drop, x + 2, mid + drop, x, mid, "loop"
+            )
         return
+
     if kind in ("not", "alpha"):
         tag = "¬ none of" if kind == "not" else f"⟨{payload}⟩"
         draw.text(x, y + ROW * 0.7, "dim", tag)
