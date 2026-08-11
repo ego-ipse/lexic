@@ -782,28 +782,42 @@ def fitted(drawn: Drawing, room: Room, pad: float = 14.0) -> tuple[float, float,
 
     :returns: the scale, and where to put the drawing's origin.
     """
-    low, high = _bounds(drawn)
-    wide = max(40.0, drawn.wide)
+    left, right, low, high = _bounds(drawn)
+    wide = max(40.0, right - left)
     tall = max(40.0, high - low)
     _x, _y, w, h = room
     k = min((w - 2 * pad) / wide, (h - 2 * pad) / tall, 2.4)
-    return k, (w - wide * k) / 2, (h - tall * k) / 2 - low * k
+    return k, (w - wide * k) / 2 - left * k, (h - tall * k) / 2 - low * k
 
 
-def _bounds(drawn: Drawing) -> tuple[float, float]:
-    """How far up and down a drawing actually reaches, marks and all."""
+def _bounds(drawn: Drawing) -> tuple[float, float, float, float]:
+    """How far a drawing actually REACHES — left, right, top, bottom.
+
+    `graph.js` fits against the extent of the nodes it projected, not against
+    the box the layout was asked for. A drawing laid out to fill its room
+    reports a width of about that room, so fitting to `drawn.wide` scales it
+    by 0.96 and calls that a fit: the picture stays wherever the layout put
+    it, in a corner of a facet that is mostly empty.
+    """
+    xs: list[float] = []
     ys: list[float] = []
     for mark in drawn.marks:
         parts = mark.split(" ")
         if parts[0] == "box":
+            xs += [float(parts[1]), float(parts[1]) + float(parts[3])]
             ys += [float(parts[2]), float(parts[2]) + float(parts[4])]
         elif parts[0] == "line":
+            xs += [float(parts[1]), float(parts[3])]
             ys += [float(parts[2]), float(parts[4])]
         elif parts[0] == "curve":
+            xs += [float(parts[1]), float(parts[3]), float(parts[5])]
             ys += [float(parts[2]), float(parts[4]), float(parts[6])]
         elif parts[0] == "bez":
+            xs += [float(parts[i]) for i in (1, 3, 5, 7)]
             ys += [float(parts[i]) for i in (2, 4, 6, 8)]
-    return (min(ys), max(ys)) if ys else (0.0, 0.0)
+    if not xs:
+        return (0.0, 0.0, 0.0, 0.0)
+    return (min(xs), max(xs), min(ys), max(ys))
 
 
 def _rails(said: Frame, room: Room, look: Look) -> None:
