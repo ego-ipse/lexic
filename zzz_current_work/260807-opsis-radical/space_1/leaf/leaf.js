@@ -1149,6 +1149,24 @@ function applyPolicy() {
   for (const name of FACETS) {
     if (P['facet.' + name]) facetOn[name] = P['facet.' + name] !== 'off';
   }
+  // what the instrument measured as not fitting here: say it on the surface
+  // itself, so the reason is where the problem is
+  if (P['wants.window']) {
+    // the graph and the machine are MODES of the reader, not facets of their
+    // own, so the mark belongs on the surface that would have to host them
+    const hosts = { graph: 'grammar', machine: 'grammar' };
+    for (const want of P['wants.window'].split(',').filter(Boolean)) {
+      const name = hosts[want] || want;
+      const head = document.querySelector(`#${name} h2, #facet-${name} h2`);
+      if (head && !head.querySelector('.wantsWindow')) {
+        const mark = document.createElement('span');
+        mark.className = 'wantsWindow';
+        mark.textContent = ` ⧉ ${want} needs a window`;
+        mark.title = P['needs'] || '';
+        head.appendChild(mark);
+      }
+    }
+  }
   if (P['arrange.tree']) {
     const tree = treeFromText(P['arrange.tree']);
     if (tree) layoutTree = tree;
