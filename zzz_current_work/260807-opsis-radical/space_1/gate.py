@@ -93,6 +93,22 @@ def main() -> int:
         if lit <= named
         else f"dark: {sorted(lit - named)}",
     )
+    from lexic.compile import compile_text
+    from watch import watch
+
+    machine = compile_text(reading.reader_text, flavour="gbnf")
+    frames = watch(machine, reading.text)
+    seats = {row[5] for row in frames}
+    check(
+        "the clock reports frames the kernel actually pushed, seated by clone",
+        len(frames) > 1000 and len(seats) > 1,
+        f"{len(frames):,} frames · {len(seats)} clones entered",
+    )
+    check(
+        "a frame's span is measured, never assumed — the abandoned ones say so",
+        all(row[1] >= row[0] for row in frames),
+        f"{sum(1 for row in frames if not row[4])} abandoned",
+    )
     drawn = scene(reading)
     check(
         "the scene carries the reader, the document, the spans and the tree",
