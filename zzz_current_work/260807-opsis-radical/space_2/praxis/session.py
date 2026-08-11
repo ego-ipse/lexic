@@ -155,6 +155,7 @@ class Session:
         """A span in the lanes or the spine — the cursor goes to where it starts."""
         if words and ":" in words[0]:
             self.at = float(words[0].split(":")[0])
+            self.follow()
 
     def _gutter(self, words: list[str]) -> None:
         """A line number sets the cursor to where that line starts."""
@@ -629,6 +630,7 @@ class Session:
     def _step(self, words: list[str]) -> None:
         by = float(words[0]) if words and words[0].lstrip("-").isdigit() else 1.0
         self.at = max(0.0, min(self.at + by, float(len(self.reading.text))))
+        self.follow()
 
     def _go(self, words: list[str]) -> None:
         length = len(self.reading.text)
@@ -636,6 +638,7 @@ class Session:
         self.at = float(
             length if where == "end" else (int(where) if where.isdigit() else 0)
         )
+        self.follow()
 
     def _back(self, _words: list[str]) -> None:
         """← — one character back through the reading."""
@@ -677,6 +680,13 @@ class Session:
             self.at + gone * length / 10 * float(self.state.get("speed", "1")), length
         )
         self.playing = self.at < length
+        self.follow()
+
+    def follow(self) -> None:
+        """The document shows where the cursor is — it is being READ."""
+        self.main["show.document"] = str(
+            self.reading.text.count("\n", 0, int(min(self.at, len(self.reading.text))))
+        )
 
 
 Said = Callable[["Session", list[str]], None]

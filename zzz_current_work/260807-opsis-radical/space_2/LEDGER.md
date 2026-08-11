@@ -581,6 +581,14 @@ opening the space_1 file that already answered it, and several had been
   it knows how many rows fit. Scrolling by hand says where you want to be and
   clears it.
 
+- **The document did not follow the cursor.** `followCursor` keeps the
+  cursor's line on the page while the reading plays, and lands it four tenths
+  down when it has to move — where the eye already is, not one line inside
+  the edge it just crossed. Without it, playing runs the cursor off the
+  bottom and the derivation is being told about text nobody can see. The
+  reader's `scrollIntoView({block: "nearest"})` and the document's 40% are
+  two different behaviours in the reference, and they are two here.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.

@@ -917,6 +917,32 @@ def main() -> int:
         f"back to {reader_top(dict(torn_reader.main))}",
     )
 
+    def doc_top(state: dict[str, str]) -> int:
+        return next(
+            (
+                int(p.split(" ")[7])
+                for p in frame(state).planes
+                if p.startswith("document ")
+            ),
+            -1,
+        )
+
+    walked_on = Session(reading)
+    walked_on.gesture("go 8000")
+    followed = doc_top(dict(walked_on.main))
+    line = reading.text.count("\n", 0, 8000)
+    check(
+        "the document FOLLOWS the cursor — it is being read as it goes",
+        0 < followed < line and line - followed < 30,
+        f"char 8,000 is line {line:,} · page starts at {followed:,}",
+    )
+    walked_on.gesture("scrolled document 300")
+    check(
+        "until a hand says otherwise",
+        doc_top(dict(walked_on.main)) == 300,
+        f"{doc_top(dict(walked_on.main))}",
+    )
+
     reader_lines = {
         m[5]
         for m in marks(

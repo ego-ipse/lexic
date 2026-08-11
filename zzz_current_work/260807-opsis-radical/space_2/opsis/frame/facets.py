@@ -216,6 +216,13 @@ def _showing(look: Look, name: str, first: int, rows: int) -> int:
     if not said.isdigit() or rows < 3:
         return first
     line = int(said)
+    if name == "document":
+        # `followCursor`: the document is being READ as it goes, so when the
+        # cursor leaves the page it lands four tenths down — where the eye
+        # already is — not one line inside the edge it just crossed.
+        if first + 2 <= line < first + rows - 3:
+            return first
+        return max(0, line - int(rows * 0.4))
     if line < first:
         return line
     if line >= first + rows - 2:
