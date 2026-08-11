@@ -139,6 +139,19 @@ def main() -> int:
         mirror.faithful and apply_record(mirror.text) == kept,
         f"{len(mirror.spans)} spans over its own record",
     )
+    from chain import chain
+
+    rungs = chain(reading)
+    check(
+        "the chain names the rung above without parsing it",
+        len(rungs) == 2 and rungs[0].visited and not rungs[1].visited,
+        " | ".join(r.line() for r in rungs),
+    )
+    check(
+        "a stratum is a DEPTH, not a position in a row",
+        [r.level for r in rungs] == list(range(len(rungs))),
+        " ".join(str(r.level) for r in rungs),
+    )
     drawn = scene(reading)
     check(
         "the scene carries the reader, the document, the spans and the tree",
