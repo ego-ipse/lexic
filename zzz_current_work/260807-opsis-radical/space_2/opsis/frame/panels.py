@@ -145,17 +145,21 @@ def head(
     region: Region,
     titles: dict[str, str],
     controls: list[tuple[str, str, str, bool]],
+    columns: dict[str, str] | None = None,
 ) -> tuple[float, float, float, float]:
     """Draw a region's seams, tab strip and head; hand back what is left.
 
     :param controls: what this facet's head carries — `(said, kind, goes, on)`.
+    :param columns: which column each facet belongs to, so a tab can say what
+        it switches. The frame knows the arrangement; the session should not
+        have to reconstruct it.
     """
     # .facet { border-left: 1px solid --hair; border-top: 1px solid --hair }
     said.line(region.x, region.y, region.x, region.y + region.h, "hair")
     said.line(region.x, region.y, region.x + region.w, region.y, "hair")
     y = region.y
     if len(region.mates) > 1:
-        _tabs(said, region, titles)
+        _tabs(said, region, titles, columns or {})
         y += TABS
     name, rest = called(titles.get(region.name, region.name))
     said.text(region.x + PAD, y + 18, "ftitle", name)
@@ -168,12 +172,15 @@ def head(
     return (region.x, y + HEAD, region.w, region.h - (y - region.y) - HEAD)
 
 
-def _tabs(said: Frame, region: Region, titles: dict[str, str]) -> None:
+def _tabs(
+    said: Frame, region: Region, titles: dict[str, str], columns: dict[str, str]
+) -> None:
     """.tabbar — a t-node's leaves, as the strip that switches between them."""
     said.box(region.x, region.y, region.w, TABS, "field2")
     said.line(region.x, region.y + TABS, region.x + region.w, region.y + TABS, "hair")
     at = region.x + 6
-    for mate in region.mates:
+    column = columns.get(region.mates[0], region.mates[0])
+    for index, mate in enumerate(region.mates):
         word = called(titles.get(mate, mate))[0].removeprefix("THE ").casefold()
         wide = runs("chip", word) + 20
         here = mate == region.name
@@ -189,7 +196,7 @@ def _tabs(said: Frame, region: Region, titles: dict[str, str]) -> None:
         )
         said.line(at, region.y + 2, at + wide, region.y + 2, "cool" if here else "hair")
         said.text(at + 10, region.y + 15, "cool" if here else "chip", word)
-        said.hit(at, region.y + 2, wide, TABS - 2, "tab", mate)
+        said.hit(at, region.y + 2, wide, TABS - 2, "tab", f"{column}:{index}")
         at += wide + 2
 
 

@@ -125,13 +125,15 @@ class Session:
             )
 
     def _tab(self, words: list[str]) -> None:
-        """A tab in a t-node — which of the group's leaves that region shows."""
-        if not words:
-            return
-        for facet in self.reading.facets():
-            if facet.name == words[0]:
-                self.state[f"tab.{facet.column or facet.name}"] = "0"
-        self.state["tab.pick"] = words[0]
+        """A tab in a t-node — which of the group's leaves that region shows.
+
+        The chip carries the column and the index, because the frame is what
+        knows the arrangement; nothing here reconstructs it.
+        """
+        if words and ":" in words[0]:
+            column, _, index = words[0].partition(":")
+            if index.isdigit():
+                self.state[f"tab.{column}"] = index
 
     def _sel(self, words: list[str]) -> None:
         """Text selected in a plane — the smallest covering occurrence co-selects."""
@@ -195,6 +197,24 @@ class Session:
         """A real text plane scrolled itself; the drawing under it must follow."""
         if len(words) >= 2 and words[1].lstrip("-").isdigit():
             self.state[f"top.{words[0]}"] = str(max(0, int(words[1])))
+
+    def _zoom(self, words: list[str]) -> None:
+        """Ctrl+wheel — a plane's own scale, on the key the policy already has.
+
+        A stack of diagrams reads like a document: the wheel scrolls it and
+        Ctrl+wheel zooms it, which is the same pair the text planes use.
+        """
+        if len(words) < 2 or not words[1].lstrip("-").isdigit():
+            return
+        key = {
+            "document": "doc.zoom",
+            "chart": "chart.zoom",
+            "spine": "spine.zoom",
+        }.get(words[0], f"{words[0]}.zoom")
+        was = float(self.state.get(key, "1"))
+        self.state[key] = (
+            f"{max(0.35, min(3.0, was * (1.1 if int(words[1]) < 0 else 0.9))):.3f}"
+        )
 
     def _spin(self, words: list[str]) -> None:
         """The graph, turned — the same rates the leaf's drag used."""
@@ -278,6 +298,7 @@ SAYS: dict[str, Said] = {
     "step": Session._step,
     "text": Session._text,
     "tick": Session._tick,
+    "zoom": Session._zoom,
 }
 
 # what it landed on

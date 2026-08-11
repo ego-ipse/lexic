@@ -141,7 +141,9 @@ function paint() {
     } else if (p[0] === 'text') {
       cx.font = face(p[3]);
       cx.fillStyle = fill(p[3]);
-      cx.fillText(p.slice(4).join(' '), +p[1], +p[2]);
+      cx.textAlign = p[4] === 'r' ? 'right' : 'left';
+      cx.fillText(p.slice(5).join(' '), +p[1], +p[2]);
+      cx.textAlign = 'left';
     }
   }
 }
@@ -239,11 +241,13 @@ window.addEventListener('pointermove', (ev) => {
   ask(`spin ${dx} ${dy}`);
 });
 
+/* a stack of diagrams reads like a document: wheel scrolls, Ctrl+wheel zooms */
 paper.addEventListener('wheel', (ev) => {
   const target = under(ev, true);
   if (!target) return;
   ev.preventDefault();
-  ask(`scroll ${target.goes} ${ev.deltaY > 0 ? 1 : -1}`);
+  const by = ev.deltaY > 0 ? 1 : -1;
+  ask(`${ev.ctrlKey ? 'zoom' : 'scroll'} ${target.goes} ${by}`);
 }, { passive: false });
 
 /* Keys are REPORTED, not interpreted: whether Space is a letter or the

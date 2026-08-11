@@ -23,6 +23,7 @@ from opsis.frame.marks import CELL, ROW, Frame
 from opsis.frame.tones import runs
 from opsis.grammar import rails
 from opsis.paint import (
+    Drawing,
     automaton_drawing,
     band_drawing,
     chart_drawing,
@@ -55,7 +56,8 @@ PITCH = 5.0
 class Look:
     """One reading at one moment, and how the hand is looking at it.
 
-    Handed to every facet, so two of them cannot disagree about what is live.
+    Handed to every facet, so that two of them cannot disagree about what is
+    live, what is chosen, or which form is being read.
     """
 
     __slots__ = (
@@ -89,16 +91,26 @@ class Look:
         self.typed = typed or {}
         self.frontier = frontier
 
+    def says(self, key: str, fallback: str) -> str:
+        """One policy key, as the hand left it."""
+        return self.state.get(key, fallback)
+
     def shows(self, name: str, held: str) -> str:
         """What a plane shows — what was typed, which may be ahead of the read."""
         return self.typed.get(name, held)
 
-    def says(self, key: str, fallback: str) -> str:
-        return self.state.get(key, fallback)
-
     def top(self, name: str) -> int:
+        """Which line, or which row, that facet is scrolled to."""
         said = self.state.get(f"top.{name}", "0")
         return int(said) if said.lstrip("-").isdigit() else 0
+
+    def zoom(self, name: str) -> float:
+        """How much of its own scale a facet is drawn at."""
+        said = self.state.get(f"{name}.zoom", "1")
+        try:
+            return max(0.35, min(3.0, float(said)))
+        except ValueError:
+            return 1.0
 
     def live(self) -> list:
         """What is open at the cursor — the spans the reading is standing in."""
@@ -190,8 +202,7 @@ def document(said: Frame, room: Room, look: Look) -> None:
 # ── the relations ────────────────────────────────────────────────────────
 def graph(said: Frame, room: Room, look: Look) -> None:
     """THE RELATIONS — five ways of looking at the same rules."""
-    machine = look.it.machine
-    if machine is None or look.it.shown is None:
+    if look.it.machine is None or look.it.shown is None:
         said.text(room[0] + 14, room[1] + 20, "fsub", "this reading has no machine")
         return
     GRAPHVIEWS.get(look.says("graph.view", "depth3d"), _depth3d)(said, room, look)
@@ -203,10 +214,11 @@ def _depth3d(said: Frame, room: Room, look: Look) -> None:
     shown = look.it.shown
     at = project(
         positions(shown, "rings", int(w), int(h)),
-        float(look.says("graph.yaw", "0.6")),
-        float(look.says("graph.pitch", "0.35")),
+        float(look.says("graph.yaw", "0.42")),
+        float(look.says("graph.pitch", "0.92")),
         w,
         h,
+        look.zoom("graph"),
     )
     lit = look.lit()
     named = {name: as_written(look.it.rules, name) for name in at}
@@ -255,6 +267,7 @@ def _arcs(said: Frame, room: Room, look: Look) -> None:
 
 
 def _rails(said: Frame, room: Room, look: Look) -> None:
+    """A list of railroads is READ, not surveyed: full size, and you drag it."""
     x, y, w, _h = room
     said.place(
         rails_drawing(rails(look.it.shown), int(w - 20)),
@@ -282,34 +295,70 @@ GRAPHVIEWS: dict[str, Callable[[Frame, Room, Look], None]] = {
 }
 
 
-# ── the derivation ───────────────────────────────────────────────────────
-def chart(said: Frame, room: Room, look: Look) -> None:
-    """THE DERIVATION — the overview band, then the lanes under a cursor."""
-    x, y, w, h = room
-    band = band_drawing(look.reading, 18, None, "model")
-    said.place(band, x, y + 6, w / max(1.0, band.wide), 22.0 / max(1.0, band.tall))
-    drawn = _clock(look, max(20, int(h - 44)))
-    lanes = y + 36
-    text = look.reading.text
-    window = max(8, int((w - 12) / PITCH))
-    start = max(0, min(int(look.at) - int(window * 0.6), max(0, len(text) - window)))
-    picked = {
-        (span.start, span.end)
-        for span in look.reading.spans
-        if look.chosen and as_written(look.it.rules, span.rule) == look.chosen
-    }
+# the band and the clock are facts about a READING, not about a cursor: both
+# fold every span in the document, and a frame per gesture cannot afford to
+# do that again because the cursor moved
+# a handful, newest kept: the band and the clock are asked for in the same
+# frame, so clearing on a miss means neither is ever there when it is wanted
+KEPT = 6
+_DRAWINGS: dict[str, Drawing] = {}
+
+
+def _kept(key: str, make: Callable[[], Drawing]) -> Drawing:
+    """A drawing, worked out at most once for the question that produced it."""
+    if key in _DRAWINGS:
+        _DRAWINGS[key] = _DRAWINGS.pop(key)  # newest last
+        return _DRAWINGS[key]
+    _DRAWINGS[key] = make()
+    while len(_DRAWINGS) > KEPT:
+        del _DRAWINGS[next(iter(_DRAWINGS))]
+    return _DRAWINGS[key]
+
+
+def _boxes(drawn: Drawing) -> list[tuple[int, int, float, float, str]]:
+    """A clock's boxes as what they MEAN: from, to, lane top, lane height, tone.
+
+    Read off once. A frame that re-splits sixty thousand mark strings to move
+    a cursor six pixels is the difference between an instrument and a
+    slideshow.
+    """
+    out: list[tuple[int, int, float, float, str]] = []
     for mark in drawn.marks:
         p = mark.split(" ")
         if p[0] != "box":
             continue
         s0, e0, _index = (int(n) for n in p[6].split(":"))
-        top = lanes + float(p[2])
-        deep = float(p[4])
+        out.append((s0, e0, float(p[2]), float(p[4]), p[5]))
+    return out
+
+
+def lanes_of(
+    said: Frame,
+    room: Room,
+    look: Look,
+    spans: list[tuple[int, int, float, float, str]],
+    picked: set[tuple[int, int]],
+    pitch: float,
+) -> None:
+    """The lanes: every span the clock holds, against where the cursor stands.
+
+    Toned as the derivation has always toned them — a closed span filled and
+    outlined cool, an open one filled ONLY as far as the cursor has come and
+    outlined warm, and one still ahead outlined and left empty. Filling a
+    span across its whole width is what made the picture a wall of amber.
+    """
+    x, y, w, h = room
+    lanes = y + 36
+    text = look.reading.text
+    window = max(8, int((w - 12) / pitch))
+    start = max(0, min(int(look.at) - int(window * 0.6), max(0, len(text) - window)))
+    for s0, e0, lane, deep, tone in spans:
+        top = lanes + lane
         if e0 < start or s0 > start + window or top + deep > y + h:
             continue
-        x1 = x + 6 + (max(s0, start) - start) * PITCH
-        x2 = x + 6 + (min(e0, start + window) - start) * PITCH
-        if p[5] == "eps":
+        x1 = x + 6 + (max(s0, start) - start) * pitch
+        x2 = x + 6 + (min(e0, start + window) - start) * pitch
+        if tone == "eps":
             # a rule that derives nothing is a tick, not a box: there is no
             # width to fill, and filling one would claim text it never took
             said.line(
@@ -323,9 +372,7 @@ def chart(said: Frame, room: Room, look: Look) -> None:
         if e0 <= look.at:
             said.box(x1, top, max(1.5, x2 - x1), deep, "closed")
         elif s0 < look.at:
-            # open: filled only as far as the cursor has come, so the fill IS
-            # how much of this span has been read
-            here = x + 6 + (min(look.at, start + window) - start) * PITCH
+            here = x + 6 + (min(look.at, start + window) - start) * pitch
             said.box(x1, top, max(1.5, here - x1), deep, "active")
         said.ring(
             x1,
@@ -337,11 +384,68 @@ def chart(said: Frame, room: Room, look: Look) -> None:
         if (s0, e0) in picked:
             said.ring(x1 - 1.5, top - 1.5, max(1.5, x2 - x1) + 3, deep + 3, "violet")
         said.hit(x1, top, max(3.0, x2 - x1), deep, "span", f"{s0}:{e0}")
-    cursor = x + 6 + (min(max(look.at, start), start + window) - start) * PITCH
+    cursor = x + 6 + (min(max(look.at, start), start + window) - start) * pitch
     said.line(cursor, y + 32, cursor, y + h, "cursor")
 
 
-def _clock(look: Look, tall: int):
+def chart(said: Frame, room: Room, look: Look) -> None:
+    """THE DERIVATION — the overview band, then the lanes under a cursor."""
+    x, y, w, h = room
+    stamp = f"{len(look.reading.text)}:{len(look.reading.spans)}"
+    band = _kept(f"band:{stamp}", lambda: band_drawing(look.reading, 18, None, "model"))
+    said.place(band, x, y + 6, w / max(1.0, band.wide), 22.0 / max(1.0, band.tall))
+    which = look.says("chart.clock", "model")
+    deep = int(max(20, h - 44))
+    drawn = _kept(f"clock:{stamp}:{which}:{deep}", lambda: _clock(look, deep))
+    picked = _picked(look, stamp)
+    lanes_of(
+        said,
+        room,
+        look,
+        _spans(look, drawn, stamp),
+        picked,
+        PITCH * look.zoom("chart"),
+    )
+
+
+_PICKED: dict[str, set[tuple[int, int]]] = {}
+
+
+def _picked(look: Look, stamp: str) -> set[tuple[int, int]]:
+    """Every occurrence of the chosen rule — a fact about the READING.
+
+    Twelve thousand spans re-scanned per frame because a cursor moved is
+    thirty milliseconds nobody asked for; the answer only changes when the
+    choice or the reading does.
+    """
+    if not look.chosen:
+        return set()
+    key = f"{stamp}:{look.chosen}"
+    if key not in _PICKED:
+        _PICKED.clear()
+        _PICKED[key] = {
+            (span.start, span.end)
+            for span in look.reading.spans
+            if as_written(look.it.rules, span.rule) == look.chosen
+        }
+    return _PICKED[key]
+
+
+_SPANS: dict[str, list[tuple[int, int, float, float, str]]] = {}
+
+
+def _spans(
+    look: Look, drawn: Drawing, stamp: str
+) -> list[tuple[int, int, float, float, str]]:
+    """This clock's boxes, read off once per reading and per clock."""
+    key = f"{stamp}:{look.says('chart.clock', 'model')}:{len(drawn.marks)}"
+    if key not in _SPANS:
+        _SPANS.clear()
+        _SPANS[key] = _boxes(drawn)
+    return _SPANS[key]
+
+
+def _clock(look: Look, tall: int) -> Drawing:
     """Which clock the lanes tell — the model's spans, the PDA's, or Earley's."""
     which = look.says("chart.clock", "model")
     machine = look.it.machine
@@ -361,15 +465,26 @@ def _clock(look: Look, tall: int):
 
 # ── the spine ────────────────────────────────────────────────────────────
 def spine(said: Frame, room: Room, look: Look) -> None:
-    """THE SPINE — what is open at the cursor, then what just closed."""
+    """THE SPINE — what is open at the cursor, then what just closed.
+
+    A region, not a list that runs off the bottom: the stack can be deeper
+    than the room it was given, so it scrolls like the plane it sits under,
+    and JUST CLOSED keeps its own place at the foot whatever the stack does.
+    """
     x, y, w, h = room
     live = look.live()
+    closed = closed_before(look.reading, look.at)
+    # the foot is reserved before anything is drawn into the body
+    foot = ROW * (1 + min(len(closed), 4)) + 14
+    # the line that says how much more there is needs a line of its own, or
+    # it lands on top of JUST CLOSED
+    body = max(ROW, h - foot - 12 - ROW)
+    fits = max(1, int(body // ROW))
+    first = min(look.top("spine"), max(0, len(live) - fits))
     top = y + 12
     if not live:
-        said.text(x + 14, top + 8, "fsub", "nothing open here")
-    for span in live:
-        if top > y + h - 40:
-            break
+        said.text(x + 14, top + 10, "fsub", "nothing open here")
+    for span in live[first : first + fits]:
         name = as_written(look.it.rules, span.rule)
         said.text(x + 14, top + 10, "dimmer", f"d{span.depth}", 4 * CELL)
         said.text(
@@ -381,12 +496,15 @@ def spine(said: Frame, room: Room, look: Look) -> None:
         )
         said.hit(x, top, w, ROW, "span", f"{span.start}:{span.end}")
         top += ROW
-    top += 8
+    if first + fits < len(live):
+        said.text(
+            x + 14, top + 10, "dimmer", f"{len(live) - first - fits} deeper — scroll"
+        )
+    # #closedHead / #closedBody — the foot, where it has always been
+    top = y + h - foot
     said.text(x + 14, top + 10, "ftitle", "JUST CLOSED")
     top += ROW + 2
-    for span in closed_before(look.reading, look.at):
-        if top > y + h - 12:
-            break
+    for span in closed[:4]:
         name = as_written(look.it.rules, span.rule)
         said.text(
             x + 14, top + 10, "dim", f"{name} {span.start:,}..{span.end:,}", w - 30

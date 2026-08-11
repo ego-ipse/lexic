@@ -47,11 +47,12 @@ def compose(
     it = staged(reading, state)
     look = Look(reading, it, at, state, watched, typed, frontier)
     titles = {facet.name: facet.title for facet in it.facets}
+    columns = {facet.name: facet.column or facet.name for facet in it.facets}
     said.box(0, 0, wide, tall, "field")
 
     if only in DRAWN:
         region = walked(only, 0, 0, wide, tall).regions[0]
-        DRAWN[only](said, head(said, region, titles, HEADS(look, only)), look)
+        DRAWN[only](said, head(said, region, titles, HEADS(look, only), columns), look)
         return said
 
     _masthead(said, reading, it, wide, generation)
@@ -60,7 +61,8 @@ def compose(
         draw = DRAWN.get(region.name)
         if draw is None:
             continue
-        draw(said, head(said, region, titles, HEADS(look, region.name)), look)
+        room = head(said, region, titles, HEADS(look, region.name), columns)
+        draw(said, room, look)
     for seam in grid.seams:
         said.hit(seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at))
     _status(said, reading, look, wide, tall)
@@ -85,12 +87,7 @@ def _masthead(
     holds = (
         "model.to_text() == document — holds" if reading.faithful else "NOT FAITHFUL"
     )
-    said.text(
-        wide - PAD - runs("verdict", holds),
-        22,
-        "green" if reading.faithful else "red",
-        holds,
-    )
+    said.text(wide - PAD, 22, "green" if reading.faithful else "red", holds, anchor="r")
 
 
 def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> None:

@@ -107,8 +107,41 @@ class Staged:
     )
 
 
+_STAGED: dict[int, Staged] = {}
+
+
 def staged(reading: Reading, state: dict[str, str] | None = None) -> Staged:
-    """Everything this reading decides, before anyone presents it."""
+    """Everything this reading decides, before anyone presents it.
+
+    Kept against the question that produced it: the form is compiled, the
+    rules are found, the graph's edges are walked and the arrangement is
+    measured — none of which changed because a hand moved a cursor six
+    pixels. A frame per gesture makes that difference the whole feel of the
+    instrument.
+    """
+    # keyed on what staging READS, not on the whole policy: turning the
+    # graph's camera does not change which rules the reader defines, and
+    # re-deciding all of that per degree of rotation is a frame nobody gets
+    said = state or {}
+    key = hash(
+        (
+            GENERATION[0],
+            reading.text,
+            reading.reader_text,
+            said.get("form", "source"),
+            said.get("arrange.shape", ""),
+            said.get("arrange.shares", ""),
+            tuple(sorted((k, v) for k, v in said.items() if k.startswith("tab."))),
+        )
+    )
+    if key not in _STAGED:
+        _STAGED.clear()
+        _STAGED[key] = _stage(reading, state)
+    return _STAGED[key]
+
+
+def _stage(reading: Reading, state: dict[str, str] | None = None) -> Staged:
+    """Work them out."""
     it = Staged()
     it.machine = reader_of(reading)
     # the relations are a PLACED surface, between the reader they are a

@@ -23,12 +23,33 @@ draws. Every visual decision below comes from a space_1 file, named.
 record, so the drawn frame reads the same ones instead of making its own.
 `scene()` still spells exactly what it spelled.
 
+## Deviations redone since
+
+- **The verdict clipped** because the frame was right-aligning by an ESTIMATE
+  of the text's width. A text mark now carries its anchor and the engine that
+  knows the true width does the aligning.
+- **THE SPINE overran its region.** It is a `.scroll` region in `leaf.css`, so
+  it scrolls: what fits is drawn from its own top, JUST CLOSED keeps its place
+  at the foot, and the overflow says how much more there is.
+- **Ctrl+wheel zooms** — `doc.zoom`, `chart.zoom`, `spine.zoom`, `graph.zoom`,
+  the keys the policy already had. Wheel scrolls, Ctrl+wheel zooms, which is
+  the pair `graph.js` uses.
+- **The camera starts where `graph.js` starts it** — yaw 0.42, pitch 0.92, not
+  the values I had guessed.
+- **A tab switch carries the column and the index**, worked out by the frame
+  that knows the arrangement, so nothing downstream reconstructs a layout.
+
+## What a gesture costs
+
+4 ms, measured over the whole loop. Four things are facts about a READING and
+are kept against it rather than redone per frame: the staging (`scene.staged`,
+keyed on what staging actually reads — turning the camera does not re-decide
+which rules the reader defines), the overview band, the clock's boxes read off
+once instead of re-split per frame, and the chosen rule's occurrences. Before
+these, a frame cost 230 ms and typing felt like a slideshow.
+
 ## Deviations still to redo
 
-- The parity verdict clips at the right edge — the mono advance in `ADVANCE`
-  is a measurement, and it is wrong.
-- THE SPINE overruns its region; it needs the region's own bound.
-- Ctrl+wheel zoom (`doc.zoom`, `chart.zoom`, `spine.zoom`) is not wired.
 - The graph's own controls — `◉ focus`, `⧉ window`, the tune dials — are not
   drawn; only the view selector is.
 
