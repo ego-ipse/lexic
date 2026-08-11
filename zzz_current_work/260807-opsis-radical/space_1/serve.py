@@ -31,7 +31,7 @@ from lexic.grammars import get_flavour  # noqa: E402
 from chain import Rung  # noqa: E402
 from read import Facet, Reading, as_written, read, read_up, upward  # noqa: E402
 from retype import retype  # noqa: E402
-from draw import edges, levels  # noqa: E402
+from draw import edges, levels, reachable  # noqa: E402
 from keep import keep  # noqa: E402
 from machine import of  # noqa: E402
 from track import rail, rails  # noqa: E402
@@ -271,6 +271,7 @@ class Handler(BaseHTTPRequestHandler):
         """One room, spelled. A room nobody authored says so, in place."""
         if which in ("index", ""):
             rows = [
+                "the rules — each one, by what it accounts for\tplace:rules",
                 "the machine — clones, not rules\tplace:machine",
                 "the artefacts — each one loaded back\tplace:artefacts",
                 "the grammar as a VALUE — the IR it loaded to\tplace:ir:grammar",
@@ -299,6 +300,66 @@ class Handler(BaseHTTPRequestHandler):
                     f"clones built\t{built.clones}",
                     f"rules\t{built.rules}",
                     f"deep\t{built.deepest}",
+                    "",
+                ]
+            )
+        if which == "rules":
+            # ordered by how much of the document each rule ACCOUNTS FOR, not
+            # alphabetically: the ordering is a reading of this document, and
+            # a name-sorted list says nothing about what was parsed
+            counts: dict[str, int] = {}
+            for span in self.reading.spans:
+                counts[span.rule] = counts.get(span.rule, 0) + 1
+            ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            rules = ruledefs(self.reading.reader_text)
+            return "\n".join(
+                [
+                    f"#PLACE rules rules the {len(ranked)} rules this document used",
+                    "#SEC title 1",
+                    f"{len(ranked)} rules used · "
+                    f"{len(self.reading.spans):,} occurrences",
+                    f"#SEC list {len(ranked)}",
+                    *(
+                        f"{as_written(rules, name)} — {n:,} occurrences"
+                        f"\tplace:rule:{as_written(rules, name)}"
+                        for name, n in ranked
+                    ),
+                    "",
+                ]
+            )
+        if which.startswith("rule:"):
+            rule = self.subject(which, machine)
+            if rule is None:
+                return self.nothing(which, "this reader defines no rule called")
+            name = which[5:]
+            here = [
+                s for s in self.reading.spans if s.rule.casefold() == name.casefold()
+            ]
+            _, depth = reachable(machine.grammar, name)
+            clones = sum(
+                1
+                for key in machine.pda_tables().clones
+                if getattr(key, "name", "").casefold() == name.casefold()
+            )
+            walk = ir_graph(rule)
+            return "\n".join(
+                [
+                    f"#PLACE {which} rule one rule — everything it is",
+                    "#SEC title 1",
+                    f"{name} — {len(here)} occurrences in this document",
+                    "#SEC kv 5",
+                    f"occurrences\t{len(here):,}",
+                    f"deepest occurrence\t{max((s.depth for s in here), default=0)}",
+                    f"rules it can reach\t{len(depth) - 1}",
+                    f"clones compiled for it\t{clones}",
+                    f"its own IR\t{len(walk.nodes)} nodes, {len(walk.edges)} edges",
+                    "#SEC graphview 1",
+                    which,
+                    "#SEC irvalue 1",
+                    which,
+                    "#SEC list 2",
+                    "the whole grammar's graph\tplace:ir:grammar",
+                    "the machine\tplace:machine",
                     "",
                 ]
             )
@@ -441,11 +502,17 @@ class Handler(BaseHTTPRequestHandler):
             ).get("id", "index")
             return self.room(unquote(which), machine)
         if path == "/rulegraph":
-            names = levels(machine.grammar)
+            # a graph view can be about ONE rule: asked from a rule's room,
+            # the answer is that rule's neighbourhood, not the whole grammar
+            asked = parse_qs(query).get("place", [""])[0]
+            if asked.startswith("rule:") and self.subject(asked, machine) is not None:
+                drawn_edges, names = reachable(machine.grammar, asked[5:])
+            else:
+                drawn_edges, names = edges(machine.grammar), levels(machine.grammar)
             return "\n".join(
                 [
-                    f"#EDGES {len(edges(machine.grammar))}",
-                    *(f"{a} {b}" for a, b in edges(machine.grammar)),
+                    f"#EDGES {len(drawn_edges)}",
+                    *(f"{a} {b}" for a, b in drawn_edges),
                     f"#DEPTHS {len(names)}",
                     *(f"{name} {at}" for name, at in names.items()),
                     "",

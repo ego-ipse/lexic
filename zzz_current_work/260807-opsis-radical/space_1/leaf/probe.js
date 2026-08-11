@@ -68,6 +68,18 @@ async function probeGestures() {
     } else {
       out.push('seamDrag=NO-SEAMS');
     }
+    // a rule's own room: reached the way a person reaches it — through the
+    // rules list — and it must carry BOTH its graph and its value
+    await openPlace('rules', false);
+    await wait(600);
+    const rlink = document.querySelector('#placeGrid .paddr[data-place^="rule:"]');
+    out.push(`rulesRoom=${currentPlace} first=${rlink ? rlink.dataset.place : 'NONE'}`);
+    click(rlink);
+    await wait(1100);
+    const gv = document.querySelector('.gview canvas');
+    out.push(`ruleRoom=${currentPlace}`,
+             `ruleGraph=${gv ? gv.width + 'x' + gv.height : 'NONE'}`,
+             `ruleIr=${document.querySelectorAll('.irv .irrow').length}`);
     // the value room: the IR surface must actually DRAW, and zoom must move
     await openPlace('ir:grammar', false);
     await wait(900);

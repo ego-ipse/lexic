@@ -737,3 +737,15 @@ body.clock-pda .vbadge { display: inline-block; }
 
 /* a surface the arrangement could not honour says so on its own head */
 .wantsWindow { color: var(--warm); font-size: 10px; letter-spacing: .04em; }
+
+/* a room's graph view takes the room it is in. Left unsized, the canvas
+   kept its 300×150 default inside a 1700px panel and drew a smear — the
+   picture was never wrong, it was never given the width. */
+.gview { width: 100%; }
+.gview .gcanvas { width: 100%; display: block; }
+.gview .gtabs { display: flex; gap: 4px; margin: 4px 0; }
+.gview .gtab {
+  background: #131722; color: var(--dim); border: 1px solid #232b3a;
+  font: inherit; font-size: 11px; padding: 1px 8px; cursor: pointer;
+}
+.gview .gtab.on { color: var(--cool); border-color: var(--cool); }

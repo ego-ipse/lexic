@@ -15,11 +15,32 @@ function bootGraphViews(scope) {
     view._mode = 'flat';
     fetch(`/rulegraph?place=${encodeURIComponent(view.dataset.place)}`)
       .then((r) => r.text()).then((text) => {
+        // the SAME wire the rest of the leaf reads (#EDGES / #DEPTHS). This
+        // parser was looking for 'n'/'e' lines nothing has ever sent, so
+        // every room graph drew an empty canvas and read as a broken view.
         const nodes = [], edges = [];
-        for (const line of text.split('\n').slice(1)) {
-          const p = line.split(' ');
-          if (p[0] === 'n') nodes.push({ name: p[1], order: +p[2], depth: +p[3] });
-          else if (p[0] === 'e') edges.push([p[1], p[2]]);
+        const lines = text.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          if (line.startsWith('#EDGES ') || line.startsWith('#DEPTHS ')) {
+            const n = parseInt(line.split(' ')[1], 10) || 0;
+            const rows = lines.slice(i + 1, i + 1 + n);
+            i += n;
+            if (line.startsWith('#EDGES ')) {
+              for (const r of rows) {
+                const [a, b] = r.split(' ');
+                if (a && b) edges.push([a, b]);
+              }
+            } else {
+              rows.forEach((r, order) => {
+                const cut = r.lastIndexOf(' ');
+                if (cut > 0) {
+                  nodes.push({ name: r.slice(0, cut), order,
+                               depth: +r.slice(cut + 1) });
+                }
+              });
+            }
+          }
         }
         view._g = { nodes, edges };
         pvDrawView(view);
@@ -63,10 +84,17 @@ function armGraphView(view) {
 
 const GV_INK = '#d7dde7', GV_DIM = '#7d8794', GV_WIRE = '#39414f', GV_WARM = '#f0b25e';
 
-function gvPaint(canvas) {
+function gvPaint(canvas, g) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || canvas.parentElement.clientWidth || 700;
-  const h = 400;
+  // as tall as the busiest lane needs — the same rule every other surface
+  // here follows: the picture states its size, the room is not guessed at
+  const lanes = new Map();
+  for (const n of (g ? g.nodes : [])) {
+    lanes.set(n.depth, (lanes.get(n.depth) || 0) + 1);
+  }
+  const busiest = Math.max(1, ...lanes.values());
+  const h = Math.max(280, Math.min(880, busiest * 26 + 48));
   canvas.style.height = `${h}px`;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
@@ -79,7 +107,7 @@ function gvPaint(canvas) {
 
 function pvDrawView(view) {
   if (!view._g) return;
-  const { ctx, w, h } = gvPaint(view.querySelector('canvas'));
+  const { ctx, w, h } = gvPaint(view.querySelector('canvas'), view._g);
   if (view._mode === 'flat') gvFlat(ctx, w, h, view._g);
   else if (view._mode === 'arcs') gvArcs(ctx, w, h, view._g);
   else gv3d(ctx, w, h, view._g, view._cam);

@@ -16,7 +16,7 @@ from __future__ import annotations
 from lexic.ir import IrAst, IrRuleRef
 from read import Facet
 
-__all__ = ["edges", "graph_facet", "levels"]
+__all__ = ["edges", "graph_facet", "levels", "reachable"]
 
 
 def edges(ast: IrAst) -> list[tuple[str, str]]:
@@ -74,3 +74,27 @@ def graph_facet(ast: IrAst) -> Facet:
         default=24,
     )
     return Facet("graph", "graph", wide, max(len(rows), 1))
+
+
+def reachable(ast: IrAst, start: str) -> tuple[list[tuple[str, str]], dict[str, int]]:
+    """The graph as seen FROM one rule — what it can reach, and how far.
+
+    A rule's neighbourhood is a different graph from the whole grammar's, and
+    drawing the whole thing every time is how a question about one rule gets
+    answered with a picture of everything.
+    """
+    onward: dict[str, list[str]] = {}
+    for frm, to in edges(ast):
+        onward.setdefault(frm, []).append(to)
+    depth = {start: 0}
+    frontier = [start]
+    while frontier:
+        nxt: list[str] = []
+        for name in frontier:
+            for ref in onward.get(name, ()):
+                if ref not in depth:
+                    depth[ref] = depth[name] + 1
+                    nxt.append(ref)
+        frontier = nxt
+    kept = [(a, b) for a, b in edges(ast) if a in depth and b in depth]
+    return kept, depth
