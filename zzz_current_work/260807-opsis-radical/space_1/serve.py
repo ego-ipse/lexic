@@ -28,6 +28,7 @@ from machine import machine_facet  # noqa: E402
 from place import DEFAULT, ENOUGH, arrange, shares, windowed  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
 from read import Facet, Reading, as_written, read, read_up  # noqa: E402
+from draw import edges, levels  # noqa: E402
 from track import rail, rails  # noqa: E402
 from watch import watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
@@ -236,6 +237,7 @@ class Handler(BaseHTTPRequestHandler):
             "/automaton",
             "/clock",
             "/strata",
+            "/rulegraph",
         ):
             return None
         try:
@@ -244,6 +246,17 @@ class Handler(BaseHTTPRequestHandler):
             )
         except LexicError, RecursionError, ValueError:
             return "no reader to draw\n"
+        if path == "/rulegraph":
+            names = levels(machine.grammar)
+            return "\n".join(
+                [
+                    f"#EDGES {len(edges(machine.grammar))}",
+                    *(f"{a} {b}" for a, b in edges(machine.grammar)),
+                    f"#DEPTHS {len(names)}",
+                    *(f"{name} {at}" for name, at in names.items()),
+                    "",
+                ]
+            )
         if path == "/strata":
             rungs = chain(self.reading)
             lanes = [rung.document for rung in rungs]
@@ -303,7 +316,13 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length).decode("utf-8")
         if urlparse(self.path).path == "/focus":
-            self.send(self.travel(int(body.strip() or "0")))
+            # the leaf posts "focus 1", not "1": take the last number in the
+            # body and refuse in words if there is none, rather than throwing
+            digits = [word for word in body.split() if word.lstrip("-").isdigit()]
+            if not digits:
+                self.send("refuse a rung is named by a number\n")
+                return
+            self.send(self.travel(int(digits[-1])))
             return
         if urlparse(self.path).path == "/policy":
             for line in body.splitlines():
