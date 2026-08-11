@@ -911,10 +911,30 @@ function drawChart() {
     cx.beginPath(); cx.moveTo(cxx0, lanesY - 6); cx.lineTo(cxx0, h - 4); cx.stroke();
     return;
   }
+  if (!S.passthrough) {
+    // an arm that covers exactly the text its parent covers adds a second
+    // identical bar and no information: 358 of them in the json reading.
+    // The occurrence is real and stays in the spine; only the ink changes.
+    S.passthrough = new Set();
+    const openAt = [];
+    S.spans.forEach((s, i) => {
+      openAt[s.d] = i;
+      const up = s.d > 0 ? S.spans[openAt[s.d - 1]] : null;
+      if (up && up.s === s.s && up.e === s.e) S.passthrough.add(i);
+    });
+  }
   for (const s of S.spans) {
     if (s.e <= view0 || s.s >= view0 + win) continue;
     const x1 = sx(Math.max(s.s, view0)), x2 = sx(Math.min(s.e, view0 + win));
     const y = lanesY + s.d * laneH;
+    if (S.passthrough.has(S.spans.indexOf(s))) {
+      cx.strokeStyle = 'rgba(111,195,201,0.30)';
+      cx.beginPath();
+      cx.moveTo(x1, y + (laneH - 2) / 2);
+      cx.lineTo(x2, y + (laneH - 2) / 2);
+      cx.stroke();
+      continue;
+    }
     if (s.e <= cur.t) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 2); cx.strokeStyle = C.cool; }
     else if (s.s < cur.t) {
       cx.fillStyle = C.active; cx.fillRect(x1, y, sx(Math.min(cur.t, view0 + win)) - x1, laneH - 2);
