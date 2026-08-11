@@ -11,6 +11,7 @@ const paper = document.getElementById('paper');
 const over = document.getElementById('over');
 const planes = document.getElementById('planes');
 const held = new Map();
+const opened = {};
 const asked = new URLSearchParams(location.search);
 const only = asked.get('only') || '';
 /* a window looks through its own layer over the session's policy: its view,
@@ -236,8 +237,11 @@ paper.addEventListener('click', (ev) => {
                 'width=520,height=380');
     return;
   }
-  if (target.kind === 'pop') {
-    const id = `${target.goes}-${held.size}-${frame.marks.length}`;
+  if (target.kind === 'pop' || target.kind === 'clone') {
+    /* a clone is a SECOND window on the same facet, with its own layer: the
+       id is what keeps their cameras and scrolls apart */
+    const seen = (opened[target.goes] = (opened[target.goes] || 0) + 1);
+    const id = `${target.goes}-${seen}`;
     window.open(`/?only=${target.goes}&win=${id}`, '_blank', 'width=1000,height=760');
     return;
   }

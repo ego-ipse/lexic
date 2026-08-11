@@ -244,6 +244,20 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## A window is not something only the graph can be
+
+`⧉ window` was written on the graph's head alone, which made popping out a
+property of that picture rather than of facets. Every facet's head carries
+`⧉` and `⊞` now: pop it out, or open a SECOND one. Two clones of THE
+DERIVATION keep their own clocks — one on `pda`, the other on `model` —
+because each window looks through its own layer.
+
+The gate caught the new `clone` hit immediately, which is the check doing its
+job: a hit must be answered by something. It also showed the check was a flat
+allowlist hiding a real distinction, so it now says which kinds the SESSION
+answers and which the LEAF does — and the leaf's list is exactly `pop` and
+`clone`, the two things a browser must do itself.
+
 ## Two answers to "is it playing"
 
 The leaf kept its own flag to decide whether to send ticks; the session kept

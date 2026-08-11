@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 import sys
 import time
+from collections import ChainMap
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -27,7 +28,7 @@ if str(HERE) not in sys.path:
 
 from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
-from opsis.frame.facets import Look  # noqa: E402
+from opsis.frame.facets import HEADS, Look  # noqa: E402
 from opsis.frame.marks import Frame  # noqa: E402
 from opsis.frame.tones import EDGES, FONTS, TONES  # noqa: E402
 from opsis.scene import reader_of, ruledefs, staged  # noqa: E402
@@ -209,10 +210,13 @@ def main() -> int:
     )
 
     print("what the hand can land on")
-    known = set(LANDED) | {
+    # a hit is answered by the SESSION or by the LEAF, and which is which
+    # matters: the leaf answers only what a browser must do — open a window —
+    # and everything else has to be a gesture the session knows
+    by_leaf = {"pop", "clone"}
+    by_session = set(LANDED) | {
         "scroll",
         "seam",
-        "pop",
         "pin",
         "rail",
         "facet",
@@ -229,9 +233,14 @@ def main() -> int:
     }
     kinds = {h.split(" ")[4] for h in said.hits}
     check(
-        "every hit names something the session answers to",
-        kinds <= known,
-        " ".join(sorted(kinds - known) or ["all answered"]),
+        "every hit is answered by the session, or by the leaf opening a window",
+        kinds <= by_session | by_leaf,
+        " ".join(sorted(kinds - by_session - by_leaf) or ["all answered"]),
+    )
+    check(
+        "and the leaf answers only what a browser must do",
+        kinds & by_leaf <= {"pop", "clone"},
+        " ".join(sorted(kinds & by_leaf)),
     )
     check(
         "a line number sets the reading's time",
@@ -500,14 +509,34 @@ def main() -> int:
     )
 
     print("windows are their own")
-    from collections import ChainMap
-
     layer: dict[str, str] = {}
     session.gesture("set graph.view rails", into=ChainMap(layer, session.main))
     check(
         "a gesture in a window writes to the window",
         layer.get("graph.view") == "rails" and "graph.view" not in session.main,
         f"window {layer} · session {session.main.get('graph.view', '—')}",
+    )
+    every_facet = ("grammar", "graph", "document", "chart", "spine")
+    look = Look(reading, staged(reading, {}), 0.0, {}, watched)
+    check(
+        "every facet can be popped out and cloned, not only the graph",
+        all(
+            {"pop", "clone"} <= {kind for _w, kind, _g, _o in HEADS(look, name)}
+            for name in every_facet
+        ),
+        " ".join(every_facet),
+    )
+    check(
+        "a window on any facet draws that facet",
+        all(bool(frame({}, only=name).marks) for name in every_facet),
+    )
+    one, two = ChainMap({}, session.main), ChainMap({}, session.main)
+    session.gesture("set chart.clock pda", into=one)
+    check(
+        "two clones of one facet keep their own view",
+        one.get("chart.clock") == "pda" and two.get("chart.clock") is None,
+        f"clone one {one.get('chart.clock')} · "
+        f"clone two {two.get('chart.clock') or '—'}",
     )
     check(
         "a pin says what it is about, and what covers it",

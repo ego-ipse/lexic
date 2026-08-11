@@ -977,31 +977,36 @@ def _next(options: tuple[str, ...], here: str) -> str:
 
 
 def _heads(look: Look, name: str) -> list[tuple[str, str, str, bool]]:
-    """What a facet's head carries — its own controls, and nothing else's.
+    """What a facet's head carries — its own controls, then the ones every
+    facet has.
 
     A select is ONE control showing the value it is on, not a row of every
     value it could be: `#gform`, `#gview` and `#cclock` are `<select>`s, and a
     row of five chips is both a different instrument and too wide for the head
     it has to sit in.
+
+    `⧉` and `⊞` belong to EVERY facet. Popping one out was written for the
+    graph alone, which made it a property of that picture rather than of
+    facets — and a window is not something only one of them can be.
     """
+    own: list[tuple[str, str, str, bool]] = []
     if name == "grammar":
         forms = tuple(FORMS)
-        return [(look.it.form, "form", _next(forms, look.it.form), True)]
-    if name == "graph":
+        own = [(look.it.form, "form", _next(forms, look.it.form), True)]
+    elif name == "graph":
         keys = tuple(key for key, _word in GRAPHS)
         here = look.says("graph.view", "depth3d")
-        word = dict(GRAPHS).get(here, here)
-        return [
-            (word, "graph.view", _next(keys, here), True),
+        own = [
+            (dict(GRAPHS).get(here, here), "graph.view", _next(keys, here), True),
             ("◉ focus", "graph.focus", "on", look.says("graph.focus", "off") == "on"),
-            ("⧉ window", "pop", "graph", False),
         ]
-    if name == "chart":
+    elif name == "chart":
         keys = tuple(key for key, _word in CLOCKS)
         here = look.says("chart.clock", "model")
-        word = dict(CLOCKS).get(here, here)
-        return [(word, "chart.clock", _next(keys, here), True)]
-    return []
+        own = [(dict(CLOCKS).get(here, here), "chart.clock", _next(keys, here), True)]
+    # ⧉ pops it out; ⊞ opens a SECOND one, which is the same window with its
+    # own layer — two views of one facet, each with its own camera and scroll
+    return [*own, ("⧉", "pop", name, False), ("⊞", "clone", name, False)]
 
 
 HEADS = _heads
