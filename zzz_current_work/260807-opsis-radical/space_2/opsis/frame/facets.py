@@ -59,6 +59,11 @@ CLOCKS = (("model", "model"), ("pda", "pda clock"), ("earley", "earley clock"))
 
 PITCH = 5.0
 
+# `chart.js`: `const pad = 10` — the band, the window outline, the lanes and
+# the cursor all measure from it. Three different left edges in one facet is
+# why clicking the lanes landed on the wrong character.
+PAD = 10.0
+
 # AUTO_INK — what a clone IS, in colour. A frame is tinted by the KIND of
 # clone that pushed it, which is how a machine of 126 distinct clones reads as
 # 126 distinct things rather than one rule entered over and over.
@@ -885,7 +890,7 @@ def window_of(look: Look, w: float) -> tuple[int, int, float]:
     picture end up describing different stretches of text.
     """
     pitch = PITCH * look.zoom("chart")
-    window = max(8, int((w - 12) / pitch))
+    window = max(8, int((w - 2 * PAD) / pitch))
     text = look.reading.text
     start = max(0, min(int(look.at) - int(window * 0.6), max(0, len(text) - window)))
     return start, window, pitch
@@ -913,8 +918,8 @@ def lanes_of(
         top = lanes + lane
         if e0 < start or s0 > start + window or top + deep > y + h:
             continue
-        x1 = x + 6 + (max(s0, start) - start) * pitch
-        x2 = x + 6 + (min(e0, start + window) - start) * pitch
+        x1 = x + PAD + (max(s0, start) - start) * pitch
+        x2 = x + PAD + (min(e0, start + window) - start) * pitch
         if tone == "eps":
             # a rule that derives nothing is a tick, not a box: there is no
             # width to fill, and filling one would claim text it never took
@@ -929,7 +934,7 @@ def lanes_of(
         if e0 <= look.at:
             said.box(x1, top, max(1.5, x2 - x1), deep, "closed")
         elif s0 < look.at:
-            here = x + 6 + (min(look.at, start + window) - start) * pitch
+            here = x + PAD + (min(look.at, start + window) - start) * pitch
             said.box(x1, top, max(1.5, here - x1), deep, "active")
         said.ring(
             x1,
@@ -941,7 +946,7 @@ def lanes_of(
         if (s0, e0) in picked:
             said.ring(x1 - 1.5, top - 1.5, max(1.5, x2 - x1) + 3, deep + 3, "violet")
         said.hit(x1, top, max(3.0, x2 - x1), deep, "span", f"{s0}:{e0}")
-    cursor = x + 6 + (min(max(look.at, start), start + window) - start) * pitch
+    cursor = x + PAD + (min(max(look.at, start), start + window) - start) * pitch
     said.line(cursor, y + 32, cursor, y + h, "cursor")
 
 
@@ -958,17 +963,23 @@ def chart(said: Frame, room: Room, look: Look) -> None:
         band = _kept(
             f"band:{stamp}", lambda: band_drawing(look.reading, 18, None, "model")
         )
-        said.place(band, x, y + 6, w / max(1.0, band.wide), 22.0 / max(1.0, band.tall))
+        said.place(
+            band,
+            x + PAD,
+            y + 6,
+            (w - 2 * PAD) / max(1.0, band.wide),
+            22.0 / max(1.0, band.tall),
+        )
     else:
-        _texture(said, (x + 10, y + 6, w - 20, 22.0), look, which, stamp)
+        _texture(said, (x + PAD, y + 6, w - 2 * PAD, 22.0), look, which, stamp)
     _window(said, room, look)
     # THE CHART SCRUBS — the status bar has always said so. Dragging in the
     # band moves the cursor across the whole document; dragging in the lanes
     # moves it within the window they show. Two different sums, so two hits,
     # each carrying what the leaf needs to do its own half in one subtraction.
     start, _window_, pitch = window_of(look, w)
-    said.hit(x + 10, y + 4, w - 20, 28, "scrub", "band", x + 10, w - 20)
-    said.hit(x, y + 36, w, h - 40, "scrub", f"lanes:{start}", x + 6, pitch)
+    said.hit(x + PAD, y + 4, w - 2 * PAD, 28, "scrub", "band", x + PAD, w - 2 * PAD)
+    said.hit(x, y + 36, w, h - 40, "scrub", f"lanes:{start}", x + PAD, pitch)
     deep = int(max(20, h - 44))
     drawn = _kept(f"clock:{stamp}:{which}:{deep}", lambda: _clock(look, deep))
     picked = _picked(look, stamp)
@@ -994,8 +1005,8 @@ def _window(said: Frame, room: Room, look: Look) -> None:
     x, y, w, _h = room
     start, window, _pitch = window_of(look, w)
     length = max(1, len(look.reading.text))
-    left = x + 10 + (w - 20) * start / length
-    right = x + 10 + (w - 20) * min(start + window, length) / length
+    left = x + PAD + (w - 2 * PAD) * start / length
+    right = x + PAD + (w - 2 * PAD) * min(start + window, length) / length
     for x1, y1, x2, y2 in (
         (left, y + 5, max(right, left + 2), y + 5),
         (left, y + 29, max(right, left + 2), y + 29),
@@ -1151,8 +1162,8 @@ def pda_lanes(said: Frame, room: Room, look: Look) -> None:
         top = lanes + int(depth) * lane
         if top + lane > floor:
             continue
-        x1 = x + 6 + (max(int(s0), start) - start) * pitch
-        x2 = max(x + 6 + (min(int(e0), start + window) - start) * pitch, x1 + 1.5)
+        x1 = x + PAD + (max(int(s0), start) - start) * pitch
+        x2 = max(x + PAD + (min(int(e0), start + window) - start) * pitch, x1 + 1.5)
         mode = seated[int(seat)] if 0 <= int(seat) < len(seated) else "seq"
         base = AUTO_INK.get(mode, "token")
         done, live = e0 <= look.at, e0 > look.at and s0 < look.at
@@ -1165,7 +1176,7 @@ def pda_lanes(said: Frame, room: Room, look: Look) -> None:
             if done:
                 said.box(x1, top, x2 - x1, lane - 1, f"{base}20")
             elif live:
-                here = x + 6 + (min(look.at, start + window) - start) * pitch
+                here = x + PAD + (min(look.at, start + window) - start) * pitch
                 said.box(x1, top, max(1.5, here - x1), lane - 1, "active")
             said.ring(x1, top, x2 - x1, lane - 1, "warm" if live else base)
         # what it IS, when there is room to say it
@@ -1179,7 +1190,7 @@ def pda_lanes(said: Frame, room: Room, look: Look) -> None:
                 face="chip",
             )
         said.hit(x1, top, max(3.0, x2 - x1), lane, "frame", f"{s0}:{e0}:{depth}:{name}")
-    cursor = x + 6 + (min(max(look.at, start), start + window) - start) * pitch
+    cursor = x + PAD + (min(max(look.at, start), start + window) - start) * pitch
     said.line(cursor, y + 32, cursor, y + h, "cursor")
 
 

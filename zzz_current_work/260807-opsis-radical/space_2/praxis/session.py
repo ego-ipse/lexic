@@ -717,6 +717,9 @@ class Session:
         self._go(["end"])
 
     def _play(self, _words: list[str]) -> None:
+        """▶ — and from the end, it starts again. `play()` rewinds first."""
+        if not self.playing and self.at >= len(self.reading.text):
+            self.at = 0.0
         self.playing = not self.playing
         self.since = monotonic()
         # the frame reads it as policy, so it has to BE policy: the bar said
@@ -742,8 +745,10 @@ class Session:
         now = monotonic()
         gone, self.since = min(0.5, now - self.since), now
         length = len(self.reading.text)
+        # `tick`: doc.length / 22 per second — twenty-two seconds to cross
+        # it, which is the pace the instrument has always read at
         self.at = min(
-            self.at + gone * length / 10 * float(self.state.get("speed", "1")), length
+            self.at + gone * length / 22 * float(self.state.get("speed", "1")), length
         )
         self.playing = self.at < length
         self.main["playing"] = "1" if self.playing else "0"
