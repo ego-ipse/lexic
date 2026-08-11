@@ -18,10 +18,14 @@ CODE = '"JetBrains Mono", "DejaVu Sans Mono", monospace'
 FONTS = {
     # #title: cool, 700, 14px, letter-spacing .18em
     "title": f"700 14px {SANS}",
-    # .facet h2: 10.5px, letter-spacing .14em, cool
-    "ftitle": f"10.5px {SANS}",
-    # .facet h2 em, #sub, #status: 12px sans, dim
+    # .facet h2 b: the title is inside a `<b>`, so it is BOLD — the tag does
+    # that, and a canvas asked for "10.5px" draws a different, thinner word
+    "ftitle": f"700 10.5px {SANS}",
+    # #sub and #status: 12px sans, dim, in a <span> — normal weight
     "fsub": f"12px {SANS}",
+    # .facet h2 em: the same words, but inside an <h2>, and a heading is BOLD.
+    # One face for both drew the facet heads a visibly lighter instrument.
+    "hsub": f"700 12px {SANS}",
     # #verdict, #readout, #pos, #pincount: mono 11px
     "verdict": f"11px {CODE}",
     # .tabbar .tab, #dock .fnode-chip, #ladder .rung, the selects: mono 10px
@@ -57,6 +61,7 @@ TONES = {
     "title": "#6fc3c9",
     "ftitle": "#6fc3c9",
     "fsub": "#66707f",
+    "hsub": "#66707f",
     "verdict": "#66707f",
     "chip": "#66707f",
     # .gchip is --dim at every size: a name's DISTANCE is its size, and its
@@ -148,8 +153,9 @@ EDGES = {
 CELL = 7.5
 ADVANCE = {
     "title": 9.4,
-    "ftitle": 6.6,
+    "ftitle": 7.0,
     "fsub": 6.4,
+    "hsub": 6.8,
     "verdict": 6.6,
     "chip": 6.0,
     "railchip": 5.6,

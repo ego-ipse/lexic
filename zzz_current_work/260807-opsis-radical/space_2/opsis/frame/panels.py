@@ -204,15 +204,15 @@ def head(
         # and the finding itself is said shorter rather than said half
         want = runs("fsub", aside.said)
         if room - want >= runs("fsub", rest) + 10:
-            said.text(at, y + 18, "fsub", rest)
-            at += runs("fsub", rest) + 10
-            room -= runs("fsub", rest) + 10
+            said.text(at, y + 18, "hsub", rest)
+            at += runs("hsub", rest) + 10
+            room -= runs("hsub", rest) + 10
         words = aside.said if runs("fsub", aside.said) <= room else aside.brief
         said.text(at, y + 18, aside.tone, words, room)
         at += min(runs("fsub", words), room) + 12
     elif rest:
-        said.text(at, y + 18, "fsub", rest, room)
-        at += min(runs("fsub", rest), room) + 12
+        said.text(at, y + 18, "hsub", rest, room)
+        at += min(runs("hsub", rest), room) + 12
     # THE HEAD IS AN ALIAS OF ITS NODE. Dragging it is how a surface is moved
     # somewhere else in the arrangement — the same gesture as its dock chip,
     # because they name the same thing. The controls sit above it and take
