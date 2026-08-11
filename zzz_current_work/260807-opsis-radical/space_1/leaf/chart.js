@@ -308,41 +308,41 @@ function drawChart(view = chartMain) {
   }
   // one pass, carrying the index: `indexOf` inside this loop was a linear
   // scan of 12k spans per drawn span — quadratic, on every frame
-  S.spans.forEach((s, idx) => {
-    if (s.e <= at || s.s >= at + win) return;
-    const x1 = sx(Math.max(s.s, at)), x2 = sx(Math.min(s.e, at + win));
-    const y = lanesY + s.d * laneH;
-    if (s.e === s.s) {
-      // an ε match holds no text: drawing it as a box the width of two
-      // characters puts 1,400 objects on screen that the document does not
-      // contain. It is a mark AT a place, so it is drawn as one.
-      cx.strokeStyle = s.s <= T ? C.dimmer : C.pending;
-      cx.beginPath();
-      cx.moveTo(x1 + 0.5, y + 1);
-      cx.lineTo(x1 + 0.5, y + laneH - 3);
-      cx.stroke();
-      if (idx === cur.hover || idx === cur.sel) {
+  // THE LANES ARE A DRAWING. Which span sits where, how wide, in which
+  // lane — all of that is the reading's, addressed by the span it is. What
+  // stays here is the window (the leaf chose it), the cursor (the leaf
+  // moves it) and the tint that follows from the two.
+  const key = `chart:${Math.round(at)}:${win}:${Math.round(w)}:${S.meta.generation}`;
+  const lanes = drawings.get(key);
+  if (!lanes) {
+    loadDrawing(key, `&from=${Math.round(at)}&win=${win}`
+      + `&box=${Math.round(w - 2 * pad)}x${Math.round(h - lanesY - 8)}`, 'chart');
+  } else {
+    cx.save();
+    cx.translate(pad, lanesY);
+    for (const mark of lanes.marks) {
+      const m = mark.split(' ');
+      if (m[0] !== 'box') continue;
+      const [bx, by, bw, bh] = [+m[1], +m[2], +m[3], +m[4]];
+      const [s0, e0, idx] = m[6].split(':').map(Number);
+      const tone = m[5] === 'eps'
+        ? (s0 <= T ? C.dimmer : C.pending)
+        : (e0 <= T ? C.cool : (s0 < T ? C.warm : C.pending));
+      if (e0 <= T && m[5] !== 'eps') { cx.fillStyle = C.closed; cx.fillRect(bx, by, bw, bh); }
+      else if (s0 < T && m[5] !== 'eps') { cx.fillStyle = C.active; cx.fillRect(bx, by, bw, bh); }
+      cx.strokeStyle = tone;
+      cx.strokeRect(bx + 0.5, by + 0.5, Math.max(bw, 1), bh);
+      if (idx === cur.sel || idx === cur.hover) {
         cx.strokeStyle = idx === cur.hover ? C.ink : C.warm;
-        cx.strokeRect(x1 - 2.5, y - 1.5, 5, laneH + 1);
+        cx.strokeRect(bx - 1.5, by - 1.5, bw + 3, bh + 3);
       }
-      return;
+      if (markedRule() && S.ruleNames[S.spans[idx].r] === markedRule()) {
+        cx.strokeStyle = C.violet;
+        cx.strokeRect(bx - 1.5, by - 1.5, bw + 3, bh + 3);
+      }
     }
-    if (s.e <= T) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 2); cx.strokeStyle = C.cool; }
-    else if (s.s < T) {
-      cx.fillStyle = C.active; cx.fillRect(x1, y, sx(Math.min(T, at + win)) - x1, laneH - 2);
-      cx.strokeStyle = C.warm;
-    } else cx.strokeStyle = C.pending;
-    cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 2), laneH - 2);
-    if (idx === cur.sel || idx === cur.hover) {
-      // the hand's mark is the BRIGHT one: it is where you are pointing
-      cx.strokeStyle = idx === cur.hover ? C.ink : C.warm;
-      cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
-    }
-    if (markedRule() && S.ruleNames[s.r] === markedRule()) {
-      cx.strokeStyle = C.violet;
-      cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
-    }
-  });
+    cx.restore();
+  }
   const cxx = sx(Math.min(Math.max(T, at), at + win));
   cx.strokeStyle = C.warm;
   cx.beginPath(); cx.moveTo(cxx, lanesY - 6); cx.lineTo(cxx, h - 4); cx.stroke();
