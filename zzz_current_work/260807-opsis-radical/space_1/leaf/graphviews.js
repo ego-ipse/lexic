@@ -1,51 +1,20 @@
-/* opsis leaf — the rule-graph views — flat, arcs, 3d.
-   Carved verbatim from one file: order is load order, and every
-   top-level binding stays in the global lexical environment the way it
-   was, because the leaf is one program that lives in several files. */
+/* opsis leaf — the graph views inside a room.
+
+   A room's graph is the SAME picture as the facet's, asked for at the size
+   of the room it is in. This file used to hold a second copy of every
+   layout and every draw — flat, arcs and a whole 3-D projection — which is
+   how the two could disagree about what a grammar looks like. */
 
 'use strict';
-
-/* ── the rule-graph views: flat · arcs · 3d — drawn from the IR in hand ── */
 
 function bootGraphViews(scope) {
   for (const view of scope.querySelectorAll('.gview')) {
     if (view.dataset.armed) continue;
     view.dataset.armed = '1';
-    view._cam = { yaw: 0.6, pitch: 0.45, zoom: 1 };
     view._mode = 'flat';
-    fetch(`/rulegraph?place=${encodeURIComponent(view.dataset.place)}`)
-      .then((r) => r.text()).then((text) => {
-        // the SAME wire the rest of the leaf reads (#EDGES / #DEPTHS). This
-        // parser was looking for 'n'/'e' lines nothing has ever sent, so
-        // every room graph drew an empty canvas and read as a broken view.
-        const nodes = [], edges = [];
-        const lines = text.split('\n');
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          if (line.startsWith('#EDGES ') || line.startsWith('#DEPTHS ')) {
-            const n = parseInt(line.split(' ')[1], 10) || 0;
-            const rows = lines.slice(i + 1, i + 1 + n);
-            i += n;
-            if (line.startsWith('#EDGES ')) {
-              for (const r of rows) {
-                const [a, b] = r.split(' ');
-                if (a && b) edges.push([a, b]);
-              }
-            } else {
-              rows.forEach((r, order) => {
-                const cut = r.lastIndexOf(' ');
-                if (cut > 0) {
-                  nodes.push({ name: r.slice(0, cut), order,
-                               depth: +r.slice(cut + 1) });
-                }
-              });
-            }
-          }
-        }
-        view._g = { nodes, edges };
-        pvDrawView(view);
-      });
+    view._pan = { x: 0, y: 0 };
     armGraphView(view);
+    pvDrawView(view);
   }
 }
 
@@ -53,205 +22,46 @@ function armGraphView(view) {
   const canvas = view.querySelector('canvas');
   view.addEventListener('click', (ev) => {
     const tab = ev.target.closest('.gtab');
-    if (!tab) return;
-    view._mode = tab.dataset.view;
-    for (const b of view.querySelectorAll('.gtab')) b.classList.toggle('on', b === tab);
-    pvDrawView(view);
+    if (tab) {
+      view._mode = tab.dataset.view;
+      for (const b of view.querySelectorAll('.gtab')) b.classList.toggle('on', b === tab);
+      pvDrawView(view);
+      return;
+    }
+    // a painted door is followed here too — one hit test, any picture
+    const box = canvas.getBoundingClientRect();
+    const door = view._painted && doorAt(view._painted, ev.clientX - box.left,
+      ev.clientY - box.top, view._pan, view._scale || 1);
+    if (door) { cur.rule = door.goes; ask(); }
   });
   let drag = null;
   canvas.addEventListener('pointerdown', (ev) => {
-    if (view._mode !== '3d') return;
-    drag = { x: ev.clientX, y: ev.clientY };
+    drag = { x: ev.clientX - view._pan.x, y: ev.clientY - view._pan.y };
     canvas.setPointerCapture(ev.pointerId);
   });
   canvas.addEventListener('pointermove', (ev) => {
     if (!drag) return;
-    view._cam.yaw += (ev.clientX - drag.x) * 0.008;
-    view._cam.pitch = Math.max(-1.4, Math.min(1.4,
-      view._cam.pitch + (ev.clientY - drag.y) * 0.006));
-    drag = { x: ev.clientX, y: ev.clientY };
+    view._pan = { x: ev.clientX - drag.x, y: ev.clientY - drag.y };
     pvDrawView(view);
   });
   canvas.addEventListener('pointerup', () => { drag = null; });
-  canvas.addEventListener('wheel', (ev) => {
-    if (view._mode !== '3d') return;
-    ev.preventDefault();
-    view._cam.zoom = Math.max(0.3, Math.min(4,
-      view._cam.zoom * (ev.deltaY < 0 ? 1.1 : 0.9)));
-    pvDrawView(view);
-  }, { passive: false });
 }
 
-const GV_INK = '#d7dde7', GV_DIM = '#7d8794', GV_WIRE = '#39414f', GV_WARM = '#f0b25e';
-
-function gvPaint(canvas, g) {
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth || canvas.parentElement.clientWidth || 700;
-  // as tall as the busiest lane needs — the same rule every other surface
-  // here follows: the picture states its size, the room is not guessed at
-  const lanes = new Map();
-  for (const n of (g ? g.nodes : [])) {
-    lanes.set(n.depth, (lanes.get(n.depth) || 0) + 1);
-  }
-  const busiest = Math.max(1, ...lanes.values());
-  const h = Math.max(280, Math.min(880, busiest * 26 + 48));
-  canvas.style.height = `${h}px`;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, w, h);
-  ctx.font = '10px monospace';
-  return { ctx, w, h };
+async function pvDrawView(view) {
+  const canvas = view.querySelector('canvas');
+  const host = canvas.parentElement;
+  const wide = Math.max(320, host ? host.clientWidth : 700);
+  const view3 = view._mode === '3d' ? 'rings' : view._mode;
+  const said = await loadDrawing(`graph:${view.dataset.place}:${view3}`,
+    `&view=${view3}&box=${Math.round(wide)}x420&t=${Math.round(cur.t)}`,
+    'graph');
+  if (!said) return;
+  const scale = Math.min(1, wide / Math.max(1, said.w));
+  view._painted = said;
+  view._scale = scale;
+  canvas.style.height = Math.min(520, Math.max(220, said.h * scale + 20)) + 'px';
+  paint(canvas, said, view._pan, scale);
 }
-
-function pvDrawView(view) {
-  if (!view._g) return;
-  const { ctx, w, h } = gvPaint(view.querySelector('canvas'), view._g);
-  if (view._mode === 'flat') gvFlat(ctx, w, h, view._g);
-  else if (view._mode === 'arcs') gvArcs(ctx, w, h, view._g);
-  else gv3d(ctx, w, h, view._g, view._cam);
-}
-
-function gvFlat(ctx, w, h, g) {
-  const maxDepth = Math.max(...g.nodes.map((n) => n.depth).filter((d) => d < 99), 0);
-  const lanes = new Map();
-  for (const n of [...g.nodes].sort((a, b) => a.order - b.order)) {
-    const d = Math.min(n.depth, maxDepth + 1);
-    if (!lanes.has(d)) lanes.set(d, []);
-    lanes.get(d).push(n);
-  }
-  const pos = new Map();
-  const colW = (w - 60) / (maxDepth + 2);
-  for (const [depth, lane] of lanes) {
-    lane.forEach((n, i) => pos.set(n.name, {
-      x: 30 + depth * colW,
-      y: 22 + (h - 44) * (lane.length === 1 ? 0.5 : i / (lane.length - 1)) }));
-  }
-  ctx.strokeStyle = GV_WIRE;
-  for (const [a, b] of g.edges) {
-    const p = pos.get(a), q = pos.get(b);
-    if (!p || !q) continue;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    ctx.bezierCurveTo((p.x + q.x) / 2, p.y, (p.x + q.x) / 2, q.y, q.x, q.y);
-    ctx.stroke();
-  }
-  for (const n of g.nodes) {
-    const p = pos.get(n.name);
-    if (!p) continue;
-    ctx.fillStyle = n.depth === 0 ? GV_WARM : GV_INK;
-    ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
-    ctx.fillStyle = n.depth === 0 ? GV_WARM : GV_DIM;
-    ctx.fillText(n.name, p.x + 5, p.y + 3);
-  }
-}
-
-function gvArcs(ctx, w, h, g) {
-  const sorted = [...g.nodes].sort((a, b) => a.order - b.order);
-  const base = h * 0.6;
-  const step = (w - 60) / Math.max(1, sorted.length - 1);
-  const pos = new Map();
-  sorted.forEach((n, i) => pos.set(n.name, { x: 30 + i * step, i }));
-  ctx.strokeStyle = GV_WIRE;
-  for (const [a, b] of g.edges) {
-    const p = pos.get(a), q = pos.get(b);
-    if (!p || !q || a === b) continue;
-    const up = q.i > p.i;
-    const span = Math.abs(q.x - p.x);
-    ctx.beginPath();
-    ctx.moveTo(p.x, base);
-    ctx.quadraticCurveTo((p.x + q.x) / 2,
-      base + (up ? -1 : 1) * Math.min(base - 14, 18 + span * 0.3), q.x, base);
-    ctx.stroke();
-  }
-  for (const n of sorted) {
-    const p = pos.get(n.name);
-    ctx.fillStyle = n.depth === 0 ? GV_WARM : GV_INK;
-    ctx.fillRect(p.x - 2, base - 2, 4, 4);
-    ctx.save();
-    ctx.translate(p.x + 3, base + 10);
-    ctx.rotate(Math.PI / 3);
-    ctx.fillStyle = n.depth === 0 ? GV_WARM : GV_DIM;
-    ctx.fillText(n.name, 0, 0);
-    ctx.restore();
-  }
-}
-
-function gv3d(ctx, w, h, g, cam) {
-  const levels = new Map();
-  for (const n of [...g.nodes].sort((a, b) => a.order - b.order)) {
-    if (!levels.has(n.depth)) levels.set(n.depth, []);
-    levels.get(n.depth).push(n);
-  }
-  const step = 80;
-  const world = new Map();
-  for (const [depth, lane] of levels) {
-    const radius = lane.length === 1 ? 0 : 40 + 28 * Math.sqrt(lane.length);
-    lane.forEach((n, i) => {
-      const angle = (i / lane.length) * Math.PI * 2;
-      world.set(n.name, { x: radius * Math.cos(angle),
-                          y: radius * Math.sin(angle), z: depth * step, d: n.depth });
-    });
-  }
-  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
-  const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
-  const proj = new Map();
-  for (const [name, p] of world) {
-    const x1 = p.x * cy + (p.z - step) * sy;
-    const z1 = -p.x * sy + (p.z - step) * cy;
-    const y1 = p.y * cp - z1 * sp;
-    const z2 = p.y * sp + z1 * cp;
-    const s = 420 / (420 + z2 + 240);
-    proj.set(name, { x: x1 * s, y: y1 * s, z: z2, s, d: p.d });
-  }
-  // auto-fit AFTER projection: the orbit changes the extent, so a fixed
-  // scale throws the graph off-screen on rotation (the reported break)
-  let x0 = 1e9, x1m = -1e9, y0 = 1e9, y1m = -1e9;
-  for (const P of proj.values()) {
-    x0 = Math.min(x0, P.x); x1m = Math.max(x1m, P.x);
-    y0 = Math.min(y0, P.y); y1m = Math.max(y1m, P.y);
-  }
-  const k = Math.min((w * 0.86) / Math.max(40, x1m - x0),
-                     (h * 0.82) / Math.max(40, y1m - y0)) * cam.zoom;
-  const mx = (x0 + x1m) / 2, my = (y0 + y1m) / 2;
-  for (const P of proj.values()) {
-    P.x = w / 2 + (P.x - mx) * k;
-    P.y = h / 2 + (P.y - my) * k;
-  }
-  ctx.strokeStyle = GV_WIRE;
-  for (const [a, b] of g.edges) {
-    const p = proj.get(a), q = proj.get(b);
-    if (!p || !q) continue;
-    ctx.globalAlpha = Math.max(0.25, Math.min(1, p.s));
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
-    ctx.lineTo(q.x, q.y);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-  for (const [name, p] of [...proj.entries()].sort((a, b) => b[1].z - a[1].z)) {
-    const r = Math.max(1.6, 3.2 * p.s);
-    ctx.fillStyle = p.d === 0 ? GV_WARM : GV_INK;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-    ctx.fill();
-    if (p.s > 0.55 || p.d === 0) {
-      ctx.fillStyle = p.d === 0 ? GV_WARM : GV_DIM;
-      ctx.fillText(name, p.x + r + 2, p.y + 3);
-    }
-  }
-}
-
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape') return;
-  const layer = $('strata');
-  if (layer && layer.classList.contains('on')) {
-    e.stopPropagation();
-    closeStrata();
-  }
-}, true);
-
 
 async function pollRoutes() {
   const text = await (await fetch('/routes')).text();

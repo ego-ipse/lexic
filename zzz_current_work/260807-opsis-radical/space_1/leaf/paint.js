@@ -20,7 +20,7 @@ const drawings = new Map();     // what → { marks, w, h }
 
 function toneOf(name) { return TONE[name] || '#8fa3b8'; }
 
-async function loadDrawing(what, query = '') {
+async function loadDrawing(key, query = '', what = key) {
   const text = await (await fetch(`/draw?what=${what}${query}`)).text();
   const lines = text.split('\n');
   const head = (lines[0] || '').split(' ');
@@ -30,7 +30,7 @@ async function loadDrawing(what, query = '') {
     w: +head[3] || 0,
     h: +head[4] || 0,
   };
-  drawings.set(what, said);
+  drawings.set(key, said);
   ask();
   return said;
 }
