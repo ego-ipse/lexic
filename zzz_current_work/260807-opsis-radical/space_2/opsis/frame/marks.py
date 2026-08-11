@@ -25,7 +25,17 @@ POINTS = {"line": 2, "curve": 3, "bez": 4}
 class Frame:
     """One frame: marks, hit rectangles, and the text planes welded into it."""
 
-    __slots__ = ("hits", "lifted", "marks", "over", "planes", "tall", "texts", "wide")
+    __slots__ = (
+        "hits",
+        "lifted",
+        "marks",
+        "over",
+        "picks",
+        "planes",
+        "tall",
+        "texts",
+        "wide",
+    )
 
     def __init__(self, wide: int, tall: int) -> None:
         self.marks: list[str] = []
@@ -37,6 +47,7 @@ class Frame:
         self.over: list[str] = []
         self.lifted = False
         self.hits: list[str] = []
+        self.picks: list[str] = []
         self.planes: list[str] = []
         self.texts: list[str] = []
         self.wide = wide
@@ -152,6 +163,27 @@ class Frame:
                 said = said[: fits - 1] + "…"
         self._put(f"text {x:.1f} {y:.1f} {tone} {put} {anchor} {said}")
 
+    def pick(
+        self,
+        key: str,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        chosen: str,
+        options: tuple[tuple[str, str], ...],
+    ) -> None:
+        """A real dropdown, at a place — one control showing what it is ON.
+
+        A canvas cannot be a `<select>`: it cannot open over the page, it
+        cannot be arrowed through, it cannot be typed at. The same reason the
+        document is real text is the reason this is a real control — and it
+        is placed here, on this geometry, so the frame still decides
+        everything about it except how a menu looks on your machine.
+        """
+        said = "|".join(f"{value}:{label}" for value, label in options)
+        self.picks.append(f"{key} {x:.1f} {y:.1f} {w:.1f} {h:.1f} {chosen} {said}")
+
     def hit(
         self,
         x: float,
@@ -262,6 +294,8 @@ class Frame:
                 *self.hits,
                 f"#OVER {len(self.over)}",
                 *self.over,
+                f"#PICKS {len(self.picks)}",
+                *self.picks,
                 f"#PLANES {len(self.planes)}",
                 *self.planes,
                 "#TEXT",

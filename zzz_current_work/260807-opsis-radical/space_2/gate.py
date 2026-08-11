@@ -521,7 +521,7 @@ def main() -> int:
     check(
         "every facet can be popped out and cloned, not only the graph",
         all(
-            {"pop", "clone"} <= {kind for _w, kind, _g, _o in HEADS(look, name)}
+            {"pop", "clone"} <= {control[1] for control in HEADS(look, name)}
             for name in every_facet
         ),
         " ".join(every_facet),

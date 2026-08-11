@@ -29,6 +29,25 @@ html, body { height: 100%; overflow: hidden; background: #0b0e14; }
   tab-size: 4;
   font: 12.5px/19px "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
 }
+/* A dropdown is a REAL control: it opens over the page, it is arrowed
+   through, it is typed at. leaf.css's own #gview/#gform/#cclock rule,
+   verbatim, minus the margin a flex row gave it — this one is placed. */
+.pick {
+  position: absolute;
+  background: #0e1219;
+  border: 1px solid #1a2230;
+  color: #66707f;
+  font: 10px "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  padding: 1px 4px;
+  cursor: pointer;
+  appearance: none;
+}
+.pick:hover { border-color: #6fc3c9; color: #6fc3c9; }
+.pick option { background: #0e1219; color: #e8e2d6; }
+/* the form is what the reader is SHOWING — it reads as part of the title,
+   not as a control bolted onto it */
+.pick[data-key="form"] { color: #e2a65c; border-color: #2a3140; letter-spacing: .5px; }
+
 .plane::selection { background: rgba(226, 166, 92, 0.35); color: #e8e2d6; }
 .plane::-webkit-scrollbar { width: 8px; height: 8px; }
 .plane::-webkit-scrollbar-thumb { background: #1a2230; }

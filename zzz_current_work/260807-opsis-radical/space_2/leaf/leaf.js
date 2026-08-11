@@ -11,6 +11,7 @@ const paper = document.getElementById('paper');
 const over = document.getElementById('over');
 const planes = document.getElementById('planes');
 const held = new Map();
+const chosen = new Map();
 const opened = {};
 const asked = new URLSearchParams(location.search);
 const only = asked.get('only') || '';
@@ -43,7 +44,7 @@ async function ask(gesture, body) {
         + (body === undefined ? '' : `\n${body}`),
     }).then((r) => r.text());
     const got = read(said);
-    if (got) { frame = got; paint(); weld(); }
+    if (got) { frame = got; paint(); weld(); dropdowns(); }
   } finally {
     asking = false;
     if (queued) { const next = queued; queued = null; ask(next.gesture, next.body); }
@@ -95,6 +96,19 @@ function read(said) {
     above.push(...lines.slice(i + 1, i + 1 + n));
     i += 1 + n;
   }
+  const picks = [];
+  if ((lines[i] || '').startsWith('#PICKS ')) {
+    const n = +lines[i].split(' ')[1] || 0;
+    for (const row of lines.slice(i + 1, i + 1 + n)) {
+      const p = row.split(' ');
+      picks.push({ key: p[0], x: +p[1], y: +p[2], w: +p[3], h: +p[4], on: p[5],
+                   options: p.slice(6).join(' ').split('|').map((o) => {
+                     const at = o.indexOf(':');
+                     return { value: o.slice(0, at), label: o.slice(at + 1) };
+                   }) });
+    }
+    i += 1 + n;
+  }
   const shown = [];
   if ((lines[i] || '').startsWith('#PLANES ')) {
     const n = +lines[i].split(' ')[1] || 0;
@@ -112,7 +126,7 @@ function read(said) {
     where += plane.chars;
   }
   return { font, fills, edges, fonts, marks, hits, running,
-           planes: shown, over: above };
+           planes: shown, over: above, picks };
 }
 
 function paint() {
@@ -174,6 +188,36 @@ function strokes(canvas, marks) {
       cx.fillText(p.slice(6).join(' '), +p[1], +p[2]);
       cx.textAlign = 'left';
     }
+  }
+}
+
+/* One real control per pick, on the geometry the frame sent. */
+function dropdowns() {
+  const want = new Set(frame.picks.map((p) => p.key));
+  for (const [key, el] of chosen) {
+    if (!want.has(key)) { el.remove(); chosen.delete(key); }
+  }
+  for (const pick of frame.picks) {
+    let el = chosen.get(pick.key);
+    if (!el) {
+      el = document.createElement('select');
+      el.className = 'pick';
+      el.dataset.key = pick.key;
+      el.addEventListener('change', () => ask(`set ${el.dataset.key} ${el.value}`));
+      planes.appendChild(el);
+      chosen.set(pick.key, el);
+    }
+    const said = pick.options.map((o) => o.value).join(' ');
+    if (el.dataset.options !== said) {
+      el.dataset.options = said;
+      el.innerHTML = pick.options
+        .map((o) => `<option value="${o.value}">${o.label}</option>`).join('');
+    }
+    el.value = pick.on;
+    el.style.left = `${pick.x}px`;
+    el.style.top = `${pick.y}px`;
+    el.style.width = `${pick.w}px`;
+    el.style.height = `${pick.h}px`;
   }
 }
 

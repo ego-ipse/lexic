@@ -21,6 +21,7 @@ from kairos.engine import automaton, verdicts
 from kairos.parse import column, decisions, hypotheses
 from kairos.pipeline import FORMS
 from opsis.frame.marks import CELL, ROW, Frame
+from opsis.frame.panels import Control
 from opsis.frame.tones import runs
 from opsis.grammar import rails
 from opsis.paint import (
@@ -1207,7 +1208,7 @@ def _next(options: tuple[str, ...], here: str) -> str:
     return options[(at + 1) % len(options)]
 
 
-def _heads(look: Look, name: str) -> list[tuple[str, str, str, bool]]:
+def _heads(look: Look, name: str) -> list[Control]:
     """What a facet's head carries — its own controls, then the ones every
     facet has.
 
@@ -1220,24 +1221,30 @@ def _heads(look: Look, name: str) -> list[tuple[str, str, str, bool]]:
     graph alone, which made it a property of that picture rather than of
     facets — and a window is not something only one of them can be.
     """
-    own: list[tuple[str, str, str, bool]] = []
+    own: list[Control] = []
     if name == "grammar":
-        forms = tuple(FORMS)
-        own = [(look.it.form, "form", _next(forms, look.it.form), True)]
+        own = [
+            (
+                look.it.form,
+                "form",
+                look.it.form,
+                True,
+                tuple((form, form) for form in FORMS),
+            )
+        ]
     elif name == "graph":
-        keys = tuple(key for key, _word in GRAPHS)
         here = look.says("graph.view", "depth3d")
         own = [
-            (dict(GRAPHS).get(here, here), "graph.view", _next(keys, here), True),
+            (dict(GRAPHS).get(here, here), "graph.view", here, True, GRAPHS),
             ("◉ focus", "graph.focus", "on", look.says("graph.focus", "off") == "on"),
         ]
     elif name == "chart":
-        keys = tuple(key for key, _word in CLOCKS)
         here = look.says("chart.clock", "model")
-        own = [(dict(CLOCKS).get(here, here), "chart.clock", _next(keys, here), True)]
-    # ⧉ pops it out; ⊞ opens a SECOND one, which is the same window with its
-    # own layer — two views of one facet, each with its own camera and scroll
-    return [*own, ("⧉", "pop", name, False), ("⊞", "clone", name, False)]
+        own = [(dict(CLOCKS).get(here, here), "chart.clock", here, True, CLOCKS)]
+    # ⧉ pops it out; ⧉+ opens a SECOND one — the same window with its own
+    # layer, two views of one facet, each with its own camera and scroll.
+    # The glyphs are `popout.js`'s: a twin is the same mark and one more.
+    return [*own, ("⧉", "pop", name, False), ("⧉+", "clone", name, False)]
 
 
 HEADS = _heads

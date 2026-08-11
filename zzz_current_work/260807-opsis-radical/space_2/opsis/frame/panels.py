@@ -141,11 +141,24 @@ def called(title: str) -> tuple[str, str]:
     return name.strip(), rest.strip()
 
 
+# `appearance: none` — leaf.css's own word, and it is load-bearing. Left off,
+# the browser draws its own arrow INSIDE the control and over the text, which
+# is what clipped `source` to `sourc` and `model` to `mode`. With it, a pick
+# is as wide as its widest word and nothing else.
+ARROW = 10.0
+
+# what a head carries: (said, kind, goes, on) — and, when it is a real
+# dropdown, every (value, label) it offers
+Control = (
+    tuple[str, str, str, bool] | tuple[str, str, str, bool, tuple[tuple[str, str], ...]]
+)
+
+
 def head(
     said: Frame,
     region: Region,
     titles: dict[str, str],
-    controls: list[tuple[str, str, str, bool]],
+    controls: list[Control],
     columns: dict[str, str] | None = None,
     aside: Aside | None = None,
 ) -> tuple[float, float, float, float]:
@@ -217,23 +230,35 @@ def _tabs(
         at += wide + 2
 
 
-def _taken(controls: list[tuple[str, str, str, bool]]) -> float:
+def _taken(controls: list[Control]) -> float:
     """How much of a head its own controls have already spoken for."""
-    return sum(runs("chip", word) + 16 for word, _kind, _goes, _on in controls)
+    return sum(runs("chip", c[0]) + 16 + (ARROW if len(c) > 4 else 0) for c in controls)
 
 
 def _controls(
     said: Frame,
     region: Region,
     y: float,
-    controls: list[tuple[str, str, str, bool]],
+    controls: list[Control],
 ) -> None:
     """The selects a head carries — field2, hairline, dim mono, right-aligned."""
     if not controls:
         return
-    wides = [runs("chip", word) + 10 for word, _kind, _goes, _on in controls]
+    wides = [
+        runs("chip", word) + 10 + (14 if len(c) > 4 else 0)
+        for c, word in ((c, c[0]) for c in controls)
+    ]
     at = region.x + region.w - 10 - sum(wides) - 6 * len(controls)
-    for (word, kind, goes, on), wide in zip(controls, wides, strict=True):
+    for control, wide in zip(controls, wides, strict=True):
+        word, kind, goes, on = control[:4]
+        if len(control) > 4:
+            # more than one value: a REAL dropdown, because a chip that
+            # cycles is a different instrument — it cannot show what else
+            # there is, and you cannot get back without going all the way
+            # round
+            said.pick(kind, at, y + 6, wide, 15, goes, control[4])
+            at += wide + 6
+            continue
         said.box(at, y + 6, wide, 15, "field2")
         for x1, y1, x2, y2 in (
             (at, y + 6, at + wide, y + 6),
