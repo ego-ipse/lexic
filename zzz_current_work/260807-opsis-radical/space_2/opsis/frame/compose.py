@@ -16,11 +16,12 @@ from typing import Any
 
 from opsis.frame.facets import DRAWN, HEADS, Look
 from opsis.frame.marks import Frame
-from opsis.frame.panels import head, walked
+from opsis.frame.panels import called, head, walked
 from opsis.frame.places import draw as places_draw
 from opsis.frame.strata import draw as strata_draw
 from opsis.frame.tones import runs
 from opsis.rooms import room, subject
+from opsis.space import zone_at
 from opsis.scene import Staged, staged
 from praxis.reading import Reading
 from praxis.routes import Aside
@@ -113,10 +114,58 @@ def compose(
         said.hit(
             seam.x, seam.y, seam.w, seam.h, "seam", str(seam.at), seam.base, seam.size
         )
+    _zone(said, look, grid, titles)
     _windows(said, look, titles, columns, wide, tall)
     _status(said, reading, look, wide, tall)
     _banner(said, reading, wide, tall)
     return said
+
+
+def _zone(said: Frame, look: Look, grid: object, titles: dict[str, str]) -> None:
+    """The drop overlay — what would happen if the hand let go here.
+
+    A topology change is a SHAPE, and a shape you cannot see before you
+    commit to it is a gamble. This is `#dropzone`: the half or quarter that
+    would be taken, named in the words of what it would do.
+    """
+    dragged, _, rest = look.says("drop", "").partition(" ")
+    target, _, at = rest.partition(" ")
+    if not dragged or not target or dragged == target or " " not in at:
+        return
+    across, _, down = at.partition(" ")
+    zone = zone_at(float(across), float(down))
+    for region in getattr(grid, "regions", []):
+        if region.name != target:
+            continue
+        rx, ry, rw, rh = region.x, region.y, region.w, region.h
+        if zone == "left":
+            rw /= 2
+        elif zone == "right":
+            rx, rw = rx + rw / 2, rw / 2
+        elif zone == "top":
+            rh /= 2
+        elif zone == "bottom":
+            ry, rh = ry + rh / 2, rh / 2
+        was = said.lift()
+        said.box(rx, ry, rw, rh, "cool_wash")
+        for x1, y1, x2, y2 in (
+            (rx, ry, rx + rw, ry),
+            (rx, ry + rh, rx + rw, ry + rh),
+            (rx, ry, rx, ry + rh),
+            (rx + rw, ry, rx + rw, ry + rh),
+        ):
+            said.line(x1, y1, x2, y2, "cool")
+        word = (
+            f"tab with {called(titles.get(target, target))[0].lower()}"
+            if zone == "tab"
+            else f"split {zone}"
+        )
+        # in the MIDDLE of the zone it names: at the top it sat on the head
+        # of the surface it was covering, and two lines of text in one place
+        # is worse than none
+        said.text(rx + 14, ry + rh / 2, "cool", f"{dragged} — {word}", rw - 28)
+        said.drop(was)
+        return
 
 
 def _windows(

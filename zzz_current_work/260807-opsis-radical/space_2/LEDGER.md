@@ -516,9 +516,18 @@ opening the space_1 file that already answered it, and several had been
   so no real one can be, and "the hand has not said" is a thing the layout
   can be told.
 
+- **The arrangement could not be RESHAPED, only resized.** `wire.js` makes a
+  facet's head an alias of its node: drag it onto another surface and where
+  you let go decides what happens — the outer quarters split, the middle
+  tabs, and `#dropzone` says which before the hand lets go. Here the head is
+  a hit nobody clicks, the leaf reports where in the target the pointer is as
+  a FRACTION, and one function decides what a fraction means. The shape is
+  written as a shape, because a shape recomputed from measurement on the next
+  frame is a hand's work thrown away. A tab group is one region, so dropping
+  beside a tabbed surface splits the region it shows in — there is only one
+  box there.
+
 ## Not ported yet
 
-Places · the routes strip · Earley's column and CAN COME NEXT in the spine ·
-the codegen and notation forms in the reader · window topology (dropping a
-window back into the grid) · the graph dropdowns · strata as the landing
-page.
+The graph's own look at its labels · dropping a torn-off window back into the
+grid · strata as the landing page, and adding files from there.

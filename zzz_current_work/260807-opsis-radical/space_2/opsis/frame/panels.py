@@ -211,6 +211,11 @@ def head(
         said.text(at, y + 18, aside.tone, words, room)
     elif rest:
         said.text(at, y + 18, "fsub", rest, room)
+    # THE HEAD IS AN ALIAS OF ITS NODE. Dragging it is how a surface is moved
+    # somewhere else in the arrangement — the same gesture as its dock chip,
+    # because they name the same thing. The controls sit above it and take
+    # their own clicks first.
+    said.hit(region.x, y, region.w - _taken(controls) - 10, HEAD, "head", region.name)
     _controls(said, region, y, controls)
     said.line(region.x, y + HEAD, region.x + region.w, y + HEAD, "hair")
     said.hit(region.x, y + HEAD, region.w, region.h - HEAD, "scroll", region.name)

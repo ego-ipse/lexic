@@ -19,7 +19,8 @@ from __future__ import annotations
 from collections.abc import Callable, MutableMapping
 from time import monotonic
 
-from opsis.scene import ruledefs
+from opsis.scene import ruledefs, staged
+from opsis.space import moved, zone_at
 from praxis.history import Retype, retype
 from praxis.reading import Reading, read_up
 from praxis.roots import GRAMMAR as POLICY
@@ -544,6 +545,31 @@ class Session:
             f"{float(low) + (float(high) - float(low)) * part:.3f}"
         )
 
+    def _zone(self, words: list[str]) -> None:
+        """A surface being dragged, over which surface, and where in it."""
+        self.main["drop"] = " ".join(words[:4]) if len(words) >= 4 else ""
+
+    def _move(self, words: list[str]) -> None:
+        """A surface DROPPED somewhere: the arrangement is a new shape.
+
+        The hand can do two things to an arrangement — resize a split, which
+        is a number, and move a surface, which is a shape. A shape recomputed
+        from measurement on the next frame is a hand's work thrown away, so
+        this is written as the shape it is and kept while it still names
+        exactly the surfaces in play.
+        """
+        self.main["drop"] = ""
+        if len(words) < 4:
+            return
+        name, target = words[0], words[1]
+        zone = zone_at(float(words[2]), float(words[3]))
+        tree = str(staged(self.reading, self.main).policy["arrange.tree"])
+        said = moved(tree, name, target, zone)
+        if said and said != tree:
+            self.main["arrange.shape"] = said
+            self.main["arrange.shares"] = ""
+            self.main[f"facet.{name}"] = "on"
+
     def _seam(self, words: list[str]) -> None:
         """A seam moved: its number is the split it stands for, in tree order."""
         if len(words) < 2:
@@ -639,7 +665,9 @@ SAYS: dict[str, Said] = {
     "pop": Session._pop,
     "scroll": Session._scroll,
     "scrolled": Session._scrolled,
+    "move": Session._move,
     "seam": Session._seam,
+    "zone": Session._zone,
     "sel": Session._sel,
     "set": Session._set,
     "speed": Session._speed,

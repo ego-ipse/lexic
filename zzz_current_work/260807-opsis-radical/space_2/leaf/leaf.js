@@ -308,13 +308,37 @@ paper.addEventListener('pointerdown', (ev) => {
      across a picture is about that picture even where nothing was hit */
   dragging = { x: ev.clientX, y: ev.clientY, on: under(ev, false) || under(ev, true) };
 });
-window.addEventListener('pointerup', () => { dragging = null; });
+window.addEventListener('pointerup', (ev) => {
+  /* a head dragged onto another surface is a TOPOLOGY change: where it was
+     let go decides what happens, and deciding is the session's */
+  if (dragging && dragging.on && dragging.on.kind === 'head' && dragging.moved) {
+    const over = under(ev, true);
+    if (over && over.goes !== dragging.on.goes) {
+      const box = paper.getBoundingClientRect();
+      ask(`move ${dragging.on.goes} ${over.goes}`
+        + ` ${((ev.clientX - box.left - over.x) / over.w).toFixed(3)}`
+        + ` ${((ev.clientY - box.top - over.y) / over.h).toFixed(3)}`);
+    } else {
+      ask('zone');
+    }
+  }
+  dragging = null;
+});
 window.addEventListener('pointermove', (ev) => {
   if (!dragging) return;
   const dx = ev.clientX - dragging.x, dy = ev.clientY - dragging.y;
   if (Math.abs(dx) + Math.abs(dy) < 3) return;
   dragging.x = ev.clientX; dragging.y = ev.clientY;
+  dragging.moved = true;
   const on = dragging.on;
+  if (on && on.kind === 'head') {
+    const over = under(ev, true);
+    const box = paper.getBoundingClientRect();
+    ask(over ? `zone ${on.goes} ${over.goes}`
+      + ` ${((ev.clientX - box.left - over.x) / over.w).toFixed(3)}`
+      + ` ${((ev.clientY - box.top - over.y) / over.h).toFixed(3)}` : 'zone');
+    return;
+  }
   if (on && on.kind.startsWith('dial.')) {
     const box = paper.getBoundingClientRect();
     const part = (ev.clientX - box.left - on.x) / on.w;

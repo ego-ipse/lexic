@@ -142,3 +142,122 @@ def held(shape: str, facets: Sequence[Facet]) -> str:
         if word.strip("()") and not word.strip("()")[0].isdigit()
     } - {"h", "v", "t"}
     return shape if named == {facet.name for facet in facets} else ""
+
+
+# where in a surface a drop means WHICH relation: the outer quarters split,
+# the middle tabs. `wire.js`'s own thresholds.
+EDGE = 0.28
+
+
+def zone_at(across: float, down: float) -> str:
+    """What dropping at this point in a surface would MEAN."""
+    if across < EDGE:
+        return "left"
+    if across > 1 - EDGE:
+        return "right"
+    if down < EDGE:
+        return "top"
+    if down > 1 - EDGE:
+        return "bottom"
+    return "tab"
+
+
+def without(tree: str, name: str) -> str:
+    """The arrangement with one surface taken out of it, and nothing else.
+
+    A leaf's removal collapses the split that held it — its sibling takes the
+    whole box. The LAST leaf stays: an arrangement of nothing is not an
+    arrangement, it is a blank screen with a bug behind it.
+    """
+    node = _parse(tree)
+    left = _drop(node, name)
+    return "" if left is None else _spell(left)
+
+
+def moved(tree: str, name: str, target: str, zone: str, showing: int = 1) -> str:
+    """One surface, put somewhere else — the shape `moveLeaf` makes.
+
+    Dropping on a side splits the target and takes half; dropping in the
+    middle tabs the two together. This is the whole of a topology change, and
+    it is a SHAPE, which is why it is not recomputed from measurement after.
+    """
+    if name == target:
+        return tree
+    node = _parse(tree)
+    left = _drop(node, name)
+    if left is None:
+        return tree
+
+    def split(said: object) -> object:
+        """That node, halved, with the newcomer on the side it was dropped."""
+        kind = "h" if zone in ("left", "right") else "v"
+        first = zone in ("left", "top")
+        return (kind, 0.5, name if first else said, said if first else name)
+
+    def into(said: object) -> object:
+        if said == target:
+            return ("t", showing, (target, name)) if zone == "tab" else split(said)
+        if not isinstance(said, tuple):
+            return said
+        if said[0] == "t":
+            # A TAB GROUP IS ONE REGION. Dropping on the side of a tabbed
+            # surface splits the region it is showing in — you cannot put
+            # something beside one tab and not the others, because there is
+            # only one box there. Dropping in the middle joins the set.
+            if target not in said[2]:
+                return said
+            return ("t", said[1], (*said[2], name)) if zone == "tab" else split(said)
+        return (said[0], said[1], into(said[2]), into(said[3]))
+
+    return _spell(into(left))
+
+
+def _parse(tree: str) -> object:
+    said = tree.replace("(", " ( ").replace(")", " ) ").split()
+    node, _ = _take(said, 0)
+    return node
+
+
+def _take(said: list[str], i: int) -> tuple[object, int]:
+    if said[i] != "(":
+        return said[i], i + 1
+    kind = said[i + 1]
+    if kind == "t":
+        j = i + 3
+        mates: list[str] = []
+        while said[j] != ")":
+            mates.append(said[j])
+            j += 1
+        return ("t", int(said[i + 2]), tuple(mates)), j + 1
+    left, j = _take(said, i + 3)
+    right, k = _take(said, j)
+    return (kind, float(said[i + 2]), left, right), k + 1
+
+
+def _drop(node: object, name: str) -> object | None:
+    """That leaf, gone — and whatever held it collapsed onto its sibling."""
+    if node == name:
+        return None
+    if not isinstance(node, tuple):
+        return node
+    if node[0] == "t":
+        mates = tuple(m for m in node[2] if m != name)
+        if not mates:
+            return None
+        if len(mates) == 1:
+            return mates[0]
+        return ("t", min(node[1], len(mates) - 1), mates)
+    left, right = _drop(node[2], name), _drop(node[3], name)
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return (node[0], node[1], left, right)
+
+
+def _spell(node: object) -> str:
+    if not isinstance(node, tuple):
+        return str(node)
+    if node[0] == "t":
+        return f"(t {node[1]} {' '.join(str(m) for m in node[2])})"
+    return f"({node[0]} {node[1]} {_spell(node[2])} {_spell(node[3])})"

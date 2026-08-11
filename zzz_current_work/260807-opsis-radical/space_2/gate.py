@@ -32,6 +32,7 @@ from opsis.frame.facets import HEADS, Look  # noqa: E402
 from opsis.frame.marks import Frame  # noqa: E402
 from opsis.frame.tones import EDGES, FONTS, TONES  # noqa: E402
 from opsis.scene import reader_of, ruledefs, staged  # noqa: E402
+from opsis.space import moved  # noqa: E402
 from praxis.reading import Reading, as_written  # noqa: E402
 from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 from praxis.state import chain  # noqa: E402
@@ -214,6 +215,10 @@ def main() -> int:
     # matters: the leaf answers only what a browser must do — open a window —
     # and everything else has to be a gesture the session knows
     by_leaf = {"pop", "clone"}
+    # a handle is not a target: these are taken HOLD of, and what they mean
+    # arrives as `spin`, `seam`, `zone` or `move` — gestures the session
+    # answers, from a hit nobody ever clicks
+    handles = {"head", "winhead", "wincorner"}
     by_session = set(LANDED) | {
         "scroll",
         "seam",
@@ -231,7 +236,7 @@ def main() -> int:
         "dial.ringscale",
         "dial.flatten",
     }
-    kinds = {h.split(" ")[4] for h in said.hits}
+    kinds = {h.split(" ")[4] for h in said.hits} - handles
     check(
         "every hit is answered by the session, or by the leaf opening a window",
         kinds <= by_session | by_leaf,
@@ -786,18 +791,58 @@ def main() -> int:
     # the hand puts a nested seam at 1200: (1200 - base) / size is what the
     # leaf sends, and the cut must land back under the pointer
     at, _x, base, size = was[1]
-    moved = seams(
+    dragged_to = seams(
         {"arrange.shares": " ".join(["-1"] * at + [f"{(1200 - base) / size:.3f}"])}
     )
     check(
         "a seam lands where the hand put it",
-        abs(moved[1][1] + 3 - 1200) < 2,
-        f"asked 1200 · got {moved[1][1] + 3:.0f}",
+        abs(dragged_to[1][1] + 3 - 1200) < 2,
+        f"asked 1200 · got {dragged_to[1][1] + 3:.0f}",
     )
     check(
         "and moving one seam moves NOTHING else",
-        abs(moved[0][1] - was[0][1]) < 0.5,
-        f"seam 0 was {was[0][1]:.0f}, now {moved[0][1]:.0f}",
+        abs(dragged_to[0][1] - was[0][1]) < 0.5,
+        f"seam 0 was {was[0][1]:.0f}, now {dragged_to[0][1]:.0f}",
+    )
+
+    shape = str(staged(reading, {}).policy["arrange.tree"])
+    surfaces = {
+        word.strip("()")
+        for word in shape.split()
+        if word.strip("()") and not word.strip("()")[0].isdigit()
+    } - {"h", "v", "t"}
+    check(
+        "a surface's head is an alias of its node — you can take hold of it",
+        {h.split(" ")[5] for h in frame({}).hits if h.split(" ")[4] == "head"}
+        == surfaces - {"graph"},
+        f"{len(surfaces)} surfaces",
+    )
+    for zone, at in (("bottom", "0.5 0.9"), ("left", "0.1 0.5"), ("tab", "0.5 0.5")):
+        said_move = moved(shape, "spine", "grammar", zone)
+        kept = {
+            word.strip("()")
+            for word in said_move.split()
+            if word.strip("()") and not word.strip("()")[0].isdigit()
+        } - {"h", "v", "t"}
+        check(
+            f"dropping a surface {zone} of another keeps every surface",
+            kept == surfaces and said_move != shape,
+            said_move,
+        )
+    check(
+        "and says what it would do BEFORE the hand lets go",
+        any(
+            "tab with" in w or "split bottom" in w
+            for w in words(frame({"drop": "chart document 0.5 0.5"}))
+        ),
+        next(
+            (
+                w
+                for w in words(frame({"drop": "chart document 0.5 0.5"}))
+                if "tab with" in w or "split " in w
+            ),
+            "said nothing",
+        ),
     )
 
     print("what it costs")
