@@ -67,6 +67,7 @@ class Look:
         "chosen",
         "frontier",
         "it",
+        "generation",
         "reading",
         "routes",
         "state",
@@ -84,6 +85,7 @@ class Look:
         typed: dict[str, str] | None = None,
         frontier: int = -1,
         routes: Aside | None = None,
+        generation: int = 1,
     ) -> None:
         self.reading = reading
         self.it = it
@@ -96,6 +98,7 @@ class Look:
         self.frontier = frontier
         # what the other engine made of this reading, and the tone to say it in
         self.routes = routes
+        self.generation = generation
 
     def says(self, key: str, fallback: str) -> str:
         """One policy key, as the hand left it."""
@@ -795,6 +798,18 @@ def pin(said: Frame, room: Room, look: Look) -> None:
         if span.start <= s0 and span.end >= max(e0, s0 + 1)
     ]
     span = min(covering, key=lambda s: s.end - s.start) if covering else None
+    was = look.says("pin.gen", "")
+    if was.isdigit() and int(was) != look.generation:
+        # the reading it was made against is gone: it still says what it said,
+        # and says that it is saying it about a text that has moved on
+        said.text(
+            x + w - 14,
+            y + 22,
+            "red",
+            f"STALE · made against gen {was}",
+            anchor="r",
+            face="chip",
+        )
     said.text(x + 14, y + 22, "ftitle", f"{s0:,}..{e0:,}")
     at = x + 14 + runs("ftitle", f"{s0:,}..{e0:,}") + 12
     if span is not None:

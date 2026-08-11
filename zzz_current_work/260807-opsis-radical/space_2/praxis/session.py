@@ -120,6 +120,12 @@ class Session:
         if len(words) < 2:
             return
         key, value = words[0], words[1]
+        if key == "pin.span":
+            # a pin remembers the reading it was made against, so it can say
+            # later that the reading has moved on without it
+            self.state[key] = value
+            self.state.setdefault("pin.gen", str(self.generation))
+            return
         if key.endswith(".focus"):
             self.state[key] = "off" if self.state.get(key, "off") == value else value
         else:
@@ -165,6 +171,20 @@ class Session:
             return
         key = f"facet.{words[0]}"
         self.state[key] = "off" if self.state.get(key, "on") == "on" else "on"
+
+    def _strata(self, words: list[str]) -> None:
+        """Pull back to the whole climb, or come back down into the reading."""
+        self.main["showing"] = "" if (words and words[0] == "off") else "strata"
+
+    def _rung(self, words: list[str]) -> None:
+        """Travel to a rung of the ladder — and come back into the reading."""
+        self.main["showing"] = ""
+
+    def _place(self, words: list[str]) -> None:
+        """Enter a door a rung holds."""
+        if words:
+            self.main["place"] = words[0]
+        self.main["showing"] = ""
 
     def _rail(self, words: list[str]) -> None:
         """▤ rail — show this rule as the track it describes, and go to it."""
@@ -346,7 +366,10 @@ SAYS: dict[str, Said] = {
 LANDED: dict[str, Said] = {
     "facet": Session._facet,
     "gutter": Session._gutter,
+    "place": Session._place,
     "rail": Session._rail,
+    "rung": Session._rung,
+    "strata": Session._strata,
     "rule": Session._rule,
     "span": Session._span,
     "tab": Session._tab,

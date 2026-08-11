@@ -126,10 +126,10 @@ class Handler(BaseHTTPRequestHandler):
                 state,
                 Held.watched(),
                 session.generation,
-                session.typed,
-                session.frontier(),
-                Held.other.line(),
-                only,
+                typed=session.typed,
+                frontier=session.frontier(),
+                routes=Held.other.line(),
+                only=only,
             ).wire(session.generation)
         )
 

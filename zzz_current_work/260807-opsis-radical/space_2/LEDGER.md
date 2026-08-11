@@ -132,10 +132,22 @@ reads as its opposite.
   is the same question — and says plainly when nothing covers it any more.
 - A pin wraps its text to the window rather than clipping it.
 
+## Ported since
+
+- **A pin knows which reading it was made against** and says `STALE · made
+  against gen N` when the reading has moved on without it. It still says what
+  it said; it just stops pretending that is current.
+- **THE STRATA** — the session pulled back. `praxis.strata` has written this
+  ladder since the first build and nothing had ever drawn it: every rung
+  walked, the one above it (`not yet visited — travel builds it`), each
+  rung's little depth band, and the doors it holds — its value, its machine,
+  its artefacts. Reached by `⌗ strata` in the masthead, left by `✕`.
+
 ## Deviations still to redo
 
 - The tune dials (`#gtune`) are not drawn.
-- A pin does not yet mark itself STALE against the generation it was made in.
+- A door in the strata sets `place` and nothing reads it yet: `opsis/rooms.py`
+  writes those rooms and they are still not drawn.
 
 ## Not ported yet
 

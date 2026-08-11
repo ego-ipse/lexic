@@ -17,10 +17,12 @@ from typing import Any
 from opsis.frame.facets import DRAWN, HEADS, Look
 from opsis.frame.marks import Frame
 from opsis.frame.panels import head, walked
+from opsis.frame.strata import draw as strata_draw
 from opsis.frame.tones import runs
 from opsis.scene import Staged, staged
 from praxis.reading import Reading
 from praxis.routes import Aside
+from praxis.strata import strata
 
 __all__ = ["compose"]
 
@@ -46,6 +48,7 @@ def compose(
     state: Mapping[str, str],
     watched: list[list[Any]],
     generation: int,
+    climbed: list[Reading] | None = None,
     typed: dict[str, str] | None = None,
     frontier: int = -1,
     routes: Aside | None = None,
@@ -57,11 +60,15 @@ def compose(
     """
     said = Frame(wide, tall)
     it = staged(reading, state)
-    look = Look(reading, it, at, state, watched, typed, frontier, routes)
+    look = Look(reading, it, at, state, watched, typed, frontier, routes, generation)
     titles = {facet.name: facet.title for facet in it.facets}
     titles["pin"] = "PINNED · one span, held still"
     columns = {facet.name: facet.column or facet.name for facet in it.facets}
     said.box(0, 0, wide, tall, "field")
+
+    if state.get("showing", "") == "strata" and not only:
+        strata_draw(said, strata(reading, climbed or [reading]), wide, tall)
+        return said
 
     if only in DRAWN:
         region = walked(only, 0, 0, wide, tall).regions[0]
@@ -165,6 +172,17 @@ def _dock(said: Frame, it: Staged, shown: list[str], at: float) -> None:
         said.text(at + 16, 21, "chip" if here else "dimmer", word, face="chip")
         said.hit(at, 8, wide, 18, "facet", facet)
         at += wide + 6
+    # the way OUT of the reading and into the climb it sits in
+    wide = runs("chip", "⌗ strata") + 22
+    for x1, y1, x2, y2 in (
+        (at + 8, 8, at + 8 + wide, 8),
+        (at + 8, 26, at + 8 + wide, 26),
+        (at + 8, 8, at + 8, 26),
+        (at + 8 + wide, 8, at + 8 + wide, 26),
+    ):
+        said.line(x1, y1, x2, y2, "hair")
+    said.text(at + 18, 21, "violet", "⌗ strata", face="chip")
+    said.hit(at + 8, 8, wide, 18, "strata", "on")
 
 
 def _status(said: Frame, reading: Reading, look: Look, wide: int, tall: int) -> None:
