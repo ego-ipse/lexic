@@ -1392,7 +1392,9 @@ function drawGraphView(v, smooth = false) {
     y0 = Math.min(y0, P.y); y1 = Math.max(y1, P.y);
   }
   let fitk = Math.min((w * 0.84) / Math.max(40, x1 - x0), (h * 0.78) / Math.max(40, y1 - y0), 2.4);
-  if (mode !== 'depth3d') fitk = Math.max(fitk, 0.8);  // flat/arcs stay readable; pan explores
+  // the floor keeps a SMALL graph readable; it must never forbid a large one
+  // from shrinking, which is how 32 rules ran off the side of the facet
+  if (mode !== 'depth3d' && fitk > 0.8) fitk = Math.max(fitk, 0.8);
   const tk = fitk * v.zoom;
   const tmx = (x0 + x1) / 2, tmy = (y0 + y1) / 2;
   if (!v.fit || !smooth) v.fit = { k: tk, mx: tmx, my: tmy };
