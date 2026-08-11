@@ -297,6 +297,28 @@ def main() -> int:
         ),
     )
 
+    # a surface refused its room must say WHERE it can be opened. "none-yet"
+    # is honest but useless, and the leaf used to send every ⧉ to the graph —
+    # answering one surface's question with another surface's answer.
+    frame = drawn(reading)
+    policy = dict(
+        line.split(" ", 1)
+        for line in frame.split("#POLICY", 1)[1].split("\n")[1:]
+        if " " in line and not line.startswith("#")
+    )
+    refused = [w for w in policy.get("wants.window", "none").split(",") if w != "none"]
+    addressed = dict(
+        pair.split(":", 1) for pair in policy.get("opens", "").split(" ") if ":" in pair
+    )
+    unplaced = [w for w in refused if addressed.get(w, "none-yet") == "none-yet"]
+    leaf_js = (HERE / "leaf" / "leaf.js").read_text()
+    check(
+        "a surface that wants a window names an address, and the leaf goes there",
+        not unplaced and "openAddress(opensFor(P)[want])" in leaf_js,
+        f"{len(refused)} refused · "
+        + " ".join(f"{w}→{addressed.get(w, 'none-yet')}" for w in refused),
+    )
+
     # the routes the leaf calls. A capability can be fully built and still be
     # invisible if nothing answers the address the leaf asks for — which is
     # how rails, verdicts, the automaton and the rooms all sat unreachable.

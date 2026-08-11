@@ -1131,6 +1131,29 @@ function render() {
 
 /* ── policy application: the leaf is an interpreter of session state ── */
 
+function opensFor(P) {
+  // "graph:?graph=1&gpin=1 machine:?place=machine" — the address is the
+  // instrument's OWN query, so opening a surface is going where it lives
+  const out = {};
+  for (const pair of (P['opens'] || '').split(' ').filter(Boolean)) {
+    const cut = pair.indexOf(':');
+    if (cut > 0) out[pair.slice(0, cut)] = pair.slice(cut + 1);
+  }
+  return out;
+}
+
+function openAddress(address) {
+  // honour what the surface asked for. Sending every ⧉ to the graph was the
+  // instrument answering a question with someone else's answer.
+  if (!address || address === 'none-yet') return;
+  const q = new URLSearchParams(address.replace(/^\?/, ''));
+  if (q.has('place')) { openPlace(q.get('place')); return; }
+  if (q.has('graph')) {
+    if (!graphOn) setGraph(true, true);
+    if (q.has('gpin') && typeof graphPin === 'function') graphPin();
+  }
+}
+
 function applyPolicy() {
   const P = S.policy || {};
   if (P['speed']) speed = parseFloat(P['speed']) || speed;
@@ -1158,18 +1181,21 @@ function applyPolicy() {
     for (const want of P['wants.window'].split(',').filter(Boolean)) {
       const name = hosts[want] || want;
       const head = document.querySelector(`#${name} h2, #facet-${name} h2`);
-      if (head && !head.querySelector('.wantsWindow')) {
+      // per WANT, not per head: the graph and the machine host on the same
+      // surface, so a head-wide guard silently dropped the second one and
+      // the machine's door was never drawn
+      if (head && !head.querySelector(`.wantsWindow[data-want="${want}"]`)) {
         const mark = document.createElement('span');
         mark.className = 'wantsWindow';
+        mark.dataset.want = want;
         mark.textContent = ` ⧉ ${want} needs a window`;
         mark.style.cursor = 'pointer';
-        mark.title = `${want} asked for more room than this column has`
-          + ` — click to open it where it fits`;
+        mark.title = `${want} asked for more room than this column has —`
+          + ` click to open it where it fits\n${P['needs'] || ''}`;
         mark.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          if (typeof graphPin === 'function') graphPin();
+          openAddress(opensFor(P)[want]);
         });
-        mark.title = P['needs'] || '';
         head.appendChild(mark);
       }
     }
@@ -3927,6 +3953,16 @@ async function probeGestures() {
       out.push(`seamDrag=${JSON.stringify(layoutTree) !== before}`);
     } else {
       out.push('seamDrag=NO-SEAMS');
+    }
+    // the ⧉ marks: each must open the surface that ASKED, not the graph
+    const marks = [...document.querySelectorAll('.wantsWindow')];
+    out.push(`marks=${marks.map((m) => m.textContent.trim().split(' ')[1]).join('+')
+      || 'NONE'}`);
+    const wm = marks.find((m) => m.textContent.includes('machine'));
+    if (wm) {
+      click(wm);
+      await wait(700);
+      out.push(`machineMark->${currentPlace}`);
     }
   } catch (err) {
     out.push(`THREW ${err && err.message}`);

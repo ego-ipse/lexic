@@ -42,8 +42,10 @@ __all__ = ["Handler", "main", "scene"]
 
 FILES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript"}
 
-# the addresses the leaf understands for opening a surface at full size
-OPENS = {"graph": "?graph=1&gpin=1"}
+# Where a surface too big for its column can be opened at full size, spelled
+# as the query the leaf already boots from — so an address is a thing the
+# instrument can actually be sent to, not a label for one.
+OPENS = {"graph": "?graph=1&gpin=1", "machine": "?place=machine"}
 HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 
 # What this build does not derive yet. Each says what it is; an empty body is
