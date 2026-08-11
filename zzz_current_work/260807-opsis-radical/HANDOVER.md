@@ -1,5 +1,43 @@
 # opsis-radical — HANDOVER
 
+## 2026-08-11, evening — drawings, not geometry
+
+The aim is a 75% cut in the leaf's JavaScript. The lever is a **display
+list**: if this side knows how big the box is, it can send the PICTURE, and
+the leaf becomes a painter that decides nothing.
+
+`opsis/paint.py` speaks five words — `box`, `line`, `curve`, `arc`, `text` —
+in pixels, with tones named rather than coloured (the register is a look, and
+looks stay in the stylesheet). A `box` can carry an ADDRESS, so a drawing is
+clickable without the leaf knowing what a railroad is.
+
+Served as drawings so far: **the railroad** (all rules, and one rule alone
+for a pinned window), **the automaton** (lit at t by the walk), **the
+relations** in flat/arcs. `leaf/paint.js` is 100 lines and replaced roughly
+600 of geometry.
+
+Measured in columns, not pixels-by-font: `opsis/measure.py` gives every track
+node a box in columns and rows — the unit every other surface here uses —
+because a railroad measured by `measureText` is a shape no fact can check.
+The gate now holds: *every track is measured in columns, and nothing is
+smaller than it says* (117 nodes).
+
+**Where the count stands.** 5,144 → 4,977 lines of JS, after adding a painter
+and a probe step. The cut so far is structural, not yet numerical: what left
+was derivation (layout, measurement, lighting, seating), and what remains is
+mostly *drawing loops that have not been converted yet* —
+
+| still to serve | leaf lines it would remove |
+|---|---|
+| the derivation chart (spans as boxes at t) | ~250 |
+| the document plane's under/over canvases | ~150 |
+| the rings view (needs the camera to stay) | ~120 of the ~400 in `graph.js` |
+| the room graph views (`graphviews.js`, a duplicate path) | ~300 |
+| the IR rows and the room sections | ~300 |
+
+Those five are the road to 75%. Each is the same move as the railroad: the
+picture is derived here, the leaf paints it, and a fact can finally see it.
+
 ## 2026-08-11, later — hollowing the leaf, and what is still in it
 
 Everything the leaf DERIVES is a fact no gate can reach, so each move below
