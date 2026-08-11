@@ -275,8 +275,8 @@ def gate(session: Session) -> int:
     session.policy.setdefault("chart.clock", "model")
     rid = instrument.refresh(session)
     check("the instrument reads its own state", rid is not None, str(rid))
-    if rid is not None:
-        record = session.relations[rid]
+    record = session.relations[rid] if rid is not None else None
+    if rid is not None and isinstance(record, Reading):
         record.hold()
         was = dict(session.policy)
         done = edits.save(

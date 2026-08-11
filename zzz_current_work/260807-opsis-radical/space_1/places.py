@@ -10,10 +10,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import machine
+import rails as tracks
+import scene
+from lexic.ir import IrAst
 from compiling import Compiling
 from keeping import Keeping
-from reading import turn
-from relate import SUBJECT, Relation, Session
+from reading import Reading, turn
+from relate import READER, SUBJECT, Relation, Session, Value
 from viewing import Viewing
 
 __all__ = ["Section", "frame", "sections"]
@@ -28,6 +31,24 @@ class Section:
 
     def wire(self) -> list[str]:
         return [f"#SEC {self.kind} {len(self.body)}", *self.body]
+
+
+def _missing(session: Session, pid: str) -> str:
+    """A miss is a ROOM that says so: an empty frame is how a blank happens."""
+    known = ", ".join(session.relations) or "none"
+    return (
+        "\n".join(
+            [
+                f"#PLACE {pid} missing no such room",
+                *Section("title", ["NO SUCH ROOM"]).wire(),
+                *Section(
+                    "refusal",
+                    [f"nothing here is addressed {pid!r} — the session holds {known}"],
+                ).wire(),
+            ]
+        )
+        + "\n"
+    )
 
 
 def sections(relation: Relation) -> list[Section]:
@@ -134,6 +155,89 @@ def _value_room(relation: Viewing) -> list[Section]:
     ]
 
 
+def rule_room(session: Session, name: str) -> str | None:
+    """One rule, as its own room — what it is, where it is used, how it reads.
+
+    A rule IS a value, so this is a viewing like any other: the room is a
+    relation instance, and it joins the graph rather than being a popup.
+    """
+    relation = session.relations.get(session.focus)
+    if not isinstance(relation, Reading):
+        return None
+    turned = turn(relation.cast[READER.name])
+    if turned is None:
+        return None
+    ast = turned.machine.grammar
+    rule = next(
+        (r for r in ast.rules if str(r.name).casefold() == name.casefold()), None
+    )
+    if rule is None:
+        return None
+    thing = Value(f"rule.{name}", name, rule)
+    rid = session.enter("viewing", {SUBJECT.name: thing})
+    out = [
+        f"#PLACE rule.{name} rule {name} — a rule of {relation.cast[READER.name].name}"
+    ]
+    for section in _rule_facets(session, name, ast, rid, relation):
+        out.extend(section.wire())
+    return "\n".join(out) + "\n"
+
+
+def _rule_facets(
+    session: Session, name: str, ast: IrAst, rid: str, relation: Reading
+) -> list[Section]:
+    """What there is to know about one rule, each thing in its own facet."""
+    used_by = [
+        f"{frm} refers to it\tplace:rule.{frm}"
+        for frm, to in scene.rule_graph(ast)[0]
+        if to.casefold() == name.casefold()
+    ]
+    refs = [
+        f"it refers to {to}\tplace:rule.{to}"
+        for frm, to in scene.rule_graph(ast)[0]
+        if frm.casefold() == name.casefold()
+    ]
+    here = [span for span in relation.spans if span.rule.casefold() == name.casefold()]
+    verdict = _verdict_of(session, name)
+    return [
+        Section("facet", [f"{name} — as track"]),
+        Section(
+            "textlines",
+            [f"|{line}" for line in tracks.rail(ast, name).splitlines()[1:]],
+        ),
+        Section("facet", ["what it is"]),
+        Section(
+            "kv",
+            [
+                f"verdict\t{verdict}",
+                f"occurrences\t{len(here):,} in this document",
+                f"first\t{here[0].start}..{here[0].end}" if here else "first\t—",
+                f"depth\t{min((s.depth for s in here), default=0)}",
+            ],
+        ),
+        Section("facet", ["what it touches"]),
+        Section(
+            "list",
+            [*used_by, *refs] or ["nothing refers to it, and it refers to nothing"],
+        ),
+        Section("facet", ["as IR"]),
+        Section("irvalue", [rid]),
+    ]
+
+
+def _verdict_of(session: Session, name: str) -> str:
+    """What the compiler decided about this rule, in its own word."""
+    relation = session.relations.get(session.focus)
+    turned = turn(relation.cast[READER.name]) if isinstance(relation, Reading) else None
+    if turned is None:
+        return "unknown"
+    for row in machine.verdicts(turned.machine).splitlines()[1:]:
+        parts = row.split(" ", 2)
+        if len(parts) == 3 and parts[2].casefold() == name.casefold():
+            return parts[0]
+    return "not a rule of the compiled machine"
+
+
 def index(session: Session) -> str:
     """Every room in the instrument, as doors — the one place that lists them."""
     rows = [
@@ -154,6 +258,8 @@ def frame(session: Session, pid: str) -> str | None:
     session.expand()
     if pid == "index":
         return index(session)
+    if pid.startswith("rule."):
+        return rule_room(session, pid[5:]) or _missing(session, pid)
     relation = session.relations.get(pid)
     if relation is None:
         # a miss is a ROOM that says so: a 404 leaves the leaf parsing an

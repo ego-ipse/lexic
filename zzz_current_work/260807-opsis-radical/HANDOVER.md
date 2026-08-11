@@ -43,6 +43,14 @@ the IR DAG by object identity — the authored GBNF metagrammar shows its one
    read as a pause and the instrument played every other press. A frame now
    costs a frame, and what threw is said in the status line.
 
+**The clocks were a drawing problem, not a data problem.** The original
+leaf draws the same wall from its own back end: nearly every PDA frame spans
+the whole document, so a handful of enclosing frames own the canvas as
+full-width bars and the thousands of small ones crush into hairlines. A frame
+that merely SPANS the window is now context (a hairline); only frames that
+open or close inside it are drawn as structure. Compare `/tmp/orig_pda.png`
+with the same view here before believing any of this is about the wire.
+
 **Not there yet.** Rails are derived but unwired; `/routes` never runs the
 road not taken, so there is no parity verdict; editing (`/edit`, `/save`) is
 absent; the map holds readings and value rooms only — no artefacts, no

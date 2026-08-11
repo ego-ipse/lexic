@@ -779,6 +779,17 @@ function drawClockLanes(cx, w, h, lanesY, pitch, sx) {
     if (y + laneH > y1) continue;
     const x1 = sx(Math.max(f.s, view0));
     const x2 = Math.max(sx(Math.min(f.e, view0 + win)), x1 + 1.5);
+    // a frame that merely SPANS the window is context, not an event: drawn
+    // as a hairline it stops a handful of enclosing frames from reading as a
+    // wall, and what opened or closed here stays visible
+    if (f.s < view0 && f.e > view0 + win) {
+      cx.strokeStyle = f.ok === 0 ? abandoned : 'rgba(143,163,184,0.22)';
+      cx.beginPath();
+      cx.moveTo(x1, y + (laneH - 1) / 2);
+      cx.lineTo(x2, y + (laneH - 1) / 2);
+      cx.stroke();
+      continue;
+    }
     const done = f.e <= cur.t, live = !done && f.s < cur.t;
     if (pda) {
       const cmode = f.cid >= 0 && autoData && autoData.clones[f.cid] ? autoData.clones[f.cid].mode : null;
