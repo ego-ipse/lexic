@@ -22,6 +22,7 @@ from chain import chain  # noqa: E402
 from draw import graph_facet  # noqa: E402
 from keep import keep  # noqa: E402
 from lexic.compile import compile_text  # noqa: E402
+from machine import machine_facet, of  # noqa: E402
 from place import arrange, shares, windowed  # noqa: E402
 from read import as_written, read, upward  # noqa: E402
 from retype import retype  # noqa: E402
@@ -152,6 +153,13 @@ def main() -> int:
         "the graph says what it needs, and asks for a window when it cannot fit",
         graph.wide > room and "graph" in windowed([*facets, graph], 200),
         f"needs {graph.wide} cols over {graph.tall} levels, offered {room}",
+    )
+    built = of(machine)
+    room = machine_facet(machine)
+    check(
+        "the machine is the whole clone set, and it asks for a window",
+        built.clones > built.rules and "machine" in windowed([*facets, room], 200),
+        built.line(),
     )
     drawn = scene(reading)
     check(
