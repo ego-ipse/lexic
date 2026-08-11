@@ -112,13 +112,15 @@ class Reading:
         lines = self.text.split("\n")
         rules = self.reader_text.split("\n")
         deep = max((span.depth for span in self.spans), default=0) + 1
+        # named as the LEAF names them: a tree whose leaves nothing recognises
+        # is silently dropped, and the measured layout never reaches the screen
         return [
-            Facet("reader", "plane", max(len(r) for r in rules), len(rules)),
+            Facet("grammar", "plane", max(len(r) for r in rules), len(rules)),
             Facet("document", "plane", max(len(line) for line in lines), len(lines)),
             # the chart is as wide as the text is long, in columns of one char,
             # and as tall as the derivation is deep — it never fits, which is
             # why it scrubs a window over the text rather than showing it all
-            Facet("derivation", "chart", 120, deep),
+            Facet("chart", "chart", 120, deep),
             Facet("spine", "stack", 48, deep),
         ]
 
