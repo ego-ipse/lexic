@@ -182,6 +182,17 @@ def main() -> int:
         all(t in drawn for t in ("#READER ", "#DOC ", "#SPANS ", "arrange.tree (")),
         f"{len(drawn):,} chars",
     )
+    for other in (ROOT / "resources/ground_truth").glob("*.gbnf"):
+        if other.name == "json.gbnf":
+            continue
+        far = read(other, other)  # a grammar read by its own flavour
+        check(
+            f"a grammar it was not shaped around still measures: {other.name}",
+            far.facets()[0].wide > 0 and len(far.facets()) == 4,
+            " ".join(f"{x.name}:{x.wide}" for x in far.facets()),
+        )
+        break
+
     leaf = HERE / "leaf"
     parts = ["index.html", "leaf.css", "leaf.js"]
     there = [name for name in parts if (leaf / name).is_file()]
