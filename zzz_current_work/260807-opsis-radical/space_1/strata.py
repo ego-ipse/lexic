@@ -120,7 +120,10 @@ def _door(session: Session, rid: str, relation: Relation, at: dict[int, int]) ->
     """One room, as a door under the column of the thing it is about."""
     kind = DOOR.get(relation.kind, relation.kind)
     state = "ok" if relation.held else "no"
+    # an unvisited room has measured NOTHING: sending 0 clones reads as a fact
+    # about the machine instead of a fact about the visit
+    said = relation.facts() if relation.held else "not yet visited — travel builds it"
     return (
         f"P {rid} {lane_of(session, relation, at)} {session.level(rid)} "
-        f"{kind} {state} {relation.label()}\t{relation.facts()}"
+        f"{kind} {state} {relation.label()}\t{said}"
     )
