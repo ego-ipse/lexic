@@ -40,6 +40,9 @@ FONTS = {
     "railchip": f"11px {SANS}",
     # `.pin header`: 11px, warm, sans — a window's head is not a facet's
     "winhead": f"11px {SANS}",
+    # `button.fpop`: `font: inherit` inside an h2 is SANS, sized 11px — not a
+    # 10px mono chip, which is what this port was setting
+    "fpop": f"11px {SANS}",
     # `paint.js` sets every DRAWING in 11px mono — the graphs, the rails, the
     # automaton, the lanes. It is not the body face and it is not a chip.
     "drawn": f"11px {CODE}",
@@ -72,6 +75,9 @@ TONES = {
     # ROLE is its colour, and neither may be read off the other
     "railchip": "#d98cf5",
     "winhead": "#e2a65c",
+    "fpop": "#66707f",
+    # `button.fpop`'s border is its own hairline, a shade above --hair
+    "fpopedge": "#232b3a",
     "drawn": "#66707f",
     "gnear": "#66707f",
     "gfar": "#66707f",
@@ -174,6 +180,7 @@ ADVANCE = {
     "node": 6.0,
     "railchip": 5.6,
     "winhead": 5.6,
+    "fpop": 5.6,
     "drawn": 6.6,
     "gnear": 7.2,
     "gfar": 4.8,

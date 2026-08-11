@@ -252,14 +252,17 @@ async function probe() {
   try {
     /* each face measured on what it actually SETS: a title is uppercase and
        tracked out, a subtitle is a sentence, a chip is one word */
-    const samples = { fsub: 'the chart scrubs and select text to co-select',
-                      ftitle: 'THE DERIVATION THE DOCUMENT THE READER',
-                      chip: 'derivation relations document' };
+    /* EVERY face the register names an advance for, not a list written here
+       — a hand-written list is a list that goes stale the moment a face is
+       added, and this port has added six. */
+    /* measured on what each face actually SETS: the masthead's title is one
+       tracked uppercase word, a facet's is a tracked uppercase phrase */
+    const samples = { title: 'FACETS', ftitle: 'THE DERIVATION THE READER' };
     const gauge = paper.getContext('2d');
     let off = '';
     const measured = [];
-    for (const name of ['fsub', 'ftitle', 'chip']) {
-      const sample = samples[name];
+    for (const name of Object.keys(frame.advance || {})) {
+      const sample = samples[name] || 'the chart scrubs and select text';
       const believed = +(frame.advance || {})[name];
       if (!believed || !frame.fonts[name]) continue;
       gauge.font = frame.fonts[name];

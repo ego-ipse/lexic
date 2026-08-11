@@ -276,15 +276,19 @@ def _controls(
     """
     for control in controls:
         word, kind, goes, on = control[:4]
-        wide = runs("chip", word) + 10 + (ARROW if len(control) > 4 else 0)
+        wide = (
+            runs("fpop", word) + 10 + (ARROW if len(control) > 4 else 0)
+            if len(control) <= 4
+            else runs("chip", word) + 10 + ARROW
+        )
         if at + wide > region.x + region.w - 8:
             return
         if len(control) > 4:
             said.pick(kind, at, y + 6, wide, 15, goes, control[4])
             at += wide + 6
             continue
-        said.box(at, y + 6, wide, 15, "field2")
-        said.ring(at, y + 6, wide, 15, "cool" if on else "hair")
-        said.text(at + 5, y + 17, "cool" if on else "chip", word, face="chip")
+        # `button.fpop`: background NONE, its own hairline, dim, 11px sans
+        said.ring(at, y + 6, wide, 15, "cool" if on else "fpopedge")
+        said.text(at + 5, y + 17, "cool" if on else "fpop", word, face="fpop")
         said.hit(at, y + 6, wide, 15, kind, goes)
         at += wide + 6
