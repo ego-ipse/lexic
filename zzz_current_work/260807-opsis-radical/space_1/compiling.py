@@ -54,9 +54,16 @@ class Compiling(Relation):
                 self.classes[parts[0]] = self.classes.get(parts[0], 0) + 1
 
     def facts(self) -> str:
+        """Built, and entered — two different facts about one machine.
+
+        The compiler cuts a clone per hard continuation; a reading enters the
+        ones its text asks for. Reporting only the first makes the automaton
+        view look wrong, and only the second hides what was compiled.
+        """
         said = " · ".join(f"{n} {k}" for k, n in sorted(self.classes.items()))
         return (
-            f"{self.clones} clones · {self.rules} rules{' · ' + said if said else ''}"
+            f"{self.clones} clones built · {self.rules} rules"
+            f"{' · ' + said if said else ''}"
         )
 
     def parts(self) -> Sequence[Thing]:
