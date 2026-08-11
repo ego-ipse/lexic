@@ -9,6 +9,8 @@ rectangles carrying the rule each reference names.
 from __future__ import annotations
 
 from lexic.ir import IrAlternation, IrAst, IrLiteral, IrRuleRef, IrSequence
+from lexic.ir.spine.spine import IrSelf
+from opsis.marks import Frame
 
 __all__ = ["track"]
 
@@ -16,14 +18,14 @@ CELL = 7.0
 ROW = 20.0
 
 
-def _atoms(body: object) -> list[tuple[str, str]]:
+def _atoms(body: IrSelf) -> list[tuple[str, str]]:
     """The rule's body as a flat row of things — kind and what it says.
 
     A flat reading, deliberately: this shows what a rule is MADE OF at the
     cursor, and the full nesting is the relations graph's job.
     """
     out: list[tuple[str, str]] = []
-    stack: list[object] = [body]
+    stack: list[IrSelf] = [body]
     while stack:
         node = stack.pop(0)
         if isinstance(node, IrRuleRef):
@@ -35,14 +37,15 @@ def _atoms(body: object) -> list[tuple[str, str]]:
             if isinstance(node, IrAlternation) and len(kids) > 1:
                 out.append(("or", "|"))
             stack = kids + stack
-        elif hasattr(node, "children"):
-            stack = list(node.children()) + stack
+        else:
+            kids = node.children() if hasattr(node, "children") else ()
+            stack = [*kids, *stack]
         if len(out) > 24:
             break
     return out
 
 
-def track(said: object, ast: IrAst, name: str, x: float, y: float, wide: float) -> None:
+def track(said: Frame, ast: IrAst, name: str, x: float, y: float, wide: float) -> None:
     """Draw one rule's track at (x, y), clipped to the width it was given."""
     rule = next(
         (r for r in ast.rules if str(r.name).casefold() == name.casefold()), None

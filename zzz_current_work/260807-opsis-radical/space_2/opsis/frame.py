@@ -32,13 +32,14 @@ if str(HERE) not in sys.path:
 
 from deixis.points import open_at  # noqa: E402
 from eidolon.layout import positions  # noqa: E402
+from opsis.marks import Frame  # noqa: E402
 from opsis.track import track  # noqa: E402
 from eidolon.topology import edges  # noqa: E402
 from lexic.compile import CompiledGrammar, compile_text  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
 from praxis.reading import Reading, as_written  # noqa: E402
 
-__all__ = ["Frame", "frame"]
+__all__ = ["frame"]
 
 HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 
@@ -67,43 +68,6 @@ def reader_of(reading: Reading) -> CompiledGrammar | None:
 ROW = 19.0  # one line of text
 CELL = 7.4  # one column
 GUTTER = 54.0  # room for a line number
-
-
-class Frame:
-    """Marks to paint, and the rectangles a pointer can land on."""
-
-    __slots__ = ("hits", "marks", "tall", "wide")
-
-    def __init__(self, wide: int, tall: int) -> None:
-        self.marks: list[str] = []
-        self.hits: list[str] = []
-        self.wide = wide
-        self.tall = tall
-
-    def box(
-        self, x: float, y: float, w: float, h: float, tone: str, said: str = ""
-    ) -> None:
-        self.marks.append(f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone} {said}")
-
-    def line(self, x1: float, y1: float, x2: float, y2: float, tone: str) -> None:
-        self.marks.append(f"line {x1:.1f} {y1:.1f} {x2:.1f} {y2:.1f} {tone}")
-
-    def text(self, x: float, y: float, tone: str, said: str) -> None:
-        self.marks.append(f"text {x:.1f} {y:.1f} {tone} {said}")
-
-    def hit(self, x: float, y: float, w: float, h: float, kind: str, goes: str) -> None:
-        self.hits.append(f"{x:.1f} {y:.1f} {w:.1f} {h:.1f} {kind} {goes}")
-
-    def wire(self, generation: int) -> str:
-        return "\n".join(
-            [
-                f"#FRAME {self.wide} {self.tall} {generation} {len(self.marks)}",
-                *self.marks,
-                f"#HITS {len(self.hits)}",
-                *self.hits,
-                "",
-            ]
-        )
 
 
 def _plane(
@@ -218,11 +182,11 @@ def frame(
     # boxes, references are lines, and each rule is a hit that posts its own
     # name. That is the test of whether the protocol is real.
     machine = reader_of(reading)
+    rules = ruledefs(reading.reader_text)
     lit = {span.rule for span in open_at(reading, at)}
     if machine is not None:
         graph_top = lanes_y + deep * lane + 16
         graph_tall = max(80.0, tall - 26 - graph_top - 8)
-        rules = ruledefs(reading.reader_text)
         places = positions(machine.grammar, "flat", int(right - 24), int(graph_tall))
         if places:
             spread_x = max(1.0, max(x for x, _y, _z in places.values()))
