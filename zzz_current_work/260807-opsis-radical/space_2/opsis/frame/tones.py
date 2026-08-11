@@ -86,6 +86,9 @@ TONES = {
     "cool_wash": "rgba(111,195,201,0.18)",
     # #dropzone: background rgba(217,140,245,0.12), border dashed violet
     "drop_wash": "rgba(217,140,245,0.12)",
+    # `.pin`'s box-shadow colour — the leaf holds no colour of its own, not
+    # even this one
+    "cast": "rgba(0,0,0,0.55)",
     "seen": "#4a5568",
     "faded": "rgba(102,112,127,0.16)",
     # a span against the cursor, as the lanes have always drawn it: the fill

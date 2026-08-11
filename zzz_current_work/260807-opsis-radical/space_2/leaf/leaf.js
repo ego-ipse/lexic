@@ -160,6 +160,12 @@ function strokes(canvas, marks) {
         cx.strokeStyle = around;
         cx.strokeRect(+p[1] + 0.5, +p[2] + 0.5, Math.max(+p[3] - 1, 1), +p[4]);
       }
+    } else if (p[0] === 'shadow') {
+      /* .pin's box-shadow: 24px of blur, six down, in the tone sent */
+      const on = p[1] !== '-';
+      cx.shadowColor = on ? fill(p[1]) : 'transparent';
+      cx.shadowBlur = on ? 24 : 0;
+      cx.shadowOffsetY = on ? 6 : 0;
     } else if (p[0] === 'dashes') {
       /* #dropzone: 1px dashed var(--violet) */
       cx.strokeStyle = fill(p[5]);

@@ -220,7 +220,10 @@ def _windows(
         about = parts[5] if len(parts) > 5 else ""
         x, y = min(x, wide - 80), min(y, tall - 40)
         w, h = min(w, wide - x - 8), min(h, tall - y - 8)
+        # the shadow is cast by the window's own body and nothing after it
+        said.shadow("cast")
         said.box(x, y, w, h, "field2")
+        said.shadow()
         said.ring(x, y, w, h, "warm")
         # the head IS the handle: dragging it moves the window, and the
         # corner resizes it — the same two gestures every window has ever had

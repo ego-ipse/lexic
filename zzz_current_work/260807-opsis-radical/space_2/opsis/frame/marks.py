@@ -125,6 +125,15 @@ class Frame:
         name would not be readable anyway."""
         self._put(f"dot {x:.1f} {y:.1f} {r:.1f} {tone}")
 
+    def shadow(self, tone: str = "") -> None:
+        """Cast a drop shadow in that tone, or stop — `0 6px 24px`.
+
+        A window that floats over a picture is separated from it by its
+        shadow; without one it is a rectangle drawn ON the picture, which is
+        what makes a canvas-drawn window read as part of the scenery.
+        """
+        self._put(f"shadow {tone or '-'}")
+
     def dashes(self, x: float, y: float, w: float, h: float, tone: str) -> None:
         """A DASHED outline — `#dropzone`'s border, and nothing else's."""
         self._put(f"dashes {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
