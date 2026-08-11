@@ -184,6 +184,11 @@ class Session:
             if not letting_go and len(words) >= 3
             else ""
         )
+        # `railsGoto` — choosing a rule in the RAILROADS scrolls the list to
+        # it. A stack of tracks tall enough to need scrolling is one where
+        # the track you just clicked may not be the one you are looking at.
+        if self.state.get("graph.view", "") == "rails":
+            self.state["top.graph"] = "" if letting_go else f"rule:{words[0]}"
         # AND THE READER SHOWS IT. A rule chosen from the graph or the lanes
         # is usually not the one on screen, and a highlight you have to go
         # looking for reads as a highlight that did not happen.

@@ -673,6 +673,31 @@ DO NOT MEASURE A PICTURE BY LOOKING AT IT. Every real finding this session
 came from dumping the numbers — the frame's marks, the canvas's own width and
 height, a policy value — and every wrong one came from squinting at a crop.
 
+## The spine, exactly — NEXT
+
+`gestures.js` binds both spine panels the same way:
+
+    click     → cur.sel = +row.dataset.i        (SELECT that span)
+    mousemove → cur.hover = +row.dataset.i      (hover it)
+
+and `frame.js` reads `focus = cur.hover >= 0 ? cur.hover : cur.sel`, so the
+warm readout says `under the hand · <span words>` or `selected · <span
+words>`. THE HAND WINS: a hover outranks a selection while the pointer is
+there.
+
+Here every spine row emits `said.hit(x, y, 0, 0, ...)` — zero width — so no
+row can be hovered or clicked and the readout never changes from the spine at
+all. `_rows` needs to emit a real rectangle per row carrying that row's
+address, and a `Row` needs a fifth field to hold one.
+
+Only the MODEL spine's rows carry an index in the reference: `drawPdaSpine`
+and `drawEarleySpine` build rows with no `dataset.i`, so clicking those does
+nothing there either. Do not invent behaviour for them.
+
+Also unfinished: clicking a railroad now chooses the rule and raises the
+chip, but `railsGoto` does not take — `top.graph` is written and the view
+does not scroll to it.
+
 ## Not ported yet
 
 Strata as the landing page, and adding files from there.
