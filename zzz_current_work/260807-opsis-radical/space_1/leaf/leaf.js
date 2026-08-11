@@ -923,17 +923,17 @@ function drawChart() {
       if (up && up.s === s.s && up.e === s.e) S.passthrough.add(i);
     });
   }
-  for (const s of S.spans) {
-    if (s.e <= view0 || s.s >= view0 + win) continue;
+  S.spans.forEach((s, at) => {
+    if (s.e <= view0 || s.s >= view0 + win) return;
     const x1 = sx(Math.max(s.s, view0)), x2 = sx(Math.min(s.e, view0 + win));
     const y = lanesY + s.d * laneH;
-    if (S.passthrough.has(S.spans.indexOf(s))) {
+    if (S.passthrough.has(at)) {
       cx.strokeStyle = 'rgba(111,195,201,0.30)';
       cx.beginPath();
       cx.moveTo(x1, y + (laneH - 2) / 2);
       cx.lineTo(x2, y + (laneH - 2) / 2);
       cx.stroke();
-      continue;
+      return;
     }
     if (s.e <= cur.t) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 2); cx.strokeStyle = C.cool; }
     else if (s.s < cur.t) {
@@ -941,7 +941,7 @@ function drawChart() {
       cx.strokeStyle = C.warm;
     } else cx.strokeStyle = C.pending;
     cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 2), laneH - 2);
-    const idx = S.spans.indexOf(s);
+    const idx = at;
     if (idx === cur.sel || idx === cur.hover) {
       cx.strokeStyle = idx === cur.sel ? C.warm : C.dim;
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
@@ -950,7 +950,7 @@ function drawChart() {
       cx.strokeStyle = C.violet;
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
     }
-  }
+  });
   const cxx = sx(Math.min(Math.max(cur.t, view0), view0 + win));
   cx.strokeStyle = C.warm;
   cx.beginPath(); cx.moveTo(cxx, lanesY - 6); cx.lineTo(cxx, h - 4); cx.stroke();
