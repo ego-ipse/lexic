@@ -407,8 +407,13 @@ class Session:
                 ),
                 "",
             )
+            # and a click on a line that is no rule's LETS GO of the one
+            # that was chosen — a highlight you cannot dismiss is a highlight
+            # that has stopped meaning anything
+            self.state["chosen"] = named
+            if not named:
+                self.main["railchip"] = ""
             if named:
-                self.state["chosen"] = named
                 # ▤ rail, where the hand is. A plane is a real element, so
                 # this is the ONLY report that a rule was chosen in the
                 # reader — the click never reaches the canvas at all.
@@ -618,6 +623,28 @@ class Session:
             self.main["arrange.shares"] = ""
             self.main[f"facet.{name}"] = "on"
 
+    def _scrub(self, words: list[str]) -> None:
+        """The chart, dragged — time is what this facet's x axis IS.
+
+        In the band that is a fraction of the whole document; in the lanes it
+        is a count of characters from where the window starts. Scrubbing
+        stops playback, because a hand on the clock is the hand that decides.
+        """
+        if len(words) < 2:
+            return
+        length = len(self.reading.text)
+        where, _, start = words[0].partition(":")
+        said = float(words[1])
+        self.at = (
+            max(0.0, min(said, 1.0)) * length
+            if where == "band"
+            else max(0.0, min(float(start or 0) + said, float(length)))
+        )
+        self.playing = False
+        self.main["playing"] = "0"
+        # the overview is also the document's minimap
+        self.follow()
+
     def _seam(self, words: list[str]) -> None:
         """A seam moved: its number is the split it stands for, in tree order."""
         if len(words) < 2:
@@ -744,6 +771,7 @@ SAYS: dict[str, Said] = {
     "scroll": Session._scroll,
     "scrolled": Session._scrolled,
     "move": Session._move,
+    "scrub": Session._scrub,
     "seam": Session._seam,
     "zone": Session._zone,
     "sel": Session._sel,

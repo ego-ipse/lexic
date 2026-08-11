@@ -259,7 +259,13 @@ def _plane(
                 x + 1.5 * CELL, top + ROW - 5, "dimmer", f"{line + 1:>4}", 5 * CELL
             )
             said.hit(x, top, 6.5 * CELL, ROW, "gutter", str(line))
-    said.plane(name, run, y + 8, w - (run - x) - 8, h - 12, text, first, True)
+    # ONLY THE DOCUMENT IS TYPED IN. `#grammarBody` is built of `.ln` rows
+    # and is not editable, which is what lets Space play, `g` show the graph
+    # and `[` `]` change speed while the reader has the hand — a reader you
+    # can type into swallows every key the status bar promises.
+    said.plane(
+        name, run, y + 8, w - (run - x) - 8, h - 12, text, first, name == "document"
+    )
     # a plane holding text that has not been read says so, where the eye
     # leaves the plane: everything derived beside it is of the LAST reading
     if name in look.typed:
@@ -956,6 +962,13 @@ def chart(said: Frame, room: Room, look: Look) -> None:
     else:
         _texture(said, (x + 10, y + 6, w - 20, 22.0), look, which, stamp)
     _window(said, room, look)
+    # THE CHART SCRUBS — the status bar has always said so. Dragging in the
+    # band moves the cursor across the whole document; dragging in the lanes
+    # moves it within the window they show. Two different sums, so two hits,
+    # each carrying what the leaf needs to do its own half in one subtraction.
+    start, _window_, pitch = window_of(look, w)
+    said.hit(x + 10, y + 4, w - 20, 28, "scrub", "band", x + 10, w - 20)
+    said.hit(x, y + 36, w, h - 40, "scrub", f"lanes:{start}", x + 6, pitch)
     deep = int(max(20, h - 44))
     drawn = _kept(f"clock:{stamp}:{which}:{deep}", lambda: _clock(look, deep))
     picked = _picked(look, stamp)

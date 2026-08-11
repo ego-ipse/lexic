@@ -280,6 +280,23 @@ function chose(el, ev) {
   ask(`sel ${el.dataset.name} ${a} ${b}${at}`);
 }
 
+/* the chart's scrub rectangles are found on their OWN, whatever else is
+   stacked on top of them: a click in the lanes chooses a span, a DRAG across
+   them moves time, and both are true of the same pixel */
+function scrubAt(ev) {
+  const box = paper.getBoundingClientRect();
+  const x = ev.clientX - box.left, y = ev.clientY - box.top;
+  const hits = frame ? frame.hits : [];
+  for (let i = hits.length - 1; i >= 0; i -= 1) {
+    const h = hits[i];
+    if (h.kind !== 'scrub') continue;
+    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
+      return { h, said: (x - h.run) / (h.cell || 1) };
+    }
+  }
+  return null;
+}
+
 function under(ev, wanted) {
   const box = paper.getBoundingClientRect();
   const x = ev.clientX - box.left, y = ev.clientY - box.top;
@@ -327,6 +344,8 @@ paper.addEventListener('pointerdown', (ev) => {
   /* what a drag STARTED on, falling back to the region it is in: a drag
      across a picture is about that picture even where nothing was hit */
   dragging = { x: ev.clientX, y: ev.clientY, on: under(ev, false) || under(ev, true) };
+  const scrub = scrubAt(ev);
+  if (scrub) { dragging.scrub = true; ask(`scrub ${scrub.h.goes} ${scrub.said.toFixed(4)}`); }
 });
 window.addEventListener('pointerup', (ev) => {
   /* a head dragged onto another surface is a TOPOLOGY change: where it was
@@ -350,6 +369,11 @@ window.addEventListener('pointermove', (ev) => {
   if (Math.abs(dx) + Math.abs(dy) < 3) return;
   dragging.x = ev.clientX; dragging.y = ev.clientY;
   dragging.moved = true;
+  if (dragging.scrub) {
+    const scrub = scrubAt(ev);
+    if (scrub) ask(`scrub ${scrub.h.goes} ${scrub.said.toFixed(4)}`);
+    return;
+  }
   const on = dragging.on;
   if (on && on.kind === 'head') {
     const over = under(ev, true);
@@ -399,7 +423,10 @@ paper.addEventListener('wheel', (ev) => {
 const NAMED = new Set(['Space', 'Escape', 'Home', 'End', 'ArrowLeft', 'ArrowRight',
                        'Ctrl+Enter', 'Ctrl+s', 'Ctrl+p', 'p', 'g', '[', ']']);
 window.addEventListener('keydown', (ev) => {
-  const typing = document.activeElement && document.activeElement.classList.contains('plane');
+  /* typing means typing INTO something: a read-only plane has the hand but
+     takes no letters, so the keys the status bar promises still work there */
+  const held = document.activeElement;
+  const typing = held && held.classList.contains('plane') && !held.readOnly;
   const name = (ev.ctrlKey ? 'Ctrl+' : '') + (ev.key === ' ' ? 'Space' : ev.key);
   if (typing && !ev.ctrlKey && name !== 'Escape') return;
   if (!NAMED.has(name)) return;
