@@ -121,7 +121,11 @@ class Handler(BaseHTTPRequestHandler):
             )
         if path == "/automaton":
             turned = self.reader()
-            return machine.automaton(turned.machine.pda_tables()) if turned else None
+            relation = session.relations.get(session.focus)
+            if turned is None or not isinstance(relation, Reading):
+                return None
+            # the SAME table the frames index: a clone id must mean one clone
+            return clocks.walked(turned.machine, relation.document())
         if path == "/verdicts":
             turned = self.reader()
             return machine.verdicts(turned.machine) if turned else None

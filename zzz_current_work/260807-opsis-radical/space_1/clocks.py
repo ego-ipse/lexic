@@ -43,14 +43,16 @@ class ClockKernel(PdaKernel[Any]):
         self.frames: list[list[Any]] = []
         self.events: list[tuple[int, str, str]] = []
         self.open: dict[int, list[Any]] = {}
-        self.clones: dict[int, tuple[int, FlatClone]] = {}
+        self.clones: dict[int, tuple[int, FlatClone, int]] = {}
 
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """A frame opens where the cursor stands, at the depth of the stack."""
         depth = len(self.stack)
         entered = super()._enter(clone, out)
         if entered and len(self.stack) > depth and len(self.frames) < CEILING:
-            seat = self.clones.setdefault(id(clone), (len(self.clones), clone))[0]
+            seat = self.clones.setdefault(id(clone), (len(self.clones), clone, depth))[
+                0
+            ]
             record = [self.pos, -1, depth, clone.name or "·", 1, seat]
             self.frames.append(record)
             self.open[id(self.stack[-1])] = record
@@ -77,6 +79,61 @@ class ClockKernel(PdaKernel[Any]):
                 record[4] = 0
 
 
+_SEATS: dict[tuple[int, int], list[tuple[int, FlatClone, int]]] = {}
+
+
+def seats(compiled: CompiledGrammar, text: str) -> list[tuple[int, FlatClone, int]]:
+    """The clones the kernel entered, in the order it first entered them.
+
+    The compiler's table and the runtime's program are two identities for one
+    machine; a frame carries the runtime's. Lighting a clone means indexing
+    the SAME table the frames indexed, so the automaton is served from here.
+    """
+    key = (id(compiled), hash(text))
+    if key not in _SEATS:
+        pda_clock(compiled, text)
+    return _SEATS.get(key, [])
+
+
+def walked(compiled: CompiledGrammar, text: str) -> str:
+    """The machine as the run met it — clones seated, edges by entry order."""
+    rows = seats(compiled, text)
+    names = sorted({clone.name or "·" for _seat, clone, _deep in rows})
+    at = {name: index for index, name in enumerate(names)}
+    drawn = [
+        f"{at[clone.name or '·']} {_mode(clone)} {_flags(clone)} {deep}"
+        for _seat, clone, deep in rows
+    ]
+    return "\n".join(
+        [
+            f"#ACLONES {len(drawn)}",
+            *drawn,
+            f"#ANAMES {len(names)}",
+            *names,
+            "#AEDGES 0",
+            "",
+        ]
+    )
+
+
+def _mode(clone: FlatClone) -> str:
+    """What the runtime does with this clone — its own build mode, named."""
+    if getattr(clone, "leaf", False):
+        return "value_str"
+    if getattr(clone, "attempt", None) is not None:
+        return "alt"
+    return "dispatch" if len(getattr(clone, "selectors", ()) or ()) > 1 else "seq"
+
+
+def _flags(clone: FlatClone) -> str:
+    """a attempt · l leaf · s structured-noise — read off the clone itself."""
+    out = ""
+    out += "a" if getattr(clone, "attempt", None) is not None else ""
+    out += "l" if getattr(clone, "leaf", False) else ""
+    out += "s" if getattr(clone, "struct_arm", None) is not None else ""
+    return out or "-"
+
+
 def pda_clock(compiled: CompiledGrammar, text: str) -> str:
     """Run the predictive engine again, watched, and spell what it did."""
     kernel = ClockKernel(compiled.pda_tables(), text, compiled.fold)
@@ -87,6 +144,7 @@ def pda_clock(compiled: CompiledGrammar, text: str) -> str:
         end = kernel.pos
         kernel.events.append((kernel.pos, "verdict", str(stop)[:80]))
     kernel.close()
+    _SEATS[(id(compiled), hash(text))] = sorted(kernel.clones.values())
     hyps, hnames, dropped = earley_clock(compiled, text)
     names = sorted({str(record[3]) for record in kernel.frames})
     at = {name: index for index, name in enumerate(names)}
