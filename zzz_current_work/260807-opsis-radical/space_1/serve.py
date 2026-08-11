@@ -38,9 +38,6 @@ from eidolon.topology import edges, levels, reachable  # noqa: E402
 from opsis.grammar import rail, rails  # noqa: E402
 from opsis.paint import (  # noqa: E402
     automaton_drawing,
-    band_drawing,
-    clock_drawing,
-    packed,
     chart_drawing,
     graph_drawing,
     rail_drawing,
@@ -318,49 +315,13 @@ class Handler(BaseHTTPRequestHandler):
                     machine, self.reading, Handler.state.get("form", "source")
                 )
                 return rails_drawing(rails(shown), wide).wire("rails")
-            if what == "clock":
-                tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 400
-                if asked.get("mode", ["pda"])[0] == "pda":
-                    rows = [
-                        (s0, e0, d0, ok)
-                        for s0, e0, d0, _n, ok, _seat in watch(
-                            machine, self.reading.text
-                        )
-                    ]
-                else:
-                    said_hyps, _names = hypotheses(machine, self.reading.text)
-                    held = [
-                        (int(p[0]), int(p[1]), int(p[2]))
-                        for p in (line.split(" ") for line in said_hyps)
-                        if len(p) >= 3
-                    ]
-                    # a hypothesis has no depth of its own, so its row is
-                    # something the picture must invent — first row it fits
-                    rows = packed(held)
-                return clock_drawing(rows, len(self.reading.text), tall).wire("clock")
-            if what == "band":
-                tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 26
-                mode = asked.get("mode", ["model"])[0]
-                if mode == "pda":
-                    held = [
-                        (s0, e0, d0, ok)
-                        for s0, e0, d0, _n, ok, _seat in watch(
-                            machine, self.reading.text
-                        )
-                    ]
-                elif mode == "earley":
-                    said_hyps, _names = hypotheses(machine, self.reading.text)
-                    held = [
-                        (int(p[0]), int(p[1]), 0, int(p[2]))
-                        for p in (line.split(" ") for line in said_hyps)
-                        if len(p) >= 3
-                    ]
-                else:
-                    held = None
-                return band_drawing(self.reading, tall, held, mode).wire("band")
             if what == "chart":
                 tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 400
-                return chart_drawing(self.reading, tall).wire("chart")
+                start = int(float(asked.get("from", ["0"])[0] or 0))
+                win = int(float(asked.get("win", ["400"])[0] or 400))
+                return chart_drawing(
+                    self.reading, start, win, wide, tall
+                ).wire("chart")
             if what == "rail":
                 shown = form_of(
                     machine, self.reading, Handler.state.get("form", "source")

@@ -209,13 +209,7 @@ function drawGraphView(v, smooth = false) {
   const w = wrap.clientWidth, h = wrap.clientHeight;
   if (!w || !h) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  // BOTH dimensions: checking only the width meant a facet that grew or
-  // shrank vertically kept its old bitmap and the picture was stretched
-  // by CSS — lanes running off the bottom of a box they no longer fit
-  if (cv.width !== w * dpr || cv.height !== h * dpr) {
-    cv.width = w * dpr;
-    cv.height = h * dpr;
-  }
+  if (cv.width !== w * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
   const cx = cv.getContext('2d');
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
   cx.clearRect(0, 0, w, h);

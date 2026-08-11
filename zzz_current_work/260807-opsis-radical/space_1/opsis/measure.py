@@ -15,30 +15,16 @@ from __future__ import annotations
 
 from praxis.reading import columns
 
-__all__ = ["Box", "boxes", "bracket_for"]
+__all__ = ["Box", "boxes"]
 
 # in characters and rows. A token's padding, the gap between things in a
 # sequence, the gap between the arms of a choice, and the room a loop's
 # return line needs above or below what it wraps.
 PAD = 2
 GAP = 3
-# atlas fits seven arms in 150px because its arms nearly touch. A full row
-# between them doubles the span a fork must reach across, which is what
-# forced the curves near-vertical — the shape was never the problem.
-VGAP = 0.25
+VGAP = 1
 LOOP = 2
-# A fork's room is PROPORTIONAL to what it must reach. A branch dropping
-# thirteen rows cannot bend inside eight columns — it comes out near
-# vertical, and seven of them read as a vase. So the bracket scales with the
-# arms' span, floored so a two-way choice still has somewhere to turn.
-BRACKET = 8
-REACH = 1.1  # columns of horizontal room per row of vertical drop
-BRACKET_MAX = 18
-
-
-def bracket_for(tall: float) -> float:
-    """How wide a fork must be to reach arms this far apart."""
-    return min(BRACKET_MAX, max(BRACKET, tall * REACH))
+BRACKET = 6
 
 
 class Box:
@@ -76,8 +62,8 @@ def _measure(node: tuple[str, str, list], out: list[Box]) -> Box:
         here.tall = here.spine + max(box.tall - box.spine for box in inner)
     elif kind == "alt" and inner:
         # the arms stack, and the choice needs room for the fork on each side
+        here.wide = max(box.wide for box in inner) + BRACKET
         here.tall = sum(box.tall for box in inner) + VGAP * (len(inner) - 1)
-        here.wide = max(box.wide for box in inner) + bracket_for(here.tall)
         here.spine = inner[0].spine
     elif kind == "many" and inner:
         low, high = (payload.split() + ["1", "1"])[:2]

@@ -40,12 +40,7 @@ from eidolon.value import graph as ir_graph  # noqa: E402
 from eidolon.value import wire as ir_wire  # noqa: E402
 from kairos.pipeline import FORMS  # noqa: E402
 from opsis.grammar import rails  # noqa: E402
-from opsis.paint import (  # noqa: E402
-    band_drawing,
-    chart_drawing,
-    packed,
-    rails_drawing,
-)
+from opsis.paint import chart_drawing, rails_drawing  # noqa: E402
 from opsis.scene import drawn, moved, ruledefs  # noqa: E402
 from praxis.strata import strata  # noqa: E402
 from serve import PENDING  # noqa: E402
@@ -464,10 +459,8 @@ def main() -> int:
     # geometry beside the first. What must hold: the address names a span
     # this reading actually has, and nothing outside the asked window is
     # drawn (a box for an off-window span is a box in the wrong place).
-    # the drawing is the WHOLE document now, in document coordinates, so
-    # what must hold is the addressing: a box names the span it is, and
-    # sits where that span sits — the window is the leaf's transform.
-    frame_marks = chart_drawing(reading, 400).marks
+    window = (3800, 400)
+    frame_marks = chart_drawing(reading, window[0], window[1], 900, 400).marks
     said_spans = [m.split()[6] for m in frame_marks if m.startswith("box ")]
     wrong = []
     for address in said_spans:
@@ -475,67 +468,13 @@ def main() -> int:
         span = reading.spans[index]
         if (span.start, span.end) != (start, end):
             wrong.append(f"{address} is not span {index}")
-        elif (
-            abs(float(frame_marks[said_spans.index(address)].split()[1]) - start) > 0.5
-        ):
-            wrong.append(f"{address} is not drawn where it sits")
+        elif end <= window[0] or start >= window[0] + window[1]:
+            wrong.append(f"{address} is outside the window")
     check(
-        "every box in the derivation names the span it IS, and sits where it is",
+        "every box in the derivation names the span it IS, and stays in frame",
         not wrong and bool(said_spans),
-        f"{len(said_spans)} boxes, in document coordinates"
+        f"{len(said_spans)} boxes over {window[1]} chars"
         + (f" · WRONG {wrong[:2]}" if wrong else ""),
-    )
-
-    # every tone a drawing NAMES must be one the leaf can colour. An unknown
-    # tone falls back to the darkest ink, which is invisible against the
-    # field — a whole band drew as nothing because the server had started
-    # saying `modelband2` while the register still only knew `band2`.
-    # tones share lines in both registers, so the scan cannot be anchored
-    register = {
-        name
-        for leafside in ("chart.js", "paint.js")
-        for name in re.findall(
-            r"([A-Za-z0-9]+):\s*'", (HERE / "leaf" / leafside).read_text()
-        )
-    }
-    tones = {
-        mark.split()[5]
-        for said in (
-            band_drawing(reading, 26, None, "model"),
-            rails_drawing(rails(machine.grammar), 900),
-            chart_drawing(reading, 400),
-        )
-        for mark in said.marks
-        if mark.startswith("box ")
-    }
-    unknown = sorted(tones - register)
-    check(
-        "every tone a drawing names is one the leaf can colour",
-        not unknown,
-        f"{len(tones)} tones used · {len(register)} known"
-        + (f" · UNKNOWN {unknown}" if unknown else ""),
-    )
-
-    # a clock's ROW is something the picture invents: Earley holds thousands
-    # of hypotheses with no depth of their own. Putting them all in row zero
-    # draws one dense stripe and calls it a clock — which is what shipped.
-    # What must hold: within a row, nothing overlaps anything else.
-    held = [(s, e, ok) for s, e, ok in ((0, 5, 1), (2, 9, 0), (6, 8, 1), (9, 12, 1))]
-    lanes: dict[int, list[tuple[int, int]]] = {}
-    for start, end, lane, _fate in packed(held):
-        lanes.setdefault(lane, []).append((start, end))
-    clash = [
-        (lane, a, b)
-        for lane, spans in lanes.items()
-        for i, a in enumerate(spans)
-        for b in spans[i + 1 :]
-        if a[0] < b[1] and b[0] < a[1]
-    ]
-    check(
-        "a clock's rows are invented so nothing in one overlaps anything else",
-        not clash and len(lanes) > 1,
-        f"{len(held)} extents over {len(lanes)} rows"
-        + (f" · CLASH {clash[:1]}" if clash else ""),
     )
 
     # a drawing carries its own DOORS: every ref in a track names the rule

@@ -22,20 +22,14 @@ from __future__ import annotations
 from eidolon.layout import positions
 from eidolon.topology import edges
 from lexic.ir import IrAst
-from opsis.measure import GAP, LOOP, VGAP, Box, bracket_for
+from opsis.measure import BRACKET, GAP, LOOP, VGAP, Box
 from praxis.reading import columns
 
 __all__ = [
     "Drawing",
     "automaton_drawing",
-    "band_drawing",
-    "clock_drawing",
-    "packed",
     "chart_drawing",
     "graph_drawing",
-    "band_drawing",
-    "clock_drawing",
-    "packed",
     "chart_drawing",
     "rail_drawing",
     "rails_drawing",
@@ -43,7 +37,6 @@ __all__ = [
 
 CELL = 7.2  # one column, in pixels, at the leaf's rail font
 ROW = 22.0  # one row
-CORNER = 7.0  # how tightly the track turns
 
 
 class Drawing:
@@ -95,26 +88,6 @@ class Drawing:
         self.wide = max(self.wide, x1, x2)
         self.tall = max(self.tall, y1, y2)
 
-    def bez(
-        self,
-        x1: float,
-        y1: float,
-        ax: float,
-        ay: float,
-        bx: float,
-        by: float,
-        x2: float,
-        y2: float,
-        tone: str,
-    ) -> None:
-        """An S-curve: the branch a railroad actually draws off its line."""
-        self.marks.append(
-            f"bez {x1:.1f} {y1:.1f} {ax:.1f} {ay:.1f} {bx:.1f} {by:.1f} "
-            f"{x2:.1f} {y2:.1f} {tone}"
-        )
-        self.wide = max(self.wide, x1, x2)
-        self.tall = max(self.tall, y1, y2)
-
     def dot(self, x: float, y: float, r: float, tone: str) -> None:
         self.marks.append(f"arc {x:.1f} {y:.1f} {r:.1f} {tone}")
 
@@ -131,49 +104,6 @@ class Drawing:
                 "",
             ]
         )
-
-
-def _arch(
-    draw: Drawing, left: float, right: float, line: float, away: float, tone: str
-) -> None:
-    """A line that leaves the track, runs parallel and comes back."""
-    radius = min(CORNER, abs(away - line) / 2)
-    step = 1.0 if away > line else -1.0
-    draw.curve(left, line, left, away, left + radius, away, tone)
-    draw.line(left + radius, away, right - radius, away, tone)
-    draw.curve(right - radius, away, right, away, right, line, tone)
-    _ = step
-
-
-def _turn(
-    draw: Drawing,
-    edge: float,
-    spine: float,
-    bus: float,
-    mid: float,
-    arm: float,
-    out: bool,
-) -> None:
-    """One branch off the line: leave, round down, run, round back in."""
-    radius = min(CORNER, abs(mid - spine) / 2)
-    step = 1.0 if mid > spine else -1.0
-    if out:
-        draw.line(edge, spine, bus - radius, spine, "rail")
-        draw.curve(bus - radius, spine, bus, spine, bus, spine + step * radius, "rail")
-        draw.line(bus, spine + step * radius, bus, mid - step * radius, "rail")
-        draw.curve(bus, mid - step * radius, bus, mid, bus + radius, mid, "rail")
-        draw.line(bus + radius, mid, arm, mid, "rail")
-        return
-    draw.line(arm, mid, bus - radius, mid, "rail")
-    draw.curve(bus - radius, mid, bus, mid, bus, mid - step * radius, "rail")
-    draw.line(bus, mid - step * radius, bus, spine + step * radius, "rail")
-    draw.curve(bus, spine + step * radius, bus, spine, bus + radius, spine, "rail")
-    draw.line(bus + radius, spine, edge, spine, "rail")
-
-
-def inner_left(bus: float) -> float:
-    """Where an arm starts: one column clear of the bus it hangs from."""
-    return bus + CELL
 
 
 def _track(
@@ -205,30 +135,23 @@ def _track(
                 cursor += GAP * CELL
         return
     if kind == "alt":
-        # A branch is an S-CURVE off the line, one per arm, with its control
-        # points at the horizontal midpoint — the shape the earlier build
-        # drew and the one that reads as track. A shared vertical bus reads
-        # as a bracket; a single long diagonal reads as a funnel.
+        # one fork out, one fork back, and every arm on its own line between
+        inner = x + BRACKET / 2 * CELL
+        edge = x + w
         top = y
-        arm_left = x + bracket_for(box.tall) / 2 * CELL
         for kid in kids:
             kid_box = room[at[0]]
             mid = top + kid_box.spine * ROW
-            _track(kid, room, at, draw, arm_left, top)
-            arm_right = arm_left + kid_box.wide * CELL
-            middle = (x + arm_left) / 2
-            draw.bez(
-                x, y + spine, middle, y + spine, middle, mid, arm_left, mid, "rail"
-            )
-            out_middle = (arm_right + x + w) / 2
-            draw.bez(
-                arm_right,
+            draw.curve(x, y + spine, inner - CELL, y + spine, inner, mid, "rail")
+            _track(kid, room, at, draw, inner, top)
+            right = inner + kid_box.wide * CELL
+            draw.line(right, mid, edge - BRACKET / 2 * CELL, mid, "rail")
+            draw.curve(
+                edge - BRACKET / 2 * CELL,
                 mid,
-                out_middle,
-                mid,
-                out_middle,
+                edge - CELL,
                 y + spine,
-                x + w,
+                edge,
                 y + spine,
                 "rail",
             )
@@ -245,24 +168,14 @@ def _track(
         draw.line(x, mid, inner_x, mid, "rail")
         draw.line(right_of_kid, mid, x + w, mid, "rail")
         if low == "0":  # the bypass arches over
-            draw.bez(
-                x,
-                mid,
-                x + 2,
-                mid - LOOP * ROW * 0.7,
-                x + w - 2,
-                mid - LOOP * ROW * 0.7,
-                x + w,
-                mid,
-                "loop",
-            )
-        if high != "1":  # the repeat arches back under
-            drop = kid_box.tall * ROW + ROW * 0.7
-            draw.bez(
-                x + w, mid, x + w - 2, mid + drop, x + 2, mid + drop, x, mid, "loop"
-            )
+            over = y + ROW * 0.5
+            draw.curve(x, mid, x, over, (x + x + w) / 2, over, "loop")
+            draw.curve((x + x + w) / 2, over, x + w, over, x + w, mid, "loop")
+        if high != "1":  # the repeat returns underneath
+            under = inner_y + kid_box.tall * ROW + ROW * 0.6
+            draw.curve(x + w, mid, x + w, under, (x + x + w) / 2, under, "loop")
+            draw.curve((x + x + w) / 2, under, x, under, x, mid, "loop")
         return
-
     if kind in ("not", "alpha"):
         tag = "¬ none of" if kind == "not" else f"⟨{payload}⟩"
         draw.text(x, y + ROW * 0.7, "dim", tag)
@@ -422,126 +335,39 @@ def rail_drawing(tracks: str, name: str) -> Drawing:
     return draw
 
 
-def chart_drawing(reading: object, tall: int) -> Drawing:
-    """The whole derivation, in DOCUMENT coordinates — x IS the offset.
+def chart_drawing(
+    reading: object, view0: int, win: int, wide: int, tall: int
+) -> Drawing:
+    """The derivation over a window of the text — spans as boxes in lanes.
 
-    Drawn once per reading, not once per window. Keying a drawing to the
-    window meant every frame of playback scrolled it, invalidated it and
-    refetched a whole-document computation — which is why the clock died
-    the moment you pressed play. A window is a transform, and a transform
-    belongs to the side doing the looking.
+    Every box carries its EXTENT as its address (``start:end:index``), for
+    two reasons. The leaf hit-tests painted rectangles, so hovering needs no
+    second geometry — the same mechanism the railroad's doors use. And the
+    tone that changes with the cursor (closed behind it, open across it,
+    still to come) is a comparison against the one number the leaf genuinely
+    owns: the cursor it is moving. Nothing here depends on where the cursor
+    is, so this drawing survives a whole playback unchanged.
     """
     draw = Drawing()
     spans = list(getattr(reading, "spans", []))
-    if not spans:
+    if not spans or win <= 0:
         return draw
     deep = max(span.depth for span in spans) + 1
     lane = max(6.0, min(22.0, (tall - 24) / deep))
+    pitch = wide / win
     for index, span in enumerate(spans):
+        if span.end <= view0 or span.start >= view0 + win:
+            continue
+        x1 = (max(span.start, view0) - view0) * pitch
+        x2 = (min(span.end, view0 + win) - view0) * pitch
         y = span.depth * lane
         goes = f"{span.start}:{span.end}:{index}"
         if span.end == span.start:
-            draw.box(float(span.start), y, 0.0, lane - 2, "eps", "", goes)
+            # an ε match holds no text — a mark AT a place, never a box the
+            # width of two characters, of which this reading has 1,403
+            draw.box(x1 - 0.5, y, 1.0, lane - 2, "eps", "", goes)
             continue
-        draw.box(
-            float(span.start),
-            y,
-            float(span.end - span.start),
-            lane - 2,
-            "span",
-            "",
-            goes,
-        )
-    draw.wide = float(len(getattr(reading, "text", "")) or 1)
+        draw.box(x1, y, max(1.5, x2 - x1), lane - 2, "span", "", goes)
+    draw.wide = float(wide)
     draw.tall = deep * lane
     return draw
-
-
-def band_drawing(
-    reading: object,
-    tall: int,
-    rows: list[tuple[int, int, int, int]] | None = None,
-    mode: str = "model",
-) -> Drawing:
-    """The whole document at a glance — how much sits where, in document units.
-
-    Without ``rows`` this is the reading's own structure (how many spans
-    cover each stretch). With them it is an engine's clock, textured the
-    same way. Either is a property of what happened, not of where you are
-    looking, so it is drawn once in document coordinates like everything
-    else and the window is the leaf's transform.
-    """
-    draw = Drawing()
-    text = getattr(reading, "text", "")
-    if not text:
-        return draw
-    steps = 240
-    size = max(1, len(text) // steps)
-    cover = [0] * (len(text) // size + 1)
-    held = rows or [
-        (span.start, span.end, 0, 1) for span in getattr(reading, "spans", [])
-    ]
-    if not held:
-        return draw
-    for start, end, _lane, _fate in held:
-        first = min(start // size, len(cover) - 1)
-        last = min(max(end - 1, start) // size, len(cover) - 1)
-        for at in range(first, last + 1):
-            cover[at] += 1
-    top = max(cover) or 1
-    for at, deep in enumerate(cover):
-        shade = min(3, (deep * 4) // (top + 1))
-        # the tone says WHICH clock as well as how dense: three bands that
-        # look alike are three bands that say nothing about which engine
-        draw.box(float(at * size), 0.0, float(size), float(tall), f"{mode}band{shade}")
-    draw.wide = float(len(text))
-    draw.tall = float(tall)
-    return draw
-
-
-def clock_drawing(
-    rows: list[tuple[int, int, int, int]], across: int, tall: int
-) -> Drawing:
-    """An engine's clock, in DOCUMENT coordinates — one box per thing held.
-
-    ``rows`` are ``(start, end, lane, fate)``. Like the derivation, this is
-    the whole document at once: the window is the leaf's transform, so
-    scrubbing and playing cost nothing and change nothing here.
-    """
-    draw = Drawing()
-    if not rows:
-        return draw
-    deep = max(lane for _s, _e, lane, _f in rows) + 1
-    lane_tall = max(2.0, min(16.0, (tall - 12) / deep))
-    for index, (start, end, lane, fate) in enumerate(rows):
-        draw.box(
-            float(start),
-            lane * lane_tall,
-            float(max(end - start, 0)),
-            lane_tall - 1,
-            "kept" if fate else "lost",
-            "",
-            f"{start}:{end}:{index}",
-        )
-    draw.wide = float(across or 1)
-    draw.tall = deep * lane_tall
-    return draw
-
-
-def packed(rows: list[tuple[int, int, int]]) -> list[tuple[int, int, int, int]]:
-    """Give every extent a row where it does not overlap what is already there.
-
-    Earley holds thousands of hypotheses at once and they have no natural
-    depth, so a row is something a picture must INVENT — the leaf used to,
-    and dropping that on the way over put every one of them in row zero.
-    Rows are filled in order, first that fits.
-    """
-    ends: list[int] = []
-    out: list[tuple[int, int, int, int]] = []
-    for start, end, fate in rows:
-        lane = next((i for i, free in enumerate(ends) if free <= start), len(ends))
-        if lane == len(ends):
-            ends.append(0)
-        ends[lane] = max(end, start + 1)
-        out.append((start, end, lane, fate))
-    return out

@@ -8,7 +8,9 @@
 /* ── the railroad — one rule's body as track: sequence rides the line,
    choice splits it, repetition loops it. Structure from the wire; geometry here. ── */
 
+const RAIL = { bh: 20, padx: 7, gap: 16, vgap: 9, loop: 13 };
 const railCache = new Map();
+let railInk = null;
 
 async function fetchRail(rule) {
   // one rule's track, with its MEASUREMENT — the boxes arrive in a #BOX
@@ -30,13 +32,138 @@ async function fetchRail(rule) {
   return tree;
 }
 
+function railColors() {
+  if (!railInk) {
+    const cs = getComputedStyle(document.documentElement);
+    railInk = Object.fromEntries(['cool', 'warm', 'violet', 'dim', 'dimmer', 'ink', 'red', 'field']
+      .map((k) => [k, cs.getPropertyValue('--' + k).trim()]));
+  }
+  return railInk;
+}
 
+function railFont() {
+  return '11px ' + getComputedStyle(document.documentElement).getPropertyValue('--mono');
+}
 
+function railCell(cx) {
+  // the cell this railroad is being drawn into: one character wide, one row
+  // tall. Everything else about its size was decided by the reading.
+  cx.font = railFont();
+  return { w: Math.max(5, cx.measureText('0').width), h: RAIL.bh };
+}
 
+function railMeasure(n, cx, cell) {
+  const box = cell || railCell(cx);
+  n.w = (n.cw || 6) * box.w;
+  n.h = (n.ch || 1) * box.h;
+  n.cy = (n.ccy || 0.5) * box.h;
+  if (n.k === 'many') {
+    const [lo, hi] = n.payload.split(' ').map(Number);
+    n.bypass = lo === 0;
+    n.loop = hi !== 1;
+    n.count = lo > 1 || hi > 1 ? `${lo}..${hi < 0 ? '∞' : hi}` : '';
+  } else if (n.k === 'not' || n.k === 'alpha') {
+    n.tag = n.k === 'not' ? '¬ none of' : '⟨' + n.payload + '⟩';
+  }
+  for (const kid of n.kids) railMeasure(kid, cx, box);
+}
 
+function railLine(cx, x0, y0, x1, y1) {
+  cx.strokeStyle = railColors().dim;
+  cx.lineWidth = 1.2;
+  cx.beginPath();
+  cx.moveTo(x0, y0);
+  cx.lineTo(x1, y1);
+  cx.stroke();
+}
 
+function railBranch(cx, x0, y0, x1, y1) {
+  cx.strokeStyle = railColors().dim;
+  cx.lineWidth = 1.2;
+  cx.beginPath();
+  cx.moveTo(x0, y0);
+  cx.bezierCurveTo((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1, y1);
+  cx.stroke();
+}
 
+function railArch(cx, x0, x1, y, dy) {
+  cx.strokeStyle = railColors().dim;
+  cx.lineWidth = 1.2;
+  cx.beginPath();
+  cx.moveTo(x0, y);
+  cx.bezierCurveTo(x0 + 2, y + dy, x1 - 2, y + dy, x1, y);
+  cx.stroke();
+}
 
+function railDraw(n, cx, x, y, hits) {
+  const yE = y + n.cy;
+  if (n.k === 'seq') {
+    let ax = x;
+    n.kids.forEach((kid, i) => {
+      if (i) { railLine(cx, ax, yE, ax + RAIL.gap, yE); ax += RAIL.gap; }
+      railDraw(kid, cx, ax, yE - kid.cy, hits);
+      ax += kid.w;
+    });
+  } else if (n.k === 'alt') {
+    const inx = x + 28, outx = x + n.w - 28;
+    let ay = y;
+    for (const kid of n.kids) {
+      const ky = ay + kid.cy;
+      railBranch(cx, x, yE, inx, ky);
+      railDraw(kid, cx, inx, ay, hits);
+      railLine(cx, inx + kid.w, ky, outx, ky);
+      railBranch(cx, x + n.w, yE, outx, ky);
+      ay += kid.h + RAIL.vgap;
+    }
+  } else if (n.k === 'many') {
+    const kid = n.kids[0];
+    const kx = x + 20;
+    railLine(cx, x, yE, kx, yE);
+    railDraw(kid, cx, kx, yE - kid.cy, hits);
+    railLine(cx, kx + kid.w, yE, x + n.w, yE);
+    if (n.bypass) railArch(cx, x + 5, x + n.w - 5, yE, -(kid.cy + 10));
+    if (n.loop) railArch(cx, kx - 6, kx + kid.w + 6, yE, kid.h - kid.cy + 10);
+    if (n.count) {
+      cx.fillStyle = railColors().dim;
+      cx.fillText(n.count, x + (n.w - cx.measureText(n.count).width) / 2, yE + kid.h - kid.cy + RAIL.loop + 8);
+    }
+  } else if (n.k === 'not' || n.k === 'alpha') {
+    const kid = n.kids[0];
+    const kx = x + 6;
+    railLine(cx, x, yE, kx, yE);
+    railDraw(kid, cx, kx, y + 16, hits);
+    railLine(cx, kx + kid.w, yE, x + n.w, yE);
+    cx.setLineDash([3, 3]);
+    cx.strokeStyle = railColors().dim;
+    cx.strokeRect(x + 1, y + 1, n.w - 2, n.h - 2);
+    cx.setLineDash([]);
+    cx.fillStyle = n.k === 'not' ? railColors().red : railColors().dim;
+    cx.fillText(n.tag, x + 5, y + 11);
+  } else {
+    const C = railColors();
+    let color = { ref: C.cool, lit: C.warm, class: C.violet }[n.k] || C.dim;
+    let textColor = color;
+    if (n.k === 'ref' && n.label === hotRule()) {
+      // the same light the rule's chip carries when hovered
+      cx.fillStyle = C.warm;
+      cx.fillRect(x, y, n.w, n.h);
+      color = C.warm;
+      textColor = C.field;
+    } else if (n.k === 'ref' && n.label === cur.rule) {
+      color = C.violet;
+      textColor = C.violet;
+    }
+    cx.strokeStyle = color;
+    cx.lineWidth = 1;
+    cx.beginPath();
+    if (n.k === 'lit') cx.roundRect(x, y, n.w, n.h, 9);
+    else cx.rect(x, y, n.w, n.h);
+    cx.stroke();
+    cx.fillStyle = textColor;
+    cx.fillText(n.label, x + (n.w - cx.measureText(n.label).width) / 2, yE + 3.5);
+    if (n.k === 'ref') hits.push({ x, y, w: n.w, h: n.h, rule: n.label });
+  }
+}
 
 let railsAll = null;
 let railsLoading = false;
@@ -95,6 +222,12 @@ async function fetchRails() {
   drawGraph();  // one redraw, when the rails arrive
 }
 
+function railsOrder() {
+  const names = Object.keys(S.depths).length ? Object.keys(S.depths) : S.ruledefs.map((r) => r.name);
+  const order = S.ruledefs.map((r) => r.name).filter((n) => names.includes(n));
+  for (const n of names) if (!order.includes(n)) order.push(n);
+  return order;
+}
 
 // which rule the chip is offering to pin. Its declaration went out with a
 // deletion; in strict mode assigning to an undeclared name THROWS, so the
