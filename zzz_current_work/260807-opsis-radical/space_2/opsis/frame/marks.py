@@ -10,12 +10,12 @@ what keeps a highlight on the character it is about.
 
 from __future__ import annotations
 
-from opsis.frame.tones import ADVANCE, register
+from opsis.frame.tones import ADVANCE, CELL, register
 
 __all__ = ["CELL", "ROW", "Frame"]
 
-# --fs 12.5px in --mono is 7.5px per glyph; --lh is 19px
-CELL = 7.5
+# --lh is 19px; CELL is the mono advance, and it is tones.py's, so that what
+# a frame MEASURES and what it LAYS OUT cannot drift apart
 ROW = 19.0
 
 # how many x,y pairs lead a mark of each kind; the rest rides along unchanged

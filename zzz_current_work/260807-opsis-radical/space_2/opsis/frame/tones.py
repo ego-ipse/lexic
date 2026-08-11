@@ -97,6 +97,11 @@ EDGES = {
 }
 
 # what one glyph costs, in the face a tone is set in
+# --fs 12.5px in --mono is 7.5px per glyph: the body face, and what a tone
+# with no face of its own is set in. It was 7.0 here, which is a sixteenth of
+# a character short per glyph — enough that a name's own extent, placed after
+# it, sat on top of its last letter.
+CELL = 7.5
 ADVANCE = {"title": 9.4, "ftitle": 6.6, "fsub": 6.4, "verdict": 6.6, "chip": 6.0}
 
 
@@ -107,7 +112,7 @@ def runs(tone: str, said: str) -> float:
     from a fallback face and take about half again as much room, which is how
     two chips in a facet's head ended up overlapping each other.
     """
-    cell = ADVANCE.get(tone, 7.0)
+    cell = ADVANCE.get(tone, CELL)
     return sum(cell if glyph.isascii() else cell * 1.6 for glyph in said)
 
 
