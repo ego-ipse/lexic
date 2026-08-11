@@ -298,6 +298,18 @@ window.addEventListener('keydown', (ev) => {
   ask(`key ${name}`);
 });
 
+/* hover: reported only when what is under the pointer CHANGES, so a hand
+   moving across a facet is one gesture, not a thousand */
+let over_what = '';
+paper.addEventListener('pointermove', (ev) => {
+  if (dragging) return;
+  const target = under(ev, false);
+  const now = target ? `${target.kind} ${target.goes}` : '';
+  if (now === over_what) return;
+  over_what = now;
+  ask(`hover ${now}`);
+});
+
 window.addEventListener('resize', () => ask(''));
 setInterval(() => { if (playing) ask('tick'); }, 110);
 ask(asked.get('pin') ? `set pin.span ${asked.get('pin')}` : '');

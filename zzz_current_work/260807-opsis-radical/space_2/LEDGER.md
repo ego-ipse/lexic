@@ -244,6 +244,23 @@ Two of those are there because of specific failures:
   the parity verdict, the graph chips and the strata's doors; this is the
   measurement that stops it being a guess.
 
+## Three cursors on one subject
+
+Cursors live on the SUBJECT — time, selection, hover — and every facet
+renders them in its own coordinates. Two of the three were missing.
+
+- **Hover did not exist.** It does now: the leaf reports what the pointer is
+  over ONLY when that changes, so a hand crossing a facet is one gesture and
+  not a thousand, and the server decides what it means. Hovering a rule
+  lights it; hovering a SPAN lights the rule that read it; letting go lets
+  go. It does not move the cursor and does not choose — that is what makes it
+  the lighter twin of selection rather than a second one.
+- **Selection worked one way only.** Selecting in the document asked what
+  value those characters are; selecting in the READER did nothing at all.
+  It now asks the mirror question — which rule are these characters part of —
+  and lights its every occurrence. One gesture, one meaning, whichever text
+  you are standing in, which is what crossing the reader/read boundary means.
+
 ## Grammar is the ground truth — including when you type in it
 
 Re-reading only ever looked at the DOCUMENT. Typing in THE READER and

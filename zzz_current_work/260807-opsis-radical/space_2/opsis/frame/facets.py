@@ -149,11 +149,43 @@ class Look:
         return keep
 
     def lit(self) -> set[str]:
-        """The rules that light: what is open, and whatever was chosen."""
+        """The rules that light: what is open, what was chosen, what is under
+        the pointer. Three cursors, one highlight, and every facet renders it
+        in its own coordinates."""
         names = {as_written(self.it.rules, span.rule) for span in self.live()}
         if self.chosen:
             names.add(self.chosen)
+        named = self.hovered()
+        if named:
+            names.add(named)
         return names
+
+    def hovered(self) -> str:
+        """Which rule the pointer is over, whatever KIND of thing it is over."""
+        said = self.says("hover", "")
+        kind, _, goes = said.partition(" ")
+        if kind == "rule":
+            return goes
+        if kind == "span" and ":" in goes:
+            start, _, end = goes.partition(":")
+            if start.isdigit() and end.isdigit():
+                held = [
+                    span
+                    for span in self.reading.spans
+                    if span.start == int(start) and span.end == int(end)
+                ]
+                if held:
+                    return as_written(self.it.rules, held[0].rule)
+        if kind == "readerline" and goes.isdigit():
+            return next(
+                (
+                    name
+                    for name, first, last in self.it.rules
+                    if first <= int(goes) <= last
+                ),
+                "",
+            )
+        return ""
 
 
 # ── the reader and the document ──────────────────────────────────────────

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, MutableMapping
 
+from opsis.scene import ruledefs
 from praxis.history import Retype, retype
 from praxis.reading import Reading, read_up
 from praxis.roots import GRAMMAR as POLICY
@@ -258,10 +259,32 @@ class Session:
         self.state["tab.reader"] = "1"
 
     def _sel(self, words: list[str]) -> None:
-        """Text selected in a plane — the smallest covering occurrence co-selects."""
-        if len(words) < 3 or words[0] != "document":
+        """Text selected in a plane — the smallest covering occurrence co-selects.
+
+        BOTH WAYS across the reader/read boundary. Selecting in the document
+        asks what value these characters are, and the tightest span covering
+        them is the answer. Selecting in the READER asks the mirror question —
+        which rule are these characters part of — and the answer lights its
+        every occurrence. One gesture, one meaning, whichever text you are in.
+        """
+        if len(words) < 3:
             return
         a, b = int(words[1]), int(words[2])
+        if words[0] == "grammar":
+            line = self.reading.reader_text[:a].count("\n")
+            named = next(
+                (
+                    name
+                    for name, first, last in ruledefs(self.reading.reader_text)
+                    if first <= line <= last
+                ),
+                "",
+            )
+            if named:
+                self.state["chosen"] = named
+            return
+        if words[0] != "document":
+            return
         self.at = float(a)
         # where the hand is, so the chip can be raised there
         self.state["sel"] = f"{a}:{b}" if b > a else ""
@@ -402,6 +425,19 @@ class Session:
         shares[at] = f"{share:.3f}"
         self.state["arrange.shares"] = " ".join(shares)
 
+    def _hover(self, words: list[str]) -> None:
+        """The third cursor: what the pointer is OVER, without having chosen it.
+
+        Cursors live on the subject and every facet renders them in its own
+        coordinates — so hovering a span in the lanes lights its rule in the
+        reader, and hovering a rule anywhere lights that rule's spans. It is
+        selection's lighter twin: it says what you are pointing at, and lets
+        go the moment you point elsewhere.
+        """
+        said = " ".join(words)
+        if self.state.get("hover", "") != said:
+            self.state["hover"] = said
+
     def _step(self, words: list[str]) -> None:
         by = float(words[0]) if words and words[0].lstrip("-").isdigit() else 1.0
         self.at = max(0.0, min(self.at + by, float(len(self.reading.text))))
@@ -452,6 +488,7 @@ SAYS: dict[str, Said] = {
     "at": Session._at,
     "do": Session._do,
     "go": Session._go,
+    "hover": Session._hover,
     "key": Session._key,
     "play": Session._play,
     "scroll": Session._scroll,

@@ -27,9 +27,10 @@ if str(HERE) not in sys.path:
 
 from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
+from opsis.frame.facets import Look  # noqa: E402
 from opsis.frame.marks import Frame  # noqa: E402
 from opsis.frame.tones import EDGES, FONTS, TONES  # noqa: E402
-from opsis.scene import reader_of, ruledefs  # noqa: E402
+from opsis.scene import reader_of, ruledefs, staged  # noqa: E402
 from praxis.reading import Reading, as_written  # noqa: E402
 from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 from praxis.state import chain  # noqa: E402
@@ -290,6 +291,61 @@ def main() -> int:
                 {"chosen": "number", "graph.focus": "on", "tab.reader": "1"}
             ).marks
         ),
+    )
+
+    print("three cursors on one subject")
+
+    def held(state: dict[str, str]) -> set[str]:
+        return {
+            m.split(" ")[2]
+            for m in frame(state).marks
+            if m.startswith("box ") and m.split(" ")[5] in ("lit", "hotline")
+        }
+
+    quiet = held({})
+    check(
+        "hovering a rule lights it, without choosing it",
+        held({"hover": "rule value"}) > quiet,
+        f"{len(quiet)} → {len(held({'hover': 'rule value'}))} lines",
+    )
+    # a span whose rule is NOT already lit — hovering something already lit
+    # proves nothing, which is the third dead fact this gate has caught in me
+    names = ruledefs(reading.reader_text)
+    away = next(
+        (
+            span
+            for span in reading.spans
+            if as_written(names, span.rule)
+            not in Look(reading, staged(reading, {}), 4200.0, {}, watched).lit()
+        ),
+        reading.spans[0],
+    )
+    check(
+        "hovering a SPAN lights the rule that read it",
+        held({"hover": f"span {away.start}:{away.end}"}) > quiet,
+        f"{as_written(names, away.rule)} at {away.start:,}",
+    )
+    check("letting go lets go", held({"hover": ""}) == quiet)
+    hoverer = Session(reading)
+    hoverer.at = 4200.0
+    hoverer.gesture("hover rule value")
+    check(
+        "hover does not move the cursor — it is not selection",
+        hoverer.at == 4200.0 and hoverer.main.get("chosen", "") == "",
+        f"at {hoverer.at:,.0f} · chosen {hoverer.main.get('chosen') or '—'}",
+    )
+    picked = Session(reading)
+    picked.gesture("sel grammar 640 660")
+    check(
+        "selecting in the READER chooses the rule those characters are part of",
+        bool(picked.main.get("chosen")),
+        picked.main.get("chosen", "—"),
+    )
+    picked.gesture("sel document 4200 4260")
+    check(
+        "selecting in the DOCUMENT chooses the smallest occurrence covering it",
+        bool(picked.main.get("chosen")),
+        picked.main.get("chosen", "—"),
     )
 
     print("editing is a re-reading")
