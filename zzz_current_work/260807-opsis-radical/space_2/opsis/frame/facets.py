@@ -590,15 +590,24 @@ def _dials(said: Frame, room: Room, look: Look) -> None:
     wanted = DIALS.get(look.says("graph.view", "depth3d"), ())
     if not wanted:
         return
-    step = 18.0
-    left = x + w - 150
-    top = y + h - len(wanted) * step - 14
+    # `#gtune`: bottom 8, right 10, padding 8x10, gap 5, a 4ch label column
+    # and a 96px track — on a translucent panel behind a hairline
+    step, track, name_wide = 17.0, 96.0, 4 * 5.4 + 8
+    inside = name_wide + track
+    left = x + w - 10 - inside - 10
+    top = y + h - 8 - len(wanted) * step - 11
+    said.box(left - 10, top - 8, inside + 20, len(wanted) * step + 11, "tune")
+    said.ring(left - 10, top - 8, inside + 20, len(wanted) * step + 11, "hair")
     for i, name in enumerate(wanted):
         word, low, high, by = DIAL[name]
         at = top + i * step
         now = float(look.says(f"graph.{name}", str(TUNE.get(name, low))))
-        said.text(left - 8, at + 11, "chip", word, anchor="r", face="chip")
-        said.slider(f"graph.{name}", left, at, 110, 14, now, low, high, by)
+        # `grid-template-columns: 4ch 1fr` sets the column, not a clip: a
+        # five-letter word spills into the 8px gap rather than becoming "dep…"
+        said.text(left, at + 10, "dial", word, face="dial")
+        said.slider(
+            f"graph.{name}", left + name_wide, at, track, 12, now, low, high, by
+        )
 
 
 def camera(look: Look, room: Room) -> tuple[float, float, float]:

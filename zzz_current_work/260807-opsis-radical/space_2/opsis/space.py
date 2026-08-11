@@ -281,3 +281,26 @@ def showing(tree: str, mate: str, at: int) -> str:
         return (said[0], said[1], into(said[2]), into(said[3]))
 
     return _spell(into(node))
+
+
+def shared(tree: str, at: int, share: float) -> str:
+    """That split, holding this share — the number where the tree keeps it.
+
+    `held` hands a hand-made shape back verbatim, so its shares live in the
+    tree and `arrange.shares` is read by nothing. Dragging a seam after any
+    topology change wrote a number nobody read, and letting go snapped the
+    layout back to what the shape said.
+    """
+    node = _parse(tree)
+    seen = [0]
+
+    def into(said: object) -> object:
+        if not isinstance(said, tuple) or said[0] == "t":
+            return said
+        here = seen[0]
+        seen[0] += 1
+        left = into(said[2])
+        right = into(said[3])
+        return (said[0], round(share, 3) if here == at else said[1], left, right)
+
+    return _spell(into(node))

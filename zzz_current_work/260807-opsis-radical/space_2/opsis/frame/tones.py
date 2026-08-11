@@ -31,6 +31,8 @@ FONTS = {
     # .tabbar .tab, #dock .fnode-chip, #ladder .rung, the selects: mono 10px
     "chip": f"10px {CODE}",
     "node": f"10px {CODE}",
+    # `#gtune label`: 9px mono, tracked 0.08em, dim
+    "dial": f"9px {CODE}",
     # .gchip: font-size: calc(10px * var(--glabel)) and the projection scales
     # it — a node's distance is in the SIZE of its name, clamped 0.55..1.2 as
     # the reference clamps it. Three bands, because a face is a registered
@@ -71,6 +73,9 @@ TONES = {
     "verdict": "#66707f",
     "chip": "#66707f",
     "node": "#66707f",
+    "dial": "#66707f",
+    # `#gtune`: rgba(11, 14, 20, 0.88) behind a hairline
+    "tune": "rgba(11,14,20,0.88)",
     # .gchip is --dim at every size: a name's DISTANCE is its size, and its
     # ROLE is its colour, and neither may be read off the other
     "railchip": "#d98cf5",
@@ -178,6 +183,7 @@ ADVANCE = {
     "verdict": 6.6,
     "chip": 6.0,
     "node": 6.0,
+    "dial": 5.4,
     "railchip": 5.6,
     "winhead": 5.6,
     "fpop": 5.6,
@@ -211,6 +217,7 @@ TRACKING = {
     # size and family, tracked differently, so they are two faces
     "chip": "0.06em",
     "node": "0.08em",
+    "dial": "0.08em",
     "ftitle": "0.14em",
 }
 # what that tracking is WORTH per glyph, in the widths `runs` adds up

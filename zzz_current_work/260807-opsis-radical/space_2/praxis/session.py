@@ -20,7 +20,7 @@ from collections.abc import Callable, MutableMapping
 from time import monotonic
 
 from opsis.scene import ruledefs, staged
-from opsis.space import moved, showing, zone_at
+from opsis.space import moved, shared, showing, zone_at
 from praxis.history import Retype, retype
 from praxis.reading import Reading, read_up
 from praxis.roots import GRAMMAR as POLICY
@@ -711,6 +711,12 @@ class Session:
             shares.append("-1")
         shares[at] = f"{share:.3f}"
         self.state["arrange.shares"] = " ".join(shares)
+        # AND IN THE TREE, when a hand has made one — the same reason a tab
+        # click has to: `held` returns a hand-made shape verbatim, so its
+        # shares live there and this key is read by nothing.
+        shape = self.main.get("arrange.shape", "")
+        if shape:
+            self.main["arrange.shape"] = shared(shape, at, share)
 
     def _hover(self, words: list[str]) -> None:
         """The third cursor: what the pointer is OVER, without having chosen it.
