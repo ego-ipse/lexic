@@ -32,6 +32,7 @@ if str(HERE) not in sys.path:
 
 from deixis.points import open_at  # noqa: E402
 from eidolon.layout import positions  # noqa: E402
+from opsis.track import track  # noqa: E402
 from eidolon.topology import edges  # noqa: E402
 from lexic.compile import CompiledGrammar, compile_text  # noqa: E402
 from lexic.exceptions import LexicError  # noqa: E402
@@ -162,13 +163,34 @@ def frame(
 
     # ── the reader ───────────────────────────────────────────────────────
     said.text(12, head + 16, "label", "THE READER")
-    _plane(said, reading.reader_text, 0, head + 24, left, body - 24, reader_top, "ink")
+    strip = 92.0  # the room the track and the stack each get
+    _plane(
+        said,
+        reading.reader_text,
+        0,
+        head + 24,
+        left,
+        body - 24 - strip,
+        reader_top,
+        "ink",
+    )
     said.line(left, head, left, tall - 26, "hair")
+    said.line(0, tall - 26 - strip, left, tall - 26 - strip, "hair")
 
     # ── the document ─────────────────────────────────────────────────────
     said.text(left + 12, head + 16, "label", "THE DOCUMENT")
-    _plane(said, reading.text, left, head + 24, middle, body - 24, doc_top, "ink")
+    _plane(
+        said,
+        reading.text,
+        left,
+        head + 24,
+        middle,
+        body - 24 - strip,
+        doc_top,
+        "ink",
+    )
     said.line(left + middle, head, left + middle, tall - 26, "hair")
+    said.line(left, tall - 26 - strip, left + middle, tall - 26 - strip, "hair")
 
     # ── the derivation, windowed and tinted HERE ─────────────────────────
     x0 = left + middle
@@ -233,10 +255,25 @@ def frame(
     live = open_at(reading, at)
     for i, span in enumerate(live[:8]):
         said.text(
-            left + 12,
+            12,
             tall - 26 - ROW * (len(live[:8]) - i),
             "live" if i == len(live) - 1 else "dim",
             f"d{span.depth} {span.rule} {span.start:,}..{span.end:,}",
+        )
+
+    # ── the railroad of whatever rule is deepest at the cursor ───────────
+    # ANOTHER surface, and the leaf still gains nothing: a track is boxes,
+    # lines and curves, which it already paints, and each reference is a hit
+    # that posts the rule it names.
+    if machine is not None and live:
+        deepest = as_written(rules, live[-1].rule)
+        track(
+            said,
+            machine.grammar,
+            deepest,
+            left + 12,
+            tall - 26 - 62,
+            middle - 24,
         )
 
     said.box(0, tall - 26, wide, 26, "head")
