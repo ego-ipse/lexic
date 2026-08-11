@@ -323,7 +323,7 @@ def main() -> int:
     # instrument has, and a rung marked visited with no numbers threw the
     # leaf's renderer mid-draw — which looks like "only the first layer".
     climbed = [reading]
-    rungs: list[str] = []
+    walked: list[str] = []
     for step in (1, 0, 1):
         while len(climbed) <= step:
             above = read_up(climbed[-1])
@@ -334,16 +334,16 @@ def main() -> int:
         stats = [ln for ln in said.split("\n") if ln.startswith("k ")]
         cards = [ln for ln in said.split("\n") if ln.startswith("c ")]
         visited = [ln for ln in cards if ln.split(" ")[5] == "1"]
-        rungs.append(
+        walked.append(
             f"rung {step}: {len(cards)} cards · {len(visited)} visited · "
             f"{len(stats)} with numbers"
         )
         if len(stats) != len(visited):
-            rungs[-1] += " ← MISMATCH"
+            walked[-1] += " ← MISMATCH"
     check(
         "every rung the ladder says is visited carries its own numbers",
-        all("MISMATCH" not in said for said in rungs),
-        " · ".join(rungs),
+        all("MISMATCH" not in line for line in walked),
+        " · ".join(walked),
     )
 
     # the automaton's edges are INDICES into its clone list. Emitting a
