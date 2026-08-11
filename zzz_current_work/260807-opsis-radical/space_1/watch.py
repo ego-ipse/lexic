@@ -16,13 +16,19 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.compile import CompiledGrammar
-from lexic.parsing.fold import ModelFold
+from track import said
+from lexic.parsing.earley.kernel.forest.readout import decode_item
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.fold import ModelFold, lift_optional_nullables
 from lexic.parsing.pda.compiler.flatten import FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 
-__all__ = ["Clock", "watch"]
+__all__ = ["Clock", "column", "watch"]
 
 CEILING = 20000
 
@@ -77,3 +83,48 @@ def watch(compiled: CompiledGrammar, text: str) -> list[list[Any]]:
         pass
     kernel.close()
     return kernel.frames
+
+
+_CHART: dict[tuple[int, int], tuple[Kernel, ParserTables]] = {}
+
+
+def chart(compiled: CompiledGrammar, text: str) -> tuple[Kernel, ParserTables]:
+    """The retained recognizer for this reading — built once, asked per cursor."""
+    key = (id(compiled), hash(text))
+    if key not in _CHART:
+        grammar = normalize(lift_optional_nullables(compiled.codegen_grammar))
+        tables = compile_tables(grammar)
+        _CHART[key] = (Kernel(tables, text, record_links=False).run(), tables)
+    kernel, tables = _CHART[key]
+    return kernel, tables
+
+
+def column(compiled: CompiledGrammar, text: str, at: int) -> str:
+    """One Earley column, as dotted items — what the chart believed there.
+
+    Fetched per cursor move; whole-document item sets never ship. Items are
+    spelled the way the GRAMMAR spells them, because a reader owed an answer
+    is not owed ``IrItem(IrRuleRef('quotation-mark'))``.
+    """
+    kernel, tables = chart(compiled, text)
+    if not 0 <= at < len(kernel.cols):
+        return f"#COLUMN {at} 0\n#EXPECT 0\n"
+    items: list[str] = []
+    expect: set[str] = set()
+    for packed in kernel.cols[at]:
+        rule, seq, dot, origin = decode_item(tables, packed)
+        done = " ".join(said(part) for part in seq[:dot])
+        todo = " ".join(said(part) for part in seq[dot:])
+        role = "complete" if dot >= len(seq) else "active"
+        items.append(f"{origin} {role} {rule} ::= {done} ● {todo}".rstrip())
+        if dot < len(seq):
+            expect.add(said(seq[dot]))
+    return "\n".join(
+        [
+            f"#COLUMN {at} {len(items)}",
+            *items,
+            f"#EXPECT {len(expect)}",
+            *sorted(expect),
+            "",
+        ]
+    )

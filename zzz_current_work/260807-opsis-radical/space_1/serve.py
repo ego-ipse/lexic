@@ -34,7 +34,7 @@ from draw import edges, levels  # noqa: E402
 from keep import keep  # noqa: E402
 from machine import of  # noqa: E402
 from track import rail, rails  # noqa: E402
-from watch import watch  # noqa: E402
+from watch import column, watch  # noqa: E402
 from wire_machine import automaton, verdicts  # noqa: E402
 
 __all__ = ["Handler", "main", "scene"]
@@ -50,7 +50,6 @@ HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
 PENDING = {
     "/routes": "primary the engine's own composition\nprimary_seconds 0.00\n"
     "status pending\n",
-    "/column": "#COLUMN 0 0\n#EXPECT 0\n",
 }
 
 
@@ -305,6 +304,7 @@ class Handler(BaseHTTPRequestHandler):
             "/strata",
             "/rulegraph",
             "/place",
+            "/column",
         ):
             return None
         try:
@@ -313,6 +313,11 @@ class Handler(BaseHTTPRequestHandler):
             )
         except LexicError, RecursionError, ValueError:
             return "no reader to draw\n"
+        if path == "/column":
+            at = dict(
+                part.split("=", 1) for part in query.split("&") if "=" in part
+            ).get("i", "0")
+            return column(machine, self.reading.text, int(at) if at.isdigit() else 0)
         if path == "/place":
             which = dict(
                 part.split("=", 1) for part in query.split("&") if "=" in part
