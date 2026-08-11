@@ -376,12 +376,18 @@ def _masthead(
     # #sub — what READ what, and how long it took. Not the pairing again: the
     # ladder chip beside it already says that, and saying it twice cost the
     # room the reading's own numbers needed.
+    # `boot.js`: what READ what, how long it took, and what came of it —
+    # the spans and the depth are the reading's own measure of itself
+    deep = max((span.depth for span in reading.spans), default=0)
     sub = (
         f"{reading.reader_name} read {len(reading.text):,} chars "
-        f"in {reading.seconds:.2f}s"
+        f"in {reading.seconds:.2f}s · {len(reading.spans):,} spans · depth {deep}"
     )
-    said.text(at, 22, "fsub", sub, 30 * 6.4)
-    at += min(runs("fsub", sub), 30 * 6.4) + 16
+    # #sub takes its natural width — it is a flex item, not a column, and
+    # clipping it at thirty characters cut the reading's own measure of
+    # itself off at "15,769 chars i…"
+    said.text(at, 22, "fsub", sub)
+    at += runs("fsub", sub) + 16
     _ladder(said, it, at)
     # #ladder is `flex: 1` — it takes what is left, so the dock and the
     # verdict sit at the RIGHT edge. Packing them beside the chip put five
