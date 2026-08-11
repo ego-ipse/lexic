@@ -862,17 +862,22 @@ READ, AND NOTHING DOES. `loadPlaces` sets `proj` straight from the fetched
 places for flat; `gRecentre` only computes a mean the THREE-SPACE projection
 uses. So the arithmetic stands: k = 1.16, `JSON-text` at x = 70, six levels.
 
-Which points at the CAPTURE, not the port. The reference's graph loads
-asynchronously — `loadPlaces` fetches, and `placedFor` keys the cache by
-view, box and generation. A screenshot taken while that key still held the
-previous view shows the previous view's picture. The three-level image this
-whole comparison rests on may be exactly that.
+I thought that pointed at the CAPTURE — that the reference's async
+`loadPlaces` had been screenshotted mid-flight. CHECKED: two captures of a
+settled session differ only in a 15x86 sliver at the right edge, a
+scrollbar. The picture is reproducible and the three-level rendering is real.
 
-BEFORE ANY MORE WORK ON THE FIT: screenshot the reference twice in a row on
-the same settled session and check the two agree. If they do not, every
-number taken off the first one is worthless — including the ones above. This
-would be the fifth wrong diagnosis of the day, and the first four all came
-from trusting one picture.
+So the contradiction is real too, and one of these measured inputs is wrong:
+
+- its canvas 783x757, this port's facet 784x793
+- its `/rulegraph?view=flat&box=784x793` places spanning 596 x 286
+- `min(691/596, 739/286, 2.4)` = 1.16, predicting all six levels and the
+  start rule at x = 70
+
+The place to look next is what its leaf ASKS for versus what I asked for:
+`graphBox()` measures `#graphWrap`, not the canvas, and I queried the box
+using the canvas's numbers. If the wrap is materially wider than 783, its
+layout is laid out for a bigger box and every number above shifts.
 
 The overflow nudge is still unported either way, and that is real: `pan.x =
 70 - w/2 - (x0 - mx) * k` when the picture is wider than the room.
