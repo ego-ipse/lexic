@@ -121,7 +121,7 @@ function read(said) {
       const p = row.split(' ');
       shown.push({ name: p[0], x: +p[1], y: +p[2], w: +p[3], h: +p[4], row: +p[5],
                    cell: +p[6], top: +p[7], editable: p[8] === '1', zoom: +p[9],
-                   chars: +p[10] });
+                   chars: +p[10], tone: p[11] || 'ink' });
     }
   }
   /* the texts ride raw at the end, counted in characters */
@@ -192,15 +192,19 @@ function strokeOne(cx, p) {
       cx.strokeRect(+p[1] + 0.5, +p[2] + 0.5, Math.max(+p[3] - 1, 1.5), +p[4]);
     } else if (p[0] === 'line') {
       cx.strokeStyle = fill(p[5]);
+      cx.lineWidth = +(p[6] || 1);
       cx.beginPath(); cx.moveTo(+p[1], +p[2]); cx.lineTo(+p[3], +p[4]); cx.stroke();
+      cx.lineWidth = 1;
     } else if (p[0] === 'curve' || p[0] === 'bez') {
       const n = p[0] === 'curve' ? 6 : 8;
       cx.strokeStyle = fill(p[n + 1]);
+      cx.lineWidth = +(p[n + 2] || 1);
       cx.beginPath();
       cx.moveTo(+p[1], +p[2]);
       if (n === 6) cx.quadraticCurveTo(+p[3], +p[4], +p[5], +p[6]);
       else cx.bezierCurveTo(+p[3], +p[4], +p[5], +p[6], +p[7], +p[8]);
       cx.stroke();
+      cx.lineWidth = 1;
     } else if (p[0] === 'dot') {
       /* .gchip.dot — border-radius: 50%, background: var(--cool) */
       cx.fillStyle = fill(p[4]);
@@ -322,6 +326,7 @@ function weld() {
     el.style.width = `${plane.w}px`;
     el.style.height = `${plane.h}px`;
     el.readOnly = !plane.editable;
+    el.style.color = fill(plane.tone);
     /* `applyDocZoom`: --fs is 12.5 × the zoom and --lh is 19 × it */
     el.style.fontSize = `${(12.5 * (plane.zoom || 1)).toFixed(2)}px`;
     el.style.lineHeight = `${plane.row.toFixed(2)}px`;

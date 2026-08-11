@@ -81,8 +81,16 @@ class Frame:
     def box(self, x: float, y: float, w: float, h: float, tone: str) -> None:
         self._put(f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
 
-    def line(self, x1: float, y1: float, x2: float, y2: float, tone: str) -> None:
-        self._put(f"line {x1:.1f} {y1:.1f} {x2:.1f} {y2:.1f} {tone}")
+    def line(
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        tone: str,
+        width: float = 1.0,
+    ) -> None:
+        self._put(f"line {x1:.1f} {y1:.1f} {x2:.1f} {y2:.1f} {tone} {width:.1f}")
 
     def curve(
         self,
@@ -93,10 +101,12 @@ class Frame:
         x2: float,
         y2: float,
         tone: str,
+        width: float = 1.0,
     ) -> None:
         """A quadratic bend — a rail turning off its line."""
-        self.marks.append(
-            f"curve {x1:.1f} {y1:.1f} {cx:.1f} {cy:.1f} {x2:.1f} {y2:.1f} {tone}"
+        self._put(
+            f"curve {x1:.1f} {y1:.1f} {cx:.1f} {cy:.1f} {x2:.1f} {y2:.1f} "
+            f"{tone} {width:.1f}"
         )
 
     def bez(
@@ -112,7 +122,7 @@ class Frame:
         tone: str,
     ) -> None:
         """A cubic S — what a railroad branch actually is."""
-        self.marks.append(
+        self._put(
             f"bez {x1:.1f} {y1:.1f} {ax:.1f} {ay:.1f} {bx:.1f} {by:.1f} "
             f"{x2:.1f} {y2:.1f} {tone}"
         )
@@ -257,6 +267,7 @@ class Frame:
         top: int,
         editable: bool,
         zoom: float = 1.0,
+        tone: str = "ink",
     ) -> None:
         """Real text, at a place, on this frame's own glyph geometry.
 
@@ -266,7 +277,8 @@ class Frame:
         """
         self.planes.append(
             f"{name} {x:.1f} {y:.1f} {w:.1f} {h:.1f} {ROW * zoom:.2f} "
-            f"{CELL * zoom:.3f} {top} {1 if editable else 0} {zoom:.3f} {len(said)}"
+            f"{CELL * zoom:.3f} {top} {1 if editable else 0} {zoom:.3f} {len(said)} "
+            f"{tone}"
         )
         self.texts.append(said)
 

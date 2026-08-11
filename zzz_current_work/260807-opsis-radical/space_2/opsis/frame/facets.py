@@ -285,6 +285,7 @@ def _plane(
         first,
         name == "document",
         zoom,
+        "dim" if name == "grammar" else "ink",
     )
     # a plane holding text that has not been read says so, where the eye
     # leaves the plane: everything derived beside it is of the LAST reading
@@ -641,6 +642,7 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
     laid = positions(
         shown, {"depth3d": "rings"}.get(view, view), int(w), int(h), _tuned(look)
     )
+    named = {name: as_written(look.it.rules, name) for name in laid}
     if view == "depth3d":
         at = project(
             laid,
@@ -653,8 +655,11 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
             look.zoom("graph.depth3d"),
         )
     else:
-        at = _spread(laid, w, h, look.zoom(f"graph.{view}"))
-    lit = look.lit()
+        at = _spread(laid, named, w, h, look.zoom(f"graph.{view}"))
+    live_path = [as_written(look.it.rules, span.rule) for span in look.live()]
+    live = set(live_path)
+    live_edges = set(zip(live_path, live_path[1:]))
+    hovered = look.hovered()
     keep = look.keep()
     named = {name: as_written(look.it.rules, name) for name in at}
     for a, b in edges(shown):
@@ -665,10 +670,10 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
             named.get(a, a) in keep and named.get(b, b) in keep
         ):
             continue
-        hot = named.get(a, a) in lit and named.get(b, b) in lit
+        step = (named.get(a, a), named.get(b, b)) in live_edges
         tone = (
             "hot"
-            if hot
+            if step
             else (
                 "loop"
                 if look.chosen in (named.get(a, a), named.get(b, b))
@@ -676,7 +681,14 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
             )
         )
         if view != "arcs":
-            said.line(x + one[0], y + one[1], x + two[0], y + two[1], tone)
+            said.line(
+                x + one[0],
+                y + one[1],
+                x + two[0],
+                y + two[1],
+                tone,
+                2.0 if step else 1.0,
+            )
             continue
         if a == b:
             # a rule that refers to ITSELF is a ring, not an arc to nowhere
@@ -698,6 +710,7 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
             x + two[0],
             y + two[1],
             tone,
+            2.0 if step else 1.0,
         )
     # far first, so what is nearest is drawn last and reads as nearest
     # .gchip.start — where every derivation begins, and it is warm
@@ -713,20 +726,40 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
         # can name, so the dial biases WHICH of them a node's distance earns:
         # at 1.8 every name is near-sized, at 0.7 every name is far.
         lit_by = near * float(look.says("graph.labelscale", "1"))
-        face = "gnear" if lit_by > 0.92 else ("chip" if lit_by > 0.72 else "gfar")
-        wide = runs(face, says) + 12
-        tall = 16.0 if face != "gfar" else 13.0
+        face = "gnear" if lit_by > 1.1 else ("chip" if lit_by > 0.85 else "gfar")
+        padding, tall = {
+            "gnear": (14.0, 19.0),
+            "chip": (12.0, 16.0),
+            "gfar": (10.0, 13.0),
+        }[face]
+        wide = runs(face, says) + padding
         # .near / .start / .marked / .hot — the four things a node can be
-        hot = says in lit
+        hot = says == hovered
+        is_live = says in live
         edge = (
             "warm"
-            if says == start or hot
+            if is_live or says == start or hot
             else (
                 "violet"
                 if says == look.chosen
                 else ("cool" if near > 0.85 else "dimmer")
             )
         )
+        # In the arcs view ordinary rules are points on the declaration line.
+        # Naming every one turns the view into a pile of labels and contradicts
+        # the reference's `.gchip.dot` contract.
+        if view == "arcs" and says not in {hovered, look.chosen, start}:
+            radius = 4.0 * max(0.55, min(near, 1.2))
+            said.dot(x + px, y + py, radius, "dimmer" if faded else "cool")
+            said.hit(
+                x + px - radius,
+                y + py - radius,
+                radius * 2,
+                radius * 2,
+                "rule",
+                says,
+            )
+            continue
         if faded:
             said.text(px + x - wide / 2 + 6, y + py + 3, "faded", says, face=face)
             continue
@@ -768,7 +801,7 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
             if hot
             else (
                 "warm"
-                if says == start
+                if is_live or says == start
                 else (
                     "violet"
                     if says == look.chosen
@@ -782,7 +815,11 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
 
 
 def _spread(
-    laid: dict[str, tuple[float, float, float]], w: float, h: float, zoom: float
+    laid: dict[str, tuple[float, float, float]],
+    named: dict[str, str],
+    w: float,
+    h: float,
+    zoom: float,
 ) -> dict[str, tuple[float, float, float]]:
     """A flat layout, fitted and centred — `{x, y, s: 1}` with the camera on.
 
@@ -794,19 +831,37 @@ def _spread(
         return {}
     xs = [p[0] for p in laid.values()]
     ys = [p[1] for p in laid.values()]
-    mx, my = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    x0, x1 = min(xs), max(xs)
+    y0, y1 = min(ys), max(ys)
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    pad_x = max(
+        10.0,
+        max(
+            ((runs("chip", name) + 12) / 2 + 4 for name in named.values()), default=10.0
+        ),
+    )
+    pad_y = 12.0
+    avail_w = max(60.0, w - 2 * pad_x)
+    avail_h = max(60.0, h - 2 * pad_y)
     k = (
         min(
-            (w - 120) / max(40.0, max(xs) - min(xs)),
-            (h - 40) / max(40.0, max(ys) - min(ys)),
+            avail_w / max(40.0, x1 - x0),
+            avail_h / max(40.0, y1 - y0),
             2.4,
         )
         * zoom
     )
-    return {
+    out = {
         name: (w / 2 + (p[0] - mx) * k, h / 2 + (p[1] - my) * k, 1.0)
         for name, p in laid.items()
     }
+    # `graph.js` frames the first column at 70px only when the projected
+    # picture is wider than the room. Centring an overflowing graph hides its
+    # beginning and makes horizontal exploration start in the middle.
+    if (x1 - x0) * k > avail_w + 2:
+        shift = 70.0 - min(px for px, _py, _near in out.values())
+        out = {name: (px + shift, py, near) for name, (px, py, near) in out.items()}
+    return out
 
 
 def _tuned(look: Look) -> dict[str, float]:
@@ -910,15 +965,20 @@ def _railtop(drawn: Drawing, look: Look) -> float:
 
 def _automaton(said: Frame, room: Room, look: Look) -> None:
     """The machine, walk-lit: the frames open at the cursor light their clones."""
-    x, y, w, _h = room
+    x, y, w, h = room
     px, py, k = camera(look, room)
     seats = {
         seat for s0, e0, _d, _n, ok, seat in look.watched if ok and s0 <= look.at < e0
     }
     drawn = automaton_drawing(automaton(look.it.machine.pda_tables()), seats, set())
-    said.place(
-        drawn, x + 10 + px, y + 8 + py, min(1.0, (w - 20) / max(1.0, drawn.wide)) * k
+    fit = min(
+        1.0,
+        max(
+            0.25,
+            min((w - 20) / max(1.0, drawn.wide), (h - 16) / max(1.0, drawn.tall)),
+        ),
     )
+    said.place(drawn, x + 10 + px, y + 8 + py, fit * k)
 
 
 GRAPHVIEWS: dict[str, Callable[[Frame, Room, Look], None]] = {

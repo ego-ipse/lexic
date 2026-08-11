@@ -200,6 +200,12 @@ def main() -> int:
         {p.split(" ")[0] for p in said.planes} == {"grammar", "document"},
         " ".join(p.split(" ")[0] for p in said.planes),
     )
+    plane_tones = {p.split(" ")[0]: p.split(" ")[-1] for p in said.planes}
+    check(
+        "the reader is dim and the document is ink, as the real planes were",
+        plane_tones == {"grammar": "dim", "document": "ink"},
+        " ".join(f"{name}:{tone}" for name, tone in plane_tones.items()),
+    )
     check(
         "the document's own text is what was sent for it",
         reading.text in said.texts,
@@ -1007,6 +1013,44 @@ def main() -> int:
         )
         > 1,
         " ".join(sorted({m[4] for m in marks(graphed, "text")})),
+    )
+
+    quiet_graph = frame({"tab.reader": "1"})
+    hovered_graph = frame({"tab.reader": "1", "hover": "rule value"})
+    check(
+        "live graph nodes are warm outlines, not hot filled slabs",
+        not any(m[5] == "hot" for m in marks(quiet_graph, "box")),
+    )
+    check(
+        "only the graph node under the hand fills hot",
+        any(m[5] == "hot" for m in marks(hovered_graph, "box")),
+    )
+    check(
+        "a live graph edge is the 2px step in the open stack",
+        any(
+            m[5] == "hot" and len(m) > 6 and m[6] == "2.0"
+            for m in marks(quiet_graph, "line")
+        ),
+    )
+
+    arcs = frame({"tab.reader": "1", "graph.view": "arcs"})
+    check(
+        "the arcs view names only exceptional nodes and draws the rest as dots",
+        len(marks(arcs, "dot")) > 20,
+        f"{len(marks(arcs, 'dot'))} dots",
+    )
+
+    flat = frame({"tab.reader": "1", "graph.view": "flat"})
+    rule_names = {name for name, _first, _last in names}
+    flat_faces = {
+        m[4]
+        for m in marks(flat, "text")
+        if m[4] in {"gnear", "gfar", "chip"} and " ".join(m[6:]) in rule_names
+    }
+    check(
+        "a flat graph at scale one uses the normal 10px node face",
+        flat_faces == {"chip"},
+        " ".join(sorted(flat_faces)),
     )
 
     def placed(session_state: Session) -> dict[str, tuple[float, float]]:
