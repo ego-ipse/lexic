@@ -17,7 +17,10 @@ reads `MISSING`, `NONE`, `MISMATCH` or `THREW` is a defect, and any capability
 the probe does not drive is a defect waiting to be reported by the user —
 that is how all three rail breaks got out.
 
-**The standing aim: a 75% cut in the leaf's JavaScript** (4,842 today).
+**The standing aim: a 75% cut in the leaf's JavaScript** (4,712 today, from
+5,144 when the display list began; the derivation, the railroad — including
+its pinned windows — the automaton, the relations, the room graphs and the
+overview band are all served pictures now).
 The lever is the display list — `opsis/paint.py` speaks `box`, `line`,
 `curve`, `arc`, `text`, in pixels, with tones named rather than coloured, and
 a `box` may carry an ADDRESS so a drawing is clickable without the leaf
@@ -34,10 +37,16 @@ one rule for a pinned window), the automaton, the relations in flat/arcs.
    with what is painted (`chartHover=same`). What remains in `chart.js` is
    the overview band and the clock lanes for the pda/earley modes; those are
    different data and are the next thing to serve.
-2. **The document plane's under/over canvases** (~150).
-3. **The IR rows and the room sections** (~300) — these are DOM, not canvas;
+2. **The pda / earley clock lanes** (~140 in `chart.js`, incl.
+   `clockBandTex`). Same shape as the derivation's conversion: frames and
+   hypotheses as boxes addressed `start:end:index`, tone from `ok` /
+   `completed`, tinted against the cursor here. The readout and the hover
+   keep reading `clockData.frames` — the address IS the index into it, so
+   nothing else changes. Serve `what=clock&mode=pda|earley&from=&win=`.
+3. **The document plane's under/over canvases** (~150).
+4. **The IR rows and the room sections** (~300) — these are DOM, not canvas;
    they want a row vocabulary rather than a display list.
-4. **The rings view** (~120 of `graph.js`) — the camera stays in the leaf;
+5. **The rings view** (~120 of `graph.js`) — the camera stays in the leaf;
    only the node marks move.
 
 **What must not regress** (each has a fact): the relations ship on the wire ·
