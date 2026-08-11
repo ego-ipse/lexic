@@ -666,12 +666,38 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
         ):
             continue
         hot = named.get(a, a) in lit and named.get(b, b) in lit
-        said.line(
+        tone = (
+            "hot"
+            if hot
+            else (
+                "loop"
+                if look.chosen in (named.get(a, a), named.get(b, b))
+                else "cool_wash"
+            )
+        )
+        if view != "arcs":
+            said.line(x + one[0], y + one[1], x + two[0], y + two[1], tone)
+            continue
+        if a == b:
+            # a rule that refers to ITSELF is a ring, not an arc to nowhere
+            said.arc(x + one[0], y + one[1] - 9, 7.0, tone)
+            continue
+        # a FORWARD reference lifts above its line, a backward one below, by
+        # `(12 + |dx| * 0.28) * ringscale`
+        aim = 1.0 if two[0] >= one[0] else -1.0
+        lift = (
+            aim
+            * (12 + abs(two[0] - one[0]) * 0.28)
+            * float(look.says("graph.ringscale", str(TUNE.get("ringscale", 1.0))))
+        )
+        said.curve(
             x + one[0],
             y + one[1],
+            x + (one[0] + two[0]) / 2,
+            y + one[1] - lift,
             x + two[0],
             y + two[1],
-            "hot" if hot else "cool_wash",
+            tone,
         )
     # far first, so what is nearest is drawn last and reads as nearest
     # .gchip.start — where every derivation begins, and it is warm
