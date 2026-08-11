@@ -2,11 +2,16 @@
 
 ## NEXT SESSION — start here
 
-**Where this actually stands (2026-08-11, end of session).** The chart and
-clock conversions were REVERTED at the user's instruction — `space_1` sits at
-`32de05c` plus the railroad's geometry ported on top. Read that as: the leaf
-draws the derivation, both clocks and the overview band itself again; the
-railroad, the automaton and the relations are served drawings.
+**Where this stands (2026-08-11, session end).** The chart/clock conversions
+were reverted mid-session at the user's instruction and then RE-APPLIED at
+their instruction, with the faults that prompted the revert fixed. Current
+state: 44 facts exit 0, the full probe reports zero failures, ruff and
+pyright clean, JS 4,864 (4,268 shipped — `probe.js` is the harness).
+
+Served as drawings, in DOCUMENT coordinates (x is the character offset, the
+window is the leaf's transform): the derivation, both clocks, the overview
+band, the railroad (list and pinned windows), the automaton, the relations,
+the room graphs.
 
 **Run it.**
 
@@ -14,41 +19,49 @@ railroad, the automaton and the relations are served drawings.
 uv run python zzz_current_work/260807-opsis-radical/space_1/serve.py \
     resources/ground_truth/json.gbnf \
     zzz_current_work/260807-opsis-radical/tk/fixtures_long.json 8917
-uv run python zzz_current_work/260807-opsis-radical/space_1/gate.py   # 43 facts, exit 0
+uv run python zzz_current_work/260807-opsis-radical/space_1/gate.py   # 44 facts
 ```
 
-**Verify by driving, never by eye:** `?probe=1` runs the real handlers and
-writes verdicts into `document.title`; `?resize=1` asks the single question
-of whether a facet that changes height re-fits its picture. A screenshot
-cannot see anything that arrives after the first paint — headless does not
-fire `requestAnimationFrame` under `--virtual-time-budget`, and every redraw
-goes through `ask()`. Believe the probe; screenshots are for shape and colour.
+**Verify by driving.** `?probe=1` runs the real handlers and writes verdicts
+into `document.title`; `?resize=1` asks only whether a facet that changes
+height re-fits its picture. A screenshot cannot see anything arriving after
+the first paint — headless does not fire `requestAnimationFrame` under
+`--virtual-time-budget` and every redraw goes through `ask()`. Believe the
+probe; screenshots are for shape and colour.
 
-**Commits worth cherry-picking back, if wanted** (each is self-contained):
+**The two faults that kept coming back, and what actually fixed them:**
 
-| commit | what it does |
-|---|---|
-| `ab01f01` | resize a canvas in BOTH dimensions — without it a facet that changes height stretches its picture instead of re-fitting |
-| `d5c6ab3` | per-mode band registers (`modelband2`, `pdaband2`, …) so the three clocks read as different engines |
-| `2369e01` | the `?resize` probe |
-| `b86b1aa` | pictures in document coordinates — the window becomes a transform, so playback stops refetching |
+- *A picture that does not re-fit its box.* A canvas whose bitmap tracks only
+  its width keeps the old bitmap when its facet changes height, and CSS
+  stretches what was drawn for a bigger box. Track BOTH dimensions.
+  Defended by `?resize`.
+- *A hit test that drifts from its drawing.* Recomputing a lane height in the
+  leaf while the drawing used another put the hover one lane deep — it
+  reported the span nested inside the one under the pointer. Hit-test the
+  PAINTED BOXES: they carry the y they were drawn at and the span they are.
+  Defended by `chartHover` / `afterResize` in the probe.
 
-**The three rules this session cost, in the order they were learned:**
+**The three rules this session cost:**
 
-1. **Photograph the working one first.** There were two running builds on
-   disk (`atlas/`, `space/`) and a rendered mockup (`visual_4`). Five passes
-   went into guessing the railroad's fork before anyone ran `atlas/serve.py`
-   and looked at its `value` rule — which answered it immediately (its arms
-   nearly touch; a full row of gap was doubling the span the fork had to
-   cross). Reading the source, or its notes, is not looking at it.
-2. **A deletion spans more than it looks.** Cutting code between function
-   names took live bindings with it three separate times (`railChipRule`,
-   `railPin`, `step`, `shades`). `grep -c` every identifier a region assigns
-   before removing it, and re-run the probe against what it served.
-3. **`git checkout <old> -- one_file.js` is not a revert.** It restores a
-   file whose neighbours have moved on. Revert the whole directory to a
-   commit, or port specific hunks deliberately — mixing the two produced
-   `CORNER is not defined` and a painter that silently dropped 49 curves.
+1. **Photograph the working one first.** Two running builds (`atlas/`,
+   `space/`) and a rendered mockup (`visual_4`) sat on disk through five
+   passes of guessing at the railroad's fork. Running `atlas/serve.py` and
+   looking at its `value` rule answered it in one frame: its arms nearly
+   touch, and a full row of gap was doubling the span the fork had to cross.
+   Reading the source — or its notes — is not looking at it.
+2. **A deletion spans more than it looks.** Cutting between function names
+   took live bindings with it three times (`railChipRule`, `railPin`, `step`,
+   `shades`, `CORNER`). `grep -c` every identifier a region assigns before
+   removing it, then re-run the probe against what that region served.
+3. **`git checkout <old> -- one_file.js` is not a revert.** It restores a file
+   whose neighbours have moved on. Revert a whole directory to a commit, or
+   port hunks deliberately — mixing the two produced an undefined constant
+   and a painter silently dropping 49 curves.
+
+**Next, in order:** the document plane's under/over canvases (~150 leaf
+lines), the IR rows and room sections (~300, DOM rather than canvas — they
+want a row vocabulary, not a display list), and the rings view (~120; the
+camera stays in the leaf because a camera is the hand's).
 
 ## 2026-08-11, evening — drawings, not geometry
 
