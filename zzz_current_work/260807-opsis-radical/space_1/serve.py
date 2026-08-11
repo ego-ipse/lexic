@@ -24,6 +24,7 @@ if str(HERE) not in sys.path:
 import clocks  # noqa: E402
 import machine  # noqa: E402
 import places  # noqa: E402
+import rails as tracks  # noqa: E402
 import scene as scenes  # noqa: E402
 import strata as maps  # noqa: E402
 import viewing  # noqa: E402, F401 — importing registers the kind
@@ -39,7 +40,6 @@ FILES = {".html": "text/html", ".css": "text/css", ".js": "text/javascript"}
 PENDING = {
     "/routes": "primary the engine's own composition\nprimary_seconds 0.00\n"
     "status pending\n",
-    "/rails": "",
 }
 
 
@@ -122,6 +122,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/verdicts":
             turned = self.reader()
             return machine.verdicts(turned.machine) if turned else None
+        if path in ("/rails", "/rail"):
+            turned = self.reader()
+            if turned is None:
+                return "no reader to draw\n"
+            ast = turned.machine.grammar
+            if path == "/rails":
+                return tracks.rails(ast)
+            return tracks.rail(ast, query.get("rule", ""))
         if path == "/place":
             return places.frame(session, query.get("id", ""))
         if path == "/irvalue":

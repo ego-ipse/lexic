@@ -32,7 +32,9 @@ def rails(ast: IrAst) -> str:
 
 def rail(ast: IrAst, name: str) -> str:
     """One rule's body as track, or the refusal's own words."""
-    found = next((r for r in ast.rules if str(r.name).casefold() == name.casefold()), None)
+    found = next(
+        (r for r in ast.rules if str(r.name).casefold() == name.casefold()), None
+    )
     if found is None:
         return f"no such rule {name}\n"
     lines = _alt(found.body, 0)
@@ -100,12 +102,17 @@ def _klass(atom: IrCharClass) -> str:
     parts = []
     for part in atom:
         if isinstance(part, IrRange):
-            parts.append(f"{_spell(chr(int(part[0])))}-{_spell(chr(int(part[1])))}")
+            parts.append(f"{_spell(_chr(part[0]))}-{_spell(_chr(part[1]))}")
         elif isinstance(part, IrChr):
             parts.append(_spell(chr(int(part))))
         else:
             parts.append(str(part))
     return "".join(parts)
+
+
+def _chr(bound: object) -> str:
+    """A range bound as its character; an absent bound says so, never crashes."""
+    return chr(int(bound)) if isinstance(bound, int) else "…"
 
 
 def _spell(text: str) -> str:
