@@ -248,7 +248,13 @@ function wirePins() {
 function spanWords(i) {
   const s = S.spans[i];
   const f = S.fieldNames[s.f];
-  return `${S.ruleNames[s.r]}${f ? ' · field ' + f : ''} · ${s.s.toLocaleString()}..${s.e.toLocaleString()} · d${s.d}`
+  // a span that covers nothing is not a defect and not a gap: the rule
+  // derived ε, so the model holds an object the text does not show. Saying
+  // so is the difference between structure and noise.
+  const extent = s.e > s.s
+    ? `${s.s.toLocaleString()}..${s.e.toLocaleString()}`
+    : `at ${s.s.toLocaleString()} — matched NO text (the rule derives ε)`;
+  return `${S.ruleNames[s.r]}${f ? ' · field ' + f : ''} · ${extent} · d${s.d}`
     + (cur.docSel ? ' · E retypes the selection' : '');
 }
 

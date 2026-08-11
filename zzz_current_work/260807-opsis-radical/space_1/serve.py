@@ -542,7 +542,11 @@ class Handler(BaseHTTPRequestHandler):
             built = of(machine)
             made = keep(machine)
             witnessed = sum(1 for a in made if a.witness == "holds")
+            walk = ir_graph(machine.grammar)
             doors = [
+                f"P ir:grammar {here} {rungs[here].level} value ok "
+                f"{self.reading.reader_name} — as a value\t"
+                f"{len(walk.nodes)} nodes · {len(walk.edges)} edges",
                 f"P machine {here} {rungs[here].level} compiler ok "
                 f"{self.reading.reader_name} — as a machine\t{built.line()}",
                 f"P artefacts {here} {rungs[here].level} artefacts ok "
@@ -562,10 +566,19 @@ class Handler(BaseHTTPRequestHandler):
                     # one string, not a splat: *(f"...") unpacks it into
                     # characters, which is how a card became 24 lines
                     *doors,
-                    f"k 0 {len(self.reading.text)} {len(self.reading.spans)}"
-                    f" {self.reading.reader_text.count('::=')}"
-                    f" {self.reading.seconds:.2f}"
-                    f" {1 if self.reading.faithful else 0} 0",
+                    # ONE PER VISITED RUNG, each carrying its own numbers.
+                    # A single line pinned to card 0 gave every rung the
+                    # current reading's stats, and left the rung you had just
+                    # climbed to marked visited with no stats at all — which
+                    # threw the leaf's card renderer mid-draw, so everything
+                    # after the first stratum simply never appeared.
+                    *(
+                        f"k {i} {len(r.text)} {len(r.spans)}"
+                        f" {len(ruledefs(r.reader_text))}"
+                        f" {r.seconds:.2f}"
+                        f" {1 if r.faithful else 0} 0"
+                        for i, r in enumerate(walked)
+                    ),
                     "",
                 ]
             )

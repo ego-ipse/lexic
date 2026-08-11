@@ -6,7 +6,7 @@ Run it:
 uv run python zzz_current_work/260807-opsis-radical/space_1/serve.py \
     resources/ground_truth/json.gbnf \
     zzz_current_work/260807-opsis-radical/tk/fixtures_long.json 8917
-uv run python zzz_current_work/260807-opsis-radical/space_1/gate.py   # 18 facts, exit 0
+uv run python zzz_current_work/260807-opsis-radical/space_1/gate.py   # 36 facts, exit 0
 ```
 
 ## The one idea
@@ -37,7 +37,15 @@ rather than crushed into a column and redrawn until someone gives up.
 | `retype.py` | an edit is a re-reading; a refusal measures where it died |
 | `ring.py` | the instrument's own state, read and applied |
 | `serve.py` | the socket, and the scene the leaf reads |
+| `irvalue.py` | a value as the value it IS — identity, tier, absence, refusal |
+| `track.py` | one rule's body as track — the grammar's own spelling |
+| `wire_machine.py` | the automaton and the verdicts, as the leaf reads them |
 | `gate.py` | what must hold, printed as facts |
+
+The leaf is one program living in fifteen files (`leaf/`), carved along its
+own section boundaries — order is load order, and every top-level binding
+stays in the global lexical environment, because splitting a program is not
+the same as making it several programs.
 
 ## What it says on the wire
 
@@ -57,6 +65,33 @@ head, clickable, opening the view where it fits.
 width still reads; a graph cannot wrap — below its ask the names collide.
 Judging both by one number is why four rounds of layout work never fixed the
 graphs while the arrangement kept reporting them fine.
+
+## The rooms
+
+A surface too big for a column is not the only thing that needs somewhere to
+live. Four rooms answer at `/place`, each reached by a door that says what is
+behind it:
+
+| room | what it holds |
+|---|---|
+| `rules` | every rule this document used, ordered by what it accounts for |
+| `rule:<name>` | one rule: its neighbourhood, its clones, its occurrences, its IR |
+| `machine` / `artefacts` | what the grammar compiles to, and what it writes out |
+| `ir:grammar` `ir:codegen` `ir:reducer` | the value surface, on each subject |
+
+The value surface is the one the instrument exists for: a grammar drawn as
+what it IS once loaded — one object reached from twelve places is ONE node
+with twelve edges arriving (`IrNone ↩ 14×`), a record's edges are its FIELD
+NAMES, absence is a value with a place, and a node carrying a Python function
+is marked refused because the notation cannot spell it. Reading `json.gbnf`:
+392 unique nodes, 408 edges, 2 shared reached 19 times, nothing refused.
+
+## Both engines, one text
+
+`/routes` runs the road not taken: the engine's own composition parses in
+0.05s, explicit Earley in 0.86s, and the two are compared by VALUE — equal
+objects *and* identical re-emission. Two engines building different things
+from one text is the finding, not a detail to smooth over.
 
 ## Where the time goes (measured, not guessed)
 
@@ -85,5 +120,10 @@ Every line in the gate defends something this project got wrong:
 - a refusal was scraped from prose instead of measured
 - a stratum was a column's position rather than a depth
 - the automaton showed the clones a run entered and called that the machine
+- a ⧉ mark sent every surface to the graph, whatever had asked
+- a room's graph parsed a wire nothing has ever sent, and drew empty
+- a value's payload contained a newline, and the line-oriented wire tore
+- `<class 'lexic.ir.spine.scalars.IrChr'>` appeared where `IrChr` is the fact
+- a route answered with a stub while the leaf drew the empty result
 
 The previous build is `../FUCKUP/`.

@@ -272,26 +272,43 @@ function drawChart() {
     cx.beginPath(); cx.moveTo(cxx0, lanesY - 6); cx.lineTo(cxx0, h - 4); cx.stroke();
     return;
   }
-  for (const s of S.spans) {
-    if (s.e <= view0 || s.s >= view0 + win) continue;
+  // one pass, carrying the index: `indexOf` inside this loop was a linear
+  // scan of 12k spans per drawn span — quadratic, on every frame
+  S.spans.forEach((s, idx) => {
+    if (s.e <= view0 || s.s >= view0 + win) return;
     const x1 = sx(Math.max(s.s, view0)), x2 = sx(Math.min(s.e, view0 + win));
     const y = lanesY + s.d * laneH;
+    if (s.e === s.s) {
+      // an ε match holds no text: drawing it as a box the width of two
+      // characters puts 1,400 objects on screen that the document does not
+      // contain. It is a mark AT a place, so it is drawn as one.
+      cx.strokeStyle = s.s <= cur.t ? C.dimmer : C.pending;
+      cx.beginPath();
+      cx.moveTo(x1 + 0.5, y + 1);
+      cx.lineTo(x1 + 0.5, y + laneH - 3);
+      cx.stroke();
+      if (idx === cur.hover || idx === cur.sel) {
+        cx.strokeStyle = idx === cur.hover ? C.ink : C.warm;
+        cx.strokeRect(x1 - 2.5, y - 1.5, 5, laneH + 1);
+      }
+      return;
+    }
     if (s.e <= cur.t) { cx.fillStyle = C.closed; cx.fillRect(x1, y, x2 - x1, laneH - 2); cx.strokeStyle = C.cool; }
     else if (s.s < cur.t) {
       cx.fillStyle = C.active; cx.fillRect(x1, y, sx(Math.min(cur.t, view0 + win)) - x1, laneH - 2);
       cx.strokeStyle = C.warm;
     } else cx.strokeStyle = C.pending;
     cx.strokeRect(x1 + 0.5, y + 0.5, Math.max(x2 - x1 - 1, 2), laneH - 2);
-    const idx = S.spans.indexOf(s);
     if (idx === cur.sel || idx === cur.hover) {
-      cx.strokeStyle = idx === cur.sel ? C.warm : C.dim;
+      // the hand's mark is the BRIGHT one: it is where you are pointing
+      cx.strokeStyle = idx === cur.hover ? C.ink : C.warm;
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
     }
     if (markedRule() && S.ruleNames[s.r] === markedRule()) {
       cx.strokeStyle = C.violet;
       cx.strokeRect(x1 - 1.5, y - 1.5, x2 - x1 + 3, laneH + 1);
     }
-  }
+  });
   const cxx = sx(Math.min(Math.max(cur.t, view0), view0 + win));
   cx.strokeStyle = C.warm;
   cx.beginPath(); cx.moveTo(cxx, lanesY - 6); cx.lineTo(cxx, h - 4); cx.stroke();

@@ -68,6 +68,74 @@ async function probeGestures() {
     } else {
       out.push('seamDrag=NO-SEAMS');
     }
+    // the strata, clicked TWICE: up then back down. One card's worth of
+    // missing stats used to throw mid-render and everything after the first
+    // stratum vanished, which reads as "only the first layer is shown".
+    await openStrata();
+    await wait(700);
+    const cards = () => [...document.querySelectorAll('#strata .stCard[data-i]')];
+    out.push(`strataCards=${cards().length}`);
+    click(cards()[1]);
+    await wait(2600);
+    await openStrata();
+    await wait(700);
+    out.push(`afterClimb=${cards().length} focus=${
+      (document.querySelector('#strata .stCard.on') || {}).dataset?.i}`,
+      `stats=${cards().map((c) => (c.querySelector('.stK') || {}).textContent
+        ? 'has' : 'NONE').join('+')}`);
+    click(cards()[0]);
+    await wait(2200);
+    await openStrata();
+    await wait(700);
+    out.push(`afterDescend=${cards().length} focus=${
+      (document.querySelector('#strata .stCard.on') || {}).dataset?.i}`);
+    closeStrata();
+    await wait(300);
+    // the chart's hand: what is UNDER the pointer must be what lights. The
+    // hit test and the draw compute the same geometry twice, so they can
+    // disagree — and a picture that highlights the wrong thing is worse
+    // than one that highlights nothing.
+    const cv = $('chartCv');
+    if (cv && S.chartHit) {
+      const r = cv.getBoundingClientRect(), H = S.chartHit;
+      const seen = S.spans.filter((s) => s.s >= view0 && s.e <= view0 + H.win
+        && s.e > s.s + 2 && s.d >= 2);
+      const want = seen[Math.floor(seen.length / 2)];
+      if (want) {
+        const px = r.left + H.pad + ((want.s + want.e) / 2 - view0) * H.pitch;
+        const py = r.top + H.lanesY + want.d * H.laneH + H.laneH / 2;
+        cv.dispatchEvent(new MouseEvent('mousemove',
+          { clientX: px, clientY: py, bubbles: true }));
+        await wait(250);
+        const got = S.spans[cur.hover];
+        out.push(`chartHover=${got === want ? 'same'
+          : `MISMATCH want d${want.d} ${want.s}..${want.e} got `
+            + (got ? `d${got.d} ${got.s}..${got.e}` : 'NONE')}`);
+      }
+    }
+    // and again right after the layout MOVES: a hit test reading geometry
+    // the draw has since recomputed points at where things used to be
+    if (cv && S.chartHit) {
+      facetOn['grammar'] = !facetOn['grammar'];
+      applyFacets();
+      const r2 = cv.getBoundingClientRect(), H2 = S.chartHit;
+      const seen2 = S.spans.filter((s) => s.s >= view0 && s.e <= view0 + H2.win
+        && s.e > s.s + 2 && s.d >= 3);
+      const want2 = seen2[Math.floor(seen2.length / 3)];
+      if (want2) {
+        cv.dispatchEvent(new MouseEvent('mousemove', {
+          clientX: r2.left + H2.pad + ((want2.s + want2.e) / 2 - view0) * H2.pitch,
+          clientY: r2.top + H2.lanesY + want2.d * H2.laneH + H2.laneH / 2,
+          bubbles: true }));
+        await wait(250);
+        const got2 = S.spans[cur.hover];
+        out.push(`afterResize=${got2 === want2 ? 'same'
+          : `MISMATCH want d${want2.d} ${want2.s}..${want2.e} got `
+            + (got2 ? `d${got2.d} ${got2.s}..${got2.e}` : 'NONE')}`);
+      }
+      facetOn['grammar'] = !facetOn['grammar'];
+      applyFacets();
+    }
     // a rule's own room: reached the way a person reaches it — through the
     // rules list — and it must carry BOTH its graph and its value
     await openPlace('rules', false);

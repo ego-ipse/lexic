@@ -25,8 +25,12 @@ function render() {
     + (speed !== 1 ? ` · speed ${speedWord()}` : '') + ` · gen ${S.meta.generation}`;
   $('tb-play').textContent = cur.playing ? '⏸' : '▶';
   $('tb-speed').textContent = speedWord();
-  const focus = cur.sel >= 0 ? cur.sel : cur.hover;
-  let words = focus < 0 ? (cur.rule ? `rule ${cur.rule} — its spans outlined violet` : '') : spanWords(focus);
+  // the HAND wins. A selection persists, a hover is where you are pointing
+  // right now — reading out the selection while the pointer is somewhere
+  // else is the instrument describing a different thing than it highlights.
+  const focus = cur.hover >= 0 ? cur.hover : cur.sel;
+  let words = focus < 0 ? (cur.rule ? `rule ${cur.rule} — its spans outlined violet` : '')
+    : (cur.hover >= 0 ? 'under the hand · ' : 'selected · ') + spanWords(focus);
   if (chartClock !== 'model' && clockHover >= 0 && clockReady()) {
     const f = clockHoverExt;
     const clk = !f
