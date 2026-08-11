@@ -152,6 +152,21 @@ function strokes(canvas, marks) {
   cx.font = frame.font;
   for (const mark of marks) {
     const p = mark.split(' ');
+    /* a mark inside a plane that has just scrolled moves with it */
+    if (slid && +p[2] >= slid.y && +p[2] <= slid.y + slid.h
+        && +p[1] >= slid.x && +p[1] <= slid.x + slid.w) {
+      cx.save();
+      cx.translate(0, slid.by);
+      strokeOne(cx, p);
+      cx.restore();
+      continue;
+    }
+    strokeOne(cx, p);
+  }
+}
+
+function strokeOne(cx, p) {
+  {
     if (p[0] === 'box') {
       cx.fillStyle = fill(p[5]);
       cx.fillRect(+p[1], +p[2], +p[3], +p[4]);
@@ -316,9 +331,28 @@ function weld() {
   }
 }
 
+/* THE TEXT SCROLLS NATIVELY; the drawing under it arrives a frame later, and
+   at scroll speed that is the highlight tearing away from the characters it
+   is about. In the reference both live in one scroll container and move
+   together. Here the frame is one canvas, so the leaf slides the marks in
+   that plane's rectangle by the same amount, immediately — and the frame
+   that follows replaces the guess with the truth. */
+let slid = null;
+
+function slide(plane, lines) {
+  if (!frame || !lines) return;
+  slid = { x: plane.x, y: plane.y, w: plane.w, h: plane.h, by: lines * plane.row };
+  paint();
+  slid = null;
+}
+
 function scrolled(el, plane) {
   const line = Math.round(el.scrollTop / plane.row);
-  if (line !== plane.top) { plane.top = line; ask(`scrolled ${plane.name} ${line}`); }
+  if (line !== plane.top) {
+    slide(plane, plane.top - line);
+    plane.top = line;
+    ask(`scrolled ${plane.name} ${line}`);
+  }
 }
 
 function chose(el, ev) {
@@ -377,7 +411,9 @@ function under(ev, wanted) {
 document.addEventListener('click', (ev) => {
   if (!ours(ev)) return;
   const target = under(ev, false);
-  if (!target) return;
+  /* no-man's-land: the parts of the picture that are not anything. Putting a
+     choice down there is the gesture everyone tries first. */
+  if (!target) { if (under(ev, true)) ask('at nothing'); return; }
   const box = paper.getBoundingClientRect();
   const into = target.cell > 0
     ? ` ${Math.max(0, Math.round((ev.clientX - box.left - target.run) / target.cell))}`

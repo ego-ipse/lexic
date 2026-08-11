@@ -547,9 +547,32 @@ class Session:
         self.reading.document.write_text(self.reading.text)
 
     def _revert(self, _words: list[str]) -> None:
-        """Back to the last good reading; the typing since then goes with it."""
+        """Back to the last good reading — and LET GO of what was chosen.
+
+        `revertOrClear` drops the selection, the chosen rule and the frontier
+        along with the edit: Escape is the one gesture that means "never
+        mind", and it has to mean it about everything the hand is holding.
+        """
         self.typed.clear()
         self.said = None
+        self.let_go()
+
+    def let_go(self) -> None:
+        """Nothing chosen, nothing selected, no chip raised."""
+        self.main["chosen"] = ""
+        self.main["sel"] = ""
+        self.main["railchip"] = ""
+        self.main["hover"] = ""
+
+    def _nothing(self, _words: list[str]) -> None:
+        """A click on no-man's-land lets go of everything.
+
+        NOT the reference's: there, only Escape and a click on a rule-less
+        line in the reader clear a choice. But a highlight you can only
+        dismiss with a key is one you have to be told about, and the empty
+        parts of the picture are the obvious place to put it down.
+        """
+        self.let_go()
 
     # ── looking around ───────────────────────────────────────────────────
     def _scroll(self, words: list[str]) -> None:
@@ -844,6 +867,7 @@ Said = Callable[["Session", list[str]], None]
 SAYS: dict[str, Said] = {
     "at": Session._at,
     "do": Session._do,
+    "nothing": Session._nothing,
     "go": Session._go,
     "hover": Session._hover,
     "key": Session._key,
@@ -872,6 +896,7 @@ LANDED: dict[str, Said] = {
     # a chip standing for a gesture. It was never here, so every button in
     # the status bar — the transport, the speed — landed on nothing at all.
     "do": Session._do,
+    "nothing": Session._nothing,
     "facet": Session._facet,
     "gutter": Session._gutter,
     "place": Session._place,
