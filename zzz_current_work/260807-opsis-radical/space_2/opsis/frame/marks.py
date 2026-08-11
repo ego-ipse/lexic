@@ -125,6 +125,10 @@ class Frame:
         name would not be readable anyway."""
         self._put(f"dot {x:.1f} {y:.1f} {r:.1f} {tone}")
 
+    def dashes(self, x: float, y: float, w: float, h: float, tone: str) -> None:
+        """A DASHED outline — `#dropzone`'s border, and nothing else's."""
+        self._put(f"dashes {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")
+
     def ring(self, x: float, y: float, w: float, h: float, tone: str) -> None:
         """An outline and nothing else — what a lane's span is drawn WITH."""
         self._put(f"ring {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone}")

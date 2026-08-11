@@ -169,8 +169,8 @@ def _zone(said: Frame, look: Look, grid: object, titles: dict[str, str]) -> None
         elif zone == "bottom":
             ry, rh = ry + rh / 2, rh / 2
         was = said.lift()
-        said.box(rx, ry, rw, rh, "cool_wash")
-        said.ring(rx, ry, rw, rh, "cool")
+        said.box(rx, ry, rw, rh, "drop_wash")
+        said.dashes(rx, ry, rw, rh, "violet")
         word = (
             f"tab with {called(titles.get(target, target))[0].lower()}"
             if zone == "tab"
@@ -179,7 +179,16 @@ def _zone(said: Frame, look: Look, grid: object, titles: dict[str, str]) -> None
         # in the MIDDLE of the zone it names: at the top it sat on the head
         # of the surface it was covering, and two lines of text in one place
         # is worse than none
-        said.text(rx + 14, ry + rh / 2, "cool", f"{dragged} — {word}", rw - 28)
+        # centred both ways, as `#dropzone` centres its own text
+        says = f"{dragged} — {word}"
+        said.text(
+            rx + max(8.0, (rw - runs("drawn", says)) / 2),
+            ry + rh / 2,
+            "violet",
+            says,
+            rw - 16,
+            face="drawn",
+        )
         said.drop(was)
         return
 

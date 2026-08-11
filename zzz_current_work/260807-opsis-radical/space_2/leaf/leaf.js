@@ -160,6 +160,12 @@ function strokes(canvas, marks) {
         cx.strokeStyle = around;
         cx.strokeRect(+p[1] + 0.5, +p[2] + 0.5, Math.max(+p[3] - 1, 1), +p[4]);
       }
+    } else if (p[0] === 'dashes') {
+      /* #dropzone: 1px dashed var(--violet) */
+      cx.strokeStyle = fill(p[5]);
+      cx.setLineDash([4, 3]);
+      cx.strokeRect(+p[1] + 0.5, +p[2] + 0.5, Math.max(+p[3] - 1, 1.5), +p[4]);
+      cx.setLineDash([]);
     } else if (p[0] === 'ring') {
       cx.strokeStyle = fill(p[5]);
       cx.strokeRect(+p[1] + 0.5, +p[2] + 0.5, Math.max(+p[3] - 1, 1.5), +p[4]);
