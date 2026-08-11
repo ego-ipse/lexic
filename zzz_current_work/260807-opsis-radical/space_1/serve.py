@@ -21,8 +21,13 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from place import arrange, windowed  # noqa: E402
-from read import Reading, as_written, read  # noqa: E402
+from chain import chain  # noqa: E402
+from draw import graph_facet  # noqa: E402
+from lexic.compile import compile_text  # noqa: E402
+from machine import machine_facet  # noqa: E402
+from place import ENOUGH, arrange, shares, windowed  # noqa: E402
+from lexic.exceptions import LexicError  # noqa: E402
+from read import Facet, Reading, as_written, read  # noqa: E402
 
 __all__ = ["Handler", "main", "scene"]
 
@@ -59,6 +64,20 @@ def ruledefs(text: str) -> list[tuple[str, int, int]]:
     return out
 
 
+def offered(reading: Reading) -> list[Facet]:
+    """The surfaces this reading COULD show, each already sized.
+
+    They are not placed — they are offered, with the room each needs, so the
+    arrangement can answer "here" or "in a window" instead of drawing a
+    picture nobody can read.
+    """
+    try:
+        machine = compile_text(reading.reader_text, flavour=reading.flavour or "gbnf")
+    except LexicError, RecursionError, ValueError:
+        return []  # an unreadable reader offers nothing to look at
+    return [graph_facet(machine.grammar), machine_facet(machine)]
+
+
 def scene(reading: Reading) -> str:
     """The reading, spelled — with the arrangement its surfaces asked for."""
     facets = reading.facets()
@@ -68,9 +87,19 @@ def scene(reading: Reading) -> str:
     fields = sorted({s.field for s in reading.spans})
     at = {name: i for i, name in enumerate(names)}
     fat = {name: i for i, name in enumerate(fields)}
+    # two populations, judged separately: what is PLACED is judged against
+    # the split it actually got, and what is merely OFFERED is judged against
+    # the widest column that split leaves. Mixing them made every surface
+    # read as not fitting.
+    room = max(shares(facets, 200).values())
+    wants = [
+        *windowed(facets, 200),
+        *(f.name for f in offered(reading) if f.wide * ENOUGH > room),
+    ]
     policy = {
         "arrange.tree": arrange(facets),
-        "wants.window": ",".join(windowed(facets, 200)) or "none",
+        "wants.window": ",".join(wants) or "none",
+        "chain": " | ".join(rung.line() for rung in chain(reading)),
     }
     return "\n".join(
         [
