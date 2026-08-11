@@ -1,5 +1,53 @@
 # opsis-radical — HANDOVER
 
+## 2026-08-11 — space_1 restructured onto opsis' five names; the leaf hollowed
+
+**The restructure is the point, not the folders.** `deixis/` came out empty on
+the first pass — which is exactly what a shuffle looks like. What filled it was
+logic taken OFF the leaf:
+
+- **`deixis/points.py`** — "what is open at this cursor" was a scan of 12,000
+  spans per frame, in the leaf. It is a derivation, so it is derived here: the
+  cursor POST comes back carrying `#OPEN`, `#CLOSED` and `#LIT`. The spine
+  prints rows it is given; the grammar and the graph light from the same list,
+  so two surfaces can no longer disagree about what is live.
+- **`eidolon/layout.py`** — the ring maths, the band wrapping and the
+  declaration-order row all lived in `graph.js`. Positions are an eidolon
+  product now (`#PLACES x y z name`); the leaf paints them. The camera stays
+  in the leaf, because a camera is the hand's, not the reading's.
+- **`opsis/space.py`** — the arrangement, including tabs (`t`), stacks (`v`)
+  and which tab is showing. The leaf reports GESTURES (a tab clicked, a seam
+  dragged, a surface moved) and receives a tree.
+
+Package map: `opsis/` the spectacle · `deixis/` pointing · `eidolon/` shape ·
+`kairos/` time · `praxis/` doing. 3–6 files each, none over 400 lines.
+
+**Defects fixed this session** (each found by driving the instrument):
+
+- the scene never sent `#EDGES`/`#DEPTHS` — every graph drew unrelated dots
+- the strata's stats line was pinned to card 0; the renderer threw mid-draw
+- the automaton's edge indices pointed past its own clone list, which threw
+  inside the draw and killed the animation-frame chain — that is why the
+  derivation "could not be played" in that view
+- the generation was the literal `1`, so only the model followed an edit
+- DECISIONS said "none" on `decide.gbnf`; 96 real ones are now derived from
+  the frames' own rollbacks (`tried choice#1 — rolled back · took choice#0`)
+- PDA frames were named for their RULE, so five clones of `object` read as
+  duplication; they carry the clone now (`object#2`, `«group»#0`)
+- popping a facet left its tab behind, pointing at a surface that had gone
+- closing a popped window destroyed the facet: the pin layer's delegated
+  close treated it as a pin and rebuilt the layer over it
+- a form change recomputed the arrangement and threw away the hand's nesting
+- rotating the 3-D graph rescaled it: the fit was recomputed from the
+  projected silhouette every frame. The fit belongs to the layout and the
+  room; the camera moves within it.
+
+**Verified by driving, not reading**: `?probe=1` runs the real handlers and
+writes verdicts into `document.title` — clipping at five angles, hover
+agreement, strata travel both ways, pop/clone/dock, the pipeline's steps, an
+edit moving every derived surface. 40 gate facts, exit 0; ruff and pyright
+clean.
+
 ## 2026-08-11 — space_1: the six defects named from the screen, and what each was
 
 Reported by eye, found by driving the instrument rather than reading the wire.
