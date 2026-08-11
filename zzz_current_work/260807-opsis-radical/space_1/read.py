@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 import time
+from unicodedata import east_asian_width
 from pathlib import Path
 
 from lexic.compile import CompiledGrammar, compile_text
@@ -180,19 +181,23 @@ def _part(part: object, field: str, depth: int) -> object:
     return str(part)
 
 
+def columns(line: str) -> int:
+    """How many terminal columns this line occupies, wide glyphs counted twice."""
+    return sum(2 if east_asian_width(ch) in "WF" else 1 for ch in line)
+
+
 def _most(lines: list[str]) -> int:
     """The width nine lines in ten fit inside — not the longest.
 
     One 300-character rule would otherwise starve every other surface to feed
     an outlier nobody reads in full.
 
-    KNOWN GAP: this counts CHARACTERS, and a wide glyph takes two columns.
-    A CJK grammar (japanese.gbnf) therefore under-reports what it needs by up
-    to half. Fixing it means an east-asian width table; until then the number
-    is honest about what it measures and wrong about what it implies, which
-    is worth saying out loud rather than discovering on screen.
+    Width is COLUMNS, not characters: a wide glyph takes two, so a CJK
+    grammar would otherwise under-report what it needs by up to half.
+    ``unicodedata`` already knows which are which, so no table of ours is
+    needed.
     """
-    widths = sorted(len(line) for line in lines) or [0]
+    widths = sorted(columns(line) for line in lines) or [0]
     return max(24, widths[min(len(widths) - 1, int(len(widths) * 0.9))])
 
 

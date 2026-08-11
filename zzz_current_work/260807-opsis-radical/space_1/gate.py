@@ -24,7 +24,7 @@ from keep import keep  # noqa: E402
 from lexic.compile import compile_text  # noqa: E402
 from machine import machine_facet, of  # noqa: E402
 from place import arrange, shares, windowed  # noqa: E402
-from read import as_written, read, upward  # noqa: E402
+from read import as_written, columns, read, upward  # noqa: E402
 from retype import retype  # noqa: E402
 from ring import GRAMMAR as POLICY  # noqa: E402
 from ring import apply_record, record  # noqa: E402
@@ -236,6 +236,12 @@ def main() -> int:
             marker in drawn and drawn.split(marker, 1)[1].startswith(text[:80]),
             f"{len(text):,} chars",
         )
+
+    check(
+        "width is COLUMNS, not characters — a wide glyph takes two",
+        columns("ですが") == 6 and columns("abc") == 3,
+        f"ですが={columns('ですが')} abc={columns('abc')}",
+    )
 
     leaf = HERE / "leaf"
     parts = ["index.html", "leaf.css", "leaf.js"]
