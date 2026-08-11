@@ -65,12 +65,17 @@ pop-outs — are not in it. They are all the same shape of work: derive on this
 side, emit marks and hits, and the leaf needs no new code to show them, which
 is the point of the protocol.
 
-## Known, and stated rather than hidden
+## Self-contained
 
-`pyright` reports three unresolved imports (`praxis.reading`,
-`deixis.points`). They resolve at runtime — space_2 puts `space_1/` on
-`sys.path` and reuses its reading and pointing, because what is being tried
-here is the PROTOCOL, not a second copy of the derivation. Fixing the static
-resolution means either a config file (which would reach the repo's own
-checks) or duplicating those packages; neither is worth it while the two
-builds sit side by side for comparison. `ruff` is clean.
+`read/` (a reading, and what is open at a point) and `shape/` (where rules
+sit, and which refers to which) are copied whole from the build beside this
+one; the two helpers it borrowed are three lines each, inlined. Nothing here
+reaches into `space_1`. ruff and pyright are clean.
+
+## The protocol, proved
+
+The relations graph was added AFTER the leaf was written — rules as boxes,
+references as lines, each rule a hit that posts its own name — and
+`leaf.js` did not change by one character. The frame went from 237 marks to
+374; the far side stayed 124 lines. That is the test of whether a protocol
+is real: a new surface costs nothing on the side that only paints.

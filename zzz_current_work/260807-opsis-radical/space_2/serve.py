@@ -18,13 +18,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
-SPACE_1 = HERE.parent / "space_1"
-for path in (str(HERE), str(SPACE_1)):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 
 from frame import frame  # noqa: E402
-from praxis.reading import Reading, read  # noqa: E402
+from read.reading import Reading, read  # noqa: E402
 
 __all__ = ["Handler", "main"]
 

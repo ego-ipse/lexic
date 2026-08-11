@@ -22,23 +22,50 @@ Marks, one per line::
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SPACE_1 = HERE.parent / "space_1"
-for path in (str(HERE), str(SPACE_1)):
-    if path not in sys.path:
-        sys.path.insert(0, path)
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 
-from deixis.points import open_at  # noqa: E402
-from praxis.reading import Reading  # noqa: E402
+from read.points import open_at  # noqa: E402
+from shape.layout import positions  # noqa: E402
+from shape.topology import edges  # noqa: E402
+from lexic.compile import CompiledGrammar, compile_text  # noqa: E402
+from lexic.exceptions import LexicError  # noqa: E402
+from read.reading import Reading, as_written  # noqa: E402
 
 __all__ = ["Frame", "frame"]
 
-ROW = 19.0        # one line of text
-CELL = 7.4        # one column
-GUTTER = 54.0     # room for a line number
+HEAD = re.compile(r"^([A-Za-z0-9_-]+)\s*(?:::=|=/|=)")
+
+
+def ruledefs(text: str) -> list[tuple[str, int, int]]:
+    """Where each rule lives in the reader text — its written spelling."""
+    heads = [
+        (m.group(1), i)
+        for i, line in enumerate(text.split("\n"))
+        if (m := HEAD.match(line))
+    ]
+    return [
+        (name, start, (heads[i + 1][1] - 1 if i + 1 < len(heads) else text.count("\n")))
+        for i, (name, start) in enumerate(heads)
+    ]
+
+
+def reader_of(reading: Reading) -> CompiledGrammar | None:
+    """This reading's reader, compiled — or nothing, if nothing reads it."""
+    try:
+        return compile_text(reading.reader_text, flavour=reading.flavour or "gbnf")
+    except LexicError, RecursionError, ValueError:
+        return None
+
+
+ROW = 19.0  # one line of text
+CELL = 7.4  # one column
+GUTTER = 54.0  # room for a line number
 
 
 class Frame:
@@ -52,7 +79,9 @@ class Frame:
         self.wide = wide
         self.tall = tall
 
-    def box(self, x: float, y: float, w: float, h: float, tone: str, said: str = "") -> None:
+    def box(
+        self, x: float, y: float, w: float, h: float, tone: str, said: str = ""
+    ) -> None:
         self.marks.append(f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone} {said}")
 
     def line(self, x1: float, y1: float, x2: float, y2: float, tone: str) -> None:
@@ -77,7 +106,14 @@ class Frame:
 
 
 def _plane(
-    said: Frame, text: str, x: float, y: float, w: float, h: float, first: int, tone: str
+    said: Frame,
+    text: str,
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    first: int,
+    tone: str,
 ) -> int:
     """A block of text, line-numbered, clipped to the room it was given."""
     lines = text.split("\n")
@@ -131,9 +167,7 @@ def frame(
 
     # ── the document ─────────────────────────────────────────────────────
     said.text(left + 12, head + 16, "label", "THE DOCUMENT")
-    _plane(
-        said, reading.text, left, head + 24, middle, body - 24, doc_top, "ink"
-    )
+    _plane(said, reading.text, left, head + 24, middle, body - 24, doc_top, "ink")
     said.line(left + middle, head, left + middle, tall - 26, "hair")
 
     # ── the derivation, windowed and tinted HERE ─────────────────────────
@@ -157,13 +191,51 @@ def frame(
     cursor = x0 + 10 + (min(max(at, start), start + window) - start) * pitch
     said.line(cursor, lanes_y - 6, cursor, tall - 26, "cursor")
 
+    # ── the relations, under the derivation ──────────────────────────────
+    # A WHOLE NEW SURFACE, and the leaf gains no code for it: rules are
+    # boxes, references are lines, and each rule is a hit that posts its own
+    # name. That is the test of whether the protocol is real.
+    machine = reader_of(reading)
+    lit = {span.rule for span in open_at(reading, at)}
+    if machine is not None:
+        graph_top = lanes_y + deep * lane + 16
+        graph_tall = max(80.0, tall - 26 - graph_top - 8)
+        rules = ruledefs(reading.reader_text)
+        places = positions(machine.grammar, "flat", int(right - 24), int(graph_tall))
+        if places:
+            spread_x = max(1.0, max(x for x, _y, _z in places.values()))
+            top_y = min(y for _x, y, _z in places.values())
+            span_y = max(1.0, max(y for _x, y, _z in places.values()) - top_y)
+
+            def place(name: str) -> tuple[float, float]:
+                x, y, _z = places[name]
+                return (
+                    x0 + 14 + (x / spread_x) * (right - 120),
+                    graph_top + 14 + ((y - top_y) / span_y) * (graph_tall - 34),
+                )
+
+            for one, two in edges(machine.grammar):
+                if one in places and two in places:
+                    ax, ay = place(one)
+                    bx, by = place(two)
+                    said.line(ax + 20, ay, bx, by, "hair")
+            for name in places:
+                px, py = place(name)
+                shown = as_written(rules, name)
+                on = shown in lit or name in lit
+                said.box(
+                    px, py - 7, 8 + len(shown) * 6.2, 14, "live" if on else "ahead"
+                )
+                said.text(px + 4, py + 4, "ink" if on else "dim", shown)
+                said.hit(px, py - 7, 8 + len(shown) * 6.2, 14, "rule", shown)
+
     # ── the stack at the cursor, said in words ───────────────────────────
     live = open_at(reading, at)
-    for i, span in enumerate(live[:12]):
+    for i, span in enumerate(live[:8]):
         said.text(
-            x0 + 12,
-            lanes_y + deep * lane + 24 + i * ROW,
-            "live" if i == len(live) - 1 else "ink",
+            left + 12,
+            tall - 26 - ROW * (len(live[:8]) - i),
+            "live" if i == len(live) - 1 else "dim",
             f"d{span.depth} {span.rule} {span.start:,}..{span.end:,}",
         )
 
