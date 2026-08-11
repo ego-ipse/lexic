@@ -17,7 +17,7 @@ from eidolon.camera import project
 from eidolon.layout import positions
 from eidolon.topology import edges
 from kairos.engine import automaton, verdicts
-from kairos.parse import hypotheses
+from kairos.parse import column, decisions, hypotheses
 from kairos.pipeline import FORMS
 from opsis.frame.marks import CELL, ROW, Frame
 from opsis.frame.tones import runs
@@ -558,58 +558,153 @@ def _clock(look: Look, tall: int) -> Drawing:
 
 # ── the spine ────────────────────────────────────────────────────────────
 def spine(said: Frame, room: Room, look: Look) -> None:
-    """THE SPINE — what is open at the cursor, then what just closed.
+    """THE SPINE — what is open at the cursor, ACCORDING TO THE CLOCK.
 
-    A region, not a list that runs off the bottom: the stack can be deeper
-    than the room it was given, so it scrolls like the plane it sits under,
-    and JUST CLOSED keeps its own place at the foot whatever the stack does.
+    Three accounts of the same position, and picking a clock picks which one
+    answers: the model's own open spans, the predictive machine's stack plus
+    the decisions it made near here, or the Earley chart's column at the
+    cursor with what can come next. A chip that redrew one panel and left the
+    spine talking about a different engine would be a chip that lied about
+    what it selected.
     """
+    STACKS.get(look.says("chart.clock", "model"), _model_stack)(said, room, look)
+
+
+def _rows(
+    said: Frame, room: Room, look: Look, rows: list[tuple[str, str, str]], foot: bool
+) -> float:
+    """A stack, scrolled — `(gutter, words, tone)` per row, deepest last."""
+    x, y, w, h = room
+    keep = ROW * 5 + 14 if foot else 0.0
+    if h < keep + ROW * 3:
+        keep = 0.0
+    body = max(ROW, h - keep - 12 - (ROW if keep else 0))
+    fits = max(1, int(min(body, h - 20) // ROW))
+    first = min(look.top("spine"), max(0, len(rows) - fits))
+    # the gutter is as wide as the widest thing IN it: `@4,188` is not `d7`,
+    # and a column of origins clipped to `@41…` says nothing at all
+    step = max((len(g) for g, _w, _t in rows), default=0) * CELL + (8 if rows else 0)
+    top = y + 12
+    for gutter, words, tone in rows[first : first + fits]:
+        if gutter:
+            said.text(x + 14, top + 10, "dimmer", gutter)
+        said.text(x + 14 + step, top + 10, tone, words, w - 34 - step)
+        top += ROW
+    if first + fits < len(rows):
+        said.text(
+            x + 14, top + 10, "dimmer", f"{len(rows) - first - fits} more — scroll"
+        )
+    return keep
+
+
+def _model_stack(said: Frame, room: Room, look: Look) -> None:
+    """model — the open model spans, as ever."""
     x, y, w, h = room
     live = look.live()
-    closed = closed_before(look.reading, look.at)
-    # the foot is reserved before anything is drawn into the body, and it is
-    # dropped entirely when the room cannot hold it: a facet under pressure
-    # derives LESS, it does not draw over its neighbour
-    foot = ROW * (1 + min(len(closed), 4)) + 14
-    if h < foot + ROW * 3:
-        foot = 0.0
-    # the line saying how much more there is needs a line of its own, or it
-    # lands on top of JUST CLOSED
-    body = max(ROW, h - foot - 12 - (ROW if foot else 0))
-    fits = max(1, int(min(body, h - 20) // ROW))
-    first = min(look.top("spine"), max(0, len(live) - fits))
-    top = y + 12
-    if not live:
-        said.text(x + 14, top + 10, "fsub", "nothing open here")
-    for span in live[first : first + fits]:
-        name = as_written(look.it.rules, span.rule)
-        said.text(x + 14, top + 10, "dimmer", f"d{span.depth}", 4 * CELL)
-        said.text(
-            x + 14 + 4.5 * CELL,
-            top + 10,
+    rows = [
+        (
+            f"d{span.depth}",
+            f"{as_written(look.it.rules, span.rule)} {span.start:,}..{span.end:,}",
             "warm" if span is live[-1] else "ink",
-            f"{name} {span.start:,}..{span.end:,}",
-            w - 30 - 4.5 * CELL,
         )
-        said.hit(x, top, w, ROW, "span", f"{span.start}:{span.end}")
-        top += ROW
-    if first + fits < len(live):
-        said.text(
-            x + 14, top + 10, "dimmer", f"{len(live) - first - fits} deeper — scroll"
-        )
-    if not foot:
+        for span in live
+    ]
+    if not rows:
+        said.text(x + 14, y + 22, "fsub", "nothing open here")
+    keep = _rows(said, room, look, rows, foot=True)
+    for span in live:
+        said.hit(x, y, 0, 0, "span", f"{span.start}:{span.end}")
+    if not keep:
         return
-    # #closedHead / #closedBody — the foot, where it has always been
-    top = y + h - foot
+    top = y + h - keep
     said.text(x + 14, top + 10, "ftitle", "JUST CLOSED")
     top += ROW + 2
-    for span in closed[:4]:
+    for span in closed_before(look.reading, look.at)[:4]:
         name = as_written(look.it.rules, span.rule)
         said.text(
             x + 14, top + 10, "dim", f"{name} {span.start:,}..{span.end:,}", w - 30
         )
         said.hit(x, top, w, ROW, "span", f"{span.start}:{span.end}")
         top += ROW
+
+
+def _pda_stack(said: Frame, room: Room, look: Look) -> None:
+    """pda — the kernel's own frames at the cursor, and the choices near it."""
+    x, y, _w, _h = room
+    open_here = [
+        (int(s0), int(e0), int(depth), str(name), bool(ok))
+        for s0, e0, depth, name, ok, _seat in look.watched
+        if s0 <= look.at < e0
+    ]
+    rows = [
+        (
+            f"d{depth}",
+            f"{name} {s0:,}..{e0:,}" + ("" if ok else "  ROLLED BACK"),
+            "warm" if ok else "red",
+        )
+        for s0, e0, depth, name, ok in sorted(open_here, key=lambda f: f[2])
+    ]
+    if not rows:
+        said.text(
+            x + 14, y + 22, "fsub", "the machine holds no frame here — see the graph"
+        )
+    near = [
+        (at, said_words, chose)
+        for at, said_words, chose in decisions(look.watched)
+        if abs(at - look.at) < 400
+    ][:6]
+    rows += [("", f"{at:,}  {words} → {chose}", "violet") for at, words, chose in near]
+    _rows(said, room, look, rows, foot=False)
+
+
+def _earley_stack(said: Frame, room: Room, look: Look) -> None:
+    """earley — the cursor's own column, as dotted items, and what can follow."""
+    x, y, _w, _h = room
+    machine = look.it.machine
+    if machine is None:
+        said.text(x + 14, y + 22, "fsub", "this reading has no machine")
+        return
+    said_column = _column(look, int(look.at))
+    rows: list[tuple[str, str, str]] = []
+    expecting = False
+    for line in said_column.split("\n"):
+        if line.startswith("#COLUMN"):
+            continue
+        if line.startswith("#EXPECT"):
+            expecting = True
+            rows.append(("", "CAN COME NEXT", "ftitle"))
+            continue
+        if not line.strip():
+            continue
+        if expecting:
+            rows.append(("", line, "cool"))
+            continue
+        origin, _, rest = line.partition(" ")
+        role, _, item = rest.partition(" ")
+        rows.append((f"@{origin}", item, "green" if role == "complete" else "ink"))
+    if not rows:
+        said.text(x + 14, y + 22, "fsub", "the chart holds nothing at this character")
+    _rows(said, room, look, rows, foot=False)
+
+
+_COLUMNS: dict[str, str] = {}
+
+
+def _column(look: Look, at: int) -> str:
+    """One column of the chart, fetched per cursor move and kept per reading."""
+    key = f"{len(look.reading.text)}:{at}"
+    if key not in _COLUMNS:
+        if len(_COLUMNS) > 8:
+            _COLUMNS.clear()
+        _COLUMNS[key] = column(look.it.machine, look.reading.text, at)
+    return _COLUMNS[key]
+
+
+STACKS: dict[str, Callable[[Frame, Room, Look], None]] = {
+    "model": _model_stack,
+    "pda": _pda_stack,
+    "earley": _earley_stack,
+}
 
 
 DRAWN: dict[str, Callable[[Frame, Room, Look], None]] = {

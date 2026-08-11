@@ -93,6 +93,19 @@ and the verdict is said SHORT rather than said half: `both engines built the
 same value` clipped mid-phrase still reads as a finding, and clipped earlier
 reads as its opposite.
 
+## Ported since
+
+- **THE SPINE follows the clock**, as the contract states it. `model` = the
+  open model spans with JUST CLOSED at the foot · `pda` = the kernel's own
+  frames at the cursor (clone names, rolled-back ones in red) plus the
+  decisions it made near here · `earley` = the cursor's column as dotted
+  items with their origins, and CAN COME NEXT. `kairos.parse` already had
+  `column` and `decisions`; both were unused. The recognizer kernel is
+  retained, so moving the cursor on the Earley clock costs 24 ms after the
+  first column rather than re-parsing the document.
+- The spine's gutter is as wide as the widest thing in it: a column of
+  origins clipped to `@41…` says nothing at all.
+
 ## Deviations still to redo
 
 - The tune dials (`#gtune`) are not drawn.
