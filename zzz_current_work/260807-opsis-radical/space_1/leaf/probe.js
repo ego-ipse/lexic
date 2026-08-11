@@ -8,6 +8,13 @@
 /* ── the gesture probe: this instrument has never had one, so "does it
    work" was always the user's hand. ?probe drives the real handlers and
    writes the verdict into document.title, which dump-dom can read. */
+function findNode(node, name) {
+  // the split whose FIRST side is this facet — what a seam drag moves
+  if (typeof node === 'string') return null;
+  if (node[2] === name) return node;
+  return findNode(node[2], name) || findNode(node[3], name);
+}
+
 async function probeGestures() {
   const out = [];
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -122,6 +129,38 @@ async function probeGestures() {
       out.push(`graphChips=${chips.length} clipped=${out_.length}`
         + (out_.length ? ` first=${out_[0].dataset.name}` : ''));
     }
+    // RESIZING, LIVE. Not two page loads at two sizes — one page whose
+    // facet changes height, which is what a seam drag or a window resize
+    // actually does to it.
+    setClock('model');
+    ask();
+    await wait(900);
+    const inkFloor = (cv) => {
+      const cx2 = cv.getContext('2d');
+      const px = cx2.getImageData(0, 0, cv.width, cv.height).data;
+      for (let row = cv.height - 1; row >= 0; row--) {
+        for (let col = 0; col < cv.width; col += 4) {
+          if (px[(row * cv.width + col) * 4 + 3] > 8) return row;
+        }
+      }
+      return -1;
+    };
+    const chartCv = $('chartCv');
+    const wasFloor = inkFloor(chartCv), wasH = chartCv.height;
+    // give the derivation half the height it had, the way a seam drag would
+    const derivation = findNode(layoutTree, 'chart');
+    if (derivation) derivation[1] = Math.max(0.15, derivation[1] * 0.45);
+    layoutFacets();
+    render();
+    await wait(700);
+    const nowFloor = inkFloor(chartCv), nowH = chartCv.height;
+    out.push(`chartFit=${wasFloor}/${wasH} -> ${nowFloor}/${nowH}`,
+      `fits=${nowFloor <= nowH && nowFloor > 0}`,
+      `refit=${nowFloor < wasFloor}`);
+    if (derivation) derivation[1] = derivation[1] / 0.45;
+    layoutFacets();
+    render();
+    await wait(300);
     // the band must have ARRIVED and have marks the register can colour
     setClock('model');
     ask();
@@ -517,3 +556,41 @@ async function probeGestures() {
   document.title = 'PROBE ' + out.join(' | ');
 }
 if (new URLSearchParams(location.search).has('probe')) setTimeout(probeGestures, 1500);
+
+
+/* ?resize — one question, nothing else: does a facet that changes height
+   re-fit its picture? Run alone, so no earlier gesture can pollute it. */
+async function probeResize() {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const out = [];
+  await wait(1800);
+  cur.t = 4000;
+  ask();
+  await wait(900);
+  const cv = $('chartCv');
+  const floor = () => {
+    const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    for (let row = cv.height - 1; row >= 0; row--) {
+      for (let col = 0; col < cv.width; col += 4) {
+        if (px[(row * cv.width + col) * 4 + 3] > 8) return row;
+      }
+    }
+    return -1;
+  };
+  out.push(`start=${floor()}/${cv.height} spans=${S.spans.length}`);
+  const node = findNode(layoutTree, 'chart');
+  if (node) {
+    node[1] = Math.max(0.15, node[1] * 0.45);
+    layoutFacets();
+    render();
+    await wait(800);
+    out.push(`shrunk=${floor()}/${cv.height} fits=${floor() < cv.height - 2}`);
+    node[1] = Math.min(0.9, node[1] / 0.45 * 1.6);
+    layoutFacets();
+    render();
+    await wait(800);
+    out.push(`grown=${floor()}/${cv.height} usesRoom=${floor() > cv.height * 0.5}`);
+  }
+  document.title = 'RESIZE ' + out.join(' | ');
+}
+if (new URLSearchParams(location.search).has('resize')) setTimeout(probeResize, 1200);
