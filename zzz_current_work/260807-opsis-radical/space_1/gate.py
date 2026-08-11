@@ -19,7 +19,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from place import arrange, shares, windowed  # noqa: E402
-from read import read  # noqa: E402
+from read import read, upward  # noqa: E402
 from serve import scene  # noqa: E402
 
 ROOT = HERE.parents[2]
@@ -74,6 +74,12 @@ def main() -> int:
         "a surface that cannot be honoured asks for a window",
         bool(windowed(facets, 120)),
         ", ".join(windowed(facets, 120)),
+    )
+    up = upward(reading)
+    check(
+        "a reader is a thing that can also be read — the rung above is named",
+        up is not None and up[1].endswith("metagrammar"),
+        " ⊳ ".join(up) if up else "nothing reads it",
     )
     drawn = scene(reading)
     check(

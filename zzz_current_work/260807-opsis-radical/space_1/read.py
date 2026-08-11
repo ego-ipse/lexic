@@ -188,6 +188,20 @@ def _most(lines: list[str]) -> int:
     return max(24, widths[min(len(widths) - 1, int(len(widths) * 0.9))])
 
 
+def upward(reading: Reading) -> tuple[str, str] | None:
+    """The reading one level up: this reader, read as a document.
+
+    Chirality is already computed — the reader compiled, so something read
+    it. Going up is not a level, it is the same question asked of the other
+    text: who reads THIS one. Returns the pair, never a parse: entering it
+    is what parses, so an unvisited rung costs nothing.
+    """
+    turned = turn(reading.reader_text)
+    if turned is None:
+        return None
+    return (str(reading.reader), f"the {turned[1].upper()} metagrammar")
+
+
 def read(reader: Path, document: Path) -> Reading:
     """One reading, held."""
     reading = Reading(reader, document)
