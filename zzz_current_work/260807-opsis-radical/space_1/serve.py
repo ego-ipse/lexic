@@ -36,7 +36,12 @@ from deixis.points import wire as point  # noqa: E402
 from eidolon.layout import positions  # noqa: E402
 from eidolon.topology import edges, levels, reachable  # noqa: E402
 from opsis.grammar import rail, rails  # noqa: E402
-from opsis.paint import automaton_drawing, rails_drawing  # noqa: E402
+from opsis.paint import (  # noqa: E402
+    automaton_drawing,
+    graph_drawing,
+    rail_drawing,
+    rails_drawing,
+)
 from eidolon.value import wire as ir_wire  # noqa: E402
 from kairos.pipeline import form_of, spelled  # noqa: E402
 from opsis.scene import (  # noqa: E402
@@ -309,6 +314,35 @@ class Handler(BaseHTTPRequestHandler):
                     machine, self.reading, Handler.state.get("form", "source")
                 )
                 return rails_drawing(rails(shown), wide).wire("rails")
+            if what == "rail":
+                shown = form_of(
+                    machine, self.reading, Handler.state.get("form", "source")
+                )
+                return rail_drawing(rails(shown), asked.get("name", [""])[0]).wire(
+                    "rail"
+                )
+            if what == "graph":
+                shown = form_of(
+                    machine, self.reading, Handler.state.get("form", "source")
+                )
+                tall = int(box[1]) if len(box) > 1 and box[1].isdigit() else 600
+                dial = {
+                    key[len("graph.") :]: float(value)
+                    for key, value in Handler.state.items()
+                    if key.startswith("graph.")
+                    and value.replace(".", "", 1).replace("-", "", 1).isdigit()
+                }
+                known = ruledefs(spelled(self.reading, shown, "source"))
+                asked_view = asked.get("view", ["flat"])[0]
+                at = float(asked.get("t", ["0"])[0] or 0)
+                alight = {
+                    as_written(known, span.rule)
+                    for span in self.reading.spans
+                    if span.start <= at < span.end
+                }
+                return graph_drawing(shown, asked_view, wide, tall, dial, alight).wire(
+                    "graph"
+                )
             if what == "automaton":
                 at = float(asked.get("t", ["0"])[0] or 0)
                 frames = watch(machine, self.reading.text)

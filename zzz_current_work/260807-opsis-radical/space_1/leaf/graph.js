@@ -199,6 +199,7 @@ function drawGraphView(v, smooth = false) {
       : Math.min(1, Math.max(0.25, Math.min(box.width / Math.max(1, said.w),
                                             box.height / Math.max(1, said.h))));
     paint(v.cv, said, v.pan, fit * v.zoom);
+    v.painted = { said, scale: fit * v.zoom };
     return;
   }
   v.chips.style.display = '';
@@ -361,6 +362,15 @@ function setGraph(on, fromPolicy = false) {
 }
 
 function wireGraphView(v) {
+  // a painted door is clicked like any other: the leaf hit-tests the marks
+  // it was given and follows the address written on them
+  v.cv.addEventListener('click', (ev) => {
+    if (!v.painted || v.dragMoved) return;
+    const box = v.cv.getBoundingClientRect();
+    const door = doorAt(v.painted.said, ev.clientX - box.left,
+      ev.clientY - box.top, v.pan, v.painted.scale);
+    if (door) { cur.rule = door.goes; postPolicy('focus.rule', door.goes); ask(); }
+  });
   let drag = null;
   v.wrap.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.gchip') || e.target.closest('#gtune')) return;

@@ -35,6 +35,13 @@ async function loadDrawing(what, query = '') {
   return said;
 }
 
+function doorAt(said, x, y, pan = { x: 0, y: 0 }, scale = 1) {
+  // which door is under the pointer, in the drawing's own coordinates
+  const dx = (x - pan.x) / scale, dy = (y - pan.y) / scale;
+  return (said && said.hits || []).find(
+    (h) => dx >= h.x && dx <= h.x + h.w && dy >= h.y && dy <= h.y + h.h);
+}
+
 function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
   if (!cv || !said) return;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -53,6 +60,8 @@ function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
   cx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * pan.x, dpr * pan.y);
   cx.clearRect(-pan.x / scale, -pan.y / scale, w / scale, h / scale);
   cx.lineWidth = 1;
+  const hits = [];
+  said.hits = hits;
   cx.font = `11px ${getComputedStyle(document.documentElement)
     .getPropertyValue('--mono')}`;
   for (const mark of said.marks) {
@@ -61,11 +70,14 @@ function paint(cv, said, pan = { x: 0, y: 0 }, scale = 1) {
       const [x, y, bw, bh] = [+p[1], +p[2], +p[3], +p[4]];
       cx.strokeStyle = toneOf(p[5]);
       cx.strokeRect(x + 0.5, y + 0.5, bw, bh);
-      const label = p.slice(6).join(' ');
+      const label = p.slice(7).join(' ');
       if (label) {
         cx.fillStyle = toneOf(p[5]);
         cx.fillText(label, x + 5, y + bh / 2 + 4);
       }
+      // a mark that carries an address is a DOOR: the leaf remembers where
+      // it painted it and hit-tests rectangles. It knows nothing else.
+      if (p[6] && p[6] !== '-') hits.push({ x, y, w: bw, h: bh, goes: p[6] });
     } else if (p[0] === 'line') {
       cx.strokeStyle = toneOf(p[5]);
       cx.beginPath();

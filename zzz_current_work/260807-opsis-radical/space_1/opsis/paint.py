@@ -19,10 +19,19 @@ the leaf's stylesheet, so a drawing never carries a hex code.
 
 from __future__ import annotations
 
-from opsis.measure import Box, boxes
+from eidolon.layout import positions
+from eidolon.topology import edges
+from lexic.ir import IrAst
+from opsis.measure import BRACKET, GAP, LOOP, VGAP, Box
 from praxis.reading import columns
 
-__all__ = ["Drawing", "automaton_drawing", "rails_drawing"]
+__all__ = [
+    "Drawing",
+    "automaton_drawing",
+    "graph_drawing",
+    "rail_drawing",
+    "rails_drawing",
+]
 
 CELL = 7.2  # one column, in pixels, at the leaf's rail font
 ROW = 22.0  # one row
@@ -39,9 +48,20 @@ class Drawing:
         self.tall = 0.0
 
     def box(
-        self, x: float, y: float, w: float, h: float, tone: str, said: str = ""
+        self,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        tone: str,
+        said: str = "",
+        goes: str = "",
     ) -> None:
-        self.marks.append(f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone} {said}")
+        # a mark can carry an ADDRESS: where clicking it leads. The leaf
+        # hit-tests rectangles; it does not know what a railroad is.
+        self.marks.append(
+            f"box {x:.1f} {y:.1f} {w:.1f} {h:.1f} {tone} {goes or '-'} {said}"
+        )
         self.wide = max(self.wide, x + w)
         self.tall = max(self.tall, y + h)
 
@@ -92,72 +112,79 @@ def _track(
     x: float,
     y: float,
 ) -> None:
-    """One node of a railroad, drawn where it was measured to sit."""
+    """One node of a railroad, drawn where it was measured to sit.
+
+    A track is read left to right along one line: everything enters at its
+    spine and leaves at its spine, and the connectors between are what make
+    it a line rather than a scatter of boxes.
+    """
     kind, payload, kids = node
     box = room[at[0]]
     at[0] += 1
-    w, h, spine = box.wide * CELL, box.tall * ROW, box.spine * ROW
+    w, spine = box.wide * CELL, box.spine * ROW
     if kind == "seq":
         cursor = x
-        for kid in kids:
+        for i, kid in enumerate(kids):
             kid_box = room[at[0]]
-            draw.line(cursor, y + spine, cursor, y + spine, "rail")
             _track(kid, room, at, draw, cursor, y + spine - kid_box.spine * ROW)
-            after = cursor + kid_box.wide * CELL
-            if kid is not kids[-1]:
-                draw.line(after, y + spine, after + 3 * CELL, y + spine, "rail")
-            cursor = after + 3 * CELL
+            cursor += kid_box.wide * CELL
+            if i < len(kids) - 1:
+                draw.line(cursor, y + spine, cursor + GAP * CELL, y + spine, "rail")
+                cursor += GAP * CELL
         return
     if kind == "alt":
+        # one fork out, one fork back, and every arm on its own line between
+        inner = x + BRACKET / 2 * CELL
+        edge = x + w
         top = y
         for kid in kids:
             kid_box = room[at[0]]
-            inner = x + 3 * CELL
-            draw.curve(
-                x, y + spine, inner, y + spine, inner, top + kid_box.spine * ROW, "rail"
-            )
+            mid = top + kid_box.spine * ROW
+            draw.curve(x, y + spine, inner - CELL, y + spine, inner, mid, "rail")
             _track(kid, room, at, draw, inner, top)
             right = inner + kid_box.wide * CELL
-            edge = x + w
+            draw.line(right, mid, edge - BRACKET / 2 * CELL, mid, "rail")
             draw.curve(
-                right,
-                top + kid_box.spine * ROW,
-                edge - 3 * CELL,
-                top + kid_box.spine * ROW,
+                edge - BRACKET / 2 * CELL,
+                mid,
+                edge - CELL,
+                y + spine,
                 edge,
                 y + spine,
                 "rail",
             )
-            top += kid_box.tall * ROW + ROW
+            top += kid_box.tall * ROW + VGAP * ROW
         return
     if kind == "many":
         low, high = (payload.split() + ["1", "1"])[:2]
         kid_box = room[at[0]]
-        inner_y = y + (2 * ROW if low == "0" else 0)
-        _track(kids[0], room, at, draw, x + 2 * CELL, inner_y)
-        left, right = x, x + w
+        inner_x = x + 2 * CELL
+        inner_y = y + (LOOP * ROW if low == "0" else 0)
+        _track(kids[0], room, at, draw, inner_x, inner_y)
         mid = inner_y + kid_box.spine * ROW
-        draw.line(left, mid, x + 2 * CELL, mid, "rail")
-        draw.line(x + 2 * CELL + kid_box.wide * CELL, mid, right, mid, "rail")
-        if low == "0":
-            draw.curve(
-                left, mid, left, y + ROW, (left + right) / 2, y + ROW * 0.6, "loop"
-            )
-            draw.curve(
-                (left + right) / 2, y + ROW * 0.6, right, y + ROW, right, mid, "loop"
-            )
-        if high != "1":
-            under = inner_y + kid_box.tall * ROW + ROW * 0.8
-            draw.curve(right, mid, right, under, (left + right) / 2, under, "loop")
-            draw.curve((left + right) / 2, under, left, under, left, mid, "loop")
+        right_of_kid = inner_x + kid_box.wide * CELL
+        draw.line(x, mid, inner_x, mid, "rail")
+        draw.line(right_of_kid, mid, x + w, mid, "rail")
+        if low == "0":  # the bypass arches over
+            over = y + ROW * 0.5
+            draw.curve(x, mid, x, over, (x + x + w) / 2, over, "loop")
+            draw.curve((x + x + w) / 2, over, x + w, over, x + w, mid, "loop")
+        if high != "1":  # the repeat returns underneath
+            under = inner_y + kid_box.tall * ROW + ROW * 0.6
+            draw.curve(x + w, mid, x + w, under, (x + x + w) / 2, under, "loop")
+            draw.curve((x + x + w) / 2, under, x, under, x, mid, "loop")
         return
     if kind in ("not", "alpha"):
         tag = "¬ none of" if kind == "not" else f"⟨{payload}⟩"
-        draw.text(x, y + ROW * 0.8, "dim", tag)
+        draw.text(x, y + ROW * 0.7, "dim", tag)
         _track(kids[0], room, at, draw, x + CELL, y + ROW)
         return
     tone = {"ref": "ref", "class": "class", "nil": "dim"}.get(kind, "token")
-    draw.box(x, y, w, h, tone, box.label)
+    # a ref is a DOOR: it carries the rule it names, so the leaf can be
+    # clicked through to it without knowing anything about railroads
+    draw.box(
+        x, y, w, box.tall * ROW, tone, box.label, box.label if kind == "ref" else ""
+    )
 
 
 def rails_drawing(tracks: str, wide: int) -> Drawing:
@@ -236,4 +263,71 @@ def automaton_drawing(said: str, lit: set[int], seen: set[int]) -> Drawing:
         )
         if name:
             draw.text(x + 6, y + 3, tone, name)
+    return draw
+
+
+def graph_drawing(
+    ast: IrAst,
+    view: str,
+    wide: int,
+    tall: int,
+    tune: dict[str, float] | None = None,
+    lit: set[str] | None = None,
+) -> Drawing:
+    """The relations as a drawing — nodes where they sit, edges between them.
+
+    The flat and arc views are two dimensions, so the whole picture can be
+    said here. The ring view keeps its camera in the leaf, because a camera
+    is the hand's and a round trip per frame is not a rotation.
+    """
+    draw = Drawing()
+    places = positions(ast, view, wide, tall, tune)
+    if not places:
+        return draw
+    left = min(x for x, _y, _z in places.values())
+    top = min(y for _x, y, _z in places.values())
+    at = {name: (x - left + 30, y - top + 24) for name, (x, y, _z) in places.items()}
+    alight = lit or set()
+    for a, b in edges(ast):
+        one, two = at.get(a), at.get(b)
+        if one is None or two is None:
+            continue
+        tone = "hot" if a in alight and b in alight else "cool"
+        if view == "arcs":
+            lift = min(160.0, abs(two[0] - one[0]) * 0.4) + 12
+            draw.curve(
+                one[0],
+                one[1],
+                (one[0] + two[0]) / 2,
+                one[1] - lift,
+                two[0],
+                two[1],
+                tone,
+            )
+        else:
+            draw.line(one[0], one[1], two[0], two[1], tone)
+    for name, (x, y) in at.items():
+        tone = "hot" if name in alight else "ref"
+        said = name if len(name) <= 24 else name[:23] + "…"
+        draw.box(x - 4, y - ROW / 2, columns(said) * CELL + 8, ROW * 0.8, tone, said)
+    return draw
+
+
+def rail_drawing(tracks: str, name: str) -> Drawing:
+    """One rule's track, alone — what a pinned railroad window shows."""
+    draw = Drawing()
+    for block in tracks.split("#RAIL ")[1:]:
+        head, _, body = block.partition("\n")
+        if head.split()[0].casefold() != name.casefold():
+            continue
+        count = int(head.split()[-1])
+        rows = body.split("\n")
+        lines, said = rows[:count], rows[count + 1 : count + 1 + count]
+        room = [
+            Box(float(p[0]), float(p[1]), float(p[2]), p[3] if len(p) > 3 else "")
+            for p in (line.split(" ", 3) for line in said)
+        ]
+        if room:
+            _track(_relines(lines), room, [0], draw, CELL * 2, ROW * 0.5)
+        break
     return draw
