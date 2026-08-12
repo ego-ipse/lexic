@@ -27,7 +27,18 @@ let dragging = null;
 
 const fill = (name) => frame.fills[name] || frame.fills.dim;
 const edge = (name) => frame.edges[name];
-const face = (name) => frame.fonts[name] || frame.font;
+function face(name) {
+  const scaled = name.startsWith('scaled:') ? name.split(':') : null;
+  const held = scaled
+    ? (frame.fonts[scaled[1]] || frame.font)
+    : (frame.fonts[name] || frame.font);
+  if (!scaled) return held;
+  const factor = +scaled[2] || 1;
+  return held.replace(
+    /([0-9.]+)px/,
+    (_all, size) => `${(+size * factor).toFixed(3)}px`,
+  );
+}
 
 /* A gesture arriving mid-flight is NOT dropped: nudges of the same kind add
    up and the last of anything else wins, so a fast hand is answered. */
@@ -55,6 +66,10 @@ async function ask(gesture, body) {
 function merge(waiting, gesture, body) {
   if (!waiting) return { gesture, body };
   const a = waiting.gesture.split(' '), b = (gesture || '').split(' ');
+  /* Clock traffic is disposable; direct manipulation is not. A tick arriving
+     behind a queued spin or scroll used to replace the hand's latest move. */
+  if (b[0] === 'tick') return waiting;
+  if (a[0] === 'tick') return { gesture, body };
   const adds = a[0] === b[0] && (a[0] === 'scroll' || a[0] === 'spin' || a[0] === 'step');
   if (adds && a[1] === b[1] && a[0] !== 'step') {
     return { gesture: [...a.slice(0, 2),
@@ -285,7 +300,12 @@ function dropdowns() {
       planes.appendChild(el);
       chosen.set(pick.key, el);
     }
-    if (pick.range) { el.value = pick.on; }
+    if (pick.range) {
+      el.min = pick.range.low;
+      el.max = pick.range.high;
+      el.step = pick.range.by;
+      el.value = pick.on;
+    }
     const said = pick.options.map((o) => o.value).join(' ');
     if (!pick.range && el.dataset.options !== said) {
       el.dataset.options = said;

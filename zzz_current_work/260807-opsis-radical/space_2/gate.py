@@ -181,7 +181,10 @@ def main() -> int:
         used <= set(TONES),
         " ".join(sorted(used - set(TONES)) or ["all known"]),
     )
-    faces = {m.split(" ")[4] for m in said.marks if m.startswith("text ")}
+    faces = {
+        (word.split(":")[1] if word.startswith("scaled:") else word)
+        for word in (m.split(" ")[4] for m in said.marks if m.startswith("text "))
+    }
     check(
         "every face a frame asks for is a face or a tone that has one",
         faces <= set(FONTS) | set(TONES),
@@ -760,6 +763,75 @@ def main() -> int:
         and sum(1 for m in frame({}).marks if m == "unclip")
         == sum(1 for m in frame({}).marks if m.startswith("clip ")),
     )
+    railer = Session(reading)
+    railer.main.update({"windows": "w0", "win.w0": "rail 200 200 560 200 member"})
+    railer.gesture("at railgo w0:array")
+    check(
+        "a door in a pinned rail navigates that rail in place",
+        railer.main.get("windows") == "w0"
+        and railer.main.get("win.w0", "").endswith(" array"),
+        railer.main.get("win.w0", "missing"),
+    )
+    check(
+        "a pinned rail's rule doors address their own window",
+        any(
+            part[4] == "railgo" and part[5].startswith("w0:")
+            for part in (hit.split(" ") for hit in railed.hits)
+        ),
+    )
+    check(
+        "the idle readout always says what is at the cursor",
+        any(word.startswith("at the cursor ·") for word in words(frame({}))),
+    )
+    check(
+        "the ladder keeps its complete text",
+        f"{DOCUMENT.name} ⊳ {READER.name}  ∴" in words(frame({})),
+        f"{DOCUMENT.name} ⊳ {READER.name} ∴",
+    )
+
+    dial_sets = {
+        "depth3d": {"levelstep", "ringscale", "flatten", "labelscale"},
+        "flat": {"levelstep", "ringscale", "labelscale"},
+        "arcs": {"levelstep", "ringscale", "labelscale"},
+        "rails": {"levelstep", "labelscale"},
+        "automaton": {"levelstep", "ringscale", "labelscale"},
+    }
+    alternatives = {
+        "levelstep": "280",
+        "ringscale": "2",
+        "flatten": "0.2",
+        "labelscale": "1.8",
+    }
+    for view, expected in dial_sets.items():
+        state = {"graph.view": view, "tab.reader": "1"}
+        base = frame(state)
+        dials = {
+            part[0].removeprefix("graph."): part
+            for part in (pick.split(" ") for pick in base.picks)
+            if part[6].startswith("range:")
+        }
+        check(
+            f"the {view} sliders are real ranges with the right jobs",
+            set(dials) == expected
+            and all(
+                float(parts[5]) >= float(parts[6].split(":")[1])
+                for parts in dials.values()
+            )
+            and float(dials["labelscale"][5]) == 1.0,
+            " ".join(sorted(dials)),
+        )
+        for key in expected:
+            tuned = frame({**state, f"graph.{key}": alternatives[key]})
+            check(
+                f"the {view} {key} slider changes its drawing",
+                tuned.marks != base.marks or tuned.hits != base.hits,
+            )
+    auto = frame({"graph.view": "automaton", "tab.reader": "1"})
+    check(
+        "the automaton draws filled states, including states already visited",
+        len(marks(auto, "dot")) > 8,
+        f"{len(marks(auto, 'dot'))} filled states",
+    )
     check(
         "a control with more than one value is a real dropdown",
         {"form", "chart.clock"} <= {p.split(" ")[0] for p in frame({}).picks}
@@ -824,9 +896,10 @@ def main() -> int:
         ("earley", "the chart's column at t", "CAN COME NEXT"),
     ):
         spoken = words(frame({"chart.clock": clock}, at=900.0))
+        below = words(frame({"chart.clock": clock, "top.spine": "9999"}, at=900.0))
         check(
             f"the {clock} spine says what it is showing, and what is beside it",
-            any(w.startswith(caption) for w in spoken) and foot in spoken,
+            any(w.startswith(caption) for w in spoken) and foot in below,
             f"{caption} · {foot}",
         )
     check(
@@ -1112,6 +1185,33 @@ def main() -> int:
         each < 20,
         f"{each:.1f} ms",
     )
+
+    hot_paths = (
+        (
+            "scrolling a prolific selected rule stays inside the frame budget",
+            [{"chosen": "ws", "top.document": str(250 + i)} for i in range(20)],
+        ),
+        (
+            "turning the 3d graph during playback stays inside the frame budget",
+            [
+                {
+                    "tab.reader": "1",
+                    "graph.view": "depth3d",
+                    "playing": "1",
+                    "graph.depth3d.yaw": str(0.42 + i * 0.01),
+                    "graph.depth3d.pitch": str(0.92 - i * 0.005),
+                }
+                for i in range(20)
+            ],
+        ),
+    )
+    for claim, states in hot_paths:
+        frame(states[0])
+        clock = time.perf_counter()
+        for i, state in enumerate(states):
+            frame(state, at=4200.0 + i)
+        each = (time.perf_counter() - clock) * 1000 / len(states)
+        check(claim, each < 20, f"{each:.1f} ms")
 
     print("the leaf")
     leaf = HERE / "leaf"

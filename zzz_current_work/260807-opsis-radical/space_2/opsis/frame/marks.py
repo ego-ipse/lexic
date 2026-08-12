@@ -291,6 +291,10 @@ class Frame:
         down: float = 0.0,
         dots: frozenset[str] | None = None,
         fills: bool = False,
+        face: str = "drawn",
+        door: str = "rule",
+        prefix: str = "",
+        recolor: dict[str, str] | None = None,
     ) -> None:
         """A drawing's own marks, moved into the room it was given.
 
@@ -305,8 +309,13 @@ class Frame:
             Thirty-two names on one line is thirty-two names nobody can read;
             the reference names the start, the chosen and the hovered, and
             leaves the rest as marks on a line.
+        :param face: the face used for labels in this consumer.
+        :param door: the hit kind carried by addressed boxes.
+        :param prefix: an address prefix supplied by the consumer.
+        :param recolor: consumer-specific tone aliases for a shared drawing.
         """
         tall = down or scale
+        text_face = face if abs(scale - 1.0) < 0.0001 else f"scaled:{face}:{scale:.4f}"
         for mark in getattr(drawing, "marks", []):
             parts = mark.split(" ")
             kind = parts[0]
@@ -316,9 +325,10 @@ class Frame:
                     (x + float(n) * scale) if i % 2 == 0 else (y + float(n) * tall)
                     for i, n in enumerate(parts[1 : 1 + count])
                 ]
-                self._put(
-                    " ".join([kind, *(f"{n:.1f}" for n in moved), *parts[1 + count :]])
-                )
+                tail = parts[1 + count :]
+                if recolor and tail:
+                    tail[0] = recolor.get(tail[0], tail[0])
+                self._put(" ".join([kind, *(f"{n:.1f}" for n in moved), *tail]))
             elif kind == "box":
                 # A DRAWING'S BOX IS AN OUTLINE. `paint.js` strokes it and
                 # fills only `closed` and `live`, with a fill variant of the
@@ -326,7 +336,7 @@ class Frame:
                 # node of every graph into a solid slab with dark text on it.
                 at, top = x + float(parts[1]) * scale, y + float(parts[2]) * tall
                 wide, high = float(parts[3]) * scale, float(parts[4]) * tall
-                tone = parts[5]
+                tone = recolor.get(parts[5], parts[5]) if recolor else parts[5]
                 label = " ".join(parts[7:]) if len(parts) > 7 else ""
                 # A MARK THAT CARRIES AN ADDRESS IS A DOOR. `paint.js` keeps
                 # every one of them as a rectangle it can hit-test — which is
@@ -335,7 +345,7 @@ class Frame:
                 # painted and dead.
                 goes = parts[6] if len(parts) > 6 else "-"
                 if goes and goes != "-":
-                    self.hit(at, top, wide, high, "rule", goes)
+                    self.hit(at, top, wide, high, door, f"{prefix}{goes}")
                 if fills:
                     self.box(at, top, wide, high, tone)
                     continue
@@ -353,21 +363,22 @@ class Frame:
                         tone,
                         label,
                         wide - 6,
-                        face="drawn",
+                        face=text_face,
                     )
             elif kind == "arc":
-                self.arc(
+                self.dot(
                     x + float(parts[1]) * scale,
                     y + float(parts[2]) * tall,
                     float(parts[3]) * scale,
-                    parts[4],
+                    recolor.get(parts[4], parts[4]) if recolor else parts[4],
                 )
             elif kind == "text":
                 self.text(
                     x + float(parts[1]) * scale,
                     y + float(parts[2]) * tall,
-                    parts[3],
+                    recolor.get(parts[3], parts[3]) if recolor else parts[3],
                     " ".join(parts[4:]),
+                    face=text_face,
                 )
 
     def wire(self, generation: int, playing: bool = False) -> str:

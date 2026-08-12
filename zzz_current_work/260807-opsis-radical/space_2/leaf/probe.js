@@ -217,6 +217,33 @@ async function probe() {
     fact('changing a dropdown changes what the instrument shows', false, 'no clock pick');
   }
 
+  /* 9c. Graph tuning is native range input, and input changes the frame. */
+  await ask('at tab reader:1:graph');
+  await settle();
+  const dials = [...document.querySelectorAll('input.dial[type="range"]')];
+  fact('every graph slider is a native range with synchronized bounds',
+       dials.length === 4 && dials.every((el) => +el.min < +el.max && +el.step > 0),
+       `${dials.length} ranges`);
+  const depthDial = document.querySelector('.dial[data-key="graph.levelstep"]');
+  if (depthDial) {
+    const old = depthDial.value;
+    const beforeTune = frame.marks.join('\n');
+    depthDial.value = depthDial.max;
+    depthDial.dispatchEvent(new Event('input'));
+    await settle();
+    const now = document.querySelector('.dial[data-key="graph.levelstep"]');
+    fact('dragging a graph slider changes the drawing it controls',
+         now && now.value === depthDial.max && frame.marks.join('\n') !== beforeTune,
+         `${old} → ${now ? now.value : 'gone'}`);
+    now.value = old;
+    now.dispatchEvent(new Event('input'));
+    await settle();
+  } else {
+    fact('dragging a graph slider changes the drawing it controls', false, 'no depth slider');
+  }
+  await ask('at tab reader:0:grammar');
+  await settle();
+
   /* 10. a window is IN the page: a rectangle over the arrangement, not a
          browser window, which is a different document and cannot overlap
          the thing it was torn from. */
@@ -235,12 +262,57 @@ async function probe() {
        because the run before it left something behind is not a fact */
     const shut = frame.hits.find((h) => h.kind === 'shut');
     if (shut) { await ask(`at shut ${shut.goes}`); await settle(); }
-    await ask(`at facet ${head.goes}`);
-    await settle();
   } else {
     fact('popping a facet opens no browser window', false, 'nothing to pop');
   }
 
+  /* 10b. THE TWO CONTEXT CHIPS REALLY RECEIVE A CLICK. Both sit over a real
+     textarea, so seeing their mark is not enough: without glazing the click
+     belongs to the textarea and no popup opens. Exercise the DOM path. */
+  async function clickHit(kind) {
+    const hit = (frame.hits || []).find((h) => h.kind === kind);
+    if (!hit) return false;
+    const paperBox = paper.getBoundingClientRect();
+    const x = paperBox.left + hit.x + hit.w / 2;
+    const y = paperBox.top + hit.y + hit.h / 2;
+    const target = document.elementFromPoint(x, y);
+    if (!target) return false;
+    target.dispatchEvent(new MouseEvent(
+      'click', { clientX: x, clientY: y, bubbles: true },
+    ));
+    await settle();
+    return true;
+  }
+
+  await ask('sel document 2 6 500 180');
+  await settle();
+  const pinShown = (frame.hits || []).some((h) => h.kind === 'pin');
+  const pinClicked = await clickHit('pin');
+  fact('the pin chip over real text opens an in-page popup',
+       pinShown && pinClicked && frame.hits.some((h) => h.kind === 'winhead'));
+  let shut = frame.hits.find((h) => h.kind === 'shut');
+  if (shut) { await ask(`at shut ${shut.goes}`); await settle(); }
+  await ask('sel document 0 0');
+  await settle();
+
+  const grammar = held.get('grammar');
+  const memberAt = grammar ? grammar.value.indexOf('\nmember') : -1;
+  const ruleAt = memberAt < 0 ? -1 : memberAt + 1;
+  if (ruleAt >= 0) {
+    await ask(`sel grammar ${ruleAt} ${ruleAt + 1} 300 180`);
+    await settle();
+  }
+  const railShown = (frame.hits || []).some((h) => h.kind === 'rail');
+  const railClicked = await clickHit('rail');
+  const oneRail = frame.hits.filter((h) => h.kind === 'winhead').length;
+  const railDoor = (frame.hits || []).find((h) => h.kind === 'railgo');
+  const railMoved = railDoor ? await clickHit('railgo') : false;
+  fact('the rail chip opens and its popup navigates in place',
+       railShown && railClicked && railMoved && oneRail === 1
+       && frame.hits.filter((h) => h.kind === 'winhead').length === 1,
+       railDoor ? railDoor.goes : 'no rule door in rail');
+  shut = frame.hits.find((h) => h.kind === 'shut');
+  if (shut) { await ask(`at shut ${shut.goes}`); await settle(); }
   /* EVERY OTHER FACE. The mono plane is checked above because a highlight
      sits under its characters; nothing has ever checked the sans faces, and
      the frame wraps the hint, right-aligns the verdict and packs every head

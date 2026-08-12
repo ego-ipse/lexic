@@ -434,6 +434,19 @@ class Session:
             pin=True,
         )
 
+    def _railgo(self, words: list[str]) -> None:
+        """A door inside a pinned rail navigates that rail in place."""
+        if not words or ":" not in words[0]:
+            return
+        wid, rule = words[0].split(":", 1)
+        said = self.main.get(f"win.{wid}", "")
+        if not said:
+            return
+        facet, x, y, w, h, _about = (said.split(" ", 5) + [""] * 6)[:6]
+        if facet == "rail" and rule:
+            self.main[f"win.{wid}"] = f"{facet} {x} {y} {w} {h} {rule}"
+            self.raise_window(wid)
+
     def _sel(self, words: list[str]) -> None:
         """Text selected in a plane — the smallest covering occurrence co-selects.
 
@@ -904,6 +917,7 @@ LANDED: dict[str, Said] = {
     "place": Session._place,
     "pin": Session._pin,
     "rail": Session._rail,
+    "railgo": Session._railgo,
     "shut": Session._shut,
     "win": Session._win,
     "rung": Session._rung,

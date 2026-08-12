@@ -12,6 +12,7 @@ hairline between them and the grid, and every region carries its own head.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import lru_cache
 from typing import Any
 
 from opsis.frame.facets import DRAWN, HEADS, Look
@@ -37,12 +38,20 @@ CAPTION = {
 }
 
 
-def _every(reading: Reading) -> list[str]:
+@lru_cache(maxsize=8)
+def _every(reading: Reading, generation: int) -> tuple[str, ...]:
     """Every facet this reading HAS, present or not — what the dock lists."""
-    return [facet.name for facet in reading.facets()[:1]] + [
-        "graph",
-        *(facet.name for facet in reading.facets()[1:]),
-    ]
+    # Measuring a facet walks every character of both texts. That is a fact
+    # about a reading, not about a cursor, scroll position or camera angle;
+    # doing it twice per frame consumed most of the interaction budget.
+    del generation  # invalidates this identity cache when a reread mutates it
+    return tuple(
+        [facet.name for facet in reading.facets()[:1]]
+        + [
+            "graph",
+            *(facet.name for facet in reading.facets()[1:]),
+        ]
+    )
 
 
 # #mast / #status: padding 10px 18px over a 12px line. #pos is `min-width:
@@ -112,7 +121,16 @@ def compose(
         DRAWN[only](said, head(said, region, titles, HEADS(look, only), columns), look)
         return said
 
-    _masthead(said, reading, it, wide, generation, _every(reading), look, titles)
+    _masthead(
+        said,
+        reading,
+        it,
+        wide,
+        generation,
+        list(_every(reading, generation)),
+        look,
+        titles,
+    )
     grid = walked(str(it.policy["arrange.tree"]), 0, BAR, wide, tall - BAR - STATUS)
     for region in grid.regions:
         draw = DRAWN.get(region.name)
@@ -288,6 +306,7 @@ def _inside(
         layer["pin.gen"] = look.says(f"gen.{wid}", str(look.generation))
     elif facet == "rail":
         layer["rail.rule"] = about
+        layer["rail.window"] = wid
     draw(
         said,
         room,
@@ -434,12 +453,14 @@ def _ladder(said: Frame, it: Staged, at: float) -> float:
     _level, _, rest = here.partition(" ")
     pair, _, _seen = rest.partition(" · ")
     word = f"{pair or '…'}  ∴"
-    wide = min(26 * 6.6, runs("chip", word)) + 16
+    # Keep the pairing verbatim and give it its natural room. The old 26ch
+    # ceiling clipped the final reader name while leaving the text itself in
+    # place, so the top button looked cut off rather than abbreviated.
+    wide = runs("chip", word) + 16
     said.ring(at, 8, wide, 26 - 8, "warm")
     said.text(at + 8, 21, "warm", word, wide - 14, face="chip")
     said.hit(at, 8, wide, 18, "strata", "on")
     return at + wide + 14
-    return at + 6
 
 
 def _dock(
@@ -508,6 +529,14 @@ def _readout(reading: Reading, look: Look) -> str:
             else f"hypothesis {name} · {int(s0):,}..{int(e0):,}"
         )
         words = said + (f" · {words}" if words else "")
+    if not words:
+        live = look.live()
+        words = (
+            "at the cursor · "
+            + _span_words(reading, f"{live[-1].start}:{live[-1].end}")
+            if live
+            else "at the cursor · no span is open"
+        )
     return words
 
 

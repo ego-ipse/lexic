@@ -86,6 +86,7 @@ class Look:
     """
 
     __slots__ = (
+        "_live",
         "at",
         "chosen",
         "frontier",
@@ -122,6 +123,7 @@ class Look:
         # what the other engine made of this reading, and the tone to say it in
         self.routes = routes
         self.generation = generation
+        self._live = None
 
     def says(self, key: str, fallback: str) -> str:
         """One policy key, as the hand left it."""
@@ -146,7 +148,9 @@ class Look:
 
     def live(self) -> list:
         """What is open at the cursor — the spans the reading is standing in."""
-        return open_at(self.reading, self.at)
+        if self._live is None:
+            self._live = open_at(self.reading, self.at)
+        return self._live
 
     def keep(self) -> set[str] | None:
         """What ◉ focus keeps: the chosen rule, its reach, and who refers to it.
@@ -395,8 +399,16 @@ def _under(
 
     for span in look.live():
         paint(span.start, span.end, "open", False)
+    # A prolific rule can have thousands of occurrences. Reject the ones
+    # outside this page once; asking `_segments` to walk every visible row for
+    # every off-screen occurrence is the scroll-time multiplication that
+    # produced the spike.
+    page_start = starts[first] if first < len(starts) else len(text)
+    after = min(len(starts), first + rows)
+    page_end = starts[after] if after < len(starts) else len(text)
     for start, end in occurrences(look):
-        paint(start, end, "violet", True)
+        if end >= page_start and start <= page_end:
+            paint(start, end, "violet", True)
     kind, _, goes = look.says("hover", "").partition(" ")
     if kind == "span" and ":" in goes:
         s0, _, e0 = goes.partition(":")
@@ -573,10 +585,17 @@ DIAL = {
 DIALS = {
     "depth3d": ("levelstep", "ringscale", "flatten", "labelscale"),
     "flat": ("levelstep", "ringscale", "labelscale"),
-    "arcs": ("ringscale", "labelscale"),
-    "rails": ("labelscale",),
-    "automaton": ("labelscale",),
+    "arcs": ("levelstep", "ringscale", "labelscale"),
+    "rails": ("levelstep", "labelscale"),
+    "automaton": ("levelstep", "ringscale", "labelscale"),
 }
+DIAL_WORDS = {
+    "flat": {"levelstep": "cols", "ringscale": "rows"},
+    "arcs": {"levelstep": "pitch", "ringscale": "lift"},
+    "rails": {"levelstep": "gap"},
+    "automaton": {"levelstep": "depth", "ringscale": "spread"},
+}
+DIAL_DEFAULT = {**TUNE, "labelscale": 1.0}
 
 
 def _dials(said: Frame, room: Room, look: Look) -> None:
@@ -587,7 +606,8 @@ def _dials(said: Frame, room: Room, look: Look) -> None:
     goes, what it spans and where it stands; the browser draws it.
     """
     x, y, w, h = room
-    wanted = DIALS.get(look.says("graph.view", "depth3d"), ())
+    view = look.says("graph.view", "depth3d")
+    wanted = DIALS.get(view, ())
     if not wanted:
         return
     # `#gtune`: bottom 8, right 10, padding 8x10, gap 5, a 4ch label column
@@ -599,9 +619,10 @@ def _dials(said: Frame, room: Room, look: Look) -> None:
     said.box(left - 10, top - 8, inside + 20, len(wanted) * step + 11, "tune")
     said.ring(left - 10, top - 8, inside + 20, len(wanted) * step + 11, "hair")
     for i, name in enumerate(wanted):
-        word, low, high, by = DIAL[name]
+        default_word, low, high, by = DIAL[name]
+        word = DIAL_WORDS.get(view, {}).get(name, default_word)
         at = top + i * step
-        now = float(look.says(f"graph.{name}", str(TUNE.get(name, low))))
+        now = float(look.says(f"graph.{name}", str(DIAL_DEFAULT[name])))
         # `grid-template-columns: 4ch 1fr` sets the column, not a clip: a
         # five-letter word spills into the 8px gap rather than becoming "dep…"
         said.text(left, at + 10, "dial", word, face="dial")
@@ -639,9 +660,7 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
     px, py, _k = camera(look, room)
     x, y = x + px, y + py
     shown = look.it.shown
-    laid = positions(
-        shown, {"depth3d": "rings"}.get(view, view), int(w), int(h), _tuned(look)
-    )
+    laid = _laid(look, view, w, h)
     named = {name: as_written(look.it.rules, name) for name in laid}
     if view == "depth3d":
         at = project(
@@ -655,7 +674,9 @@ def _nodes(said: Frame, room: Room, look: Look, view: str) -> None:
             look.zoom("graph.depth3d"),
         )
     else:
-        at = _spread(laid, named, w, h, look.zoom(f"graph.{view}"))
+        at = _spread(
+            laid, named, w, h, look.zoom(f"graph.{view}"), _framed(look, view, w, h)
+        )
     live_path = [as_written(look.it.rules, span.rule) for span in look.live()]
     live = set(live_path)
     live_edges = set(zip(live_path, live_path[1:]))
@@ -820,6 +841,7 @@ def _spread(
     w: float,
     h: float,
     zoom: float,
+    frame: dict[str, tuple[float, float, float]],
 ) -> dict[str, tuple[float, float, float]]:
     """A flat layout, fitted and centred — `{x, y, s: 1}` with the camera on.
 
@@ -829,8 +851,9 @@ def _spread(
     """
     if not laid:
         return {}
-    xs = [p[0] for p in laid.values()]
-    ys = [p[1] for p in laid.values()]
+    source = frame or laid
+    xs = [p[0] for p in source.values()]
+    ys = [p[1] for p in source.values()]
     x0, x1 = min(xs), max(xs)
     y0, y1 = min(ys), max(ys)
     mx, my = (x0 + x1) / 2, (y0 + y1) / 2
@@ -872,6 +895,48 @@ def _tuned(look: Look) -> dict[str, float]:
     }
 
 
+_LAYOUTS: dict[tuple[object, ...], dict[str, tuple[float, float, float]]] = {}
+
+
+def _laid(
+    look: Look, view: str, wide: float, tall: float
+) -> dict[str, tuple[float, float, float]]:
+    """A layout changes with its tuning and room, never with the camera."""
+    dial = _tuned(look)
+    key = (
+        id(look.reading),
+        look.generation,
+        view,
+        int(wide),
+        int(tall),
+        *sorted(dial.items()),
+    )
+    if key not in _LAYOUTS:
+        if len(_LAYOUTS) >= 8:
+            del _LAYOUTS[next(iter(_LAYOUTS))]
+        layout_view = {"depth3d": "rings"}.get(view, view)
+        _LAYOUTS[key] = positions(
+            look.it.shown, layout_view, int(wide), int(tall), dial
+        )
+    return _LAYOUTS[key]
+
+
+_FRAMES: dict[tuple[object, ...], dict[str, tuple[float, float, float]]] = {}
+
+
+def _framed(
+    look: Look, view: str, wide: float, tall: float
+) -> dict[str, tuple[float, float, float]]:
+    """The untouched layout which establishes a view's stable frame."""
+    layout_view = {"depth3d": "rings"}.get(view, view)
+    key = (id(look.reading), look.generation, view, int(wide), int(tall))
+    if key not in _FRAMES:
+        if len(_FRAMES) >= 8:
+            del _FRAMES[next(iter(_FRAMES))]
+        _FRAMES[key] = positions(look.it.shown, layout_view, int(wide), int(tall), TUNE)
+    return _FRAMES[key]
+
+
 def _depth3d(said: Frame, room: Room, look: Look) -> None:
     """A ring per level in three-space — z is derivation distance, earned."""
     _nodes(said, room, look, "depth3d")
@@ -900,6 +965,12 @@ def _arcs(said: Frame, room: Room, look: Look) -> None:
     _nodes(said, room, look, "arcs")
 
 
+def _label_face(look: Look) -> str:
+    """The three real drawing faces nearest the continuous label dial."""
+    scale = float(look.says("graph.labelscale", "1"))
+    return "gfar" if scale < 0.9 else ("drawn" if scale < 1.25 else "gnear")
+
+
 def _rails(said: Frame, room: Room, look: Look) -> None:
     """A list of railroads is READ, not surveyed: full size, and you drag it.
 
@@ -910,7 +981,17 @@ def _rails(said: Frame, room: Room, look: Look) -> None:
     x, y, w, _h = room
     px, py, k = camera(look, room)
     drawn = rails_drawing(rails(look.it.shown), int(w - 20))
-    said.place(drawn, x + 10 + px, y + 8 + py - _railtop(drawn, look), k)
+    gap = (
+        float(look.says("graph.levelstep", str(TUNE["levelstep"]))) / TUNE["levelstep"]
+    )
+    said.place(
+        drawn,
+        x + 10 + px,
+        y + 8 + py - _railtop(drawn, look) * gap,
+        k,
+        k * gap,
+        face=_label_face(look),
+    )
 
 
 def rail(said: Frame, room: Room, look: Look) -> None:
@@ -928,7 +1009,17 @@ def rail(said: Frame, room: Room, look: Look) -> None:
     if not drawn.marks:
         said.text(x + 12, y + 22, "dim", f"no track for {name or 'nothing'}")
         return
-    said.place(drawn, x + 12, y + 10, min(1.0, (w - 24) / max(1.0, drawn.wide)))
+    scale = min(1.0, (w - 24) / max(1.0, drawn.wide))
+    wid = look.says("rail.window", "")
+    said.place(
+        drawn,
+        x + 12,
+        y + 10,
+        scale,
+        face=_label_face(look),
+        door="railgo" if wid else "rule",
+        prefix=f"{wid}:" if wid else "",
+    )
     if drawn.tall * min(1.0, (w - 24) / max(1.0, drawn.wide)) > h - 18:
         said.text(
             x + w - 10,
@@ -967,18 +1058,33 @@ def _automaton(said: Frame, room: Room, look: Look) -> None:
     """The machine, walk-lit: the frames open at the cursor light their clones."""
     x, y, w, h = room
     px, py, k = camera(look, room)
+    tables = look.it.machine.pda_tables()
+    step = float(look.says("graph.levelstep", str(TUNE["levelstep"])))
+    spread = 15.0 * float(look.says("graph.ringscale", str(TUNE["ringscale"])))
     seats = {
         seat for s0, e0, _d, _n, ok, seat in look.watched if ok and s0 <= look.at < e0
     }
-    drawn = automaton_drawing(automaton(look.it.machine.pda_tables()), seats, set())
+    seen = {seat for _s0, e0, _d, _n, ok, seat in look.watched if ok and e0 <= look.at}
+    drawn = automaton_drawing(automaton(tables, step, spread), seats, seen - seats)
+    # Match space_1's Drawing painter exactly: the automaton is one shape,
+    # uniformly fitted into its room from the top-left. Independent x/y
+    # scaling turned its circular states into ellipses and made the clone
+    # columns look like a different machine.
     fit = min(
         1.0,
         max(
             0.25,
-            min((w - 20) / max(1.0, drawn.wide), (h - 16) / max(1.0, drawn.tall)),
+            min(w / max(1.0, drawn.wide), h / max(1.0, drawn.tall)),
         ),
     )
-    said.place(drawn, x + 10 + px, y + 8 + py, fit * k)
+    said.place(
+        drawn,
+        x + px,
+        y + py,
+        fit * k,
+        face=_label_face(look),
+        recolor={"cool": "cool_wash"},
+    )
 
 
 GRAPHVIEWS: dict[str, Callable[[Frame, Room, Look], None]] = {
@@ -1412,28 +1518,35 @@ def _rows(
     invented their own furniture made one panel read as three.
     """
     x, y, w, h = room
-    # `#spineBody`, `<h3 id="closedHead">` and `#closedBody` share ONE
-    # `.scroll`: the second panel FOLLOWS the stack — `padding: 12px 14px 4px`
-    # — it is not pinned to the bottom of the facet with a hole above it.
-    keep = ROW * (len(foot[1][:4]) + 1) + 16 if foot else 0.0
-    if h < keep + ROW * 3:
-        keep = 0.0
-    fits = max(1, int((h - keep - 24) // ROW))
-    first = min(look.top("spine"), max(0, len(rows) - fits))
-    # the gutter is as wide as the widest thing IN it: `@4,188` is not `d7`,
-    # and a column of origins clipped to `@41…` says nothing at all
-    step = max((len(row[0]) for row in rows), default=0) * CELL + (8 if rows else 0)
+    # The reference has one scrolling element containing the open stack, the
+    # second heading and its rows. Reserving room for the foot truncated the
+    # deepest open frames and pinned JUST CLOSED in place.
+    title, under = foot or ("", [])
+    content = list(rows)
+    if foot is not None:
+        content.append(("", title, "", "ftitle", ""))
+        content.extend(under[:4])
+    fits = max(1, int((h - 24) // ROW))
+    first = min(look.top("spine"), max(0, len(content) - fits))
+    visible = content[first : first + fits]
+    clipped = first + fits < len(content)
+    if clipped and fits > 1:
+        visible = visible[:-1]
+    # Both panels use one gutter column, as the single `.scroll` does.
+    step = max((len(row[0]) for row in [*rows, *under]), default=0) * CELL + (
+        8 if rows or under else 0
+    )
     top = y + 12
-    for gutter, words, extent, tone, goes in rows[first : first + fits]:
-        # A ROW IS A THING YOU CAN POINT AT. `gestures.js` binds click to the
-        # selection and mousemove to the hover on both spine panels, and the
-        # warm readout says whichever the hand is on. These were emitted at
-        # ZERO WIDTH, so no row could be hovered or clicked at all.
+    for gutter, words, extent, tone, goes in visible:
+        if tone == "ftitle":
+            said.text(x + 14, top + 10, "ftitle", words)
+            top += ROW
+            continue
         if goes:
             said.hit(x + 8, top, w - 24, ROW, "span", goes)
         if gutter:
             said.text(x + 14, top + 10, "dimmer", gutter)
-        room_for = w - 34 - step
+        room_for = max(0.0, w - 34 - step)
         said.text(x + 14 + step, top + 10, tone, words, room_for)
         if extent:
             said.text(
@@ -1444,32 +1557,13 @@ def _rows(
                 max(0.0, room_for - runs(tone, words) - 8),
             )
         top += ROW
-    if first + fits < len(rows):
+    if clipped:
         said.text(
-            x + 14, top + 10, "dimmer", f"{len(rows) - first - fits} more — scroll"
+            x + 14,
+            top + 10,
+            "dimmer",
+            f"{len(content) - first - len(visible)} more — scroll",
         )
-    if not keep or foot is None:
-        return
-    title, under = foot
-    # right after the rows, not at the foot of the facet
-    top = y + 12 + min(len(rows), fits) * ROW + 12
-    said.text(x + 14, top + 10, "ftitle", title)
-    top += ROW + 2
-    for gutter, words, extent, tone, goes in under[:4]:
-        if goes:
-            said.hit(x + 8, top, w - 24, ROW, "span", goes)
-        if gutter:
-            said.text(x + 14, top + 10, "dimmer", gutter)
-        at = x + 14 + (len(gutter) + 1) * CELL if gutter else x + 14
-        said.text(at, top + 10, tone, words, w - (at - x) - 16)
-        if extent:
-            said.text(
-                at + min(runs(tone, words), w - (at - x) - 16) + 8,
-                top + 10,
-                "dim",
-                extent,
-            )
-        top += ROW
 
 
 def _snip(said: str) -> str:
@@ -1482,7 +1576,6 @@ def _snip(said: str) -> str:
 
 def _model_stack(said: Frame, room: Room, look: Look) -> None:
     """model — the open model spans, as ever."""
-    x, y, _w, _h = room
     live = look.live()
     rows: list[Row] = [
         (
@@ -1495,7 +1588,9 @@ def _model_stack(said: Frame, room: Room, look: Look) -> None:
         for span in live
     ]
     if not rows:
-        said.text(x + 14, y + 40, "fsub", "nothing open — before the first span")
+        rows = [
+            ("", "nothing open — before the first span, or complete", "", "fsub", "")
+        ]
     # `#closedBody` rows carry `d{depth}` and the span's TEXT — not its
     # extent, which is what the OPEN rows carry — and a row is `.fresh`,
     # warm, when the cursor has only just passed its end.
@@ -1507,44 +1602,44 @@ def _model_stack(said: Frame, room: Room, look: Look) -> None:
             "warm" if look.at - span.end < 3 else "dim",
             f"{span.start}:{span.end}",
         )
-        for span in closed_before(look.reading, look.at)[:4]
+        for span in reversed(closed_before(look.reading, look.at))
     ]
     _rows(said, room, look, "open at the cursor", rows, ("JUST CLOSED", closed))
-    for span in live:
-        said.hit(x, y, 0, 0, "span", f"{span.start}:{span.end}")
 
 
 def _pda_stack(said: Frame, room: Room, look: Look) -> None:
     """pda — the kernel's own frames at the cursor, and the choices near it."""
-    x, y, _w, _h = room
     open_here = [
         (int(s0), int(e0), int(depth), str(name), bool(ok))
         for s0, e0, depth, name, ok, _seat in look.watched
         if s0 <= look.at < e0
     ]
-    deep = sorted(open_here, key=lambda f: f[2])
+    good = sorted((frame for frame in open_here if frame[4]), key=lambda f: f[2])
     rows: list[Row] = [
         (
             f"d{depth}",
             name,
-            f"{s0:,}..{e0:,}" + ("" if ok else " · ROLLED BACK"),
-            ("warm" if (s0, e0, depth, name, ok) is deep[-1] else "ink")
-            if ok
-            else "red",
+            f"{s0:,}..{e0:,}",
+            "warm" if depth == good[-1][2] else "ink",
             "",
         )
-        for s0, e0, depth, name, ok in deep
+        for s0, e0, depth, name, _ok in good
     ]
-    if not rows:
-        said.text(
-            x + 14, y + 40, "fsub", "no frame open — a frameless leaf run carries this"
+    probing = sum(1 for frame in open_here if not frame[4])
+    if probing:
+        rows.append(
+            ("", f"+ {probing} probe frames here — rolled back", "", "fsub", "")
         )
+    if not rows:
+        rows = [
+            ("", "no frame open — a frameless leaf run carries this", "", "fsub", "")
+        ]
     # DECISIONS — the last few the walk made, warm where it just made one
     near = [
         (at, words, chose)
         for at, words, chose in decisions(look.watched)
         if at <= look.at
-    ][-4:]
+    ][-7:]
     made: list[Row] = [
         (
             f"@{at}",
@@ -1556,7 +1651,15 @@ def _pda_stack(said: Frame, room: Room, look: Look) -> None:
         for at, words, chose in near
     ]
     if not made:
-        made = [("", "none — the whole walk is deterministic descent", "", "dim", "")]
+        made = [
+            (
+                "",
+                "none — the whole walk is deterministic descent; the automaton shows where decisions could arise",
+                "",
+                "dim",
+                "",
+            )
+        ]
     _rows(said, room, look, "the PDA's stack at t", rows, ("DECISIONS", made))
 
 
@@ -1586,13 +1689,24 @@ def _earley_stack(said: Frame, room: Room, look: Look) -> None:
         rows.append(
             (f"@{origin}", item, role, "green" if role == "complete" else "ink", "")
         )
+    total = len(rows)
+    if total > 40:
+        rows = [*rows[:40], ("", f"+{total - 40} more items", "", "fsub", "")]
     if not rows:
-        said.text(x + 14, y + 40, "fsub", "empty — inside a lexical run, scanned past")
+        rows = [
+            (
+                "",
+                "empty — inside a lexical run; the kernel scanned past this column",
+                "",
+                "fsub",
+                "",
+            )
+        ]
     _rows(
         said,
         room,
         look,
-        f"Earley column {int(look.at):,} — {len(rows)} items",
+        f"Earley column {int(look.at):,} — {total} items",
         rows,
         ("CAN COME NEXT", _echips(expect)),
     )

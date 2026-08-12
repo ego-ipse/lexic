@@ -62,8 +62,7 @@ def flat(
     """Bands across the width, wrapped so a crowded level stays legible."""
     dial = _tuned(tune)
     bands = _bands(ast)
-    deepest = max(bands) if bands else 0
-    band_wide = max(90.0, (wide - 40) / (deepest + 1))
+    band_wide = max(60.0, dial["levelstep"])
     out: dict[str, tuple[float, float, float]] = {}
     for at, names in bands.items():
         columns = max(1, min(len(names), int(band_wide // NAME) or 1))
@@ -85,7 +84,7 @@ def arcs(
     """One row, in the order the grammar declares its rules."""
     dial = _tuned(tune)
     names = [str(rule.name) for rule in ast.rules]
-    pitch = max(18.0, (wide - 40) / max(1, len(names))) * dial["ringscale"]
+    pitch = max(18.0, dial["levelstep"])
     return {name: (20 + i * pitch, 0.0, 0.0) for i, name in enumerate(names)}
 
 
