@@ -29,8 +29,9 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from lexic.compile import export_source  # noqa: E402
-from lexic.ir import IrFlavour  # noqa: E402
+from lexic.ir import IrFlavour, IrSelf  # noqa: E402
 from kairos.artefacts import Artefact, Artefacts, FORMS, keep  # noqa: E402
+from kairos.generation import make as generate_document  # noqa: E402
 from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
 from opsis.frame.facets import HEADS, Look  # noqa: E402
@@ -44,6 +45,7 @@ from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 from praxis.roots import GRAMMAR as POLICY  # noqa: E402
 from praxis.state import chain  # noqa: E402
 from praxis.strata import strata  # noqa: E402
+from praxis.value import snapshot as praxis_snapshot  # noqa: E402
 from serve import Instrument  # noqa: E402
 
 ROOT = HERE.parents[2]
@@ -202,9 +204,7 @@ def main() -> int:
     }
     check(
         "multiple acceptors become multiple unparsed offered read relations",
-        ambiguous.ambiguous
-        and not ambiguous.spans
-        and offered == {"abnf", "ebnf"},
+        ambiguous.ambiguous and not ambiguous.spans and offered == {"abnf", "ebnf"},
         " ".join(sorted(offered)),
     )
     ingress_frame = compose(ambiguous, 1400, 850, 0.0, {}, [], 1)
@@ -213,7 +213,9 @@ def main() -> int:
     check(
         "the chooser shows accepted relations and each refusal verbatim",
         set(hits(ingress_frame, "cast")) == {"abnf", "ebnf"}
-        and all(any(answer.words in line for line in ingress_words) for answer in refused),
+        and all(
+            any(answer.words in line for line in ingress_words) for answer in refused
+        ),
         " · ".join(ingress_words[-4:]),
     )
     ingress.gesture("at cast ebnf")
@@ -234,15 +236,12 @@ def main() -> int:
         == ["IR notation", "flavour manifest"]
         and all(answer.accepted for answer in manifest.probes[:2])
         and any(isinstance(answer.value, IrFlavour) for answer in manifest.accepted),
-        " · ".join(
-            f"{answer.reader}:{answer.state}" for answer in manifest.probes[:2]
-        ),
+        " · ".join(f"{answer.reader}:{answer.state}" for answer in manifest.probes[:2]),
     )
     empty = land([], (HERE / "fixtures", ROOT / "generated"))
     check(
         "an empty ingress keeps its fixture and generated doors",
-        not empty.subjects
-        and empty.doors == (HERE / "fixtures", ROOT / "generated"),
+        not empty.subjects and empty.doors == (HERE / "fixtures", ROOT / "generated"),
     )
     tiny = turn('root ::= "x"')
     with TemporaryDirectory(prefix="opsis-ingress-") as temporary:
@@ -288,9 +287,7 @@ def main() -> int:
             and marker.read_text(encoding="utf-8") == "ran"
             and executed.accepted
             and loaded is not None
-            and getattr(loaded, "module_name", "").endswith(
-                payload_subject.sid[:12]
-            )
+            and getattr(loaded, "module_name", "").endswith(payload_subject.sid[:12])
             and getattr(loaded, "exports", ()) == ("VALUE",),
             executed.words,
         )
@@ -1064,6 +1061,65 @@ def main() -> int:
         and all(name in words(complete_room) for name in FORMS),
     )
     owner.close()
+    projected = praxis_snapshot(session)
+    projected_cursor = projected.cursor
+    cursor_before_projection_check = session.at
+    session.at += 1
+    moved_projection = praxis_snapshot(session)
+    session.at = cursor_before_projection_check
+    check(
+        "mutable Praxis owners project onto one immutable Lexic value spine",
+        isinstance(projected, IrSelf)
+        and not isinstance(session, IrSelf)
+        and type(projected.reading).__name__ == "PraxisReading"
+        and all(type(item).__name__ == "PraxisFacet" for item in projected.facets)
+        and all(type(item).__name__ == "PraxisRung" for item in projected.rungs)
+        and all(type(item).__name__ == "PraxisSubject" for item in projected.subjects)
+        and all(type(item).__name__ == "PraxisRelation" for item in projected.relations)
+        and projected.cursor == projected_cursor
+        and moved_projection.cursor != projected_cursor,
+        f"{type(projected).__name__} · {len(projected)} fields",
+    )
+    praxis_room = frame({"place": "ir:instrument"}, praxis=projected)
+    praxis_words = words(praxis_room)
+    check(
+        "the instrument value is reachable and drawn by the generic value room",
+        any("PraxisSession" in line for line in praxis_words)
+        and all(
+            name in praxis_words
+            for name in (
+                "reading",
+                "facets",
+                "rungs",
+                "subjects",
+                "relations",
+                "policy",
+            )
+        )
+        and "P ir:instrument" in map_wire,
+        " · ".join(
+            name
+            for name in praxis_words
+            if name in {"reading", "facets", "rungs", "subjects", "relations", "policy"}
+        ),
+    )
+    generated = generate_document(machine, 1)
+    generated_again = generate_document(machine, 1)
+    generated_next = generate_document(machine, 2)
+    generation_room = frame({"place": "generate:1"})
+    check(
+        "generate shows a deterministic document only after the reader accepts it",
+        generated.faithful
+        and generated.text == generated_again.text
+        and generated.seed == generated_again.seed
+        and generated_next.faithful
+        and generated.text != generated_next.text
+        and generated.text.encode("unicode_escape").decode("ascii")
+        in words(generation_room)
+        and "generate:2" in hits(generation_room, "place")
+        and "P generate:0" in map_wire,
+        f"seed 1: {generated.text!r} · seed 2: {generated_next.text!r}",
+    )
     check(
         "the strata draws the climb",
         "THE STRATA" in words(frame({"showing": "strata"})),
@@ -1168,8 +1224,7 @@ def main() -> int:
     ]
     check(
         "its header, address, snippet, facts and definition use their real faces",
-        {part[4] for part in pin_copy}
-        >= {"winhead", "pinaddr", "pinbody", "pinfact"},
+        {part[4] for part in pin_copy} >= {"winhead", "pinaddr", "pinbody", "pinfact"},
         " ".join(sorted({part[4] for part in pin_copy})),
     )
     check(

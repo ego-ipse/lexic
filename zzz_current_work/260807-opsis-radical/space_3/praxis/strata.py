@@ -72,6 +72,9 @@ def strata(reading: Reading, climbed: list[Reading]) -> str:
         f"P artefacts {here} {rungs[here].level} artefacts ok "
         f"{reading.reader_name} — as artefacts\t"
         f"{len(offered)} offered · witness on room entry",
+        f"P generate:0 {here} {rungs[here].level} generation ok "
+        f"{reading.reader_name} — generate a document\t"
+        f"one deterministic sample, read back before it is shown",
     ]
     # THE INSTRUMENT IS ITS OWN LANE. It is not a stratum of this climb —
     # it is the thing doing the climbing — so it stands in its own column
@@ -81,6 +84,10 @@ def strata(reading: Reading, climbed: list[Reading]) -> str:
     doors.append(
         f"P ring {len(rungs)} 0 policy ok the instrument — as a reading of its "
         f"own state\tits policy, read by the policy grammar"
+    )
+    doors.append(
+        f"P ir:instrument {len(rungs)} 0 value ok the instrument — as a value\t"
+        f"session, reading, facets, rungs, subjects, relations and policy"
     )
     lanes = [rung.document for rung in rungs] + ["the instrument"]
     return "\n".join(

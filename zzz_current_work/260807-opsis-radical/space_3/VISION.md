@@ -172,22 +172,27 @@ The gate uses a deliberately slow reader to prove the pending frame is
 visible before promotion. The generation room remains deferred because its
 fixtures are fetched and therefore cannot be gated on a fresh clone.
 
-**OPEN-6 — praxis is not on the spine.** Reading, Facet, Session, Rung are
-plain objects; the value room cannot draw them. Narrowed claim until funded:
-the value room draws any lexic value plus the policy record (a text with a
-grammar — already true). Praxis-onto-IrNamedTuple is its own slice, after
-the graph lands, because Session is being rewritten anyway.
+**RESOLVED — praxis is on the spine without corrupting its lifetimes.**
+Reading, Facet, Session and Rung remain application owners where mutation is
+real. `praxis.value.snapshot()` projects their complete current topology —
+including subjects, relation instances and policy — into immutable
+`IrNamedTuple` records. The strata has an instrument-value door, and the same
+generic value room that draws every other `IrSelf` draws this snapshot. The
+gate proves an old snapshot does not mutate when its Session advances.
 
-**OPEN-7 — unfunded surfaces** a general implementation must cover:
-`lexic.generate` (the cheapest, most legible gesture — "show me a document
-this reader accepts"); `.bind(tokenizer)` (a new artefact = a second subject,
-no relation kind exists); directives/vocabulary on the relation instance
+**OPEN-7 — remaining unfunded surfaces** a general implementation must cover:
+`.bind(tokenizer)` (a new artefact = a second subject, no relation kind
+exists); directives/vocabulary on the relation instance
 (without it, two readings of one pair are indistinguishable nodes); the
 template room's actual surface (`Spec`/`Keep`/`SpanPair`);
-`bind_module` as the runtime-load witness (`verify_module` is now live);
-the twin ≠ runtime-classes distinction (must not regress); duplicate-key refusals
-explained on screen; resolver chips named for what the engine promises
+duplicate-key refusals explained on screen; resolver chips named for what the engine promises
 (the PDA's "first" and Earley's "first" are not the same first).
+
+`lexic.generate` is now funded: a strata door generates a deterministic
+sample, requires the same reader to accept and byte-identically re-emit it,
+shows otherwise-invisible whitespace explicitly, and offers the next seed.
+`bind_module` and twin ≠ runtime-class witnessing are closed by the complete
+artefact-family load-back gate.
 
 ## 5. The vision for the code
 
@@ -213,8 +218,10 @@ pure notation, flavour, and module-selfgrammar answers without execution.
 The server-owned Landing map presents those subjects and offers; payload
 import is digest-named, provenance-checked, and reachable only through a
 visible cast. File ingress and artefact witnesses are pending worker work,
-never render-path stalls. The remaining funded questions are OPEN-6 and the
-individual surfaces in OPEN-7. Facet splitting remains last.
+never render-path stalls. Praxis is now an immutable value projection reached
+through the strata, and the first OPEN-7 surface (`lexic.generate`) is live and
+read-back-gated. The remaining work is the reduced OPEN-7 list. Facet
+splitting remains last.
 
 **Memory discipline at graph scale.** `generation` is per-subject; a frame
 carries the generations of the subjects it draws. Lazy: everything but the
@@ -284,10 +291,8 @@ document half on `lexic.compile.transpile`; (6) the value room over any
 lexic IrSelf; (7) five travel moves, history-stack BACK; (8) two-tier
 licences with digest-named witness loading.
 
-Deferred, each with its recorded reason: the artefact room (soundness fix
-first, then cost); the generation room (OPEN-5); praxis onto the spine
-(OPEN-6, its own slice); directives/vocabulary on relation instances
-(needed before two readings of one pair coexist). `lexic.generate` jumps
-the queue if anything slips — one call, no new machinery, and the most
-legible gesture the engine offers. Nothing is deferred silently: a deferral
-is a drawn refusal or an absent door, never a broken one.
+Deferred, each with its recorded reason: the tokenizer generation room
+(attachment topology); directives/vocabulary on relation instances (needed
+before two readings of one pair coexist). Praxis-on-the-spine and the smaller
+`lexic.generate` gesture are now live and gated. Nothing is deferred silently:
+a deferral is a drawn refusal or an absent door, never a broken one.

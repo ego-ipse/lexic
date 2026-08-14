@@ -31,6 +31,7 @@ from praxis.ingress import Ingress, Payload  # noqa: E402
 from praxis.reading import Reading  # noqa: E402
 from praxis.routes import Routes  # noqa: E402
 from praxis.session import Session  # noqa: E402
+from praxis.value import snapshot as praxis_snapshot  # noqa: E402
 from lexic.ir import IrSelf  # noqa: E402
 
 __all__ = ["Handler", "Instrument", "Server", "main"]
@@ -384,6 +385,7 @@ class Handler(BaseHTTPRequestHandler):
         machine = reader_of(session.reading)
         work.other.ask(machine, session.reading.text, session.generation)
         made = None
+        praxis = None
         if composed.get("place") == "artefacts":
             work.artefacts.ask(
                 machine,
@@ -392,6 +394,8 @@ class Handler(BaseHTTPRequestHandler):
                 session.generation,
             )
             made = work.artefacts.line()
+        elif composed.get("place") == "ir:instrument":
+            praxis = praxis_snapshot(session)
         drawn = compose(
             session.reading,
             wide,
@@ -407,6 +411,7 @@ class Handler(BaseHTTPRequestHandler):
             only=only,
             layers=work.windows,
             artefacts=made,
+            praxis=praxis,
         )
         for address, value in drawn.reported.items():
             scope, divided, key = address.partition("~")

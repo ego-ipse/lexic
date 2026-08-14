@@ -13,6 +13,7 @@ from eidolon.topology import reachable
 from eidolon.value import graph as ir_graph
 from eidolon.value import refused as ir_refused
 from kairos.artefacts import Artefact
+from kairos.generation import make as generate_document
 from kairos.machine import of
 from kairos.pipeline import FORMS, form_of, spelled
 from opsis.scene import ruledefs
@@ -26,7 +27,12 @@ from lexic.ir.spine.spine import IrSelf
 __all__ = ["room", "subject"]
 
 
-def subject(reading: Reading, pid: str, machine: CompiledGrammar) -> IrSelf | None:
+def subject(
+    reading: Reading,
+    pid: str,
+    machine: CompiledGrammar,
+    praxis: IrSelf | None = None,
+) -> IrSelf | None:
     """What a place id NAMES, as a live value — never a description of one."""
     if pid == "grammar":
         return machine.grammar
@@ -34,6 +40,8 @@ def subject(reading: Reading, pid: str, machine: CompiledGrammar) -> IrSelf | No
         return get_flavour(reading.flavour or "gbnf").reducer
     if pid == "codegen":
         return machine.codegen_grammar
+    if pid == "instrument":
+        return praxis
     if pid.startswith("rule:"):
         wanted = pid[5:].casefold()
         for rule in machine.grammar.rules:
@@ -49,6 +57,7 @@ def room(
     state: dict[str, str],
     generation: int = 0,
     artefacts: Sequence[Artefact] | None = None,
+    praxis: IrSelf | None = None,
 ) -> str:
     """One room, spelled. A room nobody authored says so, in place."""
     if which in ("index", ""):
@@ -60,6 +69,8 @@ def room(
             "the grammar as a VALUE — the IR it loaded to\tplace:ir:grammar",
             "what codegen made of it — the grammar the parser runs\tplace:ir:codegen",
             "the reducer as a VALUE — where meaning attaches\tplace:ir:reducer",
+            "the instrument as a VALUE — Praxis on the same spine\tplace:ir:instrument",
+            "a document this reader accepts — generated and read back\tplace:generate:0",
         ]
         return "\n".join(
             [
@@ -130,6 +141,39 @@ def room(
                 "",
             ]
         )
+    if which.startswith("generate"):
+        _, _, seed_text = which.partition(":")
+        seed = int(seed_text) if seed_text.isdigit() else 0
+        made = generate_document(machine, seed)
+        if not made.faithful:
+            return "\n".join(
+                [
+                    f"#PLACE {which} generation a document this reader accepts",
+                    "#SEC title 1",
+                    f"GENERATE · {made.root} · seed {made.seed}",
+                    "#SEC refusal 1",
+                    made.words,
+                    "#SEC list 1",
+                    f"try the next seed\tplace:generate:{seed + 1}",
+                    "",
+                ]
+            )
+        spelling = made.text.encode("unicode_escape").decode("ascii")
+        return "\n".join(
+            [
+                f"#PLACE {which} generation a document this reader accepts",
+                "#SEC title 1",
+                f"GENERATED DOCUMENT · {len(made.text):,} chars",
+                "#SEC kv 4",
+                f"root rule\t{made.root}",
+                f"seed\t{made.seed}",
+                f"read-back\t{made.words}",
+                f"document\t{spelling or '«empty document»'}",
+                "#SEC list 1",
+                f"generate another\tplace:generate:{seed + 1}",
+                "",
+            ]
+        )
     if which == "rules":
         # ordered by how much of the document each rule ACCOUNTS FOR, not
         # alphabetically: the ordering is a reading of this document, and
@@ -189,7 +233,7 @@ def room(
         )
     if which.startswith("ir:"):
         pid = which[3:]
-        value = subject(reading, pid, machine)
+        value = subject(reading, pid, machine, praxis)
         if value is None:
             return nothing(which, "no value here is addressed")
         walk = ir_graph(value)
@@ -209,9 +253,10 @@ def room(
                 f"{sum(1 for n in walk.nodes if ir_refused(n))} nodes",
                 "#SEC irvalue 1",
                 pid,
-                "#SEC list 2",
+                "#SEC list 3",
                 "the grammar as a value\tplace:ir:grammar",
                 "the reducer as a value\tplace:ir:reducer",
+                "the instrument as a value\tplace:ir:instrument",
                 "",
             ]
         )

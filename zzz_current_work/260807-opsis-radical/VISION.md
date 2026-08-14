@@ -241,10 +241,11 @@ ingress predicate. Evicted: derived caches for subjects not visible in the
 current room, LRU of ~3. Never evicted: the graph itself, and lexic's
 compile cache (not ours to touch).
 
-**Praxis on the spine is its own funded slice, later.** "The value room
-draws opsis's own records" is narrowed until then to what is already true:
-it draws any lexic value, and the instrument's policy record — which is a
-text with a grammar, and whose saving APPLIES it (the ring closes).
+**Praxis is on the spine by projection.** Mutable application owners do not
+inherit immutable engine values. Instead the current Reading, Facets, Rungs,
+Graph subjects/relations, policy and Session are projected into one immutable
+`IrNamedTuple` snapshot. The instrument lane opens it through the same generic
+value room as every other `IrSelf`; the policy reading still closes the ring.
 
 ## 11. What v1 is
 
@@ -256,8 +257,8 @@ first, document half on `lexic.compile.transpile`; (6) the value room over
 any lexic IrSelf; (7) five travel moves and a history-stack BACK; (8)
 two-tier licences with digest-named witness loading.
 
-Deferred, each with its reason recorded: the generation room (un-gateable
-fetched fixtures); praxis onto the spine (its own slice, after the graph);
+Deferred, each with its reason recorded: the tokenizer generation room
+(attachment topology and un-gateable fetched fixtures);
 directives/vocabulary on relation instances (needed before two readings of
 one pair coexist, not before v1). Nothing is deferred silently: a deferral
 is a drawn refusal or an absent door, never a broken one.
@@ -299,6 +300,13 @@ module names; reduced is visibly unlicensed until a reducer is docked. Cold
 witness work is pending room work, not a frame stall. No Lexic change was
 needed for either slice: Opsis owns orchestration and presentation, while
 Lexic's existing public verification, binding, loading, and value contracts
-were sufficient. Remaining work is praxis-on-the-spine and the individually
-funded surfaces. Detailed evidence and measurements live in
-`space_3/LEDGER.md`.
+were sufficient.
+
+Praxis now projects to an immutable Lexic-value snapshot without changing
+the lifetimes of its mutable owners, and the instrument lane opens that
+snapshot in the generic value room. The smaller `lexic.generate` gesture is
+also live: deterministic seeded samples are parsed and byte-identically
+re-emitted before they are shown. Remaining work is tokenizer attachment,
+relation-instance directives/vocabulary, the template surface, explicit
+duplicate-key explanations, and resolver-specific promises. Detailed
+evidence and measurements live in `space_3/LEDGER.md`.

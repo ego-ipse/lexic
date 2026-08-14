@@ -355,3 +355,45 @@ popups, popup-local navigation, and leaf play-state ownership. Ports 8917 and
 The ingress, artefact-family, and OPEN-5 slow-ingress blockers are closed. The
 next dependency-ordered work is OPEN-6 (praxis on the spine) and the
 separately funded OPEN-7 surfaces.
+
+## 2026-08-14 — Praxis on the value spine and a witnessed generate gesture
+
+### Mutable owners, immutable value
+
+`praxis.value.snapshot()` projects the live Session into a `PraxisSession`
+`IrNamedTuple`. Its children retain the Reading, every Facet and climbed Rung,
+content-addressed Subjects, relation instances, effective policy, focus,
+generation and cursor as nested Lexic values. The mutable Session remains the
+owner; advancing it produces a new snapshot and cannot alter the old one.
+
+The instrument lane now has an `ir:instrument` door. It opens the snapshot in
+the existing generic value room, which draws its named record edges without a
+Praxis-specific renderer. This resolves OPEN-6 while preserving the graph,
+session and engine-value lifetimes rather than forcing one to impersonate
+another.
+
+### Generate, then believe
+
+The reading's strata and room index now expose `generate:0`. The gesture calls
+Lexic's existing public `generate()` with a deterministic seed, then requires
+the same compiled reader to accept the result and re-emit identical text
+before anything is shown. The room names the root, seed and read-back verdict,
+spells invisible whitespace, and offers the next seed as “generate another.”
+A refusal stays a refusal in the room.
+
+The gate pins equal seeds to equal documents, distinct tested seeds to
+distinct documents, both read-back verdicts, the visible spelling, the next
+gesture, and both strata doors.
+
+### Ownership and verification
+
+No Lexic source changed. Immutable IR records and `lexic.generate` already
+exist there; projecting application state and exposing a witnessed gesture are
+Opsis topology and presentation.
+
+Ruff passed, Pyright reported 0 errors and 0 warnings, and the full executable
+gate reported 24 gestures, 13 keys, 0 failures. The remaining OPEN-7 surfaces
+are tokenizer attachment, relation directives/vocabulary, the template room,
+duplicate-key explanations, and resolver-specific promises. Runtime module
+binding and twin/runtime-class distinction were already closed by the full
+artefact-family gate.

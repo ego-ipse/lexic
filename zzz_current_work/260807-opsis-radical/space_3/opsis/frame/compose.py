@@ -28,6 +28,8 @@ from praxis.reading import Reading, as_written
 from praxis.routes import Aside
 from praxis.strata import strata
 
+from lexic.ir import IrSelf
+
 __all__ = ["compose"]
 
 # what each clock's spine is SHOWING, said where `spineClock` says it
@@ -88,6 +90,7 @@ def compose(
     only: str = "",
     layers: Mapping[str, Mapping[str, str]] | None = None,
     artefacts: Sequence[Artefact] | None = None,
+    praxis: IrSelf | None = None,
 ) -> Frame:
     """The instrument, at this size, at this moment, as one frame.
 
@@ -114,10 +117,18 @@ def compose(
         # a room the reading holds — reached through a door in the strata
         places_draw(
             said,
-            room(where, it.machine, reading, dict(state), generation, artefacts),
+            room(
+                where,
+                it.machine,
+                reading,
+                dict(state),
+                generation,
+                artefacts,
+                praxis,
+            ),
             wide,
             tall,
-            subject(reading, where.removeprefix("ir:"), it.machine),
+            subject(reading, where.removeprefix("ir:"), it.machine, praxis),
             it.shown,
         )
         return said
