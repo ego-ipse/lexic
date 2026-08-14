@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>opsis — facets</title>
+<link rel="stylesheet" href="/leaf.css">
+</head>
+<body>
+<canvas id="paper"></canvas>
+<div id="planes"></div>
+<canvas id="over"></canvas>
+<script src="/leaf.js"></script>
+<script>
+  if (new URLSearchParams(location.search).has("probe")) {
+    const s = document.createElement("script");
+    s.src = "/probe.js";
+    document.body.appendChild(s);
+  }
+</script>
+</body>
+</html>
