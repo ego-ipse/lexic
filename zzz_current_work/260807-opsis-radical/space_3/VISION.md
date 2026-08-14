@@ -135,13 +135,15 @@ Their 27/29 px chrome and 12/11 px copy are registered frame metrics, not
 leaf guesses. The model spine washes the exact hovered row. Live comparison
 holds at 280×97 for `true` and 376×91 for `member`.
 
-**IN PROGRESS-2 — pure grammar ingress no longer picks.** `probe()` asks
-GBNF, ABNF, and EBNF independently and keeps each compiled machine or the
-engine's exact refusal words. An ambiguous `turn()` now requires an explicit
-flavour; ingress creates one unparsed offered relation per accepting flavour,
-the frame draws the candidates, and the user casts one. The ambiguous
-fixture and live chooser are gated. Remaining: the general file-subject
-router, with side-effecting payload `.py` imports last and explicit.
+**IN PROGRESS-2 — ingress no longer picks or executes to identify.**
+`probe()` asks GBNF, ABNF, and EBNF independently, keeps every machine or
+exact refusal, and ambiguity becomes explicit offered relations plus a cast.
+`probe_file()` now routes by extension through the applicable pure readers:
+`load_ir`, `load_flavour`, and `parse_module`. Python retains that parse answer
+and an honest payload offer; only `import_payload()` executes it, under a
+content-digest module name, then requires an IR value or bound model class.
+All are gated. Remaining: put `Landing` subjects/offers on the server map and
+turn payload import into a visible explicit gesture; pending workers follow.
 
 **IN PROGRESS-3 — licence tiers and the strong twin witness have landed.**
 The map computes only cheap offered forms. The artefact room runs `keep()`
@@ -199,11 +201,13 @@ unchanged; (4) de-globalize `Held`; (5) split `facets.py` per room LAST,
 when a second room exists to split against — carving earlier is speculative
 generality and the project's own history says so.
 
-As of 2026-08-14, steps 1–4 are landed and gated. The pure all-reader half of
-OPEN-2 is also landed: every grammar candidate is probed, ambiguity produces
-explicit offered relations, and selection is an explicit cast. Next is the
-general file-subject router and explicit-last payload import, followed by
-pending worker subjects. Facet splitting remains last.
+As of 2026-08-14, steps 1–4 are landed and gated. Pure grammar candidates now
+become explicit offered relations, and the generalized file router retains
+pure notation, flavour, and module-selfgrammar answers without execution.
+Payload import is digest-named, provenance-checked, and callable only through
+an explicit boundary. Next is presenting those `Landing` subjects and offers
+on the server-owned map, then making payload import a visible cast gesture and
+moving slow readers onto pending workers. Facet splitting remains last.
 
 **Memory discipline at graph scale.** `generation` is per-subject; a frame
 carries the generations of the subjects it draws. Lazy: everything but the

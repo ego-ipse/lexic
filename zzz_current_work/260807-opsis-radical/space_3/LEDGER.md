@@ -236,3 +236,54 @@ OPEN-2 is only half closed. The next blocker is the generalized file-subject
 router, including explicit-last payload imports. Pending worker subjects
 follow it; they are still required before slow ingress can stop blocking the
 instrument.
+
+## 2026-08-14 — extension-first file ingress
+
+### Pure readers retain every applicable answer
+
+`praxis.ingress.probe_file()` turns each path into one content-addressed
+`FileSubject`. Extension narrows the candidate set; it never selects a winner.
+An `.ir` file runs `load_ir`; a `.flavour.ir` file retains both the notation
+value and the validated live flavour; a `.py` file runs `parse_module`, which
+parses the source with Lexic's module self-grammar and does not import it.
+Every accepted value and every engine refusal remains on its own `FileProbe`.
+Grammar source suffixes still run all three metagrammars through the existing
+all-reader probe.
+
+An empty `land()` retains its fixture/generated doors rather than inventing a
+reading. This is the data seam the server map will consume next.
+
+### Python stays explicit
+
+A Python subject carries an offered payload relation whose words are honest:
+identifying a payload module means running it. Probing never crosses that
+boundary. `import_payload()` is the explicit operation: it executes through
+`spec_from_file_location` under a content-digest-suffixed module name, then
+promotes only modules exporting an `IrSelf` value or a bound `GrammarModel`
+class. A module with no such provenance is a refusal, not an untyped subject.
+
+The gate writes a payload whose first action creates a marker. `probe_file()`
+leaves the marker absent; only `import_payload()` creates it. The returned
+module name contains the subject digest and its only accepted export is the
+fixture's `VALUE`. A generated twin is independently accepted by
+`parse_module` while payload execution remains merely offered.
+
+### Verification and boundary
+
+```bash
+uv run ruff check space_3/praxis/ingress.py space_3/gate.py
+uv run pyright space_3/praxis/ingress.py space_3/gate.py
+uv run python -u space_3/gate.py
+```
+
+Ruff passed, Pyright reported 0 errors and 0 warnings, and the full executable
+gate again reported 24 gestures, 13 keys, 0 failures.
+
+No Lexic source changed. The pure loaders and explicit compile APIs already
+belonged there; ordering their use, withholding Python execution, naming
+runtime modules, and retaining offers are Opsis ingress policy.
+
+OPEN-2 is not yet closed on screen. `Landing` subjects and their answers must
+still enter the server-owned graph/map, and payload execution must be reached
+through a visible explicit cast. OPEN-5 then moves slow readers to pending
+worker subjects.

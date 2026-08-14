@@ -22,11 +22,14 @@ import time
 from collections import ChainMap
 from copy import copy
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+from lexic.compile import export_source  # noqa: E402
+from lexic.ir import IrFlavour  # noqa: E402
 from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
 from opsis.frame.facets import HEADS, Look  # noqa: E402
@@ -34,6 +37,7 @@ from opsis.frame.marks import Frame  # noqa: E402
 from opsis.frame.tones import EDGES, FONTS, TONES  # noqa: E402
 from opsis.scene import reader_of, ruledefs, staged  # noqa: E402
 from opsis.space import moved  # noqa: E402
+from praxis.ingress import import_payload, land, probe_file  # noqa: E402
 from praxis.reading import Reading, as_written, probe, read, turn  # noqa: E402
 from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 from praxis.roots import GRAMMAR as POLICY  # noqa: E402
@@ -220,6 +224,75 @@ def main() -> int:
         and len(ingress.reading.spans) > 0,
         f"{ingress.reading.flavour} · {len(ingress.reading.spans)} spans",
     )
+
+    print("general file ingress")
+    manifest = probe_file(ROOT / "src" / "lexic" / "grammars" / "ebnf.flavour.ir")
+    check(
+        "a flavour manifest retains both pure notation and live-flavour answers",
+        [answer.reader for answer in manifest.probes[:2]]
+        == ["IR notation", "flavour manifest"]
+        and all(answer.accepted for answer in manifest.probes[:2])
+        and any(isinstance(answer.value, IrFlavour) for answer in manifest.accepted),
+        " · ".join(
+            f"{answer.reader}:{answer.state}" for answer in manifest.probes[:2]
+        ),
+    )
+    empty = land([], (HERE / "fixtures", ROOT / "generated"))
+    check(
+        "an empty ingress keeps its fixture and generated doors",
+        not empty.subjects
+        and empty.doors == (HERE / "fixtures", ROOT / "generated"),
+    )
+    tiny = turn('root ::= "x"')
+    with TemporaryDirectory(prefix="opsis-ingress-") as temporary:
+        scratch = Path(temporary)
+        twin = scratch / "reader.py"
+        twin.write_text(
+            export_source(tiny[0]) if tiny is not None else "", encoding="utf-8"
+        )
+        twin_subject = probe_file(twin)
+        check(
+            "a twin module is parsed by its grammar while execution stays offered",
+            any(
+                answer.reader == "module self-grammar" and answer.accepted
+                for answer in twin_subject.probes
+            )
+            and any(
+                answer.reader == "Python payload" and answer.offered
+                for answer in twin_subject.probes
+            ),
+        )
+
+        marker = scratch / "executed"
+        payload = scratch / "payload.py"
+        payload.write_text(
+            "from pathlib import Path\n"
+            "from lexic.ir import IrStr\n"
+            f"Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n"
+            "VALUE = IrStr('held')\n",
+            encoding="utf-8",
+        )
+        payload_subject = probe_file(payload)
+        untouched = not marker.exists()
+        offered_payload = any(
+            answer.reader == "Python payload" and answer.offered
+            for answer in payload_subject.probes
+        )
+        executed = import_payload(payload_subject)
+        loaded = executed.value
+        check(
+            "probing Python never executes it; the explicit import does",
+            untouched
+            and offered_payload
+            and marker.read_text(encoding="utf-8") == "ran"
+            and executed.accepted
+            and loaded is not None
+            and getattr(loaded, "module_name", "").endswith(
+                payload_subject.sid[:12]
+            )
+            and getattr(loaded, "exports", ()) == ("VALUE",),
+            executed.words,
+        )
 
     print("the register")
     check(

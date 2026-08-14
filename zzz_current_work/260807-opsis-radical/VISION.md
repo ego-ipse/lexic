@@ -288,8 +288,10 @@ constraint: graph/session/frame lifetimes belong to opsis, while the engine
 already supplied the required verification primitive. The earlier
 model-plane transpilation gap did belong to Lexic and remains fixed there.
 
-Pure all-reader grammar ingress and explicit offered relations are now
-landed and gated. Still open, in dependency order: generalized file-subject
-ingress, with payload imports last and explicit; pending worker subjects;
-then the remaining rooms and surfaces. The detailed evidence and exact gate
-measurements live in `space_3/LEDGER.md`.
+All-reader grammar ingress, explicit offered relations, and the extension-first
+file router are now landed and gated. Pure notation, flavour-manifest, and
+module-selfgrammar answers are retained; payload execution is only an explicit,
+digest-named, provenance-checked boundary. Still open, in dependency order:
+present `Landing` subjects and offers on the server map and expose payload
+import as a visible cast; pending worker subjects; then the remaining rooms and
+surfaces. Detailed evidence and measurements live in `space_3/LEDGER.md`.
