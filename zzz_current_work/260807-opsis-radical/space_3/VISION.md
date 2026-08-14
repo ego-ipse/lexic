@@ -135,23 +135,28 @@ Their 27/29 px chrome and 12/11 px copy are registered frame metrics, not
 leaf guesses. The model spine washes the exact hovered row. Live comparison
 holds at 280×97 for `true` and 376×91 for `member`.
 
-**IN PROGRESS-2 — ingress no longer picks or executes to identify.**
+**RESOLVED — ingress no longer picks or executes to identify.**
 `probe()` asks GBNF, ABNF, and EBNF independently, keeps every machine or
 exact refusal, and ambiguity becomes explicit offered relations plus a cast.
 `probe_file()` now routes by extension through the applicable pure readers:
 `load_ir`, `load_flavour`, and `parse_module`. Python retains that parse answer
 and an honest payload offer; only `import_payload()` executes it, under a
 content-digest module name, then requires an IR value or bound model class.
-All are gated. Remaining: put `Landing` subjects/offers on the server map and
-turn payload import into a visible explicit gesture; pending workers follow.
+All are gated. `Landing` subjects and every retained answer now occupy the
+server map; payload import is a visible explicit cast. File probes run on
+workers, enter as PENDING, and promote in place without blocking the
+instrument.
 
-**IN PROGRESS-3 — licence tiers and the strong twin witness have landed.**
+**RESOLVED — the full artefact family is retained and witnessed.**
 The map computes only cheap offered forms. The artefact room runs `keep()`
-against (compiled identity, generation), bounded and cached. Its twin is now
-read through lexic's existing `verify_module()` self-grammar cross-check, not
-merely `ast.parse()`. Remaining: the full family, digest-suffixed unique
-runtime module names via `spec_from_file_location`, and a cold expensive
-witness drawn pending rather than blocking room entry.
+against (compiled identity, subject, generation), bounded and cached on a
+worker. Its twin is read through lexic's existing `verify_module()`
+self-grammar cross-check, not merely `ast.parse()`. Twin, IR notation, grammar
+payload, model payload, and dump payload are written, loaded back through
+digest-suffixed unique runtime module names, and witnessed; those temporary
+module names are removed after use. The reduced slot is retained honestly as
+`not licensed` when no reducer is docked. Cold work is drawn PENDING and
+promoted in the same room when complete.
 
 **RESOLVED-4 — the map has a measured budget.** The map no longer runs
 `keep()`; it offers cheap licences and defers witnesses to the room. Depth
@@ -159,12 +164,13 @@ bands are content-cached, derived caches are bounded, and the composed map
 frame is gated at 20 content-distinct subjects. Measured this run: 2.0 ms
 against the 20 ms budget (the former hot `strata()` cost was ~55 ms).
 
-**OPEN-5 — slow ingress freezes the instrument.** The smallest tokenizer
-fixture costs 8.4 s to read. The server owner is now instance-local, but
-engine work is still synchronous. Ruled repair:
-any subject over ~100 ms arrives PENDING — built on a worker, drawn as a
-pending node, promoted when it lands. Consequence: the generation room is
-not a v1 room (also un-gateable on a fresh clone; fixtures are fetched).
+**RESOLVED-5 — slow ingress does not freeze the instrument.** File ingress
+runs outside the render/request path. Every file subject arrives PENDING,
+retains a stable content address, and is promoted when its worker completes;
+the server map refreshes while pending without giving play state to the leaf.
+The gate uses a deliberately slow reader to prove the pending frame is
+visible before promotion. The generation room remains deferred because its
+fixtures are fetched and therefore cannot be gated on a fresh clone.
 
 **OPEN-6 — praxis is not on the spine.** Reading, Facet, Session, Rung are
 plain objects; the value room cannot draw them. Narrowed claim until funded:
@@ -204,10 +210,11 @@ generality and the project's own history says so.
 As of 2026-08-14, steps 1–4 are landed and gated. Pure grammar candidates now
 become explicit offered relations, and the generalized file router retains
 pure notation, flavour, and module-selfgrammar answers without execution.
-Payload import is digest-named, provenance-checked, and callable only through
-an explicit boundary. Next is presenting those `Landing` subjects and offers
-on the server-owned map, then making payload import a visible cast gesture and
-moving slow readers onto pending workers. Facet splitting remains last.
+The server-owned Landing map presents those subjects and offers; payload
+import is digest-named, provenance-checked, and reachable only through a
+visible cast. File ingress and artefact witnesses are pending worker work,
+never render-path stalls. The remaining funded questions are OPEN-6 and the
+individual surfaces in OPEN-7. Facet splitting remains last.
 
 **Memory discipline at graph scale.** `generation` is per-subject; a frame
 carries the generations of the subjects it draws. Lazy: everything but the

@@ -30,6 +30,7 @@ if str(HERE) not in sys.path:
 
 from lexic.compile import export_source  # noqa: E402
 from lexic.ir import IrFlavour  # noqa: E402
+from kairos.artefacts import Artefact, Artefacts, FORMS, keep  # noqa: E402
 from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
 from opsis.frame.facets import HEADS, Look  # noqa: E402
@@ -1010,6 +1011,59 @@ def main() -> int:
         "the map offers cheap licences and defers expensive witnesses",
         "witness on room entry" in map_wire,
     )
+    assert machine is not None
+    family = keep(machine, reading.text, reading.identity, 1)
+    by_name = {item.name: item for item in family}
+    check(
+        "the complete artefact family is loaded back before it gets a verdict",
+        tuple(by_name) == FORMS
+        and all(by_name[name].witness == "holds" for name in FORMS[:-1])
+        and by_name["the reduced payload"].witness == "not licensed",
+        " · ".join(f"{item.name}:{item.witness}" for item in family),
+    )
+    runtime_names = {item.module for item in family if item.module}
+    other = keep(machine, "[]", "f" * 64, 1)
+    other_names = {item.module for item in other if item.module}
+    check(
+        "artefact loads use subject-digest module names and leave no shared import",
+        len(runtime_names) == 4
+        and all(name.endswith(reading.identity[:12]) for name in runtime_names)
+        and runtime_names.isdisjoint(other_names)
+        and runtime_names.isdisjoint(sys.modules)
+        and other_names.isdisjoint(sys.modules),
+        " · ".join(sorted(runtime_names)),
+    )
+
+    def slow_family(
+        _machine: object, _text: str, subject_id: str, _generation: int
+    ) -> list[Artefact]:
+        time.sleep(0.08)
+        return [Artefact("the witness", 1, "holds", "promoted", subject_id[:12])]
+
+    background = Artefacts(slow_family)  # type: ignore[arg-type]
+    owner = Instrument(session)
+    owner.room().artefacts = background
+    background.ask(machine, reading.text, reading.identity, 1)
+    pending_room = frame({"place": "artefacts"})
+    check(
+        "a cold artefact room is visibly pending and keeps the frame alive",
+        background.pending
+        and background.line() is None
+        and owner.working()
+        and any("PENDING" in line for line in words(pending_room)),
+    )
+    deadline = time.perf_counter() + 2.0
+    while background.pending and time.perf_counter() < deadline:
+        time.sleep(0.01)
+    promoted = background.line()
+    complete_room = frame({"place": "artefacts"}, artefacts=family)
+    check(
+        "the artefact worker promotes one retained family without a room reload",
+        promoted is not None
+        and promoted[0].words == "promoted"
+        and all(name in words(complete_room) for name in FORMS),
+    )
+    owner.close()
     check(
         "the strata draws the climb",
         "THE STRATA" in words(frame({"showing": "strata"})),

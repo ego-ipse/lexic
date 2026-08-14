@@ -256,9 +256,8 @@ first, document half on `lexic.compile.transpile`; (6) the value room over
 any lexic IrSelf; (7) five travel moves and a history-stack BACK; (8)
 two-tier licences with digest-named witness loading.
 
-Deferred, each with its reason recorded: the artefact room (soundness fix
-first, cost second); the generation room (ingress cost, un-gateable
-fixtures); praxis onto the spine (its own slice, after the graph);
+Deferred, each with its reason recorded: the generation room (un-gateable
+fetched fixtures); praxis onto the spine (its own slice, after the graph);
 directives/vocabulary on relation instances (needed before two readings of
 one pair coexist, not before v1). Nothing is deferred silently: a deferral
 is a drawn refusal or an absent door, never a broken one.
@@ -290,8 +289,16 @@ model-plane transpilation gap did belong to Lexic and remains fixed there.
 
 All-reader grammar ingress, explicit offered relations, and the extension-first
 file router are now landed and gated. Pure notation, flavour-manifest, and
-module-selfgrammar answers are retained; payload execution is only an explicit,
-digest-named, provenance-checked boundary. Still open, in dependency order:
-present `Landing` subjects and offers on the server map and expose payload
-import as a visible cast; pending worker subjects; then the remaining rooms and
-surfaces. Detailed evidence and measurements live in `space_3/LEDGER.md`.
+module-selfgrammar answers are retained; payload execution is an explicit,
+digest-named, provenance-checked cast on the Landing map. File ingress arrives
+as pending worker subjects and promotes without blocking the instrument.
+
+The artefact room now retains the whole six-slot family. Twin, notation,
+grammar/model/dump payloads are loaded back and witnessed under unique digest
+module names; reduced is visibly unlicensed until a reducer is docked. Cold
+witness work is pending room work, not a frame stall. No Lexic change was
+needed for either slice: Opsis owns orchestration and presentation, while
+Lexic's existing public verification, binding, loading, and value contracts
+were sufficient. Remaining work is praxis-on-the-spine and the individually
+funded surfaces. Detailed evidence and measurements live in
+`space_3/LEDGER.md`.

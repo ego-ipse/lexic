@@ -11,9 +11,10 @@ hairline between them and the grid, and every region carries its own head.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from kairos.artefacts import Artefact
 from opsis.frame.facets import DRAWN, GRAPHS, HEADS, Look
 from opsis.frame.marks import Frame
 from opsis.frame.panels import Region, called, head, walked
@@ -86,6 +87,7 @@ def compose(
     routes: Aside | None = None,
     only: str = "",
     layers: Mapping[str, Mapping[str, str]] | None = None,
+    artefacts: Sequence[Artefact] | None = None,
 ) -> Frame:
     """The instrument, at this size, at this moment, as one frame.
 
@@ -112,7 +114,7 @@ def compose(
         # a room the reading holds — reached through a door in the strata
         places_draw(
             said,
-            room(where, it.machine, reading, dict(state), generation),
+            room(where, it.machine, reading, dict(state), generation, artefacts),
             wide,
             tall,
             subject(reading, where.removeprefix("ir:"), it.machine),

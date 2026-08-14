@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+from kairos.artefacts import Artefacts  # noqa: E402
 from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
 from opsis.frame.landing import draw as landing_draw  # noqa: E402
@@ -40,9 +41,10 @@ FILES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}
 class RoomWork:
     """Derived work and window overlays for one relation instance."""
 
-    __slots__ = ("key", "other", "rows", "windows")
+    __slots__ = ("artefacts", "key", "other", "rows", "windows")
 
     def __init__(self) -> None:
+        self.artefacts = Artefacts()
         self.key: tuple[int, int] = (-1, -1)
         self.rows: list[list[object]] = []
         self.other = Routes()
@@ -62,8 +64,17 @@ class Instrument:
     """One server-owned graph, landing, history, workers, and reading rooms."""
 
     __slots__ = (
-        "_executor", "focus", "here", "history", "ingress", "mode",
-        "notice", "pending", "pending_label", "rooms", "value",
+        "_executor",
+        "focus",
+        "here",
+        "history",
+        "ingress",
+        "mode",
+        "notice",
+        "pending",
+        "pending_label",
+        "rooms",
+        "value",
     )
 
     def __init__(self, session: Session | None, ingress: Ingress | None = None) -> None:
@@ -77,7 +88,9 @@ class Instrument:
         self.pending: Future[Session] | None = None
         self.pending_label = ""
         self.notice = ""
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="opsis-cast")
+        self._executor = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="opsis-cast"
+        )
 
     def room(self) -> RoomWork:
         """Work for the focused relation, migrating it across a successful edit."""
@@ -151,7 +164,7 @@ class Instrument:
             reader_at, document_at = int(words[1]), int(words[2])
             reader = self.ingress.entries[reader_at]
             document = self.ingress.entries[document_at]
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             return
         if reader.subject is None or document.subject is None:
             return
@@ -219,23 +232,29 @@ class Instrument:
         try:
             entry = self.ingress.entries[int(words[0])]
             answer = entry.subject.probes[int(words[1])] if entry.subject else None
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             return
         if answer is not None and answer.accepted:
-            self._enter("value", ValueFocus(answer.value, entry.path.name, answer.reader))
+            self._enter(
+                "value", ValueFocus(answer.value, entry.path.name, answer.reader)
+            )
 
     def _open_payload(self, words: list[str]) -> None:
         if self.ingress is None or len(words) < 2:
             return
         try:
             entry = self.ingress.entries[int(words[0])]
-        except (IndexError, ValueError):
+        except IndexError, ValueError:
             return
-        loaded = entry.payload.value if entry.payload and entry.payload.accepted else None
+        loaded = (
+            entry.payload.value if entry.payload and entry.payload.accepted else None
+        )
         if not isinstance(loaded, Payload):
             return
         value = getattr(loaded.module, words[1], None)
-        self._enter("value", ValueFocus(value, f"{entry.path.name}:{words[1]}", "payload"))
+        self._enter(
+            "value", ValueFocus(value, f"{entry.path.name}:{words[1]}", "payload")
+        )
 
     def _open_door(self, words: list[str]) -> None:
         if self.ingress is None or not words or not words[0].isdigit():
@@ -275,9 +294,10 @@ class Instrument:
         """Whether server-owned work needs the leaf to request another frame."""
         if self.pending is not None:
             return True
-        return self.ingress is not None and any(
+        ingress = self.ingress is not None and any(
             entry.pending or entry.payload_pending for entry in self.ingress.entries
         )
+        return ingress or any(room.artefacts.pending for room in self.rooms.values())
 
     def close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
@@ -361,9 +381,17 @@ class Handler(BaseHTTPRequestHandler):
         work = held.room()
         for gone in [wid for wid in work.windows if wid not in alive]:
             work.windows.pop(gone, None)
-        work.other.ask(
-            reader_of(session.reading), session.reading.text, session.generation
-        )
+        machine = reader_of(session.reading)
+        work.other.ask(machine, session.reading.text, session.generation)
+        made = None
+        if composed.get("place") == "artefacts":
+            work.artefacts.ask(
+                machine,
+                session.reading.text,
+                session.reading.identity,
+                session.generation,
+            )
+            made = work.artefacts.line()
         drawn = compose(
             session.reading,
             wide,
@@ -378,6 +406,7 @@ class Handler(BaseHTTPRequestHandler):
             routes=work.other.line(),
             only=only,
             layers=work.windows,
+            artefacts=made,
         )
         for address, value in drawn.reported.items():
             scope, divided, key = address.partition("~")
@@ -385,7 +414,9 @@ class Handler(BaseHTTPRequestHandler):
                 held.layer(scope)[key] = value
             else:
                 composed[key] = value
-        self.send(drawn.wire(session.generation, session.playing))
+        self.send(drawn.wire(session.generation, session.playing, held.working()))
+
+
 def main() -> None:
     """Serve any file set at the map; `--direct` preserves the pair harness."""
     direct = "--direct" in sys.argv[1:]
@@ -414,8 +445,6 @@ def main() -> None:
         Server(("127.0.0.1", port), instrument).serve_forever()
     finally:
         instrument.close()
-    print(f"opsis · {args[0]} ⊳ {args[1]} · http://127.0.0.1:{port}/")
-    Server(("127.0.0.1", port), instrument).serve_forever()
 
 
 if __name__ == "__main__":

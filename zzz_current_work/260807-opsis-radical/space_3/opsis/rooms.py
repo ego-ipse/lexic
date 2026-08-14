@@ -7,10 +7,12 @@ value surface, and the pipeline as steps with claims that are checked.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from eidolon.topology import reachable
 from eidolon.value import graph as ir_graph
 from eidolon.value import refused as ir_refused
-from kairos.artefacts import keep
+from kairos.artefacts import Artefact
 from kairos.machine import of
 from kairos.pipeline import FORMS, form_of, spelled
 from opsis.scene import ruledefs
@@ -46,6 +48,7 @@ def room(
     reading: Reading,
     state: dict[str, str],
     generation: int = 0,
+    artefacts: Sequence[Artefact] | None = None,
 ) -> str:
     """One room, spelled. A room nobody authored says so, in place."""
     if which in ("index", ""):
@@ -213,7 +216,18 @@ def room(
             ]
         )
     if which == "artefacts":
-        made = keep(machine, generation)
+        if artefacts is None:
+            return "\n".join(
+                [
+                    "#PLACE artefacts artefacts what this reader can be written as",
+                    "#SEC title 1",
+                    "ARTEFACTS — witnesses are running…",
+                    "#SEC kv 1",
+                    "family\tPENDING · exporting and loading every form back",
+                    "",
+                ]
+            )
+        made = artefacts
         return "\n".join(
             [
                 "#PLACE artefacts artefacts what this reader can be written as",
@@ -222,6 +236,7 @@ def room(
                 f"#SEC kv {len(made)}",
                 *(
                     f"{a.name}\t{a.chars:,} chars · {a.witness} — {a.words}"
+                    + (f" · runtime {a.module}" if a.module else "")
                     for a in made
                 ),
                 "",

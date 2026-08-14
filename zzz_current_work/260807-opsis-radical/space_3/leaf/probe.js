@@ -172,7 +172,7 @@ async function probe() {
         one, and starting playback from the transport — a gesture this never
         sees — drove nothing at all. */
   fact('the leaf holds no play state of its own',
-       !/\blet playing\b/.test(paperSource) && /frame && frame\.running/.test(paperSource));
+       !/\blet playing\b/.test(paperSource) && /frame && [^\n]*frame\.running/.test(paperSource));
 
   /* 8. nothing is scheduled through a frame callback — the reason an earlier
         harness measured a canvas that had not been drawn yet */

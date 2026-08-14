@@ -287,3 +287,71 @@ OPEN-2 is not yet closed on screen. `Landing` subjects and their answers must
 still enter the server-owned graph/map, and payload execution must be reached
 through a visible explicit cast. OPEN-5 then moves slow readers to pending
 worker subjects.
+
+## 2026-08-14 — Landing promotion, pending work, and complete artefact witnesses
+
+### The ingress boundary is now visible
+
+The server map owns every `Landing`: file subjects enter on their role lane,
+all pure answers and exact refusals remain visible, and Python payload
+execution is reachable only through an explicit cast. File probing runs in
+the server-owned ingress worker. A subject is drawn PENDING immediately and
+is promoted at the same content address when its result arrives; the leaf
+continues to own neither play nor pending state.
+
+The gate injects a deliberately slow probe and proves the pending node is
+drawn before completion. This closes the render-path freeze without guessing
+at a duration threshold: all file ingress is worker work, so a new slow
+reader cannot silently reintroduce the stall.
+
+### One reading retains the complete family
+
+`keep()` now retains six named slots: twin, IR notation, grammar payload,
+model payload, dump payload, and reduced payload. The first five are written,
+loaded back, and witnessed. The twin passes Lexic's module self-grammar check;
+payloads load through `spec_from_file_location`, bind through Lexic's public
+contract, and keep runtime model classes distinct from the twin. Runtime
+module names include the subject's content digest, do not collide across
+subjects, and are removed from `sys.modules` after the witness.
+
+Reduced is not fabricated from an unrelated transformation. Without a docked
+reducer its family slot says `not licensed`; a reducer can fund that witness
+later without changing the family shape.
+
+The artefact room asks for this family lazily. A cold request is drawn PENDING
+while a bounded worker builds it, then promotes to the six completed rows in
+place. The map continues to compute only cheap licences.
+
+### Ownership and regression
+
+No Lexic source changed. Lexic already supplies `verify_module`,
+`bind_module`, notation and payload loaders, and the value/model distinctions;
+worker lifetime, room promotion, and retained-family presentation are Opsis
+responsibilities.
+
+The browser probe's ownership assertion had matched the old literal
+`frame && frame.running`. Pending refresh correctly widened that expression
+to running-or-pending, so the probe now checks for server-frame running state
+without prescribing the exact expression. It still rejects leaf-owned
+`playing` state.
+
+### Verification
+
+```bash
+uv run ruff check <all changed Python files>
+uv run pyright <all changed Python files>
+node --check space_3/leaf/leaf.js
+node --check space_3/leaf/probe.js
+uv run python -B space_3/gate.py
+./space_3/probe.sh
+```
+
+Ruff passed; Pyright reported 0 errors and 0 warnings; the executable gate
+reported 24 gestures, 13 keys, 0 failures. The browser probe reported zero
+failures at both 1× and 2× scale, including native graph sliders, pin and rail
+popups, popup-local navigation, and leaf play-state ownership. Ports 8917 and
+8918 were not touched.
+
+The ingress, artefact-family, and OPEN-5 slow-ingress blockers are closed. The
+next dependency-ordered work is OPEN-6 (praxis on the spine) and the
+separately funded OPEN-7 surfaces.
