@@ -1,297 +1,351 @@
+<div align="center">
+
 # Lexic
 
-> **Status:** experimental, pre-1.0. APIs may change without notice.
+**Grammar in. Typed models out. Byte-exact back.**
 
-Lexic compiles grammar files into typed Python object models. Given a grammar, it synthesizes model classes at runtime — named, typed fields derived from the grammar's structure, built with `type()`, no code-generation step and no schema language on the side. Parsing text against the grammar produces instances of those classes; `to_text()` reconstructs the exact source, byte for byte; `to_grammar(flavour)` re-emits the grammar itself, in any supported notation.
+A grammar engine that compiles grammar files into typed Python object models —
+parse text into them, reconstruct the source exactly, re-emit the grammar in
+any notation, and transpile both grammars *and* the documents they read.
 
-**Grammar is the ground truth.** Model classes are Python's *view* of a grammar, not the source of truth. Every model has a lossless `to_grammar(flavour)` path back to canonical grammar text.
+![Python 3.14+](https://img.shields.io/badge/python-3.14+-3776AB?logo=python&logoColor=white)
+![Zero runtime dependencies](https://img.shields.io/badge/runtime%20deps-zero-brightgreen)
+![Tests](https://img.shields.io/badge/tests-3.8k-brightgreen)
+![Status](https://img.shields.io/badge/status-pre--1.0-orange)
+![License: LGPL](https://img.shields.io/badge/license-LGPL-blue)
 
-Design properties:
+</div>
 
-- **A native parsing engine.** A scannerless Earley engine (full SPPF, Scott 2008) handles any context-free grammar — ambiguity and left recursion included — fused with a predictive PDA fast path. Every fast-path decision is licensed by static analysis of the grammar at hand; any construct the analysis cannot prove safe is parsed by the Earley engine instead, per rule, automatically. Correctness never depends on the fast path.
-- **Zero runtime dependencies.** The engine, the record spine the models live on, and the layout engine that formats emitted text are all part of the package. `pip install` pulls in nothing.
-- **Portable grammars.** All notations converge on one canonical IR: a grammar compiled from GBNF re-emits as ABNF or EBNF and vice versa, with reparse-equal results. Emission is width-aware — long rules wrap at arm and item boundaries and reparse to the identical canonical AST (`width=None` gives the flat single-line form).
-- **Self-hosting.** The grammar notations are parsed by the same engine, from self-grammars authored as data — a flavour carries no parser code. Exported modules are themselves re-parsed by a grammar of generated modules and cross-checked against the compiler's binding view, so drift between compiler and artifact is a test failure, not a surprise.
-- **Tool-clean generated code.** Exported twin modules are importable, fully typed, clean under default-configuration pyright and pylint, and byte-stable under isort + ruff-format — produced by the same layout engine, with no formatter subprocess on the path.
-- **Property-tested round-trips.** `parse(text).to_text() == text` holds on every valid input, for every grammar in the corpus, under hypothesis-generated inputs.
-
-Lexic is the grammar engine layer of Vyx, an agent-to-agent protocol that uses grammars, not prose, as the wire contract between agents.
-
-## What it does
-
-- **Compile** a grammar (`.gbnf` / `.abnf` / `.ebnf`) into a `CompiledGrammar` — runtime-synthesized model classes plus a compiled instance parser.
-- **Parse** text against the compiled grammar into a typed model instance (`grammar.parse`, or the one-line `parse_instance` / `parse_instance_from_path`).
-- **Round-trip** an instance back to its exact source via `to_text()` — whitespace-preserving.
-- **Re-emit** the grammar via `to_grammar(flavour)` — in any flavour, width-aware.
-- **Export** a compiled grammar as an importable twin module (`export_module`) — the typed, on-disk form of the same classes — and verify any export by parsing it back (`parse_module` / `verify_module`).
-- **Refuse ambiguity, on every route.** A span whose derivations build two different models raises rather than a parser quietly picking one. The test is about VALUES, not derivation counts: a grammar routinely derives one text several ways without meaning anything by it, so a *split* — one production carved two ways, same arm, different boundary — has a defined answer and is never refused. Only an *arm* choice is. The opt-out is a **resolver, not a flag**: `parse(text, resolve=...)` hands both derivations to a deterministic callable of yours, and reaches whichever engine ends up choosing.
-- **Strip structural noise** via `semantic_dump()` — `dump()` minus fields bound to rules marked `@non-semantic` (typically whitespace).
-- **Work in pure IR** — parse a grammar to an `IrAst` without building classes (`parse_grammar`), construct IR objects from a neutral text notation (`load_ir` / `emit_ir`), or load a whole flavour from a text manifest (`load_flavour`).
-
-## Quick start
+---
 
 ```python
 from lexic.compile import compile_from_path
 
-grammar = compile_from_path("resources/ground_truth/arithmetic.gbnf")
+grammar = compile_from_path("resources/ground_truth/json.gbnf")
 
-# Parse text → typed model
-instance = grammar.parse("x = 1\n")
-
-# Exact reconstruction
-assert instance.to_text() == "x = 1\n"
-
-# Emit the grammar back
-print(instance.to_grammar())          # GBNF (default)
-print(instance.to_grammar("abnf"))    # ABNF
-print(instance.to_grammar("ebnf"))    # EBNF
-
-# Dicts: full dump, or semantic-only (no whitespace fields)
-instance.dump()
-instance.semantic_dump()
+model = grammar.parse('{"stars": 3, "wip": null}')   # text → typed model
+model.to_text()                                      # → the exact source, byte for byte
+model.semantic_dump()                                # → dicts, structural noise stripped
+model.to_grammar("abnf")                             # → the grammar itself, re-emitted in ABNF
 ```
 
-String-in entry point:
+**Grammar is the ground truth.** Model classes are Python's *view* of a
+grammar — synthesized at runtime with `type()`, named and typed fields derived
+from the grammar's structure, no code-generation step, no schema language on
+the side. Every model has a lossless path back to canonical grammar text.
 
-```python
-from lexic.compile import compile_text
+Lexic is the grammar engine layer of **Vyx**, an agent-to-agent protocol that
+uses grammars, not prose, as the wire contract between agents.
 
-grammar = compile_text('root ::= "hi"\n', flavour="gbnf")
-```
+## Why lexic
 
-Runnable, commented walkthroughs live in [`getting_started/`](getting_started/):
-
-| Example | Shows |
+| | |
 |---|---|
-| `ex01_hello_grammar.py` | Define a grammar inline, compile, parse, round-trip. |
-| `ex02_compile_from_file.py` | Compile a bundled `.gbnf` and read fields. |
-| `ex03_parse_json.py` | Parse nested JSON; `to_text()` and `semantic_dump()`. |
-| `ex04_transpile_flavours.py` | Transpile a grammar between flavours via the singletons. |
-| `ex05_inspect_ir.py` | Inspect the `__grammar__: IrRule` behind a compiled class. |
-| `ex06_token_grammar.py` | Token grammars: parse token-granular, round-trip, next-token mask. |
-| `ex07_constrained_generation.py` | A generation loop: mask → pick → `push` until `accepts()`. |
-| `ex08_twin_module.py` | Export an importable twin; lexic parses its own export back. |
-| `ex09_json_reducer.py` | `parse_reduced` + the JSON reducer kit — values, not model classes. |
-| `ex10_templating.py` | `template(...)`: extract selected paths, skip the rest as raw spans. |
-| `ex11_hf_tokenizer.py` | Load an HF `tokenizer.json` with lexic's own JSON + `IrTokenizer`. |
+| 🔬 **A native engine** | A scannerless Earley engine (full SPPF, Scott 2008) handles any context-free grammar — ambiguity and left recursion included — fused with a predictive PDA fast path. Every fast-path decision is licensed by static analysis of the grammar at hand; anything unprovable falls back to Earley, per rule, automatically. Correctness never depends on the fast path. |
+| 📦 **Zero runtime dependencies** | The engine, the record spine models live on, and the layout engine that formats emitted text all ship in the package. `pip install` pulls in nothing. |
+| 🔁 **Byte-exact round-trips** | `parse(text).to_text() == text` on every valid input, for every grammar in the corpus, under hypothesis-generated inputs. |
+| 🔀 **Portable grammars** | All notations converge on one canonical IR: a grammar compiled from GBNF re-emits as ABNF or EBNF and back, reparse-equal, width-aware. |
+| ⚖️ **Ambiguity refused, never guessed** | Input that means two different things raises instead of a parser quietly picking. The opt-out is a resolver you supply, not a flag — and it reaches whichever engine ends up choosing. |
+| 🪞 **Self-hosting** | The grammar notations are parsed by the same engine, from self-grammars authored as data — a flavour carries no parser code. Lexic parses its own exports back and cross-checks them against the compiler. |
+| 🧾 **Tool-clean generated code** | Exported twin modules are importable, fully typed, clean under default-config pyright and pylint, and byte-stable under isort + ruff-format — no formatter subprocess anywhere. |
+| 🎛️ **Token streams too** | Grammars over tokenizer vocabularies: parse token-granular, round-trip char-exact, and constrain generation with a next-token mask on one live chart. |
 
-## Two products: models and pure IR
+## The pipeline
 
-The `compile/` package compiles grammar text into **either or both** of:
-
-- **Compiled models** — classes synthesized at runtime on an immutable record spine (`IrNamedTuple`) via `type(name, bases, ns)`. No source emit, no import, no file write; a model *is* a walkable IR record. Files are written only on the explicit `export_module` path.
-
-  Because those classes are built at runtime, a type checker cannot see their fields: `model.item` works, but reads as unknown (the repo spells this `getattr(model, "item")` to say so). When you want *statically typed* field access, export the twin module — `export_module` writes a real `.py` with real annotations, and lexic parses its own export back to verify it.
-- **Pure IR** — an `IrAst` (via `parse_grammar`), real IR objects from a neutral, no-`exec` text notation (`load_ir`), or a full `IrFlavour` from a text manifest (`load_flavour`).
-
-```python
-from lexic.compile import parse_grammar, load_ir
-from lexic.grammars import GBNF_FLAVOUR
-
-ast = parse_grammar('root ::= "a" | "b"\n', GBNF_FLAVOUR)   # grammar text → IrAst
-node = load_ir('IrLiteral("x")')                            # notation text → IR object
+```mermaid
+flowchart LR
+    T["grammar text<br>.gbnf · .abnf · .ebnf"] -->|parse_grammar| R["IrAst"]
+    R -->|canonicalize| C["canonical IrAst"]
+    C -->|codegen passes| G["codegen grammar"]
+    G -->|"type() synthesis"| M["model classes"]
+    G -->|binding view| F["instance fold"]
+    M --> CG["CompiledGrammar"]
+    F --> CG
+    CG -->|".parse(text)"| I["typed model"]
+    I -->|".to_text()"| X["exact source"]
+    C -->|"flavour.apply"| E["grammar text,<br>any flavour"]
+    style CG stroke-width:3px
 ```
 
-## Supported flavours
+One canonical `IrAst` in the middle is what makes grammars portable: two
+notations describing the same language converge on the same tree
+(`canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf))`), and every
+flavour is an emitter *from* that tree. Parsing is the native engine
+(`lexic.parsing`, pure Python): a deterministic predictive PDA that builds the
+typed result *during* the parse, backed by the scannerless Earley engine as the
+sound completion. The same engine parses grammar text (each flavour's
+self-grammar is data) and instances (a positional fold over the real codegen
+grammar).
+
+## Transpilation — grammars, and the documents they read
+
+**Grammars** transpile through the canonical IR (`ex04`):
+
+```python
+ast = parse_grammar(gbnf_source, GBNF_FLAVOUR)     # GBNF text → IrAst
+abnf_text = str(ABNF_FLAVOUR.apply(ast))           # the same grammar, in ABNF
+```
+
+**Documents** transpile on the model plane (`ex16`, `ex17`): parse under A,
+transform A's models into B's, and B's own `to_text()` is the pretty-printer —
+
+```
+text_A ──A.parse──► A-models ──T──► B-models ──.to_text()──► text_B
+```
+
+Only the transform is authored — and it is **pure data**: a table of
+per-rule bodies in the two grammars' own vocabulary, no class objects, no
+functions, portable through the IR notation like a grammar or a reducer:
+
+```python
+from lexic.compile import Make, Spelled, transpile
+from lexic.ir import IrMap, IrRuleRef, IrTuple
+
+RULES = IrMap(   # rows keyed by A's RULE NAMES; targets built by name
+    IrTuple(IrRuleRef("number"), Make("number", IrTuple(Spelled()))),  # spelling carried whole
+    IrTuple(IrRuleRef("member"), Make("fent")),   # bare Make splats transformed children
+    # ... Flat()/Split() read and grow hoisted lists; Is()/IrRaise state the domain
+)
+
+to_yaml = transpile(json_grammar, yaml_grammar, RULES)   # bake once
+yaml_text = to_yaml.run(json_text)                       # run many
+```
+
+`transpile()` **bakes** the table against the two compiled grammars — rule
+names resolve to the synthesized classes, and a `Make` aimed at a hoisted
+list rule grows the chain (the inverse of lexic's own hoist passes). The
+retained `Transpiler` drives the walk bottom-up (each body receives its
+already-transpiled children) and gates the contract on every run:
+**completeness** (a source class surviving into the product is a hole in the
+table, refused with the class named), **membership** and **fidelity** (the
+emitted text parses under B, back to the very models the transform built).
+A's models are the lossless account of the source (a JSON `Number` keeps its
+exact spelling — no float type needed; `true` and `1` are different rules;
+duplicate keys survive in order), and B's checked constructors are the type
+system — a wrong transpilation refuses with `FieldValidationError` instead of
+shipping. What the transform cannot express is a stated domain, refused
+through `IrRaise` with words, never silently dropped. Because rows are rule
+names over the *canonical* grammar, **one table serves every formulation of
+the source language** — the same `RULES` bakes against `json.gbnf` and
+`json.abnf` unchanged.
+
+`ex16` turns JSON into YAML that way; `ex17` turns a python subset into C++,
+with the transform doing the one thing a transpiler genuinely is — here,
+inferring declarations, semantic knowledge neither grammar carries:
+
+```python
+def scale(x):                #  →   int scale(int x) {
+    y = x * 3                #  →       int y = x * 3;
+    y = y + 1                #  →       y = y + 1;
+    return y                 #  →       return y;
+                             #  →   }
+```
+
+## Getting started
+
+Runnable, commented walkthroughs live in [`getting_started/`](getting_started/) —
+run any of them as `uv run python -m getting_started.<name>`:
+
+| # | Example | Shows |
+|---|---|---|
+| 01 | [`hello_grammar`](getting_started/ex01_hello_grammar.py) | Define a grammar inline, compile, parse, round-trip. |
+| 02 | [`compile_from_file`](getting_started/ex02_compile_from_file.py) | Compile a bundled `.gbnf` and read fields. |
+| 03 | [`parse_json`](getting_started/ex03_parse_json.py) | Parse nested JSON; `to_text()` and `semantic_dump()`. |
+| 04 | [`transpile_flavours`](getting_started/ex04_transpile_flavours.py) | A grammar re-emitted in every notation, reparse-checked. |
+| 05 | [`inspect_ir`](getting_started/ex05_inspect_ir.py) | The `__grammar__: IrRule` behind every compiled class. |
+| 06 | [`token_grammar`](getting_started/ex06_token_grammar.py) | Token grammars: parse token-granular, round-trip, next-token mask. |
+| 07 | [`constrained_generation`](getting_started/ex07_constrained_generation.py) | A generation loop: mask → pick → `push` until `accepts()`. |
+| 08 | [`twin_module`](getting_started/ex08_twin_module.py) | Export an importable twin; lexic parses its own export back. |
+| 09 | [`json_reducer`](getting_started/ex09_json_reducer.py) | `parse_reduced`: fold a document to IR values, no model classes. |
+| 10 | [`templating`](getting_started/ex10_templating.py) | Extract selected paths; skip the rest as raw spans. |
+| 11 | [`hf_tokenizer`](getting_started/ex11_hf_tokenizer.py) | Read an HF `tokenizer.json` with lexic's own JSON grammar. |
+| 12 | [`real_think_flow`](getting_started/ex12_real_think_flow.py) | `<think>` constrained decoding against a real 151k vocabulary. |
+| 13 | [`payload_projection`](getting_started/ex13_payload_projection.py) | Ship a parsed value as a module that imports with no lexic installed. |
+| 14 | [`ir_notation`](getting_started/ex14_ir_notation.py) | `repr` with an inverse: any IR value to a file and back, exactly. |
+| 15 | [`yaml_twin_module`](getting_started/ex15_yaml_twin_module.py) | The whole build path on a language lexic ships no support for. |
+| 16 | [`transpile_json_yaml`](getting_started/ex16_transpile_json_yaml.py) | Transpile a *document* between formats on the model plane. |
+| 17 | [`transpile_python_cpp`](getting_started/ex17_transpile_python_cpp.py) | python → C++: grammar-derived ASTs, an authored transform, `to_text()`. |
+
+## Flavours
 
 | Flavour | Extension | Status |
 |---|---|---|
-| GBNF | `.gbnf` | Production (character-level, plus llama.cpp token terminals — see §Tokens) |
-| ABNF | `.abnf` | Production (RFC 5234 + 7405, incl. `%d`/`%b`/`%x` sequences, case markers, the B.1 core-rules prelude) |
-| EBNF | `.ebnf` | Production (ISO-family: `=`/`;` rules, `{}`/`[]`, `n * x` repetition, `(* *)` comments) |
+| GBNF | `.gbnf` | Production — character-level, plus llama.cpp token terminals (§Tokens) |
+| ABNF | `.abnf` | Production — RFC 5234 + 7405, `%d`/`%b`/`%x` sequences, case markers, the B.1 core-rules prelude |
+| EBNF | `.ebnf` | Production — ISO-family: `=`/`;` rules, `{}`/`[]`, `n * x` repetition, `(* *)` comments |
 
-GBNF's token-level terminals (`<token>`, `<[id]>`, `<[lo-hi]>`, `!<…>`, `.`) are supported — see §Tokens. EBNF has no native character-class or negation syntax: classes emit as quoted alternations where finite, and constructs EBNF cannot spell (negation, open-bounded counted repetition) are refused explicitly rather than approximated.
-
-A *flavour* is the grammar notation, carried entirely as data: a self-grammar (authored as `IrAst`), a `Reducer` (reduction bodies + a noise policy derived from the grammar's own `semantic=False` flags), an `EscapeCodec`, optional core rules (ABNF's RFC prelude), and emit actions — an `IrFlavour` with **zero parsing methods**. Add one either as a flat `grammars/<name>.py` module or as a **text manifest** loaded with `load_flavour`. See [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md).
+A *flavour* is a grammar notation carried entirely as data: a self-grammar
+(authored as `IrAst`), a `Reducer`, an `EscapeCodec`, optional core rules, and
+emit actions — an `IrFlavour` with **zero parsing methods and zero embedded
+code**. The shipped flavours contain no Python function anywhere in their
+tables, which is why a whole flavour round-trips through the IR text notation:
+add one as a flat `grammars/<name>.py` module, or load one at runtime from a
+**text manifest** with `load_flavour`. Constructs a notation cannot spell
+(EBNF has no negation) are refused explicitly, never approximated.
 
 ## Tokens
 
 Lexic parses character streams by default, and **token streams** when a
-grammar's terminals name tokens instead of characters. Both run on the same
-engine and the same pipeline.
-
-An **encoding** gives a character class's ordinals their meaning. `IrUnicode`
-is the default — ordinals *are* code points. An `IrTokenizer` is a peer, not a
-special case: its ordinals are vocab ids. A grammar's token terminals name an
-encoding, and `compile_text(..., tokenizer=)` binds it.
+grammar's terminals name tokens instead of characters — same engine, same
+pipeline. An encoding gives a char class's ordinals their meaning; a tokenizer
+is an encoding whose ordinals are vocab ids, a peer of unicode rather than a
+special case.
 
 ```gbnf
 root     ::= <think> thinking </think> .*
 thinking ::= !</think>*
 ```
 
-`<think>` is the token whose spelling **is** `<think>` — the angle brackets are
-part of the token's text. That is llama.cpp's GBNF semantics; lexic describes
-the format rather than prescribing to it. Content between tokens is expressed
-with negation (`!</think>*`). `<[7]>` names a token by id, `<[3-9]>` an id
-range, `!<…>` any token except one, and `.` any token at all.
+`<think>` is the token whose spelling **is** `<think>` — llama.cpp's GBNF
+semantics, described rather than prescribed. `<[7]>` names a token by id,
+`<[3-9]>` an id range, `!<…>` any token but one, `.` any token at all.
 
 ```python
+from lexic.compile import Vocabulary, compile_text
+from lexic.ir import IrTokenizer
+
 tok = IrTokenizer.from_vocab("tokens", {"<think>": 0, "</think>": 1, "hi": 2})
-compiled = compile_text(GRAMMAR, tokenizer=tok)
+compiled = compile_text(GRAMMAR, vocabulary=Vocabulary(tok))
 
-model = compiled.parse("<think>hi</think>")   # parse token-granular
-model.to_text()                               # → char-exact round-trip
-
-cursor = compiled.constrain()                 # constrain generation
-cursor.mask()                                 # → admissible next-token ids
-cursor.push(0)                                # advance; accepts() tests the end
+compiled.parse("<think>hi</think>")   # parse token-granular; to_text() char-exact
+cursor = compiled.constrain()         # constrain generation
+cursor.mask()                         # admissible next-token ids
+cursor.push(0); cursor.accepts()      # advance; test completion
 ```
 
-Three capabilities, independent of each other: read/emit token grammars with
-**no** tokenizer at all; parse instances with one; and constrain generation
-token by token. The generation cursor holds a single live chart — `push` grows
-it rather than reparsing the prefix, so `mask()` costs the candidate's spelling,
-not the history.
+Three independent capabilities: read/emit token grammars with no tokenizer at
+all; parse instances with one; constrain generation token by token. The cursor
+holds a single live chart — `push` grows it instead of reparsing the prefix,
+so `mask()` costs the candidate's spelling, not the history. A vocabulary is
+per-deployment, not per-grammar: `compiled.bind(tok)` rebinds to another one
+without recompiling, an order of magnitude cheaper.
 
-An `IrTokenizer` is built from a vocab (longest-match) or from a vocab plus
-ordered merges (exact ranked-merge BPE), with specials matched atomically. It
-carries its own segmentation pipeline — byte-level remapping, normalizers,
-pre-token splitters, byte fallback — every field of it **derived from a
-document's own sections**, never fitted to one family.
+Tokenizers are built from a vocab (longest-match) or vocab + ordered merges
+(exact ranked-merge BPE), specials atomic, with the whole segmentation
+pipeline — byte-level remap, normalizers, pre-token splits, byte fallback —
+derived from a `tokenizer.json`'s own sections (`lexic.api.json_tokenizer`).
+Boundary, documented rather than routed around: token spans are char-aligned,
+so a byte-level token ending mid-code-point gets no span and token-granular
+parsing covers char-aligned segmentations.
 
-Reading a `tokenizer.json` is `lexic.api.json_tokenizer`, which takes the
-grammar+reducer that parse the document as *parameters*, so it privileges no
-formulation (`ex11`, `ex12`). Fetching one is `ext/API/`, outside the shipped
-package. `lexic.ir` models the tokenizer and knows neither — a format that
-merely happens to be hosted somewhere does not belong to that host.
+## Beyond parsing
 
-A vocabulary is per-deployment, not per-grammar: `compiled.bind(tok)` returns
-a new artefact against another vocabulary without recompiling.
-
-**Boundary:** token spans are char-aligned. Under a byte-level pipeline a token
-can end mid-code-point; `tokenize()` still returns its id, but that token gets
-no character span, so `boundaries()` — and therefore token-granular *parsing* —
-covers char-aligned segmentations. This is the documented limit, not a bug to
-route around.
-
-## Architecture
-
-```
-grammar text
-   │
-   ├─► _scan_directives                (start, non_semantic)
-   └─► parse_grammar                   IrAst      [native Earley/PDA engine]
-            │
-            ▼
-      canonicalize                     canonical IrAst   [language-preserving
-            │                           normal form — two flavours of the same
-            │                           language converge on the same tree]
-            ▼
-   build_codegen_grammar               THE codegen grammar
-   (hoist groups, hoist arms,               │
-    relax non-semantic refs)                │
-   ┌────────┬───────────────┬───────────────┼──────────────────────┐
-   ▼        ▼               ▼                                       ▼
-compute_binding      synthesize            ModelFold             flavour.apply
-(class/kind/         (type() build:        (positional instance  (grammar text,
- parent/field        __grammar__ +          fold over the         any flavour,
- names)              __binds__, no file)    codegen grammar)      width-aware)
-```
-
-The `compile/` package is organized by role: `pipeline/` (the passes, the binding view, class synthesis), `notation/` (the IR text notation's parse and emit halves, plus the manifest loader), and `module/` (twin-module export and the generated-module self-grammar that parses exports back). It is also the sole seam onto the engine — nothing else in the runtime imports `lexic.parsing`.
-
-Parsing is a **native engine** (`lexic.parsing`, pure Python): a deterministic predictive **PDA** fast path that builds the typed result *during* the parse, backed by the scannerless **Earley** engine as the sound completion. The same engine drives grammar-text parsing (each flavour's self-grammar is data) and instance parsing (a positional fold over the real codegen grammar — no intermediate wrapper grammar).
-
-The IR substrate is **action-driven**: every transformation (canonicalization, class synthesis, flavour emission, width-aware layout) is expressed as `IrAction(target_type, body)` entries in open dispatch tables (`IrDispatch` / `IrVisitor` / `IrTransformer` / `IrEmitter`). New IR node types extend a table; the dispatcher needs no subclassing. Models live on this same spine — a compiled instance is walkable, dispatchable IR.
-
-For the full picture:
-
-- [`.wiki/lexic/architecture.md`](.wiki/lexic/architecture.md) — pipeline, layering, the IR substrate.
-- [`.wiki/lexic/ir-shapes.md`](.wiki/lexic/ir-shapes.md) — every IR node + the action algebra.
-- [`.wiki/lexic/public-api.md`](.wiki/lexic/public-api.md) — the public surface.
-- [`.wiki/lexic/flavour-system.md`](.wiki/lexic/flavour-system.md) — adding flavours.
-
-## Test grammars
-
-`resources/ground_truth/` holds nine `.gbnf` grammars, two `.abnf` siblings and two `.ebnf` siblings (`arithmetic`, `json` each) for cross-flavour compile parity. Property tests round-trip every valid input through them:
-
-`arithmetic` · `c` · `chess` · `japanese` · `json` · `json_arr` · `json_ws` · `list` · `vyx`
+- **Reduce** — `parse_reduced(grammar, text, reducer)` folds a document
+  straight to IR values, no classes. A reducer is a *reading*; any grammar can
+  carry several.
+- **Template** — `template(compiled, shape, spec)` parses one pass, models
+  only the paths you keep, captures the rest as raw spans.
+- **Generate** — `generate(...)` derives a random valid document from any
+  grammar; `constrain()` masks a live generation.
+- **Export** — `export_module` writes the importable twin of a compiled
+  grammar; `export_value` writes any parsed value as three flat literals plus
+  a digest, readable with zero lexic imports. Both are verified on the way
+  out: lexic parses its own exports back (`parse_module` / `verify_module`),
+  and a value artefact is gated on decoding to a fixpoint before it is
+  written.
+- **IR notation** — `load_ir` / `emit_ir`: a no-`exec` text notation that
+  spells IR constructors, `repr` with an inverse. Grammars, reducers, whole
+  flavours travel as text.
 
 ## Performance, and how to read it
 
 `tools/benchmark/` races lexic's two engines against **Lark** (LALR + Earley),
-**parsimonious**, **pyparsing** and **ANTLR** — the last on both its Java target
-and its Python runtime.
+**parsimonious**, **pyparsing** and **ANTLR** — the last on both its Java
+target and its Python runtime. **Every engine gets the same grammar**, derived
+mechanically from the one `IrAst` lexic compiles, and every translation is
+gated by a differential in both directions — each emitted grammar must accept
+what lexic accepts *and refuse what lexic refuses*. That gate exists because a
+grammar that accepts everything passes an accept-only check; it has caught
+five real emitter bugs.
 
-**Every engine gets the same grammar.** Each competitor's grammar is derived
-mechanically from the one `IrAst` lexic compiles; nobody gets a hand-tuned
-variant. An earlier version of this benchmark did give each tool its own
-hand-written grammar, and its headline number was meaningless as a result. The
-translations are gated by a differential in *both* directions — every emitted
-grammar must accept what lexic accepts **and refuse what lexic refuses** — because
-a grammar that accepts everything passes an accept-only check. That gate has
-caught five real emitter bugs that would otherwise have printed as "this tool
-cannot express the grammar".
+µs/char, lower is faster; medians of interleaved rounds, measured 2026-08-14,
+noise floors 2.3–8.7% per grammar. **Bold columns are lexic's two engines**;
+the *italic* column is Java, every other column is Python:
 
-µs/char, lower is faster; medians of interleaved rounds, noise floor 0.6–2.6%:
-
-| grammar | antlr *(Java)* | lark-lalr | parsimonious | lexic-pda | antlr-py | pyparsing | lexic-earley | lark-earley |
+| grammar | **lexic-pda** | **lexic-earley** | lark-lalr | lark-earley | parsimonious | pyparsing | antlr-py | *antlr (Java)* |
 |---|---|---|---|---|---|---|---|---|
-| arithmetic | **0.28** | 2.7 | 2.8 | 3.2 | 7.8 | 22.0 | 62.9 | 44.8 |
-| csv | **0.08** | 0.7 | 1.2 | 0.9 | 2.1 | 3.7 | 13.7 | 12.0 |
-| json | **0.34** | 3.5 | 2.1 | 2.2 | 9.5 | 11.6 | 36.2 | 40.8 |
-| gbnf-meta | **0.51** | refuses | refuses | *island* | 11.7 | refuses | 66.1 | 186.5 |
-| abnf-meta | **0.26** | refuses | 3.9 | *island* | 13.0 | 92.8 | 63.0 | 131.9 |
-| vyx | **0.33** | refuses | 2.8 | 59.0 | 10.1 | 29.7 | 51.2 | 98.8 |
+| arithmetic | **3.3** | **65.1** | 2.6 | 45.0 | 2.9 | 22.6 | 8.0 | *0.24* |
+| csv | **0.9** | **14.2** | 0.7 | 12.5 | 1.2 | 3.8 | 2.3 | *0.08* |
+| json | **2.2** | **35.5** | 3.4 | 39.6 | 2.2 | 11.7 | 9.4 | *0.28* |
+| gbnf-meta | **5.3** | **67.5** | refuses | 179.9 | refuses | refuses | 11.6 | *0.36* |
+| abnf-meta | **6.2** | **62.4** | refuses | 127.9 | 3.8 | 94.4 | 13.5 | *0.56* |
+| vyx | **5.3** | **53.2** | refuses | 101.2 | 2.9 | 32.2 | 10.1 | *0.31* |
+
+Among the Python engines, `lexic-pda` is the headline: fastest or tied on
+`json`, within a third of `lark-lalr` on the rows lark-lalr can run at all,
+and the **only Python engine that parses every grammar in the table** — the
+three hard rows (`gbnf-meta`, `abnf-meta`, `vyx`) defeat lark-lalr outright,
+and `gbnf-meta` defeats parsimonious and pyparsing as well. And it does that
+while building a typed, byte-recoverable model, which no other row pays for.
 
 **ANTLR's Java target is the fastest thing here, by an order of magnitude, on
 every grammar.** That is the honest result and it is not close. It is also a
-*tool+runtime* comparison rather than an algorithmic one — that row is Java and
-every other row is Python — which is exactly the question "what parses this
-grammar fastest" asks. `antlr-py` is the same generated parser on
-`antlr4-python3-runtime`, a pure-Python ATN simulator; the gap between the two
-ANTLR rows is the runtime, not the tool.
+*tool+runtime* comparison rather than an algorithmic one — that column is
+Java, every other column is Python — which is exactly the question "what
+parses this grammar fastest" asks. `antlr-py` is the same generated parser on
+the pure-Python runtime; the gap between the two ANTLR columns is the
+runtime, not the tool.
 
-Three things the table does not say on its own:
+What the table does not say on its own:
 
-- **The engines do not build the same thing.** lexic returns a *typed model* the
-  source is recoverable from; Lark returns a generic `Tree`, parsimonious a
-  `Node` tree, pyparsing a `ParseResults`, ANTLR a `ParserRuleContext`. Model
-  construction is real work inside lexic's numbers that the others do not pay.
-- **lexic's PDA declines both meta-grammars.** `gbnf-meta` and `abnf-meta` mark
-  their start rules as islands, so the predictive path does not run at all and
-  Earley is the whole parse. Where a fast path does not apply, it is reported —
-  never silently swapped for a different measurement.
-- **`lark-lalr` refuses three of six.** Genuine reduce/reduce and lookahead
-  conflicts, not a harness artefact: the meta-grammars' rulename↔ruleref overlap
-  needs unbounded lookahead, and vyx is not LALR(1). A refusal is a result and is
-  printed as one.
+- **The engines do not build the same thing.** Lexic returns a *typed model*
+  the source is byte-recoverable from; Lark returns a generic `Tree`,
+  parsimonious a `Node` tree, pyparsing a `ParseResults`, ANTLR a
+  `ParserRuleContext`. Model construction is real work inside lexic's numbers
+  that the others do not pay.
+- **The meta-grammars are the hard rows, and the PDA runs them.** The GBNF and
+  ABNF self-grammars — rulename/ruleref overlap needing unbounded lookahead —
+  parse predictively at 5–6 µs/char, while three of the five Python
+  competitors refuse them outright.
+- **A refusal is a result and is printed as one.** `lark-lalr`'s three
+  refusals are genuine reduce/reduce and lookahead conflicts, not harness
+  artefacts.
 
 Run it yourself: `uv run python -m tools.benchmark.bench --rounds 3`, or
-`--only json vyx` for a subset. ANTLR needs a JDK; the Java row builds a parser
-and holds a JVM open across the run, warmed until its timings settle, taking one
-round per line on stdin and reporting `System.nanoTime()` around the parse alone
-— so it interleaves with every other column instead of degrading into a separate
-run.
+`--only json vyx` for a subset. The ANTLR Java row needs a JDK; it holds a
+warmed JVM open and interleaves with every other column, timing
+`System.nanoTime()` around the parse alone.
+
+## Test grammars
+
+`resources/ground_truth/` holds ten `.gbnf` grammars plus `.abnf` and `.ebnf`
+siblings for cross-flavour parity, all exercised by the round-trip property
+suite:
+
+`arithmetic` · `c` · `chess` · `japanese` · `json` · `json_arr` · `json_ws` · `list` · `think` · `vyx`
 
 ## Development
 
-Lexic uses [uv](https://docs.astral.sh/uv/). Always prefix commands with `uv run` — never run `pytest` or `ruff` bare.
+Lexic uses [uv](https://docs.astral.sh/uv/). Always prefix commands with
+`uv run` — never run `pytest` or `ruff` bare.
 
 ```bash
-uv sync                                  # install deps (dev-only; no runtime deps)
-uv run pytest tests/ -q                  # full suite (~2880 tests)
-uv run pytest tests/unit/lexic/ -q       # unit only
-uv run pytest tests/integration/ -q      # integration only
+uv sync                                  # install (dev-only; no runtime deps)
+uv run pytest tests/ -q                  # full suite (~3.8k tests)
 uv run ruff check src/ tests/            # lint
-uv run python tools/check_generated.py   # generated-twin gate (pyright + pylint
-                                         # on every export, both modes)
+uv run python tools/check_generated.py   # generated-twin gate (pyright + pylint on every export)
+tools/run_examples.sh                    # every getting_started example must exit 0
 tools/run_checks.sh                      # the done-gate (ruff + pyright + whole-tree pylint)
+tools/auto_fix.sh                        # mechanical fixes: ruff format → isort → ruff --fix
 ```
 
-Mechanical lint/format fixes:
+Architecture and design records live in the wiki:
+[architecture](.wiki/lexic/architecture.md) ·
+[IR shapes](.wiki/lexic/ir-shapes.md) ·
+[public API](.wiki/lexic/public-api.md) ·
+[flavour system](.wiki/lexic/flavour-system.md) ·
+[decisions](.wiki/lexic/decisions.md). Public invariants:
+[CLAUDE.md](CLAUDE.md) §Key invariants.
 
-```bash
-tools/auto_fix.sh   # ruff format → isort → ruff check --fix
-```
+## Status
 
-## Project status
-
-Lexic is pre-1.0 and actively developed. One IR-native pipeline drives everything: a native Earley/PDA engine (no third-party parser), a canonical `IrAst` that all flavours converge on, runtime class synthesis on the record spine, width-aware cross-flavour emission, and self-verifying module export — all off the same action-driven IR substrate.
-
-Where it stands honestly: correctness and fidelity are the strengths — one grammar compiles to typed classes that round-trip exactly, in any flavour, with ambiguity refused rather than guessed at. Raw throughput is not: a mature generated parser in a JIT'd runtime is an order of magnitude faster, and the benchmark above says so rather than choosing inputs that hide it. Public invariants live in [CLAUDE.md](CLAUDE.md) §Key invariants; architecture and design decisions live in the [wiki](.wiki/).
+Pre-1.0, actively developed, APIs may change without notice. Where it stands
+honestly: correctness and fidelity are the strengths — one grammar compiles to
+typed classes that round-trip exactly, in any flavour, with ambiguity refused
+rather than guessed at. Raw throughput against a mature generated parser in a
+JIT'd runtime is not, and the benchmark above says so rather than choosing
+inputs that hide it.
 
 ## License
 
-Licenced under [LGPL](LICENSE)
+Licensed under [LGPL](LICENSE).

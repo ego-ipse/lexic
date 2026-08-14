@@ -101,6 +101,14 @@ artefact that cannot be read back is never created. See
 
 ---
 
+### `transpile(source, target, rules)` — `compile/transpile.py`
+
+Builds a retained `Transpiler(source, target, walk)` — a document under grammar A re-expressed under grammar B, on the model plane. `rules: IrMap` keys **A's rule names** to bodies authored in the transpile vocabulary — `Make(rule, args=IrNone)` (IrBuild's contract with the class replaced by a target rule name; bare `Make` splats the transformed children, slot-order-bound through `__binds__`; aimed at a hoisted list rule it grows the chain from a flat tuple), `Spelled()` (the focus's `to_text()` as algebra), `Flat()`/`Split()` (hoisted lists: channel→flat, chain→flat), `Is(rule)` (focus-type test by name) — beside the ordinary ir/ algebra (`IrArg`/`IrPipe`/`IrEach`/`IrCond`/`IrRaise`). The bake resolves names against the two artifacts, so **an authored table contains no class objects**: it is pure data, travels through the notation (repr-fixpoint contract — `Spelled`/`Flat`/`Split` are singletons; `IrThis` etc. remain identity-eq), and one table serves every formulation of the source language (rows name canonical rules — the same table bakes against `json.gbnf` and `json.abnf`).
+
+`IrBottomUp` drives (children first, results on `nc`); unnamed rules pass through; every intermediate rebuild threads through checked construction (`FieldValidationError` is the transform's type system). `Transpiler.apply(model)` gates **completeness** (no source class may survive into the product — a hole is refused with the class named); `Transpiler.run(text, resolve=None)` adds **membership and fidelity** (the emitted text parses under the target, back EQUAL to the models the transform built). `getting_started/ex16` (json→yaml, zero functions) and `ex17` (python→c++, exactly one — the declaration pass) are the worked forms; `tests/integration/lexic/roundtrip/test_transpile_documents.py` pins the formulation-independence and the generate-driven bulk witness. The templating precedent's shape: bake once, run many.
+
+---
+
 ### `parse_grammar(text, flavour)` — `compile/__init__.py` (re-exported from `lexic`)
 
 The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `GBNF_FLAVOUR`): requires `flavour.reducer` to be an actual `Reducer` instance (else `UnsupportedConstructError`), runs `parse_reduced(normalize(flavour.grammar), text, flavour.reducer)` — the normalised self-grammar memoised per flavour name — and verifies the reduction yields an `IrAst` (else `UnsupportedConstructError`). Returns the **raw** parsed `IrAst` — not yet canonicalized. Use it whenever you need the IR of a grammar without compiling classes (e.g. cross-flavour transpilation: `parse_grammar(text, GBNF_FLAVOUR)` then `ABNF_FLAVOUR.apply(ast)` — see `getting_started/ex04_transpile_flavours.py`).

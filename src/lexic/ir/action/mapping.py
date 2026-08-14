@@ -235,6 +235,27 @@ class IrMap[K, V: IrSelf](IrMapping[K, V, V]):
         object.__setattr__(obj, "_table", _indexed(cls, ordered))
         return obj
 
+    def children(self) -> Sequence[IrTuple]:
+        """The map's dyads as fresh ``(key, value)`` records — the walk surface.
+
+        Mirrors :meth:`__new__`: what construction takes is what a walk sees,
+        so a transformer's :meth:`rebuild` round-trips through the constructor
+        unchanged. Built per call — the table stores no dyad objects. This is
+        what lets a dispatch table, a reducer's action map or any map-shaped
+        value stand under :class:`~lexic.ir.action.walk.IrBottomUp` and
+        :class:`~lexic.ir.action.control.IrEach` like every other node.
+        """
+        return tuple(IrTuple(key, value) for key, value in self._table.items())
+
+    def rebuild(self, new_children: Sequence[IrSelf]) -> Self:
+        """Reconstruct from replacement dyads — the inverse of :meth:`children`.
+
+        :param new_children: One ``(key, value)`` record per entry.
+        :returns: A new map indexed from the replacement dyads.
+        :raises UnsupportedConstructError: On a duplicate key among them.
+        """
+        return type(self)(*(IrTuple.ensure(dyad, "map dyad") for dyad in new_children))
+
     def resolve(self, n: IrSelf) -> V:
         """Eval-value bound to ``n``, with :data:`IR_DEFAULT` fallback.
 

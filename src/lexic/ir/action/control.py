@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import ClassVar, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.ir.action.mapping import IrMapping
 from lexic.ir.spine.records import IrNamedTuple, IrTuple
 from lexic.ir.spine.scalars import IrStr
 from lexic.ir.spine.spine import IrLeaf, IrNode, IrNone, IrSelf
@@ -36,8 +37,9 @@ class IrEach[Ir_co: IrSelf](IrNamedTuple[IrSelf]):
     """Map ``body`` over the focus's elements — an ``IrTuple`` of the results.
 
     The variadic sibling of :class:`IrAt`: ``n`` is rebound to each element in
-    turn (a tuple-shaped node's elements; a str-leaf's characters, each lifted
-    to :class:`~lexic.ir.base.IrStr`), and like every focus shift the body
+    turn (a tuple-shaped node's elements; a mapping's ``(key, value)`` dyad
+    records; a str-leaf's characters, each lifted to
+    :class:`~lexic.ir.base.IrStr`), and like every focus shift the body
     starts with a clean argument channel.
     """
 
@@ -48,13 +50,15 @@ class IrEach[Ir_co: IrSelf](IrNamedTuple[IrSelf]):
         """Evaluate ``body`` once per element of the focus.
 
         :param d: Dispatcher, forwarded unchanged for sub-dispatch.
-        :param n: The tuple-shaped or str-leaf focus to iterate.
+        :param n: The tuple-shaped, mapping or str-leaf focus to iterate.
         :param _nc: Arguments (not forwarded — a focus shift starts clean).
         :returns: The per-element results as an :class:`IrTuple`.
         :raises UnsupportedConstructError: If the focus has no elements to map.
         """
         if isinstance(n, tuple):
             elements: tuple[IrSelf, ...] = tuple(n)
+        elif isinstance(n, IrMapping):
+            elements = tuple(n.children())
         elif isinstance(n, str):
             elements = tuple(IrStr(c) for c in str(n))
         else:

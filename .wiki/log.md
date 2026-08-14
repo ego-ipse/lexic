@@ -1,5 +1,48 @@
 # Log
 
+## The walk reaches maps and models; transpilation examples ride it (2026-08-14)
+
+And transpilation became a first-class compile product on the templating
+precedent: `transpile(source, target, rules) → Transpiler`
+(`compile/transpile.py`). Rows key **rule names**; the transpile vocabulary
+(`Make`/`Spelled`/`Flat`/`Split`/`Is`, beside `IrRaise` for stated-domain
+refusals) makes an authored table pure data with no class objects in it —
+the bake resolves names against the two artifacts, binds `Make` arguments by
+item-slot order through `__binds__` (declaration order differs:
+defaults-last), and grows/reads hoisted list chains as the inverse of the
+hoist passes. `run` gates completeness (no source class survives into the
+product), membership and fidelity (the emitted text parses under the target,
+back equal to what the transform built). ex16 (json→yaml) is zero functions;
+ex17 (python→c++) keeps exactly one — the declaration pass. Integration:
+one table serves json.gbnf AND json.abnf; generated documents either pass
+all gates or refuse with words.
+
+Three additive spine changes, each closing a place the dispatch machinery
+could not go: `IrMap.children()`/`rebuild()` (constructor-mirroring dyads —
+dispatch tables and reducers now stand under a walk like any value;
+`IrMultiMap` stays a leaf), `IrEach` over a mapping focus (dyad records), and
+`IrBottomUp` tolerating the model layer's deliberate concessions (`None`
+optionals, plain-tuple `models` fields, payload strings/classes — transparent
+tuple, opaque leaves, only real `IrSelf` offered to the table; a changed
+tuple field rebuilds as `IrTuple`). Net effect: a cross-grammar model
+transform is now a plain `IrTypeMap` over model classes with one-line
+combiner bodies, every intermediate threaded through checked construction —
+`getting_started/ex16` (json→yaml) and `ex17` (python→c++) rewrote onto it,
+dropping their hand-rolled walks. Mirror tests extended in
+`tests/unit/lexic/ir/action/`; suite, examples and `run_checks` green.
+
+## flavour-system.md caught up with the def-free emit half (2026-08-14)
+
+The page's `GBNF_ACTIONS` example still showed `IrLambda(_gbnf_encode_literal)`
+rows and a "reach for `IrLambda` when…" list justifying them. Stale: every
+shipped grammar module (`gbnf.py`, `abnf.py`, `ebnf.py`, `json.py`) carries
+zero `IrLambda` and zero `def` — the emit half went pure algebra
+(`IrEscape`/`IrEscapePoint`/`IrSpellable` over `EscapeCodec` data, `IrRadix`
+family, `IrRaise` for declarative refusal). The page now shows the real table
+shape and states the consequence worth knowing: a whole flavour is data — it
+round-trips through the notation (the `.flavour.ir` manifests) and through the
+payload projection, and a decoded flavour emits and compiles.
+
 ## The predictive parse was quadratic; it is linear now
 
 A both-viable loop boundary was settled by running BOTH continuations to

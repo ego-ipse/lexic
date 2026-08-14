@@ -81,6 +81,15 @@ from lexic.compile.templating import (
     spanify,
     template,
 )
+from lexic.compile.transpile import (
+    Flat,
+    Is,
+    Make,
+    Spelled,
+    Split,
+    Transpiler,
+    transpile,
+)
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir import (
@@ -125,10 +134,13 @@ __all__ = [
     "CompiledGrammar",
     "export_module",
     "export_source",
+    "Flat",
     "KEEP",
     "Keep",
     "load_ir",
+    "Is",
     "load_ir_from_path",
+    "Make",
     "MapShape",
     "parse_grammar",
     "parse_instance",
@@ -142,9 +154,13 @@ __all__ = [
     "SpanPair",
     "spanify",
     "Spec",
+    "Spelled",
+    "Split",
     "Template",
     "template",
     "TokenBinding",
+    "transpile",
+    "Transpiler",
     "verify_module",
 ]
 
