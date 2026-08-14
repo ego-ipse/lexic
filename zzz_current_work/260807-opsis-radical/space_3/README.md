@@ -1,7 +1,7 @@
 # space_3 — the instrument, served as one frame
 
 ```bash
-uv run python zzz_current_work/260807-opsis-radical/space_3/serve.py \
+uv run python zzz_current_work/260807-opsis-radical/space_3/serve.py --direct \
     resources/ground_truth/json.gbnf \
     zzz_current_work/260807-opsis-radical/tk/fixtures_long.json 8918
 ```

@@ -26,7 +26,7 @@ for scale in 1 2; do
   # already used — and a fact that passes on the run before it left behind
   # is not a fact. Each scale meets it in the same condition.
   PORT=$((PORT + 1))
-  uv run python "$HERE/serve.py" "$READER" "$DOC" "$PORT" >/tmp/opsis_probe_serve.log 2>&1 &
+  uv run python "$HERE/serve.py" --direct "$READER" "$DOC" "$PORT" >/tmp/opsis_probe_serve.log 2>&1 &
   SERVER=$!
   for _ in $(seq 1 200); do
     curl -s -m 1 -X POST --data "size 800 600" "http://127.0.0.1:$PORT/frame" >/dev/null 2>&1 && break

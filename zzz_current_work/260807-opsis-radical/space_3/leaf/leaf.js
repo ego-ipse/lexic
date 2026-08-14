@@ -110,6 +110,7 @@ function read(said) {
   if (head[0] !== '#FRAME') return null;
   const count = +head[4] || 0;
   const running = head[5] === '1';
+  const pending = head[6] === '1';
   const marks = lines.slice(i + 1, i + 1 + count);
   i += 1 + count;
   const hits = [];
@@ -168,7 +169,7 @@ function read(said) {
     plane.text = said.slice(where, where + plane.chars);
     where += plane.chars;
   }
-  return { font, fills, edges, fonts, tracks, advance, marks, hits, running,
+  return { font, fills, edges, fonts, tracks, advance, marks, hits, running, pending,
            planes: shown, over: above, picks };
 }
 
@@ -704,5 +705,5 @@ window.addEventListener('resize', () => ask(''));
 /* The clock asks as often as it can, and the server paces it in real
    seconds — `ask` serialises, so this self-throttles to the round trip
    instead of lurching at whatever the interval happened to be. */
-setInterval(() => { if (frame && frame.running) ask('tick'); }, 16);
+setInterval(() => { if (frame && (frame.running || frame.pending)) ask('tick'); }, 16);
 ask(asked.get('pin') ? `set pin.span ${asked.get('pin')}` : '');

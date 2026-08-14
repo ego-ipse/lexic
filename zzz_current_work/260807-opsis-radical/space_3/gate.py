@@ -37,7 +37,7 @@ from opsis.frame.marks import Frame  # noqa: E402
 from opsis.frame.tones import EDGES, FONTS, TONES  # noqa: E402
 from opsis.scene import reader_of, ruledefs, staged  # noqa: E402
 from opsis.space import moved  # noqa: E402
-from praxis.ingress import import_payload, land, probe_file  # noqa: E402
+from praxis.ingress import FileSubject, Ingress, import_payload, land, probe_file  # noqa: E402
 from praxis.reading import Reading, as_written, probe, read, turn  # noqa: E402
 from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 from praxis.roots import GRAMMAR as POLICY  # noqa: E402
@@ -293,6 +293,104 @@ def main() -> int:
             and getattr(loaded, "exports", ()) == ("VALUE",),
             executed.words,
         )
+
+    arrivals = Ingress(
+        (
+            AMBIGUOUS_READER,
+            AMBIGUOUS_DOCUMENT,
+            ROOT / "src" / "lexic" / "grammars" / "ebnf.flavour.ir",
+        )
+    )
+    deadline = time.perf_counter() + 2.0
+    while time.perf_counter() < deadline:
+        arrivals.poll()
+        if all(not entry.pending for entry in arrivals.entries):
+            break
+        time.sleep(0.01)
+    mapped = Instrument(None, arrivals)
+    mapped_frame = mapped.special(1400, 850)
+    map_hits = set(hits(mapped_frame, "ingress")) if mapped_frame else set()
+    check(
+        "the landing exposes subjects, every accepted cast, and live values",
+        {
+            "read:0:1:abnf",
+            "read:0:1:ebnf",
+            "value:2:0",
+            "value:2:1",
+        }
+        <= map_hits,
+        " · ".join(sorted(map_hits)),
+    )
+
+    class SlowInstrument(Instrument):
+        @staticmethod
+        def _read(reader: Path, document: Path, flavour: str) -> Session:
+            time.sleep(0.12)
+            return Instrument._read(reader, document, flavour)
+
+    slow_cast = SlowInstrument(None, arrivals)
+    started_cast = slow_cast.navigate("at ingress read:0:1:ebnf")
+    pending_cast = slow_cast.special(1400, 850)
+    check(
+        "a map cast uses an unscoped address and starts in visible PENDING",
+        started_cast
+        and slow_cast.mode == "pending"
+        and pending_cast is not None
+        and any("PENDING" in line for line in words(pending_cast)),
+    )
+    pending_head = ""
+    if pending_cast is not None:
+        pending_head = next(
+            line
+            for line in pending_cast.wire(0, False, slow_cast.working()).splitlines()
+            if line.startswith("#FRAME ")
+        )
+    check(
+        "pending work sets the leaf refresh bit",
+        pending_head.endswith(" 0 1"),
+        pending_head,
+    )
+    deadline = time.perf_counter() + 2.0
+    while slow_cast.mode == "pending" and time.perf_counter() < deadline:
+        time.sleep(0.01)
+        slow_cast.poll()
+    promoted = slow_cast.here
+    check(
+        "the completed cast promotes to its chosen reading without a reload",
+        slow_cast.mode == "reading"
+        and promoted is not None
+        and promoted.reading.flavour == "ebnf"
+        and promoted.reading.faithful,
+    )
+    slow_cast.navigate("at strata on")
+    on_map = slow_cast.mode == "landing"
+    slow_cast.navigate("at ingress back")
+    check(
+        "map travel preserves and restores the reading room",
+        on_map and slow_cast.mode == "reading" and slow_cast.here is promoted,
+    )
+    slow_cast.close()
+    mapped.close()
+
+    def slowly(path: str | Path) -> FileSubject:
+        time.sleep(0.12)
+        return probe_file(path)
+
+    delayed_ingress = Ingress((AMBIGUOUS_READER,), reader=slowly)
+    delayed = Instrument(None, delayed_ingress)
+    delayed_frame = delayed.special(1400, 850)
+    was_pending = delayed_frame is not None and any(
+        "PENDING" in line for line in words(delayed_frame)
+    )
+    deadline = time.perf_counter() + 2.0
+    while delayed_ingress.entries[0].pending and time.perf_counter() < deadline:
+        time.sleep(0.01)
+        delayed.poll()
+    check(
+        "a slow file reader is PENDING, then promotes on the same map",
+        was_pending and delayed_ingress.entries[0].subject is not None,
+    )
+    delayed.close()
 
     print("the register")
     check(

@@ -11,10 +11,12 @@ from __future__ import annotations
 import importlib.util
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from time import monotonic
 
 from lexic.compile import load_ir, parse_module
 from lexic.compile.notation import load_flavour
@@ -27,6 +29,8 @@ from praxis.reading import probe as probe_grammar
 __all__ = [
     "FileProbe",
     "FileSubject",
+    "Ingress",
+    "IngressEntry",
     "Landing",
     "Payload",
     "import_payload",
@@ -156,7 +160,7 @@ def probe_file(path: str | Path) -> FileSubject:
     return FileSubject(source, sid, len(text), text, tuple(answers))
 
 
-def land(paths: list[str | Path], doors: tuple[Path, ...] = ()) -> Landing:
+def land(paths: Sequence[str | Path], doors: tuple[Path, ...] = ()) -> Landing:
     """Probe every named file, or expose supplied doors on an empty landing."""
     if not paths:
         return Landing((), doors)
@@ -224,3 +228,94 @@ def import_payload(subject: FileSubject) -> FileProbe:
         "accepted",
         value=Payload(module_name, module, exports),
     )
+
+@dataclass(slots=True)
+class IngressEntry:
+    """One path while its pure readers run, and after they have answered."""
+
+    path: Path
+    future: Future[tuple[FileSubject, float]]
+    started: float
+    subject: FileSubject | None = None
+    seconds: float = 0.0
+    words: str = ""
+    payload_future: Future[FileProbe] | None = None
+    payload: FileProbe | None = None
+
+    @property
+    def pending(self) -> bool:
+        return self.subject is None and not self.words
+
+    @property
+    def payload_pending(self) -> bool:
+        return self.payload_future is not None and self.payload is None
+
+
+class Ingress:
+    """Worker-owned file ingress whose pending state is visible and pollable."""
+
+    __slots__ = ("_executor", "doors", "entries")
+
+    def __init__(
+        self,
+        paths: Sequence[str | Path],
+        doors: tuple[Path, ...] = (),
+        reader: Callable[[str | Path], FileSubject] = probe_file,
+    ) -> None:
+        self.doors = doors
+        self._executor = ThreadPoolExecutor(
+            max_workers=max(1, min(4, len(paths) or 1)),
+            thread_name_prefix="opsis-ingress",
+        )
+        self.entries = []
+        for named in paths:
+            path = Path(named)
+            started = monotonic()
+            future = self._executor.submit(_timed_probe, reader, path)
+            self.entries.append(IngressEntry(path, future, started))
+
+    def poll(self) -> bool:
+        """Promote completed work; return whether the visible map changed."""
+        changed = False
+        for entry in self.entries:
+            if entry.subject is None and not entry.words and entry.future.done():
+                try:
+                    entry.subject, entry.seconds = entry.future.result()
+                except Exception as refusal:  # noqa: BLE001 — drawn as refusal
+                    entry.words = str(refusal)
+                    entry.seconds = monotonic() - entry.started
+                changed = True
+            if entry.payload_future is not None and entry.payload is None:
+                if entry.payload_future.done():
+                    try:
+                        entry.payload = entry.payload_future.result()
+                    except Exception as refusal:  # noqa: BLE001 — drawn as refusal
+                        entry.payload = FileProbe(
+                            "Python payload", "refused", words=str(refusal)
+                        )
+                    changed = True
+        return changed
+
+    def import_at(self, at: int) -> bool:
+        """Start the explicit payload boundary once; never on classification."""
+        if at < 0 or at >= len(self.entries):
+            return False
+        entry = self.entries[at]
+        if entry.subject is None or entry.payload_future is not None:
+            return False
+        if not any(answer.offered for answer in entry.subject.probes):
+            return False
+        entry.payload_future = self._executor.submit(import_payload, entry.subject)
+        return True
+
+    def close(self) -> None:
+        """Release workers without waiting for deliberately slow ingress."""
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _timed_probe(
+    reader: Callable[[str | Path], FileSubject], path: Path
+) -> tuple[FileSubject, float]:
+    """One worker result with the cost the map must disclose."""
+    started = monotonic()
+    return reader(path), monotonic() - started

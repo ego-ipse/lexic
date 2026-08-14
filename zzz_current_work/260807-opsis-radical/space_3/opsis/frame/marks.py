@@ -420,19 +420,22 @@ class Frame:
                     face=text_face,
                 )
 
-    def wire(self, generation: int, playing: bool = False) -> str:
+    def wire(
+        self, generation: int, playing: bool = False, pending: bool = False
+    ) -> str:
         """The whole frame. Text blocks go LAST, raw, counted in characters.
 
         :param playing: whether the reading is running. The leaf used to keep
             its own answer to that and tick from it, so starting playback
             from the transport — which the leaf never sees — began a
             playback nobody drove. One truth, and it is this one.
+        :param pending: whether server-owned work needs another frame request.
         """
         return "\n".join(
             [
                 *register(),
                 f"#FRAME {self.wide} {self.tall} {generation} {len(self.marks)} "
-                f"{1 if playing else 0}",
+                f"{1 if playing else 0} {1 if pending else 0}",
                 *self.marks,
                 f"#HITS {len(self.hits)}",
                 *self.hits,
