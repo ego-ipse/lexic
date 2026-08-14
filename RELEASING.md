@@ -34,11 +34,11 @@ On a branch created from `main`:
 ## Publish from `main`
 
 From an up-to-date, clean `main`, create a signed tag matching the merged
-`project.version`. For the initial name-reservation release:
+`project.version`. For the initial alpha name-reservation release:
 
 ```bash
-git tag -s v0.0.1 -m "Lexic 0.0.1"
-git push origin v0.0.1
+git tag -s v0.0.1a0 -m "Lexic 0.0.1a0"
+git push origin v0.0.1a0
 ```
 
 The workflow refuses a tag whose commit is not contained in `origin/main` or
