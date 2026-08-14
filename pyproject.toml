@@ -1,6 +1,6 @@
 [project]
 name = "lexic"
-version = "0.1.0"
+version = "0.0.1"
 description = "A grammar-centric framework."
 readme = "README.md"
 authors = [
@@ -8,9 +8,28 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = []
+license = "LGPL-2.1-only"
+license-files = ["LICENSE"]
+keywords = ["grammar", "parser", "parsing", "earley", "gbnf", "abnf", "ebnf"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Lesser General Public License v2 (LGPLv2)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Text Processing :: Linguistic",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/ego-ipse/lexic"
+Repository = "https://github.com/ego-ipse/lexic"
+Issues = "https://github.com/ego-ipse/lexic/issues"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
