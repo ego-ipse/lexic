@@ -360,7 +360,24 @@ def main() -> int:
         and promoted.reading.flavour == "ebnf"
         and promoted.reading.faithful,
     )
-    slow_cast.navigate("at strata on")
+    strata_consumed = slow_cast.navigate("at strata on")
+    if not strata_consumed and promoted is not None:
+        promoted.gesture("at strata on")
+    check(
+        "the reading's ladder gesture opens THE STRATA instead of the file map",
+        not strata_consumed
+        and slow_cast.mode == "reading"
+        and promoted is not None
+        and promoted.main.get("showing") == "strata",
+    )
+    reading_frame = frame({})
+    check(
+        "the reading masthead gives strata and map distinct visible gestures",
+        hits(reading_frame, "strata") == ["on"]
+        and hits(reading_frame, "ingress") == ["map"],
+        f"strata={hits(reading_frame, 'strata')} · map={hits(reading_frame, 'ingress')}",
+    )
+    slow_cast.navigate("at ingress map")
     on_map = slow_cast.mode == "landing"
     slow_cast.navigate("at ingress back")
     check(
@@ -447,10 +464,11 @@ def main() -> int:
     )
 
     print("what the hand can land on")
-    # a hit is answered by the SESSION or by the LEAF, and which is which
+    # a hit is answered by the SESSION, SERVER, or LEAF, and which is which
     # matters: the leaf answers only what a browser must do — open a window —
-    # and everything else has to be a gesture the session knows
+    # while cross-room history and ingress belong to the server instrument
     by_leaf = {"pop", "clone"}
+    by_server = {"ingress"}
     # a handle is not a target: these are taken HOLD of, and what they mean
     # arrives as `spin`, `seam`, `zone` or `move` — gestures the session
     # answers, from a hit nobody ever clicks
@@ -473,9 +491,11 @@ def main() -> int:
     )
     kinds = {h.split(" ")[4] for h in said.hits} - handles
     check(
-        "every hit is answered by the session, or by the leaf opening a window",
-        kinds <= by_session | by_leaf,
-        " ".join(sorted(kinds - by_session - by_leaf) or ["all answered"]),
+        "every hit is answered by the session, server, or leaf",
+        kinds <= by_session | by_server | by_leaf,
+        " ".join(
+            sorted(kinds - by_session - by_server - by_leaf) or ["all answered"]
+        ),
     )
     check(
         "and the leaf answers only what a browser must do",

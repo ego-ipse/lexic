@@ -397,3 +397,35 @@ are tokenizer attachment, relation directives/vocabulary, the template room,
 duplicate-key explanations, and resolver-specific promises. Runtime module
 binding and twin/runtime-class distinction were already closed by the full
 artefact-family gate.
+
+## 2026-08-15 — THE STRATA and THE MAP are distinct travel
+
+The landing-map slice had intercepted the reading room's existing
+`at strata on` gesture in the server and sent it to THE MAP. That made the
+space_2 ladder appear replaced even though `praxis.strata`, its visited and
+unvisited rung cards, `Session._rung()`, and the metagrammar reading were all
+still present. The gate encoded the interception, while its strata and rung
+checks called the composer and session directly and therefore missed the dead
+visible route.
+
+The server no longer consumes a strata gesture. The ladder chip retains its
+verbatim pairing and again opens THE STRATA; its unvisited metagrammar card
+builds and enters the metagrammar reading on demand, and rung zero returns to
+the original reading. A separate adjacent `⌗ map` control emits
+`at ingress map`; BACK restores the exact reading room from the server-owned
+history stack.
+
+The executable gate now rejects a server-consumed strata gesture and requires
+distinct visible `strata/on` and `ingress/map` hits. The browser probe follows
+the actual hit rectangles through reading → strata → metagrammar → strata →
+original reading, then enters THE MAP separately and comes BACK. This closes
+the route the earlier component-level assertions could not see. No Lexic
+source changed: the fault and its fix are Opsis navigation topology.
+
+### Verification
+
+Ruff passed, Pyright reported 0 errors and 0 warnings, and the executable gate
+reported 24 gestures, 13 keys, 0 failures. The browser probe reported zero
+failures at both 1× and 2×, including the complete visible metagrammar and map
+round-trips. The probe used ports 8928 and 8929; ports 8917 and 8918 were not
+touched.

@@ -103,14 +103,16 @@ room** (the four moments, binding, machine, verdicts), the **transpile room**
 lexic value), the **artefact room** (family + witnesses + load-back), the
 **generation room** (mask/push/accepts — deferred, §9).
 
-**The map is the landing** — the strata generalized, reached by its own
-gesture and passed through, not lived in. Its rows are **roles, not kinds**:
-a document lane, a reader lane, a value lane, an artefact lane, and the
-instrument's own lane. Artefact families fold by default into one capsule
-per subject and expand only in the artefact room — never five artefact nodes
-per subject on the map. The map frame sits in the perf gate with its own
-budget at the subject count the design targets; a budget nothing measures is
-a wish.
+**The map is the landing; THE STRATA remains the climb** — two projections
+with separate gestures, neither a replacement for the other. The ladder chip
+opens THE STRATA and keeps every climbed reading plus the unvisited next rung,
+including the metagrammar, navigable. The adjacent `⌗ map` enters the landing
+and is passed through, not lived in. Its rows are **roles, not kinds**: a
+document lane, a reader lane, a value lane, an artefact lane, and the
+instrument's own lane. Artefact families fold by default into one capsule per
+subject and expand only in the artefact room — never five artefact nodes per
+subject on the map. The map frame sits in the perf gate with its own budget at
+the subject count the design targets; a budget nothing measures is a wish.
 
 **Licences are computed, in two tiers, and the screen says which.** A cheap
 predicate (type/shape) runs eagerly and drives what the map OFFERS; an

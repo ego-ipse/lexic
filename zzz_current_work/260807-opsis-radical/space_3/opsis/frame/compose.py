@@ -609,7 +609,8 @@ def _masthead(
     # itself off at "15,769 chars i…"
     said.text(at, 22, "fsub", sub)
     at += runs("fsub", sub) + 16
-    _ladder(said, it, at)
+    at = _ladder(said, it, at)
+    _map(said, at)
     # #ladder is `flex: 1` — it takes what is left, so the dock and the
     # verdict sit at the RIGHT edge. Packing them beside the chip put five
     # chips in the middle of a bar that is mostly empty on the right.
@@ -654,6 +655,16 @@ def _ladder(said: Frame, it: Staged, at: float) -> float:
     said.ring(at, 8, wide, 26 - 8, "warm")
     said.text(at + 8, 21, "warm", word, wide - 14, face="chip")
     said.hit(at, 8, wide, 18, "strata", "on")
+    return at + wide + 14
+
+
+def _map(said: Frame, at: float) -> float:
+    """The fifth travel move — distinct from the ladder it once displaced."""
+    word = "⌗ map"
+    wide = runs("chip", word) + 16
+    said.ring(at, 8, wide, 18, "hair")
+    said.text(at + 8, 21, "cool", word, wide - 14, face="chip")
+    said.hit(at, 8, wide, 18, "ingress", "map")
     return at + wide + 14
 
 

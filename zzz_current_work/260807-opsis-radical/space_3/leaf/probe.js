@@ -269,8 +269,10 @@ async function probe() {
   /* 10b. THE TWO CONTEXT CHIPS REALLY RECEIVE A CLICK. Both sit over a real
      textarea, so seeing their mark is not enough: without glazing the click
      belongs to the textarea and no popup opens. Exercise the DOM path. */
-  async function clickHit(kind) {
-    const hit = (frame.hits || []).find((h) => h.kind === kind);
+  async function clickHit(kind, goes) {
+    const hit = (frame.hits || []).find(
+      (h) => h.kind === kind && (goes === undefined || h.goes === goes),
+    );
     if (!hit) return false;
     const paperBox = paper.getBoundingClientRect();
     const x = paperBox.left + hit.x + hit.w / 2;
@@ -313,6 +315,38 @@ async function probe() {
        railDoor ? railDoor.goes : 'no rule door in rail');
   shut = frame.hits.find((h) => h.kind === 'shut');
   if (shut) { await ask(`at shut ${shut.goes}`); await settle(); }
+
+  /* 10c. THE LADDER WAS NEVER THE FILE MAP. Exercise the visible route, not
+     just its session handler: reading → strata → metagrammar → strata →
+     original reading. The map is the adjacent fifth travel move and BACK
+     must restore the room from which it was entered. */
+  const strataDoor = (frame.hits || []).some(
+    (h) => h.kind === 'strata' && h.goes === 'on',
+  );
+  const enteredStrata = await clickHit('strata', 'on');
+  const strataShown = frame.marks.some((m) => m.endsWith(' THE STRATA'));
+  const upward = (frame.hits || []).find((h) => h.kind === 'rung');
+  const climbed = upward ? await clickHit('rung', upward.goes) : false;
+  const metagrammarShown = frame.marks.some((m) => m.includes('metagrammar'));
+  const reopenedStrata = await clickHit('strata', 'on');
+  const downward = (frame.hits || []).find((h) => h.kind === 'rung');
+  const descended = downward ? await clickHit('rung', downward.goes) : false;
+  const originalShown = frame.marks.some((m) => m.includes('fixtures_long.json'));
+  fact('the visible strata route climbs to the metagrammar and returns',
+       strataDoor && enteredStrata && strataShown && climbed && metagrammarShown
+       && reopenedStrata && descended && originalShown,
+       `${upward ? upward.goes : 'no up rung'} → ${downward ? downward.goes : 'no down rung'}`);
+
+  const mapDoor = (frame.hits || []).some(
+    (h) => h.kind === 'ingress' && h.goes === 'map',
+  );
+  const enteredMap = await clickHit('ingress', 'map');
+  const mapShown = frame.marks.some((m) => m.endsWith(' THE MAP'));
+  const backed = await clickHit('ingress', 'back');
+  const roomRestored = frame.marks.some((m) => m.includes('fixtures_long.json'));
+  fact('the visible map gesture is distinct and BACK restores the reading',
+       mapDoor && enteredMap && mapShown && backed && roomRestored);
+
   /* EVERY OTHER FACE. The mono plane is checked above because a highlight
      sits under its characters; nothing has ever checked the sans faces, and
      the frame wraps the hint, right-aligns the verdict and packs every head

@@ -238,14 +238,16 @@ dispatch, refusals with words, no silent picks anywhere in the stack.
 
 ## 6. The vision for the interface
 
-**The landing is the map** — the strata generalized. Rows are ROLES, not
-kinds: a document lane, a reader lane, a value lane, an artefact lane, and
-the instrument's own lane. Artefact families fold into one capsule per
-subject, expanding only in their room. Offered relations are drawn as doors;
-a subject with two accepting readers shows both and waits for the cast. With
-no files given, the map is what greets you, holding doors to fixtures/ and
-generated/. The strata button of space_2 becomes the movable `⌗` — the map
-is reachable from anywhere and passed through, not lived in.
+**The landing is the map; THE STRATA remains the climb.** Rows on the map are
+ROLES, not kinds: a document lane, a reader lane, a value lane, an artefact
+lane, and the instrument's own lane. Artefact families fold into one capsule
+per subject, expanding only in their room. Offered relations are drawn as
+doors; a subject with two accepting readers shows both and waits for the cast.
+With no files given, the map is what greets you, holding doors to fixtures/
+and generated/. The space_2 ladder chip continues to open THE STRATA, where
+visited and unvisited rungs—including the metagrammar—are displayed and
+travelled. The adjacent `⌗ map` is the distinct fifth travel move, reachable
+from every reading and passed through, not lived in.
 
 **Rooms, one per relation kind.** The **reading room** — space_2's five
 facets, unchanged; it is the thing that works and the redesign costs it

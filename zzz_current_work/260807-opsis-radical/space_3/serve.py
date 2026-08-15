@@ -198,9 +198,6 @@ class Instrument:
     def navigate(self, gesture: str) -> bool:
         """Apply map/value/history gestures; return whether one was consumed."""
         words = gesture.strip().split()
-        if self.ingress is not None and words == ["at", "strata", "on"]:
-            self._enter("landing")
-            return True
         if len(words) != 3 or words[:2] != ["at", "ingress"]:
             return False
         action, *arguments = words[2].split(":")
