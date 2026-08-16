@@ -53,6 +53,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
     IrSingleton,
+    IrSpan,
     IrStr,
     IrTuple,
     IrTypeMap,
@@ -163,12 +164,26 @@ class MapShape(IrNamedTuple[str, str, str, str]):
         )
 
 
-class SpanEntry(IrNamedTuple[str, str]):
-    """One extracted ``key → value`` pair, both as raw document spans."""
+class SpanEntry(IrNamedTuple[str, str, IrSpan, IrSpan]):
+    """One extracted ``key → value`` pair — the raw text, and where it was.
 
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    The offsets are the parse's own: the PDA route reads them off the
+    kernel's frame, and the tree route accumulates them over the leaves
+    `_subtree_text` already walks. Neither re-finds a span by searching the
+    document for its text, which is ambiguous the moment a document repeats
+    itself — the first ``"name"`` and the fifth are the same string.
+
+    :ivar key: The key's raw span text.
+    :ivar value: The value's raw span text.
+    :ivar key_at: Where ``key`` sits in the document, in code units.
+    :ivar value_at: Where ``value`` sits in the document, in code units.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("key_at", "value_at")
     key: str
     value: str
+    key_at: IrSpan = IrSpan(0, 0)
+    value_at: IrSpan = IrSpan(0, 0)
 
 
 class SpanLevel(IrSeq[SpanEntry]):
@@ -263,9 +278,14 @@ def _reaching(grammar: IrAst, entry: str) -> frozenset[str]:
     return frozenset(out)
 
 
-def _span_entry(key: str = "", value: str = "") -> SpanEntry:
-    """The entry clone's ctor — both captured raw spans as one record."""
-    return SpanEntry(key, value)
+def _span_entry(
+    key: str = "",
+    value: str = "",
+    key_at: IrSpan = IrSpan(0, 0),
+    value_at: IrSpan = IrSpan(0, 0),
+) -> SpanEntry:
+    """The entry clone's ctor — both captured raw spans, and where they were."""
+    return SpanEntry(key, value, key_at, value_at)
 
 
 def _collect(**fields: object) -> SpanLevel:
@@ -514,14 +534,21 @@ def _entry_clone(view: _ShapeView, tm: IrBottomUp, sk: IrBottomUp) -> IrRule:
 
 
 def _entry_body(view: _ShapeView) -> ModelBody:
-    """The entry clone's fold body: two raw-span fields + the pair ctor."""
+    """The entry clone's fold body: the two raw spans, text AND position.
+
+    Four fields over TWO slots: a field is a (slot, mode) pair, so the same
+    slot read in ``text`` mode and in ``span`` mode is what the entry says
+    and where it said it — one capture, both halves, no second pass.
+    """
     arm, shape = view.entry_arm(), view.shape
+    bound = (
+        ("key", view.entry_bind(shape.key_field)),
+        ("value", view.entry_bind(shape.value_field)),
+    )
     fields = tuple(
-        FieldFold(bind.item, "text", name, int(arm[bind.item].quantifier.lo))
-        for name, bind in (
-            ("key", view.entry_bind(shape.key_field)),
-            ("value", view.entry_bind(shape.value_field)),
-        )
+        FieldFold(bind.item, mode, name + suffix, int(arm[bind.item].quantifier.lo))
+        for mode, suffix in (("text", ""), ("span", "_at"))
+        for name, bind in bound
     )
     return ModelBody("sequence", IrLambda(_span_entry), len(arm), fields)
 

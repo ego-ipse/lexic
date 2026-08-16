@@ -23,6 +23,17 @@ from lexic.generate import generate
 from tests.addressed_helpers import check_addressed
 from tests.paths import GROUND_TRUTH as _GRAMMAR_DIR
 
+BUDGET = {
+    "suppress_health_check": [HealthCheck.too_slow],
+    "deadline": None,
+}
+"""No per-example deadline: the FIRST example of a grammar pays the engine's
+one-off table compilation for it (measured 267 ms for japanese under parallel
+load, against hypothesis's 200 ms default), and that cost lands inside the
+timed window however early the fixture warms `compile_from_path`. The
+timing gates live in `tests/performance/`, which is where a real regression
+in `emit_addressed` would be caught."""
+
 
 def addressed(grammar: str, specs: dict, seed: int) -> None:
     """Generate at ``seed``, parse, and assert the addressed-emission contract.
@@ -39,42 +50,42 @@ def addressed(grammar: str, specs: dict, seed: int) -> None:
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
-@settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow])
+@settings(**BUDGET, max_examples=30)
 def test_arithmetic_addressed(seed: int, all_grammar_specs: dict) -> None:
     """Arithmetic documents address cleanly for random seeds."""
     addressed("arithmetic", all_grammar_specs["arithmetic"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
-@settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+@settings(**BUDGET, max_examples=20)
 def test_json_ws_addressed(seed: int, all_grammar_specs: dict) -> None:
     """JSON-with-whitespace exercises noise rules that spell nothing."""
     addressed("json_ws", all_grammar_specs["json_ws"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
-@settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+@settings(**BUDGET, max_examples=20)
 def test_json_arr_addressed(seed: int, all_grammar_specs: dict) -> None:
     """JSON-array exercises repeated fields, including empty ones."""
     addressed("json_arr", all_grammar_specs["json_arr"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
-@settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+@settings(**BUDGET, max_examples=20)
 def test_japanese_addressed(seed: int, all_grammar_specs: dict) -> None:
     """Japanese is the wide-glyph case: spans stay in CODE UNITS (D1)."""
     addressed("japanese", all_grammar_specs["japanese"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
-@settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+@settings(**BUDGET, max_examples=20)
 def test_list_addressed(seed: int, all_grammar_specs: dict) -> None:
     """List documents address cleanly for random seeds."""
     addressed("list", all_grammar_specs["list"], seed)
 
 
 @given(seed=st.integers(min_value=0, max_value=2**32 - 1))
-@settings(max_examples=20, suppress_health_check=[HealthCheck.too_slow])
+@settings(**BUDGET, max_examples=20)
 def test_chess_addressed(seed: int, all_grammar_specs: dict) -> None:
     """Chess documents address cleanly for random seeds."""
     addressed("chess", all_grammar_specs["chess"], seed)

@@ -36,6 +36,7 @@ from lexic.parsing.pda.compiler.flatten import (
     M_GTEXT,
     M_MODEL,
     M_MODELS,
+    M_SPAN,
     M_TEXT,
     MODE_CODE,
     OP_CC,
@@ -131,6 +132,7 @@ def test_mode_code_matches_bind_modes_order():
         M_GTEXT,
         M_MODEL,
         M_MODELS,
+        M_SPAN,
     ]
 
 

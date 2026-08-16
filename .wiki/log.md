@@ -1,5 +1,35 @@
 # Log
 
+## Products carry their correspondences: templating offsets, the transpile crossing (2026-08-16)
+
+Two products that computed a correspondence and dropped it now hand it back.
+
+**Templating.** `SpanEntry` carries `key_at`/`value_at` beside its text — the
+positions the parse already had, never a re-find by string search, which is
+ambiguous the moment a document repeats itself (the first `"name"` and the
+fifth are the same string). A new fold mode, `span`, is how: a field is a
+(slot, mode) pair, so the entry binds its two slots TWICE — once in `text`
+mode, once in `span` — and one capture yields both halves. Each route serves
+it from what it already held: the PDA reads the frame offsets it computes the
+span text from, and the tree route accumulates them over the leaves
+`_subtree_text` already walks. `ModelFold.wants_spans` means no ordinary
+grammar pays a pass for it. A parity gate pins the two routes to each other.
+
+**Transpile.** `Transpiler.cross()` returns a `Crossing` — both sides'
+addressed emissions and the `IrOrigins` between them — and `run` is that,
+keeping only the text. The map the walk holds is between OBJECTS, because
+`IrBottomUp` transforms a shared subtree once and splices it: in the shipped
+json→yaml example, 178 source model occurrences stand on 71 objects, one of
+them reached 27 times. So the crossing states what is known — one origin per
+(built, source) pair the object map licenses — and where a source value stands
+in several places it names ALL of them. One value, many occurrences, wash them
+all; a product that named one would be a silent pick. A built model the table
+constructed inside a body has no source object and says so with an empty set.
+
+`IrBottomUp._sink()` is the seam that made this keep-what-you-computed rather
+than a second walk: `_run` already fills `id(source) -> result` to do its job,
+and a driver that wants it overrides one method — the `_descend` precedent.
+
 ## Addressed emission — a model says where every part of it landed (2026-08-16)
 
 `ir/text/spans.py` names what was missing: `IrStep`/`IrAddress` (an

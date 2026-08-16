@@ -50,14 +50,19 @@ from typing import Callable, ClassVar, Self, Sequence, cast
 from lexic.compile.artifact import CompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
+    Field,
     IrAction,
+    IrAddress,
     IrBottomUp,
+    IrEmission,
     IrInt,
     IrLambda,
     IrLeaf,
     IrMap,
     IrNamedTuple,
     IrNone,
+    IrOrigin,
+    IrOrigins,
     IrRuleRef,
     IrSelf,
     IrSingleton,
@@ -69,7 +74,7 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 
-__all__ = ["Flat", "Is", "Make", "Spelled", "Transpiler", "transpile"]
+__all__ = ["Crossing", "Flat", "Is", "Make", "Spelled", "Transpiler", "transpile"]
 
 
 class Spelled(IrLeaf[IrSelf, IrStr], metaclass=IrSingleton):
@@ -256,6 +261,119 @@ class _Grown(IrNamedTuple[type, type, IrSelf]):
         return self.head(**dict(zip(names, (items[0], rest))))
 
 
+def _model_addresses(
+    root: GrammarModel, emission: IrEmission
+) -> dict[int, list[IrAddress]]:
+    """Every MODEL occurrence's address, grouped by the object standing there.
+
+    The grouping IS the sharing: a list of length one is a value that stands
+    in one place, and a longer one is a value the spine reached more than
+    once. Non-model parts (literals, repeated-field tuples) are left out —
+    the transform's table is keyed by model class, so only models cross.
+
+    :param root: The model the emission was taken from.
+    :param emission: Its addressed emission.
+    :returns: ``id(object) -> its addresses``, in document order.
+    """
+    out: dict[int, list[IrAddress]] = {}
+    for extent in emission.extents:
+        occurrence = root.occurrence(extent.address)
+        if isinstance(occurrence, GrammarModel):
+            out.setdefault(id(occurrence), []).append(extent.address)
+    return out
+
+
+def _origins(
+    model: GrammarModel,
+    read: IrEmission,
+    product: GrammarModel,
+    emitted: IrEmission,
+    trace: dict[int, object],
+) -> IrOrigins:
+    """Pair each built occurrence with every source occurrence it can claim.
+
+    The walk's map is ``id(source) -> built``; inverted, it says which source
+    OBJECTS produced a given built object. Each of those objects then stands
+    at one or more source addresses, and every one of them is emitted — the
+    unique case is a single pair, and the shared case is the set, stated
+    rather than chosen from.
+
+    :param model: The source model.
+    :param read: Its addressed emission.
+    :param product: The built model.
+    :param emitted: Its addressed emission.
+    :param trace: The walk's ``id(source object) -> built object`` map.
+    :returns: The origins, in the product's document order.
+    """
+    sources = _model_addresses(model, read)
+    built_from: dict[int, list[int]] = {}
+    for source_id, made in trace.items():
+        if source_id in sources:
+            built_from.setdefault(id(made), []).append(source_id)
+    out: list[IrOrigin] = []
+    for extent in emitted.extents:
+        occurrence = product.occurrence(extent.address)
+        if not isinstance(occurrence, GrammarModel):
+            continue
+        for source_id in built_from.get(id(occurrence), ()):
+            out.extend(IrOrigin(extent.address, at) for at in sources[source_id])
+    return IrOrigins(*out)
+
+
+class _Tracked(IrBottomUp):
+    """The transform walk, keeping the source→built map ``_run`` already fills.
+
+    Keep-what-you-computed: the driver builds ``id(source) -> built`` to do
+    its job and drops it. ``sink`` is per-instance (the ``IrCachingTuple``
+    field contract), so one walk object is one run.
+    """
+
+    sink: dict = Field(default_factory=dict)
+
+    def _sink(self) -> dict:
+        """Hand ``_run`` the map this walk holds, rather than a fresh one."""
+        return self.sink
+
+
+class Crossing(IrNamedTuple[IrEmission, IrEmission, IrOrigins]):
+    """What one transpile run crossed — both documents, addressed, and the map.
+
+    The correspondence the walk holds is between OBJECTS, because
+    :class:`~lexic.ir.action.walk.IrBottomUp` transforms a shared subtree once
+    and splices the result everywhere it appeared. A source model shares
+    heavily (in ``ex16``'s document, 178 model occurrences stand on 71
+    objects, one of them reached 27 times), so "which occurrence did this come
+    from" has no single answer, and inventing one would be a silent pick.
+
+    :attr:`origins` therefore says exactly what is known: one entry per
+    ``(built occurrence, source occurrence)`` pair the object map licenses.
+    A built occurrence whose source object stands in one place has ONE entry
+    — the unique case, an ordinary occurrence↔occurrence correspondence. One
+    whose source object stands in several has one entry EACH, so the product
+    states the set and a consumer washing a selection washes all of them,
+    which is what one value standing in many places means.
+
+    :ivar source: The source model's addressed emission.
+    :ivar product: The product's — its ``text`` is what ``run`` returns.
+    :ivar origins: Built address ↔ source address, in the product's order.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ("source", "product", "origins")
+    source: IrEmission
+    product: IrEmission
+    origins: IrOrigins
+
+    def sources_of(self, address: IrAddress) -> tuple[IrAddress, ...]:
+        """Every source occurrence a built occurrence corresponds to.
+
+        :param address: An address in the product.
+        :returns: The source addresses — one for the unique case, several
+            where the source value stands in several places, none where the
+            built occurrence has no source (a literal the table introduced).
+        """
+        return tuple(o.source for o in self.origins if o.address == address)
+
+
 class Transpiler(IrNamedTuple[CompiledGrammar, CompiledGrammar, IrBottomUp]):
     """The retained transpilation product — two grammars and the baked walk.
 
@@ -278,11 +396,23 @@ class Transpiler(IrNamedTuple[CompiledGrammar, CompiledGrammar, IrBottomUp]):
         :raises UnsupportedConstructError: When the product is not a model,
             or a source class survived into it (a hole in the table).
         """
+        return self._traced(model)[0]
+
+    def _traced(self, model: GrammarModel) -> tuple[GrammarModel, dict[int, object]]:
+        """The transform, keeping the object map the walk fills to do it.
+
+        A fresh :class:`_Tracked` per call rather than a tracked walk on the
+        artifact: the map is per-run state, and an artifact is shared.
+
+        :param model: A model parsed under :attr:`source`.
+        :returns: ``(product, {id(source object): built object})``.
+        """
+        walk = _Tracked(actions=self.walk.actions, default=self.walk.default)
         product = GrammarModel.ensure(
-            self.walk.apply(model), "transpile: the transform's product"
+            walk.apply(model), "transpile: the transform's product"
         )
         self._complete(product)
-        return product
+        return product, dict(walk.sink)
 
     def run(self, text: str, resolve: Resolver | None = None) -> str:
         """Parse under the source, transform, emit — the whole path, gated.
@@ -295,16 +425,35 @@ class Transpiler(IrNamedTuple[CompiledGrammar, CompiledGrammar, IrBottomUp]):
             text refuses under the target (not in its language), or it
             parses back as a DIFFERENT value than the transform built.
         """
-        product = self.apply(self.source.parse(text, resolve))
-        out = product.to_text()
-        again = self.target.parse(out)
+        return self.cross(text, resolve).product.text
+
+    def cross(self, text: str, resolve: Resolver | None = None) -> Crossing:
+        """The whole path, gated, WITH the correspondences it computed.
+
+        :meth:`run` is this, keeping only the text. The correspondences are
+        always-on in the export-gate tradition — a run that computed them and
+        dropped them is what this ask exists to stop — and none of it is a
+        second traversal: the object map falls out of the walk, and each
+        side's addresses out of its own emission.
+
+        :param text: A document in the source grammar's language.
+        :param resolve: The source parse's ambiguity resolver, if any.
+        :returns: Both addressed emissions and the origins between them.
+        :raises UnsupportedConstructError: As :meth:`run` — same gates, same
+            order; the crossing is built only once they pass.
+        """
+        model = self.source.parse(text, resolve)
+        product, trace = self._traced(model)
+        emitted = product.emit_addressed()
+        again = self.target.parse(emitted.text)
         if again != product:
             raise UnsupportedConstructError(
                 "transpile: the emitted text parses back as a different value "
                 "than the transform built — the target grammar reads "
                 f"{type(again).__name__} differently than it was written"
             )
-        return out
+        read = model.emit_addressed()
+        return Crossing(read, emitted, _origins(model, read, product, emitted, trace))
 
     def _complete(self, product: GrammarModel) -> None:
         """Refuse any model in the product that is not the target's.

@@ -19,7 +19,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.spine.records import IrNamedTuple
 from lexic.ir.spine.spine import IrLeaf
 
-BIND_MODES: tuple[str, ...] = ("text", "gtext", "model", "models")
+BIND_MODES: tuple[str, ...] = ("text", "gtext", "model", "models", "span")
 """The fold-mode vocabulary — how a bound kid slot becomes a field value.
 
 - ``text``: terminal atom (literal/char class); the slot's consumed characters.
@@ -27,6 +27,12 @@ BIND_MODES: tuple[str, ...] = ("text", "gtext", "model", "models")
   matched nothing.
 - ``model``: single sub-model (rule ref, or ref-bearing group, ``hi == 1``).
 - ``models``: list of sub-models (same atoms with ``hi > 1`` or unbounded).
+- ``span``: the slot's :class:`~lexic.ir.text.spans.IrSpan` — WHERE it was
+  consumed, in the document's own code units, rather than what it says.
+  ``compute_binding`` never produces it: a generated field is what a rule
+  MEANS, and a position is not. It exists for a fold that is asking where
+  (templating's raw-span capture), so the position the parse already had is
+  handed back instead of being re-found.
 """
 
 

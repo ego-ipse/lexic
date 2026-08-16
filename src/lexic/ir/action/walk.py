@@ -196,6 +196,25 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
             return node
         return ()
 
+    def _sink(self) -> dict[int, IrSelf]:
+        """The per-run result memo — an overridable strategy seam.
+
+        :meth:`_run` fills this with ``id(source node) -> its result``, which
+        IS the walk's source→product correspondence; it is discarded when the
+        run ends. A driver that wants to KEEP what it computed overrides this
+        to hand back a map it also holds. Mirrors the overridable
+        :meth:`_descend` seam.
+
+        Note what the map can and cannot say: the walk transforms a shared
+        object ONCE, so this is an OBJECT correspondence, never an occurrence
+        one. A consumer needing occurrences must pair it with an addressed
+        emission of each side and accept that one source object may stand in
+        several places.
+
+        :returns: A fresh empty memo.
+        """
+        return {}
+
     def _run(self, root: IrNode) -> Ir_co:
         """Post-order drive: transform children, rebuild, act — iteratively.
 
@@ -210,7 +229,7 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
         """
         identity = isinstance(self.default, IrThis)
         bodies: dict[type, IrSelf | None] = {}
-        done: dict[int, IrSelf] = {}
+        done: dict[int, IrSelf] = self._sink()
         stack: list[tuple[IrSelf, Sequence[IrSelf] | None]] = [(root, None)]
         while stack:
             node, kids = stack.pop()

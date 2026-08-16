@@ -93,7 +93,7 @@ DISPATCH_EMPTY = object()
 empty (nullable) arm — on a selector miss the runtime consumes nothing and
 produces nothing, exactly as the empty arm's zero-item frame would."""
 
-M_TEXT, M_GTEXT, M_MODEL, M_MODELS = 0, 1, 2, 3
+M_TEXT, M_GTEXT, M_MODEL, M_MODELS, M_SPAN = 0, 1, 2, 3, 4
 """Int-coded field-bind modes (:data:`~lexic.ir.spine.bind.BIND_MODES`, in order) —
 what :attr:`FlatClone.fields` carries so the fused build never compares mode
 strings."""
@@ -103,6 +103,7 @@ MODE_CODE = {
     "gtext": M_GTEXT,
     "model": M_MODEL,
     "models": M_MODELS,
+    "span": M_SPAN,
 }
 """Bind-mode string → flat int code."""
 
