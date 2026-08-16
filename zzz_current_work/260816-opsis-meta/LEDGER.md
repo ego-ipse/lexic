@@ -2,6 +2,41 @@
 
 Status only; the position lives in VISION.md.
 
+## 2026-08-16 — mock set COMPLETE; BUILD.md written; T8 speed in flight
+
+`mock/generation_strata.html` closes the set (S1 generation: witnessed
+sample with explicit whitespace + the now-real refusals; S2 THE STRATA
+at mass: per-rung numbers and depth bands, the dashed fixpoint rung,
+the instrument's own lane — the altitude projection drawn). Every
+ROOMS.md room now has its photograph. BUILD.md written: package
+skeleton, stage order S0–S8 (each porting space_3's gate facts +
+adding the assertions that would have caught what it replaces),
+verbatim-vs-anew inventory, open items at build start. T8 (speed
+lever, semantics-preserving scope) measuring/implementing in parallel.
+
+## 2026-08-16 — branch opsis_v2; effort files committed; speed survey
+
+The user created `opsis_v2` (on merged main, d231664); the reviewer's
+own `opsis` branch was overstep and is deleted; space_3 + this effort
+are committed on opsis_v2 as `ffc9992` (84 files; caches excluded).
+
+Parse-speed survey (question, not work; two independent answers
+CONVERGE): the one 30-50%-shaped lever is MODEL COUNT, and it is
+formulation-bound — measured completions/char: json.gbnf 1.02 ·
+markdown 0.62 · chess 0.45 · c.gbnf 0.23 (4.4× spread from which rules
+mint classes); interning does NOT save per-complete extraction (62
+completes → 18 objects, 62 extractions; kernel.py:726, build.py:132+,
+admission.py:108-134). Reviewer's converging half: the minting mass IS
+largely the noise/trivial tier (1,403/12,230 ε spans; Ws ×7 in 27
+chars), the PDA already computes-and-discards the offsets a span-backed
+noise leaf needs (3c), and the P3/lexruns substrate exists. Shared
+constraint: cutting minting changes what a parse RETURNS — a design.
+Small measured: eager per-frame ENDS lists read by ~1/39 rules,
+gateable on wants_spans (T3 precedent). Negatives recorded: _settle
+cold on corpus (0-5 calls), selector scan ≤7 arms, list→flat-int frames
+unmeasured and doctrine-warned. Already done: intern memo, lazy sinks,
+conditional _settle. Instrument for any attempt: T6's interleaved A/B.
+
 ## 2026-08-16 — zzz untracked on the user's go (`24130a7`)
 
 All 409 tracked zzz_current_work files removed from the index only
