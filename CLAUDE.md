@@ -193,12 +193,13 @@ src/lexic/
       nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)
       operators.py                  Operator-algebra nodes — the operator family, between spine and nodes
       order.py                      RuleOrder — deterministic start-first ordering of grammar rules
-    text/                         How characters and documents are spelled
+    text/                         How characters and documents are spelled — and where
       __init__.py                the group's package marker; the façade is the import surface
       encodings.py                  Encoding family — the codec that gives a char class's ordinals meaning
       escapes.py                    EscapeCodec — the flavour's emit-side spelling of canonical text
       layout.py                     Layout algebra — width-aware document combinators on the record spine
       pipeline.py                   Token pipeline — normalizers, pretokens, and the order they run in
+      spans.py                      Addresses and spans — WHERE an occurrence stands, and what it covers
       tokenizer.py                  Tokenizer — a vocabulary, and the segmenters that apply it
   parsing/
     __init__.py                    public API: parse_reduced/parse_model products + the Earley toolkit

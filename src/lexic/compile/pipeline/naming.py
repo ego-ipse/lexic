@@ -95,9 +95,10 @@ RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(
         # field shadowing the IrSelf/tuple protocol or a GrammarModel method.
         # The nine spine-protocol names (``bind``/``bound``/``bound_type``/
         # ``children``/``count``/``ensure``/``eval``/``index``/``rebuild``)
-        # shadow the inherited IrSelf/tuple protocol; ``dump`` and
-        # ``emit_parts`` are GrammarModel methods. Only these curated names
-        # are reserved — an arbitrary ``model_*`` name unmangles.
+        # shadow the inherited IrSelf/tuple protocol; ``dump``,
+        # ``emit_parts`` and ``emit_addressed`` are GrammarModel methods.
+        # Only these curated names are reserved — an arbitrary ``model_*``
+        # name unmangles.
         "bind",
         "bound",
         "bound_fields",
@@ -105,11 +106,13 @@ RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(
         "children",
         "count",
         "dump",
+        "emit_addressed",
         "emit_parts",
         "ensure",
         "eval",
         "fast_construct",
         "index",
+        "occurrence",
         "rebuild",
         "repr_args",
         "semantic_dump",

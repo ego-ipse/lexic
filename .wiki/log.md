@@ -1,5 +1,36 @@
 # Log
 
+## Addressed emission — a model says where every part of it landed (2026-08-16)
+
+`ir/text/spans.py` names what was missing: `IrStep`/`IrAddress` (an
+occurrence's path), `IrSpan` (half-open, code units), and the two
+correspondence shapes `IrExtent` (address ↔ span) and `IrOrigin` (address ↔
+address). `GrammarModel.emit_addressed()` returns an `IrEmission` — the text
+`to_text()` gives, plus one extent per emitted part — and
+`GrammarModel.occurrence(address)` reads an address back to what stands
+there. Both run off the same `_sub_parts` definition, so the contract has one
+definition and two directions. The family is in the notation vocabulary, so
+an address travels like any other IR value.
+
+Why an address rather than a node reference: **the spine shares equal nodes
+by identity.** In `{"a": 1, "b": 1}` under `json.gbnf` one `Ws` object is
+reached seven times, and every id-memoising driver splices shares — right for
+a transform, fatal for an address. So the walk assigns paths top-down and
+positionally, never by matching a value; the corpus gates include a fixture
+with equal siblings AND shared noise for exactly this.
+
+Two order facts the contract now states out loud: steps follow the parent's
+EMISSION order (`emit_parts`, item-slot), which is not field-declaration
+order — `JsonText` declares `(value, ws, ws2)` and emits `ws, value, ws2`;
+and spans are in code units, because that is the only measure that slices the
+string back. `layout.py` counts code units too, for its own reason: its
+budget is a linter's line length.
+
+Acceptance: the reference consumer's hand-rolled span walk (a second
+traversal accumulating `at += len(text)`) now reads the engine product
+instead, and produces byte-identical spans — 840 spans over 44 documents,
+all five fields.
+
 ## The compile seam is the page; generate refuses with words (2026-08-16)
 
 `export_value` was documented as public API while being absent from

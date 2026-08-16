@@ -185,6 +185,30 @@ The find-first idiom: `IrVisitor(actions=IrTypeMap(IrAction(IrRuleRef, IrReturn(
 
 Distinguished by `nc`-marker semantics at eval time.
 
+## Addresses and spans (`ir/text/spans.py`)
+
+Where an occurrence stands, and what it covers. An **occurrence** is a value standing somewhere; the spine deliberately cannot tell two equal values apart (a node IS its payload, and equal subtrees are routinely the SAME object — one `Ws` is reached seven times in `{"a": 1, "b": 1}` under `json.gbnf`), so only its place identifies it.
+
+```python
+IrStep(field: str, slot: int)      # what the parent calls a part, and where it sits
+IrAddress(IrSeq[IrStep])           # the path from the root; .child(field, slot) extends it
+IrSpan(start: int, end: int)       # half-open, in CODE UNITS; .of(text) slices it back
+IrExtent(address, span)            # emit-side correspondence
+IrExtents(IrSeq[IrExtent])         # one emission's, document order, parents first
+IrEmission(text: str, extents)     # what `GrammarModel.emit_addressed()` returns
+IrOrigin(address, source)          # transform-side: built occurrence ← source occurrence
+IrOrigins(IrSeq[IrOrigin])
+```
+
+Four rules the family exists to keep, each of which has already been got wrong somewhere:
+
+- **Top-down, positional.** An address is built by the walk that produces it, each step supplied by the parent from its own emission order. It is never recovered from a value and never looked up by equality — `list.index` finds the first EQUAL sibling, which is a different occurrence with the same payload.
+- **No share-splice.** A walk producing addresses may not run on an id-memoising driver. `IrBottomUp` transforms a shared object once and splices the result everywhere it appeared (`walk.py`) — right for a transform, wrong for an address, because sharing is the normal case here.
+- **Emission order, not declaration order.** Steps follow the parent's `emit_parts` order (item-slot, i.e. document order). `JsonText` declares `(value, ws, ws2)` and emits `ws, value, ws2`; `children()` follows the emission order and `_fields` does not.
+- **Code units.** `len` of the emitted string — the only measure that can slice it back. Terminal columns (wide glyphs counted twice) and pixels are consumer projections. Note `ir/text/layout.py`'s width solve also counts code units, and for its own reason: the budget it serves is a linter's line length, counted in characters over emitted files.
+
+`GrammarModel.emit_addressed()` produces the emit-side set and `GrammarModel.occurrence(address)` reads it back — the same `_sub_parts` definition drives both, so the address contract has one definition and two directions. `to_text()` stays its own loop (the hot path pays nothing); a corpus gate pins the two texts to each other.
+
 ## `IrBind` (`ir/bind.py`)
 
 There is no `RuleSpec` anymore. Every generated field carries an `IrBind` in its `Annotated` metadata instead:

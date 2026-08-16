@@ -26,6 +26,7 @@ import lexic.ir.grammar.operators as ir_operators
 import lexic.ir.spine.records as ir_records
 import lexic.ir.spine.scalars as ir_scalars
 import lexic.ir.spine.spine as ir_spine
+import lexic.ir.text.spans as ir_spans
 from lexic.api.pretokens import IrByteLevel
 from lexic.compile.notation.parse import (
     NOTATION_GRAMMAR,
@@ -217,6 +218,7 @@ IR_MODULES = (
     ir_build,
     ir_mapping,
     ir_flavour,
+    ir_spans,
 )
 
 # The non-IR-node names the whitelist admits — pinned as a name set (not a

@@ -30,15 +30,19 @@ from __future__ import annotations
 
 from typing import Any, Callable, ClassVar, Self, Sequence, cast
 
-from lexic.exceptions import FieldValidationError
+from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir import (
     IrAction,
+    IrAddress,
     IrAlphabet,
     IrAlternation,
     IrBind,
     IrCharClass,
     IrDispatch,
+    IrEmission,
+    IrExtent,
+    IrExtents,
     IrItem,
     IrLambda,
     IrLiteral,
@@ -49,6 +53,7 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
     IrSequence,
+    IrSpan,
     IrTypeMap,
 )
 
@@ -74,6 +79,103 @@ def _dump_value(
     if isinstance(value, tuple):
         return [_dump_value(element, stack) for element in value]
     return value
+
+
+# ── addressed emission ────────────────────────────────────────────────
+#
+# The addressed walk drives the SAME ``emit_parts`` stream ``to_text``
+# consumes — one definition of what a model spells, two readers of it — and
+# records where each part landed. ``to_text`` is deliberately left as its own
+# loop rather than made a caller of this one: it is the hot path (every
+# round-trip gate, every transpile fidelity check) and must not pay for
+# addresses nobody asked for. ``test_addressed_emission`` pins the two to each
+# other over the corpus, which is where a drift between them would surface.
+
+
+type Emitted = "GrammarModel | str | tuple[object, ...] | list[object]"
+"""What one emission part can be, once :func:`_emitted` has taken it: a
+sub-model, a spelling, or a sequence of sub-models."""
+
+
+class _Part(IrNamedTuple[object, IrAddress]):
+    """A part waiting to be emitted, under the address its PARENT gave it.
+
+    A record rather than a mutable frame (the ``_FieldCheck`` idiom): the
+    address is decided by the parent and never revised. ``_child_attrs`` is
+    empty — the walk carries these, it does not descend into them.
+    """
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    part: Emitted
+    address: IrAddress
+
+
+class _Shut(IrNamedTuple[int, IrAddress, int]):
+    """A container's close — the extent slot to fill, and where it opened."""
+
+    _child_attrs: ClassVar[tuple[str, ...]] = ()
+    slot: int
+    address: IrAddress
+    start: int
+
+
+def _emitted(part: object) -> Emitted:
+    """One raw emission part, narrowed to what the walk distinguishes.
+
+    ``emit_parts`` yields whatever a field holds. Anything outside the three
+    cases is spelled with ``str()`` right here — the same conversion
+    :meth:`GrammarModel.to_text` applies at the same point — so an address
+    always points at something the emission can account for.
+
+    :param part: A raw part from ``emit_parts``.
+    :returns: The part, or its spelling.
+    """
+    if isinstance(part, (GrammarModel, str, tuple, list)):
+        return part
+    return str(part)
+
+
+def _sub_parts(part: Emitted) -> list[tuple[str, Emitted]] | None:
+    """The named sub-parts of an emission part, or ``None`` for a leaf.
+
+    The model check precedes the sequence check — records ARE tuples. A
+    repeated field's elements have no name of their own, so they step by
+    slot alone.
+
+    :param part: One emission part.
+    :returns: ``(field, sub-part)`` in emission order, or ``None``.
+    """
+    if isinstance(part, GrammarModel):
+        return [
+            (field or "", _emitted(sub)) for field, sub in GrammarModel.emit_parts(part)
+        ]
+    if isinstance(part, (list, tuple)):
+        return [("", _emitted(element)) for element in part]
+    return None
+
+
+def _open(
+    work: _Part, parts: list[tuple[str, Emitted]], extents: list[IrExtent], at: int
+) -> list[object]:
+    """Reserve the container's extent and lay out its parts, close last.
+
+    The close rides UNDER the parts on the stack, so it pops after every one
+    of them and reads the offset they left behind.
+
+    :param work: The container being entered.
+    :param parts: Its named sub-parts, in emission order.
+    :param extents: The extent list; a placeholder is appended here.
+    :param at: The offset the container opens at.
+    :returns: The stack work, close first (deepest), parts reversed above it.
+    """
+    reserved = len(extents)
+    extents.append(IrExtent(work.address, IrSpan(at, at)))
+    items: list[object] = [_Shut(reserved, work.address, at)]
+    items.extend(
+        _Part(part, work.address.child(field, slot))
+        for slot, (field, part) in reversed(list(enumerate(parts)))
+    )
+    return items
 
 
 # ── checked construction ──────────────────────────────────────────────
@@ -535,6 +637,80 @@ class GrammarModel(IrNamedTuple):
             elif isinstance(item.atom, IrLiteral):
                 parts.append((None, str(item.atom)))
         return parts
+
+    def emit_addressed(self) -> IrEmission:
+        """This model's emission, with every part's address and span.
+
+        The addressed twin of :meth:`to_text`, over the SAME
+        :meth:`emit_parts` stream — one definition of what a model spells,
+        read once for the text and once more for where each part landed. The
+        text it returns is `to_text()`'s, character for character.
+
+        Addresses are built TOP-DOWN: every part's step is supplied by its
+        parent, positionally, from ``emit_parts``' own order and tags.
+        Nothing is memoised on ``id``, which is the point — a shared node
+        (one ``Ws`` object is reached seven times in ``{"a": 1, "b": 1}``) is
+        a DISTINCT occurrence at each of its addresses, and an addressed walk
+        that spliced shares would hand every one of them the same answer.
+
+        Every part `emit_parts` yields gets an extent; a part that expands (a
+        sub-model, a repeated field's tuple) gets one covering all of it.
+        Extents come out root first, each parent before the parts it contains.
+
+        :returns: The emitted text and its extents.
+        """
+        out: list[str] = []
+        extents: list[IrExtent] = []
+        at = 0
+        stack: list[object] = [_Part(self, IrAddress())]
+        while stack:
+            work = stack.pop()
+            if isinstance(work, _Shut):
+                extents[work.slot] = IrExtent(work.address, IrSpan(work.start, at))
+                continue
+            part = cast(_Part, work)
+            parts = _sub_parts(part.part)
+            if parts is not None:
+                stack.extend(_open(part, parts, extents, at))
+                continue
+            text = part.part if isinstance(part.part, str) else str(part.part)
+            out.append(text)
+            extents.append(IrExtent(part.address, IrSpan(at, at + len(text))))
+            at += len(text)
+        return IrEmission("".join(out), IrExtents(*extents))
+
+    def occurrence(self, address: IrAddress) -> Emitted:
+        """The part standing at ``address`` under this model.
+
+        The address contract read backwards, and the reason an address is
+        worth carrying: each step's INDEX selects from the parent's emission
+        parts, in the order :meth:`emit_addressed` assigned them. Resolution
+        is positional and never consults the field name — two occurrences of
+        one field name (a repeated field's elements, a rule referencing ``ws``
+        twice) are told apart by index alone, and matching on value would find
+        the first EQUAL sibling rather than this one.
+
+        :param address: A path from THIS model, as ``emit_addressed`` builds
+            them; the empty address is the model itself.
+        :returns: The sub-model, spelling or tuple standing there.
+        :raises UnsupportedConstructError: When a step names a slot the
+            emission does not have, or descends into a part that has none.
+        """
+        part: Emitted = self
+        for depth, step in enumerate(address):
+            parts = _sub_parts(part)
+            if parts is None:
+                raise UnsupportedConstructError(
+                    f"occurrence: step {depth} of {address!r} descends into "
+                    f"{type(part).__name__}, which emits no parts"
+                )
+            if not 0 <= step.slot < len(parts):
+                raise UnsupportedConstructError(
+                    f"occurrence: step {depth} of {address!r} wants slot "
+                    f"{step.slot}, and the parent emits {len(parts)} parts"
+                )
+            part = parts[step.slot][1]
+        return part
 
     def to_grammar(self, flavour: str = "gbnf", width: int | None = 88) -> str:
         """Emit this model's rule as grammar text in the given flavour.

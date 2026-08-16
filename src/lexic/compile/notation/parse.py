@@ -54,6 +54,7 @@ import lexic.ir.spine.spine as _spine
 import lexic.ir.text.encodings as _encodings
 import lexic.ir.text.layout as _layout
 import lexic.ir.text.pipeline as _pipeline
+import lexic.ir.text.spans as _spans
 import lexic.ir.text.tokenizer as _tokenizer
 from lexic.compile.foldkit import (
     ABSENT,
@@ -105,6 +106,7 @@ _IR_MODULES = (
     _layout,
     _encodings,
     _pipeline,
+    _spans,
     _tokenizer,
 )
 

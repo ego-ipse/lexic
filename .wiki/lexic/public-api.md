@@ -245,6 +245,8 @@ Every synthesized class subclasses `GrammarModel(IrNamedTuple)` — the record s
 | Method | Returns | Notes |
 |---|---|---|
 | `to_text()` | `str` | Lossless round-trip to original source text (explicit-stack walk, depth-safe) |
+| `emit_addressed()` | `IrEmission` | `to_text()`'s text PLUS one `IrExtent` (address ↔ span) per emitted part — the addressed twin, over the same `emit_parts` stream |
+| `occurrence(address)` | model / `str` / tuple | The part standing at an address — positional resolution, never by value |
 | `to_grammar(flavour="gbnf")` | `str` | Emits the grammar rule for this class — `get_flavour(flavour).apply(self.__grammar__)` |
 | `dump()` | `dict` | The native dump: RUNTIME-complete (serializes by each value's own type, never a declared schema — no arm-subtree erasure), field-order keys, tuples re-emitted as lists, explicit-stack (depth-safe) |
 | `semantic_dump()` | `dict` | `dump()` minus the receiver's OWN fields whose `IrBind.semantic` is `False` (top-level-only exclusion) |
