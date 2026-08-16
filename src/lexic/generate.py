@@ -11,6 +11,13 @@ group), with a raising default — an unregistered atom type fails loudly rather
 than silently generating ``""``. The generator documents itself over canonical
 grammars, so ``IrNot`` never reaches it (the canonicaliser rewrites ``[^…]`` to
 positive spans upstream); a stray one hits the raising default.
+
+The same rule holds off the table: an **undefined rule name** and an
+**arm-less alternation** refuse with words rather than expanding to ``""``.
+Both once returned the empty string, which a consumer cannot tell from a
+grammar that legitimately generates it — a generated sample and a failure
+read identically. What still expands to ``""`` is what genuinely derives it:
+an alternation with one EMPTY arm, and a quantifier rolled to zero.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ from __future__ import annotations
 import random as _random
 from typing import ClassVar, Sequence
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAction,
     IrAlternation,
@@ -91,7 +99,7 @@ def _gen_ruleref(_d: _Generator, n: IrRuleRef, nc: Sequence[IrSelf]) -> str:
 def _gen_group(_d: _Generator, n: IrAlternation, nc: Sequence[IrSelf]) -> str:
     """Expand an inline group, repeated under its quantifier."""
     count = _pick_count(_item(nc).quantifier, _d.rng)
-    return "".join(_d.alternation(n) for _ in range(count))
+    return "".join(_d.alternation(n, "an inline group") for _ in range(count))
 
 
 # Dispatched on the atom; the owning IrItem rides the argument channel so each
@@ -125,16 +133,37 @@ class _Generator(IrNamedTuple[_random.Random, Rules, int]):
     max_depth: int
 
     def run(self, rule_name: str) -> str:
-        """Expand the named rule to a random string (``""`` for an unknown rule)."""
+        """Expand the named rule to a random string.
+
+        :param rule_name: The rule to expand.
+        :returns: A random string in the rule's language.
+        :raises UnsupportedConstructError: When the grammar defines no rule of
+            that name — a dangling reference generates nothing, and saying so
+            with ``""`` is indistinguishable from a grammar that generates it.
+        """
         rule = self.rules.get(rule_name)
         if rule is None:
-            return ""
-        return self.alternation(rule.body)
+            raise UnsupportedConstructError(
+                f"generate: rule {rule_name!r} is not defined — the grammar "
+                f"defines {sorted(self.rules)}"
+            )
+        return self.alternation(rule.body, f"rule {rule_name!r}")
 
-    def alternation(self, body: IrAlternation) -> str:
-        """Pick a random arm of ``body`` and expand it."""
+    def alternation(self, body: IrAlternation, where: str) -> str:
+        """Pick a random arm of ``body`` and expand it.
+
+        :param body: The alternation to expand.
+        :param where: What is being expanded, named in a refusal.
+        :returns: The chosen arm's expansion.
+        :raises UnsupportedConstructError: When ``body`` has no arms at all.
+            An alternation with ONE EMPTY arm derives ``""`` and still expands
+            here; one with no arms derives nothing, which is not the same fact.
+        """
         if not body:
-            return ""
+            raise UnsupportedConstructError(
+                f"generate: {where} has no arms to expand — an alternation "
+                "with no arms derives nothing, not the empty string"
+            )
         return "".join(self.atom(it) for it in self.rng.choice(body))
 
     def atom(self, item: IrItem) -> str:
@@ -155,7 +184,9 @@ def generate(
     :param rules: The grammar as a rule-name → :class:`IrRule` mapping.
     :param rng: Random source; a fresh one is created when omitted.
     :param max_depth: Ref-expansion budget, decremented on each recursion.
-    :returns: A random string in the rule's language (``""`` for an unknown rule).
+    :returns: A random string in the rule's language.
+    :raises UnsupportedConstructError: When ``rule_name`` names no rule, when a
+        reference reaches one, or when an alternation has no arms.
     """
     if rng is None:
         rng = _random.Random()

@@ -4,6 +4,8 @@
 
 How callers use Lexic. The stable surface lives in the `compile/` package and `model.py`. Both grammar-text parsing and generated-instance parsing run on the same engine (`lexic.parsing` — PDA-first, Earley completion); there is no Lark and no `RuleSpec` anywhere in the call path. NOTE: `parse` is the ENGINE's name (`lexic.parsing.parse` → a raw `ParseTree`); the compile-side one-liners are `parse_instance`/`parse_instance_from_path`.
 
+**The seam is this page.** Every symbol documented below with a `compile/` home is in `lexic.compile.__all__`, and the heading names the module you IMPORT it from — always `compile/__init__.py`, because outside the package only the root is importable ([[architecture]]). Reachable-but-unlisted was how `export_value` ended up documented as public with a deep import as its only route. `tests/integration/lexic/invariants/test_public_api_drift.py` gates both halves.
+
 ---
 
 ## Entry points
@@ -76,7 +78,11 @@ cg = compile_ast(JSON_GRAMMAR)          # no text, no emit round-trip
 
 ---
 
-### `export_value(value, path, *, module=None)` — `compile/payload/__init__.py`
+### `export_value(value, path, *, module=None)` — `compile/__init__.py`
+
+Imported from `lexic.compile` like every other entry — the package root is the
+only route in (implemented in `compile/payload/export.py`; reaching a compile
+submodule from outside the package is a layering violation, [[architecture]]).
 
 Writes whatever lexic parsed as an importable module: the value's payload as
 four flat literals, plus an import of the reader emitted beside it. Returns the
@@ -101,7 +107,9 @@ artefact that cannot be read back is never created. See
 
 ---
 
-### `transpile(source, target, rules)` — `compile/transpile.py`
+### `transpile(source, target, rules)` — `compile/__init__.py`
+
+Implemented in `compile/transpile.py`, imported from `lexic.compile`.
 
 Builds a retained `Transpiler(source, target, walk)` — a document under grammar A re-expressed under grammar B, on the model plane. `rules: IrMap` keys **A's rule names** to bodies authored in the transpile vocabulary — `Make(rule, args=IrNone)` (IrBuild's contract with the class replaced by a target rule name; bare `Make` splats the transformed children, slot-order-bound through `__binds__`; aimed at a hoisted list rule it grows the chain from a flat tuple), `Spelled()` (the focus's `to_text()` as algebra), `Flat()`/`Split()` (hoisted lists: channel→flat, chain→flat), `Is(rule)` (focus-type test by name) — beside the ordinary ir/ algebra (`IrArg`/`IrPipe`/`IrEach`/`IrCond`/`IrRaise`). The bake resolves names against the two artifacts, so **an authored table contains no class objects**: it is pure data, travels through the notation (repr-fixpoint contract — `Spelled`/`Flat`/`Split` are singletons; `IrThis` etc. remain identity-eq), and one table serves every formulation of the source language (rows name canonical rules — the same table bakes against `json.gbnf` and `json.abnf`).
 
@@ -129,31 +137,37 @@ Directive/start resolution precedence (highest first):
 
 ---
 
-### `build_codegen_grammar(ast)` — `compile/pipeline/passes.py`
+### `build_codegen_grammar(ast)` — `compile/__init__.py`
 
 ```python
 build_codegen_grammar(ast: IrAst) -> IrAst
 ```
 
+Implemented in `compile/pipeline/passes.py`, imported from `lexic.compile`.
+
 Takes the canonical grammar and applies the three codegen-only passes (`hoist_groups` → `hoist_arms` → `relax_non_semantic`) that produce **THE codegen grammar** — the shape every generated class's `__grammar__` and every field's `IrBind` positions are computed against. See [[generated-modules]] for the exported form.
 
 ---
 
-### `compute_binding(codegen_grammar)` — `compile/pipeline/binding.py`
+### `compute_binding(codegen_grammar)` — `compile/__init__.py`
 
 ```python
 compute_binding(ast: IrAst) -> list[RuleBinding]
 ```
 
-The open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleBinding(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, parents before subclasses. See [[field-naming]].
+Implemented in `compile/pipeline/binding.py`, imported from `lexic.compile`.
+
+The open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleBinding(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, parents before subclasses — `RuleBinding` is exported beside it, since the returned list cannot be typed without it. See [[field-naming]].
 
 ---
 
-### `synthesize(codegen_grammar, binding, stem)` — `compile/pipeline/synthesis.py`
+### `synthesize(codegen_grammar, binding, stem)` — `compile/__init__.py`
 
 ```python
 synthesize(codegen_grammar: IrAst, binding: list[RuleBinding], stem: str) -> dict[str, type]
 ```
+
+Implemented in `compile/pipeline/synthesis.py`, imported from `lexic.compile`.
 
 Builds the model classes **at runtime** via `type(name, bases, ns)` and returns `{class_name: cls}` — no source emit, no import, no `model_rebuild`, no file write. Each class gets `__grammar__` (its rule) and `__binds__` (the slot table) written directly into `ns`, with `__module__`/`__qualname__` set explicitly (`type` would otherwise default `__module__` to this module). MI bases in binding order. Flavour-agnostic (it does not import `lexic.grammars`).
 

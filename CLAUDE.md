@@ -284,7 +284,7 @@ tests/
     roundtrip/            grammar ↔ IR ↔ text fidelity, cross-flavour, fixpoint
     tokens/               the token layer — binding, additivity, real tokenizers
     codegen/              generated modules, self-grammar, manifests, templating
-    invariants/           the repo's own rules — layering, doc drift, benchmark faithfulness
+    invariants/           the repo's own rules — layering, doc drift, public-api seam, benchmark faithfulness
     corpora/              big-corpus soak
   property/lexic/       hypothesis round-trip + reduce differentials
   adversarial/lexic/    inputs chosen to break a specific assumption

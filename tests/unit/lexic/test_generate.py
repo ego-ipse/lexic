@@ -190,6 +190,57 @@ def test_generate_unknown_atom_error_names_the_type():
         gen.atom(item)
 
 
+# ── refusals off the table: undefined rule, arm-less alternation ────────
+
+
+def test_generate_unknown_rule_raises() -> None:
+    """An undefined rule name refuses, never a silent ``""``.
+
+    A generation door built on the old fallback drew an empty sample
+    indistinguishably from a grammar that legitimately generates one.
+    """
+    specs = grammar_specs("arithmetic")
+    with pytest.raises(UnsupportedConstructError):
+        generate("no-such-rule", specs, rng=random.Random(0))
+
+
+def test_generate_unknown_rule_error_names_the_rule_and_the_grammar() -> None:
+    """The refusal carries the missing name and what the grammar does define."""
+    specs = grammar_specs("arithmetic")
+    with pytest.raises(UnsupportedConstructError, match="no-such-rule") as caught:
+        generate("no-such-rule", specs, rng=random.Random(0))
+    assert "root" in str(caught.value), str(caught.value)
+
+
+def test_generate_dangling_ref_raises_from_inside_an_expansion() -> None:
+    """A reference to an undefined rule refuses mid-expansion, not silently."""
+    rules = {
+        "root": IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("gone")))))
+    }
+    with pytest.raises(UnsupportedConstructError, match="gone"):
+        generate("root", rules, rng=random.Random(0))
+
+
+def test_generate_armless_alternation_raises_naming_the_rule() -> None:
+    """A rule whose body has no arms refuses, with the rule named."""
+    rules = {"empty": IrRule("empty", IrAlternation())}
+    with pytest.raises(UnsupportedConstructError, match="empty"):
+        generate("empty", rules, rng=random.Random(0))
+
+
+def test_generate_armless_inline_group_raises() -> None:
+    """An arm-less inline group refuses too — same defect, same words."""
+    gen = _Generator(rng=random.Random(0), rules={}, max_depth=3)
+    with pytest.raises(UnsupportedConstructError, match="inline group"):
+        gen.atom(IrItem(IrAlternation()))
+
+
+def test_generate_single_empty_arm_still_yields_empty_string() -> None:
+    """What genuinely derives ``""`` still does: one EMPTY arm is not no arms."""
+    rules = {"nothing": IrRule("nothing", IrAlternation(IrSequence()))}
+    assert generate("nothing", rules, rng=random.Random(0)) == ""
+
+
 # ── open dispatch table: every canonical atom kind, in isolation ────────
 
 

@@ -34,8 +34,9 @@ normalisation, PDA/table compilation, memoisation) — one public call each, no
 predictive-PDA sibling on the artefact and no whole-grammar opt-out.
 
 The grammar→grammar passes, the binding view and runtime class synthesis all
-live inside this package (``lexic.compile.passes`` / ``.binding`` /
-``.synthesis``). The engine is the package's only external runtime seam: any
+live inside this package (``lexic.compile.pipeline.passes`` / ``.binding`` /
+``.synthesis``) and are re-exported from this root, which is the only import
+route to them. The engine is the package's only external runtime seam: any
 ``lexic.compile`` module may import ``lexic.parsing`` (the package root — the
 product entries + fold toolkit + ``Reducer``) and the one licensed submodule
 ``lexic.parsing.earley.reduce`` (the reduce channel — the ``DROP`` /
@@ -61,6 +62,7 @@ from lexic.compile.artifact import (
 from lexic.compile.module.export import export_module, export_source
 from lexic.compile.module.selfgrammar import parse_module, verify_module
 from lexic.compile.notation.parse import load_ir, load_ir_from_path
+from lexic.compile.payload.export import export_value
 from lexic.compile.pipeline.binding import (
     RuleBinding,
     check_supplied_class,
@@ -128,12 +130,16 @@ __all__ = [
     "Directives",
     "Vocabulary",
     "bind_module",
+    "build_codegen_grammar",
     "canonical_grammar",
+    "compile_ast",
     "compile_from_path",
     "compile_text",
     "CompiledGrammar",
+    "compute_binding",
     "export_module",
     "export_source",
+    "export_value",
     "Flat",
     "KEEP",
     "Keep",
@@ -149,6 +155,7 @@ __all__ = [
     "parse_module",
     "Reducer",
     "reset_cache_for_tests",
+    "RuleBinding",
     "SpanEntry",
     "SpanLevel",
     "SpanPair",
@@ -156,6 +163,7 @@ __all__ = [
     "Spec",
     "Spelled",
     "Split",
+    "synthesize",
     "Template",
     "template",
     "TokenBinding",

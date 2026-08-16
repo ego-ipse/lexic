@@ -1,5 +1,34 @@
 # Log
 
+## The compile seam is the page; generate refuses with words (2026-08-16)
+
+`export_value` was documented as public API while being absent from
+`lexic.compile` altogether — the only route was a deep import of
+`compile.payload`, which the layering rule forbids. The seam was audited
+once and the family fixed: `export_value`, `compile_ast`,
+`build_codegen_grammar`, `compute_binding`, `synthesize` and `RuleBinding`
+joined `lexic.compile.__all__`. Everything still reachable-but-unlisted is
+either a stdlib import, or a symbol whose own package already exports it
+(`lexic.ir`'s `canonicalize`/`concretize`/the spine types, `lexic.parsing`'s
+fold records, `lexic.grammars`' `get_flavour`) — re-exporting those would be
+a second import route for one symbol — or a compile-package internal
+(`encoding_registry`, `segmentation_tokenizer`, `check_supplied_class`,
+`field_kwargs`), where `Vocabulary` is the caller-facing form.
+
+[[lexic/public-api]] headings now name **`compile/__init__.py`** — the module
+you import from — with the implementing module in the body, because a
+heading naming a submodule reads as an instruction to breach the seam.
+`tests/integration/lexic/invariants/test_public_api_drift.py` gates both
+halves: every `compile/`-homed symbol the page documents is in `__all__`,
+and every such heading names the root.
+
+`lexic.generate` stopped returning `""` for an undefined rule name and for
+an arm-less alternation — a silent fallback the dispatch table beside it
+already forbade, and one that made a failed generation and a legitimately
+empty sample read identically. Both now raise `UnsupportedConstructError`
+naming the rule. What genuinely derives the empty string still does: an
+alternation with one EMPTY arm, and a quantifier rolled to zero.
+
 ## The walk reaches maps and models; transpilation examples ride it (2026-08-14)
 
 And transpilation became a first-class compile product on the templating
