@@ -33,12 +33,17 @@ from math import log10
 import lark
 import parsimonious
 
+from lexic.compile import Directives, compile_text
+from lexic.exceptions import LexicError
+from lexic.parsing.trace import watch
+
+from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import _model_product, earley_model
 from tools.benchmark.antlr_build import antlr_parser
 from tools.benchmark.antlr_java import java_antlr_parser
 from tools.benchmark.emit import lark_grammar, peg_grammar, pyparsing_parser
-from tools.benchmark.grammars import BENCHES, Bench
+from tools.benchmark.grammars import BENCHES, Bench, variant_marks
 from tools.benchmark.refusals import REFUSALS, accepts, refusal
 
 SUMMARY = "Time every engine on the same grammar and the same input."
@@ -50,6 +55,8 @@ DEFAULT_ROUNDS = 7
 PRODUCT: dict[str, str] = {
     "lexic-pda": "typed model",
     "lexic-earley": "typed model",
+    "lexic-lex": "typed model · @lexical",
+    "lexic-lex-ns": "typed model · @lexical @non-semantic",
     "lark-earley": "Tree",
     "lark-lalr": "Tree",
     "parsimonious": "Node tree",
@@ -88,12 +95,78 @@ def _lexic(bench: Bench) -> dict[str, Parse]:
     """
     fold = bench.fold
     product = _model_product(bench.compiled.codegen_grammar, fold)
-    return {
+    engines = {
         "lexic-pda": lambda text: pda_model(product.pda, text, fold),
         "lexic-earley": lambda text: earley_model(
             product.instance_grammar, text, fold, product.tables
         ),
     }
+    # The declared-variant engines: the SAME source under the directives a
+    # lexic author could write — @lexical (maximal, mechanically derived) and
+    # + @non-semantic (the fixture set's authored noise vocabulary). Both are
+    # language-preserving, so both rows face the same unfaithful gate as
+    # every other engine; what they measure is what the declarations buy.
+    lex_marks, ns_marks = variant_marks(bench.ast)
+    lex_marks = _licensed_marks(bench, lex_marks)
+    for label, directives in (
+        ("lexic-lex", Directives(lexical=lex_marks)),
+        ("lexic-lex-ns", Directives(lexical=lex_marks, non_semantic=ns_marks)),
+    ):
+        variant = compile_text(
+            bench.source,
+            cache_key=f"bench-{bench.name}-{label}-{len(lex_marks)}",
+            flavour=bench.flavour,
+            directives=directives,
+        )
+        # the PRODUCTION seam: an author who declares directives runs
+        # CompiledGrammar.parse, composition included.
+        engines[label] = variant.parse
+    return engines
+
+
+def _decision_cost(compiled, corpus: str) -> int | None:
+    """Watched decision work (probes, gates, rollbacks) on the raw PDA; None = incapable."""
+    fold = compiled.fold
+    product = _model_product(compiled.codegen_grammar, fold)
+    try:
+        pda_model(product.pda, corpus, fold)
+    except LexicError, PdaFail:
+        return None
+    run = watch(product.pda, corpus, fold, cap=1_000_000)
+    return sum(
+        1 for event in run.events if str(event.kind) in ("rollback", "probe", "gate")
+    )
+
+
+def _licensed_marks(bench: Bench, marks: frozenset[str]) -> frozenset[str]:
+    """Marks licensed by ENGINE EVIDENCE, dropped one by one until sound.
+
+    lexruns collapses a run only after PROVING charset, uniqueness and
+    FOLLOW-disjointness; a benchmark heuristic proving none of them was
+    measured making three grammars slower and one PDA-incapable. The licence
+    here holds marks to the same standard, empirically: a mark set survives
+    only if the raw PDA still takes the corpus AND the watched decision trace
+    shows no more rollbacks than the plain compile — otherwise marks drop
+    (alphabetically last first) until the remainder is sound, possibly none.
+    The honest declaration for that grammar is then NOTHING, and the variant
+    row equals plain rather than regressing it.
+    """
+    if not marks:
+        return marks
+    baseline = _decision_cost(bench.compiled, bench.corpus)
+    candidates = sorted(marks)
+    while candidates:
+        trial = compile_text(
+            bench.source,
+            cache_key=f"bench-{bench.name}-lic-{len(candidates)}-{candidates[0]}",
+            flavour=bench.flavour,
+            directives=Directives(lexical=frozenset(candidates)),
+        )
+        cost = _decision_cost(trial, bench.corpus)
+        if cost is not None and (baseline is None or cost <= baseline):
+            return frozenset(candidates)
+        candidates.pop()
+    return frozenset()
 
 
 def unfaithful(parse: Parse, bench: Bench) -> str | None:
@@ -283,6 +356,8 @@ at 22 columns the log scale gave them three characters between them."""
 
 _LEXIC_TINT: dict[str, str] = {
     "lexic-pda": "\x1b[38;5;39m",
+    "lexic-lex": "\x1b[38;5;45m",
+    "lexic-lex-ns": "\x1b[38;5;51m",
     "lexic-earley": "\x1b[38;5;208m",
 }
 """One distinct colour per lexic mode — the two rows this benchmark exists to
@@ -342,11 +417,11 @@ def _report(
     for name, value in ranked:
         rel = f"{value / best:6.1f}×" if value > best else "   base"
         tint = _LEXIC_TINT.get(name, "")
-        label = _paint(f"{name:<13}", tint, color)
+        label = _paint(f"{name:<17}", tint, color)
         shape = _paint(_bar(value, best, worst), tint, color)
         print(f"  {label}{value:9.3f} µs/char {rel}  {shape}  {PRODUCT.get(name, '?')}")
     for name, why in sorted(refused.items()):
-        label = _paint(f"{name:<13}", _LEXIC_TINT.get(name, ""), color)
+        label = _paint(f"{name:<17}", _LEXIC_TINT.get(name, ""), color)
         print(f"  {label}{'—':>9}             {_paint(why[:96], _DIM, color)}")
     print(f"  {'noise floor':<13}{floor:8.2f}%    smaller differences are not results")
 
