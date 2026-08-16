@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from lexic.compile import canonical_grammar, compile_text, parse_grammar
 from lexic.compile.pipeline.binding import compute_binding
-from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import IrLiteral

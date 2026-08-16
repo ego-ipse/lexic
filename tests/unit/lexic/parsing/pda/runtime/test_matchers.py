@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import canonical_grammar, compile_text
-from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables

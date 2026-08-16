@@ -1,5 +1,30 @@
 # Log
 
+## The compile moments — one retaining product the pipeline runs through (2026-08-16)
+
+`compile/pipeline/moments.py`. A compilation's stages were local variables
+that died with the call; they are now `CompileMoments` — five grammar states
+(`canonical`, `grouped`, `armed`, `relaxed`, `resolved`), the binding view,
+the classes — and `_assemble_core` builds one and reads the artefact out of
+it. `CompiledGrammar.moments` is therefore what the compilation DID, not a
+re-run of it, and retention is a tuple of references to values the pipeline
+computed anyway.
+
+**One composition.** `GrammarMoments.of` is the only place the three passes
+are chained; `build_codegen_grammar` (moved here from `passes.py`) reads its
+`relaxed`. A trace product that re-ran the passes beside the real pipeline
+would drift the first time a pass was added.
+
+**A no-op is a fact, not an omission.** `no_ops()` names the stages that ran
+and changed nothing, which is grammar-contingent: `chess.gbnf` has one pass of
+three that does anything, `c.gbnf` declares `@non-semantic ws` and relaxes
+nothing (its `ws` is not nullable — relaxing there would widen the language),
+`list.gbnf` passes through untouched, and `resolved` idles whenever no
+vocabulary is bound. `bind()` now demonstrates its own invariance argument:
+only the last grammar moment moves.
+
+---
+
 ## Verdicts, the identity walk, and equality up to renaming (2026-08-16)
 
 Three answers the engine could not previously give as values.
@@ -14,14 +39,17 @@ readers, in what order, memoised how. A registry of "the readers we ship"
 would privilege the formulations lexic happens to carry.
 
 **The identity walk states its child definition.** `census(root)`
-(`ir/spine/identity.py`) reports every DISTINCT node under a value: how often
+(`ir/identity.py`) reports every DISTINCT node under a value: how often
 each was reached, and whether it is on the refusal boundary. Its children are
 the node-valued elements of a node's own field tuple — one definition, named,
 because counting sharing under one and reporting it under another invents a
 delta. Two consequences are gated rather than glossed: it is wider than
 `children()` (which honours `_child_attrs`, so it misses `IrRule.name`), and a
-map is a LEAF, so a dispatch table censuses as one node and the bodies inside
-it are outside any census's reach.
+map's ENTRIES are children too, because a dispatch table's whole content is
+its entries: a reducer that censused as one childless node was a flavour's
+anatomy made invisible, and the `IrLambda(<class>)` constructors in a compiled
+grammar's `fold.bodies` — 35 of them under `json.gbnf` — are the refusal
+boundary itself, which a tuple-only definition reported as empty.
 
 **Equality up to renaming, with every witness.** `align_names(a, b)`
 (`ir/grammar/alignment.py`) decides whether two grammars are one grammar with

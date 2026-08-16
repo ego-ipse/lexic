@@ -56,6 +56,30 @@ def alt_ast() -> IrAst:
     )
 
 
+def three_pass_ast() -> IrAst:
+    """alt → x | (x)* ws — one grammar all three passes have work to do on.
+
+    Shared with :mod:`tests.unit.lexic.compile.pipeline.test_moments`, which
+    needs the same grammar to assert that the moments and the fused form are
+    one composition.
+    """
+    group = IrAlternation(IrRuleRef("x"))
+    return IrAst(
+        IrSeq(
+            IrRule(
+                "alt",
+                IrAlternation(
+                    IrSequence(IrItem(IrRuleRef("x"))),
+                    IrSequence(IrItem(group, STAR), IrItem(IrRuleRef("ws"))),
+                ),
+            ),
+            IrRule("x", IrLiteral("x")),
+            IrRule("ws", IrItem(IrLiteral(" "), STAR), semantic=False),
+        ),
+        "alt",
+    )
+
+
 # ── hoist_groups ──────────────────────────────────────────────────────
 
 
@@ -352,36 +376,6 @@ def case_relax_preserves_the_semantic_flags(passes: ModuleType) -> None:
     assert passes.relax_non_semantic(ast).non_semantic == frozenset({"ws"})
 
 
-# ── composition ───────────────────────────────────────────────────────
-
-
-def case_build_codegen_grammar_composes_all_three_passes(
-    passes: ModuleType,
-) -> None:
-    """Groups hoist, arms hoist, noise refs relax — in that order."""
-    group = IrAlternation(IrRuleRef("x"))
-    ast = IrAst(
-        IrSeq(
-            IrRule(
-                "alt",
-                IrAlternation(
-                    IrSequence(IrItem(IrRuleRef("x"))),
-                    IrSequence(IrItem(group, STAR), IrItem(IrRuleRef("ws"))),
-                ),
-            ),
-            IrRule("x", IrLiteral("x")),
-            IrRule("ws", IrItem(IrLiteral(" "), STAR), semantic=False),
-        ),
-        "alt",
-    )
-    result = rules_by_name(passes.build_codegen_grammar(ast))
-    assert "alt-item" in result  # group hoisted to a helper
-    assert "alt-arm2" in result  # multi-item arm hoisted
-    arm_items = result["alt-arm2"].body[0]
-    assert arm_items[0] == IrItem(IrRuleRef("alt-item"), STAR)
-    assert arm_items[1].quantifier == IrQuantifier(0, 1)  # ws ref relaxed
-
-
 CASES: dict[str, Callable[[ModuleType], None]] = {
     "test_hoist_groups_extracts_quantified_ref_group": (
         case_hoist_groups_extracts_quantified_ref_group
@@ -436,9 +430,6 @@ CASES: dict[str, Callable[[ModuleType], None]] = {
     ),
     "test_relax_preserves_the_semantic_flags": (
         case_relax_preserves_the_semantic_flags
-    ),
-    "test_build_codegen_grammar_composes_all_three_passes": (
-        case_build_codegen_grammar_composes_all_three_passes
     ),
 }
 

@@ -153,9 +153,26 @@ Directive/start resolution precedence (highest first):
 build_codegen_grammar(ast: IrAst) -> IrAst
 ```
 
-Implemented in `compile/pipeline/passes.py`, imported from `lexic.compile`.
+Implemented in `compile/pipeline/moments.py`, imported from `lexic.compile`.
 
-Takes the canonical grammar and applies the three codegen-only passes (`hoist_groups` → `hoist_arms` → `relax_non_semantic`) that produce **THE codegen grammar** — the shape every generated class's `__grammar__` and every field's `IrBind` positions are computed against. See [[generated-modules]] for the exported form.
+Takes the canonical grammar and applies the three codegen-only passes (`hoist_groups` → `hoist_arms` → `relax_non_semantic`) that produce **THE codegen grammar** — the shape every generated class's `__grammar__` and every field's `IrBind` positions are computed against. It is `GrammarMoments.of(ast).relaxed`: the fused form and the retained one are one composition, so they cannot drift. See [[generated-modules]] for the exported form.
+
+---
+
+### `CompileMoments` / `GrammarMoments` — `compile/__init__.py`
+
+Implemented in `compile/pipeline/moments.py`. The retaining product the compile pipeline itself runs through — `_assemble_core` builds one and reads the artefact out of it, so `CompiledGrammar.moments` is what the compilation DID rather than a re-run of it.
+
+```python
+GrammarMoments(canonical, grouped, armed, relaxed, resolved)   # five IrAst states, in order
+CompileMoments(grammar, binding, classes)                      # + the binding view and the classes
+```
+
+The record IS the sequence, so two adjacent stages are two adjacent fields (`GRAMMAR_MOMENTS` names them in order). `resolved` is `relaxed` itself unless a vocabulary was bound; `binding` reads `resolved` while synthesis reads `relaxed`, because a vocabulary is a lens for matching and a class's own `__grammar__` must not carry baked ordinals.
+
+Retention is a tuple of references to values the pipeline computed anyway — a caller that never asks pays nothing. `CompiledGrammar.bind` rebuilds only the last grammar moment, which is exactly what its invariance argument claims.
+
+**A no-op moment is a fact.** `GrammarMoments.no_ops()` names the stages that ran and changed nothing, because that is grammar-contingent rather than exceptional: `chess.gbnf` has one pass of three that does anything, `c.gbnf` declares `@non-semantic ws` and relaxes nothing (its `ws` is not nullable, and relaxing there would widen the language), and `list.gbnf` passes through the whole pipeline untouched. A consumer draws "this stage did nothing" instead of silently skipping a stage that ran.
 
 ---
 
@@ -195,10 +212,11 @@ Returned by `compile_text` / `compile_from_path`. Fields:
 
 | Field | Type | Purpose |
 |---|---|---|
-| `classes` | `dict[str, type]` | Rule name → synthesized model class (`GrammarModel` subclass) |
 | `grammar` | `IrAst` | The **canonical** grammar (what the user's grammar IS — the transpile/re-emit source) |
-| `codegen_grammar` | `IrAst` | The post-pass grammar the fold binds against — the engine key `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity) |
 | `fold` | `ModelFold` | The one authored instance-fold: an IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]`) that bakes to `config: dict[str, RuleFold]` and folds positionally over `codegen_grammar` |
+| `moments` | `CompileMoments` | Every stage the compilation passed through (above) — the artefact is BUILT from it, not beside it |
+| `classes` | `dict[str, type]` | Rule name → synthesized model class (`GrammarModel` subclass). A read of `moments.classes`: two copies of one answer is a drift surface |
+| `codegen_grammar` | `IrAst` | The post-pass grammar the fold binds against — the engine key `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity). A read of `moments.grammar.resolved` |
 | `flavour` | `str` | The source flavour's name (drives export docstrings) |
 | `stem` | `str` | The grammar stem — the exported module's default identity |
 | `tokens` | `TokenBinding` | What this grammar knows about tokens (below) |

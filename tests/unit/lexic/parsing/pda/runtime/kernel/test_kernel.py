@@ -32,7 +32,7 @@ from typing import cast
 import pytest
 
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
-from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR

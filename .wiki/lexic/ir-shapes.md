@@ -209,9 +209,9 @@ Four rules the family exists to keep, each of which has already been got wrong s
 
 `GrammarModel.emit_addressed()` produces the emit-side set and `GrammarModel.occurrence(address)` reads it back — the same `_sub_parts` definition drives both, so the address contract has one definition and two directions. `to_text()` stays its own loop (the hot path pays nothing); a corpus gate pins the two texts to each other.
 
-## The identity walk (`ir/spine/identity.py`)
+## The identity walk (`ir/identity.py`)
 
-What a value's graph IS, under **one stated child definition**: a node's children are the node-valued elements of its own field tuple (`field_children`). Naming the definition is the point — sharing counted under one definition and reported under another manufactures a delta out of nothing.
+What a value's graph IS, under **one stated child definition**: a node's children are the node-valued parts it CARRIES — the elements of its field tuple, and, for the map family (whose payload is a table rather than a tuple), its entries, each value under its own key. `field_children` is public so the definition can be checked rather than only stated. Naming it is the point — sharing counted under one definition and reported under another manufactures a delta out of nothing.
 
 ```python
 IrIdentity(node, reached: int, unspellable: bool)   # one DISTINCT node
@@ -223,8 +223,8 @@ census(root) -> IrCensus                            # first-reach order, iterati
 
 Two consequences of the definition, both deliberate and both gated:
 
-- it is **wider** than `IrSelf.children()`, which honours `_child_attrs` and so drops a record's non-dispatched fields (`IrRule.name` is a node, and an identity walk that missed it would undercount);
-- a **map is a leaf**: `IrMapping` carries a dict in a slot, not a tuple, so a dispatch table censuses as one node and the bodies filed in it are outside every census's reach. A flavour's reducer therefore reports the table, not its contents.
+- it drops nothing `_child_attrs` drops: `IrRule.name` is a node, and an identity walk that missed it would undercount;
+- it opens the tables. `children()` reports an `IrMapping` as a leaf, because rebuilding a table is not what a transform does — but a dispatch table's whole content is its entries. A flavour's reducer censuses as 272 nodes rather than 5, and a compiled grammar's `fold.bodies` as 115 rather than 1, of which 35 are the `IrLambda(<class>)` constructors that ARE the refusal boundary. Under a tuple-only definition that boundary read as an empty set on every real artefact.
 
 `unspellable` is the refusal boundary: `IrLambda` (the spine's one callable-carrying node), plus any node holding a bare callable that is neither a node nor a class — a class has a name and the notation spells names.
 

@@ -10,14 +10,17 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
                      │            (the canonical AST — start bound,
                      │             noise rules flagged semantic=False)
                      ▼
-          build_codegen_grammar   (groups hoisted, arms hoisted, noise
-                     │             refs relaxed — lexic.compile.passes)
-                     ▼
-             compute_binding ──► synthesize  (record classes built at
-                     │                        runtime — __grammar__ + __binds__,
-                     │                        no source emit, no file write)
+             CompileMoments   (the retaining product — groups hoisted,
+                     │           arms hoisted, noise refs relaxed, resolved
+                     │           against a vocabulary when one is bound,
+                     │           then compute_binding ──► synthesize)
                      ▼
           IR body-table ──► ModelFold (bakes to the runtime fold records)
+
+Every stage above is a MOMENT the product keeps, and ``_assemble_core`` runs
+through it rather than beside it — so ``CompiledGrammar.moments`` is what the
+compilation actually did, never a re-run of it. ``build_codegen_grammar`` is
+the fused form, and reads the same product's last grammar.
 
 ``canonical_grammar(text, flavour)`` is the public front half (parse +
 canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
@@ -35,10 +38,11 @@ predictive-PDA sibling on the artefact and no whole-grammar opt-out.
 
 The grammar→grammar passes, the binding view and runtime class synthesis all
 live inside this package (``lexic.compile.pipeline.passes`` / ``.binding`` /
-``.synthesis``) and are re-exported from this root, which is the only import
-route to them. The engine is the package's only external runtime seam: any
-``lexic.compile`` module may import ``lexic.parsing`` (the package root — the
-product entries + fold toolkit + ``Reducer``) and the one licensed submodule
+``.synthesis``, composed once in ``.moments``) and are re-exported from this
+root, which is the only import route to them. The engine is the package's only
+external runtime seam: any ``lexic.compile`` module may import
+``lexic.parsing`` (the package root — the product entries + fold toolkit +
+``Reducer``) and the one licensed submodule
 ``lexic.parsing.earley.reduce`` (the reduce channel — the ``DROP`` /
 ``KEEP_REDUCED`` / ``YIELD`` sentinels), and nothing else reaches past that
 surface. Outside the package every runtime module reaches compile only through
@@ -69,7 +73,12 @@ from lexic.compile.pipeline.binding import (
     compute_binding,
     field_kwargs,
 )
-from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.moments import (
+    GRAMMAR_MOMENTS,
+    CompileMoments,
+    GrammarMoments,
+    build_codegen_grammar,
+)
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.compile.templating import (
     KEEP,
@@ -110,7 +119,6 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
     canonicalize,
-    concretize,
     fold_name,
     refs_in_order,
     rule_closure,
@@ -132,6 +140,7 @@ __all__ = [
     "Vocabulary",
     "bind_module",
     "build_codegen_grammar",
+    "CompileMoments",
     "canonical_grammar",
     "compile_ast",
     "compile_from_path",
@@ -142,6 +151,8 @@ __all__ = [
     "export_source",
     "export_value",
     "Flat",
+    "GRAMMAR_MOMENTS",
+    "GrammarMoments",
     "KEEP",
     "Keep",
     "load_ir",
@@ -610,24 +621,21 @@ def _assemble_core(
     """
     resolved = encoding_registry(vocabulary.tokenizer, vocabulary.registry)
     # Resolution is for MATCHING, not for meaning. concretize COMMUTES with
-    # build_codegen_grammar, so the unresolved codegen grammar is built once
-    # and resolved beside it; the ENGINE gets the resolved form (ids match a
+    # the grammar passes, so the unresolved codegen grammar is built once and
+    # resolved beside it; the ENGINE gets the resolved form (ids match a
     # segmentation) while everything that carries meaning back to the user —
     # the canonical AST and each class's `__grammar__` — keeps the AUTHORED
     # form. A vocabulary is a lens on a grammar, never part of what it says,
     # so binding one must not make `to_grammar()` lossy.
-    unresolved = build_codegen_grammar(ast)
-    codegen_grammar = unresolved
-    if resolved is not None:
-        codegen_grammar = concretize(unresolved, resolved)
-    binding = compute_binding(codegen_grammar)
-    classes = synthesize(unresolved, binding, _identity_for(stem, source))
-    fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
+    moments = CompileMoments.of(ast, resolved, _identity_for(stem, source))
+    unresolved = moments.grammar.relaxed
+    codegen_grammar = moments.grammar.resolved
+    classes = moments.classes
+    fold = ModelFold(_fold_config(codegen_grammar, moments.binding, classes))
     return CompiledGrammar(
-        classes=classes,
         grammar=ast,
-        codegen_grammar=codegen_grammar,
         fold=fold,
+        moments=moments,
         flavour=flavour_name,
         stem=stem,
         tokens=TokenBinding(

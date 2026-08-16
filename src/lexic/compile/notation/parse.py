@@ -48,8 +48,8 @@ import lexic.ir.flavour as _flavour
 import lexic.ir.grammar.alignment as _alignment
 import lexic.ir.grammar.nodes as _nodes
 import lexic.ir.grammar.operators as _operators
+import lexic.ir.identity as _identity
 import lexic.ir.spine.bind as _bind
-import lexic.ir.spine.identity as _identity
 import lexic.ir.spine.records as _records
 import lexic.ir.spine.scalars as _scalars
 import lexic.ir.spine.spine as _spine

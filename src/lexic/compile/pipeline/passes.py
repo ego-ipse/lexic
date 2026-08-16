@@ -17,9 +17,10 @@ language-preserving-for-instances rewrites::
   relaxation widens the accepted language, and a widening can introduce
   ambiguity into a formulation authored to be unambiguous.
 
-The ``lexic.compile`` package builds the codegen grammar via
-:func:`build_codegen_grammar` and hands it to both synthesis and the instance
-fold.
+The three are chained in exactly one place —
+:meth:`~lexic.compile.pipeline.moments.GrammarMoments.of`, which keeps each
+state it passes through — and ``build_codegen_grammar`` reads the last of
+them. Nothing here composes them.
 """
 
 from __future__ import annotations
@@ -244,12 +245,3 @@ def relax_non_semantic(ast: IrAst) -> IrAst:
         for rule in ast.rules
     ]
     return IrAst(IrSeq(*rules), ast.start)
-
-
-def build_codegen_grammar(ast: IrAst) -> IrAst:
-    """THE codegen grammar: groups hoisted, arms hoisted, noise refs relaxed.
-
-    :param ast: The canonical grammar with semantic flags bound.
-    :returns: The grammar codegen, emission and the instance fold all share.
-    """
-    return relax_non_semantic(hoist_arms(hoist_groups(ast)))

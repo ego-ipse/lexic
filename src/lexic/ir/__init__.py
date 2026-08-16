@@ -133,16 +133,16 @@ if TYPE_CHECKING:
         refs_in_order,
         rule_closure,
     )
-    from lexic.ir.spine.bind import (
-        BIND_MODES,
-        IrBind,
-    )
-    from lexic.ir.spine.identity import (
+    from lexic.ir.identity import (
         IrCensus,
         IrIdentity,
         census,
         field_children,
         unspellable,
+    )
+    from lexic.ir.spine.bind import (
+        BIND_MODES,
+        IrBind,
     )
     from lexic.ir.spine.meta import (
         Borg,
@@ -394,7 +394,7 @@ _HOMES = {
     "IrBuild": "lexic.ir.action.build",
     "IrCachingTuple": "lexic.ir.spine.records",
     "IrCat": "lexic.ir.text.layout",
-    "IrCensus": "lexic.ir.spine.identity",
+    "IrCensus": "lexic.ir.identity",
     "IrCharClass": "lexic.ir.grammar.nodes",
     "IrChild": "lexic.ir.action.access",
     "IrChildren": "lexic.ir.action.access",
@@ -420,7 +420,7 @@ _HOMES = {
     "IrFlavour": "lexic.ir.flavour",
     "IrGlyph": "lexic.ir.action.compute",
     "IrGroup": "lexic.ir.text.layout",
-    "IrIdentity": "lexic.ir.spine.identity",
+    "IrIdentity": "lexic.ir.identity",
     "IrIndex": "lexic.ir.action.access",
     "IrInt": "lexic.ir.spine.scalars",
     "IrIsA": "lexic.ir.action.compute",
@@ -503,14 +503,14 @@ _HOMES = {
     "Vocab": "lexic.ir.text.encodings",
     "align_names": "lexic.ir.grammar.alignment",
     "as_doc": "lexic.ir.text.layout",
-    "census": "lexic.ir.spine.identity",
+    "census": "lexic.ir.identity",
     "canonicalize": "lexic.ir.grammar.canonical",
-    "field_children": "lexic.ir.spine.identity",
+    "field_children": "lexic.ir.identity",
     "fold_name": "lexic.ir.grammar.canonical",
     "order_by_refs": "lexic.ir.grammar.order",
     "refs_in_order": "lexic.ir.grammar.order",
     "render": "lexic.ir.text.layout",
-    "unspellable": "lexic.ir.spine.identity",
+    "unspellable": "lexic.ir.identity",
     "rule_closure": "lexic.ir.grammar.order",
 }
 """Every LAZY export and the module that defines it — where ``__getattr__`` looks.

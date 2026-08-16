@@ -6,42 +6,54 @@ four places is ONE node with four arrivals, not four copies. Absence is a node
 like any other. And some nodes carry a payload no text can name, which is a
 fact about the value rather than a failure to print it.
 
-**The child definition, stated once.** A node's children are the elements of
-its own field tuple that are themselves nodes — the spine's central sentence
-(*a record IS its field tuple*) read as a traversal. That is the only
-definition this module walks, and the number it reports for sharing means
-nothing except under it. Two consequences, both deliberate:
+**The child definition, stated once.** A node's children are the node-valued
+parts it CARRIES: the elements of its field tuple — the spine's central
+sentence (*a record IS its field tuple*) read as a traversal — and, for the
+map family, whose payload is a table rather than a tuple, its entries, each
+value under its own key. One definition, and the number this module reports
+for sharing means nothing except under it.
 
-- it is WIDER than :meth:`~lexic.ir.spine.spine.IrSelf.children`, which honours
-  ``_child_attrs`` and so omits a record's non-dispatched fields. Those fields
-  hold real nodes, shared as often as any other, and an identity walk that
-  dropped them would undercount;
-- a map is a LEAF. :class:`~lexic.ir.action.mapping.IrMapping` carries a dict
-  in a slot, not a tuple, so a dispatch table censuses as one node and the
-  bodies filed in it are outside this walk's reach. A census over a flavour's
-  reducer therefore reports the table, not the table's contents.
+It is WIDER than :meth:`~lexic.ir.spine.spine.IrSelf.children` on both halves,
+and both widenings are load-bearing:
+
+- ``children()`` honours ``_child_attrs`` and so omits a record's
+  non-dispatched fields. Those hold real nodes — an ``IrRule``'s own name is
+  one — shared as often as any other, and an identity walk that dropped them
+  would undercount;
+- ``children()`` reports a map as a LEAF, because rebuilding a table is not
+  what a transform does. But a dispatch table's whole content is its entries:
+  a reducer that censused as one childless node was a flavour's anatomy made
+  invisible, and the callables filed in those tables are the refusal boundary
+  itself. Walking them is what makes the boundary a fact rather than a zero.
 
 Counting sharing under one definition and reporting it under another is how a
 walk manufactures a delta out of nothing; the whole point of naming the
-definition is that the census can be checked against it.
+definition is that the census can be checked against it — which is why
+:func:`field_children` is public.
 """
 
 from __future__ import annotations
 
+from itertools import chain
 from typing import ClassVar, Self
 
+from lexic.ir.action.mapping import IrMapping
 from lexic.ir.spine.records import IrNamedTuple, IrSeq
 from lexic.ir.spine.spine import IrLambda, IrSelf
 
 
 def field_children(node: IrSelf) -> tuple[IrSelf, ...]:
-    """This node's children — the node-valued elements of its field tuple.
+    """This node's children — the node-valued parts it carries.
 
     :param node: Any node.
-    :returns: The children in field order; empty for a scalar, a map, or any
-        other node whose payload is not a tuple.
+    :returns: A tuple node's elements in field order; a map's entries in table
+        order, each key before its value; empty for a scalar or any other node
+        whose payload is neither.
     """
-    parts = tuple(node) if isinstance(node, tuple) else ()
+    if isinstance(node, IrMapping):
+        parts: tuple[object, ...] = tuple(chain.from_iterable(node.items()))
+    else:
+        parts = tuple(node) if isinstance(node, tuple) else ()
     return tuple(part for part in parts if isinstance(part, IrSelf))
 
 

@@ -1,4 +1,4 @@
-"""Tests for lexic.ir.spine.identity: the census of a value's graph."""
+"""Tests for lexic.ir.identity: the census of a value's graph."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ import pathlib
 
 import pytest
 
-from lexic.compile import parse_grammar
+from lexic.compile import compile_from_path, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import (
+    IrAction,
     IrAst,
     IrLambda,
     IrLiteral,
@@ -17,6 +18,7 @@ from lexic.ir import (
     IrSelf,
     IrStr,
     IrTuple,
+    IrTypeMap,
     census,
     field_children,
     unspellable,
@@ -45,16 +47,25 @@ def test_a_scalar_has_no_children() -> None:
     assert not field_children(IrLiteral("abc"))
 
 
-def test_a_map_is_a_leaf_under_this_definition() -> None:
-    """A map carries a dict in a slot, not a tuple — so it has no children.
+def test_a_maps_entries_are_its_children() -> None:
+    """A table's content IS its entries — each value under its own key.
 
-    The stated boundary: a dispatch table censuses as ONE node, and the bodies
-    filed in it are outside this walk. Pinned so the exclusion cannot quietly
-    change into an inclusion under the same reported numbers.
+    The map's payload is a dict rather than a tuple, so this is the second
+    half of the child definition rather than a consequence of the first. A
+    census that stopped at the table would report a dispatch table as one
+    childless node, which is a flavour's whole anatomy made invisible.
     """
-    table = IrMap(IrTuple(IrStr("k"), IrLiteral("v")))
-    assert not field_children(table)
-    assert len(census(table)) == 1
+    key, value = IrStr("k"), IrLiteral("v")
+    table = IrMap(IrTuple(key, value))
+    assert field_children(table) == (key, value)
+    assert len(census(table)) == 3
+
+
+def test_a_type_keyed_tables_children_are_its_bodies() -> None:
+    """An ``IrTypeMap`` keys by CLASS, so only its bodies are nodes."""
+    body = IrLiteral("v")
+    table = IrTypeMap(IrAction(IrLiteral, body))
+    assert field_children(table) == (body,)
 
 
 def test_field_children_is_wider_than_the_dispatch_children(json_ast: IrAst) -> None:
@@ -167,6 +178,33 @@ def test_a_class_is_not_a_refusal() -> None:
 def test_a_parsed_grammar_has_no_refusals(json_ast: IrAst) -> None:
     """A grammar AST is spellable end to end — the boundary is elsewhere."""
     assert len(census(json_ast).refusals()) == 0
+
+
+def test_a_compiled_folds_class_constructors_are_the_refusal_boundary() -> None:
+    """Where the boundary really is, on a real artefact.
+
+    A compiled grammar's fold files one ``IrLambda(<class>)`` per built rule,
+    and those tables are reachable only through the map half of the child
+    definition — under the field-tuple half alone this whole census was ONE
+    node and the boundary read as an empty set.
+    """
+    bodies = compile_from_path(GROUND_TRUTH / "json.gbnf").fold.bodies
+    refusals = census(bodies).refusals()
+    assert len(refusals) > 10
+    assert all(isinstance(entry.node, IrLambda) for entry in refusals)
+
+
+def test_a_flavours_reducer_censuses_its_whole_anatomy() -> None:
+    """The reducer opens up: the tables, their keys, and every body.
+
+    It carries no refusals of its own — a flavour's bodies are pure IR
+    algebra, which is the repo's own rule and not an accident of this walk —
+    so the anatomy is the fact being gated here, not the boundary.
+    """
+    entries = census(GBNF_FLAVOUR.reducer)
+    assert len(entries) > 100
+    assert len(entries.shared()) > 1
+    assert len(entries.refusals()) == 0
 
 
 def test_a_census_is_a_sequence_of_records(json_ast: IrAst) -> None:
