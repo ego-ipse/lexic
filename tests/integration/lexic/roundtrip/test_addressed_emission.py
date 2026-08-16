@@ -23,17 +23,15 @@ standard pipeline, and nothing here is tuned to one grammar's shape.
 
 from __future__ import annotations
 
-import random
 
 import pytest
 
-from lexic.compile import canonical_grammar, compile_from_path
+from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
-from lexic.generate import generate
-from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import IrAddress, IrSpan, IrStep, census
 from lexic.model import GrammarModel
 from tests.addressed_helpers import leaf_spans, spelling
+from tests.corpus import documents
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 
 APART = frozenset({"c.gbnf", "think.gbnf", "vyx.gbnf"})
@@ -42,16 +40,6 @@ rolls empty on most seeds, and ``think``/``vyx`` carry token terminals. Both
 shapes are exercised by the property suite's own seeds instead."""
 
 CORPUS = tuple(name for name in GBNF_GRAMMARS if name not in APART)
-
-SEEDS = (0, 1, 2, 3, 4)
-
-
-def documents(name: str) -> list[str]:
-    """Generated documents for one grammar, deterministic per seed."""
-    ast = canonical_grammar((GROUND_TRUTH / name).read_text(), GBNF_FLAVOUR)
-    rules = {rule.name: rule for rule in ast.rules}
-    texts = [generate(ast.start, rules, rng=random.Random(seed)) for seed in SEEDS]
-    return [text for text in texts if text]
 
 
 def parsed(name: str) -> list[GrammarModel]:

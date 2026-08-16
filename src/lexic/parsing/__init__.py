@@ -170,6 +170,15 @@ from lexic.parsing.products import (
     pda_tables,
     token_model,
 )
+from lexic.parsing.trace import (
+    TRACE_CAP,
+    TRACE_KINDS,
+    Trace,
+    TraceEvent,
+    WatchedKernel,
+    WatchedRun,
+    watch,
+)
 
 
 def recognize(grammar: IrAst, text: str) -> IrInt:
@@ -311,4 +320,11 @@ __all__ = [
     "token_model",
     "parse_reduced",
     "recognize",
+    "TRACE_CAP",
+    "TRACE_KINDS",
+    "Trace",
+    "TraceEvent",
+    "watch",
+    "WatchedKernel",
+    "WatchedRun",
 ]

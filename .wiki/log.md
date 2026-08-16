@@ -1,5 +1,39 @@
 # Log
 
+## The kernel speaks — a watched trace product (2026-08-16)
+
+`parsing/trace.py`. A parse left no account of itself; `watch(tables, text,
+fold)` gives one — an ordered stream of `TraceEvent(order, kind, rule, verdict,
+span)` over four kinds (scan, probe, rollback, gate), whose position leaf is
+`IrSpan`, the record an addressed emission already carries. That is the ruled
+middle position made real: separate products, shared leaves, so a trace row and
+a document occurrence point into one text with no translation between them.
+
+**Pay to watch, and the cost model is structural rather than promised.**
+`WatchedKernel` is a SUBCLASS of `PdaKernel`; the kernel keeps no watch state,
+carries no branch, and nothing under `parsing/pda/` imports the trace — the
+import arrow is the proof, and a unit gate reads the kernel's own code objects
+so an `if self.watching:` added anywhere fails it. A guarded in-process
+interleaved A/B measures the other half: the unwatched median is unchanged when
+watched runs interleave, while a watched run is ~1.9x dearer.
+
+**Two honest facts.** `capped` says when the account (never the parse) stopped
+at `cap`; `derived` says whether the run reached a model. A refused predictive
+run is ordinary — the compile seam retries on the gated engine — so it is
+returned as a stream ending in the refusal, in the engine's own words, rather
+than raised away. The product deliberately carries NO model: watching
+re-executes, and handing back a second model would invite two executions to be
+read as one.
+
+**Scans are runs of text, not per-terminal events.** The driver matches an
+exactly-once terminal inline with no call to intercept, so a per-terminal
+stream could only be built by instrumenting the paid loop. A scan is therefore
+the text consumed between two decisions, attributed to the frame that consumed
+it — and the corpus gate proves the account still tiles every document with no
+gap or overlap.
+
+---
+
 ## The compile moments — one retaining product the pipeline runs through (2026-08-16)
 
 `compile/pipeline/moments.py`. A compilation's stages were local variables

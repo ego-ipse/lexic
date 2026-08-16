@@ -209,6 +209,7 @@ src/lexic/
     __init__.py                    public API: parse_reduced/parse_model products + the Earley toolkit
     fold.py                        ParseTree → object fold — the instance-parsing bridge
     products.py                    The two product entries — reduce (text → the reducer's value), model (text → model)
+    trace.py                       The watched run — what the predictive kernel DID, as an ordered event stream
     earley/
       __init__.py                  The Earley engine (SPPF, Scott 2008) over IrAst-shaped grammars
       engine.py                    Earley orchestration — the IR-native façade over the compiled kernel
