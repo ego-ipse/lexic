@@ -13,20 +13,22 @@ parse runs the PDA first and completes on the Earley engine on any
 
 The Earley-completion entries — :func:`earley_reduce` (fused reduce over a
 normalised grammar) and :func:`earley_model` (gated first derivation + fold) — are the
-per-product completions the product entries call, and the seam tests force to
-exercise the Earley route directly. They take an **Earley-normalised** grammar,
+per-product completions the product entries call, public at the package root
+as the route-forcing seam: forcing a route means calling a different product
+entry, never passing a flag. They take an **Earley-normalised** grammar,
 the low-level contract the tree/forest readers keep.
 
 A leaf inside ``lexic.parsing``: imports the Earley engine and the PDA compiler/
-runtime by public name; ``__init__`` re-exports the two product entries at the
-package root, the sole surface ``compile.py`` (and every other consumer) sees.
+runtime by public name; ``__init__`` re-exports the product entries and the
+Earley completions at the package root, the sole surface ``compile.py`` (and
+every other consumer) sees.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
 from lexic.parsing.earley.engine import PARSE_REDUCED, EarleyParser, first_meaning
 from lexic.parsing.earley.kernel.forest.ambiguity import (
@@ -45,6 +47,7 @@ from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda, compile_reduce_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
+from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
 
@@ -53,6 +56,7 @@ __all__ = [
     "parse_model",
     "earley_reduce",
     "earley_model",
+    "pda_tables",
     "reset_product_cache",
 ]
 
@@ -278,6 +282,36 @@ def _model_product(
 # ── the public product entries ─────────────────────────────────────────────
 
 
+def _refused(
+    fail: PdaFail, refusal: UnsupportedConstructError
+) -> UnsupportedConstructError:
+    """``refusal``, carrying the readout the predictive route already had.
+
+    Both engines have now declined, so the input genuinely does not parse (or
+    parses two ways) and the caller deserves more than words. The gated engine
+    owns the VERDICT — its message is unchanged — but the predictive route is
+    the one that knows how far it got and what it wanted there, so its readout
+    is what gets attached. ``ProbeFork`` marks the readout ``undecidable``: the
+    PDA did not fail there, it bailed, so the refusal is about ambiguity rather
+    than about a character the grammar cannot derive.
+
+    A refusal that already carries a readout keeps it — the inner seam was
+    closer to the question than this one.
+    """
+    if refusal.readout is not None:
+        return refusal
+    return UnsupportedConstructError(
+        str(refusal),
+        Refusal(
+            pos=fail.pos,
+            rule=fail.rule,
+            expected=fail.expected,
+            negated=fail.negated,
+            undecidable=isinstance(fail, ProbeFork),
+        ),
+    )
+
+
 def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
     """Parse ``text`` to its reduction — PDA-first, fused Earley completion.
 
@@ -303,8 +337,11 @@ def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
     product = _reduce_product(grammar, reducer)
     try:
         return pda_reduce(product.pda, text)
-    except PdaFail:
-        return earley_reduce(product.earley_grammar, text, reducer)
+    except PdaFail as fail:
+        try:
+            return earley_reduce(product.earley_grammar, text, reducer)
+        except UnsupportedConstructError as refusal:
+            raise _refused(fail, refusal) from None
 
 
 def parse_model[M](
@@ -333,7 +370,28 @@ def parse_model[M](
     product = _model_product(grammar, fold, tier_for(len(text)))
     try:
         return pda_model(product.pda, text, fold, resolve=resolve)
-    except PdaFail:
-        return earley_model(
-            product.instance_grammar, text, fold, product.tables, resolve
-        )
+    except PdaFail as fail:
+        try:
+            return earley_model(
+                product.instance_grammar, text, fold, product.tables, resolve
+            )
+        except UnsupportedConstructError as refusal:
+            raise _refused(fail, refusal) from None
+
+
+def pda_tables(grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS) -> PdaTables:
+    """The instance product's compiled PDA — the artefact's predictive half.
+
+    The public reach onto what :func:`parse_model` drives: identity-memoised
+    with the parse path, so the tables a parse compiled are the exact object
+    returned (and a first call compiles once and shares forward). This is the
+    trace substrate a :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel`
+    subclass runs over.
+
+    :param grammar: The authored codegen grammar.
+    :param fold: The positional fold the product is keyed with.
+    :param bits: The packing tier the memo key rides (the PDA half itself is
+        tier-independent).
+    :returns: The compiled :class:`~lexic.parsing.pda.compiler.tables.PdaTables`.
+    """
+    return _model_product(grammar, fold, bits).pda

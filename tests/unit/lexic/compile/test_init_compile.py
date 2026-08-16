@@ -17,6 +17,7 @@ from lexic.compile import (
     _scan_directives,
     bind_module,
     canonical_grammar,
+    compile_ast,
     compile_from_path,
     compile_text,
     parse_grammar,
@@ -24,7 +25,9 @@ from lexic.compile import (
     parse_instance_from_path,
     reset_cache_for_tests,
 )
+from lexic.compile.notation.loader import load_flavour_from_path
 from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.grammars import get_flavour
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
@@ -39,7 +42,7 @@ from lexic.parsing.products import (
     earley_model,
     earley_reduce,
 )
-from tests.paths import GROUND_TRUTH
+from tests.paths import GRAMMARS, GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
 
@@ -255,6 +258,168 @@ def test_compile_text_same_content_and_flavour_hits_the_memo():
     cg1 = compile_text(text, flavour="gbnf")
     cg2 = compile_text(text, flavour="gbnf")
     assert cg1 is cg2
+
+
+# ── compile_text/compile_from_path accept a live IrFlavour instance ──
+
+INSTANCE_GRAMMAR_TEXT = 'root ::= "x" num\nnum ::= [0-9]+\n'
+
+
+def test_compile_text_with_a_flavour_instance_compiles_and_parses():
+    """A live IrFlavour instance compiles and parses like the named route."""
+    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    cg = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
+    assert cg.parse("x42").to_text() == "x42"
+
+
+def test_compile_text_with_a_flavour_instance_leaves_the_shipped_singleton_untouched():
+    """Compiling with a loaded instance never registers or shadows GBNF_FLAVOUR."""
+    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
+    assert get_flavour("gbnf") is GBNF_FLAVOUR
+
+
+def test_compile_text_with_a_flavour_instance_records_the_flavour_name():
+    """CompiledGrammar.flavour is the plain name string, not the instance."""
+    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    cg = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
+    assert cg.flavour == "gbnf"
+
+
+def test_compile_text_with_the_same_instance_twice_hits_the_memo():
+    """Same source, same instance: the class object keys the memo, cache-hit."""
+    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    cg1 = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
+    cg2 = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
+    assert cg1 is cg2
+
+
+def test_compile_text_with_two_separately_loaded_instances_never_alias():
+    """A second load of the same manifest is a different class object, so it
+    never shares the first load's memo entry — the point of keying by class."""
+    first = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    second = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    cg1 = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=first)
+    cg2 = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=second)
+    assert cg1 is not cg2
+
+
+def test_compile_text_name_route_is_unchanged_and_still_memo_stable():
+    """compile_text(text) (no flavour instance involved) still works and is
+    memo-stable across two calls."""
+    cg1 = compile_text(INSTANCE_GRAMMAR_TEXT)
+    cg2 = compile_text(INSTANCE_GRAMMAR_TEXT)
+    assert cg1 is cg2
+    assert cg1.parse("x42").to_text() == "x42"
+
+
+def test_compile_from_path_with_a_flavour_instance(tmp_path):
+    """compile_from_path also accepts a live instance for flavour."""
+    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    src = tmp_path / "instance_flavour.gbnf"
+    src.write_text(INSTANCE_GRAMMAR_TEXT)
+    cg = compile_from_path(src, flavour=fl)
+    assert cg.parse("x42").to_text() == "x42"
+    assert cg.flavour == "gbnf"
+
+
+# ── compile_ast: the IR-born twin of compile_text ──────────────────────
+
+COMPILE_AST_TEXT = 'root ::= ws "x" ws\nws ::= [ ]*\n'
+
+
+def test_compile_ast_survives_the_flag_the_emit_route_loses():
+    """compile_ast keeps a rule's semantic=False flag; emitting the same AST
+    through a flavour and recompiling the text loses it with the comments —
+    the detour compile_ast exists to avoid."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    assert compile_ast(flagged).grammar.non_semantic == frozenset({"ws"})
+
+    emitted = str(GBNF_FLAVOUR.apply(flagged))
+    recompiled = compile_text(emitted, flavour="gbnf")
+    assert recompiled.grammar.non_semantic == frozenset()
+
+
+def test_compile_ast_parses():
+    """The AST route's artefact parses exactly like the text route's."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    assert compile_ast(flagged).parse(" x ").to_text() == " x "
+
+
+def test_compile_ast_flavour_is_ir_and_stem_is_a_string():
+    """The artefact names its origin "ir"; the stem is some sane string."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    cg = compile_ast(flagged)
+    assert cg.flavour == "ir"
+    assert isinstance(cg.stem, str)
+
+
+def test_compile_ast_memoises_by_repr_not_ast_equality():
+    """Same AST object twice hits the memo; a flag-free twin of the same
+    rules gets a DIFFERENT artefact even though the two ASTs compare equal —
+    the repr-keyed memo splits what == deliberately ignores (semantic flags)."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    plain = canonical_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    assert flagged == plain
+
+    cg1 = compile_ast(flagged)
+    cg2 = compile_ast(flagged)
+    assert cg1 is cg2
+
+    cg3 = compile_ast(plain)
+    assert cg3 is not cg1
+
+
+def test_compile_ast_directives_override_non_semantic():
+    """An explicit directives.non_semantic replaces the AST's own flags."""
+    plain = canonical_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    cg = compile_ast(plain, directives=Directives(non_semantic=frozenset({"ws"})))
+    assert cg.grammar.non_semantic == frozenset({"ws"})
+
+
+def test_compile_ast_directives_override_start():
+    """An explicit directives.start changes which rule is the start rule."""
+    plain = canonical_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    cg = compile_ast(plain, directives=Directives(start="ws"))
+    assert cg.grammar.start == "ws"
+
+
+def test_compile_ast_undefined_start_directive_raises():
+    """A directives.start naming an undefined rule refuses, like the text route."""
+    plain = canonical_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    with pytest.raises(UnsupportedConstructError):
+        compile_ast(plain, directives=Directives(start="nope"))
+
+
+def test_compile_ast_accepts_an_uncanonical_ast():
+    """compile_ast canonicalizes the given AST itself — it need not arrive
+    already folded and ordered — landing on the same grammar as the text
+    route."""
+    raw = parse_grammar(COMPILE_AST_TEXT, GBNF_FLAVOUR)
+    uncanonical = IrAst(rules=raw.rules, start="root")
+    assert compile_ast(uncanonical).grammar == compile_text(COMPILE_AST_TEXT).grammar
+
+
+def test_compile_ast_and_compile_text_agree_given_the_same_flags():
+    """Same canonical AST, same flags: the text route and the AST route land
+    on the identical grammar, flags included."""
+    flagged = canonical_grammar(
+        COMPILE_AST_TEXT, GBNF_FLAVOUR, non_semantic_rules=frozenset({"ws"})
+    )
+    text_route = compile_text(
+        COMPILE_AST_TEXT, directives=Directives(non_semantic=frozenset({"ws"}))
+    )
+    ast_route = compile_ast(flagged)
+    assert text_route.grammar == ast_route.grammar
+    assert repr(text_route.grammar) == repr(ast_route.grammar)
 
 
 # ── canonical_grammar start-resolution unit tests ──
@@ -589,6 +754,13 @@ def test_parse_from_path_accepts_an_explicit_flavour_override():
         "x=1\n", GROUND_TRUTH / "arithmetic.gbnf", flavour="gbnf"
     )
     assert inst.to_text() == "x=1\n"
+
+
+def test_parse_instance_accepts_a_flavour_instance():
+    """parse_instance(text, grammar, flavour=instance) works end to end."""
+    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    inst = parse_instance("x42", INSTANCE_GRAMMAR_TEXT, flavour=fl)
+    assert inst.to_text() == "x42"
 
 
 # ── bind_module ──────────────────────────────────────────────────────────

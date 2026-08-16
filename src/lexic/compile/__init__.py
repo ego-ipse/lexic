@@ -10,18 +10,24 @@ Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)
                      │            (the canonical AST — start bound,
                      │             noise rules flagged semantic=False)
                      ▼
-          build_codegen_grammar   (groups hoisted, arms hoisted, noise
-                     │             refs relaxed — lexic.compile.passes)
-                     ▼
-             compute_binding ──► synthesize  (record classes built at
-                     │                        runtime — __grammar__ + __binds__,
-                     │                        no source emit, no file write)
+             CompileMoments   (the retaining product — groups hoisted,
+                     │           arms hoisted, noise refs relaxed, resolved
+                     │           against a vocabulary when one is bound,
+                     │           then compute_binding ──► synthesize)
                      ▼
           IR body-table ──► ModelFold (bakes to the runtime fold records)
 
+Every stage above is a MOMENT the product keeps, and ``_assemble_core`` runs
+through it rather than beside it — so ``CompiledGrammar.moments`` is what the
+compilation actually did, never a re-run of it. ``build_codegen_grammar`` is
+the fused form, and reads the same product's last grammar.
+
 ``canonical_grammar(text, flavour)`` is the public front half (parse +
 canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
-transpilers build on it.
+transpilers build on it. ``compile_ast(ast)`` is the IR-born twin of
+``compile_text``: same back half, no text — the given AST is canonicalized
+as it stands and its own ``semantic`` flags survive (the emit-and-recompile
+detour loses them with the comments).
 
 ``CompiledGrammar`` carries the codegen grammar + its fold; ``parse`` hands
 them to the engine's ``parse_model`` product, and ``parse_grammar`` hands the
@@ -31,10 +37,12 @@ normalisation, PDA/table compilation, memoisation) — one public call each, no
 predictive-PDA sibling on the artefact and no whole-grammar opt-out.
 
 The grammar→grammar passes, the binding view and runtime class synthesis all
-live inside this package (``lexic.compile.passes`` / ``.binding`` /
-``.synthesis``). The engine is the package's only external runtime seam: any
-``lexic.compile`` module may import ``lexic.parsing`` (the package root — the
-product entries + fold toolkit + ``Reducer``) and the one licensed submodule
+live inside this package (``lexic.compile.pipeline.passes`` / ``.binding`` /
+``.synthesis``, composed once in ``.moments``) and are re-exported from this
+root, which is the only import route to them. The engine is the package's only
+external runtime seam: any ``lexic.compile`` module may import
+``lexic.parsing`` (the package root — the product entries + fold toolkit +
+``Reducer``) and the one licensed submodule
 ``lexic.parsing.earley.reduce`` (the reduce channel — the ``DROP`` /
 ``KEEP_REDUCED`` / ``YIELD`` sentinels), and nothing else reaches past that
 surface. Outside the package every runtime module reaches compile only through
@@ -58,14 +66,21 @@ from lexic.compile.artifact import (
 from lexic.compile.module.export import export_module, export_source
 from lexic.compile.module.selfgrammar import parse_module, verify_module
 from lexic.compile.notation.parse import load_ir, load_ir_from_path
+from lexic.compile.payload.export import export_value
 from lexic.compile.pipeline.binding import (
     RuleBinding,
     check_supplied_class,
     compute_binding,
     field_kwargs,
 )
-from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.moments import (
+    GRAMMAR_MOMENTS,
+    CompileMoments,
+    GrammarMoments,
+    build_codegen_grammar,
+)
 from lexic.compile.pipeline.synthesis import synthesize
+from lexic.compile.presentation import Draw, Presentation, Row, Rows, present
 from lexic.compile.templating import (
     KEEP,
     Keep,
@@ -78,6 +93,16 @@ from lexic.compile.templating import (
     spanify,
     template,
 )
+from lexic.compile.transpile import (
+    Flat,
+    Is,
+    Make,
+    Spelled,
+    Split,
+    Transpiler,
+    transpile,
+)
+from lexic.compile.verdict import Verdict
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir import (
@@ -95,7 +120,6 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
     canonicalize,
-    concretize,
     fold_name,
     refs_in_order,
     rule_closure,
@@ -114,34 +138,56 @@ from lexic.parsing import (
 # blocks from sharing linter-length runs of identical lines.
 __all__ = [
     "Directives",
+    "Draw",
     "Vocabulary",
     "bind_module",
+    "build_codegen_grammar",
+    "CompileMoments",
     "canonical_grammar",
+    "compile_ast",
     "compile_from_path",
     "compile_text",
     "CompiledGrammar",
+    "compute_binding",
     "export_module",
     "export_source",
+    "export_value",
+    "Flat",
+    "GRAMMAR_MOMENTS",
+    "GrammarMoments",
     "KEEP",
     "Keep",
     "load_ir",
+    "Is",
     "load_ir_from_path",
+    "Make",
     "MapShape",
     "parse_grammar",
+    "present",
+    "Presentation",
     "parse_instance",
     "parse_reduced",
     "parse_instance_from_path",
     "parse_module",
     "Reducer",
+    "Row",
+    "Rows",
     "reset_cache_for_tests",
+    "RuleBinding",
     "SpanEntry",
     "SpanLevel",
     "SpanPair",
     "spanify",
     "Spec",
+    "Spelled",
+    "Split",
+    "synthesize",
     "Template",
     "template",
     "TokenBinding",
+    "transpile",
+    "Transpiler",
+    "Verdict",
     "verify_module",
 ]
 
@@ -533,42 +579,70 @@ def _is_segmented(ast: IrAst) -> bool:
     return False
 
 
+def _flavour_key(flavour: str | IrFlavour) -> Hashable:
+    """The memo component a flavour contributes — its name, or its class.
+
+    A name string keys by itself. An INSTANCE keys by its class object:
+    flavour value equality is not a designed key in either direction —
+    record-tier equality is content-based, so two field-less records of
+    DIFFERENT classes compare equal (aliasing), while two loads of the SAME
+    manifest compare unequal (their tables' actions differ by identity) —
+    whereas the class object is identity-stable and the cache entry pins it
+    live, so (unlike an ``id()``) it can never be reused for another flavour.
+    """
+    return flavour if isinstance(flavour, str) else type(flavour)
+
+
 def _compile_core(
     text: str,
     *,
     stem: str,
-    flavour: str = "gbnf",
+    flavour: str | IrFlavour = "gbnf",
     vocabulary: Vocabulary = Vocabulary(),
     directives: Directives = Directives(),
 ) -> CompiledGrammar:
-    flavour_cls = get_flavour(flavour)
+    flavour_cls = get_flavour(flavour) if isinstance(flavour, str) else flavour
     ast = canonical_grammar(
         text,
         flavour_cls,
         non_semantic_rules=directives.non_semantic,
         start=directives.start,
     )
+    flavour_name = flavour if isinstance(flavour, str) else type(flavour).name
+    return _assemble_core(
+        ast, stem=stem, source=text, flavour_name=flavour_name, vocabulary=vocabulary
+    )
+
+
+def _assemble_core(
+    ast: IrAst, *, stem: str, source: str, flavour_name: str, vocabulary: Vocabulary
+) -> CompiledGrammar:
+    """The compile back half — canonical flagged AST → :class:`CompiledGrammar`.
+
+    Shared verbatim by the text route (:func:`_compile_core`) and the AST
+    route (:func:`compile_ast`); everything from here down is front-half
+    agnostic. ``source`` is the content string the synthetic-module identity
+    tags (:func:`_identity_for`) — the grammar text on the text route,
+    ``repr(ast)`` on the AST route.
+    """
     resolved = encoding_registry(vocabulary.tokenizer, vocabulary.registry)
     # Resolution is for MATCHING, not for meaning. concretize COMMUTES with
-    # build_codegen_grammar, so the unresolved codegen grammar is built once
-    # and resolved beside it; the ENGINE gets the resolved form (ids match a
+    # the grammar passes, so the unresolved codegen grammar is built once and
+    # resolved beside it; the ENGINE gets the resolved form (ids match a
     # segmentation) while everything that carries meaning back to the user —
     # the canonical AST and each class's `__grammar__` — keeps the AUTHORED
     # form. A vocabulary is a lens on a grammar, never part of what it says,
     # so binding one must not make `to_grammar()` lossy.
-    unresolved = build_codegen_grammar(ast)
-    codegen_grammar = unresolved
-    if resolved is not None:
-        codegen_grammar = concretize(unresolved, resolved)
-    binding = compute_binding(codegen_grammar)
-    classes = synthesize(unresolved, binding, _identity_for(stem, text))
-    fold = ModelFold(_fold_config(codegen_grammar, binding, classes))
+    moments = CompileMoments.of(ast, resolved, _identity_for(stem, source))
+    unresolved = moments.grammar.relaxed
+    codegen_grammar = moments.grammar.resolved
+    classes = moments.classes
+    fold = ModelFold(_fold_config(codegen_grammar, moments.binding, classes))
     return CompiledGrammar(
-        classes=classes,
         grammar=ast,
-        codegen_grammar=codegen_grammar,
         fold=fold,
-        flavour=flavour,
+        moments=moments,
+        flavour=flavour_name,
         stem=stem,
         tokens=TokenBinding(
             segmentation_tokenizer(resolved),
@@ -582,27 +656,34 @@ def compile_text(
     text: str,
     *,
     cache_key: Hashable | None = None,
-    flavour: str = "gbnf",
+    flavour: str | IrFlavour = "gbnf",
     vocabulary: Vocabulary = Vocabulary(),
     directives: Directives = Directives(),
 ) -> CompiledGrammar:
     """Compile from a grammar string, memoised by content by default.
 
-    The cache key is ``(content sha stem, flavour)`` — compiling the same
+    The cache key is ``(content sha stem, flavour key)`` — compiling the same
     source in the same flavour returns the cached :class:`CompiledGrammar`
     (and its class objects; synthesis writes no files, so there is no output
     directory to key on). An explicit ``cache_key`` is *prepended* to that
-    content key rather than used as-is: ``(cache_key, stem, flavour)``.
+    content key rather than used as-is: ``(cache_key, stem, flavour key)``.
     Folding the content stem in means the same key can never serve a stale
     grammar — different source text under one ``cache_key`` yields distinct
     entries, while identical text still hits the memo. The test seam
     :func:`reset_cache_for_tests` clears the cache when a caller needs fresh
     class objects.
 
+    A flavour INSTANCE is used directly and never touches the registry: a
+    loaded session manifest compiles without ``register_flavour``, and the
+    shipped singleton under the same name is not shadowed. It contributes
+    its class object to the memo key — identity-stable, pinned live by the
+    cache entry — so two different flavours can never alias one entry.
+
     :param text: Grammar source in ``flavour``'s syntax.
     :param cache_key: Extra key prefix disambiguating otherwise-identical
         compilations; ``None`` uses the content key alone.
-    :param flavour: The grammar flavour name.
+    :param flavour: The grammar flavour — a registered name, or a live
+        :class:`~lexic.ir.IrFlavour` instance.
     :param vocabulary: The lens the grammar's terminals are read through — a
         tokenizer, a name → encoding registry, or both (they compose).
     :param directives: What the ``@directives`` would say, as an argument;
@@ -615,7 +696,12 @@ def compile_text(
     # reused and hand back another one's artefact. Both are hashable.
     # The directives are part of WHAT WAS COMPILED, so they key the memo too:
     # without them one source compiled two ways would hand back the first.
-    content_key: tuple[Hashable, ...] = (stem, flavour, vocabulary, directives)
+    content_key: tuple[Hashable, ...] = (
+        stem,
+        _flavour_key(flavour),
+        vocabulary,
+        directives,
+    )
     key = (cache_key, *content_key) if cache_key is not None else content_key
     cached = _CACHE.get(key)
     if cached is not None:
@@ -626,6 +712,82 @@ def compile_text(
         flavour=flavour,
         vocabulary=vocabulary,
         directives=directives,
+    )
+    _CACHE[key] = cg
+    return cg
+
+
+def _canonical_ast(ast: IrAst, directives: Directives) -> IrAst:
+    """The AST route's front half — canonicalize + resolve the flags.
+
+    Mirrors :func:`canonical_grammar` with the AST itself as the source:
+    ``directives.start`` overrides ``ast.start`` (else the first rule), and
+    ``directives.non_semantic`` REPLACES the rules' own ``semantic`` flags
+    when given — ``None`` keeps them (canonicalize preserves the flag).
+
+    :raises UnsupportedConstructError: When the resolved start rule is not
+        defined in the grammar.
+    """
+    start = directives.start or ast.start or (ast.rules[0].name if ast.rules else "")
+    canon = canonicalize(IrAst(rules=ast.rules, start=start))
+    if canon.start and not any(r.name == canon.start for r in canon.rules):
+        raise UnsupportedConstructError(
+            f"start rule {canon.start!r} not defined in grammar; "
+            f"available rules: {[r.name for r in canon.rules]}"
+        )
+    if directives.non_semantic is None:
+        return canon
+    folded = frozenset(fold_name(n) for n in directives.non_semantic)
+    rules = IrSeq(*(IrRule(r.name, r.body, r.name not in folded) for r in canon.rules))
+    return IrAst(rules=rules, start=canon.start)
+
+
+def compile_ast(
+    ast: IrAst,
+    *,
+    cache_key: Hashable | None = None,
+    vocabulary: Vocabulary = Vocabulary(),
+    directives: Directives = Directives(),
+) -> CompiledGrammar:
+    """Compile from a grammar AST — the IR-born twin of :func:`compile_text`.
+
+    The entry for a grammar that never had text: authored natively in IR, or
+    loaded through the notation. The text route's front half is skipped, not
+    emulated — emitting IR through a flavour and recompiling that text is
+    lossy (``semantic=False`` flags vanish with the comments) and can only
+    spell what the chosen flavour can spell. Here the given AST is
+    canonicalized as it stands (rule flags survive), the start and flags
+    resolve from the AST itself with ``directives`` overriding — the text
+    route's precedence — and the back half is shared verbatim.
+
+    Memoised like the text twin, with ``repr(ast)`` as the content: repr is
+    codegen-exact, so the key distinguishes what AST equality deliberately
+    ignores (the ``semantic`` flags). The artefact's ``flavour`` is ``"ir"``
+    — the notation is the surface it arrived in; ``to_grammar`` still takes
+    its target flavour explicitly.
+
+    :param ast: The grammar AST; need not be canonical.
+    :param cache_key: Extra key prefix, prepended as in :func:`compile_text`.
+    :param vocabulary: The lens the grammar's terminals are read through
+        (see :func:`compile_text`).
+    :param directives: Overrides for what the AST's own start and flags say.
+    :returns: The compiled grammar (cached across calls with the same key).
+    :raises UnsupportedConstructError: When the resolved start rule is not
+        defined in the grammar.
+    """
+    source = repr(ast)
+    stem = _stem_for_text(source)
+    content_key: tuple[Hashable, ...] = (stem, "ir", vocabulary, directives)
+    key = (cache_key, *content_key) if cache_key is not None else content_key
+    cached = _CACHE.get(key)
+    if cached is not None:
+        return cached
+    cg = _assemble_core(
+        _canonical_ast(ast, directives),
+        stem=stem,
+        source=source,
+        flavour_name="ir",
+        vocabulary=vocabulary,
     )
     _CACHE[key] = cg
     return cg
@@ -686,19 +848,20 @@ def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
 def compile_from_path(
     grammar_path: str | Path,
     *,
-    flavour: str | None = None,
+    flavour: str | IrFlavour | None = None,
     vocabulary: Vocabulary = Vocabulary(),
     directives: Directives = Directives(),
 ) -> CompiledGrammar:
-    """Compile from a file path; memoised by (path, mtime, size, flavour).
+    """Compile from a file path; memoised by (path, mtime, size, flavour key).
 
     The path-taking wrapper around :func:`compile_text`, carrying its whole
     surface: a grammar with token terminals binds a vocabulary here exactly
-    as it would from source.
+    as it would from source, and a flavour instance compiles registry-free
+    exactly as it would there.
 
     :param grammar_path: Path to the grammar source file.
-    :param flavour: The grammar flavour name; inferred from the file
-        extension if omitted.
+    :param flavour: The grammar flavour name or instance; inferred from the
+        file extension if omitted.
     :param vocabulary: The lens the grammar's terminals are read through
         (see :func:`compile_text`).
     :param directives: What the ``@directives`` would say, as an argument.
@@ -717,7 +880,7 @@ def compile_from_path(
         str(path),
         stat.st_mtime,
         stat.st_size,
-        flavour,
+        _flavour_key(flavour),
         vocabulary,
         directives,
     )
@@ -736,7 +899,9 @@ def compile_from_path(
     return cg
 
 
-def parse_instance(text: str, grammar: str, *, flavour: str = "gbnf") -> GrammarModel:
+def parse_instance(
+    text: str, grammar: str, *, flavour: str | IrFlavour = "gbnf"
+) -> GrammarModel:
     """Parse ``text`` against grammar SOURCE — the one-line entry.
 
     Sugar for ``compile_text(grammar, flavour=flavour).parse(text)``; the
@@ -746,7 +911,7 @@ def parse_instance(text: str, grammar: str, *, flavour: str = "gbnf") -> Grammar
 
     :param text: The instance text to parse.
     :param grammar: Grammar source in ``flavour``'s syntax.
-    :param flavour: The grammar flavour name.
+    :param flavour: The grammar flavour name or instance.
     :returns: The start rule's model instance.
     :raises UnsupportedConstructError: If the grammar or the text refuses.
     """
@@ -754,14 +919,14 @@ def parse_instance(text: str, grammar: str, *, flavour: str = "gbnf") -> Grammar
 
 
 def parse_instance_from_path(
-    text: str, grammar_path: str | Path, *, flavour: str | None = None
+    text: str, grammar_path: str | Path, *, flavour: str | IrFlavour | None = None
 ) -> GrammarModel:
     """Parse ``text`` against a grammar FILE — the path-taking twin.
 
     :param text: The instance text to parse.
     :param grammar_path: Path to the grammar source file.
-    :param flavour: The grammar flavour name; inferred from the file
-        extension if omitted.
+    :param flavour: The grammar flavour name or instance; inferred from the
+        file extension if omitted.
     :returns: The start rule's model instance.
     :raises UnsupportedConstructError: If the grammar or the text refuses.
     """

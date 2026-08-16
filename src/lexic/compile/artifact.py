@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAst,
@@ -21,7 +22,14 @@ from lexic.ir import (
     concretize,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelFold, TokenMaskCursor, parse_model, token_model
+from lexic.parsing import (
+    ModelFold,
+    PdaTables,
+    TokenMaskCursor,
+    parse_model,
+    pda_tables,
+    token_model,
+)
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 
 
@@ -110,14 +118,13 @@ class TokenBinding:
 class CompiledGrammar:
     """Parse-ready artefacts produced by compile().
 
-    :ivar classes: Generated model classes by class name.
     :ivar grammar: The canonical grammar AST (what the user's grammar IS —
         the transpile/re-emit source; also the generated module's GRAMMAR).
-    :ivar codegen_grammar: The post-pass codegen grammar the fold binds against
-        — the engine key :meth:`parse` hands to
-        :func:`~lexic.parsing.parse_model` (the engine memoises its lifted /
-        normalised / PDA / run-collapsed compilation per this grammar's identity).
     :ivar fold: The positional ParseTree → model-instance fold.
+    :ivar moments: Every stage this compilation passed through — the grammar
+        states, the binding view, the classes. Retained rather than recomputed:
+        the pipeline built each one anyway, so a caller that wants to see the
+        compilation asks the artefact instead of running it again.
     :ivar flavour: The source flavour's name (drives the export docstrings).
     :ivar stem: The grammar stem (file stem / content-hash stem) — the
         exported module's default identity.
@@ -125,13 +132,32 @@ class CompiledGrammar:
         and whether the grammar segments. See :class:`TokenBinding`.
     """
 
-    classes: dict[str, type]
     grammar: IrAst
-    codegen_grammar: IrAst
     fold: ModelFold[GrammarModel]
+    moments: CompileMoments
     flavour: str = "gbnf"
     stem: str = "grammar"
     tokens: TokenBinding = TokenBinding()
+
+    @property
+    def classes(self) -> dict[str, type]:
+        """Generated model classes by class name — the compilation's last moment.
+
+        Read off :attr:`moments` rather than stored beside it: two copies of
+        one answer is a drift surface, and the moments already ARE the answer.
+        """
+        return self.moments.classes
+
+    @property
+    def codegen_grammar(self) -> IrAst:
+        """The post-pass codegen grammar the fold binds against.
+
+        The engine key :meth:`parse` hands to
+        :func:`~lexic.parsing.parse_model` (the engine memoises its lifted /
+        normalised / PDA / run-collapsed compilation per this grammar's
+        identity) — and the moments' ``resolved`` state, by definition.
+        """
+        return self.moments.grammar.resolved
 
     def parse(self, text: str, resolve: Resolver | None = None) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
@@ -181,6 +207,19 @@ class CompiledGrammar:
             "compile: the start rule's fold",
         )
 
+    def pda_tables(self) -> PdaTables:
+        """The predictive engine's compiled tables for this artefact.
+
+        Reaches the engine's identity-memoised instance product for
+        ``(codegen_grammar, fold)`` — this artefact holds the exact objects
+        the memo is keyed by, so the tables returned are the very ones
+        :meth:`parse` drives: hot if this grammar has parsed already,
+        compiled once and shared forward if not.
+
+        :returns: The compiled :class:`~lexic.parsing.PdaTables`.
+        """
+        return pda_tables(self.codegen_grammar, self.fold)
+
     def bind(
         self, tokenizer: IrTokenizer, registry: IrMap | None = None
     ) -> CompiledGrammar:
@@ -209,13 +248,18 @@ class CompiledGrammar:
         """
         source = IrAst.ensure(self.tokens.unresolved, "compile: the unresolved grammar")
         resolved = encoding_registry(tokenizer, registry)
+        codegen_grammar = source if resolved is None else concretize(source, resolved)
+        # Only the LAST grammar moment moves: rebinding re-resolves the
+        # authored form and reuses everything the resolution cannot change.
+        grammar_moments = GrammarMoments(
+            *self.moments.grammar[:-1], resolved=codegen_grammar
+        )
         return CompiledGrammar(
-            classes=self.classes,
             grammar=self.grammar,
-            codegen_grammar=(
-                source if resolved is None else concretize(source, resolved)
-            ),
             fold=self.fold,
+            moments=CompileMoments(
+                grammar_moments, self.moments.binding, self.moments.classes
+            ),
             flavour=self.flavour,
             stem=self.stem,
             tokens=TokenBinding(

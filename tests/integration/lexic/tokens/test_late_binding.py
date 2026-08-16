@@ -399,3 +399,20 @@ def test_bind_requires_a_rebindable_source() -> None:
     )
     assert compiled.tokens.unresolved is not None
     assert compiled.bind(HIGH).parse(TEXT).to_text() == TEXT
+
+
+def test_rebinding_moves_only_the_last_grammar_moment(compiled) -> None:
+    """The moments say what ``bind`` claims: only resolution moved.
+
+    ``bind``'s whole argument is that classes, binding and fold are invariant
+    under which vocabulary is bound. The retained moments make that checkable
+    instead of documented — every stage before ``resolved`` is the SAME
+    object, and ``resolved`` is the only one that differs.
+    """
+    rebound = compiled.bind(HIGH)
+    before, after = compiled.moments.grammar, rebound.moments.grammar
+    assert tuple(before)[:-1] == tuple(after)[:-1]
+    assert before.relaxed is after.relaxed
+    assert before.resolved != after.resolved
+    assert rebound.moments.binding is compiled.moments.binding
+    assert rebound.moments.classes is compiled.moments.classes

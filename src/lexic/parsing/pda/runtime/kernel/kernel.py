@@ -208,7 +208,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         self._enter(start, holder)
         self._drive()
         if self.pos != len(self.text):
-            raise PdaFail(f"trailing input at {self.pos}")
+            raise PdaFail(f"trailing input at {self.pos}", self.pos)
         if not holder:
             raise PdaFail("start rule produced no model")
         return holder[0]
@@ -252,8 +252,22 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             self.stack, self.pos = saved_stack, saved_pos
         return end, (holder[0] if holder else None)
 
-    def _drive(self, floor: int = 0) -> None:
+    def _drive(self, floor: int = 0, limit: int = -1) -> None:
         """Drain the frame stack — the fused hot loop.
+
+        With ``limit`` >= 0 the drive RETURNS as soon as the cursor reaches it,
+        leaving the stack resumable: a later call continues where this one
+        stopped. It is a PARAMETER and not a cursor field on purpose — the
+        bound belongs to one call, and a nested drive (an attempt sub-run
+        re-entering the driver) must be unbounded. Carried on the cursor it
+        leaked into those sub-runs, which then stopped early and never
+        converged; measured, that put every boundary back on the slow path.
+        It folds into the OUTER loop's own condition, so the hot path gains no
+        branch — and a
+        frame boundary is exactly where ``self.pos`` and ``frame[F_I]`` are
+        both current, which is what makes the pause resumable at all. Used by
+        the lockstep boundary verdict, which advances two candidate
+        continuations in step instead of running each to end-of-input.
 
         The outer loop processes the top frame; the inner loop runs its items
         in order. A terminal item matches its whole quantifier loop inline (no
@@ -268,12 +282,11 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         """
         stack = self.stack
         text = self.text
-        while len(stack) > floor:
+        while len(stack) > floor and not 0 <= limit <= self.pos:
             frame = stack[-1]
             arm = frame[F_ARM]
             kinds = arm.kinds
             n = arm.n
-            ends = frame[F_ENDS]
             i = frame[F_I]
             pos = self.pos
             while i < n:
@@ -286,12 +299,12 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                         if payload[1]
                         else (char not in payload[0])
                     ):
-                        raise PdaFail(f"char class miss at {pos}")
+                        raise PdaFail(f"char class miss at {pos}", pos)
                     pos += 1
                 elif k == OP_LIT1:
                     lit = arm.payloads[i]
                     if not text.startswith(lit, pos):
-                        raise PdaFail(f"expected {lit!r} at {pos}")
+                        raise PdaFail(f"expected {lit!r} at {pos}", pos)
                     pos += len(lit)
                 elif k == OP_REF1:
                     frame[F_I] = i + 1
@@ -309,7 +322,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                         break  # pushed — the sub-frame drives next
                     pos = self.pos
                     continue
-                ends[i] = pos
+                frame[F_ENDS][i] = pos
                 i += 1
             else:  # items exhausted without a descent — the frame completes
                 frame[F_I] = i
@@ -360,7 +373,8 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         if k == OP_FAIL:
             raise PdaFail(
                 f"fail-island {arm.payloads[i]!r} at {pos}: "
-                "F1 semantic escape, engine fallback"
+                "F1 semantic escape, engine fallback",
+                pos,
             )
         self._island(arm.payloads[i], sink)  # OP_ISLAND — spliced inline
         return i
@@ -414,7 +428,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             if nxt is None:
                 nxt = clone.default
                 if nxt is None:
-                    raise PdaFail(f"no arm at {self.pos}")
+                    raise PdaFail(f"no arm at {self.pos}", self.pos)
                 if nxt is DISPATCH_EMPTY:
                     return None
             clone = nxt
@@ -423,31 +437,30 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
 
-        A dispatch clone (a frame-less pass-through alternation) is chased
-        first: its selectors carry target clones, so the walk lands on the
-        concrete clone — reporting into the same ``out`` the alternation would
-        have passed through to — before any frame is pushed. A leaf clone then
-        runs frame-lessly in :meth:`_run_leaf`.
+                A dispatch clone (a frame-less pass-through alternation) is chased
+                first: its selectors carry target clones, so the walk lands on the
+                concrete clone — reporting into the same ``out`` the alternation would
+                have passed through to — before any frame is pushed. A leaf clone then
+                runs frame-lessly in :meth:`_run_leaf`.
 
-        :param clone: The clone (or inline group) to descend into.
-        :param out: The parent sink list the clone's model reports into.
-        :returns: ``True`` when a frame was pushed; ``False`` when the clone
-            was consumed inline (a leaf run, or a dispatch clone's empty arm).
-        :raises PdaFail: When no arm's FIRST matches and there is no default.
+        Both steps live in :meth:`_settle`, which
+                resolves them to a fixpoint.
+
+                :param clone: The clone (or inline group) to descend into.
+                :param out: The parent sink list the clone's model reports into.
+                :returns: ``True`` when a frame was pushed; ``False`` when the clone
+                    was consumed inline (a leaf run, or a dispatch clone's empty arm).
+                :raises PdaFail: When no arm's FIRST matches and there is no default.
         """
         char = self.text[self.pos : self.pos + 1]
-        if clone.mode == BUILD_DISPATCH:
-            chased = self._chase_dispatch(clone, char)
-            if chased is None:
-                return False  # the empty (nullable) arm — nothing consumed
-            clone = chased
-        if clone.attempt is not None:
-            sole = sole_admitted(clone.attempt[1], self.text, self.pos)
-            if sole is None:
-                self.attempt(clone, out)
-                return False  # the winning arm was consumed inline
-            clone = sole  # one admitted entry — no fork is possible: a plain
-            # frame push replaces the sub-run, and the audit has nothing to ask
+        if clone.mode == BUILD_DISPATCH or clone.attempt is not None:
+            # Most entries resolve to themselves; pay the call only when one of
+            # the two substituting shapes is actually present (measured: the
+            # unconditional call cost 1-3% on every grammar).
+            settled = self._settle(clone, char, out)
+            if settled is None:
+                return False  # consumed inline — empty arm, or an attempt run
+            clone = settled
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
             self.stack.append(
@@ -458,7 +471,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         if gate is not None and not scan_gate_take(self.text, self.pos, gate):
             arm = clone.default
             if arm is None:
-                raise PdaFail(f"no arm at {self.pos}")
+                raise PdaFail(f"no arm at {self.pos}", self.pos)
             self.stack.append(
                 [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
             )
@@ -474,7 +487,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         if arm is None:
             arm = clone.default
             if arm is None:
-                raise PdaFail(f"no arm at {self.pos}")
+                raise PdaFail(f"no arm at {self.pos}", self.pos)
         # frame layout: arm, i, count, out, mode, clone, start, ends, sinks
         # ``ends`` is per-frame so the driver's per-item span write stays
         # unconditional (only span-reading sequence clones ever read it back).
@@ -482,6 +495,53 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
         )
         return True
+
+    def _settle(
+        self, clone: FlatClone, char: str, out: list[object]
+    ) -> "FlatClone | None":
+        """Resolve dispatch chases and attempt substitutions to a fixpoint.
+
+        Either step installs a *different* clone, and the clone it installs has
+        not been through the tests above it: a chase yields the selected
+        target, an attempt substitution yields the sole admitted entry. Run as
+        straight-line tests each check happens at most once, in one order, and
+        a substituted clone reaches the caller's arm selection carrying
+        whatever specialisation it has — which is a crash when that
+        specialisation is dispatch, whose selectors hold clones where the frame
+        push expects a :class:`FlatArm`. Attempt → dispatch → attempt chains are
+        the normal case rather than a corner: on the vyx grammar they run to 30
+        hops.
+
+        **It terminates.** Every hop follows a FIRST-position reference edge — a
+        dispatch selector and an attempt entry both name what may *begin* the
+        span — and a cycle of first-position references is left recursion, which
+        the analysis refuses before any clone is built. Every chain is therefore
+        bounded by the depth of an acyclic FIRST graph.
+
+        :param clone: The clone to resolve.
+        :param char: The lookahead, for the dispatch selectors.
+        :param out: The parent sink, for an attempt run's inline consumption.
+        :returns: The clone the caller should enter, or ``None`` when the walk
+            was consumed inline (a dispatch clone's empty arm, or an attempt
+            whose winning arm ran as a sub-run).
+        """
+        while True:
+            if clone.mode == BUILD_DISPATCH:
+                chased = self._chase_dispatch(clone, char)
+                if chased is None:
+                    return None  # the empty (nullable) arm — nothing consumed
+                clone = chased
+                continue
+            if clone.attempt is not None:
+                sole = sole_admitted(clone.attempt[1], self.text, self.pos)
+                if sole is None:
+                    self.attempt(clone, out)
+                    return None  # the winning arm was consumed inline
+                clone = sole  # one admitted entry — no fork is possible: a
+                # plain frame push replaces the sub-run, and the audit has
+                # nothing to ask
+                continue
+            return clone
 
     def _run_leaf(self, clone: FlatClone, out: list[Any], pos: int) -> int:
         """Run an all-terminal ``sequence`` clone frame-lessly — match and build.
@@ -516,12 +576,12 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                     if payload[1]
                     else (char not in payload[0])
                 ):
-                    raise PdaFail(f"char class miss at {pos}")
+                    raise PdaFail(f"char class miss at {pos}", pos)
                 pos += 1
             elif k == OP_LIT1:
                 lit = arm.payloads[i]
                 if not text.startswith(lit, pos):
-                    raise PdaFail(f"expected {lit!r} at {pos}")
+                    raise PdaFail(f"expected {lit!r} at {pos}", pos)
                 pos += len(lit)
             elif k == OP_VSTR:
                 if sinks is None:
@@ -585,7 +645,9 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         """
         fold = self.policy.fold
         if fold is None:
-            raise PdaFail(f"island {name!r} at {self.pos}: no fold for splice")
+            raise PdaFail(
+                f"island {name!r} at {self.pos}: no fold for splice", self.pos
+            )
         tree, end = self._island_subparse(name)
         model = island_value(lambda: fold.apply(tree), name, self.pos)
         if model is not None:

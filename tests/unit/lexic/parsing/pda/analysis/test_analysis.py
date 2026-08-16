@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import canonical_grammar
-from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir import (

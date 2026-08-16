@@ -30,6 +30,25 @@ from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 # Golden per-file fingerprint: start rule + rule names in source order.
 GOLDEN: dict[str, tuple[str, tuple[str, ...]]] = {
     "arithmetic": ("root", ("root", "expr", "term", "ident", "num", "ws")),
+    "markdown": (
+        "document",
+        (
+            "document",
+            "block",
+            "heading",
+            "bullet",
+            "paragraph",
+            "blank",
+            "level",
+            "start",
+            "opener",
+            "line",
+            "styled",
+            "code",
+            "emphasis",
+            "plain",
+        ),
+    ),
     "c": (
         "root",
         (

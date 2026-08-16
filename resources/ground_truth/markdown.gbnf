@@ -1,0 +1,32 @@
+# A small markdown: blocks of lines, with inline code and emphasis.
+#
+# Authored as a presentation fixture — the third demonstrator language beside
+# a JSON and an ABNF formulation — so a ceiling can be written against a
+# document format whose whole point is how it DRAWS.
+#
+# Unambiguous by construction, which costs two restrictions worth stating.
+# A paragraph's first character cannot be `#` or `-`, because those open a
+# heading and a bullet: without that, "# x" derives two ways (a heading, and a
+# paragraph whose text begins with a hash), and two derivations that mean
+# different things are refused by both engines rather than silently picked.
+# And a line interleaves plain runs with styled ones rather than repeating a
+# chunk, because two adjacent plain runs would carve one run of text two ways.
+
+document ::= block+
+
+block ::= heading | bullet | paragraph | blank
+
+heading   ::= level " " line "\n"
+bullet    ::= "- " line "\n"
+paragraph ::= start line "\n"
+blank     ::= "\n"
+
+level  ::= "#"+
+start  ::= opener | styled
+opener ::= [^#\-*`\n]
+line   ::= plain? (styled plain?)*
+
+styled   ::= code | emphasis
+code     ::= "`" plain "`"
+emphasis ::= "*" plain "*"
+plain    ::= [^*`\n]+

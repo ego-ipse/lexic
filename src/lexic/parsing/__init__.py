@@ -79,6 +79,32 @@ The tree/forest readers (:func:`recognize` … :func:`is_ambiguous`) each box th
 text and drive one :class:`~lexic.ir.base.IrSelf` orchestration node in
 :mod:`.earley.engine`. ``PdaFail`` is internal to the products and never
 surfaces.
+
+The engine floor is public here too, beside :class:`Kernel`:
+:func:`~lexic.parsing.products.earley_model` /
+:func:`~lexic.parsing.products.earley_reduce` are the per-product Earley
+completions — the route-forcing seam (forcing a route means calling a
+different product entry, never passing a flag) — and the predictive half
+surfaces as :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` (the
+fused runtime, subclassable for tracing),
+:class:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis` (the decision
+taxonomy the verdict readers consume), and
+:func:`~lexic.parsing.products.pda_tables` /
+:class:`~lexic.parsing.pda.compiler.tables.PdaTables` (the compiled tables a
+kernel runs over, identity-memoised with the parse path).
+
+:mod:`~lexic.parsing.earley.kernel.forest.readout`'s decode seam surfaces
+here whole — :func:`to_chart`, :func:`decode_item`, the ``accept_*``
+readers, :func:`start_completion_ends`, :func:`root_ambiguous`,
+:func:`child_node`. It reads a finished :class:`Kernel`'s public fields and
+calls no method on it, which is what makes it a seam; exporting it means a
+consumer that wants to SEE a parse — a chart-column view, a trace — never
+reaches past the package boundary for it.
+
+:func:`~lexic.parsing.pda.analysis.predicates.nullable_names` surfaces here for
+the same reason: it is the repo's only nullability fixpoint, and the codegen
+passes need it to tell a language-preserving rewrite from a language-widening
+one (:func:`~lexic.compile.pipeline.passes.relax_non_semantic`).
 """
 
 from __future__ import annotations
@@ -103,6 +129,17 @@ from lexic.parsing.earley.kernel.forest.forest import (
     RootNode,
     SppfNode,
 )
+from lexic.parsing.earley.kernel.forest.readout import (
+    accept_handle,
+    accept_item,
+    accept_items,
+    accept_node,
+    child_node,
+    decode_item,
+    root_ambiguous,
+    start_completion_ends,
+    to_chart,
+)
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
@@ -121,7 +158,27 @@ from lexic.parsing.fold import (
     RuleFold,
     lift_optional_nullables,
 )
-from lexic.parsing.products import parse_model, parse_reduced, token_model
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
+from lexic.parsing.pda.analysis.predicates import nullable_names
+from lexic.parsing.pda.compiler.tables import PdaTables
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+from lexic.parsing.products import (
+    earley_model,
+    earley_reduce,
+    parse_model,
+    parse_reduced,
+    pda_tables,
+    token_model,
+)
+from lexic.parsing.trace import (
+    TRACE_CAP,
+    TRACE_KINDS,
+    Trace,
+    TraceEvent,
+    WatchedKernel,
+    WatchedRun,
+    watch,
+)
 
 
 def recognize(grammar: IrAst, text: str) -> IrInt:
@@ -219,6 +276,7 @@ __all__ = [
     "FastCtor",
     "FastTree",
     "FieldFold",
+    "GrammarAnalysis",
     "Kernel",
     "Link",
     "Links",
@@ -226,24 +284,47 @@ __all__ = [
     "ModelFold",
     "ParseTree",
     "ParserTables",
+    "PdaKernel",
+    "PdaTables",
     "Reducer",
     "Resolver",
     "RootNode",
     "RuleFold",
     "SppfNode",
+    "accept_handle",
+    "accept_handle",
+    "accept_item",
+    "accept_items",
+    "accept_node",
+    "child_node",
+    "decode_item",
+    "root_ambiguous",
+    "start_completion_ends",
+    "to_chart",
     "compile_tables",
     "derivations",
+    "earley_model",
+    "earley_reduce",
     "is_ambiguous",
     "lift_optional_nullables",
     "normalize",
+    "nullable_names",
     "parse",
     "parse_first",
     "parse_forest",
     "parse_model",
+    "pda_tables",
     "CharTrieCursor",
     "TokenMaskCursor",
     "TokenTermCursor",
     "token_model",
     "parse_reduced",
     "recognize",
+    "TRACE_CAP",
+    "TRACE_KINDS",
+    "Trace",
+    "TraceEvent",
+    "watch",
+    "WatchedKernel",
+    "WatchedRun",
 ]

@@ -36,6 +36,7 @@ from lexic.parsing.pda.compiler.flatten import (
     M_GTEXT,
     M_MODEL,
     M_MODELS,
+    M_SPAN,
     M_TEXT,
     MODE_CODE,
     OP_CC,
@@ -131,6 +132,7 @@ def test_mode_code_matches_bind_modes_order():
         M_GTEXT,
         M_MODEL,
         M_MODELS,
+        M_SPAN,
     ]
 
 
@@ -156,13 +158,29 @@ def test_flatarm_declares_exactly_the_parallel_per_item_arrays():
 
 def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     """FlatClone carries exactly the arm-selector + fold/build fields, no extras."""
-    expected = {"selectors", "kwin_selectors", "pn_selectors", "default"}
+    expected = {"name", "selectors", "kwin_selectors", "pn_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "fold", "fields"}
     expected |= {"fast", "defaults", "leaf", "needs_ends"}
     expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
     expected |= {"reduce_span", "reduce_can_drop"}
     assert set(FlatClone.__slots__) == expected
+
+
+def test_a_clone_carries_the_rule_name_it_stands_for():
+    """The flat artifact names itself — no reaching back into the binding view."""
+    pda = pda_from_text('root ::= lit "x"\nlit ::= "a" | "b"\n')
+    root = pda.program.start
+    assert root.name == "root"
+    assert only_arm(root).payloads[0].name == "lit"
+
+
+def test_an_inline_group_clone_has_an_empty_name():
+    """A group stands for no rule the grammar named, and says so."""
+    pda = pda_from_text('root ::= (a "y" | b) "c"\na ::= "x"\nb ::= "z"\n')
+    group = only_arm(pda.program.start).payloads[0]
+    assert isinstance(group, FlatClone)
+    assert group.name == ""
 
 
 def test_pdaprogram_declares_start_and_delegates_slots():
@@ -241,7 +259,7 @@ def test_unbounded_terminal_is_never_specialised_to_its_exactly_once_code():
     assert arm.his[0] == HI_UNBOUNDED
 
 
-# ── _convert_dispatch ────────────────────────────────────────────────────
+# ── convert_dispatch ────────────────────────────────────────────────────
 
 
 def test_qualifying_alternation_converts_to_a_frameless_dispatch_clone():
@@ -267,7 +285,7 @@ def test_qualifying_alternation_converts_to_a_frameless_dispatch_clone():
 def test_dispatch_conversion_skipped_once_value_str_inlining_eats_the_refs():
     """When every arm's target is itself a terminal-only value_str clone,
     _inline_value_strs rewrites the unit refs to OP_VSTR *before*
-    _convert_dispatch runs — the alternation no longer has the unit-ref
+    convert_dispatch runs — the alternation no longer has the unit-ref
     shape the dispatch rewrite requires, so it stays BUILD_ALT.
     """
     pda = pda_from_text('root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= "2"\n')

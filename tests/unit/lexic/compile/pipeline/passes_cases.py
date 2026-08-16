@@ -56,6 +56,30 @@ def alt_ast() -> IrAst:
     )
 
 
+def three_pass_ast() -> IrAst:
+    """alt → x | (x)* ws — one grammar all three passes have work to do on.
+
+    Shared with :mod:`tests.unit.lexic.compile.pipeline.test_moments`, which
+    needs the same grammar to assert that the moments and the fused form are
+    one composition.
+    """
+    group = IrAlternation(IrRuleRef("x"))
+    return IrAst(
+        IrSeq(
+            IrRule(
+                "alt",
+                IrAlternation(
+                    IrSequence(IrItem(IrRuleRef("x"))),
+                    IrSequence(IrItem(group, STAR), IrItem(IrRuleRef("ws"))),
+                ),
+            ),
+            IrRule("x", IrLiteral("x")),
+            IrRule("ws", IrItem(IrLiteral(" "), STAR), semantic=False),
+        ),
+        "alt",
+    )
+
+
 # ── hoist_groups ──────────────────────────────────────────────────────
 
 
@@ -241,8 +265,32 @@ def case_hoist_arms_raises_on_a_name_collision(passes: ModuleType) -> None:
 # ── relax_non_semantic ────────────────────────────────────────────────
 
 
-def case_relax_sets_min_zero_on_noise_refs(passes: ModuleType) -> None:
-    """A required ref to a semantic=False rule becomes optional."""
+def case_relax_sets_min_zero_on_nullable_noise_refs(passes: ModuleType) -> None:
+    """A required ref to a NULLABLE semantic=False rule becomes optional.
+
+    The half the flag exists for: the noise already derives ε, so dropping the
+    lower bound cannot change the accepted language — only whether the model
+    carries an empty node or an absence.
+    """
+    ast = IrAst(
+        IrSeq(
+            IrRule("r", IrItem(IrRuleRef("ws"), PLUS)),
+            IrRule("ws", IrItem(IrLiteral(" "), STAR), semantic=False),
+        ),
+        "r",
+    )
+    relaxed = rules_by_name(passes.relax_non_semantic(ast))
+    assert relaxed["r"].body[0][0].quantifier == IrQuantifier(0, IrNone)
+
+
+def case_relax_keeps_refs_to_required_noise_rules(passes: ModuleType) -> None:
+    """A ref to a NON-nullable noise rule keeps its bound — the load-bearing half.
+
+    Relaxing here would widen the accepted language, and a widening can make an
+    unambiguous formulation ambiguous (GBNF's ``n ::= nunit+`` is the case that
+    forced this narrowing). An authored quantifier is not the engine's to
+    overrule, whatever the rule is flagged.
+    """
     ast = IrAst(
         IrSeq(
             IrRule("r", IrItem(IrRuleRef("ws"), PLUS)),
@@ -250,8 +298,28 @@ def case_relax_sets_min_zero_on_noise_refs(passes: ModuleType) -> None:
         ),
         "r",
     )
-    relaxed = rules_by_name(passes.relax_non_semantic(ast))
-    assert relaxed["r"].body[0][0].quantifier == IrQuantifier(0, IrNone)
+    assert passes.relax_non_semantic(ast) == ast
+
+
+def case_relax_reads_nullability_from_the_incoming_grammar(
+    passes: ModuleType,
+) -> None:
+    """A noise rule made nullable BY the pass does not thereby license itself.
+
+    ``n ::= nunit+`` over non-semantic ``nunit`` would relax to ``nunit*`` — and
+    a nullability fixpoint solved on that result would then license relaxing
+    every ref to ``n``. Solving on the incoming grammar is what stops the pass
+    bootstrapping its own licence.
+    """
+    ast = IrAst(
+        IrSeq(
+            IrRule("r", IrItem(IrRuleRef("n"), PLUS)),
+            IrRule("n", IrItem(IrRuleRef("nunit"), PLUS), semantic=False),
+            IrRule("nunit", IrItem(IrLiteral(" "), PLUS), semantic=False),
+        ),
+        "r",
+    )
+    assert passes.relax_non_semantic(ast) == ast
 
 
 def case_relax_keeps_refs_to_semantic_rules(passes: ModuleType) -> None:
@@ -272,7 +340,7 @@ def case_relax_does_not_descend_into_groups(passes: ModuleType) -> None:
     ast = IrAst(
         IrSeq(
             IrRule("r", IrItem(group)),
-            IrRule("ws", IrItem(IrLiteral(" "), PLUS), semantic=False),
+            IrRule("ws", IrItem(IrLiteral(" "), STAR), semantic=False),
         ),
         "r",
     )
@@ -289,7 +357,7 @@ def case_relax_is_a_noop_when_the_ref_is_already_optional(
     ast = IrAst(
         IrSeq(
             IrRule("r", IrItem(IrRuleRef("ws"), STAR)),
-            IrRule("ws", IrItem(IrLiteral(" "), PLUS), semantic=False),
+            IrRule("ws", IrItem(IrLiteral(" "), STAR), semantic=False),
         ),
         "r",
     )
@@ -301,41 +369,11 @@ def case_relax_preserves_the_semantic_flags(passes: ModuleType) -> None:
     ast = IrAst(
         IrSeq(
             IrRule("r", IrItem(IrRuleRef("ws"))),
-            IrRule("ws", IrItem(IrLiteral(" "), PLUS), semantic=False),
+            IrRule("ws", IrItem(IrLiteral(" "), STAR), semantic=False),
         ),
         "r",
     )
     assert passes.relax_non_semantic(ast).non_semantic == frozenset({"ws"})
-
-
-# ── composition ───────────────────────────────────────────────────────
-
-
-def case_build_codegen_grammar_composes_all_three_passes(
-    passes: ModuleType,
-) -> None:
-    """Groups hoist, arms hoist, noise refs relax — in that order."""
-    group = IrAlternation(IrRuleRef("x"))
-    ast = IrAst(
-        IrSeq(
-            IrRule(
-                "alt",
-                IrAlternation(
-                    IrSequence(IrItem(IrRuleRef("x"))),
-                    IrSequence(IrItem(group, STAR), IrItem(IrRuleRef("ws"))),
-                ),
-            ),
-            IrRule("x", IrLiteral("x")),
-            IrRule("ws", IrItem(IrLiteral(" "), PLUS), semantic=False),
-        ),
-        "alt",
-    )
-    result = rules_by_name(passes.build_codegen_grammar(ast))
-    assert "alt-item" in result  # group hoisted to a helper
-    assert "alt-arm2" in result  # multi-item arm hoisted
-    arm_items = result["alt-arm2"].body[0]
-    assert arm_items[0] == IrItem(IrRuleRef("alt-item"), STAR)
-    assert arm_items[1].quantifier == IrQuantifier(0, 1)  # ws ref relaxed
 
 
 CASES: dict[str, Callable[[ModuleType], None]] = {
@@ -372,7 +410,15 @@ CASES: dict[str, Callable[[ModuleType], None]] = {
     "test_hoist_arms_raises_on_a_name_collision": (
         case_hoist_arms_raises_on_a_name_collision
     ),
-    "test_relax_sets_min_zero_on_noise_refs": (case_relax_sets_min_zero_on_noise_refs),
+    "test_relax_sets_min_zero_on_nullable_noise_refs": (
+        case_relax_sets_min_zero_on_nullable_noise_refs
+    ),
+    "test_relax_keeps_refs_to_required_noise_rules": (
+        case_relax_keeps_refs_to_required_noise_rules
+    ),
+    "test_relax_reads_nullability_from_the_incoming_grammar": (
+        case_relax_reads_nullability_from_the_incoming_grammar
+    ),
     "test_relax_keeps_refs_to_semantic_rules": (
         case_relax_keeps_refs_to_semantic_rules
     ),
@@ -384,9 +430,6 @@ CASES: dict[str, Callable[[ModuleType], None]] = {
     ),
     "test_relax_preserves_the_semantic_flags": (
         case_relax_preserves_the_semantic_flags
-    ),
-    "test_build_codegen_grammar_composes_all_three_passes": (
-        case_build_codegen_grammar_composes_all_three_passes
     ),
 }
 

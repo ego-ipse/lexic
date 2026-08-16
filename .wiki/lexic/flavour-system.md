@@ -35,22 +35,19 @@ class IrFlavour(IrEmitter, ABC):
 
 `escapes` is an `EscapeCodec` **instance** (not a class). `line_comment` is a `str` (empty disables directive parsing).
 
-## Emit `actions` shape
+## Emit `actions` shape — pure algebra, zero `IrLambda`
 
-A flavour's `actions: IrTypeMap` maps each IR-AST node type to a callable IR body — a concrete-first MRO-resolved table (`ir/mapping.py`), not a plain tuple. The GBNF table is the canonical example (`grammars/gbnf.py`):
+A flavour's `actions: IrTypeMap` maps each IR-AST node type to a callable IR body — a concrete-first MRO-resolved table (`ir/mapping.py`), not a plain tuple. **Every shipped grammar module (`gbnf.py`, `abnf.py`, `ebnf.py`, `json.py`) carries zero `IrLambda` and zero `def` — emit actions AND reductions alike** (the def-purge that started with reductions, 2026-07-11, reached the emit half; escaping went render-side onto `EscapeCodec` data reached via the dispatcher-codec leaves `IrEscape`/`IrEscapePoint`/`IrSpellable`). A whole flavour is therefore data: it round-trips through the notation (the `.flavour.ir` manifests) and through the payload projection, and the decoded flavour emits and compiles.
+
+The GBNF table's shape (`grammars/gbnf.py`, abridged — see the module for the real thing):
 
 ```python
 GBNF_ACTIONS = IrTypeMap(
-    IrAction(IrLiteral,     IrLambda(_gbnf_encode_literal)),
-    IrAction(IrCharClass,   IrLambda(_gbnf_charclass)),
-    IrAction(IrNot,         IrLambda(_gbnf_not)),
-    IrAction(IrRuleRef,     IrField("value")),
-    IrAction(IrQuantifier,  IrLambda(_gbnf_quantifier)),
-    IrAction(IrItem,        IrConcat(parts=(IrChild("atom"), IrChild("quantifier")))),
-    IrAction(IrSequence,    IrJoin(parts=IrChildren("items"), separator=IrLiteral(" "), empty=IrLiteral('""'))),
-    IrAction(IrAlternation, IrJoin(parts=IrChildren("arms"),  separator=IrLiteral(" | "), empty=IrLiteral(""))),
-    IrAction(IrRule,        IrConcat(parts=(IrField("name"), IrLiteral(" ::= "), IrChild("body")))),
-    IrAction(IrAst,         IrLambda(_gbnf_ast)),
+    IrAction(IrLiteral,   IrConcat(parts=IrTuple(IrLiteral('"'), IrEscape(), IrLiteral('"')))),
+    IrAction(IrCharClass, IrCond(test=IrField("is_any", IrInt), then_op=IrLiteral("."),
+                                 else_op=IrConcat(parts=IrTuple(IrLiteral("["), IrJoin(parts=IrArgs()),
+                                                                IrJoin(parts=IrChildren()), IrLiteral("]"))))),
+    ...,  # every other node type: IrConcat/IrJoin/IrCond/IrEscapePoint/layout-doc bodies
 )
 ```
 
@@ -71,13 +68,9 @@ R2 (escaping is a rendering feature, not an AST property) still holds: reduction
 
 Prefer pure algebra (`IrField`, `IrChild`, `IrChildren`, `IrConcat`, `IrJoin`, `IrCond`) whenever the body is a fixed assembly of attribute reads and string composition. The result is declarative, introspectable, and walks correctly under `IrTransformer`.
 
-Reach for `IrLambda(handler)` when:
+In a **grammar module**, never — an `IrLambda`/`def` in `grammars/*.py` is a review-blocking offence with no legacy exemption (the 2026-07-11 ruling; the purge is complete on both halves). What used to justify one now has an algebra home: escape-encoding is `IrEscape`/`IrEscapePoint`/`IrSpellable` over `EscapeCodec` *data*; quantifier/radix arithmetic is `IrRadix`/`IrUnradix`/`IrOrd`/`IrGlyph`/`IrLen`; declarative refusal is an `IrRaise` body (ABNF's `IrNot` action); type-branching is `IrPipe(IrArg, IrTypeMap)`; rule merging is `IrMerge`.
 
-- the result requires a Python-level computation no algebra node expresses (e.g. GBNF `_gbnf_quantifier` maps `(min, max)` pairs through a lookup table);
-- escape-encoding the literal value needs the flavour's `EscapeCodec` (`_gbnf_encode_literal` calls `GBNF_ESCAPES.encode`);
-- a non-trivial control flow is needed (e.g. ABNF's `IrNot` body raises `UnsupportedConstructError` — ABNF has no negation).
-
-`IrLambda` bodies receive `(d, n, nc)` and return `Ir_co`. They should remain small and side-effect-free; if you need recursion into siblings, call `d.eval(d, c, ())` rather than recursing manually.
+`IrLambda` remains legitimate OUTSIDE grammar modules — engine internals and consumers (e.g. the fold's constructor slot `IrLambda(cls)`). Bodies receive `(d, n, nc)` and return `Ir_co`; keep them small and side-effect-free, and recurse via `d.eval(d, c, ())`.
 
 ## Current flavour implementations
 

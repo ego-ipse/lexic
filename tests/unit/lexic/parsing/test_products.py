@@ -28,6 +28,7 @@ from lexic.parsing.earley.kernel.tables import atoms as tables_mod
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import (
     _MODEL_CACHE,
     _model_product,
@@ -36,6 +37,7 @@ from lexic.parsing.products import (
     earley_reduce,
     parse_model,
     parse_reduced,
+    pda_tables,
     reset_product_cache,
 )
 from tests.unit.lexic.parsing.parsing_helpers import compiled
@@ -153,6 +155,44 @@ def test_reset_product_cache_forces_model_product_recompilation():
     assert first.fold is second.fold
 
 
+# ── pda_tables — the public predictive-tables accessor ─────────────────────
+
+
+def test_pda_tables_returns_pda_tables():
+    """pda_tables returns the compiled PdaTables for a (grammar, fold) pair."""
+    cg = compiled()
+    assert isinstance(pda_tables(cg.codegen_grammar, cg.fold), PdaTables)
+
+
+def test_pda_tables_is_the_model_products_pda():
+    """pda_tables is identity-memoised with the parse path — the same object
+    _model_product's .pda field holds."""
+    cg = compiled()
+    assert (
+        pda_tables(cg.codegen_grammar, cg.fold)
+        is _model_product(cg.codegen_grammar, cg.fold).pda
+    )
+
+
+def test_pda_tables_is_the_same_object_across_calls():
+    """Two calls with the identical (grammar, fold) return the SAME tables —
+    no recompilation."""
+    cg = compiled()
+    first = pda_tables(cg.codegen_grammar, cg.fold)
+    second = pda_tables(cg.codegen_grammar, cg.fold)
+    assert first is second
+
+
+def test_reset_product_cache_forces_pda_tables_recompilation():
+    """reset_product_cache drops the model cache pda_tables reads too — a
+    fresh object comes back for the same identity."""
+    cg = compiled()
+    first = pda_tables(cg.codegen_grammar, cg.fold)
+    reset_product_cache()
+    second = pda_tables(cg.codegen_grammar, cg.fold)
+    assert first is not second
+
+
 # ── boundary checks ─────────────────────────────────────────────────────────
 
 
@@ -264,3 +304,49 @@ def test_a_resolver_settles_the_token_route_too():
     )
     picked = token_grammar.parse("<a>", resolve=lambda first, _other: first)
     assert picked.to_text() == "<a>"
+
+
+# ── the refusal readout (both engines declined) ───────────────────────────
+
+
+def test_a_refused_parse_carries_where_it_stopped_and_what_it_wanted():
+    """The public refusal names the position, the rule and the expected chars.
+
+    The readout exists so a caller can DRAW a refusal — a caret, the rule, the
+    continuations. Before it, the position lived only in the predictive route's
+    prose and never escaped the product seam at all.
+    """
+    grammar = compile_text('root ::= "abc" digit\ndigit ::= [0-9]\n')
+    with pytest.raises(UnsupportedConstructError) as caught:
+        grammar.parse("abcX")
+    readout = caught.value.readout
+    assert readout is not None
+    assert readout.pos == 3
+    assert readout.rule == "digit"
+    assert readout.expected == tuple("0123456789")
+    assert readout.negated is False
+    assert readout.undecidable is False
+
+
+def test_a_refusal_keeps_its_message_unchanged():
+    """The gated engine owns the verdict — the readout is additive, not a rewrite."""
+    grammar = compile_text('root ::= "abc" digit\ndigit ::= [0-9]\n')
+    with pytest.raises(UnsupportedConstructError, match="does not derive from 'root'"):
+        grammar.parse("abcX")
+
+
+def test_an_accepted_parse_raises_nothing_to_carry_a_readout():
+    """A readout is a property of a refusal, not of every parse."""
+    grammar = compile_text('root ::= "abc" digit\ndigit ::= [0-9]\n')
+    assert grammar.parse("abc7").to_text() == "abc7"
+
+
+def test_a_negated_expected_set_keeps_its_polarity():
+    """A co-finite expectation is reported as an EXCLUSION, never enumerated."""
+    grammar = compile_text('root ::= "<" body ">"\nbody ::= [^<>]+\n')
+    with pytest.raises(UnsupportedConstructError) as caught:
+        grammar.parse("<>")
+    readout = caught.value.readout
+    assert readout is not None
+    assert readout.negated is True
+    assert "<" in readout.expected and ">" in readout.expected

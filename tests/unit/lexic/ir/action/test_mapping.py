@@ -408,3 +408,41 @@ def test_from_table_needs_no_reach_into_the_private_slot() -> None:
     built = IrMap.from_table([(IrStr("k"), IrInt(1))])
     assert built[IrStr("k")] == IrInt(1)
     assert built == IrMap(IrTuple(IrStr("k"), IrInt(1)))
+
+
+# ── The walk surface: children / rebuild ──────────────────────────────
+
+
+def test_map_children_are_its_dyads_and_rebuild_is_their_inverse() -> None:
+    """``children()`` mirrors the constructor: dyad records, key order.
+
+    What construction takes is what a walk sees, so a transformer's rebuild
+    round-trips through ``__new__`` unchanged — the property that lets a
+    dispatch table or a reducer's action map stand under ``IrBottomUp`` like
+    any other value.
+    """
+    built = names_map()
+    dyads = built.children()
+    assert all(isinstance(dyad, IrTuple) for dyad in dyads)
+    assert [dyad[0] for dyad in dyads] == list(built.keys())
+    assert built.rebuild(dyads) == built
+
+
+def test_typemap_children_rebuild_preserves_resolution() -> None:
+    """A rebuilt type map answers exactly as the original did."""
+    table = IrTypeMap(IrTuple(IrStr, IrThis()), IrTuple(IrInt, IrThis()))
+    again = table.rebuild(table.children())
+    assert again == table
+    assert again.resolve(IrStr("x")) == table.resolve(IrStr("x"))
+
+
+def test_map_rebuild_refuses_a_non_dyad() -> None:
+    """The inverse is checked: a replacement child must be a dyad record."""
+    with pytest.raises(UnsupportedConstructError):
+        names_map().rebuild((IrStr("loose"),))
+
+
+def test_multimap_stays_a_leaf_under_the_walk() -> None:
+    """The mutable exception is never walked — its children stay empty."""
+    multi = IrMultiMap.from_table([(IrStr("k"), [1])])
+    assert not multi.children()

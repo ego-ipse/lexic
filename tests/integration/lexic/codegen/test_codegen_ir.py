@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
-from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.ir import IrBind, IrRule
 from lexic.model import GrammarModel

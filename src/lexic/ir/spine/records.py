@@ -10,6 +10,7 @@ is the tuple.
 
 from __future__ import annotations
 
+import annotationlib
 import copy
 from collections.abc import Callable
 from operator import itemgetter
@@ -191,11 +192,27 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
         children); a record with scalar payload declares its own narrower
         ``_child_attrs`` in the class body, which is preserved.
 
+        Annotations are read through :mod:`annotationlib`, never off
+        ``cls.__dict__``. Under PEP 649 (3.14) a class body compiles to an
+        ``__annotate_func__`` and ``__annotations__`` is computed on access, so
+        at ``__init_subclass__`` time ``cls.__dict__`` holds no
+        ``__annotations__`` at all and a ``__dict__`` read silently registers
+        ZERO fields. ``from __future__ import annotations`` masks that by
+        storing a plain dict eagerly, which is why every module here having the
+        import kept the defect latent. ``Format.STRING`` never evaluates, so a
+        forward reference cannot raise here.
+
         :param kwargs: Forwarded to ``super().__init_subclass__``.
         """
         super().__init_subclass__(**kwargs)
-        anns = cls.__dict__.get("__annotations__", {})
+        anns = annotationlib.get_annotations(cls, format=annotationlib.Format.STRING)
         flds = tuple(name for name, ann in anns.items() if not cls._is_classvar(ann))
+        if not flds:
+            # A subclass that declares no fields of its own IS its parent's
+            # shape — `type("Mine", (Num,), {})` must keep `Num`'s fields.
+            # Overwriting with () made such a subclass a fieldless record whose
+            # values landed in the tuple unnamed, reachable by no accessor.
+            return
         cls._fields = flds
         cls._field_defaults = {
             name: cls.__dict__[name]
@@ -218,10 +235,19 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
         :param args: Leading field values, positionally.
         :param kwargs: Remaining field values, by name.
         :returns: A new instance with the fields stored as tuple elements.
-        :raises TypeError: On a missing field or an unexpected keyword.
+        :raises TypeError: On a missing field, an unexpected keyword, or more
+            positional values than the record has fields.
         """
         if not kwargs and len(args) == len(cls._fields):  # all-positional fast path
             return super().__new__(cls, *cast(tuple[*Ts], args))
+        if len(args) > len(cls._fields):
+            # Without this the surplus lands in the tuple unnamed: the record
+            # is longer than its own _fields, reads back through no accessor,
+            # and reprs as if the extra value were not there.
+            raise TypeError(
+                f"{cls.__name__} takes {len(cls._fields)} positional field(s) "
+                f"{cls._fields}, got {len(args)}"
+            )
         values = list(args)
         for name in cls._fields[len(args) :]:
             if name in kwargs:

@@ -18,6 +18,7 @@ GBNF_GRAMMARS: tuple[str, ...] = (
     "json_arr.gbnf",
     "json_ws.gbnf",
     "list.gbnf",
+    "markdown.gbnf",
     "think.gbnf",
     "vyx.gbnf",
 )

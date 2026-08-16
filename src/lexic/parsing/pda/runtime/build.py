@@ -30,8 +30,15 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.ir import IrSpan
 from lexic.parsing.fold import RuleFold
-from lexic.parsing.pda.compiler.flatten import M_GTEXT, M_MODEL, M_MODELS, FlatClone
+from lexic.parsing.pda.compiler.flatten import (
+    M_GTEXT,
+    M_MODEL,
+    M_MODELS,
+    M_SPAN,
+    FlatClone,
+)
 from lexic.parsing.pda.core.errors import PdaFail
 
 INTERN_MISS: Any = object()
@@ -225,6 +232,11 @@ def _fast_fields(
                 parts[name] = span
                 keys.add(name)
             key_parts.append(span if (span or lo) else None)
+        elif mode == M_SPAN:
+            # The offsets the kernel already has — kept, not recomputed.
+            parts[name] = IrSpan(start if item == 0 else ends[item - 1], ends[item])
+            keys.add(name)
+            key_parts.append(parts[name])
         else:  # M_TEXT
             span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
             parts[name] = span
@@ -296,6 +308,9 @@ def _validated_fields(
             sub = (sinks[item] if sinks else None) or []
             kwargs[name] = sub
             key_parts.append(tuple(id(m) for m in sub))
+        elif mode == "span":
+            kwargs[name] = IrSpan(start if item == 0 else ends[item - 1], ends[item])
+            key_parts.append(kwargs[name])
         else:
             raise UnsupportedConstructError(f"pda: unknown field mode {mode!r}")
     return kwargs, tuple(key_parts)

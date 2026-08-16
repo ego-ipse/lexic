@@ -17,6 +17,7 @@ from lexic.ir.action.control import (
     IrThis,
     _Return,
 )
+from lexic.ir.action.mapping import IrMap
 from lexic.ir.grammar.nodes import (
     IrLiteral,
     IrQuantifier,
@@ -212,3 +213,25 @@ def test_ireach_non_iterable_focus_raises():
 def test_ireach_repr_is_codegen():
     """IrEach repr renders as a valid constructor expression."""
     assert repr(IrEach(IrThis())) == "IrEach(IrThis())"
+
+
+def test_each_maps_over_a_mapping_focus_as_dyads() -> None:
+    """``IrEach`` iterates a map the way its constructor spells it: dyads.
+
+    The principal container of every reduced data value was invisible to the
+    algebra — an emitter over a map-shaped value could not be written without
+    a Python loop. A mapping focus now yields its ``(key, value)`` records.
+    """
+    focus = IrMap(
+        IrTuple(IrStr("a"), IrInt(1)),
+        IrTuple(IrStr("b"), IrInt(2)),
+    )
+    each = IrEach(body=IrThis())
+    out = each.eval(each, focus, IrTuple())
+    assert out == IrTuple(*focus.children())
+
+
+def test_each_over_an_empty_mapping_is_empty_not_an_error() -> None:
+    """Zero entries map to zero results — an answer, not a refusal."""
+    each = IrEach(body=IrThis())
+    assert each.eval(each, IrMap(), IrTuple()) == IrTuple()

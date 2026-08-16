@@ -10,6 +10,41 @@ The IR is the contract between parsers, transformers, codegen, and flavour emitt
 
 A node **is** its payload. There are NO `.value` / `.items` / `.arms` accessors — use the node directly. `IrType`, `coerce`, the load-bearing `IrNode.__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade are all GONE.
 
+### How a record's fields are derived — and why it is not `__dict__`
+
+`IrNamedTuple.__init_subclass__` reads the class body's annotations with
+`annotationlib.get_annotations(cls, format=Format.STRING)`. Two properties
+matter and neither is incidental:
+
+**It must not read `cls.__dict__["__annotations__"]`.** Under **PEP 649** a
+class body carrying annotations compiles to an `__annotate_func__`, and
+`__annotations__` is computed on *access* — so at `__init_subclass__` time
+`__dict__` holds nothing to read and every field registers as none. A module
+carrying `from __future__ import annotations` opts *out* of 649 and stores a
+plain dict eagerly, which is the only reason a `__dict__` read ever appeared to
+work: it was never reading annotations, it was reading a side effect of PEP
+563. The future import is therefore **irrelevant to correctness** here, and
+must stay that way — a record's fields work with or without it.
+
+**`format=STRING` never evaluates.** A forward reference in a field
+annotation cannot raise during class creation, which is what makes the
+self-referential records (`Spec`, `IrMap[IrStr, "Keep | Spec"]`) definable at
+all.
+
+The failure this replaced was silent in a way worth remembering: fields
+registering as none does not raise. The record still constructs, `repr` still
+looks right, and attribute reads still answer — from the class-level default
+rather than from the tuple. `len()` is 0. Every surface a person checks by
+hand looks correct.
+
+Two related guarantees, both tested:
+
+- **Surplus positional values raise.** A record given more values than it has
+  fields names the count and the fields rather than discarding the extras.
+- **A subclass adding no fields keeps its parent's.** `__init_subclass__`
+  merges rather than overwrites; a bare `type("Mine", (Num,), {})` has `Num`'s
+  fields. (`IrCachingTuple` merges its own bases and dedups, and is unaffected.)
+
 ### `IrSelf[Iri, Ir_co]` root
 
 Generic identity root and action-protocol base. `Iri` is the input node type; `Ir_co` the covariant return type (PEP 695 infers covariance since it is return-position only). Supplies:
@@ -131,6 +166,10 @@ Authoring coercion widens `__new__` on `IrSequence`/`IrAlternation`/`IrItem`/`Ir
 
 `IrMapping[K, V, R](IrLeaf)` is the common ancestor of the map family — owns a plain `_table: dict`, the frozen container surface (`__getitem__`/`__contains__`/`get`/`keys`/`values`/`items`/`__iter__`/`__repr__`), and structural equality. `IrMap[K, V: IrSelf](IrMapping[K, V, V])` is the immutable dispatch base: `resolve(n)` looks up `n`'s value (falling back to the `IR_DEFAULT` sentinel key, else raising `IrKeyError`), `eval` resolves then evaluates. `IrTypeMap[Ir_co](IrMap[type, IrSelf])` is the type-keyed specialisation `IrDispatch.actions` uses: `resolve` tries the exact `type(n)` first, then walks `t.__mro__` concrete-first, then `IR_DEFAULT` — **no cache, no memoisation**, every resolution is a live dict/MRO walk (kept off the hot path by the exact-type fast path). `IrMultiMap[K, V](IrMapping[K, V, Sequence[V]])` is the one deliberately **mutable** exception (identity equality, `mm += (k, v)` files a bucket in O(1), `mm[k]` returns the live bucket never a copy) — used only by the Earley engine's internal per-column waiting index, never walked/emitted/reduced as a tree.
 
+**`IrMap` joins the walk**: `children()` yields its dyads as fresh `(key, value)` records — constructor-mirroring, so `rebuild(children())` round-trips through `__new__` (duplicate keys still refuse) — and `IrEach` iterates a mapping focus the same way. A dispatch table, a reducer's action map, or any map-shaped value therefore stands under `IrBottomUp`/`IrEach` like any other node. `IrMultiMap` stays a leaf (`children() == ()`), keeping the mutable exception unwalked.
+
+**`IrBottomUp` walks the model layer's concessions.** Models are deliberately not IR-strict — an absent optional is Python `None`, a `models`-mode field a plain `tuple`, payload slots plain strings/classes — and the driver takes each for what it is: a plain tuple is transparent (elements walked; when changed it rebuilds as `IrTuple`, which IS a tuple, so the model field contract holds), everything else non-IR is an opaque leaf never offered to the action table. This is what makes a cross-class model transform (the transpile seam, `ex16`/`ex17`) a plain `IrTypeMap` over model classes: each body receives already-transformed children on `nc`, and each intermediate rebuild threads them through the parent's CHECKED constructor (the spine isinstance, not the exact arm) — a wrong transform refuses with `FieldValidationError` instead of shipping.
+
 ## Dispatch (`ir/walk.py`)
 
 `IrDispatch[Iri, Ir_co]` is an `IrCachingTuple` of `(actions, default)` — `actions: IrTypeMap` (not a plain tuple), `_child_attrs = ()` so the dispatcher is never itself walked as a grammar node. Resolution is `actions`' own concrete-first MRO lookup (see above) — a miss falls through to `default`, `IrRaise()` by default. Entry seams: `eval(d, n, nc)` (protocol) and `apply(root)` (façade — catches `IrReturn`, surfaces `.value` or the return node itself when it satisfies the `Ir_co` bound). Presets: `IrVisitor` (default `IrWalk`), `IrTransformer` (default `IrRebuild`), `IrEmitter` (default `IrEmit`).
@@ -146,6 +185,66 @@ The find-first idiom: `IrVisitor(actions=IrTypeMap(IrAction(IrRuleRef, IrReturn(
 
 Distinguished by `nc`-marker semantics at eval time.
 
+## Addresses and spans (`ir/text/spans.py`)
+
+Where an occurrence stands, and what it covers. An **occurrence** is a value standing somewhere; the spine deliberately cannot tell two equal values apart (a node IS its payload, and equal subtrees are routinely the SAME object — one `Ws` is reached seven times in `{"a": 1, "b": 1}` under `json.gbnf`), so only its place identifies it.
+
+```python
+IrStep(field: str, slot: int)      # what the parent calls a part, and where it sits
+IrAddress(IrSeq[IrStep])           # the path from the root; .child(field, slot) extends it
+IrSpan(start: int, end: int)       # half-open, in CODE UNITS; .of(text) slices it back
+IrExtent(address, span)            # emit-side correspondence
+IrExtents(IrSeq[IrExtent])         # one emission's, document order, parents first
+IrEmission(text: str, extents)     # what `GrammarModel.emit_addressed()` returns
+IrOrigin(address, source)          # transform-side: built occurrence ← source occurrence
+IrOrigins(IrSeq[IrOrigin])
+```
+
+Four rules the family exists to keep, each of which has already been got wrong somewhere:
+
+- **Top-down, positional.** An address is built by the walk that produces it, each step supplied by the parent from its own emission order. It is never recovered from a value and never looked up by equality — `list.index` finds the first EQUAL sibling, which is a different occurrence with the same payload.
+- **No share-splice.** A walk producing addresses may not run on an id-memoising driver. `IrBottomUp` transforms a shared object once and splices the result everywhere it appeared (`walk.py`) — right for a transform, wrong for an address, because sharing is the normal case here.
+- **Emission order, not declaration order.** Steps follow the parent's `emit_parts` order (item-slot, i.e. document order). `JsonText` declares `(value, ws, ws2)` and emits `ws, value, ws2`; `children()` follows the emission order and `_fields` does not.
+- **Code units.** `len` of the emitted string — the only measure that can slice it back. Terminal columns (wide glyphs counted twice) and pixels are consumer projections. Note `ir/text/layout.py`'s width solve also counts code units, and for its own reason: the budget it serves is a linter's line length, counted in characters over emitted files.
+
+`GrammarModel.emit_addressed()` produces the emit-side set and `GrammarModel.occurrence(address)` reads it back — the same `_sub_parts` definition drives both, so the address contract has one definition and two directions. `to_text()` stays its own loop (the hot path pays nothing); a corpus gate pins the two texts to each other.
+
+## The identity walk (`ir/identity.py`)
+
+What a value's graph IS, under **one stated child definition**: a node's children are the node-valued parts it CARRIES — the elements of its field tuple, and, for the map family (whose payload is a table rather than a tuple), its entries, each value under its own key. `field_children` is public so the definition can be checked rather than only stated. Naming it is the point — sharing counted under one definition and reported under another manufactures a delta out of nothing.
+
+```python
+IrIdentity(node, reached: int, unspellable: bool)   # one DISTINCT node
+IrCensus(IrSeq[IrIdentity])                         # .shared() / .refusals()
+census(root) -> IrCensus                            # first-reach order, iterative
+```
+
+`reached` counts ARRIVALS — one per edge pointing at the node, plus one for the root — so `sum(reached) == edges + 1` and anything above `1` is sharing. Distinctness is by IDENTITY: two equal `IrLiteral('a')` objects are two entries, which is the same fact `spans.py` exists to survive.
+
+Two consequences of the definition, both deliberate and both gated:
+
+- it drops nothing `_child_attrs` drops: `IrRule.name` is a node, and an identity walk that missed it would undercount;
+- it opens the tables. `children()` reports an `IrMapping` as a leaf, because rebuilding a table is not what a transform does — but a dispatch table's whole content is its entries. A flavour's reducer censuses as 272 nodes rather than 5, and a compiled grammar's `fold.bodies` as 115 rather than 1, of which 35 are the `IrLambda(<class>)` constructors that ARE the refusal boundary. Under a tuple-only definition that boundary read as an empty set on every real artefact.
+
+`unspellable` is the refusal boundary: `IrLambda` (the spine's one callable-carrying node), plus any node holding a bare callable that is neither a node nor a class — a class has a name and the notation spells names.
+
+## Equality up to renaming (`ir/grammar/alignment.py`)
+
+`canonicalize` folds spelling but never quotients NAMES, so two grammars differing only in what their rules are called canonicalise to two different ASTs. `align_names(left, right) -> IrAlignment` decides whether they are one grammar anyway, and hands back the transport that proves it:
+
+```python
+IrRename(source: str, target: str)     # one pair; dict(renaming) is the table
+IrRenaming(IrSeq[IrRename])            # one complete bijection; .renamed(ast) carries a grammar across
+IrRenamings(IrSeq[IrRenaming])
+IrAlignment(renamings, capped: bool)
+```
+
+Both sides are canonicalised first, and the comparison is over the rule SET (a renaming may reorder the canonical rule list, and rule order is not a difference). The search is colour refinement over the rule graph — a rule's colour is its name-blind body plus the colours of the rules it references, refined to a fixpoint over BOTH grammars at once — then candidate bijections consistent with the colouring, each verified by applying it.
+
+**ALL valid bijections are returned.** Two rules with identical bodies admit both pairings; offering them is the no-silent-pick doctrine applied to isomorphism. The enumeration is bounded by `CANDIDATE_CAP` and a run that hit it says so in `capped` rather than passing off a truncated list as complete.
+
+What is NOT decided: language equality. Two grammars describing one language by different factorings do not align (`json.gbnf` vs `json_arr.gbnf` refuses), and an empty alignment says only "no renaming relates these", never "different languages".
+
 ## `IrBind` (`ir/bind.py`)
 
 There is no `RuleSpec` anymore. Every generated field carries an `IrBind` in its `Annotated` metadata instead:
@@ -154,7 +253,11 @@ There is no `RuleSpec` anymore. Every generated field carries an `IrBind` in its
 IrBind(item: int, mode: str, semantic: bool = True)
 ```
 
-`item` is the positional index into the rule's single sequence arm (`= the kid slot` in the parse tree — `normalize()` preserves item↔kid positions, so `kids[i] ↔ items[i]`, see [[architecture]]); `mode` is one of `BIND_MODES = ("text", "gtext", "model", "models")` — how the kid at that slot folds into the field value (`text`: terminal atom text; `gtext`: literal-only group text, absent when optional-and-empty; `model`: one sub-model; `models`: a list of sub-models); `semantic` is `False` for a structural-noise field (whitespace ref). `IrBind` is a plain `IrNamedTuple`-family record with `_child_attrs = ()` (all three fields are scalar payload), importable by generated modules and readable by `model.py`/the compile package.
+`item` is the positional index into the rule's single sequence arm (`= the kid slot` in the parse tree — `normalize()` preserves item↔kid positions, so `kids[i] ↔ items[i]`, see [[architecture]]); `mode` is one of `BIND_MODES = ("text", "gtext", "model", "models")` — how the kid at that slot folds into the field value (`text`: terminal atom text; `gtext`: literal-only group text, absent when optional-and-empty; `model`: one sub-model; `models`: a list of sub-models; `span`: the slot's `IrSpan` — WHERE it was consumed rather than what it says); `semantic` is `False` for a structural-noise field (whitespace ref). `IrBind` is a plain `IrNamedTuple`-family record with `_child_attrs = ()` (all three fields are scalar payload), importable by generated modules and readable by `model.py`/the compile package.
+
+**`span` is a fold mode, never a binding one.** `compute_binding` cannot produce it — a generated field is what a rule MEANS, and a position is not — so no model class ever carries one. It exists for a fold that is asking WHERE: templating's raw-span capture binds the same two slots twice, in `text` mode and in `span` mode, so one capture yields both what the entry says and where it said it. Each route serves it from what it already had: the PDA reads the frame offsets it computes the span text from (`pda/runtime/build.py`), and the tree route accumulates them over the leaves `_subtree_text` already walks in order (`_tree_offsets`, `parsing/fold.py`), paid only by a fold that asked (`ModelFold.wants_spans`). A parity gate pins the two routes to each other, because a product that differed by engine would be worse than none.
+
+Sharing, on the tree route: the forest interns nodes, and the first occurrence wins in the offset pass. That is exact for every NON-EMPTY node — a non-empty derivation is chart-keyed by its span, so it cannot be shared across positions — and only zero-width nodes can collide, which is the one case that route cannot separate.
 
 `codegen/binding.py`'s `compute_binding(codegen_grammar)` produces these (one `RuleBinding` per rule, `fields: dict[str, IrBind]`); `codegen/model_emitter.py` renders them into `Annotated[<type>, IrBind(...)]` field metadata; `parsing/fold.py`'s `ModelFold` bakes its IR body-table (`IrMap[IrRuleRef, ModelBody]`) to the same plain-data `FieldFold` shape (`(item, mode, name, lo)`), built by `compile.py` — the fold never imports `IrBind`/codegen directly, only the `BIND_MODES` vocabulary.
 

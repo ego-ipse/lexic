@@ -20,7 +20,7 @@ from typing import Iterator, Sequence, cast
 import pytest
 
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
-from lexic.compile.pipeline.passes import build_codegen_grammar
+from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir import IrAst, IrFlavour
@@ -133,7 +133,7 @@ def all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
 
 PINNED_CLONE_COUNTS: dict[str, int] = {
     "arithmetic.gbnf": 32,
-    "c.gbnf": 69,  # attempt rules clone once, canonically (memo identity)
+    "c.gbnf": 75,  # attempt rules clone once, canonically (memo identity)
     "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
     "japanese.gbnf": 12,
     "json.gbnf": 126,  # island-free at P3: the whole grammar clones

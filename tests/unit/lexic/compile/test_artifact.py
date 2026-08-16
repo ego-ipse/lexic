@@ -26,6 +26,7 @@ from lexic.compile import CompiledGrammar, compile_from_path, compile_text
 from lexic.compile.artifact import CompiledGrammar as ArtifactCompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.model import GrammarModel
+from lexic.parsing import PdaTables
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.compile.compile_helpers import roundtrip
 
@@ -61,6 +62,28 @@ def test_compile_text_threads_the_content_stem():
     """compile_text stems by content hash — the anon_<sha> identity."""
     cg = compile_text('root ::= "hi"\n')
     assert cg.stem.startswith("anon_")
+
+
+def test_pda_tables_returns_pda_tables():
+    """CompiledGrammar.pda_tables() reaches the engine's compiled predictive
+    tables for this artefact's (codegen_grammar, fold)."""
+    cg = compile_text('root ::= "hi"\n')
+    assert isinstance(cg.pda_tables(), PdaTables)
+
+
+def test_pda_tables_is_hot_across_calls():
+    """Repeated calls return the same tables object — no recompilation."""
+    cg = compile_text('root ::= "hi"\n')
+    assert cg.pda_tables() is cg.pda_tables()
+
+
+def test_pda_tables_is_the_same_object_the_parse_path_used():
+    """The tables a parse compiled are the exact object pda_tables() returns —
+    the artefact and the parse share one memo entry."""
+    cg = compile_text('root ::= "hi"\n')
+    before = cg.pda_tables()
+    cg.parse("hi")
+    assert cg.pda_tables() is before
 
 
 # ── arithmetic ────────────────────────────────────────────────────────────────

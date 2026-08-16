@@ -17,6 +17,11 @@ repository root, as a module** — `uv run python -m getting_started.<name>`.
 | [`ex10_templating.py`](ex10_templating.py) | `template(compiled, MapShape, spec)`: extract two paths from a document, skip the rest as raw spans. Grammar-native — the same shape fits json.gbnf and json.abnf. |
 | [`ex11_hf_tokenizer.py`](ex11_hf_tokenizer.py) | The HF `tokenizer.json` story end to end: reduce with lexic's own json, lift vocab/merges/specials, `IrTokenizer.from_merges`, exact BPE `tokenize()`. |
 | [`ex12_real_think_flow.py`](ex12_real_think_flow.py) | The `<think>` flow against a REAL 151k model vocabulary: `ext.API.hf` fetches, `lexic.api.json_tokenizer` reads, `think.gbnf` parses and constrains. Skips cleanly when the fixture is absent. |
+| [`ex13_payload_projection.py`](ex13_payload_projection.py) | `export_value`: a parsed value as an importable module — three flat literals plus a digest, read back with zero lexic imports. |
+| [`ex14_ir_notation.py`](ex14_ir_notation.py) | `emit_ir`/`load_ir`: `repr` with an inverse — any IR value written to a file and read back exactly. |
+| [`ex15_yaml_twin_module.py`](ex15_yaml_twin_module.py) | The whole build path on a language lexic ships no support for: a YAML-subset grammar in, an importable twin module out, a real document parsed with it. |
+| [`ex16_transpile_json_yaml.py`](ex16_transpile_json_yaml.py) | Transpile a DOCUMENT between formats (json → yaml): `transpile(a, b, table)` — a type-keyed table over A's classes, gated for completeness, membership and fidelity. |
+| [`ex17_transpile_python_cpp.py`](ex17_transpile_python_cpp.py) | python → c++ (a subset): the parsed model IS the typed AST, `to_text()` IS the pretty-printer, and the `transpile` table infers declarations — the one part a transpiler genuinely is. |
 
 ## What you'll learn
 

@@ -160,6 +160,15 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     whole-tree normal-form passes (canonicalize, name folding), not
     selective rewrites. A shared subtree (one object reachable twice)
     transforms once and splices everywhere it appeared.
+
+    The driver walks the whole RECORD SPINE, models included — and the model
+    layer is deliberately not IR-strict (its ergonomic concessions): an
+    absent optional field is Python ``None``, a ``models``-mode field is a
+    plain ``tuple``, and payload slots may hold classes or plain strings.
+    The driver takes each for what it is — a plain tuple is transparent
+    (elements walked, rebuilt as a tuple), everything else non-IR is an
+    opaque leaf — and only genuine :class:`~lexic.ir.spine.spine.IrSelf`
+    nodes are offered to the action table.
     """
 
     default: IrSelf = IrThis()
@@ -167,16 +176,44 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
     def _descend(self, node: IrSelf) -> Sequence[IrSelf]:
         """Children the driver recurses into — an overridable strategy seam.
 
-        Defaults to the node's own :meth:`~lexic.ir.base.IrSelf.children`. A
-        pass that must treat some node as **opaque** (its subtree in a foreign
-        domain the pass does not own) overrides this to return ``()`` for that
-        node — the node is still visited and rebuilt, but its subtree is left
-        verbatim. Mirrors the overridable ``_run`` seam.
+        Defaults to the node's own :meth:`~lexic.ir.base.IrSelf.children`.
+        The record spine's model concessions ride the walk under the spine's
+        own ``children()``/``rebuild()`` typing (the one cast lives at the
+        model layer's seam, not here): a plain-tuple ``models`` field is
+        transparent — its elements are walked — and any other payload value
+        (``None``, a string, a class) is an opaque leaf. A pass that must
+        treat some node as opaque (its subtree in a foreign domain the pass
+        does not own) overrides this to return ``()`` for that node — the
+        node is still visited and rebuilt, but its subtree is left verbatim.
+        Mirrors the overridable ``_run`` seam.
 
         :param node: The node about to be expanded.
         :returns: The children to recurse into (``()`` to fence the subtree).
         """
-        return node.children()
+        if isinstance(node, IrSelf):
+            return node.children()
+        if isinstance(node, tuple):
+            return node
+        return ()
+
+    def _sink(self) -> dict[int, IrSelf]:
+        """The per-run result memo — an overridable strategy seam.
+
+        :meth:`_run` fills this with ``id(source node) -> its result``, which
+        IS the walk's source→product correspondence; it is discarded when the
+        run ends. A driver that wants to KEEP what it computed overrides this
+        to hand back a map it also holds. Mirrors the overridable
+        :meth:`_descend` seam.
+
+        Note what the map can and cannot say: the walk transforms a shared
+        object ONCE, so this is an OBJECT correspondence, never an occurrence
+        one. A consumer needing occurrences must pair it with an addressed
+        emission of each side and accept that one source object may stand in
+        several places.
+
+        :returns: A fresh empty memo.
+        """
+        return {}
 
     def _run(self, root: IrNode) -> Ir_co:
         """Post-order drive: transform children, rebuild, act — iteratively.
@@ -192,7 +229,7 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
         """
         identity = isinstance(self.default, IrThis)
         bodies: dict[type, IrSelf | None] = {}
-        done: dict[int, IrSelf] = {}
+        done: dict[int, IrSelf] = self._sink()
         stack: list[tuple[IrSelf, Sequence[IrSelf] | None]] = [(root, None)]
         while stack:
             node, kids = stack.pop()
@@ -211,8 +248,17 @@ class IrBottomUp[Iri: IrSelf, Ir_co: IrNode](IrTransformer[Iri, Ir_co]):
             new = tuple(done[id(kid)] for kid in kids)
             if all(a is b for a, b in zip(new, kids)):
                 rebuilt = node
-            else:
+            elif isinstance(node, IrSelf):
                 rebuilt = node.rebuild(new)
+            else:
+                # the model layer's plain-tuple field — rebuilt onto the
+                # spine (an IrTuple IS a tuple, so the field contract holds)
+                rebuilt = IrTuple(*new)
+            if not isinstance(rebuilt, IrSelf):
+                # a payload leaf (None, a string, a class) is never offered
+                # to the table — it is the model layer's payload, not a node
+                done[key] = rebuilt
+                continue
             node_type = type(rebuilt)
             try:
                 body = bodies[node_type]

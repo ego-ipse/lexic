@@ -71,7 +71,7 @@ def test_construct_raises_field_validation_error_on_missing_field():
         cls()
 
 
-# ── to_text / _emit_parts ────────────────────────────────────────────────
+# ── to_text / emit_parts ─────────────────────────────────────────────────
 
 
 def test_to_text_round_trips_a_compiled_instance():
@@ -82,7 +82,7 @@ def test_to_text_round_trips_a_compiled_instance():
 
 
 def test_to_text_recurses_through_nested_models_and_lists():
-    """to_text() (backed by _emit_parts()'s per-model item walk) recurses
+    """to_text() (backed by emit_parts()'s per-model item walk) recurses
     into nested models, flattens models-mode fields, and emits unbound
     structural literals — pinned through the public surface, on a grammar
     whose root is a hoisted "+"-quantified group (a models field) of records
@@ -91,6 +91,39 @@ def test_to_text_recurses_through_nested_models_and_lists():
     text = "x=1\ny=2\n"
     model = cg.parse(text)
     assert model.to_text() == text
+
+
+def test_emit_parts_tags_are_bound_field_names_or_none():
+    """emit_parts() tags each item with its bound field's name; a structural
+    literal's tag is None — the tagged stream is the same traversal
+    to_text() reads, so a span consumer folds it WITH the tags."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    model = cg.parse("x=1\n")
+    parts = GrammarModel.emit_parts(model)
+    field_names = {name for name, _bind in type(model).bound_fields().values()}
+    assert parts
+    assert {tag for tag, _part in parts if tag is not None} <= field_names
+
+
+def test_emit_parts_stream_concatenates_to_to_text():
+    """Expanding emit_parts() depth-first, tags ignored, reproduces
+    to_text() exactly — one traversal, so derived spans cannot drift from
+    emission."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    text = "x=1\ny=2\n"
+    model = cg.parse(text)
+    out: list[str] = []
+    stack: list[object] = [model]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, GrammarModel):
+            parts = GrammarModel.emit_parts(node)
+            stack.extend(part for _tag, part in reversed(parts))
+        elif isinstance(node, (list, tuple)):
+            stack.extend(reversed(node))
+        else:
+            out.append(str(node))
+    assert "".join(out) == text == model.to_text()
 
 
 # ── to_grammar ────────────────────────────────────────────────────────────

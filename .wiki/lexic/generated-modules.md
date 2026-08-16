@@ -66,7 +66,7 @@ passthrough) is the build-path-unification seed shared with the notation.
 
 ## The compiled payload — a parsed VALUE as a module
 
-`export_module` writes a **grammar**'s twin. `export_value(value, path, *, module=None)` (`compile/payload/`) writes a **value**'s artefact: whatever lexic parsed, as an importable module.
+`export_module` writes a **grammar**'s twin. `export_value(value, path, *, module=None)` writes a **value**'s artefact: whatever lexic parsed, as an importable module. Both are imported from `lexic.compile` (implemented in `compile/payload/export.py`); the compile package's root is the only import route in.
 
 The artefact is four flat literals and an import of the reader:
 

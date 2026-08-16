@@ -45,8 +45,10 @@ import lexic.ir.action.compute as _compute
 import lexic.ir.action.control as _control
 import lexic.ir.action.mapping as _mapping
 import lexic.ir.flavour as _flavour
+import lexic.ir.grammar.alignment as _alignment
 import lexic.ir.grammar.nodes as _nodes
 import lexic.ir.grammar.operators as _operators
+import lexic.ir.identity as _identity
 import lexic.ir.spine.bind as _bind
 import lexic.ir.spine.records as _records
 import lexic.ir.spine.scalars as _scalars
@@ -54,6 +56,7 @@ import lexic.ir.spine.spine as _spine
 import lexic.ir.text.encodings as _encodings
 import lexic.ir.text.layout as _layout
 import lexic.ir.text.pipeline as _pipeline
+import lexic.ir.text.spans as _spans
 import lexic.ir.text.tokenizer as _tokenizer
 from lexic.compile.foldkit import (
     ABSENT,
@@ -94,8 +97,10 @@ _IR_MODULES = (
     _scalars,
     _records,
     _bind,
+    _identity,
     _nodes,
     _operators,
+    _alignment,
     _access,
     _compute,
     _control,
@@ -105,6 +110,7 @@ _IR_MODULES = (
     _layout,
     _encodings,
     _pipeline,
+    _spans,
     _tokenizer,
 )
 

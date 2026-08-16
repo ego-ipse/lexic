@@ -135,10 +135,13 @@ src/lexic/
     json_tokenizer.py              tokenizer.json → IrTokenizer; the json formulation is a parameter
     pretokens.py                   that format's own split specs — vendor vocabulary, declared out of ir/
   compile/
-    __init__.py                    parse_grammar / canonical_grammar / compile_text — grammar entry points
+    __init__.py                    parse_grammar / canonical_grammar / compile_text / compile_ast — grammar entry points
     artifact.py                    CompiledGrammar — the parse-ready artefact compile_* produces
     foldkit.py                     Shared authored-fold vocabulary — the build-path unification seed
+    presentation.py                  Presentation tables — rule-keyed ceilings, baked and gated, drawing rows over spans
     templating.py                  Generic templating — extract selected paths of any COMPILED grammar via spans
+    transpile.py                   A document under grammar A re-expressed under grammar B — the transform is a table
+    verdict.py                     Verdict — one attempt's outcome as a value, refusal and cost included
     writer.py                      The shared module writer — every .py lexic emits goes out through here
     module/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
@@ -158,6 +161,7 @@ src/lexic/
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
       binding.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
+      moments.py                    The compile moments — one retaining product the whole pipeline runs through
       naming.py                    What a generated class and its fields are CALLED — spelling, and nothing else
       passes.py                    Grammar→grammar codegen passes — hoist groups, hoist arms, relax noise
       synthesis.py                 Runtime class synthesis — codegen grammar + binding view → model classes
@@ -170,6 +174,7 @@ src/lexic/
   ir/
     __init__.py                    Public IR surface — a LAZY façade; import everything from here
     flavour.py                     IrFlavour ABC — config bundle every grammar flavour subclasses
+    identity.py                    The identity walk — a value's graph under ONE stated child definition
     spine/                        The node substrate — everything else is downstream
       __init__.py                the group's package marker; the façade is the import surface
       bind.py                       IrBind — the field-binding marker generated model fields carry
@@ -187,22 +192,25 @@ src/lexic/
       walk.py                       Action-driven IR dispatcher on the IrSelf substrate
     grammar/                      The grammar AST and the language-preserving passes over it
       __init__.py                the group's package marker; the façade is the import surface
+      alignment.py                  Equality up to renaming — every rule-name bijection, as the witness
       canonical.py                  canonicalize — the language-preserving normal form for a grammar IrAst
       concretize.py                 concretize — resolve an `IrAlphabet`'s spelling to an id
       nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)
       operators.py                  Operator-algebra nodes — the operator family, between spine and nodes
       order.py                      RuleOrder — deterministic start-first ordering of grammar rules
-    text/                         How characters and documents are spelled
+    text/                         How characters and documents are spelled — and where
       __init__.py                the group's package marker; the façade is the import surface
       encodings.py                  Encoding family — the codec that gives a char class's ordinals meaning
       escapes.py                    EscapeCodec — the flavour's emit-side spelling of canonical text
       layout.py                     Layout algebra — width-aware document combinators on the record spine
       pipeline.py                   Token pipeline — normalizers, pretokens, and the order they run in
+      spans.py                      Addresses and spans — WHERE an occurrence stands, and what it covers
       tokenizer.py                  Tokenizer — a vocabulary, and the segmenters that apply it
   parsing/
     __init__.py                    public API: parse_reduced/parse_model products + the Earley toolkit
     fold.py                        ParseTree → object fold — the instance-parsing bridge
     products.py                    The two product entries — reduce (text → the reducer's value), model (text → model)
+    trace.py                       The watched run — what the predictive kernel DID, as an ordered event stream
     earley/
       __init__.py                  The Earley engine (SPPF, Scott 2008) over IrAst-shaped grammars
       engine.py                    Earley orchestration — the IR-native façade over the compiled kernel
@@ -283,7 +291,7 @@ tests/
     roundtrip/            grammar ↔ IR ↔ text fidelity, cross-flavour, fixpoint
     tokens/               the token layer — binding, additivity, real tokenizers
     codegen/              generated modules, self-grammar, manifests, templating
-    invariants/           the repo's own rules — layering, doc drift, benchmark faithfulness
+    invariants/           the repo's own rules — layering, doc drift, public-api seam, benchmark faithfulness
     corpora/              big-corpus soak
   property/lexic/       hypothesis round-trip + reduce differentials
   adversarial/lexic/    inputs chosen to break a specific assumption
@@ -309,10 +317,15 @@ Scanned from source comments *before* the grammar is parsed, by the private
 
 ```
 # @start my_rule          — override the start rule (default: first defined)
-# @non-semantic ws sp     — mark rules structural; their refs get min=0
+# @non-semantic ws sp     — mark rules structural; refs to NULLABLE ones get min=0
 ```
 
-A directive naming an undefined rule is silently ignored.
+A directive naming an undefined rule is silently ignored. The `min=0`
+relaxation applies only where it is **language-preserving** — to refs whose
+target rule already derives ε. A required ref to a non-nullable noise rule
+keeps its bound: relaxing it would widen the accepted language, and a widening
+can make an unambiguous formulation ambiguous. Write `ws?` if you mean
+optional.
 
 ## Key invariants
 

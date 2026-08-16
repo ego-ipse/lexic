@@ -174,9 +174,11 @@ FOLLOW accepts, raises `PdaFail` — the gated engine then refuses iff the
 ambiguity is real. Licensed optional loops run the same way per iteration
 (`GATE_ATTEMPT`): a failing iteration closes the loop instead of failing the
 arm, and a boundary where taking AND stopping are both viable is resolved by
-probing both sides to end-of-input and comparing completed VALUES
-(`same_value`, exactly the forest gate's question) — equal is a benign split,
-one side dead forces the other, different values raise `ProbeFork`.
+comparing the VALUES the two sides build (`same_value`, exactly the forest
+gate's question) — equal is a benign split, one side dead forces the other,
+different values raise `ProbeFork`. That comparison is reached by CONVERGENCE
+rather than by running both sides to end-of-input; see *"A both-viable boundary
+is settled by convergence"* below.
 
 **The load-bearing choices:**
 
@@ -615,3 +617,126 @@ This retires "ruling 1", which had licensed the two paths to disagree: *"the PDA
 - The semantic licence had been hiding 47 of 200 JSON inputs — the same characters landing in different `Ws` fields.
 - Ambiguity is still **refused by default**. The engines are not permitted to pick. A caller may supply a deterministic resolver, and that resolver's behaviour is the caller's concern, not the engine's — it is not a fallback and not a flag.
 - `RAW_PARITY_STEMS` excludes a stem only with a written reason. Exclusions are debts, not licences.
+
+---
+
+## A codegen pass may not overrule an authored quantifier
+
+**Decision:** `relax_non_semantic` relaxes an arm-level ref to a `semantic=False`
+rule to `min=0` **only when that rule is nullable**. A required ref to a
+non-nullable noise rule keeps its bound. A grammar that means "optional" writes
+`ws?`.
+
+**Why:** the flag buys a model-shape ergonomic — noise reads as an absence
+rather than an empty node — and that is free exactly when the noise already
+derives ε: once `ε ∈ L(N)`, `L(N)^{lo..hi} == L(N)^{0..hi}`, so the rewrite
+cannot change what the grammar accepts. Over a non-nullable rule the same
+rewrite strictly widens the language, and a widening can make an unambiguous
+formulation ambiguous. That is not hypothetical: it was happening to the GBNF
+metagrammar, which engineers maximal munch structurally because it has no lexer
+to grant it. `seq-rest ::= n item` (an item may follow another without real
+whitespace only if it is a non-name atom) was relaxed to `n? item`, and
+`n ::= nunit+` to `nunit*` — after which `a ::= bc` derives either one rule
+reference or two. Every grammar read through the metagrammar needed an
+ambiguity resolver, and the PDA — correctly — probe-forked one character into
+the first rulename and handed the whole document to Earley, which is
+superlinear on this grammar (~n³·²). Narrowing the pass put all ten
+ground-truth grammars back on the predictive route with no resolver: vyx
+4.561 s → 0.028 s.
+
+The general form: **the codegen passes may restructure a grammar, never
+re-author it.** `hoist_groups` and `hoist_arms` preserve the language by
+construction; `relax_non_semantic` is the one that could not, and the
+nullability condition is what buys it the same standing.
+
+**Nullability is solved on the INCOMING grammar,** never the result — relaxing
+`n ::= nunit+` to `nunit*` makes `n` nullable, which would then license
+relaxing every reference to it. The pass would bootstrap its own licence.
+`nullable_names` (the repo's only nullability fixpoint, in
+`parsing/pda/analysis/predicates.py`) is exported from `lexic.parsing` for this,
+following `lift_optional_nullables`.
+
+**Cost, accepted:** a grammar whose noise rule is non-nullable narrows. With
+`ws ::= [ \t]+` and `root ::= "a" ws "b"`, the text `ab` was silently accepted
+and is now refused. Among the ground-truth corpus only `c.gbnf` has a
+non-nullable `ws`; its own fixtures are unaffected. This is not the cost of the
+fix so much as the fix itself — the previous behaviour was the engine
+second-guessing an authored quantifier.
+
+**Still open, deliberately unbundled:** an attemptable rule carries ONE
+canonical clone with a rule-level union FOLLOW as its attempt licence
+(`beyond_at`, `_spec_ruleref` — per-tail clones cost 60% of sub-runs on the vyx
+corpus). So a rule that is genuinely ambiguous at one reference site
+probe-forks at *every* site, and the fallback is whole-document rather than an
+island. Narrowing the pass removed the trigger, not the mechanism.
+
+
+---
+
+## A both-viable boundary is settled by convergence, not by running to end-of-input
+
+**Decision:** when taking and stopping are both viable at a licensed loop
+boundary (`GATE_ATTEMPT`), the two sides are driven in LOCKSTEP and the verdict
+is taken at the first of: one side dying, or both reaching the same position
+with the same control state. Running both to end-of-input remains, as the
+fallback when neither happens inside a budget.
+
+**Why:** the old shape cost O(remaining input) per boundary, and boundary count
+grows with the input, so the predictive parse was **quadratic** — an 11 KB vyx
+packet took 73 seconds with no fork, no fallback and no resolver: the fast path
+succeeding, slowly. It is not one grammar's problem either: a `ws` rule pays 94%
+of all fork verdicts across the suite, so any grammar with noise in a repeated
+position was paying it, usually on inputs too short to notice.
+
+**Why it is sound.** The stack IS the continuation. Two sides at the same
+position with the same control state consume the same remaining text and build
+the same additional values, so the whole question collapses to the values each
+built on the way there — the same question, asked earlier. Three outcomes are
+decidable, and each is the answer the end-of-input comparison would have given:
+
+| at convergence | verdict | why |
+|---|---|---|
+| values agree | TAKE | one value; a benign split. The common case, now O(1) |
+| values differ | run the COMMON remainder once | completing makes it a real fork; dying means neither side completes, which was already TAKE |
+| a side died first | forced | unchanged |
+
+Everything else — no convergence inside the budget, a `ProbeFork` from deeper —
+falls through to the untouched comparison. **That escape is what makes the
+change unable to regress correctness:** the worst case is the behaviour and the
+answer that shipped before it. What the escape does NOT protect is the
+convergence predicate itself, so that is tested directly rather than through a
+parse (`tests/unit/lexic/parsing/pda/runtime/test_lockstep.py`).
+
+**Three things the predicate has to get right**, each found by measurement and
+each silently disabling the optimisation while every test stayed green:
+
+- **Values are excluded from the control signature.** The sides differing there
+  is the fact being measured; folding it in means they never converge.
+- **The iteration count is normalised** (`_count_key`). The take side has taken
+  an iteration the stop side has not, so raw counts differ FOREVER. Past its
+  mandatory floor with no ceiling to run into, a count cannot constrain the
+  future and is not part of the state.
+- **The drive bound is a parameter, not a cursor field.** On the cursor it
+  leaks into nested attempt sub-runs, which then stop early and never converge.
+  The bound belongs to one call; a nested drive must be unbounded.
+
+**Only the delta is compared.** Both sides are copies of ONE live stack, so
+everything already in a value container at fork time is identical between them
+by construction. `value_shape()` takes that watermark at the boundary and
+`pending_values(stack, shape)` compares past it — O(built-since), not O(built).
+Comparing the whole state was 92% of a large parse and the whole of its residual
+superlinearity. Conservative where the premise fails: a container that comes
+back SHORTER was replaced rather than appended to and is compared whole, and
+frames pushed after the boundary have no watermark and are compared in full.
+
+**Measured**, on a boundary-dense vyx packet: 11,281 chars **73.4s → 0.49s**,
+and the growth is linear — 44 µs/char flat from 719c to 11,281c, where it had
+been ×2.6 rising to ×3.6 per doubling. Ordinary vyx traffic (`bench --only vyx`,
+5.658 µs/char) is UNMOVED and always was fine: a real 3.5 KB packet has few
+both-viable boundaries. What changed is that the bad case is no longer
+catastrophic, and no longer superlinear, so it cannot become catastrophic at
+scale.
+
+**Ruled out on the way, recorded so nobody re-runs them:** the number of
+operations (every counted component grows exactly ×4.0 for ×4 input) and the
+garbage collector (identical with `gc.disable()`).

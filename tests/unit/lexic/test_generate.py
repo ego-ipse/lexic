@@ -126,6 +126,56 @@ def test_generate_max_depth_zero_picks_non_recursive_arm():
         assert len(result) > 0
 
 
+# ── max_depth as a real bound (once decremented and never read) ──────────
+
+
+def inline_specs(text: str) -> dict:
+    """The rule view for a grammar authored inline."""
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    return {r.name: r for r in ast.rules}
+
+
+def test_exhausted_depth_restricts_to_terminable_arms():
+    """At depth 0 an arm with a required ref is never chosen."""
+    specs = inline_specs('root ::= sub "y" | "x"\nsub ::= "s"\n')
+    results = {
+        generate("root", specs, rng=random.Random(s), max_depth=0) for s in range(20)
+    }
+    assert results == {"x"}
+
+
+def test_exhausted_depth_rolls_optional_ref_to_zero():
+    """At depth 0 an optional ref rolls zero repetitions instead of recursing."""
+    specs = inline_specs('root ::= sub? "x"\nsub ::= sub "a" | "b"\n')
+    results = {
+        generate("root", specs, rng=random.Random(s), max_depth=0) for s in range(20)
+    }
+    assert results == {"x"}
+
+
+def test_nonproductive_rule_refuses_with_words():
+    """A rule whose every arm loops forever refuses — at any depth."""
+    specs = inline_specs('root ::= root "a"\n')
+    for depth in (0, 5):
+        with pytest.raises(UnsupportedConstructError, match="cannot terminate"):
+            generate("root", specs, rng=random.Random(0), max_depth=depth)
+
+
+def test_nonproductive_arm_is_never_chosen():
+    """An arm through a looping rule is dead at every depth, not just at 0."""
+    specs = inline_specs('root ::= bad | "x"\nbad ::= bad "a"\n')
+    results = {generate("root", specs, rng=random.Random(s)) for s in range(20)}
+    assert results == {"x"}
+
+
+def test_depth_budget_bounds_recursion_instead_of_overflowing():
+    """A left-recursive rule terminates within the budget, not at the interpreter's limit."""
+    specs = inline_specs('root ::= root "a" | "b"\n')
+    for seed in range(30):
+        result = generate("root", specs, rng=random.Random(seed), max_depth=3)
+        assert result in {"b", "ba", "baa", "baaa"}
+
+
 # ── _pick_count: the lo==0 roll (Phase-2 behaviour change) ──────────────
 
 
@@ -176,7 +226,7 @@ def test_generate_unknown_atom_raises():
     ``IrNot`` is dead on canonical input (the canonicaliser rewrites it away),
     so the raising default is the honest response to a stray one.
     """
-    gen = _Generator(rng=random.Random(0), rules={}, max_depth=3)
+    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     item = IrItem(IrNot(IrCharClass(IrChr('"'))))
     with pytest.raises(UnsupportedConstructError):
         gen.atom(item)
@@ -184,10 +234,61 @@ def test_generate_unknown_atom_raises():
 
 def test_generate_unknown_atom_error_names_the_type():
     """The raising default's message identifies the offending node type."""
-    gen = _Generator(rng=random.Random(0), rules={}, max_depth=3)
+    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     item = IrItem(IrNot(IrCharClass(IrChr('"'))))
     with pytest.raises(UnsupportedConstructError, match="IrNot"):
         gen.atom(item)
+
+
+# ── refusals off the table: undefined rule, arm-less alternation ────────
+
+
+def test_generate_unknown_rule_raises() -> None:
+    """An undefined rule name refuses, never a silent ``""``.
+
+    A generation door built on the old fallback drew an empty sample
+    indistinguishably from a grammar that legitimately generates one.
+    """
+    specs = grammar_specs("arithmetic")
+    with pytest.raises(UnsupportedConstructError):
+        generate("no-such-rule", specs, rng=random.Random(0))
+
+
+def test_generate_unknown_rule_error_names_the_rule_and_the_grammar() -> None:
+    """The refusal carries the missing name and what the grammar does define."""
+    specs = grammar_specs("arithmetic")
+    with pytest.raises(UnsupportedConstructError, match="no-such-rule") as caught:
+        generate("no-such-rule", specs, rng=random.Random(0))
+    assert "root" in str(caught.value), str(caught.value)
+
+
+def test_generate_dangling_ref_raises_from_inside_an_expansion() -> None:
+    """A reference to an undefined rule refuses mid-expansion, not silently."""
+    rules = {
+        "root": IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("gone")))))
+    }
+    with pytest.raises(UnsupportedConstructError, match="gone"):
+        generate("root", rules, rng=random.Random(0))
+
+
+def test_generate_armless_alternation_raises_naming_the_rule() -> None:
+    """A rule whose body has no arms refuses, with the rule named."""
+    rules = {"empty": IrRule("empty", IrAlternation())}
+    with pytest.raises(UnsupportedConstructError, match="empty"):
+        generate("empty", rules, rng=random.Random(0))
+
+
+def test_generate_armless_inline_group_raises() -> None:
+    """An arm-less inline group refuses too — same defect, same words."""
+    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
+    with pytest.raises(UnsupportedConstructError, match="inline group"):
+        gen.atom(IrItem(IrAlternation()))
+
+
+def test_generate_single_empty_arm_still_yields_empty_string() -> None:
+    """What genuinely derives ``""`` still does: one EMPTY arm is not no arms."""
+    rules = {"nothing": IrRule("nothing", IrAlternation(IrSequence()))}
+    assert generate("nothing", rules, rng=random.Random(0)) == ""
 
 
 # ── open dispatch table: every canonical atom kind, in isolation ────────
@@ -195,13 +296,13 @@ def test_generate_unknown_atom_error_names_the_type():
 
 def test_generate_atom_dispatches_literal():
     """A literal atom expands to itself under the unit quantifier."""
-    gen = _Generator(rng=random.Random(0), rules={}, max_depth=3)
+    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     assert gen.atom(IrItem(IrLiteral("abc"))) == "abc"
 
 
 def test_generate_atom_dispatches_charclass():
     """A char-class atom expands to one sampled covered character."""
-    gen = _Generator(rng=random.Random(0), rules={}, max_depth=3)
+    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     result = gen.atom(IrItem(IrCharClass(IrChr("x"))))
     assert result == "x"
 
@@ -209,12 +310,12 @@ def test_generate_atom_dispatches_charclass():
 def test_generate_atom_dispatches_ruleref():
     """A ruleref atom recurses into the named rule's expansion."""
     rules = {"greeting": IrRule("greeting", IrLiteral("hi"))}
-    gen = _Generator(rng=random.Random(0), rules=rules, max_depth=3)
+    gen = _Generator(rng=random.Random(0), rules=rules, heights={}, max_depth=3)
     assert gen.atom(IrItem(IrRuleRef("greeting"))) == "hi"
 
 
 def test_generate_atom_dispatches_alternation_group():
     """An inline group atom expands its chosen arm."""
     group = IrAlternation(IrSequence(IrItem(IrLiteral("only"))))
-    gen = _Generator(rng=random.Random(0), rules={}, max_depth=3)
+    gen = _Generator(rng=random.Random(0), rules={}, heights={}, max_depth=3)
     assert gen.atom(IrItem(group)) == "only"

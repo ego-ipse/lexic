@@ -10,10 +10,14 @@ API changes from the int-kernel rework:
 - New re-exports added and tested here: ``FastTree``, ``Kernel``, ``Link``,
   ``Links``, ``ParserTables``, ``compile_tables`` (``Link``/``Links`` existed
   before this rework too, but were untested at this layer).
+- Also tested here: ``earley_model``, ``earley_reduce``, ``GrammarAnalysis``,
+  ``PdaKernel`` — the engine-floor root re-exports beside ``Kernel``.
 """
 
 from __future__ import annotations
 
+from lexic import parsing
+from lexic.compile import parse_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import IrAst
 from lexic.parsing import (
@@ -24,6 +28,7 @@ from lexic.parsing import (
     FastCtor,
     FastTree,
     FieldFold,
+    GrammarAnalysis,
     Kernel,
     Link,
     Links,
@@ -31,11 +36,15 @@ from lexic.parsing import (
     ModelFold,
     ParserTables,
     ParseTree,
+    PdaKernel,
+    PdaTables,
     Reducer,
     RuleFold,
     SppfNode,
     compile_tables,
     derivations,
+    earley_model,
+    earley_reduce,
     is_ambiguous,
     lift_optional_nullables,
     normalize,
@@ -43,9 +52,15 @@ from lexic.parsing import (
     parse_forest,
     parse_model,
     parse_reduced,
+    pda_tables,
+)
+from lexic.parsing import products as products_direct
+from lexic.parsing import (
     recognize,
+    to_chart,
 )
 from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
+from lexic.parsing.earley.kernel.forest import readout
 from lexic.parsing.earley.kernel.forest.chart import Chart as ChartDirect
 from lexic.parsing.earley.kernel.forest.chart import EarleyItem as EarleyItemDirect
 from lexic.parsing.earley.kernel.forest.chart import Link as LinkDirect
@@ -62,7 +77,11 @@ from lexic.parsing.earley.kernel.tables.records import (
     ParserTables as ParserTablesDirect,
 )
 from lexic.parsing.earley.reduce.reducer import Reducer as ReducerDirect
-from lexic.parsing.products import earley_model, earley_reduce
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis as GrammarAnalysisDirect
+from lexic.parsing.pda.compiler.tables import PdaTables as PdaTablesDirect
+from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel as PdaKernelDirect
+from lexic.parsing.products import earley_model as earley_model_direct
+from lexic.parsing.products import earley_reduce as earley_reduce_direct
 
 
 def test_chart_re_exported_from_package():
@@ -201,8 +220,71 @@ def test_product_entries_take_the_authored_grammar_pda_first():
     )
 
 
-def test_earley_completions_are_submodule_importable():
-    """The Earley-completion / route-forcing seam lives on the products
-    submodule (tests-only), not the package root."""
-    assert callable(earley_reduce)
-    assert callable(earley_model)
+# ── The engine-floor root exports ───────────────────────────────────────
+
+
+def test_earley_model_re_exported_from_package():
+    """earley_model is re-exported from the package top-level."""
+    assert earley_model is earley_model_direct
+
+
+def test_earley_reduce_re_exported_from_package():
+    """earley_reduce is re-exported from the package top-level."""
+    assert earley_reduce is earley_reduce_direct
+
+
+def test_grammar_analysis_re_exported_from_package():
+    """GrammarAnalysis is re-exported from the package top-level."""
+    assert GrammarAnalysis is GrammarAnalysisDirect
+
+
+def test_pda_kernel_re_exported_from_package():
+    """PdaKernel is re-exported from the package top-level."""
+    assert PdaKernel is PdaKernelDirect
+
+
+def test_pda_tables_re_exported_from_package():
+    """PdaTables is re-exported from the package top-level."""
+    assert PdaTables is PdaTablesDirect
+
+
+def test_pda_tables_function_re_exported_from_package():
+    """pda_tables (the products function) is re-exported from the package
+    top-level, the same object products.pda_tables is."""
+    assert pda_tables is products_direct.pda_tables
+
+
+def test_readout_seam_re_exported_from_package():
+    """The decode seam is public at the package root, not a deep import.
+
+    A consumer that wants to SEE a parse — a chart-column view, a trace —
+    should not have to reach into ``earley.kernel.forest.readout`` for it.
+    """
+    for name in (
+        "to_chart",
+        "decode_item",
+        "accept_item",
+        "accept_items",
+        "accept_handle",
+        "accept_node",
+        "child_node",
+        "root_ambiguous",
+        "start_completion_ends",
+    ):
+        assert name in parsing.__all__, name
+        assert getattr(parsing, name) is getattr(readout, name), name
+
+
+def test_the_readout_seam_decodes_a_real_finished_kernel():
+    """End to end: compile, run the kernel, read the chart back out.
+
+    Pins the seam as USABLE from the package root, which is the whole point of
+    exporting it — the types were already public, the readers were not.
+    """
+
+    grammar = parse_grammar('root ::= "a" "b"\n', GBNF_FLAVOUR)
+    tables = compile_tables(normalize(grammar))
+    kern = Kernel(tables, "ab")
+    kern.run()
+    chart = to_chart(kern)
+    assert isinstance(chart, Chart)

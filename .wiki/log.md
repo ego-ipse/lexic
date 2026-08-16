@@ -1,5 +1,370 @@
 # Log
 
+## Presentation ceilings — the engine half of the drawing contract (2026-08-16)
+
+`compile/presentation.py`. A ceiling is a rule-keyed table in the transpile
+tradition: rows keyed by CANONICAL rule names, bodies of ordinary IR algebra
+producing `Row(role, address, span, parts)`, baked against a compiled artifact,
+gated, and travelling as notation. `Presentation.apply` walks the addressed
+emission rather than a traversal of its own, so a row and an extent name one
+occurrence with one record.
+
+**No geometry.** A row says where in the DOCUMENT; arranging it on a surface is
+the consumer's, and a width field here would be lexic guessing at a screen.
+
+**Declare one name, derive the rest.** Helper rules minted by the hoist passes
+carry no rows — their occurrences route to the canonical rule they came out of,
+derived by walking the codegen grammar's refs against the canonical one (both
+are moments of the same compilation).
+
+**Gated both ways.** Membership: a row must name a drawable rule. Completeness:
+every drawable rule must have one — semantic, and not a pass-through
+alternation. A hole is refused with the rules named, because a ceiling that
+silently draws nothing is worse than one that says it does not apply.
+
+**Transport.** `IrRenaming.rekeyed(table)` carries any rule-keyed table across a
+pure renaming, so one ceiling serves every renaming of its grammar while a
+different FACTORING still refuses. Demonstrated on three languages — a new
+`markdown.gbnf` (authored as a fixture and now a full corpus citizen),
+`json.gbnf`, and `arithmetic.abnf` — none privileged, all through the standard
+pipeline.
+
+---
+
+## The kernel speaks — a watched trace product (2026-08-16)
+
+`parsing/trace.py`. A parse left no account of itself; `watch(tables, text,
+fold)` gives one — an ordered stream of `TraceEvent(order, kind, rule, verdict,
+span)` over four kinds (scan, probe, rollback, gate), whose position leaf is
+`IrSpan`, the record an addressed emission already carries. That is the ruled
+middle position made real: separate products, shared leaves, so a trace row and
+a document occurrence point into one text with no translation between them.
+
+**Pay to watch, and the cost model is structural rather than promised.**
+`WatchedKernel` is a SUBCLASS of `PdaKernel`; the kernel keeps no watch state,
+carries no branch, and nothing under `parsing/pda/` imports the trace — the
+import arrow is the proof, and a unit gate reads the kernel's own code objects
+so an `if self.watching:` added anywhere fails it. A guarded in-process
+interleaved A/B measures the other half: the unwatched median is unchanged when
+watched runs interleave, while a watched run is ~1.9x dearer.
+
+**Two honest facts.** `capped` says when the account (never the parse) stopped
+at `cap`; `derived` says whether the run reached a model. A refused predictive
+run is ordinary — the compile seam retries on the gated engine — so it is
+returned as a stream ending in the refusal, in the engine's own words, rather
+than raised away. The product deliberately carries NO model: watching
+re-executes, and handing back a second model would invite two executions to be
+read as one.
+
+**Scans are runs of text, not per-terminal events.** The driver matches an
+exactly-once terminal inline with no call to intercept, so a per-terminal
+stream could only be built by instrumenting the paid loop. A scan is therefore
+the text consumed between two decisions, attributed to the frame that consumed
+it — and the corpus gate proves the account still tiles every document with no
+gap or overlap.
+
+---
+
+## The compile moments — one retaining product the pipeline runs through (2026-08-16)
+
+`compile/pipeline/moments.py`. A compilation's stages were local variables
+that died with the call; they are now `CompileMoments` — five grammar states
+(`canonical`, `grouped`, `armed`, `relaxed`, `resolved`), the binding view,
+the classes — and `_assemble_core` builds one and reads the artefact out of
+it. `CompiledGrammar.moments` is therefore what the compilation DID, not a
+re-run of it, and retention is a tuple of references to values the pipeline
+computed anyway.
+
+**One composition.** `GrammarMoments.of` is the only place the three passes
+are chained; `build_codegen_grammar` (moved here from `passes.py`) reads its
+`relaxed`. A trace product that re-ran the passes beside the real pipeline
+would drift the first time a pass was added.
+
+**A no-op is a fact, not an omission.** `no_ops()` names the stages that ran
+and changed nothing, which is grammar-contingent: `chess.gbnf` has one pass of
+three that does anything, `c.gbnf` declares `@non-semantic ws` and relaxes
+nothing (its `ws` is not nullable — relaxing there would widen the language),
+`list.gbnf` passes through untouched, and `resolved` idles whenever no
+vocabulary is bound. `bind()` now demonstrates its own invariance argument:
+only the last grammar moment moves.
+
+---
+
+## Verdicts, the identity walk, and equality up to renaming (2026-08-16)
+
+Three answers the engine could not previously give as values.
+
+**A verdict is a value.** `Verdict` (`compile/verdict.py`, exported from
+`lexic.compile`) holds what one attempt said: accepted or refused, the
+engine's words VERBATIM, the refusal's readout, and what it cost.
+`Verdict.refuse(error, seconds)` builds one from a raised `LexicError`. An
+exception cannot be held beside three others and compared; a record can. What
+deliberately did NOT land: the attempt, and any candidate policy — which
+readers, in what order, memoised how. A registry of "the readers we ship"
+would privilege the formulations lexic happens to carry.
+
+**The identity walk states its child definition.** `census(root)`
+(`ir/identity.py`) reports every DISTINCT node under a value: how often
+each was reached, and whether it is on the refusal boundary. Its children are
+the node-valued elements of a node's own field tuple — one definition, named,
+because counting sharing under one and reporting it under another invents a
+delta. Two consequences are gated rather than glossed: it is wider than
+`children()` (which honours `_child_attrs`, so it misses `IrRule.name`), and a
+map's ENTRIES are children too, because a dispatch table's whole content is
+its entries: a reducer that censused as one childless node was a flavour's
+anatomy made invisible, and the `IrLambda(<class>)` constructors in a compiled
+grammar's `fold.bodies` — 35 of them under `json.gbnf` — are the refusal
+boundary itself, which a tuple-only definition reported as empty.
+
+**Equality up to renaming, with every witness.** `align_names(a, b)`
+(`ir/grammar/alignment.py`) decides whether two grammars are one grammar with
+different rule names, and hands back each valid bijection as an `IrRenaming`
+that can carry a grammar — and any rule-keyed table — across. The search is
+colour refinement over the rule graph, then verification of each candidate
+consistent with the colouring. ALL valid bijections are returned: two rules
+with identical bodies admit both pairings, and offering them is the
+no-silent-pick doctrine applied to isomorphism. A run that hits
+`CANDIDATE_CAP` says so in `capped`. Language equality is out of scope and the
+empty alignment says only "no renaming relates these" — `json.gbnf` aligns
+with a pure rename of itself and with `json.abnf` (identity witness, across
+flavours), and refuses `json_arr.gbnf`.
+
+Found in passing and fixed: the B1 sharing gate in
+`test_addressed_emission.py` read `id()` of occurrences it did not hold, so a
+freed temporary's address could be recycled and read back as two unrelated
+parts being one shared object. It now holds them.
+
+---
+
+## Products carry their correspondences: templating offsets, the transpile crossing (2026-08-16)
+
+Two products that computed a correspondence and dropped it now hand it back.
+
+**Templating.** `SpanEntry` carries `key_at`/`value_at` beside its text — the
+positions the parse already had, never a re-find by string search, which is
+ambiguous the moment a document repeats itself (the first `"name"` and the
+fifth are the same string). A new fold mode, `span`, is how: a field is a
+(slot, mode) pair, so the entry binds its two slots TWICE — once in `text`
+mode, once in `span` — and one capture yields both halves. Each route serves
+it from what it already held: the PDA reads the frame offsets it computes the
+span text from, and the tree route accumulates them over the leaves
+`_subtree_text` already walks. `ModelFold.wants_spans` means no ordinary
+grammar pays a pass for it. A parity gate pins the two routes to each other.
+
+**Transpile.** `Transpiler.cross()` returns a `Crossing` — both sides'
+addressed emissions and the `IrOrigins` between them — and `run` is that,
+keeping only the text. The map the walk holds is between OBJECTS, because
+`IrBottomUp` transforms a shared subtree once and splices it: in the shipped
+json→yaml example, 178 source model occurrences stand on 71 objects, one of
+them reached 27 times. So the crossing states what is known — one origin per
+(built, source) pair the object map licenses — and where a source value stands
+in several places it names ALL of them. One value, many occurrences, wash them
+all; a product that named one would be a silent pick. A built model the table
+constructed inside a body has no source object and says so with an empty set.
+
+`IrBottomUp._sink()` is the seam that made this keep-what-you-computed rather
+than a second walk: `_run` already fills `id(source) -> result` to do its job,
+and a driver that wants it overrides one method — the `_descend` precedent.
+
+## Addressed emission — a model says where every part of it landed (2026-08-16)
+
+`ir/text/spans.py` names what was missing: `IrStep`/`IrAddress` (an
+occurrence's path), `IrSpan` (half-open, code units), and the two
+correspondence shapes `IrExtent` (address ↔ span) and `IrOrigin` (address ↔
+address). `GrammarModel.emit_addressed()` returns an `IrEmission` — the text
+`to_text()` gives, plus one extent per emitted part — and
+`GrammarModel.occurrence(address)` reads an address back to what stands
+there. Both run off the same `_sub_parts` definition, so the contract has one
+definition and two directions. The family is in the notation vocabulary, so
+an address travels like any other IR value.
+
+Why an address rather than a node reference: **the spine shares equal nodes
+by identity.** In `{"a": 1, "b": 1}` under `json.gbnf` one `Ws` object is
+reached seven times, and every id-memoising driver splices shares — right for
+a transform, fatal for an address. So the walk assigns paths top-down and
+positionally, never by matching a value; the corpus gates include a fixture
+with equal siblings AND shared noise for exactly this.
+
+Two order facts the contract now states out loud: steps follow the parent's
+EMISSION order (`emit_parts`, item-slot), which is not field-declaration
+order — `JsonText` declares `(value, ws, ws2)` and emits `ws, value, ws2`;
+and spans are in code units, because that is the only measure that slices the
+string back. `layout.py` counts code units too, for its own reason: its
+budget is a linter's line length.
+
+Acceptance: the reference consumer's hand-rolled span walk (a second
+traversal accumulating `at += len(text)`) now reads the engine product
+instead, and produces byte-identical spans — 840 spans over 44 documents,
+all five fields.
+
+## The compile seam is the page; generate refuses with words (2026-08-16)
+
+`export_value` was documented as public API while being absent from
+`lexic.compile` altogether — the only route was a deep import of
+`compile.payload`, which the layering rule forbids. The seam was audited
+once and the family fixed: `export_value`, `compile_ast`,
+`build_codegen_grammar`, `compute_binding`, `synthesize` and `RuleBinding`
+joined `lexic.compile.__all__`. Everything still reachable-but-unlisted is
+either a stdlib import, or a symbol whose own package already exports it
+(`lexic.ir`'s `canonicalize`/`concretize`/the spine types, `lexic.parsing`'s
+fold records, `lexic.grammars`' `get_flavour`) — re-exporting those would be
+a second import route for one symbol — or a compile-package internal
+(`encoding_registry`, `segmentation_tokenizer`, `check_supplied_class`,
+`field_kwargs`), where `Vocabulary` is the caller-facing form.
+
+[[lexic/public-api]] headings now name **`compile/__init__.py`** — the module
+you import from — with the implementing module in the body, because a
+heading naming a submodule reads as an instruction to breach the seam.
+`tests/integration/lexic/invariants/test_public_api_drift.py` gates both
+halves: every `compile/`-homed symbol the page documents is in `__all__`,
+and every such heading names the root.
+
+`lexic.generate` stopped returning `""` for an undefined rule name and for
+an arm-less alternation — a silent fallback the dispatch table beside it
+already forbade, and one that made a failed generation and a legitimately
+empty sample read identically. Both now raise `UnsupportedConstructError`
+naming the rule. What genuinely derives the empty string still does: an
+alternation with one EMPTY arm, and a quantifier rolled to zero.
+
+## The walk reaches maps and models; transpilation examples ride it (2026-08-14)
+
+And transpilation became a first-class compile product on the templating
+precedent: `transpile(source, target, rules) → Transpiler`
+(`compile/transpile.py`). Rows key **rule names**; the transpile vocabulary
+(`Make`/`Spelled`/`Flat`/`Split`/`Is`, beside `IrRaise` for stated-domain
+refusals) makes an authored table pure data with no class objects in it —
+the bake resolves names against the two artifacts, binds `Make` arguments by
+item-slot order through `__binds__` (declaration order differs:
+defaults-last), and grows/reads hoisted list chains as the inverse of the
+hoist passes. `run` gates completeness (no source class survives into the
+product), membership and fidelity (the emitted text parses under the target,
+back equal to what the transform built). ex16 (json→yaml) is zero functions;
+ex17 (python→c++) keeps exactly one — the declaration pass. Integration:
+one table serves json.gbnf AND json.abnf; generated documents either pass
+all gates or refuse with words.
+
+Three additive spine changes, each closing a place the dispatch machinery
+could not go: `IrMap.children()`/`rebuild()` (constructor-mirroring dyads —
+dispatch tables and reducers now stand under a walk like any value;
+`IrMultiMap` stays a leaf), `IrEach` over a mapping focus (dyad records), and
+`IrBottomUp` tolerating the model layer's deliberate concessions (`None`
+optionals, plain-tuple `models` fields, payload strings/classes — transparent
+tuple, opaque leaves, only real `IrSelf` offered to the table; a changed
+tuple field rebuilds as `IrTuple`). Net effect: a cross-grammar model
+transform is now a plain `IrTypeMap` over model classes with one-line
+combiner bodies, every intermediate threaded through checked construction —
+`getting_started/ex16` (json→yaml) and `ex17` (python→c++) rewrote onto it,
+dropping their hand-rolled walks. Mirror tests extended in
+`tests/unit/lexic/ir/action/`; suite, examples and `run_checks` green.
+
+## flavour-system.md caught up with the def-free emit half (2026-08-14)
+
+The page's `GBNF_ACTIONS` example still showed `IrLambda(_gbnf_encode_literal)`
+rows and a "reach for `IrLambda` when…" list justifying them. Stale: every
+shipped grammar module (`gbnf.py`, `abnf.py`, `ebnf.py`, `json.py`) carries
+zero `IrLambda` and zero `def` — the emit half went pure algebra
+(`IrEscape`/`IrEscapePoint`/`IrSpellable` over `EscapeCodec` data, `IrRadix`
+family, `IrRaise` for declarative refusal). The page now shows the real table
+shape and states the consequence worth knowing: a whole flavour is data — it
+round-trips through the notation (the `.flavour.ir` manifests) and through the
+payload projection, and a decoded flavour emits and compiles.
+
+## The predictive parse was quadratic; it is linear now
+
+A both-viable loop boundary was settled by running BOTH continuations to
+end-of-input and comparing values. That is O(remaining) per boundary with a
+boundary count that grows, so an 11 KB vyx packet cost 73 seconds on the fast
+path — succeeding, slowly — and a `ws` rule pays 94% of all fork verdicts, so it
+was never one grammar's problem.
+
+The sides differ only in the boundary decision, so they reconverge fast: driven
+in lockstep, the verdict falls out at convergence, and only the values built
+SINCE the boundary need comparing (the rest is shared by construction). Both
+halves were needed — the first made it 13× on that packet, the second made it
+linear. 73.4s → 0.49s, 44 µs/char flat. Ordinary traffic is unmoved; it never
+paid this. See [[decisions]] for the soundness argument and the three things the
+convergence predicate has to get right.
+
+## A refused parse says where it stopped and what it wanted
+
+`PdaFail` spelled its position only in prose ("no arm at N") and never escaped
+the product seam, so the public refusal was words alone and the one consumer
+that wanted a frontier regexed the engine's error string.
+
+`PdaFail` now carries `pos` / `rule` / `expected` / `negated` as attributes, and
+`UnsupportedConstructError.readout` carries a `Refusal` built from them when
+BOTH engines decline — position, rule, expected-next, polarity, and whether the
+predictive route failed or merely bailed as undecidable. Additive: messages are
+unchanged and every other raise site still passes a message alone. See
+[[error-vocabulary]].
+
+## `relax_non_semantic` narrowed to nullable noise rules
+
+The pass rewrote every arm-level ref to a `semantic=False` rule to `min=0`,
+whatever the rule derived. Over a nullable noise rule that is free; over a
+non-nullable one it widens the accepted language. It was widening GBNF's own
+metagrammar: `n ::= nunit+` became `nunit*` and `seq-rest ::= n item` became
+`n? item`, deleting the mandatory-separator discipline `gbnf.py` engineers
+maximal munch with — so `a ::= bc` meant either one rule reference or two. The
+metagrammar was ambiguous, every grammar read through it needed a resolver, and
+the PDA correctly probe-forked one char into the first rulename and handed the
+whole document to Earley (superlinear on this grammar).
+
+Now `targets = ast.non_semantic & nullable_names(ast.rules)`, solved on the
+incoming grammar so the pass cannot bootstrap its own licence. All ten
+ground-truth grammars read by the metagrammar now ride the PDA with no
+resolver: vyx 4.561 s → 0.028 s. `nullable_names` is exported from
+`lexic.parsing` (the `lift_optional_nullables` precedent); [[codegen]] and
+[[decisions]] carry the rule.
+
+---
+
+## A record's fields, read properly under PEP 649
+
+`IrNamedTuple.__init_subclass__` derived fields from
+`cls.__dict__["__annotations__"]`. Under PEP 649 that dict does not exist at
+class-creation time — a class body compiles to `__annotate_func__` and
+`__annotations__` is computed on access — so fields registered as **none**,
+silently: the record still constructed, still compared, still answered
+attribute reads from class defaults, and `len()` was 0. The future import
+appeared to fix it only because PEP 563 stores a dict eagerly as a side
+effect.
+
+Now `annotationlib.get_annotations(format=STRING)`, which never evaluates, so
+a forward reference cannot raise during class creation and the future import
+is irrelevant to correctness. Read correctly rather than refuse loudly.
+
+Two more in the same family, each surfaced by fixing the one before it:
+surplus positional values were discarded silently (they raise now), and a
+subclass adding no fields lost its parent's. A payload test had been passing
+only because the surplus argument was swallowed — the defect covering for
+itself.
+
+`ir-shapes.md` gains "How a record's fields are derived — and why it is not
+`__dict__`".
+
+
+## The engine floor opens; compile grows its AST-born and instance-flavour entries
+
+Three public-surface additions, one batch. (1) `lexic.parsing` root now
+exports the engine floor beside `Kernel`: `earley_model`/`earley_reduce`
+(the route-forcing seam — forcing a route is calling a different product
+entry, never a flag), `PdaKernel`, `GrammarAnalysis`, and
+`pda_tables`/`PdaTables`; `CompiledGrammar.pda_tables()` is the
+artefact-side reach onto the same identity-memoised entry the parse path
+drives. No `pda` façade — the names surface at the root. (2)
+`compile_text`/`compile_from_path` (and the `parse_instance` sugars) take
+`flavour: str | IrFlavour` — an instance compiles registry-free (no
+`register_flavour`, no singleton shadowing) and keys the memo by its
+class object (value equality is not a designed key in either direction).
+(3) `compile_ast` — the IR-born twin of `compile_text`: canonicalizes the
+given AST as it stands (rule `semantic` flags SURVIVE, where the
+emit-and-recompile detour measurably loses them with the comments),
+resolves start/flags from the AST with `directives` overriding, shares
+the back half verbatim (`_assemble_core`), keys the memo on `repr(ast)`
+(codegen-exact — distinguishes what AST `==` deliberately ignores), and
+stamps `flavour="ir"`. [[lexic/public-api]] carries all three.
+
 ## The meta grammars go predictive — licences relaxed, not machinery added
 
 The gbnf-meta "trailing input at 244" family is closed at COMPILE time:

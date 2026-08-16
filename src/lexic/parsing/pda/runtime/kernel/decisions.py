@@ -36,13 +36,26 @@ from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
     admits,
+    control_signature,
     frames_copy,
+    pending_values,
     prefix_admits,
     sole_admitted,
+    value_shape,
+    values_agree,
 )
 from lexic.parsing.pda.runtime.build import F_ARM, F_COUNT, F_ENDS, F_I, F_OUT
 
 __all__ = ["Attempting", "sole_admitted"]
+
+_LOCKSTEP_ROUNDS = 32
+"""How many convergence rounds a boundary gets before the slow path takes it.
+A budget, not a correctness knob: running out costs today's two full probes."""
+
+_LOCKSTEP_STEP = 8
+"""Characters to advance both sides by when they stand at the same position but
+different control states — small, because convergence is usually one element
+away and every character driven past it is wasted."""
 
 _DEAD, _ASCEND, _ADMITS, _ADMITS_HARD = 0, 1, 2, 3
 """An arm-rest walk's verdicts: a mandatory non-admitting item kills the
@@ -133,7 +146,7 @@ class Attempting:
         """Provided by the kernel — push (or inline) ``clone``'s frame."""
         raise NotImplementedError
 
-    def _drive(self, floor: int = 0) -> None:
+    def _drive(self, floor: int = 0, limit: int = -1) -> None:
         """Provided by the kernel — drain the frame stack down to ``floor``."""
         raise NotImplementedError
 
@@ -185,7 +198,8 @@ class Attempting:
         if k > OP_GRP:  # OP_ISLAND / OP_FAIL — no (end, values) to fork-probe
             if self._stop_viable(arm, i, char):
                 raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable"
+                    f"attempt loop at {pos}: taking and stopping are both viable",
+                    pos,
                 )
             return self._attempt_island(frame, arm, i, pos)
         got = self._attempt_run(arm.payloads[i], pos)
@@ -209,7 +223,8 @@ class Attempting:
                 return _close_loop(frame, i, pos)
             if verdict == _FORKED:
                 raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable"
+                    f"attempt loop at {pos}: taking and stopping are both viable",
+                    pos,
                 )
         end, values = got
         self._sink_for(frame, arm, i).extend(values)
@@ -281,6 +296,9 @@ class Attempting:
         :param taken: The iteration's ``(end, values)`` (the take side's seed).
         :returns: :data:`_TAKE` / :data:`_STOP_FORCED` / :data:`_FORKED`.
         """
+        settled = self._lockstep_verdict(arm, i, pos, taken)
+        if settled is not None:
+            return settled
         stop, _stop_unc = self._probe(arm, i, pos, None)
         if stop is None:
             return _TAKE
@@ -292,6 +310,140 @@ class Attempting:
         ):
             return _FORKED
         return _TAKE
+
+    def _lockstep_verdict(
+        self,
+        arm: FlatArm,
+        i: int,
+        pos: int,
+        taken: tuple[int, list[object]],
+    ) -> int | None:
+        """The boundary settled by CONVERGENCE, or ``None`` to run it the long way.
+
+        Running both sides to end-of-input costs O(remaining) per boundary, and
+        boundary count grows with the input — the parse is quadratic, and 92% of
+        a pipe-heavy vyx packet's wall clock sits in those probes. But the two
+        sides differ ONLY in the boundary decision, so they reconverge quickly:
+        once they stand at the same position with the same control state, the
+        stack (which IS the continuation) guarantees them the same future, and
+        the whole question reduces to the values each built on the way there.
+
+        Three outcomes are decidable here, all of them the SAME answers the
+        end-of-input comparison gives:
+
+        - **converged, values agree** — the parses build one value; a benign
+          split, committed as the take. This is the common case, and it costs
+          O(1) instead of O(remaining).
+        - **converged, values differ** — the remainder is COMMON, so it is run
+          ONCE (not twice) to see whether it completes at all: completing makes
+          the difference real (a fork); dying means neither side completes, and
+          a dead stop side is :data:`_TAKE` exactly as before.
+        - **one side dies during the lockstep** — the verdict is forced, and the
+          caller's slow path re-derives it without the bookkeeping.
+
+        Anything else — no convergence inside the budget, an uncertain
+        (greedily sampled) side, a :class:`ProbeFork` from deeper in — returns
+        ``None``, and the caller runs today's comparison. That escape is what
+        makes the change unable to regress correctness: the worst case is the
+        behaviour and the answer that shipped before it.
+
+        :returns: The verdict, or ``None`` when the long way must decide.
+        """
+        shape = value_shape(self.stack)
+        left = self._side(arm, i, pos, None)
+        right = self._side(arm, i, pos, taken)
+        for _round in range(_LOCKSTEP_ROUNDS):
+            if left is None or right is None:
+                return None  # a dead side — the slow path names which
+            target = max(left[1], right[1])
+            if left[1] == right[1]:
+                if control_signature(*left) == control_signature(*right):
+                    return self._converged(left, right, shape)
+                target += _LOCKSTEP_STEP
+            left = self._advance(left, target)
+            right = self._advance(right, target)
+        return None
+
+    def _converged(
+        self,
+        left: tuple[list[Any], int],
+        right: tuple[list[Any], int],
+        shape: tuple[Any, ...],
+    ) -> int | None:
+        """The verdict once both sides share a position and a control state.
+
+        Only the values built SINCE the boundary are compared — ``shape`` is
+        the watermark taken there, and both sides inherited everything below it
+        from one stack.
+        """
+        if values_agree(
+            pending_values(left[0], shape), pending_values(right[0], shape)
+        ):
+            return _TAKE
+        done = self._advance(left, -1)
+        if done is None or done[1] != len(self.text):
+            return _TAKE  # the common remainder does not complete on either side
+        return _FORKED
+
+    def _side(
+        self,
+        arm: FlatArm,
+        i: int,
+        pos: int,
+        taken: tuple[int, list[object]] | None,
+    ) -> tuple[list[Any], int] | None:
+        """One side of the boundary as its own resumable ``(stack, pos)``.
+
+        The same fork :meth:`_probe` builds — a structural stack copy with the
+        boundary decided — but handed back undriven so the caller can advance
+        it in step with the other.
+        """
+        forked = frames_copy(self.stack)
+        top = forked[-1]
+        if taken is None:
+            top[F_COUNT] = 0
+            top[F_I] = i + 1
+            top[F_ENDS][i] = pos
+            return forked, pos
+        top[F_COUNT] += 1
+        top[F_I] = i
+        saved = self.stack
+        self.stack = forked
+        try:
+            self._sink_for(top, arm, i).extend(taken[1])
+        finally:
+            self.stack = saved
+        return forked, taken[0]
+
+    def _advance(
+        self, side: tuple[list[Any], int], limit: int
+    ) -> tuple[list[Any], int] | None:
+        """Drive one side to ``limit`` (``-1`` = to the end), or ``None`` if it dies.
+
+        Swapped in and out under the same discipline :meth:`_probe` uses, and
+        counted as probing so nested boundaries resolve greedily rather than
+        recursing — including the greedy resolution of nested boundaries, whose
+        ``uncertain`` flag is treated exactly as the end-of-input comparison
+        treats it: as information the verdict does not use. (It is read and
+        discarded there too — ``_stop_unc``/``_take_unc``.) Disqualifying on it
+        was tried and made every pipe-heavy boundary take the slow path, which
+        is the whole population this exists for.
+        """
+        caches = self._caches
+        saved_stack, saved_pos = self.stack, self.pos
+        self.stack, self.pos = side[0], side[1]
+        caches.probing += 1
+        saved_unc = caches.uncertain
+        caches.uncertain = False
+        try:
+            self._drive(limit=limit)
+            return self.stack, self.pos
+        except PdaFail, LexicError:
+            return None
+        finally:
+            caches.probing -= 1
+            caches.uncertain = saved_unc
+            self.stack, self.pos = saved_stack, saved_pos
 
     def attempt(self, clone: FlatClone, out: list[object]) -> None:
         """Try an attempt clone's entries in order — the third gate class, live.
@@ -323,7 +475,7 @@ class Attempting:
                 winner = idx
                 break
         if best is None:
-            raise PdaFail(f"attempt: no arm matches at {pos}")
+            raise PdaFail(f"attempt: no arm matches at {pos}", pos)
         self._attempt_audit(entries[winner + 1 :], pos, best[0], follow)
         out.extend(best[1])
         self.pos = best[0]
@@ -355,12 +507,14 @@ class Attempting:
             if alt == end:
                 raise PdaFail(
                     f"attempt at {pos}: two arms span [{pos}, {end}) — "
-                    "a value question for the gated engine"
+                    "a value question for the gated engine",
+                    pos,
                 )
             if follow.has(self.text[alt : alt + 1]):
                 raise PdaFail(
                     f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
-                    "and the alternative could compose"
+                    "and the alternative could compose",
+                    pos,
                 )
 
     def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:

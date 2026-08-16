@@ -44,9 +44,10 @@ Presets
 
 import pytest
 
+from lexic.compile import CompiledGrammar, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.build import IrAction, IrEmit, IrRaise, IrRebuild
-from lexic.ir.action.control import IrReturn
+from lexic.ir.action.control import IrReturn, IrThis
 from lexic.ir.action.mapping import IrTypeMap
 from lexic.ir.action.walk import (
     IrBottomUp,
@@ -559,3 +560,71 @@ def test_bottomup_default_descend_reaches_every_node():
     )
     tree = IrSequence(IrItem(IrCharClass(IrChr(65))))
     assert driver.apply(tree) == IrSequence(IrItem(IrLiteral("X")))
+
+
+# ── The bottom-up walk over the MODEL layer's concessions ─────────────
+
+
+def _json_compiled() -> CompiledGrammar:
+    """The bundled json grammar, compiled — the model-walk fixture."""
+    return compile_from_path("resources/ground_truth/json.gbnf")
+
+
+def test_bottom_up_walks_a_model_tree_identically() -> None:
+    """The driver survives what models legitimately hold.
+
+    The model layer is deliberately not IR-strict: an absent optional field
+    is Python ``None``, a ``models``-mode field a plain tuple, payload slots
+    plain strings. Each once broke the walk with an ``AttributeError``; all
+    are now taken for what they are, and an identity walk is the identity.
+    """
+    compiled = _json_compiled()
+    for doc in ('{"a": 1}', "{}", '{"a": [1, {"b": null}]}'):
+        walked = IrBottomUp(actions=IrTypeMap()).apply(compiled.parse(doc))
+        assert walked.to_text() == doc
+
+
+def test_bottom_up_transforms_across_model_classes() -> None:
+    """A per-class body may build a DIFFERENT model class — the transpile seam.
+
+    The intermediate rebuild threads transformed children through the parent's
+    checked constructor (the spine isinstance, not the exact arm), so a
+    cross-class transform composes with validation instead of dodging it.
+    """
+    compiled = _json_compiled()
+    null_cls = compiled.classes["Null"]
+    censor = IrBottomUp(
+        actions=IrTypeMap(
+            IrAction(
+                compiled.classes["Number"],
+                IrLambda(lambda _d, _n, _nc: null_cls("null")),
+            )
+        )
+    )
+    out = censor.apply(compiled.parse('{"a": 1, "b": [2, 3]}'))
+    assert out.to_text() == '{"a": null, "b": [null, null]}'
+
+
+def test_bottom_up_rebuilds_a_changed_models_field_onto_the_spine() -> None:
+    """A changed plain-tuple field comes back as ``IrTuple`` — which IS a
+    tuple, so the model contract holds and the output is IR-strict."""
+    compiled = _json_compiled()
+    null_cls = compiled.classes["Null"]
+    censor = IrBottomUp(
+        actions=IrTypeMap(
+            IrAction(
+                compiled.classes["Number"],
+                IrLambda(lambda _d, _n, _nc: null_cls("null")),
+            )
+        )
+    )
+    out = censor.apply(compiled.parse("[1, 2]"))
+    items = getattr(getattr(out, "value"), "array_item2")
+    assert isinstance(getattr(items, "array_item"), tuple)
+    assert out.to_text() == "[null, null]"
+
+
+def test_bottom_up_walks_a_dispatch_table_like_any_value() -> None:
+    """A map-shaped value — a dispatch table itself — stands under the walk."""
+    table = IrTypeMap(IrAction(IrLiteral, IrThis()))
+    assert IrBottomUp(actions=IrTypeMap()).apply(table) == table
