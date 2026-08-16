@@ -140,6 +140,7 @@ src/lexic/
     foldkit.py                     Shared authored-fold vocabulary — the build-path unification seed
     templating.py                  Generic templating — extract selected paths of any COMPILED grammar via spans
     transpile.py                   A document under grammar A re-expressed under grammar B — the transform is a table
+    verdict.py                     Verdict — one attempt's outcome as a value, refusal and cost included
     writer.py                      The shared module writer — every .py lexic emits goes out through here
     module/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
@@ -174,6 +175,7 @@ src/lexic/
     spine/                        The node substrate — everything else is downstream
       __init__.py                the group's package marker; the façade is the import surface
       bind.py                       IrBind — the field-binding marker generated model fields carry
+      identity.py                   The identity walk — a value's graph under ONE stated child definition
       meta.py                       IrMeta (dataclass-transform + _bound derivation); Singleton metaclasses
       records.py                    Tuple tiers — a record IS its field tuple (IrTuple/IrSeq/IrNamedTuple)
       scalars.py                    Value leaves — a scalar node IS its payload (IrStr/IrInt/IrChr)
@@ -188,6 +190,7 @@ src/lexic/
       walk.py                       Action-driven IR dispatcher on the IrSelf substrate
     grammar/                      The grammar AST and the language-preserving passes over it
       __init__.py                the group's package marker; the façade is the import surface
+      alignment.py                  Equality up to renaming — every rule-name bijection, as the witness
       canonical.py                  canonicalize — the language-preserving normal form for a grammar IrAst
       concretize.py                 concretize — resolve an `IrAlphabet`'s spelling to an id
       nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)

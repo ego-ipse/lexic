@@ -119,6 +119,14 @@ Builds a retained `Transpiler(source, target, walk)` — a document under gramma
 
 ---
 
+### `Verdict` — `compile/__init__.py`
+
+Implemented in `compile/verdict.py`. An attempt through this seam ends with a product or a raised `LexicError`, and an exception is not a value — it cannot be held beside three others, compared, or drawn. `Verdict` is that missing half: `accepted: bool`, `words: str` (the engine's message VERBATIM — never re-worded, because a caller comparing two refusals is comparing what the engine said), `readout: Refusal` (a parse refusal's position/expected set; the default `Refusal()` with `pos == -1` is the honest empty), `seconds: float` (what the attempt cost, as its caller measured it).
+
+Two named constructors: `Verdict.accept(seconds)`, and `Verdict.refuse(error, seconds)` — the one from a raised error, lifting the readout when the error carries one. Deliberately absent: the attempt itself, and any notion of WHICH candidates to try, in what order, memoised how. That is caller-side policy, and a registry of "the readers we happen to ship" would privilege the formulations lexic happens to carry.
+
+---
+
 ### `parse_grammar(text, flavour)` — `compile/__init__.py` (re-exported from `lexic`)
 
 The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `GBNF_FLAVOUR`): requires `flavour.reducer` to be an actual `Reducer` instance (else `UnsupportedConstructError`), runs `parse_reduced(normalize(flavour.grammar), text, flavour.reducer)` — the normalised self-grammar memoised per flavour name — and verifies the reduction yields an `IrAst` (else `UnsupportedConstructError`). Returns the **raw** parsed `IrAst` — not yet canonicalized. Use it whenever you need the IR of a grammar without compiling classes (e.g. cross-flavour transpilation: `parse_grammar(text, GBNF_FLAVOUR)` then `ABNF_FLAVOUR.apply(ast)` — see `getting_started/ex04_transpile_flavours.py`).

@@ -209,6 +209,42 @@ Four rules the family exists to keep, each of which has already been got wrong s
 
 `GrammarModel.emit_addressed()` produces the emit-side set and `GrammarModel.occurrence(address)` reads it back — the same `_sub_parts` definition drives both, so the address contract has one definition and two directions. `to_text()` stays its own loop (the hot path pays nothing); a corpus gate pins the two texts to each other.
 
+## The identity walk (`ir/spine/identity.py`)
+
+What a value's graph IS, under **one stated child definition**: a node's children are the node-valued elements of its own field tuple (`field_children`). Naming the definition is the point — sharing counted under one definition and reported under another manufactures a delta out of nothing.
+
+```python
+IrIdentity(node, reached: int, unspellable: bool)   # one DISTINCT node
+IrCensus(IrSeq[IrIdentity])                         # .shared() / .refusals()
+census(root) -> IrCensus                            # first-reach order, iterative
+```
+
+`reached` counts ARRIVALS — one per edge pointing at the node, plus one for the root — so `sum(reached) == edges + 1` and anything above `1` is sharing. Distinctness is by IDENTITY: two equal `IrLiteral('a')` objects are two entries, which is the same fact `spans.py` exists to survive.
+
+Two consequences of the definition, both deliberate and both gated:
+
+- it is **wider** than `IrSelf.children()`, which honours `_child_attrs` and so drops a record's non-dispatched fields (`IrRule.name` is a node, and an identity walk that missed it would undercount);
+- a **map is a leaf**: `IrMapping` carries a dict in a slot, not a tuple, so a dispatch table censuses as one node and the bodies filed in it are outside every census's reach. A flavour's reducer therefore reports the table, not its contents.
+
+`unspellable` is the refusal boundary: `IrLambda` (the spine's one callable-carrying node), plus any node holding a bare callable that is neither a node nor a class — a class has a name and the notation spells names.
+
+## Equality up to renaming (`ir/grammar/alignment.py`)
+
+`canonicalize` folds spelling but never quotients NAMES, so two grammars differing only in what their rules are called canonicalise to two different ASTs. `align_names(left, right) -> IrAlignment` decides whether they are one grammar anyway, and hands back the transport that proves it:
+
+```python
+IrRename(source: str, target: str)     # one pair; dict(renaming) is the table
+IrRenaming(IrSeq[IrRename])            # one complete bijection; .renamed(ast) carries a grammar across
+IrRenamings(IrSeq[IrRenaming])
+IrAlignment(renamings, capped: bool)
+```
+
+Both sides are canonicalised first, and the comparison is over the rule SET (a renaming may reorder the canonical rule list, and rule order is not a difference). The search is colour refinement over the rule graph — a rule's colour is its name-blind body plus the colours of the rules it references, refined to a fixpoint over BOTH grammars at once — then candidate bijections consistent with the colouring, each verified by applying it.
+
+**ALL valid bijections are returned.** Two rules with identical bodies admit both pairings; offering them is the no-silent-pick doctrine applied to isomorphism. The enumeration is bounded by `CANDIDATE_CAP` and a run that hit it says so in `capped` rather than passing off a truncated list as complete.
+
+What is NOT decided: language equality. Two grammars describing one language by different factorings do not align (`json.gbnf` vs `json_arr.gbnf` refuses), and an empty alignment says only "no renaming relates these", never "different languages".
+
 ## `IrBind` (`ir/bind.py`)
 
 There is no `RuleSpec` anymore. Every generated field carries an `IrBind` in its `Annotated` metadata instead:

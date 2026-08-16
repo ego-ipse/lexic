@@ -21,8 +21,10 @@ import lexic.ir.action.compute as ir_compute
 import lexic.ir.action.control as ir_control
 import lexic.ir.action.mapping as ir_mapping
 import lexic.ir.flavour as ir_flavour
+import lexic.ir.grammar.alignment as ir_alignment
 import lexic.ir.grammar.nodes as ir_nodes
 import lexic.ir.grammar.operators as ir_operators
+import lexic.ir.spine.identity as ir_identity
 import lexic.ir.spine.records as ir_records
 import lexic.ir.spine.scalars as ir_scalars
 import lexic.ir.spine.spine as ir_spine
@@ -219,6 +221,8 @@ IR_MODULES = (
     ir_mapping,
     ir_flavour,
     ir_spans,
+    ir_identity,
+    ir_alignment,
 )
 
 # The non-IR-node names the whitelist admits — pinned as a name set (not a

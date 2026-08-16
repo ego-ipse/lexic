@@ -90,6 +90,14 @@ if TYPE_CHECKING:
         IrFlavour,
         IrSpellable,
     )
+    from lexic.ir.grammar.alignment import (
+        CANDIDATE_CAP,
+        IrAlignment,
+        IrRename,
+        IrRenaming,
+        IrRenamings,
+        align_names,
+    )
     from lexic.ir.grammar.canonical import (
         canonicalize,
         fold_name,
@@ -128,6 +136,13 @@ if TYPE_CHECKING:
     from lexic.ir.spine.bind import (
         BIND_MODES,
         IrBind,
+    )
+    from lexic.ir.spine.identity import (
+        IrCensus,
+        IrIdentity,
+        census,
+        field_children,
+        unspellable,
     )
     from lexic.ir.spine.meta import (
         Borg,
@@ -209,12 +224,14 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Borg",
+    "CANDIDATE_CAP",
     "DyadicOp",
     "EscapeCodec",
     "Field",
     "IR_DEFAULT",
     "IrAction",
     "IrAddress",
+    "IrAlignment",
     "IrAlphabet",
     "IrAlternation",
     "IrAnd",
@@ -231,6 +248,7 @@ __all__ = [
     "IrBuild",
     "IrCachingTuple",
     "IrCat",
+    "IrCensus",
     "IrCharClass",
     "IrChild",
     "IrChildren",
@@ -256,6 +274,7 @@ __all__ = [
     "IrFlavour",
     "IrGlyph",
     "IrGroup",
+    "IrIdentity",
     "IrIndex",
     "IrInt",
     "IrIsA",
@@ -295,6 +314,9 @@ __all__ = [
     "IrRange",
     "IrRankedMerge",
     "IrRebuild",
+    "IrRename",
+    "IrRenaming",
+    "IrRenamings",
     "IrReplace",
     "IrReturn",
     "IrRule",
@@ -332,15 +354,19 @@ __all__ = [
     "UnicodeForm",
     "VariadicOp",
     "Vocab",
+    "align_names",
     "as_doc",
     "canonicalize",
+    "census",
     "concretize",
     "concretize_atom",
+    "field_children",
     "fold_name",
     "order_by_refs",
     "refs_in_order",
     "render",
     "rule_closure",
+    "unspellable",
 ]
 
 _HOMES = {
@@ -351,6 +377,7 @@ _HOMES = {
     "IR_DEFAULT": "lexic.ir.action.mapping",
     "IrAction": "lexic.ir.action.build",
     "IrAddress": "lexic.ir.text.spans",
+    "IrAlignment": "lexic.ir.grammar.alignment",
     "IrAlphabet": "lexic.ir.grammar.nodes",
     "IrAlternation": "lexic.ir.grammar.nodes",
     "IrAnd": "lexic.ir.grammar.operators",
@@ -367,6 +394,7 @@ _HOMES = {
     "IrBuild": "lexic.ir.action.build",
     "IrCachingTuple": "lexic.ir.spine.records",
     "IrCat": "lexic.ir.text.layout",
+    "IrCensus": "lexic.ir.spine.identity",
     "IrCharClass": "lexic.ir.grammar.nodes",
     "IrChild": "lexic.ir.action.access",
     "IrChildren": "lexic.ir.action.access",
@@ -392,6 +420,7 @@ _HOMES = {
     "IrFlavour": "lexic.ir.flavour",
     "IrGlyph": "lexic.ir.action.compute",
     "IrGroup": "lexic.ir.text.layout",
+    "IrIdentity": "lexic.ir.spine.identity",
     "IrIndex": "lexic.ir.action.access",
     "IrInt": "lexic.ir.spine.scalars",
     "IrIsA": "lexic.ir.action.compute",
@@ -431,6 +460,9 @@ _HOMES = {
     "IrRange": "lexic.ir.grammar.nodes",
     "IrRankedMerge": "lexic.ir.text.tokenizer",
     "IrRebuild": "lexic.ir.action.build",
+    "IrRename": "lexic.ir.grammar.alignment",
+    "IrRenaming": "lexic.ir.grammar.alignment",
+    "IrRenamings": "lexic.ir.grammar.alignment",
     "IrReplace": "lexic.ir.text.pipeline",
     "IrReturn": "lexic.ir.action.control",
     "IrRule": "lexic.ir.grammar.nodes",
@@ -459,6 +491,7 @@ _HOMES = {
     "IrUtf": "lexic.ir.text.encodings",
     "IrVisitor": "lexic.ir.action.walk",
     "IrWalk": "lexic.ir.action.build",
+    "CANDIDATE_CAP": "lexic.ir.grammar.alignment",
     "MAX_CODEPOINT": "lexic.ir.grammar.nodes",
     "Merges": "lexic.ir.text.encodings",
     "MonadicOp": "lexic.ir.grammar.operators",
@@ -468,12 +501,16 @@ _HOMES = {
     "UnicodeForm": "lexic.ir.text.pipeline",
     "VariadicOp": "lexic.ir.grammar.operators",
     "Vocab": "lexic.ir.text.encodings",
+    "align_names": "lexic.ir.grammar.alignment",
     "as_doc": "lexic.ir.text.layout",
+    "census": "lexic.ir.spine.identity",
     "canonicalize": "lexic.ir.grammar.canonical",
+    "field_children": "lexic.ir.spine.identity",
     "fold_name": "lexic.ir.grammar.canonical",
     "order_by_refs": "lexic.ir.grammar.order",
     "refs_in_order": "lexic.ir.grammar.order",
     "render": "lexic.ir.text.layout",
+    "unspellable": "lexic.ir.spine.identity",
     "rule_closure": "lexic.ir.grammar.order",
 }
 """Every LAZY export and the module that defines it — where ``__getattr__`` looks.

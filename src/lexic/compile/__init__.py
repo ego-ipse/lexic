@@ -92,6 +92,7 @@ from lexic.compile.transpile import (
     Transpiler,
     transpile,
 )
+from lexic.compile.verdict import Verdict
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
 from lexic.ir import (
@@ -169,6 +170,7 @@ __all__ = [
     "TokenBinding",
     "transpile",
     "Transpiler",
+    "Verdict",
     "verify_module",
 ]
 

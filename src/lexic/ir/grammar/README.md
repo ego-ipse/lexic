@@ -4,10 +4,13 @@
 `IrCharClass`, `IrAlphabet`) and `operators` the family between the spine and
 it. The other three are language-preserving transforms: `canonical` normalises,
 `order` sorts rules start-first, and `concretize` resolves an alphabet's
-spelling to an id once a vocabulary is bound.
+spelling to an id once a vocabulary is bound. `alignment` compares two of them
+with names abstracted, and hands back every rule-name bijection that carries
+one onto the other.
 
 ## Modules
 
+- `alignment.py`
 - `canonical.py`
 - `concretize.py`
 - `nodes.py`

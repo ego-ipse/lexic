@@ -1,5 +1,48 @@
 # Log
 
+## Verdicts, the identity walk, and equality up to renaming (2026-08-16)
+
+Three answers the engine could not previously give as values.
+
+**A verdict is a value.** `Verdict` (`compile/verdict.py`, exported from
+`lexic.compile`) holds what one attempt said: accepted or refused, the
+engine's words VERBATIM, the refusal's readout, and what it cost.
+`Verdict.refuse(error, seconds)` builds one from a raised `LexicError`. An
+exception cannot be held beside three others and compared; a record can. What
+deliberately did NOT land: the attempt, and any candidate policy — which
+readers, in what order, memoised how. A registry of "the readers we ship"
+would privilege the formulations lexic happens to carry.
+
+**The identity walk states its child definition.** `census(root)`
+(`ir/spine/identity.py`) reports every DISTINCT node under a value: how often
+each was reached, and whether it is on the refusal boundary. Its children are
+the node-valued elements of a node's own field tuple — one definition, named,
+because counting sharing under one and reporting it under another invents a
+delta. Two consequences are gated rather than glossed: it is wider than
+`children()` (which honours `_child_attrs`, so it misses `IrRule.name`), and a
+map is a LEAF, so a dispatch table censuses as one node and the bodies inside
+it are outside any census's reach.
+
+**Equality up to renaming, with every witness.** `align_names(a, b)`
+(`ir/grammar/alignment.py`) decides whether two grammars are one grammar with
+different rule names, and hands back each valid bijection as an `IrRenaming`
+that can carry a grammar — and any rule-keyed table — across. The search is
+colour refinement over the rule graph, then verification of each candidate
+consistent with the colouring. ALL valid bijections are returned: two rules
+with identical bodies admit both pairings, and offering them is the
+no-silent-pick doctrine applied to isomorphism. A run that hits
+`CANDIDATE_CAP` says so in `capped`. Language equality is out of scope and the
+empty alignment says only "no renaming relates these" — `json.gbnf` aligns
+with a pure rename of itself and with `json.abnf` (identity witness, across
+flavours), and refuses `json_arr.gbnf`.
+
+Found in passing and fixed: the B1 sharing gate in
+`test_addressed_emission.py` read `id()` of occurrences it did not hold, so a
+freed temporary's address could be recycled and read back as two unrelated
+parts being one shared object. It now holds them.
+
+---
+
 ## Products carry their correspondences: templating offsets, the transpile crossing (2026-08-16)
 
 Two products that computed a correspondence and dropped it now hand it back.

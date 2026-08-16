@@ -31,7 +31,7 @@ from lexic.compile import canonical_grammar, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir import IrAddress, IrSpan, IrStep
+from lexic.ir import IrAddress, IrSpan, IrStep, census
 from lexic.model import GrammarModel
 from tests.addressed_helpers import leaf_spans, spelling
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
@@ -143,31 +143,47 @@ def test_the_b1_fixture_really_does_share_nodes() -> None:
     """The premise: one ``Ws`` object is reached many times over, by identity.
 
     If this ever stops being true the sharing gates below stop testing
-    anything, so the premise is asserted rather than assumed.
+    anything, so the premise is asserted rather than assumed — through the
+    engine's own identity walk, under its stated child definition.
     """
-    seen: dict[int, int] = {}
-    stack: list[object] = [json_model()]
-    while stack:
-        node = stack.pop()
-        if not isinstance(node, GrammarModel):
-            continue
-        seen[id(node)] = seen.get(id(node), 0) + 1
-        stack.extend(child for child in node.children() if child is not None)
-    assert max(seen.values()) > 1, "the fixture no longer shares any node"
+    entries = census(json_model())
+    assert max(entry.reached for entry in entries) > 1, (
+        "the fixture no longer shares any node"
+    )
+
+
+def test_the_value_has_far_fewer_nodes_than_the_emission_has_occurrences() -> None:
+    """Why addresses exist at all, in two numbers from two products.
+
+    The census counts distinct OBJECTS; the emission counts OCCURRENCES. The
+    gap is the sharing, and it is the reason an occurrence cannot be named by
+    the value standing in it.
+    """
+    model = json_model()
+    assert len(census(model)) < len(model.emit_addressed().extents)
 
 
 def test_shared_nodes_get_one_address_each_not_one_between_them() -> None:
-    """Every occurrence of a shared object is addressed on its own."""
+    """Every occurrence of a shared object is addressed on its own.
+
+    The occurrences are HELD while their ids are read: a resolved part that is
+    built on the way out (a repeated field's tuple) is freed the moment its id
+    is taken, and CPython hands the same address to the next one — which reads
+    back as two unrelated parts being one shared object.
+    """
     model = json_model()
     emission = model.emit_addressed()
-    identities = [id(model.occurrence(e.address)) for e in emission.extents]
+    occurrences = [model.occurrence(extent.address) for extent in emission.extents]
+    identities = [id(occurrence) for occurrence in occurrences]
     shared = {node for node in identities if identities.count(node) > 1}
     assert shared, "expected the fixture's shared objects to surface"
     for node in shared:
         spans = [
-            e.span for e in emission.extents if id(model.occurrence(e.address)) == node
+            extent.span
+            for extent, at in zip(emission.extents, identities, strict=True)
+            if at == node
         ]
-        assert len({(s.start, s.end) for s in spans}) > 1, (
+        assert len({(span.start, span.end) for span in spans}) > 1, (
             "a shared object's occurrences were given one span between them"
         )
 
