@@ -123,8 +123,9 @@ def _window_admits(text: str, pos: int, windows: Any) -> bool:
     never by a negated (co-finite) set. The sentinel may however be CARRIED in
     a negated set's ``chars`` (a stop set built from a FOLLOW that reaches
     END), where it is inert for matching — but a consumer iterating a gate
-    charset as characters must expect it: ``ord("")`` raises. Consistency with any one window admits;
-    the demoted branches are pairwise separable, so at most one side's windows
+    charset as characters must expect it: ``ord("")`` raises. Consistency
+    with any one window admits; the demoted branches are pairwise separable,
+    so at most one side's windows
     can be consistent with a given lookahead.
 
     :param text: The whole input.
