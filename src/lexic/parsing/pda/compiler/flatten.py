@@ -120,7 +120,10 @@ def _window_admits(text: str, pos: int, windows: Any) -> bool:
     windows, each a tuple of pre-resolved ``(chars, negated)`` position sets. A
     position at or past end-of-input is the EOF sentinel ``""`` — matched
     **only** by a positive set that carries it (a FOLLOW-extended END position),
-    never by a negated (co-finite) set. Consistency with any one window admits;
+    never by a negated (co-finite) set. The sentinel may however be CARRIED in
+    a negated set's ``chars`` (a stop set built from a FOLLOW that reaches
+    END), where it is inert for matching — but a consumer iterating a gate
+    charset as characters must expect it: ``ord("")`` raises. Consistency with any one window admits;
     the demoted branches are pairwise separable, so at most one side's windows
     can be consistent with a given lookahead.
 
