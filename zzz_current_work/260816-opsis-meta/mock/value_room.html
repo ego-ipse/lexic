@@ -2,27 +2,35 @@
 <html lang="en"><head><meta charset="utf-8">
 <title>opsis — value room mock: authored shapes, one cursor, slots not textareas</title>
 <style>
-  :root{--field:#0c0f14;--field2:#11151d;--ink:#cfd6e4;--dim:#6b7488;--dimmer:#3d4454;
-        --hair:#1e2430;--warm:#e8b04a;--cool:#5aa7d6;--violet:#a78bda;--green:#69c98f;--red:#d66a5a}
-  body{background:var(--field);color:var(--ink);font:13px/1.5 "SF Mono",Consolas,monospace;margin:0;padding:28px}
-  h1{font-size:15px;font-weight:600;letter-spacing:.06em;margin:0 0 6px}
-  .note{color:var(--dim);max-width:72em;margin:0 0 26px}
+  :root{
+    /* tones — space_3/opsis/frame/tones.py TONES, verbatim. Do not re-spell. */
+    --field:#0b0e14; --field2:#0e1219; --ink:#e8e2d6;
+    --dim:#66707f;   --dimmer:#3a4250; --hair:#1a2230;
+    --warm:#e2a65c;  --cool:#6fc3c9;   --violet:#d98cf5;
+    --green:#79c99a; --red:#e06060;    --token:#8fa3b8;
+    /* the two voices: mono is lexic's output, sans is opsis speaking */
+    --mono:"JetBrains Mono","DejaVu Sans Mono",ui-monospace,monospace;
+    --sans:"Inter","DejaVu Sans",system-ui,sans-serif;
+  }
+  body{background:var(--field);color:var(--ink);font:13px/1.5 var(--mono);margin:0;padding:28px}
+  h1{font:600 15px var(--sans);letter-spacing:.06em;margin:0 0 6px;color:var(--ink)}
+  .note{font:13px var(--sans);color:var(--dim);max-width:72em;margin:0 0 26px}
   .screen{border:1px solid var(--hair);background:var(--field2);margin:0 0 14px;max-width:1180px}
-  .cap-note{color:var(--dim);font-size:12px;max-width:80em;margin:8px 0 34px}
-  .cap-note b{color:var(--ink)}
-  .mast{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair);padding:7px 14px;font-size:12px}
+  .cap-note{font:12px var(--sans);color:var(--dim);max-width:80em;margin:8px 0 30px}
+  .cap-note b{color:var(--ink);font-weight:600}
+  .mast{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair);padding:7px 14px;font:12px var(--sans)}
   .op{color:var(--dim)} .dock{margin-left:auto;color:var(--dim);display:flex;gap:8px}
   .port{border:1px dashed var(--dimmer);border-radius:3px;padding:1px 7px}
   .travel{display:flex;gap:10px;color:var(--cool);border-left:1px solid var(--hair);padding-left:12px}
   .row{display:flex;min-height:360px}
   .facet{flex:1;border-right:1px solid var(--hair);padding:10px 12px;min-width:0}
   .facet:last-child{border-right:none}
-  .fhead{color:var(--dim);font-size:11px;letter-spacing:.12em;margin-bottom:9px;display:flex}
+  .fhead{font:11px var(--sans);letter-spacing:.12em;color:var(--dim);margin-bottom:9px;display:flex;gap:8px;align-items:center}
   .fhead .win{margin-left:auto;color:var(--dimmer)}
   .rule{margin:0 0 7px;padding:3px 6px;border-left:2px solid transparent}
   .rule.sel{border-left-color:var(--warm);background:#151a24}
   .rn{color:var(--violet)} .arm{color:var(--dim);padding-left:1.4em}
-  .ref{color:var(--cool);border-bottom:1px dotted var(--cool)} .lit{color:var(--green)}
+  .ref{color:var(--cool);border-bottom:1px dotted var(--cool)} .lit{color:var(--token)}
   .cls{color:var(--warm)}
   pre{margin:0;font:inherit;white-space:pre-wrap}
   .sp{background:#2a2410;outline:1px solid var(--warm)}
@@ -33,7 +41,7 @@
   .slot.open{border-color:var(--warm);background:#151a24}
   .offers{border:1px solid var(--hair);background:var(--field);margin:8px 0 0 2em;padding:6px 10px;max-width:26em}
   .offers .o{padding:1px 4px;color:var(--cool)} .offers .o.hot{background:#151a24;color:var(--ink)}
-  .legend{color:var(--dimmer);font-size:10px;margin-top:8px}
+  .legend{font:10px var(--sans);color:var(--dimmer);margin-top:8px}
   .v-ok{color:var(--green)} .v-ref{color:var(--red)} .dimt{color:var(--dim);font-size:11px}
 </style></head><body>
 

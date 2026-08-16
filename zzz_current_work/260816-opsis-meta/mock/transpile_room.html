@@ -2,28 +2,36 @@
 <html lang="en"><head><meta charset="utf-8">
 <title>opsis — transpile room mock: the crossing, drawn from its own product</title>
 <style>
-  :root{--field:#0c0f14;--field2:#11151d;--ink:#cfd6e4;--dim:#6b7488;--dimmer:#3d4454;
-        --hair:#1e2430;--warm:#e8b04a;--cool:#5aa7d6;--violet:#a78bda;--green:#69c98f;--red:#d66a5a}
-  body{background:var(--field);color:var(--ink);font:13px/1.5 "SF Mono",Consolas,monospace;margin:0;padding:28px}
-  h1{font-size:15px;font-weight:600;letter-spacing:.06em;margin:0 0 6px}
-  .note{color:var(--dim);max-width:72em;margin:0 0 26px}
+  :root{
+    /* tones — space_3/opsis/frame/tones.py TONES, verbatim. Do not re-spell. */
+    --field:#0b0e14; --field2:#0e1219; --ink:#e8e2d6;
+    --dim:#66707f;   --dimmer:#3a4250; --hair:#1a2230;
+    --warm:#e2a65c;  --cool:#6fc3c9;   --violet:#d98cf5;
+    --green:#79c99a; --red:#e06060;    --token:#8fa3b8;
+    /* the two voices: mono is lexic's output, sans is opsis speaking */
+    --mono:"JetBrains Mono","DejaVu Sans Mono",ui-monospace,monospace;
+    --sans:"Inter","DejaVu Sans",system-ui,sans-serif;
+  }
+  body{background:var(--field);color:var(--ink);font:13px/1.5 var(--mono);margin:0;padding:28px}
+  h1{font:600 15px var(--sans);letter-spacing:.06em;margin:0 0 6px;color:var(--ink)}
+  .note{font:13px var(--sans);color:var(--dim);max-width:72em;margin:0 0 26px}
   .screen{border:1px solid var(--hair);background:var(--field2);max-width:1180px}
-  .cap-note{color:var(--dim);font-size:12px;max-width:80em;margin:8px 0 30px}
-  .cap-note b{color:var(--ink)}
-  .mast{display:flex;gap:12px;align-items:center;border-bottom:1px solid var(--hair);padding:7px 14px;font-size:12px}
-  .op{color:var(--dim)} .travel{margin-left:auto;display:flex;gap:10px;color:var(--cool)}
+  .cap-note{font:12px var(--sans);color:var(--dim);max-width:80em;margin:8px 0 30px}
+  .cap-note b{color:var(--ink);font-weight:600}
+  .mast{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair);padding:7px 14px;font:12px var(--sans)}
+  .op{color:var(--dim)} .travel{margin-left:auto;display:flex;gap:10px;color:var(--cool);border-left:1px solid var(--hair);padding-left:12px}
   .gate{border:1px solid var(--hair);border-radius:3px;padding:1px 8px;font-size:11px}
   .g-ok{color:var(--green);border-color:var(--green)}
   .row{display:flex;min-height:300px}
   .facet{flex:1;border-right:1px solid var(--hair);padding:10px 12px;min-width:0}
   .facet:last-child{border-right:none}
-  .fhead{color:var(--dim);font-size:11px;letter-spacing:.12em;margin-bottom:9px}
+  .fhead{font:11px var(--sans);letter-spacing:.12em;color:var(--dim);margin-bottom:9px;display:flex;gap:8px;align-items:center}
   pre{margin:0;font:inherit;white-space:pre-wrap}
   .sp{background:#2a2410;outline:1px solid var(--warm)}
   .born{background:#171322;outline:1px dashed var(--violet)}
   .trow{display:flex;gap:8px;padding:2px 6px}
   .trow .k{color:var(--violet);width:6em} .trow .b{color:var(--dim)}
-  .legend{color:var(--dimmer);font-size:10px;margin-top:8px}
+  .legend{font:10px var(--sans);color:var(--dimmer);margin-top:8px}
 </style></head><body>
 
 <h1>OPSIS — THE TRANSPILE ROOM: A DOCUMENT CROSSES, AND SAYS HOW</h1>
