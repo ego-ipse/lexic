@@ -1,9 +1,0 @@
-# An undecidable arm choice: both arms open with an unbounded x-run, so
-# admission cannot decide by prefix — the attempt machinery must sub-run
-# the arms in order at EVERY entry. The observation fixture for decisions.
-packet ::= entry+
-entry ::= choice "\n"
-choice ::= xa | xb
-xa ::= xs "a"
-xb ::= xs "b"
-xs ::= "x" xs | "x"

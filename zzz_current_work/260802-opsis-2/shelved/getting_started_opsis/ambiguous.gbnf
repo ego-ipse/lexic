@@ -1,9 +1,0 @@
-# Every text here derives more than one way, on purpose.
-#
-# `sum` is left- and right-associative at once, so "1+2+3" is two
-# different trees that mean two different things. lexic REFUSES that
-# rather than picking: open the floor to see the verdict, derivations
-# to see both, and the resolver chip to choose.
-root ::= sum
-sum ::= sum "+" sum | num
-num ::= [0-9]+

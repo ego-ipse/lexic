@@ -1,7 +1,0 @@
-# Nesting with nothing else in it — for looking at depth.
-#
-# "((((x))))" is nine rules deep. Open the chart to watch the columns
-# fill, the forest to see it packed, and the instance tree to walk it.
-root ::= nest
-nest ::= "(" nest ")" | leaf
-leaf ::= [a-z]+
