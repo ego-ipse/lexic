@@ -1634,3 +1634,16 @@ Tasks 3 and 5 deleted from plan — dead weight, no behaviour without `flavours.
 ## 2026-05-08 — Plan: parallel-track IR cutover
 
 the effort's plan created. 18 tasks; builds `new_gbnf/`, `new_codegen/`, `parsing/` against the IrItem shape alongside legacy code, then cuts over atomically in Task 18.
+
+## 2026-08-16 — the `@lexical` directive
+
+`@lexical <rule> ...` joins `@start`/`@non-semantic`: each marked rule's
+refs are recursively inlined at canonical time (`inline_refs`,
+`ir/grammar/canonical.py` — language-preserving; refs become groups
+carrying their quantifiers), so `classify_rule` sees a ref-free body and
+the rule compiles `value_str` by construction — the author's declaration
+that a rule is lexical, not structural. Cycles and token terminals in a
+marked subtree refuse with words. `Directives.lexical` keys the compile
+memo like the others. Measured (interleaved in-process A/B): json.gbnf
+`@lexical string` −11%, markdown `@lexical line` −17%, no-op +0.3%.
+Public-api page updated (`canonical_grammar(lexical_rules=)`).

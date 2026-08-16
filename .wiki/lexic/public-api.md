@@ -38,7 +38,7 @@ model = cg.parse("x=1\n")
 
 `vocabulary` is the lens the grammar's terminals are read through — `Vocabulary(tokenizer, registry)`. The two were never separate channels: they compose over a default `unicode` before anything reads a terminal.
 
-`directives` says what the grammar's `@directives` would say, as an argument — `Directives(start, non_semantic)`, exactly what the source-comment scan produces. Given explicitly it OVERRIDES the source. Use it when a caller knows a rule is structural noise and does not want to edit the grammar to say so.
+`directives` says what the grammar's `@directives` would say, as an argument — `Directives(start, non_semantic, lexical)`, exactly what the source-comment scan produces. Given explicitly it OVERRIDES the source. Use it when a caller knows a rule is structural noise and does not want to edit the grammar to say so.
 
 ```python
 from lexic.compile import Directives, Vocabulary, compile_text
@@ -147,7 +147,7 @@ The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `
 
 ---
 
-### `canonical_grammar(text, flavour, *, non_semantic_rules=None, start=None)` — `compile/__init__.py`
+### `canonical_grammar(text, flavour, *, non_semantic_rules=None, start=None, lexical_rules=None)` — `compile/__init__.py`
 
 The public **front half** of `compile_text`/`compile_from_path`: parse + canonicalize + directive flags. Returns the canonical, semantic-flagged `IrAst` directly — no `RuleSpec`, no generated classes. This is the successor of the retired `compile_grammar` (which returned `(start_name, list[RuleSpec])`); `generate.py` builds on `canonical_grammar` directly (it needs only the grammar's rules-by-name shape, not generated classes).
 
@@ -156,7 +156,7 @@ Internally: resolves `(start, non_semantic)` from source comments (the private `
 Directive/start resolution precedence (highest first):
 
 1. Explicit argument (`start=...`, `non_semantic_rules=...`)
-2. `@start` / `@non-semantic` directives in source comments
+2. `@start` / `@non-semantic` / `@lexical` directives in source comments
 3. Positional fallback (first rule = start; no non-semantic rules)
 
 ---

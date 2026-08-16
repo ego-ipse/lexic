@@ -121,6 +121,7 @@ from lexic.ir import (
     IrTuple,
     canonicalize,
     fold_name,
+    inline_refs,
     refs_in_order,
     rule_closure,
 )
@@ -234,10 +235,15 @@ class Directives(NamedTuple):
     :ivar start: The start rule (``@start``), or ``None`` to use the source's.
     :ivar non_semantic: Rules to mark structural noise (``@non-semantic``), or
         ``None`` to use the source's.
+    :ivar lexical: Rules whose references are inlined until their bodies are
+        ref-free (``@lexical``), or ``None`` to use the source's. A marked rule
+        keeps its matched TEXT instead of a subtree of interior models — the
+        author's declaration that a rule is lexical, not structural.
     """
 
     start: str | None = None
     non_semantic: frozenset[str] | None = None
+    lexical: frozenset[str] | None = None
 
 
 _CACHE: dict[Hashable, CompiledGrammar] = {}
@@ -371,22 +377,25 @@ def _directive_bodies(text: str, flavour: IrFlavour) -> list[str]:
 
 def _scan_directives(
     text: str, flavour: IrFlavour
-) -> tuple[str | None, frozenset[str]]:
-    """Extract ``(start, non_semantic)`` from source comments — a pre-lexical scan.
+) -> tuple[str | None, frozenset[str], frozenset[str]]:
+    """Extract the directives from source comments — a pre-lexical scan.
 
     A comment reading ``@<name> <args...>`` declares a directive: ``@start
     <rule>`` overrides the start rule, ``@non-semantic <rule> ...`` names
-    structural-noise rules. The scan reads the raw source before the parser so
-    comments never become load-bearing grammar tokens; ``canonical_grammar``
-    resolves precedence and applies the result to the AST.
+    structural-noise rules, ``@lexical <rule> ...`` names rules whose
+    references are inlined so they keep their text rather than an interior of
+    models. The scan reads the raw source before the parser so comments never
+    become load-bearing grammar tokens; ``canonical_grammar`` resolves
+    precedence and applies the result to the AST.
 
     :param text: Grammar source text.
     :param flavour: The flavour, for its comment delimiters. One with neither
         comment form cannot carry a directive.
-    :returns: ``(start, non_semantic)`` — ``start`` is the ``@start`` rule name
-        or ``None``; ``non_semantic`` is the set of ``@non-semantic`` names.
+    :returns: ``(start, non_semantic, lexical)`` — the ``@start`` rule name or
+        ``None``, and the two directive name sets.
     """
     non_semantic: set[str] = set()
+    lexical: set[str] = set()
     start_rule: str | None = None
     for body in _directive_bodies(text, flavour):
         rest = body.strip()
@@ -398,9 +407,11 @@ def _scan_directives(
         name, *args = parts
         if name == "non-semantic":
             non_semantic.update(args)
+        elif name == "lexical":
+            lexical.update(args)
         elif name == "start" and args:
             start_rule = args[0]  # last @start wins on duplicates
-    return start_rule, frozenset(non_semantic)
+    return start_rule, frozenset(non_semantic), frozenset(lexical)
 
 
 def canonical_grammar(
@@ -409,6 +420,7 @@ def canonical_grammar(
     *,
     non_semantic_rules: frozenset[str] | None = None,
     start: str | None = None,
+    lexical_rules: frozenset[str] | None = None,
 ) -> IrAst:
     """Parse + canonicalize + bind directive flags — the compile front half.
 
@@ -421,6 +433,10 @@ def canonical_grammar(
       1. explicit `non_semantic_rules` argument
       2. `@non-semantic <rule> ...` directives in source comments
 
+    `lexical_rules` resolves the same way against `@lexical`, and is applied
+    as the ref-inlining transform (`inline_refs`) — the one directive that
+    changes a rule's SHAPE rather than a flag on it.
+
     The resolved `start` is bound onto the canonical IrAst (the AST is rebuilt
     — it is frozen), and each rule the resolved non-semantic set names is
     reconstructed with `semantic=False` (`ast.non_semantic` derives from the
@@ -431,9 +447,11 @@ def canonical_grammar(
     (raised by the engine / reducer, or here if the flavour carries no Reducer,
     its reduction does not yield an IrAst, or the start rule is undefined).
     """
-    dir_start, dir_non_semantic = _scan_directives(text, flavour)
+    dir_start, dir_non_semantic, dir_lexical = _scan_directives(text, flavour)
     if non_semantic_rules is None:
         non_semantic_rules = dir_non_semantic
+    if lexical_rules is None:
+        lexical_rules = dir_lexical
     parsed = parse_grammar(text, flavour)
     raw_start = start or dir_start or (parsed.rules[0].name if parsed.rules else "")
     ast = canonicalize(IrAst(rules=parsed.rules, start=raw_start))
@@ -450,7 +468,8 @@ def canonical_grammar(
             for r in ast.rules
         )
     )
-    return IrAst(rules=rules, start=start)
+    folded_lexical = frozenset(fold_name(n) for n in lexical_rules)
+    return inline_refs(IrAst(rules=rules, start=start), folded_lexical)
 
 
 def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor | None:
@@ -607,6 +626,7 @@ def _compile_core(
         flavour_cls,
         non_semantic_rules=directives.non_semantic,
         start=directives.start,
+        lexical_rules=directives.lexical,
     )
     flavour_name = flavour if isinstance(flavour, str) else type(flavour).name
     return _assemble_core(

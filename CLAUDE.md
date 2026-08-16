@@ -318,7 +318,16 @@ Scanned from source comments *before* the grammar is parsed, by the private
 ```
 # @start my_rule          — override the start rule (default: first defined)
 # @non-semantic ws sp     — mark rules structural; refs to NULLABLE ones get min=0
+# @lexical string number  — inline a rule's refs until its body is ref-free
 ```
+
+`@lexical` is the one directive that changes a rule's SHAPE rather than a flag
+on it: its references are recursively replaced by what they name (each inside a
+group carrying the reference's own quantifier), so the body classifies as
+`value_str` and the rule keeps its matched TEXT instead of a subtree of interior
+models. Language-preserving — a reference and its body derive the same strings —
+and declared, never inferred. It refuses with words on a cycle in the marked
+subtree or a token terminal inside one.
 
 A directive naming an undefined rule is silently ignored. The `min=0`
 relaxation applies only where it is **language-preserving** — to refs whose

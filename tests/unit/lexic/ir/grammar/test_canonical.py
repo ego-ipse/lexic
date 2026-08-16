@@ -12,7 +12,10 @@ import time
 
 import pytest
 
+from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import GBNF_FLAVOUR
+from lexic.ir import census, inline_refs
 from lexic.ir.grammar.canonical import canonicalize, fold_name
 from lexic.ir.grammar.nodes import (
     IrAlphabet,
@@ -30,6 +33,7 @@ from lexic.ir.grammar.nodes import (
 )
 from lexic.ir.grammar.operators import IrNot
 from lexic.ir.spine.records import IrSeq
+from tests.paths import GROUND_TRUTH
 
 MAX_CODEPOINT = 0x10FFFF
 
@@ -431,3 +435,114 @@ def test_canonicalize_still_canonicalises_around_an_alphabet():
     canon = canon_body(body)
     assert canon[0][0].atom == IrCharClass(IrRange(IrChr(48), IrChr(50)))
     assert canon[0][1].atom == IrAlphabet("tok", IrCharClass(IrChr(5)))
+
+
+# ── inline_refs — the @lexical transform (lives in canonical.py) ──
+
+PAIR = 'root ::= word "=" word\nword ::= letter+\nletter ::= [a-z]\n'
+
+
+def grammar(text: str = PAIR) -> IrAst:
+    """The canonical AST of a GBNF source."""
+    return canonical_grammar(text, GBNF_FLAVOUR)
+
+
+def refs_of(ast: IrAst, name: str) -> set[str]:
+    """The rule names ``name``'s body still references."""
+    body = next(rule.body for rule in ast.rules if str(rule.name) == name)
+    return {
+        str(node)
+        for node in (entry.node for entry in census(body))
+        if isinstance(node, IrRuleRef)
+    }
+
+
+def test_a_marked_rules_body_becomes_ref_free() -> None:
+    """The whole point: nothing left to descend into."""
+    assert refs_of(grammar(), "word") == {"letter"}
+    assert refs_of(inline_refs(grammar(), frozenset({"word"})), "word") == set()
+
+
+def test_an_unmarked_rule_is_untouched() -> None:
+    """Declared, never inferred — a rule nobody marked keeps its references."""
+    inlined = inline_refs(grammar(), frozenset({"word"}))
+    assert refs_of(inlined, "root") == {"word"}
+
+
+def test_inlining_nothing_returns_the_grammar() -> None:
+    """The no-op case is the identity, not a rebuild."""
+    ast = grammar()
+    assert inline_refs(ast, frozenset()) is ast
+
+
+def test_an_unknown_name_is_ignored() -> None:
+    """The directive contract: naming a rule the grammar lacks does nothing."""
+    assert inline_refs(grammar(), frozenset({"nope"})) == grammar()
+
+
+def test_a_cycle_refuses_with_words() -> None:
+    """A recursive rule has no finite inlining, and the words say so."""
+    recursive = grammar('root ::= list\nlist ::= "a" list?\n')
+    with pytest.raises(UnsupportedConstructError, match="cycle has no finite"):
+        inline_refs(recursive, frozenset({"list"}))
+
+
+def test_a_token_terminal_refuses_with_words() -> None:
+    """A token id is not a character run — its interior cannot be inlined."""
+    tokens = grammar("root ::= chunk\nchunk ::= <t> body\nbody ::= [a-z]+\n")
+    with pytest.raises(UnsupportedConstructError, match="token terminal"):
+        inline_refs(tokens, frozenset({"chunk"}))
+
+
+# ── the directive, end to end ─────────────────────────────────────────
+
+
+def marked(source: str, names: str) -> str:
+    """A grammar source with a ``@lexical`` directive prepended."""
+    return f"# @lexical {names}\n{source}"
+
+
+def test_the_directive_makes_the_rule_a_value_str() -> None:
+    """``classify_rule`` sees a ref-free body and says value_str — by shape."""
+    plain = compile_text(PAIR, cache_key="t9-plain")
+    lexical = compile_text(marked(PAIR, "word"), cache_key="t9-lexical")
+    kinds = {b.rule_name: b.kind for b in plain.moments.binding}
+    after = {b.rule_name: b.kind for b in lexical.moments.binding}
+    assert kinds["word"] == "sequence"
+    assert after["word"] == "value_str"
+    assert after["root"] == kinds["root"]  # unmarked rules keep their shape
+
+
+def test_the_language_is_unchanged() -> None:
+    """Language-preserving: the same text parses and round-trips either way."""
+    plain = compile_text(PAIR, cache_key="t9-plain2")
+    lexical = compile_text(marked(PAIR, "word"), cache_key="t9-lexical2")
+    for text in ("ab=cd", "x=y", "hello=world"):
+        assert plain.parse(text).to_text() == text
+        assert lexical.parse(text).to_text() == text
+
+
+def test_the_model_differs_exactly_at_the_declared_rule() -> None:
+    """What changes is what the author declared, and nothing else."""
+    plain = compile_text(PAIR, cache_key="t9-plain3").parse("ab=cd").dump()
+    lexical = compile_text(marked(PAIR, "word"), cache_key="t9-lexical3")
+    assert lexical.parse("ab=cd").dump() != plain
+
+
+def test_an_explicit_argument_overrides_the_directive() -> None:
+    """Precedence identical to non_semantic: the argument wins."""
+    source = marked(PAIR, "word")
+    ast = canonical_grammar(source, GBNF_FLAVOUR, lexical_rules=frozenset())
+    assert refs_of(ast, "word") == {"letter"}
+
+
+def test_the_corpus_grammar_takes_the_directive() -> None:
+    """json.gbnf marked: string keeps its text, and the document round-trips."""
+    source = (GROUND_TRUTH / "json.gbnf").read_text(encoding="utf-8")
+    lexical = compile_text(marked(source, "string number"), cache_key="t9-json")
+    plain = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    text = '{"a": [1, 2], "b": "x"}'
+    assert lexical.parse(text).to_text() == text == plain.parse(text).to_text()
+    kinds = {b.rule_name: b.kind for b in lexical.moments.binding}
+    assert kinds["string"] == "value_str"
+    assert kinds["member"] == "sequence"

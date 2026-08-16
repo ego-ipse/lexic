@@ -310,6 +310,85 @@ def _fold_names(ast: IrAst) -> IrAst:
     return IrAst(IrSeq(*rules), fold_name(ast.start))
 
 
+# ── ref inlining (the @lexical transform) ─────────────────────────────
+
+
+def _inlined(
+    node: IrSelf, bodies: dict[str, IrAlternation], chain: tuple[str, ...]
+) -> IrSelf:
+    """One node with every rule reference under it replaced by what it names.
+
+    :param node: The subtree to expand.
+    :param bodies: Folded rule name → that rule's body.
+    :param chain: The rules being expanded, outermost first — the cycle guard.
+    :returns: The ref-free subtree.
+    :raises UnsupportedConstructError: On a cycle, or a token terminal (an
+        alphabet's ids are a foreign encoding, not characters to inline).
+    """
+    if isinstance(node, IrAlphabet):
+        raise UnsupportedConstructError(
+            f"inline: {chain[0]!r} reaches a token terminal — a token id is not "
+            "a character run, so its interior cannot be inlined"
+        )
+    if isinstance(node, IrItem) and isinstance(node.atom, IrRuleRef):
+        name = fold_name(str(node.atom))
+        body = bodies.get(name)
+        if body is None:
+            return node  # a ref the grammar never defines: left as it stands
+        if name in chain:
+            raise UnsupportedConstructError(
+                f"inline: {chain[0]!r} reaches itself through "
+                f"{' → '.join((*chain, name))} — a cycle has no finite inlining"
+            )
+        inner = IrAlternation.ensure(_inlined(body, bodies, (*chain, name)))
+        return IrItem(inner, node.quantifier)
+    children = node.children()
+    if not children:
+        return node
+    return node.rebuild([_inlined(child, bodies, chain) for child in children])
+
+
+def inline_refs(ast: IrAst, names: frozenset[str]) -> IrAst:
+    """Each named rule with its references expanded until its body is ref-free.
+
+    Language-preserving, like every other pass here: a reference and the body
+    it names derive the same strings, so replacing one with the other (inside a
+    group carrying the reference's own quantifier) leaves the accepted language
+    exactly as it was. What changes is what the grammar SAYS a rule is made of
+    — and therefore, downstream, what a model of it holds: a ref-free body
+    classifies as ``value_str``, so the rule keeps its matched text instead of
+    a subtree of interior models nobody asked for.
+
+    Declared, never inferred. The author marks the rules (``@lexical``); this
+    is the transform that marking names.
+
+    :param ast: The canonical grammar.
+    :param names: The folded rule names to inline into.
+    :returns: The grammar with those rules' bodies expanded; the rest
+        untouched, and an unnamed rule left exactly as it stands.
+    :raises UnsupportedConstructError: On a cycle in a marked rule's subtree,
+        or a token terminal inside one.
+    """
+    if not names:
+        return ast
+    bodies = {fold_name(str(rule.name)): rule.body for rule in ast.rules}
+    rules = [
+        (
+            IrRule(
+                rule.name,
+                IrAlternation.ensure(
+                    _inlined(rule.body, bodies, (fold_name(str(rule.name)),))
+                ),
+                rule.semantic,
+            )
+            if fold_name(str(rule.name)) in names
+            else rule
+        )
+        for rule in ast.rules
+    ]
+    return IrAst(IrSeq(*rules), ast.start)
+
+
 # ── entry point ───────────────────────────────────────────────────────
 
 

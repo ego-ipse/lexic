@@ -101,6 +101,7 @@ if TYPE_CHECKING:
     from lexic.ir.grammar.canonical import (
         canonicalize,
         fold_name,
+        inline_refs,
     )
     from lexic.ir.grammar.nodes import (
         MAX_CODEPOINT,
@@ -362,6 +363,7 @@ __all__ = [
     "concretize_atom",
     "field_children",
     "fold_name",
+    "inline_refs",
     "order_by_refs",
     "refs_in_order",
     "render",
@@ -507,6 +509,7 @@ _HOMES = {
     "canonicalize": "lexic.ir.grammar.canonical",
     "field_children": "lexic.ir.identity",
     "fold_name": "lexic.ir.grammar.canonical",
+    "inline_refs": "lexic.ir.grammar.canonical",
     "order_by_refs": "lexic.ir.grammar.order",
     "refs_in_order": "lexic.ir.grammar.order",
     "render": "lexic.ir.text.layout",
