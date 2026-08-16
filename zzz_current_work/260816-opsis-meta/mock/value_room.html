@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>opsis — value room mock: authored shapes, one cursor, slots not textareas</title>
+<style>
+  :root{--field:#0c0f14;--field2:#11151d;--ink:#cfd6e4;--dim:#6b7488;--dimmer:#3d4454;
+        --hair:#1e2430;--warm:#e8b04a;--cool:#5aa7d6;--violet:#a78bda;--green:#69c98f;--red:#d66a5a}
+  body{background:var(--field);color:var(--ink);font:13px/1.5 "SF Mono",Consolas,monospace;margin:0;padding:28px}
+  h1{font-size:15px;font-weight:600;letter-spacing:.06em;margin:0 0 6px}
+  .note{color:var(--dim);max-width:72em;margin:0 0 26px}
+  .screen{border:1px solid var(--hair);background:var(--field2);margin:0 0 14px;max-width:1180px}
+  .cap-note{color:var(--dim);font-size:12px;max-width:80em;margin:8px 0 34px}
+  .cap-note b{color:var(--ink)}
+  .mast{display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--hair);padding:7px 14px;font-size:12px}
+  .op{color:var(--dim)} .dock{margin-left:auto;color:var(--dim);display:flex;gap:8px}
+  .port{border:1px dashed var(--dimmer);border-radius:3px;padding:1px 7px}
+  .travel{display:flex;gap:10px;color:var(--cool);border-left:1px solid var(--hair);padding-left:12px}
+  .row{display:flex;min-height:360px}
+  .facet{flex:1;border-right:1px solid var(--hair);padding:10px 12px;min-width:0}
+  .facet:last-child{border-right:none}
+  .fhead{color:var(--dim);font-size:11px;letter-spacing:.12em;margin-bottom:9px;display:flex}
+  .fhead .win{margin-left:auto;color:var(--dimmer)}
+  .rule{margin:0 0 7px;padding:3px 6px;border-left:2px solid transparent}
+  .rule.sel{border-left-color:var(--warm);background:#151a24}
+  .rn{color:var(--violet)} .arm{color:var(--dim);padding-left:1.4em}
+  .ref{color:var(--cool);border-bottom:1px dotted var(--cool)} .lit{color:var(--green)}
+  .cls{color:var(--warm)}
+  pre{margin:0;font:inherit;white-space:pre-wrap}
+  .sp{background:#2a2410;outline:1px solid var(--warm)}
+  .idrow{display:flex;gap:10px;margin:4px 0;padding:2px 6px}
+  .idrow.wash{background:#151a24;outline:1px solid var(--warm)}
+  .idrow .k{color:var(--violet);width:11em} .idrow .n{color:var(--dim)}
+  .slot{border:1px solid var(--dimmer);border-radius:3px;padding:1px 6px;margin:0 2px}
+  .slot.open{border-color:var(--warm);background:#151a24}
+  .offers{border:1px solid var(--hair);background:var(--field);margin:8px 0 0 2em;padding:6px 10px;max-width:26em}
+  .offers .o{padding:1px 4px;color:var(--cool)} .offers .o.hot{background:#151a24;color:var(--ink)}
+  .legend{color:var(--dimmer);font-size:10px;margin-top:8px}
+  .v-ok{color:var(--green)} .v-ref{color:var(--red)} .dimt{color:var(--dim);font-size:11px}
+</style></head><body>
+
+<h1>OPSIS — THE VALUE ROOM: A VALUE DRAWN AS WHAT IT IS</h1>
+<p class="note">Companion to ROOMS.md's value room. S1: a grammar as the subject — four facets,
+one cursor standing on rule <b>member</b>'s quantifier. S2: a reducer entry in THE SLOTS (the
+anti-textarea), the floor for an unknown kind, and the refusal that CAN occur. No anonymous
+circles anywhere: the rejected node-soup survives only as THE IDENTITY's numbers.</p>
+
+<!-- ══════════ S1 · A GRAMMAR ══════════ -->
+<div class="screen">
+  <div class="mast">
+    <span>json.gbnf</span><span class="op">as</span><span>◇ canonical AST</span>
+    <span class="dock"><span class="port">export twin ▸</span><span class="port">export notation ▸</span>
+      <span class="port">export payload ▸</span></span>
+    <span class="travel"><span>‹ back</span><span>▤ strata</span><span>⌗ map</span></span>
+  </div>
+  <div class="row">
+    <div class="facet" style="flex:1.2">
+      <div class="fhead">THE SHAPE — a grammar draws as a grammar <span class="win">⧉</span></div>
+      <div class="rule"><span class="rn">object</span> ::= <span class="arm"><span class="lit">"{"</span> <span class="ref">ws</span> ( <span class="ref">member</span> ( <span class="lit">","</span> <span class="ref">ws</span> <span class="ref">member</span> )* )? <span class="lit">"}"</span></span></div>
+      <div class="rule sel"><span class="rn">member</span> ::= <span class="arm"><span class="ref">string</span> <span class="ref">ws</span> <span class="lit">":"</span> <span class="ref">ws</span> <span class="ref">value</span></span></div>
+      <div class="rule"><span class="rn">value</span> ::= <span class="arm"><span class="ref">object</span> | <span class="ref">array</span> | <span class="ref">string</span> | <span class="ref">number</span> | …</span></div>
+      <div class="rule"><span class="rn">ws</span> ::= <span class="arm">[ \t\n]<span class="cls">*</span> <span class="dimt">← IrQuantifier(0,∅) · shared ×193</span></span></div>
+      <div class="rule"><span class="rn">array</span> ::= <span class="arm"><span class="lit">"["</span> <span class="ref">ws</span> ( <span class="ref">value</span> ( <span class="lit">","</span> <span class="ref">ws</span> <span class="ref">value</span> )* )? <span class="lit">"]"</span></span></div>
+      <div class="rule"><span class="rn">string</span> ::= <span class="arm"><span class="lit">"\""</span> <span class="ref">char</span><span class="cls">*</span> <span class="lit">"\""</span></span></div>
+      <div class="rule"><span class="rn">char</span> ::= <span class="arm"><span class="ref">unescaped</span> | <span class="ref">escape</span></span></div>
+      <div class="rule"><span class="rn">number</span> ::= <span class="arm"><span class="ref">minus</span>? <span class="ref">int</span> <span class="ref">frac</span>? <span class="ref">exp</span>?</span></div>
+      <div class="rule dimt" style="color:var(--dim)">… 24 more rules ▸ show all 32 <span class="dimt">— folded, counted, never clipped</span></div>
+      <div class="legend">ceiling row `grammar`: rules → defs, arms → alternatives, refs → chips.
+      click = focus · enter = the part's own room · every part is a hit · mass law: the
+      whole grammar is here, folded behind its count</div>
+    </div>
+    <div class="facet">
+      <div class="fhead">THE SPELLING — gbnf, a real text plane <span class="win">⧉</span></div>
+      <pre>object ::= "{" ws (member ("," ws member)*)? "}"
+<span class="sp">member ::= string ws ":" ws value</span>
+value  ::= object | array | string | number
+        | "true" | "false" | "null"
+ws     ::= [ \t\n]*</pre>
+      <div class="legend">editable — Ctrl+Enter re-reads (grammar is the ground truth);
+      selection co-locates with THE SHAPE through T3 addresses</div>
+    </div>
+    <div class="facet" style="flex:.9">
+      <div class="fhead">THE IDENTITY — one object, many stands <span class="win">⧉</span></div>
+      <div class="idrow"><span class="k">nodes</span><span>923 unique</span></div>
+      <div class="idrow"><span class="k">re-reached</span><span>203</span></div>
+      <div class="idrow wash"><span class="k">IrQuantifier(0,∅)</span><span>×193 <span class="n">— washing all 193</span></span></div>
+      <div class="idrow"><span class="k">IrNone</span><span>×41</span></div>
+      <div class="idrow"><span class="k">IrLiteral ","</span><span>×9</span></div>
+      <div class="idrow"><span class="k">IrRuleRef ws</span><span>×22</span></div>
+      <div class="idrow"><span class="k">IrCharClass [0-9]</span><span>×6</span></div>
+      <div class="idrow dimt" style="color:var(--dim)"><span class="k">… 12 more shared</span><span>▸ all, by arrivals</span></div>
+      <div class="idrow"><span class="k">refusal boundary</span><span class="v-ok">none — fully spellable</span></div>
+      <div class="idrow dimt" style="color:var(--dim)"><span class="k">(a compiled fold here)</span><span>would say: 35 refused — IrLambda constructors</span></div>
+      <div class="legend">the T4b identity walk, drawn as numbers and washes — never as a
+      node soup. selecting a shared object washes EVERY occurrence in every facet</div>
+    </div>
+  </div>
+</div>
+<p class="cap-note"><b>S1 — one cursor, four coordinate systems.</b> The cursor stands on
+<b>member</b>: THE SHAPE borders it, THE SPELLING washes its span (a T3 extent, not a
+re-search), THE IDENTITY is mid-wash on the shared quantifier — 193 occurrences of ONE object
+lighting at once, which is the graph fact no text view can say. The dock offers the orbit's
+exports with computed licences. An edit in either text-capable facet is a re-reading.</p>
+
+<!-- ══════════ S2 · SLOTS, FLOOR, REFUSAL ══════════ -->
+<div class="screen">
+  <div class="mast"><span>GBNF_FLAVOUR.reducer</span><span class="op">entry</span><span>q-star</span>
+    <span class="dock"><span class="dimt">a reducer draws as its rule → action rows</span></span></div>
+  <div class="row" style="min-height:270px">
+    <div class="facet" style="flex:1.3">
+      <div class="fhead">THE SLOTS — an action is a structure whose parts are places</div>
+      <pre>q-star  →  IrBuild( <span class="slot">IrQuantifier</span>, IrTuple( <span class="slot">IrInt(0)</span>, <span class="slot open">▾ IrNone</span> ) )</pre>
+      <div class="offers">
+        <div class="dimt">offers at this slot — from the algebra, typed:</div>
+        <div class="o hot">IrNone — unbounded (the shipped value)</div>
+        <div class="o">IrInt(n) — a finite bound…</div>
+        <div class="o">IrArg(i) — the i-th reduced child</div>
+        <div class="o v-ref" style="color:var(--red)">free text — not offered; a slot takes values</div>
+      </div>
+      <div class="legend">✓ commit rebuilds the reducer (records are tuples; modification is
+      reconstruction) and the document re-reads under the edit · Esc reverts</div>
+    </div>
+    <div class="facet">
+      <div class="fhead">THE FLOOR — an unknown kind still draws</div>
+      <pre><span class="cls">MyNovelRecord</span>   <span class="dimt">IrNamedTuple — floor row</span>
+  lo    <span class="lit">IrInt 3</span>
+  hi    <span class="lit">IrNone — absence is a value</span>
+  parts <span class="dimt">IrSeq · 2 elements ▸</span></pre>
+      <div class="legend">named fields by the guaranteed protocol — MRO lands every IrSelf on
+      an honest floor; never circles, never blank</div>
+      <div class="fhead" style="margin-top:16px">THE REFUSAL — what CAN miss</div>
+      <pre class="v-ref">3 — UnsupportedConstructError:
+IrTypeMap: no action for 'int'</pre>
+      <div class="legend">the raising default's own words, in place — fires for a non-node
+      only; a genuine IrSelf always has the floor</div>
+    </div>
+  </div>
+</div>
+<p class="cap-note"><b>S2 — the ceiling authored, the floor guaranteed, the boundary honest.</b>
+A reducer entry edits by SLOTS: what a place offers comes from the algebra, typed to the slot —
+free text is refused as a matter of chrome, which is the correction that ended the
+textarea-with-a-compile-button era. The floor row draws any unknown record from the spine
+protocol alone. The refusal card fires only where refusal is genuinely possible, and speaks
+the engine's words — never a synthesized message.</p>
+
+<p class="note" style="margin-top:10px">Next window: the machine room at T6 event granularity
+(trace scrub · grammar · document · automaton, shared-leaf co-selection), then the refresh
+pass over end_state's surviving screens.</p>
+</body></html>
