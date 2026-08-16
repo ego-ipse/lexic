@@ -1,5 +1,36 @@
 # Log
 
+## Presentation ceilings — the engine half of the drawing contract (2026-08-16)
+
+`compile/presentation.py`. A ceiling is a rule-keyed table in the transpile
+tradition: rows keyed by CANONICAL rule names, bodies of ordinary IR algebra
+producing `Row(role, address, span, parts)`, baked against a compiled artifact,
+gated, and travelling as notation. `Presentation.apply` walks the addressed
+emission rather than a traversal of its own, so a row and an extent name one
+occurrence with one record.
+
+**No geometry.** A row says where in the DOCUMENT; arranging it on a surface is
+the consumer's, and a width field here would be lexic guessing at a screen.
+
+**Declare one name, derive the rest.** Helper rules minted by the hoist passes
+carry no rows — their occurrences route to the canonical rule they came out of,
+derived by walking the codegen grammar's refs against the canonical one (both
+are moments of the same compilation).
+
+**Gated both ways.** Membership: a row must name a drawable rule. Completeness:
+every drawable rule must have one — semantic, and not a pass-through
+alternation. A hole is refused with the rules named, because a ceiling that
+silently draws nothing is worse than one that says it does not apply.
+
+**Transport.** `IrRenaming.rekeyed(table)` carries any rule-keyed table across a
+pure renaming, so one ceiling serves every renaming of its grammar while a
+different FACTORING still refuses. Demonstrated on three languages — a new
+`markdown.gbnf` (authored as a fixture and now a full corpus citizen),
+`json.gbnf`, and `arithmetic.abnf` — none privileged, all through the standard
+pipeline.
+
+---
+
 ## The kernel speaks — a watched trace product (2026-08-16)
 
 `parsing/trace.py`. A parse left no account of itself; `watch(tables, text,

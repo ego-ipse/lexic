@@ -25,9 +25,11 @@ from __future__ import annotations
 from itertools import permutations, product
 from typing import ClassVar, Mapping
 
+from lexic.ir.action.mapping import IrMap
 from lexic.ir.grammar.canonical import canonicalize
 from lexic.ir.grammar.nodes import IrAlternation, IrAst, IrRule, IrRuleRef
-from lexic.ir.spine.records import IrNamedTuple, IrSeq
+from lexic.ir.spine.records import IrNamedTuple, IrSeq, IrTuple
+from lexic.ir.spine.scalars import IrStr
 from lexic.ir.spine.spine import IrSelf
 
 CANDIDATE_CAP = 256
@@ -84,6 +86,26 @@ class IrRenaming(IrSeq[IrRename]):
             for rule in ast.rules
         ]
         return IrAst(IrSeq(*rules), _moved(table, str(ast.start)))
+
+    def rekeyed(self, rows: IrMap) -> IrMap:
+        """A rule-keyed table, re-keyed for the grammar this renaming targets.
+
+        The reason the witness is worth handing back: a transpile table, a
+        presentation ceiling — anything keyed by rule names — crosses a pure
+        renaming by running its KEYS through here, unchanged in every other
+        respect.
+
+        :param rows: A table whose keys are rule names.
+        :returns: The same bodies under the target's names; a key this
+            renaming does not mention is left as it stands.
+        :raises UnsupportedConstructError: If two keys land on one name, which
+            would silently drop a row.
+        """
+        table = dict(self)
+        moved = [
+            IrTuple(IrStr(_moved(table, str(key))), body) for key, body in rows.items()
+        ]
+        return type(rows)(*moved)
 
 
 class IrRenamings(IrSeq[IrRenaming]):

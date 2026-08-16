@@ -80,6 +80,7 @@ from lexic.compile.pipeline.moments import (
     build_codegen_grammar,
 )
 from lexic.compile.pipeline.synthesis import synthesize
+from lexic.compile.presentation import Draw, Presentation, Row, Rows, present
 from lexic.compile.templating import (
     KEEP,
     Keep,
@@ -137,6 +138,7 @@ from lexic.parsing import (
 # blocks from sharing linter-length runs of identical lines.
 __all__ = [
     "Directives",
+    "Draw",
     "Vocabulary",
     "bind_module",
     "build_codegen_grammar",
@@ -161,11 +163,15 @@ __all__ = [
     "Make",
     "MapShape",
     "parse_grammar",
+    "present",
+    "Presentation",
     "parse_instance",
     "parse_reduced",
     "parse_instance_from_path",
     "parse_module",
     "Reducer",
+    "Row",
+    "Rows",
     "reset_cache_for_tests",
     "RuleBinding",
     "SpanEntry",

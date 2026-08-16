@@ -23,7 +23,6 @@ standard pipeline, and nothing here is tuned to one grammar's shape.
 
 from __future__ import annotations
 
-
 import pytest
 
 from lexic.compile import compile_from_path

@@ -127,6 +127,20 @@ Two named constructors: `Verdict.accept(seconds)`, and `Verdict.refuse(error, se
 
 ---
 
+### `present(compiled, rows)` — `compile/__init__.py`
+
+Implemented in `compile/presentation.py`. Bakes a **presentation ceiling**: rows keyed by the grammar's own CANONICAL rule names, bodies of ordinary IR algebra whose product is a `Row(role, address, span, parts)`. `Presentation.apply(model) -> Rows` draws a parsed document — the walk IS `emit_addressed()`'s, so a row and an extent name one occurrence with one record and co-selection needs no translation.
+
+**No geometry, anywhere.** A row says what stands WHERE IN THE DOCUMENT — an `IrAddress` and an `IrSpan`, nothing else. Arranging that on a surface belongs to whatever draws it; a record carrying a width would be lexic guessing at a screen it cannot see.
+
+**Declare one name, derive the rest.** Codegen helper rules (`array-item`, `char-arm2` — minted by `passes.py`, never a contract anyone authored against) carry no rows: their occurrences route to the canonical rule they were hoisted out of, derived by walking the codegen grammar's refs against the canonical one (both are moments of the same compilation, so neither is recomputed to ask).
+
+**Two gates say where a ceiling applies.** *Membership*: every row names a drawable rule. *Completeness*: every drawable rule has a row — the semantic ones that are not pass-through alternations, since noise draws nothing and an alternation's arm is the value that stands. A hole is refused with the missing rules named: a gate-failing table is a refused offer, never a partial ceiling.
+
+**It travels.** Through the notation (`load_ir(repr(table), symbols={"Draw": Draw})`), and across a pure renaming through `IrRenaming.rekeyed(table)` — the alignment witness re-keys any rule-keyed table, so one ceiling serves every renaming of its grammar. A differently-FACTORED grammar is a real difference and refuses. Demonstrated on three languages in `tests/integration/lexic/codegen/test_presentation.py`: `markdown.gbnf`, `json.gbnf`, and `arithmetic.abnf`.
+
+---
+
 ### `parse_grammar(text, flavour)` — `compile/__init__.py` (re-exported from `lexic`)
 
 The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `GBNF_FLAVOUR`): requires `flavour.reducer` to be an actual `Reducer` instance (else `UnsupportedConstructError`), runs `parse_reduced(normalize(flavour.grammar), text, flavour.reducer)` — the normalised self-grammar memoised per flavour name — and verifies the reduction yields an `IrAst` (else `UnsupportedConstructError`). Returns the **raw** parsed `IrAst` — not yet canonicalized. Use it whenever you need the IR of a grammar without compiling classes (e.g. cross-flavour transpilation: `parse_grammar(text, GBNF_FLAVOUR)` then `ABNF_FLAVOUR.apply(ast)` — see `getting_started/ex04_transpile_flavours.py`).

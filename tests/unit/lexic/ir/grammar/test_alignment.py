@@ -11,9 +11,13 @@ from lexic.ir import (
     CANDIDATE_CAP,
     IrAlignment,
     IrAst,
+    IrLiteral,
+    IrMap,
     IrRename,
     IrRenaming,
     IrRenamings,
+    IrStr,
+    IrTuple,
     align_names,
     canonicalize,
 )
@@ -141,6 +145,41 @@ def test_renamed_leaves_an_unmentioned_name_alone() -> None:
     """A partial table is applied as given — no invented targets."""
     moved = IrRenaming(IrRename("head", "first")).renamed(canonicalize(grammar(PAIR)))
     assert [str(rule.name) for rule in moved.rules] == ["root", "first", "tail"]
+
+
+def test_the_witness_rekeys_a_rule_keyed_table() -> None:
+    """The other half of the transport: a table crosses the renaming too."""
+    renaming = IrRenaming(IrRename("head", "first"), IrRename("tail", "second"))
+    rows = IrMap(
+        IrTuple(IrStr("head"), IrLiteral("H")),
+        IrTuple(IrStr("tail"), IrLiteral("T")),
+    )
+    moved = renaming.rekeyed(rows)
+    assert {str(key): str(body) for key, body in moved.items()} == {
+        "first": "H",
+        "second": "T",
+    }
+
+
+def test_rekeying_leaves_an_unmentioned_key_alone() -> None:
+    """A partial renaming moves what it names and nothing else."""
+    moved = IrRenaming(IrRename("head", "first")).rekeyed(
+        IrMap(
+            IrTuple(IrStr("head"), IrLiteral("H")), IrTuple(IrStr("x"), IrLiteral("X"))
+        )
+    )
+    assert {str(key) for key in moved.keys()} == {"first", "x"}
+
+
+def test_rekeying_onto_one_name_refuses() -> None:
+    """Two rows landing on one key would silently drop one of them."""
+    collide = IrRenaming(IrRename("a", "z"), IrRename("b", "z"))
+    with pytest.raises(UnsupportedConstructError, match="duplicate key"):
+        collide.rekeyed(
+            IrMap(
+                IrTuple(IrStr("a"), IrLiteral("A")), IrTuple(IrStr("b"), IrLiteral("B"))
+            )
+        )
 
 
 def test_an_alignment_of_uncanonicalisable_grammars_refuses_with_words() -> None:
