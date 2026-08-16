@@ -66,3 +66,26 @@ wrapping before artifact construction.
 3. Kernel scan path; ENDS/frames untouched elsewhere (T6's structural
    gates must stay green — the trace sees one scan event, honest).
 4. A/B under guarded.sh, T8's protocol exactly; suite byte-identity.
+
+## ADDENDUM — stage-1 verdict and the sharpened mechanism (same day)
+
+Stage 1 CLOSED the scan-collapse reading: every interior model is
+STORED by its parent (`String.chars` holds the `Char` models), so under
+byte-identical returns nothing that completes can be skipped — T8 and
+this together close ALL returns-unchanged readings. The lever is
+formulation-level, and the corpus proves it (c.gbnf 0.23 completions/
+char vs json 1.02 — the 4.4× spread IS the author's factoring choice).
+
+The press: a third directive, `@lexical <rule> ...`, in the exact
+pattern of `@start`/`@non-semantic`. At canonical time each marked
+rule's body has its refs recursively INLINED (a language-preserving
+grammar transform — refs become groups carrying their quantifiers);
+`classify_rule` then sees a ref-free body and classifies `value_str`
+BY CONSTRUCTION — codegen, binding, kernel, round-trip all unchanged
+downstream. Model shape changes only where the author declares it;
+grammar stays ground truth; the accepted language is untouched.
+Refusals with words: a cycle in the marked subtree; a token terminal
+inside it. `Directives` grows the field (the compile memo keys extend
+automatically); precedence identical to non_semantic. Measurement:
+json.gbnf + `@lexical string number ws` vs unmarked, T8's interleaved
+protocol — the c.gbnf ratio bounds the expectation.
