@@ -96,7 +96,11 @@ def _lexic(bench: Bench) -> dict[str, Parse]:
     fold = bench.fold
     product = _model_product(bench.compiled.codegen_grammar, fold)
     engines = {
-        "lexic-pda": lambda text: pda_model(product.pda, text, fold),
+        # the production seam, like every competitor's own entry API — the
+        # raw-kernel arm measured +1.3% apart from it, which was enough to
+        # fake a persistent @lexical "regression" on arithmetic when variant
+        # rows ran the seam and this row ran the kernel (t11_arith probe)
+        "lexic-pda": bench.compiled.parse,
         "lexic-earley": lambda text: earley_model(
             product.instance_grammar, text, fold, product.tables
         ),
