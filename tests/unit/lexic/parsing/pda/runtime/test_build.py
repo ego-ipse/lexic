@@ -40,10 +40,10 @@ from lexic.parsing.pda.runtime.build import (
     F_START,
     INTERN_MISS,
     alt_model,
-    build_fast,
     build_sequence,
     build_validated,
     build_vstr,
+    fast_values,
     finish_delegate,
     leaf_mismatch,
 )
@@ -153,7 +153,7 @@ def test_leaf_mismatch_empty_arm_interns_one_shared_instance():
     assert calls["n"] == 1  # ctor called once
 
 
-# ── build_fast / build_validated per-field dispatch ─────────────────────────
+# ── fast build / build_validated per-field dispatch ─────────────────────────
 
 
 def seq_clone(fields, *, fast, defaults=None, n_items=None, plan=None):
@@ -186,64 +186,66 @@ def seq_clone(fields, *, fast, defaults=None, n_items=None, plan=None):
     )
 
 
-def test_build_fast_fills_text_and_model_slots():
+def test_fast_build_fills_text_and_model_slots():
     """``M_TEXT`` reads the item span; ``M_MODEL`` reads the sink head."""
     fields = ((0, M_TEXT, "head", 1), (1, M_MODEL, "kid", 1))
     seen = []
     clone = seq_clone(fields, fast=lambda values: seen.extend(values) or "built")
-    out = build_fast("abXY", clone, (0, [2, 2], [None, ["submodel"]]))
+    out = clone.fast(fast_values("abXY", clone, (0, [2, 2], [None, ["submodel"]])))
     assert out == "built"
     assert seen == ["ab", "submodel"]
 
 
-def test_build_fast_models_slot_defaults_to_an_empty_tuple():
+def test_fast_build_models_slot_defaults_to_an_empty_tuple():
     """``M_MODELS`` with no sink yields ``()`` — coerced in the build, not the ctor."""
     fields = ((0, M_MODELS, "kids", 0),)
     seen = []
     clone = seq_clone(fields, fast=seen.extend)
-    build_fast("", clone, (0, [0], None))
+    clone.fast(fast_values("", clone, (0, [0], None)))
     assert seen == [()]
 
 
-def test_build_fast_models_slot_coerces_the_live_sink_list():
+def test_fast_build_models_slot_coerces_the_live_sink_list():
     """The kernel hands a live list; the values carry a tuple (never aliased)."""
     fields = ((0, M_MODELS, "kids", 0),)
     seen = []
     clone = seq_clone(fields, fast=seen.extend)
     sink = ["a", "b"]
-    build_fast("", clone, (0, [0], [sink]))
+    clone.fast(fast_values("", clone, (0, [0], [sink])))
     sink.append("c")
     assert seen == [("a", "b")]
 
 
-def test_build_fast_gtext_falls_back_to_the_default_on_an_empty_span():
+def test_fast_build_gtext_falls_back_to_the_default_on_an_empty_span():
     """An empty ``M_GTEXT`` span with ``lo == 0`` takes the plan's default."""
     fields = ((0, M_GTEXT, "opt", 0),)
     seen = []
     clone = seq_clone(fields, fast=seen.extend, defaults={"opt": "DEF"})
-    build_fast("x", clone, (0, [0], None))  # span (0,0) empty, lo 0 -> default
+    clone.fast(
+        fast_values("x", clone, (0, [0], None))
+    )  # span (0,0) empty, lo 0 -> default
     assert seen == ["DEF"]
 
 
-def test_build_fast_gtext_keeps_an_empty_span_a_required_field_asked_for():
+def test_fast_build_gtext_keeps_an_empty_span_a_required_field_asked_for():
     """``lo`` non-zero means the empty span IS the value — not a missing field."""
     fields = ((0, M_GTEXT, "req", 1),)
     seen = []
     clone = seq_clone(fields, fast=seen.extend, defaults={"req": "DEF"})
-    build_fast("x", clone, (0, [0], None))
+    clone.fast(fast_values("x", clone, (0, [0], None)))
     assert seen == [""]
 
 
-def test_build_fast_model_slot_falls_back_to_the_default_on_an_empty_sink():
+def test_fast_build_model_slot_falls_back_to_the_default_on_an_empty_sink():
     """An optional ``M_MODEL`` whose sink never filled takes the default."""
     fields = ((0, M_MODEL, "kid", 0),)
     seen = []
     clone = seq_clone(fields, fast=seen.extend, defaults={"kid": None})
-    build_fast("", clone, (0, [0], None))
+    clone.fast(fast_values("", clone, (0, [0], None)))
     assert seen == [None]
 
 
-def test_build_fast_const_slot_is_the_plan_default():
+def test_fast_build_const_slot_is_the_plan_default():
     """A class field no bound field supplies is ``M_CONST`` — a plan constant."""
     seen = []
     clone = seq_clone(
@@ -251,11 +253,11 @@ def test_build_fast_const_slot_is_the_plan_default():
         fast=seen.extend,
         plan=((M_TEXT, 0, 1, None), (M_CONST, 0, 0, "fixed")),
     )
-    build_fast("ab", clone, (0, [2], None))
+    clone.fast(fast_values("ab", clone, (0, [2], None)))
     assert seen == ["ab", "fixed"]
 
 
-def test_build_fast_does_not_intern_the_record_path():
+def test_fast_build_does_not_intern_the_record_path():
     """Records build per occurrence: the key needed a second projection of every
     field and cost more than the tuple construction a hit would save.
 
@@ -271,8 +273,8 @@ def test_build_fast_does_not_intern_the_record_path():
         return list(values)
 
     clone = seq_clone(fields, fast=fast)
-    a = build_fast("ab", clone, (0, [2], None))
-    b = build_fast("ab", clone, (0, [2], None))
+    a = clone.fast(fast_values("ab", clone, (0, [2], None)))
+    b = clone.fast(fast_values("ab", clone, (0, [2], None)))
     assert a == b
     assert a is not b
     assert calls["n"] == 2

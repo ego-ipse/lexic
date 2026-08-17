@@ -152,7 +152,9 @@ def build_sequence(
         return _intern_empty(fold.ctor, memo)  # empty alternate arm matched
     if clone.fast is None:
         return build_validated(text, frame, fold, memo)
-    return build_fast(text, clone, (frame[F_START], frame[F_ENDS], frame[F_SINKS]))
+    return clone.fast(
+        fast_values(text, clone, (frame[F_START], frame[F_ENDS], frame[F_SINKS]))
+    )
 
 
 def _intern_empty(ctor: Callable[..., object], memo: dict[Any, object]) -> object:
@@ -176,12 +178,14 @@ def _intern_empty(ctor: Callable[..., object], memo: dict[Any, object]) -> objec
 Spans = tuple[int, "list[int]", "list[Any] | None"]
 
 
-def build_fast(text: str, clone: FlatClone, spans: Spans) -> object:
-    """Build a fast-licenced ``sequence`` model from item spans and sinks.
+def fast_values(text: str, clone: FlatClone, spans: Spans) -> list[Any]:
+    """A fast clone's field values, in the record's own field order.
 
-    One pass over the clone's positional plan into a values list, then one
-    tuple construction — the shared build tail of :func:`build_sequence` and
-    :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
+    The fast build IS ``clone.fast(fast_values(text, clone, spans))`` — one pass
+    over the plan into a values list, then one tuple construction. It is spelled
+    at each call site rather than wrapped in a function of its own: the engine
+    builds about one model per character of input, so a wrapper whose whole body
+    is that expression is a Python frame per character for no work.
 
     **Not interned.** The record path's intern key had to project the values a
     second way (strings by value, sub-models by ``id``), and that projection
@@ -190,17 +194,6 @@ def build_fast(text: str, clone: FlatClone, spans: Spans) -> object:
     (vyx), so the memo was not even reliably answering. ``value_str`` models
     still intern (:func:`build_vstr`): that key is ``(ctor, span)``, already at
     hand, and hits 50-95%.
-
-    :param text: The whole input.
-    :param clone: The clone (fast licence granted).
-    :param spans: The captured ``(start, ends, sinks)`` triple.
-    :returns: The built model.
-    """
-    return clone.fast(_fast_values(text, clone, spans))
-
-
-def _fast_values(text: str, clone: FlatClone, spans: Spans) -> list[Any]:
-    """A fast clone's field values, in the record's own field order.
 
     One pass over :attr:`~lexic.parsing.pda.compiler.flatten.FlatClone.plan`,
     which already carries each field's mode, the item it reads and the default
@@ -248,7 +241,7 @@ def build_validated(
     therefore unchanged.
 
     :param memo: The per-parse intern memo (same key scheme as
-        :func:`build_fast`).
+        :func:`fast_values`).
     :raises UnsupportedConstructError: On a mode outside
         :data:`~lexic.ir.spine.bind.BIND_MODES`.
     """

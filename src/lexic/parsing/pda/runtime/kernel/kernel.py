@@ -99,9 +99,9 @@ from lexic.parsing.pda.runtime.build import (
     F_SINKS,
     F_START,
     alt_model,
-    build_fast,
     build_sequence,
     build_vstr,
+    fast_values,
     finish_delegate,
     leaf_mismatch,
 )
@@ -687,7 +687,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                     else match_cc(text, arm, i, pos)
                 )
             ends[i] = pos
-        out.append(build_fast(self.text, clone, (start, ends, sinks)))
+        out.append(clone.fast(fast_values(self.text, clone, (start, ends, sinks))))
         return pos
 
     def _match_vstr(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
@@ -858,8 +858,12 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         clone = frame[F_CLONE]
         if mode == BUILD_SEQ:
             if clone.fast is not None and frame[F_ARM].n == clone.fold.n_items:
-                model = build_fast(
-                    self.text, clone, (frame[F_START], frame[F_ENDS], frame[F_SINKS])
+                model = clone.fast(
+                    fast_values(
+                        self.text,
+                        clone,
+                        (frame[F_START], frame[F_ENDS], frame[F_SINKS]),
+                    )
                 )
             else:
                 model = build_sequence(self.text, frame, clone, self._caches.intern)
