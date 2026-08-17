@@ -1647,3 +1647,34 @@ marked subtree refuse with words. `Directives.lexical` keys the compile
 memo like the others. Measured (interleaved in-process A/B): json.gbnf
 `@lexical string` −11%, markdown `@lexical line` −17%, no-op +0.3%.
 Public-api page updated (`canonical_grammar(lexical_rules=)`).
+
+## 2026-08-17 — char-model tables: a lexical run's interior, reconstructed
+
+The PDA's post-flatten passes gained a reconstruction licence
+(`chartable_for`, `parsing/pda/compiler/flatten.py`). A clone whose every
+accepted string is ONE character wide has a finite, compile-time-known
+model set, so `char → model` is baked once and an occurrence costs one
+dict lookup instead of an arm selection plus a build:
+
+- a `value_str` clone earns it on `_vstr_inlinable`'s terms when every
+  selector is a positive char set whose arm matches exactly that char;
+- a `BUILD_DISPATCH` clone earns it by COMPOSITION — a dispatch
+  alternation is a pass-through, so when every target is tabled the whole
+  chase collapses into one lookup, and a reference to such a clone
+  matches inline (`OP_VSTR`) with no frame, no settle, no chase.
+
+Baking is a fixpoint (targets before referrers) placed after dispatch
+conversion and before inlining, whose licence reads the tables.
+Totality is the safety argument: the keys ARE the selector union and a
+defaulting clone is refused, so `table_miss` raises the chase's own
+refusal verbatim for a dispatch clone and re-runs the real selection for
+a `value_str` one. The models are `vstr_model`'s own — the single home of
+that construction expression — so a tabled model and a parse-built one
+cannot drift, and instance sharing across parses is invisible on
+immutable records (the per-parse intern memo already shared them within
+one parse). No product change: this is `@lexical`'s recognition win
+without its product-shape cost.
+
+Measured (in-process A/B against the same grammar compiled with the
+licence withheld, rotating seats, reproduced): abnf-meta −25%,
+arithmetic −8.4%, gbnf-meta −7.4%, csv −1..3%, json −2..2.5%, vyx −0.5%.
