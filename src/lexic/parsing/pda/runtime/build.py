@@ -8,14 +8,16 @@ a model — a ``sequence`` clone's per-field slot reads (fast or validated), an
 ``reduce_runtime.py`` (which walks the same frames) rather than crossing a
 module boundary as a private import.
 
-Each build site takes the kernel's per-parse **intern memo** (a plain dict —
-never the cursor itself) and shares a single instance for repeated identical
-sub-models: ``value_str`` keyed ``(ctor, span)``, records keyed ``(ctor,
-mixed-part-tuple)`` (text / gtext by string, ``model`` fields by ``id``,
-``models`` lists by element ids), the empty arm keyed ``(ctor, ())``.
-Immutable models make the sharing transparent, and interning stays
-pre-construction so the validated path's
-:exc:`~lexic.exceptions.FieldValidationError` behaviour is unchanged.
+The record build is POSITIONAL: the clone's plan carries one entry per field
+of the model class, so a build fills one values list and constructs the tuple
+— no defaults-dict copy, no supplied-key set, no read-back by name.
+
+Interning is kept only where its key is already at hand and cheap: ``value_str``
+by ``(ctor, span)`` and the empty alternate arm by ``(ctor, ())``. The record
+path is NOT interned — its key needed a second projection of every field
+(strings by value, sub-models by ``id``) that cost more than the tuple
+construction a hit saves. Interning stays pre-construction, so the validated
+path's :exc:`~lexic.exceptions.FieldValidationError` behaviour is unchanged.
 
 A leaf w.r.t. the runtime: these functions read only the input ``text`` plus a
 frame / clone (and the memo), never the kernel cursor, so they are free
@@ -33,10 +35,12 @@ from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrSpan
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.flatten import (
+    M_CONST,
     M_GTEXT,
     M_MODEL,
     M_MODELS,
     M_SPAN,
+    M_VALUE,
     FlatClone,
 )
 from lexic.parsing.pda.core.errors import PdaFail
@@ -146,9 +150,7 @@ def build_sequence(
         return _intern_empty(fold.ctor, memo)  # empty alternate arm matched
     if clone.fast is None:
         return build_validated(text, frame, fold, memo)
-    return build_fast(
-        text, clone, (frame[F_START], frame[F_ENDS], frame[F_SINKS]), memo
-    )
+    return build_fast(text, clone, (frame[F_START], frame[F_ENDS], frame[F_SINKS]))
 
 
 def _intern_empty(ctor: Callable[..., object], memo: dict[Any, object]) -> object:
@@ -172,77 +174,61 @@ def _intern_empty(ctor: Callable[..., object], memo: dict[Any, object]) -> objec
 Spans = tuple[int, "list[int]", "list[Any] | None"]
 
 
-def build_fast(
-    text: str, clone: FlatClone, spans: Spans, memo: dict[Any, object]
-) -> object:
+def build_fast(text: str, clone: FlatClone, spans: Spans) -> object:
     """Build a fast-licenced ``sequence`` model from item spans and sinks.
 
-    Extracts the clone's parts (:func:`_fast_fields`) plus an intern key (text /
-    gtext by string value, ``model`` fields by the sub-model's ``id``, ``models``
-    lists by element ids) in one pass, then either returns the memo's already-
-    built (immutable) model or constructs one through the validation-skip
-    constructor and stores it. The shared build tail of :func:`build_sequence`
-    and :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
+    One pass over the clone's positional plan into a values list, then one
+    tuple construction — the shared build tail of :func:`build_sequence` and
+    :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
+
+    **Not interned.** The record path's intern key had to project the values a
+    second way (strings by value, sub-models by ``id``), and that projection
+    plus its tuple, its nested hash and two dict operations cost more than the
+    ``tuple.__new__`` a hit saves. Measured hit rates ran 0.0% (csv) to 57.3%
+    (vyx), so the memo was not even reliably answering. ``value_str`` models
+    still intern (:func:`build_vstr`): that key is ``(ctor, span)``, already at
+    hand, and hits 50-95%.
 
     :param text: The whole input.
     :param clone: The clone (fast licence granted).
     :param spans: The captured ``(start, ends, sinks)`` triple.
-    :param memo: The per-parse intern memo.
-    :returns: The built (or reused) model.
+    :returns: The built model.
     """
-    parts, keys, key_parts = _fast_fields(text, clone, spans)
-    key = (clone.fold.ctor, key_parts)
-    hit = memo.get(key, INTERN_MISS)
-    if hit is not INTERN_MISS:
-        return hit
-    model = clone.fast(parts, keys)
-    memo[key] = model
-    return model
+    return clone.fast(_fast_values(text, clone, spans))
 
 
-def _fast_fields(
-    text: str, clone: FlatClone, spans: Spans
-) -> tuple[dict[str, object], set[str], tuple[Any, ...]]:
-    """A fast clone's parts dict, supplied-key set and intern key-parts, one pass.
+def _fast_values(text: str, clone: FlatClone, spans: Spans) -> list[Any]:
+    """A fast clone's field values, in the record's own field order.
 
-    :returns: ``(parts, keys, key_parts)`` — the constructor input and the
-        per-field intern key (see :func:`build_fast`).
+    One pass over :attr:`~lexic.parsing.pda.compiler.flatten.FlatClone.plan`,
+    which already carries each field's mode, the item it reads and the default
+    it falls back on — so the build allocates one list and nothing else.
+
+    :param text: The whole input.
+    :param clone: The clone (fast licence granted).
+    :param spans: The captured ``(start, ends, sinks)`` triple.
+    :returns: One value per field of the model class.
     """
     start, ends, sinks = spans
-    parts = dict(clone.defaults)
-    keys: set[str] = set()
-    key_parts: list[Any] = []
-    for item, mode, name, lo in clone.fields:
+    values: list[Any] = []
+    for mode, item, lo, default in clone.plan:
         if mode == M_MODEL:
             sub = sinks[item] if sinks else None
-            if sub:
-                parts[name] = sub[0]
-                keys.add(name)
-                key_parts.append(id(sub[0]))
-            else:
-                key_parts.append(None)
+            values.append(sub[0] if sub else default)
         elif mode == M_MODELS:
-            sub = (sinks[item] if sinks else None) or []
-            parts[name] = sub
-            keys.add(name)
-            key_parts.append(tuple(id(m) for m in sub))
+            sub = (sinks[item] if sinks else None) or ()
+            values.append(tuple(sub))
         elif mode == M_GTEXT:
             span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
-            if span or lo:
-                parts[name] = span
-                keys.add(name)
-            key_parts.append(span if (span or lo) else None)
+            values.append(span if (span or lo) else default)
         elif mode == M_SPAN:
             # The offsets the kernel already has — kept, not recomputed.
-            parts[name] = IrSpan(start if item == 0 else ends[item - 1], ends[item])
-            keys.add(name)
-            key_parts.append(parts[name])
+            values.append(IrSpan(start if item == 0 else ends[item - 1], ends[item]))
+        elif mode == M_CONST:
+            values.append(default)
         else:  # M_TEXT
-            span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
-            parts[name] = span
-            keys.add(name)
-            key_parts.append(span)
-    return parts, keys, tuple(key_parts)
+            values.append(text[(start if item == 0 else ends[item - 1]) : ends[item]])
+    return values
 
 
 def build_validated(
@@ -357,8 +343,8 @@ def build_vstr(clone: FlatClone, span: str, memo: dict[Any, object]) -> object:
         return hit
     fast = clone.fast
     model = (
-        fast({"value": span}, {"value"})
-        if fast is not None
+        fast([span if mode == M_VALUE else default for mode, _i, _lo, default in plan])
+        if fast is not None and (plan := clone.plan)
         else clone.fold.ctor(value=span)
     )
     memo[key] = model

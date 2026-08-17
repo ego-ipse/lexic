@@ -160,7 +160,7 @@ def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     """FlatClone carries exactly the arm-selector + fold/build fields, no extras."""
     expected = {"name", "selectors", "kwin_selectors", "pn_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
-    expected |= {"mode", "fold", "fields"}
+    expected |= {"mode", "fold", "fields", "plan"}
     expected |= {"fast", "defaults", "leaf", "needs_ends"}
     expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
     expected |= {"reduce_span", "reduce_can_drop"}

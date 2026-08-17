@@ -11,7 +11,7 @@ Source: `exceptions.py`. No bare `raise ValueError` or `raise Exception` for lib
 | Class | Raised by | Message format |
 |---|---|---|
 | `UnsupportedConstructError` | The Earley engine (no parse / ambiguous parse — every product entry: `parse`/`parse_reduced`, and the model routes `parse_model`/`token_model` reached by `CompiledGrammar.parse`), reduction bodies (unrecognised construct), `canonical_grammar`'s boundary checks (missing/wrong-shaped `Reducer`, non-`IrAst` reduction result, unknown start rule), atom dispatch tables (unknown atom type), the codegen passes (arm-name collision — `codegen/passes.py`), the instance fold (unknown kind/mode, kid-count mismatch — `parsing/fold.py`) | Rule-first: "rule `foo`: unsupported construct `…`" |
-| `FieldValidationError` | IR-intrinsic per-field checked construction in `GrammarModel.__new__` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required presence); trusted parse paths (`_from_parts`/`fast_construct`) bypass it | Field-path-first |
+| `FieldValidationError` | IR-intrinsic per-field checked construction in `GrammarModel.__new__` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required presence); trusted parse paths (`_from_values`/`fast_construct`) bypass it | Field-path-first |
 
 All inherit from `LexicError(Exception)`.
 

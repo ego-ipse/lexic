@@ -171,7 +171,7 @@ def test_optional_star_quantified_field_defaults_to_none():
     """A field whose item can match zero times (lo == 0) defaults to None;
     a required (lo == 1) sibling field on the same rule does not."""
     classes, _grammar, _binding = synth("root ::= word [0-9]*\nword ::= [a-z]+\n")
-    _make, defaults = classes["Root"].fast_construct()
+    _make, defaults, _order = classes["Root"].fast_construct()
     assert defaults.get("digit") is None
     assert "word" not in defaults
 
@@ -193,7 +193,7 @@ def test_empty_alternate_arm_forces_every_field_optional():
     )
     binding = compute_binding(codegen_grammar)
     classes = synthesize(codegen_grammar, binding, "empty_arm_probe")
-    _make, defaults = classes["S"].fast_construct()
+    _make, defaults, _order = classes["S"].fast_construct()
     assert defaults.get("x") is None
     inst = classes["S"]()
     assert inst.x is None
@@ -206,7 +206,7 @@ def test_models_mode_field_without_empty_arm_has_no_default():
     root_binding = by_name(binding)["root"]
     (name,) = root_binding.fields
     assert root_binding.fields[name].mode == "models"
-    _make, defaults = classes["Root"].fast_construct()
+    _make, defaults, _order = classes["Root"].fast_construct()
     assert name not in defaults
 
 

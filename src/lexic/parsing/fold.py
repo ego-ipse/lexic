@@ -101,13 +101,17 @@ class FastCtor(NamedTuple):
     :attr:`make` instead of the validated constructor. The engine-side fold
     ignores it — the engine path stays the validated reference.
 
-    :ivar make: ``(parts, keys) -> model`` — the class's parts constructor.
-    :ivar defaults: Field name → default for every optional field; the
-        runtime seeds each ``parts`` dict from a copy of it.
+    :ivar make: ``(values) -> model`` — the class's positional constructor,
+        taking one value per field in :attr:`fields` order.
+    :ivar defaults: Field name → default for every optional field; the PDA
+        bakes each into its per-clone build plan.
+    :ivar fields: The class's field names, in construction order — what makes
+        the plan positional without reaching into the class from the compiler.
     """
 
-    make: Callable[[dict[str, object], set[str]], object]
+    make: Callable[[list[object]], object]
     defaults: Mapping[str, object]
+    fields: tuple[str, ...] = ()
 
 
 class RuleFold(NamedTuple):

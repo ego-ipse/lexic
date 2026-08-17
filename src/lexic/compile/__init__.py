@@ -489,7 +489,7 @@ def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor 
     """
     if kind == "alternation" or not issubclass(cls, GrammarModel):
         return None
-    make, defaults = cls.fast_construct()
+    make, defaults, order = cls.fast_construct()
     names = {"value"} if kind == "value_str" else {f.name for f in fields}
     model_names = set(cls._fields)
     if not names <= model_names:
@@ -500,7 +500,7 @@ def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor 
         skippable = field.mode in ("gtext", "model") and field.lo == 0
         if skippable and field.name not in defaults:
             return None
-    return FastCtor(make, defaults)
+    return FastCtor(make, defaults, order)
 
 
 def _derive_body(bound: RuleBinding, cls: type, items: Sequence[IrItem]) -> ModelBody:

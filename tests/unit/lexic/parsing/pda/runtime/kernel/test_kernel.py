@@ -177,23 +177,34 @@ def test_interning_value_equality_parity(stem: str) -> None:
     assert built.to_text() == text == engine_model.to_text()
 
 
-def test_interning_shares_every_equal_submodel_island_free() -> None:
-    """On an island-free grammar every build flows through the interning memo,
-    so no two DISTINCT model instances are ``==`` — repeated sub-models collapse
-    to one shared instance. (arithmetic.gbnf is island-free; the raw PDA run
-    guarantees no engine-fallback bypass of the memo.)"""
+def test_interning_shares_every_equal_value_str_submodel() -> None:
+    """Interning covers the ``value_str`` builds — equal ones ARE one instance.
+
+    Records are deliberately NOT interned: their key needed a second projection
+    of every field (strings by value, sub-models by ``id``) that cost more than
+    the tuple construction a hit saves, and it hit as rarely as 0% on the csv
+    corpus. What the parity gate promises is value equality with the engine
+    reference (the test above), never record identity. ``value_str`` keeps its
+    memo because ``(ctor, span)`` is already at hand.
+    """
     path = GROUND_TRUTH / "arithmetic.gbnf"
     compiled, pda = compiled_and_pda(path)
     text = _INTERN_CORPUS["arithmetic.gbnf"]
     built = pda_model(pda, text, compiled.fold)
-    models = _all_models(built)
-    by_value: dict[tuple[type, GrammarModel], int] = {}
-    for model in models:
-        first = by_value.setdefault((type(model), model), id(model))
+    kinds = {b.rule_name: b.kind for b in compiled.moments.binding}
+    classes = {
+        name: kinds.get(str(getattr(cls, "__grammar__").name))
+        for name, cls in compiled.classes.items()
+    }
+    shared: dict[tuple[type, GrammarModel], int] = {}
+    for model in _all_models(built):
+        if classes.get(type(model).__name__) != "value_str":
+            continue
+        first = shared.setdefault((type(model), model), id(model))
         assert id(model) == first, (
-            f"equal models not shared — {type(model).__name__} {model!r}"
+            f"equal value_str models not shared — {type(model).__name__} {model!r}"
         )
-    assert len(by_value) < len(models), "corpus had no repeated sub-models to share"
+    assert shared, "corpus produced no value_str sub-models to share"
 
 
 # ── the F1 semantic guard (Option B) ───────────────────────────────────────

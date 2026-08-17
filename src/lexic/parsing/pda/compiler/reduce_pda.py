@@ -162,6 +162,7 @@ def _bake_reduce(clone: FlatClone, comp: ReduceComp) -> None:
     clone.mode = BUILD_REDUCE
     clone.fold = None
     clone.fields = ()
+    clone.plan = ()
     clone.fast = None
     clone.defaults = None
     clone.leaf = False

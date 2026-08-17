@@ -17,10 +17,12 @@ import pytest
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.flatten import (
+    M_CONST,
     M_GTEXT,
     M_MODEL,
     M_MODELS,
     M_TEXT,
+    M_VALUE,
     FlatClone,
 )
 from lexic.parsing.pda.core.errors import PdaFail
@@ -152,89 +154,126 @@ def test_leaf_mismatch_empty_arm_interns_one_shared_instance():
 # ── build_fast / build_validated per-field dispatch ─────────────────────────
 
 
-def seq_clone(fields, *, fast, defaults=None, n_items=None):
-    """A stub ``sequence`` clone with the given int-coded fields + fast ctor."""
+def seq_clone(fields, *, fast, defaults=None, n_items=None, plan=None):
+    """A stub ``sequence`` clone with the given int-coded fields + fast ctor.
+
+    ``plan`` is the positional build plan the fused build reads; it defaults to
+    one entry per field, in field order, which is what a single-field-per-slot
+    class compiles to.
+    """
     fold = SimpleNamespace(
         fields=fields,
         n_items=n_items if n_items is not None else len(fields),
         ctor=lambda **kw: ("ctor", kw),
+        kind="sequence",
     )
+    if plan is None:
+        plan = tuple(
+            (mode, item, lo, (defaults or {}).get(name))
+            for item, mode, name, lo in fields
+        )
     return cast(
         FlatClone,
-        SimpleNamespace(fold=fold, fast=fast, defaults=defaults or {}, fields=fields),
+        SimpleNamespace(
+            fold=fold,
+            fast=fast,
+            defaults=defaults or {},
+            fields=fields,
+            plan=plan,
+        ),
     )
 
 
 def test_build_fast_fills_text_and_model_slots():
     """``M_TEXT`` reads the item span; ``M_MODEL`` reads the sink head."""
     fields = ((0, M_TEXT, "head", 1), (1, M_MODEL, "kid", 1))
-    seen = {}
-    clone = seq_clone(fields, fast=lambda parts, keys: seen.update(parts) or "built")
-    frame_ends = [2, 2]
-    sinks = [None, ["submodel"]]
-    out = build_fast("abXY", clone, (0, frame_ends, sinks), {})
+    seen = []
+    clone = seq_clone(fields, fast=lambda values: seen.extend(values) or "built")
+    out = build_fast("abXY", clone, (0, [2, 2], [None, ["submodel"]]))
     assert out == "built"
-    assert seen == {"head": "ab", "kid": "submodel"}
+    assert seen == ["ab", "submodel"]
 
 
-def test_build_fast_models_slot_defaults_to_empty_list():
-    """``M_MODELS`` with no sink yields ``[]`` (an empty collection field)."""
+def test_build_fast_models_slot_defaults_to_an_empty_tuple():
+    """``M_MODELS`` with no sink yields ``()`` — coerced in the build, not the ctor."""
     fields = ((0, M_MODELS, "kids", 0),)
-    seen = {}
-    clone = seq_clone(fields, fast=lambda parts, keys: seen.update(parts))
-    build_fast("", clone, (0, [0], None), {})
-    assert seen["kids"] == []
+    seen = []
+    clone = seq_clone(fields, fast=seen.extend)
+    build_fast("", clone, (0, [0], None))
+    assert seen == [()]
 
 
-def test_build_fast_gtext_skips_empty_optional_span():
-    """An empty ``M_GTEXT`` span with ``lo == 0`` is omitted from parts."""
+def test_build_fast_models_slot_coerces_the_live_sink_list():
+    """The kernel hands a live list; the values carry a tuple (never aliased)."""
+    fields = ((0, M_MODELS, "kids", 0),)
+    seen = []
+    clone = seq_clone(fields, fast=seen.extend)
+    sink = ["a", "b"]
+    build_fast("", clone, (0, [0], [sink]))
+    sink.append("c")
+    assert seen == [("a", "b")]
+
+
+def test_build_fast_gtext_falls_back_to_the_default_on_an_empty_span():
+    """An empty ``M_GTEXT`` span with ``lo == 0`` takes the plan's default."""
     fields = ((0, M_GTEXT, "opt", 0),)
-    seen = {}
-    clone = seq_clone(fields, fast=lambda parts, keys: seen.update({"keys": set(keys)}))
-    build_fast("x", clone, (0, [0], None), {})  # span (0,0) empty, lo 0 -> skipped
-    assert "opt" not in seen["keys"]
+    seen = []
+    clone = seq_clone(fields, fast=seen.extend, defaults={"opt": "DEF"})
+    build_fast("x", clone, (0, [0], None))  # span (0,0) empty, lo 0 -> default
+    assert seen == ["DEF"]
 
 
-def test_build_fast_interns_by_text_and_model_id():
-    """Equal text + same sink-model id hit the memo; a differing id misses."""
-    fields = ((0, M_TEXT, "head", 1), (1, M_MODEL, "kid", 1))
+def test_build_fast_gtext_keeps_an_empty_span_a_required_field_asked_for():
+    """``lo`` non-zero means the empty span IS the value — not a missing field."""
+    fields = ((0, M_GTEXT, "req", 1),)
+    seen = []
+    clone = seq_clone(fields, fast=seen.extend, defaults={"req": "DEF"})
+    build_fast("x", clone, (0, [0], None))
+    assert seen == [""]
+
+
+def test_build_fast_model_slot_falls_back_to_the_default_on_an_empty_sink():
+    """An optional ``M_MODEL`` whose sink never filled takes the default."""
+    fields = ((0, M_MODEL, "kid", 0),)
+    seen = []
+    clone = seq_clone(fields, fast=seen.extend, defaults={"kid": None})
+    build_fast("", clone, (0, [0], None))
+    assert seen == [None]
+
+
+def test_build_fast_const_slot_is_the_plan_default():
+    """A class field no bound field supplies is ``M_CONST`` — a plan constant."""
+    seen = []
+    clone = seq_clone(
+        ((0, M_TEXT, "head", 1),),
+        fast=seen.extend,
+        plan=((M_TEXT, 0, 1, None), (M_CONST, 0, 0, "fixed")),
+    )
+    build_fast("ab", clone, (0, [2], None))
+    assert seen == ["ab", "fixed"]
+
+
+def test_build_fast_does_not_intern_the_record_path():
+    """Records build per occurrence: the key needed a second projection of every
+    field and cost more than the tuple construction a hit would save.
+
+    ``value_str`` models and the empty alternate arm still intern — their keys
+    are already at hand. Value equality is what the parity gate gets; identity
+    sharing is not promised for records.
+    """
+    fields = ((0, M_TEXT, "head", 1),)
     calls = {"n": 0}
 
-    def fast(_parts, _keys):
+    def fast(values):
         calls["n"] += 1
-        return object()
+        return list(values)
 
     clone = seq_clone(fields, fast=fast)
-    memo: dict = {}
-    kid = object()
-    a = build_fast("ab", clone, (0, [2, 2], [None, [kid]]), memo)
-    b = build_fast("ab", clone, (0, [2, 2], [None, [kid]]), memo)  # same key -> hit
-    assert a is b
-    assert calls["n"] == 1
-    other = build_fast("ab", clone, (0, [2, 2], [None, [object()]]), memo)  # new id
-    assert other is not a
+    a = build_fast("ab", clone, (0, [2], None))
+    b = build_fast("ab", clone, (0, [2], None))
+    assert a == b
+    assert a is not b
     assert calls["n"] == 2
-
-
-def test_build_fast_interns_models_list_by_element_ids():
-    """``M_MODELS`` keys the intern memo by the tuple of its element ids: the
-    same list of sub-models (by identity) hits, a differing element misses —
-    even when the differing element is value-equal to the one it replaces."""
-    fields = ((0, M_MODELS, "kids", 0),)
-    calls = {"n": 0}
-
-    def fast(_parts, _keys):
-        calls["n"] += 1
-        return object()
-
-    clone = seq_clone(fields, fast=fast)
-    memo: dict = {}
-    kid_a, kid_b = object(), object()
-    a = build_fast("", clone, (0, [0], [[kid_a, kid_b]]), memo)
-    b = build_fast("", clone, (0, [0], [[kid_a, kid_b]]), memo)  # same ids -> hit
-    assert a is b and calls["n"] == 1
-    other = build_fast("", clone, (0, [0], [[kid_a, object()]]), memo)  # new id
-    assert other is not a and calls["n"] == 2
 
 
 def test_build_validated_unknown_mode_raises():
@@ -310,17 +349,56 @@ def test_build_vstr_interns_by_ctor_and_span():
 
 
 def test_build_vstr_uses_fast_ctor_when_licensed():
-    """With a fast licence, ``build_vstr`` builds through ``fast(parts, keys)``."""
-    seen = {}
+    """With a fast licence, ``build_vstr`` builds positionally off the plan."""
+    seen = []
     clone = cast(
         FlatClone,
         SimpleNamespace(
             fold=SimpleNamespace(ctor=lambda value: None),
-            fast=lambda parts, keys: seen.update(parts) or "fast-built",
+            fast=lambda values: seen.extend(values) or "fast-built",
+            plan=((M_VALUE, 0, 0, None),),
         ),
     )
     assert build_vstr(clone, "42", {}) == "fast-built"
-    assert seen == {"value": "42"}
+    assert seen == ["42"]
+
+
+def test_build_vstr_fills_a_non_value_field_from_the_plan_default():
+    """A ``value_str`` class field beside ``value`` takes its plan constant."""
+    seen = []
+    clone = cast(
+        FlatClone,
+        SimpleNamespace(
+            fold=SimpleNamespace(ctor=lambda value: None),
+            fast=seen.extend,
+            plan=((M_VALUE, 0, 0, None), (M_CONST, 0, 0, "DEF")),
+        ),
+    )
+    build_vstr(clone, "42", {})
+    assert seen == ["42", "DEF"]
+
+
+def test_build_vstr_still_interns_by_ctor_and_span():
+    """The one memo kept on the build path — its key is already at hand."""
+    calls = {"n": 0}
+
+    def fast(values):
+        calls["n"] += 1
+        return list(values)
+
+    clone = cast(
+        FlatClone,
+        SimpleNamespace(
+            fold=SimpleNamespace(ctor=lambda value: None),
+            fast=fast,
+            plan=((M_VALUE, 0, 0, None),),
+        ),
+    )
+    memo: dict = {}
+    assert build_vstr(clone, "42", memo) is build_vstr(clone, "42", memo)
+    assert calls["n"] == 1
+    build_vstr(clone, "43", memo)
+    assert calls["n"] == 2
 
 
 def test_intern_miss_sentinel_is_distinct():

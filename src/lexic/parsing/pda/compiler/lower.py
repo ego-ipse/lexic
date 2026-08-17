@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.fold import RuleFold
+from lexic.parsing.fold import FastCtor, RuleFold
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_ALT,
     BUILD_DISPATCH,
@@ -24,6 +24,8 @@ from lexic.parsing.pda.compiler.flatten import (
     GATE_SCAN,
     GATE_STOP,
     HI_UNBOUNDED,
+    M_CONST,
+    M_VALUE,
     MODE_CODE,
     OP_CC,
     OP_CC1,
@@ -174,12 +176,46 @@ def _bake_build(clone: FlatClone, fold: RuleFold | None) -> None:
     )
     if fold is None or fold.fast is None:
         clone.fields = ()
+        clone.plan = ()
         clone.fast = None
         clone.defaults = None
         return
     clone.fields = tuple((f.item, MODE_CODE[f.mode], f.name, f.lo) for f in fold.fields)
+    clone.plan = _build_plan(fold, fold.fast)
     clone.fast = fold.fast.make
     clone.defaults = dict(fold.fast.defaults)
+
+
+def _build_plan(
+    fold: RuleFold, fast: FastCtor
+) -> tuple[tuple[int, int, int, Any], ...]:
+    """The clone's POSITIONAL build plan — one entry per field of the class.
+
+    In the record's own field order, so the fused build reads it straight into
+    a values list and constructs the tuple: no defaults-dict copy, no
+    supplied-key set, no read-back by name. A field no bound field supplies is
+    :data:`~lexic.parsing.pda.compiler.flatten.M_CONST` and carries its default
+    outright; a ``value_str`` rule's ``value`` field is
+    :data:`~lexic.parsing.pda.compiler.flatten.M_VALUE`.
+
+    :param fold: The rule's fold.
+    :param fast: Its granted licence — the field order and the defaults.
+    :returns: ``(mode, item, lo, default)`` per class field.
+    """
+    bound = {f.name: f for f in fold.fields}
+    defaults = fast.defaults
+    plan: list[tuple[int, int, int, Any]] = []
+    for name in fast.fields:
+        field = bound.get(name)
+        if field is not None:
+            plan.append(
+                (MODE_CODE[field.mode], field.item, field.lo, defaults.get(name))
+            )
+        elif fold.kind == "value_str" and name == "value":
+            plan.append((M_VALUE, 0, 0, None))
+        else:
+            plan.append((M_CONST, 0, 0, defaults.get(name)))
+    return tuple(plan)
 
 
 def _flatten_selectors(
@@ -372,6 +408,7 @@ def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
     sub.mode = clone.mode
     sub.fold = clone.fold
     sub.fields = clone.fields
+    sub.plan = clone.plan
     sub.fast = clone.fast
     sub.defaults = clone.defaults
     sub.leaf = False

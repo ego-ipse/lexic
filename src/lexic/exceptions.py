@@ -81,5 +81,5 @@ class FieldValidationError(LexicError):
     char-class field with an out-of-class character or wrong length, a
     ``Literal[...]`` value outside its arm set, a model/models field holding a
     non-model, or a missing required field. The trusted parse paths
-    (``_from_parts``/``fast_construct``) bypass ``__new__`` and are unchecked.
+    (``_from_values``/``fast_construct``) bypass ``__new__`` and are unchecked.
     """

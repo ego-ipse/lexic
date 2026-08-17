@@ -98,6 +98,13 @@ M_TEXT, M_GTEXT, M_MODEL, M_MODELS, M_SPAN = 0, 1, 2, 3, 4
 what :attr:`FlatClone.fields` carries so the fused build never compares mode
 strings."""
 
+M_CONST, M_VALUE = 5, 6
+"""The two plan-only modes. :data:`M_CONST` is a class field no bound field
+supplies (the plan carries its default outright); :data:`M_VALUE` is a
+``value_str`` rule's matched span. Neither is a :data:`BIND_MODES` entry —
+they exist because :attr:`FlatClone.plan` covers every field of the class,
+not just the bound ones."""
+
 MODE_CODE = {
     "text": M_TEXT,
     "gtext": M_GTEXT,
@@ -361,6 +368,12 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         (transparent).
     :ivar fields: The fold's bound fields with int-coded modes —
         ``(item, mode, name, lo)`` tuples (empty without a fast licence).
+    :ivar plan: The fused build's POSITIONAL plan — one ``(mode, item, lo,
+        default)`` entry per field of the model class, in the record's own
+        field order, so a build reads the plan straight into a values list and
+        constructs the tuple. Empty without a fast licence. Building by name
+        instead cost a defaults-dict copy, a supplied-key set and a read-back
+        through ``map(parts.get, cls._fields)`` per model.
     :ivar fast: The fold's :attr:`~lexic.parsing.fold.FastCtor.make` parts
         constructor, or ``None`` (the runtime uses the validated ``ctor``).
     :ivar defaults: The fold's :attr:`~lexic.parsing.fold.FastCtor.defaults`
@@ -398,6 +411,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "mode",
         "fold",
         "fields",
+        "plan",
         "fast",
         "defaults",
         "leaf",
@@ -419,6 +433,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     mode: int
     fold: Any  # RuleFold | None — Any-typed like payloads: hot-loop reads
     fields: tuple[tuple[int, int, str, int], ...]
+    plan: tuple[tuple[int, int, int, Any], ...]
     fast: Any
     defaults: Any
     leaf: bool

@@ -524,9 +524,16 @@ def test_to_grammar_wrapped_and_flat_differ():
 
 def test_fast_construct_is_always_granted():
     """Every record class earns the licence — there is no validation to skip."""
-    ctor, defaults = Ident.fast_construct()
+    ctor, defaults, _order = Ident.fast_construct()
     assert callable(ctor)
     assert not defaults
+
+
+def test_fast_construct_reports_the_field_order():
+    """The licence carries the construction ORDER, so the PDA's plan can be
+    positional without the compiler reaching into the class."""
+    _ctor, _defaults, order = Ident.fast_construct()
+    assert order == Ident._fields == ("first", "ws")
 
 
 def test_fast_construct_reports_field_defaults():
@@ -543,21 +550,29 @@ def test_fast_construct_reports_field_defaults():
         first: str
         ws: Optional[Ws] = None
 
-    _ctor, defaults = WithDefault.fast_construct()
+    _ctor, defaults, _order = WithDefault.fast_construct()
     assert defaults == {"ws": None}
 
 
-# ── _from_parts equivalence ────────────────────────────────────────────────
+# ── _from_values equivalence ───────────────────────────────────────────────
 
 
-def test_from_parts_equivalent_to_the_keyword_constructor():
-    """_from_parts built via the licence matches the keyword constructor's
+def values_for(cls, **supplied):
+    """The licence's positional values for ``cls`` — defaults, then ``supplied``.
+
+    What the PDA's baked plan produces at compile time, spelled by hand: one
+    value per field, in ``_fields`` order.
+    """
+    _ctor, defaults, _order = cls.fast_construct()
+    return [supplied.get(name, defaults.get(name)) for name in cls._fields]
+
+
+def test_from_values_equivalent_to_the_keyword_constructor():
+    """The licence's build matches the keyword constructor's
     dump()/semantic_dump()/equality/to_text()."""
     validated = Ident(first="x", ws=Ws(value=" "))
-    ctor, defaults = Ident.fast_construct()
-    parts = dict(defaults)
-    parts.update(first="x", ws=Ws(value=" "))
-    fast = ctor(parts, {"first", "ws"})
+    ctor, _defaults, _order = Ident.fast_construct()
+    fast = ctor(values_for(Ident, first="x", ws=Ws(value=" ")))
 
     assert fast == validated
     assert fast.dump() == validated.dump()
@@ -565,9 +580,8 @@ def test_from_parts_equivalent_to_the_keyword_constructor():
     assert fast.to_text() == validated.to_text()
 
 
-def test_from_parts_fills_defaults_for_unset_optional_fields():
-    """_from_parts, seeded from fast_construct's defaults, matches the
-    keyword constructor when an optional field is left unset."""
+def test_from_values_takes_defaults_for_unset_optional_fields():
+    """An optional field left unset carries the licence's default value."""
 
     class Eq(GrammarModel):
         """Model with an optional field left at its default."""
@@ -581,21 +595,36 @@ def test_from_parts_fills_defaults_for_unset_optional_fields():
         ws: Optional[Ws] = None
 
     validated = Eq(first="x")
-    ctor, defaults = Eq.fast_construct()
-    parts = dict(defaults)
-    parts.update(first="x")
-    fast = ctor(parts, {"first"})
+    ctor, _defaults, _order = Eq.fast_construct()
+    fast = ctor(values_for(Eq, first="x"))
 
     assert fast == validated
     assert fast.dump() == validated.dump()
 
 
-def test_from_parts_coerces_models_lists():
-    """The fast build coerces a live models-mode list exactly like __new__."""
-    ctor, defaults = Root.fast_construct()
-    parts = dict(defaults)
-    parts["it"] = [It(value="a")]
-    fast = ctor(parts, {"it"})
+def test_from_values_is_positional_not_keyed():
+    """The values arrive in ``_fields`` order — the plan, not a parts dict.
+
+    Reversing them builds a DIFFERENT (wrong) model rather than the same one,
+    which is what makes the ordering load-bearing and worth pinning.
+    """
+    ctor, _defaults, _order = Ident.fast_construct()
+    assert Ident._fields == ("first", "ws")
+    right = ctor(["x", Ws(value=" ")])
+    assert tuple(right) == ("x", Ws(value=" "))
+    wrong = ctor([Ws(value=" "), "x"])
+    assert wrong != right
+
+
+def test_from_values_takes_models_fields_already_coerced():
+    """A ``models`` field arrives as a tuple — the build coerces, not the ctor.
+
+    The kernel hands the fold a live sink list; coercing it in
+    :func:`~lexic.parsing.pda.runtime.build._fast_values` is what keeps the
+    stored tuple un-aliased, so the constructor itself does no per-field work.
+    """
+    ctor, _defaults, _order = Root.fast_construct()
+    fast = ctor(values_for(Root, it=(It(value="a"),)))
     assert isinstance(fast, Root)
     assert isinstance(fast.it, tuple)
     assert fast == Root(it=[It(value="a")])

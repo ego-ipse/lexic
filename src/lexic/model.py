@@ -17,10 +17,15 @@ the empty default.
 Hand construction (``cls(**kwargs)`` via :meth:`GrammarModel.__new__`) is
 checked: missing required fields and per-field IR-intrinsic violations raise
 :exc:`~lexic.exceptions.FieldValidationError`. The trusted parse paths
-(:meth:`GrammarModel._from_parts` / :meth:`GrammarModel.fast_construct`)
-bypass ``__new__`` and stay unchecked, so the PDA hot path pays nothing.
-Construction coerces ``models``-mode lists to tuples (the fold and PDA hand
-live sink lists; stored raw they would alias and kill hashability).
+(:meth:`GrammarModel._from_values` / :meth:`GrammarModel.fast_construct`)
+bypass ``__new__`` and stay unchecked, so the PDA hot path pays nothing. That
+licence is POSITIONAL: it takes one value per field in ``_fields`` order,
+because the PDA bakes that order into a per-clone plan at compile time and has
+nothing to key or read back.
+Checked construction coerces ``models``-mode lists to tuples (the fold and PDA
+hand live sink lists; stored raw they would alias and kill hashability); the
+trusted path coerces them where it fills the plan, so the constructor does no
+per-field work at all.
 :meth:`GrammarModel.dump` re-emits those tuples
 as lists and serializes by RUNTIME type (ruling 12 — never by declared
 schema), walking an explicit stack so depth never overflows.
@@ -182,7 +187,7 @@ def _open(
 #
 # Hand construction (``cls(**kwargs)`` — tests, and the Earley completion
 # path) runs IR-intrinsic per-field checks; the trusted parse paths
-# (``_from_parts``/``fast_construct``) bypass ``__new__`` entirely, so the PDA
+# (``_from_values``/``fast_construct``) bypass ``__new__`` entirely, so the PDA
 # hot path pays nothing. Every check reads the field's own grammar item — char
 # class membership + length bounds, ``Literal``-arm membership, sub-model
 # isinstance — with no engine call and no regex compilation.
@@ -723,35 +728,27 @@ class GrammarModel(IrNamedTuple):
     @classmethod
     def fast_construct(
         cls,
-    ) -> tuple[Callable[[dict[str, Any], set[str]], GrammarModel], dict[str, Any]]:
+    ) -> tuple[Callable[[list[Any]], GrammarModel], dict[str, Any], tuple[str, ...]]:
         """The construction licence — trivially granted on the record spine.
 
         A record build is one C-level tuple construction from already-folded
-        parts; there is no per-field validation to skip, so every class
+        values; there is no per-field validation to skip, so every class
         qualifies (a record has no validators, post-init, config, or private
         attributes that could refuse the licence).
 
-        :returns: ``(parts constructor, per-class field defaults)``.
+        :returns: ``(positional constructor, field defaults, field order)``.
         """
-        return cls._from_parts, dict(cls._field_defaults)
+        return cls._from_values, dict(cls._field_defaults), tuple(cls._fields)
 
     @classmethod
-    def _from_parts(cls, parts: dict[str, Any], _keys: set[str]) -> Self:
-        """Trusted build from complete parts — one C-level tuple construction.
+    def _from_values(cls, values: list[Any]) -> Self:
+        """Trusted build from field values in order — one tuple construction.
 
-        ``parts`` arrives pre-seeded with the class defaults (the licence
-        contract), so the build is a single ordered read; ``models``-mode
-        live lists coerce to tuples here exactly as in :meth:`__new__`.
+        The caller supplies one value per field, already in ``_fields`` order
+        and already coerced (the fused build's plan is positional, so there is
+        no dict to seed, key or read back). The defaults live in the plan.
 
-        :param parts: Every field's value, defaults already filled.
-        :param _keys: The explicitly-set field names (unused on the spine;
-            kept for the frozen ``FastCtor.make`` call shape).
+        :param values: Every field's value, in ``_fields`` order.
         :returns: The constructed instance.
         """
-        return tuple.__new__(
-            cls,
-            [
-                tuple(value) if isinstance(value, list) else value
-                for value in map(parts.get, cls._fields)
-            ],
-        )
+        return tuple.__new__(cls, values)
