@@ -9,7 +9,6 @@ handed back for both).
 
 from __future__ import annotations
 
-
 from lexic.compile import Directives, compile_text
 from tests.paths import GROUND_TRUTH
 
