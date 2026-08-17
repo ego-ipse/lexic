@@ -10,12 +10,21 @@ rules are non-nullable).
 
 This module compiles the flavour's own noise rules — read from the lifted
 ``IrAst`` it is handed, so the engine never imports :mod:`lexic.grammars` — into
-a small **backtracking recognizer**: one flat rule per closure member, arms
-tried in order with a full position reset on arm failure. That reset is what
-makes folding fall out for free: ``c-wsp = wsp / (c-nl wsp)`` matched arm-in-order
-rejects a bare ``c-nl`` not followed by ``wsp`` (its arm fails, and the ``wsp``
-arm already failed), so ``(c-wsp)*`` stops exactly at the terminator — the exact
-ABNF fold semantics, derived, never hardcoded.
+a **possessive recognizer**: one flat rule per closure member, arms tried in
+order with a full position reset on arm failure, greedy items that never give
+back. That reset is what makes folding fall out for free: ``c-wsp = wsp /
+(c-nl wsp)`` matched arm-in-order rejects a bare ``c-nl`` not followed by
+``wsp`` (its arm fails, and the ``wsp`` arm already failed), so ``(c-wsp)*``
+stops exactly at the terminator — the exact ABNF fold semantics, derived,
+never hardcoded.
+
+Those semantics are exactly the fragment stdlib ``re`` spells with atomic
+groups and possessive quantifiers, so the acyclic closure lowers bottom-up
+(the closure order is topological) to ONE compiled pattern per rule — every
+item ``(?:…){lo,hi}+``, every reference ``(?>…)``, every arm atomic — leaving
+the regex engine zero choice points beyond the ordered arm selection. A gate
+consult is then one C-level match instead of an interpreted recursion over
+the closure.
 
 Two runtime shapes ride the same recognizer:
 
@@ -33,6 +42,7 @@ build) and ``flatten`` (runtime dispatch) both import it, never the reverse.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Mapping, NamedTuple
 
 from lexic.ir import (
@@ -76,7 +86,7 @@ _HI_UNBOUNDED = -1
 
 
 class Recognizer(IrLeaf[IrSelf, IrSelf]):
-    """A flat backtracking recognizer over a closure of simple grammar rules.
+    """A possessive recognizer over a closure of simple grammar rules.
 
     Immutable after :func:`build_recognizer`; shared across every parse.
 
@@ -86,21 +96,68 @@ class Recognizer(IrLeaf[IrSelf, IrSelf]):
         ``(chars, negated)`` pair (CS), a ``str`` (LIT), or a rule index (REF);
         ``hi`` is :data:`_HI_UNBOUNDED` for an unbounded loop.
     :ivar index: Rule name → its index in :attr:`rules`.
+    :ivar pats: Per-rule compiled one-instance patterns (see the module doc).
+    :ivar run_pats: Per-rule compiled maximal-run patterns (``(?:rule)*+``).
     """
 
-    __slots__ = ("rules", "index")
+    __slots__ = ("rules", "index", "pats", "run_pats")
 
     rules: tuple[tuple[tuple[tuple[int, Any, int, int], ...], ...], ...]
     index: dict[str, int]
+    pats: tuple[re.Pattern[str], ...]
+    run_pats: tuple[re.Pattern[str], ...]
 
     def __init__(
         self,
         rules: tuple[tuple[tuple[tuple[int, Any, int, int], ...], ...], ...],
         index: dict[str, int],
     ) -> None:
-        """Bind the flat rule table and the name→index map."""
+        """Bind the flat rule table, the name→index map, and compile patterns.
+
+        Rules arrive in closure postorder, so every :data:`_NA_REF` payload
+        indexes an already-built source — the lowering is one bottom-up pass.
+        """
         self.rules = rules
         self.index = index
+        sources: list[str] = []
+        for arms in rules:
+            sources.append("|".join(_arm_source(arm, sources) for arm in arms))
+        self.pats = tuple(re.compile(src, re.DOTALL) for src in sources)
+        self.run_pats = tuple(re.compile(f"(?:{src})*+", re.DOTALL) for src in sources)
+
+
+def _class_source(chars: frozenset[str], negated: bool) -> str:
+    """The regex class for a ``(chars, negated)`` membership set.
+
+    The EOF sentinel ``""`` has no spelling in a class and never matches in
+    the membership test either polarity reads, so it is simply dropped. An
+    empty positive set matches nothing (``(?!)``); an empty negated set
+    matches any character (``.`` under DOTALL).
+    """
+    members = "".join(re.escape(ch) for ch in sorted(chars) if ch)
+    if negated:
+        return f"[^{members}]" if members else "."
+    return f"[{members}]" if members else "(?!)"
+
+
+def _item_source(item: tuple[int, Any, int, int], sources: list[str]) -> str:
+    """One item as a possessive regex fragment — greedy, never giving back."""
+    kind, payload, lo, hi = item
+    if kind == _NA_CS:
+        atom = _class_source(*payload)
+    elif kind == _NA_LIT:
+        atom = re.escape(payload)
+    else:
+        atom = f"(?>{sources[payload]})"
+    if (lo, hi) == (1, 1):
+        return f"(?:{atom})"
+    bound = f"{{{lo},}}" if hi == _HI_UNBOUNDED else f"{{{lo},{hi}}}"
+    return f"(?:{atom}){bound}+"
+
+
+def _arm_source(arm: tuple[tuple[int, Any, int, int], ...], sources: list[str]) -> str:
+    """One arm as an atomic group — its items in order, no internal choice."""
+    return f"(?>{''.join(_item_source(item, sources) for item in arm)})"
 
 
 def _hi(item: IrItem) -> int:
@@ -205,58 +262,16 @@ def build_recognizer(
     return Recognizer(tuple(flat), index)
 
 
-def _match_atom(text: str, pos: int, rec: Recognizer, kind: int, payload: Any) -> int:
-    """Match one atom at ``pos``; return the new position or ``-1`` on a miss."""
-    if kind == _NA_CS:
-        ch = text[pos : pos + 1]
-        chars, negated = payload
-        member = (ch != "" and ch not in chars) if negated else (ch in chars)
-        return pos + 1 if member else -1
-    if kind == _NA_LIT:
-        return pos + len(payload) if text.startswith(payload, pos) else -1
-    return _match_rule(text, pos, rec, payload)
-
-
-def _match_seq(text: str, pos: int, rec: Recognizer, arm: Any) -> int:
-    """Match an arm's items in order (greedy per item); ``-1`` on failure."""
-    for kind, payload, lo, hi in arm:
-        count = 0
-        while count < lo:
-            nxt = _match_atom(text, pos, rec, kind, payload)
-            if nxt < 0:
-                return -1
-            pos = nxt
-            count += 1
-        while hi == _HI_UNBOUNDED or count < hi:
-            nxt = _match_atom(text, pos, rec, kind, payload)
-            if nxt < 0 or nxt == pos:
-                break
-            pos = nxt
-            count += 1
-    return pos
-
-
-def _match_rule(text: str, pos: int, rec: Recognizer, ridx: int) -> int:
-    """Match one instance of rule ``ridx`` (arms in order); ``-1`` on failure."""
-    for arm in rec.rules[ridx]:
-        end = _match_seq(text, pos, rec, arm)
-        if end >= 0:
-            return end
-    return -1
-
-
 def scan_run(text: str, pos: int, rec: Recognizer, ridx: int) -> int:
     """Skip a maximal ``(rule ridx)*`` run at ``pos`` (non-consuming peek).
 
-    Repeatedly matches the root rule, advancing past each instance, until it
-    fails or makes no progress (a nullable root). The caller inspects the char
-    at the returned position without moving the real cursor.
+    One compiled possessive-run match: it advances past whole instances until
+    one fails or makes no progress (a nullable root ends the run zero-wide).
+    The caller inspects the char at the returned position without moving the
+    real cursor.
     """
-    while True:
-        end = _match_rule(text, pos, rec, ridx)
-        if end < 0 or end == pos:
-            return pos
-        pos = end
+    matched = rec.run_pats[ridx].match(text, pos)
+    return pos if matched is None else matched.end()
 
 
 def scan_run_any(text: str, pos: int, rec: Recognizer, roots: tuple[int, ...]) -> int:
@@ -265,13 +280,17 @@ def scan_run_any(text: str, pos: int, rec: Recognizer, roots: tuple[int, ...]) -
     A loop body's leading noise can be a short sequence of distinct noise roots
     (the factored ABNF ``rl-cont = c-nl filler* rule`` leads with ``c-nl`` then
     ``filler*``); skipping the union of the noise roots lands exactly on the
-    first content char on valid input. Longest match wins at each step, so the
-    fold-aware roots keep their arm-in-order semantics.
+    first content char on valid input. LONGEST root wins at each step — which
+    is why this stays a per-step loop over the one-instance patterns rather
+    than one alternation run (an ordered alternation would take the first).
     """
+    pats = rec.pats
     while True:
         best = pos
         for ridx in roots:
-            best = max(best, _match_rule(text, pos, rec, ridx))
+            matched = pats[ridx].match(text, pos)
+            if matched is not None:
+                best = max(best, matched.end())
         if best == pos:
             return pos
         pos = best
@@ -281,10 +300,10 @@ def scan_match(text: str, pos: int, rec: Recognizer, ridx: int) -> bool:
     """Whether one instance of rule ``ridx`` matches (and consumes) at ``pos``.
 
     The pure-folding loop gate (ABNF ``rule[5]``): take another ``c-wsp`` iff a
-    ``c-wsp`` actually begins here — the recognizer's arm-in-order fold decides.
+    ``c-wsp`` actually begins here — the pattern's arm-in-order fold decides.
     """
-    end = _match_rule(text, pos, rec, ridx)
-    return end > pos
+    matched = rec.pats[ridx].match(text, pos)
+    return matched is not None and matched.end() > pos
 
 
 class ScanGate(NamedTuple):
@@ -354,9 +373,9 @@ def scan_gate_take(text: str, pos: int, gate: ScanGate) -> bool:
         return False
     name_idx, noise_idx, defined, take_on_match = gate.probe
     ch = text[p : p + 1]
-    name_lead = _match_rule(text, p, gate.rec, name_idx)
-    if name_lead < 0 or ch == "":
+    name_match = gate.rec.pats[name_idx].match(text, p)
+    if name_match is None or ch == "":
         return False  # not a rulename-led overlap char — plain exit
-    after = scan_run(text, name_lead, gate.rec, noise_idx)
+    after = scan_run(text, name_match.end(), gate.rec, noise_idx)
     matched = text.startswith(defined, after)
     return take_on_match if matched else not take_on_match
