@@ -36,6 +36,8 @@ from lexic.parsing.pda.core.scanner import (
 
 __all__ = [
     "noise_roots",
+    "root_candidates",
+    "run_roots",
     "structured_loop_gate",
     "structured_arm_gate",
 ]
@@ -70,13 +72,14 @@ def noise_roots(analysis: Any) -> frozenset[str]:
 def run_roots(analysis: Any) -> frozenset[str]:
     """Run-forming rule names regardless of the ``semantic`` flag.
 
-    The SELECTION-side fallback for formulations that declare no
-    non-semantic rules (a self-emitted meta grammar keeps its noise
-    semantic for round-trip fidelity): scan/probe gates are
-    recognition-only — the winner re-parses its noise — so attribution is
-    never in question, and every downstream licence check still applies.
-    The value-attribution licences (:func:`_match_gate` and its clauses)
-    keep the strict flag: an over-take there re-splits VALUE content.
+    The shape-derived skip alphabet, read off quantifiers alone — so a
+    formulation that declares no noise at all still gets structured gates (a
+    self-emitted meta grammar keeps its noise semantic for round-trip
+    fidelity). Scan/probe gates are recognition-only — the winner re-parses its
+    noise — so attribution is never in question here, and every downstream
+    licence check still applies. The value-attribution licences
+    (:func:`_match_gate` and its clauses) keep the strict flag: an over-take
+    there re-splits VALUE content.
     """
     roots: set[str] = set()
     for rule in analysis.rules.values():
@@ -88,6 +91,31 @@ def run_roots(analysis: Any) -> frozenset[str]:
                 if str(atom) in analysis.rules:
                     roots.add(str(atom))
     return frozenset(roots)
+
+
+def root_candidates(analysis: Any) -> tuple[frozenset[str], ...]:
+    """The skip alphabets a structured gate may be licensed over, best first.
+
+    Two readings of "what forms a skippable run": the DECLARED noise rules
+    (:func:`noise_roots`) and every run-forming rule the shape shows
+    (:func:`run_roots`, a superset). Neither dominates — a narrower alphabet
+    keeps a boundary the peek needs (GBNF ``grammar``'s trailing run), a wider
+    one covers a chain whose middle nobody declared — so a gate is tried over
+    each in turn and the first licence wins.
+
+    Choosing ONE (the declared set when non-empty, else the derived one) made
+    ``@non-semantic`` non-monotone: on ABNF's self-grammar a single mark cut the
+    alphabet from fourteen rules to one, every P3/P5 gate whose skip set needed
+    an undeclared root fell back to a speculative attempt loop, and marking one
+    of four noise rules measured 1.6-2.7x SLOWER than marking none — while
+    marking all four won 15%. A declaration must not withdraw a licence the
+    shape already grants.
+    """
+    declared = noise_roots(analysis)
+    derived = run_roots(analysis)
+    if not declared or declared == derived:
+        return (derived,) if derived else ()
+    return (declared, derived)
 
 
 def _leading_roots(
@@ -290,14 +318,17 @@ def structured_loop_gate(
     the post-noise char is a loop-body content lead disjoint from the exit's;
     ``SG_PROBE`` — the P5 escalation when those leads overlap on a
     next-construct header (see :func:`_probe_gate`).
+
+    Each of :func:`root_candidates`' skip alphabets is tried in turn, so a
+    declaration can only ever ADD a licence.
     """
-    roots = noise_roots(analysis) or run_roots(analysis)
-    if not roots:
-        return None
-    gate = _match_gate(analysis, roots, items, k, scope)
-    if gate is not None:
-        return gate
-    return _scan_or_probe_gate(analysis, roots, items, k, scope)
+    for roots in root_candidates(analysis):
+        gate = _match_gate(analysis, roots, items, k, scope)
+        if gate is None:
+            gate = _scan_or_probe_gate(analysis, roots, items, k, scope)
+        if gate is not None:
+            return gate
+    return None
 
 
 def _match_gate(
@@ -415,14 +446,27 @@ def structured_arm_gate(
     silently pick a wrong arm. Inline-group arms never reach here: ``label`` is
     a rule name (the taxonomy store key), never a bracketed group tag.
 
+    Each of :func:`root_candidates`' skip alphabets is tried in turn, so a
+    declaration can only ever ADD a licence.
+
     :param arms: The alternation's arms (item sequences), in body order.
     :param label: The enclosing rule name — the FOLLOW anchor and store key.
     :returns: The :class:`~lexic.parsing.pda.core.scanner.ArmGate` (scan gate + escape
         arm index), or ``None`` on a licence miss.
     """
-    roots = noise_roots(analysis) or run_roots(analysis)
-    if not roots or label not in analysis.rules:
+    if label not in analysis.rules:
         return None
+    for roots in root_candidates(analysis):
+        gate = _arm_gate_over(analysis, roots, arms, label)
+        if gate is not None:
+            return gate
+    return None
+
+
+def _arm_gate_over(
+    analysis: Any, roots: frozenset[str], arms: Sequence[Sequence[IrSelf]], label: str
+) -> "ArmGate | None":
+    """:func:`structured_arm_gate`'s licence over ONE skip alphabet."""
     nullable = [i for i, arm in enumerate(arms) if _arm_nullable(analysis, arm)]
     if len(nullable) != 1:
         return None

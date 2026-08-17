@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from lexic.grammars import get_flavour
 from lexic.ir import (
     IrAlternation,
+    IrAst,
     IrCharClass,
     IrChr,
     IrItem,
@@ -21,14 +23,18 @@ from lexic.ir import (
     IrRange,
     IrRule,
     IrRuleRef,
+    IrSeq,
     IrSequence,
 )
+from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.structured import (
     _exit_is_noise,
     _probe_candidate,
     _sem_follow_clear,
     noise_roots,
+    root_candidates,
+    run_roots,
     structured_arm_gate,
 )
 from lexic.parsing.pda.core.charsets import CharSet
@@ -39,7 +45,10 @@ from tests.unit.lexic.parsing.pda.analysis.gates.test_noise import (
     make_analysis,
     noise_rule,
 )
-from tests.unit.lexic.parsing.pda.analysis.test_analysis import self_grammar_analysis
+from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
+    lifted_analysis,
+    self_grammar_analysis,
+)
 
 
 def test_noise_roots_on_gbnf_self_grammar():
@@ -54,6 +63,43 @@ def test_noise_roots_on_abnf_self_grammar():
     the LWS-folding and comment/blank-line closure members."""
     roots = noise_roots(self_grammar_analysis("abnf"))
     assert {"filler", "c-wsp", "c-nl"} <= roots
+
+
+def _marked(flavour: str, name: str) -> GrammarAnalysis:
+    """A flavour's own lifted self-grammar with one rule flagged non-semantic."""
+    grammar = get_flavour(flavour).grammar
+    rules = IrSeq(
+        *(
+            IrRule(rule.name, rule.body, False) if rule.name == name else rule
+            for rule in grammar.rules
+        )
+    )
+    return GrammarAnalysis(
+        lift_optional_nullables(IrAst(rules=rules, start=grammar.start))
+    )
+
+
+def test_a_partial_declaration_keeps_the_derived_skip_alphabet():
+    """A declaration may ADD a skip alphabet, never REPLACE the derived one.
+
+    Choosing only the declared set made ``@non-semantic`` non-monotone: marking
+    one of ABNF's four noise rules cut the alphabet from fourteen rules to one,
+    every gate needing an undeclared root fell back to a speculative attempt
+    loop, and the parse measured 1.6-2.7x SLOWER than marking nothing — while
+    marking all four wins 15%.
+    """
+    analysis = _marked("abnf", "c-nl")
+    declared, derived = noise_roots(analysis), run_roots(analysis)
+    assert declared < derived  # a proper subset — the declaration is partial
+    assert root_candidates(analysis) == (declared, derived)
+
+
+def test_one_root_candidate_when_the_declaration_adds_nothing():
+    """A grammar declaring no noise offers the derived alphabet once, not twice
+    — the second attempt would repeat the first."""
+    analysis = lifted_analysis("json.gbnf")
+    assert noise_roots(analysis) == frozenset()
+    assert root_candidates(analysis) == (run_roots(analysis),)
 
 
 def struct_gate(analysis: GrammarAnalysis, rule_name: str, item_index: int):
