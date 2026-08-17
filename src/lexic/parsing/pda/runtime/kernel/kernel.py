@@ -385,12 +385,34 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         frame[F_I] = i
         self.pos = pos
         k = arm.kinds[i]
-        sink = self._sink_for(frame, arm, i)
+        # The REPEAT descent's sink, read in place — `_sink_for` is the driver's
+        # densest call (1.28 per character of arithmetic corpus) and its answer
+        # is a list index once the frame's sink array exists. A frame whose
+        # array is still absent (its first descent, or a transparent frame,
+        # which never grows one) takes the call and its full protocol.
+        sinks = frame[F_SINKS]
+        if sinks is None:
+            sink = self._sink_for(frame, arm, i)
+        else:
+            sink = sinks[i]
+            if sink is None:
+                sinks[i] = sink = []
         if k <= OP_GRP:  # OP_REF / OP_GRP — a clone entry
             if self._enter(arm.payloads[i], sink):
                 return -1
             return i  # consumed inline — same item continues
-        if k == OP_FAIL:
+        return self._descend_island(arm, i, pos, sink)
+
+    def _descend_island(self, arm: FlatArm, i: int, pos: int, sink: list[Any]) -> int:
+        """A due ``OP_ISLAND`` splice or ``OP_FAIL`` raise — the descent's cold tail.
+
+        Hosted out of :meth:`_quant_step` because it never runs: an island is
+        the residue no attempt can settle, and none survives on any grammar the
+        engine has been measured against (zero ``OP_ISLAND`` and zero
+        ``OP_FAIL`` steps across the whole benchmark). The hot path keeps the
+        branch budget instead.
+        """
+        if arm.kinds[i] == OP_FAIL:
             raise PdaFail(
                 f"fail-island {arm.payloads[i]!r} at {pos}: "
                 "F1 semantic escape, engine fallback",
@@ -411,7 +433,16 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         if k == OP_VSTR or k >= OP_VRUN:
             # A tabled reference's specialisation is the LEAF walk's; reached
             # through a frame, it runs the ordinary loop (one iteration of it).
-            return self._match_vstr(self._sink_for(frame, arm, i), arm, i, pos)
+            if frame[F_MODE] == BUILD_TRANSPARENT:  # `_sink_for`, read in place
+                sink = frame[F_OUT]
+            else:
+                sinks = frame[F_SINKS]
+                if sinks is None:
+                    frame[F_SINKS] = sinks = [_EMPTY_SLOT] * arm.n
+                sink = sinks[i]
+                if sink is None:
+                    sinks[i] = sink = []
+            return self._match_vstr(sink, arm, i, pos)
         if k == OP_LIT:
             return match_lit(self.text, arm, i, pos)
         return match_cc(self.text, arm, i, pos)
