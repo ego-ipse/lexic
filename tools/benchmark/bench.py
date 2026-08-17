@@ -333,13 +333,24 @@ def _prime(parse: Parse, corpus: str) -> None:
 def _interleaved(
     engines: dict[str, Parse], corpus: str, rounds: int
 ) -> dict[str, float]:
-    """One pass per engine per round, so machine load moves every column alike."""
+    """One pass per engine per round, so machine load moves every column alike.
+
+    The order ROTATES one seat per round: with a fixed order every engine
+    inherits the heap and cache state of the same predecessor on every round,
+    which is a systematic per-row bias, not noise — measured on arithmetic,
+    the row seated behind lexic-earley's allocation-heavy parse read +2%
+    against an identical artifact seated elsewhere, and rotation collapsed
+    the spread to the noise floor. Rotation gives every engine every
+    neighbour equally often, so seating averages out of the medians.
+    """
     for parse in engines.values():
         _prime(parse, corpus)
     samples: dict[str, list[float]] = {name: [] for name in engines}
+    seats = list(engines.items())
     for _ in range(rounds):
-        for name, parse in engines.items():
+        for name, parse in seats:
             samples[name].append(_once(parse, corpus))
+        seats = seats[1:] + seats[:1]
     return {name: sorted(runs)[len(runs) // 2] for name, runs in samples.items()}
 
 
