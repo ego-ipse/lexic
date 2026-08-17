@@ -15,16 +15,16 @@ from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
 from time import monotonic
+from types import ModuleType
+
+from praxis.graph import digest
+from praxis.reading import probe as probe_grammar
 
 from lexic.compile import load_ir, parse_module
 from lexic.compile.notation import load_flavour
 from lexic.ir import IrSelf
 from lexic.model import GrammarModel
-
-from praxis.graph import digest
-from praxis.reading import probe as probe_grammar
 
 __all__ = [
     "FileProbe",

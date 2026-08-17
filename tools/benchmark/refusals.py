@@ -13,9 +13,11 @@ limit is worse than one that stops.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 
 import lark
+import msgspec
 import pyparsing as pp
 from parsimonious.exceptions import (
     BadGrammar,
@@ -45,6 +47,10 @@ REFUSALS: tuple[type[BaseException], ...] = (
     LexicError,
     PdaFail,
     RecursionError,
+    # The json-format specialists refusing an input: stdlib's decoder error
+    # is a narrow ValueError subclass, so our own bugs still crash through.
+    json.JSONDecodeError,
+    msgspec.DecodeError,
 )
 """Every way an engine here says no. Anything else is a bug and should surface."""
 

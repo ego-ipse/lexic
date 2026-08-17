@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lexic.ir import IrInt, IrNamedTuple, IrStr, IrTuple
-
 from praxis.state import Rung
+
+from lexic.ir import IrInt, IrNamedTuple, IrStr, IrTuple
 
 if TYPE_CHECKING:
     from praxis.graph import Relation, Subject

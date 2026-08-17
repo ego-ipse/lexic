@@ -28,9 +28,7 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from lexic.compile import export_source  # noqa: E402
-from lexic.ir import IrFlavour, IrSelf  # noqa: E402
-from kairos.artefacts import Artefact, Artefacts, FORMS, keep  # noqa: E402
+from kairos.artefacts import FORMS, Artefact, Artefacts, keep  # noqa: E402
 from kairos.generation import make as generate_document  # noqa: E402
 from kairos.parse import watch  # noqa: E402
 from opsis.frame import compose  # noqa: E402
@@ -39,14 +37,23 @@ from opsis.frame.marks import Frame  # noqa: E402
 from opsis.frame.tones import EDGES, FONTS, TONES  # noqa: E402
 from opsis.scene import reader_of, ruledefs, staged  # noqa: E402
 from opsis.space import moved  # noqa: E402
-from praxis.ingress import FileSubject, Ingress, import_payload, land, probe_file  # noqa: E402
+from praxis.ingress import (  # noqa: E402
+    FileSubject,
+    Ingress,
+    import_payload,
+    land,
+    probe_file,
+)
 from praxis.reading import Reading, as_written, probe, read, turn  # noqa: E402
-from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 from praxis.roots import GRAMMAR as POLICY  # noqa: E402
+from praxis.session import KEYS, LANDED, SAYS, Session  # noqa: E402
 from praxis.state import chain  # noqa: E402
 from praxis.strata import strata  # noqa: E402
 from praxis.value import snapshot as praxis_snapshot  # noqa: E402
 from serve import Instrument  # noqa: E402
+
+from lexic.compile import export_source  # noqa: E402
+from lexic.ir import IrFlavour, IrSelf  # noqa: E402
 
 ROOT = HERE.parents[2]
 GROUND = ROOT / "resources" / "ground_truth"

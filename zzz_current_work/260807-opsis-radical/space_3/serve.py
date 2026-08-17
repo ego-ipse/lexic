@@ -9,10 +9,10 @@ because there is nothing left for the leaf to decide.
 from __future__ import annotations
 
 import sys
-from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass
 from collections import ChainMap
 from collections.abc import MutableMapping
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -32,6 +32,7 @@ from praxis.reading import Reading  # noqa: E402
 from praxis.routes import Routes  # noqa: E402
 from praxis.session import Session  # noqa: E402
 from praxis.value import snapshot as praxis_snapshot  # noqa: E402
+
 from lexic.ir import IrSelf  # noqa: E402
 
 __all__ = ["Handler", "Instrument", "Server", "main"]

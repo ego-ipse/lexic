@@ -24,22 +24,26 @@ from __future__ import annotations
 
 import argparse
 import gc
+import json
 import os
+import random
+import re
 import sys
 import time
 from collections.abc import Callable, Sequence
 from math import log10
 
 import lark
+import msgspec
 import parsimonious
+import parsimonious.expressions
 
 from lexic.compile import Directives, compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.trace import watch
-
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import _model_product, earley_model
+from lexic.parsing.trace import watch
 from tools.benchmark.antlr_build import antlr_parser
 from tools.benchmark.antlr_java import java_antlr_parser
 from tools.benchmark.emit import lark_grammar, peg_grammar, pyparsing_parser
@@ -63,6 +67,8 @@ PRODUCT: dict[str, str] = {
     "pyparsing": "ParseResults",
     "antlr": "ParserRuleContext · JAVA",
     "antlr-py": "ParserRuleContext",
+    "stdlib-json": "dict · C parser for the FORMAT, takes no grammar",
+    "msgspec": "dict · C parser for the FORMAT, takes no grammar",
 }
 """What each engine BUILDS — the part a bare µs/char number hides.
 
@@ -71,6 +77,13 @@ makes its cell a tool+runtime answer rather than an algorithm one — which is a
 real question ("what parses this grammar fastest") and the one it is reported
 for. `antlr-py` is the same generated parser on `antlr4-python3-runtime`, a
 pure-Python ATN simulator and a different animal.
+
+`stdlib-json` and `msgspec` are FORMAT SPECIALISTS: hand-written C parsers for
+the one format their row's grammar happens to describe. They take no grammar
+and answer no capability question — their cells are the specialist floor, what
+dedicating compiled code to a single fixed language buys. The same
+:func:`unfaithful` differential gates them, which is what proves their
+hard-coded language and the row's grammar agree on the fixture set.
 """
 
 Parse = Callable[[str], object]
@@ -213,8 +226,20 @@ def _lark_parse(bench: Bench, parser: str) -> Parse:
 
 
 def _peg_parse(bench: Bench) -> Parse:
-    """parsimonious over the emitted PEG."""
-    return parsimonious.Grammar(peg_grammar(bench.ast)).parse
+    """parsimonious over the emitted PEG, compiled on stdlib ``re``.
+
+    parsimonious prefers the third-party ``regex`` module when installed and
+    ships it as a dependency, but stdlib ``re`` measured 9-19% faster on the
+    bench's patterns. The row measures the PEG scheme, not the dependency's
+    regex engine, so the grammar is compiled under the faster module — a
+    construction-time swap only; matching runs on the compiled patterns.
+    """
+    preferred = getattr(parsimonious.expressions, "re")
+    setattr(parsimonious.expressions, "re", re)
+    try:
+        return parsimonious.Grammar(peg_grammar(bench.ast)).parse
+    finally:
+        setattr(parsimonious.expressions, "re", preferred)
 
 
 def _pp_parse(bench: Bench) -> Parse:
@@ -254,6 +279,25 @@ _CANDIDATES: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
 """Every competitor, as a name and the one way to build it from a bench."""
 
 
+_JSON_SPECIALISTS: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
+    ("stdlib-json", lambda bench: json.loads),
+    ("msgspec", lambda bench: msgspec.json.decode),
+)
+"""The json row's format specialists (see :data:`PRODUCT`)."""
+
+
+def _candidates(bench: Bench) -> tuple[tuple[str, Callable[[Bench], Parse]], ...]:
+    """The candidate rows for one bench: every engine, plus its specialists.
+
+    A specialist parses one fixed FORMAT, so it is a candidate only for the
+    bench whose language it hard-codes — offering `json.loads` a csv corpus
+    would print a refusal row that answers no question anyone asked.
+    """
+    if bench.name != "json":
+        return _CANDIDATES
+    return _CANDIDATES + _JSON_SPECIALISTS
+
+
 def _competitors(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
     """Every competitor that can take this grammar, and why the others cannot.
 
@@ -264,7 +308,7 @@ def _competitors(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
     """
     built: dict[str, Parse] = {}
     refused: dict[str, str] = {}
-    for label, make in _CANDIDATES:
+    for label, make in _candidates(bench):
         try:
             parse = make(bench)
         except REFUSALS as exc:
@@ -335,22 +379,25 @@ def _interleaved(
 ) -> dict[str, float]:
     """One pass per engine per round, so machine load moves every column alike.
 
-    The order ROTATES one seat per round: with a fixed order every engine
-    inherits the heap and cache state of the same predecessor on every round,
-    which is a systematic per-row bias, not noise — measured on arithmetic,
-    the row seated behind lexic-earley's allocation-heavy parse read +2%
-    against an identical artifact seated elsewhere, and rotation collapsed
-    the spread to the noise floor. Rotation gives every engine every
-    neighbour equally often, so seating averages out of the medians.
+    The seats are RESHUFFLED every round, from a fixed seed so runs stay
+    reproducible. A fixed order makes every engine inherit the heap state of
+    the same predecessor on every round — a systematic per-row bias, not
+    noise: the row seated behind lexic-earley's allocation-heavy parse read
+    +2-3% against a byte-identical artifact seated elsewhere. A cyclic
+    rotation does NOT remove it (a cyclic shift leaves each row's predecessor
+    unchanged in all but one round per cycle); a fresh permutation per round
+    varies every row's predecessor, and the identical-artifact pair's spread
+    collapses to the noise floor.
     """
     for parse in engines.values():
         _prime(parse, corpus)
     samples: dict[str, list[float]] = {name: [] for name in engines}
     seats = list(engines.items())
+    rng = random.Random(0x5EA75)
     for _ in range(rounds):
+        rng.shuffle(seats)
         for name, parse in seats:
             samples[name].append(_once(parse, corpus))
-        seats = seats[1:] + seats[:1]
     return {name: sorted(runs)[len(runs) // 2] for name, runs in samples.items()}
 
 
@@ -369,15 +416,19 @@ BAR_WIDTH = 40
 """Bar length. Wide enough that a 2x gap reads differently from a 4x one —
 at 22 columns the log scale gave them three characters between them."""
 
-_LEXIC_TINT: dict[str, str] = {
+_TINT: dict[str, str] = {
     "lexic-pda": "\x1b[38;5;39m",
     "lexic-lex": "\x1b[38;5;45m",
     "lexic-lex-ns": "\x1b[38;5;51m",
     "lexic-earley": "\x1b[38;5;208m",
+    "stdlib-json": "\x1b[38;5;213m",
+    "msgspec": "\x1b[38;5;213m",
 }
 """One distinct colour per lexic mode — the two rows this benchmark exists to
-place are findable at a glance. Competitors keep the terminal's default
-foreground: colour marks WHOSE row it is, never better or worse."""
+place are findable at a glance — plus one shared tint for the format
+specialists, marking rows that answer a DIFFERENT question (no grammar taken).
+Competitors keep the terminal's default foreground: colour marks whose row it
+is and what kind, never better or worse."""
 
 _DIM = "\x1b[2m"
 _RESET = "\x1b[0m"
@@ -431,14 +482,34 @@ def _report(
     worst = ranked[-1][1] if ranked else 1.0
     for name, value in ranked:
         rel = f"{value / best:6.1f}×" if value > best else "   base"
-        tint = _LEXIC_TINT.get(name, "")
+        tint = _TINT.get(name, "")
         label = _paint(f"{name:<17}", tint, color)
         shape = _paint(_bar(value, best, worst), tint, color)
         print(f"  {label}{value:9.3f} µs/char {rel}  {shape}  {PRODUCT.get(name, '?')}")
     for name, why in sorted(refused.items()):
-        label = _paint(f"{name:<17}", _LEXIC_TINT.get(name, ""), color)
+        label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
         print(f"  {label}{'—':>9}             {_paint(why[:96], _DIM, color)}")
     print(f"  {'noise floor':<13}{floor:8.2f}%    smaller differences are not results")
+    _seat_check(bench, timings)
+
+
+def _seat_check(bench: Bench, timings: dict[str, float]) -> None:
+    """The harness's own error, read off two byte-identical artifacts.
+
+    Where a grammar has no `@non-semantic` rules, `lexic-lex` and
+    `lexic-lex-ns` compile to the same program — any spread between their
+    rows is instrument error, not a result, so the display says what it
+    measured itself to be wrong by.
+    """
+    _, ns_marks = variant_marks(bench.ast)
+    if ns_marks or "lexic-lex" not in timings or "lexic-lex-ns" not in timings:
+        return
+    lex, ns = timings["lexic-lex"], timings["lexic-lex-ns"]
+    spread = abs(lex - ns) / max(min(lex, ns), 1e-9) * 100
+    print(
+        f"  {'seat check':<13}{spread:8.2f}%    lexic-lex vs lexic-lex-ns are "
+        "identical artifacts — this spread is the harness's own error"
+    )
 
 
 def _warmup_note(engines: dict[str, Parse]) -> None:

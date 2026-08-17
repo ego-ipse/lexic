@@ -15,8 +15,8 @@ row, never an edit through a cascade.
 """
 
 from __future__ import annotations
-from collections import ChainMap
 
+from collections import ChainMap
 from collections.abc import Callable, MutableMapping
 from time import monotonic
 
