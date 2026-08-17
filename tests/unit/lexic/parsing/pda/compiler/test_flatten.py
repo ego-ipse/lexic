@@ -29,6 +29,8 @@ from lexic.parsing.pda.compiler.flatten import (
     FlatClone,
     PdaProgram,
     _clone_arms,
+    _inline_value_strs,
+    vdisp_target,
     vstr_model,
 )
 from lexic.parsing.pda.compiler.opcodes import (
@@ -39,6 +41,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
     DISPATCH_EMPTY,
+    GATE_ATTEMPT,
     GATE_PAIR,
     GATE_STOP,
     HI_UNBOUNDED,
@@ -373,6 +376,27 @@ def test_a_dispatch_reachable_empty_arm_is_not_inlined():
     """
     text = 'root ::= ch "!"\nch ::= digits |\ndigits ::= [0-9]+\n'
     assert only_arm(pda_from_text(text).program.start).kinds[0] != OP_VDISP
+
+
+def test_an_attempt_gated_item_never_inlines_its_dispatch():
+    """``GATE_ATTEMPT`` is the TERMINAL attempt decision — an inlined dispatch
+    would consult it directly and REFUSE where the driver speculates.
+
+    The driver routes a non-terminal attempt item to ``attempt_iteration``,
+    which tries the iteration and rolls back. ``gate_take`` instead raises when
+    taking and stopping are both viable, so such an item must keep its entry:
+    the parse would otherwise fall back to the engine for the same model.
+
+    Runs the pass twice over the same item — the licence holds either way, so
+    only the gate can decide.
+    """
+    arm = _vdisp_item_arm(_VDISP)
+    assert arm.kinds[0] == OP_VDISP  # stop-gated: inlined
+    assert vdisp_target(arm.payloads[0])  # the clone licence is unchanged
+    arm.kinds = (OP_REF, *arm.kinds[1:])
+    arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
+    _inline_value_strs(arm)
+    assert arm.kinds[0] == OP_REF  # attempt-gated: the entry is kept
 
 
 def test_the_inlined_dispatch_builds_what_the_entry_path_built():

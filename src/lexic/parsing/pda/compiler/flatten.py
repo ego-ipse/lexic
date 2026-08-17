@@ -571,6 +571,14 @@ def _inline_value_strs(arm: FlatArm) -> None:
     reporting the same model into the same sink. An UNTABLED dispatch whose every
     target is inlinable becomes :data:`OP_VDISP` (:func:`vdisp_target`): the
     lookup is unavailable but the chase still is.
+
+    **Never an item gated :data:`GATE_ATTEMPT`.** That gate is the TERMINAL
+    attempt decision; the driver routes a non-terminal attempt item to
+    :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel.attempt_iteration`
+    instead, which speculates and rolls back. An inline matcher consults the
+    gate directly, so rewriting such an item swaps a speculating loop for one
+    that REFUSES when taking and stopping are both viable — the parse then falls
+    back to the engine, same model, many times the cost.
     """
     kinds = list(arm.kinds)
     for i, kind in enumerate(kinds):
@@ -579,7 +587,7 @@ def _inline_value_strs(arm: FlatArm) -> None:
         target = arm.payloads[i]
         if _vstr_inlinable(target) or target.chartable is not None:
             kinds[i] = OP_VSTR
-        elif vdisp_target(target):
+        elif vdisp_target(target) and arm.gate_kinds[i] != GATE_ATTEMPT:
             kinds[i] = OP_VDISP
     arm.kinds = tuple(kinds)
 
