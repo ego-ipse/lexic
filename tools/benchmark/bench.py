@@ -376,18 +376,21 @@ def _prime(parse: Parse, corpus: str) -> None:
 
 def _interleaved(
     engines: dict[str, Parse], corpus: str, rounds: int
-) -> dict[str, float]:
+) -> dict[str, list[float]]:
     """One pass per engine per round, so machine load moves every column alike.
 
-    The seats are RESHUFFLED every round, from a fixed seed so runs stay
-    reproducible. A fixed order makes every engine inherit the heap state of
-    the same predecessor on every round — a systematic per-row bias, not
-    noise: the row seated behind lexic-earley's allocation-heavy parse read
-    +2-3% against a byte-identical artifact seated elsewhere. A cyclic
-    rotation does NOT remove it (a cyclic shift leaves each row's predecessor
-    unchanged in all but one round per cycle); a fresh permutation per round
-    varies every row's predecessor, and the identical-artifact pair's spread
-    collapses to the noise floor.
+    Each row's pass is followed by an UNTIMED ``gc.collect()``: the passes run
+    under ``gc.disable()``, so without it a row inherits its predecessor's
+    uncollected garbage — the row seated behind lexic-earley's allocation-heavy
+    parse read +2-3% against a byte-identical artifact seated elsewhere. The
+    collect levels the heap between rows; it is what removes that bias.
+
+    The seats are still reshuffled every round so no row keeps one predecessor
+    for effects a collect cannot level (cache warmth, frequency scaling). The
+    shuffle is from a fixed seed, which makes runs REPRODUCIBLE, not unbiased:
+    every process replays the identical schedule, so whatever residual seating
+    effect a permutation carries is a constant across runs, never averaged
+    away. The seat-check line is the display's own measurement of what's left.
     """
     for parse in engines.values():
         _prime(parse, corpus)
@@ -398,6 +401,12 @@ def _interleaved(
         rng.shuffle(seats)
         for name, parse in seats:
             samples[name].append(_once(parse, corpus))
+            gc.collect()
+    return samples
+
+
+def _medians(samples: dict[str, list[float]]) -> dict[str, float]:
+    """Each row's reported figure: the median of its per-round passes."""
     return {name: sorted(runs)[len(runs) // 2] for name, runs in samples.items()}
 
 
@@ -407,8 +416,8 @@ def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
     Anything below this is not a result. Printing it is what stops a 2%
     difference being read as a finding.
     """
-    first = _interleaved({"a": parse}, corpus, rounds)["a"]
-    second = _interleaved({"a": parse}, corpus, rounds)["a"]
+    first = _medians(_interleaved({"a": parse}, corpus, rounds))["a"]
+    second = _medians(_interleaved({"a": parse}, corpus, rounds))["a"]
     return abs(first - second) / max(first, second, 1e-9) * 100
 
 
@@ -463,20 +472,8 @@ def _bar(value: float, best: float, worst: float) -> str:
     return "█" * filled + "·" * (BAR_WIDTH - filled)
 
 
-def _report(
-    bench: Bench,
-    timings: dict[str, float],
-    refused: dict[str, str],
-    floor: float,
-    color: bool,
-) -> None:
-    """One grammar's block: fastest first, with the bar and what each builds."""
-    print(
-        f"\n─── {bench.name} · {len(bench.corpus):,} chars · one grammar, "
-        "every engine · bars log-scaled, full bar = slowest"
-    )
-    if not timings:
-        print("    no engine could parse this grammar")
+def _ranked_rows(timings: dict[str, float], color: bool) -> None:
+    """The timed rows, fastest first, each with its bar and product."""
     ranked = sorted(timings.items(), key=lambda kv: kv[1])
     best = ranked[0][1] if ranked else 1.0
     worst = ranked[-1][1] if ranked else 1.0
@@ -486,29 +483,79 @@ def _report(
         label = _paint(f"{name:<17}", tint, color)
         shape = _paint(_bar(value, best, worst), tint, color)
         print(f"  {label}{value:9.3f} µs/char {rel}  {shape}  {PRODUCT.get(name, '?')}")
+
+
+def _report(
+    bench: Bench,
+    samples: dict[str, list[float]],
+    refused: dict[str, str],
+    floor: float,
+    color: bool,
+) -> None:
+    """One grammar's block: fastest first, with the bar and what each builds."""
+    print(
+        f"\n─── {bench.name} · {len(bench.corpus):,} chars · one grammar, "
+        "every engine · bars log-scaled, full bar = slowest"
+    )
+    if not samples:
+        print("    no engine could parse this grammar")
+    _ranked_rows(_medians(samples), color)
     for name, why in sorted(refused.items()):
         label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
         print(f"  {label}{'—':>9}             {_paint(why[:96], _DIM, color)}")
     print(f"  {'noise floor':<13}{floor:8.2f}%    smaller differences are not results")
-    _seat_check(bench, timings)
+    _seat_check(bench, samples)
 
 
-def _seat_check(bench: Bench, timings: dict[str, float]) -> None:
-    """The harness's own error, read off two byte-identical artifacts.
+def _identical_variants(bench: Bench) -> bool:
+    """Whether the two declared-variant rows compile to the same program.
 
-    Where a grammar has no `@non-semantic` rules, `lexic-lex` and
-    `lexic-lex-ns` compile to the same program — any spread between their
-    rows is instrument error, not a result, so the display says what it
-    measured itself to be wrong by.
+    True when the `@non-semantic` marks change nothing — either none exist, or
+    every marked ref sits where the relaxation is a no-op. Asked of the compiled
+    artifacts themselves (the same cached objects the rows run), not inferred
+    from the mark set: the codegen grammars being equal is what makes every
+    downstream table identical, synthesis being deterministic.
     """
-    _, ns_marks = variant_marks(bench.ast)
-    if ns_marks or "lexic-lex" not in timings or "lexic-lex-ns" not in timings:
+    lex_marks, ns_marks = variant_marks(bench.ast)
+    lex_marks = _licensed_marks(bench, lex_marks)
+    lex, ns = (
+        compile_text(
+            bench.source,
+            cache_key=f"bench-{bench.name}-{label}-{len(lex_marks)}",
+            flavour=bench.flavour,
+            directives=directives,
+        )
+        for label, directives in (
+            ("lexic-lex", Directives(lexical=lex_marks)),
+            ("lexic-lex-ns", Directives(lexical=lex_marks, non_semantic=ns_marks)),
+        )
+    )
+    return lex.codegen_grammar == ns.codegen_grammar
+
+
+def _seat_check(bench: Bench, samples: dict[str, list[float]]) -> None:
+    """The harness's own error, read off two program-identical rows.
+
+    Where the `@non-semantic` marks change nothing, `lexic-lex` and
+    `lexic-lex-ns` run the same program — any spread between their rows is
+    instrument error, not a result, so the display says what it measured
+    itself to be wrong by. The statistic is PAIRED: the median of the
+    per-round differences, so common-mode load cancels and its sign is
+    readable — a signed constant is a seating bias, a wandering sign is
+    noise.
+    """
+    if "lexic-lex" not in samples or "lexic-lex-ns" not in samples:
         return
-    lex, ns = timings["lexic-lex"], timings["lexic-lex-ns"]
-    spread = abs(lex - ns) / max(min(lex, ns), 1e-9) * 100
+    if not _identical_variants(bench):
+        return
+    diffs = sorted(
+        (ns - lex) / max(min(lex, ns), 1e-9) * 100
+        for lex, ns in zip(samples["lexic-lex"], samples["lexic-lex-ns"])
+    )
+    spread = diffs[len(diffs) // 2]
     print(
-        f"  {'seat check':<13}{spread:8.2f}%    lexic-lex vs lexic-lex-ns are "
-        "identical artifacts — this spread is the harness's own error"
+        f"  {'seat check':<13}{spread:+8.2f}%    lexic-lex vs lexic-lex-ns run "
+        "the same program — this spread is the harness's own error"
     )
 
 
