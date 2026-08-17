@@ -440,20 +440,32 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                 A dispatch clone (a frame-less pass-through alternation) is chased
                 first: its selectors carry target clones, so the walk lands on the
                 concrete clone — reporting into the same ``out`` the alternation would
-                have passed through to — before any frame is pushed. A leaf clone then
-                runs frame-lessly in :meth:`_run_leaf`.
+        have passed through to — before any frame is pushed. A leaf clone then
+        runs frame-lessly in :meth:`_run_leaf`.
 
-        Both steps live in :meth:`_settle`, which
-                resolves them to a fixpoint.
+        A chase is taken straight here; only an ATTEMPT landing needs
+        :meth:`_settle`'s fixpoint, because a substitution can install another
+        dispatch clone. Chasing through the fixpoint unconditionally cost a
+        second call on every dispatch entry, and on five of six bench grammars
+        every one of them was a chase with no attempt anywhere in sight.
 
-                :param clone: The clone (or inline group) to descend into.
-                :param out: The parent sink list the clone's model reports into.
-                :returns: ``True`` when a frame was pushed; ``False`` when the clone
-                    was consumed inline (a leaf run, or a dispatch clone's empty arm).
-                :raises PdaFail: When no arm's FIRST matches and there is no default.
+        :param clone: The clone (or inline group) to descend into.
+        :param out: The parent sink list the clone's model reports into.
+        :returns: ``True`` when a frame was pushed; ``False`` when the clone
+            was consumed inline (a leaf run, or a dispatch clone's empty arm).
+        :raises PdaFail: When no arm's FIRST matches and there is no default.
         """
         char = self.text[self.pos : self.pos + 1]
-        if clone.mode == BUILD_DISPATCH or clone.attempt is not None:
+        if clone.mode == BUILD_DISPATCH:
+            # The common substitution, taken straight: a chase alone needs no
+            # fixpoint, and on five of six bench grammars EVERY dispatch entry
+            # reached _settle only to chase. The fixpoint is still there for the
+            # chains that need it — an attempt landing installs another clone.
+            chased = chase_dispatch(clone, char, self.pos)
+            if chased is None:
+                return False  # the empty (nullable) arm — nothing consumed
+            clone = chased
+        if clone.attempt is not None:
             # Most entries resolve to themselves; pay the call only when one of
             # the two substituting shapes is actually present (measured: the
             # unconditional call cost 1-3% on every grammar).
@@ -461,21 +473,12 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             if settled is None:
                 return False  # consumed inline — empty arm, or an attempt run
             clone = settled
-        if clone.kwin_selectors is not None or clone.pn_selectors is not None:
-            gated = select_gated(self.text, self.pos, clone)
-            self.stack.append(
-                [gated, 0, 0, out, clone.mode, clone, self.pos, [0] * gated.n, None]
-            )
-            return True
-        gate = clone.struct_arm
-        if gate is not None and not scan_gate_take(self.text, self.pos, gate):
-            arm = clone.default
-            if arm is None:
-                raise PdaFail(f"no arm at {self.pos}", self.pos)
-            self.stack.append(
-                [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
-            )
-            return True
+        if (
+            clone.kwin_selectors is not None
+            or clone.pn_selectors is not None
+            or clone.struct_arm is not None
+        ) and self._enter_gated(clone, out):
+            return True  # short-circuits: an ungated clone never pays the call
         if clone.leaf:
             if clone.mode == BUILD_VALUE_STR:
                 # the same frame-less run an OP_VSTR reference to this clone
@@ -499,6 +502,35 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         # frame layout: arm, i, count, out, mode, clone, start, ends, sinks
         # ``ends`` is per-frame so the driver's per-item span write stays
         # unconditional (only span-reading sequence clones ever read it back).
+        self.stack.append(
+            [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
+        )
+        return True
+
+    def _enter_gated(self, clone: FlatClone, out: list[object]) -> bool:
+        """Push the frame of a clone that selects its arm by something other
+        than the lead char, or report that it does not.
+
+        The two cold selections, together because they share that property: a
+        ``k``-window / post-noise-peek clone picks its arm by
+        :func:`~lexic.parsing.pda.compiler.flatten.select_gated`, and a
+        struct-gated clone whose gate REFUSES takes its escape (default) arm. A
+        struct gate that takes falls through to the ordinary lead-char path.
+
+        :returns: ``True`` when a frame was pushed, ``False`` to continue.
+        :raises PdaFail: When a refusing struct gate has no escape arm.
+        """
+        if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+            gated = select_gated(self.text, self.pos, clone)
+            self.stack.append(
+                [gated, 0, 0, out, clone.mode, clone, self.pos, [0] * gated.n, None]
+            )
+            return True
+        if scan_gate_take(self.text, self.pos, clone.struct_arm):
+            return False  # the gate takes — the lead char selects as usual
+        arm = clone.default
+        if arm is None:
+            raise PdaFail(f"no arm at {self.pos}", self.pos)
         self.stack.append(
             [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
         )
