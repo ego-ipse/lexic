@@ -220,17 +220,35 @@ def test_exactly_once_ref_and_literal_inline_and_specialise_to_a_leaf():
     assert arm.payloads[1] == "x"
 
 
-def test_value_str_literal_run_specialises_but_never_earns_the_leaf_flag():
+def test_a_terminal_only_value_str_clone_earns_the_leaf_flag():
     """A merged literal-run value_str clone specialises its sole item to
-    OP_LIT1, but the leaf licence is granted only to BUILD_SEQ clones.
+    OP_LIT1 and earns the frame-less licence.
+
+    It earns it on exactly the terms that let a REFERENCE to such a clone
+    become ``OP_VSTR``: no arm can descend, so an ENTRY has nothing to keep a
+    frame for either.
     """
     pda = pda_from_text('root ::= "a" "b"\n')
     root = pda.program.start
     assert root.mode == BUILD_VALUE_STR
-    assert root.leaf is False
+    assert root.leaf is True
     arm = only_arm(root)
     assert arm.kinds == (OP_LIT1,)
     assert arm.payloads == ("ab",)
+
+
+def test_a_value_str_clone_that_can_descend_is_not_frame_less():
+    """The licence is about descent, not about the build mode.
+
+    ``@lexical`` is what makes a ref-bearing rule a ``value_str``; its body can
+    still hold a group, and then a frame is exactly what the entry needs.
+    """
+    text = '# @lexical pair\nroot ::= pair\npair ::= ("a" | "bb")+\n'
+    pair = only_arm(pda_from_text(text).program.start).payloads[0]
+    assert isinstance(pair, FlatClone)
+    assert pair.mode == BUILD_VALUE_STR
+    assert OP_GRP in only_arm(pair).kinds  # the descent the frame is there for
+    assert pair.leaf is False
 
 
 def test_exactly_once_charclass_specialises_to_cc1_with_a_resolved_charset():

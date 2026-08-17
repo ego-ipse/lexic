@@ -477,7 +477,15 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             )
             return True
         if clone.leaf:
-            self.pos = self._run_leaf(clone, out, self.pos)
+            if clone.mode == BUILD_VALUE_STR:
+                # the same frame-less run an OP_VSTR reference to this clone
+                # gets — an entry had been paying a frame for the identical
+                # match, which by the leaf licence cannot descend
+                self.pos = vstr_once(
+                    self.text, self._caches.intern, clone, out, self.pos
+                )
+            else:
+                self.pos = self._run_leaf(clone, out, self.pos)
             return False
         arm = None
         for chars, negated, candidate in clone.selectors:

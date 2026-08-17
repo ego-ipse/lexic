@@ -604,13 +604,24 @@ def convert_dispatch(clone: FlatClone) -> None:
 
 
 def _mark_leaves(clone: FlatClone) -> None:
-    """Grant the frame-less licence to an all-terminal ``sequence`` clone.
+    """Grant the frame-less licence to an all-terminal ``sequence``/``value_str``.
 
-    A leaf is a fast-licenced ``sequence`` clone whose every arm consists of
-    terminal (``OP_VSTR`` included) items only — no descent can occur under
-    it, so the runtime builds its model inline without a frame.
+    A leaf's every arm consists of terminal (``OP_VSTR`` included) items only,
+    so no descent can occur under it and the runtime builds its model inline
+    without a frame.
+
+    ``value_str`` earns it on exactly :func:`_vstr_inlinable`'s terms — the same
+    licence that lets a REFERENCE to such a clone become ``OP_VSTR``. A clone
+    reached by reference was already running frame-lessly; one reached by
+    ENTRY (through a dispatch chase, say) was not, and paid a frame per
+    occurrence for a match that cannot descend.
     """
-    if clone.mode != BUILD_SEQ or clone.fast is None:
+    if clone.fast is None:
+        return
+    if clone.mode == BUILD_VALUE_STR:
+        clone.leaf = _vstr_inlinable(clone)
+        return
+    if clone.mode != BUILD_SEQ:
         return
     if clone.kwin_selectors is not None or clone.pn_selectors is not None:
         return  # a gated selection cannot run frame-lessly by lead char
