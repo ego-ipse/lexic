@@ -386,6 +386,9 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         character wide, or ``None``. Its models are the ones :func:`vstr_model`
         builds, so an occurrence is a lookup rather than a build — the interior
         model of a lexical run RECONSTRUCTED from its span.
+    :ivar runarm: The one quantified-terminal arm whose matched SPAN keys
+        :attr:`chartable` (:func:`runarm_for`), or ``None`` — then the table is
+        keyed by one character and the lookahead alone answers it.
     :ivar chartotal: Whether :attr:`chartable` is the clone's WHOLE language
         (:func:`chartable_for` — a miss is the refusal the untabled path raises)
         or a bounded fill-on-first-sight cache (:func:`charcache_for` — a miss
@@ -427,6 +430,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "leaf",
         "chartable",
         "chartotal",
+        "runarm",
         "needs_ends",
         "reduce_kind",
         "reduce_body",
@@ -449,8 +453,9 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     fast: Any
     defaults: Any
     leaf: bool
-    chartable: Any  # dict[str, object] | None — the one-char language's models
+    chartable: Any  # dict[str, object] | None — the tabled language's models
     chartotal: bool
+    runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
     reduce_kind: int
     reduce_body: Any  # IrSelf | None
@@ -662,6 +667,43 @@ def charcache_for(clone: FlatClone) -> "dict[str, object] | None":
     return {}
 
 
+def runarm_for(clone: FlatClone) -> "FlatArm | None":
+    """The sole always-selected RUN arm of a ``value_str`` clone, or ``None``.
+
+    The span-keyed half of the licence. A clone whose only arm is one quantified
+    terminal — ``ws ::= [ \\t\\n]*``, ``chars ::= [^"]+`` — accepts spans of many
+    widths, so no character keys it; but the arm is the clone's whole answer, its
+    width is whatever the run consumes, and the model is a total function of the
+    span. Matching it is :func:`match_cc`/:func:`match_lit` (the same call the
+    untabled path makes), and only the SELECTION and the BUILD are then answered
+    from :attr:`FlatClone.chartable`, keyed by the matched span.
+
+    Restricted to the shape where SELECTION CANNOT CHANGE THE MATCH: a default
+    arm exists (so no lookahead can be refused, which is what lets a nullable run
+    answer ε anywhere) and every arm is the same single run — which is how a
+    nullable run rule actually compiles, its one arm appearing as both the
+    FIRST-gated selector and the default. Nothing is then being chosen, so no
+    refusal or arm decision can hide behind the lookup.
+
+    :param clone: The candidate clone (post-specialisation).
+    :returns: The run arm, or ``None`` when the licence does not hold.
+    """
+    if clone.mode != BUILD_VALUE_STR or clone.default is None:
+        return None
+    if not _vstr_inlinable(clone):
+        return None
+    shapes = {
+        (arm.kinds[0], arm.payloads[0], arm.los[0], arm.his[0], arm.gate_kinds[0])
+        for arm in _clone_arms(clone)
+        if arm.n == 1
+    }
+    if len(shapes) != 1 or any(arm.n != 1 for arm in _clone_arms(clone)):
+        return None
+    if clone.default.kinds[0] not in (OP_CC, OP_LIT):
+        return None
+    return clone.default
+
+
 def _value_str_chartable(clone: FlatClone) -> "dict[str, object] | None":
     """The table of a ``value_str`` clone whose every accepted string is one char."""
     table: dict[str, object] = {}
@@ -746,8 +788,9 @@ def bake_chartables(clones: list[FlatClone]) -> None:
     refuses before any clone exists.
 
     What the fixpoint could not enumerate then gets a fill-on-first-sight table
-    (:func:`charcache_for`) — same licence, key set discovered instead of
-    written down, so :attr:`FlatClone.chartotal` records which kind a clone has.
+    (:func:`charcache_for`, keyed by character; :func:`runarm_for`, keyed by the
+    matched span) — same licence, key set discovered instead of written down, so
+    :attr:`FlatClone.chartotal` records which kind a clone has.
     """
     pending = True
     while pending:
@@ -757,9 +800,33 @@ def bake_chartables(clones: list[FlatClone]) -> None:
                 clone.chartable = chartable_for(clone)
                 pending = pending or clone.chartable is not None
     for clone in clones:
-        if clone.chartable is None:
-            clone.chartable = charcache_for(clone)
+        if clone.chartable is not None:
+            continue
+        clone.runarm = runarm_for(clone)
+        filling = clone.runarm is not None or charcache_for(clone) is not None
+        if filling:
+            clone.chartable = {}
             clone.chartotal = False
+    _share_filling_tables(clones)
+
+
+def _share_filling_tables(clones: list[FlatClone]) -> None:
+    """One filling table per rule constructor — the intern memo's own key space.
+
+    A rule compiles to several context clones, and the per-parse memo keys
+    ``value_str`` models by ``(ctor, span)``: equal models are ONE instance across
+    every clone of that rule. A per-clone table would narrow that to per-context
+    sharing — which the interning gate reads as a regression, correctly. Handing
+    every clone of a ctor the same dict keeps the sharing exactly as wide as the
+    memo's, and now spans parses too. Sound whatever the clones' gates are: a span
+    determines the model, so two contexts that match different spans still agree
+    on every span they share.
+    """
+    by_ctor: dict[Any, dict[str, object]] = {}
+    for clone in clones:
+        if clone.chartable is None or clone.chartotal:
+            continue
+        clone.chartable = by_ctor.setdefault(clone.fold.ctor, clone.chartable)
 
 
 def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":

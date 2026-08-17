@@ -57,6 +57,7 @@ from lexic.parsing.pda.compiler.flatten import (
     FlatArm,
     FlatClone,
     PdaProgram,
+    _clone_arms,
     vstr_model,
 )
 from tests.paths import GROUND_TRUTH
@@ -165,7 +166,7 @@ def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "fold", "fields", "plan"}
     expected |= {"fast", "defaults", "leaf", "chartable", "chartotal"}
-    expected |= {"needs_ends"}
+    expected |= {"runarm", "needs_ends"}
     expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
     expected |= {"reduce_span", "reduce_can_drop"}
     assert set(FlatClone.__slots__) == expected
@@ -335,6 +336,51 @@ def test_a_negated_class_value_str_fills_its_table_instead_of_baking_it():
     assert other.chartotal is False
     assert art.parse("aba!").to_text() == "aba!"
     assert sorted(other.chartable) == ["a", "b"]
+
+
+def test_a_nullable_run_rule_is_tabled_by_its_matched_span():
+    """A run accepts many widths, so its SPAN keys the table, not a character.
+
+    The licence is that selection cannot change the match: the one run arm
+    appears as both the FIRST-gated selector and the default, so nothing is being
+    chosen and every lookahead — including one the run spans emptily — is
+    answered by the same run.
+    """
+    text = 'root ::= ws "a" ws\nws ::= [ \t]*\n'
+    art = compile_text(text, cache_key="flatten-runspan", flavour="gbnf")
+    ws = only_arm(art.pda_tables().program.start).payloads[0]
+    assert ws.mode == BUILD_VALUE_STR
+    assert ws.runarm is not None
+    assert ws.chartotal is False
+    assert art.parse("  a ").to_text() == "  a "
+    assert sorted(ws.chartable) == [" ", "  "]
+    assert art.parse("a").to_text() == "a"  # the ε match is a span like any other
+    assert sorted(ws.chartable) == ["", " ", "  "]
+
+
+def test_clones_of_one_rule_share_their_filling_table():
+    """Instance sharing stays as wide as the intern memo's — per ctor, not clone.
+
+    A rule compiles to several context clones; the memo keys ``(ctor, span)``, so
+    equal models are one instance across all of them, and the table has to keep
+    that.
+    """
+    text = 'root ::= ws "a" ws "b" ws\nws ::= [ \t]*\n'
+    art = compile_text(text, cache_key="flatten-runshare", flavour="gbnf")
+    art.parse(" a b ")
+    root = art.pda_tables().program.start
+    reached = [root] + [
+        payload
+        for arm in _clone_arms(root)
+        for payload in arm.payloads
+        if isinstance(payload, FlatClone)
+    ]
+    tables = {
+        id(clone.chartable)
+        for clone in reached
+        if clone.chartable is not None and not clone.chartotal
+    }
+    assert len(tables) == 1  # three ws occurrences, one table
 
 
 def test_a_multi_character_literal_value_str_earns_no_table():

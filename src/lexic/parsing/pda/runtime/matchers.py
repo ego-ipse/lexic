@@ -19,6 +19,7 @@ from lexic.parsing.pda.compiler.flatten import (
     BUILD_DISPATCH,
     CHARTABLE_CAP,
     GATE_STOP,
+    OP_CC,
     OP_CC1,
     OP_LIT,
     OP_LIT1,
@@ -26,6 +27,7 @@ from lexic.parsing.pda.compiler.flatten import (
     FlatClone,
     arm_expected,
     gate_take,
+    vstr_model,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import build_vstr
@@ -165,6 +167,8 @@ def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) 
     :raises PdaFail: On an unmatched mandatory iteration (from the miss path).
     """
     clone = arm.payloads[i]
+    if clone.runarm is not None:  # keyed by the matched span, not the lookahead
+        return match_runtable(text, arm, i, sink, pos)
     get = clone.chartable.get
     append = sink.append
     lo, hi = arm.los[i], arm.his[i]
@@ -177,6 +181,46 @@ def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) 
         else:
             append(model)
             pos += 1
+        count += 1
+    return pos
+
+
+def run_span_once(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
+    """One iteration of a run-valued ``value_str`` clone — match, then look up.
+
+    The run itself is matched by the same call the untabled path makes, so the
+    span is identical; what the table answers is the SELECTION (there is one
+    always-selected arm) and the BUILD, keyed by that span. Fills as spans
+    arrive, capped — a corpus whose spans never repeat pays one dict miss per
+    occurrence and keeps the saved calls.
+
+    :returns: The position after the run.
+    """
+    runarm = clone.runarm
+    end = (
+        match_cc(text, runarm, 0, pos)
+        if runarm.kinds[0] == OP_CC
+        else match_lit(text, runarm, 0, pos)
+    )
+    span = text[pos:end]
+    table = clone.chartable
+    model = table.get(span)
+    if model is None:
+        model = vstr_model(clone, span)
+        if len(table) < CHARTABLE_CAP:
+            table[span] = model
+    sink.append(model)
+    return end
+
+
+def match_runtable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
+    """Run an ``OP_VSTR`` loop whose target is a span-tabled run clone."""
+    clone = arm.payloads[i]
+    lo, hi = arm.los[i], arm.his[i]
+    gk, gate = arm.gate_kinds[i], arm.gate_data[i]
+    count = 0
+    while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+        pos = run_span_once(text, clone, sink, pos)
         count += 1
     return pos
 
@@ -221,6 +265,8 @@ def vstr_once(
     char = text[pos : pos + 1]
     table = clone.chartable
     if table is not None:
+        if clone.runarm is not None:
+            return run_span_once(text, clone, sink, pos)
         model = table.get(char)
         if model is not None:
             sink.append(model)
