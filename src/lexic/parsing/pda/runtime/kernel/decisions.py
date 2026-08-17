@@ -88,7 +88,7 @@ def _item_admits(arm: FlatArm, j: int, char: str) -> bool:
 def _clone_admits(clone: FlatClone, char: str) -> bool:
     """MAY ``clone`` consume ``char`` first (selector union; default ⇒ MAY)."""
     if clone.attempt is not None:
-        return any(admits(char, c, n) for c, n, _re, _sub in clone.attempt[1])
+        return any(admits(char, c, n) for c, n, _re, _win, _sub in clone.attempt[1])
     if clone.kwin_selectors is not None or clone.pn_selectors is not None:
         return True  # windowed selection — MAY
     if clone.default is not None:
@@ -465,10 +465,12 @@ class Attempting:
         char = self.text[pos : pos + 1]
         winner = -1
         best: tuple[int, list[object]] | None = None
-        for idx, (chars, negated, prefix, sub) in enumerate(entries):
+        for idx, (chars, negated, prefix, window, sub) in enumerate(entries):
             if not admits(char, chars, negated):
                 continue
             if prefix is not None and not prefix_admits(self.text, pos, prefix):
+                continue
+            if window is not None and window.match(self.text, pos) is None:
                 continue
             best = self._attempt_run(sub, pos)
             if best is not None:
@@ -495,10 +497,12 @@ class Attempting:
             either way the gated engine decides.
         """
         char = self.text[pos : pos + 1]
-        for chars, negated, prefix, sub in rest:
+        for chars, negated, prefix, window, sub in rest:
             if not admits(char, chars, negated):
                 continue
             if prefix is not None and not prefix_admits(self.text, pos, prefix):
+                continue
+            if window is not None and window.match(self.text, pos) is None:
                 continue
             other = self._attempt_run(sub, pos)
             if other is None:

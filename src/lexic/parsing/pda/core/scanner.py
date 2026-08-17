@@ -160,6 +160,45 @@ def _arm_source(arm: tuple[tuple[int, Any, int, int], ...], sources: list[str]) 
     return f"(?>{''.join(_item_source(item, sources) for item in arm)})"
 
 
+def _position_source(chars: frozenset[str], negated: bool) -> str:
+    """One admission-window position as a regex fragment, EOF-exactly.
+
+    The consistency semantics of a k-window position: at end of input the
+    char is the EOF sentinel ``""``, matched ONLY by a positive set carrying
+    it — spelled ``$`` here, and a chain of ``(?:$|…)`` positions keeps
+    matching at EOF exactly as the positionwise test keeps consenting.
+    """
+    if negated:
+        return _class_source(chars, True)
+    at_eof = "" in chars
+    members = _class_source(frozenset(ch for ch in chars if ch), False)
+    if at_eof:
+        return f"(?:$|{members})"
+    return members
+
+
+def compile_admission(
+    windows: tuple[tuple[tuple[frozenset[str], bool], ...], ...],
+) -> re.Pattern[str]:
+    """Compile a k-window set to ONE admission pattern — consistent-with-any.
+
+    A window set is literally a tiny pattern language — an ordered
+    alternation of ``≤k``-position charset sequences — so a set of hundreds
+    of windows collapses to one C-level ``pattern.match`` per consult where
+    a positionwise walk pays Python per window. An EMPTY window (the
+    derivation poison) matches vacuously, exactly as the positionwise test
+    admits it.
+
+    :param windows: The flat ``((chars, negated), ...)`` windows.
+    :returns: The compiled pattern; a match at ``pos`` IS admission.
+    """
+    branches = [
+        "".join(_position_source(chars, negated) for chars, negated in window)
+        for window in windows
+    ]
+    return re.compile("|".join(branches or [""]), re.DOTALL)
+
+
 def _hi(item: IrItem) -> int:
     """The item's upper bound as an int, :data:`_HI_UNBOUNDED` for unbounded."""
     hi = item.quantifier.hi

@@ -184,12 +184,18 @@ class ArmSpec(NamedTuple):
         (analysis-sourced — :attr:`~lexic.parsing.pda.analysis.analysis.Taxonomy
         .pn_arm_gates`), or ``None``; every gated arm of a P3-demoted
         alternation carries one (same ``W``).
+    :ivar attempt_window: The arm's FIRST\\ :sub:`k` admission windows on an
+        ATTEMPT clone's arm, or ``None``. Purely an exclusion filter: a
+        lookahead inconsistent with every window cannot begin this arm, so
+        the trial sub-run (which would fail) is skipped — never a selector,
+        so overlapping windows stay tried in order.
     """
 
     first: CharSet
     specs: tuple[ItemSpec, ...]
     windows: tuple[tuple[CharSet, ...], ...] | None = None
     peek: tuple[CharSet, CharSet] | None = None
+    attempt_window: tuple[tuple[CharSet, ...], ...] | None = None
 
 
 class ArmGates(NamedTuple):

@@ -87,17 +87,20 @@ def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     """The single admitted entry's clone, or ``None`` when several admit.
 
     Admission is the first-char pre-filter AND the leading-terminal prefix
-    regex (one C-level match per candidate) — most overlapping-FIRST
-    decisions collapse to a single survivor at their discriminator, and a
-    sole survivor has no fork to audit and no rollback to arm: the runtime
-    enters it as an ordinary clone (frame push) instead of a sub-run.
+    regex (one C-level match per candidate) AND the arm's FIRST_k window —
+    most overlapping-FIRST decisions collapse to a single survivor at their
+    discriminator, and a sole survivor has no fork to audit and no rollback
+    to arm: the runtime enters it as an ordinary clone (frame push) instead
+    of a sub-run.
     """
     char = text[pos : pos + 1]
     sole = None
-    for chars, negated, prefix, sub in entries:
+    for chars, negated, prefix, window, sub in entries:
         if not admits(char, chars, negated):
             continue
         if prefix is not None and not prefix_admits(text, pos, prefix):
+            continue
+        if window is not None and window.match(text, pos) is None:
             continue
         if sole is not None:
             return None

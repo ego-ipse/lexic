@@ -64,7 +64,7 @@ from lexic.parsing.pda.compiler.specs import (
     StopGate,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import ScanGate
+from lexic.parsing.pda.core.scanner import ScanGate, compile_admission
 
 
 def _flat_windows(
@@ -423,28 +423,36 @@ def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
 
 
 def _attempt_entries(
-    clone: FlatClone, reduce_mode: bool
-) -> tuple[tuple[Any, Any, Any, FlatClone], ...]:
+    clone: FlatClone, reduce_mode: bool, arms: "tuple[ArmSpec, ...]"
+) -> tuple[tuple[Any, Any, Any, Any, FlatClone], ...]:
     """An attempt clone's ordered entry list — one single-arm sub-clone each,
     with a leading-terminal prefix regex as its C-speed admission
-    (:func:`_arm_prefix_re`).
+    (:func:`_arm_prefix_re`) and the arm's FIRST\\ :sub:`k` admission windows
+    (:attr:`~lexic.parsing.pda.compiler.specs.ArmSpec.attempt_window`).
 
     Every sub-clone SHARES the parent's :class:`FlatArm` (op specialisation
     reached it once, through the parent) and the parent's baked build plan, so
-    a sub-run builds exactly the model the rule would. The nullable default,
-    when present, is the last entry, always admitted (``chars is None``).
+    a sub-run builds exactly the model the rule would. ``arms`` is the spec's
+    arm list — 1:1 with ``clone.selectors``, the single-char lowering — so
+    the window rides its own arm. The nullable default, when present, is the
+    last entry, always admitted (``chars is None``).
     """
-    entries: list[tuple[Any, Any, Any, FlatClone]] = []
-    for chars, negated, arm in clone.selectors:
+    entries: list[tuple[Any, Any, Any, Any, FlatClone]] = []
+    for (chars, negated, arm), spec in zip(clone.selectors, arms):
         sub = _attempt_sub(clone, reduce_mode)
         sub.selectors = ((chars, negated, arm),)
         sub.default = None
-        entries.append((chars, negated, _arm_prefix(arm), sub))
+        window = (
+            compile_admission(_flat_windows(spec.attempt_window))
+            if spec.attempt_window is not None
+            else None
+        )
+        entries.append((chars, negated, _arm_prefix(arm), window, sub))
     if clone.default is not None:
         sub = _attempt_sub(clone, reduce_mode)
         sub.selectors = ()
         sub.default = clone.default
-        entries.append((None, None, None, sub))
+        entries.append((None, None, None, None, sub))
     return tuple(entries)
 
 
@@ -489,7 +497,7 @@ def flatten_clones(
     for key, spec in clones.items():
         if spec.attempt_follow is not None:
             clone = shells[key]
-            entries = _attempt_entries(clone, completions is not None)
+            entries = _attempt_entries(clone, completions is not None, spec.arms)
             _optimize_entries(entries, completions is not None)
             clone.attempt = (spec.attempt_follow, entries)
     return shells

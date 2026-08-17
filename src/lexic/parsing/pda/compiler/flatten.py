@@ -118,7 +118,7 @@ HI_UNBOUNDED = -1
 """The flat ``his`` sentinel for an unbounded (``None``) quantifier upper bound."""
 
 
-def _window_admits(text: str, pos: int, windows: Any) -> bool:
+def window_admits(text: str, pos: int, windows: Any) -> bool:
     """Whether the input at ``pos`` is EOF-exactly consistent with a k-window.
 
     The runtime test for a ``k``-window gate (Task 6.3 part c) — a loop
@@ -218,7 +218,7 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
     if gk == GATE_PAIR:
         return text[pos : pos + 2] in gate
     if gk == GATE_KWIN:
-        return _window_admits(text, pos, gate)
+        return window_admits(text, pos, gate)
     if gk == GATE_PEEK:
         return _peek_admits(text, pos, gate)
     return scan_gate_take(text, pos, gate)  # GATE_SCAN — the ScanGate itself
@@ -258,7 +258,7 @@ def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
     got = None
     if clone.kwin_selectors is not None:
         for windows, candidate in clone.kwin_selectors:
-            if _window_admits(text, pos, windows):
+            if window_admits(text, pos, windows):
                 got = candidate
                 break
     else:
