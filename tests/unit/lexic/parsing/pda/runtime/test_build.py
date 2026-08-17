@@ -17,13 +17,15 @@ import pytest
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.flatten import (
+    FlatClone,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     M_CONST,
     M_GTEXT,
     M_MODEL,
     M_MODELS,
     M_TEXT,
     M_VALUE,
-    FlatClone,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (

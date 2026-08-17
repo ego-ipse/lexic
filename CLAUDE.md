@@ -265,6 +265,7 @@ src/lexic/
         delegate_compile.py        Island-interior delegate compile — the per-island clone selector
         flatten.py                 Flat int-coded runtime program + post-flatten optimizer passes
         lower.py                   Lowering — a compiled clone set into the flat int-coded program
+        opcodes.py                 The flat program's vocabulary — op-code, build-mode, gate and field codes
         reduce_pda.py              Reduce (grammar-text) completion — the b1 twin of the model fold
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS

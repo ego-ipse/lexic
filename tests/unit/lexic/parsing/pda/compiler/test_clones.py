@@ -45,12 +45,14 @@ from lexic.parsing.pda.compiler.clones import (
     compile_reduce_pda,
 )
 from lexic.parsing.pda.compiler.flatten import (
+    FlatClone,
+    all_clones,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     BUILD_REDUCE,
     R_DROP,
     R_KEEP,
     R_SPLICE,
-    FlatClone,
-    all_clones,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet

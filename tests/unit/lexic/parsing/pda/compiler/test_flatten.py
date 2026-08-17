@@ -24,13 +24,20 @@ from lexic.ir import BIND_MODES
 from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.flatten import (
     _TERMINAL_OPS,
+    CHARTABLE_CAP,
+    FlatArm,
+    FlatClone,
+    PdaProgram,
+    _clone_arms,
+    vstr_model,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     BUILD_ALT,
     BUILD_DISPATCH,
     BUILD_REDUCE,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
-    CHARTABLE_CAP,
     DISPATCH_EMPTY,
     GATE_PAIR,
     GATE_STOP,
@@ -51,15 +58,11 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_REF,
     OP_REF1,
     OP_V1,
+    OP_VDISP,
     OP_VSTR,
     R_DROP,
     R_KEEP,
     R_SPLICE,
-    FlatArm,
-    FlatClone,
-    PdaProgram,
-    _clone_arms,
-    vstr_model,
 )
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_for, pda_from_text
@@ -314,6 +317,75 @@ def test_a_dispatch_clone_over_an_untabled_target_earns_no_table():
     ch = only_arm(pda_from_text(text).program.start).payloads[0]
     assert ch.mode == BUILD_DISPATCH
     assert ch.chartable is None
+
+
+_VDISP = (
+    'root ::= item+\nitem ::= ch "-"\n'
+    "ch ::= digits | alphas\ndigits ::= [0-9]+\nalphas ::= [a-z]+\n"
+)
+"""A dispatch over two RUN-valued targets: no table composes (neither target's
+language is one character wide), but every target is inlinable. Delimited so
+the ``item+`` loop is unambiguous — ``ch+`` over a run rule is not."""
+
+
+def _vdisp_item_arm(text: str) -> FlatArm:
+    """The ``item`` clone's arm — where the dispatch reference sits."""
+    return only_arm(only_arm(pda_from_text(text).program.start).payloads[0])
+
+
+def test_a_dispatch_of_multi_char_value_strs_inlines_to_vdisp():
+    """No table can key a multi-character target, but the CHASE still inlines.
+
+    The selection is a lead-char walk and the match is the landed clone's own
+    ``value_str`` run, so the reference needs neither a frame nor a lookup.
+    """
+    arm = _vdisp_item_arm(_VDISP)
+    assert arm.kinds == (OP_VDISP, OP_LIT1)
+    ch = arm.payloads[0]
+    assert ch.mode == BUILD_DISPATCH
+    assert ch.chartable is None
+
+
+def test_a_tabled_dispatch_stays_op_vstr():
+    """``OP_VSTR`` outranks ``OP_VDISP``: a lookup beats a chase."""
+    text = "root ::= ch+\nch ::= digit | alpha\ndigit ::= [0-9]\nalpha ::= [a-z]\n"
+    arm = only_arm(pda_from_text(text).program.start)
+    assert arm.kinds == (OP_VSTR,)
+    assert arm.payloads[0].chartable is not None
+
+
+def test_a_dispatch_over_a_sequence_target_is_not_inlined():
+    """One non-``value_str`` target sinks it — a sequence target needs a frame."""
+    text = (
+        "root ::= ch+\nch ::= digits | pair\ndigits ::= [0-9]+\n"
+        "pair ::= alpha digit\nalpha ::= [a-z]\ndigit ::= [0-9]\n"
+    )
+    arm = only_arm(pda_from_text(text).program.start)
+    assert arm.kinds == (OP_REF,)
+    assert arm.payloads[0].mode == BUILD_DISPATCH
+
+
+def test_a_dispatch_reachable_empty_arm_is_not_inlined():
+    """An empty arm consumes nothing and builds no ``value_str``.
+
+    Inlining it would turn an unbounded loop into a non-advancing one, so the
+    licence refuses rather than special-casing the sentinel at runtime.
+    """
+    text = 'root ::= ch "!"\nch ::= digits |\ndigits ::= [0-9]+\n'
+    assert only_arm(pda_from_text(text).program.start).kinds[0] != OP_VDISP
+
+
+def test_the_inlined_dispatch_builds_what_the_entry_path_built():
+    """Product neutrality at the seam: same models, same text back.
+
+    The inline matcher hands the landed clone to the same ``vstr_once`` the
+    entry path did, so the parse is observationally identical — which is the
+    whole licence, and round-trip is its binding constraint.
+    """
+    model = compile_text(_VDISP, flavour="gbnf").parse("12-ab-34-")
+    assert model.to_text() == "12-ab-34-"
+    runs = [getattr(getattr(item, "ch"), "value") for item in getattr(model, "item")]
+    assert [str(run) for run in runs] == ["12", "ab", "34"]
 
 
 def test_a_run_valued_value_str_clone_earns_no_table():

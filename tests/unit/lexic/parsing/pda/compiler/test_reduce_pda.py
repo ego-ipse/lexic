@@ -38,12 +38,14 @@ from lexic.parsing.earley.reduce.policy import DROP, KEEP_RAW, KEEP_REDUCED, YIE
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.pda.compiler.clones import CloneKey
 from lexic.parsing.pda.compiler.flatten import (
+    FlatClone,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     BUILD_REDUCE,
     BUILD_TRANSPARENT,
     R_DROP,
     R_KEEP,
     R_SPLICE,
-    FlatClone,
 )
 from lexic.parsing.pda.compiler.reduce_pda import (
     ReduceComp,

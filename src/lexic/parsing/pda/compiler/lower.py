@@ -12,6 +12,13 @@ from typing import Any, Sequence, cast
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.fold import FastCtor, RuleFold
 from lexic.parsing.pda.compiler.flatten import (
+    FlatArm,
+    FlatClone,
+    PdaProgram,
+    convert_dispatch,
+    optimize_program,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     BUILD_ALT,
     BUILD_DISPATCH,
     BUILD_SEQ,
@@ -37,13 +44,9 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_REF,
     OP_REF1,
     OP_V1,
+    OP_VDISP,
     OP_VRUN,
     OP_VSTR,
-    FlatArm,
-    FlatClone,
-    PdaProgram,
-    convert_dispatch,
-    optimize_program,
 )
 from lexic.parsing.pda.compiler.reduce_pda import (
     ReduceComp,
@@ -329,7 +332,7 @@ def _arm_prefix_steps(arm: FlatArm, depth: int) -> list[tuple[Any, ...]]:
             hi = arm.his[j] if k == OP_CC else 1
             step = (1, arm.payloads[j], lo, hi)
         elif (
-            k in (OP_REF, OP_REF1, OP_VSTR, OP_VRUN, OP_V1)
+            k in (OP_REF, OP_REF1, OP_VSTR, OP_VRUN, OP_V1, OP_VDISP)
             and depth > 0
             and arm.los[j] == 1
             and arm.his[j] == 1

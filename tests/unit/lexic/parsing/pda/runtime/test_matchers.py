@@ -18,10 +18,12 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.flatten import (
+    all_clones,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     OP_CC,
     OP_LIT,
     OP_VSTR,
-    all_clones,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model

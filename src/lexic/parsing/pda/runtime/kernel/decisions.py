@@ -22,6 +22,10 @@ from typing import Any
 from lexic.exceptions import LexicError
 from lexic.parsing.earley.kernel.forest.ambiguity import same_value
 from lexic.parsing.pda.compiler.flatten import (
+    FlatArm,
+    FlatClone,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     OP_CC,
     OP_CC1,
     OP_FAIL,
@@ -29,8 +33,6 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_ISLAND,
     OP_LIT,
     OP_LIT1,
-    FlatArm,
-    FlatClone,
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (

@@ -35,13 +35,15 @@ from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrSpan
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.flatten import (
+    FlatClone,
+    vstr_model,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     M_CONST,
     M_GTEXT,
     M_MODEL,
     M_MODELS,
     M_SPAN,
-    FlatClone,
-    vstr_model,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 

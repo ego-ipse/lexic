@@ -22,7 +22,14 @@ from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.earley.reduce.fused import DROP_KIND
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.clones import ReduceRun
-from lexic.parsing.pda.compiler.flatten import OP_CC, R_DROP, R_SPLICE, FlatClone
+from lexic.parsing.pda.compiler.flatten import (
+    FlatClone,
+)
+from lexic.parsing.pda.compiler.opcodes import (
+    OP_CC,
+    R_DROP,
+    R_SPLICE,
+)
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (

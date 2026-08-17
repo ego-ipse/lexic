@@ -16,21 +16,74 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.parsing.pda.compiler.flatten import (
-    BUILD_DISPATCH,
     CHARTABLE_CAP,
-    GATE_STOP,
-    OP_CC,
-    OP_CC1,
-    OP_LIT,
-    OP_LIT1,
     FlatArm,
     FlatClone,
     arm_expected,
     gate_take,
     vstr_model,
 )
+from lexic.parsing.pda.compiler.opcodes import (
+    BUILD_DISPATCH,
+    DISPATCH_EMPTY,
+    GATE_STOP,
+    OP_CC,
+    OP_CC1,
+    OP_LIT,
+    OP_LIT1,
+)
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import build_vstr
+
+
+def chase_dispatch(clone: FlatClone, char: str, pos: int) -> "FlatClone | None":
+    """Chase a frame-less dispatch alternation to its concrete target clone.
+
+    The selection a dispatch alternation IS: a lead-char walk over selectors
+    whose payloads are clones. Cursor-free, so both the kernel's entry path and
+    the inline :data:`~lexic.parsing.pda.compiler.flatten.OP_VDISP` matcher run
+    the one implementation — and refuse in the same words at the same position.
+
+    :param clone: A ``BUILD_DISPATCH`` clone.
+    :param char: The lookahead char selecting each dispatch step.
+    :param pos: The cursor position, for the refusal.
+    :returns: The concrete target clone, or ``None`` on the empty (nullable)
+        arm — the caller then consumes nothing.
+    :raises PdaFail: When no selector matches and there is no default.
+    """
+    while clone.mode == BUILD_DISPATCH:
+        nxt = None
+        for chars, negated, target in clone.selectors:
+            if (char != "" and char not in chars) if negated else char in chars:
+                nxt = target
+                break
+        if nxt is None:
+            nxt = clone.default
+            if nxt is None:
+                raise PdaFail(f"no arm at {pos}", pos)
+            if nxt is DISPATCH_EMPTY:
+                return None
+        clone = nxt
+    return clone
+
+
+def vdisp_once(
+    text: str, intern: dict[Any, object], clone: FlatClone, sink: list[Any], pos: int
+) -> int:
+    """One :data:`~lexic.parsing.pda.compiler.flatten.OP_VDISP` iteration —
+    chase, then the landed clone's ordinary ``value_str`` match.
+
+    The two halves the entry path already ran, without the entry: by the
+    licence (:func:`~lexic.parsing.pda.compiler.flatten.vdisp_target`) the chase
+    always lands on a frame-less ``value_str``, which is precisely the clone
+    ``_enter`` would have handed to this same :func:`vstr_once`.
+
+    :raises PdaFail: From the chase (no arm) or the match (terminal mismatch).
+    """
+    target = chase_dispatch(clone, text[pos : pos + 1], pos)
+    if target is None:  # licence-excluded; a defensive read, not a live path
+        raise PdaFail(f"no arm at {pos}", pos)
+    return vstr_once(text, intern, target, sink, pos)
 
 
 def select_arm(clone: FlatClone, char: str, pos: int) -> FlatArm:
@@ -213,11 +266,20 @@ def run_span_once(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int
     return end
 
 
+def loop_spec(arm: FlatArm, i: int) -> tuple[int, int, int, Any]:
+    """Item ``i``'s quantifier bounds and loop gate — every span loop's preamble.
+
+    ``(lo, hi, gate_kind, gate_data)``, read once per item so the loop body
+    reads locals. Shared by the span-matching loops rather than re-spelled in
+    each: they differ only in which matcher runs per iteration.
+    """
+    return arm.los[i], arm.his[i], arm.gate_kinds[i], arm.gate_data[i]
+
+
 def match_runtable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
     """Run an ``OP_VSTR`` loop whose target is a span-tabled run clone."""
     clone = arm.payloads[i]
-    lo, hi = arm.los[i], arm.his[i]
-    gk, gate = arm.gate_kinds[i], arm.gate_data[i]
+    lo, hi, gk, gate = loop_spec(arm, i)
     count = 0
     while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
         pos = run_span_once(text, clone, sink, pos)

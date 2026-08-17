@@ -57,11 +57,16 @@ from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.flatten import (
+    FlatArm,
+    FlatClone,
+    gate_take,
+    select_gated,
+)
+from lexic.parsing.pda.compiler.opcodes import (
     BUILD_DISPATCH,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
-    DISPATCH_EMPTY,
     GATE_ATTEMPT,
     OP_CC,
     OP_CC1,
@@ -71,12 +76,9 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_LIT1,
     OP_REF1,
     OP_V1,
+    OP_VDISP,
     OP_VRUN,
     OP_VSTR,
-    FlatArm,
-    FlatClone,
-    gate_take,
-    select_gated,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
@@ -109,11 +111,14 @@ from lexic.parsing.pda.runtime.islands import (
 )
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.matchers import (
+    chase_dispatch,
+    loop_spec,
     match_cc,
     match_chartable,
     match_lit,
     run_span_once,
     select_arm,
+    vdisp_once,
     vstr_once,
 )
 
@@ -390,6 +395,8 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         literal / char class — routing to its matcher (the cold-ish tail of the
         driver's op dispatch; the exactly-once terminals stay inline)."""
         k = arm.kinds[i]
+        if k == OP_VDISP:
+            return self._match_vdisp(self._sink_for(frame, arm, i), arm, i, pos)
         if k == OP_VSTR or k >= OP_VRUN:
             # A tabled reference's specialisation is the LEAF walk's; reached
             # through a frame, it runs the ordinary loop (one iteration of it).
@@ -425,20 +432,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             on its empty (nullable) arm (the caller then consumes nothing).
         :raises PdaFail: When no selector matches and there is no default.
         """
-        while clone.mode == BUILD_DISPATCH:
-            nxt = None
-            for chars, negated, target in clone.selectors:
-                if (char != "" and char not in chars) if negated else char in chars:
-                    nxt = target
-                    break
-            if nxt is None:
-                nxt = clone.default
-                if nxt is None:
-                    raise PdaFail(f"no arm at {self.pos}", self.pos)
-                if nxt is DISPATCH_EMPTY:
-                    return None
-            clone = nxt
-        return clone
+        return chase_dispatch(clone, char, self.pos)
 
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
@@ -608,6 +602,8 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                     if k == OP_VRUN
                     else vstr_once(text, self._caches.intern, arm.payloads[i], sub, pos)
                     if k == OP_V1
+                    else self._match_vdisp(sub, arm, i, pos)
+                    if k == OP_VDISP
                     else self._match_vstr(sub, arm, i, pos)
                 )
             else:
@@ -651,6 +647,25 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         count = 0
         while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
             pos = vstr_once(text, intern, clone, sink, pos)
+            count += 1
+        return pos
+
+    def _match_vdisp(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+        """Inline a reference to an all-``value_str`` dispatch — no frame, no table.
+
+        The lead char picks the target clone afresh each iteration (the cursor
+        has moved), then that clone's ordinary ``vstr_once`` runs — the
+        ``_enter`` and ``_settle`` steps the entry path made per occurrence,
+        without the calls.
+
+        :raises PdaFail: On a dispatch miss or a terminal mismatch.
+        """
+        text = self.text
+        intern = self._caches.intern
+        lo, hi, gk, gate = loop_spec(arm, i)
+        count = 0
+        while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+            pos = vdisp_once(text, intern, arm.payloads[i], sink, pos)
             count += 1
         return pos
 
