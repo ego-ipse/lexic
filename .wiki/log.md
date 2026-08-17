@@ -1678,3 +1678,36 @@ without its product-shape cost.
 Measured (in-process A/B against the same grammar compiled with the
 licence withheld, rotating seats, reproduced): abnf-meta −25%,
 arithmetic −8.4%, gbnf-meta −7.4%, csv −1..3%, json −2..2.5%, vyx −0.5%.
+
+## 2026-08-17 — char tables: the licence is a SHAPE, not an enumeration
+
+Two widenings of the reconstruction licence, both keeping "the model is a
+total function of what was matched" and dropping the requirement that the
+key set be writable at compile time:
+
+- **`charcache_for`** — a clone whose every arm is one exactly-once
+  character stays keyable when the SET is co-finite or over the cap; the
+  table starts empty and `vstr_once` fills it with the model it builds,
+  capped. `FlatClone.chartotal` distinguishes the two kinds because a miss
+  means opposite things: a refusal in a total table, "not seen yet" in a
+  filling one. `table_miss` reads it.
+- **`runarm_for`** — a RUN rule (`ws ::= [ \t]*`) has no character to key
+  on, but its arm is its whole answer, so the matched SPAN keys the table.
+  Granted only where selection cannot change the match: a default arm
+  exists and every arm is that same run — which is how a nullable run
+  compiles, its one arm appearing as both selector and default. The run is
+  matched by the same `match_cc`/`match_lit` call the untabled path makes,
+  so the span is identical by construction.
+
+**Filling tables are shared per rule CONSTRUCTOR, not per clone**
+(`_share_filling_tables`). A rule compiles to several context clones and
+the per-parse memo keys `(ctor, span)`, so equal `value_str` models are one
+instance across all of them; a per-clone table narrowed that and the
+interning gate caught it. Sharing is sound whatever the clones' gates are:
+a span determines the model, so contexts that match different spans still
+agree on every span they share.
+
+Measured (in-process A/B, each half withheld at compile time, reproduced):
+co-finite chars — vyx −7.7%, gbnf-meta −3.0%; run spans — json −12.5%, and
+csv (whose spans never repeat) inside its own floor, because a span table
+pays recognition once where a per-span sub-parse pays it twice.
