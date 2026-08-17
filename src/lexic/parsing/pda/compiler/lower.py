@@ -171,7 +171,8 @@ def _bake_build(clone: FlatClone, fold: RuleFold | None) -> None:
     """Bake a clone's fold and fused-build plan (fields/fast/defaults) in place."""
     clone.fold = fold
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
-    clone.chartable = None  # baked last, off the final plan, by chartable_for
+    clone.chartable = None  # baked last, off the final plan, by bake_chartables
+    clone.chartotal = True
     clone.needs_ends = fold is not None and any(
         f.mode in ("text", "gtext") for f in fold.fields
     )
@@ -414,6 +415,7 @@ def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
     sub.defaults = clone.defaults
     sub.leaf = False
     sub.chartable = None  # the sub runs framed — no leaf licence, no table
+    sub.chartotal = True
     sub.needs_ends = clone.needs_ends
     if reduce_mode:
         sub.reduce_kind = clone.reduce_kind

@@ -382,11 +382,15 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     :ivar leaf: ``True`` for a fast-licenced ``sequence`` clone whose every arm
         is all-terminal (``OP_VSTR`` included) — the runtime runs it
         frame-lessly in :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
-    :ivar chartable: The char → model table of a one-char-language ``value_str``
-        clone (:func:`chartable_for`), or ``None``. Its models are the ones
-        :func:`vstr_model` builds, constructed once at compile time instead of
-        per occurrence at parse time — the interior model of a lexical run
-        RECONSTRUCTED from its span by lookup.
+    :ivar chartable: The char → model table of a clone whose language is one
+        character wide, or ``None``. Its models are the ones :func:`vstr_model`
+        builds, so an occurrence is a lookup rather than a build — the interior
+        model of a lexical run RECONSTRUCTED from its span.
+    :ivar chartotal: Whether :attr:`chartable` is the clone's WHOLE language
+        (:func:`chartable_for` — a miss is the refusal the untabled path raises)
+        or a bounded fill-on-first-sight cache (:func:`charcache_for` — a miss
+        means not seen yet). ``True`` whenever there is no table at all, so the
+        pair is never read as "a cache with nothing in it".
     :ivar needs_ends: ``True`` when any bound field reads an item span (a
         ``text``/``gtext`` mode) — only then does a frame allocate and write
         per-item end positions.
@@ -422,6 +426,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "defaults",
         "leaf",
         "chartable",
+        "chartotal",
         "needs_ends",
         "reduce_kind",
         "reduce_body",
@@ -445,6 +450,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     defaults: Any
     leaf: bool
     chartable: Any  # dict[str, object] | None — the one-char language's models
+    chartotal: bool
     needs_ends: bool
     reduce_kind: int
     reduce_body: Any  # IrSelf | None
@@ -615,6 +621,47 @@ def _arm_char_span(arm: FlatArm, char: str) -> "str | None":
     return None
 
 
+def _one_char_arm(arm: FlatArm) -> bool:
+    """Whether the arm is one exactly-once character-wide atom, any polarity.
+
+    The shape test behind both table kinds — :func:`_arm_char_span` answers the
+    same question for one CHARACTER, which a co-finite class cannot enumerate.
+    """
+    if arm.n != 1:
+        return False
+    kind = arm.kinds[0]
+    if kind == OP_CC1:
+        return True
+    return kind == OP_LIT1 and len(arm.payloads[0]) == 1
+
+
+def charcache_for(clone: FlatClone) -> "dict[str, object] | None":
+    """The empty, fill-on-first-sight table of a one-char clone whose set is not
+    enumerable.
+
+    Same licence as :func:`chartable_for` — every arm is one character wide, so
+    the model is a total function of that character — but the key set cannot be
+    written down at compile time: a co-finite class is infinite, and a class over
+    :data:`CHARTABLE_CAP` is not worth pre-building. The characters an input
+    actually uses are few, so the table fills as they arrive (in
+    :func:`~lexic.parsing.pda.runtime.matchers.vstr_once`, which builds the model
+    it stores) and stops at the cap.
+
+    A MISS therefore means "not seen yet", NOT a refusal — which is why the two
+    kinds are distinguished by :attr:`FlatClone.chartotal` rather than merged.
+
+    :param clone: The candidate clone (post-specialisation, no total table).
+    :returns: An empty dict to fill, or ``None`` when the licence does not hold.
+    """
+    if clone.default is not None or clone.mode != BUILD_VALUE_STR:
+        return None
+    if not _vstr_inlinable(clone):
+        return None
+    if not all(_one_char_arm(arm) for arm in _clone_arms(clone)):
+        return None
+    return {}
+
+
 def _value_str_chartable(clone: FlatClone) -> "dict[str, object] | None":
     """The table of a ``value_str`` clone whose every accepted string is one char."""
     table: dict[str, object] = {}
@@ -697,6 +744,10 @@ def bake_chartables(clones: list[FlatClone]) -> None:
     clone that had none, so the loop can only run as many times as there are
     clones, and a cycle of dispatch selectors is left recursion the analysis
     refuses before any clone exists.
+
+    What the fixpoint could not enumerate then gets a fill-on-first-sight table
+    (:func:`charcache_for`) — same licence, key set discovered instead of
+    written down, so :attr:`FlatClone.chartotal` records which kind a clone has.
     """
     pending = True
     while pending:
@@ -705,6 +756,10 @@ def bake_chartables(clones: list[FlatClone]) -> None:
             if clone.chartable is None:
                 clone.chartable = chartable_for(clone)
                 pending = pending or clone.chartable is not None
+    for clone in clones:
+        if clone.chartable is None:
+            clone.chartable = charcache_for(clone)
+            clone.chartotal = False
 
 
 def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":

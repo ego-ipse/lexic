@@ -17,6 +17,7 @@ from typing import Any
 
 from lexic.parsing.pda.compiler.flatten import (
     BUILD_DISPATCH,
+    CHARTABLE_CAP,
     GATE_STOP,
     OP_CC1,
     OP_LIT,
@@ -183,17 +184,18 @@ def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) 
 def table_miss(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
     """What a char-table lookup miss means — the untabled path's own answer.
 
-    A tabled DISPATCH clone's table IS its selector union, so a miss is the
-    no-arm refusal its chase raises. A tabled ``value_str`` clone's table keys
-    every string it accepts, so a miss is likewise a refusal — but that is a
-    property of the licence, not of the runtime, so the iteration re-runs through
-    :func:`vstr_once` and lets the real selection speak. Uninterned: a raise
+    A TOTAL dispatch table IS its clone's selector union, so a miss there is the
+    no-arm refusal the chase raises. Every other miss re-runs through
+    :func:`vstr_once` and lets the real selection speak — a total ``value_str``
+    table because a refusal is a property of the licence and not of the runtime,
+    a fill-on-first-sight cache because a miss there is simply a character not
+    seen yet (and ``vstr_once`` is where it gets remembered). Uninterned: a raise
     stores nothing, and an equal model is what a memo hit would have handed back.
 
     :returns: The position after the fallen-through iteration.
     :raises PdaFail: On the refusal the untabled path raises.
     """
-    if clone.mode == BUILD_DISPATCH:
+    if clone.chartotal and clone.mode == BUILD_DISPATCH:
         raise PdaFail(f"no arm at {pos}", pos)  # verbatim, the chase's own words
     return vstr_once(text, {}, clone, sink, pos)
 
@@ -206,7 +208,10 @@ def vstr_once(
     A tabled clone (:attr:`~lexic.parsing.pda.compiler.flatten.FlatClone
     .chartable`) answers from the table: this is the entry an inline reference
     does not reach — a dispatch chase or a frame-less clone ENTRY, which is where
-    the character-wide models of a dispatching lexical alternation are built.
+    the character-wide models of a dispatching lexical alternation are built. It
+    is also where a fill-on-first-sight table LEARNS: a single-character arm
+    remembers the model it just built, so the next occurrence of that character
+    is a lookup.
     The single-item arm (the common case) skips both the item loop and the
     slice; a multi-item arm (a literal prefix then a char class, say) runs
     :func:`match_arm` over the whole arm and slices the combined span.
@@ -231,7 +236,10 @@ def vstr_once(
         chars, negated = varm.payloads[0]
         if (char == "" or char in chars) if negated else char not in chars:
             raise PdaFail(f"char class miss at {pos}", pos)
-        sink.append(build_vstr(clone, char, intern))
+        model = build_vstr(clone, char, intern)
+        if table is not None and len(table) < CHARTABLE_CAP:
+            table[char] = model  # the fill: this clone's language is this wide
+        sink.append(model)
         return pos + 1
     if kj == OP_LIT1:
         lit = varm.payloads[0]

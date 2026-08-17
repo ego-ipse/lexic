@@ -19,6 +19,7 @@ reached through ``module._name`` attribute access, matching
 
 from __future__ import annotations
 
+from lexic.compile import compile_text
 from lexic.ir import BIND_MODES
 from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.flatten import (
@@ -163,7 +164,8 @@ def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     expected = {"name", "selectors", "kwin_selectors", "pn_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "fold", "fields", "plan"}
-    expected |= {"fast", "defaults", "leaf", "chartable", "needs_ends"}
+    expected |= {"fast", "defaults", "leaf", "chartable", "chartotal"}
+    expected |= {"needs_ends"}
     expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
     expected |= {"reduce_span", "reduce_can_drop"}
     assert set(FlatClone.__slots__) == expected
@@ -265,6 +267,7 @@ def test_a_one_char_value_str_clone_carries_a_model_per_character():
     pda = pda_from_text('root ::= digit+ "!"\ndigit ::= [0-9]\n')
     digit = only_arm(pda.program.start).payloads[0]
     assert digit.mode == BUILD_VALUE_STR
+    assert digit.chartotal is True
     assert sorted(digit.chartable) == sorted("0123456789")
     assert [model.to_text() for model in digit.chartable.values()] == list(
         digit.chartable
@@ -317,12 +320,21 @@ def test_a_run_valued_value_str_clone_earns_no_table():
     assert digits.chartable is None
 
 
-def test_a_negated_class_value_str_earns_no_table():
-    """A co-finite class has no finite key set, so it keeps the per-span build."""
-    pda = pda_from_text('root ::= other+ "!"\nother ::= [^!]\n')
-    other = only_arm(pda.program.start).payloads[0]
+def test_a_negated_class_value_str_fills_its_table_instead_of_baking_it():
+    """A co-finite class is one char wide but has no writable key set.
+
+    Same licence, discovered keys: the table starts empty, is not total (a miss
+    means "not seen yet", never a refusal), and learns the characters the input
+    actually uses.
+    """
+    text = 'root ::= other+ "!"\nother ::= [^!]\n'
+    art = compile_text(text, cache_key="flatten-fill-cofinite", flavour="gbnf")
+    other = only_arm(art.pda_tables().program.start).payloads[0]
     assert other.mode == BUILD_VALUE_STR
-    assert other.chartable is None
+    assert other.chartable == {}
+    assert other.chartotal is False
+    assert art.parse("aba!").to_text() == "aba!"
+    assert sorted(other.chartable) == ["a", "b"]
 
 
 def test_a_multi_character_literal_value_str_earns_no_table():
@@ -333,13 +345,14 @@ def test_a_multi_character_literal_value_str_earns_no_table():
     assert word.chartable is None
 
 
-def test_a_class_wider_than_the_cap_earns_no_table():
-    """The cap bounds compile-time work; a wide class keeps the built model."""
+def test_a_class_wider_than_the_cap_is_filled_not_baked():
+    """The cap bounds compile-time work, not the licence: the wide class fills."""
     wide = "".join(chr(code) for code in range(0x100, 0x100 + CHARTABLE_CAP + 8))
     pda = pda_from_text(f'root ::= glyph+ "!"\nglyph ::= [{wide}]\n')
     glyph = only_arm(pda.program.start).payloads[0]
     assert glyph.mode == BUILD_VALUE_STR
-    assert glyph.chartable is None
+    assert glyph.chartable == {}
+    assert glyph.chartotal is False
 
 
 def test_a_tabled_model_is_the_one_the_per_span_build_constructs():
