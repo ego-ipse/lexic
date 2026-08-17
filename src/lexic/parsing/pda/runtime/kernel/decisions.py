@@ -468,7 +468,9 @@ class Attempting:
         winner = -1
         best: tuple[int, list[object]] | None = None
         for idx, (chars, negated, prefix, window, sub) in enumerate(entries):
-            if not admits(char, chars, negated):
+            if chars is not None and (  # `admits`, read in place
+                (char == "" or char in chars) if negated else (char not in chars)
+            ):
                 continue
             if prefix is not None and not prefix_admits(self.text, pos, prefix):
                 continue
@@ -500,7 +502,9 @@ class Attempting:
         """
         char = self.text[pos : pos + 1]
         for chars, negated, prefix, window, sub in rest:
-            if not admits(char, chars, negated):
+            if chars is not None and (  # `admits`, read in place
+                (char == "" or char in chars) if negated else (char not in chars)
+            ):
                 continue
             if prefix is not None and not prefix_admits(self.text, pos, prefix):
                 continue
