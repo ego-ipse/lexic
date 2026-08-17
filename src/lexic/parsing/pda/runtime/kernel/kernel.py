@@ -68,6 +68,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
     GATE_ATTEMPT,
+    GATE_STOP,
     OP_CC,
     OP_CC1,
     OP_FAIL,
@@ -356,14 +357,24 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             need = True
         else:
             hi = arm.his[i]
-            due = hi < 0 or count < hi
-            if due and arm.gate_kinds[i] == GATE_ATTEMPT:
-                frame[F_I] = i
-                self.pos = pos
-                return self.attempt_iteration(frame, arm, i, pos)
-            need = due and gate_take(
-                self.text, pos, arm.gate_kinds[i], arm.gate_data[i]
-            )
+            gk = arm.gate_kinds[i]
+            need = False
+            if hi < 0 or count < hi:
+                if gk == GATE_ATTEMPT:
+                    frame[F_I] = i
+                    self.pos = pos
+                    return self.attempt_iteration(frame, arm, i, pos)
+                if gk == GATE_STOP:
+                    # The hot gate, membership kept inline — the same reading
+                    # `match_cc` keeps for its own loop. A descent iteration is
+                    # not rare enough to pay a call for a set lookup.
+                    char = self.text[pos : pos + 1]
+                    chars, negated = arm.gate_data[i]
+                    need = (
+                        (char != "" and char not in chars) if negated else char in chars
+                    )
+                else:
+                    need = gate_take(self.text, pos, gk, arm.gate_data[i])
         if not need:
             frame[F_COUNT] = 0
             frame[F_I] = i + 1
