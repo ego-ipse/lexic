@@ -278,6 +278,37 @@ def test_a_dispatching_one_char_alternation_tables_every_arm():
     assert sorted(sign.chartable) == sorted("+-0123456789")
 
 
+def test_a_dispatching_alternation_composes_its_targets_tables():
+    """A dispatch clone over tabled targets carries the composed lookup.
+
+    The pass-through's model IS the target's, so the composed table holds the
+    very instances the targets' tables do — the chase collapses, nothing else.
+    """
+    text = "root ::= ch+\nch ::= digit | alpha\ndigit ::= [0-9]\nalpha ::= [a-z]\n"
+    ch = only_arm(pda_from_text(text).program.start).payloads[0]
+    assert ch.mode == BUILD_DISPATCH
+    assert sorted(ch.chartable) == sorted("0123456789" + "abcdefghijklmnopqrstuvwxyz")
+    targets = {char: target for chars, _n, target in ch.selectors for char in chars}
+    for char, model in ch.chartable.items():
+        assert model is targets[char].chartable[char]
+
+
+def test_a_ref_to_a_tabled_dispatch_clone_matches_inline():
+    """A tabled entry cannot descend, so the reference needs no frame either."""
+    text = "root ::= ch+\nch ::= digit | alpha\ndigit ::= [0-9]\nalpha ::= [a-z]\n"
+    arm = only_arm(pda_from_text(text).program.start)
+    assert arm.kinds == (OP_VSTR,)
+    assert arm.payloads[0].mode == BUILD_DISPATCH
+
+
+def test_a_dispatch_clone_over_an_untabled_target_earns_no_table():
+    """Composition needs every target answerable; one run-valued arm sinks it."""
+    text = "root ::= ch+\nch ::= digits | alpha\ndigits ::= [0-9]+\nalpha ::= [a-z]\n"
+    ch = only_arm(pda_from_text(text).program.start).payloads[0]
+    assert ch.mode == BUILD_DISPATCH
+    assert ch.chartable is None
+
+
 def test_a_run_valued_value_str_clone_earns_no_table():
     """``digits ::= [0-9]+`` accepts spans of any width — nothing to key on."""
     pda = pda_from_text('root ::= digits "!"\ndigits ::= [0-9]+\n')

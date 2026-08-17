@@ -506,65 +506,6 @@ character are alphabets (digits, letters, a token's glyphs), and those fit.
 """
 
 
-def _arm_char_span(arm: FlatArm, char: str) -> "str | None":
-    """The span a single-item arm matches at ``char``, or ``None`` if it refuses.
-
-    The table's admissibility test per (selector char, arm) pair: only an arm
-    that is one exactly-once character-wide atom can be answered by a lookup
-    keyed on one character.
-    """
-    if arm.n != 1:
-        return None
-    kind = arm.kinds[0]
-    if kind == OP_CC1:
-        chars, negated = arm.payloads[0]
-        member = (char != "" and char not in chars) if negated else char in chars
-        return char if member else None
-    if kind == OP_LIT1 and arm.payloads[0] == char:
-        return char
-    return None
-
-
-def chartable_for(clone: FlatClone) -> "dict[str, object] | None":
-    """The char → model table of a one-char-language ``value_str`` clone.
-
-    The reconstruction licence, derived from the clone alone: every selector is
-    a positive character set whose arm matches exactly that one character, and
-    the union is finite and under :data:`CHARTABLE_CAP`. Then the model of every
-    string the clone accepts is known at compile time, and
-    :func:`~lexic.parsing.pda.runtime.matchers.match_chartable` answers an
-    occurrence with one dict lookup instead of an arm selection and a build.
-
-    Granted only to a clone the ``leaf`` licence already covers — that is where
-    the matcher reads the table, and it is what rules out the gated, attempted
-    and descending shapes. A lookup MISS is not licensed to mean refusal: the
-    matcher falls back to :func:`~lexic.parsing.pda.runtime.matchers.vstr_once`,
-    so the table is a cache of a total function, never a redefinition of it.
-
-    :param clone: The candidate clone (post-specialisation).
-    :returns: The table, or ``None`` when the licence does not hold.
-    """
-    if not clone.leaf or clone.mode != BUILD_VALUE_STR or clone.default is not None:
-        return None
-    table: dict[str, object] = {}
-    for chars, negated, arm in clone.selectors:
-        if negated or "" in chars or len(chars) > CHARTABLE_CAP:
-            return None
-        for char in chars:
-            if char in table:
-                continue  # an earlier selector already owns this lookahead
-            span = _arm_char_span(arm, char)
-            if span is None:
-                return None
-            try:
-                table[char] = vstr_model(clone, span)
-            except LexicError:
-                return None  # the ctor refuses a char its class admits
-        if len(table) > CHARTABLE_CAP:
-            return None
-    return table or None
-
-
 # ── post-flatten optimizer passes ──────────────────────────────────────────
 
 
@@ -638,12 +579,132 @@ def _vstr_inlinable(clone: Any) -> bool:
 
 
 def _inline_value_strs(arm: FlatArm) -> None:
-    """Rewrite refs to inlinable ``value_str`` clones to ``OP_VSTR`` in place."""
+    """Rewrite refs the runtime can match inline to ``OP_VSTR`` in place.
+
+    A terminal-only ``value_str`` clone qualifies, and so does any TABLED clone
+    (:func:`chartable_for`) — a tabled dispatch alternation included, since the
+    inline matcher answers it from the same table the entry would have chased to,
+    reporting the same model into the same sink.
+    """
     kinds = list(arm.kinds)
     for i, kind in enumerate(kinds):
-        if kind == OP_REF and _vstr_inlinable(arm.payloads[i]):
+        if kind != OP_REF:
+            continue
+        target = arm.payloads[i]
+        if _vstr_inlinable(target) or target.chartable is not None:
             kinds[i] = OP_VSTR
     arm.kinds = tuple(kinds)
+
+
+def _arm_char_span(arm: FlatArm, char: str) -> "str | None":
+    """The span a single-item arm matches at ``char``, or ``None`` if it refuses.
+
+    The table's admissibility test per (selector char, arm) pair: only an arm
+    that is one exactly-once character-wide atom can be answered by a lookup
+    keyed on one character.
+    """
+    if arm.n != 1:
+        return None
+    kind = arm.kinds[0]
+    if kind == OP_CC1:
+        chars, negated = arm.payloads[0]
+        member = (char != "" and char not in chars) if negated else char in chars
+        return char if member else None
+    if kind == OP_LIT1 and arm.payloads[0] == char:
+        return char
+    return None
+
+
+def _value_str_chartable(clone: FlatClone) -> "dict[str, object] | None":
+    """The table of a ``value_str`` clone whose every accepted string is one char."""
+    table: dict[str, object] = {}
+    for chars, negated, arm in clone.selectors:
+        if negated or "" in chars or len(chars) > CHARTABLE_CAP:
+            return None
+        for char in chars:
+            if char in table:
+                continue  # an earlier selector already owns this lookahead
+            span = _arm_char_span(arm, char)
+            if span is None:
+                return None
+            try:
+                table[char] = vstr_model(clone, span)
+            except LexicError:
+                return None  # the ctor refuses a char its class admits
+        if len(table) > CHARTABLE_CAP:
+            return None
+    return table or None
+
+
+def _dispatch_chartable(clone: FlatClone) -> "dict[str, object] | None":
+    """The table of a dispatch clone whose every target is itself tabled.
+
+    A dispatch alternation is a pass-through: the target's model IS the model the
+    entry reports. So when every selector's target can answer one character from
+    its own table, the whole chase collapses into one composed lookup — the
+    character-wide models of a lexical alternation, without the chase.
+    """
+    table: dict[str, object] = {}
+    for chars, negated, target in clone.selectors:
+        if negated or "" in chars or len(chars) > CHARTABLE_CAP:
+            return None
+        sub = target.chartable
+        if sub is None:
+            return None
+        for char in chars:
+            model = sub.get(char)
+            if model is None:
+                return None  # the selector admits what the target refuses
+            table.setdefault(char, model)
+        if len(table) > CHARTABLE_CAP:
+            return None
+    return table or None
+
+
+def chartable_for(clone: FlatClone) -> "dict[str, object] | None":
+    """The char → model table of a clone whose language is one character wide.
+
+    The reconstruction licence, derived from the clone alone. A ``value_str``
+    clone earns it on :func:`_vstr_inlinable`'s terms (no descent, no gated or
+    attempted selection) when every selector is a positive character set whose
+    arm matches exactly that one character; a :data:`BUILD_DISPATCH` clone earns
+    it when every target is already tabled. Either way the model of every string
+    the clone accepts is known at compile time, and one dict lookup stands in for
+    the arm selection, the chase and the build.
+
+    Totality is what makes a lookup safe to trust: the keys ARE the selector
+    union and a defaulting clone is refused, so a MISS is exactly the refusal the
+    untabled path raises — see
+    :func:`~lexic.parsing.pda.runtime.matchers.table_miss`.
+
+    :param clone: The candidate clone (post-specialisation, targets baked first).
+    :returns: The table, or ``None`` when the licence does not hold.
+    """
+    if clone.default is not None:
+        return None
+    if clone.mode == BUILD_DISPATCH:
+        return _dispatch_chartable(clone)
+    if clone.mode == BUILD_VALUE_STR and _vstr_inlinable(clone):
+        return _value_str_chartable(clone)
+    return None
+
+
+def bake_chartables(clones: list[FlatClone]) -> None:
+    """Bake every clone's :attr:`FlatClone.chartable`, targets before referrers.
+
+    A fixpoint rather than one pass: a dispatch clone's table composes its
+    targets', and dispatch chains nest. It terminates — every new table is a
+    clone that had none, so the loop can only run as many times as there are
+    clones, and a cycle of dispatch selectors is left recursion the analysis
+    refuses before any clone exists.
+    """
+    pending = True
+    while pending:
+        pending = False
+        for clone in clones:
+            if clone.chartable is None:
+                clone.chartable = chartable_for(clone)
+                pending = pending or clone.chartable is not None
 
 
 def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":
@@ -756,9 +817,9 @@ def optimize_program(roots: list[FlatClone]) -> None:
     call specialisation (``OP_REF1``). All compile-time only — nothing here is
     a per-parse cost.
 
-    Char tables come last: :func:`chartable_for` reads the ``leaf`` flag leaf
-    marking grants, and it CONSTRUCTS models, so it must see each clone's final
-    build plan.
+    Char tables (:func:`bake_chartables`) come after dispatch conversion — a
+    dispatch clone can be tabled, and only conversion makes it one — and BEFORE
+    inlining, whose licence reads the tables.
 
     Dispatch runs BEFORE ``value_str`` inlining because the two compete for
     the same arm and dispatch is never the worse of the pair. Inlining rewrites
@@ -774,6 +835,7 @@ def optimize_program(roots: list[FlatClone]) -> None:
             _specialize_terminals(arm)
     for clone in clones:
         convert_dispatch(clone)
+    bake_chartables(clones)
     for clone in clones:
         for arm in _clone_arms(clone):
             _inline_value_strs(arm)
@@ -781,5 +843,3 @@ def optimize_program(roots: list[FlatClone]) -> None:
         _mark_leaves(clone)
     for clone in clones:
         _specialize_calls(clone)
-    for clone in clones:
-        clone.chartable = chartable_for(clone)

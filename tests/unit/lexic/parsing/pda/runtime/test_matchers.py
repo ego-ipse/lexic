@@ -216,6 +216,24 @@ def test_a_tabled_loop_refuses_exactly_where_the_untabled_one_does() -> None:
         match_chartable("x", arm, i, [], 0)
 
 
+def test_a_tabled_dispatch_loop_refuses_in_the_chase_s_own_words() -> None:
+    """A tabled dispatch clone's table IS its selector union, so a miss refuses.
+
+    Same message the frame-less chase raises, at the same position — the
+    composed lookup replaces the chase without replacing what it says.
+    """
+    text = "root ::= ch+\nch ::= digit | alpha\ndigit ::= [0-9]\nalpha ::= [a-z]\n"
+    tables, _ = pda_for(text)
+    arm, i = first_item(tables, OP_VSTR)
+    clone = arm.payloads[i]
+    assert clone.chartable is not None
+    sink: list = []
+    assert match_chartable("a7z!", arm, i, sink, 0) == 3
+    assert [model.to_text() for model in sink] == ["a", "7", "z"]
+    with pytest.raises(PdaFail, match="no arm at 0"):
+        match_chartable("!", arm, i, [], 0)
+
+
 def test_a_tabled_clone_shares_one_model_across_memos() -> None:
     """The table is compile-time, so two PARSES read the same instance.
 

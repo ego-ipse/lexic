@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.parsing.pda.compiler.flatten import (
+    BUILD_DISPATCH,
     GATE_STOP,
     OP_CC1,
     OP_LIT,
@@ -153,17 +154,14 @@ def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) 
     of a lexical run read off a compile-time table instead of constructed per
     character. Same loop structure, same gate, same sink order.
 
-    A lookup MISS is not licensed to mean refusal: the iteration falls through
-    to :func:`vstr_once`, which either matches a span the table does not key or
-    raises the authentic refusal. The fall-through parses uninterned (a raise
-    stores nothing, and an equal model is what the memo would have handed back),
-    which is what keeps the memo off this signature.
+    A lookup MISS routes to :func:`table_miss`, which produces exactly what the
+    untabled path would.
 
     :param arm: The current arm.
     :param i: The ``OP_VSTR`` item index.
     :param pos: The cursor position.
     :returns: The position after the whole quantifier loop.
-    :raises PdaFail: On an unmatched mandatory iteration (from the fall-through).
+    :raises PdaFail: On an unmatched mandatory iteration (from the miss path).
     """
     clone = arm.payloads[i]
     get = clone.chartable.get
@@ -174,12 +172,30 @@ def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) 
     while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
         model = get(text[pos : pos + 1])
         if model is None:
-            pos = vstr_once(text, {}, clone, sink, pos)
+            pos = table_miss(text, clone, sink, pos)
         else:
             append(model)
             pos += 1
         count += 1
     return pos
+
+
+def table_miss(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
+    """What a char-table lookup miss means — the untabled path's own answer.
+
+    A tabled DISPATCH clone's table IS its selector union, so a miss is the
+    no-arm refusal its chase raises. A tabled ``value_str`` clone's table keys
+    every string it accepts, so a miss is likewise a refusal — but that is a
+    property of the licence, not of the runtime, so the iteration re-runs through
+    :func:`vstr_once` and lets the real selection speak. Uninterned: a raise
+    stores nothing, and an equal model is what a memo hit would have handed back.
+
+    :returns: The position after the fallen-through iteration.
+    :raises PdaFail: On the refusal the untabled path raises.
+    """
+    if clone.mode == BUILD_DISPATCH:
+        raise PdaFail(f"no arm at {pos}", pos)  # verbatim, the chase's own words
+    return vstr_once(text, {}, clone, sink, pos)
 
 
 def vstr_once(
