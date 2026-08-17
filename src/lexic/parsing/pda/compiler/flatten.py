@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from lexic.exceptions import LexicError
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
@@ -381,6 +382,11 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     :ivar leaf: ``True`` for a fast-licenced ``sequence`` clone whose every arm
         is all-terminal (``OP_VSTR`` included) — the runtime runs it
         frame-lessly in :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
+    :ivar chartable: The char → model table of a one-char-language ``value_str``
+        clone (:func:`chartable_for`), or ``None``. Its models are the ones
+        :func:`vstr_model` builds, constructed once at compile time instead of
+        per occurrence at parse time — the interior model of a lexical run
+        RECONSTRUCTED from its span by lookup.
     :ivar needs_ends: ``True`` when any bound field reads an item span (a
         ``text``/``gtext`` mode) — only then does a frame allocate and write
         per-item end positions.
@@ -415,6 +421,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "fast",
         "defaults",
         "leaf",
+        "chartable",
         "needs_ends",
         "reduce_kind",
         "reduce_body",
@@ -437,6 +444,7 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     fast: Any
     defaults: Any
     leaf: bool
+    chartable: Any  # dict[str, object] | None — the one-char language's models
     needs_ends: bool
     reduce_kind: int
     reduce_body: Any  # IrSelf | None
@@ -467,6 +475,94 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
         """Bind the entry clone (or island opt-out marker) and delegate source."""
         self.start = start
         self.delegates = delegates
+
+
+def vstr_model(clone: FlatClone, span: str) -> object:
+    """A ``value_str`` clone's model over its matched ``span``.
+
+    The single home of that construction expression: the per-parse intern
+    (:func:`~lexic.parsing.pda.runtime.build.build_vstr`) and the compile-time
+    :attr:`FlatClone.chartable` both go through it, so a tabled model and a
+    parse-built one cannot drift.
+
+    :param clone: The ``value_str`` clone (or a ``value_str``-ref target).
+    :param span: The matched source span — the model's ``value``.
+    :returns: The built model.
+    """
+    fast = clone.fast
+    if fast is not None and (plan := clone.plan):
+        return fast(
+            [span if mode == M_VALUE else default for mode, _i, _lo, default in plan]
+        )
+    return clone.fold.ctor(value=span)
+
+
+CHARTABLE_CAP = 256
+"""Largest one-char language that earns a :attr:`FlatClone.chartable`.
+
+A bound on compile-time work and artifact size, not on correctness: a wider
+class keeps the per-occurrence build. Character classes carrying a model per
+character are alphabets (digits, letters, a token's glyphs), and those fit.
+"""
+
+
+def _arm_char_span(arm: FlatArm, char: str) -> "str | None":
+    """The span a single-item arm matches at ``char``, or ``None`` if it refuses.
+
+    The table's admissibility test per (selector char, arm) pair: only an arm
+    that is one exactly-once character-wide atom can be answered by a lookup
+    keyed on one character.
+    """
+    if arm.n != 1:
+        return None
+    kind = arm.kinds[0]
+    if kind == OP_CC1:
+        chars, negated = arm.payloads[0]
+        member = (char != "" and char not in chars) if negated else char in chars
+        return char if member else None
+    if kind == OP_LIT1 and arm.payloads[0] == char:
+        return char
+    return None
+
+
+def chartable_for(clone: FlatClone) -> "dict[str, object] | None":
+    """The char → model table of a one-char-language ``value_str`` clone.
+
+    The reconstruction licence, derived from the clone alone: every selector is
+    a positive character set whose arm matches exactly that one character, and
+    the union is finite and under :data:`CHARTABLE_CAP`. Then the model of every
+    string the clone accepts is known at compile time, and
+    :func:`~lexic.parsing.pda.runtime.matchers.match_chartable` answers an
+    occurrence with one dict lookup instead of an arm selection and a build.
+
+    Granted only to a clone the ``leaf`` licence already covers — that is where
+    the matcher reads the table, and it is what rules out the gated, attempted
+    and descending shapes. A lookup MISS is not licensed to mean refusal: the
+    matcher falls back to :func:`~lexic.parsing.pda.runtime.matchers.vstr_once`,
+    so the table is a cache of a total function, never a redefinition of it.
+
+    :param clone: The candidate clone (post-specialisation).
+    :returns: The table, or ``None`` when the licence does not hold.
+    """
+    if not clone.leaf or clone.mode != BUILD_VALUE_STR or clone.default is not None:
+        return None
+    table: dict[str, object] = {}
+    for chars, negated, arm in clone.selectors:
+        if negated or "" in chars or len(chars) > CHARTABLE_CAP:
+            return None
+        for char in chars:
+            if char in table:
+                continue  # an earlier selector already owns this lookahead
+            span = _arm_char_span(arm, char)
+            if span is None:
+                return None
+            try:
+                table[char] = vstr_model(clone, span)
+            except LexicError:
+                return None  # the ctor refuses a char its class admits
+        if len(table) > CHARTABLE_CAP:
+            return None
+    return table or None
 
 
 # ── post-flatten optimizer passes ──────────────────────────────────────────
@@ -660,6 +756,10 @@ def optimize_program(roots: list[FlatClone]) -> None:
     call specialisation (``OP_REF1``). All compile-time only — nothing here is
     a per-parse cost.
 
+    Char tables come last: :func:`chartable_for` reads the ``leaf`` flag leaf
+    marking grants, and it CONSTRUCTS models, so it must see each clone's final
+    build plan.
+
     Dispatch runs BEFORE ``value_str`` inlining because the two compete for
     the same arm and dispatch is never the worse of the pair. Inlining rewrites
     a unit ``OP_REF`` to ``OP_VSTR``, which :func:`_unit_ref_target` does not
@@ -681,3 +781,5 @@ def optimize_program(roots: list[FlatClone]) -> None:
         _mark_leaves(clone)
     for clone in clones:
         _specialize_calls(clone)
+    for clone in clones:
+        clone.chartable = chartable_for(clone)

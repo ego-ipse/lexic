@@ -108,6 +108,7 @@ from lexic.parsing.pda.runtime.islands import (
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.matchers import (
     match_cc,
+    match_chartable,
     match_lit,
     select_arm,
     vstr_once,
@@ -617,12 +618,19 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         :param i: The ``OP_VSTR`` item index.
         :param pos: The cursor position.
         :returns: The position after the whole quantifier loop.
+        A target whose one-char language was tabled at compile time
+        (:func:`~lexic.parsing.pda.compiler.flatten.chartable_for`) runs the loop
+        in :func:`~lexic.parsing.pda.runtime.matchers.match_chartable` instead —
+        a lookup per iteration rather than a selection and a build.
+
         :raises PdaFail: On a terminal mismatch or an unmatched mandatory
             iteration with no default arm.
         """
         text = self.text
         intern = self._caches.intern
         clone = arm.payloads[i]
+        if clone.chartable is not None:
+            return match_chartable(text, arm, i, sink, pos)
         lo, hi = arm.los[i], arm.his[i]
         gk, gate = arm.gate_kinds[i], arm.gate_data[i]
         count = 0

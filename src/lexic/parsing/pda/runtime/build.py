@@ -40,8 +40,8 @@ from lexic.parsing.pda.compiler.flatten import (
     M_MODEL,
     M_MODELS,
     M_SPAN,
-    M_VALUE,
     FlatClone,
+    vstr_model,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 
@@ -341,11 +341,6 @@ def build_vstr(clone: FlatClone, span: str, memo: dict[Any, object]) -> object:
     hit = memo.get(key, INTERN_MISS)
     if hit is not INTERN_MISS:
         return hit
-    fast = clone.fast
-    model = (
-        fast([span if mode == M_VALUE else default for mode, _i, _lo, default in plan])
-        if fast is not None and (plan := clone.plan)
-        else clone.fold.ctor(value=span)
-    )
+    model = vstr_model(clone, span)
     memo[key] = model
     return model

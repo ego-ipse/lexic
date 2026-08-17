@@ -28,6 +28,7 @@ from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.pda.runtime.matchers import (
     match_arm,
     match_cc,
+    match_chartable,
     match_lit,
     select_arm,
     vstr_once,
@@ -180,6 +181,54 @@ def test_vstr_once_interns_an_identical_span_into_one_model() -> None:
     vstr_once("77", intern, clone, sink, 0)
     vstr_once("77", intern, clone, sink, 1)
     assert sink[0] is sink[1]
+
+
+# ── the char-model table ───────────────────────────────────────────────────
+
+
+def test_match_chartable_runs_the_whole_loop_from_the_table() -> None:
+    """A tabled ``OP_VSTR`` loop yields the models the per-iteration path does.
+
+    Same models, same end position, same sink order — the table is a cache of
+    :func:`vstr_once`'s output, not a second answer.
+    """
+    tables, _ = pda_for('root ::= digit+ "!"\ndigit ::= [0-9]\n')
+    arm, i = first_item(tables, OP_VSTR)
+    assert arm.payloads[i].chartable is not None
+    tabled: list = []
+    end = match_chartable("904!", arm, i, tabled, 0)
+    per_iteration: list = []
+    pos = 0
+    while pos < 3:
+        pos = vstr_once("904!", {}, arm.payloads[i], per_iteration, pos)
+    assert end == 3
+    assert [model.to_text() for model in tabled] == ["9", "0", "4"]
+    assert tabled == per_iteration
+
+
+def test_a_tabled_loop_refuses_exactly_where_the_untabled_one_does() -> None:
+    """A lookahead the table does not key falls through to the real refusal."""
+    tables, _ = pda_for('root ::= digit+ "!"\ndigit ::= [0-9]\n')
+    arm, i = first_item(tables, OP_VSTR)
+    with pytest.raises(PdaFail):
+        vstr_once("x", {}, arm.payloads[i], [], 0)
+    with pytest.raises(PdaFail):
+        match_chartable("x", arm, i, [], 0)
+
+
+def test_a_tabled_clone_shares_one_model_across_memos() -> None:
+    """The table is compile-time, so two PARSES read the same instance.
+
+    A fresh intern memo is exactly what a fresh parse brings; immutable models
+    make the sharing invisible, and the memo already shared them within a parse.
+    """
+    tables, _ = pda_for('root ::= digit+ "!"\ndigit ::= [0-9]\n')
+    arm, i = first_item(tables, OP_VSTR)
+    one_parse: list = []
+    another_parse: list = []
+    vstr_once("7", {}, arm.payloads[i], one_parse, 0)
+    vstr_once("7", {}, arm.payloads[i], another_parse, 0)
+    assert one_parse[0] is another_parse[0]
 
 
 def test_vstr_multi_item_arm_takes_the_cold_span_path():

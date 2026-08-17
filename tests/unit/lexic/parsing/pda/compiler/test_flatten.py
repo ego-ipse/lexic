@@ -29,6 +29,7 @@ from lexic.parsing.pda.compiler.flatten import (
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
+    CHARTABLE_CAP,
     DISPATCH_EMPTY,
     GATE_PAIR,
     GATE_STOP,
@@ -55,6 +56,7 @@ from lexic.parsing.pda.compiler.flatten import (
     FlatArm,
     FlatClone,
     PdaProgram,
+    vstr_model,
 )
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_for, pda_from_text
@@ -161,7 +163,7 @@ def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     expected = {"name", "selectors", "kwin_selectors", "pn_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
     expected |= {"mode", "fold", "fields", "plan"}
-    expected |= {"fast", "defaults", "leaf", "needs_ends"}
+    expected |= {"fast", "defaults", "leaf", "chartable", "needs_ends"}
     expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
     expected |= {"reduce_span", "reduce_can_drop"}
     assert set(FlatClone.__slots__) == expected
@@ -249,6 +251,79 @@ def test_a_value_str_clone_that_can_descend_is_not_frame_less():
     assert pair.mode == BUILD_VALUE_STR
     assert OP_GRP in only_arm(pair).kinds  # the descent the frame is there for
     assert pair.leaf is False
+
+
+# ── chartable_for: the reconstruction licence ──────────────────────────────
+
+
+def test_a_one_char_value_str_clone_carries_a_model_per_character():
+    """``digit ::= [0-9]`` accepts ten strings, so all ten models are baked.
+
+    The reconstruction licence: every string the clone accepts is one character
+    wide, so its model is known from the character alone.
+    """
+    pda = pda_from_text('root ::= digit+ "!"\ndigit ::= [0-9]\n')
+    digit = only_arm(pda.program.start).payloads[0]
+    assert digit.mode == BUILD_VALUE_STR
+    assert sorted(digit.chartable) == sorted("0123456789")
+    assert [model.to_text() for model in digit.chartable.values()] == list(
+        digit.chartable
+    )
+
+
+def test_a_dispatching_one_char_alternation_tables_every_arm():
+    """A ``value_str`` rule of one-char arms tables the union of its arms."""
+    pda = pda_from_text('root ::= sign+\nsign ::= "+" | "-" | [0-9]\n')
+    sign = only_arm(pda.program.start).payloads[0]
+    assert sorted(sign.chartable) == sorted("+-0123456789")
+
+
+def test_a_run_valued_value_str_clone_earns_no_table():
+    """``digits ::= [0-9]+`` accepts spans of any width — nothing to key on."""
+    pda = pda_from_text('root ::= digits "!"\ndigits ::= [0-9]+\n')
+    digits = only_arm(pda.program.start).payloads[0]
+    assert digits.mode == BUILD_VALUE_STR
+    assert digits.chartable is None
+
+
+def test_a_negated_class_value_str_earns_no_table():
+    """A co-finite class has no finite key set, so it keeps the per-span build."""
+    pda = pda_from_text('root ::= other+ "!"\nother ::= [^!]\n')
+    other = only_arm(pda.program.start).payloads[0]
+    assert other.mode == BUILD_VALUE_STR
+    assert other.chartable is None
+
+
+def test_a_multi_character_literal_value_str_earns_no_table():
+    """A two-char literal is not answerable from one lookahead character."""
+    pda = pda_from_text('root ::= word+ "!"\nword ::= "ab" | "c"\n')
+    word = only_arm(pda.program.start).payloads[0]
+    assert word.mode == BUILD_VALUE_STR
+    assert word.chartable is None
+
+
+def test_a_class_wider_than_the_cap_earns_no_table():
+    """The cap bounds compile-time work; a wide class keeps the built model."""
+    wide = "".join(chr(code) for code in range(0x100, 0x100 + CHARTABLE_CAP + 8))
+    pda = pda_from_text(f'root ::= glyph+ "!"\nglyph ::= [{wide}]\n')
+    glyph = only_arm(pda.program.start).payloads[0]
+    assert glyph.mode == BUILD_VALUE_STR
+    assert glyph.chartable is None
+
+
+def test_a_tabled_model_is_the_one_the_per_span_build_constructs():
+    """The table caches :func:`vstr_model` — same class, same value, same hash.
+
+    What makes a reconstructed interior model indistinguishable from a
+    parse-built one, at the construction site itself.
+    """
+    pda = pda_from_text('root ::= digit+ "!"\ndigit ::= [0-9]\n')
+    digit = only_arm(pda.program.start).payloads[0]
+    for char, tabled in digit.chartable.items():
+        built = vstr_model(digit, char)
+        assert type(tabled) is type(built)
+        assert tabled == built
+        assert hash(tabled) == hash(built)
 
 
 def test_exactly_once_charclass_specialises_to_cc1_with_a_resolved_charset():

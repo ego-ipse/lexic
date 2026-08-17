@@ -144,11 +144,53 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
     return pos
 
 
+def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
+    """Run an ``OP_VSTR`` loop whose target carries a
+    :attr:`~lexic.parsing.pda.compiler.flatten.FlatClone.chartable`.
+
+    One dict lookup per iteration stands in for the arm selection, the terminal
+    match and the model build :func:`vstr_once` would run — the interior model
+    of a lexical run read off a compile-time table instead of constructed per
+    character. Same loop structure, same gate, same sink order.
+
+    A lookup MISS is not licensed to mean refusal: the iteration falls through
+    to :func:`vstr_once`, which either matches a span the table does not key or
+    raises the authentic refusal. The fall-through parses uninterned (a raise
+    stores nothing, and an equal model is what the memo would have handed back),
+    which is what keeps the memo off this signature.
+
+    :param arm: The current arm.
+    :param i: The ``OP_VSTR`` item index.
+    :param pos: The cursor position.
+    :returns: The position after the whole quantifier loop.
+    :raises PdaFail: On an unmatched mandatory iteration (from the fall-through).
+    """
+    clone = arm.payloads[i]
+    get = clone.chartable.get
+    append = sink.append
+    lo, hi = arm.los[i], arm.his[i]
+    gk, gate = arm.gate_kinds[i], arm.gate_data[i]
+    count = 0
+    while count < lo or ((hi < 0 or count < hi) and gate_take(text, pos, gk, gate)):
+        model = get(text[pos : pos + 1])
+        if model is None:
+            pos = vstr_once(text, {}, clone, sink, pos)
+        else:
+            append(model)
+            pos += 1
+        count += 1
+    return pos
+
+
 def vstr_once(
     text: str, intern: dict[Any, object], clone: FlatClone, sink: list[Any], pos: int
 ) -> int:
     """One ``value_str`` iteration — select, match, slice, build, append.
 
+    A tabled clone (:attr:`~lexic.parsing.pda.compiler.flatten.FlatClone
+    .chartable`) answers from the table: this is the entry an inline reference
+    does not reach — a dispatch chase or a frame-less clone ENTRY, which is where
+    the character-wide models of a dispatching lexical alternation are built.
     The single-item arm (the common case) skips both the item loop and the
     slice; a multi-item arm (a literal prefix then a char class, say) runs
     :func:`match_arm` over the whole arm and slices the combined span.
@@ -156,6 +198,13 @@ def vstr_once(
     :raises PdaFail: On a terminal mismatch or no viable arm.
     """
     char = text[pos : pos + 1]
+    table = clone.chartable
+    if table is not None:
+        model = table.get(char)
+        if model is not None:
+            sink.append(model)
+            return pos + 1
+
     varm = select_arm(clone, char, pos)
     if varm.n != 1:  # the rare multi-item arm — cold, off the hot path
         end = match_arm(text, varm, pos)
