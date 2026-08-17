@@ -41,6 +41,16 @@ pushing a frame; and an exactly-once clone entry (ref or group) in an arm that
 keeps no item ends, so the driver advances past it before descending (no
 count bookkeeping, no resume re-check)."""
 
+OP_VRUN, OP_V1 = 10, 11
+"""Exactly-once ``OP_VSTR`` reference op-codes (:func:`_specialize_vruns`).
+
+An item whose quantifier is ``{1,1}`` has no loop for the loop driver to run, so
+it calls its matcher directly: :data:`OP_VRUN` when the target is span-tabled
+(:attr:`FlatClone.runarm`, matched by one ``run_span_once``), :data:`OP_V1`
+otherwise (one ``vstr_once``, which consults a char table itself). Both are
+COMPILE-time facts, so they earn codes rather than a per-occurrence test —
+which is the whole point: a test would tax every item that never qualifies."""
+
 _TERMINAL_OPS = frozenset((OP_LIT, OP_CC, OP_LIT1, OP_CC1))
 """The op-codes that consume input without descending — the ``OP_VSTR``
 inlining licence (a clone is inlinable iff every arm is all-terminal)."""
@@ -829,6 +839,19 @@ def _share_filling_tables(clones: list[FlatClone]) -> None:
         clone.chartable = by_ctor.setdefault(clone.fold.ctor, clone.chartable)
 
 
+def _specialize_vruns(arm: FlatArm) -> None:
+    """Rewrite exactly-once ``OP_VSTR`` references to their one-call op-codes.
+
+    Known here, so the leaf walk does not re-derive it per occurrence.
+    """
+    kinds = list(arm.kinds)
+    for i, kind in enumerate(kinds):
+        if kind != OP_VSTR or arm.los[i] != 1 or arm.his[i] != 1:
+            continue
+        kinds[i] = OP_VRUN if arm.payloads[i].runarm is not None else OP_V1
+    arm.kinds = tuple(kinds)
+
+
 def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":
     """The arm's sole exactly-once clone reference, or ``None``.
 
@@ -906,7 +929,7 @@ def _mark_leaves(clone: FlatClone) -> None:
         return  # a gated selection cannot run frame-lessly by lead char
     if clone.struct_arm is not None or clone.attempt is not None:
         return
-    inline_ops = _TERMINAL_OPS | {OP_VSTR}
+    inline_ops = _TERMINAL_OPS | {OP_VSTR, OP_VRUN, OP_V1}
     clone.leaf = all(
         all(kind in inline_ops for kind in arm.kinds) for arm in _clone_arms(clone)
     )
@@ -941,7 +964,10 @@ def optimize_program(roots: list[FlatClone]) -> None:
 
     Char tables (:func:`bake_chartables`) come after dispatch conversion — a
     dispatch clone can be tabled, and only conversion makes it one — and BEFORE
-    inlining, whose licence reads the tables.
+    inlining, whose licence reads the tables. Tabled-reference specialisation
+    (:func:`_specialize_vruns`) runs LAST: it reads the ``OP_VSTR`` codes inlining
+    cut and the tables baking filled, and nothing downstream re-reads the codes it
+    replaces.
 
     Dispatch runs BEFORE ``value_str`` inlining because the two compete for
     the same arm and dispatch is never the worse of the pair. Inlining rewrites
@@ -965,3 +991,6 @@ def optimize_program(roots: list[FlatClone]) -> None:
         _mark_leaves(clone)
     for clone in clones:
         _specialize_calls(clone)
+    for clone in clones:
+        for arm in _clone_arms(clone):
+            _specialize_vruns(arm)

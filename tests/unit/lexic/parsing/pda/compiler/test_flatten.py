@@ -50,6 +50,7 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_LIT1,
     OP_REF,
     OP_REF1,
+    OP_V1,
     OP_VSTR,
     R_DROP,
     R_KEEP,
@@ -216,7 +217,9 @@ def test_exactly_once_ref_and_literal_inline_and_specialise_to_a_leaf():
     assert root.leaf is True
     arm = only_arm(root)
     assert arm.n == 2
-    assert arm.kinds == (OP_VSTR, OP_LIT1)
+    # OP_V1, not OP_VSTR: the reference is exactly-once, so it earns the
+    # one-call code — the loop driver has no loop to run for it.
+    assert arm.kinds == (OP_V1, OP_LIT1)
     assert arm.los == (1, 1)
     assert arm.his == (1, 1)
     lit_clone = arm.payloads[0]
@@ -424,7 +427,7 @@ def test_exactly_once_charclass_specialises_to_cc1_with_a_resolved_charset():
     pda = pda_from_text('root ::= [a-c] x\nx ::= "z"\n')
     root = pda.program.start
     arm = only_arm(root)
-    assert arm.kinds == (OP_CC1, OP_VSTR)
+    assert arm.kinds == (OP_CC1, OP_V1)  # exactly-once — the one-call code
     chars, negated = arm.payloads[0]
     assert chars == frozenset("abc")
     assert negated is False

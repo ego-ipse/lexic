@@ -70,6 +70,8 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_LIT,
     OP_LIT1,
     OP_REF1,
+    OP_V1,
+    OP_VRUN,
     OP_VSTR,
     FlatArm,
     FlatClone,
@@ -110,6 +112,7 @@ from lexic.parsing.pda.runtime.matchers import (
     match_cc,
     match_chartable,
     match_lit,
+    run_span_once,
     select_arm,
     vstr_once,
 )
@@ -315,7 +318,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                     pos = self.pos  # consumed inline — this item is done
                     i += 1
                     continue
-                elif k == OP_VSTR or k <= OP_CC:  # value_str / quantified terminal
+                elif k == OP_VSTR or k >= OP_VRUN or k <= OP_CC:  # span-producing
                     pos = self._match_span(frame, arm, i, pos)
                 else:  # OP_REF / OP_GRP / OP_ISLAND / OP_FAIL
                     i = self._quant_step(frame, arm, i, pos)
@@ -387,7 +390,9 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         literal / char class — routing to its matcher (the cold-ish tail of the
         driver's op dispatch; the exactly-once terminals stay inline)."""
         k = arm.kinds[i]
-        if k == OP_VSTR:
+        if k == OP_VSTR or k >= OP_VRUN:
+            # A tabled reference's specialisation is the LEAF walk's; reached
+            # through a frame, it runs the ordinary loop (one iteration of it).
             return self._match_vstr(self._sink_for(frame, arm, i), arm, i, pos)
         if k == OP_LIT:
             return match_lit(self.text, arm, i, pos)
@@ -592,15 +597,25 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                 if not text.startswith(lit, pos):
                     raise PdaFail(f"expected {lit!r} at {pos}", pos)
                 pos += len(lit)
-            elif k == OP_VSTR:
+            elif k == OP_VSTR or k >= OP_VRUN:
                 if sinks is None:
                     sinks = [_EMPTY_SLOT] * arm.n
                 sinks[i] = sub = []
-                pos = self._match_vstr(sub, arm, i, pos)
-            elif k == OP_LIT:
-                pos = match_lit(text, arm, i, pos)
+                # A tabled reference is exactly one iteration by its op-code, so
+                # it calls the matcher straight instead of the loop driver.
+                pos = (
+                    run_span_once(text, arm.payloads[i], sub, pos)
+                    if k == OP_VRUN
+                    else vstr_once(text, self._caches.intern, arm.payloads[i], sub, pos)
+                    if k == OP_V1
+                    else self._match_vstr(sub, arm, i, pos)
+                )
             else:
-                pos = match_cc(text, arm, i, pos)
+                pos = (
+                    match_lit(text, arm, i, pos)
+                    if k == OP_LIT
+                    else match_cc(text, arm, i, pos)
+                )
             ends[i] = pos
         out.append(build_fast(self.text, clone, (start, ends, sinks)))
         return pos

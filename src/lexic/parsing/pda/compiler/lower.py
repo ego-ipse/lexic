@@ -36,6 +36,8 @@ from lexic.parsing.pda.compiler.flatten import (
     OP_LIT1,
     OP_REF,
     OP_REF1,
+    OP_V1,
+    OP_VRUN,
     OP_VSTR,
     FlatArm,
     FlatClone,
@@ -327,7 +329,7 @@ def _arm_prefix_steps(arm: FlatArm, depth: int) -> list[tuple[Any, ...]]:
             hi = arm.his[j] if k == OP_CC else 1
             step = (1, arm.payloads[j], lo, hi)
         elif (
-            k in (OP_REF, OP_REF1, OP_VSTR)
+            k in (OP_REF, OP_REF1, OP_VSTR, OP_VRUN, OP_V1)
             and depth > 0
             and arm.los[j] == 1
             and arm.his[j] == 1
