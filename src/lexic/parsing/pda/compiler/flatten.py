@@ -628,25 +628,30 @@ def _specialize_calls(clone: FlatClone) -> None:
 def optimize_program(roots: list[FlatClone]) -> None:
     """Run the post-flatten passes over every reachable clone, in order.
 
-    Terminal specialisation first (``OP_LIT1``/``OP_CC1``), then
-    ``value_str`` inlining (its licence reads the specialised op-codes), then
-    leaf marking (which reads ``OP_VSTR``) and dispatch conversion, then call
-    specialisation (``OP_REF1``). The order once mattered because
-    :func:`_unit_ref_target` recognised ``OP_REF`` alone; it now accepts either,
-    so call specialisation can no longer pre-empt the dispatch shape check —
-    the order is kept because the passes downstream of ``OP_VSTR`` still read
-    it, not to protect that check. All compile-time only — nothing here is a
-    per-parse cost.
+    Terminal specialisation first (``OP_LIT1``/``OP_CC1``), then **dispatch
+    conversion**, then ``value_str`` inlining (its licence reads the
+    specialised op-codes), then leaf marking (which reads ``OP_VSTR``), then
+    call specialisation (``OP_REF1``). All compile-time only — nothing here is
+    a per-parse cost.
+
+    Dispatch runs BEFORE ``value_str`` inlining because the two compete for
+    the same arm and dispatch is never the worse of the pair. Inlining rewrites
+    a unit ``OP_REF`` to ``OP_VSTR``, which :func:`_unit_ref_target` does not
+    recognise — so one inlinable arm used to disqualify its whole alternation,
+    and every OTHER arm then paid a pass-through frame to save nothing. Both
+    specialisations remove exactly one frame from the inlined arm; only
+    dispatch also removes it from the arms beside it.
     """
     clones = all_clones(roots)
     for clone in clones:
         for arm in _clone_arms(clone):
             _specialize_terminals(arm)
     for clone in clones:
+        convert_dispatch(clone)
+    for clone in clones:
         for arm in _clone_arms(clone):
             _inline_value_strs(arm)
     for clone in clones:
         _mark_leaves(clone)
-        convert_dispatch(clone)
     for clone in clones:
         _specialize_calls(clone)

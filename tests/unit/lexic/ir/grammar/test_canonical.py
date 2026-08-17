@@ -33,6 +33,7 @@ from lexic.ir.grammar.nodes import (
 )
 from lexic.ir.grammar.operators import IrNot
 from lexic.ir.spine.records import IrSeq
+from lexic.ir.spine.spine import IrNone
 from tests.paths import GROUND_TRUTH
 
 MAX_CODEPOINT = 0x10FFFF
@@ -492,6 +493,91 @@ def test_a_token_terminal_refuses_with_words() -> None:
     tokens = grammar("root ::= chunk\nchunk ::= <t> body\nbody ::= [a-z]+\n")
     with pytest.raises(UnsupportedConstructError, match="token terminal"):
         inline_refs(tokens, frozenset({"chunk"}))
+
+
+# ── inline_refs' own output is canonical ──────────────────────────────
+#
+# The groups inlining inserts are new SHAPES, and every shape rewrite above is
+# stated over shapes — so each of these is a rewrite that used to be starved
+# because it never saw what inlining built.
+
+
+def inlined_body(source: str, name: str) -> IrAlternation:
+    """Rule ``name``'s body after ``@lexical name`` through the whole front half."""
+    ast = canonical_grammar(f"# @lexical {name}\n{source}", GBNF_FLAVOUR)
+    return next(rule.body for rule in ast.rules if str(rule.name) == name)
+
+
+def test_the_quantified_group_inlining_creates_collapses() -> None:
+    """Rewrite 6: ``number ::= digit+`` inlines to ``[0-9]+``, not ``([0-9])+``.
+
+    The redundant group is what denied the flat program its terminal
+    specialisations — the parser paid a frame per character to re-enter it.
+    """
+    body = inlined_body(
+        "root ::= number\nnumber ::= digit+\ndigit ::= [0-9]\n", "number"
+    )
+    assert body == IrAlternation(
+        IrSequence(
+            IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57))), IrQuantifier(1, IrNone))
+        )
+    )
+
+
+def test_the_single_arm_group_inlining_creates_splices() -> None:
+    """Rewrite 5: a multi-item body under an unquantified ref splices flat."""
+    body = inlined_body('root ::= pair\npair ::= ab ab\nab ::= "x" "y"\n', "pair")
+    assert body == IrAlternation(IrSequence(IrItem(IrLiteral("xyxy"))))
+
+
+def test_the_literal_run_inlining_creates_merges() -> None:
+    """Rewrite 3: literals only adjacent BECAUSE of inlining still merge."""
+    body = inlined_body('root ::= word\nword ::= a b\na ::= "x"\nb ::= "y"\n', "word")
+    assert body == IrAlternation(IrSequence(IrItem(IrLiteral("xy"))))
+
+
+def test_the_alternation_arms_inlining_creates_merge() -> None:
+    """Rewrite 2: arms only mergeable BECAUSE of inlining fuse to one class."""
+    body = inlined_body('root ::= sym\nsym ::= digit | "a"\ndigit ::= [0-9]\n', "sym")
+    assert body == IrAlternation(
+        IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)), IrChr(97))))
+    )
+
+
+def test_a_genuine_multi_arm_group_survives_inlining() -> None:
+    """The guard: only REDUNDANT groups go. A real choice is not a spelling."""
+    body = inlined_body('root ::= opt\nopt ::= e "k"\ne ::= "a" | ""\n', "opt")
+    assert body == IrAlternation(
+        IrSequence(
+            IrItem(IrAlternation(IrSequence(IrItem(IrLiteral("a"))), IrSequence())),
+            IrItem(IrLiteral("k")),
+        )
+    )
+
+
+def test_inlining_canonicalises_without_folding_names_or_reordering() -> None:
+    """Only the per-body driver re-runs — the AST-level passes do not.
+
+    Re-running the whole of ``canonicalize`` here would re-fold names and
+    re-order rules as a side effect of collapsing a group.
+    """
+    source = "root ::= tail\ntail ::= number\nnumber ::= digit+\ndigit ::= [0-9]\n"
+    plain = canonical_grammar(source, GBNF_FLAVOUR)
+    marked_ast = canonical_grammar(f"# @lexical number\n{source}", GBNF_FLAVOUR)
+    assert [str(r.name) for r in marked_ast.rules] == [str(r.name) for r in plain.rules]
+    assert marked_ast.start == plain.start
+
+
+def test_the_collapsed_shape_preserves_the_language() -> None:
+    """Language-preserving is the whole licence — parse and re-emit either way."""
+    source = "root ::= number\nnumber ::= digit+\ndigit ::= [0-9]\n"
+    plain = compile_text(source, cache_key="inline-canon-plain")
+    lexical = compile_text(
+        f"# @lexical number\n{source}", cache_key="inline-canon-marked"
+    )
+    for text in ("0", "42", "9007199254740991"):
+        assert plain.parse(text).to_text() == text
+        assert lexical.parse(text).to_text() == text
 
 
 # ── the directive, end to end ─────────────────────────────────────────

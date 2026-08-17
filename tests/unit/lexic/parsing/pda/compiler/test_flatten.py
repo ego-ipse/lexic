@@ -282,19 +282,54 @@ def test_qualifying_alternation_converts_to_a_frameless_dispatch_clone():
     assert targets[frozenset({"r"})].mode == BUILD_SEQ
 
 
-def test_dispatch_conversion_skipped_once_value_str_inlining_eats_the_refs():
-    """When every arm's target is itself a terminal-only value_str clone,
-    _inline_value_strs rewrites the unit refs to OP_VSTR *before*
-    convert_dispatch runs — the alternation no longer has the unit-ref
-    shape the dispatch rewrite requires, so it stays BUILD_ALT.
+def test_dispatch_conversion_survives_value_str_inlinable_arms():
+    """An alternation whose arms target terminal-only value_str clones still
+    dispatches: convert_dispatch runs BEFORE _inline_value_strs, so the unit
+    refs it reads are still OP_REF.
+
+    The two specialisations compete for one arm and both remove exactly one
+    frame from it — but only dispatch also removes the pass-through frame the
+    arms BESIDE it would otherwise pay. Running the inliner first made one
+    inlinable arm disqualify its whole alternation.
     """
     pda = pda_from_text('root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= "2"\n')
     root = pda.program.start
-    arm = only_arm(root)
-    alt_clone = arm.payloads[0]
-    assert alt_clone.mode == BUILD_ALT
-    for _chars, _negated, sub_arm in alt_clone.selectors:
-        assert sub_arm.kinds == (OP_VSTR,)
+    alt_clone = only_arm(root).payloads[0]
+    assert alt_clone.mode == BUILD_DISPATCH
+    targets = {chars: target for chars, _negated, target in alt_clone.selectors}
+    assert targets[frozenset({"1"})].mode == BUILD_VALUE_STR
+    assert targets[frozenset({"2"})].mode == BUILD_VALUE_STR
+
+
+def test_a_mixed_alternation_no_longer_pays_a_frame_for_its_other_arms():
+    """One value_str arm beside a sequence arm: the clone still dispatches.
+
+    This is the shape the ordering used to cost — the sequence arm gained
+    nothing from the inliner and lost the frame-less dispatch to it.
+    """
+    pda = pda_from_text(
+        'root ::= alt\nalt ::= a | b\na ::= "1"\nb ::= x "2"\nx ::= "q"\n'
+    )
+    alt_clone = only_arm(pda.program.start).payloads[0]
+    assert alt_clone.mode == BUILD_DISPATCH
+    modes = {target.mode for _chars, _negated, target in alt_clone.selectors}
+    assert modes == {BUILD_VALUE_STR, BUILD_SEQ}
+
+
+def test_a_lexical_rule_flattens_to_one_terminal_item():
+    """``@lexical`` on ``number ::= digit+`` reaches the runtime as one
+    quantified char-class op — no group clone to enter per character.
+
+    The directive's whole point is that the rule keeps its matched TEXT; a
+    redundant group in its body put a frame back in front of every character.
+    """
+    text = "# @lexical number\nroot ::= number\nnumber ::= digit+\ndigit ::= [0-9]\n"
+    number = only_arm(pda_from_text(text).program.start).payloads[0]
+    assert number.mode == BUILD_VALUE_STR
+    arm = only_arm(number)
+    assert arm.n == 1
+    assert arm.kinds[0] in _TERMINAL_OPS
+    assert arm.his[0] == HI_UNBOUNDED
 
 
 # ── _specialize_calls ────────────────────────────────────────────────────

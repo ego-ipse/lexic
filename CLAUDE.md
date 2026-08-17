@@ -329,6 +329,14 @@ models. Language-preserving — a reference and its body derive the same strings
 and declared, never inferred. It refuses with words on a cycle in the marked
 subtree or a token terminal inside one.
 
+**The body it produces is canonical.** Those inserted groups are new shapes and
+the canonical rewrites are stated over shapes, so `inline_refs` re-runs the
+per-body driver: the redundant group splices or collapses, and the literals and
+arms that only became mergeable through inlining merge. Skipping it left
+`number ::= digit+` as `([0-9])+` rather than `[0-9]+` — a group the parser
+paid a frame per character to re-enter. Name folding and rule order are the
+AST-level passes and are deliberately not re-run.
+
 A directive naming an undefined rule is silently ignored. The `min=0`
 relaxation applies only where it is **language-preserving** — to refs whose
 target rule already derives ε. A required ref to a non-nullable noise rule

@@ -25,6 +25,10 @@ Rewrites (bottom-up over each rule body, then two AST-level passes):
 Rewrite 6 (quantifier identities) folds in through 5's group inlining; ABNF
 ``%i`` case expansions are a different language, not a spelling, so they are
 left alone.
+
+:func:`inline_refs` (the ``@lexical`` transform) lives here and re-runs the
+per-body driver over what it builds, for the same reason: the groups it
+inserts are new shapes, and every rewrite above is stated over shapes.
 """
 
 from __future__ import annotations
@@ -348,6 +352,25 @@ def _inlined(
     return node.rebuild([_inlined(child, bodies, chain) for child in children])
 
 
+def _inlined_body(
+    body: IrAlternation, bodies: dict[str, IrAlternation], name: str
+) -> IrAlternation:
+    """Rule ``name``'s body, ref-free and re-canonicalised.
+
+    The second step is the load-bearing one: inlining inserts groups, the
+    rewrites above are stated over shapes, so what inlining builds has to go
+    back through the driver to reach the normal form.
+
+    :param body: The marked rule's canonical body.
+    :param bodies: Folded rule name → that rule's body.
+    :param name: The marked rule's folded name — the cycle guard's root.
+    :returns: The canonical ref-free body.
+    :raises UnsupportedConstructError: On a cycle, or a token terminal.
+    """
+    expanded = IrAlternation.ensure(_inlined(body, bodies, (name,)))
+    return IrAlternation.ensure(_CANON.apply(expanded))
+
+
 def inline_refs(ast: IrAst, names: frozenset[str]) -> IrAst:
     """Each named rule with its references expanded until its body is ref-free.
 
@@ -358,6 +381,16 @@ def inline_refs(ast: IrAst, names: frozenset[str]) -> IrAst:
     — and therefore, downstream, what a model of it holds: a ref-free body
     classifies as ``value_str``, so the rule keeps its matched text instead of
     a subtree of interior models nobody asked for.
+
+    **The bodies it builds are canonical**, because it re-runs the structural
+    driver over each one. The groups it inserts are new *shapes*, and every
+    shape rewrite above is stated over shapes: an inlined single-arm group
+    splices (5), a quantified one-item group collapses (6), the literals that
+    become adjacent merge (3), the arms that become mergeable fuse (2).
+    Skipping that left ``number ::= digit+`` inlining to ``([0-9])+`` rather
+    than ``[0-9]+`` — a redundant group the parser then paid a frame per
+    character for. Only the per-body driver runs; name folding and rule order
+    are the AST-level passes and are deliberately not re-run.
 
     Declared, never inferred. The author marks the rules (``@lexical``); this
     is the transform that marking names.
@@ -376,9 +409,7 @@ def inline_refs(ast: IrAst, names: frozenset[str]) -> IrAst:
         (
             IrRule(
                 rule.name,
-                IrAlternation.ensure(
-                    _inlined(rule.body, bodies, (fold_name(str(rule.name)),))
-                ),
+                _inlined_body(rule.body, bodies, fold_name(str(rule.name))),
                 rule.semantic,
             )
             if fold_name(str(rule.name)) in names
