@@ -251,51 +251,112 @@ half`.
 
 ## T10 — proved runs execute in C
 
-**Spec.** The run-recognition delegation study, done right this time
-(the prior attempt's verdict is void — see asks/T10_12_FAILURES.md):
-ceiling per corpus (chars inside licensed run loops), then the
-candidate schemes (stdlib-`re` charset spelling under the user's
-conditional waiver; regex-free translate-mask + `str.find`;
-FOLLOW-driven find where stop sets are finite), each measured under
-T11's validated context-faithful protocol, with refusal-frontier
-byte-identity gated adversarially per engine.
+**Spec.** The run-recognition delegation study, redone from nothing (the
+prior attempt's verdict is void and its report is deleted — see
+asks/T10_12_FAILURES.md; everything needed is inlined HERE).
 
-**Gates.** Frontier positions and words byte-identical on adversarial
-inputs; parse products byte-identical; full suite green; the verdict
-table carries per-corpus ceilings, per-scheme deltas, and honest
-negatives.
+1. **Ceiling first**: per bench corpus, the fraction of chars consumed
+   inside licensed run loops — instrument the PDA's quantifier loops in
+   `pda/runtime/matchers.py` (`match_lit`/`match_cc`) and the Earley
+   RunTerm scan (`parsing/earley/lexruns.py` derivations). Report
+   run-call counts and mean run lengths; a small ceiling bounds the
+   task before anything is built.
+2. **Scheme A — stdlib `re`** (under the user's conditional waiver:
+   kept ONLY if a significant measured win): each proved run charset
+   compiles to a bare character class (co-finite → negated class; no
+   other regex feature); run matching becomes
+   `pattern.match(text, pos).end()`.
+3. **Scheme B — regex-free translate mask**: per (text, charset), build
+   `text.translate(table)` where every char of `set(text)` maps to an
+   IN or OUT sentinel by the same membership predicate the inline loop
+   tests; sentinels are chosen OUTSIDE `set(text)` (scan the private
+   use area upward), so the mask cannot be poisoned by document
+   content; the run end is `mask.find(out, pos)` (−1 → len(text)).
+   Exactness is structural: the mask is the pointwise image of the
+   loop's own predicate. Price the per-parse translate honestly,
+   including short inputs.
+4. **Scheme C — FOLLOW-driven `str.find`**: only where the stop set is
+   FINITE (large positive run charsets have co-finite stop sets — then
+   this scheme is inapplicable, say so); run end =
+   `min(text.find(c, pos))` over the stop chars on valid input; the
+   refusal path re-verifies per-char because `PdaFail.pos` is
+   documented as the offset the failing construct was attempted from
+   and existing tests read it — overshoot is the named failure mode.
+
+**Gates.** Refusal frontier positions AND messages byte-identical on
+adversarial inputs (bench rejects, strided truncations, sentinel and
+non-ASCII poisonings), per engine; parse products byte-identical; full
+suite green; all measurement under T11's validated in-context protocol
+(never isolated probes); the verdict table carries per-corpus ceilings
+and per-scheme deltas with honest negatives.
 
 ## T11 — the measurement stack, then the performance attribution
 
-**Spec.** First, the instrument: resolve the OPEN DEFECT (lexic-lex
-slower than lexic-pda on arithmetic in the full bench context, 7/7
-displays, ~+1-3%, null in isolation) by reproducing the full bench
-heap and interleaving only the two rows at >=51 rounds inside it;
-bisect harness vs artifact; prove or replace one-seat rotation
-(rounds vs seat-count adequacy); define the context-faithful A/B
-protocol every performance task must use. Then, under that validated
-stack only: re-derive the per-grammar attribution (builds, scans,
-decisions per 100 chars), re-test every previously "closed" lever,
-and state the engine's honest distance to the user's condition per
-grammar.
+**Spec.** Nothing performance-shaped is admissible until the instrument
+is proven. Two phases.
 
-**Gates.** The open defect explained mechanically, its fix or finding
-gated; identical-artifact rows agree within the printed floor on every
-run; every attribution number reproduced twice independently.
+**Phase 1 — the instrument.** Resolve the OPEN DEFECT: lexic-lex is
+slower than lexic-pda on arithmetic in the FULL bench context in every
+recorded display (~+1–3%), while isolated two-artifact interleaves read
+~0. Method: reproduce the full bench heap (build every engine exactly
+as `tools/benchmark/bench.py` does), then interleave ONLY the two rows
+at >=51 rounds inside that heap; bisect harness vs artifact from there.
+Also: prove or replace one-seat rotation in `_interleaved` (rounds vs
+seat-count adequacy — with rounds < seats each row samples a different
+seat subset); exploit the built-in bias meter (lexic-lex vs
+lexic-lex-ns on arithmetic are semantically identical artifacts — any
+systematic spread between them is instrument error, read it first on
+every run). Output: the context-faithful A/B protocol every later task
+must use, written into this plan.
+
+**Phase 2 — the attribution, under the validated protocol only.**
+Re-derive per-grammar decomposition (builds, scans, decision events per
+100 chars; wrap builders on the KERNEL's from-imported names, not the
+build module). Re-test every previously "closed" lever from scratch —
+the prior verdicts are void: per-complete key/parts splits; C-level run
+delegation (T10's schemes); frame-representation changes (T12); attempt
+audit costs and audit elision by statically-proven arm exclusivity;
+eager per-frame ENDS allocation vs `wants_spans` gating; probe
+memoization. State the engine's honest distance to the user's condition
+(beat every non-antlr parser on all six grammars; within 10x of antlr)
+per grammar, with the antlr base's run-to-run variance measured and
+reported beside it.
+
+**Gates.** The open defect explained MECHANICALLY, its fix or finding
+gated by a repository test where possible; identical-artifact rows
+within the printed floor on every run; every attribution number
+reproduced twice independently before it is cited.
 
 ## T12 — the fused-descent core
 
-**Spec.** Rebuild from asks/T12_DESIGN.md (the implementation lives
-only in wiped history): the plain-region licence, the parallel-frame
-runner, kernel integration — full suite green with the core LIVE —
-then the verdict under T11's validated protocol, in-context, never in
-isolation.
+**Spec.** The design doc is gone with the wiped history; the design is
+THIS, complete. A **plain region** is a closed decision-free subgraph
+of the flattened program: every reachable clone has no attempt, no
+struct-arm gate, no k-window or peek selectors; no item is an island or
+fail op; every loop gate is stop-set or LL(2)-pair; build modes are the
+model set only (seq, alt, transparent, value_str, dispatch). Computed
+as a fixpoint by removal over `FlatClone` reachability (dispatch
+selectors carry target clones directly; `OP_VSTR` targets are plain by
+construction but must enter the set to be members of it) — the
+`plain_clones` licence and its tests exist in the tree already. The
+**runner** executes a plain region on parallel-column frames (the
+kernel's frame vocabulary as columns, no 9-slot lists), reusing the
+standard builders and matchers unchanged (`build_fast`,
+`build_sequence`, `build_vstr`, `match_lit`, `match_cc`, `vstr_once`)
+so models are byte-identical by construction; dispatch chase, leaf
+runs and vstr loops inline. **Integration**: a plain region is closed,
+so it completes or raises, never pauses — `_enter` treats it as
+consumed inline (the leaf precedent, one level up); non-plain clones
+are simply never flagged, so every decision stays on today's path.
+Prior in-isolation measurement read ~0% and is UNTRUSTED like all
+T10–T12 results; the honest verdict is the in-context one.
 
-**Gates.** Byte-identity via the round-trip suites with the core
-routed; in-context A/B on all six grammars plus short inputs; ship or
-revert on the measured number, stated either way without spin.
+**Gates.** Full suite green with the core LIVE (byte-identity via the
+round-trip suites); in-context A/B under T11's protocol on all six
+grammars plus short inputs; ship or revert on the measured number,
+stated either way without spin.
 
-## Out of scope, recorded
+## Out of scope, recorded## Out of scope, recorded
 
 - The pixel/geometry SOLVE and opsis's own row vocabulary — the B3
   ruling's opsis half, built with the first room.
