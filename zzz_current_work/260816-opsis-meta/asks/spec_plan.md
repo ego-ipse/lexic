@@ -249,6 +249,52 @@ round-trip of an authored table.
 **Done.** Gate green; commit `Presentation tables — the ceiling's engine
 half`.
 
+## T10 — proved runs execute in C
+
+**Spec.** The run-recognition delegation study, done right this time
+(the prior attempt's verdict is void — see asks/T10_12_FAILURES.md):
+ceiling per corpus (chars inside licensed run loops), then the
+candidate schemes (stdlib-`re` charset spelling under the user's
+conditional waiver; regex-free translate-mask + `str.find`;
+FOLLOW-driven find where stop sets are finite), each measured under
+T11's validated context-faithful protocol, with refusal-frontier
+byte-identity gated adversarially per engine.
+
+**Gates.** Frontier positions and words byte-identical on adversarial
+inputs; parse products byte-identical; full suite green; the verdict
+table carries per-corpus ceilings, per-scheme deltas, and honest
+negatives.
+
+## T11 — the measurement stack, then the performance attribution
+
+**Spec.** First, the instrument: resolve the OPEN DEFECT (lexic-lex
+slower than lexic-pda on arithmetic in the full bench context, 7/7
+displays, ~+1-3%, null in isolation) by reproducing the full bench
+heap and interleaving only the two rows at >=51 rounds inside it;
+bisect harness vs artifact; prove or replace one-seat rotation
+(rounds vs seat-count adequacy); define the context-faithful A/B
+protocol every performance task must use. Then, under that validated
+stack only: re-derive the per-grammar attribution (builds, scans,
+decisions per 100 chars), re-test every previously "closed" lever,
+and state the engine's honest distance to the user's condition per
+grammar.
+
+**Gates.** The open defect explained mechanically, its fix or finding
+gated; identical-artifact rows agree within the printed floor on every
+run; every attribution number reproduced twice independently.
+
+## T12 — the fused-descent core
+
+**Spec.** Rebuild from asks/T12_DESIGN.md (the implementation lives
+only in wiped history): the plain-region licence, the parallel-frame
+runner, kernel integration — full suite green with the core LIVE —
+then the verdict under T11's validated protocol, in-context, never in
+isolation.
+
+**Gates.** Byte-identity via the round-trip suites with the core
+routed; in-context A/B on all six grammars plus short inputs; ship or
+revert on the measured number, stated either way without spin.
+
 ## Out of scope, recorded
 
 - The pixel/geometry SOLVE and opsis's own row vocabulary — the B3
