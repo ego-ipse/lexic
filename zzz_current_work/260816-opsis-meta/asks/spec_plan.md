@@ -268,21 +268,3 @@ decisions taken inside the spec's latitude, anything that argued against
 the spec (with the argument), gate output tail, and the test count delta.
 The reviewer (main agent) reviews the diff, runs the gate independently,
 and commits.
-
-## RE-RUNS (added 2026-08-17 — see asks/T10_12_FAILURES.md)
-
-T10–T12's results are untrusted and their tasks re-run from scratch:
-
-- **T-M0 — validate the measurement stack FIRST.** Resolve the open
-  defect (lex slower than pda on arithmetic in full-bench context,
-  7/7 displays, ~+1–3%, null in isolation): reproduce the full bench
-  heap, interleave only the two rows at >=51 rounds in that context,
-  bisect harness vs artifact; prove or replace the seat rotation
-  (rounds vs seat-count adequacy); define the context-faithful A/B
-  protocol every later task must use. Nothing else proceeds first.
-- **T10R** — proved-runs-in-C, re-measured under the validated stack.
-- **T11R** — the performance attributions re-derived under the
-  validated stack; every "closed lever" verdict re-tested.
-- **T12R** — the fused-descent core re-measured under the validated
-  stack (the implementation exists in wiped history; rebuild from
-  T12_DESIGN.md).
