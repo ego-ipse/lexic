@@ -507,46 +507,26 @@ def _report(
     _seat_check(bench, samples)
 
 
-def _identical_variants(bench: Bench) -> bool:
-    """Whether the two declared-variant rows compile to the same program.
-
-    True when the `@non-semantic` marks change nothing — either none exist, or
-    every marked ref sits where the relaxation is a no-op. Asked of the compiled
-    artifacts themselves (the same cached objects the rows run), not inferred
-    from the mark set: the codegen grammars being equal is what makes every
-    downstream table identical, synthesis being deterministic.
-    """
-    lex_marks, ns_marks = variant_marks(bench.ast)
-    lex_marks = _licensed_marks(bench, lex_marks)
-    lex, ns = (
-        compile_text(
-            bench.source,
-            cache_key=f"bench-{bench.name}-{label}-{len(lex_marks)}",
-            flavour=bench.flavour,
-            directives=directives,
-        )
-        for label, directives in (
-            ("lexic-lex", Directives(lexical=lex_marks)),
-            ("lexic-lex-ns", Directives(lexical=lex_marks, non_semantic=ns_marks)),
-        )
-    )
-    return lex.codegen_grammar == ns.codegen_grammar
-
-
 def _seat_check(bench: Bench, samples: dict[str, list[float]]) -> None:
-    """The harness's own error, read off two program-identical rows.
+    """The harness's own error, read off two identical-by-construction rows.
 
-    Where the `@non-semantic` marks change nothing, `lexic-lex` and
-    `lexic-lex-ns` run the same program — any spread between their rows is
-    instrument error, not a result, so the display says what it measured
-    itself to be wrong by. The statistic is PAIRED: the median of the
-    per-round differences, so common-mode load cancels and its sign is
-    readable — a signed constant is a seating bias, a wandering sign is
-    noise.
+    Where a grammar has NO `@non-semantic` marks, the two variant rows are
+    compiled from identical `Directives` — the same program by construction —
+    so any spread between them is instrument error, not a result, and the
+    display says what it measured itself to be wrong by. That is the only
+    identity this line claims: a non-empty mark set can change the compiled
+    machine even when the codegen grammars compare equal (the noise
+    declaration feeds the skip alphabet, not the grammar's shape), and no
+    cheap artifact comparison certifies sameness in either direction — so a
+    marked grammar gets no seat check rather than a false one. The statistic
+    is PAIRED: the median of the per-round differences, so common-mode load
+    cancels and its sign is readable — a signed constant is a seating bias,
+    a wandering sign is noise.
     """
     if "lexic-lex" not in samples or "lexic-lex-ns" not in samples:
         return
-    if not _identical_variants(bench):
+    _, ns_marks = variant_marks(bench.ast)
+    if ns_marks:
         return
     diffs = sorted(
         (ns - lex) / max(min(lex, ns), 1e-9) * 100
