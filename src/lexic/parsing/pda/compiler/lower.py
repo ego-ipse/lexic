@@ -11,13 +11,7 @@ from typing import Any, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.fold import FastCtor, RuleFold
-from lexic.parsing.pda.compiler.flatten import (
-    FlatArm,
-    FlatClone,
-    PdaProgram,
-    convert_dispatch,
-    optimize_program,
-)
+from lexic.parsing.pda.compiler.flatten import FlatArm, FlatClone, PdaProgram
 from lexic.parsing.pda.compiler.opcodes import (
     BUILD_ALT,
     BUILD_DISPATCH,
@@ -52,6 +46,7 @@ from lexic.parsing.pda.compiler.reduce_pda import (
     ReduceComp,
     reduce_rewrite,
 )
+from lexic.parsing.pda.compiler.specialize import convert_dispatch, optimize_program
 from lexic.parsing.pda.compiler.specs import (
     CC,
     GRP,

@@ -19,16 +19,14 @@ from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.reduce.fused import DROP_KIND, KEEP_KIND, ReducePlan
 from lexic.parsing.earley.reduce.policy import YIELD
 from lexic.parsing.earley.reduce.reducer import Reducer
-from lexic.parsing.pda.compiler.flatten import (
-    FlatClone,
-    all_clones,
-)
+from lexic.parsing.pda.compiler.flatten import FlatClone
 from lexic.parsing.pda.compiler.opcodes import (
     BUILD_REDUCE,
     R_DROP,
     R_KEEP,
     R_SPLICE,
 )
+from lexic.parsing.pda.compiler.specialize import all_clones
 
 __all__ = ["ReduceComp", "ReduceRun"]
 

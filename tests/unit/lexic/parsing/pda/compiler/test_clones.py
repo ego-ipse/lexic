@@ -45,8 +45,8 @@ from lexic.parsing.pda.compiler.clones import (
     compile_reduce_pda,
 )
 from lexic.parsing.pda.compiler.flatten import (
+    FlatArm,
     FlatClone,
-    all_clones,
 )
 from lexic.parsing.pda.compiler.opcodes import (
     BUILD_REDUCE,
@@ -54,6 +54,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     R_KEEP,
     R_SPLICE,
 )
+from lexic.parsing.pda.compiler.specialize import all_clones
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
@@ -84,6 +85,20 @@ def pda_for(path: Path) -> PdaTables:
         _model_product(compiled.codegen_grammar, compiled.fold).instance_grammar,
         compiled.fold.config,
     )
+
+
+def only_arm(clone: FlatClone) -> FlatArm:
+    """The clone's sole arm, whichever of ``selectors``/``default`` holds it.
+
+    Every hand grammar below is small enough to compile to one FIRST-gated
+    arm (or, for the dispatch-conversion negative case, one default-less
+    alternation) — asserts that shape rather than silently picking one.
+    """
+    if clone.selectors:
+        assert len(clone.selectors) == 1
+        return clone.selectors[0][2]
+    assert clone.default is not None
+    return clone.default
 
 
 def pda_from_text(text: str) -> PdaTables:

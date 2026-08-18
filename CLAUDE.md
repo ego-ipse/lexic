@@ -263,10 +263,11 @@ src/lexic/
         __init__.py                The PDA clone compiler — an IrAst into flat int-coded tables
         clones.py                  Clone compiler — the predictive-parser artifact beside `ParserTables`
         delegate_compile.py        Island-interior delegate compile — the per-island clone selector
-        flatten.py                 Flat int-coded runtime program + post-flatten optimizer passes
+        flatten.py                 The flat int-coded runtime program — the artefact and its readers
         lower.py                   Lowering — a compiled clone set into the flat int-coded program
         opcodes.py                 The flat program's vocabulary — op-code, build-mode, gate and field codes
         reduce_pda.py              Reduce (grammar-text) completion — the b1 twin of the model fold
+        specialize.py              Post-flatten specialisation — the passes that carve the hot-loop op-codes
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
       core/
