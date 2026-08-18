@@ -935,3 +935,32 @@ def test_parse_path_output_reconstructs_via_checked_construction():
     model = cg.parse("x=1\n")
     rebuilt = type(model)(**{name: getattr(model, name) for name in model._fields})
     assert rebuilt == model
+
+
+def test_a_synthesized_model_is_a_tuple_but_a_parsed_value_may_be_a_list():
+    """What is a ``tuple`` here is the synthesized CLASS, not the parse product.
+
+    A ``GrammarModel`` is an ``IrNamedTuple`` record, so a synthesized model is
+    a ``tuple`` subclass and never a list. The tempting generalisation — "a
+    value in a sink is never a list, so a container's type tells one value from
+    several" — is FALSE, and the distinction is the whole point of pinning it:
+    :func:`~lexic.parsing.products.parse_model` takes an arbitrary fold
+    constructor, and the IR-constructor notation's ``_arglist`` returns a plain
+    ``list``. Anything discriminating on a container's type has to say which of
+    the two it means, and cannot mean "any parsed value".
+    """
+
+    def arglist(*args: object) -> list[object]:
+        """A fold constructor shaped like the notation's own ``_arglist``."""
+        return list(args)
+
+    class Slot(GrammarModel):
+        """One field, to build an instance of."""
+
+        a: object
+
+    built = Slot("x")
+    assert isinstance(built, tuple)
+    assert not isinstance(built, list)
+    # ... and the counter-example, which is a legitimate fold product:
+    assert isinstance(arglist("only"), list)

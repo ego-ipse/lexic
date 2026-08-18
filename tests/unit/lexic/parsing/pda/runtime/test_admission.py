@@ -90,3 +90,22 @@ def test_frames_copy_shares_sink_contents_but_not_the_lists():
     copies = frames_copy([frame])
     assert copies[0][F_SINKS][0] is not sink
     assert copies[0][F_SINKS][0][0] is model
+
+
+def test_frames_copy_isolates_a_slot_assignment():
+    """A probe that OVERWRITES a sink slot must not reach the live stack.
+
+    The frame protocol delivers a completed model into its parent's slot, so a
+    probe side's write is an assignment and not an append. That failure mode is
+    silent where an append's is loud — a stray assignment replaces a committed
+    sibling value rather than adding a visible duplicate, and the parse still
+    round-trips. This pins the isolation the copy is responsible for.
+    """
+    committed = IrStr("committed")
+    sinks: list[Any] = [committed, None]
+    frame = _frame([], [0, 0], sinks)
+    copies = frames_copy([frame])
+    copies[0][F_SINKS][0] = IrStr("probe")
+    copies[0][F_SINKS][1] = IrStr("probe")
+    assert sinks[0] is committed
+    assert sinks[1] is None
