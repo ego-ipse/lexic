@@ -52,6 +52,20 @@ EXPECTED: dict[str, frozenset[str]] = {
     # at build with a reduce/reduce collision — same verdict, said earlier.
     # lexic's own PDA declines both self-grammars (island start rule) and the
     # benchmark reports that rather than hiding it; the Earley rows answer.
+    # PEG commits to `document`'s first matching block and cannot back out, so
+    # it stops partway; every other tool holds the whole subset. ANTLR escalates
+    # to full-context prediction here, which is why the harness's error listener
+    # must implement the prediction hooks rather than only the verdict ones.
+    "markdown": _ALL - frozenset({"parsimonious"}),
+    # 200 nested levels: pyparsing recurses per level and exhausts the
+    # interpreter stack. A depth limit of the tool, not of the translation.
+    "nested": _ALL - frozenset({"pyparsing"}),
+    # Long terminals, trivial decisions — nothing here is hard for anyone.
+    "lexruns": _ALL,
+    # An unbounded shared prefix: PEG and pyparsing backtrack through it,
+    # ANTLR predicts it, lark-lalr survives because the divergence is a single
+    # token once lexed. Everyone holds it; what differs is what it costs.
+    "backtrack": _ALL,
     "gbnf-meta": frozenset({"lark-earley", "antlr", "antlr-py"}),
     "abnf-meta": frozenset(
         {"lark-earley", "antlr", "antlr-py", "pyparsing", "parsimonious"}

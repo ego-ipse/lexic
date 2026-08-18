@@ -58,27 +58,29 @@ inlining licence (a clone is inlinable iff every arm is all-terminal). Private
 to the passes that read it, so it stays out of the shared vocabulary."""
 
 
-def window_admits(text: str, pos: int, windows: Any) -> bool:
+def window_admits(text: str, pos: int, windows: Any, at_eof: bool = False) -> bool:
     """Whether the input at ``pos`` is EOF-exactly consistent with a k-window.
 
     The runtime test for a ``k``-window gate (Task 6.3 part c) — a loop
     take/skip gate (:data:`GATE_KWIN`) or an arm selector
     (:attr:`FlatClone.kwin_selectors`). ``windows`` is a set of ``≤k``-length
-    windows, each a tuple of pre-resolved ``(chars, negated)`` position sets. A
-    position at or past end-of-input is the EOF sentinel ``""`` — matched
-    **only** by a positive set that carries it (a FOLLOW-extended END position),
-    never by a negated (co-finite) set. The sentinel may however be CARRIED in
-    a negated set's ``chars`` (a stop set built from a FOLLOW that reaches
-    END), where it is inert for matching — but a consumer iterating a gate
-    charset as characters must expect it: ``ord("")`` raises. Consistency
-    with any one window admits; the demoted branches are pairwise separable,
-    so at most one side's windows
-    can be consistent with a given lookahead.
+    windows, each a tuple of pre-resolved ``(chars, negated)`` position sets.
+    A position at or past end-of-input is the EOF sentinel ``""``, matched by a
+    positive set carrying it and — only under ``at_eof`` — by a co-finite set
+    that does not exclude it. A consumer iterating a gate charset as characters
+    must expect the sentinel: ``ord("")`` raises. Consistency with any one
+    window admits; the demoted branches are pairwise separable, so at most one
+    side's windows can be consistent with a given lookahead.
 
     :param text: The whole input.
     :param pos: The cursor position the window is peeked from.
     :param windows: The ``taken`` / arm windows — a tuple of
         ``((chars, negated), ...)`` tuples.
+    :param at_eof: Let a co-finite position match the EOF sentinel. OFF by
+        default: unconditionally on, an earlier arm matches at end of input and
+        SHADOWS a later one that would have parsed (87 more whole-parse
+        fallbacks across the ground-truth corpora). :func:`select_gated` turns
+        it on only for a rescue pass.
     :returns: ``True`` iff the lookahead is consistent with some window.
     """
     n = len(text)
@@ -87,7 +89,11 @@ def window_admits(text: str, pos: int, windows: Any) -> bool:
         for j, (chars, negated) in enumerate(win):
             p = pos + j
             char = text[p] if p < n else ""
-            member = (char != "" and char not in chars) if negated else char in chars
+            member = (
+                ((at_eof or char != "") and char not in chars)
+                if negated
+                else char in chars
+            )
             if not member:
                 ok = False
                 break
@@ -201,6 +207,15 @@ def select_gated(text: str, pos: int, clone: FlatClone) -> Any:
             if window_admits(text, pos, windows):
                 got = candidate
                 break
+        if got is None:
+            # Headed for a fallback: a co-finite window position cannot spell
+            # "any character, OR the end", so an arm that legitimately ends the
+            # input is unselectable. Retry admitting the sentinel — second
+            # pass, never first, so it can only rescue a selection.
+            for windows, candidate in clone.kwin_selectors:
+                if window_admits(text, pos, windows, at_eof=True):
+                    got = candidate
+                    break
     else:
         (w_chars, w_negated), sels = clone.pn_selectors
         p = _skip_noise(text, pos, w_chars, w_negated)

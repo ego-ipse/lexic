@@ -121,6 +121,17 @@ def _arm_rest_scan(arm: FlatArm, i: int, char: str) -> tuple[int, bool]:
     return _ASCEND, opt
 
 
+def _composes(follow: Any, text: str, end: int) -> bool:
+    """Whether an arm ending at ``end`` can be extended in ANY context.
+
+    The rule's soft FOLLOW over-approximates what may come next, so a next
+    character outside it proves this reading dead wherever the rule is used.
+    End of input composes: nothing follows, and a rule that may end the parse
+    carries the sentinel rather than a character.
+    """
+    return end >= len(text) or follow.has(text[end : end + 1])
+
+
 def _close_loop(frame: list[Any], i: int, pos: int) -> int:
     """Close the loop at the current count — the driver continues past ``i``."""
     frame[F_COUNT] = 0
@@ -478,6 +489,16 @@ class Attempting:
                 continue
             best = self._attempt_run(sub, pos)
             if best is not None:
+                if not _composes(follow, self.text, best[0]):
+                    # It parses, but its own next character is outside the
+                    # rule's FOLLOW, so no context can extend this reading —
+                    # a dead arm, not a candidate. Committing would hand the
+                    # audit a winner that cannot win, and the audit would then
+                    # refuse a longer sibling that CAN (`"#" | "##"` before a
+                    # heading's space). FOLLOW over-approximates, so a skip
+                    # here drops only arms that are provably dead.
+                    best = None
+                    continue
                 winner = idx
                 break
         if best is None:

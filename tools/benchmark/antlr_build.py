@@ -66,8 +66,21 @@ class _Strict:
         """
         raise SyntaxError(f"ambiguous span: {report[2]}..{report[3]}")
 
+    def note_prediction(self, *report):
+        """ANTLR escalating SLL prediction to full context, or resolving it.
+
+        Both are prediction-strategy notes, not verdicts about the input: the
+        parse continues and lands on one alternative. Ignored deliberately —
+        but the hooks must EXIST, because the proxy calls every listener
+        method it has and a missing one crashes the run rather than the parse.
+        A grammar whose decisions escalate is exactly the interesting case, so
+        the harness must survive it to report a number.
+        """
+
     syntaxError = refuse_syntax
     reportAmbiguity = refuse_ambiguity
+    reportAttemptingFullContext = note_prediction
+    reportContextSensitivity = note_prediction
 
 
 def generate(ast: IrAst, name: str, language: str) -> Path:
