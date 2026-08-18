@@ -66,6 +66,18 @@ _ONE = IrQuantifier(1, 1)
 SYNTHETIC_PREFIX = "__"
 """Name prefix marking a rule minted by normalisation, not present in the source."""
 
+QUANTIFIER_PREFIXES = (
+    f"{SYNTHETIC_PREFIX}rep_",
+    f"{SYNTHETIC_PREFIX}opt_",
+)
+"""Prefixes whose rule arms are states of one authored quantified item.
+
+Unlike ``__grp_*`` arms, repeat/optional helper arms are not authored choices:
+they encode different extents of one item. Table compilation preserves that
+origin so the forest's structural split test does not mistake implementation
+arms for grammar alternatives.
+"""
+
 
 class Minter(IrLeaf[IrSelf, IrSelf]):
     """Per-run minting state: fresh synthetic names + the rules they define.

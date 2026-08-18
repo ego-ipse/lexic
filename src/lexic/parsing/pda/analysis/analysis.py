@@ -22,6 +22,7 @@ from lexic.ir import (
     IrLeaf,
     IrNoneType,
     IrRule,
+    IrRuleRef,
     IrSelf,
 )
 from lexic.parsing.pda.analysis.cursors import (
@@ -45,6 +46,7 @@ from lexic.parsing.pda.analysis.gates.structured import (
     structured_arm_gate,
     structured_loop_gate,
 )
+from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, KWindowFirst
 from lexic.parsing.pda.analysis.predicates import (
     FIRST,
     FOLLOW_FEED,
@@ -131,7 +133,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     nullable: frozenset[str]
     first: dict[str, CharSet]
     hard: dict[str, CharSet]
-    _follows: tuple[dict[str, CharSet], dict[str, CharSet]]
+    _follows: tuple[dict[str, CharSet], dict[str, CharSet], dict[str, CharSet]]
     taxonomy: Taxonomy
 
     def __init__(self, grammar: IrAst) -> None:
@@ -142,8 +144,9 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self.first = self._first_sets()
         self.hard = self._hard_sets()
         self._follows = (
-            self._follow_fixpoint(hard=False),
-            self._follow_fixpoint(hard=True),
+            self._follow_fixpoint(hard=False, loopback=True, nullable_first=True),
+            self._follow_fixpoint(hard=True, loopback=False, nullable_first=False),
+            self._follow_fixpoint(hard=False, loopback=False, nullable_first=True),
         )
         self.taxonomy = Taxonomy()
         self._classify()
@@ -157,6 +160,11 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def hard_follow(self) -> dict[str, CharSet]:
         """Rule name → its hard FOLLOW :class:`CharSet` (nullable followers skipped)."""
         return self._follows[1]
+
+    @property
+    def _structural_follow(self) -> dict[str, CharSet]:
+        """Rule name → soft FOLLOW with generated repeat loopback omitted."""
+        return self._follows[2]
 
     @property
     def conflicts(self) -> dict[str, list[str]]:
@@ -255,6 +263,28 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 continue
             return self.atom_hard(item.atom)
         return hard_tail
+
+    def structural_cont_at(
+        self, items: Sequence[IrItem], k: int, tail: CharSet
+    ) -> CharSet:
+        """Structural continuation after item ``k``.
+
+        A nullable, once-only follower is authored optional structure, so its
+        FIRST remains visible. FIRST for a repeated nullable follower is the
+        generated take-another-copy edge and is omitted; the tail beyond it
+        remains visible.
+        """
+        cont = CharSet.EMPTY
+        for item in items[k + 1 :]:
+            first = self.atom_first(item.atom)
+            if not self.item_nullable(item):
+                return cont.union(first)
+            hi = _hi(item)
+            if hi is not None and hi <= 1:
+                cont = cont.union(first)
+            else:
+                continue
+        return cont.union(tail)
 
     def _hard_sets(self) -> dict[str, CharSet]:
         """The per-rule hard-FIRST fixpoint."""
@@ -398,16 +428,24 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     # ── FOLLOW ─────────────────────────────────────────────────────────
 
-    def _follow_fixpoint(self, hard: bool) -> dict[str, CharSet]:
+    def _follow_fixpoint(
+        self, hard: bool, loopback: bool, nullable_first: bool
+    ) -> dict[str, CharSet]:
         """A per-rule FOLLOW fixpoint (EOF-seeded at the start rule).
 
         :param hard: When ``True``, compute *hard* FOLLOW — nullable followers
             skipped (the union of the HARD continuations every reference site
             cuts its PDA clone against); when ``False``, the classical soft FOLLOW.
+        :param loopback: Whether repeated-item FIRST contributes. Disabling it
+            on a soft pass preserves authored/nullable continuation while
+            excluding split-only repeat edges.
+        :param nullable_first: Whether nullable-follower FIRST contributes. The
+            structural pass retains once-only optional followers and omits
+            repeated nullable followers.
         """
         tgt = {name: CharSet.EMPTY for name in self.rules}
         tgt[self.start] = _EOF
-        pass_ = FollowPass(tgt, hard)
+        pass_ = FollowPass(tgt, hard, loopback, nullable_first)
         changed = True
         while changed:
             changed = False
@@ -442,8 +480,12 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             atom = item.atom
             hi = _hi(item)
             eff = cont
-            if hi is None or hi > 1:
-                eff = eff.union(self.atom_hard(atom) if hard else self.atom_first(atom))
+            if (hi is None or hi > 1) and pass_.loopback:
+                # Loopback is a MAY-follow. Treating it as hard makes a repeated
+                # child stop before its next possible occurrence, reversing the
+                # documented leftmost split policy. Mandatory successors still
+                # enter hard FOLLOW through the ordinary right-to-left carry.
+                eff = eff.union(self.atom_first(atom))
             ctx = FeedCtx(eff, rule, pass_)
             if cast(bool, FOLLOW_FEED.resolve(atom).eval(self, atom, (ctx,))):
                 changed = True
@@ -452,7 +494,10 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                     cont = self.atom_hard(atom)
             else:
                 first = self.atom_first(atom)
-                cont = cont.union(first) if self.item_nullable(item) else first
+                if not self.item_nullable(item):
+                    cont = first
+                elif pass_.nullable_first and (pass_.loopback or hi == 1):
+                    cont = cont.union(first)
         return changed
 
     # ── conflict classification ────────────────────────────────────────
@@ -473,7 +518,15 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 ]
                 continue
             notes = Notes()
-            scope = Scope(name, self.follow[name], self.hard_follow[name], body=True)
+            scope = Scope(
+                name,
+                Cont(
+                    self.follow[name],
+                    self.hard_follow[name],
+                    self._structural_follow[name],
+                ),
+                body=True,
+            )
             arms = [_items(arm) for arm in rule.body]
             self.arm_conflicts(arms, self.follow[name], name, notes)
             body_hard = len(notes.hard)
@@ -554,9 +607,44 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self, items: Sequence[IrItem], scope: Scope, notes: Notes
     ) -> None:
         """Classify every decision point in one sequence arm."""
-        for k in range(len(items)):
+        for k, item in enumerate(items):
             self._loop_conflict(items, k, scope, notes)
             self._sub_conflict(items, k, scope, notes)
+            if self._same_ref_extent_split(items, k):
+                name = str(item.atom)
+                notes.hard.append(
+                    f"{scope.rule}[{k}]: adjacent {name!r} references need "
+                    "a leftmost extent split"
+                )
+
+    def _same_ref_extent_split(self, items: Sequence[IrItem], k: int) -> bool:
+        """Whether adjacent required refs need extent-aware splitting.
+
+        A variable-width child followed by another required occurrence of the
+        same rule cannot be cut by a one-character stop set: that assigns all
+        shared FIRST text to the right child. The Earley island owns this cold
+        structural case until the PDA has an extent-aware boundary primitive.
+        """
+        if k + 1 >= len(items):
+            return False
+        left, right = items[k], items[k + 1]
+        if not isinstance(left.atom, IrRuleRef) or not isinstance(
+            right.atom, IrRuleRef
+        ):
+            return False
+        if str(left.atom) != str(right.atom):
+            return False
+        if int(left.quantifier.lo) < 1 or int(right.quantifier.lo) < 1:
+            return False
+        prefixes = KWindowFirst(self.rules, 5).rule_prefixes(str(left.atom), 5)
+        complete = [len(prefix) for prefix, state in prefixes if state == END]
+        if not complete:
+            return any(state == UNK for _prefix, state in prefixes)
+        shortest = min(complete)
+        return any(
+            len(prefix) > shortest and state in (END, MORE)
+            for prefix, state in prefixes
+        )
 
     def _loop_conflict(
         self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
@@ -614,9 +702,16 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         rather than carry a confident-wrong gate).
         """
         gap = self.cont_at(items, k, scope.tail).subtract(
-            self.hard_cont_at(items, k, scope.tail)
+            self.hard_cont_at(items, k, scope.hard_tail)
         )
-        if not self.atom_first(items[k].atom).overlaps(gap):
+        first = self.atom_first(items[k].atom)
+        if not first.overlaps(gap):
+            return
+        structural_gap = self.structural_cont_at(
+            items, k, scope.structural_tail
+        ).subtract(self.hard_cont_at(items, k, scope.hard_tail))
+        if not first.overlaps(structural_gap):
+            notes.soft.append(f"{scope.rule}[{k}]: loop greedy split")
             return
         if noise_greedy_licensed(self, items, k, scope):
             notes.soft.append(
@@ -639,10 +734,10 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         hi = _hi(item)
         eff = self.cont_at(items, k, scope.tail)
         hard_eff = self.hard_cont_at(items, k, scope.hard_tail)
+        structural_eff = self.structural_cont_at(items, k, scope.structural_tail)
         if hi is None or hi > 1:
             eff = eff.union(self.atom_first(atom))
-            hard_eff = hard_eff.union(self.atom_hard(atom))
-        ctx = ConflictCtx(notes, Cont(eff, hard_eff), scope.rule, k)
+        ctx = ConflictCtx(notes, Cont(eff, hard_eff, structural_eff), scope.rule, k)
         SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
 
     def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
@@ -660,7 +755,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """
         rest = items[k + 1 :]
         if all(self.item_nullable(i) for i in rest):
-            return scope.tail
+            return scope.structural_tail
         return CharSet.EMPTY
 
     def cont_at(self, items: Sequence[IrItem], k: int, tail: CharSet) -> CharSet:

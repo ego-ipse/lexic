@@ -197,8 +197,9 @@ def another_meaning(
         bucket = kernel.st.links[key]
         # A SPLIT has a defined answer — the first slot owns the text — so it is
         # not an ambiguity and must not be refused or fallen back for. Only a
-        # choice between different ARMS is a question the grammar left open.
-        if not is_arm_choice(bucket, bits):
+        # choice between different authored ARMS is a question the grammar left
+        # open. Generated quantifier-helper arms share one choice identity.
+        if not is_arm_choice(bucket, bits, kernel.tables.code_choice):
             continue
         for index in range(1, len(bucket)):
             other = FastTree(kernel, {key: index}).build(handle)

@@ -411,16 +411,28 @@ def test_a_decided_split_past_the_second_derivation_is_accepted(seed):
     )
 
 
-@pytest.mark.parametrize("seed", [146, 266])
-def test_an_arm_choice_past_the_second_derivation_still_refuses(seed):
-    """The refusal the split class gave up — one span, two DIFFERENT productions.
+def test_generated_quantifier_arms_past_the_second_derivation_are_splits():
+    """Raw helper-arm ids are not authored choices, even on later derivations.
 
-    A length preference has no standing over which production the grammar
-    meant, so this stays a refusal, and it is what pins the N >= 3 walk: both
-    seeds carry an arm-class point that the first two derivations do not
-    expose.
+    This test formerly called these points arm-class because normalisation gave
+    the two states of one ``__rep_*`` helper different arm ids. That applies an
+    implementation identity where the invariant requires authored structure.
+    Both states belong to one quantified item, so the leftmost split policy
+    decides them and the model path must not refuse.
     """
-    compiled, kern, best = _vyx_span(seed)
+    compiled, kern, best = _vyx_span(146)
+    item, end = best
+    assert isinstance(
+        island_derivation(
+            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+        ),
+        ParseTree,
+    )
+
+
+def test_authored_arm_past_the_second_derivation_still_refuses():
+    """Seed 266 reaches two authored ``body-line`` arms, not helper states."""
+    compiled, kern, best = _vyx_span(266)
     item, end = best
     with pytest.raises(UnsupportedConstructError):
         island_derivation(

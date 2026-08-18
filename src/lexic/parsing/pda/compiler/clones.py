@@ -47,7 +47,6 @@ from lexic.ir import (
     IrAction,
     IrAlternation,
     IrAst,
-    IrAtom,
     IrCharClass,
     IrItem,
     IrLambda,
@@ -266,8 +265,9 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
 
     An island reference carries an :class:`IslandRef` (flagged for a
     fail-island); otherwise the target clone's tail is the item's hard
-    continuation, widened by the atom's own hard-FIRST when the reference
-    repeats, and the clone is compiled (or reused) via ``ensure_rule``.
+    continuation, and the clone is compiled (or reused) via ``ensure_rule``.
+    Optional loopback stays out of that hard tail: it is a split opportunity,
+    not text the child must leave for a successor.
     """
     ctx = cast(_ItemCtx, nc[0])
     compiler = cast(PdaCompiler, d)
@@ -285,22 +285,19 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
         canonical = compiler.ensure_rule(name, compiler.analysis.hard_follow[name])
         return ItemSpec(REF, canonical, ctx.lo, ctx.hi, ctx.gate)
     tail = ctx.cont
-    if ctx.hi is None or ctx.hi > 1:
-        tail = tail.union(compiler.analysis.atom_hard(cast(IrAtom, n)))
     return ItemSpec(REF, compiler.ensure_rule(name, tail), ctx.lo, ctx.hi, ctx.gate)
 
 
 def _spec_alternation(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     """Compile an inline group to a ``grp`` spec — FIRST-gated arms + default.
 
-    The arms compile against an effective tail that, for a repeating group,
-    unions in the group's own hard-FIRST (the group may follow itself).
+    The arms compile against the item's hard continuation. Repeat loopback
+    stays out of that tail: it is a split opportunity, not text an inner child
+    must leave for another copy.
     """
     ctx = cast(_ItemCtx, nc[0])
     compiler = cast(PdaCompiler, d)
     eff = ctx.cont
-    if ctx.hi is None or ctx.hi > 1:
-        eff = eff.union(compiler.analysis.atom_hard(cast(IrAtom, n)))
     arms, default, _ = compiler.compile_arms(cast(IrAlternation, n), eff)
     return ItemSpec(GRP, GroupSpec(arms, default), ctx.lo, ctx.hi, ctx.gate)
 

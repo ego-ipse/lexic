@@ -14,6 +14,7 @@ from lexic.ir import IrLeaf, IrNone, IrSelf, IrSeq
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain
+from lexic.parsing.earley.kernel.tables.splits import ChainSpec
 
 if TYPE_CHECKING:  # `kernel` imports this module, so the reference is mutual
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
@@ -127,7 +128,10 @@ class FastTree(IrLeaf[IrSelf, IrSelf]):
         t = self.kernel.tables
         base = t.codes.arm_base[t.codes.code_arm[(handle >> self._bits) >> self._bits]]
         chain = predecessor_chain(
-            self.kernel.st.links, handle, base, self._bits, self.choices
+            self.kernel.st.links,
+            handle,
+            ChainSpec(base, self._bits, t.code_choice),
+            self.choices,
         )
         if chain is None:
             return None  # missing (no build) or ambiguous (fall back)

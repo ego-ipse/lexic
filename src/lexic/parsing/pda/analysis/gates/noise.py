@@ -293,12 +293,14 @@ def stopset_escapes_soft_follow(
     wrong model) — a **semantic** such rule becomes a fail-island.
 
     :param analysis: The grammar-analysis oracle (``Any``-typed leaf argument).
-    :param scope: The conflict-walk scope (``tail`` / ``hard_tail``).
+    :param scope: The conflict-walk scope (structural and hard tails).
     :returns: ``True`` iff the stop-set can escape into the soft FOLLOW.
     """
     if not all(analysis.item_nullable(i) for i in items[k + 1 :]):
         return False
-    gap = analysis.cont_at(items, k, scope.tail).subtract(scope.hard_tail)
+    gap = analysis.structural_cont_at(items, k, scope.structural_tail).subtract(
+        scope.hard_tail
+    )
     return analysis.atom_first(items[k].atom).overlaps(gap)
 
 

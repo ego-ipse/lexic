@@ -58,6 +58,7 @@ from lexic.parsing.earley.kernel.tables.atoms import (
     RunTerm,
     atom_accepts,
 )
+from lexic.parsing.earley.normalize import QUANTIFIER_PREFIXES
 
 if TYPE_CHECKING:  # a record is CONSTRUCTED from a builder; the builder
     # imports these records, so naming it at runtime would close the loop
@@ -77,6 +78,26 @@ RUN_DROP, RUN_STR, RUN_LEAF = 0, 1, 2
 """A :class:`RunTerm`'s per-char reduction contribution: nothing (the unit is
 DROP noise), one ``IrStr`` per char (the unit rule YIELDs its text), or one
 interned ``IrLiteral`` leaf per char (a bare terminal unit under KEEP_RAW)."""
+
+
+def code_choices(builder: TableBuilder) -> tuple[int, ...]:
+    """code → its authored choice identity.
+
+    Authored and inline-group arms keep distinct non-negative arm ids; every
+    arm of one generated quantifier helper shares a negative rule identity, so
+    the forest's structural split test cannot mistake different extents of one
+    quantified item for a choice the grammar left open.
+    """
+    quantifier_rules = {
+        rid
+        for name, rid in builder.rule_ids.items()
+        if name.startswith(QUANTIFIER_PREFIXES)
+    }
+    arm_choice = tuple(
+        -(rid + 1) if rid in quantifier_rules else aid
+        for aid, (_seq, rid, _base) in enumerate(builder.arms)
+    )
+    return tuple(arm_choice[aid] for aid, _ in builder.codes)
 
 
 class CodeTables(IrLeaf[IrSelf, IrSelf]):
@@ -292,6 +313,8 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
     :ivar decode: The :class:`DecodeTables` for IR decoding.
     :ivar terms: The :class:`TermTables` for terminal atoms, scan kinds and
         the per-char caches.
+    :ivar code_choice: code → authored choice identity (see
+        :func:`code_choices`) — read by the forest readers, not the kernel loop.
     :ivar start_id: the start rule's rule_id (``-1`` when never defined).
     :ivar packing: The :class:`Packing` tier — every seed pre-shifts by its
         ``bits``; ``advance - 1`` is the input-length capacity ceiling.
@@ -301,6 +324,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         "codes",
         "decode",
         "terms",
+        "code_choice",
         "start_id",
         "packing",
         "_empty_trees",
@@ -309,6 +333,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
     codes: CodeTables
     decode: DecodeTables
     terms: TermTables
+    code_choice: tuple[int, ...]
     start_id: int
     packing: Packing
     _empty_trees: dict[int, ParseTree | None]
@@ -322,6 +347,7 @@ class ParserTables(IrLeaf[IrSelf, IrSelf]):
         self.codes = CodeTables(builder, bits)
         self.decode = DecodeTables(builder)
         self.terms = TermTables(builder)
+        self.code_choice = code_choices(builder)
         self.start_id = builder.start_id()
         self.packing = Packing(bits)
         self._empty_trees = {}

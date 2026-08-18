@@ -22,28 +22,40 @@ those keep the existing selection and stay the ambiguity check's business.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:  # `atoms` imports this module, so the link type flows one way
     from lexic.parsing.earley.kernel.tables.atoms import KLink
 
-    _Level = dict[int, list[tuple[int, int, KLink]]]
-    """One dot position: key → ``(predecessor_key, family_index, link)`` edges."""
+
+class ChainSpec(NamedTuple):
+    """The table constants a chain walk is cut against.
+
+    :ivar base: The arm's dot-0 code — every descent stops here.
+    :ivar bits: The tables' packing tier.
+    :ivar code_choice: Completed code → authored choice identity.
+    """
+
+    base: int
+    bits: int
+    code_choice: tuple[int, ...]
+
+
+_Level = dict[int, list[tuple[int, int, "KLink"]]]
+"""One dot position: key → ``(predecessor_key, family_index, link)`` edges."""
 
 
 def leftmost_chain(
     links: dict[int, list[KLink]],
     handle: int,
-    base: int,
-    bits: int,
+    spec: ChainSpec,
     choices: dict[int, int],
 ) -> list[KLink] | None:
     """The chain whose split vector is lexicographically maximal from the left.
 
     :param links: The parse's SPPF family table.
     :param handle: The packed ``(item << bits) | end`` to resolve.
-    :param base: The arm's dot-0 code — the descent stops here.
-    :param bits: The tables' packing tier.
+    :param spec: The arm base, packing tier and choice table to cut against.
     :param choices: Keys pinned to one family; an entry overrides the policy at
         that key, which is how the ambiguity check flips a single point. A pin
         is CONSUMED at its first use (the map is mutated), so on a cyclic chart
@@ -51,7 +63,7 @@ def leftmost_chain(
     :returns: The chain's links in source order, or ``None`` when a key is
         missing or a level has no surviving edge.
     """
-    levels = _descend(links, handle, base, bits, choices)
+    levels = _descend(links, handle, spec, choices)
     if levels is None:
         return None
     return _choose(levels)
@@ -60,38 +72,51 @@ def leftmost_chain(
 def _descend(
     links: dict[int, list[KLink]],
     handle: int,
-    base: int,
-    bits: int,
+    spec: ChainSpec,
     choices: dict[int, int],
 ) -> list[_Level] | None:
     """The level DAG from ``handle`` down to dot 0, one level per dot position."""
     levels: list[_Level] = []
     current = [handle]
-    while (current[0] >> bits >> bits) != base:
+    while (current[0] >> spec.bits >> spec.bits) != spec.base:
         level: _Level = {}
         below: dict[int, None] = {}
         for key in current:
-            bucket = links.get(key)
-            if bucket is None:
+            edges = _edges_at(links, key, spec, choices)
+            if edges is None:
                 return None
-            edges = []
-            # A pin is CONSUMED at its first use: on a cyclic chart the pinned
-            # family leads back to its own key, and a pin that re-applied there
-            # would name no finite derivation at all. Consumed, it names the
-            # one-lap unroll — flip the point once, default policy after.
-            for index, link in _candidates(bucket, choices.pop(key, None), bits):
-                predecessor = (link[0] << bits) | link[1]
-                edges.append((predecessor, index, link))
+            for predecessor, _index, _link in edges:
                 below[predecessor] = None
-            if not edges:
-                return None
             level[key] = edges
         levels.append(level)
         current = list(below)
     return levels
 
 
-def is_arm_choice(bucket: list[KLink], bits: int) -> bool:
+def _edges_at(
+    links: dict[int, list[KLink]],
+    key: int,
+    spec: ChainSpec,
+    choices: dict[int, int],
+) -> list[tuple[int, int, KLink]] | None:
+    """One key's outgoing edges, or ``None`` when it is missing or dead."""
+    bucket = links.get(key)
+    if bucket is None:
+        return None
+    # A pin is CONSUMED at its first use: on a cyclic chart the pinned family
+    # leads back to its own key, and a pin that re-applied there would name no
+    # finite derivation at all. Consumed, it names the one-lap unroll — flip
+    # the point once, default policy after.
+    edges = [
+        ((link[0] << spec.bits) | link[1], index, link)
+        for index, link in _candidates(
+            bucket, choices.pop(key, None), spec.bits, spec.code_choice
+        )
+    ]
+    return edges or None
+
+
+def is_arm_choice(bucket: list[KLink], bits: int, code_choice: tuple[int, ...]) -> bool:
     """Do this key's families name more than one child ARM?
 
     The line between the two classes of ambiguity, and the same test the split
@@ -101,11 +126,14 @@ def is_arm_choice(bucket: list[KLink], bits: int) -> bool:
     naming DIFFERENT arms are a structural choice the grammar stated two ways,
     which nothing about lengths can settle: that is what the refusal is for.
     """
-    return len({_arm_of(link[2], bits) for link in bucket}) > 1
+    return len({_arm_of(link[2], bits, code_choice) for link in bucket}) > 1
 
 
 def _candidates(
-    bucket: list[KLink], pinned: int | None, bits: int
+    bucket: list[KLink],
+    pinned: int | None,
+    bits: int,
+    code_choice: tuple[int, ...],
 ) -> list[tuple[int, KLink]]:
     """The families this policy may choose between at one key.
 
@@ -115,15 +143,15 @@ def _candidates(
     """
     if pinned is not None:
         return [(pinned, bucket[pinned])]
-    if is_arm_choice(bucket, bits):
+    if is_arm_choice(bucket, bits, code_choice):
         return [(0, bucket[0])]
     return list(enumerate(bucket))
 
 
-def _arm_of(child: object, bits: int) -> object:
-    """A family child's arm code — a scanned char and a payload are their own."""
+def _arm_of(child: object, bits: int, code_choice: tuple[int, ...]) -> object:
+    """A family child's authored choice — scans and payloads are their own."""
     if isinstance(child, int) and not isinstance(child, bool):
-        return child >> bits >> bits
+        return code_choice[child >> bits >> bits]
     return type(child)
 
 

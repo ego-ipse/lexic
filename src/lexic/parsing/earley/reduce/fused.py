@@ -27,6 +27,7 @@ from lexic.parsing.earley.kernel.tables.records import (
     RUN_STR,
     ParserTables,
 )
+from lexic.parsing.earley.kernel.tables.splits import ChainSpec
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.earley.reduce.policy import DROP, KEEP_RAW, KEEP_REDUCED, YIELD
@@ -423,7 +424,11 @@ class FusedReduce(IrLeaf[IrSelf, IrSelf]):
         item = handle >> self._bits
         end = handle & self._mask
         base = tables.codes.arm_base[tables.codes.code_arm[item >> self._bits]]
-        chain = predecessor_chain(links, (item << self._bits) | end, base, self._bits)
+        chain = predecessor_chain(
+            links,
+            (item << self._bits) | end,
+            ChainSpec(base, self._bits, tables.code_choice),
+        )
         if chain is None:
             return None
         return self._chain_kids(chain)

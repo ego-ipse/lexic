@@ -231,7 +231,7 @@ def _seq_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> Non
     ctx = cast(ConflictCtx, nc[0])
     sub_arms = [_items(arm) for arm in n]
     label = f"{ctx.rule}[{ctx.index}]grp"
-    scope = Scope(ctx.rule, ctx.cont.soft, ctx.cont.hard, body=False)
+    scope = Scope(ctx.rule, ctx.cont, body=False)
     d.arm_conflicts(sub_arms, ctx.cont.soft, label, ctx.notes)
     for sub in sub_arms:
         d.seq_conflicts(sub, scope, ctx.notes)

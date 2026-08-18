@@ -18,7 +18,7 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing.earley.kernel.forest.forest import PayloadLeaf
-from lexic.parsing.earley.kernel.tables.splits import leftmost_chain
+from lexic.parsing.earley.kernel.tables.splits import ChainSpec, leftmost_chain
 
 _MAX_CHARSET = 4096
 """Expansion cap for a char-class range — beyond it the set poisons."""
@@ -72,8 +72,7 @@ class Packing(IrLeaf[IrSelf, IrSelf]):
 def predecessor_chain(
     links: dict[int, list[KLink]],
     handle: int,
-    base: int,
-    bits: int,
+    spec: ChainSpec,
     choices: dict[int, int] | None = None,
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
@@ -85,8 +84,7 @@ def predecessor_chain(
     :param links: The parse's SPPF family table.
     :param handle: The packed ``(item << bits) | end`` — the same spelling
         every other site carries the pair in.
-    :param base: The arm's dot-0 code — the chain stops here.
-    :param bits: The tables' packing tier (``ParserTables.packing.bits``).
+    :param spec: The arm base, packing tier and choice table to cut against.
     :param choices: keys pinned to one family. When given, a packed key is no
         longer a reason to bail — the chain is resolved by
         :func:`~lexic.parsing.earley.kernel.tables.splits.leftmost_chain`, which
@@ -100,7 +98,8 @@ def predecessor_chain(
         bail (no build, or fall back to the ambiguity-aware path).
     """
     if choices is not None:
-        return leftmost_chain(links, handle, base, bits, choices)
+        return leftmost_chain(links, handle, spec, choices)
+    base, bits = spec.base, spec.bits
     chain: list[KLink] = []
     item, end = handle >> bits, handle & ((1 << bits) - 1)
     while (item >> bits) != base:

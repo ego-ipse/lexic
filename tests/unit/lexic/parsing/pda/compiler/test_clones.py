@@ -133,17 +133,19 @@ def all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
 
 # ── the headline gate (pinned to the plan's Task-3 ledger line) ───────────
 
+# The noun is one compiled ``CloneSpec`` entry keyed by (rule, hard tail).
+# Generated repeat loopback is not a hard tail, so it creates no extra entry.
 PINNED_CLONE_COUNTS: dict[str, int] = {
-    "arithmetic.gbnf": 32,
-    "c.gbnf": 75,  # attempt rules clone once, canonically (memo identity)
+    "arithmetic.gbnf": 22,
+    "c.gbnf": 59,  # attempt rules clone once, canonically (memo identity)
     "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
-    "japanese.gbnf": 12,
-    "json.gbnf": 126,  # island-free at P3: the whole grammar clones
-    "json_arr.gbnf": 36,
-    "json_ws.gbnf": 35,
+    "japanese.gbnf": 7,
+    "json.gbnf": 87,  # island-free at P3: the whole grammar clones
+    "json_arr.gbnf": 24,
+    "json_ws.gbnf": 23,
     "list.gbnf": 2,
-    "arithmetic.abnf": 10,
-    "json.abnf": 126,  # the GBNF twin, also island-free at P3
+    "arithmetic.abnf": 7,
+    "json.abnf": 87,  # the GBNF twin, also island-free at P3
 }
 
 ALL_STEMS: tuple[str, ...] = tuple(sorted(PINNED_CLONE_COUNTS))
