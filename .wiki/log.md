@@ -1,5 +1,18 @@
 # Log
 
+## Reference op-codes and the see-through rule (2026-08-18)
+
+`OP_LEAF1` lands (`8ed6f256`, `1bc2ce70`): an exactly-once reference to a
+frame-less leaf clone runs inline instead of paying `_enter`. csv −1.95%, vyx
+−0.91%, floor elsewhere on ten bench rows and fourteen ground-truth grammars.
+
+The durable part is the rule now in `lexic/decisions`: a code standing for a
+reference must be listed beside `OP_REF1` in every consumer that sees through
+references — admission prefixes, dispatch conversion, the frame-less licence.
+Two omissions were found by measurement, each presenting as a slowdown while
+being a control-flow change (an attempt losing its skip; an alternation losing
+its frame-less chase).
+
 ## Presentation ceilings — the engine half of the drawing contract (2026-08-16)
 
 `compile/presentation.py`. A ceiling is a rule-keyed table in the transpile

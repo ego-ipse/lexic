@@ -740,3 +740,48 @@ scale.
 **Ruled out on the way, recorded so nobody re-runs them:** the number of
 operations (every counted component grows exactly ×4.0 for ×4 input) and the
 garbage collector (identical with `gc.disable()`).
+
+## Reference op-codes: one code, every consumer that sees through it (2026-08-18)
+
+The PDA's specialisation passes give an item its own op-code whenever the
+runtime would otherwise re-derive a COMPILE-time fact per occurrence:
+`OP_LIT1`/`OP_CC1` (an exactly-once terminal), `OP_VSTR` (a reference the
+matcher can run frame-lessly), `OP_VRUN`/`OP_V1` (that reference known to be
+exactly-once, tabled or not), `OP_VDISP` (a dispatch chase whose targets are
+all inlinable) and `OP_LEAF1` (an exactly-once reference to a frame-less LEAF
+clone — `_enter` would ask the gated/leaf/mode questions and then call
+`_run_leaf`, so the code says the answers already).
+
+**The rule, and it is not a style preference.** A new code standing for a
+REFERENCE must be listed beside `OP_REF1` in every consumer that reads THROUGH
+references. Today those are:
+
+- `pda/compiler/lower.py::_arm_prefix_steps` — admission prefixes. Its reach
+  decides whether `sole_admitted` can prove a single survivor, and therefore
+  whether an attempt is SKIPPED.
+- `pda/compiler/specialize.py::_unit_ref_target` — dispatch conversion. It runs
+  again for attempt sub-clones, which share their parent's already-specialised
+  arm.
+- `pda/compiler/specialize.py::_mark_leaves` — the frame-less licence, with the
+  matching arm in `PdaKernel._run_leaf`.
+
+An omission does not make the parse slower in the ordinary sense: it silently
+costs an alternation its frame-less chase, or an attempt its SKIP — a frame and
+a model per occurrence, and a different tier doing the parsing. Both omissions
+found this way presented as pure slowdowns while being control-flow changes:
+one took `backtrack` from 90 to 270 clone entries, the other cost +10.6% with
+the entry count already restored. Correctness held throughout, which is exactly
+what made them hard to see.
+
+**Why an array was rejected for `OP_LEAF1`.** A parallel `leafrefs` boolean on
+`FlatArm` avoids widening the driver's op-code RANGE tests (`k >= OP_VRUN`
+routes the span family) — but it puts the decision where every consumer must
+remember to consult it, which is the same trap one level down. A code numbered
+into the span range costs the driver nothing and is visible to everything that
+already dispatches on kind.
+
+**Measured** (`8ed6f256`, `1bc2ce70`): csv −1.95%, vyx −0.91% against per-row
+A/A controls, floor on the other eight bench rows and across all fourteen
+ground-truth grammars, compile time at floor. The remaining population is
+0.05 calls/char at most, so extending the licence to QUANTIFIED references buys
+under a tenth of a percent — the avenue is exhausted, not merely unexplored.
