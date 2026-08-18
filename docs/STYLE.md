@@ -168,10 +168,39 @@ Plain `None`, bare tuple aliases (`_WMeta`, `TrieNode`), positional tuple
 access and mutable cursors are correct choices in the engine and should not be
 "cleaned up" into records. Strictness is `ir/`'s contract, not the engine's.
 
-**Measure in-process, interleaved.** Cross-process comparison against a stored
-baseline drifts with machine state. For a change you believe is type-only,
-compare opcode streams (`dis.get_instructions`) rather than wall-clock — it's
-decisive and takes seconds.
+**Time CPU, not the wall.** `time.process_time()` ignores the time the process
+spent descheduled, so a loaded machine stops mattering. The same comparison that
+swung 30 points between passes on wall-clock reads to a fraction of a percent on
+CPU time.
+
+**Pick the instrument by whether the change can be TOGGLED.** This is the one
+that gets chosen wrong, and it is wrong in both directions:
+
+- *Toggleable* — a call inlined, a branch reordered, one method's body. Swap the
+  two versions **in one process**, alternating, and take the min. Cross-process
+  cannot resolve it: two byte-identical trees measure ±2.7% apart, which is
+  wider than any lever worth landing.
+- *Structural* — a data representation, a protocol, anything present on every
+  path. Run **two trees, cross-process**, alternating, and state the control
+  floor you measured by running two byte-identical trees through the same
+  harness. An in-process swap is blind here: if both arms carry the new
+  machinery, the swap cannot see the machinery's own cost. One such swap read a
+  9–21% regression as a 1–7% win, twice, before a cross-process run against the
+  real baseline found it.
+
+**Carry a control row.** A row the change cannot reach reads the noise band
+directly, and it is what says whether a −1.4% is a result or the floor.
+
+**Count the price, not just the population.** "87–100% of slots hold one model"
+says how often a saving applies and nothing about what it costs; that lever
+added 5.4 calls per character to remove 0.9. Convert both sides to the same
+unit before predicting: a removed Python call is worth ~40–50 ns, one demoted to
+a C-level partial ~11, and rows run 1800–3000 ns/char — so a population under
+~1 call/char cannot reach 1% however often it hits.
+
+For a change you believe is type-only, compare opcode streams
+(`dis.get_instructions`) rather than timing anything — it's decisive and takes
+seconds.
 
 **Don't optimise speculatively.** Not in a hot loop? Don't cache it.
 
