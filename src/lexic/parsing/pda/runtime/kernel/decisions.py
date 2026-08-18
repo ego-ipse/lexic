@@ -514,7 +514,7 @@ class Attempting:
             if other is None:
                 continue
             alt = other[0]
-            if alt == end:
+            if alt == end or (alt > end and self._spans_exactly(sub, pos, end)):
                 raise PdaFail(
                     f"attempt at {pos}: two arms span [{pos}, {end}) — "
                     "a value question for the gated engine",
@@ -526,6 +526,26 @@ class Attempting:
                     "and the alternative could compose",
                     pos,
                 )
+
+    def _spans_exactly(self, sub: FlatClone, pos: int, end: int) -> bool:
+        """Whether ``sub`` also derives exactly ``[pos, end)``.
+
+        An arm has a FAMILY of extents, not one: :meth:`_attempt_run` reports
+        only the greedy member, so an arm that overshoots the winner may still
+        derive the winner's own span — and two arms over one span is the value
+        question this seam refuses. Asked by re-running the arm against the
+        text TRUNCATED at ``end``, which is what makes the greedy run stop
+        there; a completed parse of a prefix is a genuine derivation of it, so
+        the answer cannot be a false positive. Only reachable when the greedy
+        extent OVERSHOOTS — an arm that stopped short could not reach ``end``.
+        """
+        whole = self.text
+        self.text = whole[:end]
+        try:
+            bounded = self._attempt_run(sub, pos)
+        finally:
+            self.text = whole
+        return bounded is not None and bounded[0] == end
 
     def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:
         """One arm attempt as a self-contained sub-run — fail-soft, rolled back.
