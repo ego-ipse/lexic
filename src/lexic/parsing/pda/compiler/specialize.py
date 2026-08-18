@@ -494,7 +494,7 @@ def _mark_leaves(clone: FlatClone) -> None:
         return  # a gated selection cannot run frame-lessly by lead char
     if clone.struct_arm is not None or clone.attempt is not None:
         return
-    inline_ops = _TERMINAL_OPS | {OP_VSTR, OP_VRUN, OP_V1, OP_VDISP}
+    inline_ops = _TERMINAL_OPS | {OP_VSTR, OP_VRUN, OP_V1, OP_VDISP, OP_LEAF1}
     clone.leaf = all(
         all(kind in inline_ops for kind in arm.kinds) for arm in _clone_arms(clone)
     )

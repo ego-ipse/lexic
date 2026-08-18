@@ -681,6 +681,10 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                     if k == OP_V1
                     else self._match_vdisp(sub, arm, i, pos)
                     if k == OP_VDISP
+                    # a leaf inside a leaf: recur rather than descend, so a
+                    # chain of pass-throughs costs no frame at any depth
+                    else self._run_leaf(arm.payloads[i], sub, pos)
+                    if k == OP_LEAF1
                     else self._match_vstr(sub, arm, i, pos)
                 )
             else:
