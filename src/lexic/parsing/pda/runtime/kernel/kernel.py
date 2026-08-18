@@ -73,6 +73,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_CC1,
     OP_FAIL,
     OP_GRP,
+    OP_LEAF1,
     OP_LIT,
     OP_LIT1,
     OP_REF1,
@@ -428,6 +429,8 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         literal / char class — routing to its matcher (the cold-ish tail of the
         driver's op dispatch; the exactly-once terminals stay inline)."""
         k = arm.kinds[i]
+        if k == OP_LEAF1:
+            return self._run_leaf(arm.payloads[i], self._sink_for(frame, arm, i), pos)
         if k == OP_VDISP:
             return self._match_vdisp(self._sink_for(frame, arm, i), arm, i, pos)
         if k == OP_VSTR or k >= OP_VRUN:

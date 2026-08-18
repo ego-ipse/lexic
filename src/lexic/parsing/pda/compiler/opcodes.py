@@ -41,6 +41,20 @@ language to be one character wide. A multi-character target has no key, but the
 chase is still a lead-char walk — so the SELECTION inlines even where the MODEL
 cannot be tabled."""
 
+OP_LEAF1 = 13
+"""An exactly-once reference to a FRAME-LESS LEAF clone — run inline.
+
+``_enter`` would ask four compile-time questions (gated selection, the leaf
+flag, the build mode) and then call ``_run_leaf``; this code says the answers
+already. Numbered above :data:`OP_VRUN` so the driver's span branch routes it
+with no comparison of its own.
+
+**Every consumer that sees THROUGH a reference must list this code beside**
+:data:`OP_REF1` — dispatch conversion (``_unit_ref_target``) and admission
+prefixes (``lower._arm_prefix_steps``) both do. An omission there does not slow
+the parse: it silently costs an alternation its frame-less chase, or an attempt
+its skip, which is a frame and a model per occurrence."""
+
 GATE_STOP, GATE_PAIR, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4, 5
 """Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, the
 ``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved

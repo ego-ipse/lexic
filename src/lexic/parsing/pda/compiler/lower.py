@@ -33,6 +33,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_FAIL,
     OP_GRP,
     OP_ISLAND,
+    OP_LEAF1,
     OP_LIT,
     OP_LIT1,
     OP_REF,
@@ -327,7 +328,7 @@ def _arm_prefix_steps(arm: FlatArm, depth: int) -> list[tuple[Any, ...]]:
             hi = arm.his[j] if k == OP_CC else 1
             step = (1, arm.payloads[j], lo, hi)
         elif (
-            k in (OP_REF, OP_REF1, OP_VSTR, OP_VRUN, OP_V1, OP_VDISP)
+            k in (OP_REF, OP_REF1, OP_LEAF1, OP_VSTR, OP_VRUN, OP_V1, OP_VDISP)
             and depth > 0
             and arm.los[j] == 1
             and arm.his[j] == 1

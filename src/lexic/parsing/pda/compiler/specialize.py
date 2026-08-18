@@ -31,6 +31,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_CC,
     OP_CC1,
     OP_GRP,
+    OP_LEAF1,
     OP_LIT,
     OP_LIT1,
     OP_REF,
@@ -417,16 +418,18 @@ def _specialize_vruns(arm: FlatArm) -> None:
 def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":
     """The arm's sole exactly-once clone reference, or ``None``.
 
-    ``OP_REF1`` counts as well as ``OP_REF``: it is the same fact — an
-    exactly-once reference whose payload is the target clone — and only the
-    driver's resume bookkeeping differs. The main pass never sees one (calls
+    ``OP_REF1`` and ``OP_LEAF1`` count as well as ``OP_REF``: all three are the
+    same fact — an exactly-once reference whose payload is the target clone —
+    and only how the driver reaches it differs. Omitting one costs the
+    alternation its frame-less dispatch, which is a frame and a model per
+    occurrence, not a missed micro-optimisation. The main pass never sees one (calls
     specialise after this runs); :func:`~lexic.parsing.pda.compiler.lower
     .flatten_clones` does, when it optimises the attempt sub-clones, which
     share their parent's already-specialised arm.
     """
     if arm.n != 1 or arm.los[0] != 1 or arm.his[0] != 1:
         return None
-    if arm.kinds[0] not in (OP_REF, OP_REF1):
+    if arm.kinds[0] not in (OP_REF, OP_REF1, OP_LEAF1):
         return None
     return arm.payloads[0]
 
@@ -515,6 +518,41 @@ def _specialize_calls(clone: FlatClone) -> None:
         arm.kinds = tuple(kinds)
 
 
+def _specialize_leaf_refs(clone: FlatClone) -> None:
+    """Rewrite exactly-once references to frame-less leaves to ``OP_LEAF1``.
+
+    Every consumer that sees THROUGH a reference must list this code beside
+    ``OP_REF1`` — :func:`_unit_ref_target` (dispatch conversion) and
+    ``lower._arm_prefix_steps`` (admission prefixes) both do. An omission
+    there does not slow the parse; it changes which tier parses.
+    """
+    for arm in _clone_arms(clone):
+        _mark_arm_leaf_refs(arm)
+
+
+def _runs_frameless(sub: FlatClone) -> bool:
+    """Whether ``_enter`` would run ``sub`` through ``_run_leaf`` — the same
+    questions it asks, asked once at compile time instead of per occurrence."""
+    gated = (
+        sub.attempt is not None
+        or sub.struct_arm is not None
+        or sub.kwin_selectors is not None
+        or sub.pn_selectors is not None
+    )
+    return sub.leaf and sub.mode == BUILD_SEQ and not gated
+
+
+def _mark_arm_leaf_refs(arm: FlatArm) -> None:
+    """One arm's exactly-once frame-less-leaf references."""
+    kinds = list(arm.kinds)
+    for i, kind in enumerate(kinds):
+        if kind != OP_REF1:
+            continue
+        if _runs_frameless(arm.payloads[i]):
+            kinds[i] = OP_LEAF1
+    arm.kinds = tuple(kinds)
+
+
 def optimize_program(roots: list[FlatClone]) -> None:
     """Run the post-flatten passes over every reachable clone, in order.
 
@@ -556,3 +594,5 @@ def optimize_program(roots: list[FlatClone]) -> None:
     for clone in clones:
         for arm in _clone_arms(clone):
             _specialize_vruns(arm)
+    for clone in clones:
+        _specialize_leaf_refs(clone)
