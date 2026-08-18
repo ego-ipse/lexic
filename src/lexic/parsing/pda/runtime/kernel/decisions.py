@@ -541,7 +541,14 @@ class Attempting:
                     "a value question for the gated engine",
                     pos,
                 )
-            if follow.has(self.text[alt : alt + 1]):
+            # End of input composes with whatever can finish there, and the
+            # rule's FOLLOW may or may not carry the sentinel — so asking it
+            # about `""` answered "cannot compose" for every alternative that
+            # consumed to the end, which is exactly when a longer reading is
+            # most likely to be the whole parse. Reaching the end is treated
+            # as composable: the bail direction, where the gated engine's
+            # whole-input view settles it.
+            if alt >= len(self.text) or follow.has(self.text[alt : alt + 1]):
                 raise PdaFail(
                     f"attempt at {pos}: arm choice spans two ends ({alt}, {end}) "
                     "and the alternative could compose",
