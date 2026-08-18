@@ -81,7 +81,15 @@ def test_a_scans_verdict_is_the_text_it_consumed(
 
 
 def test_a_forking_input_probes_and_rolls_back() -> None:
-    """The stream tells the story: a gate, two entries tried, a refusal."""
+    """The stream tells the story: a gate, the entries tried, a refusal.
+
+    The THIRD probe is the split fix earning its keep. A repeat no longer
+    treats its own next occurrence as a follower, so the boundary that used to
+    be settled by stopping early is now explored — an arm has a family of
+    extents, and the run tries one more of them before refusing. The claim the
+    test makes is unchanged: speculation happens, nothing is derived from it,
+    and the gate still names the two entries it chose between.
+    """
     run = watched(forking(), "abc")
     assert [event.kind for event in run.events] == [
         "gate",
@@ -89,6 +97,8 @@ def test_a_forking_input_probes_and_rolls_back() -> None:
         "scan",
         "probe",
         "scan",
+        "probe",
+        "rollback",
         "rollback",
     ]
     assert run.events[0].verdict == "attempt over 2 entries"
