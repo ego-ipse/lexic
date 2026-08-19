@@ -785,3 +785,40 @@ A/A controls, floor on the other eight bench rows and across all fourteen
 ground-truth grammars, compile time at floor. The remaining population is
 0.05 calls/char at most, so extending the licence to QUANTIFIED references buys
 under a tenth of a percent — the avenue is exhausted, not merely unexplored.
+
+## A repeat's own next occurrence is a split, not a follower (2026-08-18)
+
+Both engines answered `root ::= item+ / item ::= [a-z]+` on `"ab"` wrongly, in
+opposite directions, and the invariant page had already said what the right
+answer was: a split's first slot owns the text, so `Item('ab')`. The PDA built
+`Item('a'), Item('b')`; the gated Earley path REFUSED. Neither is a defensible
+reading of a rule that carves one production two ways.
+
+**PDA side.** A repeated item's own FIRST was unioned into its clone's HARD
+continuation, so a repeated child stopped before its next possible occurrence —
+last slot owns, the exact inverse of the stated policy. Loopback is a MAY-follow
+and now leaves the hard tail (`_spec_ruleref`, `_spec_alternation`, and the
+FOLLOW fixpoint's repeat edge). A third `structural_follow` channel carries the
+soft view WITHOUT generated repeat loopback, so `_loop_conflict` can tell a
+greedy split from an arm fork.
+
+**Earley side.** `is_arm_choice` compared arm ids, and normalisation mints one
+helper rule per quantifier — so two EXTENTS of one item looked like two arms and
+were refused as structural ambiguity. `CodeTables` now carries `code_choice`:
+authored and inline-group arms keep distinct ids, while every arm of one
+`__rep_*`/`__opt_*` helper shares a negative rule identity. Different extents of
+one item are a split again.
+
+**What it cost and bought.** Clone counts fell ~30% (json 126→87,
+arithmetic.gbnf 32→22, vyx 160→151) because the loopback union was what had been
+splitting the tails; island sets were IDENTICAL, so nothing was demoted to
+Earley to get there. 5315 generated inputs across 14 grammars: zero
+disagreements.
+
+**The shape that is still refused**, and must be: adjacent required references
+to the same variable-width rule (`root ::= item item+`). A one-character stop
+set cannot cut it — that assigns all shared FIRST text to the right child — so
+the analysis islands it and Earley owns the boundary. No shipped grammar
+exhibits it; the synthetic case is pinned in
+`tests/adversarial/lexic/test_split_ownership.py`.
+

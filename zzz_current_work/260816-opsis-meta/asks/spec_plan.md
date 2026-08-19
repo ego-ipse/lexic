@@ -249,6 +249,12 @@ round-trip of an authored table.
 **Done.** Gate green; commit `Presentation tables — the ceiling's engine
 half`.
 
+> **T10–T12 moved.** These three were appended to this contract after the
+> seven asks were done, and they are performance work, not opsis work. They now
+> live in `../../260816-parse-perf/`, where part 2 supersedes them whole — it
+> restarted the campaign on READING the competitors rather than guessing at
+> them. Kept here only so the numbering is not a hole.
+
 ## T10 — proved runs execute in C
 
 **Spec.** The run-recognition delegation study, redone from nothing (the

@@ -1,5 +1,15 @@
 # Log
 
+## Split ownership: a repeat's next occurrence is not a follower (2026-08-18)
+
+`a7ed17c`. Both engines were wrong about `item+` over `[a-z]+` on `"ab"` — the
+PDA carved it `Item('a'), Item('b')` (last slot owns), Earley refused it as an
+arm choice. The rule was already written down; neither engine implemented it.
+Loopback left the PDA's hard tail, and `code_choice` taught Earley that the
+arms of one quantifier helper are extents of one item rather than alternatives.
+Clone counts fell ~30% with island sets unchanged. See `lexic/decisions`.
+
+
 ## Reference op-codes and the see-through rule (2026-08-18)
 
 `OP_LEAF1` lands (`8ed6f256`, `1bc2ce70`): an exactly-once reference to a
