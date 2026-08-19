@@ -66,7 +66,12 @@ __all__ = [
     "SG_MATCH",
     "SG_SCAN",
     "SG_PROBE",
+    "Pattern",
     "build_recognizer",
+    "class_source",
+    "compile_admission",
+    "compile_source",
+    "literal_source",
     "scan_run",
     "scan_run_any",
     "scan_match",
@@ -126,7 +131,30 @@ class Recognizer(IrLeaf[IrSelf, IrSelf]):
         self.run_pats = tuple(re.compile(f"(?:{src})*+", re.DOTALL) for src in sources)
 
 
-def _class_source(chars: frozenset[str], negated: bool) -> str:
+type Pattern = re.Pattern[str]
+"""What a compiled pattern IS, named here so callers can hold one without
+naming the engine — this module is the package's single point of contact
+with it (`tests/integration/lexic/invariants/test_layering_invariants.py`
+enforces that), and a second import to spell a type would break the rule for
+no reason."""
+
+
+def literal_source(text: str) -> str:
+    """One literal as a self-contained regex fragment, escaped."""
+    return f"(?:{re.escape(text)})"
+
+
+def compile_source(source: str) -> Pattern:
+    """Compile an already-built pattern source, DOTALL like everything here.
+
+    The seam a caller uses when it can spell its own pattern — the source is
+    plain string logic wherever it is built, and only the compile needs the
+    engine.
+    """
+    return re.compile(source, re.DOTALL)
+
+
+def class_source(chars: frozenset[str], negated: bool) -> str:
     """The regex class for a ``(chars, negated)`` membership set.
 
     The EOF sentinel ``""`` has no spelling in a class and never matches in
@@ -144,7 +172,7 @@ def _item_source(item: tuple[int, Any, int, int], sources: list[str]) -> str:
     """One item as a possessive regex fragment — greedy, never giving back."""
     kind, payload, lo, hi = item
     if kind == _NA_CS:
-        atom = _class_source(*payload)
+        atom = class_source(*payload)
     elif kind == _NA_LIT:
         atom = re.escape(payload)
     else:
@@ -165,16 +193,36 @@ def _position_source(chars: frozenset[str], negated: bool) -> str:
 
     The consistency semantics of a k-window position: at end of input the
     char is the EOF sentinel ``""``, matched ONLY by a positive set carrying
-    it — spelled ``$`` here, and a chain of ``(?:$|…)`` positions keeps
-    matching at EOF exactly as the positionwise test keeps consenting.
+    it — spelled ``\\Z`` here, and a chain of ``(?:\\Z|…)`` positions keeps
+    matching at EOF exactly as the positionwise test keeps consenting. ``\\Z``
+    and not ``$``: ``$`` also matches before a TRAILING NEWLINE, where the
+    positionwise test reads an ordinary ``"\\n"`` and refuses.
     """
     if negated:
-        return _class_source(chars, True)
+        return class_source(chars, True)
     at_eof = "" in chars
-    members = _class_source(frozenset(ch for ch in chars if ch), False)
+    members = class_source(frozenset(ch for ch in chars if ch), False)
     if at_eof:
-        return f"(?:$|{members})"
+        return rf"(?:\Z|{members})"
     return members
+
+
+def _window_trie(rows: list[tuple[str, ...]], depth: int) -> str:
+    """Equal-length position sources factored by the prefix they share.
+
+    A window set is generated position by position, so its members agree on
+    their early positions and differ late. One branch per window makes the
+    regex engine re-test every shared position once per branch; grouping by
+    head tests each shared position once. Same member set, same answer — a
+    cheaper spelling of it.
+    """
+    if len(rows[0]) <= depth:
+        return ""
+    groups: dict[str, list[tuple[str, ...]]] = {}
+    for row in rows:
+        groups.setdefault(row[depth], []).append(row)
+    parts = [head + _window_trie(kids, depth + 1) for head, kids in groups.items()]
+    return parts[0] if len(parts) == 1 else "(?:" + "|".join(parts) + ")"
 
 
 def compile_admission(
@@ -189,14 +237,19 @@ def compile_admission(
     derivation poison) matches vacuously, exactly as the positionwise test
     admits it.
 
+    The members are emitted as a prefix trie, one group per window length: the
+    widest set in the fixture corpus (577 five-position windows) drops from 31k
+    source characters to 7.6k, and consulting it measured 2.4x faster.
+
     :param windows: The flat ``((chars, negated), ...)`` windows.
     :returns: The compiled pattern; a match at ``pos`` IS admission.
     """
-    branches = [
-        "".join(_position_source(chars, negated) for chars, negated in window)
-        for window in windows
-    ]
-    return re.compile("|".join(branches or [""]), re.DOTALL)
+    by_length: dict[int, list[tuple[str, ...]]] = {}
+    for window in windows:
+        row = tuple(_position_source(chars, negated) for chars, negated in window)
+        by_length.setdefault(len(row), []).append(row)
+    source = "|".join(_window_trie(rows, 0) for rows in by_length.values())
+    return re.compile(source, re.DOTALL)
 
 
 def _hi(item: IrItem) -> int:

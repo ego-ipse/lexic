@@ -65,7 +65,14 @@ from lexic.parsing.pda.compiler.specs import (
     StopGate,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import ScanGate, compile_admission
+from lexic.parsing.pda.core.scanner import (
+    Pattern,
+    ScanGate,
+    class_source,
+    compile_admission,
+    compile_source,
+    literal_source,
+)
 
 
 def _flat_windows(
@@ -277,123 +284,192 @@ def _flatten_group(group: GroupSpec, shells: dict[CloneKey, FlatClone]) -> FlatC
     return clone
 
 
-def _step_admits_next(step: tuple[Any, ...], nxt: tuple[Any, ...]) -> bool:
-    """Whether the possessive ``step`` could over-eat what ``nxt`` needs.
+_PREFIX_DEPTH = 6
+"""How far an admission prefix follows references before it stops.
 
-    The step matcher is possessive (no backtracking — src imports no regex
-    engine), so a prefix may only chain steps whose alphabets are DISJOINT
-    at the seam; otherwise a greedy take could falsely reject a viable arm,
-    which would be an UNSOUND admission. Overlap ends the prefix instead.
+Also what terminates the walk on a recursive rule: a prefix is a *necessary*
+condition, so stopping early only weakens the filter, never breaks it."""
+
+_PREFIX_SOURCE_CAP = 20_000
+"""Widest prefix source that earns a compiled pattern. A fan-out of wide
+alternations can spell a very large source for very little discrimination;
+past this the entry keeps its first-char test and its window instead."""
+
+_PREFIX_REF_OPS = frozenset(
+    {OP_REF, OP_REF1, OP_LEAF1, OP_VSTR, OP_VRUN, OP_V1, OP_VDISP}
+)
+"""Item op-codes whose payload is a clone the prefix may descend into.
+
+Every code that stands for a REFERENCE belongs here — this is one of the
+consumers that see through references, and a code missing from the set costs
+an attempt its skip silently rather than loudly."""
+
+
+def _quantified(atom: str, lo: int, hi: int) -> tuple[str, bool]:
+    """``atom`` under ``{lo,hi}``, and whether that bound is unbounded.
+
+    Greedy and BACKTRACKABLE, never possessive: a prefix pattern is a
+    necessary condition, and a possessive run that over-ate what a later
+    item needs would turn it into a false rejection.
     """
-    kind, payload, _lo, hi = step
-    if hi == 1:
-        return False  # a bounded-once step never over-eats
-    if kind == 0:
-        lead = payload[0]
-        return _member(lead, nxt)
-    chars, negated = payload
-    if negated:
-        return True  # a co-finite step overlaps almost anything — stop
-    return any(_member(ch, nxt) for ch in chars)
+    if (lo, hi) == (1, 1):
+        return atom, False
+    if hi < 0:
+        return f"{atom}{{{lo},}}", True
+    return f"{atom}{{{lo},{hi}}}", False
 
 
-def _member(ch: str, step: tuple[Any, ...]) -> bool:
-    """Whether ``ch`` can begin ``step``."""
-    kind, payload, _lo, _hi = step
-    if kind == 0:
-        return payload[0] == ch
-    chars, negated = payload
-    return (ch not in chars) if negated else ch in chars
+def _terminal_source(arm: FlatArm, j: int) -> tuple[str, bool] | None:
+    """Item ``j``'s source when it is a terminal, else ``None``."""
+    k = arm.kinds[j]
+    if k == OP_LIT1:
+        return literal_source(arm.payloads[j]), False
+    if k == OP_CC1:
+        return class_source(*arm.payloads[j]), False
+    if k == OP_LIT:
+        atom = literal_source(arm.payloads[j])
+    elif k == OP_CC:
+        atom = class_source(*arm.payloads[j])
+    else:
+        return None
+    return _quantified(atom, arm.los[j], arm.his[j])
 
 
-def _arm_prefix_steps(arm: FlatArm, depth: int) -> list[tuple[Any, ...]]:
-    """The arm's leading terminal run as flat matcher steps, seen THROUGH refs.
+def _ref_source(arm: FlatArm, j: int, depth: int) -> tuple[str, bool, bool] | None:
+    """Item ``j``'s referenced clone as ``(source, spans_item, unbounded)``.
 
-    A leading exactly-once reference to a single-arm, default-free,
-    non-attempt clone inlines transparently (hoisting puts most of a vyx
-    arm's discriminator — ``key '='`` — behind such refs); any other shape,
-    or a seam the possessive matcher cannot chain soundly
-    (:func:`_step_admits_next`), ends the prefix. Bounded by ``depth``.
+    ``spans_item`` is what licenses the caller to keep going past this item.
+    A quantified item may only carry its bound when the inner source spans
+    the whole clone AND has no unbounded quantifier of its own: repeating a
+    PREFIX is not a prefix of the repetition, and nesting one unbounded
+    quantifier in another is where a backtracking engine goes exponential.
     """
-    steps: list[tuple[Any, ...]] = []
+    if depth <= 0 or arm.kinds[j] not in _PREFIX_REF_OPS:
+        return None
+    inner = _clone_prefix_source(arm.payloads[j], depth - 1)
+    if inner is None:
+        return None
+    source, whole, unbounded = inner
+    lo, hi = arm.los[j], arm.his[j]
+    if (lo, hi) == (1, 1):
+        return source, whole, unbounded
+    if not whole or unbounded:
+        # only a MANDATORY iteration is certainly present; an optional one
+        # constrains nothing, so the prefix ends before it rather than at it.
+        return (source, False, unbounded) if lo >= 1 else None
+    bounded, grew = _quantified(source, lo, hi)
+    return bounded, True, grew
+
+
+def _arm_prefix_source(arm: FlatArm, depth: int) -> tuple[str, bool, bool]:
+    """The arm's leading items as ``(source, spans_arm, unbounded)``.
+
+    A NECESSARY condition, not an exact one: the source transcribes a PREFIX
+    of the item sequence, so every string the arm derives is matched by it,
+    and stopping early only widens what the filter admits.
+    """
+    parts: list[str] = []
+    unbounded = False
     for j in range(arm.n):
-        k = arm.kinds[j]
-        step: tuple[Any, ...] | None = None
-        if k in (OP_LIT, OP_LIT1):
-            lo = arm.los[j] if k == OP_LIT else 1
-            hi = arm.his[j] if k == OP_LIT else 1
-            step = (0, arm.payloads[j], lo, hi)
-        elif k in (OP_CC, OP_CC1):
-            lo = arm.los[j] if k == OP_CC else 1
-            hi = arm.his[j] if k == OP_CC else 1
-            step = (1, arm.payloads[j], lo, hi)
-        elif (
-            k in (OP_REF, OP_REF1, OP_LEAF1, OP_VSTR, OP_VRUN, OP_V1, OP_VDISP)
-            and depth > 0
-            and arm.los[j] == 1
-            and arm.his[j] == 1
-        ):
-            grown = _clone_prefix_steps(arm.payloads[j], depth - 1)
-            if grown is not None:
-                inner, whole = grown
-                if steps and _step_admits_next(steps[-1], inner[0]):
-                    break
-                steps.extend(inner)
-                if whole:
-                    continue
-            break
-        if step is None:
-            break
-        if steps and _step_admits_next(steps[-1], step):
-            break
-        steps.append(step)
-    return steps
+        term = _terminal_source(arm, j)
+        if term is not None:
+            parts.append(term[0])
+            unbounded = unbounded or term[1]
+            continue
+        grown = _ref_source(arm, j, depth)
+        if grown is None:
+            return "".join(parts), False, unbounded
+        parts.append(grown[0])
+        unbounded = unbounded or grown[2]
+        if not grown[1]:
+            return "".join(parts), False, unbounded
+    return "".join(parts), True, unbounded
 
 
-def _clone_prefix_steps(
-    clone: Any, depth: int
-) -> tuple[list[tuple[Any, ...]], bool] | None:
-    """``clone``'s leading steps and whether they span the WHOLE clone (only
-    then may the caller's prefix continue past it), or ``None``.
+def _clone_arms(clone: FlatClone) -> tuple[FlatArm, ...]:
+    """Every arm ``clone`` can take, whichever structure its selection uses.
 
-    Single-arm clones only — a default (nullable) arm, a gated selection, a
-    nested attempt or an alternation yields nothing here (branch fan-out is
-    handled at the entry's top level, where each arm is its own prefix).
+    A gate CHOOSES among arms; it does not add or remove any, so the union
+    below is a superset of what the clone derives however it is selected —
+    which is all a necessary condition needs. A ``k``-window or peek
+    selection empties ``selectors`` and holds its arms in its own table, so
+    reading only ``selectors`` would silently yield nothing there.
     """
-    if not isinstance(clone, FlatClone):
+    if clone.kwin_selectors is not None:
+        return tuple(arm for _windows, arm in clone.kwin_selectors)
+    if clone.pn_selectors is not None:
+        return tuple(arm for _chars, _negated, arm in clone.pn_selectors[1])
+    return tuple(arm for _chars, _negated, arm in clone.selectors)
+
+
+def _union_source(
+    branches: list[tuple[str, bool, bool] | None],
+) -> tuple[str, bool, bool] | None:
+    """``branches`` as one alternation, or ``None`` when one spells nothing.
+
+    A union is only as constraining as its loosest member, so a branch that
+    spells nothing — or that could not be built at all — makes the whole
+    alternation vacuous, and dropping it would NARROW the pattern below what
+    the clone derives, which is the one way this filter could go unsound.
+    """
+    if not branches or any(b is None or not b[0] for b in branches):
         return None
-    gated = (
-        clone.attempt is not None
-        or clone.struct_arm is not None
-        or clone.kwin_selectors is not None
-        or clone.pn_selectors is not None
+    kept = [b for b in branches if b is not None]
+    joined = "(?:" + "|".join(source for source, _w, _u in kept) + ")"
+    if len(joined) > _PREFIX_SOURCE_CAP:
+        return None
+    return (
+        joined,
+        all(whole for _s, whole, _u in kept),
+        any(unbounded for _s, _w, unbounded in kept),
     )
-    if (
-        gated
-        or clone.default is not None
-        or clone.mode == BUILD_DISPATCH
-        or len(clone.selectors) != 1
-    ):
+
+
+def _dispatch_prefix_source(
+    clone: FlatClone, depth: int
+) -> tuple[str, bool, bool] | None:
+    """A frame-less dispatch alternation's targets, unioned."""
+    if depth <= 0 or not clone.selectors:
         return None
-    arm = clone.selectors[0][2]
-    inner = _arm_prefix_steps(arm, depth)
-    if not inner:
-        return None
-    return inner, len(inner) == arm.n
+    return _union_source(
+        [
+            _clone_prefix_source(target, depth - 1)
+            for _chars, _negated, target in clone.selectors
+        ]
+    )
 
 
-def _arm_prefix(arm: FlatArm) -> tuple[tuple[Any, ...], ...] | None:
-    """The arm's leading-terminal prefix as matcher steps, or ``None``.
+def _clone_prefix_source(clone: Any, depth: int) -> tuple[str, bool, bool] | None:
+    """``clone``'s arms as one alternation source, or ``None``.
 
-    The attempt entries' cheap admission (the recognition prototype's run
-    mode, applied to decisions, without importing a regex engine): one pass
-    of :func:`~lexic.parsing.pda.runtime.admission.prefix_admits` decides
-    whether the arm can reach past its leading terminals — a reject skips
-    the arm's sub-run AND its audit, soundly (a prefix miss means the arm
-    cannot match; every possessive seam was disjointness-checked at build).
+    A nullable default is refused: the clone then derives ε, so any honest
+    union carries an empty branch and admits everything.
     """
-    steps = _arm_prefix_steps(arm, 6)
-    return tuple(steps) if steps else None
+    if not isinstance(clone, FlatClone) or clone.default is not None:
+        return None
+    if clone.mode == BUILD_DISPATCH:
+        return _dispatch_prefix_source(clone, depth)
+    return _union_source([_arm_prefix_source(arm, depth) for arm in _clone_arms(clone)])
+
+
+def _arm_prefix(arm: FlatArm) -> Pattern | None:
+    """The arm's leading prefix as one compiled pattern, or ``None``.
+
+    The attempt entries' cheap admission: one C-level match decides whether
+    the arm can reach past what its leading items must spell — a miss skips
+    the arm's sub-run AND its audit, soundly, because the pattern matches
+    everything the arm derives (:func:`_arm_prefix_source`).
+
+    Spelling it as a regex rather than a possessive step walk is what lets
+    the discriminator through: a rule's leading reference is usually an
+    ALTERNATION (``kv-pair`` is ``key '+=' … | key '=' …``), which no
+    single-arm step list can carry, and the discriminating character sits on
+    the far side of an unbounded run that only backtracking can give back.
+    """
+    source, _whole, _unbounded = _arm_prefix_source(arm, _PREFIX_DEPTH)
+    if not source or len(source) > _PREFIX_SOURCE_CAP:
+        return None
+    return compile_source(source)
 
 
 def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:

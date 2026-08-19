@@ -41,7 +41,6 @@ from lexic.parsing.pda.runtime.admission import (
     control_signature,
     frames_copy,
     pending_values,
-    prefix_admits,
     sole_admitted,
     value_shape,
     values_agree,
@@ -483,7 +482,7 @@ class Attempting:
                 (char == "" or char in chars) if negated else (char not in chars)
             ):
                 continue
-            if prefix is not None and not prefix_admits(self.text, pos, prefix):
+            if prefix is not None and prefix.match(self.text, pos) is None:
                 continue
             if window is not None and window.match(self.text, pos) is None:
                 continue
@@ -527,7 +526,7 @@ class Attempting:
                 (char == "" or char in chars) if negated else (char not in chars)
             ):
                 continue
-            if prefix is not None and not prefix_admits(self.text, pos, prefix):
+            if prefix is not None and prefix.match(self.text, pos) is None:
                 continue
             if window is not None and window.match(self.text, pos) is None:
                 continue

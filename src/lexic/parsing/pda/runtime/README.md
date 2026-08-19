@@ -19,8 +19,9 @@ machinery; `pda_model` / `pda_reduce` are the public entries). Its own
 
 ## `admission.py` — the attempt-seam leaves
 
-Arm admission tests (`admits`, `sole_admitted`, the pure-Python possessive
-`prefix_admits`), the per-parse scratch (`KernelCaches`), and the
+Arm admission tests (`admits`, `sole_admitted` — the first-char filter, the
+entry's compiled leading-prefix pattern and its FIRST_k window, in that
+order), the per-parse scratch (`KernelCaches`), and the
 aliasing-true structural stack copy (`frames_copy`) the probes drive on.
 Flat leaves: no kernel import, shared by name with the decision group.
 

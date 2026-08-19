@@ -35,7 +35,6 @@ __all__ = [
     "KernelCaches",
     "admits",
     "frames_copy",
-    "prefix_admits",
     "sole_admitted",
 ]
 
@@ -56,39 +55,12 @@ def admits(char: str, chars: Any, negated: Any) -> bool:
     return (char != "" and char not in chars) if negated else char in chars
 
 
-def prefix_admits(text: str, pos: int, steps: tuple[tuple[Any, ...], ...]) -> bool:
-    """Whether the arm's leading-terminal prefix matches at ``pos``.
-
-    The possessive step matcher (every seam was disjointness-checked at
-    build, so greediness cannot falsely reject): literals by ``startswith``,
-    classes char by char, each to its quantifier.
-    """
-    for kind, payload, lo, hi in steps:
-        count = 0
-        if kind == 0:
-            width = len(payload)
-            while (hi < 0 or count < hi) and text.startswith(payload, pos):
-                pos += width
-                count += 1
-        else:
-            chars, negated = payload
-            while hi < 0 or count < hi:
-                ch = text[pos : pos + 1]
-                if not ((ch != "" and ch not in chars) if negated else ch in chars):
-                    break
-                pos += 1
-                count += 1
-        if count < lo:
-            return False
-    return True
-
-
 def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     """The single admitted entry's clone, or ``None`` when several admit.
 
-    Admission is the first-char pre-filter AND the leading-terminal prefix
-    regex (one C-level match per candidate) AND the arm's FIRST_k window —
-    most overlapping-FIRST decisions collapse to a single survivor at their
+    Admission is the first-char pre-filter AND the leading-prefix pattern
+    (one C-level match per candidate) AND the arm's FIRST_k window — most
+    overlapping-FIRST decisions collapse to a single survivor at their
     discriminator, and a sole survivor has no fork to audit and no rollback
     to arm: the runtime enters it as an ordinary clone (frame push) instead
     of a sub-run.
@@ -103,7 +75,7 @@ def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
             (char == "" or char in chars) if negated else (char not in chars)
         ):
             continue
-        if prefix is not None and not prefix_admits(text, pos, prefix):
+        if prefix is not None and prefix.match(text, pos) is None:
             continue
         if window is not None and window.match(text, pos) is None:
             continue

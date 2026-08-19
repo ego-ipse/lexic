@@ -27,11 +27,13 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.pda.compiler.flatten import window_admits
 from lexic.parsing.pda.core.scanner import (
     SG_PROBE,
     SG_SCAN,
     ScanGate,
     build_recognizer,
+    compile_admission,
     scan_gate_take,
     scan_match,
     scan_run,
@@ -301,3 +303,69 @@ def test_sg_scan_arm_gate_scan_gate_take(sg_scan_arm_gate, text, admits):
     """The hand-authored ``SG_SCAN`` arm gate: a post-noise ``x`` admits,
     anything else (including EOF) escapes to the empty arm."""
     assert scan_gate_take(text, 0, sg_scan_arm_gate) is admits
+
+
+# ── admission windows ─────────────────────────────────────────────────
+
+
+def _pos(members: str, negated: bool = False):
+    """One window position as the ``(chars, negated)`` pair the runtime holds."""
+    return (frozenset(members), negated)
+
+
+ADMISSION_SETS = [
+    ((),),  # the EMPTY window — the derivation poison, admits anything
+    ((_pos("a"),),),
+    ((_pos("a"), _pos("b")), (_pos("a"), _pos("c")), (_pos("b"), _pos("c"))),
+    ((_pos("ab"), _pos("c")), (_pos("ab"), _pos("d")), (_pos("e"),)),
+    ((_pos("a"), _pos("bc", True)), (_pos("a"), _pos("d"))),
+    ((_pos("abc", True), _pos("a"), _pos("b")), (_pos("abc", True), _pos("a"))),
+    ((_pos(""),), (_pos("a"),)),  # an unsatisfiable position beside a live one
+    ((_pos("a\x00"),), (_pos("b"), _pos("a\x00"))),  # EOF sentinel positions
+]
+"""Window sets whose shared prefixes, polarities and lengths are what the
+compiled spelling has to preserve. ``\\x00`` stands in for nothing; the EOF
+sentinel is the empty string, added by :func:`_with_eof`.
+
+No EMPTY SET here: an attempt arm whose windows are all empty carries no
+filter at all (:meth:`CloneCompiler._attempt_window` returns ``None``), so
+``compile_admission(())`` is not a state the lowering can reach and pinning an
+answer for it would pin a shape nothing produces."""
+
+
+def _with_eof(windows):
+    """``windows`` with the EOF sentinel added to every positive position."""
+    return tuple(
+        tuple(
+            (chars, negated) if negated else (chars | {""}, negated)
+            for chars, negated in window
+        )
+        for window in windows
+    )
+
+
+@pytest.mark.parametrize("windows", ADMISSION_SETS)
+@pytest.mark.parametrize("eof_seeded", [False, True])
+@pytest.mark.parametrize(
+    "text",
+    # the newline strings are the `$`-vs-`\Z` case: `$` matches before a
+    # trailing newline, where the positionwise test reads an ordinary "\n"
+    ["", "a", "b", "ab", "ac", "bc", "abc", "abcd", "dab", "eab", "aab", "\n", "a\n"],
+)
+def test_compiled_admission_agrees_with_the_positionwise_test(
+    windows, eof_seeded, text
+):
+    """The compiled pattern IS the positionwise window test, at every position.
+
+    :func:`~lexic.parsing.pda.core.scanner.compile_admission` exists only to
+    answer :func:`~lexic.parsing.pda.compiler.flatten.window_admits` in C, and
+    it is free to spell the member set however it likes — factored by shared
+    prefix, grouped by length. This is the contract that spelling has to keep,
+    asked at every cursor position including end of input.
+    """
+    wins = _with_eof(windows) if eof_seeded else windows
+    pattern = compile_admission(wins)
+    for pos in range(len(text) + 1):
+        assert (pattern.match(text, pos) is not None) is window_admits(
+            text, pos, wins
+        ), f"{wins!r} at {pos} of {text!r} — pattern {pattern.pattern!r}"
