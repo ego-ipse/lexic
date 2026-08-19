@@ -37,8 +37,9 @@ from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.policy import AUTO, worker_count
 from lexic.parsing.parallel.pool import ParsePool
 from lexic.parsing.parallel.replicas import worker_replicas
-from lexic.parsing.parallel.roles import UNIT, Separator, roles, unbounded
+from lexic.parsing.parallel.roles import Separator, roles
 from lexic.parsing.parallel.scan import Scanner, Window
+from lexic.parsing.parallel.shapes import UNIT, unbounded
 from lexic.parsing.pda.core.charsets import CharSet
 
 
@@ -294,11 +295,15 @@ def _stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
 
     Each chunk is a document of complete units, so the container's single
     repetition field is the concatenation — no node is rebuilt or rebased.
+
+    The field must be an ``IrTuple``, not merely tuple-shaped: an ``IrMap``
+    iterates and has a length without subclassing one, so a structural test
+    would read a keyed field as a repetition and concatenate its entries.
     """
     sequences = []
     for chunk in chunks:
         fields = tuple(chunk)
-        if len(fields) != 1 or not isinstance(fields[0], tuple):
+        if len(fields) != 1 or not isinstance(fields[0], IrTuple):
             return None
         sequences.extend(fields[0])
     return chunks[0].rebuild([IrTuple(*sequences)])
@@ -384,22 +389,19 @@ def split_model[M: IrNamedTuple](
 ) -> M | None:
     """Split this input across workers, or say the split does not apply.
 
-    The model a sequential parse would build — or ``None`` for "not split".
+    Returns exactly what :func:`~lexic.parsing.products.parse_model` returns
+    for this input, with the wall-clock divided across workers, whenever a
+    plan exists, the policy grants more than one worker, and every chunk
+    parses. ``None`` says the caller should parse sequentially: no plan, too
+    few cut points, or a chunk that failed — and a chunk failing is not a
+    verdict on the input, only on the split, so the caller's sequential
+    parse is what raises (or does not).
 
-        Returns exactly what :func:`~lexic.parsing.products.parse_model` returns
-        for this input, with the wall-clock divided across workers, whenever a
-        plan exists, the policy grants more than one worker, and every chunk
-        parses. ``None`` says the caller should parse sequentially: no plan, too
-        few cut points, or a chunk that failed — and a chunk failing is not a
-        verdict on the input, only on the split, so the caller's sequential
-        parse is what raises (or does not).
-
-        :param grammar: The codegen grammar.
-        :param text: The document.
-        :param fold: The instance fold the grammar was compiled with.
-        :param resolve: The caller's ambiguity resolver, reaching chunk parses
-            and the sequential fallback alike.
-        :param cores: 0 = auto, 1 = sequential (so: never split), N = that many.
+    :param parse: The model product, injected by the layer that owns it.
+    :param grammar: The codegen grammar.
+    :param ask: The document, its fold, and the caller's ambiguity resolver.
+    :param cores: 0 = auto, 1 = sequential (so: never split), N = that many.
+    :returns: The model, or ``None`` to parse sequentially.
     """
     text = ask.text
     plan = split_plan(grammar)

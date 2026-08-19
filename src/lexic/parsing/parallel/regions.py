@@ -19,16 +19,18 @@ piece it stood in for.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from functools import partial
 from typing import NamedTuple
 
 from lexic.exceptions import LexicError
 from lexic.ir import IrAlternation, IrAst, IrItem, IrRule, IrRuleRef, IrSelf
 from lexic.parsing.earley.reduce.reducer import Reducer
-from lexic.parsing.parallel.interiors import interiors, literal_char, unbounded
+from lexic.parsing.parallel.interiors import interiors
 from lexic.parsing.parallel.policy import AUTO, doc_workers
 from lexic.parsing.parallel.pool import ParsePool
 from lexic.parsing.parallel.replicas import grammar_replicas
+from lexic.parsing.parallel.shapes import edge_char, literal_char, unbounded
 
 
 class Region(NamedTuple):
@@ -76,20 +78,6 @@ def pair_rules(grammar: IrAst) -> dict[str, tuple[str, str]]:
     return out
 
 
-def _leads_with(body: IrAlternation, rule_map: dict[str, IrRule]) -> str | None:
-    """The one character EVERY arm of ``body`` begins with, else ``None``."""
-    found: set[str] = set()
-    for arm in body:
-        items = tuple(arm)
-        if not items:
-            return None
-        char = literal_char(items[0], rule_map)
-        if char is None:
-            return None
-        found.add(char)
-    return found.pop() if len(found) == 1 else None
-
-
 def _repeated_bodies(
     items: tuple[IrItem, ...], rule_map: dict[str, IrRule]
 ) -> list[IrAlternation]:
@@ -123,11 +111,12 @@ def separators(grammar: IrAst) -> frozenset[str]:
     begins with is what stands between one item and the next.
     """
     rule_map = {str(rule.name): rule for rule in grammar.rules}
+    spells = partial(literal_char, rule_map=rule_map)
     found: set[str] = set()
     for rule in grammar.rules:
         for arm in rule.body:
             for body in _repeated_bodies(tuple(arm), rule_map):
-                char = _leads_with(body, rule_map)
+                char = edge_char(body, 0, spells)
                 if char is not None:
                     found.add(char)
     return frozenset(found)
@@ -300,25 +289,64 @@ def merge(values: list[IrSelf]) -> IrSelf | None:
         return None
 
 
-def route_to(whole: IrSelf, needle: IrSelf) -> tuple[int, ...] | None:
-    """Where ``needle`` sits inside ``whole`` — the first match, by value.
+def _preorder(
+    node: IrSelf, route: tuple[int, ...]
+) -> Iterator[tuple[tuple[int, ...], IrSelf]]:
+    """Every node at or under ``node``, with the route reaching it.
 
     Walks the spine's own ``children()``: a reduced document is not a tuple
     (an ``IrMap`` iterates and has a length without subclassing one), so
     asking the node what its children are is both the typed answer and the
     only correct one.
     """
-    if whole is needle or whole == needle:
-        return ()
-    for index, part in enumerate(whole.children()):
-        found = route_to(part, needle)
-        if found is not None:
-            return (index, *found)
+    yield route, node
+    for index, part in enumerate(node.children()):
+        yield from _preorder(part, (*route, index))
+
+
+def _past(route: tuple[int, ...], after: tuple[int, ...]) -> bool:
+    """Whether ``route`` reaches a node strictly after — and outside — ``after``."""
+    return route > after and route[: len(after)] != after
+
+
+def route_after(
+    whole: IrSelf, needle: IrSelf, after: tuple[int, ...] | None
+) -> tuple[int, ...] | None:
+    """Where ``needle`` sits inside ``whole``, past ``after``; ``None`` = nowhere.
+
+    Value equality alone cannot answer this. Two regions whose stand-ins
+    reduce to the same value — two arrays beginning with the same item — have
+    the same needle, so the first match claims both, one region's value is
+    written twice and the other keeps its stub. Nothing raises; the caller
+    just returns the wrong document.
+
+    Position is what tells them apart. :func:`choose` refuses overlapping
+    regions, so the runs are disjoint and in document order, and any
+    order-preserving reduction lays their stand-ins down in that same order.
+    Searching each from strictly past the previous one — and outside it,
+    since a later region can never be INSIDE an earlier one — makes the
+    assignment unique exactly where equality is not.
+
+    :param whole: The shell's reduced value.
+    :param needle: The stand-in value to place.
+    :param after: The previous region's route, or ``None`` for the first.
+    :returns: The route, or ``None`` when no admissible node matches.
+    """
+    for route, node in _preorder(whole, ()):
+        if after is not None and not _past(route, after):
+            continue
+        if node is needle or node == needle:
+            return route
     return None
 
 
 def splice[V: IrSelf](whole: V, route: tuple[int, ...], value: IrSelf) -> V | None:
-    """``whole`` with the node at ``route`` replaced by ``value``."""
+    """``whole`` with the node at ``route`` replaced by ``value``.
+
+    An empty route addresses ``whole`` itself, which this cannot answer: the
+    replacement is any ``IrSelf`` and the return is ``whole``'s own type. The
+    caller decides what replacing the root means.
+    """
     if not route:
         return None
     parts = list(whole.children())
@@ -372,25 +400,120 @@ def choose(
     return sorted(picked, key=lambda entry: entry[0].opener)
 
 
-def _parse_pieces(
-    reduce: Callable[[IrAst, str, Reducer], IrSelf],
-    grammar: IrAst,
-    flat: list[tuple[str, str]],
-    reducer: Reducer,
-    workers: int,
-) -> list[IrSelf]:
+class Reduction(NamedTuple):
+    """The reduce product bound to one grammar, reducer and worker count.
+
+    The four travel together through every phase of a split, so they are one
+    record rather than four parameters repeated at each hand-off.
+
+    :ivar reduce: The reduce product, injected by the layer that owns it.
+    :ivar grammar: The authored grammar.
+    :ivar reducer: The grammar's reduction policy.
+    :ivar workers: How many pieces reduce beside each other.
+    """
+
+    reduce: Callable[[IrAst, str, Reducer], IrSelf]
+    grammar: IrAst
+    reducer: Reducer
+    workers: int
+
+
+def _parse_pieces(run: Reduction, flat: list[tuple[str, str]]) -> list[IrSelf]:
     """Every piece, reduced concurrently, each worker on its own replica."""
-    views = grammar_replicas(grammar, min(workers, len(flat)) or 1)
+    views = grammar_replicas(run.grammar, min(run.workers, len(flat)) or 1)
     pool = ParsePool[int, IrSelf](
-        lambda k: reduce(
-            rooted(views[k % len(views)], flat[k][0]), flat[k][1], reducer
+        lambda k: run.reduce(
+            rooted(views[k % len(views)], flat[k][0]), flat[k][1], run.reducer
         ),
-        workers,
+        run.workers,
     )
     try:
         return pool.map(range(len(flat)))
     finally:
         pool.close()
+
+
+class Parts(NamedTuple):
+    """What a split reduction holds before it splices.
+
+    :ivar values: Every piece's value, flat, in document order.
+    :ivar whole: The shell's value — the document with each run stubbed.
+    :ivar stubs: Each region's stand-in, reduced under that region's own rule.
+    """
+
+    values: list[IrSelf]
+    whole: IrSelf
+    stubs: list[IrSelf]
+
+
+def _reduce_parts(
+    run: Reduction, text: str, divided: list[tuple[Region, list[str]]]
+) -> Parts | None:
+    """The pieces, the shell and the stand-ins; ``None`` = reduce sequentially.
+
+    A refusal here is a verdict on the SPLIT, never on the document: the
+    caller reduces the whole text instead, and that parse is what raises.
+    """
+    flat = [(region.rule, piece) for region, parts in divided for piece in parts]
+    regions = [region for region, _parts in divided]
+    keep = [stub(text, region) for region in regions]
+    try:
+        values = _parse_pieces(run, flat)
+        whole = run.reduce(run.grammar, shell(text, regions, keep), run.reducer)
+        stubs = [
+            run.reduce(
+                rooted(run.grammar, region.rule),
+                text[region.opener] + piece + text[region.closer],
+                run.reducer,
+            )
+            for region, piece in zip(regions, keep, strict=True)
+        ]
+    except LexicError:
+        return None
+    return Parts(values, whole, stubs)
+
+
+def _splice_all(
+    divided: list[tuple[Region, list[str]]], parts: Parts, size: int
+) -> IrSelf | None:
+    """Each region's merged value in the place its stand-in holds.
+
+    :param divided: The chosen runs and their pieces, in document order.
+    :param parts: The piece values, the shell's value and the stand-ins.
+    :param size: The document's length, which certifies a root route.
+    :returns: The document's value, or ``None`` to reduce sequentially.
+    """
+    whole = parts.whole
+    at = 0
+    after: tuple[int, ...] | None = None
+    placed: list[tuple[Region, tuple[int, ...], IrSelf]] = []
+    for index, (region, cuts) in enumerate(divided):
+        merged = merge(parts.values[at : at + len(cuts)])
+        at += len(cuts)
+        if merged is None:
+            return None
+        # The needle is the STUB's own value, reduced: a container normalises
+        # what it holds, so the merged value's first entry is not necessarily
+        # the one the shell kept.
+        after = route_after(whole, parts.stubs[index], after)
+        if after is None:
+            return None
+        placed.append((region, after, merged))
+    for region, route, merged in placed:
+        if not route:
+            # The stand-in IS the shell's whole value. That is the answer only
+            # when the run is the whole document; anywhere else it means the
+            # reduction spells an inner value the same way as its container,
+            # and which of the two the shell kept is not decidable here.
+            if region.opener != 0 or region.closer != size - 1:
+                return None
+            whole = merged
+            continue
+        spliced = splice(whole, route, merged)
+        if spliced is None:
+            return None
+        whole = spliced
+    return whole
 
 
 def split_regions(
@@ -420,45 +543,7 @@ def split_regions(
     divided = choose(text, find(grammar, text), workers)
     if not divided:
         return None
-
-    flat = [(region.rule, piece) for region, parts in divided for piece in parts]
-    try:
-        values = _parse_pieces(reduce, grammar, flat, reducer, workers)
-        shell_text = shell(
-            text,
-            [region for region, _parts in divided],
-            [stub(text, region) for region, _parts in divided],
-        )
-        whole = reduce(grammar, shell_text, reducer)
-        stubs = [
-            reduce(
-                rooted(grammar, region.rule),
-                text[region.opener] + stub(text, region) + text[region.closer],
-                reducer,
-            )
-            for region, _parts in divided
-        ]
-    except LexicError:
+    parts = _reduce_parts(Reduction(reduce, grammar, reducer, workers), text, divided)
+    if parts is None:
         return None
-
-    at = 0
-    routes: list[tuple[tuple[int, ...], IrSelf]] = []
-    for index, (_region, parts) in enumerate(divided):
-        mine = values[at : at + len(parts)]
-        at += len(parts)
-        merged = merge(mine)
-        if merged is None:
-            return None
-        # The needle is the STUB's own value, reduced: a container normalises
-        # what it holds, so the merged value's first entry is not necessarily
-        # the one the shell kept.
-        route = route_to(whole, stubs[index])
-        if route is None:
-            return None
-        routes.append((route, merged))
-    for route, merged in routes:
-        spliced = splice(whole, route, merged)
-        if spliced is None:
-            return None
-        whole = spliced
-    return whole
+    return _splice_all(divided, parts, len(text))

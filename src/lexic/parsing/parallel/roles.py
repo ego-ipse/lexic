@@ -21,19 +21,12 @@ scan's regex alternates over, and stays out of v2 by design.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import NamedTuple
 
-from lexic.ir import (
-    IrAlternation,
-    IrAst,
-    IrItem,
-    IrLiteral,
-    IrNoneType,
-    IrQuantifier,
-    IrRule,
-    IrRuleRef,
-)
+from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrRuleRef
 from lexic.parsing.parallel.anchors import anchors
+from lexic.parsing.parallel.shapes import UNIT, edge_char, unbounded
 
 
 class Separator(NamedTuple):
@@ -93,10 +86,6 @@ class Roles(NamedTuple):
         return self.separators | {record.char for record in self.terminators}
 
 
-UNIT = IrQuantifier()
-"""The unit quantifier — exactly one occurrence."""
-
-
 def _anchor_char(item: IrItem, anchor_set: frozenset[str]) -> str | None:
     """The item's character when it is a unit-quantified single-char anchor."""
     atom = item.atom
@@ -130,11 +119,6 @@ def _arm_pair(
         isinstance(item.atom, (IrRuleRef, IrAlternation)) for item in items[1:closer_at]
     )
     return (opener, closer) if interior else None
-
-
-def unbounded(item: IrItem) -> bool:
-    """Whether the item repeats without an upper bound."""
-    return isinstance(item.quantifier.hi, IrNoneType)
 
 
 def _lead_info(
@@ -221,20 +205,6 @@ def roles(grammar: IrAst) -> Roles:
     return Roles(tuple(pairs), kept, ended)
 
 
-def _trailing_char(body: IrAlternation, anchor_set: frozenset[str]) -> str | None:
-    """The single anchor char EVERY arm of ``body`` ends with, else ``None``."""
-    found: set[str] = set()
-    for arm in body:
-        items = tuple(arm)
-        if not items:
-            return None
-        char = _anchor_char(items[-1], anchor_set)
-        if char is None:
-            return None
-        found.add(char)
-    return found.pop() if len(found) == 1 else None
-
-
 def _terminators(
     grammar: IrAst, by_name: dict[str, IrRule], anchor_set: frozenset[str]
 ) -> list[Terminator]:
@@ -249,7 +219,9 @@ def _terminators(
                 unit = str(target)
                 if unit not in by_name:
                     continue
-                char = _trailing_char(by_name[unit].body, anchor_set)
+                char = edge_char(
+                    by_name[unit].body, -1, partial(_anchor_char, anchor_set=anchor_set)
+                )
                 record = Terminator(char, str(rule.name), unit) if char else None
                 if record is not None and record not in out:
                     out.append(record)

@@ -255,6 +255,7 @@ src/lexic/
       replicas.py                  Per-worker table replicas — equal grammar, own tables, no shared refcount traffic
       roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
       scan.py                      Self-locating window scan — relative depths, prefix-sum rebase to offsets
+      shapes.py                    Arm shapes — what an item spells, whether it repeats, what every arm carries
     pda/
       __init__.py                  The predictive PDA runtime — analysis, clone compiler, flattener, kernel
       analysis/
