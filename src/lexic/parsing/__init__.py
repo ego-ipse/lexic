@@ -105,6 +105,12 @@ reaches past the package boundary for it.
 the same reason: it is the repo's only nullability fixpoint, and the codegen
 passes need it to tell a language-preserving rewrite from a language-widening
 one (:func:`~lexic.compile.pipeline.passes.relax_non_semantic`).
+
+:mod:`~lexic.parsing.parallel` is the parallel layer — the split-point
+analysis (anchors, roles, the self-locating scan) and the worker-count
+policy. Nothing in it is engine API: neither engine consumes it, so its
+names stay on the subpackage, not this root; ``CompiledGrammar.anchors()``
+is the user surface.
 """
 
 from __future__ import annotations

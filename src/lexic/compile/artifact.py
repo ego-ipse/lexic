@@ -31,6 +31,7 @@ from lexic.parsing import (
     token_model,
 )
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.parallel import anchors
 
 
 def encoding_registry(
@@ -158,6 +159,21 @@ class CompiledGrammar:
         identity) — and the moments' ``resolved`` state, by definition.
         """
         return self.moments.grammar.resolved
+
+    def anchors(self) -> frozenset[str]:
+        """The grammar's structural anchor characters — provable split points.
+
+        A character no opaque interior (co-finite class, token terminal)
+        can emit and no derived run charset contains is structural at every
+        occurrence in valid input — a local scan cannot be fooled. Derived
+        from the codegen grammar (the form the engine parses) and memoised
+        with it by the engine's analysis; the per-site hypothesis map is
+        :func:`lexic.parsing.parallel.anchor_sites`.
+
+        :returns: The anchor characters; empty when the grammar admits no
+            provable split point — the cue for sequential processing.
+        """
+        return anchors(self.codegen_grammar)
 
     def parse(self, text: str, resolve: Resolver | None = None) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.

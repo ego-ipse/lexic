@@ -86,6 +86,15 @@ def test_pda_tables_is_the_same_object_the_parse_path_used():
     assert cg.pda_tables() is before
 
 
+def test_anchors_surfaces_the_engine_analysis():
+    """CompiledGrammar.anchors() answers over the codegen grammar: the char a
+    co-finite class covers is de-certified, the excluded closer stays, and the
+    engine memo makes repeated calls identical."""
+    cg = compile_text('root ::= "{" [^}]* "}"\n')
+    assert cg.anchors() == frozenset("}")
+    assert cg.anchors() is cg.anchors()
+
+
 # ── arithmetic ────────────────────────────────────────────────────────────────
 
 

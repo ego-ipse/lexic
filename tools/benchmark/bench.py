@@ -3,6 +3,14 @@
     uv run python -m tools.benchmark.bench            # default rounds
     uv run python -m tools.benchmark.bench --rounds 1 # quick pass
     uv run python -m tools.benchmark.bench --only json arithmetic
+    uv run python -m tools.benchmark.bench --cores 8  # lexic-mt over 8 threads
+
+On a free-threaded interpreter two more rows appear BY DEFAULT — `lexic-mt`
+and `lexic-mt-lex-ns`, N documents in flight through lexic's own
+`ParsePool` (auto N = the cpu count; `--cores N` overrides). Their cells are
+effective per-document time, wall / N. A GIL build gets no such rows and
+refuses an explicit `--cores` with the reason: threaded parsing under the
+GIL measured 0.82-0.92x, a net loss a row must not launder into a number.
 
 Every column is the SAME grammar, translated by :mod:`tools.benchmark.emit` from
 the one `IrAst` lexic compiles, and every translation is checked in both
@@ -41,6 +49,7 @@ import parsimonious.expressions
 from lexic.compile import Directives, compile_text
 from lexic.exceptions import LexicError
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.parallel import ParsePool
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import _model_product, earley_model
 from lexic.parsing.trace import watch
@@ -66,6 +75,8 @@ ENGINE: dict[str, str] = {
     "lexic-earley": "lexic's Earley/SPPF fallback; ambiguity refused, not resolved",
     "lexic-lex": "lexic-pda, `@lexical` rules folded to their matched TEXT",
     "lexic-lex-ns": "lexic-lex, `@non-semantic` rules dropped from the model",
+    "lexic-mt": "lexic-pda, N docs in flight on N threads — effective per-doc",
+    "lexic-mt-lex-ns": "lexic-lex-ns, the same N-threaded effective per-doc",
     "lark-earley": "Lark's Earley backend, dynamic lexer, grammar as authored",
     "lark-lalr": "Lark's LALR backend, contextual lexer, partitioned alphabet",
     "lark-earley-lex": "lark-earley with the grammar's own directives translated",
@@ -90,6 +101,8 @@ PRODUCT: dict[str, str] = {
     "lexic-earley": "typed model",
     "lexic-lex": "typed model · @lexical",
     "lexic-lex-ns": "typed model · @lexical @non-semantic",
+    "lexic-mt": "typed model · N threads",
+    "lexic-mt-lex-ns": "typed model · N threads · @lexical @non-semantic",
     "lark-earley": "Tree",
     "lark-lalr": "Tree",
     "lark-earley-lex": "Tree · @lexical @non-semantic",
@@ -483,6 +496,8 @@ _TINT: dict[str, str] = {
     "lexic-lex": "\x1b[38;5;45m",
     "lexic-lex-ns": "\x1b[38;5;51m",
     "lexic-earley": "\x1b[38;5;208m",
+    "lexic-mt": "\x1b[38;5;118m",
+    "lexic-mt-lex-ns": "\x1b[38;5;84m",
     "stdlib-json": "\x1b[38;5;213m",
     "msgspec": "\x1b[38;5;213m",
     "lark-earley-lex": "\x1b[38;5;250m",
@@ -654,6 +669,63 @@ def _legend(color: bool) -> None:
         print(f"  {_paint(f'{name:<16}', tint, color)} {_paint(note, _DIM, color)}")
 
 
+class _MtParse:
+    """The lexic-mt rows' timing adapter over the engine's own ParsePool.
+
+    The threading is lexic's (:class:`~lexic.parsing.parallel.ParsePool`);
+    what belongs to the BENCH is only the ``measured_us`` contract: wall /
+    workers, the effective per-document cost a caller with N documents in
+    flight pays. Wall-clock deliberately — parallel throughput IS a
+    wall-clock claim — reported through the same row machinery as every
+    other engine, so the number lands in the bar table beside them.
+    """
+
+    def __init__(self, parse: Parse, cores: int) -> None:
+        self._pool = ParsePool(parse, cores)
+        self._wall_us = 0.0
+
+    def __call__(self, corpus: str) -> None:
+        """Parse ``workers`` copies concurrently; record effective per-doc µs."""
+        count = self._pool.workers
+        started = time.perf_counter()
+        self._pool.map([corpus] * count)
+        self._wall_us = (time.perf_counter() - started) * 1e6 / count
+
+    def measured_us(self) -> float:
+        """The last pass's effective per-document microseconds."""
+        return self._wall_us
+
+    def close(self) -> None:
+        """Shut the pool down."""
+        self._pool.close()
+
+
+def _free_threaded() -> bool:
+    """Whether this interpreter runs without the GIL (free-threaded build)."""
+    gil_enabled = getattr(sys, "_is_gil_enabled", None)
+    return gil_enabled is not None and not gil_enabled()
+
+
+def _mark(cores: int | None) -> str:
+    """The header's cores marker, empty when no MT rows were asked for."""
+    return f"  cores={cores}" if cores is not None else ""
+
+
+def _mt_cores(asked: int | None) -> int | None:
+    """The lexic-mt thread count — the rows are ON by default when they can be.
+
+    A free-threaded interpreter gets the rows without being asked: auto is
+    the cpu count, ``--cores N`` overrides it. A GIL build gets no rows
+    (threaded parsing measured a net loss there) and refuses an explicit ask
+    with words rather than printing a misleading number.
+    """
+    if asked:
+        return asked
+    if _free_threaded():
+        return os.process_cpu_count() or 1
+    return None
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Time every engine on every benchmark grammar."""
     parser = argparse.ArgumentParser(description=SUMMARY)
@@ -664,6 +736,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         help=f"timed rounds per engine (default {DEFAULT_ROUNDS}; 1 is a quick pass)",
     )
     parser.add_argument(
+        "--cores",
+        type=int,
+        nargs="?",
+        const=0,
+        default=None,
+        metavar="N",
+        help="add a lexic-mt row: effective per-doc speed with N docs in "
+        "flight (bare --cores = auto, the cpu count; free-threaded "
+        "interpreter only — the GIL build measured a net loss)",
+    )
+    parser.add_argument(
         "--only", nargs="*", metavar="NAME", help="benchmark only these grammars"
     )
     parser.add_argument(
@@ -672,15 +755,31 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="force ANSI colour (auto: only on a terminal, honouring NO_COLOR)",
     )
     args = parser.parse_args(argv)
+    if args.cores is not None and not _free_threaded():
+        raise SystemExit(
+            "--cores needs a free-threaded interpreter (python3.14t): "
+            "threaded parsing under the GIL measured 0.82-0.92x, a net loss"
+        )
+    cores = _mt_cores(args.cores)
     color = _use_color(args.color)
     wanted = set(args.only or ())
     benches = [b for b in BENCHES if not wanted or b.name in wanted]
     if not benches:
         raise SystemExit(f"no such grammar: {sorted(wanted)}")
-    print(f"rounds={args.rounds}  grammars={', '.join(b.name for b in benches)}")
+    print(
+        f"rounds={args.rounds}{_mark(cores)}  grammars={', '.join(b.name for b in benches)}"
+    )
     _legend(color)
     for bench in benches:
         engines, refused = _engines(bench)
+        if cores is not None:
+            for base, label in (
+                ("lexic-pda", "lexic-mt"),
+                ("lexic-lex-ns", "lexic-mt-lex-ns"),
+            ):
+                parse = engines.get(base)
+                if parse is not None:
+                    engines[label] = _MtParse(parse, cores)
         anchor = next(iter(engines.values()), None)
         floor = _noise_floor(anchor, bench.corpus, args.rounds) if anchor else 0.0
         _report(

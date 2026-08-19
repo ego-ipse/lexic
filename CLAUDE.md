@@ -244,6 +244,13 @@ src/lexic/
         reducer.py                 Forest → IR reduction — where a flavour's meaning attaches
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
+    parallel/
+      __init__.py                  The parallel layer — split analysis, roles, scan, policy (orchestrator home)
+      anchors.py                   Anchor analysis — structural chars no opaque interior can emit, + site maps
+      policy.py                    Worker-count policy — auto from build/cores/size; explicit override wins
+      pool.py                      ParsePool — N documents in flight against one parse callable, warm workers
+      roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
+      scan.py                      Self-locating window scan — relative depths, prefix-sum rebase to offsets
     pda/
       __init__.py                  The predictive PDA runtime — analysis, clone compiler, flattener, kernel
       analysis/

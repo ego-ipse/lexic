@@ -1734,3 +1734,49 @@ Measured (in-process A/B, each half withheld at compile time, reproduced):
 co-finite chars — vyx −7.7%, gbnf-meta −3.0%; run spans — json −12.5%, and
 csv (whose spans never repeat) inside its own floor, because a span table
 pays recognition once where a per-span sub-parse pays it twice.
+
+## 2026-08-19 — the parallel layer, and the concurrency invariant
+
+`lexic.parsing.parallel` — the split-point vocabulary the parallel
+orchestrator composes above the products. Deliberately NOT on the parsing
+root: neither engine consumes it. `CompiledGrammar.anchors()` is the user
+surface.
+
+- **`anchors(grammar)`** — the characters no opaque interior can emit: no
+  co-finite class (string interior, comment body, token terminal) covers
+  them, no derived run charset contains them. Every occurrence in valid
+  input is then structural, so a local scan cannot be fooled — cut points
+  need no left context. Multi-site anchors are legitimate; WHICH site an
+  occurrence belongs to is the orchestrator's question, and
+  **`anchor_sites(grammar)`** (anchor → defining rules) is its hypothesis
+  set. Membership is counted over the PDA's polarity-aware `CharSet`s,
+  never expand-and-poison: poisoning a `[^\n]` comment body and certifying
+  the rest silently certifies a `{` the comment can legally contain, while
+  the exact count also keeps the line-break such a body EXCLUDES as an
+  honest anchor.
+- **`roles(grammar)`** — what an anchor DOES, derived from grammar shape,
+  never hardcoded per formulation: an arm opening with an anchor literal
+  whose last anchor literal closes over a reference interior derives an
+  opener/closer pair; the anchor literal every arm of an
+  unbounded-repeated body leads with (resolved through unit rule refs)
+  derives a separator. Single-char roles only.
+- **`Scanner(roles)`** — the self-locating window scan: windows assigned
+  arithmetically, each scanned with no left context at RELATIVE depth, an
+  O(windows) prefix sum rebases, separators at a chosen absolute depth are
+  the split offsets. One window IS the sequential scan — same code path.
+- **`worker_count(size, splits, cores=None)`** — auto by default: 1 on a
+  GIL build (splitting measured a net loss there), else
+  `min(cpus, size // MIN_CHUNK, splits + 1)` with a 64 KiB chunk floor. An
+  explicit `cores` is a decision: clamped only by the structural
+  `splits + 1` bound, no heuristic gates.
+
+An `IrAlphabet` site counts as ANY (token terminals match ids, not chars),
+so token grammars report no char anchors, cheaply — the empty candidate
+set short-circuits before any table compile. Empty anchors, empty roles
+are answers (sequential processing), not errors.
+
+`tests/integration/lexic/invariants/test_concurrent_parses.py` pins the
+companion invariant: one shared `CompiledGrammar`, concurrent `parse()`
+calls — models equal to the sequential reference, round-trips exact. The
+engine's per-parse state (kernel scratch, intern cache) is constructed per
+call; this is what document-level parallelism stands on.
