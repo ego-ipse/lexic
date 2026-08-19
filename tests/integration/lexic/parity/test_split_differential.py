@@ -15,6 +15,7 @@ from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import parse_model
 from lexic.parsing.parallel import split_model, split_plan
+from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
 
 CORPUS: tuple[tuple[str, str], ...] = (
@@ -47,7 +48,7 @@ def test_split_parse_equals_sequential(name: str, text: str, workers: int):
     compiled = compile_from_path(path)
     grammar, fold = compiled.codegen_grammar, compiled.fold
     sequential = parse_model(grammar, text, fold)
-    parallel = split_model(grammar, text, fold, cores=workers)
+    parallel = split_model(parse_model, grammar, Request(text, fold), workers)
     if parallel is not None:  # None = this grammar/input does not split
         assert parallel == sequential
         assert type(parallel) is type(sequential)
@@ -64,7 +65,7 @@ def test_a_bad_input_refuses_on_both_paths(name: str, text: str):
     compiled = compile_from_path(path)
     grammar, fold = compiled.codegen_grammar, compiled.fold
     bad = text + "\x00 not in this language"
-    assert split_model(grammar, bad, fold, cores=4) is None
+    assert split_model(parse_model, grammar, Request(bad, fold), 4) is None
     with pytest.raises(UnsupportedConstructError):
         parse_model(grammar, bad, fold)
     with pytest.raises(UnsupportedConstructError):

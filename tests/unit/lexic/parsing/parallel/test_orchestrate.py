@@ -14,6 +14,7 @@ from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import parse_model
 from lexic.parsing.parallel import split_model, split_plan
+from lexic.parsing.parallel.orchestrate import Request
 
 LEAD_RULE = (
     "root ::= pair tail*\n"
@@ -35,7 +36,7 @@ def test_split_equals_sequential_and_round_trips():
     compiled = compile_text(LEAD_RULE)
     grammar, fold = compiled.codegen_grammar, compiled.fold
     text = _doc()
-    parallel = split_model(grammar, text, fold, cores=4)
+    parallel = split_model(parse_model, grammar, Request(text, fold), 4)
     assert parallel is not None
     assert parallel == parse_model(grammar, text, fold)
     assert parallel.to_text() == text
@@ -48,7 +49,7 @@ def test_every_worker_count_gives_one_answer(cores: int):
     compiled = compile_text(LEAD_RULE)
     grammar, fold = compiled.codegen_grammar, compiled.fold
     text = _doc()
-    assert split_model(grammar, text, fold, cores=cores) == parse_model(
+    assert split_model(parse_model, grammar, Request(text, fold), cores) == parse_model(
         grammar, text, fold
     )
 
@@ -58,7 +59,9 @@ def test_a_bare_literal_lead_splits_too():
     compiled = compile_text(BARE_LEAD)
     grammar, fold = compiled.codegen_grammar, compiled.fold
     text = "|".join(f"word{'x' * (i % 3)}" for i in range(30)).replace("0", "")
-    assert split_model(grammar, text, fold, cores=4) == parse_model(grammar, text, fold)
+    assert split_model(parse_model, grammar, Request(text, fold), 4) == parse_model(
+        grammar, text, fold
+    )
 
 
 def test_a_grammar_without_a_separated_start_has_no_plan():
@@ -66,7 +69,7 @@ def test_a_grammar_without_a_separated_start_has_no_plan():
     compiled = compile_text(NO_SPLIT)
     grammar, fold = compiled.codegen_grammar, compiled.fold
     assert split_plan(grammar) is None
-    assert split_model(grammar, "abc", fold, cores=4) is None
+    assert split_model(parse_model, grammar, Request("abc", fold), 4) is None
 
 
 def test_a_bad_input_declines_rather_than_inventing_a_refusal():
@@ -76,7 +79,7 @@ def test_a_bad_input_declines_rather_than_inventing_a_refusal():
     grammar, fold = compiled.codegen_grammar, compiled.fold
     bad = _doc() + ", 12:not-a-pair"
     assert split_plan(grammar) is not None, "the decline must not be 'no plan'"
-    assert split_model(grammar, bad, fold, cores=4) is None
+    assert split_model(parse_model, grammar, Request(bad, fold), 4) is None
     with pytest.raises(UnsupportedConstructError):
         compiled.parse(bad)
 
@@ -86,7 +89,7 @@ def test_too_few_separators_declines():
     compiled = compile_text(LEAD_RULE)
     grammar, fold = compiled.codegen_grammar, compiled.fold
     text = "only:1"
-    assert split_model(grammar, text, fold, cores=8) is None
+    assert split_model(parse_model, grammar, Request(text, fold), 8) is None
     assert compiled.parse(text).to_text() == text
 
 

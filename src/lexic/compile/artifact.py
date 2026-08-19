@@ -32,6 +32,7 @@ from lexic.parsing import (
 )
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.parallel import AUTO, anchors, split_model, thread_replica
+from lexic.parsing.parallel.orchestrate import Request
 
 
 def encoding_registry(
@@ -224,7 +225,12 @@ class CompiledGrammar:
         # segmented grammar simply never yields a plan (its terminals are
         # alphabet atoms, so no character is structural), which is the
         # analysis saying so rather than this branch assuming it.
-        split = split_model(self.codegen_grammar, text, self.fold, resolve, cores)
+        split = split_model(
+            parse_model,
+            self.codegen_grammar,
+            Request(text, self.fold, resolve),
+            cores,
+        )
         if split is not None:
             return GrammarModel.ensure(split, "compile: the start rule's fold")
         if tok is not None and self.tokens.segmented:

@@ -17,7 +17,8 @@ splitting never changes what an input means.
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 from lexic.exceptions import LexicError
 from lexic.ir import (
@@ -39,7 +40,28 @@ from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import UNIT, Separator, roles, unbounded
 from lexic.parsing.parallel.scan import Scanner, Window
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.products import parse_model
+
+
+class Request[M: IrNamedTuple](NamedTuple):
+    """One split parse's per-call inputs — what changes between documents.
+
+    Bundled because the plan, the product and the request are three
+    different lifetimes: the product is fixed, the plan is per grammar, and
+    only this varies per call.
+
+    :ivar text: The document.
+    :ivar fold: The instance fold producing ``M``.
+    :ivar resolve: The caller's ambiguity resolver, or ``None``.
+    """
+
+    text: str
+    fold: ModelFold[M]
+    resolve: Resolver | None = None
+
+
+ModelProduct = Callable[..., Any]
+"""The model product, injected: this module splits products, never imports
+them — that direction is what lets a product's own entry call into it."""
 
 
 class SplitPlan(NamedTuple):
@@ -321,13 +343,10 @@ def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]
 
 
 def _split_parse[M: IrNamedTuple](
-    plan: SplitPlan,
-    text: str,
-    fold: ModelFold[M],
-    cuts: list[int],
-    resolve: Resolver | None,
+    parse: ModelProduct, plan: SplitPlan, ask: Request[M], cuts: list[int]
 ) -> M | None:
     """One split attempt; ``None`` means: parse sequentially instead."""
+    text, fold, resolve = ask
     terminated = plan.sep is None
     spans, leads = _spans(plan, text, cuts)
     if not terminated and plan.lead_grammar is None:
@@ -338,7 +357,7 @@ def _split_parse[M: IrNamedTuple](
     # flattens scaling at ~1.8x (refcount cache-line traffic, measured).
     views = worker_replicas(plan.grammar, fold, len(spans))
     pool = ParsePool[int, M](
-        lambda k: parse_model(
+        lambda k: parse(
             views[k][0], text[spans[k][0] : spans[k][1]], views[k][1], resolve
         ),
         len(spans),
@@ -346,7 +365,7 @@ def _split_parse[M: IrNamedTuple](
     try:
         chunks = pool.map(range(len(spans)))
         lead_models = [
-            (parse_model(plan.lead_grammar, lead, fold, resolve),)
+            (parse(plan.lead_grammar, lead, fold, resolve),)
             if plan.lead_grammar is not None
             else ()
             for lead in leads
@@ -361,11 +380,7 @@ def _split_parse[M: IrNamedTuple](
 
 
 def split_model[M: IrNamedTuple](
-    grammar: IrAst,
-    text: str,
-    fold: ModelFold[M],
-    resolve: Resolver | None = None,
-    cores: int = AUTO,
+    parse: ModelProduct, grammar: IrAst, ask: Request[M], cores: int = AUTO
 ) -> M | None:
     """Split this input across workers, or say the split does not apply.
 
@@ -386,8 +401,9 @@ def split_model[M: IrNamedTuple](
             and the sequential fallback alike.
         :param cores: 0 = auto, 1 = sequential (so: never split), N = that many.
     """
+    text = ask.text
     plan = split_plan(grammar)
     if plan is None:
         return None
     cuts = _cut_offsets(plan, text, cores)
-    return _split_parse(plan, text, fold, cuts, resolve) if cuts else None
+    return _split_parse(parse, plan, ask, cuts) if cuts else None

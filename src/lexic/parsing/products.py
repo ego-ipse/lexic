@@ -45,6 +45,7 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
+from lexic.parsing.parallel.regions import split_regions
 from lexic.parsing.pda.compiler.clones import compile_pda, compile_reduce_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import ProbeFork
@@ -334,6 +335,14 @@ def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
         :class:`Reducer`, or ``text`` does not parse / parses ambiguously on
         the Earley completion.
     """
+    split = split_regions(_reduce_one, grammar, text, reducer)
+    if split is not None:
+        return split
+    return _reduce_one(grammar, text, reducer)
+
+
+def _reduce_one(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
+    """One whole-document reduction — the sequential product."""
     product = _reduce_product(grammar, reducer)
     try:
         return pda_reduce(product.pda, text)
