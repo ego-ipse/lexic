@@ -188,12 +188,7 @@ class CompiledGrammar:
             and no resolver was supplied.
         """
         tok = self.tokens.tokenizer
-        if self.tokens.segmented and tok is None:
-            raise UnsupportedConstructError(
-                "compile: this grammar's terminals name an encoding, so "
-                "parsing needs a vocabulary — compile with tokenizer= or "
-                "registry=, or bind one. (Reading and emitting it needs none.)"
-            )
+        self._needs_vocabulary()
         if tok is not None and self.tokens.segmented:
             bounds = {
                 start: (tid, end - start) for start, end, tid in tok.boundaries(text)
@@ -207,6 +202,25 @@ class CompiledGrammar:
             "compile: the start rule's fold",
         )
 
+    def _needs_vocabulary(self) -> None:
+        """Refuse, with words, a grammar whose terminals name an encoding.
+
+        Both the parse seam and the compiled-table seam reach the engine, and
+        both are unusable until a vocabulary is bound — so both say the same
+        sentence. Without this the table seam surfaced the dispatcher's own
+        miss (``IrTypeMap: no entry for IrAlphabet``), which names an internal
+        table rather than the thing the caller must do.
+
+        :raises UnsupportedConstructError: When the grammar is token-segmented
+            and no tokenizer is bound.
+        """
+        if self.tokens.segmented and self.tokens.tokenizer is None:
+            raise UnsupportedConstructError(
+                "compile: this grammar's terminals name an encoding, so "
+                "parsing needs a vocabulary — compile with tokenizer= or "
+                "registry=, or bind one. (Reading and emitting it needs none.)"
+            )
+
     def pda_tables(self) -> PdaTables:
         """The predictive engine's compiled tables for this artefact.
 
@@ -217,7 +231,11 @@ class CompiledGrammar:
         compiled once and shared forward if not.
 
         :returns: The compiled :class:`~lexic.parsing.PdaTables`.
+        :raises UnsupportedConstructError: When the grammar's terminals name an
+            encoding and no vocabulary is bound — the same refusal
+            :meth:`parse` gives, in the same words.
         """
+        self._needs_vocabulary()
         return pda_tables(self.codegen_grammar, self.fold)
 
     def bind(

@@ -190,3 +190,16 @@ def test_parse_invalid_raises():
         compile_from_path(GROUND_TRUTH / "arithmetic.gbnf").parse(
             "THIS IS NOT VALID ARITHMETIC !!!\n"
         )
+
+
+def test_the_table_seam_refuses_a_vocabularyless_grammar_in_words() -> None:
+    """`pda_tables` says what `parse` says, not what the dispatcher hit.
+
+    A token-segmented grammar has no engine until a vocabulary is bound. The
+    table seam used to surface the atom dispatcher's own miss
+    (``IrTypeMap: no entry for IrAlphabet``), which names an internal table
+    instead of the thing the caller must do.
+    """
+    compiled = compile_from_path(GROUND_TRUTH / "think.gbnf")
+    with pytest.raises(UnsupportedConstructError, match="needs a vocabulary"):
+        compiled.pda_tables()
