@@ -22,9 +22,12 @@ the ~6.5x of fully separate artefacts is what this buys.
 from __future__ import annotations
 
 import copy
+import itertools
+import threading
 
 from lexic.ir import IrAst
 from lexic.parsing.fold import ModelFold
+from lexic.parsing.parallel.policy import available_workers
 
 Replica = tuple[IrAst, ModelFold]
 """One worker's private view: an equal grammar, and a fold copy."""
@@ -56,3 +59,34 @@ def replicas[M](grammar: IrAst, fold: ModelFold[M], count: int) -> list[Replica]
     while len(pool) < count:
         pool.append((IrAst(grammar.rules, grammar.start), copy.copy(fold)))
     return pool[:count]
+
+
+_ASSIGNED = threading.local()
+"""Each thread's replica index — assigned once and then stable, because a
+thread that changed tables between parses would pay the very cache-line
+cost this module exists to avoid. One index serves every grammar: the
+replica lists are per pair, and a thread wants the same SLOT in each."""
+
+_TICKET = itertools.count()
+"""Hands out replica indices round-robin as threads first ask."""
+
+
+def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
+    """This thread's private view of ``(grammar, fold)`` — its own tables.
+
+    The document-level twin of :func:`replicas`: where a split hands each
+    CHUNK a view, concurrent whole-document parses need each THREAD to have
+    one, and to keep it. Sequential callers and GIL builds get the original
+    pair back, so nothing is compiled or held that could not be used.
+
+    :param grammar: The codegen grammar.
+    :param fold: The instance fold.
+    :returns: The calling thread's replica.
+    """
+    workers = available_workers()
+    if workers < 2:
+        return (grammar, fold)
+    mine = getattr(_ASSIGNED, "index", None)
+    if mine is None:
+        mine = _ASSIGNED.index = next(_TICKET)
+    return replicas(grammar, fold, workers)[mine % workers]

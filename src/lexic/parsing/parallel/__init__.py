@@ -31,7 +31,7 @@ from lexic.parsing.parallel.policy import (
     worker_count,
 )
 from lexic.parsing.parallel.pool import ParsePool
-from lexic.parsing.parallel.replicas import Replica, replicas
+from lexic.parsing.parallel.replicas import Replica, replicas, thread_replica
 from lexic.parsing.parallel.roles import Roles, Separator, roles
 from lexic.parsing.parallel.scan import Scanner, Window
 
@@ -54,5 +54,6 @@ __all__ = [
     "replicas",
     "roles",
     "split_plan",
+    "thread_replica",
     "worker_count",
 ]

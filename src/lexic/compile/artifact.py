@@ -31,7 +31,7 @@ from lexic.parsing import (
     token_model,
 )
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
-from lexic.parsing.parallel import AUTO, anchors, split_model
+from lexic.parsing.parallel import AUTO, anchors, split_model, thread_replica
 
 
 def encoding_registry(
@@ -235,8 +235,12 @@ class CompiledGrammar:
                 token_model(self.codegen_grammar, text, self.fold, bounds, resolve),
                 "compile: the start rule's fold",
             )
+        # Concurrent whole-document parses contend on one artefact's tables
+        # exactly as chunk workers do, so a thread parses against its own
+        # replica. Sequential callers and GIL builds get the original pair.
+        grammar, fold = thread_replica(self.codegen_grammar, self.fold)
         return GrammarModel.ensure(
-            parse_model(self.codegen_grammar, text, self.fold, resolve),
+            parse_model(grammar, text, fold, resolve),
             "compile: the start rule's fold",
         )
 
