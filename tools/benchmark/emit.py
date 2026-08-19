@@ -43,6 +43,7 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
     IrSequence,
+    inline_refs,
 )
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
@@ -127,6 +128,14 @@ class RunTerminal(NamedTuple):
     chars: CharSet
     optional: bool
 
+
+Marks = tuple[frozenset[str], frozenset[str]]
+"""The ``(lexical, non_semantic)`` directive sets an emission translates —
+:func:`~tools.benchmark.grammars.variant_marks` derives them from the grammar
+and lexic's own variant rows run on the same pair."""
+
+NO_MARKS: Marks = (frozenset(), frozenset())
+"""No directives: the grammar exactly as authored."""
 
 Runs = dict[IrItem, RunTerminal]
 """Authored item → the run terminal lexic collapses it to. The KEY is the item
@@ -322,7 +331,46 @@ def _term_for(body: str, lex: Lex, prefix: str) -> str:
 # ── Lark ───────────────────────────────────────────────────────────────────
 
 
-def lark_grammar(ast: IrAst, refine: bool = False) -> str:
+def _folded(
+    names: dict[str, str],
+    marks: Marks,
+    rules: dict[str, IrSelf],
+    start: str,
+) -> dict[str, str]:
+    """The emitted names ``marks`` changes, as Lark spells the two directives.
+
+    A directive lexic honours for ITSELF and the translation withholds is not a
+    grammar difference, it is a handicap, and it is the whole gap on `json`.
+    Both have an exact Lark spelling, so both are spelled:
+
+    ``@lexical`` — lexic inlines the rule's refs until its body is ref-free and
+    keeps the matched TEXT instead of a subtree of interior models. Lark's
+    equivalent is a TERMINAL: same body, moved from the parser to the lexer,
+    which is where a person writing this grammar puts a string or a number.
+
+    ``@non-semantic`` — lexic drops structural rules from the model. Lark's
+    ``_``-prefixed rule is filtered out of the tree, which drops the same nodes
+    and, unlike ``%ignore``, does NOT let the noise appear where the grammar
+    forbids it. The language is untouched; only the tree the row is timed
+    building gets smaller, exactly as the model does.
+    """
+    lexical, noise = marks
+    out = {
+        name: f"{names[name].upper()}_"
+        for name in lexical
+        if name in rules and name != start
+    }
+    out.update(
+        {
+            name: f"_{names[name]}"
+            for name in noise
+            if name in rules and name not in out and name != start
+        }
+    )
+    return out
+
+
+def lark_grammar(ast: IrAst, refine: bool = False, marks: Marks = NO_MARKS) -> str:
     """``ast`` as Lark source, start rule first, over the derived lexical layer.
 
     Lark HAS a lexer, so it gets the run terminals lexic derived — the `+` goes
@@ -340,13 +388,19 @@ def lark_grammar(ast: IrAst, refine: bool = False) -> str:
         that admits both `ws` and `chars`, a single space goes to whichever
         terminal wins, not to the slot the parse needs. That is a token-set
         problem, not an LALR one, and the partition is its fix.
+    :param marks: The ``(lexical, non_semantic)`` directive sets to translate,
+        as :func:`_folded` spells them. Default is neither, which is the
+        grammar exactly as authored.
     """
+    if marks[0]:
+        ast = inline_refs(ast, marks[0])
     runs = lexical_layer(ast)
     if refine:
         runs = _safe_runs(_live(ast, runs)[0], runs)
     rules, start = _live(ast, runs)
     lex = Lex(runs, {}, _blocks(rules, runs) if refine else None)
     names = _names(rules)
+    names.update(_folded(names, marks, rules, start))
     bodies = [(names[n], _lark(b, names, lex)) for n, b in rules.items()]
     lines = [f"start: {names[start]}"]
     lines += [f"{rule}: {body}" for rule, body in bodies]

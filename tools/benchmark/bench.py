@@ -46,7 +46,12 @@ from lexic.parsing.products import _model_product, earley_model
 from lexic.parsing.trace import watch
 from tools.benchmark.antlr_build import antlr_parser
 from tools.benchmark.antlr_java import java_antlr_parser
-from tools.benchmark.emit import lark_grammar, peg_grammar, pyparsing_parser
+from tools.benchmark.emit import (
+    NO_MARKS,
+    lark_grammar,
+    peg_grammar,
+    pyparsing_parser,
+)
 from tools.benchmark.grammars import BENCHES, Bench, variant_marks
 from tools.benchmark.refusals import REFUSALS, accepts, refusal
 
@@ -56,6 +61,30 @@ SUMMARY = "Time every engine on the same grammar and the same input."
 DEFAULT_ROUNDS = 7
 """Timed rounds per engine when none is asked for."""
 
+ENGINE: dict[str, str] = {
+    "lexic-pda": "lexic's predictive PDA, one pass, no directives — as authored",
+    "lexic-earley": "lexic's Earley/SPPF fallback; ambiguity refused, not resolved",
+    "lexic-lex": "lexic-pda, `@lexical` rules folded to their matched TEXT",
+    "lexic-lex-ns": "lexic-lex, `@non-semantic` rules dropped from the model",
+    "lark-earley": "Lark's Earley backend, dynamic lexer, grammar as authored",
+    "lark-lalr": "Lark's LALR backend, contextual lexer, partitioned alphabet",
+    "lark-earley-lex": "lark-earley with the grammar's own directives translated",
+    "lark-lalr-lex": "lark-lalr with the grammar's own directives translated",
+    "parsimonious": "PEG: scannerless, ordered choice, possessive repetition",
+    "pyparsing": "combinator tree on the cheapest alternation that stays faithful",
+    "antlr": "ANTLR's ALL(*) parser on a warmed JVM — tool AND runtime, not Python",
+    "antlr-py": "the same generated parser on the pure-Python ATN simulator",
+    "stdlib-json": "the stdlib's hand-written C parser for the format",
+    "msgspec": "a hand-written C parser for the format, the specialist floor",
+}
+"""One line per engine, printed ONCE above the rows.
+
+Naming an engine is not describing it: `lark-lalr` and `lark-lalr-lex` differ
+only in what the emitter hands them, and a reader who cannot see that reads the
+pair as one tool being inconsistent. Printed once at the top rather than per
+row, because a legend repeated ten times stops being read.
+"""
+
 PRODUCT: dict[str, str] = {
     "lexic-pda": "typed model",
     "lexic-earley": "typed model",
@@ -63,6 +92,8 @@ PRODUCT: dict[str, str] = {
     "lexic-lex-ns": "typed model · @lexical @non-semantic",
     "lark-earley": "Tree",
     "lark-lalr": "Tree",
+    "lark-earley-lex": "Tree · @lexical @non-semantic",
+    "lark-lalr-lex": "Tree · @lexical @non-semantic",
     "parsimonious": "Node tree",
     "pyparsing": "ParseResults",
     "antlr": "ParserRuleContext · JAVA",
@@ -71,6 +102,16 @@ PRODUCT: dict[str, str] = {
     "msgspec": "dict · C parser for the FORMAT, takes no grammar",
 }
 """What each engine BUILDS — the part a bare µs/char number hides.
+
+The `-lex` rows are the DIRECTIVE-MATCHED seats. lexic's headline rows are its
+variants — `@lexical` folds a rule to its matched text, `@non-semantic` drops
+structural rules from the model — and a translation that withholds both hands
+the competitor a grammar with a rule, and a tree node, per whitespace run.
+`tools.benchmark.emit._folded` spells the same two marks in Lark, so `-lex`
+faces `lexic-lex`/`lexic-lex-ns` and the unmarked row faces `lexic-pda`. Both
+are timed because the fold is not free to take: it costs `abnf-meta` its Earley
+row outright and `markdown` its LALR one, and a row that only reported the
+better of the two would hide that.
 
 `antlr` is ANTLR's Java target in a live JVM; every other row is Python. That
 makes its cell a tool+runtime answer rather than an algorithm one — which is a
@@ -210,7 +251,7 @@ def unfaithful(parse: Parse, bench: Bench) -> str | None:
     return None
 
 
-def _lark_parse(bench: Bench, parser: str) -> Parse:
+def _lark_parse(bench: Bench, parser: str, marked: bool = False) -> Parse:
     """Lark on one of its two algorithms, each given the token set it needs.
 
     The two backends carry different lexers and want different grammars, which
@@ -220,8 +261,11 @@ def _lark_parse(bench: Bench, parser: str) -> Parse:
     that must commit to one terminal per position, so it gets the partitioned
     alphabet — without it a single space between `ws` and `chars` goes to the
     wrong slot, which is a token-set problem rather than a limit of LALR.
+    :param marked: Translate the grammar's own directives too — see
+        :data:`PRODUCT` for why that is a seat rather than a correction.
     """
-    text = lark_grammar(bench.ast, refine=parser == "lalr")
+    marks = variant_marks(bench.ast) if marked else NO_MARKS
+    text = lark_grammar(bench.ast, refine=parser == "lalr", marks=marks)
     return lark.Lark(text, parser=parser).parse
 
 
@@ -268,6 +312,8 @@ def _pp_parse(bench: Bench) -> Parse:
 _CANDIDATES: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
     ("lark-earley", lambda bench: _lark_parse(bench, "earley")),
     ("lark-lalr", lambda bench: _lark_parse(bench, "lalr")),
+    ("lark-earley-lex", lambda bench: _lark_parse(bench, "earley", marked=True)),
+    ("lark-lalr-lex", lambda bench: _lark_parse(bench, "lalr", marked=True)),
     ("parsimonious", _peg_parse),
     # ANTLR builds a parser before anything runs — the Java tool, then javac for
     # the Java row. That is part of using ANTLR, as `Lark(...)` construction is,
@@ -439,12 +485,18 @@ _TINT: dict[str, str] = {
     "lexic-earley": "\x1b[38;5;208m",
     "stdlib-json": "\x1b[38;5;213m",
     "msgspec": "\x1b[38;5;213m",
+    "lark-earley-lex": "\x1b[38;5;250m",
+    "lark-lalr-lex": "\x1b[38;5;250m",
 }
 """One distinct colour per lexic mode — the two rows this benchmark exists to
 place are findable at a glance — plus one shared tint for the format
 specialists, marking rows that answer a DIFFERENT question (no grammar taken).
 Competitors keep the terminal's default foreground: colour marks whose row it
-is and what kind, never better or worse."""
+is and what kind, never better or worse.
+
+The directive-matched lark seats take a DARKER tone of that default rather than
+a colour of their own, because they are not a different tool — they are the
+same one handed the grammar's own directives, and the pair reads as a pair."""
 
 _DIM = "\x1b[2m"
 _RESET = "\x1b[0m"
@@ -479,17 +531,50 @@ def _bar(value: float, best: float, worst: float) -> str:
     return "█" * filled + "·" * (BAR_WIDTH - filled)
 
 
+SPECIALISTS = frozenset(name for name, _make in _JSON_SPECIALISTS)
+"""Rows that take NO grammar — hand-written C for one fixed format."""
+
+
+def _amount(value: float) -> str:
+    """One timing, in the unit that keeps its significant digits.
+
+    Under a microsecond, three decimals of `µs/char` spends the whole number on
+    leading zeros: the fastest rows here are tens of nanoseconds and `0.045`
+    says less than `45.0` does.
+    """
+    return f"{value * 1000:9.1f} ns/char" if value < 1.0 else f"{value:9.3f} µs/char"
+
+
 def _ranked_rows(timings: dict[str, float], color: bool) -> None:
-    """The timed rows, fastest first, each with its bar and product."""
+    """The timed rows, fastest first, each with its bar and product.
+
+    The `base` is the fastest engine that TAKES A GRAMMAR. A format specialist
+    is a floor, not a competitor — anchoring the column to it would rate every
+    general engine against hand-written C for one language and answer a question
+    nobody asked. It still gets a ratio, below 1, which is the honest reading:
+    what fraction of the specialist's cost the general engines run at.
+
+    The BARS keep their own anchor at the block's genuine fastest row, so the
+    picture is unchanged and the shift lives only in the ratio column.
+    """
     ranked = sorted(timings.items(), key=lambda kv: kv[1])
-    best = ranked[0][1] if ranked else 1.0
+    general = [v for n, v in ranked if n not in SPECIALISTS]
+    fastest = ranked[0][1] if ranked else 1.0
     worst = ranked[-1][1] if ranked else 1.0
+    best = general[0] if general else fastest
     for name, value in ranked:
-        rel = f"{value / best:6.1f}×" if value > best else "   base"
+        ratio = value / best
+        rel = (
+            "   base"
+            if value == best
+            else f"{ratio:6.3f}×"
+            if ratio < 1
+            else f"{ratio:6.1f}×"
+        )
         tint = _TINT.get(name, "")
         label = _paint(f"{name:<17}", tint, color)
-        shape = _paint(_bar(value, best, worst), tint, color)
-        print(f"  {label}{value:9.3f} µs/char {rel}  {shape}  {PRODUCT.get(name, '?')}")
+        shape = _paint(_bar(value, fastest, worst), tint, color)
+        print(f"  {label}{_amount(value)} {rel}  {shape}  {PRODUCT.get(name, '?')}")
 
 
 def _report(
@@ -561,6 +646,14 @@ def _warmup_note(engines: dict[str, Parse]) -> None:
         )
 
 
+def _legend(color: bool) -> None:
+    """The engine roster, once, before any grammar's rows."""
+    print(_paint("engines — what each row IS:", _DIM, color))
+    for name, note in ENGINE.items():
+        tint = _TINT.get(name, "")
+        print(f"  {_paint(f'{name:<16}', tint, color)} {_paint(note, _DIM, color)}")
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Time every engine on every benchmark grammar."""
     parser = argparse.ArgumentParser(description=SUMMARY)
@@ -585,6 +678,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not benches:
         raise SystemExit(f"no such grammar: {sorted(wanted)}")
     print(f"rounds={args.rounds}  grammars={', '.join(b.name for b in benches)}")
+    _legend(color)
     for bench in benches:
         engines, refused = _engines(bench)
         anchor = next(iter(engines.values()), None)

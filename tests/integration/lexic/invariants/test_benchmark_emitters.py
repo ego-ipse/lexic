@@ -32,8 +32,25 @@ from tools.benchmark.emit import lexical_layer
 from tools.benchmark.grammars import BENCHES, Bench
 
 _ALL = frozenset(
-    {"lark-earley", "lark-lalr", "parsimonious", "pyparsing", "antlr", "antlr-py"}
+    {
+        "lark-earley",
+        "lark-lalr",
+        "lark-earley-lex",
+        "lark-lalr-lex",
+        "parsimonious",
+        "pyparsing",
+        "antlr",
+        "antlr-py",
+    }
 )
+
+_DIRECTIVE_MATCHED = frozenset({"lark-earley-lex", "lark-lalr-lex"})
+"""The seats built with the grammar's own directives translated. Folding a rule
+into a TERMINAL moves a decision from the parser to the lexer, and a lexer has
+neither the parser state nor the backtracking to make it — so the fold is worth
+3x where it lands and costs a row outright where it does not. Both outcomes are
+pinned, because a fold that silently stopped applying would otherwise read as
+the competitor merely getting slower."""
 
 EXPECTED: dict[str, frozenset[str]] = {
     "arithmetic": _ALL,
@@ -56,7 +73,10 @@ EXPECTED: dict[str, frozenset[str]] = {
     # it stops partway; every other tool holds the whole subset. ANTLR escalates
     # to full-context prediction here, which is why the harness's error listener
     # must implement the prediction hooks rather than only the verdict ones.
-    "markdown": _ALL - frozenset({"parsimonious"}),
+    # markdown loses lark-lalr-lex: folding `fenceline` into a terminal makes it
+    # munch the newline that closes the fence, which the contextual lexer cannot
+    # take back. The unfolded lark-lalr seat still holds the row.
+    "markdown": _ALL - frozenset({"parsimonious", "lark-lalr-lex"}),
     # 200 nested levels: pyparsing recurses per level and exhausts the
     # interpreter stack. A depth limit of the tool, not of the translation.
     "nested": _ALL - frozenset({"pyparsing"}),
@@ -66,7 +86,10 @@ EXPECTED: dict[str, frozenset[str]] = {
     # ANTLR predicts it, lark-lalr survives because the divergence is a single
     # token once lexed. Everyone holds it; what differs is what it costs.
     "backtrack": _ALL,
-    "gbnf-meta": frozenset({"lark-earley", "antlr", "antlr-py"}),
+    "gbnf-meta": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
+    # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
+    # terminal, which Lark's dynamic Earley refuses outright ("zero-width
+    # regexps") and its contextual lexer collides on. The unfolded rows answer.
     "abnf-meta": frozenset(
         {"lark-earley", "antlr", "antlr-py", "pyparsing", "parsimonious"}
     ),
@@ -76,7 +99,16 @@ EXPECTED: dict[str, frozenset[str]] = {
     # the `!-"` range terminated the regex literal mid-class; the same
     # notation-specific-escaping family as the Lark `/` bug). lark-lalr
     # refuses at build with a reduce/reduce collision: not LALR(1).
-    "vyx": frozenset({"lark-earley", "antlr", "antlr-py", "pyparsing", "parsimonious"}),
+    "vyx": frozenset(
+        {
+            "lark-earley",
+            "lark-earley-lex",
+            "antlr",
+            "antlr-py",
+            "pyparsing",
+            "parsimonious",
+        }
+    ),
 }
 """Which competitors must survive each grammar, pinned.
 
