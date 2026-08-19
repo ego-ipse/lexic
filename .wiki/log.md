@@ -1780,3 +1780,35 @@ companion invariant: one shared `CompiledGrammar`, concurrent `parse()`
 calls — models equal to the sequential reference, round-trips exact. The
 engine's per-parse state (kernel scratch, intern cache) is constructed per
 call; this is what document-level parallelism stands on.
+
+## 2026-08-19 — split parsing, and why `.parse` just does it
+
+`CompiledGrammar.parse` now splits its input when the grammar admits it —
+no flag, no second entry, no opt-out. The engine already composes
+PDA-first-then-Earley behind one call; splitting is the same kind of
+composition, and a parse that means something different depending on how it
+was scheduled would be a worse API than a slower one.
+
+Two shapes are derived, both from grammar structure alone:
+
+- **Terminated** — `root ::= line+` where the unit ENDS with an anchor
+  (`line ::= text "\n"`). A cut after the terminator leaves whole units on
+  both sides, so every chunk is a document in its own right and the stitch
+  is a concatenation of the container's one repetition field.
+- **Separated** — `root ::= unit (sep unit)*`. The cut consumes the
+  separator plus the noise the item's LEAD rule owns (`comma ::= "," ws`),
+  that text is re-parsed under the lead rule — bounded work, one short
+  parse per cut, not per character — and the item node the cut fell inside
+  is rebuilt from a template.
+
+Everything else falls back to the sequential product, and fallback is the
+normal case rather than an error path: a GIL build (threaded parsing
+measured a net loss there), an unsupported shape, too few cut points, or
+any chunk that fails or parses ambiguously. A resolver reaches chunk parses
+and the fallback alike, so the ambiguity contract is unchanged.
+
+The stitch never rebases anything: model nodes carry text, not offsets, so
+a finished chunk is relocatable and attaching it is a rebuild, not a walk.
+`IrTuple` is what a repetition field is spliced with — it IS an `IrSelf`
+and IS a tuple, so it satisfies `rebuild`'s contract and compares equal to
+the plain tuple the sequential parse produced.

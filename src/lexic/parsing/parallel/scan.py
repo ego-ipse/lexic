@@ -22,13 +22,19 @@ class Window(NamedTuple):
     :ivar lo: The window's start offset in the document.
     :ivar delta: Net depth change across the window.
     :ivar floor: Minimum relative depth reached (how far it pops below 0).
-    :ivar marks: ``(offset, relative depth)`` per separator occurrence.
+    :ivar tail_floor: Minimum relative depth since the LAST mark (the whole
+        window when there are none) — with each mark's segment floor, what
+        cut validation needs: a dip between two same-depth marks means they
+        sit in different containers.
+    :ivar marks: ``(offset, relative depth, segment floor)`` per separator —
+        the segment floor is the minimum depth since the previous mark.
     """
 
     lo: int
     delta: int
     floor: int
-    marks: tuple[tuple[int, int], ...]
+    tail_floor: int
+    marks: tuple[tuple[int, int, int], ...]
 
 
 class Scanner:
@@ -36,14 +42,15 @@ class Scanner:
 
     :ivar openers: Depth-increment characters.
     :ivar closers: Depth-decrement characters.
-    :ivar separators: Mark characters (roles' separators minus pair chars).
+    :ivar separators: Mark characters (roles' separators AND terminators,
+        minus any that also play a pair role).
     """
 
     def __init__(self, derived: Roles) -> None:
         """Fix the role character sets the scan classifies against."""
         self.openers = frozenset(opener for opener, _closer in derived.pairs)
         self.closers = frozenset(closer for _opener, closer in derived.pairs)
-        self.separators = derived.separators - self.openers - self.closers
+        self.separators = derived.marks - self.openers - self.closers
         self._chars = tuple(self.openers | self.closers | self.separators)
 
     def window(self, text: str, lo: int, hi: int) -> Window:
@@ -67,7 +74,8 @@ class Scanner:
         offsets.sort()
         depth = 0
         floor = 0
-        marks: list[tuple[int, int]] = []
+        segment = 0
+        marks: list[tuple[int, int, int]] = []
         for at in offsets:
             char = text[at]
             if char in self.openers:
@@ -75,9 +83,11 @@ class Scanner:
             elif char in self.closers:
                 depth -= 1
                 floor = min(floor, depth)
+                segment = min(segment, depth)
             else:
-                marks.append((at, depth))
-        return Window(lo, depth, floor, tuple(marks))
+                marks.append((at, depth, segment))
+                segment = depth
+        return Window(lo, depth, floor, segment, tuple(marks))
 
     def offsets(self, windows: list[Window], depth: int = 0) -> list[int]:
         """Rebase window marks to absolute depth and keep those at ``depth``.
@@ -93,7 +103,7 @@ class Scanner:
         out: list[int] = []
         running = 0
         for window in windows:
-            for offset, relative in window.marks:
+            for offset, relative, _segment in window.marks:
                 if running + relative == depth:
                     out.append(offset)
             running += window.delta

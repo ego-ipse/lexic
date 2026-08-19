@@ -14,12 +14,16 @@ orchestrator's own vocabulary, public for composition and tests.
   caller's explicit override).
 - :mod:`.pool` — N documents in flight against one parse callable; lexic
   owns the threading, callers just map.
+- :mod:`.orchestrate` — ONE document split at derived separators, chunk-
+  parsed under the container rule, stitched to the exact sequential model;
+  everything unsupported falls back to the sequential product.
 """
 
 from lexic.parsing.parallel.anchors import SITE_EMITS, anchor_sites, anchors
+from lexic.parsing.parallel.orchestrate import SplitPlan, split_model, split_plan
 from lexic.parsing.parallel.policy import MIN_CHUNK, doc_workers, worker_count
 from lexic.parsing.parallel.pool import ParsePool
-from lexic.parsing.parallel.roles import Roles, roles
+from lexic.parsing.parallel.roles import Roles, Separator, roles
 from lexic.parsing.parallel.scan import Scanner, Window
 
 __all__ = [
@@ -28,10 +32,14 @@ __all__ = [
     "Roles",
     "SITE_EMITS",
     "Scanner",
+    "Separator",
+    "SplitPlan",
     "Window",
     "anchor_sites",
     "anchors",
     "doc_workers",
+    "split_model",
     "roles",
+    "split_plan",
     "worker_count",
 ]

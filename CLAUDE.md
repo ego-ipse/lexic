@@ -247,6 +247,7 @@ src/lexic/
     parallel/
       __init__.py                  The parallel layer — split analysis, roles, scan, policy (orchestrator home)
       anchors.py                   Anchor analysis — structural chars no opaque interior can emit, + site maps
+      orchestrate.py               Split orchestration — one document chunk-parsed and stitched to the exact model
       policy.py                    Worker-count policy — auto from build/cores/size; explicit override wins
       pool.py                      ParsePool — N documents in flight against one parse callable, warm workers
       roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar

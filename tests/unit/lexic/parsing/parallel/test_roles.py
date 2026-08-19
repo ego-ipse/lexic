@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.parsing.parallel import Roles, roles
+from lexic.parsing.parallel import Roles, Separator, roles
 from tests.unit.lexic.parsing.parallel.test_anchors import JSONISH
 
 
@@ -29,15 +29,17 @@ def test_trailing_noise_after_the_closer_is_allowed():
     assert got.pairs == (("(", ")"),)
 
 
-def test_separator_resolves_through_unit_rule_refs():
-    """``tail ::= comma item`` with ``comma ::= ","`` still derives ``,``."""
+def test_separator_records_carry_the_orchestration_rules():
+    """``tail ::= comma item`` derives the full record: char, container,
+    repeated item, and the lead rule the cut text re-parses under."""
     grammar = 'root ::= item tail*\ntail ::= comma item\ncomma ::= ","\nitem ::= [a-z]+'
     got = roles(parse_grammar(grammar, GBNF_FLAVOUR))
     assert got.separators == frozenset(",")
+    assert got.records == (Separator(",", "root", "tail", "comma"),)
 
 
 def test_a_grammar_without_the_shapes_derives_empty_roles():
     """No bracketing arm, no repeated separated body — empty roles, not an
     error: the orchestrator's cue for sequential processing."""
     ast = parse_grammar('root ::= x y\nx ::= "ab"\ny ::= "ba"', GBNF_FLAVOUR)
-    assert roles(ast) == Roles((), frozenset())
+    assert roles(ast) == Roles((), ())

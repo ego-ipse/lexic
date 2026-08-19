@@ -54,7 +54,17 @@ def test_a_window_reports_its_own_floor():
 
 def test_empty_roles_scan_nothing():
     """No role chars → no pattern, no marks, no offsets — an answer."""
-    scanner = Scanner(Roles((), frozenset()))
+    scanner = Scanner(Roles((), ()))
     window = scanner.window(DOC, 0, len(DOC))
-    assert window == (0, 0, 0, ())
+    assert window == (0, 0, 0, 0, ())
     assert not scanner.offsets([window])
+
+
+def test_marks_carry_segment_floors():
+    """A mark's segment floor records the dip since the previous mark — the
+    guard telling two same-depth marks in DIFFERENT containers apart."""
+    scanner = _scanner()
+    window = scanner.window(DOC, 0, len(DOC))
+    top = [mark for mark in window.marks if mark[1] == 1]
+    dipped = [mark for mark in top if mark[2] < 1]
+    assert dipped, "a top-level mark after the nested object must record the dip"

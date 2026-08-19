@@ -31,7 +31,7 @@ from lexic.parsing import (
     token_model,
 )
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
-from lexic.parsing.parallel import anchors
+from lexic.parsing.parallel import anchors, split_model
 
 
 def encoding_registry(
@@ -178,6 +178,16 @@ class CompiledGrammar:
     def parse(self, text: str, resolve: Resolver | None = None) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
+        **Splitting is a question about the grammar, asked before the route.**
+        When the analysis finds a cut plan (a repetition whose units the
+        derived anchors can separate) and the build can run workers, the
+        input is split, the chunks parsed concurrently, and the result
+        stitched into the very model a sequential parse would build. A
+        segmented grammar never yields a plan — its terminals match ids, so
+        no character is structural — and neither does an unsupported shape,
+        a short input, or a failing chunk; each of those simply parses
+        sequentially below.
+
         A **token grammar** — one whose terminals reference an encoding —
         routes through :func:`~lexic.parsing.token_model`: lexic segments
         ``text`` with the bound tokenizer and every token terminal matches
@@ -205,6 +215,14 @@ class CompiledGrammar:
         """
         tok = self.tokens.tokenizer
         self._needs_vocabulary()
+        # Splitting is asked FIRST and of the grammar alone: whether the
+        # input is split has nothing to do with which route reads it. A
+        # segmented grammar simply never yields a plan (its terminals are
+        # alphabet atoms, so no character is structural), which is the
+        # analysis saying so rather than this branch assuming it.
+        split = split_model(self.codegen_grammar, text, self.fold, resolve)
+        if split is not None:
+            return GrammarModel.ensure(split, "compile: the start rule's fold")
         if tok is not None and self.tokens.segmented:
             bounds = {
                 start: (tid, end - start) for start, end, tid in tok.boundaries(text)

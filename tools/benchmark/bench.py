@@ -48,8 +48,8 @@ import parsimonious.expressions
 
 from lexic.compile import Directives, compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.parallel import ParsePool
+from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import _model_product, earley_model
 from lexic.parsing.trace import watch
