@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from lexic.compile import compile_text
 from lexic.parsing import parse_model
-from lexic.parsing.parallel import replicas
+from lexic.parsing.parallel import worker_replicas
 
 GRAMMAR = 'root ::= item+\nitem ::= "- " [a-z]+ "\\n"\n'
 TEXT = "- alpha\n- beta\n- gamma\n"
@@ -24,7 +24,7 @@ def test_a_replica_is_equal_but_distinct():
     """Equal by value (so models match), distinct by identity (so the
     engine's per-identity table memo gives it its own tables)."""
     grammar, fold = _pair()
-    first, second = replicas(grammar, fold, 2)
+    first, second = worker_replicas(grammar, fold, 2)
     assert second[0] == grammar
     assert second[0] is not grammar
     assert first[0] is grammar  # one worker costs nothing
@@ -34,7 +34,7 @@ def test_replicas_build_the_same_models():
     """The whole point: replication changes timing, never values."""
     grammar, fold = _pair()
     original = parse_model(grammar, TEXT, fold)
-    for replica_grammar, replica_fold in replicas(grammar, fold, 3):
+    for replica_grammar, replica_fold in worker_replicas(grammar, fold, 3):
         model = parse_model(replica_grammar, TEXT, replica_fold)
         assert model == original
         assert type(model) is type(original)
@@ -45,15 +45,15 @@ def test_replicas_are_reused_and_grown():
     """Built once per pair and kept — a discarded replica would pay its
     table compilation again on the next parse."""
     grammar, fold = _pair()
-    two = replicas(grammar, fold, 2)
-    four = replicas(grammar, fold, 4)
+    two = worker_replicas(grammar, fold, 2)
+    four = worker_replicas(grammar, fold, 4)
     assert four[:2] == two
     assert len(four) == 4
-    assert replicas(grammar, fold, 2) == two
+    assert worker_replicas(grammar, fold, 2) == two
 
 
 def test_exactly_the_requested_count_comes_back():
     """A caller asking for N workers gets N views, never the grown pool."""
     grammar, fold = _pair()
-    replicas(grammar, fold, 6)
-    assert len(replicas(grammar, fold, 3)) == 3
+    worker_replicas(grammar, fold, 6)
+    assert len(worker_replicas(grammar, fold, 3)) == 3

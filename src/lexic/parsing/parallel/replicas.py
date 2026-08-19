@@ -87,7 +87,7 @@ _REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelFold, list[Replica]]] = {}
 strong references pin both ids, so a recycled id cannot alias a live entry."""
 
 
-def replicas[M](grammar: IrAst, fold: ModelFold[M], count: int) -> list[Replica]:
+def worker_replicas[M](grammar: IrAst, fold: ModelFold[M], count: int) -> list[Replica]:
     """``count`` private ``(grammar, fold)`` views, grown and reused per pair.
 
     Replicas are built once per pair and kept: each carries its own compiled
@@ -125,7 +125,7 @@ _TICKET = itertools.count()
 def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
     """This thread's private view of ``(grammar, fold)`` — its own tables.
 
-    The document-level twin of :func:`replicas`: where a split hands each
+    The document-level twin of :func:`worker_replicas`: where a split hands each
     CHUNK a view, concurrent whole-document parses need each THREAD to have
     one, and to keep it. Sequential callers and GIL builds get the original
     pair back, so nothing is compiled or held that could not be used.
@@ -144,5 +144,6 @@ def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
     key = (id(grammar), id(fold))
     got = mine.get(key)
     if got is None:
-        got = mine[key] = replicas(grammar, fold, workers)[_ASSIGNED.index % workers]
+        pool = worker_replicas(grammar, fold, workers)
+        got = mine[key] = pool[_ASSIGNED.index % workers]
     return got
