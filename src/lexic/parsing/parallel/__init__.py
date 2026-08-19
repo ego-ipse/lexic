@@ -14,6 +14,8 @@ orchestrator's own vocabulary, public for composition and tests.
   N that many.
 - :mod:`.pool` — N documents in flight against one parse callable; lexic
   owns the threading, callers just map.
+- :mod:`.replicas` — each worker's private tables; sharing one set is what
+  caps concurrent scaling, and this is the measured fix.
 - :mod:`.orchestrate` — ONE document split at derived separators, chunk-
   parsed under the container rule, stitched to the exact sequential model;
   everything unsupported falls back to the sequential product.
@@ -29,6 +31,7 @@ from lexic.parsing.parallel.policy import (
     worker_count,
 )
 from lexic.parsing.parallel.pool import ParsePool
+from lexic.parsing.parallel.replicas import Replica, replicas
 from lexic.parsing.parallel.roles import Roles, Separator, roles
 from lexic.parsing.parallel.scan import Scanner, Window
 
@@ -36,6 +39,7 @@ __all__ = [
     "AUTO",
     "MIN_CHUNK",
     "ParsePool",
+    "Replica",
     "Roles",
     "SITE_EMITS",
     "Scanner",
@@ -47,6 +51,7 @@ __all__ = [
     "available_workers",
     "doc_workers",
     "split_model",
+    "replicas",
     "roles",
     "split_plan",
     "worker_count",

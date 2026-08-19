@@ -250,6 +250,7 @@ src/lexic/
       orchestrate.py               Split orchestration — one document chunk-parsed and stitched to the exact model
       policy.py                    Worker-count policy — auto from build/cores/size; explicit override wins
       pool.py                      ParsePool — N documents in flight against one parse callable, warm workers
+      replicas.py                  Per-worker table replicas — equal grammar, own tables, no shared refcount traffic
       roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
       scan.py                      Self-locating window scan — relative depths, prefix-sum rebase to offsets
     pda/

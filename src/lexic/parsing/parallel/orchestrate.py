@@ -35,6 +35,7 @@ from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.policy import AUTO, worker_count
 from lexic.parsing.parallel.pool import ParsePool
+from lexic.parsing.parallel.replicas import replicas
 from lexic.parsing.parallel.roles import UNIT, Separator, roles, unbounded
 from lexic.parsing.parallel.scan import Scanner, Window
 from lexic.parsing.pda.core.charsets import CharSet
@@ -244,14 +245,23 @@ def _scan(plan: SplitPlan, text: str, workers: int) -> list[int]:
 def _cut_offsets(plan: SplitPlan, text: str, cores: int) -> list[int]:
     """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
 
+    The worker CEILING is settled before anything is scanned: it depends
+    only on the build, the core count and the input size, so a document
+    that could never occupy two workers must not pay a scan to find that
+    out — that scan is a full pass over the input, and charging it to every
+    small parse is a regression on grammars that merely HAVE a plan.
+
     A terminated plan's final mark is dropped: cutting after the document's
     last terminator leaves an empty chunk, which is not a document.
     """
-    marks = _scan(plan, text, worker_count(len(text), 1, cores))
+    ceiling = worker_count(len(text), len(text), cores)
+    if ceiling < 2:
+        return []
+    marks = _scan(plan, text, ceiling)
     if plan.sep is None and marks and marks[-1] == len(text) - 1:
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
-    if workers < 2 or not marks:
+    if workers < 2:
         return []
     step = max(1, len(marks) // workers)
     return [marks[k * step] for k in range(1, workers) if k * step < len(marks)]
@@ -323,11 +333,18 @@ def _split_parse[M: IrNamedTuple](
     if not terminated and plan.lead_grammar is None:
         if any(lead != plan.lead_literal for lead in leads):
             return None
-    pool = ParsePool[str, M](
-        lambda chunk: parse_model(plan.grammar, chunk, fold, resolve), len(spans)
+    # Each worker parses against its OWN equal grammar and fold copy: the
+    # tables are read-only, but sharing one set of them across cores is what
+    # flattens scaling at ~1.8x (refcount cache-line traffic, measured).
+    views = replicas(plan.grammar, fold, len(spans))
+    pool = ParsePool[int, M](
+        lambda k: parse_model(
+            views[k][0], text[spans[k][0] : spans[k][1]], views[k][1], resolve
+        ),
+        len(spans),
     )
     try:
-        chunks = pool.map([text[lo:hi] for lo, hi in spans])
+        chunks = pool.map(range(len(spans)))
         lead_models = [
             (parse_model(plan.lead_grammar, lead, fold, resolve),)
             if plan.lead_grammar is not None
