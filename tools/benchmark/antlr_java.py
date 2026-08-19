@@ -34,6 +34,10 @@ _JAR = Path.home() / f".m2/repository/org/antlr/antlr4/{TOOL_VERSION}"
 WARM_BATCH = 12
 """Parses per warmup batch; the median of a batch is what must settle."""
 
+WARM_SETTLED = 3
+"""Consecutive stable batches required before the JIT is called settled. One
+was not enough — a C1 plateau reads as convergence while C2 still compiles."""
+
 WARM_STABLE = 0.03
 """Relative move between consecutive batch medians that counts as warm."""
 
@@ -142,15 +146,25 @@ class JavaAntlr:
     def warm(self, corpus: str) -> tuple[int, bool]:
         """Parse until the median stops moving; record and return the cost.
 
+        Stability must hold for :data:`WARM_SETTLED` CONSECUTIVE batches. One
+        batch is not enough against a tiered JIT: HotSpot plateaus at C1 while
+        C2 is still compiling, and that plateau passed a single-window test.
+        Measured on the json row, six processes read 0.297 / 0.254 / 0.253 /
+        0.140 / 0.247 / 0.221 µs/char — a 2.1x spread in which the ONE fast
+        reading was also the one that happened to warm 192 parses instead of
+        72. The row was bimodal because the warmup was, so every antlr
+        comparison carried an unstated error bar.
+
         :returns: ``(parses spent, whether it settled)`` — an unsettled warmup is
             reported, never silently accepted as if it had converged.
         """
-        previous = 0.0
+        previous, stable = 0.0, 0
         for batch in range(1, WARM_LIMIT + 1):
             times = sorted(self._sample(corpus) for _ in range(WARM_BATCH))
             median = times[len(times) // 2]
             moved = abs(median - previous) / max(median, previous, 1e-9)
-            if previous and moved < WARM_STABLE:
+            stable = stable + 1 if previous and moved < WARM_STABLE else 0
+            if stable >= WARM_SETTLED:
                 self.warmed = (batch * WARM_BATCH, True)
                 return self.warmed
             previous = median

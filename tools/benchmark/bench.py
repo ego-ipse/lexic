@@ -421,6 +421,13 @@ def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
     return abs(first - second) / max(first, second, 1e-9) * 100
 
 
+_WARM_CONVERGED = 150
+"""Warmup parses below which a JIT row has historically landed in its slow
+mode. Requiring three consecutive stable batches converges the json row 4 runs
+in 5 (0.118-0.148 µs/char, 192-204 parses) where one window converged 1 in 6;
+a run that settles sooner than this is reported as SHORT, because the residual
+bimodality is real and an unstated error bar is the thing to avoid."""
+
 BAR_WIDTH = 40
 """Bar length. Wide enough that a 2x gap reads differently from a 4x one —
 at 22 columns the log scale gave them three characters between them."""
