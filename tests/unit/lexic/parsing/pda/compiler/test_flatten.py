@@ -55,9 +55,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     R_DROP,
     R_KEEP,
     R_SPLICE,
-)
-from lexic.parsing.pda.compiler.specialize import (
-    _TERMINAL_OPS,
+    TERMINAL_OPS,
 )
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
 
@@ -85,8 +83,8 @@ def test_op_codes_are_pairwise_distinct():
 
 
 def test_terminal_ops_are_the_four_terminal_op_codes():
-    """_TERMINAL_OPS is exactly the base + specialised literal/charclass codes."""
-    assert _TERMINAL_OPS == {OP_LIT, OP_CC, OP_LIT1, OP_CC1}
+    """TERMINAL_OPS is exactly the base + specialised literal/charclass codes."""
+    assert TERMINAL_OPS == {OP_LIT, OP_CC, OP_LIT1, OP_CC1}
 
 
 def test_gate_codes_are_distinct():
@@ -185,4 +183,4 @@ def test_pdaprogram_init_binds_start_verbatim():
     assert program.delegates is None  # default; the artifact attaches the source
 
 
-# ── _specialize_terminals + _inline_value_strs + _mark_leaves ──────────────
+# ── specialize_terminals + _inline_value_strs + _mark_leaves ──────────────

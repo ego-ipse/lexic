@@ -40,15 +40,16 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_VDISP,
     OP_VRUN,
     OP_VSTR,
+    TERMINAL_OPS,
 )
 
-_TERMINAL_OPS = frozenset((OP_LIT, OP_CC, OP_LIT1, OP_CC1))
-"""The op-codes that consume input without descending — the ``OP_VSTR``
-inlining licence (a clone is inlinable iff every arm is all-terminal)."""
 
+def clone_arms(clone: FlatClone) -> list[FlatArm]:
+    """A clone's arms (gated + default), skipping dispatch clones' targets.
 
-def _clone_arms(clone: FlatClone) -> list[FlatArm]:
-    """A clone's arms (gated + default), skipping dispatch clones' targets."""
+    Public because both products' rewrites walk a clone the same way — the
+    reduce compile runs :func:`specialize_terminals` over exactly this list.
+    """
     if clone.mode == BUILD_DISPATCH:
         return []
     if clone.kwin_selectors is not None:
@@ -73,15 +74,21 @@ def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
             continue
         seen.add(id(clone))
         out.append(clone)
-        for arm in _clone_arms(clone):
+        for arm in clone_arms(clone):
             for kind, payload in zip(arm.kinds, arm.payloads):
                 if kind == OP_GRP:
                     work.append(payload)
     return out
 
 
-def _specialize_terminals(arm: FlatArm) -> None:
-    """Rewrite exactly-once terminals to their loop-free op-codes in place."""
+def specialize_terminals(arm: FlatArm) -> None:
+    """Rewrite exactly-once terminals to their loop-free op-codes in place.
+
+    The one post-flatten pass BOTH products run. It removes a quantifier loop
+    without removing a frame, an item or an item end, so the reduce
+    completion — which reconstructs its children from exactly those — reads
+    the specialised arm as faithfully as the plain one.
+    """
     kinds = list(arm.kinds)
     for i, kind in enumerate(kinds):
         if arm.los[i] == 1 and arm.his[i] == 1:
@@ -110,8 +117,7 @@ def _vstr_inlinable(clone: Any) -> bool:
         and clone.pn_selectors is None
         and clone.struct_arm is None
         and all(
-            all(kind in _TERMINAL_OPS for kind in arm.kinds)
-            for arm in _clone_arms(clone)
+            all(kind in TERMINAL_OPS for kind in arm.kinds) for arm in clone_arms(clone)
         )
     )
 
@@ -235,7 +241,7 @@ def charcache_for(clone: FlatClone) -> "dict[str, object] | None":
         return None
     if not _vstr_inlinable(clone):
         return None
-    if not all(_one_char_arm(arm) for arm in _clone_arms(clone)):
+    if not all(_one_char_arm(arm) for arm in clone_arms(clone)):
         return None
     return {}
 
@@ -267,10 +273,10 @@ def runarm_for(clone: FlatClone) -> "FlatArm | None":
         return None
     shapes = {
         (arm.kinds[0], arm.payloads[0], arm.los[0], arm.his[0], arm.gate_kinds[0])
-        for arm in _clone_arms(clone)
+        for arm in clone_arms(clone)
         if arm.n == 1
     }
-    if len(shapes) != 1 or any(arm.n != 1 for arm in _clone_arms(clone)):
+    if len(shapes) != 1 or any(arm.n != 1 for arm in clone_arms(clone)):
         return None
     if clone.default.kinds[0] not in (OP_CC, OP_LIT):
         return None
@@ -494,9 +500,9 @@ def _mark_leaves(clone: FlatClone) -> None:
         return  # a gated selection cannot run frame-lessly by lead char
     if clone.struct_arm is not None or clone.attempt is not None:
         return
-    inline_ops = _TERMINAL_OPS | {OP_VSTR, OP_VRUN, OP_V1, OP_VDISP, OP_LEAF1}
+    inline_ops = TERMINAL_OPS | {OP_VSTR, OP_VRUN, OP_V1, OP_VDISP, OP_LEAF1}
     clone.leaf = all(
-        all(kind in inline_ops for kind in arm.kinds) for arm in _clone_arms(clone)
+        all(kind in inline_ops for kind in arm.kinds) for arm in clone_arms(clone)
     )
 
 
@@ -510,7 +516,7 @@ def _specialize_calls(clone: FlatClone) -> None:
     """
     if clone.mode == BUILD_SEQ and clone.needs_ends:
         return
-    for arm in _clone_arms(clone):
+    for arm in clone_arms(clone):
         kinds = list(arm.kinds)
         for i, kind in enumerate(kinds):
             if kind in (OP_REF, OP_GRP) and arm.los[i] == 1 and arm.his[i] == 1:
@@ -526,7 +532,7 @@ def _specialize_leaf_refs(clone: FlatClone) -> None:
     ``lower._arm_prefix_steps`` (admission prefixes) both do. An omission
     there does not slow the parse; it changes which tier parses.
     """
-    for arm in _clone_arms(clone):
+    for arm in clone_arms(clone):
         _mark_arm_leaf_refs(arm)
 
 
@@ -579,20 +585,20 @@ def optimize_program(roots: list[FlatClone]) -> None:
     """
     clones = all_clones(roots)
     for clone in clones:
-        for arm in _clone_arms(clone):
-            _specialize_terminals(arm)
+        for arm in clone_arms(clone):
+            specialize_terminals(arm)
     for clone in clones:
         convert_dispatch(clone)
     bake_chartables(clones)
     for clone in clones:
-        for arm in _clone_arms(clone):
+        for arm in clone_arms(clone):
             _inline_value_strs(arm)
     for clone in clones:
         _mark_leaves(clone)
     for clone in clones:
         _specialize_calls(clone)
     for clone in clones:
-        for arm in _clone_arms(clone):
+        for arm in clone_arms(clone):
             _specialize_vruns(arm)
     for clone in clones:
         _specialize_leaf_refs(clone)

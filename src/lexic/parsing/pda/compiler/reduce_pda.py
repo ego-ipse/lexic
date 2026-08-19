@@ -26,7 +26,11 @@ from lexic.parsing.pda.compiler.opcodes import (
     R_KEEP,
     R_SPLICE,
 )
-from lexic.parsing.pda.compiler.specialize import all_clones
+from lexic.parsing.pda.compiler.specialize import (
+    all_clones,
+    clone_arms,
+    specialize_terminals,
+)
 
 __all__ = ["ReduceComp", "ReduceRun"]
 
@@ -181,12 +185,23 @@ def reduce_rewrite(
 
     A named clone bakes its rule's :class:`ReduceComp`; an inline group (reached
     only through a ``OP_GRP`` payload, never a clone key) splices — its ordered
-    children flatten into the caller. The model-specific specialisations
-    (``OP_VSTR`` inlining, dispatch conversion, leaf marking) are deliberately
-    skipped: the reduce completion reconstructs children from item ends + sinks,
-    so it keeps the un-specialised op-stream.
+    children flatten into the caller.
+
+    Terminal specialisation runs. It is the one pass that removes a quantifier
+    loop without removing a frame, an item or an item end, and the reduce
+    completion reconstructs its children from exactly those — so the
+    specialised arm reads the same and the driver stops stepping a loop per
+    character of every exactly-once literal and char class.
+
+    The specialisations that RESHAPE the op-stream stay skipped: ``OP_VSTR``
+    inlining and leaf marking run a referenced clone frame-lessly, and dispatch
+    conversion drops a pass-through frame. Each removes a completion, which on
+    this path is where a rule's reduction body runs — the child would never
+    build its value.
     """
     comp_by_id = {id(shells[key]): comp for key, comp in completions.items()}
     splice = ReduceComp(R_SPLICE, None, False, False, False)
     for clone in all_clones(list(shells.values())):
+        for arm in clone_arms(clone):
+            specialize_terminals(arm)
         _bake_reduce(clone, comp_by_id.get(id(clone), splice))

@@ -22,6 +22,16 @@ pushing a frame; and an exactly-once clone entry (ref or group) in an arm that
 keeps no item ends, so the driver advances past it before descending (no
 count bookkeeping, no resume re-check)."""
 
+TERMINAL_OPS = frozenset((OP_LIT, OP_CC, OP_LIT1, OP_CC1))
+"""Every op-code that consumes text directly rather than through a clone.
+
+The specialised pair is NOT ordinally adjacent to the plain pair, so a reader
+asking "is this item a terminal" has to ask this set rather than compare. The
+reduce completion learned that the expensive way: testing ``kind <= OP_CC``
+read a specialised terminal as a clone reference and looked for children it
+had no sink for, which is why the reduce path skipped terminal specialisation
+altogether and stepped a quantifier loop per character."""
+
 OP_VRUN, OP_V1 = 10, 11
 """Exactly-once ``OP_VSTR`` reference op-codes (:func:`_specialize_vruns`).
 

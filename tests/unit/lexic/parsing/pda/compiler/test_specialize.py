@@ -35,12 +35,12 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_V1,
     OP_VDISP,
     OP_VSTR,
+    TERMINAL_OPS,
 )
 from lexic.parsing.pda.compiler.specialize import (
-    _TERMINAL_OPS,
     CHARTABLE_CAP,
-    _clone_arms,
     _inline_value_strs,
+    clone_arms,
     vdisp_target,
 )
 from tests.paths import GROUND_TRUTH
@@ -315,7 +315,7 @@ def test_clones_of_one_rule_share_their_filling_table():
     root = art.pda_tables().program.start
     reached = [root] + [
         payload
-        for arm in _clone_arms(root)
+        for arm in clone_arms(root)
         for payload in arm.payloads
         if isinstance(payload, FlatClone)
     ]
@@ -376,7 +376,7 @@ def test_exactly_once_charclass_specialises_to_cc1_with_a_resolved_charset():
 
 def test_unbounded_terminal_is_never_specialised_to_its_exactly_once_code():
     """A quantified (non-exactly-once) literal keeps the plain OP_LIT code —
-    _specialize_terminals only rewrites lo == hi == 1 items.
+    specialize_terminals only rewrites lo == hi == 1 items.
     """
     pda = pda_from_text('root ::= "a"+ x\nx ::= y "q"\ny ::= "p"\n')
     root = pda.program.start
@@ -455,7 +455,7 @@ def test_a_lexical_rule_flattens_to_one_terminal_item():
     assert number.mode == BUILD_VALUE_STR
     arm = only_arm(number)
     assert arm.n == 1
-    assert arm.kinds[0] in _TERMINAL_OPS
+    assert arm.kinds[0] in TERMINAL_OPS
     assert arm.his[0] == HI_UNBOUNDED
 
 
@@ -540,7 +540,7 @@ def test_start_rule_itself_an_island_flattens_the_program_to_a_bare_islandref():
 
 def test_every_exactly_once_terminal_is_specialised_across_ground_truth():
     """No reachable arm keeps a bare OP_LIT/OP_CC on an exactly-once item —
-    _specialize_terminals is exhaustive, not just true on hand fixtures.
+    specialize_terminals is exhaustive, not just true on hand fixtures.
     """
     pda = pda_for(GROUND_TRUTH / "arithmetic.gbnf")
     stack = [pda.program.start] if hasattr(pda.program.start, "mode") else []

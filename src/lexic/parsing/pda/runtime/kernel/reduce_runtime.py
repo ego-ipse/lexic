@@ -26,9 +26,9 @@ from lexic.parsing.pda.compiler.flatten import (
     FlatClone,
 )
 from lexic.parsing.pda.compiler.opcodes import (
-    OP_CC,
     R_DROP,
     R_SPLICE,
+    TERMINAL_OPS,
 )
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
@@ -125,7 +125,7 @@ class _ReducePdaKernel(PdaKernel[IrSelf]):
         prev = frame[F_START]
         for i in range(arm.n):
             end = ends[i]
-            if arm.kinds[i] <= OP_CC:  # terminal (LIT / CC) — KEEP_RAW leaves
+            if arm.kinds[i] in TERMINAL_OPS:  # LIT / CC — KEEP_RAW leaves
                 if lit_keep and end > prev:
                     parts.extend(char_leaf(c) for c in text[prev:end])
             else:  # ref / group / island — captured sub-results
@@ -159,7 +159,7 @@ class _ReducePdaKernel(PdaKernel[IrSelf]):
         prev = frame[F_START]
         for i in range(arm.n):
             end = ends[i]
-            if arm.kinds[i] <= OP_CC:  # terminal (LIT / CC) — raw slice
+            if arm.kinds[i] in TERMINAL_OPS:  # LIT / CC — raw slice
                 parts.append(text[prev:end])
             else:  # ref / group / island — the subtree's kept strings
                 sub = sinks[i] if sinks else None
