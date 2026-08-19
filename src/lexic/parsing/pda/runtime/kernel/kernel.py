@@ -64,6 +64,7 @@ from lexic.parsing.pda.compiler.flatten import (
 )
 from lexic.parsing.pda.compiler.opcodes import (
     BUILD_DISPATCH,
+    BUILD_REDUCE,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -118,6 +119,7 @@ from lexic.parsing.pda.runtime.matchers import (
     match_cc,
     match_chartable,
     match_lit,
+    reduce_once,
     run_span_once,
     select_arm,
     vdisp_once,
@@ -525,15 +527,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         ) and self._enter_gated(clone, out):
             return True  # short-circuits: an ungated clone never pays the call
         if clone.leaf:
-            if clone.mode == BUILD_VALUE_STR:
-                # the same frame-less run an OP_VSTR reference to this clone
-                # gets — an entry had been paying a frame for the identical
-                # match, which by the leaf licence cannot descend
-                self.pos = vstr_once(
-                    self.text, self._caches.intern, clone, out, self.pos
-                )
-            else:
-                self.pos = self._run_leaf(clone, out, self.pos)
+            self._leaf_run(clone, out)
             return False
         arm = None
         for chars, negated, candidate in clone.selectors:
@@ -627,6 +621,23 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
                 # nothing to ask
                 continue
             return clone
+
+    def _leaf_run(self, clone: FlatClone, out: list[Any]) -> None:
+        """A frame-less leaf clone's whole run — one of three shapes.
+
+        A ``value_str`` leaf matches inline exactly as an ``OP_VSTR``
+        reference to it would; an entry had been paying a frame for the
+        identical match, which by the leaf licence cannot descend. A REDUCE
+        leaf is the twin of that: its reduction reads only its own span, so
+        the value its completion would have built is computed here instead.
+        Anything else builds through :meth:`_run_leaf`.
+        """
+        if clone.mode == BUILD_VALUE_STR:
+            self.pos = vstr_once(self.text, self._caches.intern, clone, out, self.pos)
+        elif clone.mode == BUILD_REDUCE:
+            self.pos = reduce_once(self.text, clone, out, self.pos)
+        else:
+            self.pos = self._run_leaf(clone, out, self.pos)
 
     def _run_leaf(self, clone: FlatClone, out: list[Any], pos: int) -> int:
         """Run an all-terminal ``sequence`` clone frame-lessly — match and build.

@@ -239,15 +239,29 @@ def pieces(text: str, region: Region, workers: int) -> list[str] | None:
     ]
 
 
-def stub(text: str, region: Region) -> str:
-    """The region's FIRST item — the least text that keeps its shape.
+def stub(text: str, region: Region, nth: int = 0) -> str:
+    """The region's ``nth`` item — the least text that keeps its shape.
 
     The shell is the one part still parsed whole, so what stands in for a
     divided run should be as small as the run allows: one item, not one
     piece. On a 10 MB tokenizer that is the difference between a 670 KB
     shell and a 2 KB one, and the shell is serial.
+
+    ``nth`` is what tells two runs apart. Each run's value has to be found
+    again in the shell's REDUCED value, where the only handle is equality —
+    so two runs that begin with the same item would stand in for the same
+    value and become one node with two claimants. Giving run *k* the *k*-th
+    item makes the stand-ins distinct by construction instead.
+
+    :param text: The document.
+    :param region: The run.
+    :param nth: Which item to keep, clamped to what the run has.
+    :returns: That item's text, its run's brackets excluded.
     """
-    return text[region.opener + 1 : region.marks[0]]
+    at = min(nth, len(region.marks))
+    start = region.opener + 1 if at == 0 else region.marks[at - 1] + 1
+    end = region.marks[at] if at < len(region.marks) else region.closer
+    return text[start:end]
 
 
 def shell(text: str, regions: list[Region], keep: list[str]) -> str:
@@ -304,40 +318,34 @@ def _preorder(
         yield from _preorder(part, (*route, index))
 
 
-def _past(route: tuple[int, ...], after: tuple[int, ...]) -> bool:
-    """Whether ``route`` reaches a node strictly after — and outside — ``after``."""
-    return route > after and route[: len(after)] != after
+def sole_route(whole: IrSelf, needle: IrSelf) -> tuple[int, ...] | None:
+    """The ONE place ``needle`` sits inside ``whole``; ``None`` unless exactly one.
 
+    Value equality is the only handle a reduction leaves — it carries no
+    offsets — so a stand-in that appears twice cannot be placed, and taking
+    the first is how one run's value ends up written over another's.
 
-def route_after(
-    whole: IrSelf, needle: IrSelf, after: tuple[int, ...] | None
-) -> tuple[int, ...] | None:
-    """Where ``needle`` sits inside ``whole``, past ``after``; ``None`` = nowhere.
+    Position cannot break that tie. An ``IrMap`` yields its entries in KEY
+    order, so the run that opens first in the text may reduce to a node the
+    walk reaches last; on a real ``tokenizer.json`` it does, and an ordered
+    search refuses the very document the split exists for.
 
-    Value equality alone cannot answer this. Two regions whose stand-ins
-    reduce to the same value — two arrays beginning with the same item — have
-    the same needle, so the first match claims both, one region's value is
-    written twice and the other keeps its stub. Nothing raises; the caller
-    just returns the wrong document.
-
-    Position is what tells them apart. :func:`choose` refuses overlapping
-    regions, so the runs are disjoint and in document order, and any
-    order-preserving reduction lays their stand-ins down in that same order.
-    Searching each from strictly past the previous one — and outside it,
-    since a later region can never be INSIDE an earlier one — makes the
-    assignment unique exactly where equality is not.
+    What makes the answer unique is upstream: :func:`stub` gives each run a
+    DIFFERENT item to stand in for, so two runs collide only if those items
+    reduce alike. This refuses when even that was not enough.
 
     :param whole: The shell's reduced value.
     :param needle: The stand-in value to place.
-    :param after: The previous region's route, or ``None`` for the first.
-    :returns: The route, or ``None`` when no admissible node matches.
+    :returns: The route, or ``None`` when the shell holds no such node or
+        more than one.
     """
+    found: tuple[int, ...] | None = None
     for route, node in _preorder(whole, ()):
-        if after is not None and not _past(route, after):
-            continue
         if node is needle or node == needle:
-            return route
-    return None
+            if found is not None:
+                return None
+            found = route
+    return found
 
 
 def splice[V: IrSelf](whole: V, route: tuple[int, ...], value: IrSelf) -> V | None:
@@ -456,7 +464,8 @@ def _reduce_parts(
     """
     flat = [(region.rule, piece) for region, parts in divided for piece in parts]
     regions = [region for region, _parts in divided]
-    keep = [stub(text, region) for region in regions]
+    # Run k stands in for its k-th item, so no two stand-ins are the same text.
+    keep = [stub(text, region, k) for k, region in enumerate(regions)]
     try:
         values = _parse_pieces(run, flat)
         whole = run.reduce(run.grammar, shell(text, regions, keep), run.reducer)
@@ -485,7 +494,6 @@ def _splice_all(
     """
     whole = parts.whole
     at = 0
-    after: tuple[int, ...] | None = None
     placed: list[tuple[Region, tuple[int, ...], IrSelf]] = []
     for index, (region, cuts) in enumerate(divided):
         merged = merge(parts.values[at : at + len(cuts)])
@@ -495,10 +503,10 @@ def _splice_all(
         # The needle is the STUB's own value, reduced: a container normalises
         # what it holds, so the merged value's first entry is not necessarily
         # the one the shell kept.
-        after = route_after(whole, parts.stubs[index], after)
-        if after is None:
+        route = sole_route(whole, parts.stubs[index])
+        if route is None:
             return None
-        placed.append((region, after, merged))
+        placed.append((region, route, merged))
     for region, route, merged in placed:
         if not route:
             # The stand-in IS the shell's whole value. That is the answer only

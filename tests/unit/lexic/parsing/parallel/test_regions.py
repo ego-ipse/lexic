@@ -28,9 +28,9 @@ from lexic.parsing.parallel.regions import (
     pair_rules,
     pieces,
     rooted,
-    route_after,
     separators,
     shell,
+    sole_route,
     split_regions,
     stub,
 )
@@ -165,6 +165,23 @@ def test_the_stub_is_the_runs_first_item():
     assert stub(doc, region) == "0"
 
 
+def test_each_run_stands_in_for_a_different_item():
+    """What makes two runs distinguishable in the shell's reduced value: run
+    k keeps its k-th item, so equal-looking runs still leave unequal
+    stand-ins."""
+    doc = "[" + _run(50) + "]"
+    region = _one_region(doc)
+    assert [stub(doc, region, k) for k in range(3)] == ["0", "1", "2"]
+
+
+def test_the_nth_item_is_clamped_to_what_the_run_has():
+    """More runs than a run has items is not an error — the last item stands,
+    and ``sole_route`` refuses if that turns out to collide."""
+    doc = "[1,2]"
+    region = _one_region(doc)
+    assert stub(doc, region, 9) == "2"
+
+
 def test_the_shell_is_the_document_with_each_run_shrunk_to_its_stub():
     """What is left over is parsed once, and it is small."""
     doc = '{"a": [1,2,3], "b": {"c": 1, "d": 2}}'
@@ -192,44 +209,45 @@ def test_merge_of_nothing_is_nothing():
     assert merge([]) is None
 
 
-# ── route_after and splice ────────────────────────────────────────────────
+# ── sole_route and splice ────────────────────────────────────────────────
 
 
-def test_route_after_finds_the_stand_in_by_value():
-    """The first region searches from nowhere, so it takes the first match."""
+def test_a_stand_in_that_sits_in_one_place_routes_there():
+    """The ordinary case: one node equals it, so that is where it goes."""
     whole = IrTuple(IrStr("a"), IrTuple(IrInt(0)))
-    assert route_after(whole, IrTuple(IrInt(0)), None) == (1,)
+    assert sole_route(whole, IrTuple(IrInt(0))) == (1,)
 
 
-def test_two_equal_stand_ins_route_to_different_places():
-    """The regression that matters. Two runs beginning with the same item
-    reduce to the SAME stand-in value, so matching by value alone routes both
-    to the first of them: one region's value is written twice and the other
-    keeps its stub, with nothing raised. Searching past the previous route is
-    what tells them apart."""
+def test_a_stand_in_that_sits_in_two_places_routes_nowhere():
+    """The regression that matters. Two runs standing in for the same value
+    give one node two claimants: taking the first writes one run's items over
+    the other's and leaves the second holding its stub, with nothing raised.
+
+    Position cannot break the tie — an ``IrMap`` yields its entries in KEY
+    order, so the run that opens first in the text may reduce to a node the
+    walk reaches last. Refusing is the only sound answer here; :func:`stub`
+    is what stops the case arising."""
     needle = IrTuple(IrInt(0))
     whole = IrTuple(IrTuple(IrStr("a"), needle), IrTuple(IrStr("b"), needle))
-    first = route_after(whole, needle, None)
-    second = route_after(whole, needle, first)
-    assert (first, second) == ((0, 1), (1, 1))
+    assert sole_route(whole, needle) is None
 
 
-def test_route_after_never_descends_into_the_previous_region():
-    """A later region can never be INSIDE an earlier one — ``choose`` refuses
-    overlap — so a descendant route is not an admissible answer."""
-    inner = IrTuple(IrInt(0))
-    whole = IrTuple(IrTuple(inner), IrStr("z"))
-    assert route_after(whole, inner, (0,)) is None
+def test_a_map_yields_its_entries_in_key_order_not_document_order():
+    """The fact the routing rests on, pinned: any scheme that assumed the walk
+    followed the document would mis-place a run on the first real file."""
+    keys = ["version", "model", "added_tokens"]
+    built = IrMap(*(IrTuple(IrStr(k), IrInt(i)) for i, k in enumerate(keys)))
+    assert [str(entry[0]) for entry in built.children()] == sorted(keys)
 
 
-def test_route_after_returns_none_when_nothing_matches():
+def test_a_stand_in_that_sits_nowhere_routes_nowhere():
     """No place for the stand-in means the split declines."""
-    assert route_after(IrTuple(IrInt(1)), IrStr("q"), None) is None
+    assert sole_route(IrTuple(IrInt(1)), IrStr("q")) is None
 
 
 def test_the_whole_value_can_itself_be_the_stand_in():
     """An empty route is the root, which is a route like any other."""
-    assert route_after(IrTuple(IrInt(1)), IrTuple(IrInt(1)), None) == ()
+    assert sole_route(IrTuple(IrInt(1)), IrTuple(IrInt(1))) == ()
 
 
 # ── choose ────────────────────────────────────────────────────────────────
@@ -285,11 +303,12 @@ def test_a_split_reduction_equals_the_sequential_one():
 
 
 def test_two_runs_beginning_with_the_same_item_still_reduce_correctly():
-    """The regression that matters, end to end. Both runs stub to ``[0]``, so
-    a router matching by value alone put the second run's items under the
-    first and left the second holding its stand-in — a wrong document,
-    returned without a refusal. Eight workers is what makes the enclosing
-    object decline, so the two arrays are the runs that get divided."""
+    """The regression that matters, end to end. Both runs BEGIN with the same
+    item, so a shell that kept each run's first one gave them the same
+    stand-in: the second run's items went under the first and the second was
+    left holding its stub — a wrong document, returned without a refusal.
+    Eight workers is what makes the enclosing object decline, so the two
+    arrays are the runs that get divided."""
     run = _run(BIG)
     doc = '{"a": [' + run + '], "b": [' + run + "]}"
     picked = choose(doc, find(JSON_GRAMMAR, doc), 8)

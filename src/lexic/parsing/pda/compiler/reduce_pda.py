@@ -25,6 +25,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     R_DROP,
     R_KEEP,
     R_SPLICE,
+    TERMINAL_OPS,
 )
 from lexic.parsing.pda.compiler.specialize import (
     all_clones,
@@ -156,6 +157,41 @@ class ReduceRun(IrLeaf[IrSelf, IrSelf]):
         self.literal_keep = plan.literal_kind == KEEP_KIND
 
 
+def _span_only(clone: FlatClone, comp: ReduceComp) -> bool:
+    """Whether this clone's reduction reads nothing but its own matched span.
+
+    Two completions qualify. A ``DROP`` clone contributes nothing to its
+    caller — ``_complete`` pops the frame and returns — and a ``YIELD`` body's
+    value IS ``IrStr(span)``. Neither reads a child, so neither needs a frame
+    to hold one: the clone runs frame-lessly in
+    :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter`, which is
+    the same leaf run an ``OP_VSTR`` target gets on the model path.
+
+    Terminal-only arms are what make the span matchable inline, and they are
+    also what makes a ``YIELD``'s value a contiguous slice: ``_reduce_span``
+    stitches raw terminal slices with the kept string values of reference
+    children, and an all-terminal arm has none. The gated and attempt clones
+    are refused for the reason ``_vstr_inlinable`` refuses them — the inline
+    matcher selects on FIRST, which is the decision those clones exist to make
+    some other way.
+
+    :param clone: The flat clone, already carrying its specialised arms.
+    :param comp: Its completion plan.
+    :returns: Whether the clone can run without a frame.
+    """
+    if comp.kind == R_SPLICE or (comp.kind == R_KEEP and not comp.is_yield):
+        return False
+    arms = clone_arms(clone)
+    return (
+        bool(arms)
+        and clone.attempt is None
+        and clone.kwin_selectors is None
+        and clone.pn_selectors is None
+        and clone.struct_arm is None
+        and all(all(kind in TERMINAL_OPS for kind in arm.kinds) for arm in arms)
+    )
+
+
 def _bake_reduce(clone: FlatClone, comp: ReduceComp) -> None:
     """Bake a reduce clone's completion plan in place (the b1 twin of
     :func:`~lexic.parsing.pda.compiler.clones._bake_build`).
@@ -169,7 +205,7 @@ def _bake_reduce(clone: FlatClone, comp: ReduceComp) -> None:
     clone.plan = ()
     clone.fast = None
     clone.defaults = None
-    clone.leaf = False
+    clone.leaf = _span_only(clone, comp)  # runs frame-lessly when it qualifies
     clone.needs_ends = True  # reduce reconstructs cleaned children from item ends
     clone.reduce_kind = comp.kind
     clone.reduce_body = comp.body

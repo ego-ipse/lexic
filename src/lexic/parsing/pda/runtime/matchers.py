@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from lexic.ir import IrStr
 from lexic.parsing.pda.compiler.flatten import (
     CHARTABLE_CAP,
     FlatArm,
@@ -31,6 +32,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_CC1,
     OP_LIT,
     OP_LIT1,
+    R_DROP,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import build_vstr
@@ -199,6 +201,24 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
         else:
             pos = match_cc(text, arm, j, pos)
     return pos
+
+
+def reduce_once(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
+    """One frame-less run of a span-only reduce clone — the b1 twin of
+    :func:`vstr_once`.
+
+    Same recognition, different tail: where the model path builds a model from
+    the span, a reduce clone whose reduction is a function of that span alone
+    either contributes nothing (``R_DROP``) or contributes exactly
+    ``IrStr(span)`` (a ``YIELD`` body) — which is what its completion would
+    have computed from the frame it no longer needs.
+
+    :raises PdaFail: On a terminal mismatch or no viable arm.
+    """
+    end = match_arm(text, select_arm(clone, text[pos : pos + 1], pos), pos)
+    if clone.reduce_kind != R_DROP:
+        sink.append(IrStr(text[pos:end]))
+    return end
 
 
 def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
