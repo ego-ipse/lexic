@@ -31,7 +31,7 @@ from lexic.parsing import (
     token_model,
 )
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
-from lexic.parsing.parallel import anchors, split_model
+from lexic.parsing.parallel import AUTO, anchors, split_model
 
 
 def encoding_registry(
@@ -175,18 +175,20 @@ class CompiledGrammar:
         """
         return anchors(self.codegen_grammar)
 
-    def parse(self, text: str, resolve: Resolver | None = None) -> GrammarModel:
+    def parse(
+        self, text: str, resolve: Resolver | None = None, cores: int = AUTO
+    ) -> GrammarModel:
         """Parse text against the compiled grammar and return a model instance.
 
         **Splitting is a question about the grammar, asked before the route.**
         When the analysis finds a cut plan (a repetition whose units the
-        derived anchors can separate) and the build can run workers, the
-        input is split, the chunks parsed concurrently, and the result
-        stitched into the very model a sequential parse would build. A
-        segmented grammar never yields a plan — its terminals match ids, so
-        no character is structural — and neither does an unsupported shape,
-        a short input, or a failing chunk; each of those simply parses
-        sequentially below.
+        derived anchors can separate) and ``cores`` allows more than one
+        worker, the input is split, the chunks parsed concurrently, and the
+        result stitched into the very model a sequential parse would build.
+        A segmented grammar never yields a plan — its terminals match ids,
+        so no character is structural — and neither does an unsupported
+        shape, a short input, or a failing chunk; each of those simply
+        parses sequentially below. ``cores=1`` says so outright.
 
         A **token grammar** — one whose terminals reference an encoding —
         routes through :func:`~lexic.parsing.token_model`: lexic segments
@@ -209,6 +211,8 @@ class CompiledGrammar:
 
         :param text: The input to parse.
         :param resolve: The caller's resolver, or ``None`` to refuse ambiguity.
+        :param cores: 0 (default) = split across as many workers as this
+            machine allows, 1 = parse sequentially, N = at most N workers.
         :raises UnsupportedConstructError: If ``text`` does not parse, the fold
             produced no model for the start rule, or the input means two things
             and no resolver was supplied.
@@ -220,7 +224,7 @@ class CompiledGrammar:
         # segmented grammar simply never yields a plan (its terminals are
         # alphabet atoms, so no character is structural), which is the
         # analysis saying so rather than this branch assuming it.
-        split = split_model(self.codegen_grammar, text, self.fold, resolve)
+        split = split_model(self.codegen_grammar, text, self.fold, resolve, cores)
         if split is not None:
             return GrammarModel.ensure(split, "compile: the start rule's fold")
         if tok is not None and self.tokens.segmented:

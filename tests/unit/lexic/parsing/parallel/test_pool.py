@@ -38,14 +38,14 @@ def test_a_failing_document_raises_its_own_exception():
 
 
 def test_explicit_cores_is_the_worker_count():
-    """An explicit ask is a decision — used as given, floored at 1."""
+    """An explicit ask is a decision — used as given."""
     compiled = compile_text(GRAMMAR)
     assert ParsePool(compiled.parse, cores=3).workers == 3
-    assert ParsePool(compiled.parse, cores=0).workers == 1
 
 
-def test_auto_is_one_under_the_gil(monkeypatch: pytest.MonkeyPatch):
-    """Auto sizing follows the policy: a GIL build gets one worker."""
+def test_auto_sizing_follows_the_policy(monkeypatch: pytest.MonkeyPatch):
+    """The pool's default is the policy's auto — one worker under the GIL."""
     monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
     compiled = compile_text(GRAMMAR)
     assert ParsePool(compiled.parse).workers == 1
+    assert ParsePool(compiled.parse, cores=1).workers == 1

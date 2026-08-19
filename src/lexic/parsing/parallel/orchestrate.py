@@ -33,10 +33,10 @@ from lexic.ir import (
 )
 from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.parallel.policy import worker_count
+from lexic.parsing.parallel.policy import AUTO, worker_count
 from lexic.parsing.parallel.pool import ParsePool
 from lexic.parsing.parallel.roles import UNIT, Separator, roles, unbounded
-from lexic.parsing.parallel.scan import Scanner
+from lexic.parsing.parallel.scan import Scanner, Window
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.products import parse_model
 
@@ -211,18 +211,43 @@ def split_plan(grammar: IrAst) -> SplitPlan | None:
     return entry[1]
 
 
-def _cut_offsets(plan: SplitPlan, text: str, cores: int | None) -> list[int]:
+def _scan(plan: SplitPlan, text: str, workers: int) -> list[int]:
+    """Depth-0 marks of this plan's char, scanned over ``workers`` windows.
+
+    Windows are arithmetic and each is scanned with no left context — a
+    mark character is structural at every occurrence, so a window needs
+    nothing from its predecessor and the prefix-sum rebase recovers the
+    absolute depths. One window IS the sequential scan.
+    """
+    if workers < 2:
+        windows = [plan.scanner.window(text, 0, len(text))]
+    else:
+        step = len(text) // workers
+        bounds = [
+            (k * step, (k + 1) * step if k < workers - 1 else len(text))
+            for k in range(workers)
+        ]
+        pool = ParsePool[tuple[int, int], Window](
+            lambda span: plan.scanner.window(text, span[0], span[1]), workers
+        )
+        try:
+            windows = pool.map(bounds)
+        finally:
+            pool.close()
+    return [
+        offset
+        for offset in plan.scanner.offsets(windows, depth=0)
+        if text[offset] == plan.mark
+    ]
+
+
+def _cut_offsets(plan: SplitPlan, text: str, cores: int) -> list[int]:
     """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
 
     A terminated plan's final mark is dropped: cutting after the document's
     last terminator leaves an empty chunk, which is not a document.
     """
-    window = plan.scanner.window(text, 0, len(text))
-    marks = [
-        offset
-        for offset, depth, _segment in window.marks
-        if depth == 0 and text[offset] == plan.mark
-    ]
+    marks = _scan(plan, text, worker_count(len(text), 1, cores))
     if plan.sep is None and marks and marks[-1] == len(text) - 1:
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
@@ -298,9 +323,8 @@ def _split_parse[M: IrNamedTuple](
     if not terminated and plan.lead_grammar is None:
         if any(lead != plan.lead_literal for lead in leads):
             return None
-    pool = ParsePool(
-        lambda chunk: parse_model(plan.grammar, chunk, fold, resolve),
-        cores=len(spans),
+    pool = ParsePool[str, M](
+        lambda chunk: parse_model(plan.grammar, chunk, fold, resolve), len(spans)
     )
     try:
         chunks = pool.map([text[lo:hi] for lo, hi in spans])
@@ -324,7 +348,7 @@ def split_model[M: IrNamedTuple](
     text: str,
     fold: ModelFold[M],
     resolve: Resolver | None = None,
-    cores: int | None = None,
+    cores: int = AUTO,
 ) -> M | None:
     """Split this input across workers, or say the split does not apply.
 
@@ -343,7 +367,7 @@ def split_model[M: IrNamedTuple](
         :param fold: The instance fold the grammar was compiled with.
         :param resolve: The caller's ambiguity resolver, reaching chunk parses
             and the sequential fallback alike.
-        :param cores: Explicit worker count; ``None`` = the policy's auto.
+        :param cores: 0 = auto, 1 = sequential (so: never split), N = that many.
     """
     plan = split_plan(grammar)
     if plan is None:

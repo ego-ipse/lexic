@@ -48,7 +48,7 @@ import parsimonious.expressions
 
 from lexic.compile import Directives, compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.parallel import ParsePool
+from lexic.parsing.parallel import AUTO, ParsePool, available_workers
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 from lexic.parsing.products import _model_product, earley_model
@@ -700,12 +700,6 @@ class _MtParse:
         self._pool.close()
 
 
-def _free_threaded() -> bool:
-    """Whether this interpreter runs without the GIL (free-threaded build)."""
-    gil_enabled = getattr(sys, "_is_gil_enabled", None)
-    return gil_enabled is not None and not gil_enabled()
-
-
 def _mark(cores: int | None) -> str:
     """The header's cores marker, empty when no MT rows were asked for."""
     return f"  cores={cores}" if cores is not None else ""
@@ -714,16 +708,14 @@ def _mark(cores: int | None) -> str:
 def _mt_cores(asked: int | None) -> int | None:
     """The lexic-mt thread count — the rows are ON by default when they can be.
 
-    A free-threaded interpreter gets the rows without being asked: auto is
-    the cpu count, ``--cores N`` overrides it. A GIL build gets no rows
-    (threaded parsing measured a net loss there) and refuses an explicit ask
-    with words rather than printing a misleading number.
+    Reads ``cores`` the way lexic does (:mod:`lexic.parsing.parallel.policy`):
+    ``--cores N`` is N; bare ``--cores`` and no flag alike are auto. Auto is
+    1 on a GIL build, and that is where the rows drop out entirely — a
+    "threaded" row running one thread answers a question nobody asked, and
+    real threading there measured a net loss.
     """
-    if asked:
-        return asked
-    if _free_threaded():
-        return os.process_cpu_count() or 1
-    return None
+    workers = available_workers() if asked in (None, AUTO) else asked
+    return workers if workers > 1 else None
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -755,7 +747,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="force ANSI colour (auto: only on a terminal, honouring NO_COLOR)",
     )
     args = parser.parse_args(argv)
-    if args.cores is not None and not _free_threaded():
+    if args.cores and available_workers() == 1:
         raise SystemExit(
             "--cores needs a free-threaded interpreter (python3.14t): "
             "threaded parsing under the GIL measured 0.82-0.92x, a net loss"
