@@ -8,6 +8,7 @@ import pytest
 
 from lexic.compile import Vocabulary, compile_ast, compile_text, reset_cache_for_tests
 from lexic.compile.artifact import _reduce_entry
+from lexic.compile.reduction import derive_reduction
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
@@ -99,6 +100,16 @@ def test_reduce_product_is_the_same_object_for_the_same_identity():
     first = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
     second = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
     assert first is second
+
+
+def test_reduce_variant_elides_noise_models_without_changing_source_product():
+    """Discard bodies belong only to the reducer-derived variant artefact."""
+    artifact = compile_ast(JSON_GRAMMAR)
+    entry = _reduce_entry(artifact, JSON_REDUCER)
+    elide = derive_reduction(JSON_GRAMMAR, JSON_REDUCER).elide
+    assert elide
+    assert all(entry.variant.fold.config[name].kind == "discard" for name in elide)
+    assert all(artifact.fold.config[name].kind != "discard" for name in elide)
 
 
 def test_model_product_is_the_same_object_for_the_same_identity():

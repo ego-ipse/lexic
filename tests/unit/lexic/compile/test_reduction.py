@@ -17,16 +17,21 @@ from lexic.compile.reduction import (
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import (
+    DROP,
     YIELD,
     IrAlternation,
     IrAst,
     IrCharClass,
     IrChr,
     IrItem,
+    IrLiteral,
+    IrMap,
     IrRange,
     IrRule,
+    IrRuleRef,
     IrSeq,
     IrSequence,
+    IrTuple,
     Reducer,
 )
 
@@ -90,6 +95,41 @@ def test_run_rule_replaces_the_repetition_in_the_variant():
     atoms = [str(i.atom) for arm in string.body for i in arm]
     assert "char-run" in atoms
     assert "char" not in atoms
+
+
+def test_dropped_non_semantic_rules_derive_construction_elision():
+    """The shipped JSON reducer elides every declared structural-noise model."""
+    derivation = _json_derivation()
+    assert derivation.elide
+    assert derivation.elide == JSON_GRAMMAR.non_semantic
+
+
+def test_elision_requires_drop_and_never_elides_the_start_rule():
+    """A flag alone is insufficient, and start has no parent noise policy."""
+    grammar = IrAst(
+        IrSeq(
+            IrRule(
+                "root",
+                IrAlternation(IrSequence(IrItem(IrRuleRef("gap")))),
+                False,
+            ),
+            IrRule(
+                "gap",
+                IrAlternation(IrSequence(IrItem(IrLiteral(" ")))),
+                False,
+            ),
+        ),
+        "root",
+    )
+    assert not derive_reduction(grammar, Reducer(default=YIELD)).elide
+    dropped = Reducer(
+        default=YIELD,
+        noise=IrMap(
+            IrTuple(IrRuleRef("root"), DROP),
+            IrTuple(IrRuleRef("gap"), DROP),
+        ),
+    )
+    assert derive_reduction(grammar, dropped).elide == frozenset({"gap"})
 
 
 def test_pass_through_bodies_are_not_constants():

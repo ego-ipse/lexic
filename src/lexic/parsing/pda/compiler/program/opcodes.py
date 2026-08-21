@@ -79,7 +79,8 @@ comment-bearing noise, and the rulename probe)."""
 
 BUILD_TRANSPARENT, BUILD_VALUE_STR, BUILD_ALT, BUILD_SEQ = 0, 1, 2, 3
 """Flat clone build-modes — how a completed frame folds to a model (or, for
-``transparent``, funnels its children through without building)."""
+``transparent``, funnels its children through without building). The separate
+recognition-only discard mode is declared below the dispatch specialisation."""
 
 BUILD_DISPATCH = 4
 """A frame-less ``alternation`` clone: after hoist_arms every arm is a single
@@ -88,6 +89,9 @@ sub-model reports straight to the parent sink) — so the post-flatten pass
 rewrites qualifying clones into dispatch tables whose selectors carry the
 target :class:`FlatClone` directly and the runtime chases them in
 :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter` without a frame."""
+
+BUILD_DISCARD = 5
+"""A recognition-only clone: capture children locally, then report no model."""
 
 DISPATCH_EMPTY = object()
 """The ``default`` sentinel of a dispatch clone whose alternation carried an

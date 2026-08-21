@@ -21,7 +21,8 @@ group pushes a sub-frame per iteration.
 ``alternation`` / ``value_str``) captures what its fold needs and, on
 completion, builds exactly one model (:meth:`PdaKernel._complete`); a
 *transparent frame* funnels every model produced inside it straight to its
-``F_OUT`` sink. Item spans derive from the contiguous cursor via the frame's
+``F_OUT`` sink; a *discard frame* captures children locally and reports no
+model. Item spans derive from the contiguous cursor via the frame's
 ``F_ENDS`` slot; descent sub-models collect per bound item in a lazily
 allocated ``F_SINKS`` list, so a sub-model produced arbitrarily deep lands in
 the nearest enclosing *bound* item's sink, exactly as the fold's look-through
@@ -30,6 +31,7 @@ the nearest enclosing *bound* item's sink, exactly as the fold's look-through
 ``ctor(value=text[a:b])`` over the clone's whole span; ``alternation`` →
 pass-through of the first model under the matched arm; ``sequence`` → per
 bound field, the item's span or its sub-model collection.
+``discard`` performs recognition only and invokes no constructor.
 
 **Islands.** A reference to a conflicted (island) rule cannot be walked
 deterministically, so it delegates to a windowed Earley sub-parse

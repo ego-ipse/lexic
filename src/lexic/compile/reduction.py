@@ -85,11 +85,13 @@ class ReduceDerivation(NamedTuple):
         input, exactly as the ``@lexical`` directive would).
     :ivar marks: The derived ``@lexical`` mark set, run rules included.
     :ivar runs: Run rule name → its :class:`RunSpec`.
+    :ivar elide: Dropped non-semantic rules whose variant models are discarded.
     """
 
     variant: IrAst
     marks: frozenset[str]
     runs: Mapping[str, RunSpec]
+    elide: frozenset[str]
 
 
 class SubRun(NamedTuple):
@@ -444,7 +446,10 @@ def derive_reduction(grammar: IrAst, reducer: Reducer) -> ReduceDerivation:
         variant = IrAst(IrSeq(*rules), grammar.start)
     marks = set(runs)
     marks.update(name for name in base if _markable(variant, name))
-    return ReduceDerivation(variant, frozenset(marks), runs)
+    elide = (grammar.non_semantic - {grammar.start}) & {
+        name for name in analysis.rules if _dropped(reducer, name)
+    }
+    return ReduceDerivation(variant, frozenset(marks), runs, frozenset(elide))
 
 
 def _variant_rules(

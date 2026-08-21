@@ -415,6 +415,14 @@ def test_run_ok_true_when_leaf_rule_untracked_by_fold(digit_grammar):
     assert fold.run_ok(tables, digit_rid) is True
 
 
+def test_run_ok_true_when_leaf_rule_is_discarded(digit_grammar):
+    """A recognition-only leaf hides no model when collapsed into a run."""
+    fold = ModelFold.from_config({"digit": RuleFold("discard", dict, 0, ())})
+    tables = compile_tables(digit_grammar)
+    digit_rid = tables.decode.rule_ids["digit"]
+    assert fold.run_ok(tables, digit_rid) is True
+
+
 def test_run_ok_false_for_malformed_synthetic_shape():
     """unit_leaves returning None (not a charset-rule shape) is not fold-safe.
 
@@ -479,6 +487,39 @@ def test_fold_value_str_via_hand_tree():
     fold = ModelFold.from_config({"w": RuleFold("value_str", dict, 0, ())})
     node = ParseTree(IrRuleRef("w"), IrSeq(IrLiteral("a"), IrLiteral("bc")))
     assert fold.apply(node) == {"value": "abc"}
+
+
+def test_discard_is_a_barrier_and_never_calls_its_constructor():
+    """Both engines recognize a discarded wrapper without building/leaking it."""
+
+    def forbidden(**_kwargs: object) -> object:
+        raise AssertionError("discard constructor was called")
+
+    def root(**kwargs: object) -> object:
+        return {"noise": kwargs.get("noise")}
+
+    compiled = compile_text('root ::= noise\nnoise ::= word\nword ::= "a"\n')
+    fold = ModelFold(
+        IrMap(
+            IrTuple(
+                IrRuleRef("root"),
+                ModelBody(
+                    "sequence",
+                    IrLambda(root),
+                    1,
+                    (FieldFold(0, "model", "noise", 1),),
+                ),
+            ),
+            IrTuple(
+                IrRuleRef("noise"), ModelBody("discard", IrLambda(forbidden), 0, ())
+            ),
+            IrTuple(IrRuleRef("word"), ModelBody("value_str", IrLambda(dict), 0, ())),
+        )
+    )
+    product = _model_product(compiled.codegen_grammar, fold)
+    expected = {"noise": None}
+    assert earley_model(product.instance_grammar, "a", fold, product.tables) == expected
+    assert pda_model(product.pda, "a", fold) == expected
 
 
 # ── ModelBody / ModelFold — the IR-native body-table ─────────────────────

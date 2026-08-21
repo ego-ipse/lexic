@@ -12,6 +12,7 @@ from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone, gate_take
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_DISCARD,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -308,13 +309,13 @@ class KernelExecutionMixin:
         A ``value_str`` frame slices its whole span, an ``alternation`` passes
         the first sub-model through, and a ``sequence`` binds each field to its
         item span or sub-model collection; a transparent frame builds nothing
-        (its children already funnelled to ``F_OUT``). Transparent clones are
-        the only completion that builds no value.
+        (its children already funnelled to ``F_OUT``). A discard frame captures
+        children locally and reports nothing, so no construction escapes it.
         """
         self.stack.pop()
         mode = frame[F_MODE]
-        if mode == BUILD_TRANSPARENT:
-            return  # children already funnelled to F_OUT
+        if mode in (BUILD_TRANSPARENT, BUILD_DISCARD):
+            return  # funnelled already, or deliberately captured and dropped
         clone = frame[F_CLONE]
         if mode == BUILD_SEQ:
             if clone.fast is not None and frame[F_ARM].n == clone.fold.n_items:
