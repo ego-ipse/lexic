@@ -1812,3 +1812,37 @@ a finished chunk is relocatable and attaching it is a rebuild, not a walk.
 `IrTuple` is what a repetition field is spliced with — it IS an `IrSelf`
 and IS a tuple, so it satisfies `rebuild`'s contract and compares equal to
 the plain tuple the sequential parse produced.
+
+---
+
+## `CompiledGrammar.reduce` — the reduce product as derived directives
+
+New `compile/reduction.py`: `derive_reduction(grammar, reducer)` turns a
+reducer's declarations into an `@lexical` mark set + run hoists (four tiers:
+DROP refful rules; join-transparent rules where `IrJoin(IrArgs())` spans
+text-equivalent children; channel-free bodies incl. `IrRaise`; conditional
+runs with evaluation-proven arms and derived poison lead chars), and
+`ReduceFold` folds the variant's PRUNED model to the reducer's value over
+the binding view. `CompiledGrammar.reduce(text, reducer, cores=)` is the
+artefact seam (variant artefact memoised per artefact+reducer identity;
+`reset_cache_for_tests` clears it). The fold-config trio
+(`fold_config`/`_derive_body`/`_fast_ctor`) moved from `compile/__init__`
+to `pipeline/synthesis.py` — its honest home, and what lets `artifact.py`
+assemble variants without an import cycle. `compile_ast` now applies
+`Directives.lexical` (it was silently ignored on the AST route; the text
+route inlined).
+
+Semantics pinned by the corpus differential
+(`tests/integration/lexic/parity/test_reduce_directives.py` — whole
+ground-truth corpus through every flavour self-grammar, json tier-crossing
+docs, refusal parity, KEEP_RAW): exact-type constants (`IrArg(0)` IS an
+int); empty-arm matches have empty channels (ε-occupation is for refs
+inside non-empty arms); the span-channel `[text]` shortcut is licensed for
+MARKED rules only — unmarked value_str channels rebuild per literal policy
+(DROP → empty, non-DROP refs refuse; KEEP_RAW → one `IrLiteral` per char,
+inline literals in item order, unbound inline literals refuse); the model
+pipeline may collapse an inner group to a gtext field, so run sub-grammars
+name their groups and the fold splices the synthetic rules like hoists.
+
+Measured (2.3 MB tokenizer-shaped json, sequential, CPU time): fused
+12.28 s | artefact reduce 7.75 s = 0.63×.

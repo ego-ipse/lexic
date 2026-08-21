@@ -1,4 +1,4 @@
-"""Runtime class synthesis — codegen grammar + binding view → model classes.
+"""Runtime class synthesis — codegen grammar + binding view → classes + fold.
 
 Instead of emitting Python source, writing a file and importing it, each
 :class:`~lexic.compile.binding.RuleBinding` becomes a class built directly with
@@ -28,9 +28,28 @@ built. A parentless rule subclasses :class:`GrammarModel` directly.
 
 from __future__ import annotations
 
-from lexic.compile.pipeline.binding import RuleBinding
-from lexic.ir import IrAst, IrBind, IrItem, IrRule, IrSequence, rule_closure
+from collections.abc import Mapping, Sequence
+
+from lexic.compile.pipeline.binding import (
+    RuleBinding,
+    check_supplied_class,
+    field_kwargs,
+)
+from lexic.ir import (
+    IrAst,
+    IrBind,
+    IrItem,
+    IrLambda,
+    IrMap,
+    IrNone,
+    IrRule,
+    IrRuleRef,
+    IrSequence,
+    IrTuple,
+    rule_closure,
+)
 from lexic.model import GrammarModel
+from lexic.parsing import FastCtor, FieldFold, ModelBody
 
 # A synthesized field's annotation is a neutral placeholder — ``object``. Only
 # field *names* drive ``_fields``; the annotation type is never read at runtime
@@ -157,3 +176,108 @@ def synthesize(
         ns = _class_namespace(bind, rule, module, shapes[bind.rule_name])
         classes[bind.class_name] = type(bind.class_name, bases, ns)
     return classes
+
+
+def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor | None:
+    """Grant a rule's :class:`~lexic.parsing.fold.FastCtor` licence, or refuse.
+
+    The class-level half comes from :meth:`GrammarModel.fast_construct`
+    (trivially granted on the record spine); the fold-level half checks
+    that every field the fold can leave unset (a ``gtext`` or ``model``
+    bind whose item can match nothing, ``lo == 0``) has a default to fall
+    back on, and that the fold's field names cover every non-defaulted
+    model field.
+
+    :param cls: The rule's generated model class.
+    :param kind: The rule's fold kind.
+    :param fields: The rule's bound fields.
+    :returns: The licence, or ``None`` (validated construction only).
+    """
+    if kind == "alternation" or not issubclass(cls, GrammarModel):
+        return None
+    make, defaults, order = cls.fast_construct()
+    names = {"value"} if kind == "value_str" else {f.name for f in fields}
+    model_names = set(cls._fields)
+    if not names <= model_names:
+        return None
+    if any(n not in names and n not in defaults for n in model_names):
+        return None
+    for field in fields:
+        skippable = field.mode in ("gtext", "model") and field.lo == 0
+        if skippable and field.name not in defaults:
+            return None
+    return FastCtor(make, defaults, order)
+
+
+def _derive_body(bound: RuleBinding, cls: type, items: Sequence[IrItem]) -> ModelBody:
+    """Derive a rule's :class:`~lexic.parsing.fold.ModelBody` from a supplied class.
+
+    The supplied-class sugar of the open binding table (settled 7): the class
+    is the fold constructor, and the body's structural metadata comes from the
+    binding view + the codegen grammar's sequence arm.
+
+    :param bound: The rule's binding view.
+    :param cls: The supplied constructor class.
+    :param items: The rule's single non-empty sequence arm (empty otherwise).
+    :returns: The rule's fold body.
+    """
+    fields = tuple(
+        FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
+        for name, bind in bound.fields.items()
+    )
+    if bound.kind == "alternation":
+        return ModelBody("alternation", IrNone, len(items), fields, None)
+    return ModelBody(
+        bound.kind,
+        IrLambda(cls),
+        len(items),
+        fields,
+        _fast_ctor(cls, bound.kind, fields),
+    )
+
+
+def fold_config(
+    codegen_grammar: IrAst,
+    binding: list[RuleBinding],
+    classes: dict[str, type],
+    overrides: Mapping[str, ModelBody | type] | None = None,
+) -> IrMap:
+    """Build the fold's IR body-table from the binding view — the open table.
+
+    Per rule the compile seam accepts EITHER a full authored
+    :class:`~lexic.parsing.fold.ModelBody` (the primitive — used verbatim) OR a
+    class serving as the fold constructor (the sugar — :func:`_derive_body`
+    builds the body from the binding view). With no ``overrides`` entry a rule
+    falls back to its synthesized class (also a supplied class). ``kind`` /
+    ``n_items`` / ``FieldFold``\\ s all come from the codegen grammar's single
+    non-empty sequence arm (``lo`` from the bound item's quantifier, consumed by
+    the ``gtext`` absence rule).
+
+    :param codegen_grammar: The post-pass grammar the binding was computed on.
+    :param binding: The binding view, in emission order.
+    :param classes: Generated classes by class name.
+    :param overrides: Per-rule fold-body override — a
+        :class:`~lexic.parsing.fold.ModelBody` (primitive) or a constructor
+        class (sugar); ``None`` uses the synthesized classes throughout.
+    :returns: An :class:`~lexic.ir.action.mapping.IrMap` from each rule's
+        :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its
+        :class:`~lexic.parsing.fold.ModelBody`.
+    """
+    overrides = overrides or {}
+    rules = {str(rule.name): rule for rule in codegen_grammar.rules}
+    dyads: list[IrTuple] = []
+    for bound in binding:
+        override = overrides.get(bound.rule_name)
+        if isinstance(override, ModelBody):
+            dyads.append(IrTuple(IrRuleRef(bound.rule_name), override))
+            continue
+        arms = [arm for arm in rules[bound.rule_name].body if arm]
+        items = arms[0] if bound.kind == "sequence" and arms else ()
+        if override is not None:  # a supplied class (sugar) — enforce the contract
+            check_supplied_class(override, field_kwargs(bound))
+            cls = override
+        else:  # the trusted synthesized class
+            cls = classes[bound.class_name]
+        body = _derive_body(bound, cls, items)
+        dyads.append(IrTuple(IrRuleRef(bound.rule_name), body))
+    return IrMap(*dyads)

@@ -7,24 +7,40 @@ reachable only as ``lexic.compile.CompiledGrammar``, per the layering rule.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
+from functools import partial
+from typing import NamedTuple
 
 from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
+from lexic.compile.pipeline.synthesis import fold_config
+from lexic.compile.reduction import (
+    FoldPlan,
+    ReduceFold,
+    RunSpec,
+    SubRun,
+    derive_reduction,
+    sub_grammar,
+)
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAst,
     IrEncoding,
     IrMap,
+    IrSelf,
     IrStr,
     IrTokenizer,
     IrTuple,
     IrUnicode,
+    canonicalize,
     concretize,
+    inline_refs,
 )
 from lexic.model import GrammarModel
 from lexic.parsing import (
     ModelFold,
     PdaTables,
+    Reducer,
     TokenMaskCursor,
     parse_model,
     pda_tables,
@@ -269,6 +285,35 @@ class CompiledGrammar:
                 "registry=, or bind one. (Reading and emitting it needs none.)"
             )
 
+    def reduce(self, text: str, reducer: Reducer, *, cores: int = AUTO) -> IrSelf:
+        """Parse ``text`` and fold it to ``reducer``'s value — the reduce product.
+
+        The reducer's declarations derive an ``@lexical`` variant of this
+        grammar (memoised per artefact + reducer pair): DROP subtrees
+        collapse to text nodes, span-valued rules keep their text, and
+        repetition runs whose values are their text hoist to marked run
+        rules. The variant's parse builds the PRUNED model, and a thin fold
+        over the binding view rebuilds each remaining rule's reduce channel
+        and applies its body. A grammar the derivation cannot touch still
+        reduces — the variant is then the grammar itself and the fold walks
+        the full model.
+
+        Ambiguity is refused exactly as in :meth:`parse` (the variant's
+        language is this grammar's). A refusing reducer body (``IrRaise``)
+        refuses here at fold time, with the same exception it raises fused.
+
+        :param text: The input to reduce.
+        :param reducer: The grammar's reduction policy.
+        :param cores: 0 (default) = split when the variant's analysis allows,
+            1 = parse sequentially, N = at most N workers.
+        :returns: The reduction — whatever the start rule's body builds.
+        :raises UnsupportedConstructError: If ``text`` does not parse, or a
+            reducer body refuses.
+        """
+        entry = _reduce_entry(self, reducer)
+        model = entry.variant.parse(text, cores=cores)
+        return entry.fold.reduce(model)
+
     def pda_tables(self) -> PdaTables:
         """The predictive engine's compiled tables for this artefact.
 
@@ -379,3 +424,92 @@ class CompiledGrammar:
                 "nothing — use compiled.bind(tokenizer).constrain() instead"
             )
         return TokenMaskCursor.of(self.codegen_grammar, tok)
+
+
+class _ReduceEntry(NamedTuple):
+    """One artefact + reducer pair's derived reduce machinery.
+
+    Pins ``source`` and ``reducer`` live so the ``id``-keyed cache entry can
+    never be re-served to a different object at a recycled address.
+
+    :ivar source: The artefact the derivation started from.
+    :ivar reducer: The reducer the variant was derived for.
+    :ivar variant: The derived ``@lexical`` variant artefact the parse runs on.
+    :ivar fold: The thin fold from the variant's pruned model to the value.
+    """
+
+    source: CompiledGrammar
+    reducer: Reducer
+    variant: CompiledGrammar
+    fold: ReduceFold
+
+
+_REDUCE_ENTRIES: dict[tuple[int, int], _ReduceEntry] = {}
+
+
+def _variant_artifact(
+    compiled: CompiledGrammar, ast: IrAst, tag: str
+) -> CompiledGrammar:
+    """Assemble a derived variant's artefact — the back half, in miniature.
+
+    Mirrors the compile back half for a grammar that never had text of its
+    own: moments from the prepared AST, the fold from the binding view, the
+    source artefact's token binding carried over (the variant's language is
+    the source's, so its segmentation fact is too).
+
+    :param compiled: The source artefact.
+    :param ast: The prepared (canonical, inlined) variant AST.
+    :param tag: A short discriminator for the synthetic module identity.
+    :returns: The variant artefact.
+    """
+    registry = encoding_registry(compiled.tokens.tokenizer, None)
+    content = hashlib.sha1(repr(ast).encode("utf-8")).hexdigest()[:12]
+    moments = CompileMoments.of(ast, registry, f"{compiled.stem}_{tag}_{content}")
+    fold = ModelFold(
+        fold_config(moments.grammar.resolved, moments.binding, moments.classes)
+    )
+    return CompiledGrammar(
+        grammar=ast,
+        fold=fold,
+        moments=moments,
+        flavour=compiled.flavour,
+        stem=compiled.stem,
+        tokens=TokenBinding(
+            compiled.tokens.tokenizer,
+            compiled.tokens.segmented,
+            moments.grammar.relaxed,
+        ),
+    )
+
+
+def _sub_run(
+    compiled: CompiledGrammar, reducer: Reducer, run_name: str, spec: RunSpec
+) -> SubRun:
+    """A run's escape hatch: its group-named sub-grammar, compiled and folded."""
+    ast, synthetic = sub_grammar(compiled.grammar, run_name, spec.element)
+    sub = _variant_artifact(compiled, canonicalize(ast), f"reduce_{run_name}")
+    fold = ReduceFold(sub.moments, reducer, FoldPlan(synthetic=synthetic))
+    return SubRun(partial(sub.parse, cores=1), fold)
+
+
+def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> _ReduceEntry:
+    """The memoised derived machinery for one artefact + reducer pair."""
+    key = (id(compiled), id(reducer))
+    entry = _REDUCE_ENTRIES.get(key)
+    if entry is not None:
+        return entry
+    derivation = derive_reduction(compiled.grammar, reducer)
+    prepared = inline_refs(canonicalize(derivation.variant), derivation.marks)
+    variant = _variant_artifact(compiled, prepared, "reduce")
+    subs = {
+        name: _sub_run(compiled, reducer, name, spec)
+        for name, spec in derivation.runs.items()
+    }
+    fold = ReduceFold(
+        variant.moments,
+        reducer,
+        FoldPlan(runs=derivation.runs, subs=subs, marks=derivation.marks),
+    )
+    entry = _ReduceEntry(compiled, reducer, variant, fold)
+    _REDUCE_ENTRIES[key] = entry
+    return entry

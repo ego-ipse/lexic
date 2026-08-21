@@ -31,7 +31,24 @@ from lexic.grammars import get_flavour
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
-from lexic.ir import EscapeCodec, IrAst, IrDispatch, IrFlavour, IrLiteral
+from lexic.ir import (
+    EscapeCodec,
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrChr,
+    IrDispatch,
+    IrFlavour,
+    IrItem,
+    IrLiteral,
+    IrNone,
+    IrQuantifier,
+    IrRange,
+    IrRule,
+    IrRuleRef,
+    IrSeq,
+    IrSequence,
+)
 from lexic.model import GrammarModel
 from lexic.parsing import normalize
 from lexic.parsing.fold import ModelFold
@@ -911,3 +928,39 @@ def test_a_vocabulary_is_one_lens_not_two_channels():
     """`tokenizer` and `registry` compose; the record is what they always were."""
     assert Vocabulary().tokenizer is None
     assert Vocabulary().registry is None
+
+
+def test_compile_ast_applies_the_lexical_directive():
+    """The AST route runs the same ref-inlining transform the text route does.
+
+    ``Directives.lexical`` was silently ignored by ``compile_ast`` — the text
+    route inlined, the AST twin dropped the field.
+    """
+    grammar = IrAst(
+        IrSeq(
+            IrRule(
+                "number",
+                IrAlternation(
+                    IrSequence(IrItem(IrRuleRef("digit"), IrQuantifier(1, IrNone)))
+                ),
+            ),
+            IrRule(
+                "digit",
+                IrAlternation(
+                    IrSequence(IrItem(IrCharClass(IrRange(IrChr(48), IrChr(57)))))
+                ),
+            ),
+        ),
+        "number",
+    )
+    plain = compile_ast(grammar, cache_key="lexical-ast-plain")
+    marked = compile_ast(
+        grammar,
+        cache_key="lexical-ast-marked",
+        directives=Directives(lexical=frozenset({"number"})),
+    )
+    kinds = {b.rule_name: str(b.kind) for b in marked.moments.binding}
+    assert kinds["number"] == "value_str"
+    plain_kinds = {b.rule_name: str(b.kind) for b in plain.moments.binding}
+    assert plain_kinds["number"] != "value_str"
+    assert marked.parse("123", cores=1).to_text() == "123"

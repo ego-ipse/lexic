@@ -53,11 +53,12 @@ surface. Outside the package every runtime module reaches compile only through
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Hashable, Mapping, Sequence
+from collections.abc import Hashable, Mapping
 from pathlib import Path
 from typing import NamedTuple
 
 from lexic.compile.artifact import (
+    _REDUCE_ENTRIES,
     CompiledGrammar,
     TokenBinding,
     encoding_registry,
@@ -67,19 +68,14 @@ from lexic.compile.module.export import export_module, export_source
 from lexic.compile.module.selfgrammar import parse_module, verify_module
 from lexic.compile.notation.parse import load_ir, load_ir_from_path
 from lexic.compile.payload.export import export_value
-from lexic.compile.pipeline.binding import (
-    RuleBinding,
-    check_supplied_class,
-    compute_binding,
-    field_kwargs,
-)
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.moments import (
     GRAMMAR_MOMENTS,
     CompileMoments,
     GrammarMoments,
     build_codegen_grammar,
 )
-from lexic.compile.pipeline.synthesis import synthesize
+from lexic.compile.pipeline.synthesis import fold_config, synthesize
 from lexic.compile.presentation import Draw, Presentation, Row, Rows, present
 from lexic.compile.templating import (
     KEEP,
@@ -109,16 +105,11 @@ from lexic.ir import (
     IrAlphabet,
     IrAst,
     IrFlavour,
-    IrItem,
-    IrLambda,
     IrMap,
-    IrNone,
     IrRule,
-    IrRuleRef,
     IrSelf,
     IrSeq,
     IrTokenizer,
-    IrTuple,
     canonicalize,
     fold_name,
     inline_refs,
@@ -126,14 +117,7 @@ from lexic.ir import (
     rule_closure,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import (
-    FastCtor,
-    FieldFold,
-    ModelBody,
-    ModelFold,
-    Reducer,
-    parse_reduced,
-)
+from lexic.parsing import ModelFold, Reducer, parse_reduced
 
 # Case-insensitive order — keeps this list and the submodules' own __all__
 # blocks from sharing linter-length runs of identical lines.
@@ -250,8 +234,9 @@ _CACHE: dict[Hashable, CompiledGrammar] = {}
 
 
 def reset_cache_for_tests() -> None:
-    """Public test seam: clear the compile cache."""
+    """Public test seam: clear the compile cache and the derived-reduce memo."""
     _CACHE.clear()
+    _REDUCE_ENTRIES.clear()
 
 
 def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
@@ -472,111 +457,6 @@ def canonical_grammar(
     return inline_refs(IrAst(rules=rules, start=start), folded_lexical)
 
 
-def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor | None:
-    """Grant a rule's :class:`~lexic.parsing.fold.FastCtor` licence, or refuse.
-
-    The class-level half comes from :meth:`GrammarModel.fast_construct`
-    (trivially granted on the record spine); the fold-level half checks
-    that every field the fold can leave unset (a ``gtext`` or ``model``
-    bind whose item can match nothing, ``lo == 0``) has a default to fall
-    back on, and that the fold's field names cover every non-defaulted
-    model field.
-
-    :param cls: The rule's generated model class.
-    :param kind: The rule's fold kind.
-    :param fields: The rule's bound fields.
-    :returns: The licence, or ``None`` (validated construction only).
-    """
-    if kind == "alternation" or not issubclass(cls, GrammarModel):
-        return None
-    make, defaults, order = cls.fast_construct()
-    names = {"value"} if kind == "value_str" else {f.name for f in fields}
-    model_names = set(cls._fields)
-    if not names <= model_names:
-        return None
-    if any(n not in names and n not in defaults for n in model_names):
-        return None
-    for field in fields:
-        skippable = field.mode in ("gtext", "model") and field.lo == 0
-        if skippable and field.name not in defaults:
-            return None
-    return FastCtor(make, defaults, order)
-
-
-def _derive_body(bound: RuleBinding, cls: type, items: Sequence[IrItem]) -> ModelBody:
-    """Derive a rule's :class:`~lexic.parsing.fold.ModelBody` from a supplied class.
-
-    The supplied-class sugar of the open binding table (settled 7): the class
-    is the fold constructor, and the body's structural metadata comes from the
-    binding view + the codegen grammar's sequence arm.
-
-    :param bound: The rule's binding view.
-    :param cls: The supplied constructor class.
-    :param items: The rule's single non-empty sequence arm (empty otherwise).
-    :returns: The rule's fold body.
-    """
-    fields = tuple(
-        FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
-        for name, bind in bound.fields.items()
-    )
-    if bound.kind == "alternation":
-        return ModelBody("alternation", IrNone, len(items), fields, None)
-    return ModelBody(
-        bound.kind,
-        IrLambda(cls),
-        len(items),
-        fields,
-        _fast_ctor(cls, bound.kind, fields),
-    )
-
-
-def _fold_config(
-    codegen_grammar: IrAst,
-    binding: list[RuleBinding],
-    classes: dict[str, type],
-    overrides: Mapping[str, ModelBody | type] | None = None,
-) -> IrMap:
-    """Build the fold's IR body-table from the binding view — the open table.
-
-    Per rule the compile seam accepts EITHER a full authored
-    :class:`~lexic.parsing.fold.ModelBody` (the primitive — used verbatim) OR a
-    class serving as the fold constructor (the sugar — :func:`_derive_body`
-    builds the body from the binding view). With no ``overrides`` entry a rule
-    falls back to its synthesized class (also a supplied class). ``kind`` /
-    ``n_items`` / ``FieldFold``\\ s all come from the codegen grammar's single
-    non-empty sequence arm (``lo`` from the bound item's quantifier, consumed by
-    the ``gtext`` absence rule).
-
-    :param codegen_grammar: The post-pass grammar the binding was computed on.
-    :param binding: The binding view, in emission order.
-    :param classes: Generated classes by class name.
-    :param overrides: Per-rule fold-body override — a
-        :class:`~lexic.parsing.fold.ModelBody` (primitive) or a constructor
-        class (sugar); ``None`` uses the synthesized classes throughout.
-    :returns: An :class:`~lexic.ir.action.mapping.IrMap` from each rule's
-        :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its
-        :class:`~lexic.parsing.fold.ModelBody`.
-    """
-    overrides = overrides or {}
-    rules = {str(rule.name): rule for rule in codegen_grammar.rules}
-    dyads: list[IrTuple] = []
-    for bound in binding:
-        override = overrides.get(bound.rule_name)
-        if isinstance(override, ModelBody):
-            dyads.append(IrTuple(IrRuleRef(bound.rule_name), override))
-            continue
-        arms = [arm for arm in rules[bound.rule_name].body if arm]
-        items = arms[0] if bound.kind == "sequence" and arms else ()
-        if override is not None:  # a supplied class (sugar) — enforce the contract
-            check_supplied_class(override, field_kwargs(bound))
-            cls = override
-        else:  # the trusted synthesized class
-            cls = classes[bound.class_name]
-        body = _derive_body(bound, cls, items)
-        dyads.append(IrTuple(IrRuleRef(bound.rule_name), body))
-    return IrMap(*dyads)
-
-
 def _is_segmented(ast: IrAst) -> bool:
     """Whether any terminal references an encoding — i.e. this is a token grammar.
 
@@ -657,7 +537,7 @@ def _assemble_core(
     unresolved = moments.grammar.relaxed
     codegen_grammar = moments.grammar.resolved
     classes = moments.classes
-    fold = ModelFold(_fold_config(codegen_grammar, moments.binding, classes))
+    fold = ModelFold(fold_config(codegen_grammar, moments.binding, classes))
     return CompiledGrammar(
         grammar=ast,
         fold=fold,
@@ -741,9 +621,11 @@ def _canonical_ast(ast: IrAst, directives: Directives) -> IrAst:
     """The AST route's front half — canonicalize + resolve the flags.
 
     Mirrors :func:`canonical_grammar` with the AST itself as the source:
-    ``directives.start`` overrides ``ast.start`` (else the first rule), and
+    ``directives.start`` overrides ``ast.start`` (else the first rule),
     ``directives.non_semantic`` REPLACES the rules' own ``semantic`` flags
-    when given — ``None`` keeps them (canonicalize preserves the flag).
+    when given — ``None`` keeps them (canonicalize preserves the flag) —
+    and ``directives.lexical`` is applied as the same ref-inlining transform
+    the text route runs (an AST has no comments, so ``None`` means none).
 
     :raises UnsupportedConstructError: When the resolved start rule is not
         defined in the grammar.
@@ -755,11 +637,17 @@ def _canonical_ast(ast: IrAst, directives: Directives) -> IrAst:
             f"start rule {canon.start!r} not defined in grammar; "
             f"available rules: {[r.name for r in canon.rules]}"
         )
-    if directives.non_semantic is None:
-        return canon
-    folded = frozenset(fold_name(n) for n in directives.non_semantic)
-    rules = IrSeq(*(IrRule(r.name, r.body, r.name not in folded) for r in canon.rules))
-    return IrAst(rules=rules, start=canon.start)
+    flagged = canon
+    if directives.non_semantic is not None:
+        folded = frozenset(fold_name(n) for n in directives.non_semantic)
+        rules = IrSeq(
+            *(IrRule(r.name, r.body, r.name not in folded) for r in canon.rules)
+        )
+        flagged = IrAst(rules=rules, start=canon.start)
+    if not directives.lexical:
+        return flagged
+    folded_lexical = frozenset(fold_name(n) for n in directives.lexical)
+    return inline_refs(flagged, folded_lexical)
 
 
 def compile_ast(

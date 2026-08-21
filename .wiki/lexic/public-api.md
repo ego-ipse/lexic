@@ -254,6 +254,22 @@ and spellings are gone, so a rebind cannot start from `codegen_grammar`.
 vocabulary is bound — reading and emitting such a grammar needs none, so the
 refusal belongs at parse rather than at compile.
 
+### `.reduce(text, reducer, *, cores=AUTO)` — the reduce product
+
+Parses `text` and folds it to the reducer's value. The reducer's
+declarations derive an `@lexical` variant of the grammar (memoised per
+artefact + reducer identity, cleared by `reset_cache_for_tests`): DROP
+subtrees collapse to text nodes, span-valued rules keep their text, and
+text-valued repetition runs hoist to marked run rules — so the variant's
+parse builds a PRUNED model, and `compile/reduction.py`'s `ReduceFold`
+rebuilds each remaining rule's reduce channel from the binding view and
+applies its body. A grammar the derivation cannot touch still reduces (the
+variant is then the grammar itself). Ambiguity is refused exactly as in
+`.parse`; a refusing reducer body (`IrRaise`) raises at fold time with the
+fused product's exact exception. Pinned equal to the fused oracle over the
+whole ground-truth corpus by
+`tests/integration/lexic/parity/test_reduce_directives.py`.
+
 ### `.bind(tokenizer, registry=None)` — one grammar, many vocabularies
 
 Compiling is per-grammar; a vocabulary is per-deployment. `bind` re-resolves

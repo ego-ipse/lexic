@@ -139,6 +139,7 @@ src/lexic/
     artifact.py                    CompiledGrammar — the parse-ready artefact compile_* produces
     foldkit.py                     Shared authored-fold vocabulary — the build-path unification seed
     presentation.py                  Presentation tables — rule-keyed ceilings, baked and gated, drawing rows over spans
+    reduction.py                     Reduce as derived directives — reducer → @lexical variant + thin fold over the pruned model
     templating.py                  Generic templating — extract selected paths of any COMPILED grammar via spans
     transpile.py                   A document under grammar A re-expressed under grammar B — the transform is a table
     verdict.py                     Verdict — one attempt's outcome as a value, refusal and cost included

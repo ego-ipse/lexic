@@ -12,7 +12,6 @@ from typing import NamedTuple
 import pytest
 
 from lexic.compile import (
-    _fold_config,
     build_codegen_grammar,
     canonical_grammar,
     compile_from_path,
@@ -28,6 +27,7 @@ from lexic.compile.pipeline.binding import (
     check_supplied_class,
     field_kwargs,
 )
+from lexic.compile.pipeline.synthesis import fold_config
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir import IrBind, IrLambda, IrMap
@@ -114,14 +114,14 @@ def test_open_table_uses_authored_modelbody_verbatim() -> None:
     """A per-rule authored ``ModelBody`` override is used unchanged (primitive)."""
     codegen, view, classes = compiled_parts('root ::= "a" "b"', "open_primitive")
     marker = ModelBody("value_str", IrLambda(lambda value: ("OVR", value)), 0, ())
-    fold_map = _fold_config(codegen, view, classes, overrides={"root": marker})
+    fold_map = fold_config(codegen, view, classes, overrides={"root": marker})
     assert body_for(fold_map, "root") is marker
 
 
 def test_open_table_supplied_class_becomes_the_ctor() -> None:
     """A per-rule supplied class becomes the rule's fold constructor (sugar)."""
     codegen, view, classes = compiled_parts('root ::= "a" "b"', "open_sugar")
-    fold_map = _fold_config(codegen, view, classes, overrides={"root": AcceptsValue})
+    fold_map = fold_config(codegen, view, classes, overrides={"root": AcceptsValue})
     assert body_for(fold_map, "root").ctor.eval is AcceptsValue
 
 
@@ -129,7 +129,7 @@ def test_open_table_supplied_class_contract_enforced() -> None:
     """A supplied class rejecting the fold kwargs fails at bind time."""
     codegen, view, classes = compiled_parts('root ::= "a" "b"', "open_bad")
     with pytest.raises(UnsupportedConstructError):
-        _fold_config(codegen, view, classes, overrides={"root": RejectsValue})
+        fold_config(codegen, view, classes, overrides={"root": RejectsValue})
 
 
 # ── the declaration-order rule, over every generated class ────────────────
