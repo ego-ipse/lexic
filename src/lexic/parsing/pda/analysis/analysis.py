@@ -26,13 +26,13 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing.pda.analysis.cursors import (
-    ConflictCtx,
     Cont,
     FeedCtx,
     FollowPass,
     Notes,
     Scope,
 )
+from lexic.parsing.pda.analysis.conflicts import soft_gap_conflict, sub_conflict
 from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
@@ -52,7 +52,6 @@ from lexic.parsing.pda.analysis.predicates import (
     FOLLOW_FEED,
     HARD,
     NULLABLE,
-    SEQ_ATOM,
     STOPSET_ATOM,
     item_nullable,
     nullable_names,
@@ -75,30 +74,6 @@ def _hi(item: IrItem) -> int | None:
     """The item's quantifier upper bound as an ``int``, or ``None`` (unbounded)."""
     hi = item.quantifier.hi
     return None if isinstance(hi, IrNoneType) else int(hi)
-
-
-# ── nullability dispatch bodies ───────────────────────────────────────────
-
-
-# ── FIRST dispatch bodies ─────────────────────────────────────────────────
-
-
-# ── hard-FIRST dispatch bodies ────────────────────────────────────────────
-
-
-# ── stop-set-eligibility dispatch bodies ──────────────────────────────────
-
-
-# ── FOLLOW-feed dispatch bodies ───────────────────────────────────────────
-
-
-# ── sequence-conflict dispatch bodies ─────────────────────────────────────
-
-
-# ── dispatch tables (open, raising default via IrTypeMap miss) ─────────────
-
-
-# ── nullability helpers (shared by solver and analysis) ────────────────────
 
 
 # ── the analysis ──────────────────────────────────────────────────────────
@@ -609,7 +584,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """Classify every decision point in one sequence arm."""
         for k, item in enumerate(items):
             self._loop_conflict(items, k, scope, notes)
-            self._sub_conflict(items, k, scope, notes)
+            sub_conflict(self, items, k, scope, notes)
             if self._same_ref_extent_split(items, k):
                 name = str(item.atom)
                 notes.hard.append(
@@ -684,61 +659,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             else:
                 notes.soft.append(f"{scope.rule}[{k}]: LL(2) pair gate")
             return
-        self._soft_gap_conflict(items, k, scope, notes)
-
-    def _soft_gap_conflict(
-        self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
-    ) -> None:
-        """Classify a loop whose FIRST overlaps only *soft* followers.
-
-        The hard-continuation guard above misses this class entirely: the baked
-        stop-set is ``FIRST − hard cont``, so the loop greedily eats chars a
-        nullable follower in the same arm needed (GBNF ``grammar``'s
-        ``rules-rest*`` taking the trailing newline that belonged to the final
-        ``n?``, then demanding a rule at EOF). Silent before Task 6.6 only
-        because every affected spine rule was an island. Cascade: the P6
-        noise-greedy licence (greedy stays sound — noise↔noise re-split), then
-        the standard loop-demotion gates, else a hard note (the rule islands
-        rather than carry a confident-wrong gate).
-        """
-        gap = self.cont_at(items, k, scope.tail).subtract(
-            self.hard_cont_at(items, k, scope.hard_tail)
-        )
-        first = self.atom_first(items[k].atom)
-        if not first.overlaps(gap):
-            return
-        structural_gap = self.structural_cont_at(
-            items, k, scope.structural_tail
-        ).subtract(self.hard_cont_at(items, k, scope.hard_tail))
-        if not first.overlaps(structural_gap):
-            notes.soft.append(f"{scope.rule}[{k}]: loop greedy split")
-            return
-        if noise_greedy_licensed(self, items, k, scope):
-            notes.soft.append(
-                f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)"
-            )
-            return
-        if not self._demote_loop(items, k, scope, notes):
-            notes.hard.append(
-                f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable"
-            )
-            self.taxonomy.attempt_loops[id(items[k])] = self.beyond_at(items, k, scope)
-            notes.covered += 1
-
-    def _sub_conflict(
-        self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
-    ) -> None:
-        """Dispatch item ``k``'s atom for undefined-ref / group-recursion checks."""
-        item = items[k]
-        atom = item.atom
-        hi = _hi(item)
-        eff = self.cont_at(items, k, scope.tail)
-        hard_eff = self.hard_cont_at(items, k, scope.hard_tail)
-        structural_eff = self.structural_cont_at(items, k, scope.structural_tail)
-        if hi is None or hi > 1:
-            eff = eff.union(self.atom_first(atom))
-        ctx = ConflictCtx(notes, Cont(eff, hard_eff, structural_eff), scope.rule, k)
-        SEQ_ATOM.resolve(atom).eval(self, atom, (ctx,))
+        soft_gap_conflict(self, items, k, scope, notes)
 
     def beyond_at(self, items: Sequence[IrItem], k: int, scope: Scope) -> CharSet:
         """The continuation visible only BEYOND the arm after item ``k``.

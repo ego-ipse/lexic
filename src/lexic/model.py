@@ -22,13 +22,8 @@ bypass ``__new__`` and stay unchecked, so the PDA hot path pays nothing. That
 licence is POSITIONAL: it takes one value per field in ``_fields`` order,
 because the PDA bakes that order into a per-clone plan at compile time and has
 nothing to key or read back.
-Checked construction coerces ``models``-mode lists to tuples (the fold and PDA
-hand live sink lists; stored raw they would alias and kill hashability); the
-trusted path coerces them where it fills the plan, so the constructor does no
-per-field work at all.
-:meth:`GrammarModel.dump` re-emits those tuples
-as lists and serializes by RUNTIME type (ruling 12 — never by declared
-schema), walking an explicit stack so depth never overflows.
+Checked construction coerces ``models`` lists to immutable tuples. Dumping
+re-emits them as lists and walks nested models on an explicit stack.
 """
 
 from __future__ import annotations
@@ -61,6 +56,7 @@ from lexic.ir import (
     IrSpan,
     IrTypeMap,
 )
+from lexic.model_emission import EmissionClose, EmissionPart, open_emission
 
 
 def _dump_value(
@@ -88,40 +84,13 @@ def _dump_value(
 
 # ── addressed emission ────────────────────────────────────────────────
 #
-# The addressed walk drives the SAME ``emit_parts`` stream ``to_text``
-# consumes — one definition of what a model spells, two readers of it — and
-# records where each part landed. ``to_text`` is deliberately left as its own
-# loop rather than made a caller of this one: it is the hot path (every
-# round-trip gate, every transpile fidelity check) and must not pay for
-# addresses nobody asked for. ``test_addressed_emission`` pins the two to each
-# other over the corpus, which is where a drift between them would surface.
+# Addressed emission and ``to_text`` consume the same ``emit_parts`` stream;
+# the hot text path remains allocation-free while corpus tests pin parity.
 
 
 type Emitted = "GrammarModel | str | tuple[object, ...] | list[object]"
 """What one emission part can be, once :func:`_emitted` has taken it: a
 sub-model, a spelling, or a sequence of sub-models."""
-
-
-class _Part(IrNamedTuple[object, IrAddress]):
-    """A part waiting to be emitted, under the address its PARENT gave it.
-
-    A record rather than a mutable frame (the ``_FieldCheck`` idiom): the
-    address is decided by the parent and never revised. ``_child_attrs`` is
-    empty — the walk carries these, it does not descend into them.
-    """
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
-    part: Emitted
-    address: IrAddress
-
-
-class _Shut(IrNamedTuple[int, IrAddress, int]):
-    """A container's close — the extent slot to fill, and where it opened."""
-
-    _child_attrs: ClassVar[tuple[str, ...]] = ()
-    slot: int
-    address: IrAddress
-    start: int
 
 
 def _emitted(part: object) -> Emitted:
@@ -157,30 +126,6 @@ def _sub_parts(part: Emitted) -> list[tuple[str, Emitted]] | None:
     if isinstance(part, (list, tuple)):
         return [("", _emitted(element)) for element in part]
     return None
-
-
-def _open(
-    work: _Part, parts: list[tuple[str, Emitted]], extents: list[IrExtent], at: int
-) -> list[object]:
-    """Reserve the container's extent and lay out its parts, close last.
-
-    The close rides UNDER the parts on the stack, so it pops after every one
-    of them and reads the offset they left behind.
-
-    :param work: The container being entered.
-    :param parts: Its named sub-parts, in emission order.
-    :param extents: The extent list; a placeholder is appended here.
-    :param at: The offset the container opens at.
-    :returns: The stack work, close first (deepest), parts reversed above it.
-    """
-    reserved = len(extents)
-    extents.append(IrExtent(work.address, IrSpan(at, at)))
-    items: list[object] = [_Shut(reserved, work.address, at)]
-    items.extend(
-        _Part(part, work.address.child(field, slot))
-        for slot, (field, part) in reversed(list(enumerate(parts)))
-    )
-    return items
 
 
 # ── checked construction ──────────────────────────────────────────────
@@ -667,16 +612,16 @@ class GrammarModel(IrNamedTuple):
         out: list[str] = []
         extents: list[IrExtent] = []
         at = 0
-        stack: list[object] = [_Part(self, IrAddress())]
+        stack: list[object] = [EmissionPart(self, IrAddress())]
         while stack:
             work = stack.pop()
-            if isinstance(work, _Shut):
+            if isinstance(work, EmissionClose):
                 extents[work.slot] = IrExtent(work.address, IrSpan(work.start, at))
                 continue
-            part = cast(_Part, work)
+            part = cast(EmissionPart, work)
             parts = _sub_parts(part.part)
             if parts is not None:
-                stack.extend(_open(part, parts, extents, at))
+                stack.extend(open_emission(part, parts, extents, at))
                 continue
             text = part.part if isinstance(part.part, str) else str(part.part)
             out.append(text)

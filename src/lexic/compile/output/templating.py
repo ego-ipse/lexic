@@ -1,30 +1,8 @@
-"""Generic templating — extract selected paths of any COMPILED grammar via spans.
+"""Generic templating over raw spans of any compiled grammar.
 
-Templating consumes a :class:`~lexic.compile.artifact.CompiledGrammar` — the
-standard pipeline artifact — guided by a per-grammar :class:`MapShape`
-declaration, so it applies identically to every formulation of a language
-(``json.gbnf``, ``json.abnf``, a pure-IR grammar): no privileged formulation,
-no hand-authored fold convention anywhere.
-
-:func:`spanify` builds the span pair once over the codegen grammar: every rule
-that can reach ``shape.entry`` is cloned under ``-tm`` names; the entry clone
-captures its key/value items as raw spans over the ``-sk`` skip twins
-(:func:`skip_rules` — matched structure, nothing built). The span fold is
-DERIVED from the compiled grammar's binding — an alternation-kind clone is the
-shared pass-through, a sequence-kind clone flatten-collects its entry-reaching
-fields, the entry clone builds a :class:`SpanEntry` — so a section level
-parses to a flat :class:`SpanLevel`, the driver's own co-designed product.
-
-:class:`Template` is the retained compile product. :meth:`Template.run` parses
-the document once, then drives the spec as a post-pass: keys match as RAW
-SPANS (the spec is written in the grammar's own surface syntax); a
-:data:`KEEP` leaf re-parses its value span with the compiled pair re-rooted at
-the derived value rule and yields a :class:`~lexic.model.GrammarModel`; a
-nested spec re-parses with the section clone and recurses, so a run's product
-is an ``IrMap`` whose values are models or nested levels — both ``IrSelf``,
-so the level needs no union type. Every artifact is a
-spine record; the re-rooted grammars are retained on the :class:`SpanPair` so
-the engine's identity memoisation stays hot across runs.
+``spanify`` derives re-rooted span/value products from normal binding data;
+``Template`` retains them and drives a nested keep-spec. The mechanism is
+grammar-formulation neutral and uses the standard model parse path throughout.
 """
 
 from __future__ import annotations
@@ -654,21 +632,7 @@ class Template(IrNamedTuple[SpanPair, Spec], init=False):
         return cast(Callable[..., Self], super().__new__)(cls, span, lifted)
 
     def run(self, text: str) -> IrMap[IrTuple, GrammarModel]:
-        """Extract the spec'd paths of ``text`` — one parse, then the post-pass.
-
-        The result is FLAT and keyed by PATH: a nested spec does not produce
-        nested maps, because that would make a value ``GrammarModel | IrMap``
-        and force every read to narrow. Every value here is a kept model, so a
-        read is typed with nothing to unwrap. Paths key natively —
-        ``out["a", "b"]`` is ``out[("a", "b")]``, and ``IrTuple``/``IrStr``
-        hash-match plain tuples and strings.
-
-        :param text: The document to extract from.
-        :returns: Spec path → the kept :class:`~lexic.model.GrammarModel`.
-            Paths absent from the document are absent from the result.
-        :raises UnsupportedConstructError: On a parse failure (wrapped with the
-            document path) or a shape/spec level mismatch.
-        """
+        """Extract kept paths as a flat path-to-model map."""
         entries = _parse_step(self.span.spans, self.span.span_fold, text, "<document>")
         kept: list[IrTuple] = []
         _collect_kept(self.span, self.spec, entries, (), kept)
