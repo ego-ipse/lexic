@@ -72,7 +72,7 @@ from lexic.parsing.earley.kernel.tables.records import (
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.pda.analysis.analysis import nullable_names
 
-FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation", "discard")
+FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation")
 """The rule-kind vocabulary a :class:`RuleFold` may carry."""
 
 
@@ -117,8 +117,7 @@ class RuleFold(NamedTuple):
     """One rule's fold config — plain data, constructor opaque.
 
     :ivar kind: One of :data:`FOLD_KINDS`.
-    :ivar ctor: The rule's model constructor (unused for ``alternation`` and
-        ``discard``).
+    :ivar ctor: The rule's model constructor (unused for ``alternation``).
     :ivar n_items: Kid-slot count of the single non-empty sequence arm
         (``0`` for the other kinds; a zero-kid mismatch = empty-arm match).
     :ivar fields: The bound fields, in item order.
@@ -237,18 +236,14 @@ class ModelBody(
 
         The inverse of :meth:`bake`: the constructor is re-wrapped in
         :class:`~lexic.ir.base.IrLambda` (:data:`~lexic.ir.base.IrNone` for an
-        ``alternation``/``discard``), the structural metadata carried over
+        ``alternation``), the structural metadata carried over
         verbatim.
         ``ModelBody.of(rf).bake()`` is runtime-identical to ``rf``.
 
         :param rule_fold: The baked record to lift.
         :returns: The equivalent :class:`ModelBody`.
         """
-        ctor = (
-            IrNone
-            if rule_fold.kind in ("alternation", "discard")
-            else IrLambda(rule_fold.ctor)
-        )
+        ctor = IrNone if rule_fold.kind == "alternation" else IrLambda(rule_fold.ctor)
         return cls(
             rule_fold.kind,
             ctor,
@@ -467,17 +462,15 @@ class ModelFold[M]:
             return False
         leaf_rids, _has_bare = resolved
         names = tables.decode.rule_names
-        return not any(
-            (fold := self.config.get(names[rid])) is not None and fold.kind != "discard"
-            for rid in leaf_rids
-        )
+        return not any(names[rid] in self.config for rid in leaf_rids)
 
     def apply(self, root: ParseTree) -> M:
         """Fold the parse tree of a start-rule match into its model.
 
         :returns: The start rule's model — of the type ``M`` this fold's
-            constructors were built to produce (the ``results`` table holds the
-            mixed intermediate outputs; only the start node's is the model).
+            constructors were built to produce. A transparent root passes
+            through its first descendant model, or ``None`` when its entire
+            subtree is recognition-only.
         """
         results: dict[int, object] = {}
         offsets = _tree_offsets(root) if self.wants_spans else _NO_OFFSETS
@@ -492,7 +485,9 @@ class ModelFold[M]:
                         push((k, False))
                 continue
             self._fold_node(node, results, offsets)
-        return cast(M, results[id(root)])
+        if id(root) in results:
+            return cast(M, results[id(root)])
+        return cast(M, self._first_model_under(root, results))
 
     # ── per-node folding ────────────────────────────────────────────
 
@@ -502,9 +497,7 @@ class ModelFold[M]:
         rule_fold = self.config.get(str(node.symbol))
         if rule_fold is None:
             return  # synthetic (__rep/__opt/__grp) — parents look through it
-        if rule_fold.kind == "discard":
-            results[id(node)] = None  # barrier: do not expose child models
-        elif rule_fold.kind == "value_str":
+        if rule_fold.kind == "value_str":
             results[id(node)] = rule_fold.ctor(value=_subtree_text(node))
         elif rule_fold.kind == "alternation":
             results[id(node)] = self._first_model_under(node, results)

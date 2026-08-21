@@ -20,7 +20,6 @@ from lexic.ir import (
     IrSequence,
 )
 
-
 GBNF_GRAMMAR = IrAst(
     IrSeq(
         IrRule(

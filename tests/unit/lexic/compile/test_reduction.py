@@ -9,11 +9,15 @@ lives in the parity differential
 
 from __future__ import annotations
 
+import pytest
+
+from lexic.compile.reduce.variant import elide_subtrees
 from lexic.compile.reduction import (
     ReduceDerivation,
     derive_reduction,
     sub_grammar,
 )
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import (
@@ -130,6 +134,20 @@ def test_elision_requires_drop_and_never_elides_the_start_rule():
         ),
     )
     assert derive_reduction(grammar, dropped).elide == frozenset({"gap"})
+
+
+def test_elision_refuses_a_twin_name_collision():
+    """A user rule cannot be silently replaced by a generated skip twin."""
+    grammar = IrAst(
+        IrSeq(
+            IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("gap"))))),
+            IrRule("gap", IrAlternation(IrSequence(IrItem(IrLiteral(" "))))),
+            IrRule("gap-sk", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
+        ),
+        "root",
+    )
+    with pytest.raises(UnsupportedConstructError, match="'gap-sk'"):
+        elide_subtrees(grammar, frozenset({"gap"}))
 
 
 def test_pass_through_bodies_are_not_constants():

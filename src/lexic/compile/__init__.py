@@ -21,20 +21,11 @@ from lexic.compile.artifact import (
     reset_reduction_cache,
     segmentation_tokenizer,
 )
-from lexic.compile.module.export import export_module, export_source
 from lexic.compile.module.bind import bind_module
+from lexic.compile.module.export import export_module, export_source
 from lexic.compile.module.selfgrammar import parse_module
 from lexic.compile.module.verify import verify_module
 from lexic.compile.notation.parse import load_ir, load_ir_from_path
-from lexic.compile.payload.export import export_value
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
-from lexic.compile.pipeline.moments import (
-    GRAMMAR_MOMENTS,
-    CompileMoments,
-    GrammarMoments,
-    build_codegen_grammar,
-)
-from lexic.compile.pipeline.synthesis import fold_config, synthesize
 from lexic.compile.output.presentation import Draw, Presentation, Row, Rows, present
 from lexic.compile.output.templating import (
     KEEP,
@@ -57,6 +48,15 @@ from lexic.compile.output.transpile import (
     Transpiler,
     transpile,
 )
+from lexic.compile.payload.export import export_value
+from lexic.compile.pipeline.binding import RuleBinding, compute_binding
+from lexic.compile.pipeline.moments import (
+    GRAMMAR_MOMENTS,
+    CompileMoments,
+    GrammarMoments,
+    build_codegen_grammar,
+)
+from lexic.compile.pipeline.synthesis import fold_config, synthesize
 from lexic.compile.verdict import Verdict
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour

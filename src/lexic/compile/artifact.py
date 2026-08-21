@@ -15,6 +15,7 @@ from typing import NamedTuple
 from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
 from lexic.compile.pipeline.synthesis import fold_config
 from lexic.compile.reduce.fold import ReduceFold
+from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
 from lexic.compile.reduction import (
     FoldPlan,
     RunSpec,
@@ -27,7 +28,6 @@ from lexic.ir import (
     IrAst,
     IrEncoding,
     IrMap,
-    IrNone,
     IrSelf,
     IrStr,
     IrTokenizer,
@@ -41,7 +41,6 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 from lexic.parsing import (
     ModelFold,
-    ModelBody,
     PdaTables,
     TokenMaskCursor,
     parse_model,
@@ -462,7 +461,7 @@ def _variant_artifact(
     compiled: CompiledGrammar,
     ast: IrAst,
     tag: str,
-    discard: frozenset[str] = frozenset(),
+    recognition_roots: frozenset[str] = frozenset(),
 ) -> CompiledGrammar:
     """Assemble a derived variant's artefact — the back half, in miniature.
 
@@ -474,16 +473,16 @@ def _variant_artifact(
     :param compiled: The source artefact.
     :param ast: The prepared (canonical, inlined) variant AST.
     :param tag: A short discriminator for the synthetic module identity.
-    :param discard: Rules recognized without constructing a variant model.
+    :param recognition_roots: Twin roots whose reachable folds are omitted.
     :returns: The variant artefact.
     """
     registry = encoding_registry(compiled.tokens.tokenizer, None)
     content = hashlib.sha1(repr(ast).encode("utf-8")).hexdigest()[:12]
     moments = CompileMoments.of(ast, registry, f"{compiled.stem}_{tag}_{content}")
-    overrides = {name: ModelBody("discard", IrNone, 0, ()) for name in discard}
+    omit = reachable_rules(moments.grammar.resolved, recognition_roots)
     fold = ModelFold(
         fold_config(
-            moments.grammar.resolved, moments.binding, moments.classes, overrides
+            moments.grammar.resolved, moments.binding, moments.classes, omit=omit
         )
     )
     return CompiledGrammar(
@@ -517,8 +516,10 @@ def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> _ReduceEntry:
     if entry is not None:
         return entry
     derivation = derive_reduction(compiled.grammar, reducer)
-    prepared = inline_refs(canonicalize(derivation.variant), derivation.marks)
-    variant = _variant_artifact(compiled, prepared, "reduce", derivation.elide)
+    elided, aliases = elide_subtrees(canonicalize(derivation.variant), derivation.elide)
+    prepared = inline_refs(elided, derivation.marks)
+    recognition_roots = frozenset(f"{name}-sk" for name in derivation.elide)
+    variant = _variant_artifact(compiled, prepared, "reduce", recognition_roots)
     subs = {
         name: _sub_run(compiled, reducer, name, spec)
         for name, spec in derivation.runs.items()
@@ -526,7 +527,12 @@ def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> _ReduceEntry:
     fold = ReduceFold(
         variant.moments,
         reducer,
-        FoldPlan(runs=derivation.runs, subs=subs, marks=derivation.marks),
+        FoldPlan(
+            runs=derivation.runs,
+            subs=subs,
+            marks=derivation.marks,
+            aliases=aliases,
+        ),
     )
     entry = _ReduceEntry(compiled, reducer, variant, fold)
     _REDUCE_ENTRIES[key] = entry

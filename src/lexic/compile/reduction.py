@@ -114,12 +114,15 @@ class FoldPlan(NamedTuple):
         the hoists they are, never given a body.
     :ivar marks: The ``@lexical`` mark set — rules whose channel is
         licensed to be their span.
+    :ivar aliases: Recognition-only twin name → source rule name. Twins inherit
+        the source rule's reducer body, especially its DROP status.
     """
 
     runs: Mapping[str, RunSpec] = {}
     subs: Mapping[str, "SubRun"] = {}
     synthetic: frozenset[str] = frozenset()
     marks: frozenset[str] = frozenset()
+    aliases: Mapping[str, str] = {}
 
 
 # ── the derivation: reducer → mark set + run hoists ───────────────────────
@@ -670,8 +673,13 @@ def _fold_tables(
         ),
         alt_arms=alt_arms,
         arm_owner=arm_owner,
-        bodies={r: reducer.body(IrRuleRef(r)) for r in every},
-        drops=frozenset(r for r in every if _dropped(reducer, r)),
+        bodies={
+            rule: reducer.body(IrRuleRef(plan.aliases.get(rule, rule)))
+            for rule in every
+        },
+        drops=frozenset(
+            rule for rule in every if _dropped(reducer, plan.aliases.get(rule, rule))
+        ),
         span_opaque=frozenset(
             str(r.name)
             for r in codegen.rules

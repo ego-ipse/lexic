@@ -15,6 +15,7 @@ from typing import cast
 import pytest
 
 from lexic.compile import compile_text, reset_cache_for_tests
+from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
@@ -415,14 +416,6 @@ def test_run_ok_true_when_leaf_rule_untracked_by_fold(digit_grammar):
     assert fold.run_ok(tables, digit_rid) is True
 
 
-def test_run_ok_true_when_leaf_rule_is_discarded(digit_grammar):
-    """A recognition-only leaf hides no model when collapsed into a run."""
-    fold = ModelFold.from_config({"digit": RuleFold("discard", dict, 0, ())})
-    tables = compile_tables(digit_grammar)
-    digit_rid = tables.decode.rule_ids["digit"]
-    assert fold.run_ok(tables, digit_rid) is True
-
-
 def test_run_ok_false_for_malformed_synthetic_shape():
     """unit_leaves returning None (not a charset-rule shape) is not fold-safe.
 
@@ -489,16 +482,41 @@ def test_fold_value_str_via_hand_tree():
     assert fold.apply(node) == {"value": "abc"}
 
 
-def test_discard_is_a_barrier_and_never_calls_its_constructor():
-    """Both engines recognize a discarded wrapper without building/leaking it."""
+def test_transparent_root_with_no_model_is_recognition_only():
+    """An island rooted inside a skip graph folds to no semantic value."""
+    root = ParseTree(IrRuleRef("noise-sk"), IrSeq(IrLiteral(" ")))
+    assert ModelFold.from_config({}).apply(root) is None
+
+
+@pytest.mark.parametrize(("kept_atom", "dropped_atom"), [("k", "d"), ("keep", "drop")])
+def test_recognition_twins_never_construct_descendants_in_either_engine(
+    kept_atom: str, dropped_atom: str
+):
+    """A dropped occurrence recognizes while the same rule still builds elsewhere."""
+    parsing = False
+
+    def word(**kwargs: object) -> object:
+        if parsing and kwargs.get("value") == dropped_atom:
+            raise AssertionError("a descendant of the dropped occurrence was built")
+        return kwargs
 
     def forbidden(**_kwargs: object) -> object:
-        raise AssertionError("discard constructor was called")
+        raise AssertionError("the original dropped rule was constructed")
 
     def root(**kwargs: object) -> object:
-        return {"noise": kwargs.get("noise")}
+        return {"kept": kwargs["kept"], "dropped": kwargs.get("dropped")}
 
-    compiled = compile_text('root ::= noise\nnoise ::= word\nword ::= "a"\n')
+    source = compile_text(
+        "root ::= kept dropped\n"
+        "kept ::= word\n"
+        'dropped ::= word "!"\n'
+        f'word ::= "{kept_atom}" | "{dropped_atom}"\n'
+    )
+    grammar, aliases = elide_subtrees(source.codegen_grammar, frozenset({"dropped"}))
+    roots = frozenset({"dropped-sk"})
+    omitted = reachable_rules(grammar, roots)
+    assert omitted == {"dropped-sk", "word-sk"}
+    assert aliases == {"dropped-sk": "dropped", "word-sk": "word"}
     fold = ModelFold(
         IrMap(
             IrTuple(
@@ -506,20 +524,33 @@ def test_discard_is_a_barrier_and_never_calls_its_constructor():
                 ModelBody(
                     "sequence",
                     IrLambda(root),
-                    1,
-                    (FieldFold(0, "model", "noise", 1),),
+                    2,
+                    (
+                        FieldFold(0, "model", "kept", 1),
+                        FieldFold(1, "model", "dropped", 1),
+                    ),
                 ),
             ),
+            IrTuple(IrRuleRef("kept"), ModelBody("alternation", IrNone, 0, ())),
             IrTuple(
-                IrRuleRef("noise"), ModelBody("discard", IrLambda(forbidden), 0, ())
+                IrRuleRef("dropped"),
+                ModelBody("sequence", IrLambda(forbidden), 2, ()),
             ),
-            IrTuple(IrRuleRef("word"), ModelBody("value_str", IrLambda(dict), 0, ())),
+            IrTuple(
+                IrRuleRef("word"),
+                ModelBody("value_str", IrLambda(word), 0, ()),
+            ),
         )
     )
-    product = _model_product(compiled.codegen_grammar, fold)
-    expected = {"noise": None}
-    assert earley_model(product.instance_grammar, "a", fold, product.tables) == expected
-    assert pda_model(product.pda, "a", fold) == expected
+    product = _model_product(grammar, fold)
+    parsing = True
+    text = f"{kept_atom}{dropped_atom}!"
+    expected = {"kept": {"value": kept_atom}, "dropped": None}
+
+    assert (
+        earley_model(product.instance_grammar, text, fold, product.tables) == expected
+    )
+    assert pda_model(product.pda, text, fold) == expected
 
 
 # ── ModelBody / ModelFold — the IR-native body-table ─────────────────────

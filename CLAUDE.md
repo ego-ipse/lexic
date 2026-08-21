@@ -150,6 +150,7 @@ src/lexic/
     reduce/
       __init__.py                  Reducer-derived implementation package marker
       fold.py                      Thin-fold executor over a directive-pruned model
+      variant.py                   Recognition-only twins for dropped reduction subtrees
     module/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
       bind.py                      Runtime binding for generated twin-module classes

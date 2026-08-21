@@ -14,7 +14,6 @@ from lexic.parsing.fold import FastCtor, RuleFold
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone, PdaProgram
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
-    BUILD_DISCARD,
     BUILD_DISPATCH,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
@@ -98,8 +97,6 @@ def _build_mode(fold: RuleFold | None) -> int:
         return BUILD_ALT
     if kind == "sequence":
         return BUILD_SEQ
-    if kind == "discard":
-        return BUILD_DISCARD
     raise UnsupportedConstructError(f"pda: unknown fold kind {kind!r}")
 
 

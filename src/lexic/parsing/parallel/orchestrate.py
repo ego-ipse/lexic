@@ -34,12 +34,12 @@ from lexic.ir import (
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
+from lexic.parsing.parallel.discovery.scan import Scanner, Window
+from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
 from lexic.parsing.parallel.policy import AUTO, worker_count
 from lexic.parsing.parallel.pool import ParsePool
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
-from lexic.parsing.parallel.discovery.scan import Scanner, Window
-from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
 from lexic.parsing.pda.core.charsets import CharSet
 
 

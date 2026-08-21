@@ -15,7 +15,6 @@ from lexic.ir import (
     IrSequence,
 )
 
-
 GBNF_TAIL = (
     IrRule(
         "digit",

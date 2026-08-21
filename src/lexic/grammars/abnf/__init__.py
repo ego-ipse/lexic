@@ -71,6 +71,7 @@ from __future__ import annotations
 import string
 from typing import ClassVar
 
+from lexic.grammars.abnf.grammar import ABNF_GRAMMAR
 from lexic.ir import (
     DROP,
     IR_DEFAULT,
@@ -132,7 +133,6 @@ from lexic.ir import (
     IrUnradix,
     Reducer,
 )
-from lexic.grammars.abnf.grammar import ABNF_GRAMMAR
 
 # Identity codec — ABNF literals are canonical Python; the quoted char-val body
 # admits printable ASCII except the double quote (RFC 7405).

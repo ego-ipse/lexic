@@ -208,8 +208,7 @@ construction — the same baked records every PDA clone carries (§11). Per
 `kind`: `value_str` → `ctor(value=<subtree text>)`; `alternation` →
 pass-through (the matched arm's sub-model identifies itself); `sequence` →
 per-field slot reads (`text`/`gtext` take consumed text, `model`/`models`
-collect sub-models through synthetic layers); `discard` → recognition-only,
-with no constructor call or child-model pass-through. The Earley completion runs
+collect sub-models through synthetic layers). The Earley completion runs
 `parse_first` because an all-nullable arm would otherwise make the empty
 match ambiguous; `lift_optional_nullables` (`R? → R` for nullable `R`)
 encodes that policy at normalise time for both compiled paths.

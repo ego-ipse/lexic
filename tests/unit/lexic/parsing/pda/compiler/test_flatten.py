@@ -27,7 +27,6 @@ from lexic.parsing.pda.compiler.program.flatten import (
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
-    BUILD_DISCARD,
     BUILD_DISPATCH,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
@@ -97,7 +96,6 @@ def test_build_mode_codes_are_pairwise_distinct():
         BUILD_ALT,
         BUILD_SEQ,
         BUILD_DISPATCH,
-        BUILD_DISCARD,
     ]
     assert len(modes) == len(set(modes))
 

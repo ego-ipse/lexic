@@ -8,14 +8,14 @@ grammar-formulation neutral and uses the standard model parse path throughout.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Callable, ClassVar, Self, Sequence, cast
+from typing import Callable, ClassVar, Self, cast
 
 from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.foldkit import ALT_BODY, model_fold
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
+from lexic.compile.pipeline.passes import retargeter, skip_rules
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import (
-    IrAction,
     IrAlternation,
     IrAst,
     IrBind,
@@ -23,7 +23,6 @@ from lexic.ir import (
     IrLambda,
     IrMap,
     IrNamedTuple,
-    IrNode,
     IrNoneType,
     IrRule,
     IrRuleRef,
@@ -34,7 +33,6 @@ from lexic.ir import (
     IrSpan,
     IrStr,
     IrTuple,
-    IrTypeMap,
     refs_in_order,
 )
 from lexic.model import GrammarModel
@@ -187,55 +185,6 @@ class SpanPair(
     span_fold: ModelFold[SpanLevel]
     values: IrAst
     value_fold: ModelFold[GrammarModel]
-
-
-class _Retarget(IrNode[IrSelf, IrSelf]):
-    """Transformer body — retarget every ``IrRuleRef`` through a name mapping."""
-
-    __slots__ = ("mapping",)
-    _bound: ClassVar[type] = IrSelf
-    mapping: Mapping[str, str]
-
-    def __new__(cls, mapping: Mapping[str, str], /) -> Self:
-        """Wrap the rename mapping as an immutable leaf."""
-        obj = object.__new__(cls)
-        object.__setattr__(obj, "mapping", mapping)
-        return obj
-
-    def __repr__(self) -> str:
-        """Codegen repr over the mapping literal."""
-        return f"_Retarget({dict(self.mapping)!r})"
-
-    def eval(self, _d: IrSelf, n: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
-        """The dispatched ref, renamed when the mapping covers it."""
-        target = self.mapping.get(str(n))
-        return n if target is None else IrRuleRef(target)
-
-
-def _retargeter(mapping: Mapping[str, str]) -> IrBottomUp:
-    """The ref-retarget transformer over ``mapping`` (the ``_RENAME`` idiom)."""
-    return IrBottomUp(actions=IrTypeMap(IrAction(IrRuleRef, _Retarget(mapping))))
-
-
-def skip_rules(
-    grammar: IrAst, shared: frozenset[str] = frozenset()
-) -> tuple[IrRule, ...]:
-    """Twin every non-shared rule as ``<name>-sk`` with refs remapped.
-
-    A skip twin has no fold body — a transparent frame: a skipped subtree
-    matches the same structure and builds nothing.
-
-    :param grammar: The base grammar.
-    :param shared: Rule names left un-twinned (refs to them stay).
-    :returns: The skip twins, in rule order.
-    """
-    twins = {r.name: r.name + _SKIP for r in grammar.rules if r.name not in shared}
-    retag = _retargeter(twins)
-    return tuple(
-        IrRule(twins[r.name], retag.apply(r.body), r.semantic)
-        for r in grammar.rules
-        if r.name in twins
-    )
 
 
 def _reaching(grammar: IrAst, entry: str) -> frozenset[str]:
@@ -571,8 +520,8 @@ def spanify(compiled: CompiledGrammar, shape: MapShape) -> SpanPair:
     """
     view = _resolve_shape(compiled, shape)
     grammar = view.grammar
-    tm = _retargeter({name: name + _SPAN for name in view.reaching})
-    sk = _retargeter({r.name: r.name + _SKIP for r in grammar.rules})
+    tm = retargeter({name: name + _SPAN for name in view.reaching})
+    sk = retargeter({r.name: r.name + _SKIP for r in grammar.rules})
     rules = list(grammar.rules)
     rules.extend(skip_rules(grammar))
     rules.extend(

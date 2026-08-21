@@ -29,9 +29,9 @@ from keyword import iskeyword
 from pathlib import Path
 
 from lexic import ir
+from lexic.compile.output.writer import literal, write_module
 from lexic.compile.payload import reader
 from lexic.compile.payload.encode import Payload, project_checked
-from lexic.compile.output.writer import literal, write_module
 from lexic.exceptions import UnsupportedConstructError
 
 ALIAS = "_sym_"

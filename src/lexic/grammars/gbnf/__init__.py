@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from lexic.grammars.gbnf.grammar import GBNF_GRAMMAR
 from lexic.ir import (
     DROP,
     IR_DEFAULT,
@@ -78,7 +79,6 @@ from lexic.ir import (
     IrUnradix,
     Reducer,
 )
-from lexic.grammars.gbnf.grammar import GBNF_GRAMMAR
 
 # GBNF escape tables — quoted string literals + bracket-class members.
 GBNF_ESCAPES = EscapeCodec.from_tables(

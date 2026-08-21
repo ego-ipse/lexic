@@ -241,6 +241,7 @@ def fold_config(
     binding: list[RuleBinding],
     classes: dict[str, type],
     overrides: Mapping[str, ModelBody | type] | None = None,
+    omit: frozenset[str] = frozenset(),
 ) -> IrMap:
     """Build the fold's IR body-table from the binding view — the open table.
 
@@ -259,6 +260,7 @@ def fold_config(
     :param overrides: Per-rule fold-body override — a
         :class:`~lexic.parsing.fold.ModelBody` (primitive) or a constructor
         class (sugar); ``None`` uses the synthesized classes throughout.
+    :param omit: Rules kept recognition-only by leaving them out of the table.
     :returns: An :class:`~lexic.ir.action.mapping.IrMap` from each rule's
         :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its
         :class:`~lexic.parsing.fold.ModelBody`.
@@ -267,6 +269,8 @@ def fold_config(
     rules = {str(rule.name): rule for rule in codegen_grammar.rules}
     dyads: list[IrTuple] = []
     for bound in binding:
+        if bound.rule_name in omit:
+            continue
         override = overrides.get(bound.rule_name)
         if isinstance(override, ModelBody):
             dyads.append(IrTuple(IrRuleRef(bound.rule_name), override))

@@ -8,6 +8,7 @@ import pytest
 
 from lexic.compile import Vocabulary, compile_ast, compile_text, reset_cache_for_tests
 from lexic.compile.artifact import _reduce_entry
+from lexic.compile.reduce.variant import reachable_rules
 from lexic.compile.reduction import derive_reduction
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
@@ -103,13 +104,18 @@ def test_reduce_product_is_the_same_object_for_the_same_identity():
 
 
 def test_reduce_variant_elides_noise_models_without_changing_source_product():
-    """Discard bodies belong only to the reducer-derived variant artefact."""
+    """Recognition twins belong only to the reducer-derived variant artefact."""
     artifact = compile_ast(JSON_GRAMMAR)
     entry = _reduce_entry(artifact, JSON_REDUCER)
     elide = derive_reduction(JSON_GRAMMAR, JSON_REDUCER).elide
     assert elide
-    assert all(entry.variant.fold.config[name].kind == "discard" for name in elide)
-    assert all(artifact.fold.config[name].kind != "discard" for name in elide)
+    roots = frozenset(f"{name}-sk" for name in elide)
+    assert roots <= {str(rule.name) for rule in entry.variant.grammar.rules}
+    omitted = reachable_rules(entry.variant.codegen_grammar, roots)
+    assert omitted
+    assert omitted.isdisjoint(entry.variant.fold.config)
+    assert elide <= artifact.fold.config.keys()
+    assert not any(name.endswith("-sk") for name in artifact.fold.config)
 
 
 def test_model_product_is_the_same_object_for_the_same_identity():

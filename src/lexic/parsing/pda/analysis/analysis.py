@@ -25,6 +25,7 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
 )
+from lexic.parsing.pda.analysis.conflicts import soft_gap_conflict, sub_conflict
 from lexic.parsing.pda.analysis.cursors import (
     Cont,
     FeedCtx,
@@ -32,7 +33,6 @@ from lexic.parsing.pda.analysis.cursors import (
     Notes,
     Scope,
 )
-from lexic.parsing.pda.analysis.conflicts import soft_gap_conflict, sub_conflict
 from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (

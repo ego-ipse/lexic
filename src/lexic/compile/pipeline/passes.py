@@ -25,6 +25,9 @@ them. Nothing here composes them.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from typing import ClassVar
+
 from lexic.compile.pipeline.binding import classify_rule, unit_ref_arm
 from lexic.compile.pipeline.naming import has_ruleref
 from lexic.exceptions import UnsupportedConstructError
@@ -49,6 +52,49 @@ from lexic.ir import (
     IrTypeMap,
 )
 from lexic.parsing import nullable_names
+
+
+class _Retarget(IrNode[IrSelf, IrSelf]):
+    """Transformer body — retarget rule references through a name mapping."""
+
+    __slots__ = ("mapping",)
+    _bound: ClassVar[type] = IrSelf
+    mapping: Mapping[str, str]
+
+    def __new__(cls, mapping: Mapping[str, str], /) -> "_Retarget":
+        """Wrap ``mapping`` as an immutable transformer leaf."""
+        obj = object.__new__(cls)
+        object.__setattr__(obj, "mapping", mapping)
+        return obj
+
+    def eval(self, _d: IrSelf, node: IrSelf, _nc: Sequence[IrSelf], /) -> IrSelf:
+        """Return ``node`` with a mapped rule-reference name when present."""
+        target = self.mapping.get(str(node))
+        return node if target is None else IrRuleRef(target)
+
+
+def retargeter(mapping: Mapping[str, str]) -> IrBottomUp:
+    """A bottom-up rule-reference renamer over ``mapping``."""
+    return IrBottomUp(actions=IrTypeMap(IrAction(IrRuleRef, _Retarget(mapping))))
+
+
+def skip_rules(
+    grammar: IrAst,
+    shared: frozenset[str] = frozenset(),
+    suffix: str = "-sk",
+) -> tuple[IrRule, ...]:
+    """Twin non-shared rules with every internal reference retargeted.
+
+    Omitting these twins from a product's fold config makes the redirected
+    subtree recognition-only without changing its accepted language.
+    """
+    twins = {r.name: r.name + suffix for r in grammar.rules if r.name not in shared}
+    retag = retargeter(twins)
+    return tuple(
+        IrRule(twins[r.name], retag.apply(r.body), r.semantic)
+        for r in grammar.rules
+        if r.name in twins
+    )
 
 
 def _reserve_helper_name(parent_name: str, taken: set[str]) -> str:
