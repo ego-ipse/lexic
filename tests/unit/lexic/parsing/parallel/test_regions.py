@@ -18,8 +18,11 @@ from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
     pair_rules,
+    piece_marks,
     pieces,
     separators,
+    shell,
+    stub,
 )
 from tests.paths import GROUND_TRUTH
 
@@ -122,6 +125,28 @@ def test_each_piece_carries_its_own_brackets():
     assert pieces(doc, region, 2) == ["[0,1,2]", "[3,4,5]"]
 
 
+def test_piece_marks_are_the_source_offsets_removed_by_pieces():
+    """The stitch's cut metadata is exactly the separators pieces remove."""
+    doc = "[" + _run(6) + "]"
+    region = _one_region(doc)
+    cuts = piece_marks(region, 2)
+    assert cuts == [doc.index(",", doc.index("2"))]
+    assert list(pieces(doc, region, 2) or ()) == [
+        "[0,1,2]",
+        "[3,4,5]",
+    ]
+
+
+def test_stubs_can_keep_equal_leading_items_distinct_and_shell_keeps_brackets():
+    """Each region gets a distinct stand-in while its shell punctuation stays."""
+    doc = '{"a": [0,1,2], "b": [0,1,2]}'
+    arrays = [region for region in find(JSON_GRAMMAR, doc) if region.rule == "array"]
+    assert len(arrays) == 2
+    kept = [stub(doc, region, index) for index, region in enumerate(arrays)]
+    assert kept == ["0", "1"]
+    assert shell(doc, arrays, kept) == '{"a": [0], "b": [1]}'
+
+
 def test_cuts_aim_at_equal_positions_not_at_equal_counts():
     """Dividing the separator COUNT divides the work only when the items are
     evenly spread; the nearest separator to the position is taken instead."""
@@ -143,6 +168,13 @@ def test_a_run_below_the_floor_is_not_worth_dividing():
     """Overhead outweighs a small run, so nothing is picked."""
     doc = "[" + _run(20) + "]"
     assert not choose(doc, find(JSON_GRAMMAR, doc), 4)
+
+
+def test_each_requested_worker_must_receive_one_full_chunk():
+    """Many tiny pieces cost more than leaving a modest region in the shell."""
+    doc = "[" + _run(BIG) + "]"
+    assert choose(doc, find(JSON_GRAMMAR, doc), 4)
+    assert not choose(doc, find(JSON_GRAMMAR, doc), 8)
 
 
 def test_a_big_run_that_cannot_divide_steps_aside_for_the_runs_inside_it():

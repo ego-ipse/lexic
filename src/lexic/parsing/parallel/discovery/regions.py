@@ -200,6 +200,27 @@ def _nearest(marks: tuple[int, ...], want: float) -> int:
     return min(marks, key=lambda mark: abs(mark - want))
 
 
+def piece_marks(region: Region, workers: int) -> list[int]:
+    """The separator offsets :func:`pieces` removes from ``region``.
+
+    Kept as a named result because the model stitch must rebuild each removed
+    separator under the region's own grammar. Re-deriving the marks from the
+    piece strings would guess at source extent when the same text repeats.
+
+    :param region: The run being divided.
+    :param workers: How many balanced pieces are wanted.
+    :returns: Distinct separator offsets, in document order.
+    """
+    lo, hi = region.opener + 1, region.closer
+    target = (hi - lo) / workers
+    cuts: list[int] = []
+    for k in range(1, workers):
+        nearest = _nearest(region.marks, lo + k * target)
+        if nearest not in cuts:
+            cuts.append(nearest)
+    return cuts
+
+
 def pieces(text: str, region: Region, workers: int) -> list[str] | None:
     """``region`` cut into ``workers`` self-contained pieces, or ``None``.
 
@@ -216,11 +237,7 @@ def pieces(text: str, region: Region, workers: int) -> list[str] | None:
     open_char, close_char = text[region.opener], text[region.closer]
     lo, hi = region.opener + 1, region.closer
     target = (hi - lo) / workers
-    cuts: list[int] = []
-    for k in range(1, workers):
-        nearest = _nearest(region.marks, lo + k * target)
-        if nearest not in cuts:
-            cuts.append(nearest)
+    cuts = piece_marks(region, workers)
     if not cuts:
         return None
     bounds = [lo, *[cut + 1 for cut in cuts], hi]
@@ -232,6 +249,46 @@ def pieces(text: str, region: Region, workers: int) -> list[str] | None:
         + close_char
         for i in range(len(bounds) - 1)
     ]
+
+
+def stub(text: str, region: Region, nth: int = 0) -> str:
+    """The region's ``nth`` item, used as its distinct shell stand-in.
+
+    Different regions use different item indices so equal first entries do not
+    route to the same shell node. The index is clamped; equality plus exact
+    items-node class is still checked later, and an unresolved collision makes
+    the split decline.
+
+    :param text: The complete document.
+    :param region: The run whose one item should remain.
+    :param nth: The item index, clamped to the run's final item.
+    :returns: The raw item span, without the region's brackets.
+    """
+    at = min(nth, len(region.marks))
+    start = region.opener + 1 if at == 0 else region.marks[at - 1] + 1
+    end = region.marks[at] if at < len(region.marks) else region.closer
+    return text[start:end]
+
+
+def shell(text: str, regions: list[Region], keep: list[str]) -> str:
+    """Replace each divided interior by its one-item stand-in.
+
+    The owning brackets remain in the shell. Model orchestration replaces only
+    the parsed items child, so those bracket fields survive the stitch exactly.
+
+    :param text: The complete document.
+    :param regions: Non-overlapping divided runs, in document order.
+    :param keep: One replacement interior per region.
+    :returns: The small document parsed once to provide the outer model shell.
+    """
+    out: list[str] = []
+    at = 0
+    for region, item in zip(regions, keep, strict=True):
+        out.append(text[at : region.opener + 1])
+        out.append(item)
+        at = region.closer
+    out.append(text[at:])
+    return "".join(out)
 
 
 def choose(
@@ -246,12 +303,13 @@ def choose(
     region takes its span only if its pieces come out balanced; otherwise it
     steps aside and its children are considered on their own.
 
-    A run is worth dividing exactly when it can feed two workers, so the
-    floor is ``2 * MIN_CHUNK`` — derived, not a second constant.
+    A selected run is cut for every requested worker, so it must feed every
+    one at least :data:`MIN_CHUNK`. Using only a two-worker floor creates
+    hundreds of tiny pieces when a document contains many modest runs.
     """
     picked: list[tuple[Region, list[str]]] = []
     for region in sorted(found, key=lambda r: -r.span):
-        if region.span < 2 * MIN_CHUNK:
+        if region.span < workers * MIN_CHUNK:
             break
         if any(
             region.opener < other.closer and other.opener < region.closer

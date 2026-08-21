@@ -1,24 +1,16 @@
-"""The split orchestration — one document, chunk-parsed, stitched exactly.
+"""One-document model splitting and exact immutable stitching.
 
-The recipe: scan for the derived separator, cut at separator occurrences
-(each cut consumes the separator and the noise run its lead owns), parse
-every chunk under the container rule with the SAME grammar and fold (so
-models are class-identical), re-parse each cut's 1–3 char lead text under
-the lead rule (bounded, O(cuts)), rebuild the cut item nodes from a
-template via ``GrammarModel.rebuild``, and rebuild the container.
-
-Scope: the grammar's START rule must itself be the separated-repetition
-container — a single arm ``unit item*`` whose item is ``lead unit``. Every
-other formulation, any failing or ambiguous chunk, and any policy verdict
-of one worker falls back to the sequential product: fallback is an answer,
-and a chunk's refusal surfaces as the SEQUENTIAL parse's own refusal, so
-splitting never changes what an input means.
+Start-rule repetitions and nested bracketed regions share this one entry.
+Delegated interiors are removed from the enclosing shell before it parses;
+non-overlapping ownership prevents parent and child workers duplicating work.
+Every unsupported shape or failed piece declines to the caller's sequential
+parse, so worker count never changes what an input means.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from lexic.exceptions import LexicError
 from lexic.ir import (
@@ -32,14 +24,32 @@ from lexic.ir import (
     IrSelf,
     IrTuple,
 )
+from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
+from lexic.parsing.parallel.discovery.regions import (
+    Region,
+    choose,
+    find,
+    piece_marks,
+    shell,
+    stub,
+)
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
-from lexic.parsing.parallel.policy import AUTO, worker_count
+from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
 from lexic.parsing.parallel.pool import ParsePool
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
+from lexic.parsing.parallel.stitch.model import (
+    RegionWork,
+    derive_plan,
+    head_rest,
+    region_items,
+    sole_route,
+    splice,
+)
+from lexic.parsing.parallel.stitch.tasks import region_tasks
 from lexic.parsing.pda.core.charsets import CharSet
 
 
@@ -384,8 +394,279 @@ def _split_parse[M: IrNamedTuple](
     return _stitch_separated(chunks, lead_models)
 
 
+def _parse_region_parts[M: IrNamedTuple](
+    parse: ModelProduct, works: list[RegionWork], ask: Request[M], workers: int
+) -> list[list[GrammarModel]] | None:
+    """Parse every region piece concurrently against per-worker replicas."""
+    tasks, owners = region_tasks(works, ask.fold)
+    pool = ParsePool[int, Any](
+        lambda k: parse(tasks[k][0], tasks[k][2], tasks[k][1], ask.resolve),
+        min(workers, len(tasks)),
+    )
+    try:
+        parsed = pool.map(range(len(tasks)))
+    except LexicError:
+        return None
+    finally:
+        pool.close()
+    grouped: list[list[GrammarModel]] = [[] for _work in works]
+    for owner, model in zip(owners, parsed, strict=True):
+        if not isinstance(model, GrammarModel):
+            return None
+        grouped[owner].append(model)
+    return grouped
+
+
+def _joint_tail[M: IrNamedTuple](
+    parse: ModelProduct, work: RegionWork, cut: int, ask: Request[M]
+) -> GrammarModel | None:
+    """Reparse one removed joint with its forward-owned unit as a tail model."""
+    marks = work.region.marks
+    try:
+        at = marks.index(cut)
+    except ValueError:
+        return None
+    lo = work.region.opener + 1 if at == 0 else marks[at - 1] + 1
+    hi = work.region.closer if at + 1 == len(marks) else marks[at + 1]
+    text = ask.text
+    wrapped = text[work.region.opener] + text[lo:hi] + text[work.region.closer]
+    try:
+        model = parse(work.plan.root, wrapped, ask.fold, ask.resolve)
+    except LexicError:
+        return None
+    if not isinstance(model, GrammarModel):
+        return None
+    items = region_items(model, work.plan)
+    shaped = head_rest(items, work.plan) if items is not None else None
+    if shaped is None or len(shaped[1]) != 1:
+        return None
+    tail = shaped[1][0]
+    return tail if tail.__class__ is work.plan.tail_type else None
+
+
+def _joined_tails[M: IrNamedTuple](
+    parse: ModelProduct,
+    work: RegionWork,
+    shaped: list[tuple[GrammarModel, tuple[GrammarModel, ...]]],
+    ask: Request[M],
+) -> list[GrammarModel] | None:
+    """The first piece's tails plus each restored cut and later tails."""
+    merged = list(shaped[0][1])
+    for cut, (head, rest) in zip(work.cuts, shaped[1:], strict=True):
+        tail = _joint_tail(parse, work, cut, ask)
+        if tail is None:
+            return None
+        children = tail.children()
+        if work.plan.tail_head >= len(children):
+            return None
+        if children[work.plan.tail_head] != head:
+            return None
+        merged.append(tail)
+        merged.extend(rest)
+    return merged
+
+
+def _merge_items[M: IrNamedTuple](
+    parse: ModelProduct, work: RegionWork, models: list[GrammarModel], ask: Request[M]
+) -> GrammarModel | None:
+    """Join piece item nodes, restoring every removed separator tail."""
+    shaped: list[tuple[GrammarModel, tuple[GrammarModel, ...]]] = []
+    first_items: GrammarModel | None = None
+    for model in models:
+        items = region_items(model, work.plan)
+        part = head_rest(items, work.plan) if items is not None else None
+        if part is None:
+            return None
+        first_items = first_items or items
+        shaped.append(part)
+    if first_items is None or len(shaped) != len(work.cuts) + 1:
+        return None
+    merged = _joined_tails(parse, work, shaped, ask)
+    if merged is None:
+        return None
+    children = cast(list[Any], list(first_items.children()))
+    children[work.plan.items_rest] = tuple(merged)
+    try:
+        out = first_items.rebuild(children)
+    except TypeError, ValueError, LexicError:
+        return None
+    return out if out.__class__ is work.plan.items_type else None
+
+
+def _region_works[M: IrNamedTuple](
+    grammar: IrAst,
+    ask: Request[M],
+    divided: list[tuple[Region, list[str]]],
+    workers: int,
+) -> list[RegionWork] | None:
+    """Bind discovered source regions to parse-model stitch plans."""
+    roots: dict[str, IrAst] = {}
+    works: list[RegionWork] = []
+    for region, parts in divided:
+        plan = derive_plan(grammar, ask.fold, region.rule, roots)
+        cuts = piece_marks(region, workers)
+        if plan is None or len(parts) != len(cuts) + 1:
+            return None
+        works.append(RegionWork(region, parts, cuts, plan))
+    return works or None
+
+
+def _boundary_stub(
+    work: RegionWork,
+    models: list[GrammarModel],
+    raw: str,
+    wrapped: str,
+    head: GrammarModel,
+) -> str | None:
+    """Restore boundary-owned whitespace around one distinct stand-in."""
+    begin_at, end_at = work.plan.outer_begin, work.plan.outer_end
+    if begin_at is None or end_at is None:
+        return raw
+    first, last = models[0].children(), models[-1].children()
+    if begin_at >= len(first) or end_at >= len(last):
+        return None
+    begin, end = first[begin_at], last[end_at]
+    if not isinstance(begin, GrammarModel) or not isinstance(end, GrammarModel):
+        return raw
+    before, after = begin.to_text(), end.to_text()
+    if not before.startswith(wrapped[0]) or not after.endswith(wrapped[-1]):
+        return None
+    return before[1:] + head.to_text() + after[:-1]
+
+
+def _standin[M: IrNamedTuple](
+    parse: ModelProduct,
+    work: RegionWork,
+    models: list[GrammarModel],
+    ask: Request[M],
+    index: int,
+) -> tuple[GrammarModel, str, GrammarModel, bool] | None:
+    """Merged items and the exact shell needle standing in for them."""
+    value = _merge_items(parse, work, models, ask)
+    raw = stub(ask.text, work.region, index)
+    wrapped = ask.text[work.region.opener] + raw + ask.text[work.region.closer]
+    try:
+        stand = parse(work.plan.root, wrapped, ask.fold, ask.resolve)
+    except LexicError:
+        return None
+    if value is None or not isinstance(stand, GrammarModel):
+        return None
+    needle = region_items(stand, work.plan)
+    shaped = head_rest(needle, work.plan) if needle is not None else None
+    if shaped is None:
+        return None
+    item = _boundary_stub(work, models, raw, wrapped, shaped[0])
+    if item is None:
+        return None
+    if item != raw:
+        try:
+            stand = parse(
+                work.plan.root,
+                wrapped[0] + item + wrapped[-1],
+                ask.fold,
+                ask.resolve,
+            )
+        except LexicError:
+            return None
+        needle = (
+            region_items(stand, work.plan) if isinstance(stand, GrammarModel) else None
+        )
+    exact = all(m.to_text() == part for m, part in zip(models, work.parts))
+    return (value, item, needle, exact) if needle is not None else None
+
+
+class _Standins(NamedTuple):
+    """All reconstructed region values and their shell stand-ins."""
+
+    values: list[GrammarModel]
+    text: list[str]
+    needles: list[GrammarModel]
+    exact: bool
+
+
+def _standins[M: IrNamedTuple](
+    parse: ModelProduct,
+    works: list[RegionWork],
+    parsed: list[list[GrammarModel]],
+    ask: Request[M],
+) -> _Standins | None:
+    """Build every region's merged items and unique shell needle."""
+    out = _Standins([], [], [], True)
+    for index, (work, models) in enumerate(zip(works, parsed, strict=True)):
+        stand = _standin(parse, work, models, ask, index)
+        if stand is None:
+            return None
+        value, text, needle, exact = stand
+        out.values.append(value)
+        out.text.append(text)
+        out.needles.append(needle)
+        out = out._replace(exact=out.exact and exact)
+    return out
+
+
+def _stitch_shell[M: IrNamedTuple](
+    parse: ModelProduct,
+    grammar: IrAst,
+    ask: Request[M],
+    works: list[RegionWork],
+    stands: _Standins,
+) -> M | None:
+    """Parse the small enclosing shell and immutably attach delegated items."""
+    try:
+        whole = parse(
+            grammar,
+            shell(ask.text, [w.region for w in works], stands.text),
+            ask.fold,
+            ask.resolve,
+        )
+    except LexicError:
+        return None
+    if not isinstance(whole, GrammarModel):
+        return None
+    routes = [sole_route(whole, needle) for needle in stands.needles]
+    if any(route is None for route in routes):
+        return None
+    for route, value in zip(routes, stands.values, strict=True):
+        whole = splice(whole, cast(tuple, route), value)
+        if whole is None:
+            return None
+    if stands.exact and whole.to_text() != ask.text:
+        return None
+    return cast(M, whole)
+
+
+def _split_regions[M: IrNamedTuple](
+    parse: ModelProduct,
+    grammar: IrAst,
+    ask: Request[M],
+    cores: int,
+    analysis: IrAst | None,
+) -> M | None:
+    """Split eligible nested bracket regions; ``None`` means sequential."""
+    workers = doc_workers(cores)
+    if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
+        return None
+    found = [
+        region
+        for region in find(analysis or grammar, ask.text)
+        if region.opener != 0 or region.closer != len(ask.text) - 1
+    ]
+    divided = choose(ask.text, found, workers)
+    works = _region_works(grammar, ask, divided, workers)
+    if works is None:
+        return None
+    parsed = _parse_region_parts(parse, works, ask, workers)
+    stands = _standins(parse, works, parsed, ask) if parsed is not None else None
+    return _stitch_shell(parse, grammar, ask, works, stands) if stands else None
+
+
 def split_model[M: IrNamedTuple](
-    parse: ModelProduct, grammar: IrAst, ask: Request[M], cores: int = AUTO
+    parse: ModelProduct,
+    grammar: IrAst,
+    ask: Request[M],
+    cores: int = AUTO,
+    *,
+    analysis: IrAst | None = None,
 ) -> M | None:
     """Split this input across workers, or say the split does not apply.
 
@@ -401,11 +682,13 @@ def split_model[M: IrNamedTuple](
     :param grammar: The codegen grammar.
     :param ask: The document, its fold, and the caller's ambiguity resolver.
     :param cores: 0 = auto, 1 = sequential (so: never split), N = that many.
+    :param analysis: A language-equivalent structural view for derived grammars
+        whose parse model intentionally elides quoted interiors or wrappers.
     :returns: The model, or ``None`` to parse sequentially.
     """
-    text = ask.text
     plan = split_plan(grammar)
-    if plan is None:
-        return None
-    cuts = _cut_offsets(plan, text, cores)
-    return _split_parse(parse, plan, ask, cuts) if cuts else None
+    if plan is not None:
+        cuts = _cut_offsets(plan, ask.text, cores)
+        if cuts and (model := _split_parse(parse, plan, ask, cuts)) is not None:
+            return model
+    return _split_regions(parse, grammar, ask, cores, analysis)

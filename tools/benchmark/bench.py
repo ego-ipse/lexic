@@ -59,7 +59,7 @@ import parsimonious.expressions
 
 from lexic.compile import Directives, compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.parallel import AUTO, available_workers, split_model, split_plan
+from lexic.parsing.parallel import AUTO, available_workers, split_model
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
@@ -676,11 +676,14 @@ def _mt_check(bench: Bench, cores: int | None) -> str | None:
     if cores is None:
         return None
     grammar = bench.compiled.codegen_grammar
-    if split_plan(grammar) is None:
-        return "no split plan — the start rule is not a splittable repetition"
     request = Request(bench.full, bench.fold, None)
-    if split_model(parse_model, grammar, request, cores) is None:
-        return "a split plan exists but found no cuts on this document"
+    if (
+        split_model(
+            parse_model, grammar, request, cores, analysis=bench.compiled.grammar
+        )
+        is None
+    ):
+        return "the unified split seam found no eligible work on this document"
     return None
 
 

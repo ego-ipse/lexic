@@ -16,9 +16,10 @@ orchestrator's own vocabulary, public for composition and tests.
   owns the threading, callers just map.
 - :mod:`.replicas` — each worker's private tables; sharing one set is what
   caps concurrent scaling, and this is the measured fix.
-- :mod:`.orchestrate` — ONE document split at derived separators, chunk-
-  parsed under the container rule, stitched to the exact sequential model;
-  everything unsupported falls back to the sequential product.
+- :mod:`.orchestrate` — ONE document split either at its start-rule repetition
+  or at eligible nested bracketed regions, stitched to the exact sequential
+  model; everything unsupported falls back to the sequential product.
+- :mod:`.stitch` — type-aware shell routing and immutable items replacement.
 """
 
 from lexic.parsing.parallel.discovery.anchors import SITE_EMITS, anchor_sites, anchors

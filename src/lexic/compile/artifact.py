@@ -149,6 +149,8 @@ class CompiledGrammar:
         exported module's default identity.
     :ivar tokens: What this grammar knows about tokens — the bound vocabulary
         and whether the grammar segments. See :class:`TokenBinding`.
+    :ivar split_analysis: Optional language-equivalent grammar retaining the
+        structural/interior facts a derived parse variant intentionally elides.
     """
 
     grammar: IrAst
@@ -157,6 +159,7 @@ class CompiledGrammar:
     flavour: str = "gbnf"
     stem: str = "grammar"
     tokens: TokenBinding = TokenBinding()
+    split_analysis: IrAst | None = None
 
     @property
     def classes(self) -> dict[str, type]:
@@ -247,6 +250,7 @@ class CompiledGrammar:
             self.codegen_grammar,
             Request(text, self.fold, resolve),
             cores,
+            analysis=self.split_analysis or self.grammar,
         )
         if split is not None:
             return GrammarModel.ensure(split, "compile: the start rule's fold")
@@ -381,6 +385,7 @@ class CompiledGrammar:
             tokens=TokenBinding(
                 segmentation_tokenizer(resolved), self.tokens.segmented, source
             ),
+            split_analysis=self.split_analysis,
         )
 
     def constrain(self, tokenizer: IrTokenizer | None = None) -> TokenMaskCursor:
@@ -496,6 +501,7 @@ def _variant_artifact(
             compiled.tokens.segmented,
             moments.grammar.relaxed,
         ),
+        split_analysis=compiled.split_analysis or compiled.grammar,
     )
 
 

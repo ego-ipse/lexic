@@ -274,9 +274,13 @@ src/lexic/
         __init__.py                Region-discovery package marker
         anchors.py                 Structural anchor analysis
         interiors.py               Opaque delimited interiors
-        regions.py                 Bracketed parallel runs
+        regions.py                 Bracketed runs, balanced pieces, and shell spans
         scan.py                    Self-locating window scan
         shapes.py                  Grammar arm shapes
+      stitch/
+        __init__.py                Structural model-stitch package marker
+        model.py                   Type-aware shell routes and immutable replacement
+        tasks.py                   Region pieces flattened onto distinct worker model views
     pda/
       __init__.py                  The predictive PDA runtime — analysis, clone compiler, flattener, kernel
       analysis/

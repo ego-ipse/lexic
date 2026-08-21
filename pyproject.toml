@@ -66,6 +66,8 @@ markers = ["performance: timing/scaling benchmarks for parsing_2"]
 
 [tool.pyright]
 pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"
 
 [tool.isort]
 profile = "black"
