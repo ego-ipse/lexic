@@ -504,8 +504,15 @@ def _sub_run(
 ) -> SubRun:
     """A run's escape hatch: its group-named sub-grammar, compiled and folded."""
     ast, synthetic = sub_grammar(compiled.grammar, run_name, spec.element)
-    sub = _variant_artifact(compiled, canonicalize(ast), f"reduce_{run_name}")
-    fold = ReduceFold(sub.moments, reducer, FoldPlan(synthetic=synthetic))
+    derivation = derive_reduction(ast, reducer)
+    elided, aliases = elide_subtrees(canonicalize(ast), derivation.elide)
+    recognition_roots = frozenset(f"{name}-sk" for name in derivation.elide)
+    sub = _variant_artifact(compiled, elided, f"reduce_{run_name}", recognition_roots)
+    fold = ReduceFold(
+        sub.moments,
+        reducer,
+        FoldPlan(synthetic=synthetic, aliases=aliases),
+    )
     return SubRun(partial(sub.parse, cores=1), fold)
 
 

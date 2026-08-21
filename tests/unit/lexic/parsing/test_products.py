@@ -2,22 +2,40 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
 from lexic.compile import Vocabulary, compile_ast, compile_text, reset_cache_for_tests
-from lexic.compile.artifact import _reduce_entry
+from lexic.compile.artifact import _reduce_entry, _sub_run
 from lexic.compile.reduce.variant import reachable_rules
-from lexic.compile.reduction import derive_reduction
+from lexic.compile.reduction import RunSpec, derive_reduction
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir import IrAst, IrChr, IrMap, IrStr, IrTokenizer, IrTuple, Reducer
+from lexic.ir import (
+    DROP,
+    YIELD,
+    IrAlternation,
+    IrAst,
+    IrChr,
+    IrItem,
+    IrLiteral,
+    IrMap,
+    IrRule,
+    IrRuleRef,
+    IrSeq,
+    IrSequence,
+    IrStr,
+    IrTokenizer,
+    IrTuple,
+    Reducer,
+)
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
 from lexic.parsing.pda.compiler.tables import PdaTables
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import (
     _MODEL_CACHE,
     _model_product,
@@ -116,6 +134,68 @@ def test_reduce_variant_elides_noise_models_without_changing_source_product():
     assert omitted.isdisjoint(entry.variant.fold.config)
     assert elide <= artifact.fold.config.keys()
     assert not any(name.endswith("-sk") for name in artifact.fold.config)
+
+
+def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
+    """Named escape subgrammars apply the same full-subtree elision as main."""
+    grammar = IrAst(
+        IrSeq(
+            IrRule("root", IrAlternation(IrSequence(IrItem(IrRuleRef("element"))))),
+            IrRule(
+                "element",
+                IrAlternation(
+                    IrSequence(IrItem(IrRuleRef("keep")), IrItem(IrRuleRef("drop")))
+                ),
+            ),
+            IrRule("keep", IrAlternation(IrSequence(IrItem(IrLiteral("a"))))),
+            IrRule(
+                "drop",
+                IrAlternation(IrSequence(IrItem(IrRuleRef("noise")))),
+                False,
+            ),
+            IrRule("noise", IrAlternation(IrSequence(IrItem(IrLiteral("!"))))),
+        ),
+        "root",
+    )
+    reducer = Reducer(
+        default=YIELD,
+        noise=IrMap(
+            *(
+                IrTuple(IrRuleRef(name), DROP if name == "drop" else YIELD)
+                for name in (
+                    "root",
+                    "element-run",
+                    "element",
+                    "keep",
+                    "drop",
+                    "noise",
+                )
+            )
+        ),
+    )
+    escape = _sub_run(
+        compile_ast(grammar),
+        reducer,
+        "element-run",
+        RunSpec(frozenset({"!"}), "element"),
+    )
+    variant = cast(Any, escape.parse).func.__self__
+    omitted = reachable_rules(variant.codegen_grammar, frozenset({"drop-sk"}))
+    assert omitted == {"drop-sk", "noise-sk"}
+    assert omitted.isdisjoint(variant.fold.config)
+    assert escape.fold.plan.aliases == {
+        "drop-sk": "drop",
+        "noise-sk": "noise",
+    }
+
+    def forbidden(**_kwargs: object) -> object:
+        raise AssertionError("a dropped run descendant was constructed")
+
+    original = variant.fold.config["noise"]
+    variant.fold.config["noise"] = original._replace(ctor=forbidden, fast=None)
+    product = _model_product(variant.codegen_grammar, variant.fold)
+    assert earley_model(product.instance_grammar, "a!", variant.fold, product.tables)
+    assert pda_model(product.pda, "a!", variant.fold)
 
 
 def test_model_product_is_the_same_object_for_the_same_identity():
