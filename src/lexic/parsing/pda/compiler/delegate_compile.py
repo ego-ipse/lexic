@@ -116,17 +116,16 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
 
     :ivar lifted: The lifted codegen grammar (analysis substrate).
     :ivar name_to_rid: Rule name → its id in the island tables.
-    :ivar target: ``(fold_config, reduce_source)`` — the model fold config, or
-        the reduce completion source (the other is empty / ``None``).
+    :ivar fold_config: The model fold config baked into delegated clones.
     :ivar seams: ``(compiler_factory, flatten_clones)`` — the injected clone
         compiler and its lowering pass.
     """
 
-    __slots__ = ("lifted", "name_to_rid", "target", "seams", "_cache")
+    __slots__ = ("lifted", "name_to_rid", "fold_config", "seams", "_cache")
 
     lifted: IrAst
     name_to_rid: Mapping[str, int]
-    target: tuple[Mapping[str, object], object]
+    fold_config: Mapping[str, object]
     seams: tuple[Callable[..., Any], Callable[..., Any]]
     _cache: dict[str, dict[int, object]]
 
@@ -134,13 +133,13 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         self,
         lifted: IrAst,
         name_to_rid: Mapping[str, int],
-        target: tuple[Mapping[str, object], object],
+        fold_config: Mapping[str, object],
         seams: tuple[Callable[..., Any], Callable[..., Any]],
     ) -> None:
         """Bind one grammar's delegate-compile ingredients + the injected seams."""
         self.lifted = lifted
         self.name_to_rid = name_to_rid
-        self.target = target
+        self.fold_config = fold_config
         self.seams = seams
         self._cache = {}
 
@@ -173,9 +172,8 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         delegable = _delegable_names(analysis, island_name)
         if not delegable:
             return {}
-        fold_config, reduce_source = self.target
         compiler_factory, flatten_clones = self.seams
-        compiler: Any = compiler_factory(analysis, fold_config, reduce=reduce_source)
+        compiler: Any = compiler_factory(analysis, self.fold_config)
         rid_key: dict[int, object] = {}
         try:
             for rname in delegable:
@@ -184,8 +182,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
                 )
         except UnsupportedConstructError:
             return {}  # an interior atom the clone compiler cannot handle
-        completions = compiler.completions if reduce_source is not None else None
-        shells = flatten_clones(compiler.clones, completions)
+        shells = flatten_clones(compiler.clones)
         return {rid: shells[key] for rid, key in rid_key.items()}
 
     def reset(self) -> None:

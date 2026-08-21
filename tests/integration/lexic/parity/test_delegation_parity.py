@@ -37,18 +37,15 @@ import pytest
 from lexic.compile import (
     CompiledGrammar,
     compile_text,
-    parse_grammar,
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
-from tests.reduce_oracle import reduce_oracle
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from tests.integration.lexic.parity.test_pda_parity import ALL_STEMS, grammar_for
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import NoDelegates
@@ -60,7 +57,9 @@ def no_delegates_variant(source: DelegateSource) -> DelegateSource:
     """A no-delegates :class:`DelegateSource` built from ``source``'s own
     construction ingredients — the off arm of the injection seam, constructed
     through the same constructor as the real (on) source."""
-    return NoDelegates(source.lifted, source.name_to_rid, source.target, source.seams)
+    return NoDelegates(
+        source.lifted, source.name_to_rid, source.fold_config, source.seams
+    )
 
 
 def with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> object:
@@ -199,49 +198,3 @@ def test_delegation_synthetic_long_interior() -> None:
     assert "digits" in names, "the long-run rule must delegate"
     for text in SYNTH_SAMPLES:
         instance_ab(cg, text)
-
-
-# ── grammar-text A/B (reduce path) ─────────────────────────────────────────
-
-
-def reduce_outcome(pda: PdaTables, text: str, flag: bool) -> object:
-    """The reduce PDA's observable outcome on ``text`` under delegation ``flag``.
-
-    ``('ok', IrAst)`` on a full parse, or ``('fail', message)`` on a
-    :class:`PdaFail` (the position it stops at) — a comparable value for the
-    on-vs-off parity assertion.
-    """
-
-    def run() -> object:
-        try:
-            return ("ok", pda_reduce(pda, text))
-        except PdaFail as exc:
-            return ("fail", str(exc))
-
-    return with_delegates(pda, flag, run)
-
-
-def test_delegation_reduce_path_is_behaviour_neutral() -> None:
-    """GBNF self-emit grammar-text: the reduce PDA behaves identically on vs off.
-
-    The reduce path exercises the delegate splice through the flavour's
-    :class:`~lexic.parsing.earley.reduce.Reducer` (payload = reduced IR fragment)
-    while the parse advances. The GBNF self-grammar reduce PDA is *wired but not
-    routed* today (Task 7 flips ``parse_grammar`` onto it) — it does not complete
-    a full grammar-text parse standalone yet — so this pins the achievable
-    guarantee: delegation changes nothing observable, the parse reaches the exact
-    same point (and, per :func:`reduce_outcome`, the same reduced IR wherever it
-    does complete) with delegates on and off, up to and including where the
-    un-routed reduce PDA stops. The ABNF reduce PDA opts out whole-grammar
-    (``rulelist`` is a start island), so it has no forced-PDA path to A/B yet.
-    """
-    pda = reduce_oracle(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer).pda
-    assert pda is not None, "GBNF self-grammar reduce PDA should exist"
-    fresh = with_delegates(pda, True, lambda: pda.island_delegates("charclass"))
-    assert fresh, "the reduce path must carry at least one delegating island"
-    text = str(GBNF_FLAVOUR.apply(GBNF_FLAVOUR.grammar))
-    on = reduce_outcome(pda, text, True)
-    off = reduce_outcome(pda, text, False)
-    assert on == off, "reduce delegation diverges from the pure-Earley island path"
-    if isinstance(on, tuple) and on[0] == "ok":
-        assert on[1] == parse_grammar(text, GBNF_FLAVOUR)

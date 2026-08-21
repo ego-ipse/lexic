@@ -62,7 +62,7 @@ from lexic.exceptions import LexicError
 from lexic.parsing.parallel import AUTO, available_workers, split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import _model_product, earley_model, parse_model
 from lexic.parsing.trace import watch
 from tools.benchmark.antlr_build import antlr_parser

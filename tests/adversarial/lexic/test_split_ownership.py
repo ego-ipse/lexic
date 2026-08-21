@@ -11,7 +11,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import earley_model
 from tests.unit.lexic.parsing.parsing_helpers import prod
 

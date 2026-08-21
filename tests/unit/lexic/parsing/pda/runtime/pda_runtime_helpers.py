@@ -1,8 +1,4 @@
-"""Shared helpers for the ``lexic.parsing.pda.runtime`` unit tests.
-
-``reduce_pda`` is duplicated verbatim (pre-relocation) across
-``test_kernel.py`` and ``test_reduce_runtime.py``.
-"""
+"""Shared helpers for the ``lexic.parsing.pda.runtime`` unit tests."""
 
 from __future__ import annotations
 
@@ -12,17 +8,10 @@ from lexic.compile import CompiledGrammar, canonical_grammar, compile_from_path
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import flavour_for_extension
 from lexic.model import GrammarModel
-from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.products import _model_product, earley_reduce
-from tests.reduce_oracle import reduce_oracle
-
-
-def reduce_pda(flavour):
-    """The flavour's self-grammar reduce PDA (built + memoised in the engine)."""
-    return reduce_oracle(flavour.grammar, flavour.reducer).pda
+from lexic.parsing.products import _model_product
 
 
 def compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:
@@ -58,8 +47,3 @@ def assert_parity(
     by the integration raw-parity test)."""
     assert pda_model.semantic_dump() == engine_model.semantic_dump()
     assert pda_model.to_text() == text
-
-
-def ref_reduce(flavour, text: str):
-    """The Earley reducer's own reduction of ``text`` — the parity oracle."""
-    return earley_reduce(normalize(flavour.grammar), text, flavour.reducer)

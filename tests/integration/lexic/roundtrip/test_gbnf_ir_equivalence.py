@@ -23,7 +23,7 @@ from lexic.grammars.gbnf import GBNF_FLAVOUR, GBNF_GRAMMAR, GBNF_REDUCER
 from lexic.ir import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.products import earley_reduce
+from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
@@ -211,10 +211,10 @@ def test_corpus_is_complete() -> None:
 
 
 @pytest.mark.parametrize("path", GRAMMARS, ids=lambda p: p.stem)
-def test_reduces_to_golden_fingerprint(path: Path, norm_grammar: IrAst) -> None:
-    """earley_reduce yields the golden start rule and rule set."""
+def test_reduces_to_golden_fingerprint(path: Path) -> None:
+    """Artefact reduction yields the golden start rule and rule set."""
     text = path.read_text(encoding="utf-8")
-    ast = earley_reduce(norm_grammar, text, GBNF_REDUCER)
+    ast = earley_reduce(GBNF_GRAMMAR, text, GBNF_REDUCER)
     assert isinstance(ast, IrAst)
     assert fingerprint(ast) == GOLDEN[path.stem]
 
@@ -227,11 +227,11 @@ def test_ground_truth_unambiguous(path: Path, norm_grammar: IrAst) -> None:
 
 
 @pytest.mark.parametrize("path", GRAMMARS, ids=lambda p: p.stem)
-def test_emit_reparse_preserves_fingerprint(path: Path, norm_grammar: IrAst) -> None:
+def test_emit_reparse_preserves_fingerprint(path: Path) -> None:
     """Emitting the reduced AST as GBNF and re-parsing keeps the rule fingerprint."""
     text = path.read_text(encoding="utf-8")
-    ast = earley_reduce(norm_grammar, text, GBNF_REDUCER)
+    ast = earley_reduce(GBNF_GRAMMAR, text, GBNF_REDUCER)
     assert isinstance(ast, IrAst)
-    reparsed = earley_reduce(norm_grammar, str(GBNF_FLAVOUR.apply(ast)), GBNF_REDUCER)
+    reparsed = earley_reduce(GBNF_GRAMMAR, str(GBNF_FLAVOUR.apply(ast)), GBNF_REDUCER)
     assert isinstance(reparsed, IrAst)
     assert fingerprint(reparsed) == fingerprint(ast)

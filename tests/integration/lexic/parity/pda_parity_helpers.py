@@ -22,7 +22,7 @@ from lexic.model import GrammarModel
 from lexic.parsing import parse_first
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
 

@@ -1,6 +1,6 @@
 """Tests for pda.runtime.kernel.kernel — the fused-runtime parity gate (Task 4).
 
-:func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` builds a
+:func:`~lexic.parsing.pda.runtime.kernel.kernel.pda_model` builds a
 model directly during the walk (fold fusion, no
 :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree`). The
 bar here is ``semantic_dump()`` equality + ``to_text()`` round-trip against
@@ -35,16 +35,13 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
+from lexic.grammars import GBNF_FLAVOUR
 from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
-from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.islands import IslandPolicy
-from lexic.parsing.pda.runtime.kernel import reduce_runtime as rrt
-from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, pda_model
 from tests.integration.lexic.parity.pda_parity_helpers import (
     arithmetic_bench_corpus,
     deep_semantic,
@@ -55,8 +52,6 @@ from tests.unit.lexic.parsing.pda.runtime.pda_runtime_helpers import (
     assert_parity,
     compiled_and_pda,
     path_specs,
-    reduce_pda,
-    ref_reduce,
 )
 
 # ── fixtures ────────────────────────────────────────────────────────────
@@ -230,102 +225,6 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):
             pda_model(pda, inp, compiled.fold)
-
-
-# ── b1 reduce-path parity: _ReducePdaKernel vs earley_reduce ───────────────
-#
-# The grammar-text (reducer) twin of the parity gate above: self_grammar_pda's
-# compiled reduce PDA parses grammar-text FRAGMENTS (GBNF source describing a
-# one-rule grammar, e.g. 'root ::= "abc"') and must reduce byte-identically
-# to the Earley reducer path (earley_reduce) — no ParseTree on the PDA side,
-# just _ReducePdaKernel feeding cleaned children straight to the reduction
-# bodies. Promoted verbatim from the throwaway
-# zzz_current_work/260706-unified-parse-engine/gate_reduce.py three-gate
-# harness (0 gate failures there).
-
-REDUCE_GATE1_GBNF: tuple[str, ...] = (
-    'root ::= "abc"',
-    "root ::= [a-z]",
-    'root ::= "a" | "b"',
-    'root ::= "a"*',
-    'root ::= "a" "b" "c"',
-    'root ::= "a" ("b" | "c")+',
-    "root ::= [0-9]+",
-    'root ::= "x" [a-zA-Z_]*',
-)
-"""gate 1's positive-coverage floor: single-rule fragments the self-grammar
-reduce PDA must handle end-to-end (no whole-input PdaFail, clone
-completions > 0), each byte-equal to earley_reduce."""
-
-REDUCE_GATE2_GBNF: tuple[str, ...] = (
-    'root::="a"',
-    'root  ::=  "a"   "b"',
-    'root ::= "a"|"b"|"c"',
-    "root ::=  [a-z]  [0-9]",
-)
-"""gate 2's capture-cleaning parity: varied whitespace noise around the same
-shapes — the reduce PDA's cleaned children must reduce byte-identically to
-the Earley path regardless of how the noise is laid out."""
-
-
-@pytest.mark.parametrize("text", REDUCE_GATE1_GBNF)
-def test_reduce_pda_gbnf_single_rule_fragment_is_end_to_end_and_byte_equal(
-    text: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Gate 1: no PdaFail, at least one clone completion, byte-equal to earley_reduce."""
-    completions = {"n": 0}
-    kernel_cls = getattr(rrt, "_ReducePdaKernel")
-    orig_complete = getattr(kernel_cls, "_complete")
-
-    def _traced(self, frame):
-        completions["n"] += 1
-        orig_complete(self, frame)
-
-    monkeypatch.setattr(kernel_cls, "_complete", _traced)
-    pda = reduce_pda(GBNF_FLAVOUR)
-    assert not isinstance(pda.start_key, IslandRef)
-    got = pda_reduce(pda, text)
-    assert completions["n"] > 0
-    assert got == ref_reduce(GBNF_FLAVOUR, text)
-
-
-@pytest.mark.parametrize("text", REDUCE_GATE2_GBNF)
-def test_reduce_pda_gbnf_noise_variant_is_byte_equal_to_earley(text: str) -> None:
-    """Gate 2: capture-cleaning parity across varied inter-token whitespace."""
-    pda = reduce_pda(GBNF_FLAVOUR)
-    assert not isinstance(pda.start_key, IslandRef)
-    assert pda_reduce(pda, text) == ref_reduce(GBNF_FLAVOUR, text)
-
-
-def test_reduce_pda_whole_ground_truth_corpus_matches_earley_where_recognised() -> None:
-    """Gate 3: over every ground-truth grammar file (fed as grammar TEXT, both
-    flavours), wherever the self-grammar reduce PDA recognises a whole file
-    end-to-end it is byte-equal to earley_reduce — asserted; how OFTEN it
-    recognises a whole file is counted, not asserted (per the harness this is
-    promoted from: today every ground-truth file, being multi-rule, whole-input
-    falls back to Earley — 0 recognised, 0 mismatched, out of 8 GBNF + 2 ABNF
-    files — matching gate_reduce.py's own gate-3 output; the gate that matters
-    here is the absence of a silent MISMATCH). Both flavours now compile a real
-    reduce PDA (the ``rulelist`` boundary-shift left-factor removed ABNF's start
-    island).
-    """
-    for flavour in (GBNF_FLAVOUR, ABNF_FLAVOUR):
-        pda = reduce_pda(flavour)
-        corpus = sorted(GROUND_TRUTH.glob(f"*{flavour.extensions[0]}"))
-        assert corpus
-        assert not isinstance(pda.start_key, IslandRef)
-        recognised = mismatched = 0
-        for path in corpus:
-            text = path.read_text(encoding="utf-8")
-            try:
-                got = pda_reduce(pda, text)
-            except PdaFail:
-                continue
-            if got == ref_reduce(flavour, text):
-                recognised += 1
-            else:
-                mismatched += 1
-        assert mismatched == 0
 
 
 # ── one vocabulary for one concern ─────────────────────────────────────

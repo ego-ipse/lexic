@@ -6,9 +6,7 @@ normalise, predictive PDA, and run-collapsed Earley tables, memoised per
 first and completes on the Earley engine on any
 :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`; :class:`PdaFail` never escapes.
 
-The Earley model completion is the route-forcing seam. ``earley_reduce``
-remains temporarily for the 1e differential while the retired fused twin is
-deleted in 1g; it is not a product entry.
+The Earley model completion is the route-forcing seam.
 
 A leaf inside ``lexic.parsing``: imports the Earley engine and the PDA compiler/
 runtime by public name; ``__init__`` re-exports the product entries and the
@@ -21,8 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from lexic.exceptions import Refusal, UnsupportedConstructError
-from lexic.ir import IrAst, IrSelf, IrStr, IrTuple
-from lexic.parsing.earley.engine import PARSE_REDUCED, EarleyParser, first_meaning
+from lexic.ir import IrAst
+from lexic.parsing.earley.engine import EarleyParser, first_meaning
 from lexic.parsing.earley.kernel.forest.ambiguity import (
     AmbiguityPolicy,
     Resolver,
@@ -34,42 +32,22 @@ from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import ProbeFork
-from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 
 __all__ = [
     "parse_model",
-    "earley_reduce",
     "earley_model",
     "pda_tables",
     "reset_product_cache",
 ]
 
 
-# ── the Earley completions (also the tests' route-forcing seam) ────────────
-
-
-def earley_reduce(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
-    """Parse ``text`` and fold it straight to IR in one Earley pass.
-
-    The grammar-text product's Earley completion — ``reducer.apply(parse(...))``
-    fused (no intermediate :class:`~lexic.parsing.earley.kernel.forest.forest.ParseTree` in the
-    common unambiguous case).
-
-    :param grammar: The grammar, Earley-normalised (see :mod:`.earley.normalize`).
-    :param text: The input string.
-    :param reducer: The flavour's reduction policy.
-    :returns: The reduced IR of the single derivation.
-    :raises UnsupportedConstructError: If ``text`` does not parse, parses
-        ambiguously, or ``reducer`` is not a :class:`Reducer`.
-    """
-    return PARSE_REDUCED.eval(EarleyParser(), grammar, IrTuple(IrStr(text), reducer))
+# ── the Earley completion (also the tests' route-forcing seam) ─────────────
 
 
 def earley_model[M](

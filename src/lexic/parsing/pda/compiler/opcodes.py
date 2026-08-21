@@ -26,11 +26,7 @@ TERMINAL_OPS = frozenset((OP_LIT, OP_CC, OP_LIT1, OP_CC1))
 """Every op-code that consumes text directly rather than through a clone.
 
 The specialised pair is NOT ordinally adjacent to the plain pair, so a reader
-asking "is this item a terminal" has to ask this set rather than compare. The
-reduce completion learned that the expensive way: testing ``kind <= OP_CC``
-read a specialised terminal as a clone reference and looked for children it
-had no sink for, which is why the reduce path skipped terminal specialisation
-altogether and stepped a quantifier loop per character."""
+asking "is this item a terminal" has to ask this set rather than compare."""
 
 OP_VRUN, OP_V1 = 10, 11
 """Exactly-once ``OP_VSTR`` reference op-codes (:func:`_specialize_vruns`).
@@ -92,22 +88,6 @@ sub-model reports straight to the parent sink) — so the post-flatten pass
 rewrites qualifying clones into dispatch tables whose selectors carry the
 target :class:`FlatClone` directly and the runtime chases them in
 :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._enter` without a frame."""
-
-BUILD_REDUCE = 5
-"""The grammar-text (reducer) completion mode — the b1 twin of the model build
-modes. A reduce clone captures every child into an ordered ``parts`` list and,
-on completion, feeds the reducer's cleaned children to its reduction
-``body.eval`` (:data:`R_KEEP`), contributes nothing (:data:`R_DROP`, a
-DROP-noise rule its subtree is dropped from), or splices its parts straight
-into the caller (:data:`R_SPLICE`, an inline group). One PDA compilation, one
-frame/island stack — only this completion callback differs from the model
-modes; see :mod:`lexic.parsing.pda.runtime.kernel.kernel`."""
-
-R_KEEP, R_DROP, R_SPLICE = 0, 1, 2
-"""Reduce completion kinds (:data:`BUILD_REDUCE` clones): KEEP evaluates the
-rule's reduction body over its cleaned children; DROP (a DROP-noise rule)
-recognises and consumes but yields nothing to its parent; SPLICE (an inline
-group / synthetic clone) flattens its ordered children into the caller."""
 
 DISPATCH_EMPTY = object()
 """The ``default`` sentinel of a dispatch clone whose alternation carried an

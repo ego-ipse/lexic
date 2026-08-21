@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from lexic.compile import compile_from_path
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import earley_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod

@@ -1,25 +1,8 @@
-"""ε-channel differential: the raw reduce PDA vs the forced Earley completion.
+"""ε-heavy property coverage for the sole grammar-text reduction path.
 
-``parse_reduced`` (the public product, :mod:`lexic.parsing.products`) is
-PDA-first with an internal Earley fallback — calling it alone would trivially
-pass via fallback and never isolate the PDA. This module instead drives the
-two routes independently, straight off ``GBNF_FLAVOUR``'s own self-grammar
-(the meta-grammar GBNF text is parsed *against*):
-
-- the raw reduce PDA (:func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_reduce` over
-  the compiled reduce product, ``fold=None``), and
-- the forced Earley completion (:func:`~lexic.parsing.products.earley_reduce`
-  over the same lifted, normalised self-grammar the PDA compiled from).
-
-Per ``_reduce_product``, both routes run
-``normalize(lift_optional_nullables(grammar))`` — the one grammar
-``parse_reduced`` actually ships. This file is the guard that the authored
-reduce bodies keep the two routes' IR equivalent on it: PDA-recognised text
-must be a subset of Earley-recognised text, and wherever both recognise, the
-reduced :class:`IrAst` must be equal.
-
-A divergence is a release-blocking finding, not a test to weaken — see
-``zzz_current_work/260712-totality-cleanup/PLAN.md`` Task 6.
+Generated GBNF source is reduced through its compiled artefact twice. Every
+accepted sample must reach the identical raw AST; rejected generated syntax is
+outside the property.
 
 The generator emits ε-heavy GBNF *meta-syntax* — optional/star/plus
 quantifiers, empty alternation arms, comments and whitespace/noise runs —
@@ -38,8 +21,6 @@ from hypothesis import example, given, settings
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from tests.property.lexic.reduce_differential_helpers import ReduceDifferential
 
-# ReduceDifferential.earley_grammar runs the same lifted grammar the PDA
-# compiles over — the product's actual (grammar, completion) pair (M29).
 _diff = ReduceDifferential(GBNF_FLAVOUR)
 
 

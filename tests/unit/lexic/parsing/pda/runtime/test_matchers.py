@@ -24,7 +24,7 @@ from lexic.parsing.pda.compiler.opcodes import (
 )
 from lexic.parsing.pda.compiler.specialize import all_clones
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.pda.runtime.matchers import (
     match_arm,
     match_cc,

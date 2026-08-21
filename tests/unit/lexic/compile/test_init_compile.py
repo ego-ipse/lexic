@@ -50,16 +50,11 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import normalize
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.products import (
-    earley_model,
-    earley_reduce,
-)
+from lexic.parsing.products import earley_model
+from tests.reduce_helpers import reduce_text
 from tests.paths import GRAMMARS, GROUND_TRUTH
-from tests.reduce_oracle import reduce_oracle
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
 
@@ -625,51 +620,45 @@ def test_scan_directives_start_and_non_semantic_coexist():
 
 
 def test_reduce_product_builds_for_gbnf():
-    """GBNF's self-grammar compiles to a real reduce PDA (its start rule,
-    "grammar", is not itself an island)."""
-    product = reduce_oracle(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-    assert isinstance(product.pda, PdaTables)
-    assert product.pda.reduce is not None
-    assert not isinstance(product.pda.start_key, IslandRef)
+    """GBNF's self-grammar compiles and reduces through its artefact."""
+    text = 'root ::= "x"\n'
+    assert isinstance(
+        reduce_text(GBNF_FLAVOUR.grammar, text, GBNF_FLAVOUR.reducer), IrAst
+    )
 
 
 def test_reduce_product_builds_for_abnf():
-    """ABNF's self-grammar compiles to a real reduce PDA since the
-    ``rulelist`` boundary-shift left-factor removed the start island."""
-    product = reduce_oracle(ABNF_FLAVOUR.grammar, ABNF_FLAVOUR.reducer)
-    assert isinstance(product.pda, PdaTables)
-    assert product.pda.reduce is not None
-    assert not isinstance(product.pda.start_key, IslandRef)
+    """ABNF's self-grammar compiles and reduces through its artefact."""
+    text = 'root = "x"\n'
+    assert isinstance(
+        reduce_text(ABNF_FLAVOUR.grammar, text, ABNF_FLAVOUR.reducer), IrAst
+    )
 
 
 def test_reduce_product_is_memoised_per_identity():
-    """A second call for the same (grammar, reducer) identity returns the
-    identical compiled product — no recompilation."""
-    first = reduce_oracle(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-    second = reduce_oracle(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    """The self-grammar artefact is content-memoised across calls."""
+    first = compile_ast(GBNF_FLAVOUR.grammar)
+    second = compile_ast(GBNF_FLAVOUR.grammar)
     assert first is second
 
 
 # PARSEGRAMMAR
 
 
-def test_parse_grammar_matches_earley_reduce():
-    """parse_grammar's result equals the Earley reduce completion over the
-    flavour's own normalised self-grammar and reducer — the PDA-first product
-    and its completion agree (byte-equal IrAst)."""
+def test_parse_grammar_matches_the_artifact_reduce_capability():
+    """The public grammar reader is the self-grammar artefact capability."""
     text = 'root ::= "abc"\n'
     reducer = getattr(compile_module, "_flavour_reducer")(GBNF_FLAVOUR)
-    expected = earley_reduce(normalize(GBNF_FLAVOUR.grammar), text, reducer)
+    expected = reduce_text(GBNF_FLAVOUR.grammar, text, reducer)
     assert parse_grammar(text, GBNF_FLAVOUR) == expected
 
 
-def test_parse_grammar_pda_and_earley_agree_on_an_alternation():
-    """The PDA route (parse_grammar) and the forced Earley route agree on an
-    alternation input — the differential guard, no PdaFail divergence."""
+def test_parse_grammar_and_artifact_agree_on_an_alternation():
+    """An alternation reaches the same one-path reduction at both seams."""
     text = 'root ::= "abc" | "def"\n'
     reducer = getattr(compile_module, "_flavour_reducer")(GBNF_FLAVOUR)
-    assert parse_grammar(text, GBNF_FLAVOUR) == earley_reduce(
-        normalize(GBNF_FLAVOUR.grammar), text, reducer
+    assert parse_grammar(text, GBNF_FLAVOUR) == reduce_text(
+        GBNF_FLAVOUR.grammar, text, reducer
     )
 
 

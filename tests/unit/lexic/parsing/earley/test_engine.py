@@ -29,15 +29,12 @@ import lexic.parsing.earley.engine as engine_mod
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
-    IrArgs,
     IrAst,
     IrCharClass,
     IrChr,
     IrInt,
     IrItem,
-    IrJoin,
     IrLiteral,
-    IrMap,
     IrNone,
     IrNoneType,
     IrNot,
@@ -47,7 +44,6 @@ from lexic.ir import (
     IrSelf,
     IrSeq,
     IrSequence,
-    IrTuple,
 )
 from lexic.parsing import (
     EarleyParser,
@@ -61,9 +57,7 @@ from lexic.parsing import (
 )
 from lexic.parsing.earley.engine import (
     PARSE_FIRST,
-    PARSE_REDUCED,
     ParseFirst,
-    ParseReduced,
 )
 from lexic.parsing.earley.kernel.forest.forest import (
     DerivationStream,
@@ -75,9 +69,6 @@ from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tab
 from lexic.parsing.earley.kernel.tables.records import RUN_STR
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce.policy import KEEP_RAW
-from lexic.parsing.earley.reduce.reducer import Reducer
-from lexic.parsing.products import earley_reduce
 from tests.unit.lexic.parsing.ir_fixtures import digits_plus_grammar
 
 # ── Grammar builders ──────────────────────────────────────────────────
@@ -627,92 +618,6 @@ def test_parse_single_derivation_unambiguous_roundtrip(
     assert tree_to_text(tree) == text
 
 
-# ── ParseReduced / PARSE_REDUCED / earley_reduce ──────────────────────
-
-YIELD = IrJoin(parts=IrArgs(), separator=IrLiteral(""), empty=IrLiteral(""))
-"""Concatenate reduced children — the string-yield body (mirrors test_reduce.py)."""
-
-
-def digit_reducer() -> Reducer:
-    """A Reducer whose reduction table covers the digit_grammar's 'digit' rule."""
-    return Reducer(actions=IrMap(IrTuple(IrRuleRef("digit"), YIELD)))
-
-
-def s_reducer() -> Reducer:
-    """A Reducer whose reduction table covers the sss_grammar's 's' rule."""
-    return Reducer(actions=IrMap(IrTuple(IrRuleRef("s"), YIELD)))
-
-
-def test_parse_reduced_singleton_is_parse_reduced_instance():
-    """PARSE_REDUCED is a ParseReduced instance — the shared singleton."""
-    assert isinstance(PARSE_REDUCED, ParseReduced)
-
-
-def test_parse_reduced_matches_reducer_apply_parse(digit_grammar: IrAst):
-    """earley_reduce(g, t, reducer) equals reducer.apply(parse(g, t)) — unambiguous."""
-    reducer = digit_reducer()
-    result = earley_reduce(digit_grammar, "7", reducer)
-    expected = reducer.apply(parse(digit_grammar, "7"))
-    assert str(result) == str(expected)
-
-
-def test_parse_reduced_raises_on_invalid_input(digit_grammar: IrAst):
-    """earley_reduce() raises UnsupportedConstructError when the input does not parse."""
-    reducer = digit_reducer()
-    with pytest.raises(UnsupportedConstructError):
-        earley_reduce(digit_grammar, "z", reducer)
-
-
-def test_parse_reduced_accepts_derivations_that_reduce_to_one_value(
-    sss_grammar: IrAst,
-):
-    """PORTED, opposite expectation: two derivations of one MEANING are fine.
-
-    `s ::= s s | "a"` over `"aaa"` derives two ways, and under a YIELDing
-    reducer both reduce to `IrStr('aaa')` — verified by enumerating the forest,
-    not assumed. This test asserted a refusal because the reduce path decided
-    ambiguity by counting DERIVATIONS; the islands path had already moved to
-    comparing the VALUES they build, and counting was what left the EBNF
-    flavour with no working Earley fallback. The refusal it used to pin now
-    lives in the test below, on an input that means two things.
-    """
-    assert str(earley_reduce(sss_grammar, "aaa", s_reducer())) == "aaa"
-
-
-def test_parse_reduced_still_refuses_derivations_that_mean_different_things():
-    """Two arms spelling the same text, kept RAW — the arm taken is observable."""
-    grammar = IrAst(
-        IrSeq(
-            IrRule(
-                "s",
-                IrAlternation(
-                    IrSequence(IrItem(IrRuleRef("a"))),
-                    IrSequence(IrItem(IrRuleRef("b"))),
-                ),
-            ),
-            IrRule("a", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
-            IrRule("b", IrAlternation(IrSequence(IrItem(IrLiteral("x"))))),
-        ),
-        "s",
-    )
-    reducer = Reducer(
-        actions=IrMap(
-            IrTuple(IrRuleRef("s"), KEEP_RAW),
-            IrTuple(IrRuleRef("a"), YIELD),
-            IrTuple(IrRuleRef("b"), YIELD),
-        )
-    )
-    with pytest.raises(UnsupportedConstructError):
-        earley_reduce(grammar, "x", reducer)
-
-
-def test_parse_reduced_raises_on_non_reducer_argument(digit_grammar: IrAst):
-    """earley_reduce() raises UnsupportedConstructError when reducer isn't a Reducer."""
-    with pytest.raises(UnsupportedConstructError, match="Reducer"):
-        # Testing a wrong type.
-        earley_reduce(digit_grammar, "5", "not a reducer")  # type: ignore
-
-
 # ── ParseFirst / PARSE_FIRST / parse_first ─────────────────────────────
 
 
@@ -814,8 +719,7 @@ def test_parse_first_with_collapsed_tables_falls_back_on_ambiguity(
     sss_grammar: IrAst,
 ):
     """A fast-path miss (ambiguity) with collapsed tables passed re-parses over
-    plain tables and still returns a first derivation — the fold-back mirrors
-    ParseReduced's, not a crash."""
+    plain tables and still returns a first derivation rather than crashing."""
     plain = compile_tables(sss_grammar)
     collapsed = build_tables(sss_grammar, runs={})  # a distinct object, no runs
     assert collapsed is not plain

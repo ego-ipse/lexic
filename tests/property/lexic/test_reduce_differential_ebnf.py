@@ -1,24 +1,7 @@
-"""ε-channel differential: the raw reduce PDA vs the forced Earley completion.
+"""ε-heavy property coverage for EBNF artefact reduction.
 
-The EBNF sibling of ``test_reduce_differential.py`` (GBNF) — read that file's
-docstring first, this one only restates what's EBNF-specific. ``parse_reduced``
-(the public product) is PDA-first with an internal Earley fallback — calling
-it alone would trivially pass via fallback and never isolate the PDA. This
-module instead drives the two routes independently, straight off
-``EBNF_FLAVOUR``'s own self-grammar (the meta-grammar EBNF text is parsed
-*against*):
-
-- the raw reduce PDA (:func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_reduce`
-  over the compiled reduce product, ``fold=None``), and
-- the forced Earley completion (:func:`~lexic.parsing.products.earley_reduce`
-  over the same lifted, normalised self-grammar the PDA compiled from).
-
-Per ``_reduce_product``, both routes run
-``normalize(lift_optional_nullables(grammar))`` — the one grammar
-``parse_reduced`` actually ships. This file is the guard that the authored
-reduce bodies keep the two routes' IR equivalent on it: PDA-recognised text
-must be a subset of Earley-recognised text, and wherever both recognise, the
-reduced :class:`IrAst` must be equal.
+The shared harness reduces generated EBNF twice. Accepted samples must reach
+an identical raw AST.
 
 **The ``ws`` island.** ``EBNF_GRAMMAR``'s ``ws`` rule (``ws = wsunit*``,
 ``semantic=False``) is an island in the compiled PDA — its own occurrences

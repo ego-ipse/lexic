@@ -332,10 +332,7 @@ def test_pda_entry_points_imported_only_via_compile_seam():
             continue
         for line in p.read_text().splitlines():
             stripped = line.strip()
-            if not any(
-                mod in stripped
-                for mod in ("pda.clones", "pda.runtime", "pda.reduce_runtime")
-            ):
+            if not any(mod in stripped for mod in ("pda.clones", "pda.runtime")):
                 continue
             if stripped.startswith(("from lexic.parsing", "import lexic.parsing")):
                 offenders.append(f"{p.name}: {stripped}")

@@ -47,8 +47,7 @@ from lexic.parsing.pda.compiler.opcodes import (
 def clone_arms(clone: FlatClone) -> list[FlatArm]:
     """A clone's arms (gated + default), skipping dispatch clones' targets.
 
-    Public because both products' rewrites walk a clone the same way — the
-    reduce compile runs :func:`specialize_terminals` over exactly this list.
+    Public because multiple post-flatten rewrites walk clones the same way.
     """
     if clone.mode == BUILD_DISPATCH:
         return []
@@ -84,10 +83,8 @@ def all_clones(roots: list[FlatClone]) -> list[FlatClone]:
 def specialize_terminals(arm: FlatArm) -> None:
     """Rewrite exactly-once terminals to their loop-free op-codes in place.
 
-    The one post-flatten pass BOTH products run. It removes a quantifier loop
-    without removing a frame, an item or an item end, so the reduce
-    completion — which reconstructs its children from exactly those — reads
-    the specialised arm as faithfully as the plain one.
+    Removes a quantifier loop without removing a frame, item, or item end, so
+    the model build observes the same capture layout as the plain opcode.
     """
     kinds = list(arm.kinds)
     for i, kind in enumerate(kinds):

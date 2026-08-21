@@ -49,8 +49,6 @@ from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.lexruns import recognition_tables
-from lexic.parsing.earley.reduce.fused import FusedReduce, collapsed_tables
-from lexic.parsing.earley.reduce.reducer import Reducer
 
 _MATCH = IrInt(1)
 _NO_MATCH = IrInt(0)
@@ -107,14 +105,13 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
 
 
 def _one_meaning(kernel: Kernel, build: Callable[[ParseTree], object]) -> ParseTree:
-    """The derivation to reduce, refusing only a span that means two things.
+    """The derivation to interpret, refusing only a span with two meanings.
 
     The strict :func:`_single_tree` refuses on a second DERIVATION, which is the
     rule the island path abandoned: a grammar derives one text several ways
     without meaning anything by it, and two adjacent nullable slots split a gap
     two ways to the same end. Under the counting rule every whitespace-carrying
-    EBNF file was refused, because that self-grammar has exactly that shape —
-    so the reduce path's documented Earley completion was dead for the flavour.
+    EBNF file was refused, because that self-grammar has exactly that shape.
 
     :raises UnsupportedConstructError: When two derivations build different
         values, or when nothing derives.
@@ -265,8 +262,8 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
     text-preserving, so :class:`~lexic.parsing.fold.ModelFold` reads it
     identically to the per-char expansion. On a fast-path miss (ambiguity), the
     collapsed run terminals cannot shape the enumeration the same way, so the
-    fold-back mirrors :class:`ParseReduced`: re-parse over plain tables and take
-    the stream's first — behaviour-identical to the uncollapsed path.
+    fold-back re-parses over plain tables and takes the stream's first —
+    behaviour-identical to the uncollapsed path.
     """
 
     def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> ParseTree:
@@ -278,51 +275,6 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
         text = str(nc[0])
         collapsed = nc[1] if len(nc) > 1 and isinstance(nc[1], ParserTables) else None
         return first_meaning(d, n, text, collapsed)
-
-
-class ParseReduced(IrLeaf[IrSelf, IrSelf]):
-    """Text → reduced IR in one pass — the product path.
-
-    Runs the kernel over **reducer-collapsed tables** (safe lexical runs
-    compiled to maximal-munch terminals — see
-    :func:`~lexic.parsing.earley.reduce.collapsed_tables`), then folds the packed
-    SPPF straight to IR via :class:`~lexic.parsing.earley.reduce.FusedReduce`,
-    skipping the intermediate :class:`ParseTree` entirely. A fused fast-path
-    miss (ambiguity, or a noise policy the fold does not compile) falls back
-    to a fresh plain-tables parse and the general tree-then-reduce path —
-    behaviour-identical, just slower.
-    """
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
-        """:param n: grammar; :param nc: ``(IrStr(text), Reducer)``.
-
-        :returns: The reduced IR of the single derivation.
-        :raises UnsupportedConstructError: If the input does not parse, or
-            parses ambiguously.
-        """
-        if not isinstance(n, IrAst):
-            raise UnsupportedConstructError(
-                f"parsing: expected an IrAst grammar, got {type(n).__name__}"
-            )
-        reducer = nc[1]
-        if not isinstance(reducer, Reducer):
-            raise UnsupportedConstructError(
-                f"parsing: expected a Reducer, got {type(reducer).__name__}"
-            )
-        text = str(nc[0])
-        tables = collapsed_tables(reducer, n, tier_for(len(text)))
-        kernel = Kernel(tables, text, True).run()
-        _require_accept(kernel, n)
-        handle = accept_handle(kernel)
-        if not root_ambiguous(kernel):
-            fused = FusedReduce(kernel, reducer).build(handle)
-            if fused is not None:
-                return fused
-        # The collapsed chart's shapes are reducer-specific — the general
-        # tree path needs a plain parse.
-        plain = _run_kernel(n, nc, True)
-        _require_accept(plain, n)
-        return reducer.apply(_one_meaning(plain, reducer.apply))
 
 
 class ParseForest(IrLeaf[IrSelf, IrSelf]):
@@ -385,7 +337,6 @@ class EarleyParser(IrDispatch):
 RECOGNIZE = Recognize()
 PARSE = Parse()
 PARSE_FIRST = ParseFirst()
-PARSE_REDUCED = ParseReduced()
 PARSE_FOREST = ParseForest()
 ENUMERATE = Enumerate()
 IS_AMBIGUOUS = IsAmbiguous()

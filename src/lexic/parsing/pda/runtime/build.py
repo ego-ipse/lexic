@@ -4,9 +4,7 @@ The slot layout of the :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKerne
 frame (the ``F_*`` indices) and the functions that fold a completed frame into
 a model — a ``sequence`` clone's per-field slot reads (fast or validated), an
 ``alternation``'s pass-through, and the leaf empty-arm build. Shed out of
-``kernel/kernel.py`` so the frame vocabulary is shared by name with
-``reduce_runtime.py`` (which walks the same frames) rather than crossing a
-module boundary as a private import.
+``kernel/kernel.py`` so the paid loop and build tail remain separately sized.
 
 The record build is POSITIONAL: the clone's plan carries one entry per field
 of the model class, so a build fills one values list and constructs the tuple
@@ -20,8 +18,7 @@ construction a hit saves. Interning stays pre-construction, so the validated
 path's :exc:`~lexic.exceptions.FieldValidationError` behaviour is unchanged.
 
 A leaf w.r.t. the runtime: these functions read only the input ``text`` plus a
-frame / clone (and the memo), never the kernel cursor, so they are free
-functions the kernel and its reduce twin both call. Imports only
+frame / clone (and the memo), never the kernel cursor. Imports only
 :mod:`lexic.parsing.pda.compiler.flatten` (the flat records + field-mode
 codes), :mod:`lexic.parsing.fold` (:class:`RuleFold`) and
 :mod:`lexic.parsing.pda.core.errors` (:class:`PdaFail`) — never ``runtime``.
@@ -86,12 +83,10 @@ def finish_delegate(
 ) -> tuple[int, object] | None:
     """Drive a delegate sub-kernel to completion — fail-soft + window-edge rule.
 
-    The shared body of both :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel
-    ._delegate_run` and its reduce twin: the only per-path difference is which
-    sub-kernel (model vs reduce) is built, so that construction stays on each
-    override and the completion / decline logic lives here.
+    The fail-soft completion body used by
+    :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._delegate_run`.
 
-    :param sub: A fresh sub-kernel over ``window_text`` (model or reduce).
+    :param sub: A fresh model sub-kernel over ``window_text``.
     :param clone: The delegable rule's flat clone.
     :param window_text: The island window (the sub-parse's whole input).
     :param pos: The start position within ``window_text``.

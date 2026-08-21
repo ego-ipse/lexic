@@ -80,10 +80,8 @@ text and drive one :class:`~lexic.ir.base.IrSelf` orchestration node in
 surfaces.
 
 The engine floor is public here too, beside :class:`Kernel`:
-:func:`~lexic.parsing.products.earley_model` /
-:func:`~lexic.parsing.products.earley_reduce` are the per-product Earley
-completions — the route-forcing seam (forcing a route means calling a
-different product entry, never passing a flag) — and the predictive half
+:func:`~lexic.parsing.products.earley_model` is the model product's Earley
+completion — the route-forcing seam — and the predictive half
 surfaces as :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` (the
 fused runtime, subclassable for tracing),
 :class:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis` (the decision
@@ -169,7 +167,6 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.products import (
     earley_model,
-    earley_reduce,
     parse_model,
     pda_tables,
     token_model,
@@ -308,7 +305,6 @@ __all__ = [
     "compile_tables",
     "derivations",
     "earley_model",
-    "earley_reduce",
     "is_ambiguous",
     "lift_optional_nullables",
     "normalize",

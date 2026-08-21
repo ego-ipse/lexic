@@ -43,10 +43,6 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
-from lexic.parsing.pda.compiler.reduce_pda import (
-    ReduceComp,
-    reduce_rewrite,
-)
 from lexic.parsing.pda.compiler.specialize import convert_dispatch, optimize_program
 from lexic.parsing.pda.compiler.specs import (
     CC,
@@ -472,11 +468,10 @@ def _arm_prefix(arm: FlatArm) -> Pattern | None:
     return compile_source(source)
 
 
-def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
+def _attempt_sub(clone: FlatClone) -> FlatClone:
     """A single-arm sub-clone shell copying ``clone``'s FINAL baked state.
 
-    Called after the optimize / reduce-rewrite passes, so the copied build
-    plan (and, on the reduce path, the completion fields) is what the parent
+    Called after the optimizer, so the copied build plan is what the parent
     actually runs with. ``selectors``/``default`` are the caller's to set.
     """
     sub = FlatClone.__new__(FlatClone)
@@ -496,17 +491,11 @@ def _attempt_sub(clone: FlatClone, reduce_mode: bool) -> FlatClone:
     sub.chartotal = True
     sub.runarm = None
     sub.needs_ends = clone.needs_ends
-    if reduce_mode:
-        sub.reduce_kind = clone.reduce_kind
-        sub.reduce_body = clone.reduce_body
-        sub.reduce_is_yield = clone.reduce_is_yield
-        sub.reduce_span = clone.reduce_span
-        sub.reduce_can_drop = clone.reduce_can_drop
     return sub
 
 
 def _attempt_entries(
-    clone: FlatClone, reduce_mode: bool, arms: "tuple[ArmSpec, ...]"
+    clone: FlatClone, arms: "tuple[ArmSpec, ...]"
 ) -> tuple[tuple[Any, Any, Any, Any, FlatClone], ...]:
     """An attempt clone's ordered entry list — one single-arm sub-clone each,
     with a leading-terminal prefix regex as its C-speed admission
@@ -522,7 +511,7 @@ def _attempt_entries(
     """
     entries: list[tuple[Any, Any, Any, Any, FlatClone]] = []
     for (chars, negated, arm), spec in zip(clone.selectors, arms):
-        sub = _attempt_sub(clone, reduce_mode)
+        sub = _attempt_sub(clone)
         sub.selectors = ((chars, negated, arm),)
         sub.default = None
         window = (
@@ -532,25 +521,21 @@ def _attempt_entries(
         )
         entries.append((chars, negated, _arm_prefix(arm), window, sub))
     if clone.default is not None:
-        sub = _attempt_sub(clone, reduce_mode)
+        sub = _attempt_sub(clone)
         sub.selectors = ()
         sub.default = clone.default
         entries.append((None, None, None, None, sub))
     return tuple(entries)
 
 
-def flatten_clones(
-    clones: dict[CloneKey, CloneSpec],
-    completions: dict[CloneKey, ReduceComp] | None,
-) -> dict[CloneKey, FlatClone]:
+def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
     Two passes: create an empty shell per clone key, then fill each (refs
-    resolve to the live shells — no runtime id lookup). The model target then
-    runs :func:`optimize_program`; the reduce target (``completions`` given)
-    runs :func:`reduce_rewrite` instead. Shared by :func:`flatten_program`
-    and the per-island delegate compile, which each own an independent shell
-    set the optimiser mutates in place.
+    resolve to the live shells — no runtime id lookup), then run
+    :func:`optimize_program`. Shared by :func:`flatten_program` and the
+    per-island delegate compile, which each own an independent shell set the
+    optimiser mutates in place.
     """
     shells: dict[CloneKey, FlatClone] = {
         key: FlatClone.__new__(FlatClone) for key in clones
@@ -573,20 +558,17 @@ def flatten_clones(
         )
         clone.mode = _build_mode(spec.fold)
         _bake_build(clone, spec.fold)
-    if completions is None:
-        optimize_program(list(shells.values()))
-    else:
-        reduce_rewrite(shells, completions)
+    optimize_program(list(shells.values()))
     for key, spec in clones.items():
         if spec.attempt_follow is not None:
             clone = shells[key]
-            entries = _attempt_entries(clone, completions is not None, spec.arms)
-            _optimize_entries(entries, completions is not None)
+            entries = _attempt_entries(clone, spec.arms)
+            _optimize_entries(entries)
             clone.attempt = (spec.attempt_follow, entries)
     return shells
 
 
-def _optimize_entries(entries: tuple[Any, ...], reduce_mode: bool) -> None:
+def _optimize_entries(entries: tuple[Any, ...]) -> None:
     """Give the attempt sub-clones the specialisations the main pass missed.
 
     :func:`optimize_program` runs over the shell set, and these sub-clones are
@@ -594,16 +576,7 @@ def _optimize_entries(entries: tuple[Any, ...], reduce_mode: bool) -> None:
     one is a single-arm pass-through, the exact shape dispatch conversion
     exists to remove. On the vyx grammar that is a quarter of all clone entries.
 
-    **The reduce path is excluded by licence, not by accident.** A dispatch
-    chase is frame-less, so it would skip the completion callback a reduce
-    clone needs to evaluate its reduction body, and the values would go missing
-    silently. Today :func:`~lexic.parsing.pda.compiler.reduce_pda.reduce_rewrite`
-    bakes every reachable clone to :data:`BUILD_REDUCE`, so the conversion's
-    own ``BUILD_ALT`` test happens to refuse them — a mode-value coincidence
-    that would stop holding the moment either side moved.
     """
-    if reduce_mode:
-        return
     for entry in entries:
         convert_dispatch(entry[-1])
 
@@ -611,11 +584,9 @@ def _optimize_entries(entries: tuple[Any, ...], reduce_mode: bool) -> None:
 def flatten_program(
     clones: dict[CloneKey, CloneSpec],
     start_key: CloneKey | IslandRef,
-    completions: dict[CloneKey, ReduceComp] | None = None,
 ) -> PdaProgram:
-    """Lower the compiled clone table to the flat runtime :class:`PdaProgram`
-    (``completions`` given on the reduce path, ``None`` on the model path)."""
-    shells = flatten_clones(clones, completions)
+    """Lower the compiled clone table to the flat runtime :class:`PdaProgram`."""
+    shells = flatten_clones(clones)
     start: FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )

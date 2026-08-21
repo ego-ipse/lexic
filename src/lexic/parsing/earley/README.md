@@ -75,18 +75,11 @@ packed-links `FastTree`, falling back to trampolined enumeration on ambiguity),
 `ParseForest` / `Enumerate` / `IsAmbiguous` (decode the packed SPPF and drive
 the forest readers).
 
-## `reduce.py` — forest → `IrAst`
+## Grammar-text reduction
 
-Recognition proves a derivation exists; reduction turns it into the target
-`IrAst`. A flavour's meta-notation is a reduction table — an `IrMap` from a
-rule's ref to a body folding its matched children into IR — paired with a
-cleaning policy naming which children are noise (whitespace, delimiters) and
-dropped before a body sees them. `Reducer` folds a `ParseTree` bottom-up, and
-the fold is **depth-safe**: the per-node generators yield trampoline commands
-instead of recursing, so a right-recursive derivation of any depth reduces
-without touching the Python stack. `FusedReduce` fuses recognition and
-reduction (no intermediate `ParseTree` in the common unambiguous case), and
-`ReducePlan` is the compiled home the PDA's reduce bake reads back.
+The Earley engine has no grammar-text reduction product. A compiled grammar
+artefact derives a pruned model grammar from a flavour's declarative reducer,
+parses it through the ordinary model product, and applies a thin fold. The
+engine therefore owns recognition and forest reading only.
 
-See the package `README.md` (§5–§7) for the recognition, forest and reduce
-mechanics in narrative form.
+See the package `README.md` for the recognition and forest mechanics.

@@ -240,7 +240,6 @@ src/lexic/
       normalize.py                 Desugar an IR grammar into classical Earley shape
       reduce/                      Reduction — a parse forest into the reducer's own value
         __init__.py                the group's package marker
-        fused.py                   The fused reduction — folding straight off the packed forest
         policy.py                  Reduction policy — what a child contributes, as real nodes
         reducer.py                 Forest → IR reduction — where a flavour's meaning attaches
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
@@ -279,7 +278,6 @@ src/lexic/
         flatten.py                 The flat int-coded runtime program — the artefact and its readers
         lower.py                   Lowering — a compiled clone set into the flat int-coded program
         opcodes.py                 The flat program's vocabulary — op-code, build-mode, gate and field codes
-        reduce_pda.py              Reduce (grammar-text) completion — the b1 twin of the model fold
         specialize.py              Post-flatten specialisation — the passes that carve the hot-loop op-codes
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
@@ -297,8 +295,7 @@ src/lexic/
         kernel/                   The kernel — the fused driver and its shed halves
           __init__.py              the group's package marker
           decisions.py             The attempt/probe method group — the kernel's decision half
-          reduce_runtime.py        Reduce (grammar-text) predictive runtime — the b1 twin of `PdaKernel`
-          kernel.py                Fused predictive runtime — parses text to a model, no ParseTree on the path
+          kernel.py                Fused predictive runtime + `pda_model` entry — parses text to a model, no ParseTree
 tests/
   unit/lexic/           structural mirror of src/lexic/
   integration/lexic/    cross-module, grouped by what a test DEFENDS:

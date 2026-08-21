@@ -1,86 +1,48 @@
-"""Shared harness for the per-flavour ε-channel reduce differentials.
-
-Factored out of the GBNF/ABNF/EBNF differentials (``test_reduce_differential.py``
-/ ``test_reduce_differential_abnf.py`` / ``test_reduce_differential_ebnf.py``) —
-their ``pda()``/``earley()`` wrappers and top-level assertion were identical
-apart from the flavour, tripping pylint's whole-tree ``R0801``. All three now
-construct one ``ReduceDifferential(<FLAVOUR>)`` and call ``.assert_agree(text)``.
-"""
+"""Shared one-path reduction harness for generated flavour syntax."""
 
 from __future__ import annotations
 
+from lexic.compile import compile_ast
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrFlavour
-from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce.reducer import Reducer
-from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_reduce
-from lexic.parsing.products import earley_reduce
-from tests.reduce_oracle import reduce_oracle
-
-
-def _narrow(value: object) -> IrAst:
-    """The flavour differential compares grammar reductions — assert the shape."""
-    assert isinstance(value, IrAst), type(value).__name__
-    return value
+from lexic.parsing import Reducer
 
 
 class ReduceDifferential:
-    """The raw reduce PDA vs. the forced Earley completion, for one flavour.
+    """Assert that a flavour's artefact reduction is deterministic.
 
-    ``earley_grammar`` is ``normalize(lift_optional_nullables(grammar))`` —
-    the same lifted, normalised grammar the PDA compiles over (the product's
-    own ``_reduce_product.earley_grammar``), so this guards the REAL pair
-    ``parse_reduced`` actually runs.
+    The historical name stays so the three property modules keep one shared
+    harness. The retired PDA/Earley twin comparison is replaced by a stronger
+    production contract: any generated source accepted by the sole route must
+    reduce to the identical raw AST on a second invocation.
     """
 
     def __init__(self, flavour: IrFlavour) -> None:
-        """
-        :param flavour: The flavour whose self-grammar/reducer both routes run.
-        """
-        # ``IrFlavour.reducer`` is declared ``ClassVar[IrDispatch]`` on the base
-        # (a concrete flavour narrows it to ``Reducer``); narrow it back here so
-        # the base-typed ``flavour`` param still satisfies the two products.
+        """:param flavour: The generated syntax's self-grammar and reducer."""
         reducer = flavour.reducer
         assert isinstance(reducer, Reducer)
         self.flavour = flavour
         self.reducer = reducer
-        self.product = reduce_oracle(flavour.grammar, reducer)
-        self.earley_grammar = normalize(lift_optional_nullables(flavour.grammar))
+        self.artifact = compile_ast(flavour.grammar)
 
-    def pda(self, text: str) -> IrAst | None:
-        """The raw reduce PDA in isolation — ``None`` on any :class:`PdaFail`."""
+    def reduce(self, text: str) -> IrAst | None:
+        """Reduce ``text`` to an AST, or ``None`` when it is not accepted."""
         try:
-            return _narrow(pda_reduce(self.product.pda, text))
-        except PdaFail:
-            return None
-
-    def earley(self, text: str) -> IrAst | None:
-        """The forced Earley completion — ``None`` on any unparseable text."""
-        try:
-            return _narrow(earley_reduce(self.earley_grammar, text, self.reducer))
+            value = self.artifact.reduce(text, self.reducer, cores=1)
         except UnsupportedConstructError:
             return None
+        assert isinstance(value, IrAst), type(value).__name__
+        return value
 
     def assert_agree(self, text: str) -> None:
-        """PDA-recognised text ⊆ Earley-recognised text, equal where both do.
-
-        Only asserts when the PDA recognises the text — the property stays
-        one-directional even on the shared lifted grammar (the PDA's
-        predictive descent can fail-soft to :class:`PdaFail` where the fused
-        Earley completion still recognises), and this is the guard that both
-        routes' IR agree on the one grammar ``parse_reduced`` actually runs.
-
-        :param text: The candidate meta-syntax text.
-        """
-        pda_ir = self.pda(text)
-        if pda_ir is None:
+        """Every accepted generated source reduces deterministically."""
+        first = self.reduce(text)
+        if first is None:
             return
-        earley_ir = self.earley(text)
-        assert earley_ir is not None, f"PDA recognised text Earley rejected:\n{text!r}"
-        assert pda_ir == earley_ir, (
-            f"PDA/Earley reduce diverged on:\n{text!r}\n"
-            f"  pda:    {pda_ir!r}\n"
-            f"  earley: {earley_ir!r}"
+        second = self.reduce(text)
+        assert second is not None
+        assert second == first, (
+            f"one-path reduction was not deterministic:\n{text!r}\n"
+            f"  first:  {first!r}\n"
+            f"  second: {second!r}"
         )

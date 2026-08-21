@@ -28,7 +28,6 @@ from lexic.parsing.pda.compiler.flatten import (
 from lexic.parsing.pda.compiler.opcodes import (
     BUILD_ALT,
     BUILD_DISPATCH,
-    BUILD_REDUCE,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -52,9 +51,6 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_REF,
     OP_REF1,
     OP_VSTR,
-    R_DROP,
-    R_KEEP,
-    R_SPLICE,
     TERMINAL_OPS,
 )
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
@@ -93,22 +89,15 @@ def test_gate_codes_are_distinct():
 
 
 def test_build_mode_codes_are_pairwise_distinct():
-    """Every clone build-mode (including dispatch and reduce) is a distinct int."""
+    """Every model clone build-mode is a distinct int."""
     modes = [
         BUILD_TRANSPARENT,
         BUILD_VALUE_STR,
         BUILD_ALT,
         BUILD_SEQ,
         BUILD_DISPATCH,
-        BUILD_REDUCE,
     ]
     assert len(modes) == len(set(modes))
-
-
-def test_reduce_completion_kinds_are_pairwise_distinct():
-    """The reduce completion kinds (KEEP/DROP/SPLICE) are distinct ints."""
-    kinds = [R_KEEP, R_DROP, R_SPLICE]
-    assert len(kinds) == len(set(kinds))
 
 
 def test_mode_code_matches_bind_modes_order():
@@ -149,8 +138,6 @@ def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
     expected |= {"mode", "fold", "fields", "plan"}
     expected |= {"fast", "defaults", "leaf", "chartable", "chartotal"}
     expected |= {"runarm", "needs_ends"}
-    expected |= {"reduce_kind", "reduce_body", "reduce_is_yield"}
-    expected |= {"reduce_span", "reduce_can_drop"}
     assert set(FlatClone.__slots__) == expected
 
 

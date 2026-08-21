@@ -77,9 +77,7 @@ def predecessor_chain(
 ) -> list[KLink] | None:
     """Walk a packed handle's single-link predecessor chain down to ``base``.
 
-    Shared by :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree` and
-    :class:`~lexic.parsing.earley.reduce.FusedReduce`, whose kid-collection walks
-    are otherwise identical.
+    Shared by forest readers that walk a packed predecessor chain.
 
     :param links: The parse's SPPF family table.
     :param handle: The packed ``(item << bits) | end`` — the same spelling

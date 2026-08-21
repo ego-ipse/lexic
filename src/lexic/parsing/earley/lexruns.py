@@ -18,10 +18,9 @@ silent maximal-munch approximation:
    can never be required by any continuation — maximal munch is *complete*.
 
 A char class too large to expand poisons every set it touches
-(conservative: the affected rules simply stay per-char). The reducer-side
-half of the decision — whether the collapsed run's per-char contributions
-can be reconstructed — lives in :mod:`~lexic.parsing.earley.reduce`, fed by
-:func:`unit_leaves`.
+(conservative: the affected rules simply stay per-char). Product folds add
+their own licence for whether hidden per-character structure is reconstructible,
+fed by :func:`unit_leaves`.
 """
 
 from __future__ import annotations
@@ -298,8 +297,8 @@ strong grammar reference pins the id against reuse."""
 def recognition_tables(grammar: IrAst, bits: int = ORIGIN_BITS) -> ParserTables:
     """Tables with **every** grammar-proved run collapsed — recognition only.
 
-    Recognition builds no tree and no SPPF, so the reducer-side
-    reconstruction constraint does not apply: any candidate that passes the
+    Recognition builds no tree and no SPPF, so a fold-side reconstruction
+    constraint does not apply: any candidate that passes the
     three grammar proofs collapses (the contribution mode is never read).
     The recognised language is identical by the follow-disjointness proof.
 

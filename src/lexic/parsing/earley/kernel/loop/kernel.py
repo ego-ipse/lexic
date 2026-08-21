@@ -206,8 +206,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         FIRST is also ``None`` and never gates. Empty-deriving arms must
         ALWAYS seed: :meth:`_nullable_advance` records their done-codes as
         SPPF children, and a nested-nullable arm's empty completion needs its
-        own advance links in the chart for :class:`FastTree` /
-        :class:`~lexic.parsing.earley.reduce.FusedReduce` to walk. The ``predicted``
+        own advance links in the chart for :class:`FastTree` to walk. The ``predicted``
         guard stays valid (the char is fixed per column). Leo: fewer waiters
         can only shrink buckets — Leo may *engage more often*; the chart's
         shape changes, the language and derivation sets do not. At column
@@ -375,7 +374,7 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
         :param end: The sub-run's end column (``> i`` — nullable rules are never
             delegated, so the completion is non-empty and the normal completer
             fires on it).
-        :param payload: The sub-run's pre-built value (model / reduced IR).
+        :param payload: The sub-run's pre-built model value.
         """
         codes = self.tables.codes
         bits = self.tables.packing.bits

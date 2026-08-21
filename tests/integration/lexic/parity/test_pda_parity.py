@@ -5,7 +5,7 @@ the four **island-free** grammars, this module is the *wide* matrix: all 10
 ground-truth grammars (islands included — c/chess/json/json_arr/json_ws all
 carry at least one), each driven through both internal seams directly:
 
-- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` with the real
+- **forced-PDA** — :func:`~lexic.parsing.pda.runtime.kernel.kernel.pda_model` with the real
   fold supplied (so island references splice their Earley sub-parse);
 - **forced-engine** — ``cg.fold.apply(parse_first(prod(cg).instance_grammar, text,
   prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
@@ -37,7 +37,7 @@ from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.compiler.specialize import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import earley_model
 from tests.integration.lexic.parity.pda_parity_helpers import (
     check_one,

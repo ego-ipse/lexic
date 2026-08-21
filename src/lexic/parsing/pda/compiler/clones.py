@@ -59,9 +59,6 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
-from lexic.parsing.earley.kernel.tables.builder import compile_tables
-from lexic.parsing.earley.reduce.fused import OTHER_KIND, plan_for
-from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
@@ -70,11 +67,6 @@ from lexic.parsing.pda.compiler.flatten import (
     PdaProgram,
 )
 from lexic.parsing.pda.compiler.lower import flatten_clones
-from lexic.parsing.pda.compiler.reduce_pda import (
-    ReduceComp,
-    ReduceCompile,
-    ReduceRun,
-)
 from lexic.parsing.pda.compiler.specs import (
     CC,
     GRP,
@@ -99,11 +91,8 @@ from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 
 __all__ = [
     "compile_pda",
-    "compile_reduce_pda",
     "PdaTables",
     "PdaProgram",
-    "ReduceComp",
-    "ReduceRun",
     "CloneSpec",
     "CloneKey",
     "IslandRef",
@@ -328,16 +317,12 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     :ivar islands: The island rule names — never cloned.
     :ivar fail_islands: The fail-island subset — references raise ``PdaFail``.
     :ivar clones: The compiled clone table, keyed by :class:`CloneKey`.
-    :ivar reduce: The reduce completion source, or ``None`` for the model path.
-    :ivar completions: Clone key → its :class:`ReduceComp` (reduce path only).
     """
 
     __slots__ = (
         "analysis",
         "fold_config",
         "clones",
-        "reduce",
-        "completions",
         "pending",
         "draining",
     )
@@ -345,8 +330,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     analysis: GrammarAnalysis
     fold_config: Mapping[str, RuleFold]
     clones: dict[CloneKey, CloneSpec]
-    reduce: ReduceCompile | None
-    completions: dict[CloneKey, ReduceComp]
     pending: list[CloneKey]
     draining: bool
 
@@ -354,15 +337,11 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self,
         analysis: GrammarAnalysis,
         fold_config: Mapping[str, RuleFold] | None = None,
-        *,
-        reduce: ReduceCompile | None = None,
     ) -> None:
-        """Prepare the compiler for one target (model fold, or reduce)."""
+        """Prepare the compiler for one model fold target."""
         self.analysis = analysis
         self.fold_config = fold_config or {}
         self.clones = {}
-        self.reduce = reduce
-        self.completions = {}
         self.pending = []
         self.draining = False
 
@@ -484,8 +463,6 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self.clones[key] = CloneSpec(
             name, arms, default, fold, match_only, struct, follow
         )
-        if self.reduce is not None:
-            self.completions[key] = self.reduce.comp_for(name)
 
     def compile_arms(
         self,
@@ -641,7 +618,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
 def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: PdaCompiler) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
-    (built from ``lifted`` + the compiler's fold/reduce target; the injected
+    (built from ``lifted`` + the compiler's fold target; the injected
     ``(PdaCompiler, flatten_clones)`` seam keeps the delegate leaf import-free
     of this module)."""
     name_to_rid = {
@@ -650,7 +627,7 @@ def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: PdaCompiler) -
     tables.program.delegates = DelegateSource(
         lifted,
         name_to_rid,
-        (compiler.fold_config, compiler.reduce),
+        compiler.fold_config,
         (PdaCompiler, flatten_clones),
     )
 
@@ -679,48 +656,3 @@ def compile_pda(
     tables = PdaTables(compiler, start_key, instance_grammar)
     _attach_delegates(tables, lifted, compiler)
     return tables
-
-
-def compile_reduce_pda(
-    lifted: IrAst, instance_grammar: IrAst, reducer: Reducer
-) -> PdaTables:
-    """Compile the predictive-parser tables for a grammar-text (reducer) parse.
-
-    The b1 twin of :func:`compile_pda`: one recognition compile (same analysis,
-    clones, islands), but each clone bakes a :class:`ReduceComp` completion read
-    from the reducer's compiled :class:`~lexic.parsing.earley.reduce.ReducePlan`
-    (H5 — the single home the Earley fused path also reads) rather than a model
-    :class:`~lexic.parsing.fold.RuleFold`. The runtime feeds each clone's cleaned
-    children to its reduction ``body.eval`` — no intermediate ParseTree.
-
-    Always returns tables (the compiler is total). A reducer whose terminal-leaf
-    policy the reduce runtime cannot reconstruct (a grammar-global condition with
-    no enclosing rule) compiles to an **immediate-PdaFail start** — an
-    :class:`IslandRef` start over an empty clone table, so
-    :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` raises
-    :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail` on the first step and the caller
-    completes on the Earley reduce per parse (no ``None`` channel, no windowed
-    self-parse of the whole input).
-
-    :returns: The compiled :class:`PdaTables` (its :attr:`~PdaTables.reduce` set).
-    :raises UnsupportedConstructError: On an atom the clone compiler cannot
-        handle (a genuine boundary error, never a downgrade).
-    """
-    tables = compile_tables(instance_grammar)
-    plan = plan_for(reducer, tables)
-    name_to_rid = {name: rid for rid, name in enumerate(tables.decode.rule_names)}
-    analysis = GrammarAnalysis(lifted)
-    run = ReduceRun(reducer, plan, tables, name_to_rid)
-    if plan.literal_kind == OTHER_KIND:
-        # Reduce policy the runtime cannot reconstruct → immediate-PdaFail start.
-        return PdaTables(
-            PdaCompiler(analysis),
-            IslandRef(analysis.start),
-            instance_grammar,
-            reduce=run,
-        )
-    compiler = PdaCompiler(analysis, reduce=ReduceCompile(reducer, plan, name_to_rid))
-    start_key = compiler.compile_start()
-    pda = PdaTables(compiler, start_key, instance_grammar, reduce=run)
-    _attach_delegates(pda, lifted, compiler)
-    return pda

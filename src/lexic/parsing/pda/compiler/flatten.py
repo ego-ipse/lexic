@@ -328,19 +328,6 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         ``text``/``gtext`` mode) — only then does a frame allocate and write
         per-item end positions.
 
-    Reduce clones (:data:`BUILD_REDUCE`, the grammar-text path) additionally
-    carry the completion data below; a model clone never sets or reads them.
-
-    :ivar reduce_kind: One of :data:`R_KEEP` / :data:`R_DROP` /
-        :data:`R_SPLICE`.
-    :ivar reduce_body: The rule's reduction body (an
-        :class:`~lexic.ir.base.IrSelf`), or ``None`` for DROP / SPLICE.
-    :ivar reduce_is_yield: ``True`` when the body IS ``YIELD`` (the clone's
-        whole span is its value).
-    :ivar reduce_span: ``True`` when the body mentions ``YIELD`` (its matched
-        span is passed as ``n``).
-    :ivar reduce_can_drop: ``plan.can_drop`` for the rule — whether a DROP-noise
-        span is reachable beneath it (a span read then cannot be one O(1) slice).
     """
 
     __slots__ = (
@@ -362,11 +349,6 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "chartotal",
         "runarm",
         "needs_ends",
-        "reduce_kind",
-        "reduce_body",
-        "reduce_is_yield",
-        "reduce_span",
-        "reduce_can_drop",
     )
 
     name: str
@@ -387,11 +369,6 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     chartotal: bool
     runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
-    reduce_kind: int
-    reduce_body: Any  # IrSelf | None
-    reduce_is_yield: bool
-    reduce_span: bool
-    reduce_can_drop: bool
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):

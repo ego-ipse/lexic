@@ -23,7 +23,7 @@ from lexic.grammars.abnf import ABNF_FLAVOUR, ABNF_GRAMMAR, ABNF_REDUCER
 from lexic.ir import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.products import earley_reduce
+from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.integration.lexic.roundtrip.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
@@ -100,9 +100,9 @@ def test_corpus_matches_golden_keys() -> None:
 
 
 @pytest.mark.parametrize("key", CORPUS, ids=list(CORPUS))
-def test_reduces_to_golden_fingerprint(key: str, norm_grammar: IrAst) -> None:
-    """earley_reduce yields the golden start rule and rule set."""
-    ast = earley_reduce(norm_grammar, CORPUS[key], ABNF_REDUCER)
+def test_reduces_to_golden_fingerprint(key: str) -> None:
+    """Artefact reduction yields the golden start rule and rule set."""
+    ast = earley_reduce(ABNF_GRAMMAR, CORPUS[key], ABNF_REDUCER)
     assert isinstance(ast, IrAst)
     assert fingerprint(ast) == GOLDEN[key]
 
@@ -114,10 +114,10 @@ def test_corpus_unambiguous(key: str, norm_grammar: IrAst) -> None:
 
 
 @pytest.mark.parametrize("key", CORPUS, ids=list(CORPUS))
-def test_emit_reparse_preserves_fingerprint(key: str, norm_grammar: IrAst) -> None:
+def test_emit_reparse_preserves_fingerprint(key: str) -> None:
     """Emitting the reduced AST as ABNF and re-parsing keeps the rule fingerprint."""
-    ast = earley_reduce(norm_grammar, CORPUS[key], ABNF_REDUCER)
+    ast = earley_reduce(ABNF_GRAMMAR, CORPUS[key], ABNF_REDUCER)
     assert isinstance(ast, IrAst)
-    reparsed = earley_reduce(norm_grammar, str(ABNF_FLAVOUR.apply(ast)), ABNF_REDUCER)
+    reparsed = earley_reduce(ABNF_GRAMMAR, str(ABNF_FLAVOUR.apply(ast)), ABNF_REDUCER)
     assert isinstance(reparsed, IrAst)
     assert fingerprint(reparsed) == fingerprint(ast)

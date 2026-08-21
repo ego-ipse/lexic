@@ -25,7 +25,7 @@ from typing import NamedTuple, TypedDict
 from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import LexicError
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import _model_product, earley_model
 
 REFUSALS = (LexicError, PdaFail, RecursionError)

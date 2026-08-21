@@ -107,7 +107,7 @@ parsing/
     chart.py          Chart/Links — the decoded SPPF; EarleyItem
     engine.py         per-capability orchestration nodes behind the public API
     forest.py         ParseTree, SppfNode, trampolined enumeration
-    reduce.py         Reducer, FusedReduce, ReducePlan — forest → IrAst (§7)
+    reduce/           declarative reducer data (moves to `lexic.ir` in §1h)
     normalize.py      desugar IR into classical Earley shape (§6)
     lexruns.py        derived run terminals (§5)
     trampoline.py     depth-safe generator driver
@@ -124,16 +124,14 @@ parsing/
       kwindow.py        FIRST_k over CharSet tuples — bounded-lookahead gates
       taxonomy.py       Taxonomy — classified notes + the stored gate specs
     compiler/         compile the IrAst into flat int-coded tables (§11)
-      clones.py         the clone compiler, model and reduce variants
+      clones.py         the model clone compiler
       specs.py          the compiler-intermediate NamedTuple vocabulary
       flatten.py        the int-coded runtime program + optimizer passes
-      reduce_pda.py     the reduce completion read off the ReducePlan (§12)
       delegate_compile.py DelegateSource — island-interior delegation (§13)
     runtime/          execute the tables — the fused model build (§12)
       kernel/           the driver and its shed halves
         kernel.py         PdaKernel — the fused model runtime
         decisions.py      the attempt/probe method group the kernel inherits
-        reduce_runtime.py the reduce twin of the runtime
       admission.py      attempt-seam leaves — admission tests, scratch, stack copy
       build.py          frame-slot layout + the fused model-build tail
       matchers.py       terminal matching — the cursor-free recognition leaf
@@ -193,10 +191,8 @@ a synthetic star/plus rule collapses into a single maximal-munch `RunTerm`
 only when three proofs hold — fixed charset, derivation uniqueness (pairwise
 disjoint alternatives, so the collapse hides no ambiguity from the SPPF), and
 follow disjointness (`FOLLOW(rule) ∩ charset = ∅`, so no continuation ever
-needs a shorter match). The reducer-side licence is
-`reduce.collapsed_tables` (a run may only collapse when its per-char
-reduction contributions reconstruct from the run text); the fold-side sibling
-is `fold.collapsed_fold_tables` (safe iff no constructor-bearing rule sits
+needs a shorter match). The fold-side licence is
+`fold.collapsed_fold_tables` (safe iff no constructor-bearing rule sits
 among a run's unit leaves). Collapsed tables are per (policy, grammar) and
 memoised; `parse`/`recognize`/forest readers keep plain tables and exact
 `ParseTree` shapes.
@@ -209,19 +205,13 @@ quantifiers desugar to synthetic right-recursive rules (`*`/`?` nullable; Leo
 keeps the recursion linear). Large *bounded* counts (`{lo, hi}`) still unroll
 `hi`-deep at desugar time — the one remaining rough edge.
 
-## 7. Reduction (`earley/reduce.py`) — the grammar-text meta-notation seam
+## 7. Grammar-text reduction — one artefact path
 
-A flavour's "meta notation" is its `Reducer`: `reductions` (an `IrMap` from a
-rule's `IrRuleRef` to a body folding the rule's matched children into IR) and
-a cleaning policy (`noise` per child rule, `literal` for terminal leaves;
-`YIELD` recovers a subtree's source text). Two folds implement it:
-**`FusedReduce`** — one explicit-stack pass folds the packed SPPF straight to
-IR, no intermediate `ParseTree`; a `ReducePlan` (cached per reducer × tables)
-compiles the policies against the rule numbering, `YIELD` bodies reduce to
-O(1) source spans when `can_drop` reachability allows, and any shape the plan
-can't compile falls back to a plain parse + the general **`Reducer`-over-
-`ParseTree`** fold. The reduce PDA (§12) reads this same `ReducePlan` — one
-compiled policy, three consumers.
+A flavour's reducer is declarative grammar-side data: rule bodies plus child
+and literal contribution policies. `CompiledGrammar.reduce` derives a pruned
+model variant from those declarations, runs the ordinary model product, and
+applies `ReduceFold`. Earley and the PDA contain no reduce completion, plan,
+runtime, or fallback twin.
 
 ## 8. The instance fold (`fold.py`) — text → model
 
@@ -303,9 +293,7 @@ bounds and loop gate (`StopGate`/`PairGate`/`KTupleGate`/`PeekGate`/
 attached inside the compiler's own arm enumeration so spec↔arm alignment
 cannot drift) plus at most one nullable default. Every clone bakes its
 `RuleFold`; island rules are not cloned (`IslandRef`, §13). A start rule
-that is itself an island — or a reducer whose policy the reduce runtime
-cannot reconstruct (a grammar-global condition with no enclosing rule) —
-compiles to a start that fails immediately to the Earley completion: the
+that is itself an island compiles to a start that fails immediately to the Earley completion: the
 tables are still total, there is no `None` and no windowed self-parse of
 the whole input. The `CloneSpec`/`ItemSpec`
 NamedTuples are the compiler *intermediate* (what the structural tests pin);
@@ -314,10 +302,7 @@ NamedTuples are the compiler *intermediate* (what the structural tests pin);
 runtimes — the EOF-exact ≤k window matcher, the non-consuming noise-skip
 peek, the arm-side scan selector) and runs the post-flatten optimizer passes
 (exactly-once terminal/call specialisation, `value_str` inlining, frame-less
-leaf marking, pass-through dispatch conversion). The reduce variant of the
-compile retargets the flat clones for the grammar-text product
-(`reduce_pda.py` bakes its completions straight off the reducer's compiled
-`ReducePlan` — no re-derivation). Everything `flatten.py` exposes to its
+leaf marking, pass-through dispatch conversion). Everything `flatten.py` exposes to its
 sibling consumers (op-codes, flat records, gate helpers) is public by name.
 
 ## 12. The fused runtime (`pda/runtime/kernel/`)
@@ -327,12 +312,8 @@ frames (no Python recursion) walks the int-coded `PdaProgram`, **building the
 model during the walk** — no `ParseTree`. Terminal quantifier loops match
 inline; capture frames own per-item spans and sub-model sinks, capture
 bubbles to the nearest bound item through transparent frames (groups,
-no-constructor clones) exactly as `ModelFold` collects. The reduce kernel
-(`kernel/reduce_runtime.py`) is the grammar-text twin: it shares the whole
-recognition machinery and overrides only the completion callbacks, producing
-reduced IR (including the O(1) `YIELD` span stitch, mirroring
-`FusedReduce`). One internal dispatch serves both behind the product
-entries. On *any* non-deterministic point the runtime raises **`PdaFail`**
+no-constructor clones) exactly as `ModelFold` collects. `pda_model` is the
+single predictive runtime entry. On *any* non-deterministic point the runtime raises **`PdaFail`**
 (`errors.py`) — caught inside the product entries, which retry on the Earley
 completion; the completion owns user-facing diagnostics.
 

@@ -10,7 +10,7 @@ API changes from the int-kernel rework:
 - New re-exports added and tested here: ``FastTree``, ``Kernel``, ``Link``,
   ``Links``, ``ParserTables``, ``compile_tables`` (``Link``/``Links`` existed
   before this rework too, but were untested at this layer).
-- Also tested here: ``earley_model``, ``earley_reduce``, ``GrammarAnalysis``,
+- Also tested here: ``earley_model``, ``GrammarAnalysis``,
   ``PdaKernel`` — the engine-floor root re-exports beside ``Kernel``.
 """
 
@@ -44,7 +44,6 @@ from lexic.parsing import (
     compile_tables,
     derivations,
     earley_model,
-    earley_reduce,
     is_ambiguous,
     lift_optional_nullables,
     normalize,
@@ -80,7 +79,7 @@ from lexic.parsing.pda.analysis.analysis import GrammarAnalysis as GrammarAnalys
 from lexic.parsing.pda.compiler.tables import PdaTables as PdaTablesDirect
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel as PdaKernelDirect
 from lexic.parsing.products import earley_model as earley_model_direct
-from lexic.parsing.products import earley_reduce as earley_reduce_direct
+from tests.reduce_helpers import reduce_text
 
 
 def test_chart_re_exported_from_package():
@@ -213,9 +212,7 @@ def test_product_entries_take_the_authored_grammar_pda_first():
     text = 'root ::= "abc"\n'
     got = compile_ast(GBNF_FLAVOUR.grammar).reduce(text, GBNF_FLAVOUR.reducer)
     assert isinstance(got, IrAst)
-    assert got == earley_reduce(
-        normalize(GBNF_FLAVOUR.grammar), text, GBNF_FLAVOUR.reducer
-    )
+    assert got == reduce_text(GBNF_FLAVOUR.grammar, text, GBNF_FLAVOUR.reducer)
 
 
 # ── The engine-floor root exports ───────────────────────────────────────
@@ -224,11 +221,6 @@ def test_product_entries_take_the_authored_grammar_pda_first():
 def test_earley_model_re_exported_from_package():
     """earley_model is re-exported from the package top-level."""
     assert earley_model is earley_model_direct
-
-
-def test_earley_reduce_re_exported_from_package():
-    """earley_reduce is re-exported from the package top-level."""
-    assert earley_reduce is earley_reduce_direct
 
 
 def test_grammar_analysis_re_exported_from_package():

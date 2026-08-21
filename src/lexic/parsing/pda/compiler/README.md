@@ -49,15 +49,6 @@ paid once; the program is shared and immutable across every parse. `flatten.py`
 imports nothing from `clones.py` — the `spec → flat` bridge lives beside the
 specs it reads.
 
-## `reduce_pda.py` — the grammar-text bake
-
-The reduce-path counterpart of the model fold: where the model path bakes a
-`RuleFold` onto each clone, the grammar-text path bakes a `ReduceComp` read
-straight off the reducer's compiled `ReducePlan` — the same home the Earley
-fused reduce reads, so there is no re-derivation. A leaf w.r.t. the clone
-compiler: it imports the flatten runtime constants and the Earley reduce plan;
-`clones.py` imports *it* back, never the reverse.
-
 ## `delegate_compile.py` — island-interior delegation
 
 Given one island's sub-grammar, `DelegateSource` picks the conflict-free,

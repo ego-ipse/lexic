@@ -41,7 +41,7 @@ from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
-from lexic.parsing.products import earley_reduce
+from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.unit.lexic.conftest import (
     GRAMMAR_AST_TYPES,
     assert_wide_rule_wraps_and_round_trips,
@@ -241,8 +241,12 @@ def test_gbnf_charclass_mixed_emits_run_then_range():
 
 
 def normalize_grammar(g: IrAst) -> IrAst:
-    """Full normalization pipeline: flatten_groups -> desugar_quantifiers."""
-    return normalize(g)
+    """Return the authored grammar expected by the public artefact seam.
+
+    The historical helper name is retained so the reduction-behaviour tests
+    remain compact; normalization is now wholly owned by compilation.
+    """
+    return g
 
 
 def ruleref_names(seq: IrSequence) -> list[str]:
@@ -636,7 +640,7 @@ def test_multiline_rule_continuation():
 def test_two_char_name_is_unambiguous():
     """'a ::= bc' has exactly one derivation: ONE two-char ruleref, not two."""
     g = normalize_grammar(GBNF_GRAMMAR)
-    assert len(derivations(g, "a ::= bc\n")) == 1
+    assert len(derivations(normalize(g), "a ::= bc\n")) == 1
     result = earley_reduce(g, "a ::= bc\n", GBNF_REDUCER)
     assert isinstance(result, IrAst)
     rule = list(result.rules)[0]
@@ -649,7 +653,7 @@ def test_rule_boundary_is_unambiguous():
     """'a ::= b\\nc ::= d' has exactly one derivation: two separate rules."""
     g = normalize_grammar(GBNF_GRAMMAR)
     text = "a ::= b\nc ::= d\n"
-    assert len(derivations(g, text)) == 1
+    assert len(derivations(normalize(g), text)) == 1
     result = earley_reduce(g, text, GBNF_REDUCER)
     assert isinstance(result, IrAst)
     assert [r.name for r in result.rules] == ["a", "c"]
@@ -658,7 +662,7 @@ def test_rule_boundary_is_unambiguous():
 def test_charclass_range_vs_dash_is_unambiguous():
     """'a ::= [0-9]' has exactly one derivation: a range, not unit-dash-unit."""
     g = normalize_grammar(GBNF_GRAMMAR)
-    assert len(derivations(g, "a ::= [0-9]\n")) == 1
+    assert len(derivations(normalize(g), "a ::= [0-9]\n")) == 1
     result = earley_reduce(g, "a ::= [0-9]\n", GBNF_REDUCER)
     assert isinstance(result, IrAst)
     atom = first_item(result).atom

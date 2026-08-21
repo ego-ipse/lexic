@@ -1,15 +1,4 @@
-"""Tests for lexic.parsing.products — the two product entries + their
-per-identity memoisation.
-
-``parse_reduced``/``parse_model`` are the PDA-first product entries; the
-tests here exercise them directly (rather than through ``compile.py``'s
-thin wrappers, already covered in ``test_compile.py``) and pin the parts of
-the module those wrappers never touch: the Earley-completion entries as a
-route-forcing seam, ``_reduce_product``/``_model_product`` memoisation by
-object identity (including the ``reset_product_cache`` test seam), and the
-the boundary checks (the widened reduce product, ``parse_reduced``'s
-reducer-shape guard).
-"""
+"""Tests for the sole model product and its per-identity memoisation."""
 
 from __future__ import annotations
 
@@ -17,7 +6,8 @@ from typing import cast
 
 import pytest
 
-from lexic.compile import Vocabulary, compile_ast, compile_text
+from lexic.compile import Vocabulary, compile_ast, compile_text, reset_cache_for_tests
+from lexic.compile.artifact import _reduce_entry
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
@@ -25,33 +15,26 @@ from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrAst, IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
-from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer
-from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import (
     _MODEL_CACHE,
     _model_product,
     earley_model,
-    earley_reduce,
     parse_model,
     pda_tables,
     reset_product_cache,
 )
-from tests.reduce_oracle import (
-    reduce_one as parse_reduced,
-    reduce_oracle as _reduce_product,
-    reset_reduce_oracle,
-)
+from tests.reduce_helpers import reduce_text
 from tests.unit.lexic.parsing.parsing_helpers import compiled
 
 # ── the Earley completions (route-forcing seam) ────────────────────────────
 
 
-def test_earley_reduce_returns_ir_ast():
-    """earley_reduce folds grammar text straight to IR over a normalised grammar."""
+def test_artifact_reduce_returns_ir_ast():
+    """The compiled self-grammar artefact reduces grammar text to IR."""
     text = 'root ::= "x" | "y"\n'
-    ast = earley_reduce(normalize(GBNF_FLAVOUR.grammar), text, GBNF_FLAVOUR.reducer)
+    ast = reduce_text(GBNF_FLAVOUR.grammar, text, GBNF_FLAVOUR.reducer)
     assert isinstance(ast, IrAst)
     assert [r.name for r in ast.rules] == ["root"]
 
@@ -79,13 +62,12 @@ def test_earley_model_compiles_its_own_tables_when_none_supplied():
 # ── the product entries agree with their Earley completions ────────────────
 
 
-def test_parse_reduced_matches_earley_reduce_completion():
-    """parse_reduced (PDA-first) and earley_reduce (the forced completion, over
-    the normalised grammar) agree on the same grammar-text input."""
+def test_public_and_direct_artifact_reduction_agree():
+    """The public grammar reader and direct artefact capability are one path."""
     text = 'root ::= "x" "y" | "z"\n'
-    got = parse_reduced(GBNF_FLAVOUR.grammar, text, GBNF_FLAVOUR.reducer)
-    expected = earley_reduce(
-        normalize(GBNF_FLAVOUR.grammar), text, GBNF_FLAVOUR.reducer
+    got = reduce_text(GBNF_FLAVOUR.grammar, text, GBNF_FLAVOUR.reducer)
+    expected = compile_ast(GBNF_FLAVOUR.grammar).reduce(
+        text, GBNF_FLAVOUR.reducer, cores=1
     )
     assert got == expected
 
@@ -103,26 +85,20 @@ def test_parse_model_matches_earley_model_completion():
     assert got.to_text() == "ab"
 
 
-def test_reduce_product_earley_grammar_is_lifted_before_normalizing():
-    """``_reduce_product.earley_grammar`` is ``normalize(lift_optional_nullables
-    (grammar))`` — the SAME lifted, normalised grammar the reduce PDA compiles
-    over, not the plain (un-lifted) ``normalize(grammar)`` a stale completion
-    route would use. A PDA/completion item-position mismatch on a grammar with
-    an ``R?`` over a nullable ``R`` is exactly what this pins against."""
-    product = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-    assert product.earley_grammar == normalize(
-        lift_optional_nullables(GBNF_FLAVOUR.grammar)
-    )
+def test_reduce_variant_handles_optional_nullable_rules():
+    """The one-path variant preserves an optional nullable self-grammar case."""
+    ast = reduce_text(GBNF_FLAVOUR.grammar, 'root ::= ("x" |)?\n', GBNF_FLAVOUR.reducer)
+    assert isinstance(ast, IrAst)
 
 
 # ── per-identity memoisation ────────────────────────────────────────────────
 
 
 def test_reduce_product_is_the_same_object_for_the_same_identity():
-    """Two calls with the identical (grammar, reducer) objects return the
-    SAME compiled product — no recompilation."""
-    first = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-    second = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    """The derived variant entry is memoised per artefact and reducer."""
+    artifact = compile_ast(GBNF_FLAVOUR.grammar)
+    first = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
+    second = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
     assert first is second
 
 
@@ -136,13 +112,12 @@ def test_model_product_is_the_same_object_for_the_same_identity():
 
 
 def test_reset_product_cache_forces_reduce_product_recompilation():
-    """reset_product_cache drops the reduce cache — the next call for the same
-    identity recompiles rather than reusing the stale product."""
-    first = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-    reset_reduce_oracle()
-    second = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    """The compile reset clears the derived reduction-entry cache."""
+    artifact = compile_ast(GBNF_FLAVOUR.grammar)
+    first = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
+    reset_cache_for_tests()
+    second = _reduce_entry(artifact, GBNF_FLAVOUR.reducer)
     assert first is not second
-    assert first.grammar is second.grammar
     assert first.reducer is second.reducer
 
 
@@ -200,17 +175,15 @@ def test_reset_product_cache_forces_pda_tables_recompilation():
 
 
 def test_parse_reduced_returns_the_reduction_unnarrowed():
-    """The reduce product passes any reduction through — a grammar's reducer
-    may fold documents to values (the IrAst narrowing lives at the
-    ``compile.parse_grammar`` boundary, not in the product)."""
-    doc = parse_reduced(JSON_GRAMMAR, '{"a": 1}', JSON_REDUCER)
+    """An artefact reduction may return a value other than ``IrAst``."""
+    doc = reduce_text(JSON_GRAMMAR, '{"a": 1}', JSON_REDUCER)
     assert isinstance(doc, IrMap)
 
 
 def test_flavour_reduction_is_an_ir_ast():
     """A flavour's reduction still narrows to IrAst at the compile boundary —
     the product itself passes it through unnarrowed."""
-    ast = parse_reduced(GBNF_FLAVOUR.grammar, 'root ::= "x"\n', GBNF_FLAVOUR.reducer)
+    ast = reduce_text(GBNF_FLAVOUR.grammar, 'root ::= "x"\n', GBNF_FLAVOUR.reducer)
     assert isinstance(ast, IrAst)
 
 
@@ -251,7 +224,7 @@ def test_parse_model_picks_the_tier_by_input_size(monkeypatch):
 # ── the reduce path decides ambiguity the same way everything else does ──
 
 
-def test_earley_reduce_accepts_derivations_that_reduce_to_one_value():
+def test_artifact_reduce_accepts_derivations_that_reduce_to_one_value():
     """Two derivations, one meaning, is not an ambiguity — anywhere.
 
     The islands path stopped counting derivations and started comparing the
@@ -261,8 +234,7 @@ def test_earley_reduce_accepts_derivations_that_reduce_to_one_value():
     to exactly one value. Earley refused all of them, which left `parse_grammar`
     for EBNF riding entirely on the PDA never escaping.
     """
-    product = _reduce_product(EBNF_FLAVOUR.grammar, EBNF_FLAVOUR.reducer)
-    got = earley_reduce(product.earley_grammar, "a = b ;\n", EBNF_FLAVOUR.reducer)
+    got = reduce_text(EBNF_FLAVOUR.grammar, "a = b ;\n", EBNF_FLAVOUR.reducer)
     assert isinstance(got, IrAst)
     assert [str(r.name) for r in got.rules] == ["a"]
 

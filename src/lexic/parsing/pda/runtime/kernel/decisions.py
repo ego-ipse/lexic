@@ -4,9 +4,8 @@ Shed from the kernel by the file-size rule as a host class the kernel
 inherits: the group reads and writes the cursor's own state (``pos``,
 ``stack``, ``_caches``), so its members stay methods — the two entries the
 driver calls (:meth:`Attempting.attempt`,
-:meth:`Attempting.attempt_iteration`) are the group's public surface, and
-the reduce twin rides through unchanged. The class carries no slots of its
-own — every attribute it reads is declared by the kernel.
+:meth:`Attempting.attempt_iteration`) are the group's public surface. The class
+carries no slots of its own — every attribute it reads is declared by the kernel.
 
 The vocabulary: a both-viable boundary's viability CLASS
 (:func:`_arm_rest_scan` walked over the live chain), the probe (one side

@@ -324,7 +324,7 @@ Equality is type-aware (same concrete class + payload; the `IrBounds` pattern) a
 
 The engine's public root carries, beside the model products (`parse_model` / `token_model`) and the Earley toolkit (`Kernel`, `compile_tables`, `normalize`, `lift_optional_nullables`, the tree/forest readers):
 
-- **`earley_model` / `earley_reduce`** — the per-product Earley completions, public as the route-forcing seam. Forcing an engine route means calling a different product entry, never passing a flag: an engine selector chooses between `parse_model` (PDA-first) and `earley_model` (Earley only).
+- **`earley_model`** — the model product's Earley completion, public as the route-forcing seam. Forcing an engine route means calling a different product entry, never passing a flag: an engine selector chooses between `parse_model` (PDA-first) and `earley_model` (Earley only).
 - **`PdaKernel`** — the fused predictive runtime, subclassable for tracing; `WatchedKernel` is that subclass.
 - **`watch(tables, text, fold, *, cap, resolve)` → `WatchedRun`** — the watched run: an ordered `Trace` of `TraceEvent(order, kind, rule, verdict, span)`, where `kind` is one of `TRACE_KINDS` (`scan` / `probe` / `rollback` / `gate`) and `span` is an `IrSpan` — the SAME record an emission's extents carry, so a trace row and a document occurrence co-select without translation. **Pay to watch**: watching re-executes the parse, and the product carries no model precisely so the re-run cannot be confused with the parse a caller already holds. It carries `cap`/`capped` instead (a truncated account says so) and `derived` — a refused predictive run is ordinary (the compile seam retries on the gated engine) and comes back as a stream ending in the refusal rather than as an exception. The unwatched path pays nothing: the instrumentation is a subclass, nothing under `parsing/pda/` imports it, and a unit gate reads `PdaKernel`'s own code objects to prove no method of it so much as names the watch.
 - **`GrammarAnalysis`** — the decision taxonomy (verdicts, gate specs) the analysis produces per grammar.
@@ -372,6 +372,6 @@ See `canonical_grammar`'s precedence rules above for how `@start`/`@non-semantic
 | Compile with a session flavour, registry-free | `compile_text(..., flavour=<IrFlavour instance>)` |
 | Inspect the canonical grammar without generating code | `canonical_grammar` |
 | Grammar text → raw (not-yet-canonicalized) `IrAst` only (transpile, inspect, re-emit) | `parse_grammar` |
-| Force the Earley route / trace the PDA | `earley_model` / `earley_reduce`; `PdaKernel` over `.pda_tables()` |
+| Force the Earley route / trace the PDA | `earley_model`; `PdaKernel` over `.pda_tables()` |
 | Write a compiled grammar as an importable twin | `export_module` |
 | Write a PARSED VALUE as an importable module | `export_value` |

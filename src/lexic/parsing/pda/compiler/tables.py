@@ -20,9 +20,6 @@ from lexic.parsing.pda.compiler.flatten import (
     PdaProgram,
 )
 from lexic.parsing.pda.compiler.lower import flatten_program
-from lexic.parsing.pda.compiler.reduce_pda import (
-    ReduceRun,
-)
 from lexic.parsing.pda.compiler.specs import (
     CloneKey,
     CloneSpec,
@@ -53,8 +50,6 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         tables are built over.
     :ivar program: The flat int-coded runtime program (:class:`PdaProgram`)
         :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks.
-    :ivar reduce: The reduce runtime context (:class:`ReduceRun`) on a
-        grammar-text (reducer) PDA, else ``None`` — the model path.
     """
 
     __slots__ = (
@@ -63,7 +58,6 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         "island_follow",
         "instance_grammar",
         "program",
-        "reduce",
         "_island_tables",
     )
 
@@ -72,7 +66,6 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
     island_follow: dict[str, CharSet]
     instance_grammar: IrAst
     program: PdaProgram
-    reduce: ReduceRun | None
     _island_tables: dict[tuple[str, int], ParserTables]
 
     def __init__(
@@ -80,23 +73,20 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         compiler: PdaCompiler,
         start_key: CloneKey | IslandRef,
         instance_grammar: IrAst,
-        reduce: ReduceRun | None = None,
     ) -> None:
         """Freeze the clone table, lower it to the flat program, seed the caches.
 
-        The clones, island set and reduce completions come off ``compiler``.
+        The clones and island set come off ``compiler``.
         The island-interior delegate source is attached to :attr:`program` by
         the compile entry points (:func:`_attach_delegates`), so the artifact's
         own attribute set stays put.
         """
-        completions = compiler.completions if compiler.reduce is not None else None
         self.clones = compiler.clones
         self.start_key = start_key
         follow = compiler.analysis.follow
         self.island_follow = {name: follow[name] for name in compiler.islands}
         self.instance_grammar = instance_grammar
-        self.program = flatten_program(compiler.clones, start_key, completions)
-        self.reduce = reduce
+        self.program = flatten_program(compiler.clones, start_key)
         self._island_tables = {}
 
     @property

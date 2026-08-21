@@ -44,11 +44,11 @@ from lexic.ir import (
     IrSeq,
     canonicalize,
 )
-from lexic.parsing import parse, recognize
-from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing import recognize
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.policy import YIELD
 from lexic.parsing.earley.reduce.reducer import Reducer
+from tests.reduce_helpers import reduce_text
 from tests.unit.lexic.conftest import (
     GRAMMAR_AST_TYPES,
     assert_wide_rule_wraps_and_round_trips,
@@ -443,10 +443,8 @@ def test_abnf_reductions_covers_terminal_rules():
 
 
 def test_rulename_reduction_yields_irruleref():
-    """rulename reduction: children joined -> IrRuleRef."""
-    reducer = Reducer(actions=ABNF_REDUCTIONS)
-    tree = ParseTree(IrRuleRef("rulename"), IrSeq(IrLiteral("a"), IrLiteral("b")))
-    result = reducer.apply(tree)
+    """A parsed rulename is represented by ``IrRuleRef``."""
+    result = reduce('ab = "x"\n').rules[0].name
     assert isinstance(result, IrRuleRef)
     assert str(result) == "ab"
 
@@ -457,19 +455,13 @@ def test_char_val_alpha_reduces_to_case_insensitive_alternation():
     Ported from the old case-sensitive-literal assertion after the Phase 3
     re-author made char-val case-insensitive, matching ``normalize_literal``.
     """
-    g = normalize_grammar(ABNF_GRAMMAR)
-    result = ABNF_REDUCER.apply(parse(g, 'x = "ab"\n'))
+    result = reduce('x = "ab"\n')
     assert isinstance(result, IrAst)
     atom = list(list(result.rules)[0].body)[0][0].atom
     assert isinstance(atom, IrAlternation)
     seq = atom[0]
     assert seq[0].atom == IrCharClass(IrChr("a"), IrChr("A"))
     assert seq[1].atom == IrCharClass(IrChr("b"), IrChr("B"))
-
-
-def hexdig(ch: str) -> ParseTree:
-    """Wrap a single hex character in a HEXDIG ParseTree (as the real parser produces)."""
-    return ParseTree(IrRuleRef("HEXDIG"), IrSeq(IrLiteral(ch)))
 
 
 def test_num_x_empty_tail_yields_ircharclass_chr():
@@ -479,13 +471,7 @@ def test_num_x_empty_tail_yields_ircharclass_chr():
     is gone (left-factored into num-x + x-tail); the empty x-tail is the
     single-point case.
     """
-    hexits = ParseTree(IrRuleRef("hexits"), IrSeq(hexdig("4"), hexdig("1")))
-    x_tail = ParseTree(IrRuleRef("x-tail"), IrSeq())
-    tree = ParseTree(
-        IrRuleRef("num-x"),
-        IrSeq(IrLiteral("%"), IrLiteral("x"), hexits, x_tail),
-    )
-    result = ABNF_REDUCER.apply(tree)
+    result = make_item(reduce("x = %x41\n")).atom
     assert isinstance(result, IrCharClass)
     assert result == IrCharClass(IrChr("A"))
 
@@ -496,15 +482,7 @@ def test_num_x_range_tail_yields_ircharclass_range():
     Ported from the pre-P4 test_num_range_yields_ircharclass_range — num-range
     is gone (left-factored into num-x + x-tail/x-range).
     """
-    lo = ParseTree(IrRuleRef("hexits"), IrSeq(hexdig("4"), hexdig("1")))
-    hi = ParseTree(IrRuleRef("hexits"), IrSeq(hexdig("5"), hexdig("A")))
-    x_range = ParseTree(IrRuleRef("x-range"), IrSeq(IrLiteral("-"), hi))
-    x_tail = ParseTree(IrRuleRef("x-tail"), IrSeq(x_range))
-    tree = ParseTree(
-        IrRuleRef("num-x"),
-        IrSeq(IrLiteral("%"), IrLiteral("x"), lo, x_tail),
-    )
-    result = ABNF_REDUCER.apply(tree)
+    result = make_item(reduce("x = %x41-5A\n")).atom
     assert isinstance(result, IrCharClass)
     assert result == IrCharClass(IrRange(IrChr("A"), IrChr("Z")))
 
@@ -518,9 +496,7 @@ def test_parse_reduce_single_literal_rule():
     Uses a non-alpha literal: an alpha literal case-expands (RFC 7405), so a
     bare-``IrLiteral`` assertion needs a body with no letters.
     """
-    g = normalize_grammar(ABNF_GRAMMAR)
-    tree = parse(g, 's = "+-"\n')
-    result = ABNF_REDUCER.apply(tree)
+    result = reduce('s = "+-"\n')
     assert isinstance(result, IrAst)
     assert result.start == "s"
     rules = list(result.rules)
@@ -533,10 +509,8 @@ def test_parse_reduce_single_literal_rule():
 
 def test_parse_reduce_alternation_rule():
     """'s = foo / bar' reduces to two-arm IrAlternation of IrRuleRef atoms."""
-    g = normalize_grammar(ABNF_GRAMMAR)
     text = 's = foo / bar\nfoo = "x"\nbar = "y"\n'
-    tree = parse(g, text)
-    result = ABNF_REDUCER.apply(tree)
+    result = reduce(text)
     assert isinstance(result, IrAst)
     s_rule = list(result.rules)[0]
     assert s_rule.name == "s"
@@ -548,10 +522,8 @@ def test_parse_reduce_alternation_rule():
 
 def test_parse_reduce_charclass_rule():
     """'x = %x41-5A' reduces to IrCharClass(IrRange('A','Z'))."""
-    g = normalize_grammar(ABNF_GRAMMAR)
     text = "x = %x41-5A\n"
-    tree = parse(g, text)
-    result = ABNF_REDUCER.apply(tree)
+    result = reduce(text)
     assert isinstance(result, IrAst)
     rules = list(result.rules)
     item = list(rules[0].body)[0][0]
@@ -561,8 +533,7 @@ def test_parse_reduce_charclass_rule():
 
 def quant_of(text: str) -> IrQuantifier:
     """Parse a one-rule ABNF snippet and return its single item's quantifier."""
-    g = normalize_grammar(ABNF_GRAMMAR)
-    result = ABNF_REDUCER.apply(parse(g, text))
+    result = reduce(text)
     assert isinstance(result, IrAst)
     return list(list(result.rules)[0].body)[0][0].quantifier
 
@@ -599,8 +570,7 @@ def test_repeat_absent_defaults_to_one_one():
 
 def test_num_single_parse_reduce():
     """'x = %x41' reduces to IrCharClass(IrChr('A'))."""
-    g = normalize_grammar(ABNF_GRAMMAR)
-    result = ABNF_REDUCER.apply(parse(g, "x = %x41\n"))
+    result = reduce("x = %x41\n")
     assert isinstance(result, IrAst)
     item = list(list(result.rules)[0].body)[0][0]
     assert item.atom == IrCharClass(IrChr("A"))
@@ -609,8 +579,7 @@ def test_num_single_parse_reduce():
 def test_json_abnf_ground_truth_reduces_to_32_rules():
     """resources/ground_truth/json.abnf reduces to 32 rules via the native reducer."""
     path = Path(__file__).parents[4] / "resources" / "ground_truth" / "json.abnf"
-    g = normalize_grammar(ABNF_GRAMMAR)
-    result = ABNF_REDUCER.apply(parse(g, path.read_text(encoding="utf-8")))
+    result = reduce(path.read_text(encoding="utf-8"))
     assert isinstance(result, IrAst)
     assert len(list(result.rules)) == 32
 
@@ -630,27 +599,22 @@ def test_self_hosting_fixpoint():
     canonicalising, returns ABNF_GRAMMAR (stored in canonical form). The
     canonical pass is what closes the loop — a merged char class re-emits as a
     parenthesised num-val alternation that reparses un-merged."""
-    g = normalize_grammar(ABNF_GRAMMAR)
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
-    tree = parse(g, text)
-    result = ABNF_REDUCER.apply(tree)
+    result = reduce(text)
     assert canonicalize(result) == ABNF_GRAMMAR
 
 
 def test_self_hosting_fixpoint_idempotent():
     """Reduce → re-emit → re-parse → re-reduce: result is the same IrAst."""
-    g = normalize_grammar(ABNF_GRAMMAR)
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
 
     # First round
-    tree1 = parse(g, text)
-    result1 = ABNF_REDUCER.apply(tree1)
+    result1 = reduce(text)
     assert isinstance(result1, IrAst)
 
     # Re-emit and re-parse
     text2 = str(ABNF_FLAVOUR.apply(result1))
-    tree2 = parse(g, text2)
-    result2 = ABNF_REDUCER.apply(tree2)
+    result2 = reduce(text2)
 
     assert result2 == result1
     assert canonicalize(result2) == ABNF_GRAMMAR
@@ -666,19 +630,15 @@ def test_self_hosting_crlf_recognized():
 
 def test_self_hosting_crlf_reduces_to_abnf_grammar():
     """CRLF-terminated emitted text reduces back to ABNF_GRAMMAR."""
-    g = normalize_grammar(ABNF_GRAMMAR)
     text = str(ABNF_FLAVOUR.apply(ABNF_GRAMMAR))
     text_crlf = text.replace("\n", "\r\n")
-    tree = parse(g, text_crlf)
-    result = ABNF_REDUCER.apply(tree)
+    result = reduce(text_crlf)
     assert canonicalize(result) == ABNF_GRAMMAR
 
 
 # ── Phase 3 remainder: per-construct native-grammar unit tests ────────
 # Companion to tests/integration/test_abnf_ir_equivalence.py (corpus-wide
 # Lark parity); these assert the reduced IrAst shape per construct.
-
-NORM_ABNF = normalize_grammar(ABNF_GRAMMAR)
 
 
 def reduce(text: str) -> IrAst:
@@ -687,7 +647,7 @@ def reduce(text: str) -> IrAst:
     :param text: ABNF source, a single small grammar snippet.
     :returns: The reduced :class:`IrAst`.
     """
-    result = ABNF_REDUCER.apply(parse(NORM_ABNF, text))
+    result = reduce_text(ABNF_GRAMMAR, text, ABNF_REDUCER)
     assert isinstance(result, IrAst)
     return result
 

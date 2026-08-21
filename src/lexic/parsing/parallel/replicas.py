@@ -147,30 +147,3 @@ def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
         pool = worker_replicas(grammar, fold, workers)
         got = mine[key] = pool[_ASSIGNED.index % workers]
     return got
-
-
-_GRAMMARS: dict[int, tuple[IrAst, dict[int, IrAst]]] = {}
-"""Grammar-only replica memo — id(grammar) → (grammar, index → replica)."""
-
-
-def grammar_replicas(grammar: IrAst, count: int) -> list[IrAst]:
-    """``count`` equal-but-distinct grammars — the reduce path's replicas.
-
-    The reduce product memoises per ``(grammar, reducer)`` identity, so
-    concurrent reductions contend on one set of tables exactly as concurrent
-    parses did. A distinct grammar is the whole fix: there is no fold to
-    copy, and the reducer is shared by value.
-
-    :param grammar: The grammar workers reduce against.
-    :param count: How many workers need one.
-    :returns: Exactly ``count`` grammars; the first is the original.
-    """
-    entry = _GRAMMARS.get(id(grammar))
-    if entry is None:
-        entry = (grammar, {0: grammar})
-        _GRAMMARS[id(grammar)] = entry
-    pool = entry[1]
-    for index in range(count):
-        if index not in pool:
-            pool[index] = IrAst(grammar.rules, grammar.start)
-    return [pool[index] for index in range(count)]

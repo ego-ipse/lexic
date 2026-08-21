@@ -64,7 +64,6 @@ from lexic.parsing.pda.compiler.flatten import (
 )
 from lexic.parsing.pda.compiler.opcodes import (
     BUILD_DISPATCH,
-    BUILD_REDUCE,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
@@ -119,14 +118,13 @@ from lexic.parsing.pda.runtime.matchers import (
     match_cc,
     match_chartable,
     match_lit,
-    reduce_once,
     run_span_once,
     select_arm,
     vdisp_once,
     vstr_once,
 )
 
-__all__ = ["PdaFail", "PdaKernel"]
+__all__ = ["PdaFail", "PdaKernel", "pda_model"]
 
 _EMPTY_SLOT: Any = None
 """An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
@@ -236,20 +234,18 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         end-of-input. Unlike :meth:`run` there is **no** trailing-input / EOF
         check: the caller (an island Earley predictor) files a completed span of
         length ``end`` and consumes only that far. The sub-run is exactly the
-        entry mode :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model`
-        already trusts, just anchored at an arbitrary clone and position
-        instead of the start clone at ``0``.
+        entry mode :func:`pda_model` already trusts, just anchored at an
+        arbitrary clone and position instead of the start clone at ``0``.
 
         Nested islands beneath ``clone`` resolve through the usual
         :meth:`_island` path (the shared cursor's ``fold`` / ``tables`` are
-        untouched). :class:`_ReducePdaKernel` inherits this unchanged; its
-        overridden :meth:`_complete` makes the payload the reduced IR fragment.
+        untouched).
 
         :param clone: The delegable clone to run (never an island rule).
         :param pos: The start cursor position in :attr:`text`.
         :returns: ``(end, payload)`` — the position just past the clone's match
-            and the model / reduced-IR it produced (``None`` when the clone
-            builds nothing, e.g. a nullable empty arm).
+            and the model it produced (``None`` when the clone builds nothing,
+            e.g. a nullable empty arm).
         :raises PdaFail: On any deterministic-parse failure inside the sub-run;
             the delegate wrapper catches it and falls through to prediction.
         """
@@ -634,8 +630,6 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         """
         if clone.mode == BUILD_VALUE_STR:
             self.pos = vstr_once(self.text, self._caches.intern, clone, out, self.pos)
-        elif clone.mode == BUILD_REDUCE:
-            self.pos = reduce_once(self.text, clone, out, self.pos)
         else:
             self.pos = self._run_leaf(clone, out, self.pos)
 
@@ -793,9 +787,8 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
     def _island_subparse(self, name: str) -> tuple[Any, int]:
         """Windowed Earley sub-parse of island ``name`` from the cursor, delegated.
 
-        The shared island entry of both completions (model / reduce): the island
-        tables over the cursor's window, with this cursor's interior delegate
-        table threaded in.
+        The island tables over the cursor's window, with this cursor's interior
+        delegate table threaded in.
 
         :param name: The island rule name.
         :returns: ``(tree, consumed length)``.
@@ -815,9 +808,8 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
 
         Wraps each of the island's delegable clones
         (:meth:`~lexic.parsing.pda.compiler.clones.PdaTables.island_delegates`) as a
-        fail-soft callable bound to this cursor's :meth:`_delegate_run` (the
-        kernel supplies the model-vs-reduce sub-kernel choice). Cached per island
-        name on this cursor.
+        fail-soft callable bound to this cursor's :meth:`_delegate_run`. Cached
+        per island name on this cursor.
 
         :param name: The island rule name.
         :returns: rule_id → its delegate callable (empty when nothing delegates).
@@ -865,9 +857,8 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         A ``value_str`` frame slices its whole span, an ``alternation`` passes
         the first sub-model through, and a ``sequence`` binds each field to its
         item span or sub-model collection; a transparent frame builds nothing
-        (its children already funnelled to ``F_OUT``). The grammar-text
-        (reducer) path overrides this in :class:`_ReducePdaKernel` — the model
-        kernel is unchanged, so its hot path carries no reduce branch.
+        (its children already funnelled to ``F_OUT``). Transparent clones are
+        the only completion that builds no value.
         """
         self.stack.pop()
         mode = frame[F_MODE]
@@ -893,3 +884,23 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
             model = alt_model(frame)
         if model is not None:
             frame[F_OUT].append(model)
+
+
+def pda_model[M](
+    tables: PdaTables,
+    text: str,
+    fold: ModelFold[M] | None = None,
+    *,
+    resolve: Resolver | None = None,
+) -> M:
+    """Parse ``text`` with the predictive runtime and build its model.
+
+    :param tables: The compiled predictive-parser tables.
+    :param text: The input to parse.
+    :param fold: The full-grammar fold used by island sub-parses; ``None``
+        makes any island reference raise :class:`PdaFail`.
+    :param resolve: A deterministic ambiguity resolver for island parses.
+    :returns: The start rule's model instance.
+    :raises PdaFail: When the deterministic path cannot complete.
+    """
+    return PdaKernel(tables, text, fold, resolve=resolve).run()

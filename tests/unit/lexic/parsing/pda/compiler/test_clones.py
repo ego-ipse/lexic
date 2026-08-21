@@ -21,12 +21,10 @@ import pytest
 
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
-from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR, flavour_for_extension
-from lexic.ir import IrAst, IrFlavour
+from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
+from lexic.ir import IrAst
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import (
     CC,
@@ -39,26 +37,17 @@ from lexic.parsing.pda.compiler.clones import (
     IslandRef,
     ItemSpec,
     PairGate,
-    ReduceRun,
     StopGate,
     compile_pda,
-    compile_reduce_pda,
 )
 from lexic.parsing.pda.compiler.flatten import (
     FlatArm,
     FlatClone,
 )
-from lexic.parsing.pda.compiler.opcodes import (
-    BUILD_REDUCE,
-    R_DROP,
-    R_KEEP,
-    R_SPLICE,
-)
-from lexic.parsing.pda.compiler.specialize import all_clones
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import PINNED_ISLANDS
@@ -343,7 +332,7 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
     is a soft-only follower absent from ``x``'s hard clone tail (``{""}``), so a
     non-greedy stop-set would greedily eat it — ``x`` must island. Islanding
     routes the ref through an :class:`IslandRef`, so the pure-PDA
-    :func:`~lexic.parsing.pda.runtime.kernel.reduce_runtime.pda_model` refuses
+    :func:`~lexic.parsing.pda.runtime.kernel.kernel.pda_model` refuses
     ("ab" and "cab") with a
     :exc:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail` (→ engine fallback) rather than
     returning the wrong model.
@@ -400,70 +389,6 @@ def test_island_tables_is_memoised_per_island_rule():
     second = pda.island_tables(name)
     assert first is second
     assert isinstance(first, ParserTables)
-
-
-# ── compile_reduce_pda (b1 grammar-text path) ───────────────────────────
-
-
-def reduce_pda_for(flavour: IrFlavour) -> PdaTables:
-    """Compile ``flavour``'s self-grammar reduce PDA directly.
-
-    The b1 twin of :func:`pda_for`, bypassing :mod:`lexic.compile`'s cache:
-    :func:`~lexic.compile.self_grammar_pda` composes exactly this, plus the
-    whole-grammar-opt-out-to-``None`` conversion — see ``test_compile.py``
-    for that seam.
-    """
-    reducer = flavour.reducer
-    if not isinstance(reducer, Reducer):
-        raise UnsupportedConstructError(f"{flavour.name!r} carries no parse Reducer")
-    lifted = lift_optional_nullables(flavour.grammar)
-    instance_grammar = normalize(lifted)
-    return compile_reduce_pda(lifted, instance_grammar, reducer)
-
-
-def test_compile_reduce_pda_builds_a_reduce_pda_for_the_gbnf_self_grammar():
-    """compile_reduce_pda succeeds on GBNF's own self-grammar and sets .reduce
-    to a ReduceRun bundling the flavour's own reducer."""
-    pda = reduce_pda_for(GBNF_FLAVOUR)
-    assert isinstance(pda, PdaTables)
-    assert isinstance(pda.reduce, ReduceRun)
-    assert pda.reduce.reducer is GBNF_FLAVOUR.reducer
-
-
-def test_compile_reduce_pda_gbnf_start_rule_is_a_clone_not_an_island():
-    """GBNF's start rule ("grammar") is not itself an island — the start key
-    is a real CloneKey the predictive runtime can enter directly."""
-    pda = reduce_pda_for(GBNF_FLAVOUR)
-    assert isinstance(pda.start_key, CloneKey)
-    assert pda.start_key.name == "grammar"
-
-
-def test_compile_reduce_pda_abnf_start_rule_is_a_clone_not_an_island():
-    """ABNF's start rule ("rulelist") is a real clone since the Task-6.6
-    boundary-shift left-factor (``filler* rule rl-cont* c-wsp* c-nl?``) — the
-    start key is a CloneKey the predictive runtime can enter directly (before
-    the factor it was the last ABNF island, the whole-grammar opt-out)."""
-    pda = reduce_pda_for(ABNF_FLAVOUR)
-    assert isinstance(pda.start_key, CloneKey)
-    assert pda.start_key.name == "rulelist"
-
-
-def test_every_reduce_clone_is_baked_build_reduce_never_a_model_mode():
-    """reduce_rewrite retargets every reachable clone (named rule + inline
-    group) to BUILD_REDUCE with a well-formed reduce_kind — the reduce
-    target skips the model-specific optimizer passes entirely.
-    """
-    pda = reduce_pda_for(GBNF_FLAVOUR)
-    start = pda.program.start
-    assert isinstance(start, FlatClone)  # not an IslandRef opt-out
-    for clone in all_clones([start]):
-        assert clone.mode == BUILD_REDUCE
-        assert clone.reduce_kind in (R_KEEP, R_DROP, R_SPLICE)
-        assert clone.needs_ends is True
-
-
-# The unit-level reduce_rewrite/_bake_reduce tests live in test_reduce_pda.py
-# (the functions moved there with the option-(a) rebuild, 2026-07-11).
 
 
 # ── depth safety: the ensure_rule drain (L7, clone-compiler half) ──────
