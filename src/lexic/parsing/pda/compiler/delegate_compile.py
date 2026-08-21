@@ -111,7 +111,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
     ``seams`` (injected as ``(clones.PdaCompiler,
     clones.flatten_clones)``) so this leaf never imports
     :mod:`lexic.parsing.pda.compiler.clones`. Attached to the runtime
-    :class:`~lexic.parsing.pda.compiler.flatten.PdaProgram`, not the artifact, so the
+    :class:`~lexic.parsing.pda.compiler.program.flatten.PdaProgram`, not the artifact, so the
     ``PdaTables`` attribute count is untouched.
 
     :ivar lifted: The lifted codegen grammar (analysis substrate).

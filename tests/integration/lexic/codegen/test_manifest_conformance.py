@@ -48,7 +48,7 @@ ABNF_CORPUS = ABNF_GRAMMARS
 
 def load(stem: str) -> IrFlavour:
     """Load a shipped manifest by stem (e.g. ``gbnf``)."""
-    return load_flavour_from_path(GRAMMARS / f"{stem}.flavour.ir")
+    return load_flavour_from_path(GRAMMARS / "resources" / f"{stem}.flavour.ir")
 
 
 def reducer(flavour: IrFlavour) -> Reducer:

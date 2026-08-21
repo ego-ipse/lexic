@@ -23,9 +23,9 @@ from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import IrAlternation, IrAst, IrItem, IrRule, IrRuleRef
-from lexic.parsing.parallel.interiors import interiors
+from lexic.parsing.parallel.discovery.interiors import interiors
 from lexic.parsing.parallel.policy import MIN_CHUNK
-from lexic.parsing.parallel.shapes import edge_char, literal_char, unbounded
+from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
 
 
 class Region(NamedTuple):

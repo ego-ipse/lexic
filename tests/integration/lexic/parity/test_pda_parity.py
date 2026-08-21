@@ -34,7 +34,7 @@ from lexic.compile import compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
-from lexic.parsing.pda.compiler.specialize import all_clones
+from lexic.parsing.pda.compiler.program.specialize import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 from lexic.parsing.products import earley_model

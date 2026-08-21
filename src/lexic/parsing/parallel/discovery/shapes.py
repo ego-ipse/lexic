@@ -1,7 +1,7 @@
 """Arm shapes — the questions the split analyses ask a grammar's arms.
 
-:mod:`~lexic.parsing.parallel.interiors`,
-:mod:`~lexic.parsing.parallel.regions` and
+:mod:`~lexic.parsing.parallel.discovery.interiors`,
+:mod:`~lexic.parsing.parallel.discovery.regions` and
 :mod:`~lexic.parsing.parallel.roles` each read a grammar for the same three
 facts: what one item spells, whether it repeats, and what every arm of an
 alternation carries at one end. They live here so that changing what "spells

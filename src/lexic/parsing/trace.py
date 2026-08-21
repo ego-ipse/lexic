@@ -43,7 +43,7 @@ from typing import Any, ClassVar, Self
 from lexic.ir import IrNamedTuple, IrSeq, IrSpan
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.pda.compiler.flatten import FlatArm, FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import F_CLONE

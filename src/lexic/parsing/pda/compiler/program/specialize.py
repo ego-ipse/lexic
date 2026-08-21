@@ -1,6 +1,6 @@
 """Post-flatten specialisation — the passes that carve the hot-loop op-codes.
 
-Split from :mod:`lexic.parsing.pda.compiler.flatten`, which defines the flat
+Split from :mod:`lexic.parsing.pda.compiler.program.flatten`, which defines the flat
 artefact and the readers the runtime walks it with; this module is everything
 that REWRITES that artefact once it exists. :func:`optimize_program` is the
 entry point and states the pass order, which is load-bearing: each pass reads
@@ -15,13 +15,13 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.exceptions import LexicError
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
     FlatClone,
     vstr_model,
 )
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_DISPATCH,
     BUILD_SEQ,
@@ -426,7 +426,7 @@ def _unit_ref_target(arm: FlatArm) -> "FlatClone | None":
     and only how the driver reaches it differs. Omitting one costs the
     alternation its frame-less dispatch, which is a frame and a model per
     occurrence, not a missed micro-optimisation. The main pass never sees one (calls
-    specialise after this runs); :func:`~lexic.parsing.pda.compiler.lower
+    specialise after this runs); :func:`~lexic.parsing.pda.compiler.program.lower
     .flatten_clones` does, when it optimises the attempt sub-clones, which
     share their parent's already-specialised arm.
     """

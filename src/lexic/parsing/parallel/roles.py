@@ -25,8 +25,8 @@ from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrRuleRef
-from lexic.parsing.parallel.anchors import anchors
-from lexic.parsing.parallel.shapes import UNIT, edge_char, unbounded
+from lexic.parsing.parallel.discovery.anchors import anchors
+from lexic.parsing.parallel.discovery.shapes import UNIT, edge_char, unbounded
 
 
 class Separator(NamedTuple):

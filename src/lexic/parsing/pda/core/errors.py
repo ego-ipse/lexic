@@ -27,7 +27,7 @@ class PdaFail(Exception):
         position at all (an islanded start rule, a start rule that produced no
         model).
     :ivar rule: The rule being matched when it stopped (a
-        :attr:`~lexic.parsing.pda.compiler.flatten.FlatClone.name`), or ``""``
+        :attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone.name`), or ``""``
         when the stop was not inside a named rule.
     :ivar expected: The characters that would have been accepted here — empty
         when the raising site cannot say.
@@ -37,7 +37,7 @@ class PdaFail(Exception):
     The two travel together as one ``wanted`` argument because they are one
     fact — a membership set with a polarity, the engine's own ``(chars,
     negated)`` shape, which is exactly what
-    :func:`~lexic.parsing.pda.compiler.flatten.arm_expected` hands back.
+    :func:`~lexic.parsing.pda.compiler.program.flatten.arm_expected` hands back.
 
     The position used to live only in the message, so the one consumer that
     wanted it read it back out of prose with a regex. These are attributes

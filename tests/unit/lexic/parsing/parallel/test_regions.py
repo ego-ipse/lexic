@@ -1,4 +1,4 @@
-"""Tests for ``lexic.parsing.parallel.regions`` — the runs worth dividing.
+"""Tests for ``lexic.parsing.parallel.discovery.regions`` — the runs worth dividing.
 
 A document's parallelism lives in its bracketed runs, wherever they sit. The
 scan derives the brackets, separators and opaque interiors from the grammar,
@@ -13,7 +13,7 @@ import pytest
 from lexic.compile import compile_from_path
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel import MIN_CHUNK
-from lexic.parsing.parallel.regions import (
+from lexic.parsing.parallel.discovery.regions import (
     Region,
     choose,
     find,

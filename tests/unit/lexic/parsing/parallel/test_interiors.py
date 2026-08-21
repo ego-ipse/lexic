@@ -1,4 +1,4 @@
-"""Tests for ``lexic.parsing.parallel.interiors`` — the opaque regions.
+"""Tests for ``lexic.parsing.parallel.discovery.interiors`` — the opaque regions.
 
 A comma inside a string is TEXT, not a separator. The delimited region that
 makes it so is DERIVED from the grammar's own shape — a rule whose one arm
@@ -14,7 +14,7 @@ import pytest
 from lexic.compile import compile_from_path, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR
-from lexic.parsing.parallel.interiors import Interior, interiors
+from lexic.parsing.parallel.discovery.interiors import Interior, interiors
 from tests.paths import GROUND_TRUTH
 
 JSON_FORMULATIONS = ("json.gbnf", "json.abnf", "json.ebnf")

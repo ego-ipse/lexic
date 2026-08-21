@@ -1,10 +1,10 @@
-"""Tests for lexic.parsing.pda.compiler.flatten — the flat int-coded runtime program.
+"""Tests for lexic.parsing.pda.compiler.program.flatten — the flat int-coded runtime program.
 
-:mod:`lexic.parsing.pda.compiler.flatten` is the leaf half of the PDA compiler: it
-defines the flat runtime shapes (:class:`~lexic.parsing.pda.compiler.flatten.FlatArm`,
-:class:`~lexic.parsing.pda.compiler.flatten.FlatClone`,
-:class:`~lexic.parsing.pda.compiler.flatten.PdaProgram`) and the post-flatten
-optimizer passes (:func:`~lexic.parsing.pda.compiler.flatten.optimize_program` and its
+:mod:`lexic.parsing.pda.compiler.program.flatten` is the leaf half of the PDA compiler: it
+defines the flat runtime shapes (:class:`~lexic.parsing.pda.compiler.program.flatten.FlatArm`,
+:class:`~lexic.parsing.pda.compiler.program.flatten.FlatClone`,
+:class:`~lexic.parsing.pda.compiler.program.flatten.PdaProgram`) and the post-flatten
+optimizer passes (:func:`~lexic.parsing.pda.compiler.program.flatten.optimize_program` and its
 five sub-passes) that :func:`~lexic.parsing.pda.compiler.clones.flatten_program`
 drives once per :func:`~lexic.parsing.pda.compiler.clones.compile_pda`.
 
@@ -20,12 +20,12 @@ reached through ``module._name`` attribute access, matching
 from __future__ import annotations
 
 from lexic.ir import BIND_MODES
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     PdaProgram,
 )
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_DISPATCH,
     BUILD_SEQ,

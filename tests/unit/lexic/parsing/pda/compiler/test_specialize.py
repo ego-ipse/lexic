@@ -1,6 +1,6 @@
-"""Tests for lexic.parsing.pda.compiler.specialize — the post-flatten passes.
+"""Tests for lexic.parsing.pda.compiler.program.specialize — the post-flatten passes.
 
-:mod:`lexic.parsing.pda.compiler.specialize` rewrites the flat artefact once it
+:mod:`lexic.parsing.pda.compiler.program.specialize` rewrites the flat artefact once it
 exists: terminal specialisation, dispatch conversion, char tables, ``value_str``
 inlining, the frame-less leaf licence and the exactly-once call codes. Each pass
 is pinned by what it must and must NOT licence — an over-broad licence is a
@@ -11,12 +11,12 @@ from __future__ import annotations
 
 from lexic.compile import compile_text
 from lexic.parsing.pda.compiler.clones import IslandRef
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     vstr_model,
 )
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
@@ -37,7 +37,7 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_VSTR,
     TERMINAL_OPS,
 )
-from lexic.parsing.pda.compiler.specialize import (
+from lexic.parsing.pda.compiler.program.specialize import (
     CHARTABLE_CAP,
     _inline_value_strs,
     clone_arms,

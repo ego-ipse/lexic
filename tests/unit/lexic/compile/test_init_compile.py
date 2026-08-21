@@ -279,28 +279,28 @@ INSTANCE_GRAMMAR_TEXT = 'root ::= "x" num\nnum ::= [0-9]+\n'
 
 def test_compile_text_with_a_flavour_instance_compiles_and_parses():
     """A live IrFlavour instance compiles and parses like the named route."""
-    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    fl = load_flavour_from_path(GRAMMARS / "resources" / "gbnf.flavour.ir")
     cg = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
     assert cg.parse("x42").to_text() == "x42"
 
 
 def test_compile_text_with_a_flavour_instance_leaves_the_shipped_singleton_untouched():
     """Compiling with a loaded instance never registers or shadows GBNF_FLAVOUR."""
-    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    fl = load_flavour_from_path(GRAMMARS / "resources" / "gbnf.flavour.ir")
     compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
     assert get_flavour("gbnf") is GBNF_FLAVOUR
 
 
 def test_compile_text_with_a_flavour_instance_records_the_flavour_name():
     """CompiledGrammar.flavour is the plain name string, not the instance."""
-    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    fl = load_flavour_from_path(GRAMMARS / "resources" / "gbnf.flavour.ir")
     cg = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
     assert cg.flavour == "gbnf"
 
 
 def test_compile_text_with_the_same_instance_twice_hits_the_memo():
     """Same source, same instance: the class object keys the memo, cache-hit."""
-    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    fl = load_flavour_from_path(GRAMMARS / "resources" / "gbnf.flavour.ir")
     cg1 = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
     cg2 = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=fl)
     assert cg1 is cg2
@@ -309,8 +309,8 @@ def test_compile_text_with_the_same_instance_twice_hits_the_memo():
 def test_compile_text_with_two_separately_loaded_instances_never_alias():
     """A second load of the same manifest is a different class object, so it
     never shares the first load's memo entry — the point of keying by class."""
-    first = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
-    second = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    first = load_flavour_from_path(GRAMMARS / "resources" / "gbnf.flavour.ir")
+    second = load_flavour_from_path(GRAMMARS / "resources" / "gbnf.flavour.ir")
     cg1 = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=first)
     cg2 = compile_text(INSTANCE_GRAMMAR_TEXT, flavour=second)
     assert cg1 is not cg2
@@ -327,7 +327,7 @@ def test_compile_text_name_route_is_unchanged_and_still_memo_stable():
 
 def test_compile_from_path_with_a_flavour_instance(tmp_path):
     """compile_from_path also accepts a live instance for flavour."""
-    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    fl = load_flavour_from_path(GRAMMARS / "resources" / "gbnf.flavour.ir")
     src = tmp_path / "instance_flavour.gbnf"
     src.write_text(INSTANCE_GRAMMAR_TEXT)
     cg = compile_from_path(src, flavour=fl)
@@ -769,7 +769,7 @@ def test_parse_from_path_accepts_an_explicit_flavour_override():
 
 def test_parse_instance_accepts_a_flavour_instance():
     """parse_instance(text, grammar, flavour=instance) works end to end."""
-    fl = load_flavour_from_path(GRAMMARS / "gbnf.flavour.ir")
+    fl = load_flavour_from_path(GRAMMARS / "resources" / "gbnf.flavour.ir")
     inst = parse_instance("x42", INSTANCE_GRAMMAR_TEXT, flavour=fl)
     assert inst.to_text() == "x42"
 

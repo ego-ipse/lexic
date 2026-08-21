@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import MapShape, compile_from_path, spanify
-from lexic.compile.templating import SpanPair
+from lexic.compile.output.templating import SpanPair
 from lexic.ir import IrSpan
 from lexic.parsing import parse_model
 from lexic.parsing.products import _model_product, earley_model

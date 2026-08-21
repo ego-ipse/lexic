@@ -2,7 +2,7 @@
 
 The flat, tuple-coded records :func:`~lexic.parsing.pda.compiler.clones.compile_pda`
 produces before :func:`~lexic.parsing.pda.compiler.clones.flatten_program` lowers them
-into the int-coded runtime :class:`~lexic.parsing.pda.compiler.flatten.PdaProgram`: the
+into the int-coded runtime :class:`~lexic.parsing.pda.compiler.program.flatten.PdaProgram`: the
 clone/arm/item/group specs plus the loop gates (:class:`StopGate`,
 :class:`PairGate`, :class:`KTupleGate`, :class:`PeekGate` — the folding-aware
 :class:`~lexic.parsing.pda.core.scanner.ScanGate` completes the union), and the

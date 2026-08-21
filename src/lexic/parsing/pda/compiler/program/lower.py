@@ -11,8 +11,8 @@ from typing import Any, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.fold import FastCtor, RuleFold
-from lexic.parsing.pda.compiler.flatten import FlatArm, FlatClone, PdaProgram
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone, PdaProgram
+from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_DISPATCH,
     BUILD_SEQ,
@@ -43,7 +43,10 @@ from lexic.parsing.pda.compiler.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
-from lexic.parsing.pda.compiler.specialize import convert_dispatch, optimize_program
+from lexic.parsing.pda.compiler.program.specialize import (
+    convert_dispatch,
+    optimize_program,
+)
 from lexic.parsing.pda.compiler.specs import (
     CC,
     GRP,
@@ -201,9 +204,9 @@ def _build_plan(
     In the record's own field order, so the fused build reads it straight into
     a values list and constructs the tuple: no defaults-dict copy, no
     supplied-key set, no read-back by name. A field no bound field supplies is
-    :data:`~lexic.parsing.pda.compiler.flatten.M_CONST` and carries its default
+    :data:`~lexic.parsing.pda.compiler.program.flatten.M_CONST` and carries its default
     outright; a ``value_str`` rule's ``value`` field is
-    :data:`~lexic.parsing.pda.compiler.flatten.M_VALUE`.
+    :data:`~lexic.parsing.pda.compiler.program.flatten.M_VALUE`.
 
     :param fold: The rule's fold.
     :param fast: Its granted licence — the field order and the defaults.

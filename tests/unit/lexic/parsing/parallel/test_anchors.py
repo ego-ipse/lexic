@@ -1,4 +1,4 @@
-"""Tests for ``lexic.parsing.parallel.anchors`` — the split-point analysis.
+"""Tests for ``lexic.parsing.parallel.discovery.anchors`` — the split-point analysis.
 
 A character is an anchor iff at least one site emits it, no co-finite site
 can (opaque interiors: string bodies, comments, token terminals), and no

@@ -63,10 +63,10 @@ from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
 )
-from lexic.parsing.pda.compiler.lower import flatten_clones
+from lexic.parsing.pda.compiler.program.lower import flatten_clones
 from lexic.parsing.pda.compiler.specs import (
     CC,
     GRP,

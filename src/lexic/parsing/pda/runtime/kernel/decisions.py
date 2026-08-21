@@ -20,11 +20,11 @@ from typing import Any
 
 from lexic.exceptions import LexicError
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.opcodes import (
     OP_CC,
     OP_CC1,
     OP_FAIL,
@@ -189,7 +189,7 @@ class Attempting:
         over-approximates wildly (an optional item's FIRST routinely shares a
         separator char with its successor's), so the decision is made by
         TRYING the stop side: the arm-rest probe
-        (:func:`~lexic.parsing.pda.compiler.lower._rest_clone`) runs from the
+        (:func:`~lexic.parsing.pda.compiler.program.lower._rest_clone`) runs from the
         cursor, and only when stopping ALSO parses is the boundary a genuine
         local fork — bailed to the gated engine, whose whole-input view owns
         the question. A failing probe licenses the iteration.

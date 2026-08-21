@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from lexic.ir import IrAst, IrRule, IrRuleRef
-from lexic.parsing.parallel.shapes import literal_char, unbounded
+from lexic.parsing.parallel.discovery.shapes import literal_char, unbounded
 
 
 class Interior(NamedTuple):

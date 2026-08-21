@@ -24,7 +24,7 @@ from lexic.compile import (
     template,
 )
 from lexic.compile.pipeline.binding import compute_binding
-from lexic.compile.templating import skip_rules
+from lexic.compile.output.templating import skip_rules
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir import IrMap, IrSelf, refs_in_order
 from lexic.model import GrammarModel

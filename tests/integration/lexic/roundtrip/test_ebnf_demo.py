@@ -3,7 +3,7 @@
 ``lexic.grammars.ebnf`` ships the full ISO-family EBNF flavour as a Python
 module (``EBNF_FLAVOUR`` — see ``grammars/ebnf.py`` and its unit mirror
 ``tests/unit/lexic/grammars/test_ebnf.py`` for the flavour's own parse/emit
-surface). ``grammars/ebnf.flavour.ir`` is a manifest GENERATED FROM that
+surface). ``grammars/resources/ebnf.flavour.ir`` is generated from that
 singleton (``tools/gen_manifests.py``) — a loadable-from-pure-text artefact
 that must stay behaviourally equivalent to the module it was generated from;
 this module's one manifest test guards exactly that (there is no longer a
@@ -29,7 +29,7 @@ from tests.paths import GRAMMARS, GROUND_TRUTH
 
 def manifest_ebnf() -> IrFlavour:
     """The GENERATED EBNF manifest, freshly loaded from disk."""
-    return load_flavour_from_path(GRAMMARS / "ebnf.flavour.ir")
+    return load_flavour_from_path(GRAMMARS / "resources" / "ebnf.flavour.ir")
 
 
 def gbnf_canonical(stem: str) -> IrAst:

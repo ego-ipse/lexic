@@ -15,11 +15,11 @@ from lexic.ir import (
 )
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     PdaProgram,
 )
-from lexic.parsing.pda.compiler.lower import flatten_program
+from lexic.parsing.pda.compiler.program.lower import flatten_program
 from lexic.parsing.pda.compiler.specs import (
     CloneKey,
     CloneSpec,

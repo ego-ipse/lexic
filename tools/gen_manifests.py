@@ -119,15 +119,15 @@ def _write(path: Path, text: str) -> None:
 def main() -> None:
     """Generate the three manifests + the demo EBNF corpus grammar."""
     _write(
-        _GRAMMARS / "gbnf.flavour.ir",
+        _GRAMMARS / "resources" / "gbnf.flavour.ir",
         format_manifest(GBNF_FLAVOUR, GBNF_ACTIONS),
     )
     _write(
-        _GRAMMARS / "abnf.flavour.ir",
+        _GRAMMARS / "resources" / "abnf.flavour.ir",
         format_manifest(ABNF_FLAVOUR, ABNF_ACTIONS),
     )
     _write(
-        _GRAMMARS / "ebnf.flavour.ir",
+        _GRAMMARS / "resources" / "ebnf.flavour.ir",
         format_manifest(EBNF_FLAVOUR, EBNF_ACTIONS),
     )
     _write(_GROUND_TRUTH / "arithmetic.ebnf", ARITHMETIC_EBNF)

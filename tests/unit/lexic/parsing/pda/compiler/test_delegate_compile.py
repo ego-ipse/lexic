@@ -9,7 +9,7 @@ here we pin the classifier (island-free + triviality floor) and the
 from __future__ import annotations
 
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource, _delegable
-from lexic.parsing.pda.compiler.flatten import FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.pda_compiler_helpers import compiled
 

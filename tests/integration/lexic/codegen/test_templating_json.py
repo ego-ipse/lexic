@@ -1,6 +1,6 @@
 """Templating v2 integration pins — real file, cross-flavour, equivalence.
 
-The unit suite drives :func:`~lexic.compile.templating.template` over a toy
+The unit suite drives :func:`~lexic.compile.output.templating.template` over a toy
 ``compile_text`` grammar; these pins close Task 11's remaining gates on real
 formulations: the SAME shape + spec extract through ``json.gbnf`` AND
 ``json.abnf`` (no privileged formulation — the kept spans agree), a kept
@@ -17,7 +17,7 @@ from typing import Iterator
 import pytest
 
 from lexic.compile import compile_from_path
-from lexic.compile.templating import KEEP, MapShape, template
+from lexic.compile.output.templating import KEEP, MapShape, template
 from lexic.model import GrammarModel
 from tests.paths import GROUND_TRUTH
 

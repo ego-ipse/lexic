@@ -27,7 +27,7 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.pda.compiler.flatten import window_admits
+from lexic.parsing.pda.compiler.program.flatten import window_admits
 from lexic.parsing.pda.core.scanner import (
     SG_PROBE,
     SG_SCAN,
@@ -358,7 +358,7 @@ def test_compiled_admission_agrees_with_the_positionwise_test(
     """The compiled pattern IS the positionwise window test, at every position.
 
     :func:`~lexic.parsing.pda.core.scanner.compile_admission` exists only to
-    answer :func:`~lexic.parsing.pda.compiler.flatten.window_admits` in C, and
+    answer :func:`~lexic.parsing.pda.compiler.program.flatten.window_admits` in C, and
     it is free to spell the member set however it likes — factored by shared
     prefix, grouped by length. This is the contract that spelling has to keep,
     asked at every cursor position including end of input.

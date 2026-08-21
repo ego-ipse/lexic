@@ -19,7 +19,7 @@ path's :exc:`~lexic.exceptions.FieldValidationError` behaviour is unchanged.
 
 A leaf w.r.t. the runtime: these functions read only the input ``text`` plus a
 frame / clone (and the memo), never the kernel cursor. Imports only
-:mod:`lexic.parsing.pda.compiler.flatten` (the flat records + field-mode
+:mod:`lexic.parsing.pda.compiler.program.flatten` (the flat records + field-mode
 codes), :mod:`lexic.parsing.fold` (:class:`RuleFold`) and
 :mod:`lexic.parsing.pda.core.errors` (:class:`PdaFail`) — never ``runtime``.
 """
@@ -31,11 +31,11 @@ from typing import Any, Callable
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrSpan
 from lexic.parsing.fold import RuleFold
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     vstr_model,
 )
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.opcodes import (
     M_CONST,
     M_GTEXT,
     M_MODEL,
@@ -190,7 +190,7 @@ def fast_values(text: str, clone: FlatClone, spans: Spans) -> list[Any]:
     still intern (:func:`build_vstr`): that key is ``(ctor, span)``, already at
     hand, and hits 50-95%.
 
-    One pass over :attr:`~lexic.parsing.pda.compiler.flatten.FlatClone.plan`,
+    One pass over :attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone.plan`,
     which already carries each field's mode, the item it reads and the default
     it falls back on — so the build allocates one list and nothing else.
 

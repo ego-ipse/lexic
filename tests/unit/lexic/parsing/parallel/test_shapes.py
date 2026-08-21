@@ -1,4 +1,4 @@
-"""Tests for ``lexic.parsing.parallel.shapes`` — the arm-shape questions.
+"""Tests for ``lexic.parsing.parallel.discovery.shapes`` — the arm-shape questions.
 
 Three facts the split analyses ask a grammar for: what an item spells,
 whether it repeats, and what every arm of an alternation carries at one end.
@@ -13,7 +13,12 @@ from functools import partial
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAlternation, IrAst, IrItem, IrRule
-from lexic.parsing.parallel.shapes import UNIT, edge_char, literal_char, unbounded
+from lexic.parsing.parallel.discovery.shapes import (
+    UNIT,
+    edge_char,
+    literal_char,
+    unbounded,
+)
 
 
 def _rule_map(source: str) -> dict[str, IrRule]:

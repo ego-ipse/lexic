@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-from lexic.compile.writer import WIDTH, literal, write_module
+from lexic.compile.output.writer import WIDTH, literal, write_module
 from lexic.exceptions import UnsupportedConstructError
 
 

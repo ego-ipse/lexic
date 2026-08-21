@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
     FlatClone,
@@ -23,7 +23,7 @@ from lexic.parsing.pda.compiler.flatten import (
     gate_take,
     vstr_model,
 )
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     DISPATCH_EMPTY,
     GATE_STOP,
@@ -41,7 +41,7 @@ def chase_dispatch(clone: FlatClone, char: str, pos: int) -> "FlatClone | None":
 
     The selection a dispatch alternation IS: a lead-char walk over selectors
     whose payloads are clones. Cursor-free, so both the kernel's entry path and
-    the inline :data:`~lexic.parsing.pda.compiler.flatten.OP_VDISP` matcher run
+    the inline :data:`~lexic.parsing.pda.compiler.program.flatten.OP_VDISP` matcher run
     the one implementation — and refuse in the same words at the same position.
 
     :param clone: A ``BUILD_DISPATCH`` clone.
@@ -70,11 +70,11 @@ def chase_dispatch(clone: FlatClone, char: str, pos: int) -> "FlatClone | None":
 def vdisp_once(
     text: str, intern: dict[Any, object], clone: FlatClone, sink: list[Any], pos: int
 ) -> int:
-    """One :data:`~lexic.parsing.pda.compiler.flatten.OP_VDISP` iteration —
+    """One :data:`~lexic.parsing.pda.compiler.program.flatten.OP_VDISP` iteration —
     chase, then the landed clone's ordinary ``value_str`` match.
 
     The two halves the entry path already ran, without the entry: by the
-    licence (:func:`~lexic.parsing.pda.compiler.flatten.vdisp_target`) the chase
+    licence (:func:`~lexic.parsing.pda.compiler.program.flatten.vdisp_target`) the chase
     always lands on a frame-less ``value_str``, which is precisely the clone
     ``_enter`` would have handed to this same :func:`vstr_once`.
 
@@ -203,7 +203,7 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
 
 def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
     """Run an ``OP_VSTR`` loop whose target carries a
-    :attr:`~lexic.parsing.pda.compiler.flatten.FlatClone.chartable`.
+    :attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone.chartable`.
 
     One dict lookup per iteration stands in for the arm selection, the terminal
     match and the model build :func:`vstr_once` would run — the interior model
@@ -311,7 +311,7 @@ def vstr_once(
 ) -> int:
     """One ``value_str`` iteration — select, match, slice, build, append.
 
-    A tabled clone (:attr:`~lexic.parsing.pda.compiler.flatten.FlatClone
+    A tabled clone (:attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone
     .chartable`) answers from the table: this is the entry an inline reference
     does not reach — a dispatch chase or a frame-less clone ENTRY, which is where
     the character-wide models of a dispatching lexical alternation are built. It

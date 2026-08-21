@@ -36,7 +36,7 @@ from lexic.compile.notation.emit import black_quoted, ir_doc
 from lexic.compile.notation.parse import load_ir
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding, non_empty_arms
 from lexic.compile.pipeline.naming import class_name_for
-from lexic.compile.writer import write_module
+from lexic.compile.output.writer import write_module
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir import (
@@ -530,7 +530,7 @@ def export_module(
     :param inline_tables: See :func:`export_source`.
     :returns: The written path.
 
-    Written through :func:`~lexic.compile.writer.write_module`, the same step a
+    Written through :func:`~lexic.compile.output.writer.write_module`, the same step a
     payload goes out through: validated, staged, and byte-compiled, so a twin
     and its ``.pyc`` land as a matched pair or not at all.
     """

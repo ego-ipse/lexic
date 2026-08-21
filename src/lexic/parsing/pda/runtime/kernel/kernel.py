@@ -56,13 +56,13 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     gate_take,
     select_gated,
 )
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     BUILD_SEQ,
     BUILD_TRANSPARENT,
@@ -469,7 +469,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
     def _chase_dispatch(self, clone: FlatClone, char: str) -> "FlatClone | None":
         """Chase a frame-less dispatch alternation to its concrete target clone.
 
-        :param clone: A :data:`~lexic.parsing.pda.compiler.flatten.BUILD_DISPATCH` clone.
+        :param clone: A :data:`~lexic.parsing.pda.compiler.program.flatten.BUILD_DISPATCH` clone.
         :param char: The lookahead char selecting each dispatch step.
         :returns: The concrete target clone, or ``None`` when the dispatch lands
             on its empty (nullable) arm (the caller then consumes nothing).
@@ -548,7 +548,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
 
         The two cold selections, together because they share that property: a
         ``k``-window / post-noise-peek clone picks its arm by
-        :func:`~lexic.parsing.pda.compiler.flatten.select_gated`, and a
+        :func:`~lexic.parsing.pda.compiler.program.flatten.select_gated`, and a
         struct-gated clone whose gate REFUSES takes its escape (default) arm. A
         struct gate that takes falls through to the ordinary lead-char path.
 
@@ -716,7 +716,7 @@ class PdaKernel[M](Attempting, IrLeaf[IrSelf, IrSelf]):
         :param pos: The cursor position.
         :returns: The position after the whole quantifier loop.
         A target whose one-char language was tabled at compile time
-        (:func:`~lexic.parsing.pda.compiler.flatten.chartable_for`) runs the loop
+        (:func:`~lexic.parsing.pda.compiler.program.flatten.chartable_for`) runs the loop
         in :func:`~lexic.parsing.pda.runtime.matchers.match_chartable` instead —
         a lookup per iteration rather than a selection and a build.
 

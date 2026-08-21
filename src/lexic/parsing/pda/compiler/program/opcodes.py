@@ -3,7 +3,7 @@
 The int codes every layer of the PDA's flat half agrees on: the compiler's
 lowering and post-flatten passes cut them, the runtime driver dispatches on them,
 and the tests pin them. A leaf by construction — it imports nothing, so the
-record shapes (:mod:`~lexic.parsing.pda.compiler.flatten`) and the runtime
+record shapes (:mod:`~lexic.parsing.pda.compiler.program.flatten`) and the runtime
 matchers can both read the vocabulary without either depending on the other.
 """
 

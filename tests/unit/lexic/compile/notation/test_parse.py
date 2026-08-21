@@ -4,7 +4,7 @@ The gate is the round-trip fixpoint ``repr(load_ir(repr(x))) == repr(x)`` over
 the whole ``lexic.ir`` node vocabulary (ported from ``demo_05``'s full real
 payload suite plus a grammar-AST/string battery), the ``Yield()`` → ``YIELD``
 sentinel identity pin, the SYMBOLS whitelist drift-pin (the no-exec
-boundary), and the ``grammars/json.ir`` conformance twin.
+boundary), and the ``grammars/resources/json.ir`` conformance twin.
 """
 
 from __future__ import annotations
@@ -327,12 +327,12 @@ def test_notation_grammar_is_an_irast() -> None:
 
 
 def test_json_ir_data_file_equals_authored_grammar() -> None:
-    """``grammars/json.ir`` loads to an ``IrAst`` ``==`` today's JSON_GRAMMAR.
+    """``grammars/resources/json.ir`` loads to ``IrAst == JSON_GRAMMAR``.
 
     ``non_semantic`` is compared explicitly (C11 — ``IrRule.__eq__`` excludes
     ``semantic``, so ``IrAst ==`` is blind to the noise flags).
     """
-    loaded = load_ir_from_path(GRAMMARS / "json.ir")
+    loaded = load_ir_from_path(GRAMMARS / "resources" / "json.ir")
     assert isinstance(loaded, IrAst)
     assert loaded == JSON_GRAMMAR
     assert loaded.non_semantic == JSON_GRAMMAR.non_semantic

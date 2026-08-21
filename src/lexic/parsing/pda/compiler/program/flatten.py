@@ -10,7 +10,7 @@ flat int-coded artifact this module defines — :class:`FlatClone` /
 :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` walks with
 integer dispatch (the ``tables.py``/``kernel.py`` philosophy).
 
-:mod:`lexic.parsing.pda.compiler.specialize` holds the passes that REWRITE
+:mod:`lexic.parsing.pda.compiler.program.specialize` holds the passes that REWRITE
 this artefact once it exists; this module is the artefact itself plus the
 readers the runtime walks it with. It imports nothing from ``pda_tables`` (it
 is a leaf w.r.t. the compiler and the spec types); the ``spec → flat`` bridge
@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.pda.compiler.opcodes import (
+from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     GATE_KWIN,
     GATE_PAIR,

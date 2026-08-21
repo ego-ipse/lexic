@@ -40,7 +40,7 @@ from lexic.parsing.pda.compiler.clones import (
     StopGate,
     compile_pda,
 )
-from lexic.parsing.pda.compiler.flatten import (
+from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
 )

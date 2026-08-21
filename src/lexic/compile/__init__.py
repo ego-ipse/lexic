@@ -72,8 +72,8 @@ from lexic.compile.pipeline.moments import (
     build_codegen_grammar,
 )
 from lexic.compile.pipeline.synthesis import fold_config, synthesize
-from lexic.compile.presentation import Draw, Presentation, Row, Rows, present
-from lexic.compile.templating import (
+from lexic.compile.output.presentation import Draw, Presentation, Row, Rows, present
+from lexic.compile.output.templating import (
     KEEP,
     Keep,
     MapShape,
@@ -85,7 +85,7 @@ from lexic.compile.templating import (
     spanify,
     template,
 )
-from lexic.compile.transpile import (
+from lexic.compile.output.transpile import (
     Flat,
     Is,
     Make,

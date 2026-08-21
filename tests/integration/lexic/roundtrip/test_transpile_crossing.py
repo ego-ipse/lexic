@@ -21,7 +21,7 @@ import pytest
 
 from getting_started import ex16_transpile_json_yaml as ex16
 from lexic.compile import compile_from_path, compile_text, transpile
-from lexic.compile.transpile import Crossing, Transpiler
+from lexic.compile.output.transpile import Crossing, Transpiler
 from lexic.exceptions import UnsupportedConstructError
 from lexic.model import GrammarModel
 
