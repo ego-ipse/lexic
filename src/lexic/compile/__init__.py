@@ -1,8 +1,8 @@
 """parse_grammar / canonical_grammar / compile_text — grammar entry points.
 
 ``parse_grammar(text, flavour)`` is the public grammar-text → ``IrAst`` seam:
-the flavour's own self-grammar (Earley-normalised, memoised per flavour)
-parses the source and the flavour's ``Reducer`` folds the derivation to IR.
+the flavour's self-grammar is compiled once, and its IR ``Reducer`` derives a
+pruned model variant whose thin fold produces the grammar AST.
 
 Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)::
 
@@ -39,12 +39,9 @@ The grammar→grammar passes, the binding view and runtime class synthesis all
 live inside this package (``lexic.compile.pipeline.passes`` / ``.binding`` /
 ``.synthesis``, composed once in ``.moments``) and are re-exported from this
 root, which is the only import route to them. The engine is the package's only
-external runtime seam: any ``lexic.compile`` module may import
-``lexic.parsing`` (the package root — the product entries + fold toolkit +
-``Reducer``) and the one licensed submodule
-``lexic.parsing.earley.reduce`` (the reduce channel — the ``DROP`` /
-``KEEP_REDUCED`` / ``YIELD`` sentinels), and nothing else reaches past that
-surface. Outside the package every runtime module reaches compile only through
+external runtime seam, and compile modules are its only non-engine consumers.
+Reducer data comes only from ``lexic.ir``. Outside the package every runtime
+module reaches compile only through
 ``from lexic.compile import ...`` (the ``__init__`` root), never a submodule.
 ``test_layering_invariants.py`` pins both halves.
 """
@@ -109,6 +106,7 @@ from lexic.ir import (
     IrSelf,
     IrSeq,
     IrTokenizer,
+    Reducer as _Reducer,
     canonicalize,
     fold_name,
     inline_refs,
@@ -116,7 +114,7 @@ from lexic.ir import (
     rule_closure,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelFold, Reducer
+from lexic.parsing import ModelFold
 
 # Case-insensitive order — keeps this list and the submodules' own __all__
 # blocks from sharing linter-length runs of identical lines.
@@ -152,7 +150,6 @@ __all__ = [
     "parse_instance",
     "parse_instance_from_path",
     "parse_module",
-    "Reducer",
     "Row",
     "Rows",
     "reset_cache_for_tests",
@@ -175,7 +172,7 @@ __all__ = [
 ]
 
 
-def _flavour_reducer(flavour: IrFlavour) -> Reducer:
+def _flavour_reducer(flavour: IrFlavour) -> _Reducer:
     """The flavour's :class:`Reducer`, narrowed once — the single home for the check.
 
     :param flavour: The grammar flavour.
@@ -183,9 +180,9 @@ def _flavour_reducer(flavour: IrFlavour) -> Reducer:
     :raises UnsupportedConstructError: When the flavour carries no ``Reducer``.
     """
     reducer = flavour.reducer
-    if not isinstance(reducer, Reducer):
+    if not isinstance(reducer, _Reducer):
         raise UnsupportedConstructError(
-            f"compile: flavour {flavour.name!r} carries no parse Reducer"
+            f"compile: flavour {flavour.name!r} carries no IR Reducer"
         )
     return reducer
 

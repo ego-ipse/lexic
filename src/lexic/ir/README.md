@@ -9,6 +9,11 @@ The premise: *everything is an `IrSelf`*. A grammar node, an action body, a
 dispatcher, and a compiled model instance are all the same kind of thing —
 walkable, dispatchable, evaluable — so one substrate carries all of them.
 
+`reduction.py` owns `Reducer` and the `DROP` / `KEEP_RAW` / `KEEP_REDUCED` /
+`YIELD` singleton policies. They describe a grammar reading as IR data; they
+import no parser. `lexic.compile` interprets those declarations by deriving a
+pruned model artefact and applying its thin reduction fold.
+
 ## 1. The primitive-node model — a node IS its payload
 
 There are **no** `.value` / `.items` / `.arms` accessors. Every node subclasses

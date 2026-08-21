@@ -72,6 +72,9 @@ import string
 from typing import ClassVar
 
 from lexic.ir import (
+    DROP,
+    KEEP_REDUCED,
+    YIELD,
     IR_DEFAULT,
     EscapeCodec,
     IrAction,
@@ -128,9 +131,8 @@ from lexic.ir import (
     IrTuple,
     IrTypeMap,
     IrUnradix,
+    Reducer,
 )
-from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
-from lexic.parsing.earley.reduce.reducer import Reducer
 
 # Identity codec — ABNF literals are canonical Python; the quoted char-val body
 # admits printable ASCII except the double quote (RFC 7405).

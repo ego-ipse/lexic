@@ -29,6 +29,9 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCTIONS,
 )
 from lexic.ir import (
+    DROP,
+    KEEP_REDUCED,
+    YIELD,
     IR_DEFAULT,
     EscapeCodec,
     IrAction,
@@ -48,9 +51,8 @@ from lexic.ir import (
     IrStr,
     IrTuple,
     IrTypeMap,
+    Reducer,
 )
-from lexic.parsing import Reducer
-from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
 from tests.paths import GROUND_TRUTH
 from tools.gen_manifests import escapes_as_ir
 

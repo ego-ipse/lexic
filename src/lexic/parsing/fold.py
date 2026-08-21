@@ -2,9 +2,8 @@
 
 The one authored instance-fold is :class:`ModelFold`: a per-rule IR body-table
 (:attr:`ModelFold.bodies`, an :class:`~lexic.ir.action.mapping.IrMap` from each rule's
-:class:`~lexic.ir.grammar.nodes.IrRuleRef` to its :class:`ModelBody`) — the same shape
-the grammar-text :class:`~lexic.parsing.earley.reduce.Reducer` carries its
-reductions in. A :class:`ModelBody` carries the model constructor as an
+:class:`~lexic.ir.grammar.nodes.IrRuleRef` to its :class:`ModelBody`). A
+:class:`ModelBody` carries the model constructor as an
 :class:`~lexic.ir.base.IrLambda` plus structural metadata (kind / n_items /
 fields / fast); :meth:`ModelBody.bake` lowers it losslessly to a
 :class:`RuleFold`, the flat-runtime record the predictive PDA's clone compiler
@@ -362,18 +361,16 @@ class ModelFold[M]:
     The authored form is :attr:`bodies`, a per-rule
     :class:`~lexic.ir.action.mapping.IrMap` from each rule's
     :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its :class:`ModelBody` (an
-    :class:`~lexic.ir.base.IrSelf`) — the same shape the grammar-text
-    :class:`~lexic.parsing.earley.reduce.Reducer` carries its reductions in. On
+    :class:`~lexic.ir.base.IrSelf`). On
     construction every body is :meth:`~ModelBody.bake`\\ d to the flat-runtime
     :class:`RuleFold` table :attr:`config`, which drives both this fold's
     :meth:`apply` (the engine-fallback path) and — via :attr:`baked` — the
     predictive PDA's clone compiler; both consumers are byte-for-byte unchanged
     from the retired plain-data config.
 
-    Bottom-up ParseTree → model-instance fold: the runtime mirror of the
-    :class:`~lexic.parsing.earley.reduce.Reducer`, same explicit-stack
-    discipline, but the outputs are opaque constructor results rather than IR
-    nodes, so it lives outside the IrSelf dispatch algebra.
+    Bottom-up ParseTree → model-instance folding uses an explicit stack; its
+    outputs are opaque constructor results, so it lives outside the IrSelf
+    dispatch algebra.
 
     :ivar bodies: Rule ref → its :class:`ModelBody` (the authored IR body-table).
     :ivar config: Rule name → baked :class:`RuleFold`. Synthetic (``__rep``/

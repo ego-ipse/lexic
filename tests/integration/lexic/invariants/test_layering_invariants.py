@@ -6,6 +6,8 @@ import ast
 import re
 from pathlib import Path
 
+from lexic.ir.reduction import __all__ as REDUCTION_POLICY_NAMES
+
 ROOT = Path(__file__).resolve().parents[4]
 SRC = ROOT / "src" / "lexic"
 
@@ -61,18 +63,11 @@ def test_no_cross_module_private_imports_in_src():
     assert not offenders, f"cross-module private imports: {offenders}"
 
 
-LICENSED_PARSING = frozenset({"lexic.parsing", "lexic.parsing.earley.reduce"})
-"""The engine imports a ``lexic.compile`` module may make: the package root
-(the product entries + fold toolkit) and the one licensed submodule
-``lexic.parsing.earley.reduce`` — the reduce channel (``Reducer`` sentinels,
-``Yield``/``YIELD``) the notation and loader need. Every other
-``lexic.parsing`` submodule (``.fold``/``.pda``/``.products``/``.earley.*``)
-stays off-limits."""
+LICENSED_PARSING = frozenset({"lexic.parsing"})
+"""The sole engine import a ``lexic.compile`` module may make: its root."""
 
-GRAMMARS_PARSING = frozenset({"lexic.parsing.earley.reduce"})
-"""The one engine import a ``lexic.grammars`` module may make — the reduce
-channel its flavour reducers are built from. The package root (product
-entries, fold toolkit) is compile-only."""
+GRAMMARS_PARSING = frozenset()
+"""Grammar modules are IR data and may not import the parsing layer."""
 
 
 def _engine_imports(path: Path) -> list[str]:
@@ -100,8 +95,7 @@ def test_runtime_imports_parsing_are_compile_only_and_licensed():
     The scan rglobs the WHOLE tree (future packages are covered by
     construction, not by remembering to extend a glob): the engine imports
     itself freely; ``lexic.compile`` modules may import
-    :data:`LICENSED_PARSING`; ``lexic.grammars`` modules may import the
-    :data:`GRAMMARS_PARSING` reduce channel; every other module may not
+    :data:`LICENSED_PARSING`; grammar and every other module may not
     import ``lexic.parsing`` at all. Enforcement of directive 1.
     """
     offenders: list[str] = []
@@ -110,9 +104,6 @@ def test_runtime_imports_parsing_are_compile_only_and_licensed():
             continue
         licence = _engine_licence(path)
         for module in _engine_imports(path):
-            # A licensed seam licenses its SUBMODULES: the reduction is a
-            # package (policy / fused / reducer), and the constraint is about
-            # WHICH seam a non-engine module may reach, not which file of it.
             if any(module == ok or module.startswith(ok + ".") for ok in licence):
                 continue
             rel = path.relative_to(SRC)
@@ -128,6 +119,20 @@ def test_ir_does_not_import_grammars_or_parsing():
         SRC / "ir", "from lexic.parsing"
     )
     assert not bad, f"lexic.ir leaks: {bad}"
+
+
+def test_parsing_has_zero_reducer_policy_knowledge():
+    """The model engine never imports grammar-side reduction declarations."""
+    policy_names = set(REDUCTION_POLICY_NAMES)
+    offenders: list[str] = []
+    for path in (SRC / "parsing").rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for module, name in from_imports(tree):
+            if module == "lexic.ir.reduction" or (
+                module == "lexic.ir" and name in policy_names
+            ):
+                offenders.append(f"{path.relative_to(SRC)}: {module}.{name}")
+    assert not offenders, f"parsing knows reducer policy: {offenders}"
 
 
 def test_no_src_module_imports_pydantic():

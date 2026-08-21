@@ -26,9 +26,9 @@ from lexic.ir import (
     IrRule,
     IrSeq,
     IrSequence,
+    Reducer,
+    YIELD,
 )
-from lexic.parsing import Reducer
-from lexic.parsing.earley.reduce.policy import YIELD
 
 
 def _json_derivation() -> ReduceDerivation:

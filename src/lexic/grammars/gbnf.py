@@ -18,6 +18,9 @@ from __future__ import annotations
 from typing import ClassVar
 
 from lexic.ir import (
+    DROP,
+    KEEP_REDUCED,
+    YIELD,
     IR_DEFAULT,
     EscapeCodec,
     IrAction,
@@ -73,9 +76,8 @@ from lexic.ir import (
     IrTuple,
     IrTypeMap,
     IrUnradix,
+    Reducer,
 )
-from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
-from lexic.parsing.earley.reduce.reducer import Reducer
 
 # GBNF escape tables — quoted string literals + bracket-class members.
 GBNF_ESCAPES = EscapeCodec.from_tables(

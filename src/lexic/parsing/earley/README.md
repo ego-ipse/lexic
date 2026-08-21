@@ -75,11 +75,5 @@ packed-links `FastTree`, falling back to trampolined enumeration on ambiguity),
 `ParseForest` / `Enumerate` / `IsAmbiguous` (decode the packed SPPF and drive
 the forest readers).
 
-## Grammar-text reduction
-
-The Earley engine has no grammar-text reduction product. A compiled grammar
-artefact derives a pruned model grammar from a flavour's declarative reducer,
-parses it through the ordinary model product, and applies a thin fold. The
-engine therefore owns recognition and forest reading only.
-
-See the package `README.md` for the recognition and forest mechanics.
+The engine owns recognition and forest reading only. See the package
+`README.md` for the complete mechanics.

@@ -26,7 +26,10 @@ integers ``IrInt``, truth ``IrInt(0|1)``, null ``IrNone`` — via
 from __future__ import annotations
 
 from lexic.ir import (
+    DROP,
     IR_DEFAULT,
+    KEEP_REDUCED,
+    YIELD,
     IrAlternation,
     IrArg,
     IrArgs,
@@ -54,9 +57,8 @@ from lexic.ir import (
     IrTuple,
     IrUnradix,
     IrUtf,
+    Reducer,
 )
-from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
-from lexic.parsing.earley.reduce.reducer import Reducer
 
 JSON_GRAMMAR = IrAst(
     IrSeq(

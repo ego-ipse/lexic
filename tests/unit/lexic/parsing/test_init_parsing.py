@@ -38,7 +38,6 @@ from lexic.parsing import (
     ParseTree,
     PdaKernel,
     PdaTables,
-    Reducer,
     RuleFold,
     SppfNode,
     compile_tables,
@@ -74,7 +73,6 @@ from lexic.parsing.earley.kernel.tables.builder import (
 from lexic.parsing.earley.kernel.tables.records import (
     ParserTables as ParserTablesDirect,
 )
-from lexic.parsing.earley.reduce.reducer import Reducer as ReducerDirect
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis as GrammarAnalysisDirect
 from lexic.parsing.pda.compiler.tables import PdaTables as PdaTablesDirect
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel as PdaKernelDirect
@@ -117,9 +115,9 @@ def test_build_tree_singleton_re_exported_from_package():
     assert BUILD_TREE is BUILD_TREE_DIRECT
 
 
-def test_reducer_re_exported_from_package():
-    """Reducer is re-exported from the package top-level."""
-    assert Reducer is ReducerDirect
+def test_reducer_is_not_exported_from_parsing():
+    """Grammar-side reducer data does not surface from the parsing layer."""
+    assert not hasattr(parsing, "Reducer")
 
 
 def test_recognize_callable_from_package():

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from lexic.compile import compile_ast
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrAst, IrFlavour
-from lexic.parsing import Reducer
+from lexic.ir import IrAst, IrFlavour, Reducer
 
 
 class ReduceDifferential:

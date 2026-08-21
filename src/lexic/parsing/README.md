@@ -20,13 +20,6 @@ policy, the PDA compilation, and its per-grammar memoisation all live inside
 this package; consumers see one call. `lexic.compile` (the runtime's sole
 consumer) imports nothing but this package's root API.
 
-Grammar-text reduction belongs to `CompiledGrammar.reduce`: the reducer
-derives a pruned grammar variant, this model product parses it, and a thin
-artefact fold rebuilds the reducer's value. The self-hosting fixpoint remains
-the standing proof: emit
-the ABNF-of-ABNF grammar (`grammars/abnf.py`'s `ABNF_GRAMMAR`) as text,
-parse that text with itself, reduce, and recover the identical `IrAst`.
-
 ```
 parse_model(grammar, text, fold)
         │  (once per grammar, memoised)
@@ -55,8 +48,7 @@ its submodules (enforced by the layering test).
 | `derivations(grammar, text)` | `IrSeq[ParseTree]` | *Every* derivation, nothing silently dropped. |
 | `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2.) |
 
-Also exported from the root: `Reducer` (pending its move to `lexic.ir`),
-`ModelFold` (and its authoring
+Also exported from the root: `ModelFold` (and its authoring
 types), `ParseTree`, `SppfNode`, `ParserTables`, `compile_tables`,
 `normalize`, `lift_optional_nullables` — plus the rest of the forest/chart
 toolkit the root exports today (`Chart`, `Links`, `Link`, `EarleyItem`,
@@ -107,7 +99,6 @@ parsing/
     chart.py          Chart/Links — the decoded SPPF; EarleyItem
     engine.py         per-capability orchestration nodes behind the public API
     forest.py         ParseTree, SppfNode, trampolined enumeration
-    reduce/           declarative reducer data (moves to `lexic.ir` in §1h)
     normalize.py      desugar IR into classical Earley shape (§6)
     lexruns.py        derived run terminals (§5)
     trampoline.py     depth-safe generator driver
@@ -204,14 +195,6 @@ groups hoist to fresh synthetic rules (prefix `__`), and non-`(1, 1)`
 quantifiers desugar to synthetic right-recursive rules (`*`/`?` nullable; Leo
 keeps the recursion linear). Large *bounded* counts (`{lo, hi}`) still unroll
 `hi`-deep at desugar time — the one remaining rough edge.
-
-## 7. Grammar-text reduction — one artefact path
-
-A flavour's reducer is declarative grammar-side data: rule bodies plus child
-and literal contribution policies. `CompiledGrammar.reduce` derives a pruned
-model variant from those declarations, runs the ordinary model product, and
-applies `ReduceFold`. Earley and the PDA contain no reduce completion, plan,
-runtime, or fallback twin.
 
 ## 8. The instance fold (`fold.py`) — text → model
 

@@ -75,9 +75,8 @@ ADVANCE = 1 << ORIGIN_BITS
 
 
 RUN_DROP, RUN_STR, RUN_LEAF = 0, 1, 2
-"""A :class:`RunTerm`'s per-char reduction contribution: nothing (the unit is
-DROP noise), one ``IrStr`` per char (the unit rule YIELDs its text), or one
-interned ``IrLiteral`` leaf per char (a bare terminal unit under KEEP_RAW)."""
+"""A :class:`RunTerm`'s per-char fold contribution: nothing, one ``IrStr`` per
+character, or one interned ``IrLiteral`` leaf per character."""
 
 
 def code_choices(builder: TableBuilder) -> tuple[int, ...]:

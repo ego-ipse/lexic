@@ -70,6 +70,8 @@ from lexic.compile.foldkit import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
+    YIELD,
+    Drop,
     IR_DEFAULT,
     IrAlternation,
     IrAst,
@@ -85,10 +87,12 @@ from lexic.ir import (
     IrSelf,
     IrSeq,
     IrSequence,
+    KeepRaw,
+    KeepReduced,
+    Reducer,
+    Yield,
 )
 from lexic.parsing import FieldFold, ModelBody, parse_model
-from lexic.parsing.earley.reduce.policy import YIELD, Drop, KeepRaw, KeepReduced, Yield
-from lexic.parsing.earley.reduce.reducer import Reducer
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 

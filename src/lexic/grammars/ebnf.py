@@ -33,6 +33,9 @@ from __future__ import annotations
 from typing import ClassVar
 
 from lexic.ir import (
+    DROP,
+    KEEP_REDUCED,
+    YIELD,
     IR_DEFAULT,
     EscapeCodec,
     IrAction,
@@ -88,9 +91,8 @@ from lexic.ir import (
     IrTuple,
     IrTypeMap,
     IrUnradix,
+    Reducer,
 )
-from lexic.parsing.earley.reduce.policy import DROP, KEEP_REDUCED, YIELD
-from lexic.parsing.earley.reduce.reducer import Reducer
 
 # EBNF escape tables — quoted-terminal body + ``..``-endpoint spelling. The
 # EBNF "class context" is a double-quoted ``..`` endpoint / member terminal —

@@ -40,7 +40,7 @@ from lexic.api.pretokens import (
     IrQwenSplit,
     IrSplitMerged,
 )
-from lexic.compile import Reducer, compile_ast
+from lexic.compile import compile_ast
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAst,
@@ -53,6 +53,7 @@ from lexic.ir import (
     IrStr,
     IrTokenizer,
     IrTokenPipeline,
+    Reducer,
     IrTuple,
     IrUnicodeForm,
     IrUnknown,

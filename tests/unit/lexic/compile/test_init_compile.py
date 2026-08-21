@@ -473,7 +473,7 @@ def test_canonical_grammar_invalid_start_raises():
 def test_canonical_grammar_flavour_with_non_reducer_raises():
     """canonical_grammar raises UnsupportedConstructError when flavour.reducer
     is not a parsing Reducer instance."""
-    with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
+    with pytest.raises(UnsupportedConstructError, match="no IR Reducer"):
         canonical_grammar('root ::= "x"\n', FlavourWithBadReducer())
 
 
@@ -491,7 +491,7 @@ def test_parse_grammar_is_importable_from_the_package_root():
 
 def test_parse_grammar_flavour_with_non_reducer_raises():
     """parse_grammar raises UnsupportedConstructError on a malformed reducer."""
-    with pytest.raises(UnsupportedConstructError, match="no parse Reducer"):
+    with pytest.raises(UnsupportedConstructError, match="no IR Reducer"):
         parse_grammar('root ::= "x"\n', FlavourWithBadReducer())
 
 
@@ -707,6 +707,11 @@ def test_flavour_reducer_returns_the_flavours_own_reducer():
     """_flavour_reducer(flavour) returns exactly the flavour's reducer ClassVar."""
     reducer = getattr(compile_module, "_flavour_reducer")(GBNF_FLAVOUR)
     assert reducer is GBNF_FLAVOUR.reducer
+
+
+def test_reducer_is_not_reexported_from_compile_package():
+    """Reducer's public home is ``lexic.ir``, not the compile seam."""
+    assert not hasattr(compile_module, "Reducer")
 
 
 def test_load_ir_reexported_from_compile_package() -> None:

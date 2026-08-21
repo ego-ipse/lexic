@@ -21,6 +21,10 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_GRAMMAR, ABNF_REDUCTIONS
 from lexic.grammars.gbnf import GBNF_GRAMMAR, GBNF_REDUCTIONS
 from lexic.ir import (
+    DROP,
+    KEEP_REDUCED,
+    YIELD,
+    Drop,
     IR_DEFAULT,
     IrAction,
     IrAst,
@@ -35,14 +39,8 @@ from lexic.ir import (
     IrSequence,
     IrStr,
     IrTuple,
-    render,
-)
-from lexic.parsing.earley.reduce.policy import (
-    DROP,
-    KEEP_REDUCED,
-    YIELD,
-    Drop,
     KeepReduced,
+    render,
 )
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
 

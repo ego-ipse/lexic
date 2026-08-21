@@ -51,6 +51,10 @@ from lexic.grammars.gbnf import (
 )
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir import (
+    DROP,
+    KEEP_RAW,
+    KEEP_REDUCED,
+    YIELD,
     IR_DEFAULT,
     IrAlternation,
     IrAst,
@@ -73,12 +77,6 @@ from lexic.ir import (
     IrTokenizer,
     IrTokenPipeline,
     IrTuple,
-)
-from lexic.parsing.earley.reduce.policy import (
-    DROP,
-    KEEP_RAW,
-    KEEP_REDUCED,
-    YIELD,
     Yield,
 )
 

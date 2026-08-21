@@ -176,6 +176,7 @@ src/lexic/
     __init__.py                    Public IR surface — a LAZY façade; import everything from here
     flavour.py                     IrFlavour ABC — config bundle every grammar flavour subclasses
     identity.py                    The identity walk — a value's graph under ONE stated child definition
+    reduction.py                   Reducer declarations + contribution-policy sentinels — grammar-side IR data
     spine/                        The node substrate — everything else is downstream
       __init__.py                the group's package marker; the façade is the import surface
       bind.py                       IrBind — the field-binding marker generated model fields carry
@@ -210,7 +211,7 @@ src/lexic/
   parsing/
     __init__.py                    public API: parse_model product + the Earley toolkit
     fold.py                        ParseTree → object fold — the instance-parsing bridge
-    products.py                    The two product entries — reduce (text → the reducer's value), model (text → model)
+    products.py                    The model product entry — PDA-first with Earley completion
     trace.py                       The watched run — what the predictive kernel DID, as an ordered event stream
     earley/
       __init__.py                  The Earley engine (SPPF, Scott 2008) over IrAst-shaped grammars
@@ -229,7 +230,7 @@ src/lexic/
           fasttree.py              The fast tree build — the unambiguous parse's short path
           forest.py                Parse forest — the shared packed parse forest (SPPF) and its reducible views
           readout.py               Readout — what a finished kernel says: accepting items, forest root, decoded chart
-          trampoline.py            Depth-safe trampoline for the forest/reduce tree walks
+          trampoline.py            Depth-safe trampoline for forest tree walks
         tables/                    Compiled grammar tables — the parser's "codegen moment"
           __init__.py              the group's package marker
           atoms.py                 Packing tiers, predecessor chains, what one terminal atom accepts
@@ -238,10 +239,6 @@ src/lexic/
           splits.py                Which slot owns the text — resolving a binarised chain from the left
       lexruns.py                   Run-terminal detection — where a grammar's lexical layer is *derived*
       normalize.py                 Desugar an IR grammar into classical Earley shape
-      reduce/                      Reduction — a parse forest into the reducer's own value
-        __init__.py                the group's package marker
-        policy.py                  Reduction policy — what a child contributes, as real nodes
-        reducer.py                 Forest → IR reduction — where a flavour's meaning attaches
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
     parallel/

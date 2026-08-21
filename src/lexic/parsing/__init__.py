@@ -8,10 +8,8 @@ folds that forest back into an ``IrAst``. The fixpoint — parse the ABNF source
 ABNF with the ABNF grammar and recover the ABNF grammar — is the self-hosting
 proof that retires the meta-grammars.
 
-One model engine drives parsing. Grammar-text reduction is a compiled
-artefact capability: a flavour's self-grammar is compiled like any other and
-its reducer derives a pruned model variant before the thin fold.
-The instance path runs **PDA-first** — a predictive table-driven runtime
+One model engine drives parsing. The instance path runs **PDA-first** — a
+predictive table-driven runtime
 (:mod:`.pda.runtime`) that builds the model during the walk, falling back to this
 Earley engine on any non-deterministic point. See ``README.md``.
 
@@ -34,7 +32,6 @@ Module map:
                         :class:`FastTree` the unambiguous builder, the ambiguity
                         question, the readout and the walk trampoline.
 - :mod:`.earley.engine`   — the per-capability orchestration nodes the API drives.
-- :mod:`.earley.reduce`   — :class:`Reducer`, forest → ``IrAst`` (grammar-text product).
 - :mod:`.fold`        — :class:`~lexic.parsing.fold.ModelFold`, forest →
                         ``GrammarModel`` (the instance product).
 - :mod:`.earley.normalize` — desugar IR into classical Earley-shaped rules.
@@ -147,7 +144,6 @@ from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import (
     CharTrieCursor,
     TokenMaskCursor,
@@ -287,7 +283,6 @@ __all__ = [
     "ParserTables",
     "PdaKernel",
     "PdaTables",
-    "Reducer",
     "Resolver",
     "RootNode",
     "RuleFold",

@@ -12,10 +12,9 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir import IrAst, IrChr, IrMap, IrStr, IrTokenizer, IrTuple
+from lexic.ir import IrAst, IrChr, IrMap, IrStr, IrTokenizer, IrTuple, Reducer
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
-from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import (
     _MODEL_CACHE,

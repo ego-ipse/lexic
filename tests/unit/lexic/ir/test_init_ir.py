@@ -121,6 +121,23 @@ def test_action_algebra_exported() -> None:
         assert name in ir.__all__, f"{name!r} missing from __all__"
 
 
+def test_reduction_policy_is_exported_from_ir() -> None:
+    """Reducer declarations and identity sentinels live on the IR surface."""
+    for name in (
+        "Reducer",
+        "Drop",
+        "KeepRaw",
+        "KeepReduced",
+        "Yield",
+        "DROP",
+        "KEEP_RAW",
+        "KEEP_REDUCED",
+        "YIELD",
+    ):
+        assert hasattr(ir, name), name
+        assert name in ir.__all__, name
+
+
 def test_rule_order_exported() -> None:
     """RuleOrder (topo_sort's successor) is re-exported from lexic.ir."""
     assert hasattr(ir, "RuleOrder")

@@ -5,9 +5,8 @@ family table IS a shared packed parse forest. This module gives it node shapes
 and enumerates its derivations:
 
 - :class:`ParseTree` — ONE derivation: a non-terminal symbol over a span, with
-  its children (sub-trees, or :class:`~lexic.ir.grammar.nodes.IrLiteral` leaves for
-  consumed characters). The reducible output a
-  :class:`~lexic.parsing.earley.reduce.Reducer` folds.
+  its children (sub-trees, or :class:`~lexic.ir.grammar.nodes.IrLiteral` leaves
+  for consumed characters). Model folds consume this engine-neutral view.
 - :class:`SppfNode` — a shared, packed forest handle for a dotted item over a
   span: the pure-data pair ``(item, end)``. Its packed families are
   ``chart.links[(item, end)]`` (each a predecessor / consumed-child pair), read on
@@ -105,23 +104,21 @@ class PayloadLeaf(IrLeaf[IrSelf, IrSelf]):
     """A pre-folded family child spliced in by island-interior delegation.
 
     When the PDA delegates a conflict-free rule's interior, its sub-run yields a
-    finished payload (a model instance on the instance path, or a reduced IR
-    fragment on the reduce path) plus the consumed span text. The kernel injects
+    finished model payload plus the consumed span text. The kernel injects
     a completed item for the delegated rule and records, on the waiter it
     advances, a family whose consumed child IS this leaf — the same slot a
     scanned character occupies. It therefore decodes as a normal terminal-like
     family child (:class:`ChildDerivs` / :meth:`~lexic.parsing.earley.kernel.loop.kernel
     .Kernel._child` / :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree`), and the
-    :class:`~lexic.parsing.fold.ModelFold` / :class:`~lexic.parsing.earley.reduce
-    .Reducer` pass its :attr:`payload` straight through as an already-folded
-    child (mirroring the PDA-side island splice). Not a :class:`ParseTree` and
+    :class:`~lexic.parsing.fold.ModelFold` passes its :attr:`payload` straight
+    through as an already-folded child (mirroring the PDA-side island splice).
+    Not a :class:`ParseTree` and
     not an :class:`~lexic.ir.grammar.nodes.IrLiteral`, so every kid-walk that
     discriminates on those two leaves it alone.
 
-    :ivar payload: The pre-built value — a model instance / reduced IR fragment
-        (``None`` for a nullable empty match).
+    :ivar payload: The pre-built model value (``None`` for a nullable match).
     :ivar text: The consumed span text (read by ``text`` / ``gtext`` folds and
-        the reduce ``YIELD`` walk).
+        text-bearing model folds).
     """
 
     __slots__ = ("payload", "text")

@@ -57,8 +57,7 @@ class AmbiguityPolicy(NamedTuple):
     build. ``resolve`` is the caller's explicit opt-out from the default
     refusal.
 
-    :ivar build: Turns a derivation into the value it means — a fold's or a
-        reducer's ``apply``.
+    :ivar build: Turns a derivation into the value it means.
     :ivar resolve: Settles a span that means two things; ``None`` refuses it.
     """
 
@@ -181,8 +180,7 @@ def another_meaning(
 
     :param kernel: The finished kernel.
     :param handle: The packed accepting handle.
-    :param build: Turns a derivation into the value it means — a fold's or a
-        reducer's ``apply``.
+    :param build: Turns a derivation into the value it means.
     :param first: The derivation already in hand, to compare the rest against.
     :returns: A derivation whose value differs from ``first``'s, or ``None``
         when every derivation means the same thing — proven, not sampled.

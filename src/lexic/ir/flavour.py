@@ -137,7 +137,7 @@ class IrFlavour(IrEmitter, ABC):
         at all can spell a directive, and a mechanism only some flavours can
         express would be a privileged formulation.
     :cvar grammar: The flavour's self-grammar (raw, un-normalised) — ground truth.
-    :cvar reducer: Parse-tree → IrAst policy (a parsing Reducer at runtime).
+    :cvar reducer: Declarative grammar-text reduction policy.
     :cvar core_rules: The flavour's std-namespace prelude (name-ref → rule) —
         e.g. RFC 5234 B.1 core rules. Consumed as dangling-ref resolution
         ONLY: a parsed grammar referencing a prelude name without defining it

@@ -31,6 +31,9 @@ from typing import Any, NamedTuple, cast
 from lexic.compile.pipeline.moments import CompileMoments
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
+    DROP,
+    KEEP_RAW,
+    YIELD,
     IrAlternation,
     IrArgs,
     IrAst,
@@ -51,11 +54,10 @@ from lexic.ir import (
     IrSequence,
     IrStr,
     IrTuple,
+    Reducer,
     inline_refs,
 )
 from lexic.model import GrammarModel
-from lexic.parsing.earley.reduce.policy import DROP, KEEP_RAW, YIELD
-from lexic.parsing.earley.reduce.reducer import Reducer
 
 _JOIN_ARGS = IrJoin(IrArgs())
 

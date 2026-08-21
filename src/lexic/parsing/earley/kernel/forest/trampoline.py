@@ -2,7 +2,7 @@
 
 Right-recursive grammars produce arbitrarily deep derivation spines, so a walk
 that recurses through the Python call stack overflows (a native nested-generator
-forest walk dies at ~300 levels; the reducer at ~1000). The fix is to keep the
+forest walk dies at ~300 levels). The fix is to keep the
 active pull-chain on an explicit Python list instead of the C stack.
 
 A **cogen** is a generator (an IR node's ``__iter__``) that, rather than

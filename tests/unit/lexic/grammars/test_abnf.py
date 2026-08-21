@@ -42,12 +42,12 @@ from lexic.ir import (
     IrRule,
     IrRuleRef,
     IrSeq,
+    Reducer,
+    YIELD,
     canonicalize,
 )
 from lexic.parsing import recognize
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.earley.reduce.policy import YIELD
-from lexic.parsing.earley.reduce.reducer import Reducer
 from tests.reduce_helpers import reduce_text
 from tests.unit.lexic.conftest import (
     GRAMMAR_AST_TYPES,

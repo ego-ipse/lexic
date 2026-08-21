@@ -30,6 +30,7 @@ from lexic.ir import (
     IrSelf,
     IrStr,
     IrTokenizer,
+    Reducer,
     IrTuple,
     IrUnicode,
     canonicalize,
@@ -40,7 +41,6 @@ from lexic.model import GrammarModel
 from lexic.parsing import (
     ModelFold,
     PdaTables,
-    Reducer,
     TokenMaskCursor,
     parse_model,
     pda_tables,

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from lexic.compile import compile_ast
-from lexic.ir import IrAst, IrSelf
-from lexic.parsing import Reducer
+from lexic.ir import IrAst, IrSelf, Reducer
 
 
 def reduce_text(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:

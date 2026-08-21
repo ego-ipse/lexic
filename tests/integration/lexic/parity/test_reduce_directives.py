@@ -39,9 +39,10 @@ from lexic.ir import (
     IrSequence,
     IrStr,
     IrTuple,
+    KEEP_RAW,
+    Reducer,
+    YIELD,
 )
-from lexic.parsing import Reducer
-from lexic.parsing.earley.reduce.policy import KEEP_RAW, YIELD
 from tests.paths import GROUND_TRUTH
 
 _CORPUS = sorted(

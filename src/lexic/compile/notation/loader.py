@@ -17,7 +17,7 @@ whose root is an :class:`~lexic.ir.action.mapping.IrMap` of seven named sections
 IR dyads to an :class:`~lexic.ir.text.escapes.EscapeCodec` and synthesizes the flavour
 class by a bare :func:`type` call.
 
-The reduction is **carried, not derived**. A :class:`~lexic.parsing.Reducer` is a
+The reduction is **carried, not derived**. A :class:`~lexic.ir.Reducer` is a
 plain IR record — actions, default, noise, literal — so the manifest spells the
 whole thing and the loader reads it. Deriving the noise map from the grammar's
 own ``semantic=False`` flags made one reading of a grammar the only reading it
@@ -36,8 +36,7 @@ from typing import cast
 
 from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import EscapeCodec, IrAst, IrFlavour, IrMap, IrTuple, IrTypeMap
-from lexic.parsing import Reducer
+from lexic.ir import EscapeCodec, IrAst, IrFlavour, IrMap, IrTuple, IrTypeMap, Reducer
 
 __all__ = ["load_flavour", "load_flavour_from_path"]
 
