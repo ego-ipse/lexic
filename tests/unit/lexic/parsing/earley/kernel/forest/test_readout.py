@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.earley.kernel.forest.readout — the decode seam.
+"""Tests for lexic.parsing.earley.kernel.forest.support.readout — the decode seam.
 
 What a finished kernel says about the parse it built: the accepting items, the
 forest root, the decoded chart (including the deferred Leo chains ``to_chart``
@@ -28,7 +28,7 @@ from lexic.ir import (
 from lexic.parsing import derivations
 from lexic.parsing.earley.kernel.forest.chart import Chart
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, SppfNode
-from lexic.parsing.earley.kernel.forest.readout import (
+from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_item,
     accept_items,
     accept_node,

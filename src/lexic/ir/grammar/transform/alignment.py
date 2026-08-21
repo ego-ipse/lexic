@@ -1,6 +1,6 @@
 """Equality up to renaming — and the bijection that witnesses it.
 
-:func:`~lexic.ir.grammar.canonical.canonicalize` folds spelling but never
+:func:`~lexic.ir.grammar.transform.canonical.canonicalize` folds spelling but never
 quotients names, so two grammars that differ only in what their rules are
 CALLED canonicalise to two different ASTs. They are the same grammar: a pure
 rename is no real difference, and every rule-keyed table written against one of
@@ -26,8 +26,8 @@ from itertools import permutations, product
 from typing import ClassVar, Mapping
 
 from lexic.ir.action.mapping import IrMap
-from lexic.ir.grammar.canonical import canonicalize
 from lexic.ir.grammar.nodes import IrAlternation, IrAst, IrRule, IrRuleRef
+from lexic.ir.grammar.transform.canonical import canonicalize
 from lexic.ir.spine.records import IrNamedTuple, IrSeq, IrTuple
 from lexic.ir.spine.scalars import IrStr
 from lexic.ir.spine.spine import IrSelf

@@ -18,7 +18,7 @@ from lexic.ir.spine.meta import IrSingleton
 from lexic.ir.spine.records import IrTuple
 from lexic.ir.spine.scalars import IrInt, IrStr
 from lexic.ir.spine.spine import IrAtom, IrNode, IrNone
-from lexic.ir.text.encodings import IrEncoding, IrUnicode, IrUtf
+from lexic.ir.text.codec.encodings import IrEncoding, IrUnicode, IrUtf
 from lexic.ir.text.pipeline import (
     IrNormalizer,
     IrReplace,

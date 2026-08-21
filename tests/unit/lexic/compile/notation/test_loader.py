@@ -30,9 +30,9 @@ from lexic.grammars.gbnf import (
 )
 from lexic.ir import (
     DROP,
+    IR_DEFAULT,
     KEEP_REDUCED,
     YIELD,
-    IR_DEFAULT,
     EscapeCodec,
     IrAction,
     IrAlternation,

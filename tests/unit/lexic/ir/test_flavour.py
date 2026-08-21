@@ -31,7 +31,7 @@ from lexic.ir.grammar.nodes import (
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.scalars import IrInt, IrStr
 from lexic.ir.spine.spine import IrNone
-from lexic.ir.text.escapes import EscapeCodec
+from lexic.ir.text.codec.escapes import EscapeCodec
 
 
 def test_concrete_flavour_with_required_attrs_works():

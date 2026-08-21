@@ -1,4 +1,4 @@
-"""Tests for lexic.ir.grammar.alignment: equality up to renaming."""
+"""Tests for lexic.ir.grammar.transform.alignment: equality up to renaming."""
 
 from __future__ import annotations
 

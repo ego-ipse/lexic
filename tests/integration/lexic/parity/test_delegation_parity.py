@@ -44,8 +44,7 @@ from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.kernel import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 from tests.integration.lexic.parity.test_pda_parity import ALL_STEMS, grammar_for
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import NoDelegates

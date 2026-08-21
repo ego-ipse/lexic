@@ -17,6 +17,8 @@ from lexic.grammars.gbnf import (
     GBNF_REDUCTIONS,
 )
 from lexic.ir import (
+    DROP,
+    KEEP_REDUCED,
     MAX_CODEPOINT,
     IrAlphabet,
     IrAlternation,
@@ -34,8 +36,6 @@ from lexic.ir import (
     IrRange,
     IrRuleRef,
     IrSequence,
-    DROP,
-    KEEP_REDUCED,
     Reducer,
 )
 from lexic.parsing import derivations

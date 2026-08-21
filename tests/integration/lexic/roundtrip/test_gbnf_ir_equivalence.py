@@ -23,8 +23,8 @@ from lexic.grammars.gbnf import GBNF_FLAVOUR, GBNF_GRAMMAR, GBNF_REDUCER
 from lexic.ir import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
-from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.paths import GROUND_TRUTH
+from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 # Golden per-file fingerprint: start rule + rule names in source order.

@@ -17,13 +17,13 @@ import pytest
 
 import lexic.ir.action.access as ir_access
 import lexic.ir.action.build as ir_build
-import lexic.ir.action.compute as ir_compute
-import lexic.ir.action.control as ir_control
+import lexic.ir.action.flow.compute as ir_compute
+import lexic.ir.action.flow.control as ir_control
 import lexic.ir.action.mapping as ir_mapping
 import lexic.ir.flavour as ir_flavour
-import lexic.ir.grammar.alignment as ir_alignment
 import lexic.ir.grammar.nodes as ir_nodes
 import lexic.ir.grammar.operators as ir_operators
+import lexic.ir.grammar.transform.alignment as ir_alignment
 import lexic.ir.identity as ir_identity
 import lexic.ir.spine.records as ir_records
 import lexic.ir.spine.scalars as ir_scalars
@@ -52,10 +52,10 @@ from lexic.grammars.gbnf import (
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir import (
     DROP,
+    IR_DEFAULT,
     KEEP_RAW,
     KEEP_REDUCED,
     YIELD,
-    IR_DEFAULT,
     IrAlternation,
     IrAst,
     IrCharClass,

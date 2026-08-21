@@ -53,10 +53,10 @@ from lexic.ir import (
     IrStr,
     IrTokenizer,
     IrTokenPipeline,
-    Reducer,
     IrTuple,
     IrUnicodeForm,
     IrUnknown,
+    Reducer,
 )
 
 __all__ = ["PRETOKENS", "read", "read_from_path", "tokenizer_of"]

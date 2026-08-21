@@ -1,4 +1,4 @@
-"""Tests for lexic.parsing.earley.kernel.forest.trampoline — depth-safe trampoline driver.
+"""Tests for lexic.parsing.earley.kernel.forest.support.trampoline — depth-safe trampoline driver.
 
 :class:`Trampoline` keeps the active pull-chain on an explicit Python list so
 the C stack depth stays O(1) regardless of cogen depth.  These tests cover:
@@ -18,7 +18,7 @@ from typing import Iterator
 
 from lexic.ir import IrLeaf, IrLiteral, IrSelf, IrSeq
 from lexic.parsing.earley.kernel.forest.forest import IrStream
-from lexic.parsing.earley.kernel.forest.trampoline import (
+from lexic.parsing.earley.kernel.forest.support.trampoline import (
     ADVANCE,
     EMIT,
     EXHAUSTED,

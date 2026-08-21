@@ -57,7 +57,7 @@ from lexic.parsing import (
     to_chart,
 )
 from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
-from lexic.parsing.earley.kernel.forest import readout
+from lexic.parsing.earley.kernel.forest.support import readout
 from lexic.parsing.earley.kernel.forest.chart import Chart as ChartDirect
 from lexic.parsing.earley.kernel.forest.chart import EarleyItem as EarleyItemDirect
 from lexic.parsing.earley.kernel.forest.chart import Link as LinkDirect

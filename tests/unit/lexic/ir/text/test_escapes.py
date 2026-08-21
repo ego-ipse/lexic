@@ -7,7 +7,7 @@ import pytest
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.abnf import ABNF_ESCAPES
 from lexic.grammars.gbnf import GBNF_ESCAPES
-from lexic.ir.text.escapes import EscapeCodec
+from lexic.ir.text.codec.escapes import EscapeCodec
 
 # Minimal codec for the encode algorithm test.
 C = EscapeCodec.from_tables(

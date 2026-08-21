@@ -30,9 +30,9 @@ from lexic.ir import (
     IrSelf,
     IrStr,
     IrTokenizer,
-    Reducer,
     IrTuple,
     IrUnicode,
+    Reducer,
     canonicalize,
     concretize,
     inline_refs,
@@ -46,7 +46,7 @@ from lexic.parsing import (
     pda_tables,
     token_model,
 )
-from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.parallel import AUTO, anchors, split_model, thread_replica
 from lexic.parsing.parallel.orchestrate import Request
 

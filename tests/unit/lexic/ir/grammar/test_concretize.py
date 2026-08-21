@@ -20,7 +20,7 @@ from lexic.ir.grammar.nodes import (
 from lexic.ir.grammar.operators import IrNot
 from lexic.ir.spine.records import IrSeq, IrTuple
 from lexic.ir.spine.scalars import IrStr
-from lexic.ir.text.encodings import IrUnicode
+from lexic.ir.text.codec.encodings import IrUnicode
 from lexic.ir.text.tokenizer import IrTokenizer
 
 

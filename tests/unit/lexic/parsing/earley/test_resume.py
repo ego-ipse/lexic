@@ -12,7 +12,7 @@ import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrSeq, IrSequence
-from lexic.parsing.earley.kernel.forest.readout import accept_item
+from lexic.parsing.earley.kernel.forest.support.readout import accept_item
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS

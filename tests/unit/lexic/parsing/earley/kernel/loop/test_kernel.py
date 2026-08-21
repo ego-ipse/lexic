@@ -32,7 +32,7 @@ from lexic.ir import (
 from lexic.parsing import recognize
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.earley.kernel.forest.readout import (
+from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_item,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel

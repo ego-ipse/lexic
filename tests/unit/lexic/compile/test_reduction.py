@@ -17,6 +17,7 @@ from lexic.compile.reduction import (
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import (
+    YIELD,
     IrAlternation,
     IrAst,
     IrCharClass,
@@ -27,7 +28,6 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
     Reducer,
-    YIELD,
 )
 
 

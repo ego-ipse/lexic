@@ -47,7 +47,7 @@ import pytest
 from lexic.compile import CompiledGrammar, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.action.build import IrAction, IrEmit, IrRaise, IrRebuild
-from lexic.ir.action.control import IrReturn, IrThis
+from lexic.ir.action.flow.control import IrReturn, IrThis
 from lexic.ir.action.mapping import IrTypeMap
 from lexic.ir.action.walk import (
     IrBottomUp,

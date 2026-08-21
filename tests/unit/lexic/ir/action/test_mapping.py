@@ -11,7 +11,7 @@ snapshot copy).
 import pytest
 
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
-from lexic.ir.action.control import IrThis
+from lexic.ir.action.flow.control import IrThis
 from lexic.ir.action.mapping import IR_DEFAULT, IrMap, IrMapping, IrMultiMap, IrTypeMap
 from lexic.ir.grammar.nodes import IrLiteral, IrRuleRef
 from lexic.ir.spine.records import IrTuple

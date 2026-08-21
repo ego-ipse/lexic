@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.forest.ambiguity import same_value
+from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.pda.runtime.build import (
     F_ARM,

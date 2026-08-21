@@ -21,13 +21,16 @@ from dataclasses import dataclass
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
 from lexic.parsing.earley.engine import EarleyParser, first_meaning
-from lexic.parsing.earley.kernel.forest.ambiguity import (
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     AmbiguityPolicy,
     Resolver,
     another_meaning,
 )
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
-from lexic.parsing.earley.kernel.forest.readout import accept_handle, accept_item
+from lexic.parsing.earley.kernel.forest.support.readout import (
+    accept_handle,
+    accept_item,
+)
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables

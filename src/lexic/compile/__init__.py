@@ -106,7 +106,9 @@ from lexic.ir import (
     IrSelf,
     IrSeq,
     IrTokenizer,
-    Reducer as _Reducer,
+)
+from lexic.ir import Reducer as _Reducer
+from lexic.ir import (
     canonicalize,
     fold_name,
     inline_refs,

@@ -24,7 +24,7 @@ from lexic.ir import (
 )
 from lexic.parsing import parse, recognize
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.earley.kernel.forest.readout import accept_item
+from lexic.parsing.earley.kernel.forest.support.readout import accept_item
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from tests.unit.lexic.parsing.ir_fixtures import (

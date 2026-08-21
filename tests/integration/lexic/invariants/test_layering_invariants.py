@@ -266,7 +266,7 @@ def test_retired_ir_modules_are_gone():
     """The RuleSpec/derive/emit/naming/topo modules died in Task 6.
 
     Their successors: the binding view + passes (``lexic.compile``), flavour
-    ``apply`` (emission), and ``lexic.ir.grammar.order`` (rule ordering).
+    ``apply`` (emission), and ``lexic.ir.grammar.transform.order`` (rule ordering).
     """
     for name in ("derive.py", "spec.py", "emit.py", "naming.py", "topo.py"):
         assert not (SRC / "ir" / name).exists(), f"ir/{name} still present"

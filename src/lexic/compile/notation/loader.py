@@ -14,7 +14,7 @@ whose root is an :class:`~lexic.ir.action.mapping.IrMap` of seven named sections
     )
 
 :func:`load_flavour` folds that into an :class:`IrFlavour`: it lowers the escape
-IR dyads to an :class:`~lexic.ir.text.escapes.EscapeCodec` and synthesizes the flavour
+IR dyads to an :class:`~lexic.ir.text.codec.escapes.EscapeCodec` and synthesizes the flavour
 class by a bare :func:`type` call.
 
 The reduction is **carried, not derived**. A :class:`~lexic.ir.Reducer` is a

@@ -16,7 +16,6 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import census, inline_refs
-from lexic.ir.grammar.canonical import canonicalize, fold_name
 from lexic.ir.grammar.nodes import (
     IrAlphabet,
     IrAlternation,
@@ -32,6 +31,7 @@ from lexic.ir.grammar.nodes import (
     IrSequence,
 )
 from lexic.ir.grammar.operators import IrNot
+from lexic.ir.grammar.transform.canonical import canonicalize, fold_name
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.spine import IrNone
 from tests.paths import GROUND_TRUTH

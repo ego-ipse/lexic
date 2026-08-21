@@ -19,7 +19,7 @@ from lexic.ir.action.build import (
     IrRebuild,
     IrWalk,
 )
-from lexic.ir.action.control import IrPass
+from lexic.ir.action.flow.control import IrPass
 from lexic.ir.action.mapping import IrTypeMap
 from lexic.ir.action.walk import IrDispatch, IrEmitter
 from lexic.ir.grammar.nodes import (

@@ -1,4 +1,4 @@
-"""Depth-safe trampoline for the forest/reduce tree walks.
+"""Depth-safe trampoline for the forest tree walks.
 
 Right-recursive grammars produce arbitrarily deep derivation spines, so a walk
 that recurses through the Python call stack overflows (a native nested-generator

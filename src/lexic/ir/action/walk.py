@@ -32,7 +32,7 @@ from typing import ClassVar, Sequence, cast
 
 from lexic.exceptions import IrKeyError
 from lexic.ir.action.build import IrEmit, IrRaise, IrRebuild, IrWalk
-from lexic.ir.action.control import IrReturn, IrThis
+from lexic.ir.action.flow.control import IrReturn, IrThis
 from lexic.ir.action.mapping import IrMap, IrTypeMap
 from lexic.ir.grammar.nodes import IrLiteral
 from lexic.ir.spine.records import IrCachingTuple, IrTuple

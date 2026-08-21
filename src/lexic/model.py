@@ -376,7 +376,7 @@ class GrammarModel(IrNamedTuple):
     references. A class's own rule cannot identify the compilation it belongs
     to: an alternation is a pass-through, so narrowing one leaves every rule a
     value names byte-identical while the document that value re-emits no longer
-    parses. See :func:`lexic.ir.grammar.order.rule_closure`."""
+    parses. See :func:`lexic.ir.grammar.transform.order.rule_closure`."""
     __binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {}
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Self:

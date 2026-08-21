@@ -24,7 +24,7 @@ from lexic.ir.action.walk import IrDispatch, IrEmitter
 from lexic.ir.grammar.nodes import IrAst, IrRule
 from lexic.ir.spine.scalars import IrInt, IrStr
 from lexic.ir.spine.spine import IrLeaf, IrNode, IrNone, IrSelf
-from lexic.ir.text.escapes import EscapeCodec
+from lexic.ir.text.codec.escapes import EscapeCodec
 from lexic.ir.text.layout import IrDoc, render
 
 

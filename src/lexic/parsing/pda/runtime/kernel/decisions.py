@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.exceptions import LexicError
-from lexic.parsing.earley.kernel.forest.ambiguity import same_value
+from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.pda.compiler.flatten import (
     FlatArm,
     FlatClone,

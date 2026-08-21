@@ -31,7 +31,7 @@ from lexic.ir.grammar.nodes import (
 from lexic.ir.grammar.operators import IrNot
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.spine import IrAtom, IrNoneType, IrSelf
-from lexic.ir.text.encodings import IrEncoding
+from lexic.ir.text.codec.encodings import IrEncoding
 
 
 def concretize(ast: IrAst, registry: IrMap) -> IrAst:

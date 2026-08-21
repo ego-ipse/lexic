@@ -3,7 +3,7 @@
 ``compute_binding(ast)`` reads the codegen grammar (canonical AST after the
 :mod:`lexic.compile.passes` rewrites) and produces one :class:`RuleBinding`
 per rule, in emission order (parents before subclasses via
-:class:`~lexic.ir.grammar.order.RuleOrder`'s parent-edge policy). This is the
+:class:`~lexic.ir.grammar.transform.order.RuleOrder`'s parent-edge policy). This is the
 open-table successor of ``derive_specs``'s classify/parents/naming jobs:
 consumer policy lives in :class:`~lexic.ir.action.walk.IrDispatch` tables whose
 defaults refuse unknown atom types — no closed ``isinstance`` ladders, no

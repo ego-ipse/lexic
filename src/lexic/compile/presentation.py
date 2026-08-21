@@ -30,7 +30,7 @@ consumer can fall back to a floor it knows about, not to a gap it cannot see.
 **A ceiling is formulation-bound, and a pure rename is not a formulation.**
 Rule names belong to the grammar that declared them, so a table does not
 transport to a differently-factored grammar and says so. But a renaming is no
-real difference: :meth:`~lexic.ir.grammar.alignment.IrRenaming.rekeyed` carries
+real difference: :meth:`~lexic.ir.grammar.transform.alignment.IrRenaming.rekeyed` carries
 a table across one, so the same ceiling serves every renaming of its grammar.
 """
 

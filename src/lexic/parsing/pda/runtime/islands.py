@@ -24,18 +24,18 @@ from typing import NamedTuple
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrTuple
 from lexic.parsing.earley.engine import EarleyParser
-from lexic.parsing.earley.kernel.forest.ambiguity import (
-    Resolver,
-    another_meaning,
-    same_value,
-)
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
     DERIVATION_STREAM,
     ParseTree,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.forest.readout import (
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    Resolver,
+    another_meaning,
+    same_value,
+)
+from lexic.parsing.earley.kernel.forest.support.readout import (
     decode_item,
     start_completion_ends,
     to_chart,

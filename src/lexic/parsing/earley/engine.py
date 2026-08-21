@@ -26,10 +26,6 @@ from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrDispatch, IrInt, IrLeaf, IrNone, IrSelf, IrSeq, IrTuple
-from lexic.parsing.earley.kernel.forest.ambiguity import (
-    AmbiguityPolicy,
-    another_meaning,
-)
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
     BUILD_TREE,
@@ -37,7 +33,11 @@ from lexic.parsing.earley.kernel.forest.forest import (
     DERIVATIONS,
     ParseTree,
 )
-from lexic.parsing.earley.kernel.forest.readout import (
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    AmbiguityPolicy,
+    another_meaning,
+)
+from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
     accept_item,
     accept_node,
@@ -143,7 +143,7 @@ def first_meaning(
     The model completion's derivation chooser. Without a policy this is the
     plain deterministic first (what :class:`ParseFirst` returns). With one, the
     span is asked whether another derivation builds a DIFFERENT value
-    (:func:`~lexic.parsing.earley.kernel.forest.ambiguity.another_meaning`):
+    (:func:`~lexic.parsing.earley.kernel.forest.support.ambiguity.another_meaning`):
     a real arm choice is refused by default, and the policy's ``resolve`` is
     the caller's explicit opt-out — a deterministic resolver handed both
     derivations, whose choice is their concern. A function argument rather than

@@ -6,6 +6,7 @@ import json as stdlib_json  # oracle only — never in src
 
 import pytest
 
+from lexic.compile import compile_ast
 from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.compile.pipeline.synthesis import synthesize
@@ -26,7 +27,6 @@ from lexic.ir import (
     IrTuple,
     fold_name,
 )
-from lexic.compile import compile_ast
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 # ── Basic structure ───────────────────────────────────────────────────

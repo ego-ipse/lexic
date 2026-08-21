@@ -53,8 +53,8 @@ from lexic.model import GrammarModel
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.products import earley_model
-from tests.reduce_helpers import reduce_text
 from tests.paths import GRAMMARS, GROUND_TRUTH
+from tests.reduce_helpers import reduce_text
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
 

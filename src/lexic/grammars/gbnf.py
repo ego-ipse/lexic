@@ -19,9 +19,9 @@ from typing import ClassVar
 
 from lexic.ir import (
     DROP,
+    IR_DEFAULT,
     KEEP_REDUCED,
     YIELD,
-    IR_DEFAULT,
     EscapeCodec,
     IrAction,
     IrAlphabet,

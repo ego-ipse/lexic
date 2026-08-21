@@ -22,10 +22,10 @@ from lexic.grammars.abnf import ABNF_GRAMMAR, ABNF_REDUCTIONS
 from lexic.grammars.gbnf import GBNF_GRAMMAR, GBNF_REDUCTIONS
 from lexic.ir import (
     DROP,
+    IR_DEFAULT,
     KEEP_REDUCED,
     YIELD,
     Drop,
-    IR_DEFAULT,
     IrAction,
     IrAst,
     IrInt,

@@ -1,10 +1,10 @@
-"""Tests for ``lexic.ir.action.compute``."""
+"""Tests for ``lexic.ir.action.flow.compute``."""
 
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrOp
-from lexic.ir.action.compute import (
+from lexic.ir.action.flow.compute import (
     IrCompare,
     IrConcat,
     IrGlyph,
@@ -15,7 +15,7 @@ from lexic.ir.action.compute import (
     IrRadix,
     IrUnradix,
 )
-from lexic.ir.action.control import IrEach, IrPipe
+from lexic.ir.action.flow.control import IrEach, IrPipe
 from lexic.ir.grammar.nodes import (
     IrAlternation,
     IrAst,

@@ -19,14 +19,16 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import (
+    KEEP_RAW,
+    YIELD,
     IrAlternation,
     IrArgs,
     IrAst,
     IrBuild,
     IrCharClass,
     IrChr,
-    IrItem,
     IrInt,
+    IrItem,
     IrJoin,
     IrLiteral,
     IrMap,
@@ -39,9 +41,7 @@ from lexic.ir import (
     IrSequence,
     IrStr,
     IrTuple,
-    KEEP_RAW,
     Reducer,
-    YIELD,
 )
 from tests.paths import GROUND_TRUTH
 

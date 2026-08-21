@@ -41,19 +41,19 @@ from typing import cast
 
 import lexic.ir.action.access as _access
 import lexic.ir.action.build as _build
-import lexic.ir.action.compute as _compute
-import lexic.ir.action.control as _control
+import lexic.ir.action.flow.compute as _compute
+import lexic.ir.action.flow.control as _control
 import lexic.ir.action.mapping as _mapping
 import lexic.ir.flavour as _flavour
-import lexic.ir.grammar.alignment as _alignment
 import lexic.ir.grammar.nodes as _nodes
 import lexic.ir.grammar.operators as _operators
+import lexic.ir.grammar.transform.alignment as _alignment
 import lexic.ir.identity as _identity
 import lexic.ir.spine.bind as _bind
 import lexic.ir.spine.records as _records
 import lexic.ir.spine.scalars as _scalars
 import lexic.ir.spine.spine as _spine
-import lexic.ir.text.encodings as _encodings
+import lexic.ir.text.codec.encodings as _encodings
 import lexic.ir.text.layout as _layout
 import lexic.ir.text.pipeline as _pipeline
 import lexic.ir.text.spans as _spans
@@ -70,9 +70,9 @@ from lexic.compile.foldkit import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
+    IR_DEFAULT,
     YIELD,
     Drop,
-    IR_DEFAULT,
     IrAlternation,
     IrAst,
     IrCharClass,

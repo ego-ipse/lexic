@@ -36,8 +36,7 @@ from lexic.generate import generate
 from lexic.parsing.pda.compiler.clones import KTupleGate, PeekGate
 from lexic.parsing.pda.compiler.specialize import all_clones
 from lexic.parsing.pda.compiler.specs import IslandRef
-from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.kernel import pda_model
+from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 from lexic.parsing.products import earley_model
 from tests.integration.lexic.parity.pda_parity_helpers import (
     check_one,

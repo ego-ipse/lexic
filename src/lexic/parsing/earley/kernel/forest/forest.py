@@ -61,7 +61,7 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.parsing.earley.kernel.forest.chart import Chart, EarleyItem
-from lexic.parsing.earley.kernel.forest.trampoline import (
+from lexic.parsing.earley.kernel.forest.support.trampoline import (
     ADVANCE,
     EMIT,
     EXHAUSTED,

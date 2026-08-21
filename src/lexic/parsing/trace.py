@@ -41,7 +41,7 @@ from __future__ import annotations
 from typing import Any, ClassVar, Self
 
 from lexic.ir import IrNamedTuple, IrSeq, IrSpan
-from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables

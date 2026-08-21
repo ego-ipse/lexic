@@ -24,6 +24,7 @@ from lexic.grammars.abnf import (
 )
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import (
+    YIELD,
     EscapeCodec,
     IrAlphabet,
     IrAlternation,
@@ -43,7 +44,6 @@ from lexic.ir import (
     IrRuleRef,
     IrSeq,
     Reducer,
-    YIELD,
     canonicalize,
 )
 from lexic.parsing import recognize

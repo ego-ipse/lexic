@@ -72,7 +72,7 @@ from lexic.ir import (
     fold_name,
 )
 from lexic.model import GrammarModel
-from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 
 __all__ = ["Crossing", "Flat", "Is", "Make", "Spelled", "Transpiler", "transpile"]
 

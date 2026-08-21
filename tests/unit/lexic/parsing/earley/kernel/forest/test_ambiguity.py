@@ -6,13 +6,13 @@ import random
 
 from lexic.compile import compile_from_path
 from lexic.generate import generate
-from lexic.parsing.earley.kernel.forest.ambiguity import (
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     ambiguity_points,
     another_meaning,
 )
-from lexic.parsing.earley.kernel.forest.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.earley.kernel.forest.readout import accept_item
+from lexic.parsing.earley.kernel.forest.support.readout import accept_item
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH

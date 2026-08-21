@@ -5,7 +5,7 @@ from __future__ import annotations
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple, IrUnicode, concretize
-from lexic.parsing.earley.kernel.forest.readout import accept_item
+from lexic.parsing.earley.kernel.forest.support.readout import accept_item
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import TokenKernel, token_term_specs

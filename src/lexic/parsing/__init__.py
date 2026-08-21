@@ -87,7 +87,7 @@ taxonomy the verdict readers consume), and
 :class:`~lexic.parsing.pda.compiler.tables.PdaTables` (the compiled tables a
 kernel runs over, identity-memoised with the parse path).
 
-:mod:`~lexic.parsing.earley.kernel.forest.readout`'s decode seam surfaces
+:mod:`~lexic.parsing.earley.kernel.forest.support.readout`'s decode seam surfaces
 here whole — :func:`to_chart`, :func:`decode_item`, the ``accept_*``
 readers, :func:`start_completion_ends`, :func:`root_ambiguous`,
 :func:`child_node`. It reads a finished :class:`Kernel`'s public fields and
@@ -119,7 +119,6 @@ from lexic.parsing.earley.engine import (
     RECOGNIZE,
     EarleyParser,
 )
-from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
 from lexic.parsing.earley.kernel.forest.chart import Chart, EarleyItem, Link, Links
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import (
@@ -129,7 +128,8 @@ from lexic.parsing.earley.kernel.forest.forest import (
     RootNode,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.forest.readout import (
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
     accept_item,
     accept_items,

@@ -51,12 +51,12 @@ class Kernel(IrLeaf[IrSelf, IrSelf]):
     """One Earley parse over compiled tables — chart, SPPF and driver in one.
 
     Construct per parse, call :meth:`run` once, then read the result through
-    :mod:`~lexic.parsing.earley.kernel.forest.readout` — :func:`~lexic.parsing.earley
+    :mod:`~lexic.parsing.earley.kernel.forest.support.readout` — :func:`~lexic.parsing.earley
     .kernel.readout.accept_item` for the packed accepting item (``-1`` on no
     parse), then either the single derivation via
     :class:`~lexic.parsing.earley.kernel.forest.fasttree.FastTree` or the IR-native
-    forest via :func:`~lexic.parsing.earley.kernel.forest.readout.to_chart` /
-    :func:`~lexic.parsing.earley.kernel.forest.readout.accept_node`.
+    forest via :func:`~lexic.parsing.earley.kernel.forest.support.readout.to_chart` /
+    :func:`~lexic.parsing.earley.kernel.forest.support.readout.accept_node`.
 
     :ivar tables: The compiled grammar.
     :ivar text: The input.

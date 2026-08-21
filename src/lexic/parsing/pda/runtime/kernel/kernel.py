@@ -52,7 +52,7 @@ from functools import partial
 from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.fold import ModelFold

@@ -11,7 +11,7 @@ from lexic.ir.grammar.nodes import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.ir.grammar.order import RuleOrder, order_by_refs, refs_in_order
+from lexic.ir.grammar.transform.order import RuleOrder, order_by_refs, refs_in_order
 from lexic.ir.spine.records import IrSeq
 
 

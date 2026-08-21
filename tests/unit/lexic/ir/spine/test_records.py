@@ -8,7 +8,7 @@ from typing import ClassVar
 import pytest
 
 from lexic.ir.action.access import IrArgs
-from lexic.ir.action.compute import IrJoin
+from lexic.ir.action.flow.compute import IrJoin
 from lexic.ir.grammar.nodes import (
     IrAlternation,
     IrItem,

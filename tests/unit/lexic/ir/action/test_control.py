@@ -1,4 +1,4 @@
-"""Tests for ``lexic.ir.action.control``."""
+"""Tests for ``lexic.ir.action.flow.control``."""
 
 import pytest
 
@@ -8,7 +8,7 @@ from lexic.ir.action.access import (
     IrArg,
     IrField,
 )
-from lexic.ir.action.control import (
+from lexic.ir.action.flow.control import (
     IrCond,
     IrEach,
     IrPass,

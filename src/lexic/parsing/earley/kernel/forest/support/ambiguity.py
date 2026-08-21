@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.earley.kernel.forest.readout import accept_items
+from lexic.parsing.earley.kernel.forest.support.readout import accept_items
 from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
 
 if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read

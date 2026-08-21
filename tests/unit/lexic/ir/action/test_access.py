@@ -18,11 +18,11 @@ from lexic.ir.action.build import (
     IrAction,
     IrApply,
 )
-from lexic.ir.action.compute import (
+from lexic.ir.action.flow.compute import (
     IrCompare,
     IrJoin,
 )
-from lexic.ir.action.control import IrEach, IrPipe, IrThis
+from lexic.ir.action.flow.control import IrEach, IrPipe, IrThis
 from lexic.ir.action.mapping import IrTypeMap
 from lexic.ir.action.walk import IrDispatch, IrEmitter
 from lexic.ir.grammar.nodes import (

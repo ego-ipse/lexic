@@ -32,7 +32,7 @@ from lexic.ir import (
     IrSelf,
     IrTuple,
 )
-from lexic.parsing.earley.kernel.forest.ambiguity import Resolver
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.policy import AUTO, worker_count
 from lexic.parsing.parallel.pool import ParsePool

@@ -14,8 +14,8 @@ from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import IrAst
-from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.paths import GROUND_TRUTH
+from tests.reduce_helpers import reduce_text as earley_reduce
 
 # All 7 ground-truth fixtures produce "root" as the start rule.
 ALL_FIXTURES = [

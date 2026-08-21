@@ -23,9 +23,9 @@ from lexic.grammars.abnf import ABNF_FLAVOUR, ABNF_GRAMMAR, ABNF_REDUCER
 from lexic.ir import IrAst
 from lexic.parsing import is_ambiguous
 from lexic.parsing.earley.normalize import normalize
-from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.integration.lexic.roundtrip.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
 from tests.paths import GROUND_TRUTH
+from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 INLINE = {

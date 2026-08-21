@@ -15,8 +15,9 @@ API changes (old → new):
   rewritten as behavioral correctness tests.
 - ``ACCEPTING`` (engine.py) is GONE — the accepting SPPF node and decoded chart are
   now obtained by running :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel` directly and
-  calling :func:`~lexic.parsing.earley.kernel.forest.readout.accept_node` /
-  :func:`~lexic.parsing.earley.kernel.forest.readout.to_chart`.  The local ``accept`` helper is
+  calling :func:`~lexic.parsing.earley.kernel.forest.support.readout.accept_node` /
+  :func:`~lexic.parsing.earley.kernel.forest.support.readout.to_chart`.
+  The local ``accept`` helper is
   rewritten on top of ``Kernel`` + ``compile_tables``; its signature and callers are
   unchanged.
 - The old ``chart[0]`` per-column iteration (used to hunt a dot-0 EarleyItem) has no
@@ -78,13 +79,13 @@ from lexic.parsing.earley.kernel.forest.forest import (
     RootNode,
     SppfNode,
 )
-from lexic.parsing.earley.kernel.forest.readout import (
+from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_item,
     accept_node,
     decode_item,
     to_chart,
 )
-from lexic.parsing.earley.kernel.forest.trampoline import Trampoline
+from lexic.parsing.earley.kernel.forest.support.trampoline import Trampoline
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS

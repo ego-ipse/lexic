@@ -20,7 +20,7 @@ Rewrites (bottom-up over each rule body, then two AST-level passes):
 7. rule names + refs fold to lowercase with ``_``→``-`` (post-fold collision of
    distinct rules raises :exc:`~lexic.exceptions.UnsupportedConstructError`);
 9. canonical rule order — start first, first-reference order, unreferenced last
-   (via :class:`~lexic.ir.grammar.order.RuleOrder`).
+   (via :class:`~lexic.ir.grammar.transform.order.RuleOrder`).
 
 Rewrite 6 (quantifier identities) folds in through 5's group inlining; ABNF
 ``%i`` case expansions are a different language, not a spelling, so they are
@@ -51,7 +51,7 @@ from lexic.ir.grammar.nodes import (
     IrSequence,
 )
 from lexic.ir.grammar.operators import IrNot
-from lexic.ir.grammar.order import order_by_refs
+from lexic.ir.grammar.transform.order import order_by_refs
 from lexic.ir.spine.records import IrSeq
 from lexic.ir.spine.scalars import glyph
 from lexic.ir.spine.spine import IrLambda, IrSelf

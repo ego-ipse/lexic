@@ -243,7 +243,7 @@ class IrMap[K, V: IrSelf](IrMapping[K, V, V]):
         unchanged. Built per call — the table stores no dyad objects. This is
         what lets a dispatch table, a reducer's action map or any map-shaped
         value stand under :class:`~lexic.ir.action.walk.IrBottomUp` and
-        :class:`~lexic.ir.action.control.IrEach` like every other node.
+        :class:`~lexic.ir.action.flow.control.IrEach` like every other node.
         """
         return tuple(IrTuple(key, value) for key, value in self._table.items())
 
