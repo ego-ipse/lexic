@@ -26,6 +26,7 @@ carry one (vyx does).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import NamedTuple
 
@@ -45,6 +46,11 @@ class Bench(NamedTuple):
     :ivar ast: The single source of truth — what lexic compiles, and what every
         competitor's grammar is mechanically derived from.
     :ivar corpus: The input, sized so a row is dominated by parsing.
+    :ivar full: The same language at document scale — what the mt rows
+        always parse (a split needs several chunks above the policy floor
+        to be visible), and what every row parses under ``--full``. Kept
+        apart from :attr:`corpus` because the slow engines pay seconds per
+        pass here, a price the default run should not charge per round.
     :ivar accepts: Inputs beyond the corpus the grammar DOES accept, chosen to
         stress the lexical layer — a keyword inside a string, a space two
         character classes both hold. A corpus is one sentence, and a two-tier
@@ -63,6 +69,7 @@ class Bench(NamedTuple):
     compiled: CompiledGrammar
     source: str
     flavour: str
+    full: str
 
     @property
     def fold(self) -> ModelFold:
@@ -70,21 +77,42 @@ class Bench(NamedTuple):
         return self.compiled.fold
 
 
+class Samples(NamedTuple):
+    """One bench's two documents — the same language at two scales.
+
+    :ivar corpus: The default sample every row times.
+    :ivar full: The document-scale sample the mt rows always time.
+    """
+
+    corpus: str
+    full: str
+
+
 def _bench(
     name: str,
     source: str,
-    corpus: str,
+    samples: Samples,
     good: tuple[str, ...],
     bad: tuple[str, ...],
 ) -> Bench:
     """Compile ``source`` and pair it with the inputs that pin its language.
 
     The flavour is read off the source, so a self-grammar row compiles in its
-    own notation without a sixth parameter.
+    own notation without an extra parameter.
     """
     flavour = "abnf" if name.endswith("abnf-meta") else "gbnf"
     compiled = compile_text(source, cache_key=f"bench-{name}", flavour=flavour)
-    return Bench(name, compiled.grammar, corpus, good, bad, compiled, source, flavour)
+    return Bench(
+        name,
+        compiled.grammar,
+        samples.corpus,
+        good,
+        bad,
+        compiled,
+        source,
+        flavour,
+        samples.full,
+    )
 
 
 _NOISE_NAMES = frozenset({"ws", "sp", "wsp", "c-wsp", "c-nl", "nl"})
@@ -333,11 +361,14 @@ def _backtrack_corpus(rows: int) -> str:
 def _arith_corpus(target: int) -> str:
     """A left-nested arithmetic expression of roughly ``target`` characters."""
     parts: list[str] = ["1"]
+    size = 1
     ops = ("+", "*", "-", "/")
-    while sum(len(part) for part in parts) < target:
+    while size < target:
         step = len(parts)
+        term = f"({step % 97 + 1}+{step % 89 + 2})"
         parts.append(ops[step % 4])
-        parts.append(f"({step % 97 + 1}+{step % 89 + 2})")
+        parts.append(term)
+        size += 1 + len(term)
     return "".join(parts)
 
 
@@ -391,25 +422,53 @@ def _ground_truth(stem: str) -> str:
     return (_ROOT / "resources" / "ground_truth" / stem).read_text(encoding="utf-8")
 
 
+def _meta_corpus(stem: str, copies: int) -> str:
+    """A large grammar file: the ground-truth grammar, concatenated.
+
+    Each copy's rule names get a ``c<k>-`` prefix — references included, so
+    every copy stays a well-formed grammar fragment and the whole keeps a
+    real file's shape rather than inventing rules. Quoted literals are left
+    alone: ``true`` is a rule name AND a spelled keyword, and renaming the
+    keyword would change the described language mid-corpus.
+    """
+    source = _ground_truth(stem)
+    quoted = re.compile(r'"(?:\\.|[^"\\])*"')
+    names = re.findall(r"^([A-Za-z][A-Za-z0-9-]*)\s*(?:::=|=)", source, re.MULTILINE)
+    rename = re.compile(
+        r"\b(" + "|".join(sorted(set(names), key=len, reverse=True)) + r")\b"
+    )
+    out: list[str] = []
+    for copy in range(copies):
+        at = 0
+        pieces: list[str] = []
+        for match in quoted.finditer(source):
+            pieces.append(rename.sub(rf"c{copy}-\1", source[at : match.start()]))
+            pieces.append(match.group())
+            at = match.end()
+        pieces.append(rename.sub(rf"c{copy}-\1", source[at:]))
+        out.append("".join(pieces))
+    return "".join(out)
+
+
 BENCHES: tuple[Bench, ...] = (
     _bench(
         "arithmetic",
         _ARITH,
-        _arith_corpus(4000),
+        Samples(_arith_corpus(4000), _arith_corpus(32 * 1024)),
         ("1+2", "(1)", "12*3", "1/2-3", "((1+2))"),
         ("1+", "()", "1++2", "", "1 + 2"),
     ),
     _bench(
         "csv",
         _CSV,
-        _csv_corpus(220),
+        Samples(_csv_corpus(220), _csv_corpus(560)),
         ("x", "1,2", "a b,c", "a\nb"),
         (",", "a,,b", "a\n\nb", "", "a;b"),
     ),
     _bench(
         "json",
         _JSON,
-        _json_corpus(60),
+        Samples(_json_corpus(60), _json_corpus(790)),
         # each of these is a place a fixed token set has to guess: `true` inside
         # a string, a space both `ws` and `chars` hold, digits both `number` and
         # `chars` hold. They are what proved the ANTLR translation was
@@ -423,7 +482,7 @@ BENCHES: tuple[Bench, ...] = (
     _bench(
         "gbnf-meta",
         _self_grammar_source(GBNF_FLAVOUR),
-        _ground_truth("json.gbnf"),
+        Samples(_ground_truth("json.gbnf"), _meta_corpus("json.gbnf", 24)),
         ('# a b c\nroot ::= "x"\n', "root ::= [a-z]+\n", 'root ::= "a" | "b"\n'),
         # each must be refused by the GRAMMAR, not by a later pipeline stage:
         # `root ::=` is grammatical GBNF (an empty body) that lexic rejects at
@@ -433,7 +492,7 @@ BENCHES: tuple[Bench, ...] = (
     _bench(
         "abnf-meta",
         _self_grammar_source(ABNF_FLAVOUR),
-        _ground_truth("json.abnf"),
+        Samples(_ground_truth("json.abnf"), _meta_corpus("json.abnf", 16)),
         ('a = "x"\r\n', "a = 1*2DIGIT\r\n", '; note here\r\na = "y"\r\n'),
         ("a =", "= b", "a b", "a = %", "a = <"),
     ),
@@ -447,7 +506,7 @@ BENCHES: tuple[Bench, ...] = (
     _bench(
         "vyx",
         _ground_truth("vyx.gbnf"),
-        _vyx_corpus(24),
+        Samples(_vyx_corpus(24), _vyx_corpus(230)),
         (
             "!I o:inv ^003\n",
             "!I o:env s:@weather L22< city=Porto temp=22 >\n",
@@ -471,7 +530,7 @@ BENCHES: tuple[Bench, ...] = (
     _bench(
         "markdown",
         _MARKDOWN,
-        _markdown_corpus(30),
+        Samples(_markdown_corpus(30), _markdown_corpus(135)),
         (
             "# h\n",
             "---\n",
@@ -498,7 +557,7 @@ BENCHES: tuple[Bench, ...] = (
     _bench(
         "nested",
         _NESTED,
-        _nested_corpus(200, 3),
+        Samples(_nested_corpus(200, 3), _nested_corpus(200, 61)),
         ("x", "(x)", "(x,y)", "((x),y)", "(((z)))", "(x,y,z)"),
         ("", "(", "()", "(x,)", "x)", "(x))"),
     ),
@@ -507,7 +566,7 @@ BENCHES: tuple[Bench, ...] = (
     _bench(
         "lexruns",
         _LEXRUNS,
-        _lexrun_corpus(120),
+        Samples(_lexrun_corpus(120), _lexrun_corpus(420)),
         ('a="x"', "a=b", "a=1", 'a="a b c"', "_k=path/to.x", "z9=0123456789"),
         ("", "a=", "=b", "a b", 'a="unterminated', "1a=b"),
     ),
@@ -516,7 +575,7 @@ BENCHES: tuple[Bench, ...] = (
     _bench(
         "backtrack",
         _BACKTRACK,
-        _backtrack_corpus(90),
+        Samples(_backtrack_corpus(90), _backtrack_corpus(860)),
         (
             "def a() {b}\n",
             "def a() = b;\n",

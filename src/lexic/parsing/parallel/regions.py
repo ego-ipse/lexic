@@ -27,7 +27,7 @@ from lexic.exceptions import LexicError
 from lexic.ir import IrAlternation, IrAst, IrItem, IrRule, IrRuleRef, IrSelf
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.parallel.interiors import interiors
-from lexic.parsing.parallel.policy import AUTO, doc_workers
+from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers
 from lexic.parsing.parallel.pool import ParsePool
 from lexic.parsing.parallel.replicas import grammar_replicas
 from lexic.parsing.parallel.shapes import edge_char, literal_char, unbounded
@@ -377,10 +377,6 @@ def rooted(grammar: IrAst, rule: str) -> IrAst:
     return grammar if rule == str(grammar.start) else IrAst(grammar.rules, rule)
 
 
-MIN_REGION = 64 * 1024
-"""A run below this is not worth dividing — the overhead outweighs it."""
-
-
 def choose(
     text: str, found: list[Region], workers: int
 ) -> list[tuple[Region, list[str]]]:
@@ -392,10 +388,13 @@ def choose(
     would claim the territory and block the runs inside it that can. So a
     region takes its span only if its pieces come out balanced; otherwise it
     steps aside and its children are considered on their own.
+
+    A run is worth dividing exactly when it can feed two workers, so the
+    floor is ``2 * MIN_CHUNK`` — derived, not a second constant.
     """
     picked: list[tuple[Region, list[str]]] = []
     for region in sorted(found, key=lambda r: -r.span):
-        if region.span < MIN_REGION:
+        if region.span < 2 * MIN_CHUNK:
             break
         if any(
             region.opener < other.closer and other.opener < region.closer
@@ -546,7 +545,7 @@ def split_regions(
     :returns: The reduced value, or ``None`` to reduce sequentially.
     """
     workers = doc_workers(cores)
-    if workers < 2 or len(text) < MIN_REGION:
+    if workers < 2 or len(text) < 2 * MIN_CHUNK:
         return None
     divided = choose(text, find(grammar, text), workers)
     if not divided:

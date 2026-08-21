@@ -19,8 +19,8 @@ from lexic.compile import compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrInt, IrMap, IrStr, IrTuple
+from lexic.parsing.parallel import MIN_CHUNK
 from lexic.parsing.parallel.regions import (
-    MIN_REGION,
     Region,
     choose,
     find,
@@ -55,12 +55,16 @@ def _one_region(doc: str) -> Region:
     return found[0]
 
 
+FLOOR = 2 * MIN_CHUNK
+"""The region floor — a run must be able to feed two workers."""
+
+
 def _run(items: int) -> str:
-    """A comma-separated integer run comfortably past :data:`MIN_REGION`."""
+    """A comma-separated integer run comfortably past the region floor."""
     return ",".join(str(i) for i in range(items))
 
 
-BIG = MIN_REGION // 4  # ~5 chars per item, so a run of this many clears it
+BIG = FLOOR // 2  # items of 2-5 chars, so a run of this many clears the floor
 
 
 # ── pair_rules ────────────────────────────────────────────────────────────
@@ -293,7 +297,7 @@ def test_a_document_below_the_floor_never_splits():
 
 def test_a_document_with_no_divisible_run_never_splits():
     """No region clears the floor, so the caller reduces sequentially."""
-    assert _split('{"a": "' + "x" * (MIN_REGION + 16) + '"}') is None
+    assert _split('{"a": "' + "x" * (FLOOR + 16) + '"}') is None
 
 
 def test_a_split_reduction_equals_the_sequential_one():

@@ -23,8 +23,15 @@ import sys
 AUTO = 0
 """``cores=AUTO`` — as many workers as the machine and the work allow."""
 
-MIN_CHUNK = 64 * 1024
-"""The floor a chunk must clear for splitting to pay — measured 50–100 KB."""
+MIN_CHUNK = 2 * 1024
+"""The least text one worker should own — the amortization floor.
+
+Measured (3.14t, 16 cpus): a worker's share of ``ParsePool`` build+map+close
+is 56–300 µs, the replicas are ≤ 1 µs, and parsing runs ~1.3 µs/char — so a
+2 KiB chunk parses for ~2.6 ms and the pool cost stays under ~12% of it.
+A recorded result, not a tunable: if a later measurement moves the
+amortization point, this constant moves to what was measured.
+"""
 
 
 def _free_threaded() -> bool:
