@@ -44,7 +44,7 @@ grammar text
 | `compile_text(text, *, cache_key=None, flavour="gbnf")` | `CompiledGrammar` | String-in. Content-memoised by `(sha stem, flavour)`; `cache_key` prepends an extra prefix. |
 | `compile_from_path(path, *, flavour=None)` | `CompiledGrammar` | Path-in; flavour inferred from the extension. Memoised by `(path, mtime, size, flavour)`, `path.stem` as the class-module stem. |
 | `canonical_grammar(text, flavour, *, non_semantic_rules=None, start=None)` | `IrAst` | The **front half**: parse + canonicalize + directive flags → canonical, semantic-flagged `IrAst`. `generate.py` and transpilers build on this without making classes. |
-| `parse_grammar(text, flavour)` | `IrAst` | The grammar-text → IR seam; runs the engine's `parse_reduced` product over the flavour's self-grammar + `Reducer`. Returns the raw (pre-canonicalize) `IrAst`, with dangling refs into the flavour's `core_rules` prelude resolved (referenced core rules appended, nothing overridden). |
+| `parse_grammar(text, flavour)` | `IrAst` | The grammar-text → IR seam; compiles the flavour's self-grammar and calls its artefact's `reduce`. Returns the raw (pre-canonicalize) `IrAst`, with dangling refs into the flavour's `core_rules` prelude resolved. |
 | `load_ir(text)` / `load_ir_from_path(path)` | `IrSelf` | Real IR objects from the IR-constructor notation (§4). |
 | `reset_cache_for_tests()` | — | Clear the content/path memo when a caller needs fresh class objects. |
 
@@ -54,9 +54,10 @@ grammar text
 `parse_module` / `verify_module` in `lexic.compile.module.selfgrammar` —
 all re-exported at the package root.
 
-`CompiledGrammar(classes, grammar, codegen_grammar, fold)` — `.parse(text)` is
-the only method callers need. It runs the engine's `parse_model` product
-(PDA-first, Earley completion inside the engine) and returns the start rule's
+`CompiledGrammar(classes, grammar, codegen_grammar, fold)` — `.parse(text)`
+runs the engine's sole `parse_model` product and `.reduce(text, reducer)` parses a
+reducer-derived pruned variant. The model route is
+PDA-first (with Earley completion inside the engine) and returns the start rule's
 `GrammarModel`, or raises `UnsupportedConstructError` if the start rule does
 not fold to one. `grammar` is the canonical AST (the transpile/re-emit
 source); `codegen_grammar` is the post-pass grammar the fold binds against and
@@ -104,7 +105,7 @@ compile/
 
 Layering: the package reads/writes `lexic.ir`, imports `lexic.grammars` (to
 resolve flavours) and the engine — `lexic.parsing` (root: `parse_model`,
-`parse_reduced`, the fold toolkit) plus the one licensed submodule
+the fold toolkit) plus the one licensed submodule
 `lexic.parsing.earley.reduce` (the `DROP`/`KEEP_REDUCED`/`YIELD` sentinels).
 Nothing reaches past that surface.
 

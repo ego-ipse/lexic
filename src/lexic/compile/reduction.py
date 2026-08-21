@@ -698,6 +698,7 @@ class ReduceFold:
         self.plan = plan
         self.raw_literals = reducer.literal is KEEP_RAW
         self.tables = _fold_tables(moments, reducer, plan)
+        self._channel_cache: dict[tuple[int, str], list[IrSelf]] | None = None
 
     def reduce(self, model: GrammarModel) -> IrSelf:
         """Fold a parsed variant model to the reducer's value.
@@ -767,7 +768,68 @@ class ReduceFold:
         return "".join(out)
 
     def channel(self, model: Any, rule: str) -> list[IrSelf]:
-        """The rule's reduce channel, rebuilt from the model's bound fields."""
+        """The rule's reduce channel, rebuilt without recursive model descent.
+
+        A surface group expands to several model rules, so a legal grammar
+        hundreds of groups deep can exceed Python's recursion limit even when
+        every individual compiler pass is iterative. Collect the model nodes
+        first and assemble their channels in post-order; nested calls made by
+        :meth:`wrapped` then read an already-built child channel.
+        """
+        key = (id(model), rule)
+        if self._channel_cache is not None:
+            cached = self._channel_cache.get(key)
+            if cached is None:
+                # Alternation/pass-through chains can reach a model without a
+                # bound edge from the parent currently being assembled. Fill
+                # that newly exposed subtree on demand, still post-order.
+                self._fill_channels(model, rule)
+                cached = self._channel_cache[key]
+            return cached
+
+        cache: dict[tuple[int, str], list[IrSelf]] = {}
+        self._channel_cache = cache
+        try:
+            self._fill_channels(model, rule)
+            return cache[key]
+        finally:
+            self._channel_cache = None
+
+    def _fill_channels(self, model: Any, rule: str) -> None:
+        """Fill ``model`` and its discoverable descendants into the active cache."""
+        assert self._channel_cache is not None
+        order: list[tuple[Any, str]] = []
+        stack: list[tuple[Any, str]] = [(model, rule)]
+        seen: set[tuple[int, str]] = set()
+        while stack:
+            node, node_rule = stack.pop()
+            key = (id(node), node_rule)
+            if key in seen or key in self._channel_cache:
+                continue
+            seen.add(key)
+            order.append((node, node_rule))
+            fields = self.tables.fields_of.get(node_rule, ())
+            for name, _bind in fields:
+                stack.extend(self._model_values(getattr(node, name)))
+        for node, node_rule in reversed(order):
+            key = (id(node), node_rule)
+            if key not in self._channel_cache:
+                self._channel_cache[key] = self._channel_once(node, node_rule)
+
+    def _model_values(self, value: Any) -> list[tuple[Any, str]]:
+        """Model nodes nested in one bound field value, without recursion."""
+        out: list[tuple[Any, str]] = []
+        pending = [value]
+        while pending:
+            current = pending.pop()
+            if hasattr(current, "to_text"):
+                out.append((current, self.rule(current)))
+            elif isinstance(current, (list, tuple)):
+                pending.extend(reversed(current))
+        return out
+
+    def _channel_once(self, model: Any, rule: str) -> list[IrSelf]:
+        """Assemble one channel; every model child's channel is already cached."""
         if rule in self.plan.marks:
             return [IrStr(model.value)]  # span-licensed — one text argument
         if rule in self.tables.text_rules:
@@ -902,21 +964,13 @@ class ReduceFold:
             reduced: IrSelf = IrStr(self.yield_text(value))
             rest = bodies[last + 1 :]
         else:
-            reduced = self._own_reduction(value, rule, body_rule, bodies[0])
+            parts = self.channel(value, rule)
+            reduced = bodies[0].eval(
+                self.reducer, _as_node(_YieldNode(self, value)), IrTuple(*parts)
+            )
             rest = bodies[1:]
         for body in rest:
             reduced = body.eval(
                 self.reducer, _as_node(_YieldNode(self, value)), IrTuple(reduced)
             )
         return reduced
-
-    def _own_reduction(
-        self, value: Any, rule: str, body_rule: str, body: Any
-    ) -> IrSelf:
-        """The value's own reduction — an arm hoist applies its OWNER's body."""
-        if body_rule == rule:
-            return self.apply(value, rule)
-        parts = self.channel(value, rule)
-        return body.eval(
-            self.reducer, _as_node(_YieldNode(self, value)), IrTuple(*parts)
-        )

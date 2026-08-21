@@ -30,11 +30,10 @@ as it stands and its own ``semantic`` flags survive (the emit-and-recompile
 detour loses them with the comments).
 
 ``CompiledGrammar`` carries the codegen grammar + its fold; ``parse`` hands
-them to the engine's ``parse_model`` product, and ``parse_grammar`` hands the
-flavour's authored self-grammar + reducer to ``parse_reduced``. Both products
-own the whole PDA-first-→-Earley-completion pipeline internally (lifting,
-normalisation, PDA/table compilation, memoisation) — one public call each, no
-predictive-PDA sibling on the artefact and no whole-grammar opt-out.
+them to the engine's model product, and ``parse_grammar`` compiles the flavour's
+authored self-grammar once and calls that artefact's ``reduce`` capability.
+Model parsing and grammar-text reduction therefore enter through the same
+artefact seam; the reducer-derived variant decides what the latter builds.
 
 The grammar→grammar passes, the binding view and runtime class synthesis all
 live inside this package (``lexic.compile.pipeline.passes`` / ``.binding`` /
@@ -58,10 +57,10 @@ from pathlib import Path
 from typing import NamedTuple
 
 from lexic.compile.artifact import (
-    _REDUCE_ENTRIES,
     CompiledGrammar,
     TokenBinding,
     encoding_registry,
+    reset_reduction_cache,
     segmentation_tokenizer,
 )
 from lexic.compile.module.export import export_module, export_source
@@ -117,7 +116,7 @@ from lexic.ir import (
     rule_closure,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelFold, Reducer, parse_reduced
+from lexic.parsing import ModelFold, Reducer
 
 # Case-insensitive order — keeps this list and the submodules' own __all__
 # blocks from sharing linter-length runs of identical lines.
@@ -151,7 +150,6 @@ __all__ = [
     "present",
     "Presentation",
     "parse_instance",
-    "parse_reduced",
     "parse_instance_from_path",
     "parse_module",
     "Reducer",
@@ -236,15 +234,15 @@ _CACHE: dict[Hashable, CompiledGrammar] = {}
 def reset_cache_for_tests() -> None:
     """Public test seam: clear the compile cache and the derived-reduce memo."""
     _CACHE.clear()
-    _REDUCE_ENTRIES.clear()
+    reset_reduction_cache()
 
 
 def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
     """Parse grammar source into its IR AST via the flavour's engine path.
 
-    Delegates to the engine's :func:`~lexic.parsing.parse_reduced` product over
-    the flavour's authored self-grammar and its :class:`Reducer` (PDA-first,
-    Earley reduce completion inside the engine, memoised per flavour identity).
+    Compiles the flavour's authored self-grammar through the ordinary AST
+    route, then calls the artefact's :meth:`CompiledGrammar.reduce` capability.
+    The artefact and its reducer-derived pruned variant are both memoised.
 
     :param text: Grammar source in ``flavour``'s syntax.
     :param flavour: The grammar flavour (e.g. ``GBNF_FLAVOUR``).
@@ -255,7 +253,8 @@ def parse_grammar(text: str, flavour: IrFlavour) -> IrAst:
         ``text`` does not parse, or the reduction is not an ``IrAst``.
     """
     reducer = _flavour_reducer(flavour)
-    reduced = parse_reduced(flavour.grammar, text, reducer)
+    self_grammar = compile_ast(flavour.grammar, cache_key="parse-grammar")
+    reduced = self_grammar.reduce(text, reducer)
     if not isinstance(reduced, IrAst):
         raise UnsupportedConstructError(
             f"parse_grammar: reduction produced {type(reduced).__name__!r}, "

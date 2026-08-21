@@ -40,7 +40,7 @@ from lexic.api.pretokens import (
     IrQwenSplit,
     IrSplitMerged,
 )
-from lexic.compile import Reducer, parse_reduced
+from lexic.compile import Reducer, compile_ast
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAst,
@@ -86,7 +86,11 @@ def read(text: str, grammar: IrAst, reducer: Reducer, *, name: str) -> IrTokeniz
         map, or describes a model this cannot build.
     """
     return tokenizer_of(
-        IrMap.ensure(parse_reduced(grammar, text, reducer), "the document"), name
+        IrMap.ensure(
+            compile_ast(grammar, cache_key="json-tokenizer").reduce(text, reducer),
+            "the document",
+        ),
+        name,
     )
 
 

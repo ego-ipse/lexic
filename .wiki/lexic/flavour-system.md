@@ -55,12 +55,12 @@ ABNF differs in several notable ways (prefix quantifier ordering on `IrItem`, `%
 
 ## Parse-side: `grammar` + `reducer`
 
-The other half of a flavour — text → `IrAst` — is not a method at all. It is two ClassVar values that the engine (`lexic.parsing`) drives from the outside:
+The other half of a flavour — text → `IrAst` — is not a method at all. It is two ClassVar values that the compile artefact drives from the outside:
 
 - **`grammar: IrAst`** — the flavour's own grammar, authored directly as `IrAst` (not parsed from any meta-grammar string; there is no meta-grammar string anymore). `GBNF_GRAMMAR` / `ABNF_GRAMMAR` in `grammars/gbnf.py` / `grammars/abnf.py`. Its structural-noise rules carry `semantic=False` on their own `IrRule`; `<GRAMMAR>.non_semantic` (a derived property) collects their names (see [[ir-shapes]]).
 - **`reducer: Reducer`** (`lexic.parsing.reduce.Reducer`, IS-AN `IrDispatch`) — an `IrMap[IrRuleRef, IrSelf]` (`GBNF_REDUCTIONS` / `ABNF_REDUCTIONS`) from a rule's `IrRuleRef` to a body folding that rule's matched children into IR, paired with a noise map (`GBNF_NOISE` / `ABNF_NOISE`) marking which children are structural (whitespace, delimiters, comments) and dropped before a reduction body sees them. The noise map is built *from* `<GRAMMAR>.non_semantic` (the per-rule `semantic=False` flags) — single source of truth (2026-07-03).
 
-`compile_grammar` (`compile.py`) drives this: `parse_reduced(normalize(flavour.grammar), text, flavour.reducer)` (the normalized self-grammar is memoised once per flavour name so the engine's identity-keyed `compile_tables` stays hot). No parser class, no `.for_flavour()` factory — the engine is a free function over any `(IrAst, Reducer)` pair, and a flavour just happens to supply one for parsing *itself*.
+`parse_grammar` (`compile/__init__.py`) drives this through `compile_ast(flavour.grammar).reduce(text, flavour.reducer)`. The self-grammar artefact and reducer-derived pruned variant are memoised, and the variant uses the same `parse_model` path as every compiled grammar. No parser class, no `.for_flavour()` factory — a flavour simply supplies the `(IrAst, Reducer)` pair needed to parse *itself*.
 
 R2 (escaping is a rendering feature, not an AST property) still holds: reduction actions decode escapes as render-side data (an `IrMap`/`IrUnradix`-style table), never on the AST node itself; the AST holds neutral, decoded payloads.
 

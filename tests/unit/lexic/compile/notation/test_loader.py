@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 import lexic.compile as compile_pkg
-from lexic.compile import parse_grammar, parse_reduced
+from lexic.compile import compile_ast, parse_grammar
 from lexic.compile.notation.loader import load_flavour, load_flavour_from_path
 from lexic.compile.notation.parse import NOTATION_GRAMMAR, load_ir
 from lexic.exceptions import UnsupportedConstructError
@@ -421,5 +421,6 @@ def test_one_grammar_supports_several_readings() -> None:
     keeps = IrMap(IrTuple(IR_DEFAULT, KEEP_REDUCED))
     dropped = load_flavour(_manifest_with_noise(drops))
     kept = load_flavour(_manifest_with_noise(keeps))
-    assert parse_reduced(dropped.grammar, "a ", reducer(dropped)) == IrStr("a")
-    assert parse_reduced(kept.grammar, "a ", reducer(kept)) == IrStr("a ")
+    artifact = compile_ast(dropped.grammar)
+    assert artifact.reduce("a ", reducer(dropped)) == IrStr("a")
+    assert artifact.reduce("a ", reducer(kept)) == IrStr("a ")

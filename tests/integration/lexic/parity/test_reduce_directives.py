@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import compile_ast
+from lexic.compile import compile_ast, compile_from_path
+from lexic.compile.reduction import derive_reduction
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
@@ -39,7 +40,7 @@ from lexic.ir import (
 )
 from lexic.parsing import Reducer
 from lexic.parsing.earley.reduce.policy import KEEP_RAW, YIELD
-from lexic.parsing.products import parse_reduced
+from tests.reduce_oracle import reduce_one as parse_reduced
 from tests.paths import GROUND_TRUTH
 
 _CORPUS = sorted(
@@ -54,10 +55,21 @@ _JSON_DOCS = {
     "whitespace": '  { "a"  :  [ 1 ,  2 ] , "b" : "c d"  }  ',
 }
 
+_JSON_FORMULATIONS = ("native", "json.gbnf", "json.abnf", "json.ebnf")
+"""The four shipped spellings of JSON used by the split differential too."""
 
-def _json_artifact():
-    """The native-json artefact — content-memoised by ``compile_ast``."""
-    return compile_ast(JSON_GRAMMAR, cache_key="parity-reduce-json")
+_JSON_ARTIFACTS = {}
+
+
+def _json_artifact(name="native"):
+    """One JSON formulation's artefact, compiled once for this module."""
+    if name not in _JSON_ARTIFACTS:
+        if name == "native":
+            artifact = compile_ast(JSON_GRAMMAR, cache_key="parity-reduce-json")
+        else:
+            artifact = compile_from_path(GROUND_TRUTH / name)
+        _JSON_ARTIFACTS[name] = artifact
+    return _JSON_ARTIFACTS[name]
 
 
 @pytest.mark.parametrize("name", sorted(_JSON_DOCS))
@@ -66,6 +78,26 @@ def test_json_reduce_matches_fused(name):
     doc = _JSON_DOCS[name]
     got = _json_artifact().reduce(doc, JSON_REDUCER, cores=1)
     assert got == parse_reduced(JSON_GRAMMAR, doc, JSON_REDUCER)
+
+
+@pytest.mark.parametrize("formulation", _JSON_FORMULATIONS)
+def test_every_json_formulation_reduces_through_the_artifact_seam(formulation):
+    """Native, GBNF, ABNF and EBNF spellings all meet the fused oracle."""
+    artifact = _json_artifact(formulation)
+    doc = _JSON_DOCS["escapes"]
+    got = artifact.reduce(doc, JSON_REDUCER, cores=1)
+    assert got == parse_reduced(artifact.grammar, doc, JSON_REDUCER)
+
+
+def test_named_island_escape_path_matches_fused():
+    """A poisoned char run takes the group-named sub-grammar escape hatch."""
+    artifact = _json_artifact()
+    run = derive_reduction(artifact.grammar, JSON_REDUCER).runs["char-run"]
+    doc = '"line\\nlatin \\u00e9 emoji \\ud83d\\ude00"'
+    assert run.poison == frozenset({"\\"})
+    assert any(char in doc for char in run.poison), "the island case is vacuous"
+    got = artifact.reduce(doc, JSON_REDUCER, cores=1)
+    assert got == parse_reduced(artifact.grammar, doc, JSON_REDUCER)
 
 
 def test_json_reduce_matches_fused_with_default_cores():

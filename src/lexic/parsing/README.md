@@ -7,54 +7,46 @@ SPPF, Scott 2008) as the sound completion. No meta-grammar strings, no
 external parser. The premise: an `IrAst` already *is* a grammar — named rules,
 each an alternation of sequences of atoms — so it drives a parser as-is.
 
-**One engine, two products, both PDA-first, both owned here:**
+**One engine, one product, PDA-first:**
 
-- **grammar-text → `IrAst`** — `parse_reduced(grammar, text, reducer)`:
-  parse text against a grammar (e.g. a flavour's self-grammar) and fold it
-  to IR through the `Reducer`.
 - **instance text → model** — `parse_model(grammar, text, fold)`: parse
   input against a compiled grammar's rules and build the model object
   through the `ModelFold`.
 
-Both entries run the PDA first — a table-driven predictive walk that builds
+The entry runs the PDA first — a table-driven predictive walk that builds
 the product *during* the parse (no intermediate `ParseTree`) — and complete
 on the Earley engine whenever the PDA cannot decide deterministically. That
 policy, the PDA compilation, and its per-grammar memoisation all live inside
-this package; consumers see only the two calls. `compile.py` (the runtime's
-sole consumer) imports nothing but this package's root API.
+this package; consumers see one call. `lexic.compile` (the runtime's sole
+consumer) imports nothing but this package's root API.
 
-The self-hosting fixpoint is the standing proof of the first product: emit
+Grammar-text reduction belongs to `CompiledGrammar.reduce`: the reducer
+derives a pruned grammar variant, this model product parses it, and a thin
+artefact fold rebuilds the reducer's value. The self-hosting fixpoint remains
+the standing proof: emit
 the ABNF-of-ABNF grammar (`grammars/abnf.py`'s `ABNF_GRAMMAR`) as text,
 parse that text with itself, reduce, and recover the identical `IrAst`.
 
 ```
-parse_reduced(grammar, text, reducer)                 parse_model(grammar, text, fold)
-        │  (once per grammar, memoised)                       │  (once per grammar, memoised)
-        ├─ lift + normalize ─► reduce PDA tables              ├─ lift + normalize ─► model PDA tables
-        └─ normalize ────────► Earley tables                  └─ lift + normalize ─► Earley tables
-        │  (per parse)                                        │  (per parse)
-        ├─ PDA walk ───────────────────► IrAst                ├─ PDA walk ───────────────────► model
-        └─ on PdaFail: fused Earley reduce ─► IrAst           └─ on PdaFail: parse_first + fold ─► model
+parse_model(grammar, text, fold)
+        │  (once per grammar, memoised)
+        ├─ lift + normalize ─► model PDA tables
+        └─ lift + normalize ─► Earley tables
+        │  (per parse)
+        ├─ PDA walk ───────────────────► model
+        └─ on PdaFail: parse_first + fold ─► model
 ```
-
-The two grammar-text routes deliberately run **different normalised
-grammars** (the PDA over the lifted grammar, the Earley completion over the
-unlifted one). The divergence class is the ε-channel — a lifted nullable `R`
-(from `R?`) matches ε and runs its reduction on empty children where the
-unlifted route skips the node — and the authored reduce bodies absorb it;
-the differential tests are the guard.
 
 ---
 
 ## 1. Public API (`__init__.py`)
 
-Two product entries and six Earley functions. Everything a consumer needs
+One product entry and six Earley functions. Everything a consumer needs
 is exported from the package root; nothing outside `lexic.parsing` imports
 its submodules (enforced by the layering test).
 
 | Function | Returns | Meaning |
 |---|---|---|
-| `parse_reduced(grammar, text, reducer)` | `IrAst` | **Grammar-text product.** PDA-first, fused Earley reduce completion. Takes the authored grammar; normalisation, lifting, PDA/table compilation are internal, memoised per (grammar, reducer) identity — the compiled tables bake the reducer's plan, so the reducer is part of the key. The grammar-text product always folds to an `IrAst`; a non-`IrAst` reduction is an `UnsupportedConstructError`, never a silent `object`. |
 | `parse_model(grammar, text, fold: ModelFold[M])` | `M` | **Instance product.** PDA-first, `parse_first` + fold completion. Same authored-grammar contract; memoised per (grammar, fold) identity — the tables bake the fold's rule records and the collapsed lexical runs. Generic in the model type `M` the fold produces: the engine stays a leaf w.r.t. `lexic.model`, so the concrete model type rides the fold's type parameter rather than an import — `compile.py` binds `ModelFold[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. |
 | `recognize(grammar, text)` | `IrInt` 0/1 | Does `text` derive from the start rule? (No forest built.) |
 | `parse(grammar, text)` | `ParseTree` | The single derivation. **Raises** on no-parse *or* ambiguity. |
@@ -63,14 +55,15 @@ its submodules (enforced by the layering test).
 | `derivations(grammar, text)` | `IrSeq[ParseTree]` | *Every* derivation, nothing silently dropped. |
 | `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2.) |
 
-Also exported from the root: `Reducer`, `ModelFold` (and its authoring
+Also exported from the root: `Reducer` (pending its move to `lexic.ir`),
+`ModelFold` (and its authoring
 types), `ParseTree`, `SppfNode`, `ParserTables`, `compile_tables`,
 `normalize`, `lift_optional_nullables` — plus the rest of the forest/chart
 toolkit the root exports today (`Chart`, `Links`, `Link`, `EarleyItem`,
 `Kernel`, `FastTree`, `EarleyParser`, `BuildTree`), which stays. Per the
 IR's no-`IrBool` rule, a truth value is an `IrInt ∈ {0, 1}`.
 
-> **Two grammar contracts.** The product entries take the **authored**
+> **Two grammar contracts.** The product entry takes the **authored**
 > grammar and own the whole compilation pipeline internally. The tree/forest
 > functions (`recognize` through `is_ambiguous`) are the lower-level Earley
 > toolkit and take an **Earley-normalised** grammar (every quantifier
@@ -79,7 +72,7 @@ IR's no-`IrBool` rule, a truth value is an `IrInt ∈ {0, 1}`.
 > fold-fused and never builds a tree or an SPPF.
 
 `PdaFail` — the PDA's non-determinism signal — is internal to the package.
-It is raised and caught inside the product entries; no caller ever sees it.
+It is raised and caught inside the product entry; no caller ever sees it.
 
 ## 2. The design in one sentence
 
@@ -92,8 +85,8 @@ dispatch, no IR object as a hot-path key, and no tuple allocation per
 advance.
 
 The IR seams sit at the edges, all IR-native: the compiles walk the grammar
-in; `FusedReduce` (grammar-text) and `ModelFold` / the fused PDA build
-(instance) carry the products out; `Kernel.to_chart()` decodes the packed
+in; `ModelFold` / the fused PDA build carry the model out;
+`Kernel.to_chart()` decodes the packed
 SPPF into the IR-native `Chart` for the forest readers. State objects
 (`ParserTables`, `Kernel`, `PdaKernel`) ARE-AN `IrLeaf`; logic lives on
 classes and per-parse state on cursors — but inside the kernels the per-item
@@ -105,7 +98,7 @@ measured performance floor demands.
 
 ```
 parsing/
-  __init__.py       the public API (§1): two product entries + the Earley toolkit
+  __init__.py       the public API (§1): one product entry + the Earley toolkit
   fold.py           ModelFold — the authored instance fold (§8)
   earley/           the Earley engine (imports only itself)
     tables.py         ParserTables, compile_tables (memoised per IrAst identity)

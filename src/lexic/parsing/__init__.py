@@ -8,9 +8,9 @@ folds that forest back into an ``IrAst``. The fixpoint — parse the ABNF source
 ABNF with the ABNF grammar and recover the ABNF grammar — is the self-hosting
 proof that retires the meta-grammars.
 
-One engine drives both halves of the pipeline: **grammar-text → ``IrAst``** (a
-flavour's self-grammar + its ``Reducer``, the fused product path) and **instance
-text → ``GrammarModel``** (the codegen grammar + a positional fold, :mod:`.fold`).
+One model engine drives parsing. Grammar-text reduction is a compiled
+artefact capability: a flavour's self-grammar is compiled like any other and
+its reducer derives a pruned model variant before the thin fold.
 The instance path runs **PDA-first** — a predictive table-driven runtime
 (:mod:`.pda.runtime`) that builds the model during the walk, falling back to this
 Earley engine on any non-deterministic point. See ``README.md``.
@@ -58,13 +58,12 @@ in linear time, so ``*``/``+`` over long repeated input is O(n). Large *bounded*
 counts (``{lo, hi}``) still unroll to ``hi`` nested rules and recurse ``hi``-deep at
 desugar time — the one remaining rough edge.
 
-Public API — two **product** entries (:mod:`.products`) that take the AUTHORED
-grammar and own the whole PDA-first-→-Earley-completion pipeline internally
-(memoised per grammar + reducer/fold identity), plus the lower-level Earley
+Public API — one **product** entry (:mod:`.products`) that takes the AUTHORED
+grammar and owns the whole PDA-first-→-Earley-completion pipeline internally,
+plus the lower-level Earley
 toolkit that takes an Earley-normalised grammar (a truth value is an
 :class:`~lexic.ir.base.IrInt` ∈ {0, 1}, per the IR's no-``IrBool`` rule):
 
-- :func:`parse_reduced` — grammar-text → ``IrAst`` (the grammar-text product).
 - :func:`parse_model` — instance text → model (the instance product).
 - :func:`recognize` — does ``text`` derive from the start rule.
 - :func:`parse` — the strict single derivation as a :class:`.earley.forest.ParseTree`.
@@ -172,7 +171,6 @@ from lexic.parsing.products import (
     earley_model,
     earley_reduce,
     parse_model,
-    parse_reduced,
     pda_tables,
     token_model,
 )
@@ -324,7 +322,6 @@ __all__ = [
     "TokenMaskCursor",
     "TokenTermCursor",
     "token_model",
-    "parse_reduced",
     "recognize",
     "TRACE_CAP",
     "TRACE_KINDS",

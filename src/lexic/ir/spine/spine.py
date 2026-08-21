@@ -186,7 +186,7 @@ class IrSelf[Iri: "IrSelf", Ir_co: "IrSelf" = Iri](metaclass=IrMeta):
         """Return ``node`` typed as this class, or refuse.
 
         The boundary narrow. Several seams hand a value back at a type wider
-        than the caller can use — ``parse_reduced`` returns ``IrSelf`` because
+        than the caller can use — ``CompiledGrammar.reduce`` returns ``IrSelf`` because
         a reducer folds to whatever its bodies produce, and a document's
         actual shape is runtime information no signature can carry. Asserting
         that shape is legitimate; hand-rolling the assert at every seam is

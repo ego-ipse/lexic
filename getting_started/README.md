@@ -13,7 +13,7 @@ repository root, as a module** — `uv run python -m getting_started.<name>`.
 | [`ex06_token_grammar.py`](ex06_token_grammar.py) | Token grammars: an `IrTokenizer` + `<think>…</think>` GBNF → parse token-granular, round-trip, and the `constrain()` next-token mask (capabilities A/B/C). |
 | [`ex07_constrained_generation.py`](ex07_constrained_generation.py) | A full generation loop: mask → pick → `push` on one live chart until the grammar `accepts()`. Any vocab drives any char grammar. |
 | [`ex08_twin_module.py`](ex08_twin_module.py) | `export_module`/`export_source` → an importable twin; lexic parses its own export (`parse_module`/`verify_module`); checked construction from the imported classes. |
-| [`ex09_json_reducer.py`](ex09_json_reducer.py) | `parse_reduced` + the json reducer kit: a document folds to typed IR values (`IrMap`/`IrTuple`/`IrInt`/`IrNone`) — no model classes. |
+| [`ex09_json_reducer.py`](ex09_json_reducer.py) | `CompiledGrammar.reduce` + the json reducer kit: a document folds to typed IR values (`IrMap`/`IrTuple`/`IrInt`/`IrNone`). |
 | [`ex10_templating.py`](ex10_templating.py) | `template(compiled, MapShape, spec)`: extract two paths from a document, skip the rest as raw spans. Grammar-native — the same shape fits json.gbnf and json.abnf. |
 | [`ex11_hf_tokenizer.py`](ex11_hf_tokenizer.py) | The HF `tokenizer.json` story end to end: reduce with lexic's own json, lift vocab/merges/specials, `IrTokenizer.from_merges`, exact BPE `tokenize()`. |
 | [`ex12_real_think_flow.py`](ex12_real_think_flow.py) | The `<think>` flow against a REAL 151k model vocabulary: `ext.API.hf` fetches, `lexic.api.json_tokenizer` reads, `think.gbnf` parses and constrains. Skips cleanly when the fixture is absent. |

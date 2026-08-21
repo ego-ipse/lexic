@@ -16,12 +16,13 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
-from lexic.parsing.products import _model_product, _reduce_product, earley_reduce
+from lexic.parsing.products import _model_product, earley_reduce
+from tests.reduce_oracle import reduce_oracle
 
 
 def reduce_pda(flavour):
     """The flavour's self-grammar reduce PDA (built + memoised in the engine)."""
-    return _reduce_product(flavour.grammar, flavour.reducer).pda
+    return reduce_oracle(flavour.grammar, flavour.reducer).pda
 
 
 def compiled_and_pda(path: Path) -> tuple[CompiledGrammar, PdaTables]:

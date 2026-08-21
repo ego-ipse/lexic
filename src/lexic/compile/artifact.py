@@ -310,6 +310,10 @@ class CompiledGrammar:
         :raises UnsupportedConstructError: If ``text`` does not parse, or a
             reducer body refuses.
         """
+        if not isinstance(reducer, Reducer):
+            raise UnsupportedConstructError(
+                f"compile: reducer is {type(reducer).__name__!r}, not a Reducer"
+            )
         entry = _reduce_entry(self, reducer)
         model = entry.variant.parse(text, cores=cores)
         return entry.fold.reduce(model)
@@ -445,6 +449,11 @@ class _ReduceEntry(NamedTuple):
 
 
 _REDUCE_ENTRIES: dict[tuple[int, int], _ReduceEntry] = {}
+
+
+def reset_reduction_cache() -> None:
+    """Test seam: clear the artefact + reducer derived-variant memo."""
+    _REDUCE_ENTRIES.clear()
 
 
 def _variant_artifact(

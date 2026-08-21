@@ -17,7 +17,7 @@ from typing import cast
 
 import pytest
 
-from lexic.compile import Vocabulary, compile_text
+from lexic.compile import Vocabulary, compile_ast, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.ebnf import EBNF_FLAVOUR
 from lexic.grammars.gbnf import GBNF_FLAVOUR
@@ -32,13 +32,16 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import (
     _MODEL_CACHE,
     _model_product,
-    _reduce_product,
     earley_model,
     earley_reduce,
     parse_model,
-    parse_reduced,
     pda_tables,
     reset_product_cache,
+)
+from tests.reduce_oracle import (
+    reduce_one as parse_reduced,
+    reduce_oracle as _reduce_product,
+    reset_reduce_oracle,
 )
 from tests.unit.lexic.parsing.parsing_helpers import compiled
 
@@ -136,7 +139,7 @@ def test_reset_product_cache_forces_reduce_product_recompilation():
     """reset_product_cache drops the reduce cache — the next call for the same
     identity recompiles rather than reusing the stale product."""
     first = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-    reset_product_cache()
+    reset_reduce_oracle()
     second = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
     assert first is not second
     assert first.grammar is second.grammar
@@ -211,12 +214,11 @@ def test_flavour_reduction_is_an_ir_ast():
     assert isinstance(ast, IrAst)
 
 
-def test_parse_reduced_raises_on_a_non_reducer():
-    """parse_reduced's reducer-shape guard: a reducer that isn't a Reducer
-    instance is rejected before any parse is attempted."""
+def test_artifact_reduce_raises_on_a_non_reducer():
+    """The artefact rejects a non-Reducer before attempting a parse."""
     with pytest.raises(UnsupportedConstructError):
-        parse_reduced(
-            GBNF_FLAVOUR.grammar, 'root ::= "x"\n', cast(Reducer, "not-a-reducer")
+        compile_ast(GBNF_FLAVOUR.grammar).reduce(
+            'root ::= "x"\n', cast(Reducer, "not-a-reducer")
         )
 
 

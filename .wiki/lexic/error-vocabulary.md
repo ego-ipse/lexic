@@ -10,7 +10,7 @@ Source: `exceptions.py`. No bare `raise ValueError` or `raise Exception` for lib
 
 | Class | Raised by | Message format |
 |---|---|---|
-| `UnsupportedConstructError` | The Earley engine (no parse / ambiguous parse — every product entry: `parse`/`parse_reduced`, and the model routes `parse_model`/`token_model` reached by `CompiledGrammar.parse`), reduction bodies (unrecognised construct), `canonical_grammar`'s boundary checks (missing/wrong-shaped `Reducer`, non-`IrAst` reduction result, unknown start rule), atom dispatch tables (unknown atom type), the codegen passes (arm-name collision — `codegen/passes.py`), the instance fold (unknown kind/mode, kid-count mismatch — `parsing/fold.py`) | Rule-first: "rule `foo`: unsupported construct `…`" |
+| `UnsupportedConstructError` | The Earley engine (no parse / ambiguous parse), the model routes reached by `CompiledGrammar.parse`, reducer bodies and `CompiledGrammar.reduce`, `canonical_grammar`'s boundary checks, atom dispatch tables, codegen passes, and the instance fold | Rule-first: "rule `foo`: unsupported construct `…`" |
 | `FieldValidationError` | IR-intrinsic per-field checked construction in `GrammarModel.__new__` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required presence); trusted parse paths (`_from_values`/`fast_construct`) bypass it | Field-path-first |
 
 All inherit from `LexicError(Exception)`.
@@ -55,5 +55,4 @@ A silent `pass` or `None` return is never acceptable. This is how unexpected ato
 
 **Ambiguity is refused on every route, and a resolver is the only thing that changes that.** A span whose derivations build two different VALUES raises `UnsupportedConstructError`; a *split* does not, because it has a defined answer. Passing `resolve=` hands both derivations to the caller's deterministic resolver instead of raising — so a caller who wants a choice made asks for it explicitly, and the engine never makes one silently. This is not a per-route promise: the char route, the token route and the reduce path all ask the same question.
 
-There is no Lark and no `MetaGrammarParser` anymore — `parse_grammar` runs the flavour's own self-grammar through the Earley engine (`parse_reduced`). The engine itself raises `UnsupportedConstructError` when text doesn't parse or parses ambiguously (see `lexic.parsing`'s module docstring). `canonical_grammar` (the public parse+canonicalize+directive front half, superseding the retired `compile_grammar`) adds its own explicit boundary checks, each an `UnsupportedConstructError`: the flavour's `reducer` must be an actual `Reducer` instance, the reduction must produce an `IrAst`, and a resolved `start` rule must actually be defined in the (canonicalized) grammar.
-
+There is no Lark and no `MetaGrammarParser` anymore — `parse_grammar` compiles the flavour's own self-grammar and calls `CompiledGrammar.reduce`. The engine raises `UnsupportedConstructError` when text does not parse or is ambiguous; `canonical_grammar` adds explicit checks that the flavour carries a `Reducer`, the reduction is an `IrAst`, and the resolved start rule exists.

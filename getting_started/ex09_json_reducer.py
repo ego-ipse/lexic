@@ -2,8 +2,8 @@
 
 A ``Reducer`` is something ANY grammar can carry, not just the flavours'
 self-grammars: ``grammars/json.py`` ships the RFC 8259 grammar authored
-directly as IR plus its reduction kit, and ``parse_reduced`` folds a document
-to typed IR values in one engine pass — objects become ``IrMap``, arrays
+directly as IR plus its reduction kit, and ``CompiledGrammar.reduce`` folds a
+document to typed IR values — objects become ``IrMap``, arrays
 ``IrTuple``, strings decoded ``IrStr`` (escapes and surrogate pairs decode
 through the ``IrUtf`` encoding), integers ``IrInt``, ``null`` → ``IrNone``.
 
@@ -18,21 +18,23 @@ Run::
 
 from __future__ import annotations
 
+from lexic.compile import compile_ast
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrInt, IrMap, IrNone
-from lexic.parsing import parse_reduced
 
 DOC = '{"name": "lexic", "stars": 3, "tags": ["grammar", "\\u00e9lan"], "wip": null}'
 
 
 def main() -> None:
     """Reduce a JSON document to IR values and read them off natively."""
-    # A reducer folds to whatever its bodies produce, so parse_reduced returns
+    # A reducer folds to whatever its bodies produce, so reduce returns
     # IrSelf — and a JSON document really can be any JSON value. "This one is
     # an object" is a fact about DOC, not about the API, so the caller states
     # it: ``ensure`` is the spine's boundary narrow (the class-level sibling
     # of ``bind``), and unlike an assert it is a real check that raises.
-    value = IrMap.ensure(parse_reduced(JSON_GRAMMAR, DOC, JSON_REDUCER), "document")
+    value = IrMap.ensure(
+        compile_ast(JSON_GRAMMAR).reduce(DOC, JSON_REDUCER), "document"
+    )
     print("Reduced:", value)
 
     # IR values ARE their payloads: IrStr is a str, IrInt an int, IrMap a

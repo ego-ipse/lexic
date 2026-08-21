@@ -21,8 +21,10 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrAst, IrSelf
 from lexic.parsing.parallel.regions import choose, find, split_regions
-from lexic.parsing.products import _reduce_one, parse_reduced
+from tests.reduce_oracle import reduce_one as _reduce_one
 from tests.paths import GROUND_TRUTH
+
+parse_reduced = _reduce_one
 
 FORMULATIONS = ("native", "json.gbnf", "json.abnf", "json.ebnf")
 """Four spellings of one language. The reducer is written against the rule

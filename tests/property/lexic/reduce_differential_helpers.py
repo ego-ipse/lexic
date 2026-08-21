@@ -16,7 +16,8 @@ from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_reduce
-from lexic.parsing.products import _reduce_product, earley_reduce
+from lexic.parsing.products import earley_reduce
+from tests.reduce_oracle import reduce_oracle
 
 
 def _narrow(value: object) -> IrAst:
@@ -45,7 +46,7 @@ class ReduceDifferential:
         assert isinstance(reducer, Reducer)
         self.flavour = flavour
         self.reducer = reducer
-        self.product = _reduce_product(flavour.grammar, reducer)
+        self.product = reduce_oracle(flavour.grammar, reducer)
         self.earley_grammar = normalize(lift_optional_nullables(flavour.grammar))
 
     def pda(self, text: str) -> IrAst | None:

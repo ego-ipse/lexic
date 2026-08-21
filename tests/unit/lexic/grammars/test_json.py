@@ -26,7 +26,7 @@ from lexic.ir import (
     IrTuple,
     fold_name,
 )
-from lexic.parsing import parse_reduced
+from lexic.compile import compile_ast
 from tests.unit.lexic.parsing.ir_fixtures import JSON_RULE_NAMES
 
 # ── Basic structure ───────────────────────────────────────────────────
@@ -175,7 +175,7 @@ def test_codegen_produces_classes():
 
 def reduce(text: str) -> IrSelf:
     """Reduce ``text`` through ``JSON_GRAMMAR``/``JSON_REDUCER``."""
-    return parse_reduced(JSON_GRAMMAR, text, JSON_REDUCER)
+    return compile_ast(JSON_GRAMMAR).reduce(text, JSON_REDUCER)
 
 
 def test_reduce_true_is_irint_one():

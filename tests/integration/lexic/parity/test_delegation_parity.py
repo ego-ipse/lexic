@@ -48,7 +48,7 @@ from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
 from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
-from lexic.parsing.products import _reduce_product
+from tests.reduce_oracle import reduce_oracle
 from tests.integration.lexic.parity.test_pda_parity import ALL_STEMS, grammar_for
 from tests.unit.lexic.parsing.parsing_helpers import prod
 from tests.unit.lexic.parsing.pda.compiler.test_delegate_compile import NoDelegates
@@ -235,7 +235,7 @@ def test_delegation_reduce_path_is_behaviour_neutral() -> None:
     un-routed reduce PDA stops. The ABNF reduce PDA opts out whole-grammar
     (``rulelist`` is a start island), so it has no forced-PDA path to A/B yet.
     """
-    pda = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer).pda
+    pda = reduce_oracle(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer).pda
     assert pda is not None, "GBNF self-grammar reduce PDA should exist"
     fresh = with_delegates(pda, True, lambda: pda.island_delegates("charclass"))
     assert fresh, "the reduce path must carry at least one delegating island"

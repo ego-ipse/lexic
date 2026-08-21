@@ -156,7 +156,7 @@ run any of them as `uv run python -m getting_started.<name>`:
 | 06 | [`token_grammar`](getting_started/ex06_token_grammar.py) | Token grammars: parse token-granular, round-trip, next-token mask. |
 | 07 | [`constrained_generation`](getting_started/ex07_constrained_generation.py) | A generation loop: mask → pick → `push` until `accepts()`. |
 | 08 | [`twin_module`](getting_started/ex08_twin_module.py) | Export an importable twin; lexic parses its own export back. |
-| 09 | [`json_reducer`](getting_started/ex09_json_reducer.py) | `parse_reduced`: fold a document to IR values, no model classes. |
+| 09 | [`json_reducer`](getting_started/ex09_json_reducer.py) | `CompiledGrammar.reduce`: fold a document to IR values. |
 | 10 | [`templating`](getting_started/ex10_templating.py) | Extract selected paths; skip the rest as raw spans. |
 | 11 | [`hf_tokenizer`](getting_started/ex11_hf_tokenizer.py) | Read an HF `tokenizer.json` with lexic's own JSON grammar. |
 | 12 | [`real_think_flow`](getting_started/ex12_real_think_flow.py) | `<think>` constrained decoding against a real 151k vocabulary. |
@@ -230,9 +230,9 @@ parsing covers char-aligned segmentations.
 
 ## Beyond parsing
 
-- **Reduce** — `parse_reduced(grammar, text, reducer)` folds a document
-  straight to IR values, no classes. A reducer is a *reading*; any grammar can
-  carry several.
+- **Reduce** — `compiled.reduce(text, reducer)` derives a pruned variant,
+  parses only what the reading needs, and folds the result to IR values. A
+  reducer is a *reading*; one compiled grammar can carry several.
 - **Template** — `template(compiled, shape, spec)` parses one pass, models
   only the paths you keep, captures the rest as raw spans.
 - **Generate** — `generate(...)` derives a random valid document from any

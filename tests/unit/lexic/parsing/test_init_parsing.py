@@ -17,7 +17,7 @@ API changes from the int-kernel rework:
 from __future__ import annotations
 
 from lexic import parsing
-from lexic.compile import parse_grammar
+from lexic.compile import compile_ast, parse_grammar
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import IrAst
 from lexic.parsing import (
@@ -51,7 +51,6 @@ from lexic.parsing import (
     parse,
     parse_forest,
     parse_model,
-    parse_reduced,
     pda_tables,
 )
 from lexic.parsing import products as products_direct
@@ -183,9 +182,10 @@ def test_compile_tables_re_exported_from_package():
 # ── Phase B: the product entries + the new root exports ────────────────
 
 
-def test_parse_reduced_callable_from_package():
-    """parse_reduced is importable and callable from the package top-level."""
-    assert callable(parse_reduced)
+def test_parse_reduced_is_not_an_engine_product():
+    """Reduction is an artefact capability, not a free engine product."""
+    assert not hasattr(parsing, "parse_reduced")
+    assert "parse_reduced" not in parsing.__all__
 
 
 def test_parse_model_callable_from_package():
@@ -209,11 +209,9 @@ def test_new_root_exports_are_reachable():
 
 
 def test_product_entries_take_the_authored_grammar_pda_first():
-    """parse_reduced (the grammar-text product) takes the AUTHORED self-grammar
-    and returns the reduced IrAst — PDA-first with the Earley completion inside,
-    equal to the forced Earley completion."""
+    """The artefact reduction agrees with the temporary fused completion."""
     text = 'root ::= "abc"\n'
-    got = parse_reduced(GBNF_FLAVOUR.grammar, text, GBNF_FLAVOUR.reducer)
+    got = compile_ast(GBNF_FLAVOUR.grammar).reduce(text, GBNF_FLAVOUR.reducer)
     assert isinstance(got, IrAst)
     assert got == earley_reduce(
         normalize(GBNF_FLAVOUR.grammar), text, GBNF_FLAVOUR.reducer

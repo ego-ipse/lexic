@@ -34,7 +34,7 @@ from lexic.parsing.parallel.regions import (
     split_regions,
     stub,
 )
-from lexic.parsing.products import _reduce_one
+from tests.reduce_oracle import reduce_one as _reduce_one
 from tests.paths import GROUND_TRUTH
 
 JSON_FORMULATIONS = ("json.gbnf", "json.abnf", "json.ebnf")

@@ -17,9 +17,9 @@ import pytest
 from ext.API import cache
 from lexic.api.json_tokenizer import tokenizer_of
 from lexic.api.pretokens import IrByteLevel, IrDigits
+from lexic.compile import compile_ast
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrInt, IrMap, IrNone, IrStr, IrTokenizer
-from lexic.parsing import parse_reduced
 from tests.integration.lexic.tokens.tokenizer_corpus import SHARED_CORPUS
 
 SMOLLM2 = cache.path("smollm2")
@@ -52,7 +52,7 @@ def _text() -> str:
 @pytest.fixture(scope="module", name="document")
 def _document(text: str) -> IrMap:
     """One reduce of the whole real file."""
-    doc = parse_reduced(JSON_GRAMMAR, text, JSON_REDUCER)
+    doc = compile_ast(JSON_GRAMMAR).reduce(text, JSON_REDUCER)
     assert isinstance(doc, IrMap)
     return doc
 

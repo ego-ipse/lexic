@@ -143,7 +143,7 @@ Implemented in `compile/presentation.py`. Bakes a **presentation ceiling**: rows
 
 ### `parse_grammar(text, flavour)` — `compile/__init__.py` (re-exported from `lexic`)
 
-The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `GBNF_FLAVOUR`): requires `flavour.reducer` to be an actual `Reducer` instance (else `UnsupportedConstructError`), runs `parse_reduced(normalize(flavour.grammar), text, flavour.reducer)` — the normalised self-grammar memoised per flavour name — and verifies the reduction yields an `IrAst` (else `UnsupportedConstructError`). Returns the **raw** parsed `IrAst` — not yet canonicalized. Use it whenever you need the IR of a grammar without compiling classes (e.g. cross-flavour transpilation: `parse_grammar(text, GBNF_FLAVOUR)` then `ABNF_FLAVOUR.apply(ast)` — see `getting_started/ex04_transpile_flavours.py`).
+The public grammar-text → `IrAst` seam. Takes an `IrFlavour` singleton (e.g. `GBNF_FLAVOUR`): requires `flavour.reducer` to be an actual `Reducer`, compiles the flavour's self-grammar through `compile_ast`, calls that artefact's reducer-derived `reduce`, and verifies the result is an `IrAst`. Returns the **raw** parsed `IrAst` — not yet canonicalized. Use it whenever you need the IR of a grammar without compiling instance text (e.g. cross-flavour transpilation).
 
 ---
 
@@ -322,7 +322,7 @@ Equality is type-aware (same concrete class + payload; the `IrBounds` pattern) a
 
 ## The engine floor — `lexic.parsing` root exports
 
-The engine's public root carries, beside the products (`parse_reduced` / `parse_model` / `token_model`) and the Earley toolkit (`Kernel`, `compile_tables`, `normalize`, `lift_optional_nullables`, the tree/forest readers):
+The engine's public root carries, beside the model products (`parse_model` / `token_model`) and the Earley toolkit (`Kernel`, `compile_tables`, `normalize`, `lift_optional_nullables`, the tree/forest readers):
 
 - **`earley_model` / `earley_reduce`** — the per-product Earley completions, public as the route-forcing seam. Forcing an engine route means calling a different product entry, never passing a flag: an engine selector chooses between `parse_model` (PDA-first) and `earley_model` (Earley only).
 - **`PdaKernel`** — the fused predictive runtime, subclassable for tracing; `WatchedKernel` is that subclass.

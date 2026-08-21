@@ -55,11 +55,11 @@ from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import (
-    _reduce_product,
     earley_model,
     earley_reduce,
 )
 from tests.paths import GRAMMARS, GROUND_TRUTH
+from tests.reduce_oracle import reduce_oracle
 from tests.unit.lexic.parsing.parsing_helpers import prod
 
 
@@ -627,7 +627,7 @@ def test_scan_directives_start_and_non_semantic_coexist():
 def test_reduce_product_builds_for_gbnf():
     """GBNF's self-grammar compiles to a real reduce PDA (its start rule,
     "grammar", is not itself an island)."""
-    product = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    product = reduce_oracle(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
     assert isinstance(product.pda, PdaTables)
     assert product.pda.reduce is not None
     assert not isinstance(product.pda.start_key, IslandRef)
@@ -636,7 +636,7 @@ def test_reduce_product_builds_for_gbnf():
 def test_reduce_product_builds_for_abnf():
     """ABNF's self-grammar compiles to a real reduce PDA since the
     ``rulelist`` boundary-shift left-factor removed the start island."""
-    product = _reduce_product(ABNF_FLAVOUR.grammar, ABNF_FLAVOUR.reducer)
+    product = reduce_oracle(ABNF_FLAVOUR.grammar, ABNF_FLAVOUR.reducer)
     assert isinstance(product.pda, PdaTables)
     assert product.pda.reduce is not None
     assert not isinstance(product.pda.start_key, IslandRef)
@@ -645,8 +645,8 @@ def test_reduce_product_builds_for_abnf():
 def test_reduce_product_is_memoised_per_identity():
     """A second call for the same (grammar, reducer) identity returns the
     identical compiled product — no recompilation."""
-    first = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
-    second = _reduce_product(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    first = reduce_oracle(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
+    second = reduce_oracle(GBNF_FLAVOUR.grammar, GBNF_FLAVOUR.reducer)
     assert first is second
 
 

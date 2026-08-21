@@ -63,8 +63,8 @@ Generic identity root and action-protocol base. `Iri` is the input node type; `I
 `__init_subclass__` derives `_bound` from the class's OWN last type parameter (never the MRO); an explicit `_bound` ClassVar wins.
 
 **Use `ensure`, never `assert isinstance`, at a boundary.** Several seams
-hand a value back wider than the caller can use — `parse_reduced` returns
-`IrSelf` because a reducer folds to whatever its bodies produce, and a
+hand a value back wider than the caller can use — a reducer body returns
+`IrSelf` because it folds to whatever its declarations produce, and a
 document's actual shape is runtime information no signature carries.
 Asserting that shape is legitimate; hand-rolling the assert at every seam is
 not, and an `assert` is *stripped by `python -O`*, so the check silently

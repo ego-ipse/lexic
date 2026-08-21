@@ -37,7 +37,7 @@ An `IrFlavour` IS-AN `IrEmitter` (from `lexic.ir`) carrying, as class data:
 - **`reducer: Reducer`** — the parse half: `reductions` (an `IrMap` from a
   rule's `IrRuleRef` to an IR body folding its matched children into IR) plus a
   noise map **derived** from the grammar's `semantic=False` flags. `parse_grammar`
-  drives the engine's `parse_reduced` over `grammar` + `reducer` — the same
+  compiles `grammar` and drives the artefact's `reduce` with `reducer` — the same
   engine that later parses generated instances.
 - **`escapes: EscapeCodec`** — the escape tables (an instance).
 - **`actions: IrTypeMap`** — the emit half: one IR body per IR-AST node type,

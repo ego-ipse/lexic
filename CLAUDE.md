@@ -208,7 +208,7 @@ src/lexic/
       spans.py                      Addresses and spans — WHERE an occurrence stands, and what it covers
       tokenizer.py                  Tokenizer — a vocabulary, and the segmenters that apply it
   parsing/
-    __init__.py                    public API: parse_reduced/parse_model products + the Earley toolkit
+    __init__.py                    public API: parse_model product + the Earley toolkit
     fold.py                        ParseTree → object fold — the instance-parsing bridge
     products.py                    The two product entries — reduce (text → the reducer's value), model (text → model)
     trace.py                       The watched run — what the predictive kernel DID, as an ordered event stream

@@ -23,7 +23,7 @@ from lexic.api.pretokens import (
     IrQwenSplit,
     IrSplitMerged,
 )
-from lexic.compile import compile_from_path, parse_reduced
+from lexic.compile import compile_ast, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrChr, IrMap, IrReplace, IrStr, IrUnicodeForm
@@ -391,7 +391,7 @@ def test_tokenizer_of_needs_no_second_parse() -> None:
     costs seconds, not milliseconds. Pinned so the entry is not "simplified"
     away by a future reviewer counting names rather than callers.
     """
-    doc = IrMap.ensure(parse_reduced(JSON_GRAMMAR, _document(), JSON_REDUCER))
+    doc = IrMap.ensure(compile_ast(JSON_GRAMMAR).reduce(_document(), JSON_REDUCER))
     from_doc = tokenizer_of(doc, "t")
     from_text = read(_document(), JSON_GRAMMAR, JSON_REDUCER, name="t")
     assert from_doc == from_text

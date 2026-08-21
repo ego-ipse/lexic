@@ -20,7 +20,7 @@ grammar can have, exactly like the flavours): ``JSON_REDUCTIONS`` /
 objects ``IrMap``, arrays ``IrTuple``, strings decoded ``IrStr`` (escapes
 per-unit, surrogate pairs combined through :class:`~lexic.ir.encoding.IrUtf`),
 integers ``IrInt``, truth ``IrInt(0|1)``, null ``IrNone`` — via
-``parse_reduced(JSON_GRAMMAR, text, JSON_REDUCER)``.
+``compile_ast(JSON_GRAMMAR).reduce(text, JSON_REDUCER)``.
 """
 
 from __future__ import annotations

@@ -1,22 +1,14 @@
-"""The two product entries — reduce (text → the reducer's value), model (text → model).
+"""The model product entry — text → a compiled grammar's model.
 
-Both take the **authored** grammar and own the whole compilation pipeline
-internally: lift + normalise, compile the predictive PDA (and, for the model
-product, the run-collapsed Earley tables), all memoised per
-**(grammar identity, reducer/fold identity)** — the compiled tables bake the
-reducer plan / fold records, so grammar identity alone is a wrong key. Earley
-tables pack at the tier the input's size picks
-(:func:`~lexic.parsing.earley.kernel.tables.tier_for` — the model product keys it, the
-reduce completion picks it per parse). Each
-parse runs the PDA first and completes on the Earley engine on any
+It takes the **authored** grammar and owns the compilation internally: lift +
+normalise, predictive PDA, and run-collapsed Earley tables, memoised per
+**(grammar identity, fold identity, packing tier)**. Each parse runs the PDA
+first and completes on the Earley engine on any
 :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaFail`; :class:`PdaFail` never escapes.
 
-The Earley-completion entries — :func:`earley_reduce` (fused reduce over a
-normalised grammar) and :func:`earley_model` (gated first derivation + fold) — are the
-per-product completions the product entries call, public at the package root
-as the route-forcing seam: forcing a route means calling a different product
-entry, never passing a flag. They take an **Earley-normalised** grammar,
-the low-level contract the tree/forest readers keep.
+The Earley model completion is the route-forcing seam. ``earley_reduce``
+remains temporarily for the 1e differential while the retired fused twin is
+deleted in 1g; it is not a product entry.
 
 A leaf inside ``lexic.parsing``: imports the Earley engine and the PDA compiler/
 runtime by public name; ``__init__`` re-exports the product entries and the
@@ -45,15 +37,13 @@ from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.reduce.reducer import Reducer
 from lexic.parsing.earley.tokenscan import TokenKernel
 from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
-from lexic.parsing.parallel.regions import split_regions
-from lexic.parsing.pda.compiler.clones import compile_pda, compile_reduce_pda
+from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail
-from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model, pda_reduce
+from lexic.parsing.pda.runtime.kernel.reduce_runtime import pda_model
 
 __all__ = [
-    "parse_reduced",
     "parse_model",
     "earley_reduce",
     "earley_model",
@@ -166,23 +156,6 @@ def token_model[M](
 
 
 @dataclass(frozen=True)
-class _ReduceProduct:
-    """A grammar-text product compiled once — the reduce PDA + Earley grammar.
-
-    :ivar grammar: The authored grammar (held to pin its identity key).
-    :ivar reducer: The reduction policy (held to pin its identity key).
-    :ivar pda: The reduce PDA (immediate-PdaFail start ⇒ Earley every parse).
-    :ivar earley_grammar: ``normalize(lift_optional_nullables(grammar))`` — the
-        same lifted, normalised grammar the PDA compiles over.
-    """
-
-    grammar: IrAst
-    reducer: Reducer
-    pda: PdaTables
-    earley_grammar: IrAst
-
-
-@dataclass(frozen=True)
 class _ModelProduct:
     """An instance product compiled once — the model PDA + collapsed tables.
 
@@ -201,14 +174,12 @@ class _ModelProduct:
     tables: ParserTables
 
 
-_REDUCE_CACHE: dict[tuple[int, int], _ReduceProduct] = {}
 _MODEL_CACHE: dict[tuple[int, int, int], _ModelProduct] = {}
 _TOKEN_TABLES: dict[tuple[int, int], tuple[IrAst, ParserTables]] = {}
 
 
 def reset_product_cache() -> None:
     """Test seam: drop the per-identity product caches."""
-    _REDUCE_CACHE.clear()
     _MODEL_CACHE.clear()
     _TOKEN_TABLES.clear()
 
@@ -227,31 +198,6 @@ def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
     tables = compile_tables(normalize(lift_optional_nullables(grammar)), bits)
     _TOKEN_TABLES[key] = (grammar, tables)
     return tables
-
-
-def _reduce_product(grammar: IrAst, reducer: Reducer) -> _ReduceProduct:
-    """The compiled reduce product for ``(grammar, reducer)``, memoised by identity.
-
-    :raises UnsupportedConstructError: When ``reducer`` is not a :class:`Reducer`.
-    """
-    if not isinstance(reducer, Reducer):
-        raise UnsupportedConstructError(
-            f"parse_reduced: reducer is {type(reducer).__name__!r}, not a Reducer"
-        )
-    key = (id(grammar), id(reducer))
-    cached = _REDUCE_CACHE.get(key)
-    if cached is not None and cached.grammar is grammar and cached.reducer is reducer:
-        return cached
-    lifted = lift_optional_nullables(grammar)
-    instance = normalize(lifted)
-    product = _ReduceProduct(
-        grammar,
-        reducer,
-        compile_reduce_pda(lifted, instance, reducer),
-        instance,
-    )
-    _REDUCE_CACHE[key] = product
-    return product
 
 
 def _model_product(
@@ -311,46 +257,6 @@ def _refused(
             undecidable=isinstance(fail, ProbeFork),
         ),
     )
-
-
-def parse_reduced(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
-    """Parse ``text`` to its reduction — PDA-first, fused Earley completion.
-
-    The engine's REDUCE product over any authored ``(grammar, reducer)`` pair:
-    a flavour self-grammar folding grammar text to an ``IrAst``, or any other
-    grammar whose reducer folds its documents to values — a reducer is
-    something any grammar can have. Lifting, normalisation and PDA compilation
-    are internal, memoised per ``(grammar, reducer)`` identity. Each parse
-    runs the reduce PDA first and, on any :class:`PdaFail`, completes on the
-    fused Earley reduce over the same lifted, normalised grammar the PDA
-    compiled from. Result-shape narrowing (grammar text must fold to an
-    ``IrAst``) belongs to the caller's boundary (``compile.parse_grammar``),
-    not to the product.
-
-    :param grammar: The authored grammar.
-    :param text: The input to parse.
-    :param reducer: The grammar's reduction policy.
-    :returns: Whatever the reducer's top body builds.
-    :raises UnsupportedConstructError: When ``reducer`` is not a
-        :class:`Reducer`, or ``text`` does not parse / parses ambiguously on
-        the Earley completion.
-    """
-    split = split_regions(_reduce_one, grammar, text, reducer)
-    if split is not None:
-        return split
-    return _reduce_one(grammar, text, reducer)
-
-
-def _reduce_one(grammar: IrAst, text: str, reducer: Reducer) -> IrSelf:
-    """One whole-document reduction — the sequential product."""
-    product = _reduce_product(grammar, reducer)
-    try:
-        return pda_reduce(product.pda, text)
-    except PdaFail as fail:
-        try:
-            return earley_reduce(product.earley_grammar, text, reducer)
-        except UnsupportedConstructError as refusal:
-            raise _refused(fail, refusal) from None
 
 
 def parse_model[M](
