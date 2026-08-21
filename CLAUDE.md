@@ -130,6 +130,7 @@ src/lexic/
   exceptions.py                    LexicError hierarchy — UnsupportedConstructError, FieldValidationError
   generate.py                      random string generator — walks a canonical grammar's rules directly
   model.py                         GrammarModel on IrNamedTuple — models ARE IrSelf; to_text/to_grammar/dump
+  model_emission.py                Stack records and extent reservation for addressed model emission
   api/
     __init__.py                    Readers for third-party formats — applications of lexic, shipped with it
     json_tokenizer.py              tokenizer.json → IrTokenizer; the json formulation is a parameter
@@ -138,16 +139,23 @@ src/lexic/
     __init__.py                    parse_grammar / canonical_grammar / compile_text / compile_ast — grammar entry points
     artifact.py                    CompiledGrammar — the parse-ready artefact compile_* produces
     foldkit.py                     Shared authored-fold vocabulary — the build-path unification seed
-    presentation.py                  Presentation tables — rule-keyed ceilings, baked and gated, drawing rows over spans
     reduction.py                     Reduce as derived directives — reducer → @lexical variant + thin fold over the pruned model
-    templating.py                  Generic templating — extract selected paths of any COMPILED grammar via spans
-    transpile.py                   A document under grammar A re-expressed under grammar B — the transform is a table
     verdict.py                     Verdict — one attempt's outcome as a value, refusal and cost included
-    writer.py                      The shared module writer — every .py lexic emits goes out through here
+    output/
+      __init__.py                  Compilation presentation and output package marker
+      presentation.py              Presentation tables — rule-keyed ceilings and rows over spans
+      templating.py                Generic templating — extract selected paths via spans
+      transpile.py                 A document under grammar A re-expressed under grammar B
+      writer.py                    Shared Python module writer
+    reduce/
+      __init__.py                  Reducer-derived implementation package marker
+      fold.py                      Thin-fold executor over a directive-pruned model
     module/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
+      bind.py                      Runtime binding for generated twin-module classes
       export.py                    export_source / export_module — the importable .py twin
       selfgrammar.py               The generated-module self-grammar — lexic parses its own exports
+      verify.py                    Cross-check generated module text against compiled binding
     notation/
       __init__.py                  The IR-constructor notation surface — parse + emit halves, manifest loader
       emit.py                      The IR-constructor notation's emit half — IR → formatted notation text
@@ -168,9 +176,14 @@ src/lexic/
       synthesis.py                 Runtime class synthesis — codegen grammar + binding view → model classes
   grammars/
     __init__.py                    Grammar-flavour layer — public endpoint
-    abnf.py                        ABNF flavour — RFC 5234+7405 surface, core-rules prelude
+    abnf/
+      __init__.py                  ABNF flavour — actions, reducer, core-rules prelude
+      grammar.py                   Native ABNF self-grammar
     ebnf.py                        EBNF flavour — ISO-family surface; refuses negation declaratively
-    gbnf.py                        GBNF flavour — incl. the token terminals <t>/<[id]>/!<…>/.
+    gbnf/
+      __init__.py                  GBNF flavour — actions, reducer, token terminals
+      grammar.py                   Native GBNF self-grammar root and early rules
+      grammar_tail.py              Late canonical GBNF self-grammar rules
     json.py                        JSON grammar as native IR — the canonical, flavour-neutral representation
   ir/
     __init__.py                    Public IR surface — a LAZY façade; import everything from here
@@ -188,26 +201,32 @@ src/lexic/
       __init__.py                the group's package marker; the façade is the import surface
       access.py                     Access — reaching into a node (child, field, index, length)
       build.py                      Build — producing a node (apply, rebuild, walk, emit, raise)
-      compute.py                    Compute — turning values into other values (radix, ordinals, joins)
-      control.py                    Control — what runs and in what order (pipe, cond, each, return)
       mapping.py                    Fast map family — a common IrMapping ancestor owning all shared logic
       walk.py                       Action-driven IR dispatcher on the IrSelf substrate
+      flow/
+        __init__.py                Compute/control package marker
+        compute.py                 Compute — radix, ordinals, joins
+        control.py                 Control — pipe, cond, each, return
     grammar/                      The grammar AST and the language-preserving passes over it
       __init__.py                the group's package marker; the façade is the import surface
-      alignment.py                  Equality up to renaming — every rule-name bijection, as the witness
-      canonical.py                  canonicalize — the language-preserving normal form for a grammar IrAst
       concretize.py                 concretize — resolve an `IrAlphabet`'s spelling to an id
       nodes.py                      concrete grammar-AST nodes on the spine bases (IrAlphabet lives here)
       operators.py                  Operator-algebra nodes — the operator family, between spine and nodes
-      order.py                      RuleOrder — deterministic start-first ordering of grammar rules
+      transform/
+        __init__.py                Grammar transform package marker
+        alignment.py               Equality up to renaming
+        canonical.py               canonicalize — language-preserving normal form
+        order.py                   Deterministic start-first rule ordering
     text/                         How characters and documents are spelled — and where
       __init__.py                the group's package marker; the façade is the import surface
-      encodings.py                  Encoding family — the codec that gives a char class's ordinals meaning
-      escapes.py                    EscapeCodec — the flavour's emit-side spelling of canonical text
       layout.py                     Layout algebra — width-aware document combinators on the record spine
       pipeline.py                   Token pipeline — normalizers, pretokens, and the order they run in
       spans.py                      Addresses and spans — WHERE an occurrence stands, and what it covers
       tokenizer.py                  Tokenizer — a vocabulary, and the segmenters that apply it
+      codec/
+        __init__.py                Text codec package marker
+        encodings.py               Encoding family — ordinal meanings
+        escapes.py                 EscapeCodec — flavour-side canonical spelling
   parsing/
     __init__.py                    public API: parse_model product + the Earley toolkit
     fold.py                        ParseTree → object fold — the instance-parsing bridge
@@ -225,12 +244,14 @@ src/lexic/
           state.py                 KernelState — the per-parse index state one Earley parse fills
         forest/                    What the filled chart MEANS — the SPPF and its readers
           __init__.py              the group's package marker
-          ambiguity.py             Does this span mean more than one thing? — the forest's own answer
           chart.py                 The IR-native SPPF link table — the decoded form of a kernel parse
           fasttree.py              The fast tree build — the unambiguous parse's short path
           forest.py                Parse forest — the shared packed parse forest (SPPF) and its reducible views
-          readout.py               Readout — what a finished kernel says: accepting items, forest root, decoded chart
-          trampoline.py            Depth-safe trampoline for forest tree walks
+          support/
+            __init__.py            Forest support package marker
+            ambiguity.py           Does this span mean more than one thing?
+            readout.py             Finished-kernel accepting items and decoded chart
+            trampoline.py          Depth-safe forest tree walks
         tables/                    Compiled grammar tables — the parser's "codegen moment"
           __init__.py              the group's package marker
           atoms.py                 Packing tiers, predecessor chains, what one terminal atom accepts
@@ -243,21 +264,24 @@ src/lexic/
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
     parallel/
       __init__.py                  The parallel layer — split analysis, roles, scan, policy (orchestrator home)
-      anchors.py                   Anchor analysis — structural chars no opaque interior can emit, + site maps
       orchestrate.py               Split orchestration — one document chunk-parsed and stitched to the exact model
-      interiors.py                 Opaque interiors — the delimited regions a structural scan skips whole
       policy.py                    Worker-count policy — auto from build/cores/size; explicit override wins
       pool.py                      ParsePool — N documents in flight against one parse callable, warm workers
-      regions.py                   Bracketed runs — where a document's parallelism actually is, and how it divides
       replicas.py                  Per-worker table replicas — equal grammar, own tables, no shared refcount traffic
       roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
-      scan.py                      Self-locating window scan — relative depths, prefix-sum rebase to offsets
-      shapes.py                    Arm shapes — what an item spells, whether it repeats, what every arm carries
+      discovery/
+        __init__.py                Region-discovery package marker
+        anchors.py                 Structural anchor analysis
+        interiors.py               Opaque delimited interiors
+        regions.py                 Bracketed parallel runs
+        scan.py                    Self-locating window scan
+        shapes.py                  Grammar arm shapes
     pda/
       __init__.py                  The predictive PDA runtime — analysis, clone compiler, flattener, kernel
       analysis/
         __init__.py                The PDA analysis — decide every decision point, then store the gate specs
         analysis.py                Grammar analysis + decision taxonomy — the PDA compiler's oracle
+        conflicts.py               Late conflict classifiers split from the oracle
         cursors.py                 Analysis context cursors — the small data records that ride the nc channel
         gates/                 The gate analyses — one per decision the PDA must settle
           __init__.py          the group's package marker
@@ -272,12 +296,14 @@ src/lexic/
         __init__.py                The PDA clone compiler — an IrAst into flat int-coded tables
         clones.py                  Clone compiler — the predictive-parser artifact beside `ParserTables`
         delegate_compile.py        Island-interior delegate compile — the per-island clone selector
-        flatten.py                 The flat int-coded runtime program — the artefact and its readers
-        lower.py                   Lowering — a compiled clone set into the flat int-coded program
-        opcodes.py                 The flat program's vocabulary — op-code, build-mode, gate and field codes
-        specialize.py              Post-flatten specialisation — the passes that carve the hot-loop op-codes
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
+        program/
+          __init__.py              Flat-program package marker
+          flatten.py               Flat int-coded runtime records and readers
+          lower.py                 Clone-set lowering
+          opcodes.py               Runtime program vocabulary
+          specialize.py            Post-flatten specialization passes
       core/
         __init__.py                Shared PDA leaves — CharSet, the ScanGate scanner, PdaFail
         charsets.py                CharSet — polarity-aware co-finite character sets
@@ -292,6 +318,7 @@ src/lexic/
         kernel/                   The kernel — the fused driver and its shed halves
           __init__.py              the group's package marker
           decisions.py             The attempt/probe method group — the kernel's decision half
+          execution.py             Leaf execution, island delegation, and completion
           kernel.py                Fused predictive runtime + `pda_model` entry — parses text to a model, no ParseTree
 tests/
   unit/lexic/           structural mirror of src/lexic/

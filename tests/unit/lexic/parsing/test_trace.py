@@ -222,6 +222,7 @@ def test_the_watcher_is_a_subclass_not_a_patch() -> None:
         assert origin in (
             "PdaKernel",
             "Attempting",
+            "KernelExecutionMixin",
         )
 
 

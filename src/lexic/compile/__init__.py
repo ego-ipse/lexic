@@ -1,55 +1,16 @@
-"""parse_grammar / canonical_grammar / compile_text — grammar entry points.
+"""Public grammar parsing and compilation facade.
 
-``parse_grammar(text, flavour)`` is the public grammar-text → ``IrAst`` seam:
-the flavour's self-grammar is compiled once, and its IR ``Reducer`` derives a
-pruned model variant whose thin fold produces the grammar AST.
-
-Pipeline (compile_text / compile_from_path — grammar text → CompiledGrammar)::
-
-  text ─► canonical_grammar = parse_grammar + canonicalize + directive flags
-                     │            (the canonical AST — start bound,
-                     │             noise rules flagged semantic=False)
-                     ▼
-             CompileMoments   (the retaining product — groups hoisted,
-                     │           arms hoisted, noise refs relaxed, resolved
-                     │           against a vocabulary when one is bound,
-                     │           then compute_binding ──► synthesize)
-                     ▼
-          IR body-table ──► ModelFold (bakes to the runtime fold records)
-
-Every stage above is a MOMENT the product keeps, and ``_assemble_core`` runs
-through it rather than beside it — so ``CompiledGrammar.moments`` is what the
-compilation actually did, never a re-run of it. ``build_codegen_grammar`` is
-the fused form, and reads the same product's last grammar.
-
-``canonical_grammar(text, flavour)`` is the public front half (parse +
-canonicalize + directive flags → flagged ``IrAst``); ``generate.py`` and
-transpilers build on it. ``compile_ast(ast)`` is the IR-born twin of
-``compile_text``: same back half, no text — the given AST is canonicalized
-as it stands and its own ``semantic`` flags survive (the emit-and-recompile
-detour loses them with the comments).
-
-``CompiledGrammar`` carries the codegen grammar + its fold; ``parse`` hands
-them to the engine's model product, and ``parse_grammar`` compiles the flavour's
-authored self-grammar once and calls that artefact's ``reduce`` capability.
-Model parsing and grammar-text reduction therefore enter through the same
-artefact seam; the reducer-derived variant decides what the latter builds.
-
-The grammar→grammar passes, the binding view and runtime class synthesis all
-live inside this package (``lexic.compile.pipeline.passes`` / ``.binding`` /
-``.synthesis``, composed once in ``.moments``) and are re-exported from this
-root, which is the only import route to them. The engine is the package's only
-external runtime seam, and compile modules are its only non-engine consumers.
-Reducer data comes only from ``lexic.ir``. Outside the package every runtime
-module reaches compile only through
-``from lexic.compile import ...`` (the ``__init__`` root), never a submodule.
-``test_layering_invariants.py`` pins both halves.
+Grammar text is reduced through its flavour's compiled self-grammar, then the
+canonical pipeline retains every transformation moment, binding view, model
+fold, and runtime artefact. ``compile_ast`` enters the same back half without
+discarding IR-only semantic flags. Runtime consumers import this facade; the
+implementation remains in focused compile subpackages.
 """
 
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Hashable, Mapping
+from collections.abc import Hashable
 from pathlib import Path
 from typing import NamedTuple
 
@@ -61,7 +22,9 @@ from lexic.compile.artifact import (
     segmentation_tokenizer,
 )
 from lexic.compile.module.export import export_module, export_source
-from lexic.compile.module.selfgrammar import parse_module, verify_module
+from lexic.compile.module.bind import bind_module
+from lexic.compile.module.selfgrammar import parse_module
+from lexic.compile.module.verify import verify_module
 from lexic.compile.notation.parse import load_ir, load_ir_from_path
 from lexic.compile.payload.export import export_value
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
@@ -113,13 +76,11 @@ from lexic.ir import (
     fold_name,
     inline_refs,
     refs_in_order,
-    rule_closure,
 )
 from lexic.model import GrammarModel
 from lexic.parsing import ModelFold
 
-# Case-insensitive order — keeps this list and the submodules' own __all__
-# blocks from sharing linter-length runs of identical lines.
+# Case-insensitive public export order.
 __all__ = [
     "Directives",
     "Draw",
@@ -207,19 +168,9 @@ class Vocabulary(NamedTuple):
 
 
 class Directives(NamedTuple):
-    """What a grammar's ``@directives`` say, as an argument.
+    """Explicit start, structural-noise, and lexical directive overrides.
 
-    Exactly what :func:`_scan_directives` reads out of the source comments, so a
-    caller who already knows can hand it over instead of writing it into the
-    grammar. Given explicitly, it OVERRIDES what the source says.
-
-    :ivar start: The start rule (``@start``), or ``None`` to use the source's.
-    :ivar non_semantic: Rules to mark structural noise (``@non-semantic``), or
-        ``None`` to use the source's.
-    :ivar lexical: Rules whose references are inlined until their bodies are
-        ref-free (``@lexical``), or ``None`` to use the source's. A marked rule
-        keeps its matched TEXT instead of a subtree of interior models — the
-        author's declaration that a rule is lexical, not structural.
+    ``None`` reads the source declaration; a supplied value overrides it.
     """
 
     start: str | None = None
@@ -699,58 +650,6 @@ def compile_ast(
     return cg
 
 
-def _expected_fields(bound: RuleBinding) -> tuple[str, ...]:
-    """The record fields a generated class must declare for its binding.
-
-    :param bound: The rule's binding view.
-    :returns: The field names in declaration order (``value_str`` classes
-        carry the implicit ``value`` field; ``alternation`` classes none).
-    """
-    if bound.kind == "value_str":
-        return ("value",)
-    if bound.kind == "alternation":
-        return ()
-    return tuple(bound.fields)
-
-
-def bind_module(grammar: IrAst, namespace: Mapping[str, object]) -> None:
-    """Attach the runtime tables to a generated twin module's classes.
-
-    The module-end call of a dunder-free generated module: recomputes the
-    codegen grammar and binding view from the module's ``GRAMMAR`` (the same
-    deterministic pipeline the runtime runs) and writes each class's
-    ``__grammar__`` + ``__shape__`` + ``__binds__``. ``_child_attrs`` is deliberately left
-    alone — the class-body annotations already derived the runtime-identical
-    value at class creation.
-
-    :param grammar: The module's canonical ``GRAMMAR`` AST.
-    :param namespace: The module namespace (``globals()`` at the call site).
-    :raises UnsupportedConstructError: When a binding's class is missing from
-        the namespace, is not a :class:`~lexic.model.GrammarModel` subclass,
-        or declares fields that do not match its rule's binding.
-    """
-    codegen_grammar = build_codegen_grammar(grammar)
-    rules = {str(rule.name): rule for rule in codegen_grammar.rules}
-    shapes = rule_closure(codegen_grammar)
-    for bound in compute_binding(codegen_grammar):
-        cls = namespace.get(bound.class_name)
-        if not (isinstance(cls, type) and issubclass(cls, GrammarModel)):
-            raise UnsupportedConstructError(
-                f"bind_module: rule {bound.rule_name!r} needs a GrammarModel "
-                f"class named {bound.class_name!r} in the module"
-            )
-        expected = _expected_fields(bound)
-        declared = tuple(cls._fields)
-        if declared != expected:
-            raise UnsupportedConstructError(
-                f"bind_module: class {bound.class_name!r} declares fields "
-                f"{declared}, but rule {bound.rule_name!r} binds {expected}"
-            )
-        cls.__grammar__ = rules[bound.rule_name]
-        cls.__shape__ = shapes[bound.rule_name]
-        cls.__binds__ = {b.item: (n, b) for n, b in bound.fields.items()}
-
-
 def compile_from_path(
     grammar_path: str | Path,
     *,
@@ -758,30 +657,12 @@ def compile_from_path(
     vocabulary: Vocabulary = Vocabulary(),
     directives: Directives = Directives(),
 ) -> CompiledGrammar:
-    """Compile from a file path; memoised by (path, mtime, size, flavour key).
-
-    The path-taking wrapper around :func:`compile_text`, carrying its whole
-    surface: a grammar with token terminals binds a vocabulary here exactly
-    as it would from source, and a flavour instance compiles registry-free
-    exactly as it would there.
-
-    :param grammar_path: Path to the grammar source file.
-    :param flavour: The grammar flavour name or instance; inferred from the
-        file extension if omitted.
-    :param vocabulary: The lens the grammar's terminals are read through
-        (see :func:`compile_text`).
-    :param directives: What the ``@directives`` would say, as an argument.
-    :returns: The compiled grammar (cached across calls with the same key).
-    """
+    """Compile a path, cached by its stat, flavour, vocabulary, and directives."""
     path = Path(grammar_path).resolve()
     stat = path.stat()
     if flavour is None:
         flavour = flavour_for_extension(path).name
-    # The bound vocabulary is part of the artefact, so it is part of the key —
-    # BY VALUE. Keying on id() would be unsound: ids are unique only among
-    # LIVE objects, so a dropped tokenizer's address can be reused and hand
-    # back another vocabulary's artefact. Both are hashable (an IrTokenizer is
-    # an IrNamedTuple, a registry an IrMap), and the hash is computed once.
+    # Vocabulary keys by value; object ids can be reused after collection.
     key = (
         str(path),
         stat.st_mtime,
@@ -808,32 +689,12 @@ def compile_from_path(
 def parse_instance(
     text: str, grammar: str, *, flavour: str | IrFlavour = "gbnf"
 ) -> GrammarModel:
-    """Parse ``text`` against grammar SOURCE — the one-line entry.
-
-    Sugar for ``compile_text(grammar, flavour=flavour).parse(text)``; the
-    compilation is memoised by content, so repeated calls with the same
-    grammar reuse the artefact. Callers doing more than one-off parses
-    should hold the :class:`CompiledGrammar` themselves.
-
-    :param text: The instance text to parse.
-    :param grammar: Grammar source in ``flavour``'s syntax.
-    :param flavour: The grammar flavour name or instance.
-    :returns: The start rule's model instance.
-    :raises UnsupportedConstructError: If the grammar or the text refuses.
-    """
+    """Parse ``text`` against memoised grammar source."""
     return compile_text(grammar, flavour=flavour).parse(text)
 
 
 def parse_instance_from_path(
     text: str, grammar_path: str | Path, *, flavour: str | IrFlavour | None = None
 ) -> GrammarModel:
-    """Parse ``text`` against a grammar FILE — the path-taking twin.
-
-    :param text: The instance text to parse.
-    :param grammar_path: Path to the grammar source file.
-    :param flavour: The grammar flavour name or instance; inferred from the
-        file extension if omitted.
-    :returns: The start rule's model instance.
-    :raises UnsupportedConstructError: If the grammar or the text refuses.
-    """
+    """Parse ``text`` against a grammar file, inferring its flavour if omitted."""
     return compile_from_path(grammar_path, flavour=flavour).parse(text)

@@ -14,9 +14,9 @@ from typing import NamedTuple
 
 from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
 from lexic.compile.pipeline.synthesis import fold_config
+from lexic.compile.reduce.fold import ReduceFold
 from lexic.compile.reduction import (
     FoldPlan,
-    ReduceFold,
     RunSpec,
     SubRun,
     derive_reduction,
