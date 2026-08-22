@@ -104,9 +104,23 @@ def test_an_escaped_delimiter_does_not_end_the_interior():
     assert region.marks == (doc.index('", "') + 1,)
 
 
+def test_an_even_escape_run_does_not_hide_the_closing_delimiter():
+    """Two escaped backslashes leave the following quote structural."""
+    doc = r'{"a": "\\\\", "b": 1}'
+    region = _one_region(doc)
+    assert region.marks == (doc.index('", "') + 1,)
+
+
 def test_a_run_with_no_separator_is_not_a_region():
     """One item does not divide, so it is not a run."""
     assert not find(JSON_GRAMMAR, '{"a": [1]}')
+
+
+def test_find_can_drop_regions_below_the_callers_work_floor():
+    """Discovery need not retain runs a scheduler can never delegate."""
+    doc = '{"a": [1,2,3], "b": 4}'
+    assert find(JSON_GRAMMAR, doc)
+    assert not find(JSON_GRAMMAR, doc, len(doc) + 1)
 
 
 def test_a_closer_with_no_matching_opener_is_ignored():

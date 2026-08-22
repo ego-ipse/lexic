@@ -28,6 +28,21 @@ def test_map_equals_sequential_in_input_order():
     assert [model.to_text() for model in models] == texts
 
 
+def test_context_manager_maps_in_order_and_closes_the_pool():
+    """A ParsePool context owns shutdown while preserving map ordering."""
+
+    def double(value: int) -> int:
+        """Double one integer work item."""
+        return value * 2
+
+    pool = ParsePool(double, cores=2)
+    with pool:
+        assert pool.map([3, 1, 2, 0]) == [6, 2, 4, 0]
+
+    with pytest.raises(RuntimeError, match="cannot schedule new futures"):
+        pool.map([4])
+
+
 def test_a_failing_document_raises_its_own_exception():
     """The pool never swallows a refusal — the parse's exception surfaces."""
     compiled = compile_text(GRAMMAR)

@@ -9,6 +9,7 @@ parse, so worker count never changes what an input means.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Callable
 from typing import Any, NamedTuple, cast
 
@@ -31,10 +32,10 @@ from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
 )
-from lexic.parsing.parallel.discovery.scan import Scanner, Window
+from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
-from lexic.parsing.parallel.pool import ParsePool
+from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
@@ -253,7 +254,7 @@ def split_plan(grammar: IrAst) -> SplitPlan | None:
     return entry[1]
 
 
-def _scan(plan: SplitPlan, text: str, workers: int) -> list[int]:
+def _scan(plan: SplitPlan, text: str, workers: int, pool: WorkPool) -> list[int]:
     """Depth-0 marks of this plan's char, scanned over ``workers`` windows.
 
     Windows are arithmetic and each is scanned with no left context — a
@@ -269,13 +270,9 @@ def _scan(plan: SplitPlan, text: str, workers: int) -> list[int]:
             (k * step, (k + 1) * step if k < workers - 1 else len(text))
             for k in range(workers)
         ]
-        pool = ParsePool[tuple[int, int], Window](
-            lambda span: plan.scanner.window(text, span[0], span[1]), workers
+        windows = pool.map(
+            lambda span: plan.scanner.window(text, span[0], span[1]), bounds
         )
-        try:
-            windows = pool.map(bounds)
-        finally:
-            pool.close()
     return [
         offset
         for offset in plan.scanner.offsets(windows, depth=0)
@@ -283,7 +280,7 @@ def _scan(plan: SplitPlan, text: str, workers: int) -> list[int]:
     ]
 
 
-def _cut_offsets(plan: SplitPlan, text: str, cores: int) -> list[int]:
+def _cut_offsets(plan: SplitPlan, text: str, cores: int, pool: WorkPool) -> list[int]:
     """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
 
     The worker CEILING is settled before anything is scanned: it depends
@@ -298,14 +295,41 @@ def _cut_offsets(plan: SplitPlan, text: str, cores: int) -> list[int]:
     ceiling = worker_count(len(text), len(text), cores)
     if ceiling < 2:
         return []
-    marks = _scan(plan, text, ceiling)
+    marks = _scan(plan, text, ceiling, pool)
     if plan.sep is None and marks and marks[-1] == len(text) - 1:
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
-    if workers < 2:
-        return []
-    step = max(1, len(marks) // workers)
-    return [marks[k * step] for k in range(1, workers) if k * step < len(marks)]
+    while workers >= 2:
+        cuts = _balanced_cuts(plan, text, marks, workers)
+        if cuts:
+            return cuts
+        workers -= 1
+    return []
+
+
+def _balanced_cuts(
+    plan: SplitPlan, text: str, marks: list[int], workers: int
+) -> list[int]:
+    """Marks nearest equal byte targets, if every actual span clears policy."""
+    cuts: list[int] = []
+    for k in range(1, workers):
+        want = len(text) * k / workers
+        at = bisect_left(marks, want)
+        if at == 0:
+            nearest = marks[0]
+        elif at == len(marks):
+            nearest = marks[-1]
+        else:
+            before, after = marks[at - 1], marks[at]
+            nearest = before if want - before <= after - want else after
+        if not cuts or cuts[-1] != nearest:
+            cuts.append(nearest)
+    spans, _leads = _spans(plan, text, cuts)
+    return (
+        cuts
+        if len(spans) == workers and min(hi - lo for lo, hi in spans) >= MIN_CHUNK
+        else []
+    )
 
 
 def _stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
@@ -366,7 +390,11 @@ def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]
 
 
 def _split_parse[M: IrNamedTuple](
-    parse: ModelProduct, plan: SplitPlan, ask: Request[M], cuts: list[int]
+    parse: ModelProduct,
+    plan: SplitPlan,
+    ask: Request[M],
+    cuts: list[int],
+    pool: WorkPool,
 ) -> M | None:
     """One split attempt; ``None`` means: parse sequentially instead."""
     text, fold, resolve = ask
@@ -379,14 +407,13 @@ def _split_parse[M: IrNamedTuple](
     # tables are read-only, but sharing one set of them across cores is what
     # flattens scaling at ~1.8x (refcount cache-line traffic, measured).
     views = worker_replicas(plan.grammar, fold, len(spans))
-    pool = ParsePool[int, M](
-        lambda k: parse(
-            views[k][0], text[spans[k][0] : spans[k][1]], views[k][1], resolve
-        ),
-        len(spans),
-    )
     try:
-        chunks = pool.map(range(len(spans)))
+        chunks = pool.map(
+            lambda k: parse(
+                views[k][0], text[spans[k][0] : spans[k][1]], views[k][1], resolve
+            ),
+            list(range(len(spans))),
+        )
         lead_models = [
             (parse(plan.lead_grammar, lead, fold, resolve),)
             if plan.lead_grammar is not None
@@ -395,28 +422,26 @@ def _split_parse[M: IrNamedTuple](
         ]
     except LexicError:
         return None
-    finally:
-        pool.close()
     if terminated:
         return _stitch_terminated(chunks)
     return _stitch_separated(chunks, lead_models)
 
 
 def _parse_region_parts[M: IrNamedTuple](
-    parse: ModelProduct, works: list[RegionWork], ask: Request[M], workers: int
+    parse: ModelProduct,
+    works: list[RegionWork],
+    ask: Request[M],
+    pool: WorkPool,
 ) -> list[list[GrammarModel]] | None:
     """Parse every region piece concurrently against per-worker replicas."""
     tasks, owners = region_tasks(works, ask.fold)
-    pool = ParsePool[int, Any](
-        lambda k: parse(tasks[k][0], tasks[k][2], tasks[k][1], ask.resolve),
-        min(workers, len(tasks)),
-    )
     try:
-        parsed = pool.map(range(len(tasks)))
+        parsed = pool.map(
+            lambda k: parse(tasks[k][0], tasks[k][2], tasks[k][1], ask.resolve),
+            list(range(len(tasks))),
+        )
     except LexicError:
         return None
-    finally:
-        pool.close()
     grouped: list[list[GrammarModel]] = [[] for _work in works]
     for owner, model in zip(owners, parsed, strict=True):
         if not isinstance(model, GrammarModel):
@@ -429,11 +454,11 @@ def _split_regions[M: IrNamedTuple](
     parse: ModelProduct,
     grammar: IrAst,
     ask: Request[M],
-    cores: int,
     analysis: IrAst | None,
+    pool: WorkPool,
 ) -> M | None:
     """Split eligible nested bracket regions; ``None`` means sequential."""
-    workers = doc_workers(cores)
+    workers = pool.workers
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
     # A bracket span may cover the whole source while still sit BELOW a
@@ -442,14 +467,14 @@ def _split_regions[M: IrNamedTuple](
     # yields no non-empty route and declines in ``_stitch_shell``.
     found = [
         region
-        for region in find(analysis or grammar, ask.text)
+        for region in find(analysis or grammar, ask.text, 2 * MIN_CHUNK)
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
     works = region_works(grammar, ask.fold, ask.text, divided, analysis or grammar)
     if works is None:
         return None
-    parsed = _parse_region_parts(parse, works, ask, workers)
+    parsed = _parse_region_parts(parse, works, ask, pool)
     merge = MergeRequest(parse, ask.text, ask.fold, ask.resolve)
     stands = standins(merge, works, parsed) if parsed is not None else None
     return stitch_shell(merge, grammar, works, stands) if stands else None
@@ -487,7 +512,7 @@ def split_model[M: IrNamedTuple](
     # ownership and region safety for work that policy has already refused is
     # pure serial overhead on the caller's fold path.
     workers = doc_workers(cores)
-    if workers < 2 or (cores == AUTO and len(ask.text) < 2 * MIN_CHUNK):
+    if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
     plan = split_plan(grammar)
     view = analysis or grammar
@@ -496,9 +521,13 @@ def split_model[M: IrNamedTuple](
         if plan.sep is None
         else owner_excludes(view, plan.owner, plan.mark)
     )
-    if safe_plan:
-        assert plan is not None
-        cuts = _cut_offsets(plan, ask.text, cores)
-        if cuts and (model := _split_parse(parse, plan, ask, cuts)) is not None:
-            return model
-    return _split_regions(parse, grammar, ask, cores, analysis)
+    with WorkPool(workers) as pool:
+        if safe_plan:
+            assert plan is not None
+            cuts = _cut_offsets(plan, ask.text, cores, pool)
+            if (
+                cuts
+                and (model := _split_parse(parse, plan, ask, cuts, pool)) is not None
+            ):
+                return model
+        return _split_regions(parse, grammar, ask, analysis, pool)

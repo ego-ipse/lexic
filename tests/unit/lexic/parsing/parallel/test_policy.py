@@ -47,11 +47,14 @@ def test_one_core_is_the_way_to_say_sequential():
     assert worker_count(100 * MIN_CHUNK, splits=100, cores=1) == 1
 
 
-def test_an_explicit_count_is_a_decision(monkeypatch: pytest.MonkeyPatch):
-    """Neither the GIL nor a small input second-guesses an explicit N."""
+def test_an_explicit_count_is_a_ceiling_with_a_chunk_floor(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """An explicit N is honored once each requested chunk clears the floor."""
     monkeypatch.setattr(policy_module, "_free_threaded", lambda: False)
     assert doc_workers(4) == 4
-    assert worker_count(1000, splits=100, cores=4) == 4
+    assert worker_count(1000 * MIN_CHUNK, splits=100, cores=4) == 4
+    assert worker_count(1000, splits=100, cores=4) == 1
 
 
 @pytest.mark.usefixtures("eight_cores")

@@ -61,7 +61,7 @@ def _doc(count: int = 40) -> str:
 
 @pytest.mark.parametrize(
     ("cores", "text"),
-    [(1, "x" * (2 * MIN_CHUNK)), (AUTO, "x")],
+    [(1, "x" * (2 * MIN_CHUNK)), (AUTO, "x"), (16, "x")],
 )
 def test_universal_gates_skip_plan_and_safety_analysis(
     monkeypatch: pytest.MonkeyPatch, cores: int, text: str
@@ -92,7 +92,7 @@ def test_split_equals_sequential_and_round_trips():
     """The headline: same model, exactly, and the text comes back."""
     compiled = compile_text(LEAD_RULE)
     grammar, fold = compiled.codegen_grammar, compiled.fold
-    text = _doc()
+    text = _doc(1000)
     parallel = split_model(parse_model, grammar, Request(text, fold), 4)
     assert parallel is not None
     assert parallel == parse_model(grammar, text, fold)
@@ -100,12 +100,54 @@ def test_split_equals_sequential_and_round_trips():
     assert compiled.parse(text) == parallel
 
 
+def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPatch):
+    """The split phases share one WorkPool lifetime and executor."""
+    compiled = compile_text(LEAD_RULE)
+    text = _doc(1000)
+    created = 0
+    map_calls = 0
+
+    class RecordingPool:
+        """Public WorkPool seam that executes mapped work synchronously."""
+
+        def __init__(self, workers: int):
+            """Record construction while preserving the worker count."""
+            self.workers = workers
+            nonlocal created
+            created += 1
+
+        def map(self, work, items):
+            """Record each phase and preserve WorkPool's ordered result."""
+            nonlocal map_calls
+            map_calls += 1
+            return [work(item) for item in items]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return None
+
+    monkeypatch.setattr(orchestrate, "WorkPool", RecordingPool)
+    parallel = orchestrate.split_model(
+        parse_model,
+        compiled.codegen_grammar,
+        Request(text, compiled.fold),
+        4,
+    )
+
+    assert parallel is not None
+    assert parallel.to_text() == text
+    assert created == 1
+    assert map_calls >= 2
+
+
 @pytest.mark.parametrize("cores", [2, 3, 5, 8])
 def test_every_worker_count_gives_one_answer(cores: int):
     """Worker count moves wall-clock, never the value."""
     compiled = compile_text(LEAD_RULE)
     grammar, fold = compiled.codegen_grammar, compiled.fold
-    text = _doc()
+    text = _doc(1000)
     assert split_model(parse_model, grammar, Request(text, fold), cores) == parse_model(
         grammar, text, fold
     )
@@ -114,7 +156,7 @@ def test_every_worker_count_gives_one_answer(cores: int):
 def test_terminated_plain_tuple_chunks_stitch_without_list_coercion():
     """Terminated chunks merge their exact plain-tuple repeated field."""
     compiled = compile_text(TERMINATED)
-    text = "one\ntwo\nthree\nfour\n"
+    text = "one\n" * 2000
     sequential = compiled.parse(text, cores=1)
     parallel = split_model(
         parse_model,
@@ -134,7 +176,7 @@ def test_backtrack_like_terminated_start_split_is_non_vacuous_and_equal():
     """Shared-prefix statement arms still split on their common newline."""
     compiled = compile_text(BACKTRACK)
     text = "".join(
-        f"def alpha{i}() {{value}}\ndef beta{i}() = value;\n" for i in range(40)
+        f"def alpha{i}() {{value}}\ndef beta{i}() = value;\n" for i in range(240)
     )
     grammar, fold = compiled.codegen_grammar, compiled.fold
     plan = split_plan(grammar)
@@ -174,10 +216,34 @@ def test_a_bare_literal_lead_splits_too():
     """``more ::= "|" word`` has no lead RULE — the cut text is the literal."""
     compiled = compile_text(BARE_LEAD)
     grammar, fold = compiled.codegen_grammar, compiled.fold
-    text = "|".join(f"word{'x' * (i % 3)}" for i in range(30)).replace("0", "")
+    text = "|".join(f"word{'x' * (i % 3)}" for i in range(2000)).replace("0", "")
     assert split_model(parse_model, grammar, Request(text, fold), 4) == parse_model(
         grammar, text, fold
     )
+
+
+def test_top_level_cuts_follow_byte_targets_and_clear_the_floor():
+    """Variable item sizes still produce byte-balanced full-size chunks."""
+    compiled = compile_text(LEAD_RULE)
+    lengths = [500] * 4 + [4000] * 4 + [500] * 4 + [4000] * 4
+    text = ", ".join("a" * length + ":1" for length in lengths)
+    sizes: list[int] = []
+
+    def measured_parse(grammar, part, fold, resolve):
+        sizes.append(len(part))
+        return parse_model(grammar, part, fold, resolve)
+
+    split = split_model(
+        measured_parse,
+        compiled.codegen_grammar,
+        Request(text, compiled.fold),
+        4,
+    )
+    chunks = [size for size in sizes if size >= MIN_CHUNK]
+
+    assert split == parse_model(compiled.codegen_grammar, text, compiled.fold)
+    assert len(chunks) == 4
+    assert max(chunks) - min(chunks) < 2 * MIN_CHUNK
 
 
 def test_fence_internal_newlines_decline_without_chunking_inside_the_fence():

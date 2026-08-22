@@ -20,6 +20,11 @@ reattached afterward. The larger parse must not repeat delegated work merely
 because it contains it. Separator joints parse shallow grammatical witnesses
 carrying the exact boundary noise, then attach the already parsed forward head.
 
+One `WorkPool` owns all parallel phases of a split attempt, so a start-rule
+scan and its piece parse reuse the same executor. The public `ParsePool` binds
+one callable for repeated document maps; both pools bound queued submissions
+and close deterministically through their context-manager lifetime.
+
 There is no privileged grammar here. JSON is a differential and benchmark
 witness, not a parser mode or policy input. The measured split floor remains
 2 KiB per worker: a regression above that floor is duplicated work to remove,

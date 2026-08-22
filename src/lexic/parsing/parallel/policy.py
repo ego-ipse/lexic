@@ -6,9 +6,9 @@
   free-threaded interpreter that is the cpu count; under the GIL it is 1,
   because threaded parsing there measured a net loss (0.82–0.92×).
 - **1** — sequential, explicitly. The one way to say "do not thread".
-- **N** — that many workers. An explicit number is a decision, so the
-  heuristics (build, cpu count, input size) do not second-guess it; only
-  bounds that would make workers meaningless still apply.
+- **N** — at most that many workers. An explicit number chooses the ceiling;
+  the measured per-worker document floor still applies because sub-floor
+  chunks are overhead rather than useful parallel work.
 
 Splitting ONE document additionally needs enough of it to divide: below
 :data:`MIN_CHUNK` per worker the overhead dominates, and there can never be
@@ -67,11 +67,10 @@ def worker_count(size: int, splits: int, cores: int = AUTO) -> int:
     :param size: Document length in characters.
     :param splits: How many split points the scan found — ``splits + 1``
         chunks bound the useful worker count however many cores exist.
-    :param cores: 0 = auto (further clamped by the chunk floor), 1 =
-        sequential, N = that many (clamped only by the chunk bound).
+    :param cores: 0 = auto, 1 = sequential, N = that ceiling. Every form is
+        clamped by the measured chunk floor and the number of available chunks.
     :returns: The worker count, at least 1.
     """
     chunks = splits + 1
-    if cores != AUTO:
-        return max(1, min(cores, chunks))
-    return max(1, min(available_workers(), size // MIN_CHUNK, chunks))
+    requested = available_workers() if cores == AUTO else cores
+    return max(1, min(requested, size // MIN_CHUNK, chunks))

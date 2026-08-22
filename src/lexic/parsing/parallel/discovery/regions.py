@@ -121,15 +121,16 @@ def separators(grammar: IrAst) -> frozenset[str]:
 def _skip_interior(text: str, start: int, escape: str) -> int:
     """Where the interior opened at ``start`` ends (past its closer)."""
     delim = text[start]
-    at = start + 1
-    while at < len(text):
-        char = text[at]
-        if escape and char == escape:
-            at += 2
-            continue
-        if char == delim:
+    if delim == escape:
+        return len(text)
+    at = text.find(delim, start + 1)
+    while at != -1:
+        before = at - 1
+        while escape and before > start and text[before] == escape:
+            before -= 1
+        if not escape or (at - before - 1) % 2 == 0:
             return at + 1
-        at += 1
+        at = text.find(delim, at + 1)
     return len(text)
 
 
@@ -159,7 +160,7 @@ def _sweep(text: str, watched: set[str]) -> list[int]:
     return offsets
 
 
-def find(grammar: IrAst, text: str) -> list[Region]:
+def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
     """Every bracketed run in ``text``, with the separators inside it.
 
     One C-level sweep per watched character, merged by sort, then a stack
@@ -171,15 +172,16 @@ def find(grammar: IrAst, text: str) -> list[Region]:
 
     :param grammar: The grammar whose roles and interiors drive the scan.
     :param text: The document.
+    :param min_span: Omit smaller regions at close time; callers scheduling
+        work use this to avoid retaining runs that cannot clear their floor.
     :returns: The regions, in closing order.
     """
     pairs, marks, skips = _vocabulary(grammar)
     closers = {closer: opener for opener, (closer, _rule) in pairs.items()}
-    offsets = _sweep(text, set(pairs) | set(closers) | marks | set(skips))
     found: list[Region] = []
     stack: list[tuple[int, str, list[int]]] = []
     skip_to = 0
-    for at in offsets:
+    for at in _sweep(text, set(pairs) | set(closers) | marks | set(skips)):
         if at < skip_to:
             continue  # inside an opaque interior — never read
         char = text[at]
@@ -189,7 +191,7 @@ def find(grammar: IrAst, text: str) -> list[Region]:
             stack.append((at, char, []))
         elif char in closers and stack and stack[-1][1] == closers[char]:
             opener, open_char, inside = stack.pop()
-            if inside:
+            if inside and at - opener >= min_span:
                 found.append(Region(opener, at, pairs[open_char][1], tuple(inside)))
         elif char in marks and stack:
             stack[-1][2].append(at)
@@ -241,7 +243,12 @@ def pieces(text: str, region: Region, workers: int) -> list[str] | None:
     :param workers: How many pieces are wanted.
     :returns: The pieces, or ``None`` when the run will not divide.
     """
-    open_char, close_char = text[region.opener], text[region.closer]
+    bounds = _piece_bounds(region, workers)
+    return _piece_texts(text, region, bounds) if bounds is not None else None
+
+
+def _piece_bounds(region: Region, workers: int) -> list[int] | None:
+    """Source bounds for balanced pieces, without copying their text."""
     lo, hi = region.opener + 1, region.closer
     target = (hi - lo) / workers
     cuts = piece_marks(region, workers)
@@ -250,6 +257,12 @@ def pieces(text: str, region: Region, workers: int) -> list[str] | None:
     bounds = [lo, *[cut + 1 for cut in cuts], hi]
     if max(bounds[i + 1] - bounds[i] for i in range(len(bounds) - 1)) > 2 * target:
         return None
+    return bounds
+
+
+def _piece_texts(text: str, region: Region, bounds: list[int]) -> list[str]:
+    """Materialize one accepted bounds plan exactly once."""
+    open_char, close_char = text[region.opener], text[region.closer]
     return [
         open_char
         + text[bounds[i] : bounds[i + 1] - (1 if i + 2 < len(bounds) else 0)]
@@ -321,14 +334,18 @@ def choose(
         if capacity < 2:
             continue
         for count in range(capacity, 1, -1):
-            parts = pieces(text, region, count)
+            bounds = _piece_bounds(region, count)
             # Span capacity is only an upper bound. Sparse outer containers
             # can leave one nearly empty piece and one piece holding the whole
             # nested payload; accepting that blocks the balanced child region
             # and repeats its work in joints and the shell. Every ACTUAL owner
             # must clear the already measured per-worker floor.
-            if parts is not None and min(map(len, parts)) >= MIN_CHUNK:
-                candidates.append((region, parts))
+            if (
+                bounds is not None
+                and min(bounds[i + 1] - bounds[i] + 1 for i in range(len(bounds) - 1))
+                >= MIN_CHUNK
+            ):
+                candidates.append((region, _piece_texts(text, region, bounds)))
                 break
     # Prefer the ownership plan that fills more runners. Span breaks ties, but
     # cannot let a three-way outer container suppress an eight-way child.
