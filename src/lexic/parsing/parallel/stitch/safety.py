@@ -157,27 +157,28 @@ class Scope(NamedTuple):
 
     :ivar rules: The grammar's rules by name.
     :ivar protected: Rules whose punctuation the scan attributes elsewhere.
-    :ivar opaque: Rule name → the first item index the scan reads again after
-        the region it hides, so the proof reads exactly what the scan does.
+    :ivar opaque: ``(rule, arm)`` → the first item index the scan reads again
+        after the region that arm hides, so the proof reads exactly what the
+        scan does. Keyed per ARM: one rule may delimit two ways.
     """
 
     rules: dict[str, IrRule]
     protected: frozenset[str]
-    opaque: dict[str, int]
+    opaque: dict[tuple[str, int], int]
 
 
 def _visible(
-    rule: IrRule, items: tuple[IrItem, ...], scope: Scope
+    rule: IrRule, at: int, items: tuple[IrItem, ...], scope: Scope
 ) -> tuple[IrItem, ...]:
     """The arm's items a scan reads — everything past a hidden region."""
-    resumes = scope.opaque.get(str(rule.name))
+    resumes = scope.opaque.get((str(rule.name), at))
     return items if resumes is None else items[resumes:]
 
 
 def _ends_once(rule: IrRule, char: str, scope: Scope, path: frozenset[str]) -> bool:
     """Whether every arm emits ``char`` once, as its final visible edge."""
-    for arm in rule.body:
-        items = _visible(rule, tuple(arm), scope)
+    for at, arm in enumerate(rule.body):
+        items = _visible(rule, at, tuple(arm), scope)
         if not items or any(
             emits(item, char, scope.rules, scope.protected, path) for item in items[:-1]
         ):
@@ -243,7 +244,7 @@ def terminates_once(grammar: IrAst, owner: str, terminator: str) -> bool:
             rules,
             _protected(grammar, False),
             {
-                region.rule: region.resumes
+                (region.rule, region.arm): region.resumes
                 for region in mark_interiors(grammar, owner, terminator)
             },
         )

@@ -34,7 +34,7 @@ def _interiors(source: str) -> tuple[Interior, ...]:
 
 def test_the_native_json_grammar_derives_the_quoted_string():
     """``string ::= quote char* quote`` with a backslash-led escape arm."""
-    assert interiors(JSON_GRAMMAR) == (Interior("string", '"', '"', "\\", 0, 2),)
+    assert interiors(JSON_GRAMMAR) == (Interior("string", 0, '"', '"', "\\", 0, 2),)
 
 
 @pytest.mark.parametrize("name", JSON_FORMULATIONS)
@@ -44,14 +44,14 @@ def test_every_json_formulation_derives_the_same_interior(name: str):
     if not path.exists():
         pytest.skip(f"fixture absent: {name}")
     assert interiors(compile_from_path(path).grammar) == (
-        Interior("string", '"', '"', "\\", 0, 2),
+        Interior("string", 0, '"', '"', "\\", 0, 2),
     )
 
 
 def test_a_body_with_no_escape_arm_derives_an_empty_escape():
     """The escape is a fact about the body, not an assumption about quoting."""
     source = 'root ::= str\nstr ::= "\'" body* "\'"\nbody ::= [^\']'
-    assert _interiors(source) == (Interior("str", "'", "'", "", 0, 2),)
+    assert _interiors(source) == (Interior("str", 0, "'", "'", "", 0, 2),)
 
 
 def test_the_escape_is_the_char_a_two_item_body_arm_leads_with():
@@ -60,7 +60,7 @@ def test_the_escape_is_the_char_a_two_item_body_arm_leads_with():
         'root ::= str\nstr ::= "\'" char* "\'"\n'
         "char ::= unescaped | \"~\" escape\nunescaped ::= [^'~]\nescape ::= ['~]"
     )
-    assert _interiors(source) == (Interior("str", "'", "'", "~", 0, 2),)
+    assert _interiors(source) == (Interior("str", 0, "'", "'", "~", 0, 2),)
 
 
 def test_distinct_delimiters_close_a_region_the_body_cannot_spell():
@@ -72,7 +72,7 @@ def test_distinct_delimiters_close_a_region_the_body_cannot_spell():
     drops any region whose opening carries a bracket or separator role, so a
     divisible bracketed run still reaches the region splitter intact."""
     assert _interiors('root ::= "(" body* ")"\nbody ::= [^()]') == (
-        Interior("root", "(", ")", "", 0, 2),
+        Interior("root", 0, "(", ")", "", 0, 2),
     )
 
 
@@ -80,7 +80,7 @@ def test_a_bounded_body_is_an_interior_when_it_cannot_spell_the_delimiter():
     """Repetition is not what makes a span opaque; being unable to close it
     is. A body that spells no delimiter ends exactly at the next one."""
     assert _interiors('root ::= "\'" body "\'"\nbody ::= [^\']') == (
-        Interior("root", "'", "'", "", 0, 2),
+        Interior("root", 0, "'", "'", "", 0, 2),
     )
 
 
@@ -88,14 +88,16 @@ def test_an_inline_body_is_an_interior_when_it_cannot_spell_the_delimiter():
     """A body needs a name only when the escape must be read from its arms;
     one that spells no delimiter needs no escape at all."""
     assert _interiors('root ::= "\'" [^\']* "\'"') == (
-        Interior("root", "'", "'", "", 0, 2),
+        Interior("root", 0, "'", "'", "", 0, 2),
     )
 
 
-def test_a_multi_arm_rule_is_not_an_interior():
-    """A choice has no single delimited shape to read."""
+def test_a_multi_arm_rule_yields_the_arms_that_are_delimited():
+    """A region is a property of an ARM, not of a rule. A choice offering one
+    delimited arm and one plain one carries exactly the delimited one — which
+    is what lets a character class spell ``[`` one way and ``[^`` another."""
     source = 'root ::= str\nstr ::= "\'" body* "\'" | "x"\nbody ::= [^\']'
-    assert _interiors(source) == ()
+    assert _interiors(source) == (Interior("str", 0, "'", "'", "", 0, 2),)
 
 
 def test_a_grammar_with_no_delimited_region_derives_none():
@@ -174,8 +176,8 @@ def test_skip_leads_drops_a_lead_two_spellings_share():
     """``code`` and ``fence`` both open with a backtick — a scan reaching
     that lead cannot tell which one it is, so the composed table refuses it
     even though each spelling is individually a valid delimiter."""
-    fence = Interior("fence", "```", "```", "", 0, 2)
-    code = Interior("code", "`", "`", "", 0, 1)
+    fence = Interior("fence", 0, "```", "```", "", 0, 2)
+    code = Interior("code", 0, "`", "`", "", 0, 1)
 
     table = skip_table((fence, code))
     assert table["`"] == (fence, code)  # longest delimiter first
@@ -185,8 +187,8 @@ def test_skip_leads_drops_a_lead_two_spellings_share():
 
 def test_skip_leads_keeps_an_unshared_lead():
     """A lead only one region opens stays an unambiguous lookup."""
-    fence = Interior("fence", "```", "```", "", 0, 2)
-    quote = Interior("string", '"', '"', "\\", 0, 2)
+    fence = Interior("fence", 0, "```", "```", "", 0, 2)
+    quote = Interior("string", 0, '"', '"', "\\", 0, 2)
 
     leads = skip_leads((fence, quote))
 
@@ -205,7 +207,7 @@ def test_a_semicolon_to_crlf_comment_derives_an_asymmetric_interior_with_a_visib
         'root ::= comment\ncomment ::= ";" cchar* crlf\ncchar ::= [^\\n]\ncrlf ::= "\\n"'
     )
 
-    assert shapes == (Interior("comment", ";", "\n", "", 0, 2),)
+    assert shapes == (Interior("comment", 0, ";", "\n", "", 0, 2),)
     region = shapes[0]
     assert not region.consumes_closer
     assert region.resumes == region.closes
@@ -226,8 +228,8 @@ def test_mutually_shadowing_comment_and_string_regions_certify_together():
     )
 
     assert _interiors(source) == (
-        Interior("comment", ";", "\n", "", 0, 2),
-        Interior("string", '"', '"', "", 0, 2),
+        Interior("comment", 0, ";", "\n", "", 0, 2),
+        Interior("string", 0, '"', '"', "", 0, 2),
     )
 
 

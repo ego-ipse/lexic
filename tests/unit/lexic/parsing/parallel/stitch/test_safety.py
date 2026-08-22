@@ -146,15 +146,21 @@ def test_a_reachable_delimiter_speller_fails_sole_spelling_and_declines() -> Non
 def test_a_second_leading_arm_fails_unit_anchoring_and_declines() -> None:
     """Two ``block`` arms can each open with a backtick — the fence directly,
     and a sibling ``codeword`` that spells it too — so no single arm owns the
-    delimiter (and the sibling's own literal breaks sole spelling as well),
-    and the fence's internal newlines stay visible."""
+    delimiter, and the fence's internal newlines stay visible.
+
+    ``plain`` admits a backtick in a character CLASS, which opens no region
+    and so hides nothing; that denies both regions their sole-opening
+    certificate, leaving unit anchoring as the only route — and two leading
+    arms refuse it."""
     grammar = _grammar(
         "root ::= block+\n"
-        "block ::= fence | codeword\n"
+        "block ::= fence | codeword | title\n"
         'fence ::= "```" nl line* "```" nl\n'
         "line ::= [a-z]+ nl\n"
         'nl ::= "\\n"\n'
         'codeword ::= "`" [a-z]+ "`" nl\n'
+        "title ::= plain nl\n"
+        "plain ::= [a-z`]+\n"
     )
 
     assert "fence" not in interior_rules(grammar)

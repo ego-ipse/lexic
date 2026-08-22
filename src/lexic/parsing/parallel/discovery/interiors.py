@@ -29,7 +29,15 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.ir import IrAlternation, IrAst, IrItem, IrRule, IrRuleRef, IrSelf
+from lexic.ir import (
+    IrAlternation,
+    IrAst,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+    IrSelf,
+)
 from lexic.parsing.parallel.discovery.shapes import (
     emits,
     literal_char,
@@ -41,7 +49,9 @@ from lexic.parsing.parallel.discovery.shapes import (
 class Interior(NamedTuple):
     """One delimited opaque region.
 
-    :ivar rule: The rule whose single arm carries it.
+    :ivar rule: The rule whose arm carries it.
+    :ivar arm: Which arm of that rule — a choice may delimit two ways, as a
+        character class does with ``[`` and ``[^``.
     :ivar opening: The spelling that opens it.
     :ivar closing: The spelling that closes it — equal to ``opening`` for a
         quoted region, distinct for a comment (``";"`` … newline). The closing
@@ -50,11 +60,15 @@ class Interior(NamedTuple):
     :ivar escape: The character that makes the next one literal, or ``""``.
         Only a symmetric region has one; an asymmetric region is opaque
         because its body cannot spell the closer at all.
+    :ivar closing: ``""`` for a region with no closing item at all — a trailing
+        comment ends where the document does.
     :ivar opens: Item index of the opening delimiter.
-    :ivar closes: Item index of the closing delimiter.
+    :ivar closes: Item index of the closing delimiter, or of the last item for
+        a region that runs to EOF.
     """
 
     rule: str
+    arm: int
     opening: str
     closing: str
     escape: str
@@ -78,8 +92,14 @@ class Interior(NamedTuple):
 
     @property
     def resumes(self) -> int:
-        """The first item index a scan reads again after the region."""
-        return self.closes + 1 if self.consumes_closer else self.closes
+        """The first item index a scan reads again after the region.
+
+        Only a DISTINCT closing item is left visible. A symmetric closer is
+        consumed, and a region with no closer at all runs to the arm's end,
+        so both resume past it.
+        """
+        distinct = bool(self.closing) and self.closing != self.opening
+        return self.closes if distinct else self.closes + 1
 
 
 def _escape_char(body: str, rule_map: dict[str, IrRule], seen: frozenset[str]) -> str:
@@ -96,7 +116,10 @@ def _escape_char(body: str, rule_map: dict[str, IrRule], seen: frozenset[str]) -
         items = tuple(arm)
         if len(items) >= 2 and (lead := literal_char(items[0], rule_map)) is not None:
             return lead
-        nested = items[0].atom if len(items) == 1 else None
+        # Follow the arm's OWN head when it names one: a class item resolves
+        # through ``cc-item-nc ::= cc-unit-nc cc-tail`` before reaching the
+        # escape, and stopping at the first two-item arm never finds it.
+        nested = items[0].atom if items else None
         if isinstance(nested, IrRuleRef):
             found = _escape_char(str(nested), rule_map, seen | {body})
             if found:
@@ -116,12 +139,32 @@ def _opacity(
     lead = closing[0]
     if not any(emits(item, lead, rule_map, frozenset(), frozenset()) for item in inner):
         return ""
-    if len(closing) != 1 or len(inner) != 1 or not unbounded(inner[0]):
-        return None
-    body = inner[0].atom
-    if not isinstance(body, IrRuleRef):
-        return None
-    return _escape_char(str(body), rule_map, frozenset()) or None
+    return (_body_escape(inner, lead, rule_map) or None) if len(closing) == 1 else None
+
+
+def _body_escape(
+    inner: tuple[IrItem, ...], lead: str, rule_map: dict[str, IrRule]
+) -> str:
+    """The one escape every part of the body that can spell ``lead`` uses.
+
+    A quoted string keeps one body item; a character class has three, and any
+    of them may reach the escaped closer. They must agree, or the region has no
+    single parity to count and declines.
+    """
+    found: set[str] = set()
+    for item in inner:
+        if not emits(item, lead, rule_map, frozenset(), frozenset()):
+            continue
+        atom = item.atom
+        escape = (
+            _escape_char(str(atom), rule_map, frozenset())
+            if isinstance(atom, IrRuleRef)
+            else ""
+        )
+        if not escape:
+            return ""
+        found.add(escape)
+    return found.pop() if len(found) == 1 else ""
 
 
 def _closed_at(
@@ -158,20 +201,41 @@ def _closed_at(
     return None if escape is None else (last, closing, escape)
 
 
-def _interior_of(rule: IrRule, rule_map: dict[str, IrRule]) -> Interior | None:
-    """The interior ``rule`` defines, when it has the delimited shape."""
-    arms = tuple(rule.body)
-    if len(arms) != 1:
-        return None
-    items = tuple(arms[0])
-    if len(items) < 3:
+def _arm_interior(
+    name: str, at: int, items: tuple[IrItem, ...], rule_map: dict[str, IrRule]
+) -> Interior | None:
+    """The interior one ARM defines, when it has a delimited shape.
+
+    Read per arm rather than per rule: a character class spells ``[`` one way
+    and ``[^`` another, and a rule that offers both is still two regions.
+    """
+    if len(items) < 2:
         return None
     opening = literal_text(items[0], rule_map)
-    closed = _closed_at(items, opening, rule_map) if opening is not None else None
-    if opening is None or closed is None:
+    if opening is None:
         return None
-    closes, closing, escape = closed
-    return Interior(str(rule.name), opening, closing, escape, 0, closes)
+    closed = _closed_at(items, opening, rule_map) if len(items) >= 3 else None
+    if closed is not None:
+        closes, closing, escape = closed
+        return Interior(name, at, opening, closing, escape, 0, closes)
+    # No closing item at all. A run behind an opener ends where the document
+    # does, which is what a trailing comment IS. The opener must be spelled
+    # RIGHT HERE: resolving one through rules would read ``members ::= member
+    # members-rest*`` as opening at the colon its first member carries, and
+    # skip from there to the end of the document.
+    literal = isinstance(items[0].atom, IrLiteral)
+    if not literal or len(items) != 2 or not unbounded(items[1]):
+        return None
+    return Interior(name, at, opening, "", "", 0, 1)
+
+
+def _interiors_of(rule: IrRule, rule_map: dict[str, IrRule]) -> list[Interior]:
+    """Every interior the rule's arms define, in arm order."""
+    found = [
+        _arm_interior(str(rule.name), at, tuple(arm), rule_map)
+        for at, arm in enumerate(rule.body)
+    ]
+    return [region for region in found if region is not None]
 
 
 def _refs(atom: IrSelf) -> frozenset[str]:
@@ -188,7 +252,7 @@ def _refs(atom: IrSelf) -> frozenset[str]:
 
 
 def _visible_items(
-    rule: IrRule, spans: dict[str, tuple[int, int]]
+    rule: IrRule, spans: dict[tuple[str, int], tuple[int, int]]
 ) -> tuple[IrItem, ...]:
     """The rule's items a scan still reads, its own hidden span removed.
 
@@ -196,18 +260,18 @@ def _visible_items(
     only what stands between them drops out. Hiding a whole rule instead would
     let two regions certify each other on delimiters they cannot tell apart.
     """
-    span = spans.get(str(rule.name))
-    arms = [tuple(arm) for arm in rule.body]
-    if span is None:
-        return tuple(item for items in arms for item in items)
-    opens, resumes = span
-    return arms[0][:opens] + arms[0][resumes:]
+    kept: list[IrItem] = []
+    for at, arm in enumerate(rule.body):
+        items = tuple(arm)
+        span = spans.get((str(rule.name), at))
+        kept.extend(items if span is None else items[: span[0]] + items[span[1] :])
+    return tuple(kept)
 
 
 def _reachable_visible(
     grammar: IrAst,
     rule_map: dict[str, IrRule],
-    spans: dict[str, tuple[int, int]],
+    spans: dict[tuple[str, int], tuple[int, int]],
     skip: str,
 ) -> frozenset[str]:
     """Rules reachable from the start through scan-visible items only."""
@@ -228,7 +292,8 @@ def _sole_opener(
     grammar: IrAst,
     rule_map: dict[str, IrRule],
     region: Interior,
-    spans: dict[str, tuple[int, int]],
+    spans: dict[tuple[str, int], tuple[int, int]],
+    surviving: tuple[Interior, ...],
 ) -> bool:
     """Whether only this region opens with its lead character.
 
@@ -244,10 +309,33 @@ def _sole_opener(
     """
     opaque = frozenset(rule_map)
     lead = region.opening[0]
+    kin = _decided_by(surviving, region)
     return not any(
         emits(item, lead, rule_map, opaque, frozenset())
         for name in _reachable_visible(grammar, rule_map, spans, region.rule)
+        if name not in kin
         for item in _visible_items(rule_map[name], spans)
+    )
+
+
+def _decided_by(surviving: tuple[Interior, ...], region: Interior) -> frozenset[str]:
+    """Siblings a scan can already tell apart from ``region``.
+
+    Sharing a lead character is not competition when the SPELLINGS differ:
+    :func:`skip_table` orders them longest-first, so ``[^`` is tested before
+    ``[`` and the reading is decided. Nor is a sibling :func:`_precise`
+    subsumes — a trailing comment and a comment line open identically, and
+    searching for the newline answers both.
+
+    An identical opening with a different closer is real competition: the scan
+    reaches it by that spelling alone and has nothing left to decide with.
+    """
+    deciding = {found.rule for found in _precise(list(surviving))}
+    return frozenset(
+        other.rule
+        for other in surviving
+        if other.opening[0] == region.opening[0]
+        and (other.opening != region.opening or other.rule not in deciding)
     )
 
 
@@ -276,12 +364,17 @@ def _certified(
         # The OPENING delimiter stays visible: it is where the scan decides
         # which region opens, so a sibling spelling it there must still refuse.
         spans = {
-            region.rule: (region.opens + 1, region.resumes) for region in surviving
+            (region.rule, region.arm): (region.opens + 1, region.resumes)
+            for region in surviving
         }
+        # A region another already decides for the scan rides along: its span
+        # is skipped by that sibling, so it needs no opener proof of its own.
+        deciding = {found.rule for found in _precise(list(surviving))}
         kept = tuple(
             region
             for region in surviving
-            if _sole_opener(grammar, rule_map, region, spans)
+            if region.rule not in deciding
+            or _sole_opener(grammar, rule_map, region, spans, surviving)
         )
         if len(kept) == len(surviving):
             return kept
@@ -306,8 +399,10 @@ def interior_shapes(grammar: IrAst) -> tuple[Interior, ...]:
     entry = _SHAPES.get(id(grammar))
     if entry is None:
         rule_map = {str(rule.name): rule for rule in grammar.rules}
-        found = [_interior_of(rule, rule_map) for rule in grammar.rules]
-        entry = (grammar, tuple(x for x in found if x is not None))
+        found = [
+            region for rule in grammar.rules for region in _interiors_of(rule, rule_map)
+        ]
+        entry = (grammar, tuple(found))
         _SHAPES[id(grammar)] = entry
     return entry[1]
 
@@ -344,7 +439,7 @@ def hides(grammar: IrAst, region: Interior, watched: frozenset[str]) -> bool:
     occurrence. Only regions that would otherwise MISLEAD are worth skipping.
     """
     rule_map = {str(rule.name): rule for rule in grammar.rules}
-    items = tuple(tuple(rule_map[region.rule].body)[0])
+    items = tuple(tuple(rule_map[region.rule].body)[region.arm])
     return any(
         emits(item, char, rule_map, frozenset(), frozenset())
         for item in items[region.opens : region.resumes]
@@ -363,9 +458,23 @@ def skip_table(regions: tuple[Interior, ...]) -> dict[str, tuple[Interior, ...]]
     for region in regions:
         found.setdefault(region.opening[0], []).append(region)
     return {
-        lead: tuple(sorted(entries, key=lambda region: -len(region.opening)))
+        lead: tuple(sorted(_precise(entries), key=lambda region: -len(region.opening)))
         for lead, entries in found.items()
     }
+
+
+def _precise(entries: list[Interior]) -> list[Interior]:
+    """Drop regions a same-opening sibling already reads more exactly.
+
+    A trailing comment and a comment line open alike and differ only in ending:
+    one at a newline, one at EOF. Searching for the newline answers both, since
+    a search that finds none already runs to EOF, so the EOF-only reading adds
+    nothing and would swallow a document that has more to read.
+    """
+    closed = {region.opening for region in entries if region.closing}
+    return [
+        region for region in entries if region.closing or region.opening not in closed
+    ]
 
 
 type Skip = tuple[str, str, int, str, int]
