@@ -34,7 +34,6 @@ from lexic.parsing.parallel.discovery.shapes import (
     emits,
     literal_char,
     literal_text,
-    rule_emits,
     unbounded,
 )
 
@@ -43,17 +42,44 @@ class Interior(NamedTuple):
     """One delimited opaque region.
 
     :ivar rule: The rule whose single arm carries it.
-    :ivar delim: The spelling that both opens and closes it.
+    :ivar opening: The spelling that opens it.
+    :ivar closing: The spelling that closes it — equal to ``opening`` for a
+        quoted region, distinct for a comment (``";"`` … newline). The closing
+        characters stay scan-visible: a comment's newline may be the very mark
+        a split cuts on.
     :ivar escape: The character that makes the next one literal, or ``""``.
+        Only a symmetric region has one; an asymmetric region is opaque
+        because its body cannot spell the closer at all.
     :ivar opens: Item index of the opening delimiter.
     :ivar closes: Item index of the closing delimiter.
     """
 
     rule: str
-    delim: str
+    opening: str
+    closing: str
     escape: str
     opens: int
     closes: int
+
+    @property
+    def spans_arm(self) -> bool:
+        """Whether the region begins its arm — nothing visible precedes it."""
+        return self.opens == 0
+
+    @property
+    def consumes_closer(self) -> bool:
+        """Whether the scan skips the closer too, or leaves it to be read.
+
+        A symmetric region must consume it, or a closing quote reads as an
+        opening one. An asymmetric closer has no such ambiguity and stays
+        visible, which is what keeps a comment's newline cuttable.
+        """
+        return self.opening == self.closing
+
+    @property
+    def resumes(self) -> int:
+        """The first item index a scan reads again after the region."""
+        return self.closes + 1 if self.consumes_closer else self.closes
 
 
 def _escape_char(body: str, rule_map: dict[str, IrRule], seen: frozenset[str]) -> str:
@@ -78,38 +104,58 @@ def _escape_char(body: str, rule_map: dict[str, IrRule], seen: frozenset[str]) -
     return ""
 
 
-def _closing_at(
-    items: tuple[IrItem, ...], delim: str, rule_map: dict[str, IrRule]
-) -> int | None:
-    """The first item past the opener that spells ``delim`` again."""
-    return next(
-        (
-            at
-            for at in range(1, len(items))
-            if literal_text(items[at], rule_map) == delim
-        ),
-        None,
-    )
-
-
 def _opacity(
-    inner: tuple[IrItem, ...], delim: str, rule_map: dict[str, IrRule]
+    inner: tuple[IrItem, ...], closing: str, rule_map: dict[str, IrRule]
 ) -> str | None:
-    """What keeps the span between the delimiters opaque, or ``None``.
+    """What keeps the span before the closer opaque, or ``None``.
 
-    ``""`` says nothing inside can spell the delimiter's lead character at
-    all; an escape character says the body's own arms make an occurrence
-    literal. A body with neither is not a region a scan may skip.
+    ``""`` says nothing inside can spell the closer's lead character at all;
+    an escape character says the body's own arms make an occurrence literal.
+    A body with neither is not a region a scan may skip.
     """
-    lead = delim[0]
+    lead = closing[0]
     if not any(emits(item, lead, rule_map, frozenset(), frozenset()) for item in inner):
         return ""
-    if len(delim) != 1 or len(inner) != 1 or not unbounded(inner[0]):
+    if len(closing) != 1 or len(inner) != 1 or not unbounded(inner[0]):
         return None
     body = inner[0].atom
     if not isinstance(body, IrRuleRef):
         return None
     return _escape_char(str(body), rule_map, frozenset()) or None
+
+
+def _closed_at(
+    items: tuple[IrItem, ...], opening: str, rule_map: dict[str, IrRule]
+) -> tuple[int, str, str] | None:
+    """The item that closes the region opened at 0, with how it stays opaque.
+
+    A region closed by its OWN spelling is tried first and may sit anywhere in
+    the arm, so a quoted body keeps exactly the reading — and the escape
+    derivation — it already had, and a fence keeps its visible tail.
+
+    A DISTINCT closing spelling must be the arm's last item. Any later item
+    that merely resolves to some literal is not a closer: ``object ::= "{" ws
+    members "}" ws`` would otherwise read ``members`` as spelling the colon its
+    first member carries, and open a region from ``{`` to ``:``.
+    """
+    same = next(
+        (
+            at
+            for at in range(1, len(items))
+            if literal_text(items[at], rule_map) == opening
+        ),
+        None,
+    )
+    if same is not None:
+        escape = _opacity(items[1:same], opening, rule_map)
+        if escape is not None:
+            return (same, opening, escape)
+    last = len(items) - 1
+    closing = literal_text(items[last], rule_map)
+    if closing is None or closing == opening:
+        return None
+    escape = _opacity(items[1:last], closing, rule_map)
+    return None if escape is None else (last, closing, escape)
 
 
 def _interior_of(rule: IrRule, rule_map: dict[str, IrRule]) -> Interior | None:
@@ -120,14 +166,12 @@ def _interior_of(rule: IrRule, rule_map: dict[str, IrRule]) -> Interior | None:
     items = tuple(arms[0])
     if len(items) < 3:
         return None
-    delim = literal_text(items[0], rule_map)
-    closes = _closing_at(items, delim, rule_map) if delim is not None else None
-    if delim is None or closes is None:
+    opening = literal_text(items[0], rule_map)
+    closed = _closed_at(items, opening, rule_map) if opening is not None else None
+    if opening is None or closed is None:
         return None
-    escape = _opacity(items[1:closes], delim, rule_map)
-    if escape is None:
-        return None
-    return Interior(str(rule.name), delim, escape, 0, closes)
+    closes, closing, escape = closed
+    return Interior(str(rule.name), opening, closing, escape, 0, closes)
 
 
 def _refs(atom: IrSelf) -> frozenset[str]:
@@ -143,10 +187,30 @@ def _refs(atom: IrSelf) -> frozenset[str]:
     return frozenset(found)
 
 
-def _reachable_without(
-    grammar: IrAst, rule_map: dict[str, IrRule], skip: str
+def _visible_items(
+    rule: IrRule, spans: dict[str, tuple[int, int]]
+) -> tuple[IrItem, ...]:
+    """The rule's items a scan still reads, its own hidden span removed.
+
+    A region's DELIMITERS are visible — they are where the scan decides — so
+    only what stands between them drops out. Hiding a whole rule instead would
+    let two regions certify each other on delimiters they cannot tell apart.
+    """
+    span = spans.get(str(rule.name))
+    arms = [tuple(arm) for arm in rule.body]
+    if span is None:
+        return tuple(item for items in arms for item in items)
+    opens, resumes = span
+    return arms[0][:opens] + arms[0][resumes:]
+
+
+def _reachable_visible(
+    grammar: IrAst,
+    rule_map: dict[str, IrRule],
+    spans: dict[str, tuple[int, int]],
+    skip: str,
 ) -> frozenset[str]:
-    """Rules reachable from the start without descending into ``skip``."""
+    """Rules reachable from the start through scan-visible items only."""
     seen: set[str] = set()
     pending = [str(grammar.start)]
     while pending:
@@ -155,26 +219,73 @@ def _reachable_without(
         if name in seen or name == skip or rule is None:
             continue
         seen.add(name)
-        for arm in rule.body:
-            for item in arm:
-                pending.extend(_refs(item.atom))
+        for item in _visible_items(rule, spans):
+            pending.extend(_refs(item.atom))
     return frozenset(seen)
 
 
-def _sole_delimiter(
-    grammar: IrAst, rule_map: dict[str, IrRule], region: Interior
+def _sole_opener(
+    grammar: IrAst,
+    rule_map: dict[str, IrRule],
+    region: Interior,
+    spans: dict[str, tuple[int, int]],
 ) -> bool:
-    """Whether only this region's own rule spells its lead character.
+    """Whether only this region opens with its lead character.
+
+    ``spans`` gives the hidden span of every region a scan already skips. What
+    stands inside one is not visible, so a spelling there cannot desync the
+    pairing — which is what lets a comment and a quoted string certify each
+    other. What stands at a region's delimiters IS visible, so a sibling that
+    opens with the same character still refuses.
 
     Hiding every reference turns :func:`~...shapes.rule_emits` into "what does
-    this arm spell DIRECTLY", so the question is asked once per reachable
+    this item spell DIRECTLY", so the question is asked once per reachable
     rule rather than once per derivation path.
     """
     opaque = frozenset(rule_map)
+    lead = region.opening[0]
     return not any(
-        rule_emits(rule_map[name], region.delim[0], rule_map, opaque, frozenset())
-        for name in _reachable_without(grammar, rule_map, region.rule)
+        emits(item, lead, rule_map, opaque, frozenset())
+        for name in _reachable_visible(grammar, rule_map, spans, region.rule)
+        for item in _visible_items(rule_map[name], spans)
     )
+
+
+def _certified(
+    grammar: IrAst, rule_map: dict[str, IrRule], shapes: tuple[Interior, ...]
+) -> tuple[Interior, ...]:
+    """The regions a left-to-right pairing reads exactly, as a fixpoint.
+
+    Certification is mutual: abnf spells a quote inside its comments and a
+    semicolon inside its strings, so neither region is sole on its own and
+    both are sole beside the other. The fixpoint therefore starts with every
+    candidate skipped and DROPS what fails, rather than starting empty and
+    growing — a growing set cannot enter a cycle it needs to already be in.
+
+    Soundness is the scan's own induction. Before the first region opener
+    there is no region, so that occurrence is genuine; skipping to its closer
+    leaves the scan outside every region again. An opener that only ever
+    appears inside an already-skipped span is therefore never reached.
+
+    Whether a certified region is one a given scan SHOULD skip is the
+    caller's question, not this one's: the region sweep drops any whose
+    opening character carries a bracket or separator role of its own.
+    """
+    surviving = tuple(region for region in shapes if region.spans_arm)
+    while True:
+        # The OPENING delimiter stays visible: it is where the scan decides
+        # which region opens, so a sibling spelling it there must still refuse.
+        spans = {
+            region.rule: (region.opens + 1, region.resumes) for region in surviving
+        }
+        kept = tuple(
+            region
+            for region in surviving
+            if _sole_opener(grammar, rule_map, region, spans)
+        )
+        if len(kept) == len(surviving):
+            return kept
+        surviving = kept
 
 
 _SHAPES: dict[int, tuple[IrAst, tuple[Interior, ...]]] = {}
@@ -214,11 +325,7 @@ def interiors(grammar: IrAst) -> tuple[Interior, ...]:
     entry = _INTERIORS.get(id(grammar))
     if entry is None:
         rule_map = {str(rule.name): rule for rule in grammar.rules}
-        found = tuple(
-            region
-            for region in interior_shapes(grammar)
-            if _sole_delimiter(grammar, rule_map, region)
-        )
+        found = _certified(grammar, rule_map, interior_shapes(grammar))
         entry = (grammar, found)
         _INTERIORS[id(grammar)] = entry
     return entry[1]
@@ -240,35 +347,50 @@ def hides(grammar: IrAst, region: Interior, watched: frozenset[str]) -> bool:
     items = tuple(tuple(rule_map[region.rule].body)[0])
     return any(
         emits(item, char, rule_map, frozenset(), frozenset())
-        for item in items[region.opens : region.closes + 1]
+        for item in items[region.opens : region.resumes]
         for char in watched
     )
 
 
 def skip_table(regions: tuple[Interior, ...]) -> dict[str, tuple[Interior, ...]]:
-    """Lead character → the regions it may open, longest delimiter first.
+    """Lead character → the regions it may open, longest opening first.
 
     One character can lead more than one spelling (```` ` ```` opens both a
     code span and a fence), and the longer spelling is the one a scan must
-    test first or it splits the longer delimiter in half.
+    test first or it splits the longer opening in half.
     """
     found: dict[str, list[Interior]] = {}
     for region in regions:
-        found.setdefault(region.delim[0], []).append(region)
+        found.setdefault(region.opening[0], []).append(region)
     return {
-        lead: tuple(sorted(entries, key=lambda region: -len(region.delim)))
+        lead: tuple(sorted(entries, key=lambda region: -len(region.opening)))
         for lead, entries in found.items()
     }
 
 
-type Skip = tuple[str, str, int]
-"""One region as the sweep consumes it: delimiter, escape, delimiter width.
+type Skip = tuple[str, str, int, str, int]
+"""One region as a scan consumes it.
 
-The width is carried rather than measured because the sweep hands this to
-:func:`skip_delimited` once per delimited span of the document, and three
-``len`` calls there were measurably the whole cost of carrying a delimiter
-longer than one character.
+``(closing, escape, resume, guard, width)``. ``resume`` is what the closer's
+offset gains: a symmetric region consumes its closer, because leaving it would
+read a closing quote as an opening one; an asymmetric region leaves it VISIBLE,
+because a comment's newline may be the very mark a split cuts on. ``guard`` is
+the opening spelling when it needs matching in full and ``""`` when one
+character settles it — checked as a truth test so a single-character opening
+pays no ``len``, which measurably was the whole cost of carrying longer ones.
 """
+
+
+def as_skip(region: Interior) -> Skip:
+    """One region in the flat form both scans hand to :func:`skip_delimited`."""
+    symmetric = region.opening == region.closing
+    return (
+        region.closing,
+        region.escape,
+        len(region.closing) if symmetric else 0,
+        region.opening if len(region.opening) > 1 else "",
+        len(region.opening),
+    )
 
 
 def skip_leads(regions: tuple[Interior, ...]) -> dict[str, Skip]:
@@ -282,7 +404,7 @@ def skip_leads(regions: tuple[Interior, ...]) -> dict[str, Skip]:
     """
     table = skip_table(regions)
     return {
-        lead: (entries[0].delim, entries[0].escape, len(entries[0].delim))
+        lead: as_skip(entries[0])
         for lead, entries in table.items()
         if len(entries) == 1
     }
@@ -291,31 +413,29 @@ def skip_leads(regions: tuple[Interior, ...]) -> dict[str, Skip]:
 def skip_opaque(text: str, at: int, candidates: tuple[Interior, ...]) -> int:
     """Past the region opening at ``at``, or ``at`` when none opens there."""
     for region in candidates:
-        if text.startswith(region.delim, at):
-            return skip_delimited(
-                text, at, (region.delim, region.escape, len(region.delim))
-            )
+        if text.startswith(region.opening, at):
+            return skip_delimited(text, at, as_skip(region))
     return at
 
 
 def skip_delimited(text: str, start: int, skip: Skip) -> int:
-    """Where the region opened at ``start`` ends (past its closer).
+    """Where the region opened at ``start`` ends.
 
-    ``start`` when the delimiter does not stand there in full — the sweep
-    reaches here on its lead character alone. A one-character delimiter cannot
-    fail that test, so the width settles it before any comparison runs.
+    Past its closer for a symmetric region, AT its closer for an asymmetric
+    one, and ``start`` when a guarded opening does not stand here in full —
+    the sweep reaches this on the lead character alone.
     """
-    delim, escape, width = skip
-    if width != 1 and not text.startswith(delim, start):
+    closing, escape, resume, guard, width = skip
+    if guard and not text.startswith(guard, start):
         return start
-    if delim == escape:
+    if closing == escape:
         return len(text)
-    at = text.find(delim, start + width)
+    at = text.find(closing, start + width)
     while at != -1:
         before = at - 1
         while escape and before > start and text[before] == escape:
             before -= 1
         if not escape or (at - before - 1) % 2 == 0:
-            return at + width
-        at = text.find(delim, at + 1)
+            return at + resume
+        at = text.find(closing, at + 1)
     return len(text)

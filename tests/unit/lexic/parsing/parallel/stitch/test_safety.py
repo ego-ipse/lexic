@@ -15,11 +15,15 @@ from lexic.parsing import parse_model
 from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.discovery.interiors import interior_rules
 from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.stitch.safety import (
+    Boundary,
     owner_excludes,
     scan_agrees,
     terminates_once,
+    unit_boundary,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 
 
 def _grammar(source: str):
@@ -224,3 +228,88 @@ def test_nested_region_exact_adversarial_declines_without_becoming_vacuous() -> 
         is None
     )
     assert compiled.parse(text, cores=2) == compiled.parse(text, cores=1)
+
+
+# ── unit_boundary: certifying a cut that lands past the mark ────────────
+
+
+def _admits_ignoring_the_mark(text: str, at: int, found: Boundary) -> bool:
+    """A local twin of :func:`admits` without the ``!= mark`` exclusion.
+
+    Proves the real function's mark exclusion is load-bearing rather than
+    incidental: run against a ``Boundary`` whose noise charset was NOT
+    stripped of the mark, this version keeps scanning across it.
+    """
+    size = len(text)
+    start = at
+    while at < size and found.head.has(text[at]):
+        at += 1
+    if at == start:
+        return False
+    while at < size and found.noise.has(text[at]):
+        at += 1
+    return text.startswith(found.literal, at)
+
+
+def test_a_line_split_between_head_and_literal_is_refused_though_the_grammar_allows_it() -> (
+    None
+):
+    """The admission test is strictly stronger than the grammar it certifies:
+    a unit whose head and defining literal are split across a physical line
+    (legal here — ``cwsp`` reaches across a newline via ``crlfwsp``) is
+    refused rather than admitted, because the noise charset excludes the mark
+    by construction. A version of the match that skips that exclusion would
+    wrongly admit the very same text, at exactly this offset."""
+    grammar = _grammar(
+        "root ::= unit+\n"
+        'unit ::= name cwsp* "=" cwsp* value crlf\n'
+        'cwsp ::= " " | crlfwsp\n'
+        'crlfwsp ::= crlf " "\n'
+        'crlf ::= "\\n"\n'
+        "name ::= [a-z]+\n"
+        "value ::= [a-z]+\n"
+    )
+    found = unit_boundary(grammar, "unit", "\n")
+    assert found is not None
+    text = "abc\n   = two\n"
+
+    assert not admits(text, 0, found, "\n")
+
+    broken = found._replace(noise=found.noise.union(CharSet.from_chars("\n")))
+    assert _admits_ignoring_the_mark(text, 0, broken)
+
+
+def test_a_gbnf_string_literal_that_may_carry_the_raw_mark_declines() -> None:
+    """A raw newline can stand inside a GBNF-shaped string literal (``lplain``
+    excludes only the closing quote), which makes a false admission
+    constructible past that literal. The proof must decline rather than
+    certify a boundary a real document could break."""
+    grammar = _grammar(
+        "root ::= unit+\n"
+        'unit ::= name ws ":" literal nl\n'
+        "name ::= [a-z]+\n"
+        'ws ::= " "*\n'
+        'literal ::= "\\"" lplain* "\\""\n'
+        'lplain ::= [^"]\n'
+        'nl ::= "\\n"\n'
+    )
+
+    assert unit_boundary(grammar, "unit", "\n") is None
+
+
+def test_a_json_shaped_member_certifies_on_the_same_walk_as_an_abnf_rule() -> None:
+    """``member ::= string colon value`` announces itself exactly as an
+    ABNF-shaped ``rule`` does (``rulename c-wsp* defined …``) — the same walk,
+    nothing abnf-specific in the mechanism."""
+    grammar = _grammar(
+        'root ::= member ("," member)*\n'
+        'member ::= string ":" value\n'
+        'string ::= "\\"" [a-z]* "\\""\n'
+        "value ::= [a-z]+\n"
+    )
+
+    found = unit_boundary(grammar, "member", ",")
+
+    assert found is not None
+    assert found.literal == ":"
+    assert found.at == 1

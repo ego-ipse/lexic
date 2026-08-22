@@ -27,6 +27,21 @@ from completion order (not result order) to keep uneven workloads scheduled,
 wait out a failed phase before reuse, and close deterministically through their
 context-manager lifetime.
 
+`envelope.py` reads the two shapes a plain repetition is not. A container arm
+may wrap its repeated core in optional head and tail items — the first piece
+owns the head, the last owns the tail, and every middle piece must leave both
+empty. A separator may be a noise RUN rather than one character, so a cut
+lands on the mark and extends forward over whitespace and whole opaque regions
+before the next unit begins.
+
+Where the unit itself can emit the mark — a rule that legitimately spans lines
+— extending is not exactness. `stitch/safety.unit_boundary` proves the landing
+site instead: past the noise run a unit ANNOUNCES itself with a mandatory
+guarded prefix, and a refutation walk shows no position inside a unit can spell
+that prefix over head and noise characters alone. Consecutive marks separated
+only by noise reach one unit start, and the earliest is the cut, so inter-unit
+blank lines and comments stay in the separator span.
+
 There is no privileged grammar here. JSON is a differential and benchmark
 witness, not a parser mode or policy input. The measured split floor remains
 2 KiB per worker: a regression above that floor is duplicated work to remove,

@@ -442,3 +442,36 @@ def test_plan_is_memoised_per_grammar():
     compiled = compile_text(LEAD_RULE)
     grammar = compiled.codegen_grammar
     assert split_plan(grammar) is split_plan(grammar)
+
+
+ENVELOPE = (
+    "root ::= rule cont* tail?\n"
+    'rule ::= name ws "=" ws value\n'
+    "cont ::= ws crlf rule\n"
+    "tail ::= crlf\n"
+    "name ::= [a-z]+\n"
+    'ws ::= " "*\n'
+    "value ::= [a-z]+\n"
+    'crlf ::= "\\n"\n'
+)
+
+
+def test_an_ungenerateable_witness_declines_the_envelope_split_cleanly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the repeated unit has no derivable witness, the separator span
+    cannot be reparsed into a real item model — the split must decline rather
+    than reparse without one, and the caller's sequential parse still
+    answers correctly."""
+    compiled = compile_text(ENVELOPE)
+    grammar, fold = compiled.codegen_grammar, compiled.fold
+    text = "ua = a\nub = b\n" * 2000
+
+    assert split_plan(grammar) is not None
+
+    monkeypatch.setattr(orchestrate, "unit_witness", lambda *_a, **_k: None)
+    declined = split_model(parse_model, grammar, Request(text, fold), 8)
+    assert declined is None
+
+    sequential = parse_model(grammar, text, fold)
+    assert compiled.parse(text, cores=8) == sequential

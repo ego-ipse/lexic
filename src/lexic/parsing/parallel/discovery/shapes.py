@@ -24,6 +24,7 @@ from lexic.ir import (
     IrQuantifier,
     IrRule,
     IrRuleRef,
+    IrSelf,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -256,3 +257,104 @@ def _arm_empty(
 ) -> bool:
     """Whether every item of one arm can derive the empty string."""
     return all(derives_empty(item, rule_map, path) for item in items)
+
+
+def emit_charset(
+    item: IrItem,
+    rule_map: dict[str, IrRule],
+    path: frozenset[str],
+    hidden: frozenset[str] = frozenset(),
+) -> CharSet:
+    """Every character an item's derivations can emit.
+
+    The set form of :func:`emits`, for callers asking about a whole alphabet
+    rather than one character. Unknown atoms and cycles answer
+    :attr:`~lexic.parsing.pda.core.charsets.CharSet.ANY`, so a caller proving
+    a set is DISJOINT from another cannot be misled by one it cannot read.
+
+    :param hidden: Rules a scan skips whole. They contribute nothing: a
+        comment's alphabet is nearly every character, but a scan that jumps
+        the comment never reads one of them.
+    """
+    atom = item.atom
+    leaf = _leaf_charset(atom)
+    if leaf is not None:
+        return leaf
+    if isinstance(atom, IrAlternation):
+        return _arms_charset(atom, rule_map, path, hidden)
+    if not isinstance(atom, IrRuleRef):
+        return CharSet.ANY
+    name = str(atom)
+    if name in hidden:
+        return CharSet.EMPTY
+    target = rule_map.get(name)
+    if target is None or name in path:
+        return CharSet.ANY
+    return _arms_charset(target.body, rule_map, path | {name}, hidden)
+
+
+def _leaf_charset(atom: IrSelf) -> CharSet | None:
+    """What an atom spells on its own, or ``None`` when it must be walked."""
+    if isinstance(atom, IrLiteral):
+        return CharSet.from_chars(*str(atom))
+    if isinstance(atom, IrCharClass):
+        return CharSet.from_charclass(atom)
+    return _class_of(atom) if isinstance(atom, IrNot) else None
+
+
+def _arms_charset(
+    body: IrAlternation,
+    rule_map: dict[str, IrRule],
+    path: frozenset[str],
+    hidden: frozenset[str],
+) -> CharSet:
+    """The union of what every item of every arm can emit."""
+    found = CharSet.EMPTY
+    for arm in body:
+        for item in arm:
+            found = found.union(emit_charset(item, rule_map, path, hidden))
+    return found
+
+
+def first_charset(
+    items: tuple[IrItem, ...], rule_map: dict[str, IrRule], path: frozenset[str]
+) -> CharSet:
+    """Every character an arm can begin with — FIRST, as a set.
+
+    Scanning stops at the first item that cannot vanish, which is what makes
+    this the arm's opening alphabet rather than everything it emits.
+    """
+    found = CharSet.EMPTY
+    for item in items:
+        found = found.union(_item_first(item, rule_map, path))
+        if not derives_empty(item, rule_map, frozenset()):
+            break
+    return found
+
+
+def _item_first(
+    item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]
+) -> CharSet:
+    """The characters one item can begin with."""
+    atom = item.atom
+    if isinstance(atom, IrLiteral):
+        return CharSet.from_chars(str(atom)[0]) if str(atom) else CharSet.EMPTY
+    if isinstance(atom, IrAlternation):
+        return _body_first(atom, rule_map, path)
+    if not isinstance(atom, IrRuleRef):
+        return emit_charset(item, rule_map, path)
+    name = str(atom)
+    target = rule_map.get(name)
+    if target is None or name in path:
+        return CharSet.ANY
+    return _body_first(target.body, rule_map, path | {name})
+
+
+def _body_first(
+    body: IrAlternation, rule_map: dict[str, IrRule], path: frozenset[str]
+) -> CharSet:
+    """The union of what every arm of an alternation can begin with."""
+    found = CharSet.EMPTY
+    for arm in body:
+        found = found.union(first_charset(tuple(arm), rule_map, path))
+    return found

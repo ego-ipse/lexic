@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Iterator
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple
 
 from lexic.exceptions import LexicError
 from lexic.ir import (
@@ -23,7 +23,6 @@ from lexic.ir import (
     IrRule,
     IrRuleRef,
     IrSelf,
-    IrTuple,
 )
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
@@ -34,17 +33,29 @@ from lexic.parsing.parallel.discovery.regions import (
 )
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
+from lexic.parsing.parallel.plan.envelope import (
+    EnvelopePlan,
+    envelope_plan,
+    unit_witness,
+)
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
-from lexic.parsing.parallel.stitch.model import RegionWork, field_slot, splice
+from lexic.parsing.parallel.stitch.model import (
+    RegionWork,
+    envelope_tails,
+    stitch_envelope,
+    stitch_routed,
+    stitch_terminated,
+)
 from lexic.parsing.parallel.stitch.safety import (
     mark_interiors,
     owner_excludes,
     scan_agrees,
     terminates_once,
+    unit_boundary,
 )
 from lexic.parsing.parallel.stitch.tasks import region_tasks, region_works
 from lexic.parsing.pda.core.charsets import CharSet
@@ -94,6 +105,9 @@ class SplitPlan(NamedTuple):
         terminated plan or a bare-literal lead.
     :ivar lead_literal: The bare-literal lead text (else ``""``).
     :ivar skip: Characters the cut extends over after the mark.
+    :ivar envelope: The certified envelope plan, when the container wraps its
+        repetition in optional head and tail items and the separator is a noise
+        run rather than one character; ``None`` for every other shape.
     """
 
     grammar: IrAst
@@ -105,6 +119,17 @@ class SplitPlan(NamedTuple):
     lead_grammar: IrAst | None
     lead_literal: str
     skip: frozenset[str]
+    envelope: EnvelopePlan | None = None
+
+    @property
+    def terminated(self) -> bool:
+        """Whether cuts land after a unit's own final character.
+
+        A terminated unit OWNS its mark, so its chunk keeps it and there is no
+        separator to re-parse. Both other shapes hand the mark back: a
+        separated cut hands one character, an envelope cut a whole noise run.
+        """
+        return self.sep is None and self.envelope is None
 
 
 def _unit_ref(item: IrItem) -> str | None:
@@ -275,15 +300,13 @@ def _split_plans(grammar: IrAst) -> tuple[SplitPlan, ...]:
     if entry is None:
         rule_map = {str(rule.name): rule for rule in grammar.rules}
         terminated = _terminated_plan(grammar, rule_map)
-        plans = (
-            (terminated,)
-            if terminated is not None
-            else tuple(
-                plan
-                for sep in roles(grammar).records
-                if sep.item and (plan := _plan_for(grammar, sep, rule_map)) is not None
-            )
+        separated = tuple(
+            plan
+            for sep in roles(grammar).records
+            if sep.item and (plan := _plan_for(grammar, sep, rule_map)) is not None
         )
+        wrapped = _envelope_split_plan(grammar)
+        plans = (terminated,) if terminated is not None else separated or wrapped
         entry = (grammar, plans)
         _PLANS[id(grammar)] = entry
     return entry[1]
@@ -363,8 +386,11 @@ def _cut_offsets(
     ceiling = worker_count(len(text), len(text), cores)
     if ceiling < 2:
         return []
-    marks = _scan(plan, text, ceiling, pool, windows)
-    if plan.sep is None and marks and marks[-1] == len(text) - 1:
+    if plan.envelope is not None:
+        marks = plan.envelope.cuts(text)
+    else:
+        marks = _scan(plan, text, ceiling, pool, windows)
+    if plan.terminated and marks and marks[-1] == len(text) - 1:
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
     while workers >= 2:
@@ -399,6 +425,8 @@ def _balanced_cuts(
 
 def _after_mark(plan: SplitPlan, text: str, mark: int) -> int:
     """First source offset owned by the piece after ``mark``."""
+    if plan.envelope is not None:
+        return plan.envelope.resumes(text, mark)
     after = mark + 1
     while after < len(text) and text[after] in plan.skip:
         after += 1
@@ -414,7 +442,7 @@ def _safe_mark(
 ) -> int | None:
     """Nearest target mark whose adjacent spans can still clear the floor."""
     want, remaining = target
-    terminated = plan.sep is None
+    terminated = plan.terminated
     lo = bisect_left(marks, previous + MIN_CHUNK - int(terminated))
     hi = bisect_right(marks, len(text) - remaining * MIN_CHUNK - 1)
     for candidate in _nearby_marks(marks, want, lo, hi):
@@ -438,95 +466,6 @@ def _nearby_marks(marks: list[int], want: float, lo: int, hi: int) -> Iterator[i
         right += int(not take_left)
 
 
-def _stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
-    """Concatenate whole-unit chunks; ``None`` = shape surprise.
-
-    Each chunk is a document of complete units, so the container's single
-    repetition field is the concatenation — no node is rebuilt or rebased.
-
-    The model product stores repeated fields as exact plain tuples. Exact type
-    guards keep tuple-shaped IR maps out without requiring the retired
-    reduction product's ``IrTuple`` representation.
-    """
-    sequences = []
-    for chunk in chunks:
-        fields = tuple(chunk)
-        if len(fields) != 1 or fields[0].__class__ is not tuple:
-            return None
-        sequences.extend(fields[0])
-    return chunks[0].rebuild(cast(Any, [tuple(sequences)]))
-
-
-def _stitch_separated(
-    chunks: list[GrammarModel], lead_models: list[tuple]
-) -> GrammarModel | None:
-    """Rebuild the container from chunk models; ``None`` = shape surprise."""
-    heads = [tuple(chunk)[0] for chunk in chunks]
-    rests = [tuple(chunk)[1] for chunk in chunks]
-    template = next((rest[0] for rest in rests if rest), None)
-    if template is None or len(tuple(template)) != len(lead_models[0]) + 1:
-        return None
-    merged = list(rests[0])
-    for k in range(1, len(chunks)):
-        merged.append(template.rebuild([*lead_models[k - 1], heads[k]]))
-        merged.extend(rests[k])
-    return chunks[0].rebuild([heads[0], IrTuple(*merged)])
-
-
-def _wrapper_route[M: IrNamedTuple](
-    plan: SplitPlan, fold: ModelFold[M]
-) -> tuple[tuple[int, None], ...] | None:
-    """Model-child route corresponding to the plan's sole-ref wrappers."""
-    route: list[tuple[int, None]] = []
-    for name in plan.wrappers:
-        config = fold.config.get(name)
-        slot = field_slot(config, 0) if config is not None else None
-        if slot is None:
-            return None
-        route.append((slot, None))
-    return tuple(route)
-
-
-def _at_route(
-    root: GrammarModel, route: tuple[tuple[int, None], ...]
-) -> GrammarModel | None:
-    """The model below an isolated head-reference wrapper route."""
-    node = root
-    for slot, _repeated in route:
-        children = node.children()
-        if slot >= len(children):
-            return None
-        if any(
-            value not in (None, (), "")
-            for at, value in enumerate(children)
-            if at != slot
-        ):
-            return None
-        child = children[slot]
-        if not isinstance(child, GrammarModel):
-            return None
-        node = child
-    return node
-
-
-def _stitch_routed[M: IrNamedTuple](
-    chunks: list[M], lead_models: list[tuple], plan: SplitPlan, fold: ModelFold[M]
-) -> M | None:
-    """Merge a separated container and rebuild its sole-ref start wrappers."""
-    route = _wrapper_route(plan, fold)
-    if route is None or any(not isinstance(chunk, GrammarModel) for chunk in chunks):
-        return None
-    roots = cast(list[GrammarModel], chunks)
-    containers = [_at_route(root, route) for root in roots]
-    if any(container is None for container in containers):
-        return None
-    merged = _stitch_separated(cast(list[GrammarModel], containers), lead_models)
-    if merged is None:
-        return None
-    rebuilt = splice(roots[0], route, merged) if route else merged
-    return cast(M, rebuilt)
-
-
 def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]]:
     """The chunk spans and each cut's carried lead text.
 
@@ -537,11 +476,15 @@ def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]
     spans: list[tuple[int, int]] = []
     leads: list[str] = []
     prev = 0
-    terminated = plan.sep is None
+    terminated = plan.terminated
     for cut in cuts:
         after = _after_mark(plan, text, cut)
-        spans.append((prev, after if terminated else cut))
-        leads.append("" if terminated else text[cut:after])
+        # An envelope piece KEEPS the mark: a separator that begins before one
+        # (a comment closed by it) would otherwise straddle the cut, and the
+        # piece's own tail is what absorbs the run before the join takes it.
+        owned = cut + 1 if plan.envelope is not None else cut
+        spans.append((prev, after if terminated else owned))
+        leads.append("" if terminated else text[owned:after])
         prev = after
     spans.append((prev, len(text)))
     return spans, leads
@@ -556,7 +499,7 @@ def _split_parse[M: IrNamedTuple](
 ) -> M | None:
     """One split attempt; ``None`` means: parse sequentially instead."""
     text, fold, resolve = ask
-    terminated = plan.sep is None
+    terminated = plan.terminated
     spans, leads = _spans(plan, text, cuts)
     if not terminated and plan.lead_grammar is None:
         if any(lead != plan.lead_literal for lead in leads):
@@ -572,6 +515,8 @@ def _split_parse[M: IrNamedTuple](
             ),
             list(range(len(spans))),
         )
+        if plan.envelope is not None:
+            return _envelope_join(parse, plan, ask, (chunks, leads))
         lead_models = [
             (parse(plan.lead_grammar, lead, fold, resolve),)
             if plan.lead_grammar is not None
@@ -581,8 +526,8 @@ def _split_parse[M: IrNamedTuple](
     except LexicError:
         return None
     if terminated:
-        return _stitch_terminated(chunks)
-    return _stitch_routed(chunks, lead_models, plan, fold)
+        return stitch_terminated(chunks)
+    return stitch_routed(chunks, lead_models, plan.wrappers, fold)
 
 
 def _parse_region_parts[M: IrNamedTuple](
@@ -678,7 +623,9 @@ def split_model[M: IrNamedTuple](
         plan
         for plan in plans
         if (
-            owner_excludes(view, plan.owner, plan.mark)
+            unit_boundary(view, plan.owner, plan.mark) is not None
+            if plan.envelope is not None
+            else owner_excludes(view, plan.owner, plan.mark)
             if plan.sep is not None
             else terminates_once(view, plan.owner, plan.mark)
             and scan_agrees(view, plan.grammar, plan.owner, plan.mark)
@@ -698,3 +645,54 @@ def split_model[M: IrNamedTuple](
             ):
                 return model
         return _split_regions(parse, grammar, ask, analysis, pool)
+
+
+def _envelope_split_plan(grammar: IrAst) -> tuple[SplitPlan, ...]:
+    """The plan an envelope container with a noise-run separator admits.
+
+    Read last: a grammar whose start rule is a plain repetition is already
+    served, and this shape costs a boundary proof to certify.
+    """
+    found = envelope_plan(grammar, str(grammar.start))
+    if found is None:
+        return ()
+    return (
+        SplitPlan(
+            grammar,
+            Scanner(roles(grammar)),
+            found.mark,
+            found.shape.unit,
+            (),
+            None,
+            found.run.target,
+            "",
+            frozenset(),
+            found,
+        ),
+    )
+
+
+def _envelope_join[M: IrNamedTuple](
+    parse: ModelProduct,
+    plan: SplitPlan,
+    ask: Request[M],
+    parsed: tuple[list, list[str]],
+) -> M | None:
+    """Reparse each separator with the noise its piece absorbed, then stitch.
+
+    The piece kept the mark and the noise before it; that text comes back out,
+    goes in front of the separator, and reparses under the repeated item with a
+    witness unit the stitch swaps for the next piece's real head.
+    """
+    found = plan.envelope
+    chunks, leads = parsed
+    moved = envelope_tails(chunks, found.shape, ask.fold) if found else None
+    if found is None or moved is None:
+        return None
+    tails, trimmed = moved
+    witness = unit_witness(plan.grammar, found.shape.unit) or ""
+    rebuilt = [
+        parse(plan.lead_grammar, tails[at] + lead + witness, ask.fold, ask.resolve)
+        for at, lead in enumerate(leads)
+    ]
+    return stitch_envelope(trimmed, rebuilt, found.shape, ask.fold)

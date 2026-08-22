@@ -141,7 +141,7 @@ def _vocabulary(
     skips = tuple(
         region
         for region in interiors(grammar)
-        if region.delim[0] not in watched and hides(grammar, region, watched)
+        if region.opening[0] not in watched and hides(grammar, region, watched)
     )
     return pairs, marks, skip_leads(skips)
 

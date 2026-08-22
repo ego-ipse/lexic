@@ -269,6 +269,9 @@ src/lexic/
       policy.py                    Worker-count policy — auto from build/cores/size; explicit override wins
       pool.py                      WorkPool/ParsePool — warm split phases and N documents in flight
       replicas.py                  Per-worker table replicas — equal grammar, own tables, no shared refcount traffic
+      plan/
+        __init__.py                Split-plan shape analysis package marker
+        envelope.py                Envelope container arms, noise-run leads, and the certified cut match
       roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
       discovery/
         __init__.py                Region-discovery package marker
