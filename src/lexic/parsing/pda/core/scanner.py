@@ -43,7 +43,7 @@ build) and ``flatten`` (runtime dispatch) both import it, never the reverse.
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping, NamedTuple
+from typing import Any, Callable, Mapping, NamedTuple
 
 from lexic.ir import (
     IrAlternation,
@@ -83,8 +83,9 @@ SG_MATCH, SG_SCAN, SG_PROBE = 0, 1, 2
 skip-then-peek loop (P3 structured noise-skip); skip-then-probe loop (P5 —
 the post-noise char is rulename-led in both branches, GBNF ``sequence[1]``)."""
 
-_NA_CS, _NA_LIT, _NA_REF = 0, 1, 2
-"""Flat noise-atom kinds: char-set membership, literal string, rule reference."""
+_NA_CS, _NA_LIT, _NA_REF, _NA_GRP = 0, 1, 2, 3
+"""Flat noise-atom kinds: char-set membership, literal string, rule reference,
+inline group (a rule the grammar did not name)."""
 
 _HI_UNBOUNDED = -1
 """The ``hi`` sentinel for an unbounded (``None``) quantifier upper bound."""
@@ -97,8 +98,10 @@ class Recognizer(IrLeaf[IrSelf, IrSelf]):
 
     :ivar rules: Per-rule-index arms. Each rule is a tuple of arms; each arm a
         tuple of ``(kind, payload, lo, hi)`` item tuples — ``kind`` one of
-        :data:`_NA_CS` / :data:`_NA_LIT` / :data:`_NA_REF`, ``payload`` a
-        ``(chars, negated)`` pair (CS), a ``str`` (LIT), or a rule index (REF);
+        :data:`_NA_CS` / :data:`_NA_LIT` / :data:`_NA_REF` / :data:`_NA_GRP`,
+        ``payload`` a ``(chars, negated)`` pair (CS), a ``str`` (LIT), a rule
+        index (REF), or an inline group's own arms (GRP — the same nested
+        shape as a rule's, lowered in place because a group has no index);
         ``hi`` is :data:`_HI_UNBOUNDED` for an unbounded loop.
     :ivar index: Rule name → its index in :attr:`rules`.
     :ivar pats: Per-rule compiled one-instance patterns (see the module doc).
@@ -169,12 +172,21 @@ def class_source(chars: frozenset[str], negated: bool) -> str:
 
 
 def _item_source(item: tuple[int, Any, int, int], sources: list[str]) -> str:
-    """One item as a possessive regex fragment — greedy, never giving back."""
+    """One item as a possessive regex fragment — greedy, never giving back.
+
+    An inline group lowers to the source a REFERENCE to a rule with its body
+    would lower to — its arms joined by choice inside one atomic group. Same
+    construction, so the same commit-to-the-first-matching-arm discipline the
+    rest of this recognizer runs on; a group is a rule the grammar did not
+    name, and nothing here can tell them apart.
+    """
     kind, payload, lo, hi = item
     if kind == _NA_CS:
         atom = class_source(*payload)
     elif kind == _NA_LIT:
         atom = re.escape(payload)
+    elif kind == _NA_GRP:
+        atom = f"(?>{'|'.join(_arm_source(arm, sources) for arm in payload)})"
     else:
         atom = f"(?>{sources[payload]})"
     if (lo, hi) == (1, 1):
@@ -258,42 +270,101 @@ def _hi(item: IrItem) -> int:
     return _HI_UNBOUNDED if isinstance(hi, IrNoneType) else int(hi)
 
 
+def _membership(atom: IrCharClass | IrNot) -> "tuple[frozenset[str], bool] | None":
+    """One membership atom as a ``(chars, negated)`` pair, or ``None``.
+
+    ``None`` only for an ``IrNot`` over a non-class — the one shape whose
+    complement this cannot spell exactly, and an approximate one would let the
+    scanner skip text the parse still owns.
+    """
+    if isinstance(atom, IrCharClass):
+        cs = CharSet.from_charclass(atom)
+        return (cs.chars, cs.negated)
+    inner = atom[0]
+    if not isinstance(inner, IrCharClass):
+        return None
+    cs = CharSet.from_not(inner)
+    return (cs.chars, cs.negated)
+
+
 def _compile_item(
     item: IrItem, index: Mapping[str, int]
 ) -> "tuple[int, Any, int, int] | None":
     """Lower one item to its flat ``(kind, payload, lo, hi)`` tuple, or ``None``.
 
-    ``None`` when the atom is not a simple recognizer construct (an inline group,
-    an ``IrNot`` over a non-class, or a ref outside the compiled closure) — the
-    caller then opts the whole recognizer out.
+    ``None`` when the atom is not a simple recognizer construct (an ``IrNot``
+    over a non-class, a ref outside the compiled closure, or any atom type
+    this does not name) — the caller then opts the whole recognizer out.
+
+    An inline group compiles RECURSIVELY, by the same tests: its arms become
+    the same nested item tuples a rule's do, so an unrecognizable atom
+    anywhere inside it still opts the whole recognizer out.
     """
     atom = item.atom
     lo = int(item.quantifier.lo)
     hi = _hi(item)
     if isinstance(atom, IrLiteral):
         return (_NA_LIT, str(atom), lo, hi)
-    if isinstance(atom, IrCharClass):
-        cs = CharSet.from_charclass(atom)
-        return (_NA_CS, (cs.chars, cs.negated), lo, hi)
-    if isinstance(atom, IrNot):
-        inner = atom[0]
-        if not isinstance(inner, IrCharClass):
-            return None
-        cs = CharSet.from_not(inner)
-        return (_NA_CS, (cs.chars, cs.negated), lo, hi)
+    if isinstance(atom, (IrCharClass, IrNot)):
+        members = _membership(atom)
+        return None if members is None else (_NA_CS, members, lo, hi)
     if isinstance(atom, IrRuleRef):
         idx = index.get(str(atom))
         return None if idx is None else (_NA_REF, idx, lo, hi)
+    if isinstance(atom, IrAlternation):
+        arms = _compile_arms(atom, index)
+        return None if arms is None else (_NA_GRP, arms, lo, hi)
     return None
+
+
+def _compile_arms(
+    body: IrAlternation, index: Mapping[str, int]
+) -> "tuple[tuple[tuple[int, Any, int, int], ...], ...] | None":
+    """One alternation's arms as flat item tuples, or ``None`` on any refusal.
+
+    Shared by the rule walk in :func:`build_recognizer` and the inline-group
+    branch of :func:`_compile_item` — one alternation is one alternation, and
+    lowering them the same way is what makes the group's regex source
+    indistinguishable from a same-bodied rule's.
+    """
+    arms: list[tuple[tuple[int, Any, int, int], ...]] = []
+    for arm in body:
+        items: list[tuple[int, Any, int, int]] = []
+        for item in arm:
+            if not isinstance(item, IrItem):
+                continue
+            compiled = _compile_item(item, index)
+            if compiled is None:
+                return None
+            items.append(compiled)
+        arms.append(tuple(items))
+    return tuple(arms)
+
+
+def _visit_atom(atom: IrSelf, visit: Callable[[str], bool]) -> bool:
+    """Walk one atom for the closure — descending through an inline group.
+
+    A group carries no rule name, so it closes no cycle and adds no closure
+    member of its own; what it can hold is REFERENCES, and those must be
+    visited or the recognizer would compile against a rule it never built.
+    """
+    if isinstance(atom, IrAlternation):
+        return all(
+            _visit_atom(item.atom, visit)
+            for arm in atom
+            for item in arm
+            if isinstance(item, IrItem)
+        )
+    return not isinstance(atom, IrRuleRef) or visit(str(atom))
 
 
 def _closure(rules: Mapping[str, IrRule], roots: frozenset[str]) -> "list[str] | None":
     """The acyclic rule closure reachable from ``roots``, or ``None``.
 
-    ``None`` when a reference leaves ``rules`` (undefined), an inline group is
-    reached (not a simple recognizer), or the closure is cyclic (a recursive
-    recognizer could loop without consuming — opt out). Grey/black DFS: a name
-    seen on the current stack is a back edge.
+    ``None`` when a reference leaves ``rules`` (undefined) or the closure is
+    cyclic (a recursive recognizer could loop without consuming — opt out).
+    Grey/black DFS: a name seen on the current stack is a back edge. An inline
+    group is descended into (:func:`_visit_atom`), never a refusal on its own.
     """
     grey: set[str] = set()
     done: set[str] = set()
@@ -309,10 +380,7 @@ def _closure(rules: Mapping[str, IrRule], roots: frozenset[str]) -> "list[str] |
             for item in arm:
                 if not isinstance(item, IrItem):
                     continue
-                atom = item.atom
-                if isinstance(atom, IrAlternation):
-                    return False
-                if isinstance(atom, IrRuleRef) and not visit(str(atom)):
+                if not _visit_atom(item.atom, visit):
                     return False
         grey.discard(name)
         done.add(name)
@@ -339,18 +407,10 @@ def build_recognizer(
     index = {name: i for i, name in enumerate(order)}
     flat: list[tuple[tuple[tuple[int, Any, int, int], ...], ...]] = []
     for name in order:
-        arms: list[tuple[tuple[int, Any, int, int], ...]] = []
-        for arm in rules[name].body:
-            items: list[tuple[int, Any, int, int]] = []
-            for item in arm:
-                if not isinstance(item, IrItem):
-                    continue
-                compiled = _compile_item(item, index)
-                if compiled is None:
-                    return None
-                items.append(compiled)
-            arms.append(tuple(items))
-        flat.append(tuple(arms))
+        arms = _compile_arms(rules[name].body, index)
+        if arms is None:
+            return None
+        flat.append(arms)
     return Recognizer(tuple(flat), index)
 
 

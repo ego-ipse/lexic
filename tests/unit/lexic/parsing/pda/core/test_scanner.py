@@ -19,6 +19,7 @@ from lexic.ir import (
     IrItem,
     IrLiteral,
     IrNone,
+    IrNot,
     IrQuantifier,
     IrRange,
     IrRule,
@@ -135,12 +136,48 @@ def test_build_opts_out_on_cycle():
     assert build_recognizer(rules, frozenset({"a"})) is None
 
 
-def test_build_opts_out_on_inline_group():
-    """An inline alternation group is not a simple recogniser construct."""
-    grp = IrAlternation(IrSequence(IrItem(IrLiteral("x"))))
+def test_inline_group_recognizes_like_a_same_bodied_rule():
+    """A group is a rule the grammar did not name, and matches identically.
+
+    ``@lexical`` replaces a noise rule's references with the inline groups
+    their bodies become; refusing groups here cost every folding-aware gate on
+    a marked grammar. The licence is that a group lowers through the SAME
+    construction a reference does, so the two must recognise the same text.
+    """
+    grp = IrAlternation(
+        IrSequence(IrItem(IrLiteral("x"))), IrSequence(IrItem(IrLiteral("yy")))
+    )
+    grouped = IrRule(
+        "r", IrAlternation(IrSequence(IrItem(grp, IrQuantifier(0, IrNone))))
+    )
+    named = IrRule(
+        "r", IrAlternation(IrSequence(IrItem(IrRuleRef("g"), IrQuantifier(0, IrNone))))
+    )
+    inner = IrRule("g", grp)
+    by_group = build_recognizer({"r": grouped}, frozenset({"r"}))
+    by_rule = build_recognizer({"r": named, "g": inner}, frozenset({"r"}))
+    assert by_group is not None and by_rule is not None
+    for text in ("xyyxZ", "yyx", "Z", "xxxx"):
+        assert scan_run(text, 0, by_group, by_group.index["r"]) == scan_run(
+            text, 0, by_rule, by_rule.index["r"]
+        )
+
+
+def test_build_still_opts_out_on_an_unrecognizable_atom_inside_a_group():
+    """The decline recurses: a group holding what the recognizer cannot spell
+    opts the WHOLE recognizer out, exactly as it does at rule level."""
+    bad = IrNot(IrLiteral("x"))  # IrNot over a non-class — no exact complement
+    grp = IrAlternation(IrSequence(IrItem(bad)))
     rule = IrRule("r", IrAlternation(IrSequence(IrItem(grp))))
-    rules = {str(rule.name): rule}
-    assert build_recognizer(rules, frozenset({"r"})) is None
+    assert build_recognizer({str(rule.name): rule}, frozenset({"r"})) is None
+
+
+def test_a_group_holding_an_undefined_ref_opts_out():
+    """Closure completeness: the walk descends into groups, so a reference
+    inside one is visited and its absence refuses the build."""
+    grp = IrAlternation(IrSequence(IrItem(IrRuleRef("nowhere"))))
+    rule = IrRule("r", IrAlternation(IrSequence(IrItem(grp))))
+    assert build_recognizer({str(rule.name): rule}, frozenset({"r"})) is None
 
 
 def test_literal_run_is_recognized():
