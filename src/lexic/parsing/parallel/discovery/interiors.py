@@ -520,50 +520,6 @@ def skip_leads(regions: tuple[Interior, ...]) -> dict[str, Skip]:
     }
 
 
-def split_leads(
-    regions: tuple[Interior, ...],
-) -> tuple[dict[str, str], dict[str, Skip]]:
-    """:func:`skip_leads`, with the dominant shape given its own fast table.
-
-    A symmetric single-character region — the quoted string, by far the most
-    swept shape — needs only its escape: :func:`skip_single` is the original
-    per-character loop with no tuple unpack, no guard test and no width
-    arithmetic, which together measured +2.6% on an 11 MiB discovery pass.
-
-    :returns: ``(fast, slow)`` — lead → escape for symmetric single-character
-        regions, lead → :data:`Skip` for everything else.
-    """
-    fast: dict[str, str] = {}
-    slow: dict[str, Skip] = {}
-    for lead, skip in skip_leads(regions).items():
-        closing, escape, resume, guard, width = skip
-        if not guard and width == 1 and resume == 1 and closing == lead:
-            fast[lead] = escape
-        else:
-            slow[lead] = skip
-    return fast, slow
-
-
-def skip_single(text: str, start: int, escape: str) -> int:
-    """Where the symmetric single-character region at ``start`` ends.
-
-    The pre-generalisation loop, byte for byte: the delimiter is the character
-    standing at ``start``, and the next unescaped occurrence closes it.
-    """
-    delim = text[start]
-    if delim == escape:
-        return len(text)
-    at = text.find(delim, start + 1)
-    while at != -1:
-        before = at - 1
-        while escape and before > start and text[before] == escape:
-            before -= 1
-        if not escape or (at - before - 1) % 2 == 0:
-            return at + 1
-        at = text.find(delim, at + 1)
-    return len(text)
-
-
 def skip_opaque(text: str, at: int, candidates: tuple[Interior, ...]) -> int:
     """Past the region opening at ``at``, or ``at`` when none opens there."""
     for region in candidates:

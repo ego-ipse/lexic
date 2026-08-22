@@ -29,8 +29,7 @@ from lexic.parsing.parallel.discovery.interiors import (
     hides,
     interiors,
     skip_delimited,
-    skip_single,
-    split_leads,
+    skip_leads,
 )
 from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
 from lexic.parsing.parallel.policy import MIN_CHUNK
@@ -131,27 +130,22 @@ class Vocab(NamedTuple):
     :ivar pairs: opener → ``(closer, rule)`` for the tracked bracket pairs.
     :ivar closers: closer → its opener.
     :ivar marks: The separator characters.
-    :ivar fast: lead → escape for symmetric single-character regions — the
-        dominant shape, on the original per-character loop.
-    :ivar slow: lead → :data:`Skip` for every other carried region.
+    :ivar skips: lead → its :data:`Skip`, one table so a non-skip character
+        pays one dict miss. A single-character fast path beside it was built
+        and MEASURED in-process at 0.98x — twice, results exact — and
+        reverted: the recorded +2.6% it was to recover does not reproduce
+        in-process, so the split's second lookup was all cost.
     """
 
     pairs: dict[str, tuple[str, str]]
     closers: dict[str, str]
     marks: frozenset[str]
-    fast: dict[str, str]
-    slow: dict[str, Skip]
+    skips: dict[str, Skip]
 
     @property
     def watched(self) -> set[str]:
         """Every character the sweep must find."""
-        return (
-            set(self.pairs)
-            | set(self.closers)
-            | self.marks
-            | set(self.fast)
-            | set(self.slow)
-        )
+        return set(self.pairs) | set(self.closers) | self.marks | set(self.skips)
 
 
 def _vocabulary(grammar: IrAst) -> Vocab:
@@ -161,9 +155,7 @@ def _vocabulary(grammar: IrAst) -> Vocab:
     lead character carries no role of its own. Skipping a region that hides
     nothing costs a swept delimiter and a search per occurrence for no change
     in the answer, and a lead character with a second role could not be
-    handed to the skip unconditionally the way the sweep does. The dominant
-    symmetric single-character shape rides its own fast table — see
-    :func:`~lexic.parsing.parallel.discovery.interiors.split_leads`.
+    handed to the skip unconditionally the way the sweep does.
     """
     pairs = pair_rules(grammar)
     marks = separators(grammar) - set(pairs)
@@ -174,7 +166,7 @@ def _vocabulary(grammar: IrAst) -> Vocab:
         if region.opening[0] not in watched and hides(grammar, region, watched)
     )
     closers = {closer: opener for opener, (closer, _rule) in pairs.items()}
-    return Vocab(pairs, closers, marks, *split_leads(skips))
+    return Vocab(pairs, closers, marks, skip_leads(skips))
 
 
 def _sweep(text: str, watched: set[str]) -> list[int]:
@@ -222,7 +214,7 @@ def _walk(text: str, offsets: list[int], vocab: Vocab, min_span: int) -> list[Re
     local aliases; the closer and mark branches read through ``vocab``, which
     keeps the walk inside the locals budget without touching its fast half.
     """
-    pairs, fast, slow = vocab.pairs, vocab.fast, vocab.slow
+    pairs, skips = vocab.pairs, vocab.skips
     found: list[Region] = []
     stack: list[tuple[int, str, list[int]]] = []
     skip_to = 0
@@ -230,10 +222,9 @@ def _walk(text: str, offsets: list[int], vocab: Vocab, min_span: int) -> list[Re
         if at < skip_to:
             continue  # inside an opaque interior — never read
         char = text[at]
-        if char in fast:
-            skip_to = skip_single(text, at, fast[char])
-        elif char in slow:
-            skip_to = skip_delimited(text, at, slow[char])
+        entry = skips.get(char)
+        if entry is not None:
+            skip_to = skip_delimited(text, at, entry)
         elif char in pairs:
             stack.append((at, char, []))
         elif char in vocab.closers and stack and stack[-1][1] == vocab.closers[char]:
