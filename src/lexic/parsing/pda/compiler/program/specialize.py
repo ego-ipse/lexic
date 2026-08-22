@@ -173,12 +173,12 @@ def _inline_value_strs(arm: FlatArm) -> None:
     """
     kinds = list(arm.kinds)
     for i, kind in enumerate(kinds):
-        if kind != OP_REF:
+        if kind != OP_REF or arm.gate_kinds[i] == GATE_ATTEMPT:
             continue
         target = arm.payloads[i]
         if _vstr_inlinable(target) or target.chartable is not None:
             kinds[i] = OP_VSTR
-        elif vdisp_target(target) and arm.gate_kinds[i] != GATE_ATTEMPT:
+        elif vdisp_target(target):
             kinds[i] = OP_VDISP
     arm.kinds = tuple(kinds)
 
