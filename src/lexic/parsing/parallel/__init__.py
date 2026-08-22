@@ -38,7 +38,7 @@ from lexic.parsing.parallel.replicas import (
     thread_replica,
     worker_replicas,
 )
-from lexic.parsing.parallel.roles import Roles, Separator, roles
+from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
 
 __all__ = [
     "AUTO",
@@ -50,6 +50,7 @@ __all__ = [
     "Scanner",
     "Separator",
     "SplitPlan",
+    "Terminator",
     "Window",
     "anchor_sites",
     "anchors",

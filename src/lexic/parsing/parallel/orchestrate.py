@@ -28,12 +28,8 @@ from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.discovery.regions import (
-    Region,
     choose,
     find,
-    piece_marks,
-    shell,
-    stub,
 )
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
@@ -41,15 +37,10 @@ from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_c
 from lexic.parsing.parallel.pool import ParsePool
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
-from lexic.parsing.parallel.stitch.model import (
-    RegionWork,
-    derive_plan,
-    head_rest,
-    region_items,
-    sole_route,
-    splice,
-)
-from lexic.parsing.parallel.stitch.tasks import region_tasks
+from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
+from lexic.parsing.parallel.stitch.model import RegionWork
+from lexic.parsing.parallel.stitch.safety import owner_excludes, terminates_once
+from lexic.parsing.parallel.stitch.tasks import region_tasks, region_works
 from lexic.parsing.pda.core.charsets import CharSet
 
 
@@ -88,6 +79,8 @@ class SplitPlan(NamedTuple):
     :ivar grammar: The codegen grammar chunks parse under.
     :ivar scanner: The role-driven structural scan.
     :ivar mark: The character cuts key on.
+    :ivar owner: The repeated unit that must exclude the mark; empty for a
+        terminated plan whose mark belongs to the unit itself.
     :ivar sep: The separator record, or ``None`` for a terminated plan.
     :ivar lead_grammar: The grammar rooted at the lead rule; ``None`` for a
         terminated plan or a bare-literal lead.
@@ -98,6 +91,7 @@ class SplitPlan(NamedTuple):
     grammar: IrAst
     scanner: Scanner
     mark: str
+    owner: str
     sep: Separator | None
     lead_grammar: IrAst | None
     lead_literal: str
@@ -152,7 +146,14 @@ def _plan_for(
         lead_grammar, literal = None, sep.char
         skip = frozenset()
     return SplitPlan(
-        grammar, Scanner(roles(grammar)), sep.char, sep, lead_grammar, literal, skip
+        grammar,
+        Scanner(roles(grammar)),
+        sep.char,
+        unit,
+        sep,
+        lead_grammar,
+        literal,
+        skip,
     )
 
 
@@ -177,7 +178,14 @@ def _terminated_plan(grammar: IrAst, rule_map: dict[str, IrRule]) -> SplitPlan |
     for record in derived.terminators:
         if record.unit == unit and record.container == str(grammar.start):
             return SplitPlan(
-                grammar, Scanner(derived), record.char, None, None, "", frozenset()
+                grammar,
+                Scanner(derived),
+                record.char,
+                unit,
+                None,
+                None,
+                "",
+                frozenset(),
             )
     return None
 
@@ -306,17 +314,17 @@ def _stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
     Each chunk is a document of complete units, so the container's single
     repetition field is the concatenation — no node is rebuilt or rebased.
 
-    The field must be an ``IrTuple``, not merely tuple-shaped: an ``IrMap``
-    iterates and has a length without subclassing one, so a structural test
-    would read a keyed field as a repetition and concatenate its entries.
+    The model product stores repeated fields as exact plain tuples. Exact type
+    guards keep tuple-shaped IR maps out without requiring the retired
+    reduction product's ``IrTuple`` representation.
     """
     sequences = []
     for chunk in chunks:
         fields = tuple(chunk)
-        if len(fields) != 1 or not isinstance(fields[0], IrTuple):
+        if len(fields) != 1 or fields[0].__class__ is not tuple:
             return None
         sequences.extend(fields[0])
-    return chunks[0].rebuild([IrTuple(*sequences)])
+    return chunks[0].rebuild(cast(Any, [tuple(sequences)]))
 
 
 def _stitch_separated[M: IrNamedTuple](
@@ -417,224 +425,6 @@ def _parse_region_parts[M: IrNamedTuple](
     return grouped
 
 
-def _joint_tail[M: IrNamedTuple](
-    parse: ModelProduct, work: RegionWork, cut: int, ask: Request[M]
-) -> GrammarModel | None:
-    """Reparse one removed joint with its forward-owned unit as a tail model."""
-    marks = work.region.marks
-    try:
-        at = marks.index(cut)
-    except ValueError:
-        return None
-    lo = work.region.opener + 1 if at == 0 else marks[at - 1] + 1
-    hi = work.region.closer if at + 1 == len(marks) else marks[at + 1]
-    text = ask.text
-    wrapped = text[work.region.opener] + text[lo:hi] + text[work.region.closer]
-    try:
-        model = parse(work.plan.root, wrapped, ask.fold, ask.resolve)
-    except LexicError:
-        return None
-    if not isinstance(model, GrammarModel):
-        return None
-    items = region_items(model, work.plan)
-    shaped = head_rest(items, work.plan) if items is not None else None
-    if shaped is None or len(shaped[1]) != 1:
-        return None
-    tail = shaped[1][0]
-    return tail if tail.__class__ is work.plan.tail_type else None
-
-
-def _joined_tails[M: IrNamedTuple](
-    parse: ModelProduct,
-    work: RegionWork,
-    shaped: list[tuple[GrammarModel, tuple[GrammarModel, ...]]],
-    ask: Request[M],
-) -> list[GrammarModel] | None:
-    """The first piece's tails plus each restored cut and later tails."""
-    merged = list(shaped[0][1])
-    for cut, (head, rest) in zip(work.cuts, shaped[1:], strict=True):
-        tail = _joint_tail(parse, work, cut, ask)
-        if tail is None:
-            return None
-        children = tail.children()
-        if work.plan.tail_head >= len(children):
-            return None
-        if children[work.plan.tail_head] != head:
-            return None
-        merged.append(tail)
-        merged.extend(rest)
-    return merged
-
-
-def _merge_items[M: IrNamedTuple](
-    parse: ModelProduct, work: RegionWork, models: list[GrammarModel], ask: Request[M]
-) -> GrammarModel | None:
-    """Join piece item nodes, restoring every removed separator tail."""
-    shaped: list[tuple[GrammarModel, tuple[GrammarModel, ...]]] = []
-    first_items: GrammarModel | None = None
-    for model in models:
-        items = region_items(model, work.plan)
-        part = head_rest(items, work.plan) if items is not None else None
-        if part is None:
-            return None
-        first_items = first_items or items
-        shaped.append(part)
-    if first_items is None or len(shaped) != len(work.cuts) + 1:
-        return None
-    merged = _joined_tails(parse, work, shaped, ask)
-    if merged is None:
-        return None
-    children = cast(list[Any], list(first_items.children()))
-    children[work.plan.items_rest] = tuple(merged)
-    try:
-        out = first_items.rebuild(children)
-    except TypeError, ValueError, LexicError:
-        return None
-    return out if out.__class__ is work.plan.items_type else None
-
-
-def _region_works[M: IrNamedTuple](
-    grammar: IrAst,
-    ask: Request[M],
-    divided: list[tuple[Region, list[str]]],
-    workers: int,
-) -> list[RegionWork] | None:
-    """Bind discovered source regions to parse-model stitch plans."""
-    roots: dict[str, IrAst] = {}
-    works: list[RegionWork] = []
-    for region, parts in divided:
-        plan = derive_plan(grammar, ask.fold, region.rule, roots)
-        cuts = piece_marks(region, workers)
-        if plan is None or len(parts) != len(cuts) + 1:
-            return None
-        works.append(RegionWork(region, parts, cuts, plan))
-    return works or None
-
-
-def _boundary_stub(
-    work: RegionWork,
-    models: list[GrammarModel],
-    raw: str,
-    wrapped: str,
-    head: GrammarModel,
-) -> str | None:
-    """Restore boundary-owned whitespace around one distinct stand-in."""
-    begin_at, end_at = work.plan.outer_begin, work.plan.outer_end
-    if begin_at is None or end_at is None:
-        return raw
-    first, last = models[0].children(), models[-1].children()
-    if begin_at >= len(first) or end_at >= len(last):
-        return None
-    begin, end = first[begin_at], last[end_at]
-    if not isinstance(begin, GrammarModel) or not isinstance(end, GrammarModel):
-        return raw
-    before, after = begin.to_text(), end.to_text()
-    if not before.startswith(wrapped[0]) or not after.endswith(wrapped[-1]):
-        return None
-    return before[1:] + head.to_text() + after[:-1]
-
-
-def _standin[M: IrNamedTuple](
-    parse: ModelProduct,
-    work: RegionWork,
-    models: list[GrammarModel],
-    ask: Request[M],
-    index: int,
-) -> tuple[GrammarModel, str, GrammarModel, bool] | None:
-    """Merged items and the exact shell needle standing in for them."""
-    value = _merge_items(parse, work, models, ask)
-    raw = stub(ask.text, work.region, index)
-    wrapped = ask.text[work.region.opener] + raw + ask.text[work.region.closer]
-    try:
-        stand = parse(work.plan.root, wrapped, ask.fold, ask.resolve)
-    except LexicError:
-        return None
-    if value is None or not isinstance(stand, GrammarModel):
-        return None
-    needle = region_items(stand, work.plan)
-    shaped = head_rest(needle, work.plan) if needle is not None else None
-    if shaped is None:
-        return None
-    item = _boundary_stub(work, models, raw, wrapped, shaped[0])
-    if item is None:
-        return None
-    if item != raw:
-        try:
-            stand = parse(
-                work.plan.root,
-                wrapped[0] + item + wrapped[-1],
-                ask.fold,
-                ask.resolve,
-            )
-        except LexicError:
-            return None
-        needle = (
-            region_items(stand, work.plan) if isinstance(stand, GrammarModel) else None
-        )
-    exact = all(m.to_text() == part for m, part in zip(models, work.parts))
-    return (value, item, needle, exact) if needle is not None else None
-
-
-class _Standins(NamedTuple):
-    """All reconstructed region values and their shell stand-ins."""
-
-    values: list[GrammarModel]
-    text: list[str]
-    needles: list[GrammarModel]
-    exact: bool
-
-
-def _standins[M: IrNamedTuple](
-    parse: ModelProduct,
-    works: list[RegionWork],
-    parsed: list[list[GrammarModel]],
-    ask: Request[M],
-) -> _Standins | None:
-    """Build every region's merged items and unique shell needle."""
-    out = _Standins([], [], [], True)
-    for index, (work, models) in enumerate(zip(works, parsed, strict=True)):
-        stand = _standin(parse, work, models, ask, index)
-        if stand is None:
-            return None
-        value, text, needle, exact = stand
-        out.values.append(value)
-        out.text.append(text)
-        out.needles.append(needle)
-        out = out._replace(exact=out.exact and exact)
-    return out
-
-
-def _stitch_shell[M: IrNamedTuple](
-    parse: ModelProduct,
-    grammar: IrAst,
-    ask: Request[M],
-    works: list[RegionWork],
-    stands: _Standins,
-) -> M | None:
-    """Parse the small enclosing shell and immutably attach delegated items."""
-    try:
-        whole = parse(
-            grammar,
-            shell(ask.text, [w.region for w in works], stands.text),
-            ask.fold,
-            ask.resolve,
-        )
-    except LexicError:
-        return None
-    if not isinstance(whole, GrammarModel):
-        return None
-    routes = [sole_route(whole, needle) for needle in stands.needles]
-    if any(route is None for route in routes):
-        return None
-    for route, value in zip(routes, stands.values, strict=True):
-        whole = splice(whole, cast(tuple, route), value)
-        if whole is None:
-            return None
-    if stands.exact and whole.to_text() != ask.text:
-        return None
-    return cast(M, whole)
-
-
 def _split_regions[M: IrNamedTuple](
     parse: ModelProduct,
     grammar: IrAst,
@@ -646,18 +436,23 @@ def _split_regions[M: IrNamedTuple](
     workers = doc_workers(cores)
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
+    # A bracket span may cover the whole source while still sit BELOW a
+    # wrapper start model (``root ::= node``). Routing, not byte position,
+    # decides whether it has a replaceable owner; a true root-region model
+    # yields no non-empty route and declines in ``_stitch_shell``.
     found = [
         region
         for region in find(analysis or grammar, ask.text)
-        if region.opener != 0 or region.closer != len(ask.text) - 1
+        if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
-    works = _region_works(grammar, ask, divided, workers)
+    works = region_works(grammar, ask.fold, ask.text, divided, analysis or grammar)
     if works is None:
         return None
     parsed = _parse_region_parts(parse, works, ask, workers)
-    stands = _standins(parse, works, parsed, ask) if parsed is not None else None
-    return _stitch_shell(parse, grammar, ask, works, stands) if stands else None
+    merge = MergeRequest(parse, ask.text, ask.fold, ask.resolve)
+    stands = standins(merge, works, parsed) if parsed is not None else None
+    return stitch_shell(merge, grammar, works, stands) if stands else None
 
 
 def split_model[M: IrNamedTuple](
@@ -686,8 +481,23 @@ def split_model[M: IrNamedTuple](
         whose parse model intentionally elides quoted interiors or wrappers.
     :returns: The model, or ``None`` to parse sequentially.
     """
+    # Settle the universal gates before deriving a plan. Reducer folds can
+    # issue thousands of tiny SubRun parses; under the GIL every one has one
+    # worker, and under AUTO a sub-2-chunk input cannot divide. Asking roles,
+    # ownership and region safety for work that policy has already refused is
+    # pure serial overhead on the caller's fold path.
+    workers = doc_workers(cores)
+    if workers < 2 or (cores == AUTO and len(ask.text) < 2 * MIN_CHUNK):
+        return None
     plan = split_plan(grammar)
-    if plan is not None:
+    view = analysis or grammar
+    safe_plan = plan is not None and (
+        terminates_once(view, plan.owner, plan.mark)
+        if plan.sep is None
+        else owner_excludes(view, plan.owner, plan.mark)
+    )
+    if safe_plan:
+        assert plan is not None
         cuts = _cut_offsets(plan, ask.text, cores)
         if cuts and (model := _split_parse(parse, plan, ask, cuts)) is not None:
             return model

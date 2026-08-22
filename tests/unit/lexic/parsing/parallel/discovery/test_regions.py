@@ -171,19 +171,42 @@ def test_a_run_below_the_floor_is_not_worth_dividing():
 
 
 def test_each_requested_worker_must_receive_one_full_chunk():
-    """Many tiny pieces cost more than leaving a modest region in the shell."""
+    """A useful region is clamped to its available pieces, not declined."""
     doc = "[" + _run(BIG) + "]"
     assert choose(doc, find(JSON_GRAMMAR, doc), 4)
-    assert not choose(doc, find(JSON_GRAMMAR, doc), 8)
+    picked = choose(doc, find(JSON_GRAMMAR, doc), 8)
+    assert len(picked) == 1
+    assert len(picked[0][1]) == 4
 
 
 def test_a_big_run_that_cannot_divide_steps_aside_for_the_runs_inside_it():
-    """A tokenizer file's top level is a handful of members, two of them
-    enormous: size alone would let it claim the territory and block the runs
-    that CAN divide."""
+    """An outer run that cannot divide steps aside for its balanced child."""
     doc = '{"a": [' + _run(BIG) + '], "b": 1}'
     picked = choose(doc, find(JSON_GRAMMAR, doc), 4)
     assert [region.rule for region, _parts in picked] == ["array"]
+
+
+def test_runner_count_prefers_an_eight_way_child_over_a_three_way_outer():
+    """Ownership ranking chooses the nested plan that fills more workers."""
+    items = ['"' + "x" * 2200 + '"' for _ in range(8)]
+    doc = (
+        '{"head":"'
+        + "h" * 17000
+        + '","items":['
+        + ",".join(items)
+        + '],"tail":"'
+        + "t" * 17000
+        + '"}'
+    )
+    found = find(JSON_GRAMMAR, doc)
+    outer = max(found, key=lambda region: region.span)
+    nested = next(region for region in found if region.rule == "array")
+
+    assert outer.rule == "object"
+    assert len(pieces(doc, outer, 3) or ()) == 3
+    assert len(pieces(doc, nested, 8) or ()) == 8
+    picked = choose(doc, found, 8)
+    assert [(region.rule, len(parts)) for region, parts in picked] == [("array", 8)]
 
 
 def test_picked_runs_never_overlap_and_come_in_document_order():

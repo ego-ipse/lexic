@@ -57,7 +57,7 @@ import msgspec
 import parsimonious
 import parsimonious.expressions
 
-from lexic.compile import Directives, compile_text
+from lexic.compile import CompiledGrammar, Directives, compile_text
 from lexic.exceptions import LexicError
 from lexic.parsing.parallel import AUTO, available_workers, split_model
 from lexic.parsing.parallel.orchestrate import Request
@@ -160,7 +160,9 @@ def _antlr_name(bench: str) -> str:
     return "B" + "".join(part.title() for part in bench.replace("-", "_").split("_"))
 
 
-def _lexic(bench: Bench, cores: int | None) -> dict[str, Parse]:
+def _lexic(
+    bench: Bench, cores: int | None
+) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
     """Both lexic engines over one compiled product — the PDA and Earley.
 
     Same grammar, same fold, same model: the only difference is which engine
@@ -192,8 +194,10 @@ def _lexic(bench: Bench, cores: int | None) -> dict[str, Parse]:
             product.instance_grammar, text, fold, product.tables
         ),
     }
+    mt_artifacts: dict[str, CompiledGrammar] = {}
     if cores is not None:
         engines["lexic-mt"] = lambda text: sequential(text, cores=cores)
+        mt_artifacts["lexic-mt"] = bench.compiled
     # The declared-variant engines: the SAME source under the directives a
     # lexic author could write — @lexical (maximal, mechanically derived) and
     # + @non-semantic (the fixture set's authored noise vocabulary). Both are
@@ -218,7 +222,8 @@ def _lexic(bench: Bench, cores: int | None) -> dict[str, Parse]:
             engines["lexic-mt-lex-ns"] = lambda text, parse=variant.parse: parse(
                 text, cores=cores
             )
-    return engines
+            mt_artifacts["lexic-mt-lex-ns"] = variant
+    return engines, mt_artifacts
 
 
 def _decision_cost(compiled, corpus: str) -> int | None:
@@ -417,7 +422,12 @@ MT_ROWS = frozenset({"lexic-mt", "lexic-mt-lex-ns"})
 
 def _engines(
     bench: Bench, cores: int | None, full: bool
-) -> tuple[dict[str, Parse], dict[str, str], dict[str, str]]:
+) -> tuple[
+    dict[str, Parse],
+    dict[str, str],
+    dict[str, str],
+    dict[str, CompiledGrammar],
+]:
     """Every engine to time, its document, and who could not take the grammar.
 
     lexic's own rows pass through the SAME :func:`unfaithful` gate as every
@@ -428,7 +438,7 @@ def _engines(
     different language, and an engine exempt from it would be exactly the
     sycophancy the gate is there to prevent.
     """
-    lexic = _lexic(bench, cores)
+    lexic, mt_artifacts = _lexic(bench, cores)
     competitors, refused = _competitors(bench)
     documents = {
         name: bench.full if full or name in MT_ROWS else bench.corpus
@@ -448,7 +458,10 @@ def _engines(
                 refused[label] = wrong
                 competitors.pop(label)
                 getattr(parse, "close", lambda: None)()
-    return {**working, **competitors}, refused, documents
+    active_mt = {
+        name: artifact for name, artifact in mt_artifacts.items() if name in working
+    }
+    return {**working, **competitors}, refused, documents, active_mt
 
 
 def _once(parse: Parse, corpus: str) -> float:
@@ -652,8 +665,7 @@ class Block(NamedTuple):
     :ivar refused: Rows that earned words instead of a number.
     :ivar floor: The harness's own noise, as a percentage.
     :ivar documents: What each row actually parsed.
-    :ivar mt_note: Why the mt rows ran sequentially, or ``None`` when the
-        split engaged (or no mt rows exist).
+    :ivar mt_notes: Per-row reasons that a requested mt row ran sequentially.
     """
 
     bench: Bench
@@ -661,11 +673,13 @@ class Block(NamedTuple):
     refused: dict[str, str]
     floor: float
     documents: dict[str, str]
-    mt_note: str | None
+    mt_notes: dict[str, str]
 
 
-def _mt_check(bench: Bench, cores: int | None) -> str | None:
-    """Why this grammar's mt rows did not thread, or ``None`` when they did.
+def _mt_check(
+    artifacts: dict[str, CompiledGrammar], document: str, cores: int | None
+) -> dict[str, str]:
+    """Why each exact mt artifact did not thread; absent rows engaged.
 
     Asked of the split entry directly, not inferred from timings: a split
     that declines falls back to the sequential parse, so the mt cell alone
@@ -674,17 +688,20 @@ def _mt_check(bench: Bench, cores: int | None) -> str | None:
     its twin must say so, or the spread between them reads as a result.
     """
     if cores is None:
-        return None
-    grammar = bench.compiled.codegen_grammar
-    request = Request(bench.full, bench.fold, None)
-    if (
-        split_model(
-            parse_model, grammar, request, cores, analysis=bench.compiled.grammar
+        return {}
+    declined: dict[str, str] = {}
+    for name, compiled in artifacts.items():
+        request = Request(document, compiled.fold, None)
+        split = split_model(
+            parse_model,
+            compiled.codegen_grammar,
+            request,
+            cores,
+            analysis=compiled.split_analysis or compiled.grammar,
         )
-        is None
-    ):
-        return "the unified split seam found no eligible work on this document"
-    return None
+        if split is None:
+            declined[name] = "the unified split seam found no eligible work"
+    return declined
 
 
 def _report(block: Block, color: bool) -> None:
@@ -710,10 +727,10 @@ def _report(block: Block, color: bool) -> None:
         f"  {'noise floor':<13}{block.floor:8.2f}%    "
         "smaller differences are not results"
     )
-    if block.mt_note is not None:
+    for name, reason in sorted(block.mt_notes.items()):
         print(
-            f"  {'mt check':<13}{'off':>8}     {block.mt_note} — the mt rows "
-            "ran the same one-worker program as their sequential twins"
+            f"  {(name + ' check'):<17}{'off':>4}     {reason} — this row ran "
+            "the same one-worker program as its sequential twin"
         )
     _seat_check(bench, block.samples)
 
@@ -842,7 +859,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     _legend(color)
     for bench in benches:
-        engines, refused, documents = _engines(bench, cores, args.full)
+        engines, refused, documents, mt_artifacts = _engines(bench, cores, args.full)
         anchor = next(iter(engines), None)
         floor = (
             _noise_floor(engines[anchor], documents[anchor], args.rounds)
@@ -856,7 +873,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 refused,
                 floor,
                 documents,
-                _mt_check(bench, cores),
+                _mt_check(mt_artifacts, bench.full, cores),
             ),
             color,
         )

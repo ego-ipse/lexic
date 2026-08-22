@@ -13,7 +13,14 @@ while workers still parse the derived grammar and build its exact model
 classes. This matters when recognition-only elision removes quote/escape
 wrappers: braces inside strings must never become candidate regions.
 
-Ownership is non-overlapping. A divided outer region owns its descendants; if
-a nested region is divided instead, its enclosing document parses a distinct
-one-item stub and receives the completed items node afterward. Only bounded
-separator joints are reparsed to recover their exact forward ownership.
+Ownership is non-overlapping, but outermost is not automatically best. When a
+nested region offers the useful cuts, it is delegated and its enclosing parse
+uses a distinct stand-in for that known subtree; the completed items node is
+reattached afterward. The larger parse must not repeat delegated work merely
+because it contains it. Separator joints parse shallow grammatical witnesses
+carrying the exact boundary noise, then attach the already parsed forward head.
+
+There is no privileged grammar here. JSON is a differential and benchmark
+witness, not a parser mode or policy input. The measured split floor remains
+2 KiB per worker: a regression above that floor is duplicated work to remove,
+not a reason to raise the floor or silently decline MT.

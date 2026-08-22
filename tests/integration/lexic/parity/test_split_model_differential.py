@@ -13,7 +13,12 @@ import json
 
 import pytest
 
-from lexic.compile import CompiledGrammar, compile_ast, compile_from_path
+from lexic.compile import (
+    CompiledGrammar,
+    compile_ast,
+    compile_from_path,
+    compile_text,
+)
 from lexic.compile.artifact import _reduce_entry
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
@@ -21,6 +26,9 @@ from lexic.parsing import parse_model
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
+from tools.benchmark import bench as benchmark
+from tools.benchmark.bench import _lexic, _mt_check
+from tools.benchmark.grammars import BENCHES
 
 FORMULATIONS = ("native", "json.gbnf", "json.abnf", "json.ebnf")
 WORKERS = (2, 4, 8)
@@ -104,7 +112,13 @@ def test_reducer_derived_variant_really_splits(
     entry = _reduce_entry(compiled, JSON_REDUCER)
     grammar, fold = entry.variant.codegen_grammar, entry.variant.fold
     sequential = parse_model(grammar, DOCUMENT, fold)
-    split = split_model(parse_model, grammar, Request(DOCUMENT, fold), workers)
+    split = split_model(
+        parse_model,
+        grammar,
+        Request(DOCUMENT, fold),
+        workers,
+        analysis=entry.variant.split_analysis,
+    )
 
     assert split is not None, f"{name}: reducer variant split became vacuous"
     assert type(split) is type(sequential)
@@ -202,6 +216,97 @@ def test_outer_region_owns_nested_child_territory() -> None:
     assert not any(start == "array" for start, _source in calls)
 
 
+def test_public_cores_ceiling_keeps_a_fourish_way_nested_region() -> None:
+    """Eight requested cores must not decline a region that has four ways."""
+    compiled = compile_ast(JSON_GRAMMAR)
+    calls: list[tuple[str, str]] = []
+
+    def recording_parse(grammar, source, fold, resolve=None):
+        calls.append((str(grammar.start), source))
+        return parse_model(grammar, source, fold, resolve)
+
+    split = split_model(
+        recording_parse,
+        compiled.codegen_grammar,
+        Request(DOCUMENT, compiled.fold),
+        8,
+    )
+    assert split is not None, "cores=8 declined useful nested work"
+    assert split.to_text() == DOCUMENT
+    assert compiled.parse(DOCUMENT, cores=8) == parse_model(
+        compiled.codegen_grammar, DOCUMENT, compiled.fold
+    )
+
+    # The array has enough balanced items for a useful several-way split.  A
+    # ceiling that merely returns None would never expose these large pieces.
+    delegated_pieces = [
+        source
+        for start, source in calls
+        if start in {"array", "object"} and len(source) > 2000
+    ]
+    assert len(delegated_pieces) >= 4
+
+
+def test_nested_region_owner_rejects_a_shared_separator_triple() -> None:
+    """A nested region declines when a word owns two separator-looking commas."""
+    grammar = """
+root ::= pre group post
+pre ::= "x"
+group ::= "{" items "}"
+items ::= word more*
+more ::= "," word
+word ::= triple | simple
+triple ::= simple "," simple "," simple
+simple ::= [a-z]+
+post ::= "y"
+"""
+    compiled = compile_text(grammar)
+    text = "x{" + "a" * 1700 + "," + "b" * 1700 + "," + "c" * 1700 + "}y"
+
+    assert (
+        split_model(
+            parse_model,
+            compiled.codegen_grammar,
+            Request(text, compiled.fold),
+            2,
+            analysis=compiled.grammar,
+        )
+        is None
+    )
+    sequential = compiled.parse(text, cores=1)
+    parallel = compiled.parse(text, cores=2)
+    assert parallel == sequential
+    assert parallel.to_text() == text
+
+
+def test_benchmark_mt_status_covers_base_and_lex_ns_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both benchmark MT rows must pass the split-status check independently."""
+    bench = next(candidate for candidate in BENCHES if candidate.name == "json")
+    engines, artifacts = _lexic(bench, 4)
+    assert {"lexic-mt", "lexic-mt-lex-ns"} <= engines.keys()
+    assert set(artifacts) == {"lexic-mt", "lexic-mt-lex-ns"}
+    probed: list[object] = []
+    declined = artifacts["lexic-mt-lex-ns"].codegen_grammar
+
+    def recording_split(parse, grammar, request, cores, *, analysis=None):
+        del parse, request, cores, analysis
+        probed.append(grammar)
+        return None if grammar is declined else object()
+
+    monkeypatch.setattr(benchmark, "split_model", recording_split)
+    notes = _mt_check(artifacts, bench.full, 4)
+
+    assert len(probed) == 2
+    assert {id(grammar) for grammar in probed} == {
+        id(artifacts["lexic-mt"].codegen_grammar),
+        id(artifacts["lexic-mt-lex-ns"].codegen_grammar),
+    }
+    assert set(notes) == {"lexic-mt-lex-ns"}
+    assert "eligible work" in notes["lexic-mt-lex-ns"]
+
+
 def test_a_whole_document_run_declines_and_public_parse_falls_back(
     json_compiled: tuple[str, CompiledGrammar],
 ) -> None:
@@ -210,8 +315,10 @@ def test_a_whole_document_run_declines_and_public_parse_falls_back(
     text = "[" + ",".join(str(i) for i in range(2500)) + "]"
     grammar, fold = compiled.codegen_grammar, compiled.fold
 
-    assert split_model(parse_model, grammar, Request(text, fold), WORKERS[-1]) is None
     expected = parse_model(grammar, text, fold)
+    split = split_model(parse_model, grammar, Request(text, fold), WORKERS[-1])
+    assert split is not None
+    assert split == expected
     actual = compiled.parse(text, cores=WORKERS[-1])
     assert actual == expected
     assert actual.to_text() == text

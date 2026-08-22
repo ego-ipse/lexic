@@ -21,12 +21,11 @@ scan's regex alternates over, and stays out of v2 by design.
 
 from __future__ import annotations
 
-from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrRuleRef
 from lexic.parsing.parallel.discovery.anchors import anchors
-from lexic.parsing.parallel.discovery.shapes import UNIT, edge_char, unbounded
+from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
 
 
 class Separator(NamedTuple):
@@ -219,13 +218,54 @@ def _terminators(
                 unit = str(target)
                 if unit not in by_name:
                     continue
-                char = edge_char(
-                    by_name[unit].body, -1, partial(_anchor_char, anchor_set=anchor_set)
+                char = _body_edge(
+                    by_name[unit].body, -1, by_name, anchor_set, frozenset({unit})
                 )
                 record = Terminator(char, str(rule.name), unit) if char else None
                 if record is not None and record not in out:
                     out.append(record)
     return out
+
+
+def _item_edge(
+    item: IrItem,
+    at: int,
+    by_name: dict[str, IrRule],
+    anchor_set: frozenset[str],
+    seen: frozenset[str],
+) -> str | None:
+    """One structural edge, resolving unit rule-reference wrappers."""
+    char = _anchor_char(item, anchor_set)
+    if char is not None:
+        return char
+    atom = item.atom
+    if not isinstance(atom, IrRuleRef) or item.quantifier != UNIT:
+        return None
+    name = str(atom)
+    target = by_name.get(name)
+    if target is None or name in seen:
+        return None
+    return _body_edge(target.body, at, by_name, anchor_set, seen | {name})
+
+
+def _body_edge(
+    body: IrAlternation,
+    at: int,
+    by_name: dict[str, IrRule],
+    anchor_set: frozenset[str],
+    seen: frozenset[str],
+) -> str | None:
+    """The common recursively resolved structural edge of every arm."""
+    chars: set[str] = set()
+    for arm in body:
+        items = tuple(arm)
+        if not items:
+            return None
+        char = _item_edge(items[at], at, by_name, anchor_set, seen)
+        if char is None:
+            return None
+        chars.add(char)
+    return chars.pop() if len(chars) == 1 else None
 
 
 def _repeated_separators(

@@ -279,7 +279,9 @@ src/lexic/
         shapes.py                  Grammar arm shapes
       stitch/
         __init__.py                Structural model-stitch package marker
+        merge.py                   Shallow boundary reconstruction and delegated-region shell attachment
         model.py                   Type-aware shell routes and immutable replacement
+        safety.py                  Per-owner proof that a cut separator cannot belong to the repeated item
         tasks.py                   Region pieces flattened onto distinct worker model views
     pda/
       __init__.py                  The predictive PDA runtime — analysis, clone compiler, flattener, kernel
@@ -412,6 +414,12 @@ optional.
 - **No grammar-specific hardcoding in generic code**, and no privileged
   formulation: every mechanism works over ANY formulation of a language through
   the standard pipeline.
+- **Parallel parsing has no privileged benchmark grammar.** JSON is one witness,
+  never a special parser or policy case; MT must derive from grammar structure
+  and produce material wins across every supported split shape.
+- **The document-split floor is 2 KiB per worker.** That crossover was measured
+  against thread startup. Do not hide an MT regression by raising the floor or
+  suppressing an eligible row; remove duplicated planning/parsing/stitch work.
 - **Never create git worktrees.**
 - Tokenizer fixtures are fetched (`uv run python -m ext.API.hf`), never committed
   — they are LGPL. Tests skip when absent.

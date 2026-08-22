@@ -19,6 +19,7 @@ does not live beside the analysis.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from functools import partial
 from typing import NamedTuple
 
@@ -197,7 +198,13 @@ def find(grammar: IrAst, text: str) -> list[Region]:
 
 def _nearest(marks: tuple[int, ...], want: float) -> int:
     """The mark closest to ``want`` — cuts aim at positions, not at counts."""
-    return min(marks, key=lambda mark: abs(mark - want))
+    at = bisect_left(marks, want)
+    if at == 0:
+        return marks[0]
+    if at == len(marks):
+        return marks[-1]
+    before, after = marks[at - 1], marks[at]
+    return before if want - before <= after - want else after
 
 
 def piece_marks(region: Region, workers: int) -> list[int]:
@@ -303,20 +310,36 @@ def choose(
     region takes its span only if its pieces come out balanced; otherwise it
     steps aside and its children are considered on their own.
 
-    A selected run is cut for every requested worker, so it must feed every
-    one at least :data:`MIN_CHUNK`. Using only a two-worker floor creates
-    hundreds of tiny pieces when a document contains many modest runs.
+    ``workers`` is a ceiling, not an exact demand. Each selected run uses the
+    largest count it can feed at least :data:`MIN_CHUNK`, while the shared pool
+    still caps aggregate concurrency. This keeps useful four-way work when a
+    caller happens to have eight cores.
     """
-    picked: list[tuple[Region, list[str]]] = []
+    candidates: list[tuple[Region, list[str]]] = []
     for region in sorted(found, key=lambda r: -r.span):
-        if region.span < workers * MIN_CHUNK:
-            break
+        capacity = min(workers, region.span // MIN_CHUNK)
+        if capacity < 2:
+            continue
+        for count in range(capacity, 1, -1):
+            parts = pieces(text, region, count)
+            # Span capacity is only an upper bound. Sparse outer containers
+            # can leave one nearly empty piece and one piece holding the whole
+            # nested payload; accepting that blocks the balanced child region
+            # and repeats its work in joints and the shell. Every ACTUAL owner
+            # must clear the already measured per-worker floor.
+            if parts is not None and min(map(len, parts)) >= MIN_CHUNK:
+                candidates.append((region, parts))
+                break
+    # Prefer the ownership plan that fills more runners. Span breaks ties, but
+    # cannot let a three-way outer container suppress an eight-way child.
+    picked: list[tuple[Region, list[str]]] = []
+    for region, parts in sorted(
+        candidates, key=lambda entry: (-len(entry[1]), -entry[0].span)
+    ):
         if any(
             region.opener < other.closer and other.opener < region.closer
             for other, _parts in picked
         ):
             continue
-        parts = pieces(text, region, workers)
-        if parts is not None:
-            picked.append((region, parts))
+        picked.append((region, parts))
     return sorted(picked, key=lambda entry: entry[0].opener)

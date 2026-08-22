@@ -82,3 +82,22 @@ def interiors(grammar: IrAst) -> tuple[Interior, ...]:
         entry = (grammar, tuple(x for x in found if x is not None))
         _INTERIORS[id(grammar)] = entry
     return entry[1]
+
+
+_INTERIOR_RULES: dict[int, tuple[IrAst, frozenset[str]]] = {}
+"""Rule names matching the exact opacity shape used by :func:`interiors`."""
+
+
+def interior_rules(grammar: IrAst) -> frozenset[str]:
+    """Rules whose spans the structural scanner actually treats as opaque."""
+    entry = _INTERIOR_RULES.get(id(grammar))
+    if entry is None:
+        rule_map = {str(rule.name): rule for rule in grammar.rules}
+        names = frozenset(
+            str(rule.name)
+            for rule in grammar.rules
+            if _interior_of(rule, rule_map) is not None
+        )
+        entry = (grammar, names)
+        _INTERIOR_RULES[id(grammar)] = entry
+    return entry[1]

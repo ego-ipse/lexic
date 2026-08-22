@@ -9,13 +9,15 @@ from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.model import GrammarModel
 from lexic.parsing.fold import ModelFold, RuleFold
 from lexic.parsing.parallel.discovery.regions import Region
-from lexic.parsing.parallel.discovery.shapes import unbounded
+from lexic.parsing.parallel.discovery.shapes import literal_char, unbounded
 
 
 class RegionPlan(NamedTuple):
     """The model-bearing shape of one bracketed region rule."""
 
     root: IrAst
+    head_rule: str
+    separator: str
     outer_type: type[GrammarModel]
     items_type: type[GrammarModel]
     tail_type: type[GrammarModel]
@@ -63,7 +65,7 @@ def _ref_at(items: tuple[IrItem, ...], at: int) -> str | None:
 
 def _candidate(
     rules: dict[str, IrRule], outer_arm: tuple[IrItem, ...], at: int
-) -> tuple[str, str] | None:
+) -> tuple[str, str, str, str] | None:
     """The items/tail recurrence rooted at one outer-arm position."""
     items_name = _ref_at(outer_arm, at)
     items_rule = rules.get(items_name or "")
@@ -73,12 +75,42 @@ def _candidate(
     head, tail_name = _ref_at(items_arm, 0), _ref_at(items_arm, 1)
     tail_rule = rules.get(tail_name or "")
     tail_arm = _single_arm(tail_rule) if tail_rule is not None else None
+    separator = (
+        literal_char(tail_arm[0], rules)
+        if tail_arm is not None and len(tail_arm) == 2
+        else None
+    )
     valid_tail = (
         tail_arm is not None and len(tail_arm) == 2 and _ref_at(tail_arm, 1) == head
     )
     if head is None or tail_name is None or not unbounded(items_arm[1]):
         return None
-    return (items_name, tail_name) if valid_tail else None
+    return (
+        (items_name, tail_name, head, separator) if valid_tail and separator else None
+    )
+
+
+def _direct_candidate(
+    rules: dict[str, IrRule], outer_arm: tuple[IrItem, ...], at: int
+) -> tuple[str, str, str] | None:
+    """A direct ``head tail*`` recurrence at two outer-arm positions."""
+    if at + 1 >= len(outer_arm):
+        return None
+    head, tail_name = _ref_at(outer_arm, at), _ref_at(outer_arm, at + 1)
+    tail_rule = rules.get(tail_name or "")
+    tail_arm = _single_arm(tail_rule) if tail_rule is not None else None
+    separator = (
+        literal_char(tail_arm[0], rules)
+        if tail_arm is not None and len(tail_arm) == 2
+        else None
+    )
+    repeats = unbounded(outer_arm[at + 1])
+    returns_head = (
+        tail_arm is not None and len(tail_arm) == 2 and _ref_at(tail_arm, 1) == head
+    )
+    if head and tail_name and separator and repeats and returns_head:
+        return tail_name, head, separator
+    return None
 
 
 class _PlanInput(NamedTuple):
@@ -88,12 +120,23 @@ class _PlanInput(NamedTuple):
     fold: ModelFold
     rule_name: str
     outer_arm: tuple[IrItem, ...]
-    candidate: tuple[int, str, str]
+    candidate: tuple[int, str, str, str, str]
+
+
+def _boundary_slots(
+    arm: tuple[IrItem, ...], before: int, after: int, config: RuleFold
+) -> tuple[int | None, int | None]:
+    """Model slots for the wrapper refs immediately around a recurrence."""
+    if before < 0 or after >= len(arm):
+        return None, None
+    if _ref_at(arm, before) is None or _ref_at(arm, after) is None:
+        return None, None
+    return field_slot(config, before), field_slot(config, after)
 
 
 def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     """Bind a derived recurrence to exact generated model slots/classes."""
-    items_at, items_name, tail_name = source.candidate
+    items_at, items_name, tail_name, head_name, separator = source.candidate
     configs = (
         source.fold.config.get(source.rule_name),
         source.fold.config.get(items_name),
@@ -111,15 +154,13 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     kinds = (model_type(outer_cfg), model_type(items_cfg), model_type(tail_cfg))
     if any(slot is None for slot in slots) or any(kind is None for kind in kinds):
         return None
-    begin = end = None
-    if len(source.outer_arm) == 3 and items_at == 1:
-        if (
-            _ref_at(source.outer_arm, 0) is not None
-            and _ref_at(source.outer_arm, 2) is not None
-        ):
-            begin, end = field_slot(outer_cfg, 0), field_slot(outer_cfg, 2)
+    begin, end = _boundary_slots(
+        source.outer_arm, items_at - 1, items_at + 1, outer_cfg
+    )
     return RegionPlan(
         root=source.root,
+        head_rule=head_name,
+        separator=separator,
         outer_type=cast(type[GrammarModel], kinds[0]),
         items_type=cast(type[GrammarModel], kinds[1]),
         tail_type=cast(type[GrammarModel], kinds[2]),
@@ -132,35 +173,140 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     )
 
 
-def derive_plan(
-    grammar: IrAst, fold: ModelFold, rule_name: str, roots: dict[str, IrAst]
-) -> RegionPlan | None:
+class _DirectInput(NamedTuple):
+    """Inputs for binding a recurrence held directly by its bracket rule."""
+
+    root: IrAst
+    fold: ModelFold
+    rule_name: str
+    outer_arm: tuple[IrItem, ...]
+    candidate: tuple[int, str, str, str]
+
+
+class _DirectBinding(NamedTuple):
+    """Validated model classes and slots for one direct recurrence."""
+
+    outer_type: type[GrammarModel]
+    tail_type: type[GrammarModel]
+    head_slot: int
+    rest_slot: int
+    tail_head: int
+
+
+def _direct_binding(
+    outer_cfg: RuleFold, tail_cfg: RuleFold, head_at: int
+) -> _DirectBinding | None:
+    """Bind direct model classes and slots, all-or-nothing."""
+    kinds = model_type(outer_cfg), model_type(tail_cfg)
+    slots = (
+        field_slot(outer_cfg, head_at),
+        field_slot(outer_cfg, head_at + 1),
+        field_slot(tail_cfg, 1),
+    )
+    if any(kind is None for kind in kinds) or any(slot is None for slot in slots):
+        return None
+    outer_type, tail_type = cast(tuple[type[GrammarModel], ...], kinds)
+    head_slot, rest_slot, tail_head = cast(tuple[int, ...], slots)
+    return _DirectBinding(outer_type, tail_type, head_slot, rest_slot, tail_head)
+
+
+def _direct_plan(source: _DirectInput) -> RegionPlan | None:
+    """Bind a bracket rule that carries ``head tail*`` on itself."""
+    head_at, tail_name, head_name, separator = source.candidate
+    outer_cfg = source.fold.config.get(source.rule_name)
+    tail_cfg = source.fold.config.get(tail_name)
+    if outer_cfg is None or tail_cfg is None:
+        return None
+    bound = _direct_binding(outer_cfg, tail_cfg, head_at)
+    if bound is None:
+        return None
+    begin, end = _boundary_slots(source.outer_arm, head_at - 1, head_at + 2, outer_cfg)
+    return RegionPlan(
+        root=source.root,
+        head_rule=head_name,
+        separator=separator,
+        outer_type=bound.outer_type,
+        items_type=bound.outer_type,
+        tail_type=bound.tail_type,
+        outer_begin=begin,
+        outer_items=-1,
+        outer_end=end,
+        items_head=bound.head_slot,
+        items_rest=bound.rest_slot,
+        tail_head=bound.tail_head,
+    )
+
+
+_REGION_PLANS: dict[
+    tuple[int, int, str], tuple[IrAst, ModelFold, RegionPlan | None]
+] = {}
+"""Per-product region plans. Strong grammar/fold references pin identity.
+
+The rooted grammar owns compiled parser tables and worker replicas. Rebuilding
+it per document made every split a cold compile and discarded every supposedly
+warm replica, dwarfing the parse at benchmark scale.
+"""
+
+
+def derive_plan(grammar: IrAst, fold: ModelFold, rule_name: str) -> RegionPlan | None:
     """Derive the unique repeated-items child of one bracket rule.
 
     Brackets and whitespace may be referenced wrapper rules or inline grammar
     items. Only the items/tail recurrence is essential. Exact three-reference
     wrappers additionally expose their boundary fields for source restoration.
     """
-    rules = {str(rule.name): rule for rule in grammar.rules}
-    outer = rules.get(rule_name)
-    outer_arm = _single_arm(outer) if outer is not None else None
-    if outer_arm is None:
-        return None
-    candidates = [
-        (at, *candidate)
-        for at in range(len(outer_arm))
-        if (candidate := _candidate(rules, outer_arm, at)) is not None
-    ]
-    if len(candidates) != 1:
-        return None
-    root = roots.setdefault(rule_name, IrAst(grammar.rules, rule_name))
-    return _configured_plan(_PlanInput(root, fold, rule_name, outer_arm, candidates[0]))
+    key = (id(grammar), id(fold), rule_name)
+    entry = _REGION_PLANS.get(key)
+    if entry is None:
+        rules = {str(rule.name): rule for rule in grammar.rules}
+        outer = rules.get(rule_name)
+        outer_arm = _single_arm(outer) if outer is not None else None
+        candidates = (
+            [
+                (at, *candidate)
+                for at in range(len(outer_arm))
+                if (candidate := _candidate(rules, outer_arm, at)) is not None
+            ]
+            if outer_arm is not None
+            else []
+        )
+        direct = (
+            [
+                (at, *candidate)
+                for at in range(len(outer_arm))
+                if (candidate := _direct_candidate(rules, outer_arm, at)) is not None
+            ]
+            if outer_arm is not None
+            else []
+        )
+        root = IrAst(grammar.rules, rule_name)
+        if outer_arm is not None and len(candidates) == 1:
+            plan = _configured_plan(
+                _PlanInput(
+                    root,
+                    fold,
+                    rule_name,
+                    outer_arm,
+                    candidates[0],
+                )
+            )
+        elif outer_arm is not None and len(direct) == 1:
+            plan = _direct_plan(
+                _DirectInput(root, fold, rule_name, outer_arm, direct[0])
+            )
+        else:
+            plan = None
+        entry = (grammar, fold, plan)
+        _REGION_PLANS[key] = entry
+    return entry[2]
 
 
 def region_items(model: GrammarModel, plan: RegionPlan) -> GrammarModel | None:
     """The region's items child, guarded by exact generated class."""
     if model.__class__ is not plan.outer_type:
         return None
+    if plan.outer_items < 0:
+        return model if model.__class__ is plan.items_type else None
     children = model.children()
     if plan.outer_items >= len(children):
         return None

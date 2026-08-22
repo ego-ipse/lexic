@@ -10,7 +10,7 @@ from __future__ import annotations
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.parallel import Roles, Scanner, roles
-from tests.unit.lexic.parsing.parallel.test_anchors import JSONISH
+from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
 DOC = "{qaq: {qbq: {qcq: qdq}}, qeq: qfq, qgq: {qhq: qiq}}".replace("q", '"')
 
