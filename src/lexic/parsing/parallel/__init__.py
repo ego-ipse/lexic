@@ -24,7 +24,8 @@ orchestrator's own vocabulary, public for composition and tests.
 
 from lexic.parsing.parallel.discovery.anchors import SITE_EMITS, anchor_sites, anchors
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
-from lexic.parsing.parallel.orchestrate import SplitPlan, split_model, split_plan
+from lexic.parsing.parallel.orchestrate import split_model, split_plan
+from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.policy import (
     AUTO,
     MIN_CHUNK,

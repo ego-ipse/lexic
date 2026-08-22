@@ -73,6 +73,44 @@ def _doc(count: int = 40) -> str:
     return ", ".join(f"key{'x' * (i % 7)}:{i}" for i in range(count))
 
 
+ROUTED_GRAMMAR = """root ::= head body? nl?
+head ::= "!" word
+body ::= inline | block
+inline ::= " " word " >"
+block ::= nl line* ">"
+line ::= word nl
+word ::= [a-z]+
+nl ::= "\\n"
+"""
+
+
+def test_a_routed_region_split_never_pays_for_the_bracket_sweep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The routed region is certified against the start rule's own shape; the
+    sweep's choice is a size heuristic over whatever brackets a document
+    happens to hold. Certainty is tried first, so a grammar whose route engages
+    never runs the sweep at all."""
+    compiled = compile_text(ROUTED_GRAMMAR)
+    line = "abcdefghij"
+    text = "!abc\n" + "".join(f"{line[i % 10]}wordy\n" for i in range(900)) + ">"
+    swept: list[int] = []
+    real_find = orchestrate.find
+
+    def counting_find(*args, **kwargs):
+        swept.append(1)
+        return real_find(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrate, "find", counting_find)
+    split = split_model(
+        parse_model, compiled.codegen_grammar, Request(text, compiled.fold), 8
+    )
+
+    assert split is not None, "the routed region must carry this split"
+    assert split.to_text() == text
+    assert not swept, "a routed split ran the bracket sweep it cannot use"
+
+
 @pytest.mark.parametrize(
     ("cores", "text"),
     [(1, "x" * (2 * MIN_CHUNK)), (AUTO, "x"), (16, "x")],

@@ -273,6 +273,7 @@ src/lexic/
         __init__.py                Split-plan shape analysis package marker
         envelope.py                Envelope container arms, noise-run leads, and the certified cut match
         routed.py                  Route-derived interiors — a region the character sweep cannot see
+        split.py                   SplitPlan — one grammar's cut shape, reused across documents
       roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
       discovery/
         __init__.py                Region-discovery package marker
