@@ -15,7 +15,7 @@ import hypothesis.strategies as st
 from hypothesis import given, settings
 
 from lexic.ir import MAX_CODEPOINT, IrCharClass, IrChr, IrRange
-from lexic.parsing.pda.core.charsets import MAX_RANGE_EXPANSION, CharSet
+from lexic.parsing.pda.core.charsets import MAX_RANGE_EXPANSION, CharSet, _expanded
 
 A = frozenset({"a", "b"})
 B = frozenset({"b", "c"})
@@ -318,6 +318,60 @@ def test_from_not_stays_any_when_inner_exceeds_the_cap_on_both_sides():
     ranges = [(0, MAX_CODEPOINT // 2)]
     cc = ranges_to_charclass(ranges)
     assert CharSet.from_not(cc) == CharSet.ANY
+
+
+# ── _expanded — the value memo (I11b) ────────────────────────────────────
+#
+# An IrCharClass IS its value, so from_charclass's memo keys on VALUE, not
+# identity: two distinct objects built from the same intervals must expand to
+# the identical CharSet (a genuine memo hit), and two distinct-by-value
+# classes must never collide.
+
+
+def test_expanded_memoises_equal_by_value_classes_to_the_identical_set():
+    """Two separately-built, equal-value classes are the SAME cached object —
+    proof of an actual memo hit, not merely equal results."""
+    a = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
+    b = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
+    assert a == b
+    assert a is not b
+    assert CharSet.from_charclass(a) is CharSet.from_charclass(b)
+
+
+def test_expanded_keeps_distinct_by_value_classes_distinct():
+    """Classes that differ in value never share a cached result."""
+    a = IrCharClass(IrRange(IrChr("a"), IrChr("c")))
+    b = IrCharClass(IrRange(IrChr("x"), IrChr("z")))
+    assert CharSet.from_charclass(a) != CharSet.from_charclass(b)
+    assert CharSet.from_charclass(a) is not CharSet.from_charclass(b)
+
+
+def test_expanded_memo_covers_a_negated_co_finite_class():
+    """A near-universal (small-complement) class also memoises exactly — the
+    negated branch is not special-cased out of the value cache."""
+    gap = 0x2028
+    ranges = [(0, gap - 1), (gap + 1, MAX_CODEPOINT)]
+    a = ranges_to_charclass(ranges)
+    b = ranges_to_charclass(ranges)
+    assert a == b and a is not b
+    cs_a, cs_b = CharSet.from_charclass(a), CharSet.from_charclass(b)
+    assert cs_a.negated and cs_a.chars == frozenset({chr(gap)})
+    assert cs_a is cs_b
+
+
+def test_expanded_hit_is_visible_on_the_underlying_lru_cache():
+    """The memo hit is not just inferred from object identity — the LRU's own
+    accounting agrees, over a fresh cache so an unrelated prior population
+    cannot mask a miss as a hit."""
+    _expanded.cache_clear()
+    cc_first = IrCharClass(IrRange(IrChr("p"), IrChr("s")))
+    cc_second = IrCharClass(IrRange(IrChr("p"), IrChr("s")))
+    CharSet.from_charclass(cc_first)
+    before = _expanded.cache_info()
+    CharSet.from_charclass(cc_second)
+    after = _expanded.cache_info()
+    assert after.hits == before.hits + 1
+    assert after.misses == before.misses
 
 
 @given(

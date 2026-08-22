@@ -284,20 +284,29 @@ def _spec_alternation(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
     stays out of that tail: it is a split opportunity, not text an inner child
     must leave for another copy.
 
-    A group whose arms' FIRSTs overlap carries the analysis' stored demotion
-    gates, keyed by this node's identity — the same read-back a rule body
-    does, so an alternation that ``@lexical`` inlining moved into a group is
-    still selected rather than islanded.
+    A group whose arms' FIRSTs overlap carries the analysis' stored settlement,
+    keyed by this node's identity — the same read-back a rule body does, so an
+    alternation that ``@lexical`` inlining moved into a group is still decided
+    rather than islanded. A window/peek demotion SELECTS an arm; an attempt
+    licence orders them and hands the runtime its second-success gate.
+
+    That gate is the analysis' SOFT continuation, taken from the store rather
+    than from ``ctx.cont``: this item's tail omits repeat loopback (see above),
+    and an arm ending exactly where another iteration would begin must read as
+    live, not dead. The per-clone tail is unioned in because widening the gate
+    only ever costs a bail — it can never let a commit through.
     """
     ctx = cast(_ItemCtx, nc[0])
     compiler = cast(PdaCompiler, d)
     eff = ctx.cont
     tax = compiler.analysis.taxonomy
-    windows, peeks = tax.grp_arm_gates.get(id(n), (None, None))
+    windows, peeks, attempt = tax.grp_arm_gates.get(id(n), (None, None, None))
+    order = attempt[0].order if attempt is not None else None
+    follow = attempt[1].union(eff) if attempt is not None else None
     arms, default, _ = compiler.compile_arms(
-        cast(IrAlternation, n), eff, ArmGates(windows, peeks)
+        cast(IrAlternation, n), eff, ArmGates(windows, peeks), order
     )
-    return ItemSpec(GRP, GroupSpec(arms, default), ctx.lo, ctx.hi, ctx.gate)
+    return ItemSpec(GRP, GroupSpec(arms, default, follow), ctx.lo, ctx.hi, ctx.gate)
 
 
 _ATOM_SPEC: IrTypeMap = IrTypeMap(

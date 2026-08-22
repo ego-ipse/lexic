@@ -7,7 +7,7 @@ arm, item and selector becomes ints in one pass. What it produces is defined in
 
 from __future__ import annotations
 
-from typing import Any, Sequence, cast
+from typing import Any, NamedTuple, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.fold import FastCtor, RuleFold
@@ -124,9 +124,24 @@ def _flatten_gate(
     return GATE_STOP, (cs.chars, cs.negated)
 
 
-def _flatten_arm(
-    specs: Sequence[ItemSpec], shells: dict[CloneKey, FlatClone]
-) -> FlatArm:
+class Lowering(NamedTuple):
+    """The lowering walk's two accumulators, carried as one.
+
+    :ivar shells: Clone key → its live shell; a ``ref`` payload resolves here,
+        so recursion needs no id indirection.
+    :ivar groups: Every ATTEMPTING inline-group clone, paired with the arm
+        specs its entries are built from. Filled during the walk and drained
+        after :func:`~lexic.parsing.pda.compiler.program.specialize.optimize_program`,
+        because an attempt's sub-clones copy their parent's FINAL baked state —
+        and unlike a rule clone, a group has no key the second pass could look
+        it up by.
+    """
+
+    shells: dict[CloneKey, FlatClone]
+    groups: list[tuple[FlatClone, tuple[ArmSpec, ...]]]
+
+
+def _flatten_arm(specs: Sequence[ItemSpec], low: Lowering) -> FlatArm:
     """Lower a sequence of :class:`ItemSpec` to a :class:`FlatArm` (refs
     resolve to the live shell objects, so recursion needs no id indirection)."""
     kinds: list[int] = []
@@ -136,7 +151,7 @@ def _flatten_arm(
     gate_kinds: list[int] = []
     gate_data: list[object] = []
     for spec in specs:
-        kind, payload = _flatten_item(spec, shells)
+        kind, payload = _flatten_item(spec, low)
         kinds.append(kind)
         payloads.append(payload)
         los.append(spec.lo)
@@ -155,9 +170,7 @@ def _flatten_arm(
     return arm
 
 
-def _flatten_item(
-    spec: ItemSpec, shells: dict[CloneKey, FlatClone]
-) -> tuple[int, object]:
+def _flatten_item(spec: ItemSpec, low: Lowering) -> tuple[int, object]:
     """Lower one :class:`ItemSpec` to its ``(op-code, payload)`` flat pair."""
     kind = spec.kind
     payload = spec.payload
@@ -167,11 +180,11 @@ def _flatten_item(
         cs = cast(CharSet, payload)
         return OP_CC, (cs.chars, cs.negated)
     if kind == GRP:
-        return OP_GRP, _flatten_group(cast(GroupSpec, payload), shells)
+        return OP_GRP, _flatten_group(cast(GroupSpec, payload), low)
     target = payload  # REF
     if isinstance(target, IslandRef):
         return (OP_FAIL if target.fail else OP_ISLAND), target.name
-    return OP_REF, shells[cast(CloneKey, target)]
+    return OP_REF, low.shells[cast(CloneKey, target)]
 
 
 def _bake_build(clone: FlatClone, fold: RuleFold | None) -> None:
@@ -229,7 +242,7 @@ def _build_plan(
 
 
 def _flatten_selectors(
-    arms: Sequence[ArmSpec], shells: dict[CloneKey, FlatClone]
+    arms: Sequence[ArmSpec], low: Lowering
 ) -> tuple[tuple[tuple[frozenset[str], bool, FlatArm], ...], object, object]:
     """Lower an alternation's arm selectors — single-char, k-window, or peek.
 
@@ -243,7 +256,7 @@ def _flatten_selectors(
         kwin = tuple(
             (
                 _flat_windows(cast("tuple[tuple[CharSet, ...], ...]", arm.windows)),
-                _flatten_arm(arm.specs, shells),
+                _flatten_arm(arm.specs, low),
             )
             for arm in arms
         )
@@ -254,30 +267,41 @@ def _flatten_selectors(
             (
                 cast("tuple[CharSet, CharSet]", arm.peek)[1].chars,
                 cast("tuple[CharSet, CharSet]", arm.peek)[1].negated,
-                _flatten_arm(arm.specs, shells),
+                _flatten_arm(arm.specs, low),
             )
             for arm in arms
         )
         return (), None, ((w.chars, w.negated), sels)
     selectors = tuple(
-        (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, shells))
+        (arm.first.chars, arm.first.negated, _flatten_arm(arm.specs, low))
         for arm in arms
     )
     return selectors, None, None
 
 
-def _flatten_group(group: GroupSpec, shells: dict[CloneKey, FlatClone]) -> FlatClone:
-    """Lower an inline group to a transparent :class:`FlatClone`."""
+def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
+    """Lower an inline group to a transparent :class:`FlatClone`.
+
+    An attempting group gets its MARKER here and its entries later: the marker
+    must exist before the optimizer runs (the vstr / leaf / dispatch licences
+    all refuse an attempt clone), while the entries copy the parent's final
+    baked state and so must wait for it — the same two-phase shape a rule
+    clone's attempt has in :func:`flatten_clones`.
+    """
     clone = FlatClone.__new__(FlatClone)
     clone.name = ""  # an inline group stands for no rule the grammar named
     clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
-        group.arms, shells
+        group.arms, low
     )
     clone.default = (
-        _flatten_arm(group.default, shells) if group.default is not None else None
+        _flatten_arm(group.default, low) if group.default is not None else None
     )
     clone.struct_arm = None
-    clone.attempt = None
+    clone.attempt = (
+        (group.attempt_follow, ()) if group.attempt_follow is not None else None
+    )
+    if clone.attempt is not None:
+        low.groups.append((clone, group.arms))
     clone.mode = BUILD_TRANSPARENT
     _bake_build(clone, None)
     return clone
@@ -539,18 +563,21 @@ def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClon
     :func:`optimize_program`. Shared by :func:`flatten_program` and the
     per-island delegate compile, which each own an independent shell set the
     optimiser mutates in place.
+
+    Attempt entries are built in a third pass, after the optimizer, because
+    each sub-clone copies its parent's FINAL baked state. Inline groups attempt
+    too and are drained from :attr:`Lowering.groups` in the same pass — they
+    are minted mid-walk and have no key to be looked up by.
     """
-    shells: dict[CloneKey, FlatClone] = {
-        key: FlatClone.__new__(FlatClone) for key in clones
-    }
+    low = Lowering({key: FlatClone.__new__(FlatClone) for key in clones}, [])
     for key, spec in clones.items():
-        clone = shells[key]
+        clone = low.shells[key]
         clone.name = spec.name
         clone.selectors, clone.kwin_selectors, clone.pn_selectors = _flatten_selectors(
-            spec.arms, shells
+            spec.arms, low
         )
         clone.default = (
-            _flatten_arm(spec.default, shells) if spec.default is not None else None
+            _flatten_arm(spec.default, low) if spec.default is not None else None
         )
         clone.struct_arm = spec.struct_arm
         # The attempt MARKER must exist before the optimizer runs (the vstr /
@@ -561,14 +588,18 @@ def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClon
         )
         clone.mode = _build_mode(spec.fold)
         _bake_build(clone, spec.fold)
-    optimize_program(list(shells.values()))
-    for key, spec in clones.items():
-        if spec.attempt_follow is not None:
-            clone = shells[key]
-            entries = _attempt_entries(clone, spec.arms)
-            _optimize_entries(entries)
-            clone.attempt = (spec.attempt_follow, entries)
-    return shells
+    optimize_program(list(low.shells.values()))
+    attempting = [
+        (low.shells[key], spec.arms, spec.attempt_follow)
+        for key, spec in clones.items()
+        if spec.attempt_follow is not None
+    ]
+    attempting += [(clone, arms, clone.attempt[0]) for clone, arms in low.groups]
+    for clone, arms, follow in attempting:
+        entries = _attempt_entries(clone, arms)
+        _optimize_entries(entries)
+        clone.attempt = (follow, entries)
+    return low.shells
 
 
 def _optimize_entries(entries: tuple[Any, ...]) -> None:

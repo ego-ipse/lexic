@@ -329,17 +329,39 @@ def test_group_arm_overlap_demotes_under_the_node_identity_key():
     assert analysis.demoted["root"] == ["root[0]grp: arms k-window separable (demoted)"]
 
 
-def test_unseparable_group_arm_overlap_still_islands():
-    """The decline half: no window separates, so the hard note and the island
-    stay exactly as before. Two arms sharing an unbounded prefix are the case
-    no fixed-k lookahead can decide."""
+def test_unseparable_group_arm_overlap_earns_an_ordered_attempt():
+    """No window separates, so the overlap takes the THIRD settlement.
+
+    Two arms sharing an unbounded prefix are the case no fixed-k lookahead can
+    decide. The hard note stays — it is a real conflict — but it is counted as
+    covered and the group carries an attempt licence, so the enclosing rule is
+    attemptable rather than islanded.
+    """
     grp = IrAlternation(
         IrSequence(_item(IrCharClass(IrRange(IrChr(97), IrChr(122))), lo=1, hi=None)),
         IrSequence(_item(IrCharClass(IrRange(IrChr(97), IrChr(122))), lo=1, hi=None)),
     )
     root = _rule("root", IrSequence(_item(grp)))
     analysis = _analysis(root, start="root")
+    assert analysis.conflicts["root"] == ["root[0]grp: arms 0/1 FIRST overlap"]
+    assert "root" in analysis.taxonomy.attempts
+    windows, peek, attempt = analysis.taxonomy.grp_arm_gates[id(grp)]
+    assert (windows, peek) == (None, None)
+    assert attempt is not None and attempt[0].order == (0, 1)
+
+
+def test_left_recursive_group_arm_overlap_still_islands():
+    """The decline that remains: no arm ORDER helps a rule that re-enters at
+    the same position, so left recursion keeps its island and takes no
+    licence — the one residue the attempt cascade must never claim."""
+    grp = IrAlternation(
+        IrSequence(_item(IrRuleRef("root")), _item(IrLiteral("+"))),
+        IrSequence(_item(IrRuleRef("root")), _item(IrLiteral("-"))),
+    )
+    root = _rule("root", IrSequence(_item(grp)))
+    analysis = _analysis(root, start="root")
     assert "root" in analysis.islands
+    assert "root" not in analysis.taxonomy.attempts
     assert id(grp) not in analysis.taxonomy.grp_arm_gates
 
 

@@ -120,6 +120,42 @@ def test_undefined_ref_yields_unk_poison():
     assert solver.rule_prefixes("missing", 2) == {((), UNK)}
 
 
+def test_group_prefixes_memoises_a_node_reached_via_multiple_paths(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """An inline group is a rule without a name — it earns the identical
+    ``id``-keyed memo :meth:`rule_prefixes` has under a name. Reached from
+    two call sites (the exact shape ``@lexical`` inlining produces when it
+    splices one body into several sites), it costs one computation and both
+    callers see the SAME result, equal to the unmemoised union of its arms.
+    """
+    inner = IrAlternation(
+        IrSequence(IrItem(IrLiteral("p"))),
+        IrSequence(IrItem(IrLiteral("q"))),
+    )
+    solver = KWindowFirst({}, 3)
+    expected: set = set()
+    for arm in inner:
+        expected |= solver.arm_prefixes(_rule_items(arm), 3)
+
+    calls: list[int] = []
+    original = KWindowFirst.arm_prefixes
+
+    def counting(self, items, r):
+        calls.append(1)
+        return original(self, items, r)
+
+    monkeypatch.setattr(KWindowFirst, "arm_prefixes", counting)
+
+    first_path = solver.group_prefixes(inner, 3)
+    second_path = solver.group_prefixes(inner, 3)
+
+    assert first_path == expected
+    assert second_path == expected
+    assert len(calls) == 2, "the second path must be a memo hit, not a recompute"
+    assert (id(inner), 3) in solver.memo
+
+
 def test_state_cap_poisons_a_fanned_out_arm():
     """A per-item fan-out past ``_STATE_CAP`` poisons the whole arm to
     ``{((), UNK)}`` rather than enumerating exponentially."""

@@ -104,16 +104,23 @@ class Site(IrLeaf[IrSelf, IrSelf]):
 
     :ivar label: The note-label prefix — a rule name, or ``rule[k]grp``.
     :ivar at: The gate-store key — the rule name, or ``id(group node)``.
+    :ivar follow: The SOFT continuation at the alternation's end — what the
+        k-window extends short arms against, and what an ordered attempt
+        audits its second success by. For a group item this already carries
+        the item's own FIRST when it repeats, which the compiler's hard tail
+        deliberately drops.
     """
 
-    __slots__ = ("label", "at")
+    __slots__ = ("label", "at", "follow")
 
     label: str
     at: str | int
+    follow: CharSet
 
-    def __init__(self, label: str, at: str | int) -> None:
+    def __init__(self, label: str, at: str | int, follow: CharSet) -> None:
         self.label = label
         self.at = at
+        self.follow = follow
 
 
 class Scope(IrLeaf[IrSelf, IrSelf]):

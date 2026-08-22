@@ -106,14 +106,9 @@ def _kp_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> set[Pref]:
 
 
 def _kp_alternation(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> set[Pref]:
-    """A group's prefixes are the union of its arms' FIRST_r."""
+    """A group's prefixes are the union of its arms' FIRST_r, memoised."""
     assert isinstance(n, IrAlternation)
-    kw = _kw(d)
-    r = _budget(nc)
-    out: set[Pref] = set()
-    for arm in n:
-        out |= kw.arm_prefixes(_items(arm), r)
-    return out
+    return _kw(d).group_prefixes(n, _budget(nc))
 
 
 _KW_ATOM: IrTypeMap = IrTypeMap(
@@ -151,16 +146,18 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
 
     :ivar rules: The rule table (name → :class:`~lexic.ir.grammar.nodes.IrRule`).
     :ivar k: The window width.
-    :ivar memo: ``(rule, budget)`` → its prefix set.
-    :ivar busy: ``(rule, budget)`` keys currently being computed (cycle guard).
+    :ivar memo: ``(rule, budget)`` → its prefix set. An inline group is keyed
+        by its node ``id`` instead of a name — it is a nameless rule, and the
+        two key spaces are the same pair the gate store keeps apart.
+    :ivar busy: keys currently being computed (cycle guard).
     """
 
     __slots__ = ("rules", "k", "memo", "busy")
 
     rules: Mapping[str, IrRule]
     k: int
-    memo: dict[tuple[str, int], set[Pref]]
-    busy: set[tuple[str, int]]
+    memo: dict[tuple[str | int, int], set[Pref]]
+    busy: set[tuple[str | int, int]]
 
     def __init__(self, rules: Mapping[str, IrRule], k: int) -> None:
         """Prepare the FIRST_k solver over ``rules`` at window ``k``."""
@@ -184,6 +181,29 @@ class KWindowFirst(IrLeaf[IrSelf, IrSelf]):
         self.busy.add(key)
         out: set[Pref] = set()
         for arm in self.rules[name].body:
+            out |= self.arm_prefixes(_items(arm), r)
+        self.busy.discard(key)
+        self.memo[key] = out
+        return out
+
+    def group_prefixes(self, group: IrAlternation, r: int) -> set[Pref]:
+        """FIRST_r of an inline group — its arms' prefixes, memoised.
+
+        A group is a rule without a name, so it earns :meth:`rule_prefixes`'
+        memo and cycle guard under its node identity. Without it the walk
+        re-derives every nested group once per path that reaches it, which
+        ``@lexical`` inlining turns from a few repeats into millions: vyx's
+        maximal variant made 1.39 M ``arm_prefixes`` calls off 9.7 k real ones.
+        """
+        key = (id(group), r)
+        got = self.memo.get(key)
+        if got is not None:
+            return got
+        if key in self.busy:
+            return {((), UNK)}
+        self.busy.add(key)
+        out: set[Pref] = set()
+        for arm in group:
             out |= self.arm_prefixes(_items(arm), r)
         self.busy.discard(key)
         self.memo[key] = out

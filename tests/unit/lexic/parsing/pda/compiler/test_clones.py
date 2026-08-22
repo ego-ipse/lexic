@@ -144,8 +144,8 @@ PINNED_CLONE_COUNTS: dict[str, int] = {
     "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
     "japanese.gbnf": 7,
     "json.gbnf": 87,  # island-free at P3: the whole grammar clones
-    "json_arr.gbnf": 24,
-    "json_ws.gbnf": 23,
+    "json_arr.gbnf": 26,  # +2: number attempts (group arms) and clones
+    "json_ws.gbnf": 25,  # +2: the json_arr twin, same group
     "list.gbnf": 2,
     "arithmetic.abnf": 7,
     "json.abnf": 87,  # the GBNF twin, also island-free at P3
@@ -187,16 +187,15 @@ def test_no_pending_placeholder_leaks(stem: str):
         assert spec.name
 
 
-PINNED_RESIDUE: dict[str, list[str]] = {
-    **PINNED_ISLANDS,
-    "c.gbnf": [],
-}
+PINNED_RESIDUE: dict[str, list[str]] = {stem: [] for stem in PINNED_ISLANDS}
 """The compiler-level island RESIDUE — the analysis' islands minus the
-attemptable set (which clones instead). Only c.gbnf differs, and it is now
-EMPTY: four of its five analysis islands always attempted, and group-arm
-demotion took the fifth — `relationoperator`, whose body is one inline group
-whose k-window separates the comparison spellings — out of the island set
-altogether, so it clones like any other rule."""
+attemptable set (which clones instead). **Every ground-truth grammar is now
+island-free here.** `c.gbnf`'s five went first (four always attempted;
+group-arm k-window demotion took `relationoperator`), and ordered attempt on
+group arms took the last two: `json_arr`/`json_ws`'s `number`, whose
+`number[1]grp` overlap no fixed-k window separates. The island machinery is
+still reachable — left recursion is the residue no licence can settle — but no
+shipped grammar reaches it."""
 
 
 @pytest.mark.parametrize("stem", sorted(PINNED_RESIDUE))
@@ -384,8 +383,15 @@ def test_hand_grammar_empty_alternation_arm_becomes_the_default_not_a_gated_arm(
 
 
 def test_island_tables_is_memoised_per_island_rule():
-    """island_tables(name) returns the identical ParserTables object on repeat calls."""
-    pda = pda_for(GROUND_TRUTH / "json_arr.gbnf")  # json itself is island-free now
+    """island_tables(name) returns the identical ParserTables object on repeat calls.
+
+    Driven from a LEFT-RECURSIVE grammar rather than a ground-truth file: no
+    shipped grammar islands any more (ordered attempt now settles the last of
+    them, `json_arr`/`json_ws`'s `number`), and left recursion is the one
+    residue no gate or attempt can license — no arm order helps a rule that
+    re-enters at the same position.
+    """
+    pda = pda_from_text('root ::= e\ne ::= e "+" e | "a"\n')
     name = next(iter(pda.islands))
     first = pda.island_tables(name)
     second = pda.island_tables(name)

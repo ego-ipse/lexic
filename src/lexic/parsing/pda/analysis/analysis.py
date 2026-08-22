@@ -25,7 +25,12 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
 )
-from lexic.parsing.pda.analysis.conflicts import soft_gap_conflict, sub_conflict
+from lexic.parsing.pda.analysis.conflicts import (
+    attempt_group,
+    attempt_spec,
+    soft_gap_conflict,
+    sub_conflict,
+)
 from lexic.parsing.pda.analysis.cursors import (
     Cont,
     FeedCtx,
@@ -324,7 +329,6 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     def _demote_arms(
         self,
         arms: list[Sequence[IrItem]],
-        ext_follow: CharSet,
         site: Site,
         notes: Notes,
     ) -> bool:
@@ -336,7 +340,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         the arms and the continuation, so ``site`` is the only thing that
         differs between them.
         """
-        gate = kwindow.arm_gate(self.rules, arms, ext_follow)
+        gate = kwindow.arm_gate(self.rules, arms, site.follow)
         if gate is not None:
             self.taxonomy.store_arm_windows(
                 site.at, tuple(kwindow.windows_of(s) for s in gate[1])
@@ -509,7 +513,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 body=True,
             )
             arms = [_items(arm) for arm in rule.body]
-            self.arm_conflicts(arms, self.follow[name], Site(name, name), notes)
+            self.arm_conflicts(arms, Site(name, name, self.follow[name]), notes)
             body_hard = len(notes.hard)
             for arm in arms:
                 self.seq_conflicts(arm, scope, notes)
@@ -517,45 +521,35 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             if notes.hard:
                 self.taxonomy.conflicts[name] = notes.hard
                 if body_hard + notes.covered == len(notes.hard) and not fail:
-                    self.taxonomy.attempts[name] = self._attempt_spec(arms)
+                    self.taxonomy.attempts[name] = attempt_spec(self, arms)
             if notes.soft:
                 self.taxonomy.demoted[name] = notes.soft
             if fail:
                 self.taxonomy.fail.add(name)
 
-    def _attempt_spec(self, arms: list[list[IrItem]]) -> AttemptSpec:
-        """The ordered-attempt plan for a body-arm-conflicted rule.
-
-        Authored arm order, nullable arms last: a nullable arm tried first
-        succeeds vacuously and makes every later arm dead code (the same rule
-        the PEG emitter applies to spell a faithful ordered choice).
-        """
-        solid = tuple(i for i, arm in enumerate(arms) if not seq_nullable(self, arm))
-        empty = tuple(i for i, arm in enumerate(arms) if seq_nullable(self, arm))
-        return AttemptSpec(solid + empty)
-
     def arm_conflicts(
         self,
         arms: Sequence[Sequence[IrItem]],
-        ext_follow: CharSet,
         site: Site,
         notes: Notes,
     ) -> None:
         """Flag pairwise FIRST overlaps and empty-arm-vs-FOLLOW ambiguities.
 
-        Under P2 demotion, a k-window-separable overlap is demoted and its
-        per-arm window sets are **stored** under ``at`` (the gate-spec channel
-        the clone compiler reads back). The licence covers a rule body and an
-        inline group alike: the two differ only in their key space, and
-        withholding it from groups is what made ``@lexical`` inlining island a
-        rule whose alternation the k-window had been settling all along.
+        An overlap is settled in three tiers, and a rule body and an inline
+        group take the same cascade — they differ only in ``site``'s key
+        space. A k-window (or noise-skip peek) SELECTS an arm and stores its
+        specs; failing that, a group earns an ordered-ATTEMPT licence
+        (:func:`~lexic.parsing.pda.analysis.conflicts.attempt_group`, which
+        also counts the notes as covered). Withholding either from groups is
+        what made ``@lexical`` inlining island a rule whose alternation had
+        been decided all along. A rule body's attempt licence is
+        :meth:`_classify`'s — it sees the whole note ledger.
 
         The empty-arm-vs-FOLLOW branch below stays rule-body-only: its gates
         are computed from the rule's own FOLLOW\\ :sub:`k`, which a group has
         no equivalent of. Its note is soft, so it never islands.
 
-        :param ext_follow: The FOLLOW set at the alternation's end.
-        :param site: Which alternation this is — its note label and store key.
+        :param site: The alternation — its label, store key and continuation.
         """
         infos = [(self.seq_first(arm), seq_nullable(self, arm)) for arm in arms]
         overlaps: list[tuple[int, int]] = []
@@ -564,15 +558,16 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 if first_i.overlaps(first_j):
                     overlaps.append((i, j))
         if overlaps:
-            demoted = self._demote_arms(list(arms), ext_follow, site, notes)
+            demoted = self._demote_arms(list(arms), site, notes)
             if not demoted:
                 for i, j in overlaps:
                     notes.hard.append(f"{site.label}: arms {i}/{j} FIRST overlap")
+                attempt_group(self, arms, site, notes, len(overlaps))
         if any(nullable for _, nullable in infos):
             greedy = [
                 i
                 for i, (first_i, nullable) in enumerate(infos)
-                if not nullable and first_i.overlaps(ext_follow)
+                if not nullable and first_i.overlaps(site.follow)
             ]
             gated = (
                 bool(greedy)

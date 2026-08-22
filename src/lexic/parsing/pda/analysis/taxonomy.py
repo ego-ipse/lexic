@@ -53,10 +53,16 @@ Windows = tuple[tuple[tuple[CharSet, ...], ...], ...]
 Peek = tuple[CharSet, tuple[CharSet, ...]]
 """One alternation's P3 noise-skip gate — ``(W, per-arm post-noise selectors)``."""
 
-GroupGate = tuple[Windows | None, Peek | None]
-"""An inline group's demotion, both families in one entry. The cascade stops at
-the first licence that fires, so exactly one half is ever set — keeping them
-together is what lets one node key address the whole decision."""
+GroupAttempt = tuple[AttemptSpec, CharSet]
+"""An inline group's ordered-attempt licence — the arm order, and the SOFT
+continuation at the group item (the second-success gate). Not the compiler's
+per-clone tail: that one omits repeat loopback, so an arm ending where another
+iteration begins would read as dead."""
+
+GroupGate = tuple[Windows | None, Peek | None, GroupAttempt | None]
+"""An inline group's decision, all three families in one entry. The cascade
+stops at the first licence that fires, so exactly one third is ever set —
+keeping them together is what lets one node key address the whole decision."""
 
 
 class _GateStore(IrLeaf[IrSelf, IrSelf]):
@@ -72,7 +78,8 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
     :ivar pn_arm: Rule name → ``(W, per-arm post-noise selectors)`` (P3).
     :ivar pn_loop: ``id(item)`` → ``(W, take set)`` (P3).
     :ivar grp_arm: ``id(group)`` → an inline group's :data:`GroupGate` — the
-        P2 and P3 families in one entry, since one node key addresses both.
+        P2, P3 and attempt families in one entry, since one node key addresses
+        all three.
     :ivar struct_loop: ``id(item)`` → a folding-aware ScanGate (P3/P5).
     :ivar struct_arm: Rule name → a folding-aware :class:`ArmGate` (empty-arm
         structured-noise / probe demotion, P3/P5).
@@ -168,7 +175,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
 
     @property
     def grp_arm_gates(self) -> dict[int, GroupGate]:
-        """``id(group)`` → a demoted INLINE GROUP's ``(windows, peek)`` pair.
+        """``id(group)`` → a settled INLINE GROUP's ``(windows, peek, attempt)``.
 
         The group twin of :attr:`arm_gates` / :attr:`pn_arm_gates`, keyed like
         :attr:`loop_gates` because a group has no name. It exists because
@@ -231,7 +238,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         if isinstance(at, str):
             self.gates.arm[at] = windows
             return
-        self._store_group_gate(at, (windows, None))
+        self._store_group_gate(at, (windows, None, None))
 
     def store_arm_peek(self, at: str | int, peek: Peek) -> None:
         """File a demoted arm selection's P3 noise-skip gate.
@@ -244,7 +251,19 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         if isinstance(at, str):
             self.gates.pn_arm[at] = peek
             return
-        self._store_group_gate(at, (None, peek))
+        self._store_group_gate(at, (None, peek, None))
+
+    def store_group_attempt(self, at: int, attempt: GroupAttempt) -> None:
+        """File an inline group's ordered-attempt licence under its node id.
+
+        The third settlement an arm overlap can take, after the k-window and
+        the noise-skip peek: try the arms in order with rollback, and let the
+        runtime's audit refuse what an order cannot decide.
+
+        :raises UnsupportedConstructError: On a conflicting re-store — see
+            :meth:`store_arm_windows`.
+        """
+        self._store_group_gate(at, (None, None, attempt))
 
     def _store_group_gate(self, at: int, gate: GroupGate) -> None:
         """File one group node's demotion, refusing a conflicting re-store."""

@@ -8,9 +8,10 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from lexic.ir import IrItem, IrNoneType
-from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope
+from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
-from lexic.parsing.pda.analysis.predicates import SEQ_ATOM
+from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
+from lexic.parsing.pda.analysis.taxonomy import AttemptSpec
 
 
 def soft_gap_conflict(
@@ -42,6 +43,46 @@ def soft_gap_conflict(
             items, k, scope
         )
         notes.covered += 1
+
+
+def attempt_spec(analysis: Any, arms: Sequence[Sequence[IrItem]]) -> AttemptSpec:
+    """The ordered-attempt plan for one conflicted alternation.
+
+    Authored arm order, nullable arms last: a nullable arm tried first
+    succeeds vacuously and makes every later arm dead code (the same rule the
+    PEG emitter applies to spell a faithful ordered choice). A pure function
+    of the arm list, so a rule body and an inline group derive it identically
+    and deterministically.
+    """
+    solid = tuple(i for i, arm in enumerate(arms) if not seq_nullable(analysis, arm))
+    empty = tuple(i for i, arm in enumerate(arms) if seq_nullable(analysis, arm))
+    return AttemptSpec(solid + empty)
+
+
+def attempt_group(
+    analysis: Any,
+    arms: Sequence[Sequence[IrItem]],
+    site: Site,
+    notes: Notes,
+    count: int,
+) -> None:
+    """License an inline group's undemotable overlap for ordered attempt.
+
+    Rule bodies are excluded: their licence is ``_classify``'s, decided against
+    the whole note ledger once every arm has been walked. A group's notes are
+    raised mid-walk, so its licence is recorded here — and counted as
+    ``covered``, the same channel an ungatable loop uses, which is what keeps
+    ``_classify``'s "every hard note is settled" test true and the enclosing
+    rule attemptable instead of islanded.
+
+    :param count: How many hard notes this overlap raised — one per arm pair.
+    """
+    if isinstance(site.at, str):
+        return
+    analysis.taxonomy.store_group_attempt(
+        site.at, (attempt_spec(analysis, arms), site.follow)
+    )
+    notes.covered += count
 
 
 def sub_conflict(

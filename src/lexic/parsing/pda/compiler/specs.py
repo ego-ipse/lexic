@@ -220,12 +220,18 @@ class ArmGates(NamedTuple):
 class GroupSpec(NamedTuple):
     """An inline ``(...)`` group's arm selection — the ``grp`` payload.
 
-    :ivar arms: The FIRST-gated arms.
+    :ivar arms: The gated arms — in ATTEMPT order when :attr:`attempt_follow`
+        is set, authored order otherwise.
     :ivar default: The all-nullable default arm's specs, or ``None``.
+    :ivar attempt_follow: The soft continuation at this group's item, when its
+        overlap is settled by ordered attempt; ``None`` otherwise. Both the
+        marker that the group attempts and the second-success gate the runtime
+        audits against, exactly as :attr:`CloneSpec.attempt_follow` is.
     """
 
     arms: tuple[ArmSpec, ...]
     default: tuple[ItemSpec, ...] | None
+    attempt_follow: CharSet | None = None
 
 
 class CloneSpec(NamedTuple):

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import ClassVar, Final
 
 from lexic.ir import IrCharClass
@@ -182,17 +183,13 @@ class CharSet:
         to the conservative :attr:`ANY` only when BOTH sides exceed
         :data:`MAX_RANGE_EXPANSION`: exact by construction otherwise.
 
+        Memoised by VALUE — see :func:`_expanded`.
+
         :param cc: The character class to expand.
         :returns: The exact positive or negated set, or :attr:`ANY` when
             both the class and its complement exceed the expansion cap.
         """
-        positive = cc.intervals()
-        if _span_size(positive) <= MAX_RANGE_EXPANSION:
-            return cls(_expand(positive), False)
-        gaps = cc.complement().intervals()
-        if _span_size(gaps) <= MAX_RANGE_EXPANSION:
-            return cls(_expand(gaps), True)
-        return cls.ANY
+        return _expanded(cc)
 
     @classmethod
     def from_not(cls, inner: IrCharClass) -> CharSet:
@@ -235,3 +232,27 @@ CharSet.ANY = CharSet(frozenset(), True)
 """Every character — the co-finite universal set, and the conservative
 "unknown" value returned when a set cannot be computed exactly (e.g. a
 range past :data:`MAX_RANGE_EXPANSION`)."""
+
+
+@lru_cache(maxsize=4096)
+def _expanded(cc: IrCharClass) -> CharSet:
+    """:meth:`CharSet.from_charclass`'s body, memoised on the class's VALUE.
+
+    An ``IrCharClass`` IS its value, so equal classes expand to equal sets and
+    the memo is exact. It pays because the analyses ask the same few questions
+    enormously often: compiling vyx's maximal-``@lexical`` variant expands a
+    character class 1.24 M times over **19** distinct values, and the walk is
+    interval arithmetic plus a frozenset build each time.
+
+    Bounded by a plain LRU rather than the artefact registry: the key is a
+    value, not an identity, so no artefact owns it — and the population is
+    inherently small (the distinct character classes of the grammars a process
+    has seen).
+    """
+    positive = cc.intervals()
+    if _span_size(positive) <= MAX_RANGE_EXPANSION:
+        return CharSet(_expand(positive), False)
+    gaps = cc.complement().intervals()
+    if _span_size(gaps) <= MAX_RANGE_EXPANSION:
+        return CharSet(_expand(gaps), True)
+    return CharSet.ANY
