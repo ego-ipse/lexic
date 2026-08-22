@@ -48,7 +48,13 @@ from lexic.parsing import (
     token_model,
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.parallel import AUTO, anchors, split_model, thread_replica
+from lexic.parsing.parallel import (
+    AUTO,
+    anchors,
+    reset_pools,
+    split_model,
+    thread_replica,
+)
 from lexic.parsing.parallel.orchestrate import Request
 
 
@@ -458,8 +464,13 @@ _REDUCE_ENTRIES: dict[tuple[int, int], _ReduceEntry] = {}
 
 
 def reset_reduction_cache() -> None:
-    """Test seam: clear the artefact + reducer derived-variant memo."""
+    """Test seam: clear the derived-variant memo and release the warm pools.
+
+    Both are engine state a split parse leaves behind — the memo holds
+    artefacts, the pools hold live worker threads — so one seam clears them.
+    """
     _REDUCE_ENTRIES.clear()
+    reset_pools()
 
 
 def _variant_artifact(

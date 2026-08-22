@@ -8,19 +8,30 @@ its own exception.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from threading import Event, Lock, Thread
-from time import sleep
+from contextlib import ExitStack
+from threading import Barrier, Event, Lock, Thread, active_count
+from time import monotonic, sleep
 
 import pytest
 
 import lexic.parsing.parallel.pool as pool_module
-from lexic.compile import compile_text
+from lexic.compile import compile_text, reset_cache_for_tests
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.parallel import ParsePool
 from lexic.parsing.parallel import policy as policy_module
-from lexic.parsing.parallel.pool import WorkPool
+from lexic.parsing.parallel.pool import RETAINED, PoolLease, WorkPool
+from tests.unit.lexic.parsing.parallel.test_orchestrate import LEAD_RULE
+from tests.unit.lexic.parsing.parallel.test_orchestrate import _doc as _split_doc
 
 GRAMMAR = 'root ::= "(" [a-z]+ ")"\n'
+
+
+@pytest.fixture(autouse=True)
+def _reset_pool_cache():
+    """Empty the warm-pool cache before and after each test for isolation."""
+    pool_module.reset_pools()
+    yield
+    pool_module.reset_pools()
 
 
 class _PhaseState:
@@ -279,3 +290,153 @@ def test_auto_sizing_follows_the_policy(monkeypatch: pytest.MonkeyPatch):
     compiled = compile_text(GRAMMAR)
     assert ParsePool(compiled.parse).workers == 1
     assert ParsePool(compiled.parse, cores=1).workers == 1
+
+
+def test_lease_reuses_the_same_pool_at_one_worker_count():
+    """Two consecutive leases at the same width borrow one identical pool."""
+    with PoolLease(3) as first:
+        pass
+    with PoolLease(3) as second:
+        assert second is first
+    with PoolLease(5) as third:
+        assert third is not first
+
+
+def test_lease_bounds_retained_pools_per_worker_count():
+    """A third concurrently-released pool is closed, not kept idle.
+
+    All three probe pools are exercised directly (never through another
+    lease), so the count of survivors pins the retained-set size without
+    reaching into the module's private cache.
+    """
+    with ExitStack() as stack:
+        pools = [stack.enter_context(PoolLease(3)) for _ in range(3)]
+        assert len({id(pool) for pool in pools}) == 3
+
+    alive = 0
+    closed = 0
+    for pool in pools:
+        try:
+            pool.map(lambda item: item, [1])
+            alive += 1
+        except RuntimeError:
+            closed += 1
+    assert alive == RETAINED
+    assert closed == 1
+
+
+def test_lease_keeps_thread_count_stable_across_many_sequential_parses():
+    """Sequential borrow/release never grows the retained thread count."""
+    baseline = active_count()
+    seen: set[int] = set()
+    counts = []
+    for _ in range(10):
+        with PoolLease(3) as pool:
+            seen.add(id(pool))
+            pool.map(lambda item: item + 1, list(range(6)))
+        counts.append(active_count())
+
+    assert len(seen) == 1
+    assert counts[-1] >= baseline
+    assert len(set(counts[2:])) == 1
+
+
+def test_lease_closes_the_pool_when_the_body_raises():
+    """A phase that raises inside the lease closes that pool, not returns it."""
+    borrowed: WorkPool | None = None
+    with pytest.raises(ValueError, match="boom"):
+        with PoolLease(2) as pool:
+            borrowed = pool
+            raise ValueError("boom")
+
+    assert borrowed is not None
+    with pytest.raises(RuntimeError, match="cannot schedule new futures"):
+        borrowed.map(lambda item: item, [1])
+
+    with PoolLease(2) as fresh:
+        assert fresh is not borrowed
+        assert fresh.map(lambda item: item * 2, [1, 2, 3]) == [2, 4, 6]
+
+
+def test_lease_gives_concurrent_borrowers_distinct_pools():
+    """Two threads borrowing the same width simultaneously never share one."""
+    with PoolLease(2) as warm:
+        pass
+    barrier = Barrier(2)
+    borrowed: list[WorkPool | None] = [None, None]
+    results: list[list[int] | None] = [None, None]
+
+    def borrow_and_work(index: int) -> None:
+        with PoolLease(2) as pool:
+            borrowed[index] = pool
+            barrier.wait(5)
+            results[index] = pool.map(lambda item: item * 2, [1, 2, 3])
+
+    threads = [Thread(target=borrow_and_work, args=(i,)) for i in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert borrowed[0] is not None and borrowed[1] is not None
+    assert borrowed[0] is not borrowed[1]
+    assert warm in borrowed
+    assert results == [[2, 4, 6], [2, 4, 6]]
+    for pool in borrowed:
+        assert pool is not None
+        assert pool.map(lambda item: item, [7]) == [7]
+
+
+def test_reset_pools_empties_the_idle_set_and_closes_its_pools():
+    """``reset_pools`` clears every retained pool and shuts each one down."""
+    with PoolLease(2) as pool:
+        pool.map(lambda item: item, [1])
+    with PoolLease(2) as same_pool:
+        assert same_pool is pool
+
+    pool_module.reset_pools()
+
+    with pytest.raises(RuntimeError, match="cannot schedule new futures"):
+        pool.map(lambda item: item, [1])
+    with PoolLease(2) as fresh:
+        assert fresh is not pool
+        assert fresh.map(lambda item: item, [2]) == [2]
+
+
+def test_reset_cache_for_tests_reaches_the_pool_seam():
+    """The public compile-cache reset seam also empties the pool cache."""
+    with PoolLease(2) as pool:
+        pool.map(lambda item: item, [1])
+
+    reset_cache_for_tests()
+
+    with pytest.raises(RuntimeError, match="cannot schedule new futures"):
+        pool.map(lambda item: item, [1])
+    with PoolLease(2) as fresh:
+        assert fresh is not pool
+
+
+def test_reset_pools_returns_thread_count_to_baseline():
+    """After a reset, worker threads wind down to the pre-lease count."""
+    baseline = active_count()
+    with PoolLease(3) as pool:
+        pool.map(lambda item: item + 1, list(range(6)))
+
+    pool_module.reset_pools()
+
+    deadline = monotonic() + 2
+    while active_count() > baseline and monotonic() < deadline:
+        sleep(0.02)
+    assert active_count() <= baseline
+
+
+def test_split_parse_matches_sequential_across_many_warm_pool_reuses():
+    """Warm-pool state never leaks between documents on the public seam."""
+    compiled = compile_text(LEAD_RULE)
+    texts = [_split_doc(400 + 25 * i) for i in range(12)]
+    for text in texts:
+        parallel = compiled.parse(text, cores=4)
+        sequential = compiled.parse(text, cores=1)
+        assert parallel == sequential
+        assert parallel.to_text() == text

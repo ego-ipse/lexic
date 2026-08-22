@@ -115,14 +115,17 @@ def test_split_equals_sequential_and_round_trips():
 
 
 def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPatch):
-    """The split phases share one WorkPool lifetime and executor."""
+    """The split phases share one pool lifetime and executor.
+
+    The seam is the LEASE: a split borrows one pool for all of its phases and
+    returns it, so intercepting the lease is intercepting every phase."""
     compiled = compile_text(LEAD_RULE)
     text = _doc(1000)
     created = 0
     map_calls = 0
 
     class RecordingPool:
-        """Public WorkPool seam that executes mapped work synchronously."""
+        """Public pool-lease seam that executes mapped work synchronously."""
 
         def __init__(self, workers: int):
             """Record construction while preserving the worker count."""
@@ -142,7 +145,7 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
         def __exit__(self, exc_type, exc_value, traceback):
             return None
 
-    monkeypatch.setattr(orchestrate, "WorkPool", RecordingPool)
+    monkeypatch.setattr(orchestrate, "PoolLease", RecordingPool)
     parallel = orchestrate.split_model(
         parse_model,
         compiled.codegen_grammar,

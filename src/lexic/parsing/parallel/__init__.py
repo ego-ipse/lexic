@@ -32,7 +32,7 @@ from lexic.parsing.parallel.policy import (
     doc_workers,
     worker_count,
 )
-from lexic.parsing.parallel.pool import ParsePool
+from lexic.parsing.parallel.pool import ParsePool, reset_pools
 from lexic.parsing.parallel.replicas import (
     Replica,
     thread_replica,
@@ -44,6 +44,7 @@ __all__ = [
     "AUTO",
     "MIN_CHUNK",
     "ParsePool",
+    "reset_pools",
     "Replica",
     "Roles",
     "SITE_EMITS",

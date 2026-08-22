@@ -39,7 +39,7 @@ from lexic.parsing.parallel.plan.envelope import (
     unit_witness,
 )
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
-from lexic.parsing.parallel.pool import WorkPool
+from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
 from lexic.parsing.parallel.stitch.interior import routed_split
@@ -633,7 +633,7 @@ def split_model[M: IrNamedTuple](
             and scan_agrees(view, plan.grammar, plan.owner, plan.mark)
         )
     )
-    with WorkPool(workers) as pool:
+    with PoolLease(workers) as pool:
         windows = (
             _scan_windows(safe_plans[0].scanner, ask.text, workers, pool)
             if safe_plans

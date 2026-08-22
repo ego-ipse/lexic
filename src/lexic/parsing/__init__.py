@@ -157,6 +157,7 @@ from lexic.parsing.fold import (
     RuleFold,
     lift_optional_nullables,
 )
+from lexic.parsing.parallel.pool import reset_pools
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.predicates import nullable_names
 from lexic.parsing.pda.compiler.tables import PdaTables
@@ -301,6 +302,7 @@ __all__ = [
     "derivations",
     "earley_model",
     "is_ambiguous",
+    "reset_pools",
     "lift_optional_nullables",
     "normalize",
     "nullable_names",
