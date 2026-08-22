@@ -9,6 +9,8 @@ silently wrong parse, not a slow one.
 
 from __future__ import annotations
 
+import pytest
+
 from lexic.compile import compile_text
 from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -22,6 +24,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_TRANSPARENT,
     BUILD_VALUE_STR,
     GATE_ATTEMPT,
+    GATE_STOP,
     HI_UNBOUNDED,
     OP_CC,
     OP_CC1,
@@ -40,9 +43,11 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.pda.compiler.program.specialize import (
     CHARTABLE_CAP,
     _inline_value_strs,
+    _vstr_inlinable,
     clone_arms,
     vdisp_target,
 )
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.pda.compiler.test_clones import (
     only_arm,
@@ -242,6 +247,64 @@ def test_an_attempt_gated_item_never_inlines_its_dispatch():
     arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
     _inline_value_strs(arm)
     assert arm.kinds[0] == OP_REF  # attempt-gated: the entry is kept
+
+
+def test_an_attempt_gated_item_never_inlines_its_value_str():
+    """The ``value_str`` twin of the test above — the branch the defect (I12)
+    actually lived in.
+
+    ``_vstr_inlinable(target) or target.chartable is not None`` used to set
+    ``OP_VSTR`` with NO gate check at all — only the ``OP_VDISP`` branch had
+    one. An attempt-gated ref to a plain (untabled) value_str clone must stay
+    ``OP_REF``, exactly like the dispatch case above; the same item un-gated
+    inlines to ``OP_VSTR``.
+    """
+    arm = only_arm(
+        pda_from_text('root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n').program.start
+    )
+    assert arm.kinds[0] == OP_VSTR  # un-gated: inlines
+    target = arm.payloads[0]
+    assert _vstr_inlinable(target) and target.chartable is None  # the plain licence
+
+    arm.kinds = (OP_REF, *arm.kinds[1:])
+    arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
+    _inline_value_strs(arm)
+    assert arm.kinds[0] == OP_REF  # attempt-gated: the entry is kept
+
+    arm.gate_kinds = (GATE_STOP, *arm.gate_kinds[1:])
+    _inline_value_strs(arm)
+    assert arm.kinds[0] == OP_VSTR  # un-gated again: inlines
+
+
+_ATTEMPT_GATED_VSTR = (
+    "# @lexical unit\n"
+    "root ::= n tail\n"
+    "n ::= unit*\n"
+    "unit ::= p | q\n"
+    'p ::= "a"\n'
+    'q ::= "b"\n'
+    "tail ::= [a-c]\n"
+)
+"""``unit``'s FIRST (``a``/``b``) overlaps ``n``'s own stored continuation
+(``tail``'s FIRST, unioned in from ``n``'s one call site), and no k-window
+separates an unbounded run of ``unit`` from ``tail`` — so ``n``'s loop item is
+genuinely ungatable and carries :data:`GATE_ATTEMPT`. ``# @lexical unit``
+makes ``unit`` ref-free (the noise-alternation shape I12 fixed): a plain,
+untabled ``value_str`` clone the buggy line would have inlined regardless of
+the gate. Confirmed locally (not committed) that reverting I12's guard makes
+every one of these inputs raise :class:`PdaFail` at position 0 — the runtime's
+``gate_take`` sees the stored FIRST and follow overlap and bails immediately,
+where the fixed build's ``attempt_iteration`` speculates and succeeds."""
+
+
+@pytest.mark.parametrize("text", ["ac", "aac", "aaac", "bc", "abac"])
+def test_an_attempt_gated_value_str_ref_routes_pda_and_round_trips(text: str) -> None:
+    """I12's own witness: the attempt-gated ``value_str`` reference must stay
+    ``OP_REF`` and actually run through the predictive route, not just decline
+    cleanly to the gated engine."""
+    pda = pda_from_text(_ATTEMPT_GATED_VSTR)
+    model = pda_model(pda, text)
+    assert model.to_text() == text
 
 
 def test_the_inlined_dispatch_builds_what_the_entry_path_built():
