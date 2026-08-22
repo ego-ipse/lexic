@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
+from lexic.parsing.caches import adopt, memo
 from lexic.parsing.earley.engine import EarleyParser, first_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
@@ -155,8 +156,8 @@ class _ModelProduct:
     tables: ParserTables
 
 
-_MODEL_CACHE: dict[tuple[int, int, int], _ModelProduct] = {}
-_TOKEN_TABLES: dict[tuple[int, int], tuple[IrAst, ParserTables]] = {}
+_MODEL_CACHE: dict[tuple[int, int, int], _ModelProduct] = memo({}, 0, 1)
+_TOKEN_TABLES: dict[tuple[int, int], tuple[IrAst, ParserTables]] = memo({}, 0)
 
 
 def reset_product_cache() -> None:
@@ -176,7 +177,9 @@ def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
     entry = _TOKEN_TABLES.get(key)
     if entry is not None and entry[0] is grammar:
         return entry[1]
-    tables = compile_tables(normalize(lift_optional_nullables(grammar)), bits)
+    inner = normalize(lift_optional_nullables(grammar))
+    adopt(id(grammar), inner)
+    tables = compile_tables(inner, bits)
     _TOKEN_TABLES[key] = (grammar, tables)
     return tables
 
@@ -204,6 +207,9 @@ def _model_product(
         collapsed_fold_tables(instance, fold, bits),
     )
     _MODEL_CACHE[key] = product
+    # Normalisation and the PDA compile mint objects the engine's own memos
+    # key on; they exist only inside this product, so they release with it.
+    adopt(id(grammar), lifted, instance, product.pda, product.tables)
     return product
 
 

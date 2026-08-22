@@ -29,6 +29,7 @@ from typing import NamedTuple
 from lexic.exceptions import LexicError
 from lexic.generate import generate
 from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import Interior, as_skip, skip_delimited
 from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
@@ -324,7 +325,7 @@ def envelope_plan(grammar: IrAst, container: str) -> EnvelopePlan | None:
     return None
 
 
-_WITNESS: dict[tuple[int, str], tuple[IrAst, str | None]] = {}
+_WITNESS: dict[tuple[int, str], tuple[IrAst, str | None]] = memo({}, 0)
 """Minimal unit text per grammar identity, so generation runs once."""
 
 

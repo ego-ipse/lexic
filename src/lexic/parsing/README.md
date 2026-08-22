@@ -92,6 +92,8 @@ measured performance floor demands.
 parsing/
   __init__.py       the public API (§1): one product entry + the Earley toolkit
   fold.py           ModelFold — the authored instance fold (§8)
+  caches.py         the identity-memo registry — what every `id()`-keyed cache
+                    registers with, and how an artefact's death frees it
   earley/           the Earley engine (imports only itself)
     tables.py         ParserTables, compile_tables (memoised per IrAst identity)
     kernel.py         Kernel — predict/scan/complete, Leo, packed SPPF; FastTree;

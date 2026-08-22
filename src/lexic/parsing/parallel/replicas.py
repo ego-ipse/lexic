@@ -28,6 +28,7 @@ import itertools
 import threading
 
 from lexic.ir import IrAst
+from lexic.parsing.caches import adopt, memo
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.policy import available_workers
 
@@ -82,7 +83,9 @@ def _fold_copy[M](fold: ModelFold[M]) -> ModelFold[M]:
     return out
 
 
-_REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelFold, list[Replica]]] = {}
+_REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelFold, list[Replica]]] = memo(
+    {}, 0, 1
+)
 """Replica memo — (id(grammar), id(fold)) → (grammar, fold, replicas). The
 strong references pin both ids, so a recycled id cannot alias a live entry."""
 
@@ -107,7 +110,11 @@ def worker_replicas[M](grammar: IrAst, fold: ModelFold[M], count: int) -> list[R
         _REPLICAS[key] = entry
     pool = entry[2]
     while len(pool) < count:
-        pool.append((IrAst(grammar.rules, grammar.start), _fold_copy(fold)))
+        replica = (IrAst(grammar.rules, grammar.start), _fold_copy(fold))
+        # A replica exists to get its OWN memo entries — tables, products,
+        # run analyses. They live inside this pool, so they release with it.
+        adopt(key[0], *replica)
+        pool.append(replica)
     return pool[:count]
 
 

@@ -34,6 +34,7 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.caches import adopt, memo
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
@@ -143,7 +144,9 @@ def _sites_by_char(rows: list[tuple[str, CharSet]]) -> dict[str, tuple[str, ...]
 
 def _run_chars(grammar: IrAst) -> set[str]:
     """The union of the grammar's derived maximal-munch run charsets."""
-    tables = compile_tables(normalize(grammar))
+    normalized = normalize(grammar)
+    adopt(id(grammar), normalized)  # transient shape, but the table memo keys on it
+    tables = compile_tables(normalized)
     out: set[str] = set()
     for charset, _has_empty, _unit_rid in run_candidates(tables).values():
         out |= charset
@@ -151,7 +154,7 @@ def _run_chars(grammar: IrAst) -> set[str]:
 
 
 _Entry = tuple[IrAst, frozenset[str], dict[str, tuple[str, ...]]]
-_ANCHORS: dict[int, _Entry] = {}
+_ANCHORS: dict[int, _Entry] = memo({})
 """Analysis memo — id(grammar) → (grammar, anchors, site map). The strong
 reference pins the id, so a recycled id can never alias a live entry."""
 

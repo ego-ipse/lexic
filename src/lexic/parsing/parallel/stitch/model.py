@@ -17,6 +17,7 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.model import GrammarModel
+from lexic.parsing.caches import adopt, memo
 from lexic.parsing.fold import ModelFold, RuleFold
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.discovery.shapes import literal_char, unbounded
@@ -309,7 +310,7 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
 
 _REGION_PLANS: dict[
     tuple[int, int, str], tuple[IrAst, ModelFold, RegionPlan | None]
-] = {}
+] = memo({}, 0, 1)
 """Per-product region plans. Strong grammar/fold references pin identity.
 
 The rooted grammar owns compiled parser tables and worker replicas. Rebuilding
@@ -368,6 +369,7 @@ def derive_plan(grammar: IrAst, fold: ModelFold, rule_name: str) -> RegionPlan |
             plan = None
         entry = (grammar, fold, plan)
         _REGION_PLANS[key] = entry
+        adopt(id(grammar), root)  # the witness memo keys on the rooted grammar
     return entry[2]
 
 

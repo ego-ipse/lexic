@@ -63,6 +63,7 @@ from lexic.ir import (
     IrSpan,
     IrTuple,
 )
+from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
 from lexic.parsing.earley.kernel.tables.records import (
     ORIGIN_BITS,
@@ -640,7 +641,9 @@ def lift_optional_nullables(grammar: IrAst) -> IrAst:
 # ── instance-path run collapse (the fold-config licence) ──────────────
 
 
-_COLLAPSED: dict[tuple[int, int, int], tuple[ModelFold, IrAst, ParserTables]] = {}
+_COLLAPSED: dict[tuple[int, int, int], tuple[ModelFold, IrAst, ParserTables]] = memo(
+    {}, 0, 1
+)
 """Collapsed instance-tables memo — (id(fold), id(grammar), bits) → (fold,
 grammar, tables). Strong references pin both ids against reuse."""
 

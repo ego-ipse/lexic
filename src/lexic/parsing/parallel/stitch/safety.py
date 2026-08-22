@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrRuleRef
+from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.interiors import (
     Interior,
     hides,
@@ -52,7 +53,7 @@ def _protected(grammar: IrAst, region_scan: bool) -> frozenset[str]:
     )
 
 
-_OWNER_PROOFS: dict[tuple[int, str, str, bool], tuple[IrAst, bool]] = {}
+_OWNER_PROOFS: dict[tuple[int, str, str, bool], tuple[IrAst, bool]] = memo({}, 0)
 """Per-analysis-view ownership proofs, with a strong identity pin."""
 
 
@@ -108,7 +109,9 @@ def _unit_anchored(rules: dict[str, IrRule], owner: str, region: Interior) -> bo
     return len(leading) == 1 and _arm_target(leading[0]) == region.rule
 
 
-_MARK_REGIONS: dict[tuple[int, str, str], tuple[IrAst, tuple[Interior, ...]]] = {}
+_MARK_REGIONS: dict[tuple[int, str, str], tuple[IrAst, tuple[Interior, ...]]] = memo(
+    {}, 0
+)
 """The regions one owner's mark scan skips, with a strong identity pin."""
 
 
@@ -229,7 +232,7 @@ def scan_agrees(view: IrAst, scanned: IrAst, owner: str, mark: str) -> bool:
     )
 
 
-_TERMINATOR_PROOFS: dict[tuple[int, str, str], tuple[IrAst, bool]] = {}
+_TERMINATOR_PROOFS: dict[tuple[int, str, str], tuple[IrAst, bool]] = memo({}, 0)
 """Per-analysis-view proof that a unit owns no internal terminator marks."""
 
 
@@ -395,7 +398,9 @@ def _body_opens(
     return found
 
 
-_BOUNDARY_PROOFS: dict[tuple[int, str, str], tuple[IrAst, Boundary | None]] = {}
+_BOUNDARY_PROOFS: dict[tuple[int, str, str], tuple[IrAst, Boundary | None]] = memo(
+    {}, 0
+)
 """Per-analysis-view boundary proofs, with a strong identity pin."""
 
 

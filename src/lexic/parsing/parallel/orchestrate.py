@@ -25,6 +25,7 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.model import GrammarModel
+from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.discovery.regions import (
@@ -238,7 +239,7 @@ def _lead_skip(sep: Separator, rule_map: dict[str, IrRule]) -> frozenset[str]:
     return frozenset(out) - {sep.char}
 
 
-_PLANS: dict[int, tuple[IrAst, tuple[SplitPlan, ...]]] = {}
+_PLANS: dict[int, tuple[IrAst, tuple[SplitPlan, ...]]] = memo({})
 """Plan memo — id(grammar) → (grammar, plans). The strong reference pins the
 id, so a recycled id can never alias a live entry."""
 

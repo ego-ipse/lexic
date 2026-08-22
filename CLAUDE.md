@@ -230,6 +230,7 @@ src/lexic/
         escapes.py                 EscapeCodec — flavour-side canonical spelling
   parsing/
     __init__.py                    public API: parse_model product + the Earley toolkit
+    caches.py                      Identity-memo registry — every id-keyed cache, bounded by its artefact
     fold.py                        ParseTree → object fold — the instance-parsing bridge
     products.py                    The model product entry — PDA-first with Earley completion
     trace.py                       The watched run — what the predictive kernel DID, as an ordered event stream

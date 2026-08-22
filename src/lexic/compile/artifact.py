@@ -47,6 +47,7 @@ from lexic.parsing import (
     pda_tables,
     token_model,
 )
+from lexic.parsing.caches import memo, reset_caches, track
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.parallel import (
     AUTO,
@@ -166,6 +167,17 @@ class CompiledGrammar:
     stem: str = "grammar"
     tokens: TokenBinding = TokenBinding()
     split_analysis: IrAst | None = None
+
+    def __post_init__(self) -> None:
+        """Claim this artefact's identities so its memo entries can be freed.
+
+        The engine memoises per object identity and pins the key object to
+        stay correct against address reuse, which makes every entry immortal.
+        An artefact outlives every parse it serves, so binding the entries to
+        it costs no warm-table behaviour and bounds what a run-time-derived
+        grammar (a rebind, a reducer variant) can accumulate.
+        """
+        track(self, self.grammar, self.codegen_grammar, self.fold)
 
     @property
     def classes(self) -> dict[str, type]:
@@ -445,31 +457,35 @@ class CompiledGrammar:
 class _ReduceEntry(NamedTuple):
     """One artefact + reducer pair's derived reduce machinery.
 
-    Pins ``source`` and ``reducer`` live so the ``id``-keyed cache entry can
-    never be re-served to a different object at a recycled address.
+    Pins ``reducer`` live so the ``id``-keyed cache entry can never be
+    re-served to a different reducer at a recycled address. The SOURCE
+    artefact is deliberately NOT pinned: the entry is keyed by its identity
+    and released by its finalizer, so holding it here would make every
+    reduced artefact immortal — the exact retention this memo is bounded by.
 
-    :ivar source: The artefact the derivation started from.
     :ivar reducer: The reducer the variant was derived for.
     :ivar variant: The derived ``@lexical`` variant artefact the parse runs on.
     :ivar fold: The thin fold from the variant's pruned model to the value.
     """
 
-    source: CompiledGrammar
     reducer: Reducer
     variant: CompiledGrammar
     fold: ReduceFold
 
 
-_REDUCE_ENTRIES: dict[tuple[int, int], _ReduceEntry] = {}
+_REDUCE_ENTRIES: dict[tuple[int, int], _ReduceEntry] = memo({}, 0)
 
 
 def reset_reduction_cache() -> None:
-    """Test seam: clear the derived-variant memo and release the warm pools.
+    """Test seam: clear every identity memo and release the warm pools.
 
-    Both are engine state a split parse leaves behind — the memo holds
-    artefacts, the pools hold live worker threads — so one seam clears them.
+    Both are engine state a parse leaves behind — the memos hold grammars,
+    tables and artefacts, the pools hold live worker threads — so one seam
+    clears them. The memos normally drain on their own when the owning
+    artefact is collected; a test that wants a cold engine cannot wait for
+    that, and says so here.
     """
-    _REDUCE_ENTRIES.clear()
+    reset_caches()
     reset_pools()
 
 
@@ -558,6 +574,6 @@ def _reduce_entry(compiled: CompiledGrammar, reducer: Reducer) -> _ReduceEntry:
             aliases=aliases,
         ),
     )
-    entry = _ReduceEntry(compiled, reducer, variant, fold)
+    entry = _ReduceEntry(reducer, variant, fold)
     _REDUCE_ENTRIES[key] = entry
     return entry

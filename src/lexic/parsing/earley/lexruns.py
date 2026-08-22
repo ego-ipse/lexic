@@ -28,6 +28,7 @@ from __future__ import annotations
 from typing import Callable
 
 from lexic.ir import IrAst, IrLeaf, IrLiteral, IrSelf
+from lexic.parsing.caches import adopt, memo
 from lexic.parsing.earley.kernel.tables.atoms import Charset, RunTerm, expand_atom
 from lexic.parsing.earley.kernel.tables.builder import build_tables, compile_tables
 from lexic.parsing.earley.kernel.tables.records import (
@@ -245,7 +246,7 @@ class _Analysis(IrLeaf[IrSelf, IrSelf]):
         return out
 
 
-_CANDIDATES: dict[int, tuple[ParserTables, dict[str, RunShape]]] = {}
+_CANDIDATES: dict[int, tuple[ParserTables, dict[str, RunShape]]] = memo({})
 """Analysis memo — id(tables) → (tables, candidates). The strong reference
 pins the id, so a recycled id can never alias a live entry."""
 
@@ -286,10 +287,14 @@ def collapse_runs(
         mode = run_mode(plain, unit_rid)
         if mode is not None:
             runs[name] = (RunTerm(charset, 1, mode), has_empty)
-    return build_tables(grammar, runs, bits) if runs else plain
+    if not runs:
+        return plain
+    tables = build_tables(grammar, runs, bits)
+    adopt(id(grammar), tables)  # collapsed tables are keyed on by run analysis
+    return tables
 
 
-_RECOGNITION: dict[tuple[int, int], tuple[IrAst, ParserTables]] = {}
+_RECOGNITION: dict[tuple[int, int], tuple[IrAst, ParserTables]] = memo({}, 0)
 """Recognition-tables memo — (id(grammar), bits) → (grammar, tables). The
 strong grammar reference pins the id against reuse."""
 

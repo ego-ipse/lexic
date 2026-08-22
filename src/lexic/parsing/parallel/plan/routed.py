@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.regions import Region, nearest_mark
 from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
@@ -36,7 +37,7 @@ from lexic.parsing.parallel.discovery.shapes import (
 from lexic.parsing.parallel.stitch.safety import terminates_once
 from lexic.parsing.pda.core.charsets import CharSet
 
-_PLANS: dict[int, tuple[IrAst, "RoutedPlan | None"]] = {}
+_PLANS: dict[int, tuple[IrAst, "RoutedPlan | None"]] = memo({})
 """Route memo — id(grammar) → (grammar, plan). The strong reference pins the
 id, so a recycled id can never alias a live entry."""
 

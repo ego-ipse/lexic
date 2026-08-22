@@ -16,6 +16,7 @@ from lexic.exceptions import LexicError
 from lexic.generate import generate
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
+from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.discovery.regions import shell
@@ -234,7 +235,7 @@ def _merge_items[M](
     return out if out.__class__ is work.plan.items_type else None
 
 
-_WITNESSES: dict[tuple[int, str, int], tuple[IrAst, str | None]] = {}
+_WITNESSES: dict[tuple[int, str, int], tuple[IrAst, str | None]] = memo({}, 0)
 """Stable shallow head text per rooted grammar, with identity pinned."""
 
 

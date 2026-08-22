@@ -22,6 +22,7 @@ from lexic.ir import (
     IrSelf,
     IrSequence,
 )
+from lexic.parsing.caches import adopt, memo
 from lexic.parsing.earley.kernel.tables.atoms import (
     RunTerm,
     expand_atom,
@@ -39,7 +40,7 @@ _EMPTY_RUN = RunTerm(frozenset(), 1, RUN_DROP)
 """Placeholder for :attr:`ParserTables.term_runs`' non-run slots — never
 matches, never read (the kernel only indexes it where ``term_lens`` is 0)."""
 
-_CACHE: dict[tuple[int, int], tuple[IrAst, ParserTables]] = {}
+_CACHE: dict[tuple[int, int], tuple[IrAst, ParserTables]] = memo({}, 0)
 """Compile memo — (id(grammar), bits) → (the grammar, its tables). The strong
 grammar reference pins the id, so a recycled id can never alias a live
 entry."""
@@ -389,4 +390,5 @@ def compile_tables(grammar: IrAst, bits: int = ORIGIN_BITS) -> ParserTables:
         return entry[1]
     tables = TableBuilder(grammar).build(bits)
     _CACHE[(id(grammar), bits)] = (grammar, tables)
+    adopt(id(grammar), tables)  # the run analysis keys on the tables' identity
     return tables

@@ -38,6 +38,7 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
 )
+from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.shapes import (
     emits,
     literal_char,
@@ -381,7 +382,7 @@ def _certified(
         surviving = kept
 
 
-_SHAPES: dict[int, tuple[IrAst, tuple[Interior, ...]]] = {}
+_SHAPES: dict[int, tuple[IrAst, tuple[Interior, ...]]] = memo({})
 """Shape memo — id(grammar) → (grammar, shapes). The strong reference pins the
 id, so a recycled id can never alias a live entry."""
 
@@ -407,7 +408,7 @@ def interior_shapes(grammar: IrAst) -> tuple[Interior, ...]:
     return entry[1]
 
 
-_INTERIORS: dict[int, tuple[IrAst, tuple[Interior, ...]]] = {}
+_INTERIORS: dict[int, tuple[IrAst, tuple[Interior, ...]]] = memo({})
 """Certified-skippable memo, keyed and pinned like :data:`_SHAPES`."""
 
 
