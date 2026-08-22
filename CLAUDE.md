@@ -272,6 +272,7 @@ src/lexic/
       plan/
         __init__.py                Split-plan shape analysis package marker
         envelope.py                Envelope container arms, noise-run leads, and the certified cut match
+        routed.py                  Route-derived interiors — a region the character sweep cannot see
       roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
       discovery/
         __init__.py                Region-discovery package marker
@@ -282,6 +283,7 @@ src/lexic/
         shapes.py                  Grammar arm shapes
       stitch/
         __init__.py                Structural model-stitch package marker
+        interior.py                Routed-interior split — concatenate the pieces' runs, splice once
         merge.py                   Shallow boundary reconstruction and delegated-region shell attachment
         model.py                   Type-aware shell routes and immutable replacement
         safety.py                  Per-owner proof that a cut separator cannot belong to the repeated item

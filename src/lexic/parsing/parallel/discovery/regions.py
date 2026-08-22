@@ -202,7 +202,7 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
     return found
 
 
-def _nearest(marks: tuple[int, ...], want: float) -> int:
+def nearest_mark(marks: tuple[int, ...], want: float) -> int:
     """The mark closest to ``want`` — cuts aim at positions, not at counts."""
     at = bisect_left(marks, want)
     if at == 0:
@@ -228,7 +228,7 @@ def piece_marks(region: Region, workers: int) -> list[int]:
     target = (hi - lo) / workers
     cuts: list[int] = []
     for k in range(1, workers):
-        nearest = _nearest(region.marks, lo + k * target)
+        nearest = nearest_mark(region.marks, lo + k * target)
         if nearest not in cuts:
             cuts.append(nearest)
     return cuts

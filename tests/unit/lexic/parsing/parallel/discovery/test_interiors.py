@@ -32,6 +32,10 @@ def _interiors(source: str) -> tuple[Interior, ...]:
     return interiors(parse_grammar(source, GBNF_FLAVOUR))
 
 
+def _interiors_shapes(source: str) -> tuple[Interior, ...]:
+    return interior_shapes(parse_grammar(source, GBNF_FLAVOUR))
+
+
 def test_the_native_json_grammar_derives_the_quoted_string():
     """``string ::= quote char* quote`` with a backslash-led escape arm."""
     assert interiors(JSON_GRAMMAR) == (Interior("string", 0, '"', '"', "\\", 0, 2),)
@@ -268,3 +272,114 @@ def test_a_shared_opening_character_refuses_both_regions_through_the_visible_ope
     )
 
     assert _interiors(source) == ()
+
+
+# ── arm-level interiors and EOF-closed regions ───────────────────────────
+
+
+def test_a_cc_pos_cc_neg_shaped_rule_derives_one_interior_per_arm():
+    """A two-arm rule offering ``[`` … ``]`` and ``[^`` … ``]`` — gbnf's own
+    character-class shape — derives BOTH arms as their own ``Interior``, each
+    carrying the arm index that tells them apart."""
+    source = 'root ::= cc\ncc ::= "[" body* "]" | "[^" body* "]"\nbody ::= [^\\]]\n'
+
+    shapes = _interiors_shapes(source)
+
+    assert shapes == (
+        Interior("cc", 0, "[", "]", "", 0, 2),
+        Interior("cc", 1, "[^", "]", "", 0, 2),
+    )
+
+
+def test_the_longest_spelling_first_ordering_decides_between_the_two_arms():
+    """``skip_table`` orders a shared lead longest-spelling-first, so a scan
+    at ``[`` tests ``[^`` before ``[`` and never splits the longer opening in
+    half — the exact ordering the two class arms above depend on."""
+    source = 'root ::= cc\ncc ::= "[" body* "]" | "[^" body* "]"\nbody ::= [^\\]]\n'
+
+    table = skip_table(_interiors(source))
+
+    assert [region.opening for region in table["["]] == ["[^", "["]
+
+
+def test_an_eof_closed_tail_comment_is_subsumed_by_its_closed_twin_in_the_scan_tables():
+    """``tail-comment`` (``"#" cchar*``, closed only by EOF) and
+    ``comment-line`` (``"#" cchar* "\\n"``) open identically. Both are
+    genuinely CERTIFIED — neither breaks the other's sole-opener proof — but
+    a search for the newline already answers the EOF case too (it runs to
+    EOF when it finds none), so ``skip_table``/``skip_leads`` keep only the
+    closed twin: ``_precise``'s subsumption, read through the public
+    ``interiors()`` and skip surfaces rather than the private helper."""
+    source = (
+        "root ::= (comment-line | tail-comment)*\n"
+        'comment-line ::= "#" cchar* "\\n"\n'
+        'tail-comment ::= "#" cchar*\n'
+        "cchar ::= [^\\n]\n"
+    )
+
+    certified = _interiors(source)
+    assert {region.rule for region in certified} == {"comment-line", "tail-comment"}
+
+    table = skip_table(certified)
+    assert table["#"] == (Interior("comment-line", 0, "#", "\n", "", 0, 2),)
+    assert "#" in skip_leads(certified)
+
+
+def test_identical_openings_with_different_closers_both_refuse_even_at_arm_level():
+    """The ``_decided_by`` spelling rule, made permanent: an ARM of a
+    multi-arm rule (``mixed``'s second arm, opening ``;``) and an unrelated
+    rule (``special``) spell the SAME opening but close differently — real
+    competition, and both refuse. ``mixed``'s FIRST arm (opening ``$``,
+    unrelated to either) is untouched: the refusal is scoped to the spelling
+    that actually collides, not to the whole owning rule."""
+    source = (
+        "root ::= (mixed | special)*\n"
+        'mixed ::= "$" dollar-body "!" | ";" cchar* "\\n"\n'
+        "dollar-body ::= [^!$;]*\n"
+        "cchar ::= [^\\n$;]\n"
+        'special ::= ";" thing ";"\n'
+        "thing ::= [^;$]*\n"
+    )
+
+    certified = _interiors(source)
+
+    assert certified == (Interior("mixed", 0, "$", "!", "", 0, 2),)
+
+
+def test_a_class_body_whose_three_items_agree_on_one_escape_derives_it():
+    """``cc-first cc-item* cc-dash?`` — the real gbnf character-class shape —
+    has three items between the delimiters, and every one of them that can
+    reach the escaped closer must agree on the same escape character."""
+    source = (
+        "root ::= cls\n"
+        'cls ::= "[" first item* dash? "]"\n'
+        "first ::= schar\n"
+        "item ::= schar\n"
+        'dash ::= "-"\n'
+        'schar ::= unescaped | "\\\\" escaped\n'
+        "unescaped ::= [^\\]\\\\]\n"
+        "escaped ::= [\\]\\\\]\n"
+    )
+
+    assert _interiors_shapes(source) == (Interior("cls", 0, "[", "]", "\\", 0, 4),)
+
+
+def test_disagreeing_escapes_across_the_three_items_decline_the_region():
+    """The same shape, but ``item`` reaches the closer through an escape
+    character (``~``) that disagrees with ``first``'s (``\\``) — no single
+    parity to count, so the region is not derived at all."""
+    source = (
+        "root ::= cls\n"
+        'cls ::= "[" first item* dash? "]"\n'
+        "first ::= schar\n"
+        "item ::= schar2\n"
+        'dash ::= "-"\n'
+        'schar ::= unescaped | "\\\\" escaped\n'
+        "unescaped ::= [^\\]\\\\]\n"
+        "escaped ::= [\\]\\\\]\n"
+        'schar2 ::= unescaped2 | "~" escaped2\n'
+        "unescaped2 ::= [^\\]~]\n"
+        "escaped2 ::= [\\]~]\n"
+    )
+
+    assert _interiors_shapes(source) == ()

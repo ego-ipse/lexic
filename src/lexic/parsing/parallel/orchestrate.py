@@ -42,6 +42,7 @@ from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_c
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
+from lexic.parsing.parallel.stitch.interior import routed_split
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
 from lexic.parsing.parallel.stitch.model import (
     RegionWork,
@@ -576,7 +577,8 @@ def _split_regions[M: IrNamedTuple](
     divided = choose(ask.text, found, workers)
     works = region_works(grammar, ask.fold, ask.text, divided, analysis or grammar)
     if works is None:
-        return None
+        # A newline-opened body is invisible to a depth-counting sweep.
+        return routed_split(parse, grammar, (ask.text, ask.fold, ask.resolve), pool)
     parsed = _parse_region_parts(parse, works, ask, pool)
     merge = MergeRequest(parse, ask.text, ask.fold, ask.resolve)
     stands = standins(merge, works, parsed) if parsed is not None else None
