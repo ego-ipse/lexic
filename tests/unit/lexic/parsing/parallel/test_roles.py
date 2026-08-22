@@ -84,6 +84,24 @@ def test_finite_anchor_class_derives_each_separator_alternative():
     )
 
 
+def test_a_merged_tail_literal_derives_the_terminator_from_its_last_character():
+    """``@lexical`` inlining can merge a unit's tail into one literal like
+    ``"}\\n"``; the terminator is still derivable as its LAST character,
+    since it occurs nowhere else in the literal."""
+    grammar = 'root ::= unit+\nunit ::= [a-z]+ "}\\n"\n'
+    got = roles(compile_text(grammar).codegen_grammar)
+    assert got.terminators == (Terminator("\n", "root", "unit"),)
+
+
+def test_a_repeated_terminator_character_inside_a_literal_derives_no_edge():
+    """When the candidate character occurs more than once in the merged
+    literal, which occurrence is the boundary is unprovable, so it derives
+    no terminator edge at all."""
+    grammar = 'root ::= unit+\nunit ::= [a-z]+ "a\\nb\\n"\n'
+    got = roles(compile_text(grammar).codegen_grammar)
+    assert got.terminators == ()
+
+
 def test_a_grammar_without_the_shapes_derives_empty_roles():
     """No bracketing arm, no repeated separated body — empty roles, not an
     error: the orchestrator's cue for sequential processing."""

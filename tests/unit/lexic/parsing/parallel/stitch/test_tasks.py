@@ -29,12 +29,17 @@ def test_true_start_rule_is_filtered_before_piece_parsing() -> None:
 
 
 def test_quote_like_rule_not_classified_as_interior_does_not_protect_owner() -> None:
-    """Only discovered interiors may hide separator emissions from an owner."""
+    """Only discovered interiors may hide separator emissions from an owner.
+
+    The shape alone does not discover one: a delimiter another reachable rule
+    also spells cannot be paired from the left, so the region stays read.
+    """
     compiled = compile_text(
         "root ::= item more*\n"
         'more ::= "," item\n'
-        "item ::= quote\n"
+        "item ::= quote | mark\n"
         'quote ::= "\\"" comma "\\""\n'
+        'mark ::= "\\""\n'
         'comma ::= ","\n'
     )
     grammar = compiled.grammar

@@ -13,8 +13,13 @@ from lexic.compile import compile_text
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing import parse_model
 from lexic.parsing.parallel import split_model, split_plan
+from lexic.parsing.parallel.discovery.interiors import interior_rules
 from lexic.parsing.parallel.orchestrate import Request
-from lexic.parsing.parallel.stitch.safety import owner_excludes, terminates_once
+from lexic.parsing.parallel.stitch.safety import (
+    owner_excludes,
+    scan_agrees,
+    terminates_once,
+)
 
 
 def _grammar(source: str):
@@ -86,8 +91,9 @@ def test_common_terminator_through_newline_refs_is_safe_for_each_stmt_arm() -> N
     assert terminates_once(grammar, "stmt", "\n")
 
 
-def test_fence_with_internal_newlines_is_not_a_terminated_unit() -> None:
-    """A fenced unit has internal line endings before its final newline."""
+def test_a_fenced_unit_hides_its_internal_newlines_from_the_scan() -> None:
+    """A fence's inner lines sit between delimiters nothing inside can spell,
+    so the scan never reads their newlines and the unit ends once — visibly."""
     grammar = _grammar(
         "root ::= fence+\n"
         'fence ::= "```" nl line* "```" nl\n'
@@ -95,7 +101,81 @@ def test_fence_with_internal_newlines_is_not_a_terminated_unit() -> None:
         'nl ::= "\\n"\n'
     )
 
-    assert not terminates_once(grammar, "fence", "\n")
+    assert terminates_once(grammar, "fence", "\n")
+
+
+def test_terminates_once_passes_through_a_merged_tail_literal() -> None:
+    """A unit whose final item is a merged literal like ``"}\\n"`` still
+    proves its terminator once — the literal's LAST character, occurring
+    nowhere else in it."""
+    grammar = _grammar('root ::= unit+\nunit ::= [a-z]+ "}\\n"\n')
+    assert terminates_once(grammar, "unit", "\n")
+
+
+def test_terminates_once_declines_when_the_terminator_sits_mid_literal() -> None:
+    """A literal carrying the terminator character MORE than once must not
+    be read as ending exactly once — which occurrence is the true edge is
+    unprovable, so the unit fails to certify."""
+    grammar = _grammar('root ::= unit+\nunit ::= [a-z]+ "a\\nb\\n"\n')
+    assert not terminates_once(grammar, "unit", "\n")
+
+
+def test_a_reachable_delimiter_speller_fails_sole_spelling_and_declines() -> None:
+    """A backtick spelled by a sibling rule, reachable without entering the
+    fence, breaks sole spelling. The wrapping arm's leading whitespace also
+    keeps unit anchoring from rescuing it (the arm is no longer a plain
+    reference to the fence rule), so neither certificate holds and the
+    fence's internal newlines stay visible."""
+    grammar = _grammar(
+        "root ::= block+ other\n"
+        'block ::= " "* fence\n'
+        'fence ::= "```" nl line* "```" nl\n'
+        "line ::= [a-z]+ nl\n"
+        'nl ::= "\\n"\n'
+        'other ::= "`" "x"\n'
+    )
+
+    assert "fence" not in interior_rules(grammar)
+    assert not terminates_once(grammar, "block", "\n")
+
+
+def test_a_second_leading_arm_fails_unit_anchoring_and_declines() -> None:
+    """Two ``block`` arms can each open with a backtick — the fence directly,
+    and a sibling ``codeword`` that spells it too — so no single arm owns the
+    delimiter (and the sibling's own literal breaks sole spelling as well),
+    and the fence's internal newlines stay visible."""
+    grammar = _grammar(
+        "root ::= block+\n"
+        "block ::= fence | codeword\n"
+        'fence ::= "```" nl line* "```" nl\n'
+        "line ::= [a-z]+ nl\n"
+        'nl ::= "\\n"\n'
+        'codeword ::= "`" [a-z]+ "`" nl\n'
+    )
+
+    assert "fence" not in interior_rules(grammar)
+    assert not terminates_once(grammar, "block", "\n")
+
+
+def test_scan_agrees_declines_when_the_view_derives_a_different_delimiter() -> None:
+    """A structural view whose fence spells a different delimiter than the
+    grammar actually being scanned must never let either side's regions be
+    trusted — the pairing they each derive is not the same pairing."""
+    scanned = _grammar(
+        "root ::= fence+\n"
+        'fence ::= "```" nl line* "```" nl\n'
+        "line ::= [a-z]+ nl\n"
+        'nl ::= "\\n"\n'
+    )
+    view = _grammar(
+        "root ::= fence+\n"
+        'fence ::= "~~~" nl line* "~~~" nl\n'
+        "line ::= [a-z]+ nl\n"
+        'nl ::= "\\n"\n'
+    )
+
+    assert terminates_once(view, "fence", "\n")
+    assert not scan_agrees(view, scanned, "fence", "\n")
 
 
 def test_start_plan_guard_is_non_vacuous_for_a_flat_comma_owner() -> None:

@@ -258,12 +258,26 @@ def _item_edge(
     anchor_set: frozenset[str],
     seen: frozenset[str],
 ) -> str | None:
-    """One structural edge, resolving unit rule-reference wrappers."""
+    """One structural edge, resolving unit rule-reference wrappers.
+
+    A longer literal carries an edge too: ``@lexical`` inlining merges a
+    unit's tail into spellings like ``"}\\n"``, and the terminator is that
+    literal's LAST character. It counts only when it occurs nowhere else in
+    the spelling — an interior occurrence would be scanned as a mark inside
+    the unit, which is exactly what the safety proof must refuse.
+    """
     char = _anchor_char(item, anchor_set)
     if char is not None:
         return char
     atom = item.atom
-    if not isinstance(atom, IrRuleRef) or item.quantifier != UNIT:
+    if item.quantifier != UNIT:
+        return None
+    if isinstance(atom, IrLiteral):
+        text = str(atom)
+        edge = text[at] if text else ""
+        good = len(text) > 1 and edge in anchor_set and text.count(edge) == 1
+        return edge if good else None
+    if not isinstance(atom, IrRuleRef):
         return None
     name = str(atom)
     target = by_name.get(name)

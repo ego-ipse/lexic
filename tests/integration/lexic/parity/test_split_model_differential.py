@@ -13,8 +13,10 @@ import json
 
 import pytest
 
+import lexic.parsing.parallel.orchestrate as orchestrate_module
 from lexic.compile import (
     CompiledGrammar,
+    Directives,
     compile_ast,
     compile_from_path,
     compile_text,
@@ -23,7 +25,7 @@ from lexic.compile.artifact import _reduce_entry
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.parsing import parse_model
-from lexic.parsing.parallel import split_model
+from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
 from tools.benchmark import bench as benchmark
@@ -337,3 +339,166 @@ def test_malformed_nested_input_declines_then_sequentially_refuses(
     with pytest.raises(UnsupportedConstructError):
         compiled.parse(bad, cores=WORKERS[-1])
     assert name in FORMULATIONS
+
+
+# ── the terminated-plan (fence) shape ──────────────────────────────────────
+
+_FENCE_GRAMMAR = (
+    "root ::= fence+\n"
+    'fence ::= "```" nl line* "```" nl\n'
+    "line ::= [a-z]+ nl\n"
+    'nl ::= "\\n"\n'
+)
+"""A markdown-shaped terminated repetition: each fence hides its own
+interior newlines and exposes only its final one."""
+
+
+def test_a_markdown_shaped_document_engages_the_walk_and_hides_interior_marks() -> None:
+    """The terminated plan's scanner walks unit by unit and reports far fewer
+    marks than the document's raw newline count — the interior newlines a
+    naive windowed scan would have to see are genuinely hidden, not merely
+    unused. Cores 1/8/16 must still build the identical model and round-trip
+    the document byte for byte."""
+    compiled = compile_text(_FENCE_GRAMMAR)
+    fence = "```\n" + ("abcdefghij\n" * 100) + "```\n"
+    text = fence * 40
+    assert len(text) >= 32 * 1024  # clears the 16-worker split floor
+
+    plan = split_plan(compiled.codegen_grammar)
+    assert plan is not None
+    assert plan.scanner.opaque, "the plan must carry the fence as an opaque region"
+
+    window = plan.scanner.walk(text)
+    assert 0 < len(window.marks) < text.count("\n")
+
+    sequential = compiled.parse(text, cores=1)
+    for workers in (8, 16):
+        parallel = compiled.parse(text, cores=workers)
+        assert parallel == sequential, workers
+        assert parallel.to_text() == text, workers
+
+
+def test_boundary_ambiguity_declines_or_matches_sequential_refusal() -> None:
+    """A genuinely ambiguous unit sitting at the document's natural 2-worker
+    cut must never let the split answer where the sequential parse refuses.
+
+    ``#ab`` is ``plain`` whole, or ``forced`` as ``#`` then ``ab`` — the same
+    single-span arm choice vyx hits (see ``test_pda_parity.py``'s
+    ``_ARM_AMBIGUOUS``), transplanted into a terminated ``line+`` repetition
+    and placed at the halfway mark, exactly where a 2-worker cut lands. The
+    chunk containing it fails to parse (the SAME ambiguity, the SAME
+    grammar), so ``split_model`` declines it — and the sequential fallback
+    must then raise the identical refusal, never a silently chosen model.
+    """
+    compiled = compile_text(
+        "root ::= line+\n"
+        "line ::= content nl\n"
+        "content ::= plain | forced\n"
+        "plain ::= [a-z#]+\n"
+        'forced ::= "#" [a-z]*\n'
+        'nl ::= "\\n"\n'
+    )
+    grammar, fold = compiled.codegen_grammar, compiled.fold
+    plain_line = "a" * 20 + "\n"
+    lines = [plain_line] * 300
+    lines[150] = "#ab\n"
+    text = "".join(lines)
+    assert len(text) >= 4 * 1024  # clears the 2-worker split floor
+
+    assert split_plan(grammar) is not None
+
+    calls: list[str] = []
+
+    def recording_parse(g, source, f, resolve=None):
+        calls.append(source)
+        return parse_model(g, source, f, resolve)
+
+    declined = split_model(recording_parse, grammar, Request(text, fold), 2)
+    assert declined is None, "the ambiguous chunk must not silently resolve"
+    assert len(calls) >= 2, "the split must have actually attempted both chunks"
+
+    with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+        compiled.parse(text, cores=1)
+    with pytest.raises(UnsupportedConstructError, match="ambiguous"):
+        compiled.parse(text, cores=2)
+
+
+def test_scan_agrees_guard_is_reachable_and_declines_without_mis_scanning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A structural view that derives a different fence delimiter than the
+    grammar actually being scanned must be reachable from the real
+    ``split_model`` seam, must decline the plan it disagrees about, and must
+    still leave every worker count producing the correct sequential model —
+    a decline, never a mis-scan."""
+    scanned = compile_text(_FENCE_GRAMMAR)
+    view = compile_text(
+        "root ::= fence+\n"
+        'fence ::= "~~~" nl line* "~~~" nl\n'
+        "line ::= [a-z]+ nl\n"
+        'nl ::= "\\n"\n'
+    ).grammar
+
+    fence = "```\n" + ("abcdefghij\n" * 100) + "```\n"
+    text = fence * 40
+    assert len(text) >= 32 * 1024
+
+    calls: list[bool] = []
+    real_scan_agrees = orchestrate_module.scan_agrees
+
+    def recording_scan_agrees(v, s, o, m):
+        result = real_scan_agrees(v, s, o, m)
+        calls.append(result)
+        return result
+
+    monkeypatch.setattr(orchestrate_module, "scan_agrees", recording_scan_agrees)
+
+    # A direct sequential fold (not compiled.parse: that would re-derive its
+    # OWN matching analysis view and mix a true agreement into `calls`).
+    sequential = parse_model(scanned.codegen_grammar, text, scanned.fold)
+    assert sequential.to_text() == text
+
+    for workers in (2, 8, 16):
+        declined = split_model(
+            parse_model,
+            scanned.codegen_grammar,
+            Request(text, scanned.fold),
+            workers,
+            analysis=view,
+        )
+        assert declined is None, workers
+
+    assert calls, "scan_agrees was never reached"
+    assert not any(calls), "the mismatched view must never agree"
+
+
+def test_a_lex_ns_variant_with_a_merged_tail_literal_engages_the_split() -> None:
+    """``@lexical`` marking a terminated unit inlines its own trailing refs,
+    merging ``"}" nl`` into one literal like ``"}\\n"`` — the exact shape
+    that used to kill the plan (the old edge check demanded an EXACT
+    single-character literal). The variant must still find a plan, still
+    genuinely split the document across workers, and still match the
+    sequential model byte for byte."""
+    source = 'root ::= entry+\nentry ::= word "}" nl\nword ::= [a-z]+\nnl ::= "\\n"\n'
+    variant = compile_text(source, directives=Directives(lexical=frozenset({"entry"})))
+    grammar = variant.codegen_grammar
+
+    assert split_plan(grammar) is not None
+
+    text = "word}\n" * 3000
+    assert len(text) >= 16 * 1024  # clears the 8-worker split floor
+
+    calls: list[int] = []
+
+    def recording_parse(g, source_piece, f, resolve=None):
+        calls.append(len(source_piece))
+        return parse_model(g, source_piece, f, resolve)
+
+    split = split_model(recording_parse, grammar, Request(text, variant.fold), 8)
+    assert split is not None
+    assert len(calls) >= 2, "the plan must have actually divided the document"
+
+    sequential = variant.parse(text, cores=1)
+    parallel = variant.parse(text, cores=8)
+    assert parallel == sequential
+    assert parallel.to_text() == text

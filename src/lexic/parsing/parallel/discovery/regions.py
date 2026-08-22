@@ -24,7 +24,13 @@ from functools import partial
 from typing import NamedTuple
 
 from lexic.ir import IrAlternation, IrAst, IrItem, IrRule, IrRuleRef
-from lexic.parsing.parallel.discovery.interiors import interiors
+from lexic.parsing.parallel.discovery.interiors import (
+    Skip,
+    hides,
+    interiors,
+    skip_delimited,
+    skip_leads,
+)
 from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
 from lexic.parsing.parallel.policy import MIN_CHUNK
 
@@ -118,30 +124,26 @@ def separators(grammar: IrAst) -> frozenset[str]:
     return frozenset(found)
 
 
-def _skip_interior(text: str, start: int, escape: str) -> int:
-    """Where the interior opened at ``start`` ends (past its closer)."""
-    delim = text[start]
-    if delim == escape:
-        return len(text)
-    at = text.find(delim, start + 1)
-    while at != -1:
-        before = at - 1
-        while escape and before > start and text[before] == escape:
-            before -= 1
-        if not escape or (at - before - 1) % 2 == 0:
-            return at + 1
-        at = text.find(delim, at + 1)
-    return len(text)
-
-
 def _vocabulary(
     grammar: IrAst,
-) -> tuple[dict[str, tuple[str, str]], frozenset[str], dict[str, str]]:
-    """What the scan watches for: bracket pairs, separators, interiors."""
+) -> tuple[dict[str, tuple[str, str]], frozenset[str], dict[str, Skip]]:
+    """What the scan watches for: bracket pairs, separators, interiors.
+
+    A region is carried only when it can carry a watched character and its
+    lead character carries no role of its own. Skipping a region that hides
+    nothing costs a swept delimiter and a search per occurrence for no change
+    in the answer, and a lead character with a second role could not be
+    handed to the skip unconditionally the way the sweep does.
+    """
     pairs = pair_rules(grammar)
     marks = separators(grammar) - set(pairs)
-    skips = {region.delim: region.escape for region in interiors(grammar)}
-    return pairs, marks, skips
+    watched = frozenset(pairs) | {closer for closer, _rule in pairs.values()} | marks
+    skips = tuple(
+        region
+        for region in interiors(grammar)
+        if region.delim[0] not in watched and hides(grammar, region, watched)
+    )
+    return pairs, marks, skip_leads(skips)
 
 
 def _sweep(text: str, watched: set[str]) -> list[int]:
@@ -166,9 +168,11 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
     One C-level sweep per watched character, merged by sort, then a stack
     walk over the structural offsets alone — a Python loop over every
     character of a 10 MB document is itself a second of the answer. Opaque
-    interiors are skipped whole. A separator is attributed to the bracket that most
-    recently opened, which is what makes the answer depth-agnostic: the
-    caller asks for the BIGGEST runs rather than for a chosen level.
+    interiors are skipped whole, their delimiter matched in full so a lead
+    character that opens nothing here stays an ordinary character. A separator
+    is attributed to the bracket that most recently opened, which is what
+    makes the answer depth-agnostic: the caller asks for the BIGGEST runs
+    rather than for a chosen level.
 
     :param grammar: The grammar whose roles and interiors drive the scan.
     :param text: The document.
@@ -186,7 +190,7 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
             continue  # inside an opaque interior — never read
         char = text[at]
         if char in skips:
-            skip_to = _skip_interior(text, at, skips[char])
+            skip_to = skip_delimited(text, at, skips[char])
         elif char in pairs:
             stack.append((at, char, []))
         elif char in closers and stack and stack[-1][1] == closers[char]:

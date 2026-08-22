@@ -15,7 +15,9 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrAlternation, IrAst, IrItem, IrRule
 from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
+    derives_empty,
     edge_char,
+    leads_with,
     literal_char,
     unbounded,
 )
@@ -154,3 +156,34 @@ def test_an_empty_alternation_body_agrees_on_nothing():
     """No arms, nothing carried — ``None``, not a raise."""
     spells = partial(literal_char, rule_map={})
     assert edge_char(IrAlternation(), 0, spells) is None
+
+
+# ── leads_with / derives_empty ──────────────────────────────────────────
+
+
+def test_a_left_recursive_arm_leads_with_every_character_conservatively():
+    """An arm that opens by referencing its own rule never resolves a first
+    character, so the unresolved cycle answers yes for ANY character — the
+    safe direction, since an unprovable arm must not certify a sole leading
+    spelling for a caller like ``_unit_anchored``."""
+    rule_map = _rule_map('root ::= x\nx ::= x "a" | "b"')
+    items = _arm_items(rule_map, "x")  # x's first arm: x "a"
+    assert leads_with(items, "z", rule_map, frozenset())
+    assert leads_with(items, "q", rule_map, frozenset())
+
+
+def test_a_nullable_prefix_lets_the_scan_reach_the_next_items_lead():
+    """``ws?`` can derive empty, so the arm's leading-character question is
+    answered by what FOLLOWS it, not by the optional item alone."""
+    rule_map = _rule_map('root ::= item\nitem ::= ws? "!"\nws ::= " "')
+    items = _arm_items(rule_map, "item")
+    assert leads_with(items, "!", rule_map, frozenset())
+
+
+def test_a_cyclic_rule_derives_empty_conservatively():
+    """A rule whose only arm is a bare self-reference never proves it is
+    non-empty either, so the unresolved cycle answers yes here too — more
+    candidate leading arms for ``leads_with`` to scan past, not fewer."""
+    rule_map = _rule_map("root ::= loop\nloop ::= loop")
+    item = _arm_items(rule_map, "loop")[0]
+    assert derives_empty(item, rule_map, frozenset())

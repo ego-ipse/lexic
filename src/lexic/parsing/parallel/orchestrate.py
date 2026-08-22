@@ -40,7 +40,12 @@ from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
 from lexic.parsing.parallel.stitch.model import RegionWork, field_slot, splice
-from lexic.parsing.parallel.stitch.safety import owner_excludes, terminates_once
+from lexic.parsing.parallel.stitch.safety import (
+    mark_interiors,
+    owner_excludes,
+    scan_agrees,
+    terminates_once,
+)
 from lexic.parsing.parallel.stitch.tasks import region_tasks, region_works
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -193,6 +198,7 @@ def _terminated_plan(grammar: IrAst, rule_map: dict[str, IrRule]) -> SplitPlan |
     The start rule's only arm must be one unbounded reference to a unit that
     ends with a single anchor character. Cuts land after the terminator, so
     each chunk holds whole units and parses under the start rule unchanged.
+    Terminators a certified delimited region hides go to the scanner instead.
     """
     start = rule_map.get(str(grammar.start))
     if start is None:
@@ -209,7 +215,7 @@ def _terminated_plan(grammar: IrAst, rule_map: dict[str, IrRule]) -> SplitPlan |
         if record.unit == unit and record.container == str(grammar.start):
             return SplitPlan(
                 grammar,
-                Scanner(derived),
+                Scanner(derived, mark_interiors(grammar, unit, record.char)),
                 record.char,
                 unit,
                 (),
@@ -297,7 +303,13 @@ def split_plan(grammar: IrAst) -> SplitPlan | None:
 def _scan_windows(
     scanner: Scanner, text: str, workers: int, pool: WorkPool
 ) -> list[Window]:
-    """Scan windows once for every separator plan of one grammar."""
+    """Scan windows once for every separator plan of one grammar.
+
+    A scanner carrying opaque regions walks instead: a window cannot know
+    whether it begins inside one, and only the previous mark can say.
+    """
+    if scanner.opaque:
+        return [scanner.walk(text)]
     if workers < 2:
         return [scanner.window(text, 0, len(text))]
     step = len(text) // workers
@@ -666,9 +678,10 @@ def split_model[M: IrNamedTuple](
         plan
         for plan in plans
         if (
-            terminates_once(view, plan.owner, plan.mark)
-            if plan.sep is None
-            else owner_excludes(view, plan.owner, plan.mark)
+            owner_excludes(view, plan.owner, plan.mark)
+            if plan.sep is not None
+            else terminates_once(view, plan.owner, plan.mark)
+            and scan_agrees(view, plan.grammar, plan.owner, plan.mark)
         )
     )
     with WorkPool(workers) as pool:
