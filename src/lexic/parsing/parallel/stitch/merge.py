@@ -9,8 +9,7 @@ Neither path reparses a delegated subtree merely to discover where it belongs.
 from __future__ import annotations
 
 import random
-from bisect import bisect_left
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple, cast
 
 from lexic.exceptions import LexicError
@@ -19,7 +18,7 @@ from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.parallel.discovery.regions import shell, stub
+from lexic.parsing.parallel.discovery.regions import shell
 from lexic.parsing.parallel.stitch.model import (
     RegionPlan,
     RegionWork,
@@ -45,34 +44,6 @@ class MergeRequest[M](NamedTuple):
         return self.parse(grammar, text, self.fold, self.resolve)
 
 
-def _source_tail[M](
-    request: MergeRequest[M],
-    work: RegionWork,
-    cut: int,
-) -> GrammarModel | None:
-    """Reparse one boundary when no exact separator template is available."""
-    marks = work.region.marks
-    at = bisect_left(marks, cut)
-    if at == len(marks) or marks[at] != cut:
-        return None
-    lo = work.region.opener + 1 if at == 0 else marks[at - 1] + 1
-    hi = work.region.closer if at + 1 == len(marks) else marks[at + 1]
-    text = request.text
-    wrapped = text[work.region.opener] + text[lo:hi] + text[work.region.closer]
-    try:
-        model = request.run(work.plan.root, wrapped)
-    except LexicError:
-        return None
-    if not isinstance(model, GrammarModel):
-        return None
-    items = region_items(model, work.plan)
-    shaped = head_rest(items, work.plan) if items is not None else None
-    if shaped is None or len(shaped[1]) != 1:
-        return None
-    tail = shaped[1][0]
-    return tail if tail.__class__ is work.plan.tail_type else None
-
-
 def _replace_tail_head(
     template: GrammarModel, head: GrammarModel, plan: RegionPlan
 ) -> GrammarModel | None:
@@ -88,7 +59,38 @@ def _replace_tail_head(
     return tail if tail.__class__ is plan.tail_type else None
 
 
-def _boundary_lead(work: RegionWork, later: GrammarModel, text: str) -> str | None:
+def _template_lead(template: GrammarModel, plan: RegionPlan) -> str | None:
+    """Render only a parsed tail's shallow fields before its delegated head."""
+    children = template.children()
+    if plan.tail_head >= len(children):
+        return None
+    parts: list[str] = []
+    for child in children[: plan.tail_head]:
+        if isinstance(child, GrammarModel):
+            parts.append(child.to_text())
+        elif isinstance(child, str):
+            parts.append(child)
+        else:
+            return None
+    rendered = "".join(parts)
+    return (
+        rendered if rendered.startswith(plan.separator) else plan.separator + rendered
+    )
+
+
+def _template_tail(
+    templates: list[GrammarModel], lead: str, head: GrammarModel, plan: RegionPlan
+) -> GrammarModel | None:
+    """Reuse an exact shallow lead shape already parsed by a piece worker."""
+    template = next(
+        (item for item in templates if _template_lead(item, plan) == lead), None
+    )
+    return _replace_tail_head(template, head, plan) if template is not None else None
+
+
+def _boundary_lead(
+    work: RegionWork, later: GrammarModel, text: str, cut: int
+) -> str | None:
     """The cut separator plus noise owned by the later piece's fake opener."""
     lead = work.plan.separator
     begin_at = work.plan.outer_begin
@@ -98,11 +100,21 @@ def _boundary_lead(work: RegionWork, later: GrammarModel, text: str) -> str | No
     if begin_at >= len(children):
         return None
     begin = children[begin_at]
+    if begin is None:
+        after = cut + 1
+        opener = text[work.region.opener]
+        while (
+            after < len(text)
+            and text[after] != opener
+            and text[after] in work.plan.outer_skip
+        ):
+            after += 1
+        return text[cut:after]
     if not isinstance(begin, GrammarModel):
         return None
     before = begin.to_text()
     opener = text[work.region.opener]
-    return lead + before[1:] if before.startswith(opener) else None
+    return lead + (before[1:] if before.startswith(opener) else before)
 
 
 def _shallow_tail[M](
@@ -110,10 +122,11 @@ def _shallow_tail[M](
     work: RegionWork,
     later: GrammarModel,
     head: GrammarModel,
+    cut: int,
 ) -> GrammarModel | None:
     """Parse only a shallow boundary witness, then attach the delegated head."""
     witness = _witness(work.plan, 0)
-    lead = _boundary_lead(work, later, request.text)
+    lead = _boundary_lead(work, later, request.text, cut)
     if witness is None or lead is None:
         return None
     text = request.text
@@ -132,16 +145,34 @@ def _shallow_tail[M](
     return _replace_tail_head(shaped[1][0], head, work.plan)
 
 
+class _Joint(NamedTuple):
+    """One removed boundary and the already parsed model on either side."""
+
+    later: GrammarModel
+    head: GrammarModel
+    templates: list[GrammarModel]
+    cut: int
+
+
 def _joint_tail[M](
-    request: MergeRequest[M],
-    work: RegionWork,
-    cut: int,
-    later: GrammarModel,
-    head: GrammarModel,
+    request: MergeRequest[M], work: RegionWork, joint: _Joint
 ) -> GrammarModel | None:
-    """Prefer a shallow boundary witness, with exact source fallback."""
-    shallow = _shallow_tail(request, work, later, head)
-    return shallow if shallow is not None else _source_tail(request, work, cut)
+    """Build one shallow boundary around an already delegated head."""
+    lead = _boundary_lead(work, joint.later, request.text, joint.cut)
+    if lead is None:
+        return None
+    reused = _template_tail(joint.templates, lead, joint.head, work.plan)
+    return (
+        reused
+        if reused is not None
+        else _shallow_tail(
+            request,
+            work,
+            joint.later,
+            joint.head,
+            joint.cut,
+        )
+    )
 
 
 def _joined_tails[M](
@@ -152,9 +183,10 @@ def _joined_tails[M](
 ) -> list[GrammarModel] | None:
     """Join existing tails with each removed separator boundary."""
     merged = list(shaped[0][1])
+    templates = [tail for _head, rest in shaped for tail in rest]
     later_parts = zip(models[1:], shaped[1:], strict=True)
     for cut, (later, (head, rest)) in zip(work.cuts, later_parts, strict=True):
-        tail = _joint_tail(request, work, cut, later, head)
+        tail = _joint_tail(request, work, _Joint(later, head, templates, cut))
         if tail is None:
             return None
         children = tail.children()
@@ -207,46 +239,162 @@ _WITNESSES: dict[tuple[int, str, int], tuple[IrAst, str | None]] = {}
 
 
 def _witness(plan: RegionPlan, index: int) -> str | None:
-    """Generate one minimal-depth head for the shell, or decline to source."""
+    """Generate the indexed distinct bounded head, or decline the split."""
     key = (id(plan.root), plan.head_rule, index)
     entry = _WITNESSES.get(key)
     if entry is None:
         rules = {str(rule.name): rule for rule in plan.root.rules}
-        try:
-            value = generate(
-                plan.head_rule,
-                rules,
-                rng=random.Random(index),
-                max_depth=0,
-            )
-        except LexicError:
-            value = None
+        values: list[str] = []
+        value: str | None = None
+        for depth in range(3):
+            for seed in range(64):
+                try:
+                    candidate = generate(
+                        plan.head_rule,
+                        rules,
+                        rng=random.Random(seed),
+                        max_depth=depth,
+                    )
+                except LexicError:
+                    continue
+                if len(candidate) > 256 or candidate in values:
+                    continue
+                if len(values) == index:
+                    value = candidate
+                    break
+                values.append(candidate)
+            if value is not None:
+                break
         entry = (plan.root, value)
         _WITNESSES[key] = entry
     return entry[1]
 
 
+def _edge_noise(
+    children: Sequence[object],
+    slot: int | None,
+    boundary: str,
+    opening: bool,
+    fallback: str,
+) -> str | None:
+    """Text inside one fake boundary, or empty when that edge is inline."""
+    if slot is None:
+        result = ""
+    elif slot >= len(children):
+        result = None
+    else:
+        edge = children[slot]
+        result = edge.to_text() if isinstance(edge, GrammarModel) else None
+        if edge is None:
+            result = fallback
+        elif result is not None and opening and result.startswith(boundary):
+            result = result[1:]
+        elif result is not None and not opening and result.endswith(boundary):
+            result = result[:-1]
+    return result
+
+
+def _leading_noise(
+    text: str, start: int, stop: int, boundary: str, allowed: frozenset[str]
+) -> str:
+    """Return the finite wrapper prefix following an opening boundary."""
+    at = start
+    while at < stop and text[at] != boundary and text[at] in allowed:
+        at += 1
+    return text[start:at]
+
+
+def _trailing_noise(
+    text: str, start: int, stop: int, boundary: str, allowed: frozenset[str]
+) -> str:
+    """Return the finite wrapper suffix preceding a closing boundary."""
+    at = stop
+    while at > start and text[at - 1] != boundary and text[at - 1] in allowed:
+        at -= 1
+    return text[at:stop]
+
+
 def _boundary_stub(
     work: RegionWork,
     models: list[GrammarModel],
+    stand: GrammarModel,
     raw: str,
-    wrapped: str,
-    head: GrammarModel,
+    text: str,
 ) -> str | None:
-    """Restore boundary-owned whitespace around one stand-in."""
+    """Replace a stand-in's boundary noise with the delegated source noise."""
     begin_at, end_at = work.plan.outer_begin, work.plan.outer_end
-    if begin_at is None or end_at is None:
+    if begin_at is None and end_at is None:
         return raw
-    first, last = models[0].children(), models[-1].children()
-    if begin_at >= len(first) or end_at >= len(last):
+    wrapped = text[work.region.opener] + raw + text[work.region.closer]
+    source_before = _leading_noise(
+        text,
+        work.region.opener + 1,
+        work.region.closer,
+        wrapped[0],
+        work.plan.outer_skip,
+    )
+    source_after = _trailing_noise(
+        text,
+        work.region.opener,
+        work.region.closer,
+        wrapped[-1],
+        work.plan.outer_trail,
+    )
+    before = _edge_noise(
+        models[0].children(),
+        begin_at,
+        wrapped[0],
+        True,
+        source_before,
+    )
+    after = _edge_noise(
+        models[-1].children(),
+        end_at,
+        wrapped[-1],
+        False,
+        source_after,
+    )
+    if before is None or after is None:
         return None
-    begin, end = first[begin_at], last[end_at]
-    if not isinstance(begin, GrammarModel) or not isinstance(end, GrammarModel):
-        return raw
-    before, after = begin.to_text(), end.to_text()
-    if not before.startswith(wrapped[0]) or not after.endswith(wrapped[-1]):
+    fake_before = _edge_noise(
+        stand.children(),
+        begin_at,
+        wrapped[0],
+        True,
+        _leading_noise(wrapped, 1, len(wrapped) - 1, wrapped[0], work.plan.outer_skip),
+    )
+    fake_after = _edge_noise(
+        stand.children(),
+        end_at,
+        wrapped[-1],
+        False,
+        _trailing_noise(
+            wrapped, 1, len(wrapped) - 1, wrapped[-1], work.plan.outer_trail
+        ),
+    )
+    if fake_before is None or fake_after is None:
         return None
-    return before[1:] + head.to_text() + after[:-1]
+    if not raw.startswith(fake_before) or not raw.endswith(fake_after):
+        return None
+    core_end = len(raw) - len(fake_after) if fake_after else len(raw)
+    if core_end < len(fake_before):
+        return None
+    return before + raw[len(fake_before) : core_end] + after
+
+
+def _standin_model[M](
+    request: MergeRequest[M], work: RegionWork, source: str
+) -> tuple[GrammarModel, GrammarModel] | None:
+    """Parse one bounded generated shell stand-in and locate its items node."""
+    try:
+        stand = request.run(work.plan.root, source)
+    except LexicError:
+        return None
+    if not isinstance(stand, GrammarModel):
+        return None
+    needle = region_items(stand, work.plan)
+    shaped = head_rest(needle, work.plan) if needle is not None else None
+    return (stand, needle) if shaped is not None and needle is not None else None
 
 
 def _standin[M](
@@ -254,36 +402,28 @@ def _standin[M](
     work: RegionWork,
     models: list[GrammarModel],
     index: int,
-    shallow: bool,
 ) -> tuple[GrammarModel, str, GrammarModel] | None:
     """Merged items and the shallow shell needle standing in for them."""
     value = _merge_items(request, work, models)
-    generated = _witness(work.plan, index) if shallow else None
+    generated = _witness(work.plan, index)
+    if generated is None:
+        return None
     text = request.text
-    raw = generated if generated is not None else stub(text, work.region, index)
+    raw = generated
     wrapped = text[work.region.opener] + raw + text[work.region.closer]
-    try:
-        stand = request.run(work.plan.root, wrapped)
-    except LexicError:
+    parsed = _standin_model(request, work, wrapped)
+    if value is None or parsed is None:
         return None
-    if value is None or not isinstance(stand, GrammarModel):
-        return None
-    needle = region_items(stand, work.plan)
-    shaped = head_rest(needle, work.plan) if needle is not None else None
-    if shaped is None:
-        return None
-    item = _boundary_stub(work, models, raw, wrapped, shaped[0])
+    stand, needle = parsed
+    item = _boundary_stub(work, models, stand, raw, request.text)
     if item is None:
         return None
     if item != raw:
-        try:
-            stand = request.run(work.plan.root, wrapped[0] + item + wrapped[-1])
-        except LexicError:
+        parsed = _standin_model(request, work, wrapped[0] + item + wrapped[-1])
+        if parsed is None:
             return None
-        needle = (
-            region_items(stand, work.plan) if isinstance(stand, GrammarModel) else None
-        )
-    return (value, item, needle) if needle is not None else None
+        _stand, needle = parsed
+    return value, item, needle
 
 
 class Standins(NamedTuple):
@@ -302,21 +442,18 @@ def standins[M](
     """Build every region's merged value and shallow unique shell needle."""
     out = Standins([], [], [])
     counts: dict[tuple[int, str], int] = {}
-    for work in works:
+    needles: dict[tuple[int, str], list[GrammarModel]] = {}
+    for work, models in zip(works, parsed, strict=True):
         key = (id(work.plan.root), work.plan.head_rule)
-        counts[key] = counts.get(key, 0) + 1
-    for index, (work, models) in enumerate(zip(works, parsed, strict=True)):
-        key = (id(work.plan.root), work.plan.head_rule)
-        stand = _standin(
-            request,
-            work,
-            models,
-            index,
-            counts[key] == 1,
-        )
+        index = counts.get(key, 0)
+        stand = _standin(request, work, models, index)
         if stand is None:
             return None
         value, source, needle = stand
+        if needle in needles.setdefault(key, []):
+            return None
+        counts[key] = index + 1
+        needles[key].append(needle)
         out.values.append(value)
         out.text.append(source)
         out.needles.append(needle)

@@ -53,6 +53,20 @@ TRUE_GROUP = """group ::= "(" node ("," node)* ")"
 node ::= leaf | group
 leaf ::= [a-z]+
 """
+ROUTED_ALTERNATIVES = """root ::= expr
+expr ::= number (addop number)*
+addop ::= "+" | "-"
+number ::= [0-9]+
+"""
+ARITHMETIC = """root ::= expr
+expr ::= term addtail*
+addtail ::= addop term
+addop ::= "+" | "-"
+term ::= factor multail*
+multail ::= mulop factor
+mulop ::= "*" | "/"
+factor ::= [0-9]+
+"""
 
 
 def _doc(count: int = 40) -> str:
@@ -72,7 +86,7 @@ def test_universal_gates_skip_plan_and_safety_analysis(
     def unexpected_analysis(*_args, **_kwargs):
         raise AssertionError("parallel analysis ran behind a universal gate")
 
-    monkeypatch.setattr(orchestrate, "split_plan", unexpected_analysis)
+    monkeypatch.setattr(orchestrate, "_split_plans", unexpected_analysis)
     monkeypatch.setattr(orchestrate, "owner_excludes", unexpected_analysis)
     monkeypatch.setattr(orchestrate, "terminates_once", unexpected_analysis)
     monkeypatch.setattr(orchestrate, "find", unexpected_analysis)
@@ -222,6 +236,94 @@ def test_a_bare_literal_lead_splits_too():
     )
 
 
+def test_separator_alternatives_split_below_a_sole_wrapper():
+    """A routed repeated child stitches back into its unchanged root wrapper."""
+    compiled = compile_text(ROUTED_ALTERNATIVES)
+    text = "+".join(str(index % 10) * 12 for index in range(1200))
+    grammar, fold = compiled.codegen_grammar, compiled.fold
+    plan = split_plan(grammar)
+    sequential = parse_model(grammar, text, fold)
+    parallel = split_model(parse_model, grammar, Request(text, fold), 8)
+
+    assert plan is not None and plan.wrappers == ("root",)
+    assert plan.mark in {"+", "-"}
+    assert parallel == sequential
+    assert parallel is not None and parallel.to_text() == text
+
+
+def test_empty_outer_arithmetic_tail_routes_to_inner_multiplication():
+    """An empty add-tail still exposes the nested multiplication repetition."""
+    compiled = compile_text(ARITHMETIC)
+    text = "*".join(str(index % 10) * 12 for index in range(1200))
+    calls: list[tuple[str, int]] = []
+
+    def recording_parse(grammar, source, fold, resolve=None):
+        calls.append((str(grammar.start), len(source)))
+        return parse_model(grammar, source, fold, resolve)
+
+    parallel = split_model(
+        recording_parse,
+        compiled.codegen_grammar,
+        Request(text, compiled.fold),
+        8,
+    )
+
+    assert parallel is not None
+    assert parallel.to_text() == text
+    assert sum(start == "root" for start, _length in calls) == 7
+    assert sum(start == "mulop" for start, _length in calls) == 6
+    assert not any(start == "addop" for start, _length in calls)
+
+
+def test_nonempty_outer_arithmetic_tail_uses_outer_separator_route():
+    """When add-tail exists, inner multiplication is not split independently."""
+    compiled = compile_text(ARITHMETIC)
+    terms = ["*".join(str(index % 10) * 12 for index in range(12)) for _ in range(100)]
+    text = "+".join(terms)
+    calls: list[str] = []
+
+    def recording_parse(grammar, source, fold, resolve=None):
+        calls.append(str(grammar.start))
+        return parse_model(grammar, source, fold, resolve)
+
+    parallel = split_model(
+        recording_parse,
+        compiled.codegen_grammar,
+        Request(text, compiled.fold),
+        8,
+    )
+
+    assert parallel is not None
+    assert parallel == parse_model(compiled.codegen_grammar, text, compiled.fold)
+    assert parallel.to_text() == text
+    assert "addop" in calls
+    assert "mulop" not in calls
+
+
+@pytest.mark.parametrize("cores", [2, 4, 8])
+def test_finite_arithmetic_alternatives_preserve_one_document(cores: int):
+    """Both finite operator alternatives remain exact at every worker count."""
+    compiled = compile_text(ARITHMETIC)
+    text = "".join(
+        ("" if index == 0 else ("+" if index % 2 == 0 else "-"))
+        + f"{index % 10}*{(index + 1) % 10}/{(index + 2) % 10}"
+        for index in range(1200)
+    )
+    sequential = parse_model(compiled.codegen_grammar, text, compiled.fold)
+    parallel = split_model(
+        parse_model,
+        compiled.codegen_grammar,
+        Request(text, compiled.fold),
+        cores,
+    )
+
+    assert parallel is not None
+    assert parallel == sequential
+    assert parallel.to_text() == text
+    assert any(operator in text for operator in ("+", "-"))
+    assert any(operator in text for operator in ("*", "/"))
+
+
 def test_top_level_cuts_follow_byte_targets_and_clear_the_floor():
     """Variable item sizes still produce byte-balanced full-size chunks."""
     compiled = compile_text(LEAD_RULE)
@@ -244,6 +346,41 @@ def test_top_level_cuts_follow_byte_targets_and_clear_the_floor():
     assert split == parse_model(compiled.codegen_grammar, text, compiled.fold)
     assert len(chunks) == 4
     assert max(chunks) - min(chunks) < 2 * MIN_CHUNK
+
+
+def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
+    """A nearest unsafe mark gives way to an adjacent mark and three chunks."""
+    compiled = compile_text(LEAD_RULE)
+
+    def item(char: str, body_length: int) -> str:
+        return char * body_length + ":1"
+
+    text = ",".join(
+        [
+            item("a", 1998),
+            item("b", 2797),
+            item("c", 1397),
+            item("d", 1297),
+            item("e", 2497),
+        ]
+    )
+    calls: list[int] = []
+
+    def recording_parse(grammar, source, fold, resolve=None):
+        if str(grammar.start) == "root":
+            calls.append(len(source))
+        return parse_model(grammar, source, fold, resolve)
+
+    parallel = orchestrate.split_model(
+        recording_parse,
+        compiled.codegen_grammar,
+        Request(text, compiled.fold),
+        3,
+    )
+
+    assert parallel is not None
+    assert parallel.to_text() == text
+    assert sorted(calls) == [2499, 2699, 4800]
 
 
 def test_fence_internal_newlines_decline_without_chunking_inside_the_fence():

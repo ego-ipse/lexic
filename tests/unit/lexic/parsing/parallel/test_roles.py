@@ -10,7 +10,7 @@ standard pipeline.
 from __future__ import annotations
 
 import lexic.parsing
-from lexic.compile import parse_grammar
+from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing import parallel
 from lexic.parsing.parallel import Roles, Separator, roles
@@ -40,7 +40,7 @@ def test_jsonish_derives_the_brace_pair_and_comma_separator():
 def test_trailing_noise_after_the_closer_is_allowed():
     """The closer is the LAST anchor literal, not the last item."""
     grammar = 'root ::= "(" x ")" ws\nx ::= [a-z]+\nws ::= " "*'
-    got = roles(parse_grammar(grammar, GBNF_FLAVOUR))
+    got = roles(compile_text(grammar).codegen_grammar)
     assert got.pairs == (("(", ")"),)
 
 
@@ -65,6 +65,23 @@ def test_a_common_terminator_resolves_through_recursive_rule_refs():
 
     got = roles(parse_grammar(grammar, GBNF_FLAVOUR))
     assert got.terminators == (Terminator("\n", "root", "entry"),)
+
+
+def test_finite_anchor_class_derives_each_separator_alternative():
+    """A compiled ``+ | -`` lead remains two structural separator choices."""
+    grammar = (
+        "root ::= expr\n"
+        "expr ::= number tail*\n"
+        "tail ::= addop number\n"
+        'addop ::= "+" | "-"\n'
+        "number ::= [0-9]+\n"
+    )
+
+    got = roles(compile_text(grammar).codegen_grammar)
+    assert got.records == (
+        Separator("+", "expr", "tail", "addop"),
+        Separator("-", "expr", "tail", "addop"),
+    )
 
 
 def test_a_grammar_without_the_shapes_derives_empty_roles():

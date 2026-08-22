@@ -2,8 +2,9 @@
 
 ``WorkPool`` lets one document reuse its executor for differently typed scan,
 piece-parse, and fallback phases. ``ParsePool`` binds one callable for callers
-mapping whole documents repeatedly. Both bound pending submissions to one
-buffer per worker and own deterministic shutdown through a context manager.
+mapping whole documents repeatedly. Both admit work from completion order so
+uneven work does not strand workers, bound pending futures, and own
+deterministic shutdown through a context manager.
 
 ``cores`` reads as it does everywhere: 0 (the default) is as many as the
 machine allows, 1 is sequential, N is that many — see :mod:`.policy`.
@@ -12,9 +13,9 @@ machine allows, 1 is sequential, N is that many — see :mod:`.policy`.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from types import TracebackType
-from typing import Self
+from typing import Self, cast
 
 from lexic.parsing.parallel.policy import AUTO, doc_workers
 
@@ -28,8 +29,46 @@ class WorkPool:
         self._pool = ThreadPoolExecutor(max_workers=self.workers)
 
     def map[T, M](self, work: Callable[[T], M], items: Sequence[T]) -> list[M]:
-        """Apply ``work`` in order with at most one buffer per worker."""
-        return list(self._pool.map(work, items, buffersize=self.workers))
+        """Keep a bounded ready queue, return in order, and isolate failure."""
+        results: list[M | None] = [None] * len(items)
+        futures: dict[Future[M], int] = {}
+        failures: dict[int, BaseException] = {}
+        next_item = 0
+        try:
+            while next_item < len(items) or futures:
+                while next_item < len(items) and len(futures) < 4 * self.workers:
+                    future = self._pool.submit(work, items[next_item])
+                    futures[future] = next_item
+                    next_item += 1
+                completed = wait(futures, return_when=FIRST_COMPLETED)[0]
+                for future in sorted(completed, key=futures.__getitem__):
+                    index = futures.pop(future)
+                    try:
+                        results[index] = future.result()
+                    except BaseException as error:  # pylint: disable=broad-exception-caught
+                        # Drain the phase even for process-control exceptions.
+                        failures[index] = error
+                if failures:
+                    failed_at = min(failures)
+                    for future, index in futures.items():
+                        if index > failed_at:
+                            future.cancel()
+                    wait(futures)
+                    for future, index in futures.items():
+                        if future.cancelled():
+                            continue
+                        try:
+                            results[index] = future.result()
+                        except BaseException as error:  # pylint: disable=broad-exception-caught
+                            # Preserve the earliest input's original failure.
+                            failures[index] = error
+                    raise failures[min(failures)]
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            wait(futures)
+            raise
+        return cast(list[M], results)
 
     def close(self) -> None:
         """Shut the executor down after every submitted phase completes."""

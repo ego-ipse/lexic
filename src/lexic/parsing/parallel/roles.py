@@ -23,9 +23,18 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.ir import IrAlternation, IrAst, IrItem, IrLiteral, IrRule, IrRuleRef
+from lexic.ir import (
+    IrAlternation,
+    IrAst,
+    IrCharClass,
+    IrItem,
+    IrLiteral,
+    IrRule,
+    IrRuleRef,
+)
 from lexic.parsing.parallel.discovery.anchors import anchors
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
+from lexic.parsing.pda.core.charsets import CharSet
 
 
 class Separator(NamedTuple):
@@ -87,11 +96,26 @@ class Roles(NamedTuple):
 
 def _anchor_char(item: IrItem, anchor_set: frozenset[str]) -> str | None:
     """The item's character when it is a unit-quantified single-char anchor."""
+    chars = _anchor_chars(item, anchor_set)
+    return next(iter(chars)) if len(chars) == 1 else None
+
+
+def _anchor_chars(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
+    """All finite anchor alternatives one unit-quantified item can emit."""
     atom = item.atom
-    if not isinstance(atom, IrLiteral) or item.quantifier != UNIT:
-        return None
-    text = str(atom)
-    return text if len(text) == 1 and text in anchor_set else None
+    if item.quantifier != UNIT:
+        return frozenset()
+    if isinstance(atom, IrLiteral):
+        text = str(atom)
+        return frozenset(text) if len(text) == 1 and text in anchor_set else frozenset()
+    if not isinstance(atom, IrCharClass):
+        return frozenset()
+    emits = CharSet.from_charclass(atom)
+    return (
+        frozenset(emits.chars)
+        if not emits.negated and emits.chars and emits.chars <= anchor_set
+        else frozenset()
+    )
 
 
 def _arm_pair(
@@ -131,9 +155,9 @@ def _lead_info(
     The name is the OUTERMOST unit rule reference the lead resolves through
     (``comma``), or ``""`` for a bare literal lead.
     """
-    char = _anchor_char(item, anchor_set)
-    if char is not None:
-        return ({char}, "")
+    chars = _anchor_chars(item, anchor_set)
+    if chars:
+        return (set(chars), "")
     atom = item.atom
     resolvable = (
         isinstance(atom, IrRuleRef)

@@ -9,8 +9,8 @@ parse, so worker count never changes what an input means.
 
 from __future__ import annotations
 
-from bisect import bisect_left
-from collections.abc import Callable
+from bisect import bisect_left, bisect_right
+from collections.abc import Callable, Iterator
 from typing import Any, NamedTuple, cast
 
 from lexic.exceptions import LexicError
@@ -32,14 +32,14 @@ from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
 )
-from lexic.parsing.parallel.discovery.scan import Scanner
+from lexic.parsing.parallel.discovery.scan import Scanner, Window
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.roles import Separator, roles
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
-from lexic.parsing.parallel.stitch.model import RegionWork
+from lexic.parsing.parallel.stitch.model import RegionWork, field_slot, splice
 from lexic.parsing.parallel.stitch.safety import owner_excludes, terminates_once
 from lexic.parsing.parallel.stitch.tasks import region_tasks, region_works
 from lexic.parsing.pda.core.charsets import CharSet
@@ -82,6 +82,8 @@ class SplitPlan(NamedTuple):
     :ivar mark: The character cuts key on.
     :ivar owner: The repeated unit that must exclude the mark; empty for a
         terminated plan whose mark belongs to the unit itself.
+    :ivar wrappers: Single-reference rules between the grammar start and the
+        repeated container; empty when the container is the start rule.
     :ivar sep: The separator record, or ``None`` for a terminated plan.
     :ivar lead_grammar: The grammar rooted at the lead rule; ``None`` for a
         terminated plan or a bare-literal lead.
@@ -93,6 +95,7 @@ class SplitPlan(NamedTuple):
     scanner: Scanner
     mark: str
     owner: str
+    wrappers: tuple[str, ...]
     sep: Separator | None
     lead_grammar: IrAst | None
     lead_literal: str
@@ -124,6 +127,28 @@ def _item_shape(rule: IrRule, sep: Separator, unit: str) -> bool:
     return isinstance(lead_atom, IrLiteral) and str(lead_atom) == sep.char
 
 
+def _wrapper_chain(
+    rule_map: dict[str, IrRule], start: str, target: str
+) -> tuple[str, ...] | None:
+    """Head-reference route from ``start`` through empty-capable tails."""
+    wrappers: list[str] = []
+    seen: set[str] = set()
+    current = start
+    while current != target:
+        rule = rule_map.get(current)
+        items = _single_arm(rule) if rule is not None else None
+        child = _unit_ref(items[0]) if items else None
+        empty_tails = items is not None and all(
+            unbounded(item) and item.quantifier.lo == 0 for item in items[1:]
+        )
+        if child is None or not empty_tails or current in seen:
+            return None
+        seen.add(current)
+        wrappers.append(current)
+        current = child
+    return tuple(wrappers)
+
+
 def _plan_for(
     grammar: IrAst, sep: Separator, rule_map: dict[str, IrRule]
 ) -> SplitPlan | None:
@@ -131,6 +156,9 @@ def _plan_for(
     container = rule_map.get(sep.container)
     item_rule = rule_map.get(sep.item)
     if container is None or item_rule is None:
+        return None
+    wrappers = _wrapper_chain(rule_map, str(grammar.start), sep.container)
+    if wrappers is None:
         return None
     items = _single_arm(container)
     if items is None or len(items) != 2:
@@ -151,6 +179,7 @@ def _plan_for(
         Scanner(roles(grammar)),
         sep.char,
         unit,
+        wrappers,
         sep,
         lead_grammar,
         literal,
@@ -183,6 +212,7 @@ def _terminated_plan(grammar: IrAst, rule_map: dict[str, IrRule]) -> SplitPlan |
                 Scanner(derived),
                 record.char,
                 unit,
+                (),
                 None,
                 None,
                 "",
@@ -228,9 +258,29 @@ def _lead_skip(sep: Separator, rule_map: dict[str, IrRule]) -> frozenset[str]:
     return frozenset(out) - {sep.char}
 
 
-_PLANS: dict[int, tuple[IrAst, SplitPlan | None]] = {}
-"""Plan memo — id(grammar) → (grammar, plan). The strong reference pins the
+_PLANS: dict[int, tuple[IrAst, tuple[SplitPlan, ...]]] = {}
+"""Plan memo — id(grammar) → (grammar, plans). The strong reference pins the
 id, so a recycled id can never alias a live entry."""
+
+
+def _split_plans(grammar: IrAst) -> tuple[SplitPlan, ...]:
+    """Every exact start-reachable plan, memoised per grammar identity."""
+    entry = _PLANS.get(id(grammar))
+    if entry is None:
+        rule_map = {str(rule.name): rule for rule in grammar.rules}
+        terminated = _terminated_plan(grammar, rule_map)
+        plans = (
+            (terminated,)
+            if terminated is not None
+            else tuple(
+                plan
+                for sep in roles(grammar).records
+                if sep.item and (plan := _plan_for(grammar, sep, rule_map)) is not None
+            )
+        )
+        entry = (grammar, plans)
+        _PLANS[id(grammar)] = entry
+    return entry[1]
 
 
 def split_plan(grammar: IrAst) -> SplitPlan | None:
@@ -240,21 +290,31 @@ def split_plan(grammar: IrAst) -> SplitPlan | None:
     :returns: A plan when the START rule is a separated repetition whose
         shape the stitch supports; ``None`` otherwise.
     """
-    entry = _PLANS.get(id(grammar))
-    if entry is None:
-        rule_map = {str(rule.name): rule for rule in grammar.rules}
-        plan = _terminated_plan(grammar, rule_map)
-        for sep in roles(grammar).records if plan is None else ():
-            if sep.container == str(grammar.start) and sep.item:
-                plan = _plan_for(grammar, sep, rule_map)
-                if plan is not None:
-                    break
-        entry = (grammar, plan)
-        _PLANS[id(grammar)] = entry
-    return entry[1]
+    plans = _split_plans(grammar)
+    return plans[0] if plans else None
 
 
-def _scan(plan: SplitPlan, text: str, workers: int, pool: WorkPool) -> list[int]:
+def _scan_windows(
+    scanner: Scanner, text: str, workers: int, pool: WorkPool
+) -> list[Window]:
+    """Scan windows once for every separator plan of one grammar."""
+    if workers < 2:
+        return [scanner.window(text, 0, len(text))]
+    step = len(text) // workers
+    bounds = [
+        (k * step, (k + 1) * step if k < workers - 1 else len(text))
+        for k in range(workers)
+    ]
+    return pool.map(lambda span: scanner.window(text, span[0], span[1]), bounds)
+
+
+def _scan(
+    plan: SplitPlan,
+    text: str,
+    workers: int,
+    pool: WorkPool,
+    windows: list[Window] | None = None,
+) -> list[int]:
     """Depth-0 marks of this plan's char, scanned over ``workers`` windows.
 
     Windows are arithmetic and each is scanned with no left context — a
@@ -262,25 +322,21 @@ def _scan(plan: SplitPlan, text: str, workers: int, pool: WorkPool) -> list[int]
     nothing from its predecessor and the prefix-sum rebase recovers the
     absolute depths. One window IS the sequential scan.
     """
-    if workers < 2:
-        windows = [plan.scanner.window(text, 0, len(text))]
-    else:
-        step = len(text) // workers
-        bounds = [
-            (k * step, (k + 1) * step if k < workers - 1 else len(text))
-            for k in range(workers)
-        ]
-        windows = pool.map(
-            lambda span: plan.scanner.window(text, span[0], span[1]), bounds
-        )
+    scanned = windows or _scan_windows(plan.scanner, text, workers, pool)
     return [
         offset
-        for offset in plan.scanner.offsets(windows, depth=0)
+        for offset in plan.scanner.offsets(scanned, depth=0)
         if text[offset] == plan.mark
     ]
 
 
-def _cut_offsets(plan: SplitPlan, text: str, cores: int, pool: WorkPool) -> list[int]:
+def _cut_offsets(
+    plan: SplitPlan,
+    text: str,
+    cores: int,
+    pool: WorkPool,
+    windows: list[Window] | None = None,
+) -> list[int]:
     """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
 
     The worker CEILING is settled before anything is scanned: it depends
@@ -295,7 +351,7 @@ def _cut_offsets(plan: SplitPlan, text: str, cores: int, pool: WorkPool) -> list
     ceiling = worker_count(len(text), len(text), cores)
     if ceiling < 2:
         return []
-    marks = _scan(plan, text, ceiling, pool)
+    marks = _scan(plan, text, ceiling, pool, windows)
     if plan.sep is None and marks and marks[-1] == len(text) - 1:
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
@@ -312,24 +368,62 @@ def _balanced_cuts(
 ) -> list[int]:
     """Marks nearest equal byte targets, if every actual span clears policy."""
     cuts: list[int] = []
+    previous = 0
     for k in range(1, workers):
         want = len(text) * k / workers
-        at = bisect_left(marks, want)
-        if at == 0:
-            nearest = marks[0]
-        elif at == len(marks):
-            nearest = marks[-1]
-        else:
-            before, after = marks[at - 1], marks[at]
-            nearest = before if want - before <= after - want else after
-        if not cuts or cuts[-1] != nearest:
-            cuts.append(nearest)
+        remaining = workers - k
+        nearest = _safe_mark(plan, text, marks, previous, (want, remaining))
+        if nearest is None:
+            return []
+        cuts.append(nearest)
+        previous = _after_mark(plan, text, nearest)
     spans, _leads = _spans(plan, text, cuts)
     return (
         cuts
         if len(spans) == workers and min(hi - lo for lo, hi in spans) >= MIN_CHUNK
         else []
     )
+
+
+def _after_mark(plan: SplitPlan, text: str, mark: int) -> int:
+    """First source offset owned by the piece after ``mark``."""
+    after = mark + 1
+    while after < len(text) and text[after] in plan.skip:
+        after += 1
+    return after
+
+
+def _safe_mark(
+    plan: SplitPlan,
+    text: str,
+    marks: list[int],
+    previous: int,
+    target: tuple[float, int],
+) -> int | None:
+    """Nearest target mark whose adjacent spans can still clear the floor."""
+    want, remaining = target
+    terminated = plan.sep is None
+    lo = bisect_left(marks, previous + MIN_CHUNK - int(terminated))
+    hi = bisect_right(marks, len(text) - remaining * MIN_CHUNK - 1)
+    for candidate in _nearby_marks(marks, want, lo, hi):
+        after = _after_mark(plan, text, candidate)
+        end = after if terminated else candidate
+        if end - previous >= MIN_CHUNK and len(text) - after >= remaining * MIN_CHUNK:
+            return candidate
+    return None
+
+
+def _nearby_marks(marks: list[int], want: float, lo: int, hi: int) -> Iterator[int]:
+    """Yield candidates within ``[lo, hi)`` from nearest to farthest."""
+    at = bisect_left(marks, want, lo, hi)
+    left, right = at - 1, at
+    while left >= lo or right < hi:
+        take_left = right >= hi or (
+            left >= lo and want - marks[left] <= marks[right] - want
+        )
+        yield marks[left] if take_left else marks[right]
+        left -= int(take_left)
+        right += int(not take_left)
 
 
 def _stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
@@ -351,9 +445,9 @@ def _stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
     return chunks[0].rebuild(cast(Any, [tuple(sequences)]))
 
 
-def _stitch_separated[M: IrNamedTuple](
-    chunks: list[M], lead_models: list[tuple]
-) -> M | None:
+def _stitch_separated(
+    chunks: list[GrammarModel], lead_models: list[tuple]
+) -> GrammarModel | None:
     """Rebuild the container from chunk models; ``None`` = shape surprise."""
     heads = [tuple(chunk)[0] for chunk in chunks]
     rests = [tuple(chunk)[1] for chunk in chunks]
@@ -365,6 +459,60 @@ def _stitch_separated[M: IrNamedTuple](
         merged.append(template.rebuild([*lead_models[k - 1], heads[k]]))
         merged.extend(rests[k])
     return chunks[0].rebuild([heads[0], IrTuple(*merged)])
+
+
+def _wrapper_route[M: IrNamedTuple](
+    plan: SplitPlan, fold: ModelFold[M]
+) -> tuple[tuple[int, None], ...] | None:
+    """Model-child route corresponding to the plan's sole-ref wrappers."""
+    route: list[tuple[int, None]] = []
+    for name in plan.wrappers:
+        config = fold.config.get(name)
+        slot = field_slot(config, 0) if config is not None else None
+        if slot is None:
+            return None
+        route.append((slot, None))
+    return tuple(route)
+
+
+def _at_route(
+    root: GrammarModel, route: tuple[tuple[int, None], ...]
+) -> GrammarModel | None:
+    """The model below an isolated head-reference wrapper route."""
+    node = root
+    for slot, _repeated in route:
+        children = node.children()
+        if slot >= len(children):
+            return None
+        if any(
+            value not in (None, (), "")
+            for at, value in enumerate(children)
+            if at != slot
+        ):
+            return None
+        child = children[slot]
+        if not isinstance(child, GrammarModel):
+            return None
+        node = child
+    return node
+
+
+def _stitch_routed[M: IrNamedTuple](
+    chunks: list[M], lead_models: list[tuple], plan: SplitPlan, fold: ModelFold[M]
+) -> M | None:
+    """Merge a separated container and rebuild its sole-ref start wrappers."""
+    route = _wrapper_route(plan, fold)
+    if route is None or any(not isinstance(chunk, GrammarModel) for chunk in chunks):
+        return None
+    roots = cast(list[GrammarModel], chunks)
+    containers = [_at_route(root, route) for root in roots]
+    if any(container is None for container in containers):
+        return None
+    merged = _stitch_separated(cast(list[GrammarModel], containers), lead_models)
+    if merged is None:
+        return None
+    rebuilt = splice(roots[0], route, merged) if route else merged
+    return cast(M, rebuilt)
 
 
 def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]]:
@@ -379,9 +527,7 @@ def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]
     prev = 0
     terminated = plan.sep is None
     for cut in cuts:
-        after = cut + 1
-        while after < len(text) and text[after] in plan.skip:
-            after += 1
+        after = _after_mark(plan, text, cut)
         spans.append((prev, after if terminated else cut))
         leads.append("" if terminated else text[cut:after])
         prev = after
@@ -424,7 +570,7 @@ def _split_parse[M: IrNamedTuple](
         return None
     if terminated:
         return _stitch_terminated(chunks)
-    return _stitch_separated(chunks, lead_models)
+    return _stitch_routed(chunks, lead_models, plan, fold)
 
 
 def _parse_region_parts[M: IrNamedTuple](
@@ -514,17 +660,25 @@ def split_model[M: IrNamedTuple](
     workers = doc_workers(cores)
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
-    plan = split_plan(grammar)
+    plans = _split_plans(grammar)
     view = analysis or grammar
-    safe_plan = plan is not None and (
-        terminates_once(view, plan.owner, plan.mark)
-        if plan.sep is None
-        else owner_excludes(view, plan.owner, plan.mark)
+    safe_plans = tuple(
+        plan
+        for plan in plans
+        if (
+            terminates_once(view, plan.owner, plan.mark)
+            if plan.sep is None
+            else owner_excludes(view, plan.owner, plan.mark)
+        )
     )
     with WorkPool(workers) as pool:
-        if safe_plan:
-            assert plan is not None
-            cuts = _cut_offsets(plan, ask.text, cores, pool)
+        windows = (
+            _scan_windows(safe_plans[0].scanner, ask.text, workers, pool)
+            if safe_plans
+            else None
+        )
+        for plan in safe_plans:
+            cuts = _cut_offsets(plan, ask.text, cores, pool, windows)
             if (
                 cuts
                 and (model := _split_parse(parse, plan, ask, cuts, pool)) is not None

@@ -2,12 +2,48 @@
 
 from __future__ import annotations
 
-from lexic.compile import compile_text
+from typing import NamedTuple
+
+from lexic.compile import CompiledGrammar, compile_text
+from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import parse_model
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.stitch.model import RegionPlan, derive_plan
+
+
+class RecordingParse(NamedTuple):
+    """Model parser recording each rooted grammar and source size."""
+
+    calls: list[tuple[str, int]]
+
+    def __call__(
+        self,
+        grammar: IrAst,
+        source: str,
+        fold: ModelFold,
+        resolve: Resolver | None = None,
+    ) -> GrammarModel:
+        """Record one call, then invoke the ordinary model product."""
+        self.calls.append((str(grammar.start), len(source)))
+        return parse_model(grammar, source, fold, resolve)
+
+
+def recorded_split(
+    compiled: CompiledGrammar, text: str, cores: int
+) -> tuple[RecordingParse, GrammarModel | None]:
+    """Attempt one split through a recording model product."""
+    recording = RecordingParse([])
+    parallel = split_model(
+        recording,
+        compiled.codegen_grammar,
+        Request(text, compiled.fold),
+        cores,
+    )
+    return recording, parallel
 
 
 def split_case(

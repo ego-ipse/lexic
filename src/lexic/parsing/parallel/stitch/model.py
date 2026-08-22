@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any, NamedTuple, cast
 
 from lexic.exceptions import LexicError
-from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
+from lexic.ir import IrAst, IrCharClass, IrItem, IrLiteral, IrRule, IrRuleRef
 from lexic.model import GrammarModel
 from lexic.parsing.fold import ModelFold, RuleFold
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.discovery.shapes import literal_char, unbounded
+from lexic.parsing.pda.core.charsets import CharSet
 
 
 class RegionPlan(NamedTuple):
@@ -22,8 +23,10 @@ class RegionPlan(NamedTuple):
     items_type: type[GrammarModel]
     tail_type: type[GrammarModel]
     outer_begin: int | None
+    outer_skip: frozenset[str]
     outer_items: int
     outer_end: int | None
+    outer_trail: frozenset[str]
     items_head: int
     items_rest: int
     tail_head: int
@@ -127,11 +130,52 @@ def _boundary_slots(
     arm: tuple[IrItem, ...], before: int, after: int, config: RuleFold
 ) -> tuple[int | None, int | None]:
     """Model slots for the wrapper refs immediately around a recurrence."""
-    if before < 0 or after >= len(arm):
-        return None, None
-    if _ref_at(arm, before) is None or _ref_at(arm, after) is None:
-        return None, None
-    return field_slot(config, before), field_slot(config, after)
+    begin = (
+        field_slot(config, before)
+        if before >= 0 and _ref_at(arm, before) is not None
+        else None
+    )
+    end = (
+        field_slot(config, after)
+        if after < len(arm) and _ref_at(arm, after) is not None
+        else None
+    )
+    return begin, end
+
+
+def _finite_chars(
+    item: IrItem, rules: dict[str, IrRule], seen: frozenset[str] = frozenset()
+) -> frozenset[str]:
+    """Finite characters emitted by a boundary item; co-finite means unknown."""
+    atom = item.atom
+    if isinstance(atom, IrLiteral):
+        return frozenset(str(atom))
+    if isinstance(atom, IrCharClass):
+        chars = CharSet.from_charclass(atom)
+        return frozenset() if chars.negated else chars.chars
+    if not isinstance(atom, IrRuleRef) or str(atom) in seen:
+        return frozenset()
+    name = str(atom)
+    rule = rules.get(name)
+    if rule is None:
+        return frozenset()
+    return frozenset().union(
+        *(
+            _finite_chars(inner, rules, seen | {name})
+            for arm in rule.body
+            for inner in arm
+        )
+    )
+
+
+def _boundary_charsets(
+    root: IrAst, arm: tuple[IrItem, ...], before: int, after: int
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Finite source characters owned by the arms around one recurrence."""
+    rules = {str(rule.name): rule for rule in root.rules}
+    opening = _finite_chars(arm[before], rules) if before >= 0 else frozenset()
+    closing = _finite_chars(arm[after], rules) if after < len(arm) else frozenset()
+    return opening, closing
 
 
 def _configured_plan(source: _PlanInput) -> RegionPlan | None:
@@ -157,6 +201,12 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     begin, end = _boundary_slots(
         source.outer_arm, items_at - 1, items_at + 1, outer_cfg
     )
+    boundary = _boundary_charsets(
+        source.root,
+        source.outer_arm,
+        items_at - 1,
+        items_at + 1,
+    )
     return RegionPlan(
         root=source.root,
         head_rule=head_name,
@@ -165,8 +215,10 @@ def _configured_plan(source: _PlanInput) -> RegionPlan | None:
         items_type=cast(type[GrammarModel], kinds[1]),
         tail_type=cast(type[GrammarModel], kinds[2]),
         outer_begin=begin,
+        outer_skip=boundary[0],
         outer_items=cast(int, slots[0]),
         outer_end=end,
+        outer_trail=boundary[1],
         items_head=cast(int, slots[1]),
         items_rest=cast(int, slots[2]),
         tail_head=cast(int, slots[3]),
@@ -221,6 +273,12 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
     if bound is None:
         return None
     begin, end = _boundary_slots(source.outer_arm, head_at - 1, head_at + 2, outer_cfg)
+    boundary = _boundary_charsets(
+        source.root,
+        source.outer_arm,
+        head_at - 1,
+        head_at + 2,
+    )
     return RegionPlan(
         root=source.root,
         head_rule=head_name,
@@ -229,8 +287,10 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
         items_type=bound.outer_type,
         tail_type=bound.tail_type,
         outer_begin=begin,
+        outer_skip=boundary[0],
         outer_items=-1,
         outer_end=end,
+        outer_trail=boundary[1],
         items_head=bound.head_slot,
         items_rest=bound.rest_slot,
         tail_head=bound.tail_head,
