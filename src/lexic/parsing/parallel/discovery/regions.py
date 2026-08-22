@@ -29,7 +29,8 @@ from lexic.parsing.parallel.discovery.interiors import (
     hides,
     interiors,
     skip_delimited,
-    skip_leads,
+    skip_single,
+    split_leads,
 )
 from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
 from lexic.parsing.parallel.policy import MIN_CHUNK
@@ -124,16 +125,45 @@ def separators(grammar: IrAst) -> frozenset[str]:
     return frozenset(found)
 
 
-def _vocabulary(
-    grammar: IrAst,
-) -> tuple[dict[str, tuple[str, str]], frozenset[str], dict[str, Skip]]:
+class Vocab(NamedTuple):
+    """What the sweep watches for, and what each character means to it.
+
+    :ivar pairs: opener → ``(closer, rule)`` for the tracked bracket pairs.
+    :ivar closers: closer → its opener.
+    :ivar marks: The separator characters.
+    :ivar fast: lead → escape for symmetric single-character regions — the
+        dominant shape, on the original per-character loop.
+    :ivar slow: lead → :data:`Skip` for every other carried region.
+    """
+
+    pairs: dict[str, tuple[str, str]]
+    closers: dict[str, str]
+    marks: frozenset[str]
+    fast: dict[str, str]
+    slow: dict[str, Skip]
+
+    @property
+    def watched(self) -> set[str]:
+        """Every character the sweep must find."""
+        return (
+            set(self.pairs)
+            | set(self.closers)
+            | self.marks
+            | set(self.fast)
+            | set(self.slow)
+        )
+
+
+def _vocabulary(grammar: IrAst) -> Vocab:
     """What the scan watches for: bracket pairs, separators, interiors.
 
     A region is carried only when it can carry a watched character and its
     lead character carries no role of its own. Skipping a region that hides
     nothing costs a swept delimiter and a search per occurrence for no change
     in the answer, and a lead character with a second role could not be
-    handed to the skip unconditionally the way the sweep does.
+    handed to the skip unconditionally the way the sweep does. The dominant
+    symmetric single-character shape rides its own fast table — see
+    :func:`~lexic.parsing.parallel.discovery.interiors.split_leads`.
     """
     pairs = pair_rules(grammar)
     marks = separators(grammar) - set(pairs)
@@ -143,7 +173,8 @@ def _vocabulary(
         for region in interiors(grammar)
         if region.opening[0] not in watched and hides(grammar, region, watched)
     )
-    return pairs, marks, skip_leads(skips)
+    closers = {closer: opener for opener, (closer, _rule) in pairs.items()}
+    return Vocab(pairs, closers, marks, *split_leads(skips))
 
 
 def _sweep(text: str, watched: set[str]) -> list[int]:
@@ -180,24 +211,36 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
         work use this to avoid retaining runs that cannot clear their floor.
     :returns: The regions, in closing order.
     """
-    pairs, marks, skips = _vocabulary(grammar)
-    closers = {closer: opener for opener, (closer, _rule) in pairs.items()}
+    vocab = _vocabulary(grammar)
+    return _walk(text, _sweep(text, vocab.watched), vocab, min_span)
+
+
+def _walk(text: str, offsets: list[int], vocab: Vocab, min_span: int) -> list[Region]:
+    """The stack walk over the swept structural offsets.
+
+    The hot branches (skips and openers, tested first and most often) read
+    local aliases; the closer and mark branches read through ``vocab``, which
+    keeps the walk inside the locals budget without touching its fast half.
+    """
+    pairs, fast, slow = vocab.pairs, vocab.fast, vocab.slow
     found: list[Region] = []
     stack: list[tuple[int, str, list[int]]] = []
     skip_to = 0
-    for at in _sweep(text, set(pairs) | set(closers) | marks | set(skips)):
+    for at in offsets:
         if at < skip_to:
             continue  # inside an opaque interior — never read
         char = text[at]
-        if char in skips:
-            skip_to = skip_delimited(text, at, skips[char])
+        if char in fast:
+            skip_to = skip_single(text, at, fast[char])
+        elif char in slow:
+            skip_to = skip_delimited(text, at, slow[char])
         elif char in pairs:
             stack.append((at, char, []))
-        elif char in closers and stack and stack[-1][1] == closers[char]:
+        elif char in vocab.closers and stack and stack[-1][1] == vocab.closers[char]:
             opener, open_char, inside = stack.pop()
             if inside and at - opener >= min_span:
                 found.append(Region(opener, at, pairs[open_char][1], tuple(inside)))
-        elif char in marks and stack:
+        elif char in vocab.marks and stack:
             stack[-1][2].append(at)
     return found
 

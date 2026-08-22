@@ -30,7 +30,7 @@ from lexic.exceptions import LexicError
 from lexic.generate import generate
 from lexic.ir import IrAst, IrItem, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
-from lexic.parsing.parallel.discovery.interiors import Interior, as_skip, skip_delimited
+from lexic.parsing.parallel.discovery.interiors import Skip, as_skip, skip_delimited
 from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
     derives_empty,
@@ -124,7 +124,9 @@ class LeadRun(NamedTuple):
     """What a cut extends over after its mark, and what reparses it.
 
     :ivar noise: Characters the run may carry directly.
-    :ivar skips: Opaque regions the run jumps whole, longest opening first.
+    :ivar skips: ``(opening, skip)`` per opaque region the run jumps whole,
+        longest opening first — precomputed once, so a jump pays no per-call
+        tuple build.
     :ivar target: The grammar the separator span reparses under, rooted at the
         repeated ITEM. The span itself carries only the lead, so a reparse
         appends a grammar-generated witness unit and keeps the lead's fields —
@@ -133,7 +135,7 @@ class LeadRun(NamedTuple):
     """
 
     noise: frozenset[str]
-    skips: tuple[Interior, ...]
+    skips: tuple[tuple[str, Skip], ...]
     target: IrAst
 
 
@@ -161,11 +163,11 @@ def extend(text: str, at: int, run: LeadRun) -> int:
     return at
 
 
-def _jump(text: str, at: int, skips: tuple[Interior, ...]) -> int:
+def _jump(text: str, at: int, skips: tuple[tuple[str, Skip], ...]) -> int:
     """Past an opaque region opening here, or ``at`` when none does."""
-    for region in skips:
-        if text.startswith(region.opening, at):
-            return skip_delimited(text, at, as_skip(region))
+    for opening, skip in skips:
+        if text.startswith(opening, at):
+            return skip_delimited(text, at, skip)
     return at
 
 
@@ -286,8 +288,9 @@ def _run_of(
     is nearly every character, and letting it widen the noise would leave no
     character able to announce a unit.
     """
-    skips = noise_skips(grammar)
-    hidden = frozenset(region.rule for region in skips)
+    regions = noise_skips(grammar)
+    skips = tuple((region.opening, as_skip(region)) for region in regions)
+    hidden = frozenset(region.rule for region in regions)
     noise = CharSet.EMPTY
     required = CharSet.EMPTY
     for item in _lead_items(rules, shape.item):

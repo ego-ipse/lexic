@@ -34,6 +34,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     rule_emits,
     unbounded,
 )
+from lexic.parsing.parallel.policy import MIN_CHUNK
 from lexic.parsing.parallel.stitch.safety import terminates_once
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -143,10 +144,17 @@ def _head_lead(
 
 
 def terminates_once_ref(name: str, mark: str, rules: dict[str, IrRule]) -> bool:
-    """Whether the named rule's every derivation ends at ``mark``, once."""
+    """Whether the named rule's EVERY arm ends at ``mark``, once.
+
+    Every arm, not the first: a head unit the locator walks off by lines must
+    end at the mark on every derivation, or a line matching another arm would
+    carry the walk past its own end.
+    """
     target = rules.get(name)
-    return target is not None and bool(
-        literal_text(tuple(tuple(target.body)[0])[-1], rules) == mark
+    arms = tuple(target.body) if target is not None else ()
+    return bool(arms) and all(
+        bool(items) and literal_text(items[-1], rules) == mark
+        for items in (tuple(arm) for arm in arms)
     )
 
 
@@ -310,6 +318,11 @@ def divide(text: str, region: Region, workers: int) -> list[str] | None:
     instead, which would leave every piece here missing an edge.
     """
     lo, hi = region.opener + 1, region.closer
+    # The user-pinned floor applies to ACTUAL pieces, not just the document:
+    # capacity caps the division exactly as the sweep path's ``choose`` does,
+    # so a small interior at a high worker count declines rather than paying
+    # sub-2 KiB parses.
+    workers = min(workers, (hi - lo) // MIN_CHUNK)
     if workers < 2 or not region.marks:
         return None
     target = (hi - lo) / workers

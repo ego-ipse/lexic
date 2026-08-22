@@ -22,7 +22,9 @@ from lexic.parsing.parallel.plan.routed import (
     locate,
     routed_plan,
     rule_emits_item,
+    terminates_once_ref,
 )
+from lexic.parsing.parallel.policy import MIN_CHUNK
 from tests.unit.lexic.parsing.parallel.routed_fixtures import (
     ROUTED_GRAMMAR,
     routed_document,
@@ -161,8 +163,9 @@ def test_locate_finds_an_empty_interior_and_divide_declines_it():
 def test_divide_cuts_after_terminators_and_wears_the_regions_delimiters():
     """Every piece opens with the region's own opening character, closes
     with its closing character, and the cut lands right after a unit's own
-    terminator — never mid-unit."""
-    text = routed_document(700)
+    terminator — never mid-unit. The document is sized so four pieces clear
+    the per-piece floor the division enforces."""
+    text = routed_document(1300)
     found = routed_pieces(_grammar(ROUTED_GRAMMAR), text, 4)
 
     assert found is not None
@@ -216,3 +219,42 @@ def test_the_real_abnf_self_grammar_derives_no_route():
     assert routed_plan(grammar) is None
     assert candidate is not None
     assert rule_emits_item(emitting, "\n", rules)
+
+
+# ── review fixes: the piece floor, and multi-arm head units ────────────────
+
+
+def test_divide_caps_workers_at_the_per_piece_floor():
+    """The user-pinned 2 KiB floor applies to ACTUAL pieces: a small interior
+    at a high worker count divides into fewer, floor-clearing pieces — and an
+    interior below two chunks declines outright rather than paying sub-floor
+    parses."""
+    grammar = _grammar(ROUTED_GRAMMAR)
+    small = routed_document(700)  # interior ~4.9 KiB: capacity is two
+    found = routed_pieces(grammar, small, 16)
+    assert found is not None
+    _plan, _region, parts = found
+    assert len(parts) == 2
+    assert min(len(part) for part in parts) >= MIN_CHUNK
+
+    tiny = routed_document(200)  # interior ~1.4 KiB: below two chunks
+    plan = routed_plan(grammar)
+    assert plan is not None
+    region = locate(tiny, plan)
+    assert region is not None
+    assert divide(tiny, region, 16) is None
+
+
+def test_a_multi_arm_head_unit_not_ending_at_the_mark_declines():
+    """The locator walks head units off a line at a time, so EVERY head arm
+    must end at the mark — a second arm ending elsewhere would carry the walk
+    past its own end, and the route declines instead."""
+    two_armed = ROUTED_GRAMMAR.replace(
+        'head ::= "H" [a-z]* "\\n"\n',
+        'head ::= "H" [a-z]* "\\n" | "H" [0-9]+\n',
+    )
+    grammar = _grammar(two_armed)
+    rules = {str(rule.name): rule for rule in grammar.rules}
+
+    assert not terminates_once_ref("head", "\n", rules)
+    assert routed_plan(grammar) is None
