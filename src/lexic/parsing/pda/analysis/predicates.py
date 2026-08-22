@@ -37,6 +37,7 @@ from lexic.parsing.pda.analysis.cursors import (
     ConflictCtx,
     FeedCtx,
     Scope,
+    Site,
 )
 from lexic.parsing.pda.core.charsets import CharSet
 
@@ -232,7 +233,7 @@ def _seq_alternation(d: GrammarAnalysis, n: IrSelf, nc: Sequence[IrSelf]) -> Non
     sub_arms = [_items(arm) for arm in n]
     label = f"{ctx.rule}[{ctx.index}]grp"
     scope = Scope(ctx.rule, ctx.cont, body=False)
-    d.arm_conflicts(sub_arms, ctx.cont.soft, label, ctx.notes)
+    d.arm_conflicts(sub_arms, ctx.cont.soft, Site(label, id(n)), ctx.notes)
     for sub in sub_arms:
         d.seq_conflicts(sub, scope, ctx.notes)
 

@@ -201,11 +201,11 @@ class ArmSpec(NamedTuple):
 class ArmGates(NamedTuple):
     """The analysis-sourced arm-demotion specs for one alternation, bundled.
 
-    A rule body's stored gate specs, read from the
+    An alternation's stored gate specs, read from the
     :class:`~lexic.parsing.pda.analysis.analysis.Taxonomy` and handed to
     :meth:`~lexic.parsing.pda.compiler.clones.PdaCompiler.compile_arms` together so the
-    per-arm alignment stays inside one enumeration. An inline group passes the
-    empty default (no demotion).
+    per-arm alignment stays inside one enumeration. A rule body reads them by
+    name, an inline group by node identity; ``struct_arm`` is rule-body-only.
 
     :ivar windows: P2 k-window per-arm selection sets, or ``None``.
     :ivar peeks: P3 noise-skip ``(W, per-arm post-noise selectors)``, or ``None``.

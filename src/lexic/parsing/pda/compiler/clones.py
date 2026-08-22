@@ -278,16 +278,25 @@ def _spec_ruleref(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
 
 
 def _spec_alternation(d: IrSelf, n: IrSelf, nc: Sequence[IrSelf]) -> ItemSpec:
-    """Compile an inline group to a ``grp`` spec — FIRST-gated arms + default.
+    """Compile an inline group to a ``grp`` spec — gated arms + default.
 
     The arms compile against the item's hard continuation. Repeat loopback
     stays out of that tail: it is a split opportunity, not text an inner child
     must leave for another copy.
+
+    A group whose arms' FIRSTs overlap carries the analysis' stored demotion
+    gates, keyed by this node's identity — the same read-back a rule body
+    does, so an alternation that ``@lexical`` inlining moved into a group is
+    still selected rather than islanded.
     """
     ctx = cast(_ItemCtx, nc[0])
     compiler = cast(PdaCompiler, d)
     eff = ctx.cont
-    arms, default, _ = compiler.compile_arms(cast(IrAlternation, n), eff)
+    tax = compiler.analysis.taxonomy
+    windows, peeks = tax.grp_arm_gates.get(id(n), (None, None))
+    arms, default, _ = compiler.compile_arms(
+        cast(IrAlternation, n), eff, ArmGates(windows, peeks)
+    )
     return ItemSpec(GRP, GroupSpec(arms, default), ctx.lo, ctx.hi, ctx.gate)
 
 

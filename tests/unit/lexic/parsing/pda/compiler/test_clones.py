@@ -140,7 +140,7 @@ def all_specs(pda: PdaTables) -> Iterator[ItemSpec]:
 # Generated repeat loopback is not a hard tail, so it creates no extra entry.
 PINNED_CLONE_COUNTS: dict[str, int] = {
     "arithmetic.gbnf": 22,
-    "c.gbnf": 59,  # attempt rules clone once, canonically (memo identity)
+    "c.gbnf": 60,  # +1: relationoperator demotes (group arm gate) and clones
     "chess.gbnf": 10,  # +2 at P2: nonpawn demoted from island → cloned (k-gate)
     "japanese.gbnf": 7,
     "json.gbnf": 87,  # island-free at P3: the whole grammar clones
@@ -189,11 +189,14 @@ def test_no_pending_placeholder_leaks(stem: str):
 
 PINNED_RESIDUE: dict[str, list[str]] = {
     **PINNED_ISLANDS,
-    "c.gbnf": ["relationoperator"],
+    "c.gbnf": [],
 }
 """The compiler-level island RESIDUE — the analysis' islands minus the
-attemptable set (which clones instead). Only c.gbnf differs: four of its five
-analysis islands attempt; `relationoperator` (fail class) stays."""
+attemptable set (which clones instead). Only c.gbnf differs, and it is now
+EMPTY: four of its five analysis islands always attempted, and group-arm
+demotion took the fifth — `relationoperator`, whose body is one inline group
+whose k-window separates the comparison spellings — out of the island set
+altogether, so it clones like any other rule."""
 
 
 @pytest.mark.parametrize("stem", sorted(PINNED_RESIDUE))

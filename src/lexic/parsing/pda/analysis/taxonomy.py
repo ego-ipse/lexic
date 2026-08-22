@@ -47,24 +47,52 @@ def _arm_spec_key(arm: ArmGate) -> tuple:
     return (_spec_key(arm.gate), arm.escape)
 
 
+Windows = tuple[tuple[tuple[CharSet, ...], ...], ...]
+"""One alternation's per-arm k-window selection sets, in arm order."""
+
+Peek = tuple[CharSet, tuple[CharSet, ...]]
+"""One alternation's P3 noise-skip gate — ``(W, per-arm post-noise selectors)``."""
+
+GroupGate = tuple[Windows | None, Peek | None]
+"""An inline group's demotion, both families in one entry. The cascade stops at
+the first licence that fires, so exactly one half is ever set — keeping them
+together is what lets one node key address the whole decision."""
+
+
 class _GateStore(IrLeaf[IrSelf, IrSelf]):
-    """The six gate-spec families, one slot each — :class:`Taxonomy`'s store.
+    """The seven gate-spec families, one slot each — :class:`Taxonomy`'s store.
+
+    An arm decision is filed under a rule NAME when the alternation is a rule
+    body and under the alternation node's ``id()`` when it is an inline group
+    — two key spaces, because a group has no name and two groups in one rule
+    share a label that would collide.
 
     :ivar arm: Rule name → per-arm k-window sets (P2).
     :ivar loop: ``id(item)`` → the ``taken`` k-window set (P2).
     :ivar pn_arm: Rule name → ``(W, per-arm post-noise selectors)`` (P3).
     :ivar pn_loop: ``id(item)`` → ``(W, take set)`` (P3).
+    :ivar grp_arm: ``id(group)`` → an inline group's :data:`GroupGate` — the
+        P2 and P3 families in one entry, since one node key addresses both.
     :ivar struct_loop: ``id(item)`` → a folding-aware ScanGate (P3/P5).
     :ivar struct_arm: Rule name → a folding-aware :class:`ArmGate` (empty-arm
         structured-noise / probe demotion, P3/P5).
     """
 
-    __slots__ = ("arm", "loop", "pn_arm", "pn_loop", "struct_loop", "struct_arm")
+    __slots__ = (
+        "arm",
+        "loop",
+        "pn_arm",
+        "pn_loop",
+        "grp_arm",
+        "struct_loop",
+        "struct_arm",
+    )
 
-    arm: dict[str, tuple[tuple[tuple[CharSet, ...], ...], ...]]
+    arm: dict[str, Windows]
     loop: dict[int, tuple[tuple[CharSet, ...], ...]]
-    pn_arm: dict[str, tuple[CharSet, tuple[CharSet, ...]]]
+    pn_arm: dict[str, Peek]
     pn_loop: dict[int, tuple[CharSet, CharSet]]
+    grp_arm: dict[int, GroupGate]
     struct_loop: dict[int, ScanGate]
     struct_arm: dict[str, ArmGate]
 
@@ -74,6 +102,7 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
         self.loop = {}
         self.pn_arm = {}
         self.pn_loop = {}
+        self.grp_arm = {}
         self.struct_loop = {}
         self.struct_arm = {}
 
@@ -84,7 +113,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     Also the **gate-spec channel** (Task 6.3 part c, option a): when P2 demotion
     is on, the k-window gates the classification consulted are *stored* here —
     single source of truth — and the clone compiler reads them back instead of
-    recomputing (which would risk a divergent second derivation). The six gate
+    recomputing (which would risk a divergent second derivation). The seven gate
     families live on one :class:`_GateStore`; the named accessors below are the
     public channel.
 
@@ -131,11 +160,23 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         self.gates = _GateStore()
 
     @property
-    def arm_gates(self) -> dict[str, tuple[tuple[tuple[CharSet, ...], ...], ...]]:
+    def arm_gates(self) -> dict[str, Windows]:
         """Rule name → per-arm k-window sets (aligned to the rule body's arms)
-        for a demoted rule-body arm selection. Rule bodies only — an inline
-        group's arm overlap stays a hard note (the rule islands)."""
+        for a demoted rule-body arm selection. An inline group's demotion is
+        keyed by node identity instead — :attr:`grp_arm_gates`."""
         return self.gates.arm
+
+    @property
+    def grp_arm_gates(self) -> dict[int, GroupGate]:
+        """``id(group)`` → a demoted INLINE GROUP's ``(windows, peek)`` pair.
+
+        The group twin of :attr:`arm_gates` / :attr:`pn_arm_gates`, keyed like
+        :attr:`loop_gates` because a group has no name. It exists because
+        ``@lexical`` inlining relocates a rule body's alternation into a group:
+        without it, the very decision the k-window settles one level up becomes
+        a hard note and the enclosing rule islands.
+        """
+        return self.gates.grp_arm
 
     @property
     def loop_gates(self) -> dict[int, tuple[tuple[CharSet, ...], ...]]:
@@ -146,9 +187,9 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         return self.gates.loop
 
     @property
-    def pn_arm_gates(self) -> dict[str, tuple[CharSet, tuple[CharSet, ...]]]:
+    def pn_arm_gates(self) -> dict[str, Peek]:
         """Rule name → ``(W, per-arm post-noise selectors)`` for a P3 noise-skip
-        arm demotion (rule bodies only, aligned like :attr:`arm_gates`)."""
+        rule-body arm demotion (aligned like :attr:`arm_gates`)."""
         return self.gates.pn_arm
 
     @property
@@ -174,6 +215,45 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         bodies only (the store key is the rule name); an inline group's empty
         arm stays a hard note (the rule islands)."""
         return self.gates.struct_arm
+
+    def store_arm_windows(self, at: str | int, windows: Windows) -> None:
+        """File a demoted arm selection's per-arm k-window sets.
+
+        ``at`` is the alternation's key in whichever space it belongs to — a
+        rule name for a body, the node's ``id()`` for an inline group.
+
+        :raises UnsupportedConstructError: When a group node already carries a
+            *different* spec. ``@lexical`` inlining splices one body into
+            several sites, so one node CAN stand at two decision points with
+            distinct continuations, which the identity key cannot express; a
+            confident-wrong gate would be silent, so the grammar opts out.
+        """
+        if isinstance(at, str):
+            self.gates.arm[at] = windows
+            return
+        self._store_group_gate(at, (windows, None))
+
+    def store_arm_peek(self, at: str | int, peek: Peek) -> None:
+        """File a demoted arm selection's P3 noise-skip gate.
+
+        Keyed and tripwired exactly like :meth:`store_arm_windows`.
+
+        :raises UnsupportedConstructError: When a group node already carries a
+            different spec.
+        """
+        if isinstance(at, str):
+            self.gates.pn_arm[at] = peek
+            return
+        self._store_group_gate(at, (None, peek))
+
+    def _store_group_gate(self, at: int, gate: GroupGate) -> None:
+        """File one group node's demotion, refusing a conflicting re-store."""
+        prior = self.gates.grp_arm.get(at)
+        if prior is not None and prior != gate:
+            raise UnsupportedConstructError(
+                "pda analysis: conflicting group arm gates for one alternation node"
+            )
+        self.gates.grp_arm[at] = gate
 
     def store_struct_loop(self, key: int, gate: ScanGate) -> None:
         """File a structured loop gate under the looping item node's identity.

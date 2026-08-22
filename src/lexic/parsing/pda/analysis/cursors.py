@@ -93,6 +93,29 @@ class Notes(IrLeaf[IrSelf, IrSelf]):
         self.covered = 0
 
 
+class Site(IrLeaf[IrSelf, IrSelf]):
+    """WHICH alternation a decision belongs to — for the note, and for the store.
+
+    One alternation, addressed two ways because the two audiences differ: a
+    reader wants a label they can find in the grammar, the gate store wants a
+    key that cannot collide. A rule body is both (its name); an inline group's
+    label is a bracketed tag that repeats across nested groups, so its key is
+    the node's identity instead — the convention the loop gates use.
+
+    :ivar label: The note-label prefix — a rule name, or ``rule[k]grp``.
+    :ivar at: The gate-store key — the rule name, or ``id(group node)``.
+    """
+
+    __slots__ = ("label", "at")
+
+    label: str
+    at: str | int
+
+    def __init__(self, label: str, at: str | int) -> None:
+        self.label = label
+        self.at = at
+
+
 class Scope(IrLeaf[IrSelf, IrSelf]):
     """The enclosing rule and its FOLLOW tail — the conflict-walk context.
 

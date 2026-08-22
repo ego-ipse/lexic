@@ -75,12 +75,18 @@ def arm_items(arm: IrSequence) -> list[IrItem]:
 # ``list.gbnf``'s ``item`` drop out of the demoted set entirely (not just
 # un-islanded) — their own ``[^\n]*``-shaped loops now resolve with no
 # FIRST∩FOLLOW overlap at all, so no stop-gate is needed.
+#
+# Group-arm demotion (the ``@lexical`` island defect): an inline group's
+# overlap is now demoted under the group node's identity instead of staying a
+# hard note, so ``c.gbnf``'s ``relationoperator`` — whose whole body is one
+# inline group of comparison spellings — moves from the island set to the
+# demoted set. Its k-window separates ``<``/``<=``/``>``/``>=``/``==``/``!=``
+# exactly, which the licence had been refusing to ask for.
 PINNED_ISLANDS: dict[str, list[str]] = {
     "arithmetic.gbnf": [],
     "c.gbnf": [
         "factor",
         "forinit",
-        "relationoperator",
         "statement",
         "statement-arm7",
     ],
@@ -100,7 +106,7 @@ PINNED_ISLANDS: dict[str, list[str]] = {
 # stop-set); the P3 noise-skip gate now carries it.
 PINNED_DEMOTED: dict[str, list[str]] = {
     "arithmetic.gbnf": ["ws"],
-    "c.gbnf": ["multilinecomment"],
+    "c.gbnf": ["multilinecomment", "relationoperator"],
     "chess.gbnf": ["nonpawn", "pawn"],
     "japanese.gbnf": [],
     "json.gbnf": ["array", "array-item2", "object-item2", "value", "ws"],
@@ -304,17 +310,37 @@ def test_json_p3_demotions_store_their_peek_specs(stem: str):
         assert stored == (w, CharSet.from_chars(","))
 
 
-def test_group_arm_overlap_stays_an_island():
-    """An inline group's arm overlap never demotes (no rule-name store key) —
-    the enclosing rule islands, so the clone compiler never meets an
-    overlapping group without a spec."""
+def test_group_arm_overlap_demotes_under_the_node_identity_key():
+    """A separable inline-group overlap demotes and files under ``id(group)``.
+
+    The group has no rule name, so its gate is keyed by node identity — the
+    convention the loop gates already use. Without this the enclosing rule
+    islands, which is how a single ``@lexical`` mark used to move an
+    alternation the k-window had been settling all along.
+    """
     grp = IrAlternation(
         IrSequence(_item(IrLiteral("ab"))), IrSequence(_item(IrLiteral("ac")))
     )
     root = _rule("root", IrSequence(_item(grp)))
     analysis = _analysis(root, start="root")
+    assert "root" not in analysis.islands
+    assert "root" not in analysis.taxonomy.arm_gates  # the NAME space stays empty
+    assert id(grp) in analysis.taxonomy.grp_arm_gates
+    assert analysis.demoted["root"] == ["root[0]grp: arms k-window separable (demoted)"]
+
+
+def test_unseparable_group_arm_overlap_still_islands():
+    """The decline half: no window separates, so the hard note and the island
+    stay exactly as before. Two arms sharing an unbounded prefix are the case
+    no fixed-k lookahead can decide."""
+    grp = IrAlternation(
+        IrSequence(_item(IrCharClass(IrRange(IrChr(97), IrChr(122))), lo=1, hi=None)),
+        IrSequence(_item(IrCharClass(IrRange(IrChr(97), IrChr(122))), lo=1, hi=None)),
+    )
+    root = _rule("root", IrSequence(_item(grp)))
+    analysis = _analysis(root, start="root")
     assert "root" in analysis.islands
-    assert "root" not in analysis.taxonomy.arm_gates
+    assert id(grp) not in analysis.taxonomy.grp_arm_gates
 
 
 def test_noise_greedy_licence_denied_for_semantic_soft_follower():

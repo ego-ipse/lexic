@@ -32,6 +32,7 @@ from lexic.parsing.pda.analysis.cursors import (
     FollowPass,
     Notes,
     Scope,
+    Site,
 )
 from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
@@ -324,24 +325,29 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self,
         arms: list[Sequence[IrItem]],
         ext_follow: CharSet,
-        label: str,
+        site: Site,
         notes: Notes,
     ) -> bool:
-        """The rule-body arm-overlap demotion cascade — P2 k-window, then the
-        P3 noise-skip peek — storing the winning gate spec in its taxonomy
-        channel plus the soft note. ``False`` ⇒ the overlap stays hard."""
+        """The arm-overlap demotion cascade — P2 k-window, then the P3
+        noise-skip peek — storing the winning gate spec in its taxonomy
+        channel plus the soft note. ``False`` ⇒ the overlap stays hard.
+
+        Serves a rule body and an inline group alike: the cascade reads only
+        the arms and the continuation, so ``site`` is the only thing that
+        differs between them.
+        """
         gate = kwindow.arm_gate(self.rules, arms, ext_follow)
         if gate is not None:
-            self.taxonomy.arm_gates[label] = tuple(
-                kwindow.windows_of(s) for s in gate[1]
+            self.taxonomy.store_arm_windows(
+                site.at, tuple(kwindow.windows_of(s) for s in gate[1])
             )
-            notes.soft.append(f"{label}: arms k-window separable (demoted)")
+            notes.soft.append(f"{site.label}: arms k-window separable (demoted)")
             return True
         w = noise_alphabet(self)
         peek = peek_arm_gate(self, arms, w)
         if peek is not None:
-            self.taxonomy.pn_arm_gates[label] = (w, peek)
-            notes.soft.append(f"{label}: arms noise-skip separable (demoted)")
+            self.taxonomy.store_arm_peek(site.at, (w, peek))
+            notes.soft.append(f"{site.label}: arms noise-skip separable (demoted)")
             return True
         return False
 
@@ -503,7 +509,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 body=True,
             )
             arms = [_items(arm) for arm in rule.body]
-            self.arm_conflicts(arms, self.follow[name], name, notes)
+            self.arm_conflicts(arms, self.follow[name], Site(name, name), notes)
             body_hard = len(notes.hard)
             for arm in arms:
                 self.seq_conflicts(arm, scope, notes)
@@ -532,20 +538,24 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         self,
         arms: Sequence[Sequence[IrItem]],
         ext_follow: CharSet,
-        label: str,
+        site: Site,
         notes: Notes,
     ) -> None:
         """Flag pairwise FIRST overlaps and empty-arm-vs-FOLLOW ambiguities.
 
         Under P2 demotion, a k-window-separable overlap is demoted and its
-        per-arm window sets are **stored** in :attr:`Taxonomy.arm_gates` (the
-        gate-spec channel the clone compiler reads back). The licence is
-        rule-body-only — ``label`` is then exactly the rule name, the store
-        key; an inline group's overlap (a bracketed ``label``, never a rule
-        name) stays a hard note, so the enclosing rule islands.
+        per-arm window sets are **stored** under ``at`` (the gate-spec channel
+        the clone compiler reads back). The licence covers a rule body and an
+        inline group alike: the two differ only in their key space, and
+        withholding it from groups is what made ``@lexical`` inlining island a
+        rule whose alternation the k-window had been settling all along.
+
+        The empty-arm-vs-FOLLOW branch below stays rule-body-only: its gates
+        are computed from the rule's own FOLLOW\\ :sub:`k`, which a group has
+        no equivalent of. Its note is soft, so it never islands.
 
         :param ext_follow: The FOLLOW set at the alternation's end.
-        :param label: The note-label prefix (rule name or group tag).
+        :param site: Which alternation this is — its note label and store key.
         """
         infos = [(self.seq_first(arm), seq_nullable(self, arm)) for arm in arms]
         overlaps: list[tuple[int, int]] = []
@@ -554,12 +564,10 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 if first_i.overlaps(first_j):
                     overlaps.append((i, j))
         if overlaps:
-            demoted = label in self.rules and self._demote_arms(
-                list(arms), ext_follow, label, notes
-            )
+            demoted = self._demote_arms(list(arms), ext_follow, site, notes)
             if not demoted:
                 for i, j in overlaps:
-                    notes.hard.append(f"{label}: arms {i}/{j} FIRST overlap")
+                    notes.hard.append(f"{site.label}: arms {i}/{j} FIRST overlap")
         if any(nullable for _, nullable in infos):
             greedy = [
                 i
@@ -568,15 +576,17 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             ]
             gated = (
                 bool(greedy)
-                and label in self.rules
+                and site.label in self.rules
                 and (
-                    self._demote_follow_windows(list(arms), label, notes)
-                    or self._demote_struct_arm(arms, label, notes)
+                    self._demote_follow_windows(list(arms), site.label, notes)
+                    or self._demote_struct_arm(arms, site.label, notes)
                 )
             )
             if not gated:
                 for i in greedy:
-                    notes.soft.append(f"{label}: arm {i} FIRST hits FOLLOW (greedy)")
+                    notes.soft.append(
+                        f"{site.label}: arm {i} FIRST hits FOLLOW (greedy)"
+                    )
 
     def seq_conflicts(
         self, items: Sequence[IrItem], scope: Scope, notes: Notes
