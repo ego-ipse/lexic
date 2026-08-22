@@ -20,13 +20,27 @@ Grammar input notes:
 
 from __future__ import annotations
 
+import gc
+
 import pytest
 
-from lexic.compile import CompiledGrammar, compile_from_path, compile_text
+import lexic.compile.artifact as artifact_module
+from lexic.compile import (
+    CompiledGrammar,
+    Vocabulary,
+    _assemble_core,
+    canonical_grammar,
+    compile_from_path,
+    compile_text,
+    reset_cache_for_tests,
+)
 from lexic.compile.artifact import CompiledGrammar as ArtifactCompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import GBNF_FLAVOUR
+from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
 from lexic.parsing import PdaTables
+from lexic.parsing.caches import _CLAIMED, _MEMOS, cached_entries, reset_caches
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.compile.compile_helpers import roundtrip
 
@@ -212,3 +226,185 @@ def test_the_table_seam_refuses_a_vocabularyless_grammar_in_words() -> None:
     compiled = compile_from_path(GROUND_TRUTH / "think.gbnf")
     with pytest.raises(UnsupportedConstructError, match="needs a vocabulary"):
         compiled.pda_tables()
+
+
+# ── cache lifetime — the artefact end of lexic.parsing.caches ──────────────
+#
+# The registry's own verbs (memo/adopt/track/release/reset_caches) are pinned
+# directly in tests/unit/lexic/parsing/test_caches.py. These pin the same
+# machinery driven by a REAL CompiledGrammar, end to end.
+
+_DRAIN_GRAMMAR = 'root ::= item+\nitem ::= [a-z]+ ","\n'
+_DRAIN_TEXT = "abcdefgh," * 4000  # well past the 2 KiB / worker split floor
+
+_BIND_VOCAB = {"a": 0, "b": 1, ",": 2}
+
+
+def _bind_tokenizer() -> IrTokenizer:
+    return IrTokenizer.from_vocab(
+        "tokens", IrMap(*(IrTuple(IrStr(t), IrChr(i)) for t, i in _BIND_VOCAB.items()))
+    )
+
+
+def _warm_drain_grammar() -> None:
+    """Prime the flavour's OWN self-grammar artefact (a permanent memo entry
+    per the module's own design -- ``lexic.compile``'s content cache is
+    deliberately unbounded) so a test's baseline measurement, taken right
+    after this call, does not mistake that one-time warm-up cost for a leak
+    from the artefact under test."""
+    canonical_grammar(_DRAIN_GRAMMAR, GBNF_FLAVOUR)
+
+
+def _fresh_artifact(text: str, stem: str) -> CompiledGrammar:
+    """Compile WITHOUT the content-addressed ``lexic.compile`` cache, so the
+    result is collectible the moment the caller drops it -- the public
+    ``compile_ast``/``compile_text`` route pins every artefact it returns
+    alive forever unless the caller separately evicts it, which would fold
+    two different things (the compile memo, the identity memos this file
+    exists to pin) into one assertion."""
+    ast = canonical_grammar(text, GBNF_FLAVOUR)
+    return _assemble_core(
+        ast, stem=stem, source=text, flavour_name="gbnf", vocabulary=Vocabulary()
+    )
+
+
+def _memo_lengths() -> tuple[int, ...]:
+    """Per-registered-memo entry counts, in registration order.
+
+    A stronger check than the aggregate :func:`cached_entries` sum: a memo
+    that grew while a sibling shrank by the same amount would pass an
+    aggregate comparison and fail this one.
+    """
+    return tuple(len(entry.entries) for entry in _MEMOS)
+
+
+def _owned_count(owner: object) -> int:
+    """How many entries across every registered memo name ``id(owner)``."""
+    oid = id(owner)
+    total = 0
+    for entry in _MEMOS:
+        for key in entry.entries:
+            if not entry.ids:
+                total += key == oid
+            else:
+                total += any(key[at] == oid for at in entry.ids)
+    return total
+
+
+def _drain_round(cores: int, tracking: bool) -> tuple[int, int]:
+    """Compile, parse and release one artefact; return (baseline, after)."""
+    reset_cache_for_tests()
+    real_track = artifact_module.track
+    if not tracking:
+        artifact_module.track = lambda *_a, **_k: None
+    try:
+        _warm_drain_grammar()
+        baseline = cached_entries()
+        cg = _fresh_artifact(_DRAIN_GRAMMAR, f"drain-{cores}-{tracking}")
+        assert cg.parse(_DRAIN_TEXT, cores=cores).to_text() == _DRAIN_TEXT
+        del cg
+        gc.collect()
+        return baseline, cached_entries()
+    finally:
+        artifact_module.track = real_track
+        reset_cache_for_tests()
+
+
+@pytest.mark.parametrize("cores", [1, 4])
+def test_dropping_an_artefact_drains_its_memo_entries_to_baseline(cores: int) -> None:
+    """compile -> parse -> drop -> gc returns registered entries to baseline,
+    both sequential (cores=1) and a split-eligible worker count."""
+    baseline, after = _drain_round(cores, tracking=True)
+    assert after == baseline
+
+
+@pytest.mark.parametrize("cores", [1, 4])
+def test_without_tracking_at_its_use_site_the_dropped_entries_persist(
+    cores: int,
+) -> None:
+    """Control row: disabling ``lexic.compile.artifact.track`` (the USE site
+    ``CompiledGrammar.__post_init__`` actually calls) is what proves the
+    finalizer drains the entries — patching ``lexic.parsing.caches.track``
+    instead would be a no-op, since the name is bound into ``artifact``'s
+    namespace at import time."""
+    baseline, after = _drain_round(cores, tracking=False)
+    assert after > baseline
+
+
+def test_a_derived_bind_does_not_steal_the_sources_claim() -> None:
+    """``bind()`` shares its source's ``grammar`` and ``fold`` identity — a
+    CHAR grammar's route keys its model-product memo on fold identity too
+    (a token grammar's does not, since ``token_model`` never touches the
+    fold-keyed memo — this needs the char route to exercise it). Releasing
+    the SHORT-lived derived artefact must not evict entries the LONGER-lived
+    source still relies on. Asserted via entry survival, not timing: the
+    source's own memo entries are the same count before and after the
+    derived artefact is dropped."""
+    reset_cache_for_tests()
+    tok = _bind_tokenizer()
+    source = _fresh_artifact(_DRAIN_GRAMMAR, "claim-source")
+    source.parse(_DRAIN_TEXT, cores=1)
+    assert id(source.grammar) in _CLAIMED
+    assert id(source.fold) in _CLAIMED
+    before = _owned_count(source.fold)
+    assert before > 0  # the parse actually populated fold-identity-keyed entries
+
+    derived = source.bind(tok)
+    assert derived.grammar is source.grammar
+    assert derived.fold is source.fold
+    derived.parse(_DRAIN_TEXT, cores=1)
+    del derived
+    gc.collect()
+
+    assert id(source.grammar) in _CLAIMED  # still claimed -- by source
+    assert id(source.fold) in _CLAIMED
+    assert _owned_count(source.fold) == before  # nothing the source owns was evicted
+    reset_cache_for_tests()
+
+
+def test_the_adoption_chain_drains_every_registered_memo_on_release() -> None:
+    """The chain a parse mints (model cache -> compiled tables -> lexrun run
+    candidates) drains fully when its one owning artefact releases -- no
+    orphaned entry survives in ANY registered memo, not just in aggregate."""
+    reset_cache_for_tests()
+    _warm_drain_grammar()
+    baseline = _memo_lengths()
+    cg = _fresh_artifact(_DRAIN_GRAMMAR, "transitivity")
+    assert cg.parse(_DRAIN_TEXT, cores=1).to_text() == _DRAIN_TEXT
+    assert _memo_lengths() != baseline  # the parse actually populated the chain
+
+    del cg
+    gc.collect()
+    assert _memo_lengths() == baseline
+    reset_cache_for_tests()
+
+
+def test_reset_cache_for_tests_empties_every_registered_memo() -> None:
+    """The public test seam reaches ``reset_caches`` -- the isolation every
+    other test in this module (and file) implicitly relies on."""
+    cg = _fresh_artifact(_DRAIN_GRAMMAR, "reset-seam")
+    cg.parse(_DRAIN_TEXT, cores=1)
+    assert cached_entries() > 0
+
+    reset_cache_for_tests()
+    assert cached_entries() == 0
+
+
+def test_eviction_is_safe_a_live_artefact_recomputes_cold_but_exact() -> None:
+    """Every registered memo is a PURE memo: wiping every entry out from
+    under a still-live artefact costs a recomputation and changes no
+    answer -- the eviction case a bare id()-keyed cache could not survive."""
+    reset_cache_for_tests()
+    cg = compile_text(_DRAIN_GRAMMAR, cache_key="cold-recompute")
+    warm = cg.parse(_DRAIN_TEXT, cores=1)
+    warm_tables = cg.pda_tables()
+
+    reset_caches()  # evict everything, including this live artefact's own
+    assert cached_entries() == 0
+
+    cold_tables = cg.pda_tables()
+    assert cold_tables is not warm_tables  # genuinely recomputed, not still warm
+    cold = cg.parse(_DRAIN_TEXT, cores=1)
+    assert cold.to_text() == warm.to_text() == _DRAIN_TEXT
+    assert cold.dump() == warm.dump()
+    reset_cache_for_tests()
