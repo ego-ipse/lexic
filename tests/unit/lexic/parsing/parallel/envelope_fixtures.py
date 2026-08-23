@@ -73,3 +73,19 @@ character classes with a fully-literal empty-instance arm (``"[]"``); and a
 ``tok-id``-shaped construct whose closer is reached through ``tail``'s
 two-armed reference — the exact three shapes I14/I14b's region-family fix
 was for, authored generically rather than against gbnf itself."""
+
+
+CONTINUATION_SOURCE = (
+    "root ::= defn+\n"
+    "defn ::= name colons body nl\n"
+    "name ::= [a-z]+\n"
+    'colons ::= " ::= "\n'
+    "body ::= piece morep*\n"
+    "morep ::= sep piece\n"
+    'sep ::= "\\n  | "\n'
+    "piece ::= [a-z]+\n"
+    'nl ::= "\\n"\n'
+)
+"""A unit that emits its own mark (a continuation separator), so
+``terminates_once`` fails — but the unit still announces itself with a
+mandatory head and literal, so the boundary route applies."""

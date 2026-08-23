@@ -8,15 +8,29 @@ input MEANS never depends on how many workers ran.
 
 from __future__ import annotations
 
+import string
+
 import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import parse_model
 from lexic.parsing.parallel import orchestrate, split_model, split_plan
-from lexic.parsing.parallel.orchestrate import Request, _split_plans
+from lexic.parsing.parallel.orchestrate import (
+    Request,
+    _certified,
+    _cut_offsets,
+    _scan,
+    _split_plans,
+)
+from lexic.parsing.parallel.plan.envelope import admits
+from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
-from tests.unit.lexic.parsing.parallel.envelope_fixtures import TWO_MARK_SOURCE
+from lexic.parsing.parallel.pool import WorkPool
+from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
+    CONTINUATION_SOURCE,
+    TWO_MARK_SOURCE,
+)
 
 LEAD_RULE = (
     "root ::= pair tail*\n"
@@ -568,3 +582,120 @@ def test_the_orchestrator_engages_a_document_carrying_only_the_second_marks_evid
     assert len(calls) >= 2, "only one worker actually parsed"
 
     assert compiled.parse(text, cores=8) == sequential
+
+
+# ── the terminated-plan boundary route: SplitPlan.bound ──────────────────
+
+_TWO_ARM_TERMINATOR = (
+    "root ::= item+\n"
+    "item ::= a nl | b nl\n"
+    'a ::= "a" mid\n'
+    'b ::= "b" mid\n'
+    'mid ::= "\\n" "x"\n'
+    'nl ::= "\\n"\n'
+)
+"""A unit with two arms sharing a final ``nl``: a raw terminated plan
+exists, but the unit has no single-arm shape to announce itself, so
+``unit_prefix`` returns ``None`` and there is no boundary route either."""
+
+
+def test_a_terminated_plan_with_an_announcing_prefix_is_certified_with_a_bound() -> (
+    None
+):
+    """``terminates_once`` fails on this unit, but it announces itself, so
+    certification takes the boundary route and the certified plan carries
+    the proven prefix — the raw (uncertified) plan carries none."""
+    compiled = compile_text(CONTINUATION_SOURCE)
+    grammar = compiled.codegen_grammar
+    plan = split_plan(grammar)
+
+    assert plan is not None and plan.bound is None
+
+    certified = _certified(plan, compiled.split_analysis or compiled.grammar)
+
+    assert certified is not None
+    assert certified.bound is not None
+    assert certified.bound.literal == " "
+
+
+def test_a_terminated_plan_without_an_announcing_prefix_is_dropped() -> None:
+    """A raw terminated plan exists, but the unit's two arms give
+    ``unit_prefix`` no single shape to announce — neither route certifies,
+    and the plan is dropped rather than certified with an empty bound."""
+    compiled = compile_text(_TWO_ARM_TERMINATOR)
+    grammar = compiled.codegen_grammar
+    plan = split_plan(grammar)
+
+    assert plan is not None and plan.bound is None
+    assert _certified(plan, compiled.split_analysis or compiled.grammar) is None
+
+
+# ── admission filtering: continuation marks vs genuine heads ─────────────
+
+
+def _letters(n: int) -> str:
+    """A short lowercase-only tag, so a name never carries a digit the
+    boundary's ``[a-z]`` head would reject."""
+    alpha = string.ascii_lowercase
+    return alpha[n % 26] * (n // 26 + 1)
+
+
+def _continuation_doc(count: int) -> str:
+    """Definitions whose bodies carry continuation lines — every mark but
+    each definition's own head-announcing newline is a continuation."""
+    out = []
+    for at in range(count):
+        cont = "\n  | ".join(f"alt{c}" for c in "abc")
+        out.append(f"rule{_letters(at)} ::= {cont}")
+    return "\n".join(out) + "\n"
+
+
+def _certified_cont_plan() -> SplitPlan:
+    """The certified boundary-route plan over :data:`CONTINUATION_SOURCE`."""
+    compiled = compile_text(
+        CONTINUATION_SOURCE, cache_key="orchestrate-admission-filter"
+    )
+    grammar = compiled.codegen_grammar
+    plan = split_plan(grammar)
+    assert plan is not None
+    certified = _certified(plan, compiled.split_analysis or compiled.grammar)
+    assert certified is not None and certified.bound is not None
+    return certified
+
+
+def test_a_continuation_mark_is_refused_and_a_genuine_head_admits() -> None:
+    """``admits`` reads the same ``Boundary`` the static proof certified: a
+    mark inside ``sep`` starts on a space, which the ``[a-z]`` head rejects;
+    a mark right before the next definition's name admits."""
+    certified = _certified_cont_plan()
+    assert certified.bound is not None
+    text = _continuation_doc(3)
+
+    continuation_mark = text.index("\n  | ")
+    assert not admits(text, continuation_mark + 1, certified.bound, certified.mark)
+
+    head_mark = text.index("altc\n") + len("altc")
+    assert text[head_mark] == "\n"
+    assert admits(text, head_mark + 1, certified.bound, certified.mark)
+
+
+def test_cut_offsets_filters_continuation_marks_out_of_the_candidate_set() -> None:
+    """At document scale, every depth-0 mark is a candidate, but only the
+    ones that begin a real definition survive the boundary filter — and only
+    those ever reach ``_cut_offsets``'s final, floor-balanced result."""
+    certified = _certified_cont_plan()
+    assert certified.bound is not None
+    text = _continuation_doc(500)
+    assert len(text) > 2 * MIN_CHUNK
+
+    with WorkPool(2) as pool:
+        raw_marks = _scan(certified, text, 2, pool)
+        cuts = _cut_offsets(certified, text, 2, pool)
+
+    admitted = [
+        at for at in raw_marks if admits(text, at + 1, certified.bound, certified.mark)
+    ]
+    assert len(admitted) < len(raw_marks), "continuation marks must be filtered out"
+    assert cuts, "the certified plan must still find a usable cut"
+    for cut in cuts:
+        assert text[cut + 1 :].startswith("rule"), "a cut must land on a genuine head"

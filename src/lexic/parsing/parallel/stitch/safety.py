@@ -35,6 +35,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     emits,
     first_charset,
     leads_with,
+    literal_text,
     rule_emits,
 )
 from lexic.parsing.parallel.roles import roles
@@ -404,9 +405,96 @@ def _guards(
     if str(target.name) in proof.skipped:
         return True
     inside = rule_emits(target, proof.mark, rules, frozenset(), path)
-    return not inside or _ends_once(
+    if not inside:
+        return True
+    if _ends_once(
         target, proof.mark, Scope(rules, frozenset(), {}), path | {str(target.name)}
-    )
+    ):
+        return True
+    return _leads_once(target, proof, rules, path)
+
+
+def _leads_once(
+    target: IrRule,
+    proof: Refutation,
+    rules: dict[str, IrRule],
+    path: frozenset[str],
+) -> bool:
+    """Whether the mark is a LEADING edge every arm resumes past harmlessly.
+
+    The mirror of :func:`_ends_once`. A construct carrying the mark at its
+    front — a continuation separator like ``"\n  | "`` — is entered mid-unit,
+    so a cut proposed AT that mark starts its match on whatever the construct
+    spells next. If that cannot begin the prefix, the match dies at its first
+    character and the mark is not admissible: no false cut, whatever the
+    construct reaches later.
+
+    The obligation is CharSet disjointness, per arm, not an example:
+
+    - every arm whose leading edge IS the mark must have
+      ``FIRST(what follows the mark in that arm, through nullables)``
+      **disjoint from the prefix's head charset**;
+    - arms that do not lead with the mark contribute under the ordinary
+      reachability rules — this clause says nothing about them;
+    - an arm the walk cannot decide answers "reachable", so the plan declines,
+      as everywhere else in this proof.
+
+    A construct carrying the mark at a leading edge AND somewhere interior
+    gets NO clause: the interior occurrence is a real mid-construct cut
+    candidate, and it keeps refusing through the ordinary path.
+    """
+    head = proof.found.head
+    leads = False
+    for arm in target.body:
+        items = tuple(arm)
+        after = _after_lead_mark(items, proof.mark, rules, path)
+        if after is None:
+            if _arm_carries(items, proof.mark, rules, path):
+                return False  # not a leading edge — the ordinary path owns it
+            continue
+        leads = True
+        if after.negated or after.overlaps(head):
+            return False
+        if _arm_carries(items[1:], proof.mark, rules, path):
+            return False  # a second, interior occurrence — no clause
+    return leads
+
+
+def _after_lead_mark(
+    items: tuple[IrItem, ...],
+    mark: str,
+    rules: dict[str, IrRule],
+    path: frozenset[str],
+) -> CharSet | None:
+    """FIRST of what follows a LEADING mark in one arm, or ``None``.
+
+    ``None`` says the arm does not lead with the mark, which is the caller's
+    cue to leave it to the ordinary walk. The mark is a CHARACTER, so a
+    multi-character literal carries its own continuation: ``"\n  | "`` is
+    followed by ``" "`` inside the very same item.
+
+    A leading literal whose TAIL spells the mark again does not lead: that
+    second occurrence is interior, the caller's arm-carries check must see
+    it, and answering ``None`` here is what routes the arm there.
+    """
+    if not items:
+        return None
+    spelling = literal_text(items[0], rules)
+    if not spelling or not spelling.startswith(mark) or mark in spelling[1:]:
+        return None
+    if len(spelling) > 1:
+        return CharSet.from_chars(spelling[1])
+    return first_charset(items[1:], rules, path)
+
+
+def _arm_carries(
+    items: tuple[IrItem, ...],
+    mark: str,
+    rules: dict[str, IrRule],
+    path: frozenset[str],
+) -> bool:
+    """Whether any item of the arm can emit ``mark`` at all."""
+    return any(emits(item, mark, rules, frozenset(), path) for item in items)
 
 
 def _body_opens(

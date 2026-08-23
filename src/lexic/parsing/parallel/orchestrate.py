@@ -34,7 +34,11 @@ from lexic.parsing.parallel.discovery.regions import (
 )
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
-from lexic.parsing.parallel.plan.envelope import envelope_plans, unit_witness
+from lexic.parsing.parallel.plan.envelope import (
+    admits,
+    envelope_plans,
+    unit_witness,
+)
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
@@ -340,6 +344,13 @@ def _cut_offsets(
         marks = plan.envelope.cuts(text)
     else:
         marks = _scan(plan, text, ceiling, pool, windows)
+        if plan.bound is not None:
+            # The unit emits its own mark, so a mark is a candidate rather
+            # than a boundary: keep the ones a unit actually begins after.
+            # A terminated unit starts immediately AFTER its mark — there is
+            # no separator run to extend over, which is the envelope path's
+            # only other difference.
+            marks = [at for at in marks if admits(text, at + 1, plan.bound, plan.mark)]
     if plan.terminated and marks and marks[-1] == len(text) - 1:
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
@@ -545,6 +556,36 @@ def _split_regions[M: IrNamedTuple](
     return stitch_shell(merge, grammar, works, stands) if stands else None
 
 
+def _certified(plan: SplitPlan, view: IrAst) -> SplitPlan | None:
+    """The plan a safety proof licenses over ``view``, or ``None`` to drop it.
+
+    Each shape owes a different proof, and a TERMINATED plan owes either of
+    two. The first is that its unit emits the mark ONLY as its own final edge
+    (``terminates_once``), which makes every mark a boundary and needs no
+    filter. Failing that, the unit may still ANNOUNCE itself — the boundary
+    proof — and the plan carries that prefix so :func:`_cut_offsets` can admit
+    the marks that begin a unit and refuse the ones that do not. A unit with
+    neither is what it always was: not splittable on this mark.
+    """
+    if plan.envelope is not None:
+        return plan if unit_boundary(view, plan.owner, plan.mark) is not None else None
+    if plan.sep is not None:
+        return plan if owner_excludes(view, plan.owner, plan.mark) else None
+    if terminates_once(view, plan.owner, plan.mark) and scan_agrees(
+        view, plan.grammar, plan.owner, plan.mark
+    ):
+        return plan
+    bound = unit_boundary(view, plan.owner, plan.mark)
+    return None if bound is None else plan._replace(bound=bound)
+
+
+def _safe_plans(plans: tuple[SplitPlan, ...], view: IrAst) -> tuple[SplitPlan, ...]:
+    """Every plan a safety proof licenses over ``view``, in cascade order."""
+    return tuple(
+        certified for plan in plans if (certified := _certified(plan, view)) is not None
+    )
+
+
 def split_model[M: IrNamedTuple](
     parse: ModelProduct,
     grammar: IrAst,
@@ -579,20 +620,7 @@ def split_model[M: IrNamedTuple](
     workers = doc_workers(cores)
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
-    plans = _split_plans(grammar)
-    view = analysis or grammar
-    safe_plans = tuple(
-        plan
-        for plan in plans
-        if (
-            unit_boundary(view, plan.owner, plan.mark) is not None
-            if plan.envelope is not None
-            else owner_excludes(view, plan.owner, plan.mark)
-            if plan.sep is not None
-            else terminates_once(view, plan.owner, plan.mark)
-            and scan_agrees(view, plan.grammar, plan.owner, plan.mark)
-        )
-    )
+    safe_plans = _safe_plans(_split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
         windows = (
             _scan_windows(safe_plans[0].scanner, ask.text, workers, pool)

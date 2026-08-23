@@ -15,6 +15,7 @@ from lexic.ir import IrAst
 from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.plan.envelope import EnvelopePlan
 from lexic.parsing.parallel.roles import Separator
+from lexic.parsing.parallel.stitch.safety import Boundary
 
 
 class SplitPlan(NamedTuple):
@@ -42,6 +43,12 @@ class SplitPlan(NamedTuple):
     :ivar envelope: The certified envelope plan, when the container wraps its
         repetition in optional head and tail items and the separator is a noise
         run rather than one character; ``None`` for every other shape.
+    :ivar bound: The certified announcing prefix, when a TERMINATED plan is
+        licensed by the boundary proof rather than by terminates-once. The unit
+        then emits its own mark (continuation lines), so not every mark is a
+        boundary: candidates are filtered by the same admission the envelope
+        path runs. ``None`` when the unit's mark is its own final edge, where
+        every mark IS a boundary and no filter is needed.
     """
 
     grammar: IrAst
@@ -54,6 +61,7 @@ class SplitPlan(NamedTuple):
     lead_literal: str
     skip: frozenset[str]
     envelope: EnvelopePlan | None = None
+    bound: Boundary | None = None
 
     @property
     def terminated(self) -> bool:

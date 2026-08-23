@@ -18,17 +18,37 @@ from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.stitch.safety import (
     Boundary,
+    Refutation,
+    _leads_once,
     owner_excludes,
     scan_agrees,
     terminates_once,
     unit_boundary,
 )
 from lexic.parsing.pda.core.charsets import CharSet
+from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
+    CONTINUATION_SOURCE,
+)
 
 
 def _grammar(source: str):
     """Compile authored grammar text and expose its analysis view."""
     return compile_text(source).grammar
+
+
+def _rules(source: str) -> dict:
+    """Compile authored grammar text and expose its rules by name."""
+    grammar = compile_text(source).grammar
+    return {str(rule.name): rule for rule in grammar.rules}
+
+
+def _leads_proof(literal: str) -> Refutation:
+    """A minimal ``Refutation`` isolating ``_leads_once`` from the rest of
+    the walk — head is ``[a-z]``, mark is ``"\\n"``, literal is the caller's."""
+    found = Boundary(
+        CharSet.from_chars(*"abcdefghijklmnopqrstuvwxyz"), CharSet.EMPTY, literal, 0
+    )
+    return Refutation(found, "\n", frozenset())
 
 
 def test_flat_owner_that_emits_the_separator_is_rejected() -> None:
@@ -346,3 +366,75 @@ def test_a_json_shaped_member_certifies_on_the_same_walk_as_an_abnf_rule() -> No
     assert found is not None
     assert found.literal == ":"
     assert found.at == 1
+
+
+# ── _leads_once: the mirror clause for a LEADING mark ────────────────────
+
+
+def test_leads_once_certifies_a_continuation_separator_via_unit_boundary() -> None:
+    """``sep``'s mark is a LEADING edge, and what follows it (``"  | "``) is
+    disjoint from the prefix head — the clause ``_leads_once`` exists for,
+    proven through the public entry rather than the helper directly."""
+    grammar = _grammar(CONTINUATION_SOURCE)
+
+    found = unit_boundary(grammar, "defn", "\n")
+
+    assert found is not None
+    assert found.literal == " " and found.at == 1
+
+
+def test_leads_once_declines_when_one_arm_s_first_overlaps_the_head() -> None:
+    """The obligation is PER ARM: one arm's post-mark FIRST being disjoint
+    from ``H`` does not excuse a second arm whose FIRST overlaps it."""
+    rules = _rules(
+        'root ::= target\ntarget ::= "\\n#" | "\\n" letter\nletter ::= [a-z]\n'
+    )
+
+    assert not _leads_once(rules["target"], _leads_proof("#"), rules, frozenset())
+
+
+def test_leads_once_declines_on_an_undecidable_post_mark_cycle() -> None:
+    """A left-recursive tail past the mark cannot be resolved to a FIRST set;
+    the walk answers "reachable" rather than guessing and declines — even
+    though the cycle's own literal (``#``) is disjoint from ``H``."""
+    rules = _rules('root ::= target\ntarget ::= "\\n" cyc\ncyc ::= cyc "#"\n')
+
+    assert not _leads_once(rules["target"], _leads_proof("#"), rules, frozenset())
+
+
+def test_leads_once_declines_a_second_mark_inside_the_leading_literal() -> None:
+    """The interior occurrence may hide in the LEADING literal's own tail:
+    ``"\\nx\\n"`` leads with the mark, its follower ``x`` is disjoint from any
+    head — and its second newline is still a real mid-construct candidate.
+    The arm must get no clause, exactly as when the occurrence is a later
+    item."""
+    rules = _rules('root ::= target\ntarget ::= "\\n#x\\n#" tail\ntail ::= "z"\n')
+
+    assert not _leads_once(rules["target"], _leads_proof("#"), rules, frozenset())
+
+
+def test_leads_once_declines_when_the_mark_also_occurs_mid_arm() -> None:
+    """A construct carrying the mark at its leading edge AND again later in
+    the SAME arm gets no clause — the interior occurrence is a real cut
+    candidate the ordinary reachability path must still refuse on its own."""
+    rules = _rules(
+        'root ::= target\ntarget ::= "\\n#" mid\nmid ::= "\\n" tail\ntail ::= "z"\n'
+    )
+
+    assert not _leads_once(rules["target"], _leads_proof("#"), rules, frozenset())
+
+
+def test_leads_once_traverses_a_nullable_to_an_overlapping_follower() -> None:
+    """FIRST is computed THROUGH a nullable item: an optional filler disjoint
+    from ``H`` does not shield an overlapping follower standing behind it."""
+    rules = _rules('root ::= target\ntarget ::= "\\n" "!"? letter\nletter ::= [a-z]\n')
+
+    assert not _leads_once(rules["target"], _leads_proof("#"), rules, frozenset())
+
+
+def test_leads_once_traverses_a_nullable_to_a_disjoint_follower() -> None:
+    """The same nullable traversal, with a follower disjoint from ``H`` —
+    certifies."""
+    rules = _rules('root ::= target\ntarget ::= "\\n" "!"? tail\ntail ::= "#"\n')
+
+    assert _leads_once(rules["target"], _leads_proof("#"), rules, frozenset())

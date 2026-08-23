@@ -225,10 +225,16 @@ literals may spell ``::=`` outright. Only real definition heads may admit."""
 
 
 def _ruley_doc(defs: int) -> str:
+    """A document of multi-line definitions — three continuations each.
+
+    Alternative names are letters, not digits: ``piece ::= [a-z]+`` derives no
+    digit, so ``alt0`` made the whole document unparseable and the test
+    compared two REFUSALS rather than two parses.
+    """
     out = []
     for n in range(defs):
         name = f"rule{n:04d}"
-        cont = "\n  | ".join(f"alt{k}" for k in range(3))
+        cont = "\n  | ".join(f"alt{c}" for c in "abc")
         out.append(f'{name} ::= {cont}\n  | " ::= inside a literal "')
     return "\n".join(out) + "\n"
 
@@ -238,14 +244,15 @@ def test_continuation_lines_and_quoted_definition_mimics_are_faithful() -> None:
     definition carries a quoted ``::=`` — the admission must land only on
     genuine heads, and the result must be byte-exact regardless.
 
-    ``engaged=False`` is a DOCUMENTED COVERAGE GAP, not a success: the unit
-    emits its own mark (continuation newlines), so the terminated plan's
-    proof refuses — and the boundary-certified admission that handles exactly
-    this for envelope/separated shapes is not wired to terminated plans.
-    TODO_p2 2b carries it; flip to ``True`` when it lands."""
+    The unit emits its own mark, so ``terminates_once`` rightly refuses — but
+    the unit ANNOUNCES itself (``name " ::= "``), so the boundary proof
+    certifies and the terminated plan filters candidates through the same
+    admission the envelope path runs. Of this document's 1,040 newlines only
+    ~260 begin a definition; the rest are continuations, and a match starting
+    after one begins on a space, which the head charset rejects."""
     text = _ruley_doc(260)
     assert len(text) > 4 * MIN_CHUNK
-    assert_faithful(_RULEY, text, "mimic-heads", engaged=False)
+    assert_faithful(_RULEY, text, "mimic-heads", engaged=True)
 
 
 # ── marks that exist only inside certified interiors ───────────────────────
