@@ -7,7 +7,10 @@ import multiprocessing.queues
 import resource
 import signal
 import time
+from pathlib import Path
 from typing import Any, Callable, Literal
+
+import pytest
 
 from lexic.ir import (
     IrAlternation,
@@ -29,6 +32,9 @@ TIMED_OUT: Literal["timed_out"] = "timed_out"
 MEMORY_EXCEEDED: Literal["memory_exceeded"] = "memory_exceeded"
 
 GuardedResult = Any | Literal["timed_out", "memory_exceeded"]
+
+GATES = Path(__file__).parent
+"""This directory — the scope the performance mark applies to."""
 
 
 def _vm_size() -> int:
@@ -159,3 +165,19 @@ def rep_grammar() -> IrAst:
         ),
     )
     return IrAst(rules=IrSeq(list_rule, elem_rule), start="list")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Apply ``performance`` to items collected under THIS directory.
+
+    The individual decorators stay — they document intent where the gate is
+    written — but the directory-wide mark is what the phased runner can trust:
+    a timing gate added without the decorator would otherwise run inside the
+    saturated parallel phase and measure the machine's load, not the parse.
+
+    The path test matters: a directory ``conftest``'s hook still sees every
+    item in the session, so an unscoped mark lands on the whole suite.
+    """
+    for item in items:
+        if GATES in Path(str(item.fspath)).parents:
+            item.add_marker(pytest.mark.performance)

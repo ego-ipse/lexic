@@ -73,14 +73,22 @@ def test_release_drops_only_entries_a_dropped_identity_owns() -> None:
 
 
 def test_release_on_a_bare_key_memo_drops_by_direct_identity() -> None:
-    """``ids=()`` means the key itself IS the identity (no tuple wrapper)."""
+    """``ids=()`` means the key itself IS the identity (no tuple wrapper).
+
+    The two objects are held in locals, exactly as the test above holds them.
+    ``id()`` is only unique among objects that are alive AT THE SAME TIME, so
+    ``id(object())`` names an address that is free again on the next line —
+    and CPython hands it straight back to the following allocation. That is
+    not a subtle risk: it made this test fail on every GitHub run while
+    passing locally, because the two builds recycle addresses differently.
+    """
     entries = memo({})
-    dropped_id = id(object())
-    kept_id = id(object())
-    entries[dropped_id] = "released"
-    entries[kept_id] = "kept"
-    release((dropped_id,))
-    assert entries == {kept_id: "kept"}
+    dropped = object()
+    kept = object()
+    entries[id(dropped)] = "released"
+    entries[id(kept)] = "kept"
+    release((id(dropped),))
+    assert entries == {id(kept): "kept"}
 
 
 def test_track_binds_release_to_the_owners_collection() -> None:

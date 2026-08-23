@@ -8,9 +8,44 @@ on:
 
 jobs:
   tests:
+    # Both witnesses run the SAME phases through the SAME script that is used
+    # locally, so a green run here means what a green run on a laptop means.
+    # The two differ in one variable only — the GIL — which is why the weak
+    # witness toggles PYTHON_GIL on the free-threaded build rather than
+    # installing a second interpreter that would differ in other ways too.
+    name: ${{ matrix.witness }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - witness: free-threaded
+            gil: "0"
+          - witness: gil-weak-witness
+            gil: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.14t"
       - run: uv sync --group dev
-      - run: uv run python -m pytest
+
+      - name: Report the runner's parallelism
+        run: |
+          uv run python -c "
+          import os, sys
+          from lexic.parsing.parallel import available_workers
+          print('python        :', sys.version.split()[0])
+          print('gil enabled   :', sys._is_gil_enabled())
+          print('os cpu count  :', os.cpu_count())
+          print('available_workers():', available_workers())
+          "
+
+      - name: Tests — three phases
+        env:
+          PYTHON_GIL: ${{ matrix.gil }}
+          # Asserted, not hoped: the free-threaded job FAILS the session if the
+          # GIL is on. Phase B sets its own >=2-core floor, which also fails
+          # rather than skipping — a lane that cannot overlap proves nothing.
+          LEXIC_REQUIRE_FREE_THREADED: ${{ matrix.gil == '0' && '1' || '' }}
+        run: bash tools/run_tests.sh

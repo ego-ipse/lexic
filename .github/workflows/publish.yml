@@ -30,7 +30,7 @@ jobs:
       - name: Run examples
         run: bash tools/run_examples.sh
       - name: Run tests
-        run: uv run python -m pytest
+        run: bash tools/run_tests.sh
       - name: Build wheel and source distribution
         run: uv build
       - name: Check distribution metadata and README rendering

@@ -7,7 +7,7 @@ its own exception.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
 from threading import Barrier, Event, Lock, Thread, active_count
 from time import monotonic, sleep
@@ -86,32 +86,38 @@ class _AdmissionExecutor:
     def __init__(self, max_workers: int) -> None:
         """Create a real executor and expose admission counters."""
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.outstanding = 0
         self.maximum = 0
         self.submitted = 0
         self.window_reached = Event()
         self.allow_more = Event()
+        self._live: list[Future] = []
         self._lock = Lock()
         self.instances.append(self)
 
     def submit(self, work, *args, **kwargs):
-        """Track a future before delegating to the real executor."""
+        """Track a future before delegating to the real executor.
+
+        The pending count is recomputed from the futures themselves rather
+        than kept by a done-callback. A callback decrements whenever the
+        future happens to finish, which is NOT ordered against ``map``
+        popping that future and admitting its replacement — so the counter
+        could read one above the real window for as long as a callback had
+        not run yet, and the gate failed on an admission that never happened.
+        Counting not-done futures AT SUBMIT TIME measures exactly what ``map``
+        bounds, with no ordering assumption to lose.
+        """
         with self._lock:
-            self.outstanding += 1
-            self.maximum = max(self.maximum, self.outstanding)
+            self._live = [future for future in self._live if not future.done()]
+            self.maximum = max(self.maximum, len(self._live) + 1)
             self.submitted += 1
             if self.submitted == 8:
                 self.window_reached.set()
         if self.submitted == 8:
             assert self.allow_more.wait(5)
         future = self.executor.submit(work, *args, **kwargs)
-        future.add_done_callback(self._completed)
-        return future
-
-    def _completed(self, _future) -> None:
-        """Decrement the unfinished-future count after completion."""
         with self._lock:
-            self.outstanding -= 1
+            self._live.append(future)
+        return future
 
     def shutdown(self, *args, **kwargs):
         """Delegate executor shutdown."""
