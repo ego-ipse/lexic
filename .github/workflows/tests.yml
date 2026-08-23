@@ -21,8 +21,23 @@ jobs:
         include:
           - witness: free-threaded
             gil: "0"
+            require_free_threaded: "1"
+            require_gil: ""
           - witness: gil-weak-witness
             gil: "1"
+            require_free_threaded: ""
+            require_gil: "1"
+    # Job level, not step level. A diagnostic that does not run in the same
+    # environment as the thing it diagnoses reports the wrong answer with
+    # total confidence — the first run of this workflow printed
+    # "gil enabled: False" on the GIL leg for exactly that reason.
+    env:
+      PYTHON_GIL: ${{ matrix.gil }}
+      # Each leg asserts its OWN identity. Without the second guard the matrix
+      # can silently collapse into two identical runs, and a weak witness that
+      # is secretly the strong one proves nothing twice.
+      LEXIC_REQUIRE_FREE_THREADED: ${{ matrix.require_free_threaded }}
+      LEXIC_REQUIRE_GIL: ${{ matrix.require_gil }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.0.1
@@ -42,10 +57,4 @@ jobs:
           "
 
       - name: Tests — three phases
-        env:
-          PYTHON_GIL: ${{ matrix.gil }}
-          # Asserted, not hoped: the free-threaded job FAILS the session if the
-          # GIL is on. Phase B sets its own >=2-core floor, which also fails
-          # rather than skipping — a lane that cannot overlap proves nothing.
-          LEXIC_REQUIRE_FREE_THREADED: ${{ matrix.gil == '0' && '1' || '' }}
         run: bash tools/run_tests.sh

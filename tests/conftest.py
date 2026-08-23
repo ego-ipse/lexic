@@ -51,14 +51,19 @@ def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line(
         "markers", "concurrency: thread-safety lane; runs serial, never under xdist"
     )
-    if os.environ.get("LEXIC_REQUIRE_FREE_THREADED") == "1":
-        gil_enabled = getattr(sys, "_is_gil_enabled", None)
-        if gil_enabled is None or gil_enabled():
-            raise pytest.UsageError(
-                "LEXIC_REQUIRE_FREE_THREADED=1 but this interpreter runs WITH "
-                f"the GIL ({sys.version.split()[0]}). A free-threaded build is "
-                "python3.14t; PYTHON_GIL=1 must not be set for this phase."
-            )
+    if os.environ.get("LEXIC_REQUIRE_FREE_THREADED") == "1" and not _free_threaded():
+        raise pytest.UsageError(
+            "LEXIC_REQUIRE_FREE_THREADED=1 but this interpreter runs WITH "
+            f"the GIL ({sys.version.split()[0]}). A free-threaded build is "
+            "python3.14t; PYTHON_GIL=1 must not be set for this phase."
+        )
+    if os.environ.get("LEXIC_REQUIRE_GIL") == "1" and _free_threaded():
+        raise pytest.UsageError(
+            "LEXIC_REQUIRE_GIL=1 but the GIL is OFF. The weak witness has to "
+            "prove it is weak: without this the run silently duplicates the "
+            "free-threaded one and the matrix tests a single configuration "
+            "twice. Set PYTHON_GIL=1 for this phase."
+        )
     want = os.environ.get("LEXIC_REQUIRE_CORES")
     if want and _free_threaded() and available_workers() < int(want):
         raise pytest.UsageError(
