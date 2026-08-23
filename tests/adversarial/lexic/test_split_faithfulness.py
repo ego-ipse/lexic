@@ -19,10 +19,8 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.parallel import split_model
-from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.policy import MIN_CHUNK
-from lexic.parsing.products import parse_model
+from tests.split_helpers import engages
 
 _CORES = (2, 3, 8)
 """Worker counts every faithfulness case is driven at — two is the smallest
@@ -36,23 +34,6 @@ def _outcome(compiled, text: str, cores: int):
         return ("ok", compiled.parse(text, cores=cores).to_text())
     except LexicError as exc:
         return ("refused", type(exc).__name__, str(exc))
-
-
-def _engages(compiled, text: str) -> bool:
-    """Whether the split entry itself takes the document at eight workers.
-
-    Faithfulness alone can pass VACUOUSLY — a case that always declines never
-    exercises a cut. Each case therefore states whether it expects the split
-    to engage, and that expectation is asserted through the real entry.
-    """
-    found = split_model(
-        parse_model,
-        compiled.codegen_grammar,
-        Request(text, compiled.fold, None),
-        8,
-        analysis=compiled.split_analysis or compiled.grammar,
-    )
-    return found is not None
 
 
 def assert_faithful(
@@ -70,7 +51,7 @@ def assert_faithful(
     if sequential[0] == "ok":
         assert sequential[1] == text  # round-trip is part of the baseline
     if engaged is not None:
-        assert _engages(compiled, text) is engaged, (key, "engagement")
+        assert engages(compiled, text) is engaged, (key, "engagement")
     for cores in _CORES:
         split = _outcome(compiled, text, cores)
         assert split == sequential, (key, cores, sequential[0], split[0])

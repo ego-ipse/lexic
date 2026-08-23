@@ -1,0 +1,44 @@
+"""Shared split-path helpers for tests that must not assume engagement.
+
+Faithfulness and concurrency both need the same question answered — *did the
+split entry actually take this document?* — and both are worthless if it is
+guessed. A suite whose split silently declines still passes every equality it
+asserts, having compared a sequential parse against a sequential parse.
+
+One copy, because two would drift: the call reaches into ``split_model``'s
+exact signature, and a change there should break one place rather than leave
+a stale second answer behind.
+"""
+
+from __future__ import annotations
+
+from lexic.compile import CompiledGrammar
+from lexic.parsing.parallel import split_model
+from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.products import parse_model
+
+WORKERS = 8
+"""Worker count engagement is asked at — enough that most shapes can use it."""
+
+
+def engages(compiled: CompiledGrammar, text: str, cores: int = WORKERS) -> bool:
+    """Whether the split entry itself takes ``text``, asked through the real entry.
+
+    Note what this is NOT: a retained pool in ``lexic.parsing.parallel.pool``
+    is no evidence of engagement, because the lease is taken before the plan
+    is consulted. A declining grammar leaves a warm pool behind that never had
+    work submitted to it.
+
+    :param compiled: The artefact whose split path is in question.
+    :param text: The document to offer it.
+    :param cores: The worker count to ask at.
+    :returns: Whether the split produced a model rather than declining.
+    """
+    found = split_model(
+        parse_model,
+        compiled.codegen_grammar,
+        Request(text, compiled.fold, None),
+        cores,
+        analysis=compiled.split_analysis or compiled.grammar,
+    )
+    return found is not None

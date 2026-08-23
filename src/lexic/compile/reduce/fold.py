@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from lexic.compile.reduction import (
@@ -54,7 +55,27 @@ class ReduceFold:
         self.plan = plan
         self.raw_literals = reducer.literal is KEEP_RAW
         self.tables = fold_tables(moments, reducer, plan)
-        self._channel_cache: dict[tuple[int, str], list[IrSelf]] | None = None
+        self._scratch = threading.local()
+
+    @property
+    def _channel_cache(self) -> dict[tuple[int, str], list[IrSelf]] | None:
+        """The channel cache of the fold in progress ON THIS THREAD.
+
+        A fold is shared; the channel cache it builds is one call's scratch.
+        The flavour self-grammars are process-wide artefacts, so two threads
+        calling ``compile_text`` drive this fold at once — and an instance
+        attribute makes them one slot: the second to finish clears it while
+        the first is still filling, and the first dies assigning into ``None``.
+        Per-thread state keeps the re-entrancy :meth:`channel` relies on (a
+        nested call is the same thread) without sharing scratch between calls
+        that have nothing to do with each other.
+        """
+        return getattr(self._scratch, "cache", None)
+
+    @_channel_cache.setter
+    def _channel_cache(self, cache: dict[tuple[int, str], list[IrSelf]] | None) -> None:
+        """Install or clear this thread's in-progress channel cache."""
+        self._scratch.cache = cache
 
     def reduce(self, model: GrammarModel) -> IrSelf:
         """Fold a parsed variant model to the reducer's value.

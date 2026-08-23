@@ -26,6 +26,7 @@ from __future__ import annotations
 import copy
 import itertools
 import threading
+from typing import NamedTuple
 
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo
@@ -118,6 +119,27 @@ def worker_replicas[M](grammar: IrAst, fold: ModelFold[M], count: int) -> list[R
     return pool[:count]
 
 
+class _Assigned(NamedTuple):
+    """One thread's resolved replica, with both key objects pinned.
+
+    The pins are the correctness argument, not a cache. ``id()`` is recycled
+    as soon as an address is free, so an entry keyed on bare ints can be HIT
+    by a brand-new grammar that merely landed where a dead one used to be —
+    handing it a replica compiled for a different grammar entirely. Holding
+    the key objects means an address cannot be recycled while it is cached,
+    so a hit is always the right pair. This is the same argument
+    :data:`_REPLICAS` states one function above; only this cache lacked it.
+
+    :ivar grammar: The key grammar, pinned and identity-checked on read.
+    :ivar fold: The key fold, likewise.
+    :ivar replica: What this thread parses against for that pair.
+    """
+
+    grammar: IrAst
+    fold: ModelFold
+    replica: Replica
+
+
 _ASSIGNED = threading.local()
 """Each thread's own replica cache: its slot index, and the replica it
 resolved per pair. The cache is what keeps the hot path a thread-local
@@ -127,6 +149,30 @@ and it measured the difference between 4.1x and 5.6x."""
 
 _TICKET = itertools.count()
 """Hands out replica indices round-robin as threads first ask."""
+
+
+def _resolve[M](
+    mine: dict[tuple[int, int], _Assigned],
+    key: tuple[int, int],
+    grammar: IrAst,
+    fold: ModelFold[M],
+    workers: int,
+) -> Replica:
+    """Resolve a pair this thread has not cached, and prune what died.
+
+    Off the hot path by construction: a cached pair returns before reaching
+    here, so the prune costs a live parse nothing. It bounds the cache by the
+    artefacts that still exist — the pinned keys would otherwise make every
+    pair this thread ever saw immortal, which is a leak of its own, and this
+    cache is the one place with no release path to do it for us. The shared
+    memo is keyed identically and IS released, so it is the liveness oracle.
+    """
+    for stale in [at for at in mine if at not in _REPLICAS]:
+        del mine[stale]
+    pool = worker_replicas(grammar, fold, workers)
+    replica = pool[_ASSIGNED.index % workers]
+    mine[key] = _Assigned(grammar, fold, replica)
+    return replica
 
 
 def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
@@ -150,7 +196,9 @@ def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
         _ASSIGNED.index = next(_TICKET)
     key = (id(grammar), id(fold))
     got = mine.get(key)
-    if got is None:
-        pool = worker_replicas(grammar, fold, workers)
-        got = mine[key] = pool[_ASSIGNED.index % workers]
-    return got
+    # Positional, not by name: this runs once per parse and a NamedTuple's
+    # attribute access goes through a descriptor, which measured 87ns dearer
+    # per lookup than indexing the same tuple.
+    if got is not None and got[0] is grammar and got[1] is fold:
+        return got[2]
+    return _resolve(mine, key, grammar, fold, workers)
