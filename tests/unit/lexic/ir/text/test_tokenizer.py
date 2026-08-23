@@ -1,0 +1,96 @@
+"""Tests for lexic.ir.text.tokenizer — the vocabulary and its segmenters.
+
+Real-vocabulary (GPT-2/Qwen/Gemma) coverage lives in
+``tests/integration/lexic/tokens/``; this file targets ``IrTokenizer``'s own
+builders and segmentation models against small hand-built vocabularies.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrChr, IrNone, IrTuple
+from lexic.ir.text.pipeline import IrTokenPipeline
+from lexic.ir.text.tokenizer import IrLongestMatch, IrRankedMerge, IrTokenizer
+
+
+def test_from_vocab_segments_by_longest_match():
+    """A vocab-only tokenizer segments greedily by longest match."""
+    tok = IrTokenizer.from_vocab("v", {"a": 0, "ab": 1, "b": 2})
+    assert tok.segmenter is IrLongestMatch()
+    assert tok.tokenize("ab") == [1]
+    assert tok.tokenize("aab") == [0, 1]
+
+
+def test_from_vocab_boundaries_report_char_aligned_spans():
+    """Each single-char token reports its own [start, end) span."""
+    tok = IrTokenizer.from_vocab("v", {"a": 0, "b": 1})
+    assert tok.boundaries("ab") == [(0, 1, 0), (1, 2, 1)]
+
+
+def test_from_merges_runs_the_ranked_merge_fixpoint():
+    """A BPE vocab/merge pair reduces to the merged token, lowest rank first."""
+    vocab = {"a": 0, "b": 1, "ab": 2, "c": 3, "abc": 4}
+    merges = [("a", "b"), ("ab", "c")]
+    tok = IrTokenizer.from_merges("v", vocab, merges)
+    assert tok.segmenter is IrRankedMerge()
+    assert tok.tokenize("abc") == [4]
+
+
+def test_resolve_and_spell_are_inverses_over_the_vocab():
+    """resolve() and spell() invert each other for a mapped spelling."""
+    tok = IrTokenizer.from_vocab("v", {"a": 0, "b": 1})
+    resolved = tok.resolve("a")
+    assert resolved == tok.encode["a"]
+    assert isinstance(resolved, IrChr)
+    assert tok.spell(int(resolved)) == "a"
+
+
+def test_resolve_returns_irnone_for_an_unmapped_spelling():
+    """A spelling outside the vocab resolves to IrNone."""
+    tok = IrTokenizer.from_vocab("v", {"a": 0})
+    assert tok.resolve("z") is IrNone
+
+
+def test_spell_falls_back_to_bracketed_id_for_an_unmapped_ordinal():
+    """An unmapped ordinal spells as its bracketed id."""
+    tok = IrTokenizer.from_vocab("v", {"a": 0})
+    assert str(tok.spell(99)) == "[99]"
+
+
+def test_universe_is_the_highest_id_and_minus_one_when_empty():
+    """universe is the max id, or -1 for an empty vocab."""
+    tok = IrTokenizer.from_vocab("v", {"a": 0, "b": 5})
+    assert tok.universe == 5
+    empty = IrTokenizer.from_vocab("v", {})
+    assert empty.universe == -1
+
+
+def test_specials_match_atomically_before_the_segmentation_model():
+    """A special spelling matches whole, ahead of the segmentation model."""
+    pipeline = IrTokenPipeline(specials=IrTuple("<s>"))
+    tok = IrTokenizer.from_vocab("v", {"<s>": 0, "a": 1}, pipeline)
+    assert tok.tokenize("<s>a") == [0, 1]
+
+
+def test_build_refuses_a_special_that_is_not_in_the_vocab():
+    """A special naming no vocab entry refuses at construction."""
+    pipeline = IrTokenPipeline(specials=IrTuple("<missing>"))
+    with pytest.raises(UnsupportedConstructError, match="<missing>"):
+        IrTokenizer.from_vocab("v", {"a": 0}, pipeline)
+
+
+def test_with_segmenter_returns_a_copy_carrying_the_new_model():
+    """with_segmenter returns an independent copy; the original is unchanged."""
+    tok = IrTokenizer.from_vocab("v", {"a": 0})
+    swapped = tok.with_segmenter(IrRankedMerge())
+    assert swapped.segmenter is IrRankedMerge()
+    assert tok.segmenter is IrLongestMatch()  # the original is untouched
+
+
+def test_carries_is_true_for_a_vocab_covered_character_false_otherwise():
+    """carries() reports whether anything in the vocab can carry a spelling."""
+    tok = IrTokenizer.from_vocab("v", {"a": 0})
+    assert tok.carries("a")
+    assert not tok.carries("z")

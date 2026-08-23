@@ -1,4 +1,4 @@
-"""Tests for ir/canonical.py — the language-preserving canonical-form rewrites.
+"""Tests for ir/grammar/transform/canonical.py — the language-preserving canonical-form rewrites.
 
 Each rewrite (1-9, per the module docstring) is isolated to a minimal grammar
 so a failure points at the exact pass that broke, rather than a real

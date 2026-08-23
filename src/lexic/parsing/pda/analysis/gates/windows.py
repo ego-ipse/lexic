@@ -52,14 +52,6 @@ END, MORE, UNK = "END", "MORE", "UNK"
 """A prefix state: END — the tuple is a complete derivation (may be extended by
 FOLLOW); MORE — a longer derivation exists past the window; UNK — the window is
 poisoned (an unexpanded/over-wide construct), which collides with everything."""
-END, MORE, UNK = "END", "MORE", "UNK"
-"""A prefix state: END — the tuple is a complete derivation (may be extended by
-FOLLOW); MORE — a longer derivation exists past the window; UNK — the window is
-poisoned (an unexpanded/over-wide construct), which collides with everything."""
-END, MORE, UNK = "END", "MORE", "UNK"
-"""A prefix state: END — the tuple is a complete derivation (may be extended by
-FOLLOW); MORE — a longer derivation exists past the window; UNK — the window is
-poisoned (an unexpanded/over-wide construct), which collides with everything."""
 _STATE_CAP = 3000
 """Per-arm prefix-set cap; a wider fan-out poisons the arm to ``{((), UNK)}``
 rather than enumerating exponentially (the poc's ``_STATE_CAP``)."""

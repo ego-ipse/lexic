@@ -24,7 +24,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = ROOT / "src" / "lexic"
@@ -139,23 +138,6 @@ def test_exempt_package_inits_declare_no_surface() -> None:
     assert not impure, f"exempt inits that grew a surface: {impure}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "44 of 170 source modules are owed a mirrored unit-test file: 41 real "
-        "modules plus 3 package inits that declare a surface of their own "
-        "(grammars, grammars/abnf, grammars/gbnf). A further 32 package inits "
-        "are exempt as pure markers, held to that by "
-        "test_exempt_package_inits_declare_no_surface — so the exemption is a "
-        "property re-derived each run, not a list someone maintains. The gap "
-        "list is the work order and lives in this test's own failure message, "
-        "so it cannot go stale the way a copy in a document would. Strict, so "
-        "the day the last gap closes this fails and the marker must come off. "
-        "Deliberately NOT seeded into ALLOWED: that list means 'cannot be "
-        "tested alone', and bulk entries would turn a record of decisions into "
-        "a place to hide work — a green gate proving nothing."
-    ),
-)
 def test_every_source_module_has_a_mirrored_unit_test_file() -> None:
     """The mirror rule, enforced rather than merely documented."""
     gaps = missing_mirrors()

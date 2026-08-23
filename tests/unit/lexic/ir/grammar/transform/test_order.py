@@ -1,5 +1,5 @@
-"""Tests for ir/order.py — RuleOrder: start-first, breadth-first-by-edges,
-unreached-rules-alphabetical-last."""
+"""Tests for ir/grammar/transform/order.py — RuleOrder: start-first,
+breadth-first-by-edges, unreached-rules-alphabetical-last."""
 
 from __future__ import annotations
 

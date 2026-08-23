@@ -1,4 +1,4 @@
-"""Tests for compile/presentation.py — the ceiling mechanism itself."""
+"""Tests for compile/output/presentation.py — the ceiling mechanism itself."""
 
 from __future__ import annotations
 

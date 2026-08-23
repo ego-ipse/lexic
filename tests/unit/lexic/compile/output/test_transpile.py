@@ -1,4 +1,4 @@
-"""Tests for ``compile/transpile.py`` — the retained transpilation product.
+"""Tests for ``compile/output/transpile.py`` — the retained transpilation product.
 
 The tables here are static module constants: rows keyed by SOURCE RULE
 NAMES, targets built by name through ``Make``, no class object anywhere —

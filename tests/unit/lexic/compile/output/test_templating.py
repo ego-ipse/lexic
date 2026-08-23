@@ -1,4 +1,4 @@
-"""Tests for compile/templating.py — generic span-based path extraction.
+"""Tests for compile/output/templating.py — generic span-based path extraction.
 
 Exercises the module against a self-contained toy ``(k=v, ...)`` grammar,
 compiled once through the standard pipeline (``compile_text``) — the whole
