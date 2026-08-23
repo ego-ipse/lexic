@@ -16,7 +16,7 @@ from lexic.parsing.parallel.plan.envelope import (
     admits,
     cut_offsets,
     envelope_of,
-    envelope_plan,
+    envelope_plans,
     extend,
 )
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import ENVELOPE_SOURCE
@@ -32,6 +32,16 @@ def _envelope_grammar() -> IrAst:
 
 
 # ── envelope_of: reading a container arm ─────────────────────────────────
+
+
+def _first(found):
+    """The first certified plan, or ``None`` — the shape these tests pin.
+
+    ``envelope_plans`` returns one plan per PROVABLE mark so the
+    orchestrator can pick per document; a test naming one grammar wants
+    the leading candidate.
+    """
+    return found[0] if found else None
 
 
 def test_envelope_of_reads_the_head_and_tail_items_around_the_core() -> None:
@@ -88,7 +98,7 @@ def test_consecutive_marks_separated_only_by_noise_collapse_to_one_cut() -> None
     """A unit's own boundary mark immediately followed by a blank line's own
     mark both land on the SAME next unit start; only the earliest is kept."""
     grammar = _envelope_grammar()
-    plan = envelope_plan(grammar, "root")
+    plan = _first(envelope_plans(grammar, "root"))
     assert plan is not None
     text = "ua = a\n\nub = b"
 
@@ -104,7 +114,7 @@ def test_a_corpus_with_units_a_continuation_and_a_blank_run_yields_exact_counts(
     the earlier is kept as a cut), and the continuation mark at offset 14 is
     the sole refusal — the exact population this corpus was built to pin."""
     grammar = _envelope_grammar()
-    plan = envelope_plan(grammar, "root")
+    plan = _first(envelope_plans(grammar, "root"))
     assert plan is not None
     text = "ua = a\n\nub = b\ncontinuedvalue\nuc = c"
 

@@ -302,30 +302,38 @@ def _run_of(
     return LeadRun(chars, skips, IrAst(grammar.rules, shape.item)), required
 
 
-def envelope_plan(grammar: IrAst, container: str) -> EnvelopePlan | None:
-    """The certified plan a container's repetition admits, or ``None``.
+def envelope_plans(grammar: IrAst, container: str) -> tuple[EnvelopePlan, ...]:
+    """EVERY certified plan a container's repetition admits, in a stable order.
 
     The mark is derived, never named: it is a character the lead's MANDATORY
     item must spell, read with the run's own regions hidden — which for a
-    comment-bearing lead leaves the line endings and nothing else. Each
-    candidate is offered to the boundary proof, and the first that proves wins.
+    comment-bearing lead leaves the line endings and nothing else.
+
+    **All provable marks are returned, not the first.** Which one a DOCUMENT
+    carries is not a property of the grammar, and this analysis is memoised per
+    grammar, so picking one here picks it for every document: gbnf proves all
+    four of ``\r \n`` space and tab, codepoint order handed back the tab, and a
+    corpus with 1,080 newlines and no tabs got a plan that proposed no cuts.
+    Returning the candidates lets the orchestrator's existing first-that-cuts
+    cascade decide per document, which is where the evidence is.
 
     :param grammar: The codegen grammar.
     :param container: The rule whose arm holds the repetition.
-    :returns: The plan, or ``None`` — an ordinary decline.
+    :returns: The certified plans, mark order stable; empty on a decline.
     """
     rules = {str(rule.name): rule for rule in grammar.rules}
     shape = repetition_of(rules, container)
     if shape is None:
-        return None
+        return ()
     run, required = _run_of(grammar, rules, shape)
     if required.negated:
-        return None
+        return ()
+    found = []
     for mark in sorted(required.chars):
         bound = unit_boundary(grammar, shape.unit, mark)
         if bound is not None and mark in run.noise:
-            return EnvelopePlan(shape, run, bound, mark)
-    return None
+            found.append(EnvelopePlan(shape, run, bound, mark))
+    return tuple(found)
 
 
 _WITNESS: dict[tuple[int, str], tuple[IrAst, str | None]] = memo({}, 0)

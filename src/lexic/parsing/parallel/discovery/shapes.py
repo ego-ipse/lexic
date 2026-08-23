@@ -90,6 +90,17 @@ def literal_text(item: IrItem, rule_map: dict[str, IrRule]) -> str | None:
     return _spelling(item, rule_map, _any_text)
 
 
+def item_lead(item: IrItem, rule_map: dict[str, IrRule]) -> str | None:
+    """The first character of the literal an item spells, or ``None``.
+
+    A region's opening delimiter is reached at its FIRST character and skipped
+    whole, so that character is the only one of its spelling a scan can decide
+    at — which is what lets ``"<["`` stop competing with a ``"["`` region.
+    """
+    spelling = literal_text(item, rule_map)
+    return spelling[0] if spelling else None
+
+
 def edge_char(
     body: IrAlternation, at: int, char_of: Callable[[IrItem], str | None]
 ) -> str | None:

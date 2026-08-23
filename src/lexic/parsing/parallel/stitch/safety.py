@@ -326,10 +326,24 @@ def _prefix_of(
     return found
 
 
+class Refutation(NamedTuple):
+    """What the boundary refutation is trying to break, and what it may not enter.
+
+    :ivar found: The prefix a cut must land on.
+    :ivar mark: The character cuts key on.
+    :ivar skipped: The certified regions. The scan skips these whole, so a mark
+        one of them can spell is never a CANDIDATE mark and cannot begin a
+        false match inside it.
+    """
+
+    found: Boundary
+    mark: str
+    skipped: frozenset[str]
+
+
 def _reaches_literal(
     item: IrItem,
-    found: Boundary,
-    mark: str,
+    proof: Refutation,
     rules: dict[str, IrRule],
     path: frozenset[str],
 ) -> bool:
@@ -341,15 +355,13 @@ def _reaches_literal(
     is not guarded that way — the match would begin within it, past its opener
     — unless the mark is its final edge, as a comment's newline is.
     """
-    lead = found.literal[0]
+    lead = proof.found.literal[0]
     if not emits(item, lead, rules, frozenset(), path):
         return False
     atom = item.atom
     if isinstance(atom, IrAlternation):
         return any(
-            _reaches_literal(inner, found, mark, rules, path)
-            for arm in atom
-            for inner in arm
+            _reaches_literal(inner, proof, rules, path) for arm in atom for inner in arm
         )
     if not isinstance(atom, IrRuleRef):
         return True
@@ -357,10 +369,10 @@ def _reaches_literal(
     target = rules.get(name)
     if target is None or name in path:
         return True
-    if _guards(target, found, mark, rules, path):
+    if _guards(target, proof, rules, path):
         return False
     return any(
-        _reaches_literal(inner, found, mark, rules, path | {name})
+        _reaches_literal(inner, proof, rules, path | {name})
         for arm in target.body
         for inner in arm
     )
@@ -368,23 +380,32 @@ def _reaches_literal(
 
 def _guards(
     target: IrRule,
-    found: Boundary,
-    mark: str,
+    proof: Refutation,
     rules: dict[str, IrRule],
     path: frozenset[str],
 ) -> bool:
-    """Whether entering ``target`` refuses a match confined to the prefix."""
+    """Whether entering ``target`` refuses a match confined to the prefix.
+
+    A CERTIFIED region guards outright: the scan skips it whole, so no cut is
+    ever proposed inside it and no false match can begin there — which is what
+    the ``inside`` test below exists to catch for constructs the scan does read
+    into. The opener check still applies to both: skipping is irrelevant if the
+    match could walk in over allowed characters.
+    """
     opens = first_charset(
         tuple(tuple(target.body)[0]) if len(tuple(target.body)) == 1 else (),
         rules,
         path,
     )
     entered = _body_opens(target, rules, path)
-    if entered.overlaps(found.allowed) or opens.overlaps(found.allowed):
+    allowed = proof.found.allowed
+    if entered.overlaps(allowed) or opens.overlaps(allowed):
         return False
-    inside = rule_emits(target, mark, rules, frozenset(), path)
+    if str(target.name) in proof.skipped:
+        return True
+    inside = rule_emits(target, proof.mark, rules, frozenset(), path)
     return not inside or _ends_once(
-        target, mark, Scope(rules, frozenset(), {}), path | {str(target.name)}
+        target, proof.mark, Scope(rules, frozenset(), {}), path | {str(target.name)}
     )
 
 
@@ -444,9 +465,13 @@ def _derive_boundary(grammar: IrAst, unit: str, mark: str) -> Boundary | None:
     found = unit_prefix(rules, unit, mark, skipped)
     if found is None:
         return None
+    # The refutation walk reads CERTIFIED regions, not merely asymmetric
+    # shapes: what makes a construct unenterable mid-match is that the scan
+    # skips it whole, which is exactly what certification establishes.
+    proof = Refutation(found, mark, frozenset(r.rule for r in interiors(grammar)))
     items = tuple(tuple(rules[unit].body)[0])
     refuted = not any(
-        _reaches_literal(item, found, mark, rules, frozenset({unit}))
+        _reaches_literal(item, proof, rules, frozenset({unit}))
         for at, item in enumerate(items)
         if at != found.at
     )

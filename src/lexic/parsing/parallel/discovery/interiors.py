@@ -41,6 +41,7 @@ from lexic.ir import (
 from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.shapes import (
     emits,
+    item_lead,
     literal_char,
     literal_text,
     unbounded,
@@ -195,11 +196,63 @@ def _closed_at(
         if escape is not None:
             return (same, opening, escape)
     last = len(items) - 1
-    closing = literal_text(items[last], rule_map)
+    closing = literal_text(items[last], rule_map) or _trailing_literal(
+        items[last], rule_map
+    )
     if closing is None or closing == opening:
         return None
-    escape = _opacity(items[1:last], closing, rule_map)
+    inner = items[1:last] + _tail_content(items[last], rule_map)
+    escape = _opacity(inner, closing, rule_map)
     return None if escape is None else (last, closing, escape)
+
+
+def _trailing_literal(
+    item: IrItem, rule_map: dict[str, IrRule], seen: frozenset[str] = frozenset()
+) -> str | None:
+    """The literal EVERY arm of the item's target rule ends with, or ``None``.
+
+    A closer need not be spelled at the arm's edge. ``tok-id ::= "<[" decits
+    tok-id-tail`` closes through its tail, whose arms are ``"]>"`` and
+    ``"-" decits "]>"`` — one closing spelling reached two ways. An arm ending
+    in a REFERENCE is followed, because arm hoisting moves exactly that
+    spelling one rule down: the codegen grammar reads the same tail as
+    ``tok-id-tail-arm1 | tok-id-tail-arm2``, and a derivation that stops at
+    the first reference sees the canonical shape and misses the compiled one.
+    Arms that end differently, or a cycle, have no single closer and decline.
+    """
+    atom = item.atom
+    name = str(atom) if isinstance(atom, IrRuleRef) else ""
+    rule = rule_map.get(name) if name and name not in seen else None
+    if rule is None:
+        return None
+    endings = set()
+    for arm in rule.body:
+        inner = tuple(arm)
+        if not inner:
+            return None
+        last = inner[-1]
+        if isinstance(last.atom, IrLiteral):
+            endings.add(str(last.atom))
+            continue
+        deeper = _trailing_literal(last, rule_map, seen | {name})
+        if deeper is None:
+            return None
+        endings.add(deeper)
+    return endings.pop() if len(endings) == 1 else None
+
+
+def _tail_content(item: IrItem, rule_map: dict[str, IrRule]) -> tuple[IrItem, ...]:
+    """What a trailing-literal closer's own rule spells BEFORE the closer.
+
+    That text stands inside the region, so it owes the same opacity every other
+    interior item owes: ``tok-id-tail``'s ``"-" decits`` must not spell ``]``
+    either, or the scan would stop short of the real closer.
+    """
+    atom = item.atom
+    rule = rule_map.get(str(atom)) if isinstance(atom, IrRuleRef) else None
+    if rule is None:
+        return ()
+    return tuple(inner for arm in rule.body for inner in tuple(arm)[:-1])
 
 
 def _arm_interior(
@@ -261,12 +314,7 @@ def _visible_items(
     only what stands between them drops out. Hiding a whole rule instead would
     let two regions certify each other on delimiters they cannot tell apart.
     """
-    kept: list[IrItem] = []
-    for at, arm in enumerate(rule.body):
-        items = tuple(arm)
-        span = spans.get((str(rule.name), at))
-        kept.extend(items if span is None else items[: span[0]] + items[span[1] :])
-    return tuple(kept)
+    return tuple(item for item, _site in _visible_sites(rule, spans))
 
 
 def _reachable_visible(
@@ -304,6 +352,13 @@ def _sole_opener(
     other. What stands at a region's delimiters IS visible, so a sibling that
     opens with the same character still refuses.
 
+    Two visible spellings are not competition. A region's own OPENING is
+    entered at its lead character and skipped whole, so its later characters
+    are never free occurrences (``"<["`` cannot desync a ``"["`` region). And a
+    literal spelling exactly some region's ``opening + closing`` is that
+    region's EMPTY INSTANCE — ``"[]"`` beside ``"[" … "]"`` — which the
+    region's own skip already reads exactly, so it de-certifies nothing.
+
     Hiding every reference turns :func:`~...shapes.rule_emits` into "what does
     this item spell DIRECTLY", so the question is asked once per reachable
     rule rather than once per derivation path.
@@ -311,12 +366,34 @@ def _sole_opener(
     opaque = frozenset(rule_map)
     lead = region.opening[0]
     kin = _decided_by(surviving, region)
+    openings = {(other.rule, other.arm, other.opens) for other in surviving}
+    instances = {other.opening + other.closing for other in surviving if other.closing}
     return not any(
         emits(item, lead, rule_map, opaque, frozenset())
         for name in _reachable_visible(grammar, rule_map, spans, region.rule)
         if name not in kin
-        for item in _visible_items(rule_map[name], spans)
+        for item, at in _visible_sites(rule_map[name], spans)
+        if (at not in openings or item_lead(item, rule_map) == lead)
+        and literal_text(item, rule_map) not in instances
     )
+
+
+def _visible_sites(
+    rule: IrRule, spans: dict[tuple[str, int], tuple[int, int]]
+) -> tuple[tuple[IrItem, tuple[str, int, int]], ...]:
+    """:func:`_visible_items`, each paired with its ``(rule, arm, index)`` site.
+
+    The site is what lets the caller recognise a sibling region's OPENING
+    delimiter, which is visible but is entered — and skipped — as a unit.
+    """
+    kept: list[tuple[IrItem, tuple[str, int, int]]] = []
+    for at, arm in enumerate(rule.body):
+        items = tuple(arm)
+        span = spans.get((str(rule.name), at))
+        for k, item in enumerate(items):
+            if span is None or not span[0] <= k < span[1]:
+                kept.append((item, (str(rule.name), at, k)))
+    return tuple(kept)
 
 
 def _decided_by(surviving: tuple[Interior, ...], region: Interior) -> frozenset[str]:

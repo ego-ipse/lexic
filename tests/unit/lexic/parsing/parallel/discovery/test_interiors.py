@@ -121,23 +121,39 @@ def test_the_analysis_is_memoised_per_grammar_identity():
 # ── the tightened self-grammars ─────────────────────────────────────────
 
 
-def test_gbnf_abnf_and_vyx_quote_rules_are_shapes_but_never_certified():
-    """A ``"`` inside a GBNF character class, an ABNF comment, or a vyx
-    comment can desync a left-to-right pairing scan, so these real
-    self-grammars' quote-like rules are DERIVED shapes but never certified —
-    the sole-spelling tightening applies beyond constructed examples."""
-    gbnf = GBNF_FLAVOUR.grammar
+def test_abnf_and_vyx_quote_rules_are_shapes_but_never_certified():
+    """A ``"`` inside an ABNF comment or a vyx comment can desync a
+    left-to-right pairing scan, so these real self-grammars' quote-like rules
+    are DERIVED shapes but never certified — the sole-spelling tightening
+    applies beyond constructed examples."""
     abnf = ABNF_FLAVOUR.grammar
     vyx = compile_from_path(GROUND_TRUTH / "vyx.gbnf").grammar
-
-    assert any(shape.rule == "literal" for shape in interior_shapes(gbnf))
-    assert "literal" not in interior_rules(gbnf)
 
     assert any(shape.rule == "char-val" for shape in interior_shapes(abnf))
     assert "char-val" not in interior_rules(abnf)
 
     assert any(shape.rule == "quoted" for shape in interior_shapes(vyx))
     assert "quoted" not in interior_rules(vyx)
+
+
+def test_gbnf_regions_certify_as_one_family():
+    """GBNF's quote rule DOES certify, once its family is read as one.
+
+    The quote used to be de-certified by a cascade rooted in `tok-id`: with no
+    closer derivable through its two-armed tail it was no region, its visible
+    ``"<["`` blocked the ``[`` classes, and their dropped co-finite bodies then
+    de-certified the quote, the comment and the group in turn. Reading a
+    trailing-literal closer and treating an opening spelling as entered at its
+    LEAD character settles the whole family.
+    """
+    gbnf = GBNF_FLAVOUR.grammar
+    certified = interior_rules(gbnf)
+    assert {"literal", "comment-line", "group", "cc-pos", "cc-neg"} <= certified
+    # `<[`…`]>` is a region of its own, decided against `<`…`>` longest-first.
+    assert {"tok-id", "tok-text"} <= certified
+    # A multi-character opening no longer blocks a sibling on its interior
+    # characters: `<[` spells `[`, and the `[` classes certify regardless.
+    assert any(shape.opening == "<[" for shape in interior_shapes(gbnf))
 
 
 def test_a_quote_inside_a_gbnf_character_class_round_trips_exactly():

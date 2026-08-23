@@ -285,11 +285,37 @@ def test_a_line_split_between_head_and_literal_is_refused_though_the_grammar_all
     assert _admits_ignoring_the_mark(text, 0, broken)
 
 
-def test_a_gbnf_string_literal_that_may_carry_the_raw_mark_declines() -> None:
-    """A raw newline can stand inside a GBNF-shaped string literal (``lplain``
-    excludes only the closing quote), which makes a false admission
-    constructible past that literal. The proof must decline rather than
-    certify a boundary a real document could break."""
+def test_an_unskippable_string_literal_carrying_the_raw_mark_declines() -> None:
+    """A raw newline can stand inside a string literal, which makes a false
+    admission constructible past it — UNLESS the scan skips the literal whole.
+
+    Here it cannot: ``name`` can spell a quote outside any region, so the quote
+    is not a sole opener and the literal never certifies. The scan therefore
+    reads into it, a newline there IS a candidate mark, and the proof must
+    decline rather than certify a boundary a real document could break.
+    """
+    grammar = _grammar(
+        "root ::= unit+\n"
+        'unit ::= name ws ":" literal nl\n'
+        'name ::= [a-z"]+\n'
+        'ws ::= " "*\n'
+        'literal ::= "\\"" lplain* "\\""\n'
+        'lplain ::= [^"]\n'
+        'nl ::= "\\n"\n'
+    )
+
+    assert unit_boundary(grammar, "unit", "\n") is None
+
+
+def test_a_certified_string_literal_carrying_the_raw_mark_certifies() -> None:
+    """The same shape, with the literal certifiable, DOES certify.
+
+    Nothing else spells the quote, so the region is a sole opener and the scan
+    skips it whole. A newline inside it is then never a CANDIDATE mark — no cut
+    is proposed there — so it cannot begin a false match, and the boundary is
+    exact. This is the pair to the decline above: what changes is not the
+    literal's contents but whether the scan reads them.
+    """
     grammar = _grammar(
         "root ::= unit+\n"
         'unit ::= name ws ":" literal nl\n'
@@ -300,7 +326,8 @@ def test_a_gbnf_string_literal_that_may_carry_the_raw_mark_declines() -> None:
         'nl ::= "\\n"\n'
     )
 
-    assert unit_boundary(grammar, "unit", "\n") is None
+    found = unit_boundary(grammar, "unit", "\n")
+    assert found is not None and found.literal == ":"
 
 
 def test_a_json_shaped_member_certifies_on_the_same_walk_as_an_abnf_rule() -> None:

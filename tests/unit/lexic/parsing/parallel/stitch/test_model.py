@@ -7,7 +7,7 @@ from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import parse_model
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plan, unit_witness
+from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
 from lexic.parsing.parallel.stitch.model import (
     derive_plan,
     envelope_tails,
@@ -24,7 +24,7 @@ def _envelope_case(cache_key: str) -> tuple[IrAst, ModelFold, Envelope, IrAst]:
     """The compiled fixture, its envelope shape, and the reparse target."""
     compiled = compile_text(ENVELOPE_SOURCE, cache_key=cache_key)
     grammar, fold = compiled.codegen_grammar, compiled.fold
-    plan = envelope_plan(grammar, "root")
+    plan = _first(envelope_plans(grammar, "root"))
     assert plan is not None
     target = IrAst(grammar.rules, plan.shape.item)
     return grammar, fold, plan.shape, target
@@ -48,6 +48,16 @@ def _moved_tails(
     moved = envelope_tails(chunks, shape, fold)
     assert moved is not None
     return moved
+
+
+def _first(found):
+    """The first certified plan, or ``None`` — the shape these tests pin.
+
+    ``envelope_plans`` returns one plan per PROVABLE mark so the
+    orchestrator can pick per document; a test naming one grammar wants
+    the leading candidate.
+    """
+    return found[0] if found else None
 
 
 def test_a_trailing_comment_absorbed_by_a_pieces_own_tail_reparses_and_stitches() -> (
@@ -129,5 +139,6 @@ def test_direct_trailing_boundary_whitespace_round_trips_after_split() -> None:
         "node ::= [a-z]+\n"
         'ws ::= " "*\n'
     )
+
     text = "(" + ",".join("a" * 20 for _ in range(900)) + "   )"
     assert_outer_split(split_case(source, text, "group", 4), text)

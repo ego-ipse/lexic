@@ -34,7 +34,7 @@ from lexic.parsing.parallel.discovery.regions import (
 )
 from lexic.parsing.parallel.discovery.scan import Scanner, Window
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
-from lexic.parsing.parallel.plan.envelope import envelope_plan, unit_witness
+from lexic.parsing.parallel.plan.envelope import envelope_plans, unit_witness
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
@@ -610,18 +610,18 @@ def split_model[M: IrNamedTuple](
 
 
 def _envelope_split_plan(grammar: IrAst) -> tuple[SplitPlan, ...]:
-    """The plan an envelope container with a noise-run separator admits.
+    """The plans an envelope container with a noise-run separator admits.
 
     Read last: a grammar whose start rule is a plain repetition is already
-    served, and this shape costs a boundary proof to certify.
+    served, and this shape costs a boundary proof to certify. One plan per
+    PROVABLE mark — which of them a document actually carries is the
+    orchestrator's question, settled by the first that yields cuts.
     """
-    found = envelope_plan(grammar, str(grammar.start))
-    if found is None:
-        return ()
-    return (
+    derived = roles(grammar)
+    return tuple(
         SplitPlan(
             grammar,
-            Scanner(roles(grammar)),
+            Scanner(derived),
             found.mark,
             found.shape.unit,
             (),
@@ -630,7 +630,8 @@ def _envelope_split_plan(grammar: IrAst) -> tuple[SplitPlan, ...]:
             "",
             frozenset(),
             found,
-        ),
+        )
+        for found in envelope_plans(grammar, str(grammar.start))
     )
 
 
