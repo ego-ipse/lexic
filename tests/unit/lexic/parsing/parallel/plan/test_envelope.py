@@ -19,7 +19,10 @@ from lexic.parsing.parallel.plan.envelope import (
     envelope_plans,
     extend,
 )
-from tests.unit.lexic.parsing.parallel.envelope_fixtures import ENVELOPE_SOURCE
+from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
+    ENVELOPE_SOURCE,
+    TWO_MARK_SOURCE,
+)
 
 
 def _rules(source: str) -> dict[str, IrRule]:
@@ -132,3 +135,31 @@ def test_a_corpus_with_units_a_continuation_and_a_blank_run_yields_exact_counts(
     assert admitted == [True, True, False, True]
     assert cut_offsets(text, plan.mark, plan.run, plan.bound) == [6, 29]
     assert plan.cuts(text) == [6, 29]
+
+
+# ── envelope_plans: every provable mark, not the first (I14) ────────────────
+
+
+def test_envelope_plans_returns_every_provable_mark_in_stable_order() -> None:
+    """Both ``\\t`` and ``\\n`` prove for this grammar, and codepoint order —
+    not which one a document happens to carry — decides the tuple order."""
+    grammar = compile_text(
+        TWO_MARK_SOURCE, cache_key="test-envelope-plans-two-marks"
+    ).codegen_grammar
+    plans = envelope_plans(grammar, "root")
+    assert [plan.mark for plan in plans] == ["\t", "\n"]
+
+
+def test_a_document_carrying_only_the_second_marks_evidence_still_cuts() -> None:
+    """The first (tab) plan is real but finds nothing on a tab-free document;
+    the second (newline) plan is what actually cuts it — the orchestrator's
+    own cascade, exercised at the plan level."""
+    grammar = compile_text(
+        TWO_MARK_SOURCE, cache_key="test-envelope-plans-two-marks-cuts"
+    ).codegen_grammar
+    plans = envelope_plans(grammar, "root")
+    entries = [f"k{chr(97 + i % 26)}{chr(97 + i // 26)} = v" for i in range(60)]
+    text = "\n".join(entries)
+
+    assert plans[0].cuts(text) == []
+    assert plans[1].cuts(text) != []

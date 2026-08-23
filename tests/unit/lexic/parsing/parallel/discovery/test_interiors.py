@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from lexic.compile import compile_from_path, parse_grammar
+from lexic.compile import compile_from_path, compile_text, parse_grammar
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing.parallel.discovery.interiors import (
@@ -154,6 +154,158 @@ def test_gbnf_regions_certify_as_one_family():
     # A multi-character opening no longer blocks a sibling on its interior
     # characters: `<[` spells `[`, and the `[` classes certify regardless.
     assert any(shape.opening == "<[" for shape in interior_shapes(gbnf))
+
+
+# ── _trailing_literal — a closer resolved through a reference (I14) ───────
+
+
+def test_a_trailing_reference_whose_every_arm_ends_in_one_literal_closes_the_region():
+    """``tok-id``'s own shape: the arm ends in a REFERENCE, not a literal, and
+    that reference's rule closes two ways (``"]>"`` directly, or ``digit
+    "]>"``) — one closing spelling reached two ways. The opacity obligation
+    also covers what the tail spells BEFORE its own closer (the digit here),
+    so the region still needs nothing inside able to spell ``]``."""
+    source = (
+        "root ::= item\n"
+        'item ::= "<" body tail\n'
+        "body ::= [a-z]*\n"
+        'tail ::= "]>" | [0-9] "]>"\n'
+    )
+    assert _interiors(source) == (Interior("item", 0, "<", "]>", "", 0, 2),)
+
+
+def test_arms_ending_in_different_literals_decline():
+    """No single closer to read: the tail's two arms disagree on their last
+    spelling, so ``item`` is not a region at all — not merely uncertified."""
+    source = (
+        'root ::= item\nitem ::= "<" body tail\nbody ::= [a-z]*\ntail ::= "]>" | "]}"\n'
+    )
+    assert _interiors_shapes(source) == ()
+
+
+def test_a_cycle_through_the_trailing_reference_declines():
+    """``tail``'s own two arms keep it from resolving as ONE literal
+    (:func:`literal_text` bails immediately, no recursion), so
+    ``_trailing_literal`` is what walks its arms — and one of them re-enters
+    ``tail`` through ``mid`` without ever reaching a literal. The cycle guard
+    must decline rather than recurse forever."""
+    source = (
+        "root ::= item\n"
+        'item ::= "<" body tail\n'
+        "body ::= [a-z]*\n"
+        'tail ::= "]>" | mid\n'
+        "mid ::= tail\n"
+    )
+    assert _interiors_shapes(source) == ()
+
+
+def test_the_tails_own_pre_closer_content_owes_the_same_opacity():
+    """A trailing-literal closer's rule may spell more than the literal
+    itself — ``tok-id-tail``'s ``"-" decits`` stands INSIDE the region too.
+    Here one tail arm's own pre-closer content (``rb``) can spell the
+    closer's lead character (``]``), so the span would end short of the real
+    closer, and the region must decline rather than certify a false one."""
+    source = (
+        "root ::= item\n"
+        'item ::= "<" body tail\n'
+        "body ::= [a-z]*\n"
+        'tail ::= "]>" | rb "z" "]>"\n'
+        "rb ::= [\\]]\n"
+    )
+    assert _interiors_shapes(source) == ()
+
+
+# ── the empty-instance predicate (I14) ─────────────────────────────────────
+
+
+def test_a_fully_literal_sibling_spelling_exactly_the_empty_instance_does_not_decertify():
+    """``"''"`` beside ``"'" body* "'"`` is that region's OWN empty instance —
+    the scan hits ``'``, opens, finds ``'`` at +1, skips ``''`` exactly. It is
+    not competition, and ``str`` still certifies."""
+    source = (
+        "root ::= str | empty\n"
+        'str ::= "\'" body* "\'"\n'
+        "body ::= [^']\n"
+        "empty ::= \"''\"\n"
+    )
+    assert "str" in interior_rules(parse_grammar(source, GBNF_FLAVOUR))
+
+
+def test_a_sibling_literal_spelling_something_else_sharing_the_lead_still_refuses():
+    """The same shape, with the sibling spelling ``"'x"`` instead — a real
+    same-lead spelling that is NOT the empty instance, so it is genuine
+    competition and ``str`` does not certify."""
+    source = (
+        "root ::= str | other\n"
+        'str ::= "\'" body* "\'"\n'
+        "body ::= [^']\n"
+        'other ::= "\'x"\n'
+    )
+    assert "str" not in interior_rules(parse_grammar(source, GBNF_FLAVOUR))
+
+
+# ── item_lead / lead-only opening contribution (I14) ───────────────────────
+
+
+def test_a_multi_character_openings_later_characters_do_not_block_a_sibling():
+    """``tok-id``'s (I14's) shape distilled: a two-character opening
+    (``"<["``) beside a plain one-character opening on the SAME lead
+    character it happens to spell second (``"["``). The multi-character
+    opening is entered and skipped at its own lead (``<``), so its second
+    character is never a free occurrence, and both regions certify."""
+    source = (
+        "root ::= tokid | cls\n"
+        'tokid ::= "<[" digits ">"\n'
+        "digits ::= [0-9]+\n"
+        'cls ::= "[" body* "]"\n'
+        "body ::= [^\\]]\n"
+    )
+    certified = interior_rules(parse_grammar(source, GBNF_FLAVOUR))
+    assert {"tokid", "cls"} <= certified
+
+
+# ── certification non-regression (I14) ──────────────────────────────────────
+
+_LEXRUNS_SHAPED = (
+    "root ::= entry (nl entry)*\n"
+    "entry ::= name eq value\n"
+    "name ::= [a-zA-Z_] [a-zA-Z0-9_]*\n"
+    'eq ::= "="\n'
+    "value ::= quoted | word | number\n"
+    "quoted ::= dquote qchars dquote\n"
+    'qchars ::= [^"\\n]*\n'
+    "word ::= [a-zA-Z] [a-zA-Z0-9._/-]*\n"
+    "number ::= [0-9]+\n"
+    'dquote ::= "\\""\n'
+    'nl ::= "\\n"\n'
+)
+"""A long-terminal, few-structure grammar shaped like the benchmark's own
+``lexruns`` row — authored here rather than imported, so this pin does not
+depend on the benchmark module."""
+
+
+def test_json_certification_is_unchanged():
+    """json's own quoted string is the one region, on both grammar forms."""
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    assert interior_rules(compiled.grammar) == frozenset({"string"})
+    assert interior_rules(compiled.codegen_grammar) == frozenset({"string"})
+
+
+def test_lexruns_shaped_certification_is_unchanged():
+    """The quoted-value rule is the one region; the bare word/number arms
+    carry no delimiter at all."""
+    compiled = compile_text(_LEXRUNS_SHAPED, cache_key="i14-lexruns-shaped")
+    assert interior_rules(compiled.grammar) == frozenset({"quoted"})
+    assert interior_rules(compiled.codegen_grammar) == frozenset({"quoted"})
+
+
+def test_abnf_certification_is_unchanged():
+    """ABNF's own self-grammar still certifies nothing — its quote-carrying
+    rules stay shapes-but-never-certified (see the test above), not regions."""
+    source = str(ABNF_FLAVOUR.apply(ABNF_FLAVOUR.grammar))
+    compiled = compile_text(source, flavour="abnf", cache_key="i14-abnf-noncert")
+    assert interior_rules(compiled.grammar) == frozenset()
+    assert interior_rules(compiled.codegen_grammar) == frozenset()
 
 
 def test_a_quote_inside_a_gbnf_character_class_round_trips_exactly():

@@ -14,8 +14,9 @@ from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import parse_model
 from lexic.parsing.parallel import orchestrate, split_model, split_plan
-from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.parallel.orchestrate import Request, _split_plans
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
+from tests.unit.lexic.parsing.parallel.envelope_fixtures import TWO_MARK_SOURCE
 
 LEAD_RULE = (
     "root ::= pair tail*\n"
@@ -515,4 +516,55 @@ def test_an_ungenerateable_witness_declines_the_envelope_split_cleanly(
     assert declined is None
 
     sequential = parse_model(grammar, text, fold)
+    assert compiled.parse(text, cores=8) == sequential
+
+
+def test_split_plans_are_memoised_per_grammar_while_cuts_stay_per_document() -> None:
+    """The plan tuple is one object per grammar identity — computed once,
+    reused — but the cut OFFSETS it produces are a function of the document,
+    never cached across two different ones."""
+    compiled = compile_text(TWO_MARK_SOURCE, cache_key="two-mark-memo")
+    grammar = compiled.codegen_grammar
+
+    assert _split_plans(grammar) is _split_plans(grammar)
+
+    plan = _split_plans(grammar)[1].envelope
+    assert plan is not None and plan.mark == "\n"
+
+    short_entries = [f"k{chr(97 + i)} = v" for i in range(26)]
+    long_entries = short_entries * 4
+    short_text = "\n".join(short_entries)
+    long_text = "\n".join(long_entries)
+
+    assert plan.cuts(short_text) != plan.cuts(long_text)
+
+
+def test_the_orchestrator_engages_a_document_carrying_only_the_second_marks_evidence() -> (
+    None
+):
+    """The tab-marked plan sorts first and finds nothing on a tab-free
+    document; the newline-marked plan is what the cascade actually falls
+    through to — engaged, exact, and non-vacuous, at the real
+    ``split_model`` seam rather than the plan level alone."""
+    compiled = compile_text(TWO_MARK_SOURCE, cache_key="two-mark-orchestrate")
+    grammar, fold = compiled.codegen_grammar, compiled.fold
+    entries = [
+        f"k{chr(97 + i % 26)}{chr(97 + (i // 26) % 26)} = v" for i in range(2600)
+    ]
+    text = "\n".join(entries)
+    assert len(text) >= 16 * 1024
+
+    sequential = parse_model(grammar, text, fold)
+    calls: list[int] = []
+
+    def recording_parse(g, source, f, resolve=None):
+        calls.append(len(source))
+        return parse_model(g, source, f, resolve)
+
+    split = split_model(recording_parse, grammar, Request(text, fold), 8)
+    assert split is not None, "the newline-marked plan must have carried this"
+    assert split == sequential
+    assert split.to_text() == text
+    assert len(calls) >= 2, "only one worker actually parsed"
+
     assert compiled.parse(text, cores=8) == sequential

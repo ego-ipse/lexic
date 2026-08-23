@@ -17,6 +17,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
     derives_empty,
     edge_char,
+    item_lead,
     leads_with,
     literal_char,
     unbounded,
@@ -118,6 +119,30 @@ def test_an_unresolvable_reference_spells_nothing():
     the analyses run over sub-grammars and must tolerate a dangling name."""
     rule_map = _rule_map('root ::= x\nx ::= "a"')
     assert literal_char(_arm_items(rule_map, "root")[0], {}) is None
+
+
+# ── item_lead ─────────────────────────────────────────────────────────────
+
+
+def test_item_lead_is_the_first_character_of_a_multi_character_literal():
+    """A region's opening is entered at its lead character and skipped
+    whole, so ``"<["`` contributes only ``"<"`` — the fact that lets a
+    sibling ``"["`` region certify beside it."""
+    rule_map = _rule_map('root ::= x y\nx ::= "<[" \ny ::= "a"')
+    assert item_lead(_arm_items(rule_map, "root")[0], rule_map) == "<"
+
+
+def test_item_lead_agrees_with_literal_char_for_a_single_character_spelling():
+    """A one-character spelling's lead is that same character."""
+    rule_map = _rule_map('root ::= "{" x\nx ::= "a"')
+    item = _arm_items(rule_map, "root")[0]
+    assert item_lead(item, rule_map) == literal_char(item, rule_map) == "{"
+
+
+def test_item_lead_is_none_when_the_item_spells_nothing():
+    """A class is a set, not a spelling — it has no lead character either."""
+    rule_map = _rule_map('root ::= [a-z] x\nx ::= "a"')
+    assert item_lead(_arm_items(rule_map, "root")[0], rule_map) is None
 
 
 # ── edge_char ─────────────────────────────────────────────────────────────
