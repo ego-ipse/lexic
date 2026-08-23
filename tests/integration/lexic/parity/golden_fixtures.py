@@ -2,8 +2,7 @@
 
 The golden FILES were recorded once from the retired prior model
 implementation (Task 0) and are byte-pinned; the record spine must keep their
-ORACLE keys equal (ruling 12,
-``zzz_current_work/260716-ir-native/PLAN_v4.md``): ``runtime_dump``,
+ORACLE keys equal: ``runtime_dump``,
 ``runtime_semantic_dump``, ``to_text``. The Task-0 recordings also carried two
 declared-schema keys (``model_dump``/``semantic_dump``) that characterized the
 prior serializer; they became uncomputable on the record spine and were

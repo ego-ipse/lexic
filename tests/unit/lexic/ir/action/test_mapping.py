@@ -428,6 +428,23 @@ def test_map_children_are_its_dyads_and_rebuild_is_their_inverse() -> None:
     assert built.rebuild(dyads) == built
 
 
+def test_a_map_yields_its_entries_in_key_order_not_document_order() -> None:
+    """A map is its table, so it has no memory of how it was spelled.
+
+    Stated as a property rather than left to be discovered: ``IrMap`` indexes
+    into canonical key order at construction, which is what makes its views,
+    repr and equality order-stable. The source sequence is not retained and
+    cannot be recovered. Any consumer that walks a reduced value expecting to
+    meet entries in the order the document spelled them is relying on
+    something no map offers — and, worse, on something that HOLDS for small
+    maps, where insertion and sorted order often coincide.
+    """
+    keys = ["version", "model", "added_tokens"]
+    built = IrMap(*(IrTuple(IrStr(key), IrInt(at)) for at, key in enumerate(keys)))
+    assert [str(entry[0]) for entry in built.children()] == sorted(keys)
+    assert [str(entry[0]) for entry in built.children()] != keys
+
+
 def test_typemap_children_rebuild_preserves_resolution() -> None:
     """A rebuilt type map answers exactly as the original did."""
     table = IrTypeMap(IrTuple(IrStr, IrThis()), IrTuple(IrInt, IrThis()))

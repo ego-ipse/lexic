@@ -18,6 +18,9 @@
 | How do I write a PARSED VALUE to an importable module? What are the three targets? | [[lexic/generated-modules]], [[lexic/public-api]] |
 | Why was design choice X made? | [[lexic/decisions]] |
 | What test file do I create for src/lexic/foo/bar.py? | [[lexic/testing]] |
+| Which phase does my test run in? How do I write one that can fail? | [[lexic/testing]] |
+| Why did the split decline? What licenses a cut? | [[lexic/parallel-parsing]] |
+| Replicas, the warm pool, or cache lifetime under derived grammars? | [[lexic/parallel-parsing]] |
 | What changed most recently? | [[log]] |
 | What is GBNF / ABNF / EBNF syntax? | [[theory/grammar-formats]] |
 | CFGs, PEGs, ASTs, parsing algorithms, toolchains? | [[theory/parsing-theory]] |
@@ -35,6 +38,9 @@
 | Writing a parser or emitter | [[lexic/flavour-system]], [[lexic/error-vocabulary]] |
 | Exporting a grammar or a value to an importable module | [[lexic/generated-modules]], [[lexic/public-api]] |
 | Writing/debugging a grammar flavour emitter | [[theory/grammar-formats]], [[lexic/flavour-system]] |
+| Changing how a document splits across workers | [[lexic/parallel-parsing]], [[lexic/invariants]] |
+| Adding a safety proof, a plan shape, or an interior certification | [[lexic/parallel-parsing]] |
+| Writing a concurrency or timing test | [[lexic/testing]], [[lexic/parallel-parsing]] |
 
 ---
 
@@ -50,7 +56,8 @@
 | [[lexic/field-naming]] | `CHARCLASS_NAMES` (8 entries, ground truth, now in `codegen/binding.py`); `LITERAL_NAMES` table; skip conditions (unquantified `IrLiteral`); `_HINT` vs `_TIER2` contract distinction; collision counter mechanics |
 | [[lexic/error-vocabulary]] | Exception class → raised-by mapping; dispatch table code pattern with `raise UnsupportedConstructError`; the engine/reducer/`canonical_grammar` error boundary; which stubs are wired in which slice |
 | [[lexic/invariants]] | Round-trip fidelity invariant; closed atom union rule; the ground-truth grammars; what each invariant means for dispatch tables, `to_text()`, and import edges |
-| [[lexic/testing]] | Test file mirror rule (`src/lexic/foo/bar.py` → `tests/unit/lexic/foo/test_bar.py`); `test_init_<pkg>.py` naming for `__init__.py` modules; test commands |
+| [[lexic/testing]] | Test file mirror rule (`src/lexic/foo/bar.py` → `tests/unit/lexic/foo/test_bar.py`); `test_init_<pkg>.py` naming for `__init__.py` modules; test commands; the three-phase runner and why two phases are serial; the witness-identity guards; what makes a concurrency test able to fail; the `guarded()` bounds |
+| [[lexic/parallel-parsing]] | The split's one rule; the plan cascade (separated / terminated / boundary route / envelope / routed) and what licenses each cut; per-owner safety proofs and the `_ends_once`/`_leads_once` mirror clauses; region families and interior certification; replicas and why identity caches pin their keys; `PoolLease` ownership; the `caches.py` registry |
 | [[lexic/codegen]] | HISTORICAL (superseded banner): the deleted `lexic.codegen` package |
 | [[lexic/generated-modules]] | Every module lexic emits: twins (`export_module`/`bind_module`) and compiled payloads (`export_value`, the three targets, the reader sidecar); the layout algebra (`ir/layout.py`), the notation emit half (`emit_ir`), the shared writer, tool-clean gates, reserved names |
 | [[theory/grammar-formats]] | GBNF, ABNF, EBNF syntax reference; operator precedence tables; escape notations; Lexic coverage gaps per format; GBNF vs ABNF vs EBNF comparison table |

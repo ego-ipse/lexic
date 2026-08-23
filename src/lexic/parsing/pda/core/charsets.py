@@ -12,9 +12,8 @@ EXCEPT ``chars``. Every operation (:meth:`~CharSet.has`,
 :meth:`~CharSet.union`, :meth:`~CharSet.subtract`, :meth:`~CharSet.overlaps`)
 is exact across all four polarity combinations, so an ``IrNot`` loop or a
 huge charclass range stays exactly analysable instead of "poisoning" its
-rule into a fake island — the mistake the hybrid-parsing PoC's v1 analysis
-made (see ``zzz_current_work/260705-hybrid-parse-poc/INVESTIGATION.md``,
-pivot 1).
+rule into a fake island — the mistake an earlier analysis made by treating a
+huge range as opaque.
 
 **The EOF sentinel.** FOLLOW-set seeding represents "end of input" as the
 character ``""`` living inside a POSITIVE set. A negated (co-finite) set

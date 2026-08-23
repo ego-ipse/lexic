@@ -536,7 +536,6 @@ def test_parse_forest_returns_ir_none_on_no_parse(digit_grammar: IrAst):
 # accepting production, so arm-choice families were dropped: is_ambiguous lied,
 # derivations undercounted, and strict parse never raised. RootNode is the
 # missing symbol-level aggregation. The repros below graduate from
-# ``zzz_current_work/260713-vyx-parse/probe/probe4_engine_repro.py``.
 
 
 def arms_grammar(gtext: str) -> IrAst:
@@ -592,7 +591,7 @@ def test_root_overlapping_charclass_arms_enumerates_both():
 # deferred derivations: an ambiguous right-recursive/nullable-tailed rule
 # embedded under a parent undercounted — its ambiguity was only fully
 # enumerated when it was the start symbol. The last test graduates probe4's
-# 4th case (``zzz_current_work/260713-vyx-parse/probe/probe4_engine_repro.py``).
+# 4th case.
 
 
 def test_embedded_ambiguity_matches_start_symbol_count():

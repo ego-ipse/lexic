@@ -1,10 +1,9 @@
 """Fixture-level lock on the disputed benchmark corpus.
 
 ``resources/corpora/corpus_subset_920.abnf`` is the fixed 920-char old-subset-
-grammar self-emit that ``zzz_current_work/Disputed.md`` measured its perf
-regression claims against, and the benchmark's
-"subset-920" workload times. It is old-subset ABNF syntax, but also valid
-syntax under the current full RFC 5234+7405 ABNF grammar (a strict syntactic
+grammar self-emit the benchmark's "subset-920" workload times. It is
+old-subset ABNF syntax, but also valid syntax under the current full RFC
+5234+7405 ABNF grammar (a strict syntactic
 superset) — pinning that here means a future ABNF grammar change that stops
 accepting this corpus fails a test, not just silently skews a benchmark run.
 """

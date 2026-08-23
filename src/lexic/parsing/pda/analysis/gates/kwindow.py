@@ -12,10 +12,8 @@ This is what structurally closes the retired ``prefixes.py``'s nullable hole: a
 nullable arm keeps its states SHORT (an ε-derivation contributes the empty tuple
 ``()``), and short tuples collide with everything under
 :func:`collide` by construction — there is no nullable oracle to store and forget
-to consult. The normative reference is
-``zzz_current_work/260706-unified-parse-engine/poc_v4_verify.py`` part 4; this
-mirrors its semantics on the production (exact) :class:`CharSet` and the
-open-``IrTypeMap`` atom dispatch idiom.
+to consult. The semantics run on the production (exact) :class:`CharSet` and
+the open-``IrTypeMap`` atom dispatch idiom.
 
 A leaf w.r.t. :mod:`lexic.parsing.pda.analysis.analysis`: it takes the rule table
 (``Mapping[str, IrRule]``) and the pre-computed FOLLOW sets it needs as plain

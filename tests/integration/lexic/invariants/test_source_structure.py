@@ -69,3 +69,48 @@ def test_every_active_source_folder_has_a_readme() -> None:
         if not (directory / "README.md").is_file()
     )
     assert not missing, f"source folders missing README.md: {missing}"
+
+
+EFFORT_DIR = "zzz_current_work"
+"""The gitignored working directory. Committed files must not point into it."""
+
+
+def _tracked_python() -> list[Path]:
+    """Committed Python under ``src/`` and ``tests/``, this gate excepted.
+
+    A gate has to name what it forbids, so its own file matches the pattern it
+    exists to catch. Excepting exactly one file — this one — is cheaper than
+    assembling the needle at runtime to dodge a grep.
+    """
+    here = Path(__file__).resolve()
+    roots = (ROOT / "src", ROOT / "tests")
+    return sorted(
+        path
+        for root in roots
+        for path in root.rglob("*.py")
+        if "__pycache__" not in path.parts and path.resolve() != here
+    )
+
+
+def test_committed_code_does_not_cite_the_gitignored_effort_directory() -> None:
+    """A citation into ``zzz_current_work`` is a dangling reference on clone.
+
+    The directory is gitignored, so anyone who checks this repo out reads a
+    pointer to a path that does not exist — and the pointer usually stands in
+    for the explanation rather than beside it, so the reasoning is lost with
+    it. Docstrings state the architecture in the present tense; where a
+    decision needs its history, the wiki carries it.
+    """
+    citing = [
+        f"{path.relative_to(ROOT)}:{number}"
+        for path in _tracked_python()
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if EFFORT_DIR in line
+    ]
+    assert not citing, (
+        f"{len(citing)} committed lines cite {EFFORT_DIR}/, which is not in the "
+        "repository. State the fact instead of pointing at the working note:\n  "
+        + "\n  ".join(citing)
+    )

@@ -299,3 +299,35 @@ These moved out of the retired `ir/derive.py` into grammar→grammar passes over
 ## Open-set note (rework complete, 2026-07-04)
 
 `codegen/binding.py` and `codegen/passes.py` were first to move their classification/naming/mode logic onto open `IrDispatch`/`IrTypeMap` tables with raising defaults. The remaining closed-set holdouts — `generate.py`'s atom ladder, `codegen/model_emitter.py`'s `_base_field_type`/`_value_str_type`, `codegen/aliases.py`'s `regex_for_*` ladders — have since landed the same treatment: `_GEN_ATOM`+`_Generator`, `_MODEL_TYPE`/`_GTEXT_TYPE`/`_TEXT_TYPE`+`_VALUE_TYPE`, and `_FRAGMENT` respectively, all with raising defaults and the post-canon-dead `IrNot` branches deleted. `_group_union_type` (a ref-arm filter) and `_visit_item`'s recursing group-frame `isinstance` are deliberately not tabled — they're control flow, not atom-type classification. See [[decisions]], [[codegen]], [[field-naming]].
+
+---
+
+## A map yields KEY order, not document order
+
+`IrMap` indexes its dyads into canonical key-sorted order at construction. That
+is what makes its views, repr and equality order-stable, and it is the property
+the whole map family rests on — but it means **the source sequence is not
+retained and cannot be recovered**.
+
+```python
+keys = ["version", "model", "added_tokens"]
+IrMap(*(IrTuple(IrStr(k), IrInt(i)) for i, k in enumerate(keys))).children()
+# yields added_tokens, model, version — sorted, not as spelled
+```
+
+This is a **stated product property**, not a leak: a map IS its table. There is
+deliberately no ordered reading, because retaining source order would mean
+either a second source of truth beside the table or giving up the canonical
+order that equality depends on.
+
+The consequence for consumers: **anything walking a reduced value and expecting
+to meet entries in the order the document spelled them is wrong.** It is wrong
+intermittently, which is worse than always — small maps bucket in an order that
+matches the source often enough that a suite of two- and three-key documents
+will agree with the false premise throughout. A real document with nine
+top-level keys is where it separates.
+
+When two things must be told apart, prefer removing the ambiguity upstream over
+resolving it downstream: give each candidate a distinct stand-in and take
+exactly one match or refuse, rather than breaking ties by a position the data
+does not carry.

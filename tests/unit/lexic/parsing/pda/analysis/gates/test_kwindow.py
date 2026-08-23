@@ -1,10 +1,9 @@
 """Tests for lexic.parsing.pda.analysis.gates.kwindow — the FIRST_k fixpoint + gate functions.
 
 Pins the fixed (post-Fable-review) semantics of :class:`KWindowFirst`,
-:func:`arm_gate`/:func:`loop_gate`, and their small helpers, against
-``zzz_current_work/260706-unified-parse-engine/poc_v4_verify.py`` part 4 and
-``FABLE_KWINDOW_REVIEW.md``. Findings 1 (``lo > window budget`` silently
-emptying an arm's prefix set) and 2 (``loop_gate``'s old two-rep union
+:func:`arm_gate`/:func:`loop_gate`, and their small helpers. Findings 1
+(``lo > window budget`` silently emptying an arm's prefix set) and 2
+(``loop_gate``'s old two-rep union
 under-covering 3-rep windows at k=3) are both fixed on disk; this file pins
 the fixed behaviour so it cannot regress.
 """

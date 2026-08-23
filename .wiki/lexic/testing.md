@@ -1,6 +1,6 @@
 # Testing Conventions
 
-**When to load:** creating or moving a test file; naming a test for an `__init__.py` module; checking which test commands to run before committing.
+**When to load:** creating or moving a test file; naming a test for an `__init__.py` module; checking which test commands to run before committing; writing a concurrency or timing test; choosing which phase a test belongs to.
 
 See also: [[architecture]]
 
@@ -91,3 +91,106 @@ The trap that shape sets: a parity test can pass because it proved something,
 or because it compared nothing. Both look identical in the runner. Any parity
 test must assert its own compared-count, and any green that arrives first try
 is worth asking what it divided.
+
+---
+
+## The three phases
+
+The suite holds three populations with incompatible execution needs, so
+`tools/run_tests.sh` runs them as phases — the same script locally and in CI, so
+the two cannot drift.
+
+| phase | population | how |
+|---|---|---|
+| A | the bulk | parallel under `-n auto`; correctness only, no timing |
+| B | the concurrency lane | **serial** |
+| C | the timing gates | **serial** |
+
+B and C are serial for the same reason from two directions. xdist
+process-parallelism oversubscribes a thread storm and lets the threads
+serialise, which both hides races and inflates the clock; and a wall-clock bound
+on a saturated machine measures scheduler starvation rather than the parse.
+
+The split is **by marker**, and each lane's `conftest.py` applies its own marker
+to everything it collects. A test added to a lane is therefore phased correctly
+the moment it exists. Note that a directory `conftest`'s
+`pytest_collection_modifyitems` still sees every item in the session — the hook
+must filter by path, or the marker lands on the whole suite and the phases
+partition nothing.
+
+Registering a marker does **not** require touching `pyproject.toml`:
+`config.addinivalue_line` in `tests/conftest.py` is pytest's own route.
+
+---
+
+## Both witnesses, and why each asserts its own identity
+
+Concurrency work runs twice: free-threaded (the real witness) and under
+`PYTHON_GIL=1` (the weak one). Two environment guards, both of which FAIL the
+session rather than skipping:
+
+- `LEXIC_REQUIRE_FREE_THREADED=1` — refuses to run with the GIL on.
+- `LEXIC_REQUIRE_GIL=1` — refuses to run with it off.
+
+The second is not symmetry for its own sake. Without it a matrix can silently
+collapse into two identical runs, and a weak witness that is secretly the strong
+one proves the same thing twice.
+
+`LEXIC_REQUIRE_CORES=<n>` is asked **only when the GIL is off**. With it off,
+one usable worker means a genuinely one-core machine and the lane is vacuous.
+With it on, `available_workers()` reports 1 by deliberate engine policy, so the
+same reading says nothing about the machine — which is also why the lane's
+overlap bar degrades to 1 there rather than pretending to a simultaneity that
+build cannot offer.
+
+---
+
+## Concurrency tests that can actually fail
+
+A concurrency test's characteristic failure is passing without ever having
+raced. Three devices answer that, and a lane test is expected to carry them:
+
+1. **An overlap witness.** Every race records the most workers in flight at
+   once and refuses a result whose peak says the work was effectively
+   sequential.
+2. **Value-carrying payloads.** Each thread's document encodes its own index, so
+   a leak between threads is a wrong *string*, not merely a wrong count.
+3. **A harness self-test with a guaranteed-failing control** — work that is
+   deliberately unsafe, arranged so the lost update is forced rather than lucky.
+   Without it, a green lane means nothing.
+
+A wedged worker is a **failure, not a hang**: threads are joined with a deadline
+and the timeout is an assertion.
+
+Two traps worth knowing before writing one:
+
+- **Instrumentation can suppress the bug.** Anything that retains the objects
+  under test pins them, and pinning stops address reuse — which is the mechanism
+  behind a whole class of identity defects. Carry a control showing the symptom
+  still reproduces, or the probe is measuring a world without it.
+- **`id()` is unique only among objects alive at the same time.** `id(object())`
+  names an address that is free again on the next line, and CPython hands it
+  straight back. Hold the object.
+
+---
+
+## The guarded runner
+
+`guarded()` runs a callable in a forked child under two bounds:
+
+- **CPU time, not wall.** What these gates catch is runaway or exponential work,
+  and that is a CPU property — an exponential enumeration burns any budget
+  whatever else the machine is doing, while a merely descheduled process burns
+  none. `RLIMIT_CPU` kills with SIGXCPU at the soft limit and SIGKILL a second
+  later, so the parent reads both as the same verdict. Wall clock survives only
+  as a generous hang backstop.
+- **Memory as a BUDGET over the child's inherited size**, not an absolute cap.
+  An absolute cap measures the parent's allocation history: a fresh interpreter
+  is already over a gigabyte of virtual size, so the cap can be exceeded before
+  the guarded work allocates a byte.
+
+It calls `reset_pools()` before forking. A forked child inherits every lock in
+whatever state its owning thread left it, and only the forking thread exists on
+the other side — so a lock held by a pool worker at fork time is held forever in
+the child. Releasing the pools first makes the parent single-threaded at that
+moment.

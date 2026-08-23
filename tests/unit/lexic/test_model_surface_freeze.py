@@ -1,8 +1,7 @@
 """Characterization freeze: the surviving public model surface, on the spine.
 
-Task 0 of ``zzz_current_work/260716-ir-native/PLAN_v4.md`` recorded this
-module against the prior model implementation; Task 1 (the record spine,
-ruling 9: models live on ``IrNamedTuple``) ported it. It remains the
+This module was recorded against the prior model implementation and ported to
+the record spine (models live on ``IrNamedTuple``). It remains the
 companion to the golden JSON fixtures
 (``tests/integration/golden_fixtures.py``, ``tests/integration/test_golden_parity.py``):
 the goldens pin per-grammar *values*; this module pins the *surface* those

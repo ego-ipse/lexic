@@ -1846,3 +1846,28 @@ name their groups and the fold splices the synthetic rules like hoists.
 
 Measured (2.3 MB tokenizer-shaped json, sequential, CPU time): fused
 12.28 s | artefact reduce 7.75 s = 0.63×.
+
+## Parallel parsing, the test phases, and map order
+
+New page [[lexic/parallel-parsing]] — the split's one rule (indistinguishable
+from sequential or it declines), the plan cascade and what licenses each cut,
+the per-owner safety proofs and the `_ends_once`/`_leads_once` mirror clauses,
+region families and interior certification, replicas and why identity caches
+pin their key objects, the `PoolLease` ownership rule, and the `caches.py`
+registry that bounds memos by the artefact owning them.
+
+[[lexic/testing]] gains the three-phase runner (`tools/run_tests.sh`: parallel
+bulk, serial concurrency lane, serial timing gates), why B and C are serial,
+marker registration without touching `pyproject.toml`, the two witness-identity
+guards and why the weak one must prove it is weak, what makes a concurrency
+test able to fail at all, and the `guarded()` bounds (CPU not wall; memory as a
+budget over inherited size; `reset_pools()` before the fork).
+
+[[lexic/ir-shapes]] states map order as a product property: `IrMap` yields key
+order, the source sequence is not retained, and there is deliberately no ordered
+reading.
+
+Two repository invariants added: unit tests mirror `src` in BOTH directions (a
+test file naming no module is drift, unless it is a listed behaviour suite), and
+committed code carries no citation into the gitignored working directory —
+nine such dangling references were removed.

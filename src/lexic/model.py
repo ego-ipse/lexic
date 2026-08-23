@@ -1,7 +1,6 @@
 """GrammarModel: the record spine every generated model class lives on.
 
-A generated model IS an IR record (ruling 9 / D2 of
-``zzz_current_work/260716-ir-native/PLAN_v4.md``): :class:`GrammarModel`
+A generated model IS an IR record: :class:`GrammarModel`
 subclasses :class:`~lexic.ir.base.IrNamedTuple`, so instances are immutable
 named tuples that join the IR algebra — walkable (:meth:`children` yields the
 bound-field values in item order), dispatchable (an ``IrTypeMap``'s

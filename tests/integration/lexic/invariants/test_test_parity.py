@@ -24,7 +24,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = ROOT / "src" / "lexic"
 UNIT_ROOT = ROOT / "tests" / "unit" / "lexic"
@@ -146,6 +145,88 @@ def test_every_source_module_has_a_mirrored_unit_test_file() -> None:
         "Add the file (see testing.md for the naming rule), or add an ALLOWED\n"
         "entry with the reason it cannot be tested alone:\n  " + "\n  ".join(gaps)
     )
+
+
+BEHAVIOUR_SUITES: dict[str, str] = {
+    "compile/payload/test_project.py": (
+        "a defect-regression suite — each test names the defect it stands "
+        "over, so it is named for what it defends, not for one module"
+    ),
+    "grammars/test_abnf.py": (
+        "the ABNF flavour end to end (IrFlavour binding plus the native-IR "
+        "self-grammar); the package's own modules have their mirrors under "
+        "grammars/abnf/"
+    ),
+    "grammars/test_gbnf.py": "the GBNF flavour end to end, as for ABNF above",
+    "parsing/earley/kernel/forest/test_ambiguity.py": (
+        "the split-vs-arm distinction at scale on real json; the unit-level "
+        "half is support/test_ambiguity.py, which cross-references this file "
+        "by name"
+    ),
+    "parsing/pda/runtime/test_lockstep.py": (
+        "the lockstep verdict as a behaviour — convergence across the runtime, "
+        "not a module's surface"
+    ),
+    "parsing/pda/test_group_attempt.py": (
+        "what @lexical inlining does to an alternation, which spans the "
+        "analysis and the runtime"
+    ),
+    "test_model_surface_freeze.py": (
+        "a freeze over the public model surface; it is about the surface "
+        "staying put, not about one module"
+    ),
+}
+"""Unit-test files named for a BEHAVIOUR rather than a module, with the reason.
+
+The mirror rule is about placement, and a suite that defends a behaviour has
+no single module to sit beside. Each entry says what it defends, so the list
+stays a record of decisions rather than a place to park a misplaced file.
+"""
+
+
+def orphan_tests() -> list[str]:
+    """Unit-test files naming no source module, minus the behaviour suites."""
+    orphans = []
+    for path in sorted(UNIT_ROOT.rglob("test_*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(UNIT_ROOT)
+        if str(relative) in BEHAVIOUR_SUITES:
+            continue
+        if not _named_module(path).is_file():
+            orphans.append(str(path.relative_to(ROOT)))
+    return orphans
+
+
+def _named_module(test: Path) -> Path:
+    """The source module a unit-test file's NAME points at."""
+    relative = test.relative_to(UNIT_ROOT)
+    if test.stem.startswith("test_init_"):
+        return SOURCE_ROOT / relative.parent / "__init__.py"
+    return SOURCE_ROOT / relative.parent / f"{test.stem[len('test_') :]}.py"
+
+
+def test_every_unit_test_file_names_a_source_module() -> None:
+    """The mirror rule's other direction — tests must not drift from src.
+
+    A module renamed or moved leaves its old test file sitting at the old
+    path, where it goes on passing while testing nothing anyone can find. The
+    forward gate cannot see that: it only asks whether each module HAS a file.
+    """
+    orphans = orphan_tests()
+    assert not orphans, (
+        f"{len(orphans)} unit-test files name no source module. Move or rename "
+        "them to mirror src, or add a BEHAVIOUR_SUITES entry saying what "
+        "behaviour the file defends:\n  " + "\n  ".join(orphans)
+    )
+
+
+def test_the_behaviour_suite_list_names_only_files_that_exist() -> None:
+    """A stale entry silently excuses a file that was already moved."""
+    stale = sorted(
+        name for name in BEHAVIOUR_SUITES if not (UNIT_ROOT / name).is_file()
+    )
+    assert not stale, f"BEHAVIOUR_SUITES names files that no longer exist: {stale}"
 
 
 def test_the_allowlist_names_only_modules_that_exist() -> None:
