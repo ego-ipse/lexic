@@ -208,7 +208,7 @@ def test_relation_confirmation_repeats_only_both_sides_of_anomaly(
     _values, failures = regression.confirm_relations(frozenset({relation}))
 
     assert failures == frozenset({relation})
-    assert calls == [expected, expected]
+    assert calls == [expected, expected, expected]
 
 
 def test_new_row_gets_the_full_bounded_measurement(
