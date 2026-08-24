@@ -60,7 +60,7 @@ class AttemptInlineMixin:
             return self._attempt_vdisp_loop(frame, arm, i, pos)
         lo, hi = arm.los[i], arm.his[i]
         first = arm.gate_data[i][0]
-        count = 0
+        count = frame[F_COUNT]
         sink: list[Any] | None = None
         frame[F_I] = i
         while count < lo:
@@ -97,7 +97,7 @@ class AttemptInlineMixin:
         sink = self._sink_for(frame, arm, i)
         lo, hi = arm.los[i], arm.his[i]
         first, soft = arm.gate_data[i]
-        count = 0
+        count = frame[F_COUNT]
         frame[F_I] = i
         while count < lo:
             pos = vdisp_once(self.text, self._caches.intern, arm.payloads[i], sink, pos)
@@ -147,7 +147,7 @@ class AttemptInlineMixin:
         append = sink.append
         bounds = arm.los[i], arm.his[i]
         gates = arm.gate_data[i]
-        count = 0
+        count = frame[F_COUNT]
         frame[F_I] = i
         while count < bounds[0]:
             char = self.text[pos : pos + 1]
