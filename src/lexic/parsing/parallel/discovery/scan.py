@@ -49,55 +49,77 @@ class Window(NamedTuple):
     marks: tuple[tuple[int, int, int], ...]
 
 
+def _occurrences(text: str, spelling: str, lo: int, hi: int) -> set[int]:
+    """Every offset in ``[lo, hi)`` where ``spelling`` STARTS.
+
+    The search runs past the window end by the spelling's own width so that a
+    mark beginning at the last offset is still found whole, and belongs to the
+    window it starts in rather than to neither.
+    """
+    end = hi + len(spelling) - 1
+    out: set[int] = set()
+    at = text.find(spelling, lo, end)
+    while at != -1 and at < hi:
+        out.add(at)
+        at = text.find(spelling, at + 1, end)
+    return out
+
+
 class Scanner:
     """The role-driven structural scan for one grammar's derived roles.
 
     :ivar openers: Depth-increment characters.
     :ivar closers: Depth-decrement characters.
-    :ivar separators: Mark characters (roles' separators AND terminators,
-        minus any that also play a pair role).
+    :ivar separators: Mark spellings (roles' separators AND terminators, minus
+        any whose characters also play a pair role).
     :ivar opaque: Regions that hide marks and open only where a unit begins;
         empty for every grammar whose marks are all visible, which is what
         keeps those on the windowed path.
     """
 
     def __init__(self, derived: Roles, opaque: tuple[Interior, ...] = ()) -> None:
-        """Fix the role character sets the scan classifies against."""
+        """Fix the role sets the scan classifies against."""
         self.openers = frozenset(opener for opener, _closer in derived.pairs)
         self.closers = frozenset(closer for _opener, closer in derived.pairs)
-        self.separators = derived.marks - self.openers - self.closers
+        paired = self.openers | self.closers
+        self.separators = frozenset(
+            mark for mark in derived.marks if not set(mark) & paired
+        )
         self.opaque = opaque
-        self._chars = tuple(self.openers | self.closers | self.separators)
         self._skips = skip_table(opaque)
 
     def window(self, text: str, lo: int, hi: int) -> Window:
         """Scan ``[lo, hi)`` with no knowledge of anything to its left.
 
-        One C-level ``str.find`` sweep per role character, merged by sort —
-        the Python loop runs only over the structural occurrences, and
-        ``src`` carries no regex engine.
+        One C-level ``str.find`` sweep per role spelling, merged by sort — the
+        Python loop runs only over the structural occurrences, and ``src``
+        carries no regex engine. A mark that STARTS inside the window is the
+        window's own, however far past the end it reaches, so a spelling
+        straddling an arithmetic boundary is found exactly once.
 
         :param text: The whole document (windows index into it, no copies).
         :param lo: Window start.
         :param hi: Window end (exclusive).
         :returns: The window's relative-depth product.
         """
-        offsets: list[int] = []
-        for char in self._chars:
-            at = text.find(char, lo, hi)
-            while at != -1:
-                offsets.append(at)
-                at = text.find(char, at + 1, hi)
-        offsets.sort()
+        found: list[tuple[int, int]] = []
+        for char in self.openers:
+            found += [(at, 1) for at in _occurrences(text, char, lo, hi)]
+        for char in self.closers:
+            found += [(at, -1) for at in _occurrences(text, char, lo, hi)]
+        seen: set[int] = set()
+        for mark in self.separators:
+            seen |= _occurrences(text, mark, lo, hi)
+        found += [(at, 0) for at in seen]
+        found.sort()
         depth = 0
         floor = 0
         segment = 0
         marks: list[tuple[int, int, int]] = []
-        for at in offsets:
-            char = text[at]
-            if char in self.openers:
+        for at, role in found:
+            if role > 0:
                 depth += 1
-            elif char in self.closers:
+            elif role < 0:
                 depth -= 1
                 floor = min(floor, depth)
                 segment = min(segment, depth)
@@ -121,19 +143,22 @@ class Scanner:
         at = 0
         while at < len(text):
             after = skip_opaque(text, at, self._skips.get(text[at], ()))
-            mark = self._next_mark(text, after) if after < len(text) else -1
-            if mark < 0:
+            found = self._next_mark(text, after) if after < len(text) else None
+            if found is None:
                 break
+            mark, width = found
             marks.append((mark, 0, 0))
-            at = mark + 1
+            at = mark + width
         return Window(0, 0, 0, 0, tuple(marks))
 
-    def _next_mark(self, text: str, at: int) -> int:
-        """The first mark character at or after ``at``, or ``-1``."""
+    def _next_mark(self, text: str, at: int) -> tuple[int, int] | None:
+        """The first mark at or after ``at``, with its width, or ``None``."""
         found = [
-            where for char in self.separators if (where := text.find(char, at)) != -1
+            (where, len(mark))
+            for mark in self.separators
+            if (where := text.find(mark, at)) != -1
         ]
-        return min(found) if found else -1
+        return min(found) if found else None
 
     def offsets(self, windows: list[Window], depth: int = 0) -> list[int]:
         """Rebase window marks to absolute depth and keep those at ``depth``.
@@ -154,3 +179,31 @@ class Scanner:
                     out.append(offset)
             running += window.delta
         return out
+
+
+def clustered(marks: list[int], width: int, trailing: bool) -> list[int]:
+    """One boundary per overlapping RUN of a spelling's occurrences.
+
+    A spelling that is its own border reads several times inside a run of its
+    characters, and the grammar has one boundary there — at the run's end or at
+    its start, whichever the owner's own edges settled. A one-character mark
+    never overlaps, so every occurrence is its own run and this is the identity.
+
+    :param marks: The scanned offsets, in document order.
+    :param width: The mark spelling's width.
+    :param trailing: Whether a run's LAST occurrence is its boundary.
+    :returns: One offset per run, in document order.
+    """
+    if width == 1 or not marks:
+        return marks
+    kept: list[int] = []
+    run = previous = marks[0]
+    for at in marks[1:]:
+        if at - previous >= width:
+            kept.append(run)
+            run = at
+        elif trailing:
+            run = at
+        previous = at
+    kept.append(run)
+    return kept

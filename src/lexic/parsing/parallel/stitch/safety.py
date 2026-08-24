@@ -29,14 +29,22 @@ from lexic.parsing.parallel.discovery.interiors import (
 )
 from lexic.parsing.parallel.discovery.regions import pair_rules
 from lexic.parsing.parallel.discovery.shapes import (
+    MARK_ARITY,
     UNIT,
+    arm_empty,
+    arm_spells,
     derives_empty,
     emit_charset,
     emits,
+    exact_text,
     first_charset,
+    joins,
+    last_charset,
     leads_with,
     literal_text,
     rule_emits,
+    rule_spells,
+    sole_char,
 )
 from lexic.parsing.parallel.roles import roles
 from lexic.parsing.pda.core.charsets import CharSet
@@ -61,11 +69,15 @@ _OWNER_PROOFS: dict[tuple[int, str, str, bool], tuple[IrAst, bool]] = memo({}, 0
 def owner_excludes(
     grammar: IrAst, owner: str, separator: str, *, region_scan: bool = False
 ) -> bool:
-    """Prove that ``owner`` cannot consume ``separator`` at this region depth.
+    """Prove that ``owner`` cannot SPELL ``separator`` at this region depth.
 
     Failure to prove exclusion is an ordinary sequential decline. The proof is
     intentionally per owner: pooling every rule reachable anywhere would
     reject JSON because a nested object quite properly contains commas.
+
+    Spelling, not emission: a separator wider than one character can be
+    assembled at the join between two adjacent items neither of which emits it,
+    so the question is asked of the owner's TEXT rather than of its atoms.
     """
     key = (id(grammar), owner, separator, region_scan)
     entry = _OWNER_PROOFS.get(key)
@@ -75,11 +87,56 @@ def owner_excludes(
         protected = _protected(grammar, region_scan)
         excludes = target is not None and (
             owner in protected
-            or not rule_emits(target, separator, rules, protected, frozenset({owner}))
+            or not rule_spells(target, separator, rules, protected, frozenset({owner}))
         )
         entry = (grammar, excludes)
         _OWNER_PROOFS[key] = entry
     return entry[1]
+
+
+class Overlap(NamedTuple):
+    """How a mark's own overlapping occurrences sit around a true boundary.
+
+    A spelling whose prefix is also its suffix reads more than once inside a
+    run of its characters, and all but one of those readings is a false
+    boundary. Which one is real is decided by the owner, statically.
+
+    :ivar decided: Whether one occurrence of a run is identifiable at all.
+    :ivar trailing: Whether that occurrence is the run's LAST.
+    """
+
+    decided: bool
+    trailing: bool
+
+
+def mark_overlap(grammar: IrAst, owner: str, mark: str) -> Overlap:
+    """Which occurrence of an overlapping run is the grammar's boundary.
+
+    Text ending with the mark's border pushes the run LEFT of the boundary, so
+    the boundary is the run's last occurrence; text beginning with the border
+    pushes it right, so the boundary is the first. An owner able to do both
+    puts the boundary somewhere in the middle with nothing to say where, and
+    the plan declines. A mark that is not its own border never overlaps.
+
+    :param grammar: The analysis view.
+    :param owner: The repeated unit the mark separates.
+    :param mark: The mark spelling.
+    :returns: The verdict — the caller drops an undecided plan.
+    """
+    if len(mark) < 2 or mark[0] != mark[1]:
+        return Overlap(True, False)
+    rules = {str(rule.name): rule for rule in grammar.rules}
+    target = rules.get(owner)
+    if target is None:
+        return Overlap(False, False)
+    path = frozenset({owner})
+    ends = any(
+        last_charset(tuple(arm), rules, path).has(mark[0]) for arm in target.body
+    )
+    begins = any(
+        first_charset(tuple(arm), rules, path).has(mark[1]) for arm in target.body
+    )
+    return Overlap(False, False) if ends and begins else Overlap(True, ends)
 
 
 def _arm_target(items: tuple[IrItem, ...]) -> str:
@@ -179,36 +236,59 @@ def _visible(
     return items if resumes is None else items[resumes:]
 
 
-def _ends_once(rule: IrRule, char: str, scope: Scope, path: frozenset[str]) -> bool:
-    """Whether every arm emits ``char`` once, as its final visible edge."""
+def _ends_once(rule: IrRule, mark: str, scope: Scope, path: frozenset[str]) -> bool:
+    """Whether every arm spells ``mark`` once, as its final visible edge."""
     for at, arm in enumerate(rule.body):
         items = _visible(rule, at, tuple(arm), scope)
-        if not items or any(
-            emits(item, char, scope.rules, scope.protected, path) for item in items[:-1]
-        ):
+        if not items or items[-1].quantifier != UNIT:
             return False
-        last = items[-1]
-        if last.quantifier != UNIT:
+        if arm_spells(items[:-1], mark, scope.rules, scope.protected, path):
             return False
-        atom = last.atom
-        if isinstance(atom, IrLiteral):
-            # A merged tail like "}\n" ends the unit too; the terminator must
-            # be its final character and occur nowhere earlier in it, or the
-            # scan would mark an offset inside the unit.
-            valid = str(atom).endswith(char) and str(atom).count(char) == 1
-        elif isinstance(atom, IrRuleRef):
-            name = str(atom)
-            target = scope.rules.get(name)
-            valid = (
-                name not in path
-                and target is not None
-                and _ends_once(target, char, scope, path | {name})
-            )
-        else:
-            valid = False
-        if not valid:
+        if not _final_edge(items, mark, scope, path):
             return False
     return True
+
+
+def _final_edge(
+    items: tuple[IrItem, ...], mark: str, scope: Scope, path: frozenset[str]
+) -> bool:
+    """Whether the arm's ONE occurrence of ``mark`` is its closing edge.
+
+    Two productions reach it. The final item spells the mark itself — and then
+    the join into it must not add a second, overlapping occurrence. Or the
+    final item spells the mark's tail exactly while everything before it always
+    ends with the mark's head, which is how a blank line closes a paragraph of
+    lines that each end in a newline of their own.
+    """
+    head, last = items[:-1], items[-1]
+    if _spells_edge(last, mark, scope, path):
+        return len(mark) == 1 or not joins(head, (last,), mark, scope.rules, path)
+    if len(mark) != MARK_ARITY or exact_text(last, scope.rules, path) != mark[1:]:
+        return False
+    if not head or arm_empty(head, scope.rules, frozenset()):
+        return False
+    return sole_char(last_charset(head, scope.rules, path)) == mark[0]
+
+
+def _spells_edge(last: IrItem, mark: str, scope: Scope, path: frozenset[str]) -> bool:
+    """Whether the arm's final item ends with ``mark`` and holds no other."""
+    atom = last.atom
+    if isinstance(atom, IrLiteral):
+        # A merged tail like "}\n" ends the unit too; the mark must be its
+        # final characters and stand nowhere earlier in it, or the scan would
+        # mark an offset inside the unit. ``find`` is overlap-exact: the
+        # leftmost occurrence being the last one is what makes it the only one.
+        text = str(atom)
+        return text.endswith(mark) and text.find(mark) == len(text) - len(mark)
+    if not isinstance(atom, IrRuleRef):
+        return False
+    name = str(atom)
+    target = scope.rules.get(name)
+    return (
+        name not in path
+        and target is not None
+        and _ends_once(target, mark, scope, path | {name})
+    )
 
 
 def _skip_set(regions: tuple[Interior, ...]) -> frozenset[tuple[str, str, str]]:
@@ -252,12 +332,29 @@ def terminates_once(grammar: IrAst, owner: str, terminator: str) -> bool:
                 for region in mark_interiors(grammar, owner, terminator)
             },
         )
-        proven = target is not None and _ends_once(
-            target, terminator, scope, frozenset({owner})
+        proven = (
+            target is not None
+            and _ends_once(target, terminator, scope, frozenset({owner}))
+            and not _units_straddle(target, terminator, rules)
         )
         entry = (grammar, proven)
         _TERMINATOR_PROOFS[key] = entry
     return entry[1]
+
+
+def _units_straddle(unit: IrRule, mark: str, rules: dict[str, IrRule]) -> bool:
+    """Whether two adjacent units read an EXTRA ``mark`` across their join.
+
+    A unit proven to end with the mark ends with the mark's last character, so
+    an occurrence straddling the join needs that character to be the mark's
+    first as well, and the next unit to begin with it. A run of three then
+    offers two boundaries where the grammar has one, and the plan must decline
+    rather than pick.
+    """
+    if len(mark) < 2 or mark[0] != mark[1]:
+        return False
+    path = frozenset({str(unit.name)})
+    return any(first_charset(tuple(arm), rules, path).has(mark[1]) for arm in unit.body)
 
 
 class Boundary(NamedTuple):
@@ -544,6 +641,12 @@ def unit_boundary(grammar: IrAst, unit: str, mark: str) -> Boundary | None:
 
 def _derive_boundary(grammar: IrAst, unit: str, mark: str) -> Boundary | None:
     """Shape the unit's prefix, then try to refute a mid-unit match."""
+    if len(mark) != 1:
+        # The announcing-prefix proof is stated over a mark CHARACTER: the
+        # noise run subtracts it from a CharSet and the refutation walks
+        # per-character alphabets. A spelling owes a second proof this one
+        # does not make, so it declines rather than borrowing this one.
+        return None
     rules = {str(rule.name): rule for rule in grammar.rules}
     skipped = frozenset(
         region.rule

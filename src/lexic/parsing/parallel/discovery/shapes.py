@@ -6,8 +6,15 @@
 :mod:`~lexic.parsing.parallel.stitch.safety` read a grammar for the same
 handful of facts: what one item spells, whether it repeats, what every arm of
 an alternation carries at one end, and which characters a derivation can emit
-— anywhere, or first. They live here so that changing what "spells one
+— anywhere, first, or last. They live here so that changing what "spells one
 character" means reaches all of them at once.
+
+A mark is a SPELLING, and past one character emission stops answering
+containment: ``para ::= line+`` over ``line ::= [a-z]* "\\n"`` has no atom
+spelling ``"\\n\\n"`` and derives it anyway, because an empty line stands beside
+another and the two terminators meet. So the emission family has a spelling
+half — :func:`rule_spells` — that refuses ASSEMBLY as well as emission, and
+answers "can spell" for everything it cannot decide.
 """
 
 from __future__ import annotations
@@ -35,6 +42,12 @@ UNIT = IrQuantifier()
 def unbounded(item: IrItem) -> bool:
     """Whether the item repeats without an upper bound."""
     return isinstance(item.quantifier.hi, IrNoneType)
+
+
+def repeats(item: IrItem) -> bool:
+    """Whether the item may occur more than once, so it stands beside itself."""
+    hi = item.quantifier.hi
+    return isinstance(hi, IrNoneType) or int(hi) > 1
 
 
 def _one_char(text: str) -> bool:
@@ -252,22 +265,34 @@ def derives_empty(
     if isinstance(atom, IrLiteral):
         return not str(atom)
     if isinstance(atom, IrAlternation):
-        return any(_arm_empty(tuple(arm), rule_map, path) for arm in atom)
+        return any(arm_empty(tuple(arm), rule_map, path) for arm in atom)
     if not isinstance(atom, IrRuleRef):
         return False
     target = rule_map.get(str(atom))
     if target is None or str(atom) in path:
         return True
     return any(
-        _arm_empty(tuple(arm), rule_map, path | {str(atom)}) for arm in target.body
+        arm_empty(tuple(arm), rule_map, path | {str(atom)}) for arm in target.body
     )
 
 
-def _arm_empty(
+def arm_empty(
     items: tuple[IrItem, ...], rule_map: dict[str, IrRule], path: frozenset[str]
 ) -> bool:
     """Whether every item of one arm can derive the empty string."""
     return all(derives_empty(item, rule_map, path) for item in items)
+
+
+def sole_char(found: CharSet) -> str:
+    """The one character a set holds, or ``""`` for any other count.
+
+    A set of exactly one positive character is the only shape that turns "can
+    end with" into "always ends with", which is what a proof reaching leftward
+    past a spelling needs.
+    """
+    if found.negated or len(found.chars) != 1:
+        return ""
+    return next(iter(found.chars))
 
 
 def emit_charset(
@@ -337,13 +362,13 @@ def first_charset(
     """
     found = CharSet.EMPTY
     for item in items:
-        found = found.union(_item_first(item, rule_map, path))
+        found = found.union(item_first(item, rule_map, path))
         if not derives_empty(item, rule_map, frozenset()):
             break
     return found
 
 
-def _item_first(
+def item_first(
     item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]
 ) -> CharSet:
     """The characters one item can begin with."""
@@ -369,3 +394,218 @@ def _body_first(
     for arm in body:
         found = found.union(first_charset(tuple(arm), rule_map, path))
     return found
+
+
+def last_charset(
+    items: tuple[IrItem, ...], rule_map: dict[str, IrRule], path: frozenset[str]
+) -> CharSet:
+    """Every character an arm can END with — the exact mirror of FIRST.
+
+    A mark spelled by two adjacent items is read at the join between what one
+    can end with and what the next can begin with, so the two sets are one
+    analysis walked in opposite directions.
+    """
+    found = CharSet.EMPTY
+    for item in reversed(items):
+        found = found.union(item_last(item, rule_map, path))
+        if not derives_empty(item, rule_map, frozenset()):
+            break
+    return found
+
+
+def item_last(
+    item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]
+) -> CharSet:
+    """The characters one item can end with."""
+    atom = item.atom
+    if isinstance(atom, IrLiteral):
+        return CharSet.from_chars(str(atom)[-1]) if str(atom) else CharSet.EMPTY
+    if isinstance(atom, IrAlternation):
+        return _body_last(atom, rule_map, path)
+    if not isinstance(atom, IrRuleRef):
+        return emit_charset(item, rule_map, path)
+    name = str(atom)
+    target = rule_map.get(name)
+    if target is None or name in path:
+        return CharSet.ANY
+    return _body_last(target.body, rule_map, path | {name})
+
+
+def _body_last(
+    body: IrAlternation, rule_map: dict[str, IrRule], path: frozenset[str]
+) -> CharSet:
+    """The union of what every arm of an alternation can end with."""
+    found = CharSet.EMPTY
+    for arm in body:
+        found = found.union(last_charset(tuple(arm), rule_map, path))
+    return found
+
+
+def exact_text(item: IrItem, rule_map: dict[str, IrRule], path: frozenset[str]) -> str:
+    """The one fixed string an item ALWAYS derives, or ``""``.
+
+    Stricter than :func:`literal_text`, which reads the one anchor literal an
+    item spells among noise. A caller reaching leftward for the character
+    BEFORE a spelling needs the item's whole text, not its punctuation.
+    """
+    if item.quantifier != UNIT:
+        return ""
+    atom = item.atom
+    if isinstance(atom, IrLiteral):
+        return str(atom)
+    if not isinstance(atom, IrRuleRef):
+        return ""
+    name = str(atom)
+    target = rule_map.get(name)
+    arms = tuple(target.body) if target is not None and name not in path else ()
+    if len(arms) != 1:
+        return ""
+    parts = [exact_text(inner, rule_map, path | {name}) for inner in tuple(arms[0])]
+    return "".join(parts) if parts and all(parts) else ""
+
+
+MARK_ARITY = 2
+"""The widest mark spelling the junction analysis decides.
+
+A two-character mark has exactly one way to straddle a join, and that split is
+a LAST-character / FIRST-character question the ``CharSet`` algebra answers
+exactly. A longer mark asks whether derivable text ends with a STRING, which is
+not a character-set question; rather than approximate it, a longer mark answers
+"can spell" and every proof over it declines.
+"""
+
+
+def rule_spells(
+    rule: IrRule,
+    mark: str,
+    rule_map: dict[str, IrRule],
+    hidden: frozenset[str],
+    path: frozenset[str],
+) -> bool:
+    """Whether any derivation of ``rule`` contains ``mark`` as a substring.
+
+    Conservative in one direction only: ``False`` is a proof, ``True`` may be a
+    decline. A one-character mark delegates to
+    :func:`~...discovery.shapes.rule_emits` verbatim, so every grammar whose
+    marks are characters reads exactly as it did.
+
+    :param rule: The symbol whose derivations are in question.
+    :param mark: The mark spelling.
+    :param rule_map: The grammar's rules by name.
+    :param hidden: Rule names the asking scan never reads.
+    :param path: Rules already on the derivation path, so a cycle terminates.
+    """
+    if len(mark) == 1:
+        return rule_emits(rule, mark, rule_map, hidden, path)
+    if len(mark) > MARK_ARITY:
+        return True
+    return any(
+        arm_spells(tuple(arm), mark, rule_map, hidden, path) for arm in rule.body
+    )
+
+
+def arm_spells(
+    items: tuple[IrItem, ...],
+    mark: str,
+    rule_map: dict[str, IrRule],
+    hidden: frozenset[str],
+    path: frozenset[str],
+) -> bool:
+    """Whether one arm's derivations contain ``mark`` — joins included.
+
+    The join clause walks THROUGH vanishing items in both directions: ``LAST``
+    reaches left past items that may be empty and ``FIRST`` reaches right past
+    them, so two items with only nullables between them are tested as the
+    neighbours they can become.
+    """
+    if len(mark) == 1:
+        return any(emits(item, mark, rule_map, hidden, path) for item in items)
+    if len(mark) > MARK_ARITY:
+        return bool(items)
+    if any(item_spells(item, mark, rule_map, hidden, path) for item in items):
+        return True
+    return any(
+        joins(items[: at + 1], items[at + 1 :], mark, rule_map, path)
+        for at in range(len(items) - 1)
+    )
+
+
+def joins(
+    before: tuple[IrItem, ...],
+    after: tuple[IrItem, ...],
+    mark: str,
+    rule_map: dict[str, IrRule],
+    path: frozenset[str],
+) -> bool:
+    """Whether text ending ``before`` can meet text beginning ``after`` as ``mark``."""
+    return last_charset(before, rule_map, path).has(mark[0]) and first_charset(
+        after, rule_map, path
+    ).has(mark[1])
+
+
+def item_spells(
+    item: IrItem,
+    mark: str,
+    rule_map: dict[str, IrRule],
+    hidden: frozenset[str],
+    path: frozenset[str],
+) -> bool:
+    """Whether one item's derivations contain ``mark`` — repetition included.
+
+    A repeated item stands beside itself, so ``[\\n]+`` spells a two-newline
+    mark that its atom cannot. The repetition clause reads the atom's own edges
+    rather than the item's, since the quantifier is what makes them adjacent.
+    """
+    if len(mark) == 1:
+        return emits(item, mark, rule_map, hidden, path)
+    if len(mark) > MARK_ARITY:
+        return True
+    if repeats(item) and _self_joins(item, mark, rule_map, path):
+        return True
+    return _atom_spells(item.atom, mark, rule_map, hidden, path)
+
+
+def _self_joins(
+    item: IrItem, mark: str, rule_map: dict[str, IrRule], path: frozenset[str]
+) -> bool:
+    """Whether two occurrences of a repeated item spell ``mark`` between them."""
+    return item_last(item, rule_map, path).has(mark[0]) and item_first(
+        item, rule_map, path
+    ).has(mark[1])
+
+
+def _atom_spells(
+    atom: IrSelf,
+    mark: str,
+    rule_map: dict[str, IrRule],
+    hidden: frozenset[str],
+    path: frozenset[str],
+) -> bool:
+    """Whether one atom occurrence's own text can contain ``mark``."""
+    if isinstance(atom, IrLiteral):
+        return mark in str(atom)
+    if isinstance(atom, (IrCharClass, IrNot)):
+        return False  # one occurrence spells one character
+    if isinstance(atom, IrAlternation):
+        return any(arm_spells(tuple(arm), mark, rule_map, hidden, path) for arm in atom)
+    if not isinstance(atom, IrRuleRef):
+        return True
+    return _ref_spells(str(atom), mark, rule_map, hidden, path)
+
+
+def _ref_spells(
+    name: str,
+    mark: str,
+    rule_map: dict[str, IrRule],
+    hidden: frozenset[str],
+    path: frozenset[str],
+) -> bool:
+    """Whether a referenced rule can spell ``mark``; unknown names can."""
+    if name in hidden:
+        return False
+    target = rule_map.get(name)
+    if target is None:
+        return True
+    return name not in path and rule_spells(
+        target, mark, rule_map, hidden, path | {name}
+    )

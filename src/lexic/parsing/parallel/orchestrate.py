@@ -16,13 +16,11 @@ from typing import Any, NamedTuple
 from lexic.exceptions import LexicError
 from lexic.ir import (
     IrAst,
-    IrCharClass,
     IrItem,
     IrLiteral,
     IrNamedTuple,
     IrRule,
     IrRuleRef,
-    IrSelf,
 )
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
@@ -32,14 +30,14 @@ from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
 )
-from lexic.parsing.parallel.discovery.scan import Scanner, Window
+from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
 from lexic.parsing.parallel.plan.envelope import (
     admits,
     envelope_plans,
     unit_witness,
 )
-from lexic.parsing.parallel.plan.split import SplitPlan
+from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
@@ -55,13 +53,13 @@ from lexic.parsing.parallel.stitch.model import (
 )
 from lexic.parsing.parallel.stitch.safety import (
     mark_interiors,
+    mark_overlap,
     owner_excludes,
     scan_agrees,
     terminates_once,
     unit_boundary,
 )
 from lexic.parsing.parallel.stitch.tasks import region_tasks, region_works
-from lexic.parsing.pda.core.charsets import CharSet
 
 
 class Request[M: IrNamedTuple](NamedTuple):
@@ -108,7 +106,7 @@ def _item_shape(rule: IrRule, sep: Separator, unit: str) -> bool:
     lead_atom = items[0].atom
     if sep.lead:
         return _unit_ref(items[0]) == sep.lead
-    return isinstance(lead_atom, IrLiteral) and str(lead_atom) == sep.char
+    return isinstance(lead_atom, IrLiteral) and str(lead_atom) == sep.mark
 
 
 def _wrapper_chain(
@@ -154,14 +152,14 @@ def _plan_for(
         return None
     if sep.lead:
         lead_grammar, literal = IrAst(grammar.rules, sep.lead), ""
-        skip = _lead_skip(sep, rule_map)
+        skip = lead_skip(_single_arm(rule_map[sep.lead]), rule_map, sep.mark)
     else:
-        lead_grammar, literal = None, sep.char
+        lead_grammar, literal = None, sep.mark
         skip = frozenset()
     return SplitPlan(
         grammar,
         Scanner(roles(grammar)),
-        sep.char,
+        sep.mark,
         unit,
         wrappers,
         sep,
@@ -171,76 +169,45 @@ def _plan_for(
     )
 
 
-def _terminated_plan(grammar: IrAst, rule_map: dict[str, IrRule]) -> SplitPlan | None:
-    """The plan a ``start ::= unit+`` terminated repetition admits.
+def _terminated_plans(
+    grammar: IrAst, rule_map: dict[str, IrRule]
+) -> tuple[SplitPlan, ...]:
+    """The plans a ``start ::= unit+`` terminated repetition admits.
 
     The start rule's only arm must be one unbounded reference to a unit that
-    ends with a single anchor character. Cuts land after the terminator, so
-    each chunk holds whole units and parses under the start rule unchanged.
+    ends with an agreed anchor mark. Cuts land after the terminator, so each
+    chunk holds whole units and parses under the start rule unchanged.
     Terminators a certified delimited region hides go to the scanner instead.
+
+    One plan per agreed spelling, narrowest first: which of them a grammar can
+    prove is the safety cascade's question, not this one's.
     """
     start = rule_map.get(str(grammar.start))
     if start is None:
-        return None
+        return ()
     items = _single_arm(start)
     if items is None or len(items) != 1 or not unbounded(items[0]):
-        return None
+        return ()
     target = items[0].atom
     if not isinstance(target, IrRuleRef):
-        return None
+        return ()
     derived = roles(grammar)
     unit = str(target)
-    for record in derived.terminators:
-        if record.unit == unit and record.container == str(grammar.start):
-            return SplitPlan(
-                grammar,
-                Scanner(derived, mark_interiors(grammar, unit, record.char)),
-                record.char,
-                unit,
-                (),
-                None,
-                None,
-                "",
-                frozenset(),
-            )
-    return None
-
-
-def _atom_chars(atom: IrSelf) -> frozenset[str]:
-    """The chars a literal or char-class atom can emit (co-finite: none).
-
-    A starred literal (``" "*``) emits its chars just as a class does — the
-    first skip derivation only looked at classes and missed json-style
-    ``ws ::= " "*``, silently degrading every lead-rule split to fallback.
-    """
-    if isinstance(atom, IrLiteral):
-        return frozenset(str(atom))
-    if not isinstance(atom, IrCharClass):
-        return frozenset()
-    emits = CharSet.from_charclass(atom)
-    return frozenset() if emits.negated else emits.chars
-
-
-def _lead_skip(sep: Separator, rule_map: dict[str, IrRule]) -> frozenset[str]:
-    """The chars the lead rule may consume AFTER its separator char.
-
-    Only what the lead itself derives (``comma ::= "," ws`` → the ws
-    charset) — the cut extends over exactly this noise, so the chunk starts
-    where the unit starts. Over- or under-collection is safe: a lead or
-    chunk that then fails to parse makes the whole attempt fall back.
-    """
-    items = _single_arm(rule_map[sep.lead])
-    if items is None:
-        return frozenset()
-    out: set[str] = set()
-    for item in items[1:]:
-        atom = item.atom
-        out |= _atom_chars(atom)
-        if isinstance(atom, IrRuleRef) and str(atom) in rule_map:
-            for arm in rule_map[str(atom)].body:
-                for inner in arm:
-                    out |= _atom_chars(inner.atom)
-    return frozenset(out) - {sep.char}
+    return tuple(
+        SplitPlan(
+            grammar,
+            Scanner(derived, mark_interiors(grammar, unit, record.mark)),
+            record.mark,
+            unit,
+            (),
+            None,
+            None,
+            "",
+            frozenset(),
+        )
+        for record in derived.terminators
+        if record.unit == unit and record.container == str(grammar.start)
+    )
 
 
 _PLANS: dict[int, tuple[IrAst, tuple[SplitPlan, ...]]] = memo({})
@@ -253,14 +220,14 @@ def _split_plans(grammar: IrAst) -> tuple[SplitPlan, ...]:
     entry = _PLANS.get(id(grammar))
     if entry is None:
         rule_map = {str(rule.name): rule for rule in grammar.rules}
-        terminated = _terminated_plan(grammar, rule_map)
+        terminated = _terminated_plans(grammar, rule_map)
         separated = tuple(
             plan
             for sep in roles(grammar).records
             if sep.item and (plan := _plan_for(grammar, sep, rule_map)) is not None
         )
         wrapped = _envelope_split_plan(grammar)
-        plans = (terminated,) if terminated is not None else separated or wrapped
+        plans = terminated or separated or wrapped
         entry = (grammar, plans)
         _PLANS[id(grammar)] = entry
     return entry[1]
@@ -304,19 +271,19 @@ def _scan(
     pool: WorkPool,
     windows: list[Window] | None = None,
 ) -> list[int]:
-    """Depth-0 marks of this plan's char, scanned over ``workers`` windows.
+    """Depth-0 marks of this plan's spelling, over ``workers`` windows.
 
-    Windows are arithmetic and each is scanned with no left context — a
-    mark character is structural at every occurrence, so a window needs
-    nothing from its predecessor and the prefix-sum rebase recovers the
-    absolute depths. One window IS the sequential scan.
+    Windows are arithmetic and each is scanned with no left context — a mark
+    is structural at every occurrence, so a window needs nothing from its
+    predecessor and the prefix-sum rebase recovers the absolute depths. One
+    window IS the sequential scan. A spelling that overlaps itself is thinned
+    to one boundary per run, after the rebase, so the answer does not depend
+    on where the windows fell.
     """
     scanned = windows or _scan_windows(plan.scanner, text, workers, pool)
-    return [
-        offset
-        for offset in plan.scanner.offsets(scanned, depth=0)
-        if text[offset] == plan.mark
-    ]
+    at_depth = plan.scanner.offsets(scanned, depth=0)
+    found = [at for at in at_depth if text.startswith(plan.mark, at)]
+    return clustered(found, len(plan.mark), plan.trailing)
 
 
 def _cut_offsets(
@@ -345,13 +312,15 @@ def _cut_offsets(
     else:
         marks = _scan(plan, text, ceiling, pool, windows)
         if plan.bound is not None:
-            # The unit emits its own mark, so a mark is a candidate rather
-            # than a boundary: keep the ones a unit actually begins after.
-            # A terminated unit starts immediately AFTER its mark — there is
-            # no separator run to extend over, which is the envelope path's
-            # only other difference.
-            marks = [at for at in marks if admits(text, at + 1, plan.bound, plan.mark)]
-    if plan.terminated and marks and marks[-1] == len(text) - 1:
+            # The unit emits its own mark, so a mark is a candidate rather than
+            # a boundary: keep the ones a unit actually begins after. A
+            # terminated unit starts immediately past its mark, with no
+            # separator run to extend over — the envelope path's one difference.
+            after = len(plan.mark)
+            marks = [
+                at for at in marks if admits(text, at + after, plan.bound, plan.mark)
+            ]
+    if plan.terminated and marks and marks[-1] == len(text) - len(plan.mark):
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
     while workers >= 2:
@@ -388,7 +357,7 @@ def _after_mark(plan: SplitPlan, text: str, mark: int) -> int:
     """First source offset owned by the piece after ``mark``."""
     if plan.envelope is not None:
         return plan.envelope.resumes(text, mark)
-    after = mark + 1
+    after = mark + len(plan.mark)
     while after < len(text) and text[after] in plan.skip:
         after += 1
     return after
@@ -404,7 +373,7 @@ def _safe_mark(
     """Nearest target mark whose adjacent spans can still clear the floor."""
     want, remaining = target
     terminated = plan.terminated
-    lo = bisect_left(marks, previous + MIN_CHUNK - int(terminated))
+    lo = bisect_left(marks, previous + MIN_CHUNK - len(plan.mark) * int(terminated))
     hi = bisect_right(marks, len(text) - remaining * MIN_CHUNK - 1)
     for candidate in _nearby_marks(marks, want, lo, hi):
         after = _after_mark(plan, text, candidate)
@@ -443,7 +412,7 @@ def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]
         # An envelope piece KEEPS the mark: a separator that begins before one
         # (a comment closed by it) would otherwise straddle the cut, and the
         # piece's own tail is what absorbs the run before the join takes it.
-        owned = cut + 1 if plan.envelope is not None else cut
+        owned = cut + len(plan.mark) if plan.envelope is not None else cut
         spans.append((prev, after if terminated else owned))
         leads.append("" if terminated else text[owned:after])
         prev = after
@@ -570,7 +539,10 @@ def _certified(plan: SplitPlan, view: IrAst) -> SplitPlan | None:
     if plan.envelope is not None:
         return plan if unit_boundary(view, plan.owner, plan.mark) is not None else None
     if plan.sep is not None:
-        return plan if owner_excludes(view, plan.owner, plan.mark) else None
+        if not owner_excludes(view, plan.owner, plan.mark):
+            return None
+        overlap = mark_overlap(view, plan.owner, plan.mark)
+        return plan._replace(trailing=overlap.trailing) if overlap.decided else None
     if terminates_once(view, plan.owner, plan.mark) and scan_agrees(
         view, plan.grammar, plan.owner, plan.mark
     ):

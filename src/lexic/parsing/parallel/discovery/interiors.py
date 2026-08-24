@@ -42,6 +42,7 @@ from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.shapes import (
     emits,
     item_lead,
+    item_spells,
     literal_char,
     literal_text,
     unbounded,
@@ -510,18 +511,21 @@ def interior_rules(grammar: IrAst) -> frozenset[str]:
 
 
 def hides(grammar: IrAst, region: Interior, watched: frozenset[str]) -> bool:
-    """Whether ``region``'s own span can carry any of ``watched``.
+    """Whether ``region``'s own span can SPELL any of ``watched``.
 
     A region a scan would read the same way skipped or not is pure cost: it
     adds its delimiter to the swept characters and a search to every
     occurrence. Only regions that would otherwise MISLEAD are worth skipping.
+
+    Spelling, not emission: a repeated item spells a two-character mark its
+    atom cannot, and a region hiding one is exactly a region worth skipping.
     """
     rule_map = {str(rule.name): rule for rule in grammar.rules}
     items = tuple(tuple(rule_map[region.rule].body)[region.arm])
     return any(
-        emits(item, char, rule_map, frozenset(), frozenset())
+        item_spells(item, mark, rule_map, frozenset(), frozenset())
         for item in items[region.opens : region.resumes]
-        for char in watched
+        for mark in watched
     )
 
 

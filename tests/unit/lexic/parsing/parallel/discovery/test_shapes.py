@@ -17,11 +17,18 @@ from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
     derives_empty,
     edge_char,
+    exact_text,
     item_lead,
+    last_charset,
     leads_with,
     literal_char,
+    literal_text,
+    rule_emits,
+    rule_spells,
+    sole_char,
     unbounded,
 )
+from lexic.parsing.pda.core.charsets import CharSet
 
 
 def _rule_map(source: str) -> dict[str, IrRule]:
@@ -212,3 +219,122 @@ def test_a_cyclic_rule_derives_empty_conservatively():
     rule_map = _rule_map("root ::= loop\nloop ::= loop")
     item = _arm_items(rule_map, "loop")[0]
     assert derives_empty(item, rule_map, frozenset())
+
+
+# ── last_charset / exact_text / sole_char ─────────────────────────────────
+
+
+def test_last_charset_mirrors_first_through_a_vanishing_tail():
+    """``ws?`` can derive empty, so what the arm ENDS with is answered by
+    what precedes it — the exact mirror of the leading-character walk."""
+    rule_map = _rule_map('root ::= item\nitem ::= "!" ws?\nws ::= " "')
+    items = _arm_items(rule_map, "item")
+    ending = last_charset(items, rule_map, frozenset())
+    assert ending.has("!") and ending.has(" ")
+
+
+def test_last_charset_answers_any_on_an_unresolved_cycle():
+    """A cycle it cannot resolve reads as every character, so a caller
+    proving a junction CANNOT assemble is never misled into certifying."""
+    rule_map = _rule_map('root ::= x\nx ::= "a" x')
+    assert last_charset(_arm_items(rule_map, "x"), rule_map, frozenset()) == CharSet.ANY
+
+
+def test_exact_text_reads_a_whole_reference_chain_but_refuses_noise():
+    """``blank ::= nl`` with ``nl ::= "\\n"`` always derives one newline, so a
+    proof may reach past it. ``padded ::= ws "!"`` does not: its width varies,
+    and ``literal_text`` — which reads the one anchor among noise — would
+    wrongly hand back ``"!"`` for a caller asking what the item always spells."""
+    rule_map = _rule_map(
+        'root ::= blank padded\nblank ::= nl\nnl ::= "\\n"\npadded ::= ws "!"\nws ::= " "*'
+    )
+    items = _arm_items(rule_map, "root")
+    assert exact_text(items[0], rule_map, frozenset()) == "\n"
+    assert literal_text(items[1], rule_map) == "!"
+    assert exact_text(items[1], rule_map, frozenset()) == ""
+
+
+def test_sole_char_refuses_a_wider_or_negated_set():
+    """Only one positive character turns "can end with" into "always ends
+    with"; anything else ends more than one way and proves nothing."""
+    assert sole_char(CharSet.from_chars("\n")) == "\n"
+    assert sole_char(CharSet.from_chars("a", "b")) == ""
+    assert sole_char(CharSet.ANY) == ""
+    assert sole_char(CharSet.EMPTY) == ""
+
+
+# ── rule_spells: the assembly analysis ────────────────────────────────────
+
+
+def _spells(source: str, rule: str, mark: str) -> bool:
+    rule_map = _rule_map(source)
+    return rule_spells(rule_map[rule], mark, rule_map, frozenset(), frozenset({rule}))
+
+
+_ASSEMBLING = 'root ::= para\npara ::= line+\nline ::= [a-z]* "\\n"\n'
+"""Lines may be EMPTY, so two of them stand as ``"\\n\\n"`` — the mark no atom
+of ``para`` spells and ``para`` derives anyway."""
+
+_SAFE = _ASSEMBLING.replace("[a-z]*", "[a-z]+")
+"""Every line opens with a letter, so the junction cannot assemble the mark."""
+
+
+def test_a_junction_between_repeated_items_spells_the_mark():
+    """The assembly obligation itself. Atom-wise emission CERTIFIES this
+    owner — no atom of ``para`` spells ``"\\n\\n"`` — and ``para`` derives it
+    at the join between two empty lines, so the spelling question must answer
+    yes or a cut is admitted the grammar does not have."""
+    rule_map = _rule_map(_ASSEMBLING)
+    assert not rule_emits(
+        rule_map["para"], "\n\n", rule_map, frozenset(), frozenset({"para"})
+    )
+    assert _spells(_ASSEMBLING, "para", "\n\n")
+
+
+def test_a_junction_that_cannot_meet_licenses_the_owner():
+    """One character apart from the assembling grammar: a line must open with
+    a letter, so a line's terminator never meets the next line's opening."""
+    assert not _spells(_SAFE, "para", "\n\n")
+
+
+def test_a_junction_reaches_through_vanishing_items():
+    """The items between the two ends may all be empty, and then the ends are
+    neighbours. ``mid`` vanishes, so ``head``'s newline meets ``tail``'s."""
+    source = (
+        "root ::= unit\nunit ::= head mid tail\n"
+        'head ::= "a\\n"\nmid ::= " "*\ntail ::= "\\nz"\n'
+    )
+    assert _spells(source, "unit", "\n\n")
+
+
+def test_a_repeated_character_class_spells_a_doubled_mark():
+    """One occurrence of a class is one character, so the atom cannot spell a
+    two-character mark; the quantifier is what puts two of them side by side."""
+    assert _spells("root ::= run\nrun ::= [\\n]+\n", "run", "\n\n")
+    assert not _spells("root ::= one\none ::= [\\n]\n", "one", "\n\n")
+
+
+def test_a_mark_wider_than_the_analysis_decides_answers_can_spell():
+    """Three characters asks whether derivable text ends with a STRING, which
+    is not a character-set question. Undecided answers "can spell", so every
+    proof over such a mark declines rather than approximating."""
+    assert _spells('root ::= x\nx ::= "q"\n', "x", "abc")
+
+
+def test_a_one_character_mark_is_exactly_the_emission_question():
+    """The delegation that makes the spelling analysis a strict extension:
+    at one character it IS ``rule_emits``, line for line."""
+    source = 'root ::= x\nx ::= [a-c] "d"\n'
+    rule_map = _rule_map(source)
+    for char in "abcdz":
+        assert rule_spells(
+            rule_map["x"], char, rule_map, frozenset(), frozenset({"x"})
+        ) == rule_emits(rule_map["x"], char, rule_map, frozenset(), frozenset({"x"}))
+
+
+def test_an_unresolvable_reference_answers_can_spell():
+    """A name the walk cannot resolve reads as able to spell anything — the
+    decline direction, as everywhere else in these proofs."""
+    grammar: IrAst = parse_grammar('root ::= x\nx ::= missing "a"', GBNF_FLAVOUR)
+    rule_map = {str(rule.name): rule for rule in grammar.rules}
+    assert rule_spells(rule_map["x"], "ab", rule_map, frozenset(), frozenset({"x"}))

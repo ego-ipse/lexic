@@ -14,7 +14,7 @@ from lexic.compile import compile_text, parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing import parallel
 from lexic.parsing.parallel import Roles, Separator, roles
-from lexic.parsing.parallel.roles import Terminator
+from lexic.parsing.parallel.roles import Terminator, agreed_tail
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
 
@@ -86,20 +86,25 @@ def test_finite_anchor_class_derives_each_separator_alternative():
 
 def test_a_merged_tail_literal_derives_the_terminator_from_its_last_character():
     """``@lexical`` inlining can merge a unit's tail into one literal like
-    ``"}\\n"``; the terminator is still derivable as its LAST character,
-    since it occurs nowhere else in the literal."""
+    ``"}\\n"``; the terminator is derivable as its LAST character, since it
+    occurs nowhere else in the literal, and again as the wider spelling that
+    character closes. Narrowest first — the cascade tries that plan first."""
     grammar = 'root ::= unit+\nunit ::= [a-z]+ "}\\n"\n'
     got = roles(compile_text(grammar).codegen_grammar)
-    assert got.terminators == (Terminator("\n", "root", "unit"),)
+    assert got.terminators == (
+        Terminator("\n", "root", "unit"),
+        Terminator("}\n", "root", "unit"),
+    )
 
 
-def test_a_repeated_terminator_character_inside_a_literal_derives_no_edge():
-    """When the candidate character occurs more than once in the merged
-    literal, which occurrence is the boundary is unprovable, so it derives
-    no terminator edge at all."""
+def test_a_repeated_terminator_character_resolves_at_the_wider_spelling():
+    """The candidate CHARACTER occurs twice in the merged literal, so which
+    occurrence is the boundary is unprovable and no character edge derives.
+    The two-character tail ``"b\\n"`` stands only at the end, so it does —
+    a wider mark is what settles an ambiguous narrow one."""
     grammar = 'root ::= unit+\nunit ::= [a-z]+ "a\\nb\\n"\n'
     got = roles(compile_text(grammar).codegen_grammar)
-    assert got.terminators == ()
+    assert got.terminators == (Terminator("b\n", "root", "unit"),)
 
 
 def test_a_grammar_without_the_shapes_derives_empty_roles():
@@ -107,3 +112,72 @@ def test_a_grammar_without_the_shapes_derives_empty_roles():
     error: the orchestrator's cue for sequential processing."""
     ast = parse_grammar('root ::= x y\nx ::= "ab"\ny ::= "ba"', GBNF_FLAVOUR)
     assert roles(ast) == Roles((), ())
+
+
+# ── agreed_tail: the arm-family conjunction, one character wider ──────────
+
+
+def _tail(source: str, unit: str, want: int = 2) -> str:
+    ast = parse_grammar(source, GBNF_FLAVOUR)
+    rule_map = {str(rule.name): rule for rule in ast.rules}
+    return agreed_tail(rule_map[unit].body, want, rule_map, frozenset({unit}))
+
+
+def test_an_assembled_tail_reaches_left_past_an_exact_final_item():
+    """``para ::= line+ blank`` ends with the blank line's own newline, and
+    the character before it is whatever the last line ended with. ``blank``
+    always spells exactly one newline, which is what licenses reaching left."""
+    source = (
+        "root ::= para+\npara ::= line+ blank\n"
+        'line ::= [a-z0-9 ]+ nl\nblank ::= nl\nnl ::= "\\n"\n'
+    )
+    assert _tail(source, "para") == "\n\n"
+
+
+def test_a_variable_width_final_item_yields_only_its_last_character():
+    """``word`` puts its own text between whatever precedes it and its final
+    character, so nothing to the left can be reached and the wider tail
+    declines — the narrower one still stands."""
+    source = 'root ::= unit+\nunit ::= nl word\nword ::= [a-z]+ "!"\nnl ::= "\\n"\n'
+    assert _tail(source, "unit", 1) == "!"
+    assert _tail(source, "unit") == ""
+
+
+def test_every_arm_must_agree_on_the_wider_tail():
+    """The conjunction: one arm ending differently leaves the family with no
+    spelling, exactly as it leaves it with no character."""
+    agree = (
+        'root ::= unit+\nunit ::= a | b\na ::= [a-z]+ x\nb ::= [0-9]+ x\nx ::= "!\\n"\n'
+    )
+    differ = agree.replace("b ::= [0-9]+ x", "b ::= [0-9]+ y").replace(
+        'x ::= "!\\n"', 'x ::= "!\\n"\ny ::= "?\\n"'
+    )
+    assert _tail(agree, "unit") == "!\n"
+    assert _tail(differ, "unit") == ""
+
+
+def test_a_cycle_in_the_tail_walk_declines():
+    """A self-referential tail never resolves a fixed spelling, and an
+    unresolved walk answers nothing rather than guessing."""
+    assert _tail('root ::= unit+\nunit ::= "a" unit\n', "unit") == ""
+
+
+def test_a_wider_terminator_is_offered_behind_the_narrower_one():
+    """Order is the whole non-regression argument: the character every
+    grammar already derives is offered first, so the cascade reaches the
+    spelling only when the narrower plan fails to certify."""
+    source = (
+        "root ::= para+\npara ::= line+ blank\n"
+        'line ::= [a-z0-9 ]+ nl\nblank ::= nl\nnl ::= "\\n"\n'
+    )
+    got = roles(compile_text(source).codegen_grammar)
+    para = [record.mark for record in got.terminators if record.unit == "para"]
+    assert para == ["\n", "\n\n"]
+
+
+def test_a_multi_character_separator_derives_as_one_mark():
+    """A blank-line separator spells two characters; both are anchors, so the
+    scan can find its occurrences with no left context and it is a mark."""
+    source = 'root ::= block (sep block)*\nsep ::= "\\n\\n"\nblock ::= [a-z]+\n'
+    got = roles(compile_text(source).codegen_grammar)
+    assert [record.mark for record in got.records] == ["\n\n"]

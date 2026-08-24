@@ -15,8 +15,11 @@ shapes are derived from the grammar, never hardcoded per formulation:
   through unit rule references — ``members-item ::= comma member`` with
   ``comma ::= ","`` derives ``,``.
 
-Single-char roles only: a multi-char separator has no character class the
-scan's regex alternates over, and stays out of v2 by design.
+A mark is a SPELLING, not a character: a blank-line boundary spells two. What
+makes one readable is the property one character has — every character of it is
+an anchor, so no opaque interior can spell it. Pair roles stay single-char:
+depth is counted one character at a time. Marks are offered shortest first, so
+a grammar whose boundary is already one character keeps the plan it had.
 """
 
 from __future__ import annotations
@@ -33,14 +36,20 @@ from lexic.ir import (
     IrRuleRef,
 )
 from lexic.parsing.parallel.discovery.anchors import anchors
-from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
+from lexic.parsing.parallel.discovery.shapes import (
+    MARK_ARITY,
+    UNIT,
+    exact_text,
+    last_charset,
+    unbounded,
+)
 from lexic.parsing.pda.core.charsets import CharSet
 
 
 class Separator(NamedTuple):
     """One repetition separator, with the rules a split orchestration needs.
 
-    :ivar char: The separator character.
+    :ivar mark: The separator spelling.
     :ivar container: The rule owning the ``unit item*`` arm (``members``).
     :ivar item: The repeated rule (``members-item``); ``""`` for an inline
         group (un-hoisted authored grammars — not orchestratable as-is).
@@ -48,7 +57,7 @@ class Separator(NamedTuple):
         the lead is a bare literal or the arms disagree.
     """
 
-    char: str
+    mark: str
     container: str
     item: str
     lead: str
@@ -61,12 +70,12 @@ class Terminator(NamedTuple):
     with an anchor, so a cut after any occurrence lands between two complete
     units and each chunk is a document in its own right.
 
-    :ivar char: The terminating character.
+    :ivar mark: The terminating spelling.
     :ivar container: The rule owning the repeated item.
     :ivar unit: The repeated rule.
     """
 
-    char: str
+    mark: str
     container: str
     unit: str
 
@@ -85,13 +94,13 @@ class Roles(NamedTuple):
 
     @property
     def separators(self) -> frozenset[str]:
-        """The separator characters — the scan's mark set."""
-        return frozenset(record.char for record in self.records)
+        """The separator spellings — the scan's mark set."""
+        return frozenset(record.mark for record in self.records)
 
     @property
     def marks(self) -> frozenset[str]:
-        """Every character the scan marks: separators and terminators."""
-        return self.separators | {record.char for record in self.terminators}
+        """Every spelling the scan marks: separators and terminators."""
+        return self.separators | {record.mark for record in self.terminators}
 
 
 def _anchor_char(item: IrItem, anchor_set: frozenset[str]) -> str | None:
@@ -116,6 +125,24 @@ def _anchor_chars(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
         if not emits.negated and emits.chars and emits.chars <= anchor_set
         else frozenset()
     )
+
+
+def _anchor_marks(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
+    """Every mark SPELLING one unit-quantified item can emit.
+
+    A literal of any width qualifies when every character of it is an anchor:
+    that is what a window scan needs to find its occurrences without left
+    context, and it is the same property a single character carries.
+    """
+    found = _anchor_chars(item, anchor_set)
+    if found:
+        return found
+    atom = item.atom
+    if item.quantifier != UNIT or not isinstance(atom, IrLiteral):
+        return frozenset()
+    text = str(atom)
+    wide = len(text) > 1 and set(text) <= anchor_set
+    return frozenset({text}) if wide else frozenset()
 
 
 def _arm_pair(
@@ -150,12 +177,12 @@ def _lead_info(
     anchor_set: frozenset[str],
     seen: frozenset[str],
 ) -> tuple[set[str], str] | None:
-    """``(anchor chars, lead-rule name)`` for one leading item.
+    """``(anchor marks, lead-rule name)`` for one leading item.
 
     The name is the OUTERMOST unit rule reference the lead resolves through
     (``comma``), or ``""`` for a bare literal lead.
     """
-    chars = _anchor_chars(item, anchor_set)
+    chars = _anchor_marks(item, anchor_set)
     if chars:
         return (set(chars), "")
     atom = item.atom
@@ -219,11 +246,11 @@ def roles(grammar: IrAst) -> Roles:
             for item in items:
                 _repeated_separators(str(rule.name), item, by_name, anchor_set, records)
     paired = {char for pair in pairs for char in pair}
-    kept = tuple(record for record in records if record.char not in paired)
+    kept = tuple(record for record in records if not set(record.mark) & paired)
     ended = tuple(
         record
         for record in _terminators(grammar, by_name, anchor_set)
-        if record.char not in paired
+        if not set(record.mark) & paired
     )
     return Roles(tuple(pairs), kept, ended)
 
@@ -231,7 +258,7 @@ def roles(grammar: IrAst) -> Roles:
 def _terminators(
     grammar: IrAst, by_name: dict[str, IrRule], anchor_set: frozenset[str]
 ) -> list[Terminator]:
-    """Every unbounded reference whose target ends with one anchor char."""
+    """Every unbounded reference whose target ends with an agreed anchor mark."""
     out: list[Terminator] = []
     for rule in grammar.rules:
         for arm in rule.body:
@@ -242,13 +269,29 @@ def _terminators(
                 unit = str(target)
                 if unit not in by_name:
                     continue
-                char = _body_edge(
-                    by_name[unit].body, -1, by_name, anchor_set, frozenset({unit})
-                )
-                record = Terminator(char, str(rule.name), unit) if char else None
-                if record is not None and record not in out:
-                    out.append(record)
+                for mark in _edge_marks(by_name[unit], by_name, anchor_set):
+                    record = Terminator(mark, str(rule.name), unit)
+                    if record not in out:
+                        out.append(record)
     return out
+
+
+def _edge_marks(
+    unit: IrRule, by_name: dict[str, IrRule], anchor_set: frozenset[str]
+) -> tuple[str, ...]:
+    """The terminator spellings every arm of ``unit`` agrees on, shortest first.
+
+    The single agreed character is what a repetition has always been cut on. A
+    unit whose boundary is wider — a text line's own terminator plus the blank
+    line that closes the paragraph — agrees on a spelling instead. Both are
+    offered and the cascade tries the narrower one first, so a grammar that
+    already splits keeps exactly the plan it had.
+    """
+    seen = frozenset({str(unit.name)})
+    char = _body_edge(unit.body, -1, by_name, anchor_set, seen)
+    wide = agreed_tail(unit.body, MARK_ARITY, by_name, seen)
+    found = [mark for mark in (char, wide) if mark and set(mark) <= anchor_set]
+    return tuple(dict.fromkeys(found))
 
 
 def _item_edge(
@@ -327,7 +370,78 @@ def _repeated_separators(
     if found is None:
         return
     chars, lead = found
-    for char in sorted(chars):
-        record = Separator(char, container, repeated, lead)
+    for mark in sorted(chars, key=lambda spelling: (len(spelling), spelling)):
+        record = Separator(mark, container, repeated, lead)
         if record not in records:
             records.append(record)
+
+
+def agreed_tail(
+    body: IrAlternation, want: int, rule_map: dict[str, IrRule], path: frozenset[str]
+) -> str:
+    """The last ``want`` characters EVERY arm of ``body`` ends with, or ``""``.
+
+    The conjunction the terminator derivation runs on, one character wider than
+    a single agreed edge: a unit whose arms disagree on their tail has no
+    terminator spelling, exactly as it has no terminator character.
+    """
+    found = {arm_tail(tuple(arm), want, rule_map, path) for arm in body}
+    return found.pop() if len(found) == 1 else ""
+
+
+def arm_tail(
+    items: tuple[IrItem, ...],
+    want: int,
+    rule_map: dict[str, IrRule],
+    path: frozenset[str],
+) -> str:
+    """The last ``want`` characters every derivation of one arm ends with.
+
+    Two productions reach a two-character tail: the arm's final item spells
+    both, or it spells the second EXACTLY and everything before it always ends
+    with the first. The exactness is what licenses reaching leftward — an item
+    of variable width puts its own text between the two characters.
+    """
+    if not items or want <= 0:
+        return ""
+    last = items[-1]
+    whole = exact_text(last, rule_map, path)
+    if len(whole) >= want:
+        return whole[-want:]
+    if whole:
+        head = arm_tail(items[:-1], want - len(whole), rule_map, path)
+        return head + whole if head else ""
+    return _open_tail(items, want, rule_map, path)
+
+
+def _open_tail(
+    items: tuple[IrItem, ...],
+    want: int,
+    rule_map: dict[str, IrRule],
+    path: frozenset[str],
+) -> str:
+    """The tail of an arm whose final item has no fixed text of its own.
+
+    A reference is followed into its arms, which must agree. Failing that, only
+    the final CHARACTER can be fixed, and only when the item's ending alphabet
+    is a single positive character — a wider set ends more than one way. That
+    character never licenses reaching further left: an item of unknown width
+    puts its own text between whatever precedes it and its final character.
+    """
+    last = items[-1]
+    atom = last.atom
+    name = str(atom) if isinstance(atom, IrRuleRef) else ""
+    target = rule_map.get(name) if name and name not in path else None
+    if target is not None and last.quantifier == UNIT:
+        found = agreed_tail(target.body, want, rule_map, path | {name})
+        if found:
+            return found
+    edge = _sole(last_charset(items, rule_map, path))
+    return edge if want == 1 else ""
+
+
+def _sole(found: CharSet) -> str:
+    """The one character a set holds, or ``""`` when it holds any other number."""
+    if found.negated or len(found.chars) != 1:
+        return ""
+    return next(iter(found.chars))

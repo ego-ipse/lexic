@@ -18,8 +18,10 @@ from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.stitch.safety import (
     Boundary,
+    Overlap,
     Refutation,
     _leads_once,
+    mark_overlap,
     owner_excludes,
     scan_agrees,
     terminates_once,
@@ -438,3 +440,73 @@ def test_leads_once_traverses_a_nullable_to_a_disjoint_follower() -> None:
     rules = _rules('root ::= target\ntarget ::= "\\n" "!"? tail\ntail ::= "#"\n')
 
     assert _leads_once(rules["target"], _leads_proof("#"), rules, frozenset())
+
+
+# ── a spelling's own straddles ────────────────────────────────────────────
+
+_ASSEMBLING_SOURCE = (
+    'doc ::= para (bl para)*\nbl ::= "\\n\\n"\npara ::= line+\nline ::= [a-z]* "\\n"\n'
+)
+"""Lines may be EMPTY, so ``para`` assembles the separator across a join no
+atom of it spells."""
+
+_SAFE_SOURCE = _ASSEMBLING_SOURCE.replace("[a-z]*", "[a-z]+")
+"""One character apart: every line opens with a letter, so the join cannot
+assemble the separator and every occurrence of it is a real boundary."""
+
+
+def test_owner_exclusion_refuses_an_assembled_separator():
+    """The assembly obligation at the proof's own entry. Atom-wise emission
+    would certify this owner; the pieces of a cut at the wrong occurrence both
+    PARSE, so nothing downstream catches it and the proof must."""
+    assert not owner_excludes(_grammar(_ASSEMBLING_SOURCE), "para", "\n\n")
+    assert owner_excludes(_grammar(_SAFE_SOURCE), "para", "\n\n")
+
+
+def test_an_owner_that_ends_with_the_border_puts_the_boundary_last():
+    """``para`` ends with a newline and the separator is two, so every real
+    boundary reads as a run of three and the left occurrence is false. The
+    run's LAST occurrence is the separator."""
+    assert mark_overlap(_grammar(_SAFE_SOURCE), "para", "\n\n") == Overlap(True, True)
+
+
+def test_an_owner_that_straddles_both_ends_declines():
+    """Text ending with the border pushes the run left, text beginning with it
+    pushes the run right; an owner doing both leaves the boundary somewhere in
+    the middle with nothing to say where."""
+    source = 'doc ::= para (bl para)*\nbl ::= "\\n\\n"\npara ::= nl [a-z]+ nl\nnl ::= "\\n"\n'
+    assert mark_overlap(_grammar(source), "para", "\n\n") == Overlap(False, False)
+
+
+def test_a_mark_that_is_not_its_own_border_never_overlaps():
+    """Two different characters cannot overlap, so there is no run to choose
+    within and the question is answered before any walk runs."""
+    assert mark_overlap(_grammar(_SAFE_SOURCE), "para", "ab") == Overlap(True, False)
+
+
+def test_a_one_character_mark_is_decided_and_leading():
+    """The strict-extension guarantee at this proof: one character has no
+    border, so every grammar shipping today answers the same way."""
+    assert mark_overlap(JSON_GRAMMAR, "member", ",") == Overlap(True, False)
+
+
+def test_a_unit_that_can_begin_with_its_own_terminator_border_declines():
+    """A unit proven to END with ``"\\n\\n"`` ends with a newline; if the next
+    unit can BEGIN with one, adjacent units read a run of three and offer two
+    boundaries where the grammar has one."""
+    good = (
+        "root ::= para+\npara ::= line+ blank\n"
+        'line ::= [a-z0-9 ]+ nl\nblank ::= nl\nnl ::= "\\n"\n'
+    )
+    bad = good.replace("line ::= [a-z0-9 ]+ nl", "line ::= [a-z0-9 ]* nl")
+    assert terminates_once(_grammar(good), "para", "\n\n")
+    assert not terminates_once(_grammar(bad), "para", "\n\n")
+
+
+def test_the_announcing_prefix_proof_declines_a_spelling_outright():
+    """``unit_boundary`` states its obligations over a mark CHARACTER — a
+    noise run with the mark subtracted, per-character alphabets. A spelling
+    owes a second proof it does not make, and declines rather than borrow."""
+    grammar = _grammar(CONTINUATION_SOURCE)
+    assert unit_boundary(grammar, "defn", "\n") is not None
+    assert unit_boundary(grammar, "defn", "\n\n") is None

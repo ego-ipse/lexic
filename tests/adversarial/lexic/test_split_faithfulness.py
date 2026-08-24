@@ -19,7 +19,13 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import LexicError
+from lexic.parsing.parallel.orchestrate import (
+    _cut_offsets,
+    _safe_plans,
+    _split_plans,
+)
 from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.pool import PoolLease
 from tests.split_helpers import engages
 
 _CORES = (2, 3, 8)
@@ -295,11 +301,13 @@ remain faithful with the interiors READ, not skipped."""
 
 
 def test_identical_openings_with_different_closers_stay_faithful() -> None:
-    """``engaged=False`` is a DOCUMENTED COVERAGE GAP: the twin regions
-    correctly refuse certification (identical opening, different closers),
-    the units end differently so no terminator derives, and nothing
-    separates — the D2 class TODO_p2 2b/2c is scheduled to cover. The
-    faithfulness half is the live assertion; flip when 2b lands."""
+    """``engaged=False`` is an HONEST DECLINE, and the reason is the grammar's
+    own: the unit's arms end ``;``, ``!`` and a newline, so no terminator
+    exists for any conjunction over them to agree on — not at one character
+    and not at any wider spelling. The twin regions also correctly refuse
+    certification (identical opening, different closers) and nothing
+    separates. A unit whose arms genuinely end three ways has no boundary to
+    cut on; the faithfulness half is the live assertion."""
     text = "\n".join(f"pre {n} %abc; mid %{n}! post" for n in range(800)) + "\n"
     assert len(text) > 4 * MIN_CHUNK
     assert_faithful(_TWINS, text, "twin-openers", engaged=False)
@@ -323,3 +331,179 @@ def test_corrupted_documents_refuse_identically(corrupt: str) -> None:
     else:
         source, text = _TAILED, base + "\x00\x00"
     assert_faithful(source, text, f"corrupt-{corrupt}")
+
+
+# ── multi-character marks: assembled boundaries and their counterexample ───
+
+_ASSEMBLING = (
+    'doc ::= para (bl para)*\nbl ::= "\\n\\n"\npara ::= line+\nline ::= [a-z]* "\\n"\n'
+)
+"""Lines may be EMPTY, so two of them stand as the separator's own spelling.
+No ATOM of ``para`` spells ``"\\n\\n"`` — an atom-wise proof certifies this
+owner — and ``para`` derives it at the join, which is what makes the wrong cut
+produce two individually valid pieces that stitch to a model sequential does
+not build. Piece validity cannot catch it; only the junction analysis can."""
+
+_SAFE = _ASSEMBLING.replace("[a-z]*", "[a-z]+")
+"""One character apart: every line opens with a letter, so the join cannot
+assemble the separator and every occurrence of it is a real boundary."""
+
+
+def _paragraphs(count: int, lines: int = 6) -> str:
+    """Paragraphs of non-empty lines, joined by the two-character separator."""
+    words = [
+        "".join(
+            "abcdefghijklmnopqrstuvwxyz"[(n + k) % 26] * (3 + k % 5) + "\n"
+            for k in range(lines)
+        )
+        for n in range(count)
+    ]
+    return "\n\n".join(words)
+
+
+def test_an_assembling_owner_declines_and_stays_faithful() -> None:
+    """The permanent adversarial pair, first half. Every paragraph boundary
+    here is a valid cut candidate the atom-wise proof would admit; the
+    assembly analysis refuses the owner, so the split declines outright and
+    the document parses sequentially — byte- and model-identical."""
+    text = _paragraphs(400)
+    assert len(text) > 4 * MIN_CHUNK
+    assert_faithful(_ASSEMBLING, text, "assembling", engaged=False)
+
+
+def test_a_safe_owner_engages_on_the_two_character_separator() -> None:
+    """The pair's second half, and the non-vacuity that makes the first half
+    mean something: the same document under the grammar whose join cannot
+    assemble the mark ENGAGES, and every boundary here reads as a run of three
+    newlines whose last occurrence is the separator."""
+    text = _paragraphs(400)
+    assert len(text) > 4 * MIN_CHUNK
+    assert_faithful(_SAFE, text, "safe-assembly", engaged=True)
+
+
+_PROSE = (
+    "doc ::= block (sep block)*\n"
+    'sep ::= "\\n\\n"\n'
+    "block ::= word (sp word)*\n"
+    "word ::= [a-z0-9]+\n"
+    'sp ::= " "\n'
+)
+"""Prose blocks separated by a blank line — the boundary is TWO characters,
+which is the whole reason this shape derived no plan at all before."""
+
+
+def test_prose_blocks_separated_by_a_blank_line_engage() -> None:
+    """The D2 witness that was blocked by mark ARITY, not by the absence of an
+    announcing prefix: nothing about the analysis of this grammar was hard,
+    its boundary was simply unspellable."""
+    text = "\n\n".join(" ".join(f"w{n}x{k}" for k in range(20)) for n in range(300))
+    assert len(text) > 4 * MIN_CHUNK
+    assert_faithful(_PROSE, text, "prose-blocks", engaged=True)
+
+
+_FREE_LINES = (
+    "doc ::= para+\n"
+    "para ::= line+ blank\n"
+    "line ::= [a-z0-9 ]+ nl\n"
+    "blank ::= nl\n"
+    'nl ::= "\\n"\n'
+)
+"""Free-text lines closed by a blank line. The paragraph's terminator is
+ASSEMBLED — the last line's own newline plus the blank one — so it is the
+wider spelling that certifies, not the newline every line carries."""
+
+
+def _free_text(paras: int, lines: int = 5) -> str:
+    """Paragraphs of free-text lines, each closed by a blank line."""
+    return "".join(
+        "".join(f"line {n} of para {p}\n" for n in range(lines)) + "\n"
+        for p in range(paras)
+    )
+
+
+def test_free_text_lines_with_a_blank_line_boundary_engage() -> None:
+    """``terminates_once`` refuses the newline — every line carries one — and
+    certifies the blank-line spelling, whose only occurrence in a paragraph is
+    its closing edge."""
+    text = _free_text(300)
+    assert len(text) > 4 * MIN_CHUNK
+    assert_faithful(_FREE_LINES, text, "free-text-lines", engaged=True)
+
+
+def test_free_text_lines_that_may_be_empty_decline() -> None:
+    """One character apart again: allow an empty line and the paragraph
+    assembles its own terminator internally, so the wider spelling stops being
+    a boundary and the plan declines."""
+    source = _FREE_LINES.replace("line ::= [a-z0-9 ]+ nl", "line ::= [a-z0-9 ]* nl")
+    text = _free_text(300)
+    assert_faithful(source, text, "free-text-empty-lines", engaged=False)
+
+
+def test_runs_of_the_mark_never_cut_adjacent_or_empty() -> None:
+    """Overlapping occurrences at every cut target. Under the SAFE grammar a
+    paragraph ends with a newline and the separator is two, so EVERY boundary
+    reads as a run of three and offers two occurrences — one of them false.
+    Naive left-to-right scanning would take both and leave an empty piece
+    between them; the run thins to one boundary, and the pieces prove it."""
+    text = _paragraphs(400)
+    compiled = compile_text(_SAFE, cache_key="adv-faith-mark-runs")
+    plans = _safe_plans(
+        _split_plans(compiled.codegen_grammar),
+        compiled.split_analysis or compiled.grammar,
+    )
+    assert len(plans) == 1 and plans[0].trailing
+    with PoolLease(8) as pool:
+        cuts = _cut_offsets(plans[0], text, 8, pool)
+    assert len(cuts) > 1
+    assert all(text.startswith("\n\n", at) for at in cuts)
+    assert all(later - earlier >= MIN_CHUNK for earlier, later in zip(cuts, cuts[1:]))
+    assert_faithful(_SAFE, text, "mark-runs", engaged=True)
+
+
+_HIDDEN_BLANKS = (
+    "root ::= entry+\n"
+    "entry ::= lb piece* rb\n"
+    'lb ::= "<"\n'
+    'rb ::= ">\\n\\n"\n'
+    "piece ::= word | nl\n"
+    "word ::= [a-z]+\n"
+    'nl ::= "\\n"\n'
+)
+"""A certified interior whose body can spell the two-character mark: the
+newlines between pieces are TEXT, and only the closer's own pair is a
+boundary. The interior is what the scan must skip whole at the new arity —
+reading into it would offer a cut in the middle of an entry."""
+
+
+def test_a_two_character_mark_inside_a_certified_interior_stays_skipped() -> None:
+    """Every entry here carries a blank line INSIDE its delimited body and one
+    at its close. The interior skip must cover the wider mark exactly as it
+    covers a character, or the interior blanks become cut candidates."""
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    text = "".join(
+        f"<{letters[n % 26] * 4}\n\n{letters[(n + 3) % 26] * 3}\n>\n\n"
+        for n in range(900)
+    )
+    assert len(text) > 4 * MIN_CHUNK
+    # Half of every blank line in this document stands INSIDE an interior.
+    assert text.count("\n\n") == 2 * text.count(">\n\n")
+    assert_faithful(_HIDDEN_BLANKS, text, "interior-blanklines", engaged=True)
+
+
+def test_an_ambiguous_document_refuses_identically_at_every_count() -> None:
+    """Two arms deriving the same strings: sequential refuses rather than
+    picking, and the split must reach the SAME refusal at every worker count.
+    It does so by declining — a piece that refuses is a verdict on the split,
+    never on the input, so the caller's sequential parse is what raises."""
+    source = (
+        "doc ::= item (sep item)*\n"
+        'sep ::= "\\n\\n"\n'
+        "item ::= one | two\n"
+        "one ::= [a-z]+\n"
+        "two ::= [a-z]+\n"
+    )
+    text = "\n\n".join("word" * 40 for _n in range(200))
+    compiled = compile_text(source, cache_key="adv-faith-ambiguous-blocks")
+    with pytest.raises(LexicError, match="ambiguous"):
+        compiled.parse(text, cores=1)
+    assert_faithful(source, text, "ambiguous-blocks", engaged=False)
