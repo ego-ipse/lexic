@@ -81,13 +81,16 @@ def test_baseline_increase_is_the_reviewable_ci_acceptance(tmp_path: Path) -> No
     assert compare.accepted_rows(base, head) == frozenset({JSON_PDA})
 
 
-def test_a_base_without_a_baseline_is_an_explicit_bootstrap(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_a_base_without_a_record_still_runs_source_comparison(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The first workflow installation has no historical rows to execute."""
+    """A first-install PR has no exemptions, but its source is still measurable."""
     missing = tmp_path / "base.json"
+    monkeypatch.setattr(compare, "_active_keys", lambda: frozenset({JSON_PDA}))
+    monkeypatch.setattr(
+        compare, "sample_pair", lambda *_args: {JSON_PDA: compare.Pair([2.0], [2.0])}
+    )
 
     result = compare.main(["--base-source", "base/src", "--base-record", str(missing)])
 
     assert result == 0
-    assert "base predates the checked-in Lexic baseline" in capsys.readouterr().out
