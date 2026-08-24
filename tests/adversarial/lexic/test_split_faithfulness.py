@@ -507,3 +507,58 @@ def test_an_ambiguous_document_refuses_identically_at_every_count() -> None:
     with pytest.raises(LexicError, match="ambiguous"):
         compiled.parse(text, cores=1)
     assert_faithful(source, text, "ambiguous-blocks", engaged=False)
+
+
+# ── the review's own counterexample, pinned at document scale ─────────────
+#
+# ``proto/proto17_assembly.py`` (under the gitignored work directory, not a
+# package a committed test may import) is what refuted the design's original
+# soundness claim. Its grammar and document are restated here rather than
+# imported. The engagement claims themselves — the assembling owner declines
+# and stays faithful, the safe control engages — are already pinned above by
+# ``test_an_assembling_owner_declines_and_stays_faithful`` and
+# ``test_a_safe_owner_engages_on_the_two_character_separator`` using the same
+# grammars at stress-test scale; this pin is the complementary one: the
+# review's own WRONG-CUT demonstration, encoded as an assertion instead of a
+# printed narrative.
+
+_REVIEW_ASSEMBLING = (
+    'doc ::= para (bl para)*\nbl ::= "\\n\\n"\npara ::= line+\nline ::= [a-z]* "\\n"\n'
+)
+_REVIEW_MARK = "\n\n"
+_REVIEW_DOC = "a\n\n\nb\n"
+"""Two overlapping occurrences of the mark, at offsets 1 and 2."""
+
+
+def test_the_reviews_wrong_cut_produces_two_individually_valid_pieces() -> None:
+    """The counterexample's own point. ``"\\n\\n"`` occurs at offsets 1 and 2;
+    offset 1 self-rejects (its head piece, ``"a"``, carries no line's own
+    newline at all), but offset 2 does NOT — ``"a\\n"`` and ``"b\\n"`` BOTH
+    parse on their own, even though sequential builds ONE para holding the
+    interior empty lines, not two. Piece validity cannot tell this cut from
+    a real boundary; that is exactly why the assembly analysis exists, and
+    exactly why the grammar must decline at the public seam rather than ever
+    risk taking it (the engagement pin below is what enforces that)."""
+    compiled = compile_text(_REVIEW_ASSEMBLING, cache_key="i17-pin-review-wrong-cut")
+
+    self_rejecting_head = _REVIEW_DOC[:1]
+    with pytest.raises(LexicError):
+        compiled.parse(self_rejecting_head, cores=1)
+
+    wrong_head = _REVIEW_DOC[:2]
+    wrong_tail = _REVIEW_DOC[2 + len(_REVIEW_MARK) :]
+    compiled.parse(wrong_head, cores=1)  # does not raise: a valid piece
+    compiled.parse(wrong_tail, cores=1)  # does not raise: a valid piece — the trap
+
+
+def test_the_reviews_document_never_engages_at_any_worker_count() -> None:
+    """The document is far below the 2 KiB split floor, so it never engages
+    for size alone — but the assembly declines it independently, and the
+    small scale is what makes the wrong-cut pieces above checkable by hand.
+    Sequential is the only path this document ever takes, at any requested
+    worker count, and every count agrees with it."""
+    compiled = compile_text(_REVIEW_ASSEMBLING, cache_key="i17-pin-review-engage")
+    sequential = compiled.parse(_REVIEW_DOC, cores=1)
+    for cores in (2, 3, 8):
+        assert not engages(compiled, _REVIEW_DOC, cores)
+        assert compiled.parse(_REVIEW_DOC, cores=cores) == sequential

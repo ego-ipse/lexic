@@ -12,13 +12,16 @@ from functools import partial
 
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir import IrAlternation, IrAst, IrItem, IrRule
+from lexic.ir import IrAlphabet, IrAlternation, IrAst, IrItem, IrLiteral, IrRule
 from lexic.parsing.parallel.discovery.shapes import (
     UNIT,
+    arm_spells,
     derives_empty,
     edge_char,
     exact_text,
     item_lead,
+    item_spells,
+    joins,
     last_charset,
     leads_with,
     literal_char,
@@ -338,3 +341,158 @@ def test_an_unresolvable_reference_answers_can_spell():
     grammar: IrAst = parse_grammar('root ::= x\nx ::= missing "a"', GBNF_FLAVOUR)
     rule_map = {str(rule.name): rule for rule in grammar.rules}
     assert rule_spells(rule_map["x"], "ab", rule_map, frozenset(), frozenset({"x"}))
+
+
+# ── rule_spells: each production mode in isolation, with its negative ─────
+
+
+def test_a_literal_atom_spells_the_mark_directly():
+    """Mode (a): the atom's OWN literal contains the mark whole — no
+    junction, no reference, no repetition."""
+    assert _spells('root ::= x\nx ::= "a\\n\\nb"\n', "x", "\n\n")
+
+
+def test_a_literal_atom_with_disjoint_edges_does_not_spell():
+    """The matching negative: one newline is not two, and there is nothing
+    beside this single item to supply a second character."""
+    assert not _spells('root ::= x\nx ::= "a\\nb"\n', "x", "\n\n")
+
+
+def test_an_item_spells_the_mark_through_its_own_reference():
+    """Mode (b): the mark stands inside the rule an item REFERENCES, with no
+    junction across items and no repetition — the reference is followed and
+    the target's own body answers directly."""
+    assert _spells('root ::= x\nx ::= y\ny ::= "a\\n\\nb"\n', "x", "\n\n")
+
+
+def test_a_referenced_rule_with_disjoint_edges_does_not_spell():
+    """The matching negative, one newline apart in the referenced rule."""
+    assert not _spells('root ::= x\nx ::= y\ny ::= "a\\nb"\n', "x", "\n\n")
+
+
+def test_a_direct_junction_between_two_adjacent_items_spells_the_mark():
+    """Mode (c): no repetition and no nullable between them — the first
+    item's LAST character meets the second item's FIRST character directly,
+    the junction clause's plainest shape."""
+    assert _spells('root ::= x\nx ::= a b\na ::= "p\\n"\nb ::= "\\nq"\n', "x", "\n\n")
+
+
+def test_adjacent_items_with_disjoint_edges_do_not_meet():
+    """The matching negative: the first item's last character is not the
+    mark's head, so the join fails outright."""
+    assert not _spells('root ::= x\nx ::= a b\na ::= "p"\nb ::= "\\nq"\n', "x", "\n\n")
+
+
+def test_joins_directly_reaches_through_nullables_on_both_sides():
+    """Mode (c'): ``joins`` in isolation, with TWO vanishing items on each
+    side of the split. LAST walks backward past ``n2`` and ``n1`` to find
+    ``core``'s real ending character; FIRST walks forward past ``m1`` and
+    ``m2`` to find ``tail``'s real opening one — both directions, two
+    nullables each, in one join."""
+    rule_map = _rule_map(
+        "root ::= unit\nunit ::= core n1 n2 m1 m2 tail\n"
+        'core ::= "a\\n"\nn1 ::= " "*\nn2 ::= "x"?\n'
+        'm1 ::= "y"?\nm2 ::= " "*\ntail ::= "\\nz"\n'
+    )
+    items = _arm_items(rule_map, "unit")
+    before, after = items[:3], items[3:]
+    assert joins(before, after, "\n\n", rule_map, frozenset())
+
+
+def test_joins_through_nullables_refuses_when_the_true_edges_disagree():
+    """The matching negative: walking through the same two nullables on each
+    side, but the real edges underneath them are not the mark's characters."""
+    rule_map = _rule_map(
+        "root ::= unit\nunit ::= core n1 n2 m1 m2 tail\n"
+        'core ::= "ab"\nn1 ::= " "*\nn2 ::= "x"?\n'
+        'm1 ::= "y"?\nm2 ::= " "*\ntail ::= "z"\n'
+    )
+    items = _arm_items(rule_map, "unit")
+    before, after = items[:3], items[3:]
+    assert not joins(before, after, "\n\n", rule_map, frozenset())
+
+
+def test_a_bounded_repetition_spells_a_doubled_mark_at_its_own_join():
+    """Mode (d), the bounded case: ``{2,3}`` is bounded ABOVE but still more
+    than one — ``repeats()`` reads ``hi > 1``, not merely the absence of an
+    upper bound, so a bounded quantifier stands beside itself too."""
+    assert _spells("root ::= run\nrun ::= [\\n]{2,3}\n", "run", "\n\n")
+
+
+def test_a_bounded_repetition_with_disjoint_self_edges_does_not_join():
+    """The matching negative: the item repeats, but what it ends with is not
+    what it begins with, so two occurrences beside each other never meet as
+    the mark — ``repeats() == True`` alone proves nothing."""
+    assert not _spells('root ::= run\nrun ::= x{2,3}\nx ::= "a\\n"\n', "run", "\n\n")
+
+
+# ── conservatism: unknowns, hidden regions, arity, and cycles ─────────────
+
+
+def test_an_unrecognised_atom_kind_answers_can_spell():
+    """``_atom_spells`` recognises literal, class, negation, alternation and
+    reference — nothing else. An atom of any other shape (here, a
+    token-alphabet binding, constructed directly since no GBNF text produces
+    one) falls through to the decline direction: it might spell anything."""
+    item = IrItem(IrAlphabet("tokens", IrLiteral("x")))
+    assert item_spells(item, "ab", {}, frozenset(), frozenset())
+
+
+def test_a_hidden_rule_contributes_no_content_but_keeps_its_alphabet():
+    """A hidden rule's own SPELLING is excluded from the content question —
+    the scan skips its span whole and never reads inside it — but its edge
+    alphabet still feeds a junction, because ``joins``/``last_charset``/
+    ``first_charset`` read the grammar's real derivations and take no
+    ``hidden`` parameter at all. A junction reaching INTO a hidden region
+    must stay refused rather than certified."""
+    rule_map = _rule_map(
+        "root ::= unit\nunit ::= lead veiled tail\n"
+        'lead ::= "a\\n"\nveiled ::= "\\n\\n"\ntail ::= "\\nz"\n'
+    )
+    hidden = frozenset({"veiled"})
+    items = _arm_items(rule_map, "unit")
+
+    assert not item_spells(items[1], "\n\n", rule_map, hidden, frozenset())
+    assert arm_spells(items, "\n\n", rule_map, hidden, frozenset())
+
+
+def test_an_empty_arm_never_spells_regardless_of_mark_width():
+    """Past ``MARK_ARITY`` the "cannot decide" rule answers ``True`` — except
+    an empty arm derives nothing at all, so even that rule has nothing to
+    apply to: ``arm_spells`` reads ``bool(items)``, not a bare constant."""
+    assert not arm_spells((), "abc", {}, frozenset(), frozenset())
+
+
+def test_a_cycle_terminates_and_correctly_proves_the_rule_can_spell():
+    """One recursive arm cannot resolve through itself and is excluded by
+    the path guard (an immediate ``False``, not a probe of the cycle's own
+    body), but a SIBLING arm spells the mark directly — the cycle terminates
+    rather than looping, and the real answer comes from the other arm."""
+    assert _spells('root ::= x\nx ::= x "!" | "\\n\\n"\n', "x", "\n\n")
+
+
+def test_a_cycle_terminates_and_correctly_proves_the_rule_cannot_spell():
+    """Neither arm can ever produce the mark, cyclic or not: the path guard
+    stops the recursion at one visit and the conservative ``ANY`` it hands
+    back at the join never meets a matching character on the far side, so
+    the answer is a real ``False`` rather than a false positive from the
+    cycle's own conservatism."""
+    assert not _spells('root ::= x\nx ::= x "c" | "d"\n', "x", "\n\n")
+
+
+# ── last_charset: the exact mirror of first_charset's own stopping rule ───
+
+
+def test_last_charset_stops_at_the_first_non_nullable_item():
+    """Walking backward, the set includes the first non-nullable item's own
+    characters and then stops — an item further left never leaks into what
+    the arm is proven to end with, exactly as ``first_charset`` never lets
+    an item past its own first non-nullable one leak forward."""
+    rule_map = _rule_map(
+        "root ::= item\nitem ::= lead mid tail\n"
+        'lead ::= "Q"\nmid ::= "!"\ntail ::= "z"?\n'
+    )
+    items = _arm_items(rule_map, "item")
+    ending = last_charset(items, rule_map, frozenset())
+    assert ending.has("z") and ending.has("!")
+    assert not ending.has("Q")

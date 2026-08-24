@@ -510,3 +510,36 @@ def test_the_announcing_prefix_proof_declines_a_spelling_outright():
     grammar = _grammar(CONTINUATION_SOURCE)
     assert unit_boundary(grammar, "defn", "\n") is not None
     assert unit_boundary(grammar, "defn", "\n\n") is None
+
+
+# ── mark_overlap: the two rows the implementer's own pins do not reach ────
+
+
+def test_an_owner_that_never_touches_the_border_is_the_only_occurrence():
+    """Row (no, no): the owner can neither end with the border nor begin
+    with it, so no run of the mark's characters ever forms around a real
+    boundary — there IS only one occurrence, whatever ``trailing`` says."""
+    source = 'doc ::= para (bl para)*\nbl ::= "\\n\\n"\npara ::= "x" [a-z]+ "y"\n'
+    assert mark_overlap(_grammar(source), "para", "\n\n") == Overlap(True, False)
+
+
+def test_an_owner_that_may_only_begin_with_the_border_puts_it_first():
+    """Row (no, yes): the owner never ENDS with the border, only begins with
+    it, so a run (when one forms) is pushed right and the FIRST occurrence
+    is the true boundary. The verdict is the same ``Overlap(True, False)``
+    as the "never touches" row above — both carry ``trailing=False`` because
+    neither owner ever produces a genuine overlapping run for the flag to
+    decide between; ``mark_overlap`` reads ``trailing = ends``, and ``ends``
+    is ``False`` in both rows."""
+    source = (
+        'doc ::= para (bl para)*\nbl ::= "\\n\\n"\npara ::= nl [a-z]+\nnl ::= "\\n"\n'
+    )
+    assert mark_overlap(_grammar(source), "para", "\n\n") == Overlap(True, False)
+
+
+def test_a_length_one_mark_never_reaches_the_border_walk():
+    """The early return at ``len(mark) < 2``, isolated from the ``mark[0] !=
+    mark[1]`` branch the "not its own border" pin above already exercises:
+    a length-one mark cannot be its own border, and the decision table's
+    walk over the owner's rules never runs at all."""
+    assert mark_overlap(_grammar(_SAFE_SOURCE), "para", "\n") == Overlap(True, False)

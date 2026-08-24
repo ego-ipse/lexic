@@ -10,7 +10,7 @@ from __future__ import annotations
 from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.parallel import Roles, Scanner, roles
-from lexic.parsing.parallel.discovery.scan import clustered
+from lexic.parsing.parallel.discovery.scan import _occurrences, clustered
 from lexic.parsing.parallel.roles import Terminator
 from tests.unit.lexic.parsing.parallel.discovery.test_anchors import JSONISH
 
@@ -108,3 +108,39 @@ def test_a_one_character_mark_thins_to_itself():
     marks = [0, 1, 2, 7, 9, 10]
     assert clustered(marks, 1, trailing=False) == marks
     assert clustered(marks, 1, trailing=True) == marks
+
+
+def test_occurrences_finds_a_mark_starting_at_the_windows_last_offset():
+    """A spelling whose FIRST character stands at the window's very last
+    valid starting offset is still found whole, however far past ``hi`` its
+    remaining characters reach — the property that makes it safe to search
+    past the window end by the spelling's own width."""
+    text = "a\n\nb"
+    assert _occurrences(text, "\n\n", 0, 2) == {1}
+
+
+def test_occurrences_belongs_to_the_window_it_starts_in_not_the_next():
+    """The same occurrence is NOT found again by the window it merely spills
+    into: ownership is decided once, by where the spelling STARTS, so a
+    window scanning ``[2, 4)`` never rediscovers the mark that started at 1."""
+    text = "a\n\nb"
+    assert _occurrences(text, "\n\n", 2, 4) == set()
+
+
+def test_a_run_of_four_newlines_thins_to_one_boundary():
+    """``"\\n\\n\\n\\n"`` read directly, tying ``_occurrences`` to
+    ``clustered`` rather than synthetic offsets: three overlapping
+    occurrences, one grammar boundary, at whichever end the owner's own
+    edges settle."""
+    text = "\n\n\n\n"
+    marks = sorted(_occurrences(text, "\n\n", 0, len(text)))
+    assert marks == [0, 1, 2]
+    assert clustered(marks, 2, trailing=False) == [0]
+    assert clustered(marks, 2, trailing=True) == [2]
+
+
+def test_occurrences_exactly_width_apart_are_both_kept():
+    """Two occurrences with nothing between them are NOT the same run — only
+    occurrences closer than the mark's own width overlap."""
+    assert clustered([0, 2], 2, trailing=False) == [0, 2]
+    assert clustered([0, 2], 2, trailing=True) == [0, 2]
