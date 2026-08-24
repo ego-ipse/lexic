@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+# These parameters are the independent command-line dimensions of one row.
+# pylint: disable=too-many-arguments,too-many-positional-arguments
+
 import argparse
 import json
 from collections.abc import Sequence

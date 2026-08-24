@@ -13,6 +13,10 @@ limit is worse than one that stops.
 
 from __future__ import annotations
 
+# Competitor exceptions are loaded only when a competitor roster is built.
+# Lexic-only regression workers intentionally never import those packages.
+# pylint: disable=import-outside-toplevel
+
 import json
 from collections.abc import Callable
 from functools import cache

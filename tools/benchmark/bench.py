@@ -41,6 +41,11 @@ noise floor says what difference must be beaten.
 
 from __future__ import annotations
 
+# Competitors are imported inside their builders on purpose: a Lexic-only
+# worker must not construct or import parsers it is not measuring. This module
+# also owns the report roster, which is just over pylint's generic size limit.
+# pylint: disable=import-outside-toplevel,too-many-lines
+
 import argparse
 import gc
 import json
@@ -172,6 +177,7 @@ LEXIC_ROWS = frozenset(
 def _lexic(
     bench: Bench, cores: int | None, only: frozenset[str] | None = None
 ) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
+    # pylint: disable=too-many-locals
     """Both lexic engines over one compiled product — the PDA and Earley.
 
     Same grammar, same fold, same model: the only difference is which engine

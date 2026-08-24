@@ -165,6 +165,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if not args.base_record.exists():
+        print(
+            "performance comparison bootstrap: the base predates the checked-in "
+            "Lexic baseline; no historical rows exist to compare"
+        )
+        return 0
+
     keys = _active_keys()
     accepted = accepted_rows(args.base_record, args.head_record)
     print(

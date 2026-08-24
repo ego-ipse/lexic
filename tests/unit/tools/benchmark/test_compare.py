@@ -67,3 +67,15 @@ def test_baseline_increase_is_the_reviewable_ci_acceptance(tmp_path: Path) -> No
     save({JSON_PDA: 2.2, VYX_LEX: 2.8}, head)
 
     assert compare.accepted_rows(base, head) == frozenset({JSON_PDA})
+
+
+def test_a_base_without_a_baseline_is_an_explicit_bootstrap(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The first workflow installation has no historical rows to execute."""
+    missing = tmp_path / "base.json"
+
+    result = compare.main(["--base-source", "base/src", "--base-record", str(missing)])
+
+    assert result == 0
+    assert "base predates the checked-in Lexic baseline" in capsys.readouterr().out

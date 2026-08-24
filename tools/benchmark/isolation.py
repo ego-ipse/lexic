@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+# Grammar, engine, rounds, cores and corpus size are independent benchmark
+# dimensions. Keeping them explicit makes the subprocess protocol reviewable.
+# pylint: disable=too-many-arguments
+
 import json
 import os
 import subprocess
