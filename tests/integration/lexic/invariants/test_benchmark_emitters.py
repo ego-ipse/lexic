@@ -86,6 +86,10 @@ EXPECTED: dict[str, frozenset[str]] = {
     # ANTLR predicts it, lark-lalr survives because the divergence is a single
     # token once lexed. Everyone holds it; what differs is what it costs.
     "backtrack": _ALL,
+    # Three record kinds decided by their first character and closed by their
+    # own delimiter: nothing here is hard for any formalism. What the row
+    # prices is lexic's SPLIT declining, not any engine struggling.
+    "mixedends": _ALL,
     "gbnf-meta": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
     # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
     # terminal, which Lark's dynamic Earley refuses outright ("zero-width

@@ -296,6 +296,91 @@ nl ::= "\\n"
 decide it, so the row prices the attempt/rollback tier directly."""
 
 
+_ANNOUNCED = """root ::= section+
+section ::= header line*
+header ::= hash text nl
+line ::= text nl
+text ::= [a-z ]+
+hash ::= "#"
+nl ::= "\\n"
+"""
+"""Sections that end where the NEXT one begins — a header line, then body
+lines until another header.
+
+The sibling of :data:`_MIXEDENDS`, and the harder half of the same gap. There
+the boundary character occurs nowhere but at a unit's end, so a scan can read
+the boundaries straight off the text. Here it cannot: a section ends at a
+newline and is full of newlines, so no occurrence of the boundary character is
+a boundary by itself. What makes the segmentation unique is the OPENING —
+``FIRST(section)`` is ``#`` and nothing a section can continue with is ``#`` —
+and that is a property of the grammar, not of any position in the document.
+
+So a cut here cannot be read; it can only be proposed and then verified. That
+is what makes this the shape a certified speculative fallback exists for, where
+:data:`_MIXEDENDS` is the shape a wider static proof would reach. Both decline
+today and both report the sequential number with their mt rows declining in
+the open."""
+
+
+def _announced_corpus(sections: int) -> str:
+    """Sections of a header and four body lines, with no readable boundary."""
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    out: list[str] = []
+    for n in range(sections):
+        out.append(f"#section {letters[n % 26] * 3} heading\n")
+        for k in range(4):
+            out.append(
+                f"body line {letters[k]} of section {letters[(n + k) % 26] * 2} here\n"
+            )
+    return "".join(out)
+
+
+_MIXEDENDS = """root ::= record+
+record ::= event | span | note
+event ::= "%" key eq value ";"
+span ::= "<" key colon digits ">"
+note ::= word (sp word)* nl
+key ::= [a-z] [a-z0-9_]*
+value ::= [a-zA-Z0-9./-]+
+digits ::= [0-9]+
+word ::= [a-z0-9]+
+eq ::= "="
+colon ::= ":"
+sp ::= " "
+nl ::= "\\n"
+"""
+"""A record stream whose three record kinds end three DIFFERENT ways — ``;``,
+``>`` and a newline.
+
+Every other repetition row here can be cut statically: its units share a
+terminator, or a separator stands between them. This one cannot. No character
+ends every arm, so no terminator derives; the only repeated body with a leading
+anchor (``note``'s spaces) is not reachable from the start rule as a container;
+and the start rule is a plain repetition, not an envelope. The split seam finds
+no eligible work and the document parses sequentially however many workers are
+offered.
+
+Nothing about the language is hard: the arms open ``%``, ``<`` and a letter, so
+each record is decided by its first character and delimited by its own closer,
+which makes the segmentation of ``record+`` unique and leaves no island in the
+predictive tables. The boundaries are real and abundant — a cut after any
+record's closer is exact — and no static analysis names them today.
+
+That gap is the whole point of the row: it prices a repetition the split cannot
+cut, and until a mechanism reaches it the row reports the sequential number
+with its mt row declining in the open."""
+
+
+def _mixedends_corpus(rows: int) -> str:
+    """A stream interleaving all three record kinds, none of them separated."""
+    out: list[str] = []
+    for n in range(rows):
+        out.append(f"%key{n % 40}_a=value/{n}.{n % 7};")
+        out.append(f"<span{n % 30}:{n * 3}>")
+        out.append(f"note{n} carries {n % 11} words here\n")
+    return "".join(out)
+
+
 def _markdown_corpus(sections: int) -> str:
     """A document exercising every block and inline kind this subset defines."""
     out: list[str] = ["# Release notes\n", "\n"]
@@ -583,6 +668,27 @@ BENCHES: tuple[Bench, ...] = (
             "def n() = v;\ndef m() {w}\n",
         ),
         ("", "def a() {b}", "def () {b}", "def a() ?b;\n", "def a() = b\n"),
+    ),
+    # A repetition with no derivable cut: three record kinds, three different
+    # closers. The split seam declines it, so the row reports the sequential
+    # number and its mt row says why — the standing witness for the shapes a
+    # certified speculative fallback is meant to reach.
+    _bench(
+        "mixedends",
+        _MIXEDENDS,
+        Samples(_mixedends_corpus(60), _mixedends_corpus(560)),
+        ("%k=v;", "<a:1>", "x\n", "a b c\n", "%a_b=c/d.e;<z:9>w one\n"),
+        ("", "%k=v", "<a:1", "no newline", "%k=v;extra;", "<A:1>"),
+    ),
+    # The same gap's harder half: a section ends where the next one BEGINS, so
+    # no occurrence of the boundary character is a boundary on its own and a cut
+    # can only be proposed and then verified. Declines today, in the open.
+    _bench(
+        "announced",
+        _ANNOUNCED,
+        Samples(_announced_corpus(30), _announced_corpus(300)),
+        ("#h\n", "#h\nbody\n", "#a\nb\n#c\n", "#h with spaces\n"),
+        ("", "no hash\n", "#h", "#h\nx", "#H\n"),
     ),
 )
 """Every benchmarked language. Adding one is a row here, not a per-tool grammar."""

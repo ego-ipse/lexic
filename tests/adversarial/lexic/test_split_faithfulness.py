@@ -307,9 +307,16 @@ def test_identical_openings_with_different_closers_stay_faithful() -> None:
     and not at any wider spelling. The twin regions also correctly refuse
     certification (identical opening, different closers) and nothing
     separates. A unit whose arms genuinely end three ways has no boundary to
-    cut on; the faithfulness half is the live assertion."""
-    text = "\n".join(f"pre {n} %abc; mid %{n}! post" for n in range(800)) + "\n"
+    cut on; the faithfulness half is the live assertion.
+
+    The document DERIVES, which is what makes that half say anything: ``plain``
+    carries its own newline, so a bare run of text between two twins is not an
+    item and a document written that way compares two refusals rather than two
+    parses."""
+    text = "".join(f"%abc;%{n}!post {n} here\n" for n in range(800))
     assert len(text) > 4 * MIN_CHUNK
+    compiled = compile_text(_TWINS, cache_key="adv-faith-twin-openers")
+    assert compiled.parse(text, cores=1).to_text() == text
     assert_faithful(_TWINS, text, "twin-openers", engaged=False)
 
 
