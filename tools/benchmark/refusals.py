@@ -15,59 +15,76 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-
-import lark
-import msgspec
-import pyparsing as pp
-from parsimonious.exceptions import (
-    BadGrammar,
-    IncompleteParseError,
-    ParseError,
-    VisitationError,
-)
+from functools import cache
 
 from lexic.exceptions import LexicError
 from lexic.parsing.pda.core.errors import PdaFail
 
-REFUSALS: tuple[type[BaseException], ...] = (
-    lark.exceptions.LarkError,
-    ParseError,
-    IncompleteParseError,
-    VisitationError,
-    BadGrammar,
-    pp.ParseBaseException,
-    # ANTLR: the strict error listener turns its recover-and-continue default
-    # into a raise, and the Java bridge reports a refused parse the same way.
-    SyntaxError,
-    # The ANTLR toolchain itself declining to build a grammar.
-    RuntimeError,
-    # lexic's own refusals, for the rows lexic parses. `PdaFail` is the
-    # predictive engine declining a grammar (an island start rule, say) — a
-    # real result about that engine, and the Earley column still answers.
+LEXIC_REFUSALS: tuple[type[BaseException], ...] = (
     LexicError,
     PdaFail,
     RecursionError,
-    # The json-format specialists refusing an input: stdlib's decoder error
-    # is a narrow ValueError subclass, so our own bugs still crash through.
-    json.JSONDecodeError,
-    msgspec.DecodeError,
 )
-"""Every way an engine here says no. Anything else is a bug and should surface."""
+"""The narrow vocabulary needed by a Lexic-only worker."""
 
 
-def accepts(parse: Callable[[str], object], text: str) -> bool:
+@cache
+def refusals() -> tuple[type[BaseException], ...]:
+    """Every engine's refusal vocabulary, imported only for competitor rows."""
+    import lark
+    import msgspec
+    import pyparsing as pp
+    from parsimonious.exceptions import (
+        BadGrammar,
+        IncompleteParseError,
+        ParseError,
+        VisitationError,
+    )
+
+    return (
+        lark.exceptions.LarkError,
+        ParseError,
+        IncompleteParseError,
+        VisitationError,
+        BadGrammar,
+        pp.ParseBaseException,
+        # ANTLR: the strict error listener turns its recover-and-continue default
+        # into a raise, and the Java bridge reports a refused parse the same way.
+        SyntaxError,
+        # The ANTLR toolchain itself declining to build a grammar.
+        RuntimeError,
+        # lexic's own refusals, for the rows lexic parses. `PdaFail` is the
+        # predictive engine declining a grammar (an island start rule, say) — a
+        # real result about that engine, and the Earley column still answers.
+        *LEXIC_REFUSALS,
+        # The json-format specialists refusing an input: stdlib's decoder error
+        # is a narrow ValueError subclass, so our own bugs still crash through.
+        json.JSONDecodeError,
+        msgspec.DecodeError,
+    )
+
+
+def accepts(
+    parse: Callable[[str], object],
+    text: str,
+    exceptions: tuple[type[BaseException], ...] | None = None,
+) -> bool:
     """Whether ``parse`` takes ``text`` whole, however it spells refusal.
 
     :param parse: An engine's parse entry point.
     :param text: The input to offer it.
     :returns: True if it parsed, False if it refused in a known vocabulary.
-    :raises BaseException: Anything outside :data:`REFUSALS`, unchanged — an
+    :raises BaseException: Anything outside :func:`refusals`, unchanged — an
         unexpected error is our bug, not the engine's verdict on the grammar.
     """
-    return refusal(parse, text) is None
+    return refusal(parse, text, exceptions) is None
 
 
-def refusal(parse: Callable[[str], object], text: str) -> str | None:
+def refusal(
+    parse: Callable[[str], object],
+    text: str,
+    exceptions: tuple[type[BaseException], ...] | None = None,
+) -> str | None:
     """The engine's OWN words for refusing ``text``, or None if it took it.
 
     The message is the evidence. "cannot express this grammar" with nothing
@@ -76,7 +93,7 @@ def refusal(parse: Callable[[str], object], text: str) -> str | None:
     """
     try:
         parse(text)
-    except REFUSALS as exc:
+    except refusals() if exceptions is None else exceptions as exc:
         detail = " ".join(str(exc).split())
         return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
     return None

@@ -132,7 +132,7 @@ def test_confirmation_resolves_stable_rows_after_fourteen_aggregate_rounds(
     assert sum(rounds for selected, rounds in calls if vyx_pda in selected) == 14
 
 
-def test_confirmation_aggregates_every_batch_and_bounds_an_ambiguous_row(
+def test_confirmation_aggregates_every_batch_before_bounded_decision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """More rounds cannot manufacture success by choosing a favorable batch."""
@@ -143,16 +143,25 @@ def test_confirmation_aggregates_every_batch_and_bounds_an_ambiguous_row(
     ) -> dict[tuple[str, str], list[float]]:
         assert selected == frozenset({JSON_PDA})
         calls.append(rounds)
-        # The aggregate always spans both sides of the +5% boundary.
-        values = [2.0, 2.0, 2.0, 2.12, 2.12, 2.12, 2.12]
+        # The aggregate median stays at the boundary, but its robust sigma is
+        # far too wide to trust even at the bounded maximum.
+        values = [1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.0]
         return {JSON_PDA: values[:rounds]}
 
     monkeypatch.setattr(regression, "sample", sampled)
     result = regression.confirmation(frozenset({JSON_PDA}), {JSON_PDA: 2.0})
 
-    assert result == Confirmed({}, frozenset({JSON_PDA}))
+    assert result == Confirmed({JSON_PDA: 2.1}, frozenset())
     assert calls == [7, 7, 7, 7, 7]
     assert sum(calls) == regression.CONFIRM_MAX_ROUNDS == 35
+
+
+def test_more_rounds_reduce_sigma_before_classifying_an_anomaly() -> None:
+    """A noisy median is deferred at 14 and trusted after its error shrinks."""
+    batch = [1.72, 1.86, 1.99, 2.12, 2.25, 2.38, 2.52]
+
+    assert regression._state(2.0, batch * 2, 5.0) is None
+    assert regression._state(2.0, batch * 5, 5.0) == "regression"
 
 
 def test_new_row_gets_the_full_bounded_measurement(

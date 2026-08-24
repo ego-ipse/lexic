@@ -53,11 +53,6 @@ from collections.abc import Callable, Sequence
 from math import log10
 from typing import NamedTuple
 
-import lark
-import msgspec
-import parsimonious
-import parsimonious.expressions
-
 from lexic.compile import CompiledGrammar, Directives, compile_text
 from lexic.exceptions import LexicError
 from lexic.parsing.parallel import AUTO, available_workers, split_model
@@ -66,17 +61,10 @@ from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import _model_product, earley_model, parse_model
 from lexic.parsing.trace import watch
-from tools.benchmark.antlr_build import antlr_parser
-from tools.benchmark.antlr_java import java_antlr_parser
 from tools.benchmark.directives import NO_MARKS
-from tools.benchmark.emit import (
-    lark_grammar,
-    peg_grammar,
-    pyparsing_parser,
-)
 from tools.benchmark.grammars import BENCHES, Bench, variant_marks
 from tools.benchmark.isolation import IsolatedRow, noise_floor, run_row
-from tools.benchmark.refusals import REFUSALS, accepts, refusal
+from tools.benchmark.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -310,7 +298,12 @@ def _licensed_marks(bench: Bench, marks: frozenset[str]) -> frozenset[str]:
     return frozenset()
 
 
-def unfaithful(parse: Parse, bench: Bench, document: str | None = None) -> str | None:
+def unfaithful(
+    parse: Parse,
+    bench: Bench,
+    document: str | None = None,
+    exceptions: tuple[type[BaseException], ...] | None = None,
+) -> str | None:
     """The first way ``parse`` disagrees with lexic about the language, or None.
 
     The single place a translation is judged, in BOTH directions. An
@@ -324,15 +317,19 @@ def unfaithful(parse: Parse, bench: Bench, document: str | None = None) -> str |
     :param document: The text this engine will be timed on — the acceptance
         half is checked against exactly that (default: the small corpus).
     """
-    why = refusal(parse, document if document is not None else bench.corpus)
+    why = refusal(
+        parse,
+        document if document is not None else bench.corpus,
+        exceptions,
+    )
     if why is not None:
         return f"refuses the corpus — {why}"
     for text in bench.accepts:
-        why = refusal(parse, text)
+        why = refusal(parse, text, exceptions)
         if why is not None:
             return f"refuses {text!r} — {why}"
     for text in bench.rejects:
-        if accepts(parse, text):
+        if accepts(parse, text, exceptions):
             return f"accepts {text[:18]!r}, which lexic refuses"
     return None
 
@@ -350,6 +347,10 @@ def _lark_parse(bench: Bench, parser: str, marked: bool = False) -> Parse:
     :param marked: Translate the grammar's own directives too — see
         :data:`PRODUCT` for why that is a seat rather than a correction.
     """
+    import lark
+
+    from tools.benchmark.emit import lark_grammar
+
     marks = variant_marks(bench.ast) if marked else NO_MARKS
     text = lark_grammar(bench.ast, refine=parser == "lalr", marks=marks)
     return lark.Lark(text, parser=parser).parse
@@ -364,6 +365,11 @@ def _peg_parse(bench: Bench, marked: bool = False) -> Parse:
     regex engine, so the grammar is compiled under the faster module — a
     construction-time swap only; matching runs on the compiled patterns.
     """
+    import parsimonious
+    import parsimonious.expressions
+
+    from tools.benchmark.emit import peg_grammar
+
     preferred = getattr(parsimonious.expressions, "re")
     setattr(parsimonious.expressions, "re", re)
     try:
@@ -385,6 +391,8 @@ def _pp_parse(bench: Bench) -> Parse:
     a person hitting the bug would do, and it gives pyparsing its best HONEST
     number per grammar rather than its fastest wrong one.
     """
+    from tools.benchmark.emit import pyparsing_parser
+
     quick = pyparsing_parser(bench.ast, longest=False)
 
     def cheap(body: str) -> object:
@@ -394,6 +402,31 @@ def _pp_parse(bench: Bench) -> Parse:
         return cheap
     exact = pyparsing_parser(bench.ast, longest=True)
     return lambda body: exact.parse_string(body, parse_all=True)
+
+
+def _java_parse(bench: Bench, marked: bool = False) -> Parse:
+    """Build one Java ANTLR row without importing ANTLR for Lexic workers."""
+    from tools.benchmark.antlr_java import java_antlr_parser
+
+    marks = variant_marks(bench.ast) if marked else NO_MARKS
+    suffix = "-lex" if marked else ""
+    return java_antlr_parser(bench.ast, _antlr_name(bench.name + suffix), marks)
+
+
+def _antlr_parse(bench: Bench, marked: bool = False) -> Parse:
+    """Build one Python ANTLR row without importing ANTLR for Lexic workers."""
+    from tools.benchmark.antlr_build import antlr_parser
+
+    marks = variant_marks(bench.ast) if marked else NO_MARKS
+    suffix = "-lex" if marked else ""
+    return antlr_parser(bench.ast, _antlr_name(bench.name + suffix), marks)
+
+
+def _msgspec_parse(_bench: Bench) -> Parse:
+    """Load msgspec only when its JSON specialist row is requested."""
+    import msgspec
+
+    return msgspec.json.decode
 
 
 _CANDIDATES: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
@@ -406,24 +439,10 @@ _CANDIDATES: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
     # ANTLR builds a parser before anything runs — the Java tool, then javac for
     # the Java row. That is part of using ANTLR, as `Lark(...)` construction is,
     # so it happens here and never inside a timed round.
-    ("antlr", lambda bench: java_antlr_parser(bench.ast, _antlr_name(bench.name))),
-    (
-        "antlr-lex",
-        lambda bench: java_antlr_parser(
-            bench.ast,
-            _antlr_name(f"{bench.name}-lex"),
-            variant_marks(bench.ast),
-        ),
-    ),
-    ("antlr-py", lambda bench: antlr_parser(bench.ast, _antlr_name(bench.name))),
-    (
-        "antlr-py-lex",
-        lambda bench: antlr_parser(
-            bench.ast,
-            _antlr_name(f"{bench.name}-lex"),
-            variant_marks(bench.ast),
-        ),
-    ),
+    ("antlr", _java_parse),
+    ("antlr-lex", lambda bench: _java_parse(bench, marked=True)),
+    ("antlr-py", _antlr_parse),
+    ("antlr-py-lex", lambda bench: _antlr_parse(bench, marked=True)),
     ("pyparsing", _pp_parse),
 )
 """Every competitor, as a name and the one way to build it from a bench."""
@@ -431,7 +450,7 @@ _CANDIDATES: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
 
 _JSON_SPECIALISTS: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
     ("stdlib-json", lambda bench: json.loads),
-    ("msgspec", lambda bench: msgspec.json.decode),
+    ("msgspec", _msgspec_parse),
 )
 """The json row's format specialists (see :data:`PRODUCT`)."""
 
@@ -461,7 +480,7 @@ def _competitors(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
     for label, make in _candidates(bench):
         try:
             parse = make(bench)
-        except REFUSALS as exc:
+        except refusals() as exc:
             refused[label] = f"{type(exc).__name__}: {' '.join(str(exc).split())}"
             continue
         wrong = unfaithful(parse, bench)
@@ -507,14 +526,15 @@ def _one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engin
             raise ValueError(f"unknown benchmark row {name!r} for {bench.name}")
         try:
             parse = makers[name](bench)
-        except REFUSALS as exc:
+        except refusals() as exc:
             return EngineBuild(
                 None,
                 document,
                 f"{type(exc).__name__}: {' '.join(str(exc).split())}",
                 None,
             )
-    wrong = unfaithful(parse, bench, document)
+    exceptions = LEXIC_REFUSALS if name in LEXIC_ROWS else None
+    wrong = unfaithful(parse, bench, document, exceptions)
     if wrong is not None:
         getattr(parse, "close", lambda: None)()
         return EngineBuild(None, document, wrong, None)

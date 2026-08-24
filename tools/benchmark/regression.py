@@ -4,8 +4,9 @@ The pre-commit hook measures only Lexic, one exact grammar/engine pair per
 fresh interpreter. A value more than five percent from its checked-in record
 gets bounded adaptive confirmation. Confirmation aggregates every sample,
 starts deciding after 14 rounds, and stops after 35; it never selects a lucky
-batch. If the aggregate interval still crosses a decision boundary at the
-limit, the check is inconclusive and blocks without changing the record.
+batch. Sampling continues while the aggregate median's robust sigma error is
+larger than the five-percent effect being tested. At the hard bound, the median
+of all 35 samples decides; no batch is discarded or selected for its result.
 
 An intentional slowdown is made explicit with::
 
@@ -19,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
@@ -148,28 +148,30 @@ def _median(values: Sequence[float]) -> float:
     return ordered[len(ordered) // 2]
 
 
-def _median_interval(values: Sequence[float]) -> tuple[float, float]:
-    """Approximate a distribution-free 95% interval for the sample median."""
-    ordered = sorted(values)
-    middle = (len(ordered) - 1) / 2
-    radius = math.ceil(0.98 * math.sqrt(len(ordered)))
-    lower = max(0, math.floor(middle - radius))
-    upper = min(len(ordered) - 1, math.ceil(middle + radius))
-    return ordered[lower], ordered[upper]
+def _relative_uncertainty(values: Sequence[float]) -> float:
+    """Robust one-sigma error estimate for the median, as a percentage.
+
+    ``1.4826 * MAD`` estimates sigma without letting a timing outlier dominate;
+    ``1.2533`` converts a normal sample's mean standard error to the median's.
+    The estimate shrinks with every aggregated round, which is the quantity
+    adaptive confirmation is meant to improve.
+    """
+    median = _median(values)
+    mad = _median([abs(value - median) for value in values])
+    sigma = 1.2533 * 1.4826 * mad / len(values) ** 0.5
+    return sigma / max(abs(median), 1e-9) * 100.0
 
 
 def _state(target: float, values: Sequence[float], threshold: float) -> str | None:
-    """Classify an aggregate interval, or leave a boundary crossing open."""
-    lower, upper = _median_interval(values)
-    fast_edge = target * (1.0 - threshold / 100.0)
-    slow_edge = target * (1.0 + threshold / 100.0)
-    if lower > slow_edge:
+    """Classify a precise aggregate median, or request another sigma batch."""
+    if _relative_uncertainty(values) > threshold:
+        return None
+    median = _median(values)
+    if _above(target, median, threshold):
         return "regression"
-    if upper < fast_edge:
+    if _below(target, median, threshold):
         return "improvement"
-    if lower >= fast_edge and upper <= slow_edge:
-        return "noise"
-    return None
+    return "noise"
 
 
 def measure(keys: frozenset[Key] | None, rounds: int = DEFAULT_ROUNDS) -> Values:
@@ -207,6 +209,13 @@ def confirmation(
             else:
                 resolved[key] = _median(accumulated[key])
         pending = frozenset(next_pending)
+
+    # The bound is a decision bound, not a random failure mode. Sigma chooses
+    # how many samples the repeat earns; after all 35, their aggregate median
+    # is the repeat value in the user's rule ("if on repeat it remains >5%").
+    for key in pending:
+        resolved[key] = _median(accumulated[key])
+    pending = frozenset()
 
     # New rows have no decision boundary. Give each the full bounded sample so
     # their first stored target is not a seven-round outlier.
@@ -277,8 +286,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         labels = ", ".join(f"{grammar}/{row}" for grammar, row in sorted(keys))
         print(
             f"confirming new or >{DEFAULT_THRESHOLD:.0f}% change candidates only "
-            f"(aggregate adaptive {CONFIRM_MIN_ROUNDS}-{CONFIRM_MAX_ROUNDS} "
-            f"rounds): {labels}"
+            f"(sigma-adaptive {CONFIRM_MIN_ROUNDS}-{CONFIRM_MAX_ROUNDS} "
+            f"aggregate rounds): {labels}"
         )
         return confirmation(keys, before)
 
@@ -292,10 +301,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         labels = ", ".join(
             f"{grammar}/{row}" for grammar, row in sorted(outcome.inconclusive)
         )
-        print(
-            f"benchmark confirmation remained inconclusive after "
-            f"{CONFIRM_MAX_ROUNDS} rounds: {labels}"
-        )
+        print(f"benchmark confirmation could not measure rows: {labels}")
         print("record unchanged; rerun when the machine is quieter")
         return 1
     if outcome.regressions:
