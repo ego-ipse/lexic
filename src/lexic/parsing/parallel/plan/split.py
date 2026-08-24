@@ -47,6 +47,10 @@ class SplitPlan(NamedTuple):
     :ivar envelope: The certified envelope plan, when the container wraps its
         repetition in optional head and tail items and the separator is a noise
         run rather than one character; ``None`` for every other shape.
+    :ivar opening: Whether the mark OPENS a unit rather than closing one. A
+        cut then lands ON the occurrence instead of after it, and the
+        occurrence is a PROPOSAL the piece parse verifies rather than a
+        boundary a proof established.
     :ivar trailing: Whether an overlapping run of the mark's characters holds
         its boundary at the LAST occurrence rather than the first. Only a
         spelling that is its own border can overlap; every one-character mark
@@ -69,6 +73,7 @@ class SplitPlan(NamedTuple):
     lead_literal: str
     skip: frozenset[str]
     envelope: EnvelopePlan | None = None
+    opening: bool = False
     trailing: bool = False
     bound: Boundary | None = None
 

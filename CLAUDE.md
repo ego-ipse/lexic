@@ -272,8 +272,10 @@ src/lexic/
       replicas.py                  Per-worker table replicas — equal grammar, own tables, no shared refcount traffic
       plan/
         __init__.py                Split-plan shape analysis package marker
+        cuts.py                    Where the cuts go — one document's offsets under the policy floor
         envelope.py                Envelope container arms, noise-run leads, and the certified cut match
         routed.py                  Route-derived interiors — a region the character sweep cannot see
+        speculation.py             When a cut may be PROPOSED — the precondition speculation runs under
         split.py                   SplitPlan — one grammar's cut shape, reused across documents
       roles.py                     Role derivation — opener/closer pairs and repetition separators, per grammar
       discovery/

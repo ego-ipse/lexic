@@ -19,11 +19,9 @@ from lexic.parsing.parallel import orchestrate, split_model, split_plan
 from lexic.parsing.parallel.orchestrate import (
     Request,
     _certified,
-    _cut_offsets,
-    _scan,
-    _sole_mark,
     _split_plans,
 )
+from lexic.parsing.parallel.plan.cuts import cut_offsets, scan_marks, sole_mark
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
@@ -674,12 +672,12 @@ def test_a_continuation_mark_is_refused_and_a_genuine_head_admits() -> None:
 
     continuation_mark = text.index("\n  | ")
     assert not admits(
-        text, continuation_mark + 1, certified.bound, _sole_mark(certified)
+        text, continuation_mark + 1, certified.bound, sole_mark(certified)
     )
 
     head_mark = text.index("altc\n") + len("altc")
     assert text[head_mark] == "\n"
-    assert admits(text, head_mark + 1, certified.bound, _sole_mark(certified))
+    assert admits(text, head_mark + 1, certified.bound, sole_mark(certified))
 
 
 def test_cut_offsets_filters_continuation_marks_out_of_the_candidate_set() -> None:
@@ -692,13 +690,13 @@ def test_cut_offsets_filters_continuation_marks_out_of_the_candidate_set() -> No
     assert len(text) > 2 * MIN_CHUNK
 
     with WorkPool(2) as pool:
-        raw_marks = _scan(certified, text, 2, pool)
-        cuts = _cut_offsets(certified, text, 2, pool)
+        raw_marks = scan_marks(certified, text, 2, pool)
+        cuts = cut_offsets(certified, text, 2, pool)
 
     admitted = [
         at
         for at in raw_marks
-        if admits(text, at + 1, certified.bound, _sole_mark(certified))
+        if admits(text, at + 1, certified.bound, sole_mark(certified))
     ]
     assert len(admitted) < len(raw_marks), "continuation marks must be filtered out"
     assert cuts, "the certified plan must still find a usable cut"

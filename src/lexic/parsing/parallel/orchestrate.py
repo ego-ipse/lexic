@@ -9,8 +9,7 @@ parse, so worker count never changes what an input means.
 
 from __future__ import annotations
 
-from bisect import bisect_left, bisect_right
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from lexic.exceptions import LexicError
@@ -30,18 +29,25 @@ from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
 )
-from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
+from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
+from lexic.parsing.parallel.plan.cuts import (
+    cut_offsets,
+    cut_spans,
+    scan_marks,
+    scan_windows,
+    sole_mark,
+)
 from lexic.parsing.parallel.plan.envelope import (
-    admits,
     envelope_plans,
     unit_witness,
 )
-from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip, matched
-from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
+from lexic.parsing.parallel.plan.speculation import speculative_openings
+from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip
+from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
-from lexic.parsing.parallel.roles import Separator, roles
+from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
 from lexic.parsing.parallel.stitch.interior import routed_split
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
 from lexic.parsing.parallel.stitch.model import (
@@ -91,16 +97,6 @@ def _unit_ref(item: IrItem) -> str | None:
     if isinstance(atom, IrRuleRef) and item.quantifier == UNIT:
         return str(atom)
     return None
-
-
-def _sole_mark(plan: SplitPlan) -> str:
-    """The plan's one mark spelling, or ``""`` when it keys on a whole set.
-
-    The proofs stated over a single mark — the announcing prefix, the separator
-    exclusion, the agreed terminator — have no reading over a set, and say so
-    by declining rather than by picking one of its members.
-    """
-    return next(iter(plan.mark)) if len(plan.mark) == 1 else ""
 
 
 def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
@@ -221,6 +217,51 @@ def _terminated_plans(
     )
 
 
+def _speculative_plans(
+    grammar: IrAst, rule_map: dict[str, IrRule]
+) -> tuple[SplitPlan, ...]:
+    """The plan a ``start ::= unit+`` repetition admits by PROPOSAL.
+
+    Read last, and only where every other route declined: this is the one plan
+    whose cuts are candidates rather than boundaries, and it pays a piece parse
+    to find out. The precondition it rests on is
+    :func:`~...plan.speculation.speculative_openings`; an empty answer is the
+    ordinary decline.
+
+    The scan needs no new machinery — it sweeps a set of spellings already, so
+    the unit's opening alphabet goes in where a terminator's would.
+    """
+    start = rule_map.get(str(grammar.start))
+    items = _single_arm(start) if start is not None else None
+    if items is None or len(items) != 1 or not unbounded(items[0]):
+        return ()
+    target = items[0].atom
+    if not isinstance(target, IrRuleRef):
+        return ()
+    unit = str(target)
+    openings = speculative_openings(grammar, unit)
+    if not openings:
+        return ()
+    derived = roles(grammar)
+    proposals = Roles(
+        derived.pairs, (), (Terminator(openings, str(grammar.start), unit),)
+    )
+    return (
+        SplitPlan(
+            grammar,
+            Scanner(proposals),
+            openings,
+            unit,
+            (),
+            None,
+            None,
+            "",
+            frozenset(),
+            opening=True,
+        ),
+    )
+
+
 _PLANS: dict[int, tuple[IrAst, tuple[SplitPlan, ...]]] = memo({})
 """Plan memo — id(grammar) → (grammar, plans). The strong reference pins the
 id, so a recycled id can never alias a live entry."""
@@ -238,7 +279,12 @@ def _split_plans(grammar: IrAst) -> tuple[SplitPlan, ...]:
             if sep.item and (plan := _plan_for(grammar, sep, rule_map)) is not None
         )
         wrapped = _envelope_split_plan(grammar)
-        plans = terminated or separated or wrapped
+        proposed = _speculative_plans(grammar, rule_map)
+        # Proposals are APPENDED, never an alternative: a derived plan that
+        # then fails certification must not shadow them, and a certified one
+        # must still be tried first — a proposal pays a piece parse to learn
+        # what a proof already knows.
+        plans = (terminated or separated or wrapped) + proposed
         entry = (grammar, plans)
         _PLANS[id(grammar)] = entry
     return entry[1]
@@ -255,184 +301,6 @@ def split_plan(grammar: IrAst) -> SplitPlan | None:
     return plans[0] if plans else None
 
 
-def _scan_windows(
-    scanner: Scanner, text: str, workers: int, pool: WorkPool
-) -> list[Window]:
-    """Scan windows once for every separator plan of one grammar.
-
-    A scanner carrying opaque regions walks instead: a window cannot know
-    whether it begins inside one, and only the previous mark can say.
-    """
-    if scanner.opaque:
-        return [scanner.walk(text)]
-    if workers < 2:
-        return [scanner.window(text, 0, len(text))]
-    step = len(text) // workers
-    bounds = [
-        (k * step, (k + 1) * step if k < workers - 1 else len(text))
-        for k in range(workers)
-    ]
-    return pool.map(lambda span: scanner.window(text, span[0], span[1]), bounds)
-
-
-def _scan(
-    plan: SplitPlan,
-    text: str,
-    workers: int,
-    pool: WorkPool,
-    windows: list[Window] | None = None,
-) -> list[int]:
-    """Depth-0 marks of this plan's spelling, over ``workers`` windows.
-
-    Windows are arithmetic and each is scanned with no left context — a mark
-    is structural at every occurrence, so a window needs nothing from its
-    predecessor and the prefix-sum rebase recovers the absolute depths. One
-    window IS the sequential scan. A spelling that overlaps itself is thinned
-    to one boundary per run, after the rebase, so the answer does not depend
-    on where the windows fell.
-    """
-    scanned = windows or _scan_windows(plan.scanner, text, workers, pool)
-    at_depth = plan.scanner.offsets(scanned, depth=0)
-    widths = {at: len(hit) for at in at_depth if (hit := matched(text, at, plan.mark))}
-    return clustered(sorted(widths), widths, plan.trailing)
-
-
-def _cut_offsets(
-    plan: SplitPlan,
-    text: str,
-    cores: int,
-    pool: WorkPool,
-    windows: list[Window] | None = None,
-) -> list[int]:
-    """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
-
-    The worker CEILING is settled before anything is scanned: it depends
-    only on the build, the core count and the input size, so a document
-    that could never occupy two workers must not pay a scan to find that
-    out — that scan is a full pass over the input, and charging it to every
-    small parse is a regression on grammars that merely HAVE a plan.
-
-    A terminated plan's final mark is dropped: cutting after the document's
-    last terminator leaves an empty chunk, which is not a document.
-    """
-    ceiling = worker_count(len(text), len(text), cores)
-    if ceiling < 2:
-        return []
-    if plan.envelope is not None:
-        marks = plan.envelope.cuts(text)
-    else:
-        marks = _scan(plan, text, ceiling, pool, windows)
-        if plan.bound is not None:
-            # The unit emits its own mark, so a mark is a candidate rather than
-            # a boundary: keep the ones a unit actually begins after. A
-            # terminated unit starts immediately past its mark, with no
-            # separator run to extend over — the envelope path's one difference.
-            bound = _sole_mark(plan)
-            marks = [
-                at for at in marks if admits(text, at + len(bound), plan.bound, bound)
-            ]
-    if plan.terminated and marks and _after_mark(plan, text, marks[-1]) == len(text):
-        marks.pop()
-    workers = worker_count(len(text), len(marks), cores)
-    while workers >= 2:
-        cuts = _balanced_cuts(plan, text, marks, workers)
-        if cuts:
-            return cuts
-        workers -= 1
-    return []
-
-
-def _balanced_cuts(
-    plan: SplitPlan, text: str, marks: list[int], workers: int
-) -> list[int]:
-    """Marks nearest equal byte targets, if every actual span clears policy."""
-    cuts: list[int] = []
-    previous = 0
-    for k in range(1, workers):
-        want = len(text) * k / workers
-        remaining = workers - k
-        nearest = _safe_mark(plan, text, marks, previous, (want, remaining))
-        if nearest is None:
-            return []
-        cuts.append(nearest)
-        previous = _after_mark(plan, text, nearest)
-    spans, _leads = _spans(plan, text, cuts)
-    return (
-        cuts
-        if len(spans) == workers and min(hi - lo for lo, hi in spans) >= MIN_CHUNK
-        else []
-    )
-
-
-def _after_mark(plan: SplitPlan, text: str, mark: int) -> int:
-    """First source offset owned by the piece after ``mark``."""
-    if plan.envelope is not None:
-        return plan.envelope.resumes(text, mark)
-    after = mark + len(matched(text, mark, plan.mark))
-    while after < len(text) and text[after] in plan.skip:
-        after += 1
-    return after
-
-
-def _safe_mark(
-    plan: SplitPlan,
-    text: str,
-    marks: list[int],
-    previous: int,
-    target: tuple[float, int],
-) -> int | None:
-    """Nearest target mark whose adjacent spans can still clear the floor."""
-    want, remaining = target
-    terminated = plan.terminated
-    widest = max(len(mark) for mark in plan.mark) if plan.mark else 1
-    lo = bisect_left(marks, previous + MIN_CHUNK - widest * int(terminated))
-    hi = bisect_right(marks, len(text) - remaining * MIN_CHUNK - 1)
-    for candidate in _nearby_marks(marks, want, lo, hi):
-        after = _after_mark(plan, text, candidate)
-        end = after if terminated else candidate
-        if end - previous >= MIN_CHUNK and len(text) - after >= remaining * MIN_CHUNK:
-            return candidate
-    return None
-
-
-def _nearby_marks(marks: list[int], want: float, lo: int, hi: int) -> Iterator[int]:
-    """Yield candidates within ``[lo, hi)`` from nearest to farthest."""
-    at = bisect_left(marks, want, lo, hi)
-    left, right = at - 1, at
-    while left >= lo or right < hi:
-        take_left = right >= hi or (
-            left >= lo and want - marks[left] <= marks[right] - want
-        )
-        yield marks[left] if take_left else marks[right]
-        left -= int(take_left)
-        right += int(not take_left)
-
-
-def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]]:
-    """The chunk spans and each cut's carried lead text.
-
-    A terminated unit OWNS its final character, so its chunk keeps it and
-    carries no lead; a separated cut hands the separator (and the noise the
-    lead owns) to the lead re-parse instead.
-    """
-    spans: list[tuple[int, int]] = []
-    leads: list[str] = []
-    prev = 0
-    terminated = plan.terminated
-    for cut in cuts:
-        after = _after_mark(plan, text, cut)
-        # An envelope piece KEEPS the mark: a separator that begins before one
-        # (a comment closed by it) would otherwise straddle the cut, and the
-        # piece's own tail is what absorbs the run before the join takes it.
-        kept = cut + len(matched(text, cut, plan.mark))
-        owned = kept if plan.envelope is not None else cut
-        spans.append((prev, after if terminated else owned))
-        leads.append("" if terminated else text[owned:after])
-        prev = after
-    spans.append((prev, len(text)))
-    return spans, leads
-
-
 def _split_parse[M: IrNamedTuple](
     parse: ModelProduct,
     plan: SplitPlan,
@@ -443,7 +311,7 @@ def _split_parse[M: IrNamedTuple](
     """One split attempt; ``None`` means: parse sequentially instead."""
     text, fold, resolve = ask
     terminated = plan.terminated
-    spans, leads = _spans(plan, text, cuts)
+    spans, leads = cut_spans(plan, text, cuts)
     if not terminated and plan.lead_grammar is None:
         if any(lead != plan.lead_literal for lead in leads):
             return None
@@ -471,6 +339,114 @@ def _split_parse[M: IrNamedTuple](
     if terminated:
         return stitch_terminated(chunks)
     return stitch_routed(chunks, lead_models, plan.wrappers, fold)
+
+
+RETRIES = 2
+"""Re-selections allowed per proposed cut before the split gives up on it.
+
+Bounded because a wrong proposal costs a wasted piece parse and a right one
+costs nothing — the parse IS the split work. Two is enough to step past a
+character that merely LOOKS like a unit opening without letting a document of
+near-misses out-cost the sequential parse it is racing."""
+
+
+def _piece(
+    parse: ModelProduct, view: tuple, text: str, resolve: Resolver | None
+) -> IrNamedTuple | None:
+    """One piece's model, or ``None`` when it refuses.
+
+    A refusal here is a verdict on the CUT, never on the input: the piece was
+    handed a span that may not begin a unit. The caller retries or declines,
+    and the caller's sequential parse is what raises.
+    """
+    try:
+        return parse(view[0], text, view[1], resolve)
+    except LexicError:
+        return None
+
+
+def _attempt[M: IrNamedTuple](
+    parse: ModelProduct,
+    plan: SplitPlan,
+    ask: Request[M],
+    spans: list,
+    pool: WorkPool,
+) -> tuple[list, int]:
+    """Parse every piece; the models, and the first failing index (``-1`` none)."""
+    text, fold, resolve = ask
+    views = worker_replicas(plan.grammar, fold, len(spans))
+    found = pool.map(
+        lambda k: _piece(parse, views[k], text[spans[k][0] : spans[k][1]], resolve),
+        list(range(len(spans))),
+    )
+    return found, next((k for k, one in enumerate(found) if one is None), -1)
+
+
+def _reselect(
+    text: str, marks: list[int], cuts: list[int], at: int
+) -> list[int] | None:
+    """``cuts`` with cut ``at`` moved to the next-nearest usable proposal.
+
+    Only the two pieces this cut bounds may move, so its neighbours fix the
+    room it has, and the floor binds on both sides of the new position exactly
+    as it bound on the old one.
+    """
+    lo = cuts[at - 1] if at else 0
+    hi = cuts[at + 1] if at + 1 < len(cuts) else len(text)
+    taken = set(cuts)
+    room = [
+        candidate
+        for candidate in marks
+        if candidate not in taken
+        and candidate - lo >= MIN_CHUNK
+        and hi - candidate >= MIN_CHUNK
+    ]
+    if not room:
+        return None
+    nearest = min(room, key=lambda candidate: (abs(candidate - cuts[at]), candidate))
+    return [nearest if k == at else cut for k, cut in enumerate(cuts)]
+
+
+def _speculate[M: IrNamedTuple](
+    parse: ModelProduct,
+    plan: SplitPlan,
+    ask: Request[M],
+    proposed: tuple[list[int], list[int]],
+    pool: WorkPool,
+) -> M | None:
+    """Verify proposed cuts by parsing, re-selecting a failing one, bounded.
+
+    Acceptance is NOT the stitch looking right. It is the plan's precondition
+    (segmentation of ``unit+`` is forced) plus every piece parsing: the pieces
+    then exhibit the document's ONLY reading, so their concatenation is the
+    model the sequential parse would have built — which is why the stitch is
+    :func:`~...stitch.model.stitch_terminated` unchanged, with nothing
+    inspected after the fact.
+
+    :param proposed: The chosen cuts, and every candidate they were chosen from.
+    :returns: The model, or ``None`` to decline to sequential.
+    """
+    cuts, marks = proposed
+    spent = dict.fromkeys(range(len(cuts)), 0)
+    for _round in range(len(cuts) + 1):
+        chunks, failed = _attempt(
+            parse, plan, ask, cut_spans(plan, ask.text, cuts)[0], pool
+        )
+        if failed < 0:
+            return stitch_terminated(chunks)
+        # A wrong cut fails BOTH pieces it bounds — the one before it ends
+        # mid-unit, the one after begins mid-unit — so the FIRST failing piece
+        # is the one whose END is wrong, and that end is the cut to move. The
+        # final piece has no end of its own and answers for the cut before it.
+        at = min(failed, len(cuts) - 1)
+        if spent[at] >= RETRIES:
+            return None
+        spent[at] += 1
+        moved = _reselect(ask.text, marks, cuts, at)
+        if moved is None:
+            return None
+        cuts = moved
+    return None
 
 
 def _parse_region_parts[M: IrNamedTuple](
@@ -549,14 +525,33 @@ def _certified(plan: SplitPlan, view: IrAst) -> SplitPlan | None:
     the marks that begin a unit and refuse the ones that do not. A unit with
     neither is what it always was: not splittable on this mark.
     """
-    mark = _sole_mark(plan)
+    if plan.opening:
+        # A proposal owes no boundary proof — the piece parse settles whether
+        # it was right — but it owes the same AGREEMENT ``scan_agrees`` owes:
+        # the precondition is derived on the grammar the pieces parse under,
+        # and a caller-supplied view that licenses a different opening
+        # alphabet is describing a different language, not a stricter one.
+        return plan if speculative_openings(view, plan.owner) == plan.mark else None
+    mark = sole_mark(plan)
     if plan.envelope is not None:
         return plan if unit_boundary(view, plan.owner, mark) is not None else None
-    if plan.sep is not None:
-        if not owner_excludes(view, plan.owner, mark):
-            return None
-        overlap = mark_overlap(view, plan.owner, mark)
-        return plan._replace(trailing=overlap.trailing) if overlap.decided else None
+    if plan.sep is None:
+        return _certified_terminated(plan, view, mark)
+    if not owner_excludes(view, plan.owner, mark):
+        return None
+    overlap = mark_overlap(view, plan.owner, mark)
+    return plan._replace(trailing=overlap.trailing) if overlap.decided else None
+
+
+def _certified_terminated(plan: SplitPlan, view: IrAst, mark: str) -> SplitPlan | None:
+    """The three routes a terminated plan may be licensed by, in order.
+
+    The agreed terminator first — every mark is a boundary and no filter is
+    needed. Then the unit's whole ending alphabet, where the arms close
+    differently and no ending character stands anywhere but at an end. Failing
+    both, the unit may still ANNOUNCE itself, and the plan carries that prefix
+    so the cut selection can admit the marks that begin a unit.
+    """
     if (
         mark
         and terminates_once(view, plan.owner, mark)
@@ -613,16 +608,33 @@ def split_model[M: IrNamedTuple](
     safe_plans = _safe_plans(_split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
         windows = (
-            _scan_windows(safe_plans[0].scanner, ask.text, workers, pool)
+            scan_windows(safe_plans[0].scanner, ask.text, workers, pool)
             if safe_plans
             else None
         )
         for plan in safe_plans:
-            cuts = _cut_offsets(plan, ask.text, cores, pool, windows)
-            if (
-                cuts
-                and (model := _split_parse(parse, plan, ask, cuts, pool)) is not None
-            ):
+            # A proposal scans for its own opening alphabet, which is not in
+            # the roles the shared window pass swept.
+            seen = (
+                scan_windows(plan.scanner, ask.text, workers, pool)
+                if plan.opening
+                else windows
+            )
+            cuts = cut_offsets(plan, ask.text, cores, pool, seen)
+            if not cuts:
+                continue
+            model = (
+                _speculate(
+                    parse,
+                    plan,
+                    ask,
+                    (cuts, scan_marks(plan, ask.text, workers, pool, seen)),
+                    pool,
+                )
+                if plan.opening
+                else _split_parse(parse, plan, ask, cuts, pool)
+            )
+            if model is not None:
                 return model
         return _split_regions(parse, grammar, ask, analysis, pool)
 

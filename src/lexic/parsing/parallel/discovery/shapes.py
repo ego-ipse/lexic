@@ -296,18 +296,41 @@ def interior(
     Overapproximating is the safe direction — a character wrongly included
     merely declines — so a cycle or an unresolvable name answers ``ANY``.
     """
+    return over_arms(rule_map, name, path, _arm_interior)
+
+
+def over_arms(
+    rule_map: dict[str, IrRule],
+    name: str,
+    path: frozenset[str],
+    of_arm: Callable[[dict[str, IrRule], tuple[IrItem, ...], frozenset[str]], CharSet],
+) -> CharSet:
+    """Union ``of_arm`` over every arm of a rule; ``ANY`` when unresolvable.
+
+    The shared shape of every per-rule alphabet walk here: a name the map does
+    not hold, or one already on the path, answers the conservative set rather
+    than an empty one, because every caller is proving a DISJOINTNESS and an
+    empty answer would prove it vacuously.
+    """
     target = rule_map.get(name)
     if target is None or name in path:
         return CharSet.ANY
     found = CharSet.EMPTY
     for arm in target.body:
-        items = tuple(arm)
-        if not items:
-            continue
-        for item in items[:-1]:
-            found = found.union(emit_charset(item, rule_map, frozenset()))
-        found = found.union(_item_interior(rule_map, items[-1], path | {name}))
+        found = found.union(of_arm(rule_map, tuple(arm), path | {name}))
     return found
+
+
+def _arm_interior(
+    rule_map: dict[str, IrRule], items: tuple[IrItem, ...], path: frozenset[str]
+) -> CharSet:
+    """Every character one arm can emit before its own last."""
+    found = CharSet.EMPTY
+    if not items:
+        return found
+    for item in items[:-1]:
+        found = found.union(emit_charset(item, rule_map, frozenset()))
+    return found.union(_item_interior(rule_map, items[-1], path))
 
 
 def _item_interior(
