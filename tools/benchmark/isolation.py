@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any, NamedTuple, cast
 
 
@@ -28,6 +29,7 @@ def _payload(
     full: bool,
     *,
     noise: bool = False,
+    source_root: Path | None = None,
 ) -> dict[str, Any]:
     """Execute one worker and decode its final JSON line."""
     command = [
@@ -49,6 +51,11 @@ def _payload(
         command.append("--noise")
     environment = dict(os.environ)
     environment["LEXIC_BENCHMARK_GRAMMAR"] = grammar
+    if source_root is not None:
+        inherited = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = str(source_root) + (
+            os.pathsep + inherited if inherited else ""
+        )
     completed = subprocess.run(
         command,
         capture_output=True,
@@ -78,9 +85,18 @@ def run_row(
     rounds: int,
     cores: int | None,
     full: bool,
+    *,
+    source_root: Path | None = None,
 ) -> IsolatedRow:
     """Measure one row in a fresh interpreter process."""
-    payload = _payload(grammar, engine, rounds, cores, full)
+    payload = _payload(
+        grammar,
+        engine,
+        rounds,
+        cores,
+        full,
+        source_root=source_root,
+    )
     refusal = payload.get("refusal")
     if refusal is not None:
         return IsolatedRow([], str(refusal), None, None, None, 0.0)

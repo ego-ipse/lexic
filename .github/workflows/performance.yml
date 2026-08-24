@@ -1,0 +1,91 @@
+name: performance regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/performance.yml"
+      - "pyproject.toml"
+      - "resources/**"
+      - "src/**"
+      - "tools/benchmark/**"
+      - "uv.lock"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/performance.yml"
+      - "pyproject.toml"
+      - "resources/**"
+      - "src/**"
+      - "tools/benchmark/**"
+      - "uv.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lexic:
+    name: Same-run Lexic A/B
+    runs-on: ubuntu-latest
+    env:
+      PYTHON_GIL: "0"
+      LEXIC_REQUIRE_FREE_THREADED: "1"
+    steps:
+      - name: Check out HEAD
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          path: head
+
+      - name: Resolve the comparison base
+        id: base
+        working-directory: head
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            sha="${{ github.event.pull_request.base.sha }}"
+          elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            sha="${{ github.event.before }}"
+            if [[ "$sha" =~ ^0+$ ]]; then
+              sha="$(git rev-parse HEAD^)"
+            fi
+          else
+            sha="$(git rev-parse HEAD^)"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out base
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ steps.base.outputs.sha }}
+          path: base
+
+      - name: Install free-threaded Python
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.14t"
+
+      - name: Install the locked development environment
+        working-directory: head
+        run: uv sync --locked --group dev
+
+      - name: Require the free-threaded witness
+        working-directory: head
+        run: |
+          uv run python -c "
+          import sys
+          assert not sys._is_gil_enabled(), 'performance workflow requires PYTHON_GIL=0'
+          print('python:', sys.version.split()[0], 'gil enabled:', sys._is_gil_enabled())
+          "
+
+      - name: Compare base and HEAD on this runner
+        working-directory: head
+        run: |
+          uv run python -u -m tools.benchmark.compare \
+            --base-source ../base/src \
+            --base-record ../base/tools/benchmark/lexic_baseline.json

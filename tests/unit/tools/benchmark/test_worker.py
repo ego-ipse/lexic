@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -83,6 +84,7 @@ def test_parent_launches_a_fresh_worker_for_the_exact_pair(
         environment = kwargs["env"]
         assert isinstance(environment, dict)
         assert environment["LEXIC_BENCHMARK_GRAMMAR"] == "vyx"
+        assert environment["PYTHONPATH"].split(":", 1)[0] == "base/src"
         payload = {
             "samples": [1.2],
             "mt_reason": None,
@@ -94,7 +96,14 @@ def test_parent_launches_a_fresh_worker_for_the_exact_pair(
 
     monkeypatch.setattr(isolation.subprocess, "run", run)
 
-    result = isolation.run_row("vyx", "lexic-mt", 7, 8, False)
+    result = isolation.run_row(
+        "vyx",
+        "lexic-mt",
+        7,
+        8,
+        False,
+        source_root=Path("base/src"),
+    )
 
     assert result.samples == [1.2]
     command = seen[0]
