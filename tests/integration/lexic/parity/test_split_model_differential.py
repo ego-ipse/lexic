@@ -30,7 +30,7 @@ from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
 from tools.benchmark import bench as benchmark
 from tools.benchmark.bench import _lexic, _mt_check
-from tools.benchmark.grammars import BENCHES
+from tools.benchmark.cases.grammars import BENCHES
 
 FORMULATIONS = ("native", "json.gbnf", "json.abnf", "json.ebnf")
 WORKERS = (2, 4, 8)

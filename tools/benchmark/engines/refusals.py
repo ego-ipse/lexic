@@ -13,13 +13,10 @@ limit is worse than one that stops.
 
 from __future__ import annotations
 
-# Competitor exceptions are loaded only when a competitor roster is built.
-# Lexic-only regression workers intentionally never import those packages.
-# pylint: disable=import-outside-toplevel
-
 import json
 from collections.abc import Callable
 from functools import cache
+from importlib import import_module
 
 from lexic.exceptions import LexicError
 from lexic.parsing.pda.core.errors import PdaFail
@@ -35,22 +32,17 @@ LEXIC_REFUSALS: tuple[type[BaseException], ...] = (
 @cache
 def refusals() -> tuple[type[BaseException], ...]:
     """Every engine's refusal vocabulary, imported only for competitor rows."""
-    import lark
-    import msgspec
-    import pyparsing as pp
-    from parsimonious.exceptions import (
-        BadGrammar,
-        IncompleteParseError,
-        ParseError,
-        VisitationError,
-    )
+    lark = import_module("lark")
+    msgspec = import_module("msgspec")
+    pp = import_module("pyparsing")
+    parsimonious = import_module("parsimonious.exceptions")
 
     return (
         lark.exceptions.LarkError,
-        ParseError,
-        IncompleteParseError,
-        VisitationError,
-        BadGrammar,
+        parsimonious.ParseError,
+        parsimonious.IncompleteParseError,
+        parsimonious.VisitationError,
+        parsimonious.BadGrammar,
         pp.ParseBaseException,
         # ANTLR: the strict error listener turns its recover-and-continue default
         # into a raise, and the Java bridge reports a refused parse the same way.

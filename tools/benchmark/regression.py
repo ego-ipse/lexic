@@ -3,7 +3,7 @@
 The pre-commit hook measures only Lexic, one exact grammar/engine pair per
 fresh interpreter. A value more than five percent from its checked-in record
 gets bounded adaptive confirmation. Confirmation aggregates every sample,
-starts deciding after 14 rounds, and stops after 35; it never selects a lucky
+starts deciding after 21 rounds, and stops after 35; it never selects a lucky
 batch. Sampling continues while the aggregate median's robust sigma error is
 larger than the five-percent effect being tested. At the hard bound, the median
 of all 35 samples decides; no batch is discarded or selected for its result.
@@ -24,13 +24,15 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from tools.benchmark.bench import LEXIC_ROWS, MT_ROWS, _mt_cores
-from tools.benchmark.grammars import BENCHES
-from tools.benchmark.isolation import run_row
+from tools.benchmark.bench import LEXIC_ROWS, MT_ROWS
+from tools.benchmark.cases.grammars import BENCHES
+from tools.benchmark.cases.variants import variant_marks
+from tools.benchmark.presentation.cli import _mt_cores
+from tools.benchmark.execution.isolation import Job, RowRequest, run_jobs
 
 DEFAULT_ROUNDS = 7
 CONFIRM_BATCH_ROUNDS = DEFAULT_ROUNDS
-CONFIRM_MIN_ROUNDS = DEFAULT_ROUNDS * 2
+CONFIRM_MIN_ROUNDS = DEFAULT_ROUNDS * 3
 CONFIRM_MAX_ROUNDS = DEFAULT_ROUNDS * 5
 """Bounds for targeted sequential sampling of an anomalous first pass."""
 
@@ -58,6 +60,14 @@ class Outcome(NamedTuple):
     baseline: Values
     regressions: dict[Key, tuple[float, float]]
     inconclusive: frozenset[Key]
+
+
+class Relation(NamedTuple):
+    """A row expected to be faster than its reference row."""
+
+    grammar: str
+    faster: str
+    reference: str
 
 
 def _above(target: float, value: float, threshold: float) -> bool:
@@ -124,7 +134,7 @@ def _active_keys() -> frozenset[Key]:
 
 
 def sample(keys: frozenset[Key] | None, rounds: int) -> Samples:
-    """Sample all active Lexic rows, or exactly the requested row processes."""
+    """Sample exact rows, sharing one startup per requested grammar."""
     selected = _active_keys() if keys is None else keys
     active = _active_keys()
     unavailable = selected - active
@@ -132,12 +142,24 @@ def sample(keys: frozenset[Key] | None, rounds: int) -> Samples:
         raise ValueError(f"benchmark rows are not active: {sorted(unavailable)}")
     cores = _mt_cores(None)
     measured: Samples = {}
+    jobs = [
+        Job(
+            f"{grammar}/{row}",
+            RowRequest(grammar, row, rounds, cores, False),
+        )
+        for grammar, row in sorted(selected)
+    ]
+    results = run_jobs(jobs)
     for grammar, row in sorted(selected):
-        result = run_row(grammar, row, rounds, cores, False)
+        result = results[f"{grammar}/{row}"]
         if result.refusal is not None:
             raise ValueError(f"benchmark row {grammar}/{row} refused: {result.refusal}")
         if not result.samples:
             raise ValueError(f"benchmark row {grammar}/{row} returned no samples")
+        if result.mt_reason is not None:
+            raise ValueError(
+                f"benchmark row {grammar}/{row} did not parallelize: {result.mt_reason}"
+            )
         measured[(grammar, row)] = result.samples
     return measured
 
@@ -162,7 +184,92 @@ def _relative_uncertainty(values: Sequence[float]) -> float:
     return sigma / max(abs(median), 1e-9) * 100.0
 
 
-def _state(target: float, values: Sequence[float], threshold: float) -> str | None:
+def _relations(active: frozenset[Key] | None = None) -> frozenset[Relation]:
+    """Performance ordering promised by Lexic's optimized execution modes."""
+    available = _active_keys() if active is None else active
+    expected: set[Relation] = set()
+    for bench in BENCHES:
+        lexical, non_semantic = variant_marks(bench.ast)
+        candidates = [
+            Relation(bench.name, "lexic-mt", "lexic-pda"),
+            Relation(bench.name, "lexic-mt-lex-ns", "lexic-lex-ns"),
+        ]
+        if lexical:
+            candidates.append(Relation(bench.name, "lexic-lex", "lexic-pda"))
+            candidates.append(Relation(bench.name, "lexic-mt-lex-ns", "lexic-mt"))
+        if non_semantic:
+            candidates.append(Relation(bench.name, "lexic-lex-ns", "lexic-lex"))
+        expected.update(
+            relation
+            for relation in candidates
+            if (relation.grammar, relation.faster) in available
+            and (relation.grammar, relation.reference) in available
+        )
+    return frozenset(expected)
+
+
+def relation_failures(
+    values: Values,
+    relations: frozenset[Relation] | None = None,
+    threshold: float = DEFAULT_THRESHOLD,
+) -> frozenset[Relation]:
+    """Return optimized rows slower than their references by the guard margin."""
+    checked = _relations(frozenset(values)) if relations is None else relations
+    return frozenset(
+        relation
+        for relation in checked
+        if _above(
+            values[(relation.grammar, relation.reference)],
+            values[(relation.grammar, relation.faster)],
+            threshold,
+        )
+    )
+
+
+def _relation_keys(relations: frozenset[Relation]) -> frozenset[Key]:
+    """Both measured sides of a set of ordering relations."""
+    return frozenset(
+        (relation.grammar, row)
+        for relation in relations
+        for row in (relation.faster, relation.reference)
+    )
+
+
+def _relation_uncertainty(samples: Samples, relation: Relation) -> float:
+    """Combined one-sigma uncertainty of one optimized/reference pair."""
+    faster = samples[(relation.grammar, relation.faster)]
+    reference = samples[(relation.grammar, relation.reference)]
+    return (
+        _relative_uncertainty(faster) ** 2 + _relative_uncertainty(reference) ** 2
+    ) ** 0.5
+
+
+def confirm_relations(
+    relations: frozenset[Relation], threshold: float = DEFAULT_THRESHOLD
+) -> tuple[Values, frozenset[Relation]]:
+    """Repeat only rows in anomalous order, bounded by their paired sigma."""
+    keys = _relation_keys(relations)
+    accumulated: Samples = {key: [] for key in keys}
+    rounds = 0
+    pending = relations
+    while pending and rounds < CONFIRM_MAX_ROUNDS:
+        batch = min(CONFIRM_BATCH_ROUNDS, CONFIRM_MAX_ROUNDS - rounds)
+        observed = sample(_relation_keys(pending), batch)
+        for key, values in observed.items():
+            accumulated[key].extend(values)
+        rounds += batch
+        if rounds < CONFIRM_MIN_ROUNDS:
+            continue
+        pending = frozenset(
+            relation
+            for relation in pending
+            if _relation_uncertainty(accumulated, relation) > threshold
+        )
+    medians = {key: _median(values) for key, values in accumulated.items() if values}
+    return medians, relation_failures(medians, relations, threshold)
+
+
+def state(target: float, values: Sequence[float], threshold: float) -> str | None:
     """Classify a precise aggregate median, or request another sigma batch."""
     if _relative_uncertainty(values) > threshold:
         return None
@@ -193,18 +300,21 @@ def confirmation(
     rounds = 0
     while pending and rounds < CONFIRM_MAX_ROUNDS:
         batch = min(CONFIRM_BATCH_ROUNDS, CONFIRM_MAX_ROUNDS - rounds)
-        for key in sorted(pending):
-            observed = sample(frozenset({key}), batch)
-            if observed.keys() != {key}:
-                raise ValueError(f"confirmation omitted benchmark row: {key}")
+        observed = sample(pending, batch)
+        if observed.keys() != pending:
+            raise ValueError(
+                "confirmation row mismatch: "
+                f"expected={sorted(pending)}, observed={sorted(observed)}"
+            )
+        for key in pending:
             accumulated[key].extend(observed[key])
         rounds += batch
         if rounds < CONFIRM_MIN_ROUNDS:
             continue
         next_pending = set()
         for key in pending:
-            state = _state(baseline[key], accumulated[key], threshold)
-            if state is None:
+            classification = state(baseline[key], accumulated[key], threshold)
+            if classification is None:
                 next_pending.add(key)
             else:
                 resolved[key] = _median(accumulated[key])
@@ -219,11 +329,15 @@ def confirmation(
 
     # New rows have no decision boundary. Give each the full bounded sample so
     # their first stored target is not a seven-round outlier.
-    for key in sorted(new):
-        observed = sample(frozenset({key}), CONFIRM_MAX_ROUNDS)
-        if observed.keys() != {key}:
-            raise ValueError(f"confirmation omitted benchmark row: {key}")
-        resolved[key] = _median(observed[key])
+    if new:
+        observed = sample(frozenset(new), CONFIRM_MAX_ROUNDS)
+        if observed.keys() != new:
+            raise ValueError(
+                "new-row confirmation mismatch: "
+                f"expected={sorted(new)}, observed={sorted(observed)}"
+            )
+        for key in new:
+            resolved[key] = _median(observed[key])
     return Confirmed(resolved, pending)
 
 
@@ -266,6 +380,32 @@ def _change(old: float, new: float) -> float:
     return (new - old) / old * 100.0
 
 
+def _ordering_is_safe(first: Values) -> bool:
+    """Confirm and report first-pass execution-mode ordering anomalies."""
+    anomalous = relation_failures(first)
+    if not anomalous:
+        return True
+    labels = ", ".join(
+        f"{relation.grammar}/{relation.faster}>{relation.reference}"
+        for relation in sorted(anomalous)
+    )
+    print(
+        f"confirming execution-order anomalies only (sigma-adaptive "
+        f"{CONFIRM_MIN_ROUNDS}-{CONFIRM_MAX_ROUNDS} aggregate rounds): {labels}"
+    )
+    repeated, failures = confirm_relations(anomalous)
+    for relation in sorted(failures):
+        faster = repeated[(relation.grammar, relation.faster)]
+        reference = repeated[(relation.grammar, relation.reference)]
+        print(
+            f"  {relation.grammar}/{relation.faster}: {faster:.6f}; "
+            f"expected <= {relation.reference}: {reference:.6f}"
+        )
+    if failures:
+        print("Lexic execution-mode performance regression confirmed")
+    return not failures
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the ratchet and return non-zero for unsafe or unresolved rows."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -278,9 +418,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     before = load()
     print(
-        f"lexic benchmark guard: isolated first pass ({DEFAULT_ROUNDS} rounds per row)"
+        f"lexic benchmark guard: uncontended first pass "
+        f"({DEFAULT_ROUNDS} rounds per row)"
     )
     first = measure(None)
+    if not _ordering_is_safe(first):
+        return 1
 
     def confirm(keys: frozenset[Key]) -> Confirmed:
         labels = ", ".join(f"{grammar}/{row}" for grammar, row in sorted(keys))

@@ -28,10 +28,6 @@ from tests.unit.lexic.parsing.earley.kernel.forest.forest_helpers import (
 AMBIGUOUS_EXPR = 'e ::= e "+" e | "n"\n'
 
 
-class _NoEquality:  # pylint: disable=too-few-public-methods
-    """A type that declines to define ``__eq__`` — same_value's "cannot tell" case."""
-
-
 def test_same_value_is_type_aware_an_ir_leaf_and_its_bare_text_differ():
     """Bare ``==`` would call these equal (the IR wraps ``str``); type
     awareness is exactly what fixes that false positive."""
@@ -56,7 +52,7 @@ def test_same_value_compares_tuples_and_dicts_structurally():
 def test_same_value_treats_a_type_with_no_eq_as_indistinguishable():
     """Declining to define equality is "cannot tell", which reads as no
     observable difference rather than a refusal."""
-    assert same_value(_NoEquality(), _NoEquality())
+    assert same_value(object(), object())
 
 
 def test_ambiguity_points_is_empty_for_an_unambiguous_grammar():

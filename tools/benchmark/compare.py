@@ -13,8 +13,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from tools.benchmark.bench import _mt_cores
-from tools.benchmark.isolation import run_row
+from tools.benchmark.presentation.cli import _mt_cores
+from tools.benchmark.execution.isolation import IsolatedRow, Job, RowRequest, run_jobs
 from tools.benchmark.regression import (
     CONFIRM_BATCH_ROUNDS,
     CONFIRM_MAX_ROUNDS,
@@ -41,24 +41,6 @@ class Pair(NamedTuple):
 Pairs = dict[Key, Pair]
 
 
-def _one(key: Key, rounds: int, source_root: Path) -> list[float]:
-    """Measure one source tree through HEAD's exact-row worker harness."""
-    grammar, row = key
-    result = run_row(
-        grammar,
-        row,
-        rounds,
-        _mt_cores(None),
-        False,
-        source_root=source_root,
-    )
-    if result.refusal is not None:
-        raise ValueError(f"{source_root}: {grammar}/{row} refused: {result.refusal}")
-    if not result.samples:
-        raise ValueError(f"{source_root}: {grammar}/{row} returned no samples")
-    return result.samples
-
-
 def sample_pair(
     keys: frozenset[Key],
     rounds: int,
@@ -67,18 +49,41 @@ def sample_pair(
     *,
     flip: bool = False,
 ) -> Pairs:
-    """Measure exact base/head pairs, alternating which tree runs first."""
-    measured: Pairs = {}
+    """Prepare exact A/B workers together, then alternate uncontended timings."""
+    jobs: list[Job] = []
     for index, key in enumerate(sorted(keys)):
+        grammar, row = key
         head_first = bool(index % 2) is not flip
-        if head_first:
-            head = _one(key, rounds, head_source)
-            base = _one(key, rounds, base_source)
-        else:
-            base = _one(key, rounds, base_source)
-            head = _one(key, rounds, head_source)
-        measured[key] = Pair(base, head)
-    return measured
+        sources = (
+            (("head", head_source), ("base", base_source))
+            if head_first
+            else (("base", base_source), ("head", head_source))
+        )
+        jobs.extend(
+            Job(
+                f"{grammar}/{row}/{side}",
+                RowRequest(grammar, row, rounds, _mt_cores(None), False),
+                source,
+            )
+            for side, source in sources
+        )
+    results = run_jobs(jobs)
+
+    def samples(key: Key, side: str) -> list[float]:
+        grammar, row = key
+        result: IsolatedRow = results[f"{grammar}/{row}/{side}"]
+        source = base_source if side == "base" else head_source
+        if result.refusal is not None:
+            raise ValueError(f"{source}: {grammar}/{row} refused: {result.refusal}")
+        if not result.samples:
+            raise ValueError(f"{source}: {grammar}/{row} returned no samples")
+        if result.mt_reason is not None:
+            raise ValueError(
+                f"{source}: {grammar}/{row} did not parallelize: {result.mt_reason}"
+            )
+        return result.samples
+
+    return {key: Pair(samples(key, "base"), samples(key, "head")) for key in keys}
 
 
 def medians(pairs: Pairs) -> tuple[Values, Values]:

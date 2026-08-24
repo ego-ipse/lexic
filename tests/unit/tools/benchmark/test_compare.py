@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tools.benchmark import compare
+from tools.benchmark.execution.isolation import IsolatedRow, Job
 from tools.benchmark.regression import save
 
 JSON_PDA: compare.Key = ("json", "lexic-pda")
@@ -19,23 +20,33 @@ def test_pair_sampler_alternates_which_source_tree_runs_first(
     """Base/head order cannot become a fixed thermal advantage."""
     base = Path("base/src")
     head = Path("head/src")
-    calls: list[tuple[compare.Key, Path]] = []
+    seen: list[Job] = []
 
-    def one(key: compare.Key, _rounds: int, source: Path) -> list[float]:
-        calls.append((key, source))
-        return [1.0 if source == base else 1.1]
+    def jobs(requests: list[Job]) -> dict[str, IsolatedRow]:
+        seen.extend(requests)
+        return {
+            job.label: IsolatedRow(
+                [1.0 if job.source_root == base else 1.1],
+                None,
+                None,
+                None,
+                None,
+                0.0,
+            )
+            for job in requests
+        }
 
-    monkeypatch.setattr(compare, "_one", one)
+    monkeypatch.setattr(compare, "run_jobs", jobs)
     result = compare.sample_pair(frozenset({JSON_PDA, VYX_LEX}), 7, base, head)
 
     assert set(result) == {JSON_PDA, VYX_LEX}
-    assert [source for _key, source in calls] == [base, head, head, base]
+    assert [job.source_root for job in seen] == [base, head, head, base]
 
 
-def test_confirmation_aggregates_two_exact_ab_batches_before_deciding(
+def test_confirmation_aggregates_three_exact_ab_batches_before_deciding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A stable slowdown is confirmed from 14 samples of each source tree."""
+    """A stable slowdown is confirmed from 21 samples of each source tree."""
     calls: list[tuple[frozenset[compare.Key], int, bool]] = []
 
     def paired(
@@ -56,6 +67,7 @@ def test_confirmation_aggregates_two_exact_ab_batches_before_deciding(
     assert calls == [
         (frozenset({JSON_PDA}), 7, False),
         (frozenset({JSON_PDA}), 7, True),
+        (frozenset({JSON_PDA}), 7, False),
     ]
 
 

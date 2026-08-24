@@ -6,17 +6,22 @@ from io import BytesIO
 from types import SimpleNamespace
 from typing import Any, cast
 
-from tools.benchmark.antlr_java import JavaAntlr
+from tools.benchmark.engines.antlr_java import JavaAntlr
 
 
 def test_the_first_successful_parse_records_cold_cost_per_character() -> None:
+    """The cold number is captured once and remains stable after warm parses."""
     parser = cast(Any, object.__new__(JavaAntlr))
-    parser._proc = SimpleNamespace(
-        stdin=BytesIO(),
-        stdout=BytesIO(b"OK 6500 100\nOK 1000 50\n"),
+    vars(parser).update(
+        {
+            "_proc": SimpleNamespace(
+                stdin=BytesIO(),
+                stdout=BytesIO(b"OK 6500 100\nOK 1000 50\n"),
+            ),
+            "_parse_ns": 0.0,
+            "_stream_ns": 0.0,
+        }
     )
-    parser._parse_ns = 0.0
-    parser._stream_ns = 0.0
     parser.cold_us_per_char = None
 
     parser("ab")

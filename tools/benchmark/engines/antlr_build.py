@@ -21,8 +21,8 @@ from pathlib import Path
 from antlr4 import CommonTokenStream, InputStream
 
 from lexic.ir import IrAst
-from tools.benchmark.directives import NO_MARKS, Marks
-from tools.benchmark.emit import antlr_grammar
+from tools.benchmark.emitters.directives import NO_MARKS, Marks
+from tools.benchmark.emitters.structured import antlr_grammar
 
 BUILD_ROOT = Path(tempfile.mkdtemp(prefix="lexic-antlr-"))
 """Where generated parsers live. Kept for the process, not per call."""

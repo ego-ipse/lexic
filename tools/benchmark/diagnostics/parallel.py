@@ -11,7 +11,7 @@ also measures document-level speedup — N threads parsing N copies of the
 corpus against one shared artefact. On a GIL build it prints the gate
 reason instead of a misleading number: splitting there measured 0.82–0.92x.
 
-    uv run python -m tools.benchmark.parallel
+    uv run python -m tools.benchmark.diagnostics.parallel
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from lexic.parsing.parallel import (
     roles,
     worker_count,
 )
-from tools.benchmark.grammars import BENCHES
+from tools.benchmark.cases.grammars import BENCHES
 
 
 def _free_threaded() -> bool:

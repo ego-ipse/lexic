@@ -4,7 +4,7 @@
   "rounds": 7,
   "confirmation_rounds": {
     "batch": 7,
-    "minimum": 14,
+    "minimum": 21,
     "maximum": 35
   },
   "threshold_percent": 5.0,
@@ -13,8 +13,8 @@
       "lexic-earley": 69.295262,
       "lexic-lex": 2.185511,
       "lexic-lex-ns": 1.843783,
-      "lexic-mt": 0.513315,
-      "lexic-mt-lex-ns": 0.431951,
+      "lexic-mt": 0.486621,
+      "lexic-mt-lex-ns": 0.395459,
       "lexic-pda": 2.28506
     },
     "announced": {
@@ -38,7 +38,7 @@
       "lexic-lex": 0.185581,
       "lexic-lex-ns": 0.18425,
       "lexic-mt": 0.082704,
-      "lexic-mt-lex-ns": 0.073964,
+      "lexic-mt-lex-ns": 0.065854,
       "lexic-pda": 0.256557
     },
     "csv": {
@@ -53,8 +53,8 @@
       "lexic-earley": 70.511012,
       "lexic-lex": 2.279686,
       "lexic-lex-ns": 2.312871,
-      "lexic-mt": 0.547672,
-      "lexic-mt-lex-ns": 4.070046,
+      "lexic-mt": 0.507658,
+      "lexic-mt-lex-ns": 0.461098,
       "lexic-pda": 2.624278
     },
     "json": {
@@ -101,8 +101,8 @@
       "lexic-earley": 55.607896,
       "lexic-lex": 2.393937,
       "lexic-lex-ns": 2.409649,
-      "lexic-mt": 0.493303,
-      "lexic-mt-lex-ns": 0.451624,
+      "lexic-mt": 0.468175,
+      "lexic-mt-lex-ns": 0.411327,
       "lexic-pda": 2.734899
     }
   }

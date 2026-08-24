@@ -31,12 +31,14 @@ from tools.benchmark.bench import (
     Parse,
     _competitors,
     _interleaved,
-    _warmup_note,
     unfaithful,
 )
-from tools.benchmark.charsets import of_points
-from tools.benchmark.emit import antlr_grammar, lexical_layer, peg_grammar
-from tools.benchmark.grammars import BENCHES, Bench, variant_marks
+from tools.benchmark.cases.grammars import BENCHES, Bench
+from tools.benchmark.cases.variants import variant_marks
+from tools.benchmark.emitters.charsets import of_points
+from tools.benchmark.emitters.emit import lexical_layer, peg_grammar
+from tools.benchmark.emitters.structured import antlr_grammar
+from tools.benchmark.presentation.reporting import _warmup_note
 
 _ALL = frozenset(
     {

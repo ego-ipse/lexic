@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from tools.benchmark import regression
-from tools.benchmark.isolation import IsolatedRow
+from tools.benchmark.execution.isolation import IsolatedRow, Job, RowRequest
 from tools.benchmark.regression import Confirmed, assess
 
 JSON_PDA: regression.Key = ("json", "lexic-pda")
@@ -87,30 +87,34 @@ def test_inconclusive_confirmation_never_changes_the_record() -> None:
     assert outcome.inconclusive == frozenset({JSON_PDA})
 
 
-def test_targeted_sample_launches_only_the_exact_requested_row(
+def test_targeted_sample_prepares_only_the_exact_requested_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A repeat constructs neither third-party parsers nor neighbouring Lexic rows."""
-    seen: list[tuple[str, str, int, int | None, bool]] = []
-    monkeypatch.setattr(regression, "_active_keys", lambda: frozenset({JSON_PDA}))
+    json_lex = ("json", "lexic-lex")
+    selected = frozenset({JSON_PDA, json_lex})
+    seen: list[Job] = []
+    monkeypatch.setattr(regression, "_active_keys", lambda: selected)
     monkeypatch.setattr(regression, "_mt_cores", lambda _asked: 4)
 
-    def run_row(
-        grammar: str, row: str, rounds: int, cores: int | None, full: bool
-    ) -> IsolatedRow:
-        seen.append((grammar, row, rounds, cores, full))
-        return IsolatedRow([2.0, 1.8, 1.9], None, None, None, None, 0.0)
+    def run_jobs(jobs: list[Job]) -> dict[str, IsolatedRow]:
+        result = IsolatedRow([2.0, 1.8, 1.9], None, None, None, None, 0.0)
+        seen.extend(jobs)
+        return {job.label: result for job in jobs}
 
-    monkeypatch.setattr(regression, "run_row", run_row)
+    monkeypatch.setattr(regression, "run_jobs", run_jobs)
 
-    assert regression.measure(frozenset({JSON_PDA}), 3) == {JSON_PDA: 1.9}
-    assert seen == [("json", "lexic-pda", 3, 4, False)]
+    assert regression.measure(selected, 3) == {JSON_PDA: 1.9, json_lex: 1.9}
+    assert seen == [
+        Job("json/lexic-lex", RowRequest("json", "lexic-lex", 3, 4, False)),
+        Job("json/lexic-pda", RowRequest("json", "lexic-pda", 3, 4, False)),
+    ]
 
 
-def test_confirmation_resolves_stable_rows_after_fourteen_aggregate_rounds(
+def test_confirmation_resolves_stable_rows_after_twenty_one_aggregate_rounds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Stable recovery and regression use all 14 samples, not a lucky batch."""
+    """Stable recovery and regression use three batches, not a lucky pair."""
     vyx_pda = ("vyx", "lexic-pda")
     keys = frozenset({JSON_PDA, vyx_pda})
     calls: list[tuple[frozenset[tuple[str, str]], int]] = []
@@ -118,18 +122,16 @@ def test_confirmation_resolves_stable_rows_after_fourteen_aggregate_rounds(
     def sampled(
         selected: frozenset[tuple[str, str]] | None, rounds: int
     ) -> dict[tuple[str, str], list[float]]:
-        assert selected is not None and len(selected) == 1
+        assert selected is not None
         calls.append((selected, rounds))
-        key = next(iter(selected))
-        value = 2.0 if key == JSON_PDA else 3.3
-        return {key: [value] * rounds}
+        return {key: [2.0 if key == JSON_PDA else 3.3] * rounds for key in selected}
 
     monkeypatch.setattr(regression, "sample", sampled)
     result = regression.confirmation(keys, {JSON_PDA: 2.0, vyx_pda: 3.0})
 
     assert result == Confirmed({JSON_PDA: 2.0, vyx_pda: 3.3}, frozenset())
-    assert sum(rounds for selected, rounds in calls if JSON_PDA in selected) == 14
-    assert sum(rounds for selected, rounds in calls if vyx_pda in selected) == 14
+    assert sum(rounds for selected, rounds in calls if JSON_PDA in selected) == 21
+    assert sum(rounds for selected, rounds in calls if vyx_pda in selected) == 21
 
 
 def test_confirmation_aggregates_every_batch_before_bounded_decision(
@@ -160,8 +162,53 @@ def test_more_rounds_reduce_sigma_before_classifying_an_anomaly() -> None:
     """A noisy median is deferred at 14 and trusted after its error shrinks."""
     batch = [1.72, 1.86, 1.99, 2.12, 2.25, 2.38, 2.52]
 
-    assert regression._state(2.0, batch * 2, 5.0) is None
-    assert regression._state(2.0, batch * 5, 5.0) == "regression"
+    assert regression.state(2.0, batch * 2, 5.0) is None
+    assert regression.state(2.0, batch * 5, 5.0) == "regression"
+
+
+def test_execution_relation_flags_only_a_materially_slower_optimized_row() -> None:
+    """Mode ordering uses the same five-percent trigger as stored targets."""
+    relation = regression.Relation("json", "lexic-lex-ns", "lexic-lex")
+    rows = frozenset({relation})
+
+    assert (
+        regression.relation_failures(
+            {("json", "lexic-lex"): 1.0, ("json", "lexic-lex-ns"): 1.04}, rows
+        )
+        == frozenset()
+    )
+    assert (
+        regression.relation_failures(
+            {("json", "lexic-lex"): 1.0, ("json", "lexic-lex-ns"): 1.06}, rows
+        )
+        == rows
+    )
+
+
+def test_relation_confirmation_repeats_only_both_sides_of_anomaly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ordering confirmation is paired, bounded, and excludes unrelated rows."""
+    relation = regression.Relation("json", "lexic-lex-ns", "lexic-lex")
+    expected = frozenset({("json", "lexic-lex-ns"), ("json", "lexic-lex")})
+    calls: list[frozenset[regression.Key]] = []
+
+    def sampled(
+        selected: frozenset[regression.Key] | None, rounds: int
+    ) -> regression.Samples:
+        assert selected is not None
+        assert selected == expected
+        calls.append(selected)
+        return {
+            ("json", "lexic-lex"): [1.0] * rounds,
+            ("json", "lexic-lex-ns"): [1.1] * rounds,
+        }
+
+    monkeypatch.setattr(regression, "sample", sampled)
+    _values, failures = regression.confirm_relations(frozenset({relation}))
+
+    assert failures == frozenset({relation})
+    assert calls == [expected, expected]
 
 
 def test_new_row_gets_the_full_bounded_measurement(

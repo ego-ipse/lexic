@@ -26,8 +26,8 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from lexic.ir import IrAst
-from tools.benchmark.antlr_build import TOOL_VERSION, generate
-from tools.benchmark.directives import NO_MARKS, Marks
+from tools.benchmark.emitters.directives import NO_MARKS, Marks
+from tools.benchmark.engines.antlr_build import TOOL_VERSION, generate
 
 _JAR = Path.home() / f".m2/repository/org/antlr/antlr4/{TOOL_VERSION}"
 """Where `antlr4-tools` leaves the jar it fetched — it carries the Java runtime."""

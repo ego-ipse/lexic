@@ -6,15 +6,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 SOURCE_ROOT = ROOT / "src"
+BENCHMARK_ROOT = ROOT / "tools" / "benchmark"
+MAINTAINED_ROOTS = (SOURCE_ROOT, BENCHMARK_ROOT)
 MAX_SOURCE_LINES = 700
 MAX_FOLDER_FILES = 6
 
 
 def source_files() -> list[Path]:
-    """Regular source-tree files, excluding interpreter cache artefacts."""
+    """Maintained source files, excluding interpreter cache artefacts."""
     return sorted(
         path
-        for path in SOURCE_ROOT.rglob("*")
+        for root in MAINTAINED_ROOTS
+        for path in root.rglob("*")
         if path.is_file()
         and "__pycache__" not in path.parts
         and path.suffix not in {".pyc", ".pyo"}
@@ -22,15 +25,18 @@ def source_files() -> list[Path]:
 
 
 def active_source_dirs() -> set[Path]:
-    """Directories containing a source file below them, up through ``src``."""
-    active = {SOURCE_ROOT}
-    for path in source_files():
-        parent = path.parent
-        while parent.is_relative_to(SOURCE_ROOT):
-            active.add(parent)
-            if parent == SOURCE_ROOT:
-                break
-            parent = parent.parent
+    """Directories containing maintained files, up through their owned root."""
+    active = set(MAINTAINED_ROOTS)
+    for root in MAINTAINED_ROOTS:
+        for path in source_files():
+            if not path.is_relative_to(root):
+                continue
+            parent = path.parent
+            while parent.is_relative_to(root):
+                active.add(parent)
+                if parent == root:
+                    break
+                parent = parent.parent
     return active
 
 

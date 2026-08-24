@@ -1,0 +1,1 @@
+"""Isolated benchmark execution protocol."""

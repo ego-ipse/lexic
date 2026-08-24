@@ -41,35 +41,27 @@ noise floor says what difference must be beaten.
 
 from __future__ import annotations
 
-# Competitors are imported inside their builders on purpose: a Lexic-only
-# worker must not construct or import parsers it is not measuring. This module
-# also owns the report roster, which is just over pylint's generic size limit.
-# pylint: disable=import-outside-toplevel,too-many-lines
-
-import argparse
 import gc
 import json
-import os
 import random
 import re
-import sys
 import time
 from collections.abc import Callable, Sequence
-from math import log10
+from importlib import import_module
 from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar, Directives, compile_text
 from lexic.exceptions import LexicError
-from lexic.parsing.parallel import AUTO, available_workers, split_model
+from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import _model_product, earley_model, parse_model
 from lexic.parsing.trace import watch
-from tools.benchmark.directives import NO_MARKS
-from tools.benchmark.grammars import BENCHES, Bench, variant_marks
-from tools.benchmark.isolation import IsolatedRow, noise_floor, run_row
-from tools.benchmark.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
+from tools.benchmark.cases.grammars import Bench
+from tools.benchmark.cases.variants import variant_marks
+from tools.benchmark.emitters.directives import NO_MARKS
+from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -177,7 +169,6 @@ LEXIC_ROWS = frozenset(
 def _lexic(
     bench: Bench, cores: int | None, only: frozenset[str] | None = None
 ) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
-    # pylint: disable=too-many-locals
     """Both lexic engines over one compiled product — the PDA and Earley.
 
     Same grammar, same fold, same model: the only difference is which engine
@@ -226,8 +217,20 @@ def _lexic(
     variant_rows = wanted & {"lexic-lex", "lexic-lex-ns", "lexic-mt-lex-ns"}
     if not variant_rows:
         return engines, mt_artifacts
+    variants, variant_artifacts = _variant_engines(bench, wanted, cores)
+    engines.update(variants)
+    mt_artifacts.update(variant_artifacts)
+    return engines, mt_artifacts
+
+
+def _variant_engines(
+    bench: Bench, wanted: frozenset[str], cores: int | None
+) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
+    """Compile only the requested directive-bearing Lexic variants."""
     lex_marks, ns_marks = variant_marks(bench.ast)
     lex_marks = _licensed_marks(bench, lex_marks)
+    engines: dict[str, Parse] = {}
+    artifacts: dict[str, CompiledGrammar] = {}
     for label, directives in (
         ("lexic-lex", Directives(lexical=lex_marks)),
         ("lexic-lex-ns", Directives(lexical=lex_marks, non_semantic=ns_marks)),
@@ -255,8 +258,8 @@ def _lexic(
             engines["lexic-mt-lex-ns"] = lambda text, parse=variant.parse: parse(
                 text, cores=cores
             )
-            mt_artifacts["lexic-mt-lex-ns"] = variant
-    return engines, mt_artifacts
+            artifacts["lexic-mt-lex-ns"] = variant
+    return engines, artifacts
 
 
 def _decision_cost(compiled, corpus: str) -> int | None:
@@ -353,10 +356,8 @@ def _lark_parse(bench: Bench, parser: str, marked: bool = False) -> Parse:
     :param marked: Translate the grammar's own directives too — see
         :data:`PRODUCT` for why that is a seat rather than a correction.
     """
-    import lark
-
-    from tools.benchmark.emit import lark_grammar
-
+    lark = import_module("lark")
+    lark_grammar = import_module("tools.benchmark.emitters.emit").lark_grammar
     marks = variant_marks(bench.ast) if marked else NO_MARKS
     text = lark_grammar(bench.ast, refine=parser == "lalr", marks=marks)
     return lark.Lark(text, parser=parser).parse
@@ -371,18 +372,16 @@ def _peg_parse(bench: Bench, marked: bool = False) -> Parse:
     regex engine, so the grammar is compiled under the faster module — a
     construction-time swap only; matching runs on the compiled patterns.
     """
-    import parsimonious
-    import parsimonious.expressions
-
-    from tools.benchmark.emit import peg_grammar
-
-    preferred = getattr(parsimonious.expressions, "re")
-    setattr(parsimonious.expressions, "re", re)
+    parsimonious = import_module("parsimonious")
+    expressions = import_module("parsimonious.expressions")
+    peg_grammar = import_module("tools.benchmark.emitters.emit").peg_grammar
+    preferred = getattr(expressions, "re")
+    setattr(expressions, "re", re)
     try:
         marks = variant_marks(bench.ast) if marked else NO_MARKS
         return parsimonious.Grammar(peg_grammar(bench.ast, marks)).parse
     finally:
-        setattr(parsimonious.expressions, "re", preferred)
+        setattr(expressions, "re", preferred)
 
 
 def _pp_parse(bench: Bench) -> Parse:
@@ -397,8 +396,9 @@ def _pp_parse(bench: Bench) -> Parse:
     a person hitting the bug would do, and it gives pyparsing its best HONEST
     number per grammar rather than its fastest wrong one.
     """
-    from tools.benchmark.emit import pyparsing_parser
-
+    pyparsing_parser = import_module(
+        "tools.benchmark.emitters.structured"
+    ).pyparsing_parser
     quick = pyparsing_parser(bench.ast, longest=False)
 
     def cheap(body: str) -> object:
@@ -412,8 +412,9 @@ def _pp_parse(bench: Bench) -> Parse:
 
 def _java_parse(bench: Bench, marked: bool = False) -> Parse:
     """Build one Java ANTLR row without importing ANTLR for Lexic workers."""
-    from tools.benchmark.antlr_java import java_antlr_parser
-
+    java_antlr_parser = import_module(
+        "tools.benchmark.engines.antlr_java"
+    ).java_antlr_parser
     marks = variant_marks(bench.ast) if marked else NO_MARKS
     suffix = "-lex" if marked else ""
     return java_antlr_parser(bench.ast, _antlr_name(bench.name + suffix), marks)
@@ -421,8 +422,7 @@ def _java_parse(bench: Bench, marked: bool = False) -> Parse:
 
 def _antlr_parse(bench: Bench, marked: bool = False) -> Parse:
     """Build one Python ANTLR row without importing ANTLR for Lexic workers."""
-    from tools.benchmark.antlr_build import antlr_parser
-
+    antlr_parser = import_module("tools.benchmark.engines.antlr_build").antlr_parser
     marks = variant_marks(bench.ast) if marked else NO_MARKS
     suffix = "-lex" if marked else ""
     return antlr_parser(bench.ast, _antlr_name(bench.name + suffix), marks)
@@ -430,8 +430,7 @@ def _antlr_parse(bench: Bench, marked: bool = False) -> Parse:
 
 def _msgspec_parse(_bench: Bench) -> Parse:
     """Load msgspec only when its JSON specialist row is requested."""
-    import msgspec
-
+    msgspec = import_module("msgspec")
     return msgspec.json.decode
 
 
@@ -511,7 +510,7 @@ class EngineBuild(NamedTuple):
     artifact: CompiledGrammar | None
 
 
-def _one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> EngineBuild:
+def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> EngineBuild:
     """Construct and validate exactly one requested benchmark row."""
     document = bench.full if full or name in MT_ROWS else bench.corpus
     artifact = None
@@ -591,12 +590,9 @@ def _interleaved(
     collection work into a later sample.
 
     Immediately before its timed pass, each row gets one untimed pass of ITSELF.
-    A same-engine untimed pass immediately before the clock makes each sample
-    a hot execution. This was introduced after foreign rows displaced 5–6% of
-    the working set; fresh worker isolation now removes the foreign rows too.
-    The reported noun remains ONE timed parse and the statistic remains the
-    median — no batching, division, or fastest-run swap. Multiple entries are
-    retained for controlled harness tests, but public workers pass one row.
+    This keeps every sample in the same hot-parse state even after allocator or
+    collection work. The reported noun remains ONE timed parse and the
+    statistic remains the median — no batching or fastest-run selection.
     """
     for name, parse in engines.items():
         _prime(parse, texts[name])
@@ -606,7 +602,7 @@ def _interleaved(
     for _ in range(rounds):
         rng.shuffle(seats)
         for name, parse in seats:
-            parse(texts[name])  # untimed: restore this row's own hot working set
+            parse(texts[name])
             samples[name].append(_once(parse, texts[name]))
             gc.collect()
     return samples
@@ -626,140 +622,6 @@ def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
     first = _medians(_interleaved({"a": parse}, {"a": corpus}, rounds))["a"]
     second = _medians(_interleaved({"a": parse}, {"a": corpus}, rounds))["a"]
     return abs(first - second) / max(first, second, 1e-9) * 100
-
-
-_WARM_CONVERGED = 150
-"""Warmup parses below which a JIT row has historically landed in its slow
-mode. Requiring three consecutive stable batches converges the json row 4 runs
-in 5 (0.118-0.148 µs/char, 192-204 parses) where one window converged 1 in 6;
-a run that settles sooner than this is reported as SHORT, because the residual
-bimodality is real and an unstated error bar is the thing to avoid."""
-
-BAR_WIDTH = 40
-"""Bar length. Wide enough that a 2x gap reads differently from a 4x one —
-at 22 columns the log scale gave them three characters between them."""
-
-_TINT: dict[str, str] = {
-    "lexic-pda": "\x1b[38;5;39m",
-    "lexic-lex": "\x1b[38;5;45m",
-    "lexic-lex-ns": "\x1b[38;5;51m",
-    "lexic-earley": "\x1b[38;5;208m",
-    "lexic-mt": "\x1b[38;5;118m",
-    "lexic-mt-lex-ns": "\x1b[38;5;84m",
-    "stdlib-json": "\x1b[38;5;213m",
-    "msgspec": "\x1b[38;5;213m",
-    "lark-earley-lex": "\x1b[38;5;250m",
-    "lark-lalr-lex": "\x1b[38;5;250m",
-    "parsimonious-lex": "\x1b[38;5;250m",
-    "antlr-lex": "\x1b[38;5;250m",
-    "antlr-py-lex": "\x1b[38;5;250m",
-}
-"""One distinct colour per lexic mode — the two rows this benchmark exists to
-place are findable at a glance — plus one shared tint for the format
-specialists, marking rows that answer a DIFFERENT question (no grammar taken).
-Competitors keep the terminal's default foreground: colour marks whose row it
-is and what kind, never better or worse.
-
-The directive-matched lark seats take a DARKER tone of that default rather than
-a colour of their own, because they are not a different tool — they are the
-same one handed the grammar's own directives, and the pair reads as a pair."""
-
-_DIM = "\x1b[2m"
-_RESET = "\x1b[0m"
-
-
-def _use_color(force: bool) -> bool:
-    """Colour when forced, else only on a real terminal nobody opted out of.
-
-    ``NO_COLOR`` (the informal cross-tool convention) wins over tty detection;
-    piped output stays clean ANSI-free text either way.
-    """
-    return force or (sys.stdout.isatty() and "NO_COLOR" not in os.environ)
-
-
-def _paint(text: str, code: str, on: bool) -> str:
-    """``text`` wrapped in one ANSI colour, when colour is on and one applies."""
-    return f"{code}{text}{_RESET}" if on and code else text
-
-
-def _bar(value: float, best: float, worst: float) -> str:
-    """A log-scaled bar, full width at the SLOWEST engine in this block.
-
-    The scale used to be a fixed two decades, which saturated the moment one
-    engine was 100x another — and with a JIT'd Java column in the table that is
-    most rows. Every bar hit full width and the picture said nothing. Anchoring
-    the top of the scale to the block's own worst ratio keeps the shape readable
-    however far apart the engines turn out to be.
-    """
-    span = log10(max(worst / best, 10.0))
-    ratio = max(value / best, 1.0)
-    filled = min(BAR_WIDTH, round(log10(ratio) / span * BAR_WIDTH))
-    return "█" * filled + "·" * (BAR_WIDTH - filled)
-
-
-SPECIALISTS = frozenset(name for name, _make in _JSON_SPECIALISTS)
-"""Rows that take NO grammar — hand-written C for one fixed format."""
-
-
-def _amount(value: float) -> str:
-    """One timing, in the unit that keeps its significant digits.
-
-    Under a microsecond, three decimals of `µs/char` spends the whole number on
-    leading zeros: the fastest rows here are tens of nanoseconds and `0.045`
-    says less than `45.0` does.
-    """
-    return f"{value * 1000:9.1f} ns/char" if value < 1.0 else f"{value:9.3f} µs/char"
-
-
-def _ranked_rows(timings: dict[str, float], color: bool) -> None:
-    """The timed rows, fastest first, each with its bar and product.
-
-    The `base` is the fastest engine that TAKES A GRAMMAR. A format specialist
-    is a floor, not a competitor — anchoring the column to it would rate every
-    general engine against hand-written C for one language and answer a question
-    nobody asked. It still gets a ratio, below 1, which is the honest reading:
-    what fraction of the specialist's cost the general engines run at.
-
-    The BARS keep their own anchor at the block's genuine fastest row, so the
-    picture is unchanged and the shift lives only in the ratio column.
-    """
-    ranked = sorted(timings.items(), key=lambda kv: kv[1])
-    general = [v for n, v in ranked if n not in SPECIALISTS]
-    fastest = ranked[0][1] if ranked else 1.0
-    worst = ranked[-1][1] if ranked else 1.0
-    best = general[0] if general else fastest
-    for name, value in ranked:
-        ratio = value / best
-        rel = (
-            "   base"
-            if value == best
-            else f"{ratio:6.3f}×"
-            if ratio < 1
-            else f"{ratio:6.1f}×"
-        )
-        tint = _TINT.get(name, "")
-        label = _paint(f"{name:<17}", tint, color)
-        shape = _paint(_bar(value, fastest, worst), tint, color)
-        print(f"  {label}{_amount(value)} {rel}  {shape}  {PRODUCT.get(name, '?')}")
-
-
-class Block(NamedTuple):
-    """One grammar's finished measurements, ready to print.
-
-    :ivar bench: The grammar and its documents.
-    :ivar samples: Per-row timings, one list per round.
-    :ivar refused: Rows that earned words instead of a number.
-    :ivar floor: The harness's own noise, as a percentage.
-    :ivar documents: What each row actually parsed.
-    :ivar mt_notes: Per-row reasons that a requested mt row ran sequentially.
-    """
-
-    bench: Bench
-    samples: dict[str, list[float]]
-    refused: dict[str, str]
-    floor: float
-    documents: dict[str, str]
-    mt_notes: dict[str, str]
 
 
 def _mt_check(
@@ -790,226 +652,9 @@ def _mt_check(
     return declined
 
 
-def _report(block: Block, color: bool) -> None:
-    """One grammar's block: fastest first, with the bar and what each builds."""
-    bench = block.bench
-    sizes = {len(doc) for doc in block.documents.values()}
-    note = (
-        f"{len(bench.corpus):,} chars (mt rows: {len(bench.full):,})"
-        if len(sizes) > 1
-        else f"{max(sizes, default=len(bench.corpus)):,} chars"
-    )
-    print(
-        f"\n─── {bench.name} · {note} · one grammar, "
-        "every engine · bars log-scaled, full bar = slowest"
-    )
-    if not block.samples:
-        print("    no engine could parse this grammar")
-    _ranked_rows(_medians(block.samples), color)
-    for name, why in sorted(block.refused.items()):
-        label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
-        print(f"  {label}{'—':>9}             {_paint(why[:96], _DIM, color)}")
-    print(
-        f"  {'noise floor':<13}{block.floor:8.2f}%    "
-        "smaller differences are not results"
-    )
-    for name, reason in sorted(block.mt_notes.items()):
-        print(
-            f"  {(name + ' check'):<17}{'off':>4}     {reason} — this row ran "
-            "the same one-worker program as its sequential twin"
-        )
-    _seat_check(bench, block.samples)
-
-
-def _seat_check(bench: Bench, samples: dict[str, list[float]]) -> None:
-    """The harness's own error, read off two identical-by-construction rows.
-
-    Where a grammar has NO `@non-semantic` marks, the two variant rows are
-    compiled from identical `Directives` — the same program by construction —
-    so any spread between them is instrument error, not a result, and the
-    display says what it measured itself to be wrong by. That is the only
-    identity this line claims: a non-empty mark set can change the compiled
-    machine even when the codegen grammars compare equal (the noise
-    declaration feeds the skip alphabet, not the grammar's shape), and no
-    cheap artifact comparison certifies sameness in either direction — so a
-    marked grammar gets no seat check rather than a false one. Each row now
-    runs in its own process, so this is the spread between independent medians;
-    it measures the isolation harness rather than a seating position.
-    """
-    if "lexic-lex" not in samples or "lexic-lex-ns" not in samples:
-        return
-    _, ns_marks = variant_marks(bench.ast)
-    if ns_marks:
-        return
-    lex = _medians({"lex": samples["lexic-lex"]})["lex"]
-    ns = _medians({"ns": samples["lexic-lex-ns"]})["ns"]
-    spread = (ns - lex) / max(min(lex, ns), 1e-9) * 100
-    print(
-        f"  {'seat check':<13}{spread:+8.2f}%    lexic-lex vs lexic-lex-ns run "
-        "the same program — this spread is the harness's own error"
-    )
-
-
-def _warmup_note(engines: dict[str, Parse]) -> None:
-    """What it took to make the JIT row honest, printed rather than assumed."""
-    for name, parse in engines.items():
-        warmed = getattr(parse, "warmed", None)
-        if warmed is None:
-            continue
-        _warmup_values(
-            name,
-            warmed,
-            getattr(parse, "cold_us_per_char", None),
-            getattr(parse, "charstream_share", lambda: 0.0)(),
-        )
-
-
-def _warmup_values(
-    name: str,
-    warmed: tuple[int, bool],
-    cold: float | None,
-    share: float,
-) -> None:
-    """Print one Java worker's cold parse and warmup state."""
-    if cold is not None:
-        print(
-            f"  {name + ' first':<17}{_amount(cold)}    cold first parse "
-            "before JIT warmup"
-        )
-    spent, settled = warmed
-    state = "median settled" if settled else "STILL MOVING — number is soft"
-    print(
-        f"  {name + ' warmup':<13}{spent:6} parses   {state}; "
-        f"{share * 100:.0f}% of the timed region builds the CharStream"
-    )
-
-
-def _legend(color: bool) -> None:
-    """The engine roster, once, before any grammar's rows."""
-    print(_paint("engines — what each row IS:", _DIM, color))
-    for name, note in ENGINE.items():
-        tint = _TINT.get(name, "")
-        print(f"  {_paint(f'{name:<16}', tint, color)} {_paint(note, _DIM, color)}")
-
-
-def _mark(cores: int | None) -> str:
-    """The header's cores marker, empty when no MT rows were asked for."""
-    return f"  cores={cores}" if cores is not None else ""
-
-
-def _mt_cores(asked: int | None) -> int | None:
-    """The lexic-mt thread count — the rows are ON by default when they can be.
-
-    Reads ``cores`` the way lexic does (:mod:`lexic.parsing.parallel.policy`):
-    ``--cores N`` is N; bare ``--cores`` and no flag alike are auto. Auto is
-    1 on a GIL build, and that is where the rows drop out entirely — a
-    "threaded" row running one thread answers a question nobody asked, and
-    real threading there measured a net loss.
-    """
-    workers = available_workers() if asked in (None, AUTO) else asked
-    return workers if workers > 1 else None
-
-
-def _row_names(bench: Bench, cores: int | None) -> list[str]:
-    """The isolated worker roster for one grammar."""
-    lexic = ["lexic-pda", "lexic-earley", "lexic-lex", "lexic-lex-ns"]
-    if cores is not None:
-        lexic.extend(("lexic-mt", "lexic-mt-lex-ns"))
-    return lexic + [name for name, _make in _candidates(bench)]
-
-
-def _isolated_bench(
-    bench: Bench, cores: int | None, full: bool, rounds: int
-) -> tuple[Block, dict[str, IsolatedRow]]:
-    """Measure every row in a separate process and assemble one report block."""
-    names = _row_names(bench, cores)
-    order = names.copy()
-    random.Random(f"lexic-bench:{bench.name}").shuffle(order)
-    results = {name: run_row(bench.name, name, rounds, cores, full) for name in order}
-    samples = {
-        name: result.samples for name, result in results.items() if result.samples
-    }
-    refused = {
-        name: result.refusal or "refused without a reason"
-        for name, result in results.items()
-        if result.refusal is not None
-    }
-    documents = {
-        name: bench.full if full or name in MT_ROWS else bench.corpus
-        for name in samples
-    }
-    mt_notes = {
-        name: result.mt_reason
-        for name, result in results.items()
-        if result.mt_reason is not None
-    }
-    anchor = next((name for name in names if name in samples), None)
-    floor = noise_floor(bench.name, anchor, rounds, cores, full) if anchor else 0.0
-    return Block(bench, samples, refused, floor, documents, mt_notes), results
-
-
 def main(argv: Sequence[str] | None = None) -> None:
-    """Time every engine on every benchmark grammar."""
-    parser = argparse.ArgumentParser(description=SUMMARY)
-    parser.add_argument(
-        "--rounds",
-        type=int,
-        default=DEFAULT_ROUNDS,
-        help=f"timed rounds per engine (default {DEFAULT_ROUNDS}; 1 is a quick pass)",
-    )
-    parser.add_argument(
-        "--cores",
-        type=int,
-        nargs="?",
-        const=0,
-        default=None,
-        metavar="N",
-        help="lexic-mt worker count: the corpus parsed as ONE document "
-        "split across N workers (bare --cores = auto, the cpu count; "
-        "free-threaded interpreter only — the GIL build measured a net loss)",
-    )
-    parser.add_argument(
-        "--full",
-        action="store_true",
-        help="time every row on the full corpus (default: only the lexic-mt "
-        "rows read it — the slow engines pay seconds per pass there)",
-    )
-    parser.add_argument(
-        "--only", nargs="*", metavar="NAME", help="benchmark only these grammars"
-    )
-    parser.add_argument(
-        "--color",
-        action="store_true",
-        help="force ANSI colour (auto: only on a terminal, honouring NO_COLOR)",
-    )
-    args = parser.parse_args(argv)
-    if args.cores and available_workers() == 1:
-        raise SystemExit(
-            "--cores needs a free-threaded interpreter (python3.14t): "
-            "threaded parsing under the GIL measured 0.82-0.92x, a net loss"
-        )
-    cores = _mt_cores(args.cores)
-    color = _use_color(args.color)
-    wanted = set(args.only or ())
-    benches = [b for b in BENCHES if not wanted or b.name in wanted]
-    if not benches:
-        raise SystemExit(f"no such grammar: {sorted(wanted)}")
-    print(
-        f"rounds={args.rounds}{_mark(cores)}  grammars={', '.join(b.name for b in benches)}"
-    )
-    _legend(color)
-    for bench in benches:
-        block, results = _isolated_bench(bench, cores, args.full, args.rounds)
-        _report(block, color)
-        for name in _row_names(bench, cores):
-            result = results[name]
-            if result.warmed is not None:
-                _warmup_values(
-                    name,
-                    result.warmed,
-                    result.cold_us_per_char,
-                    result.charstream_share,
-                )
+    """Run the benchmark report without keeping report code in this module."""
+    import_module("tools.benchmark.presentation.cli").main(argv)
 
 
 if __name__ == "__main__":

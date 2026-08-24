@@ -11,9 +11,10 @@ from typing import cast
 import pytest
 
 from tools.benchmark import bench as benchmark
-from tools.benchmark import isolation, worker
+from tools.benchmark.execution import isolation, worker
 from tools.benchmark.bench import EngineBuild
-from tools.benchmark.grammars import Bench
+from tools.benchmark.cases.grammars import Bench
+from tools.benchmark.execution.isolation import RowRequest
 
 
 def test_one_engine_requests_only_the_exact_lexic_variant(
@@ -35,14 +36,14 @@ def test_one_engine_requests_only_the_exact_lexic_variant(
     monkeypatch.setattr(benchmark, "_lexic", lexic)
     monkeypatch.setattr(benchmark, "unfaithful", lambda *_args: None)
 
-    built = benchmark._one_engine(bench, "lexic-lex-ns", 8, False)
+    built = benchmark.one_engine(bench, "lexic-lex-ns", 8, False)
 
     assert built.parse is parse
     assert built.document == "small"
     assert seen == [frozenset({"lexic-lex-ns"})]
 
 
-def test_worker_samples_only_the_build_it_was_given(
+def test_worker_samples_only_the_exact_build_it_was_given(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The worker protocol cannot silently expand one row into a roster."""
@@ -54,7 +55,7 @@ def test_worker_samples_only_the_build_it_was_given(
     monkeypatch.setattr(worker, "BENCHES", (bench,))
     monkeypatch.setattr(
         worker,
-        "_one_engine",
+        "one_engine",
         lambda *_args: EngineBuild(parse, "corpus", None, None),
     )
 
@@ -97,11 +98,7 @@ def test_parent_launches_a_fresh_worker_for_the_exact_pair(
     monkeypatch.setattr(isolation.subprocess, "run", run)
 
     result = isolation.run_row(
-        "vyx",
-        "lexic-mt",
-        7,
-        8,
-        False,
+        RowRequest("vyx", "lexic-mt", 7, 8, False),
         source_root=Path("base/src"),
     )
 
