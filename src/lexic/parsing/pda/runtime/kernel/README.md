@@ -2,7 +2,8 @@
 
 The kernel is one cursor split by responsibility: `kernel.py` holds
 `PdaKernel`, the paid loop, island splice, and public `pda_model` entry;
-`decisions.py` holds the attempt/probe method group it inherits.
+`decisions.py` holds the attempt/probe method group it inherits; and
+`attempt_inline.py` holds frame-less loops for attempt-aware value strings.
 
 ## `kernel.py`
 
@@ -23,3 +24,10 @@ folded model into the live frame.
 two-sided boundary probes on structural stack copies. A probe compares
 completed model values. An undecidable result is `ProbeFork`, which returns
 control to the ordinary Earley completion.
+
+## `attempt_inline.py`
+
+`AttemptInlineMixin` executes `OP_AVSTR` and `OP_AVDISP` without constructing a
+clone frame per iteration. The attempt gate remains the decision owner: only
+FIRST-only iterations stay on the fast path, while soft-continuation overlaps
+return to `Attempting` for the same fork audit as the generic loop.

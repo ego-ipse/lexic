@@ -28,7 +28,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_CC,
     OP_CC1,
     OP_FAIL,
-    OP_GRP,
     OP_ISLAND,
     OP_LIT,
     OP_LIT1,
@@ -206,7 +205,7 @@ class Attempting:
         if not admits(char, *first):
             return _close_loop(frame, i, pos)
         k = arm.kinds[i]
-        if k > OP_GRP:  # OP_ISLAND / OP_FAIL — no (end, values) to fork-probe
+        if k in (OP_ISLAND, OP_FAIL):  # no (end, values) to fork-probe
             if self._stop_viable(arm, i, char):
                 raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable",
@@ -216,7 +215,29 @@ class Attempting:
         got = self._attempt_run(arm.payloads[i], pos)
         if got is None or got[0] == pos:
             return _close_loop(frame, i, pos)
-        cls = self._beyond_class(arm, i, char)
+        if not self._attempt_choice(arm, i, pos, got):
+            return _close_loop(frame, i, pos)
+        end, values = got
+        self._sink_for(frame, arm, i).extend(values)
+        frame[F_COUNT] += 1
+        self.pos = end
+        return i
+
+    def _attempt_choice(
+        self,
+        arm: FlatArm,
+        i: int,
+        pos: int,
+        got: tuple[int, list[object]],
+    ) -> bool:
+        """Whether one successful tentative iteration may commit."""
+        # The stored soft continuation over-approximates every viable stop
+        # side. Outside it, a successful iteration is forced and the live
+        # frame-chain walk cannot add information. Only the overlap population
+        # pays the exact continuation classification and fork audit.
+        char = self.text[pos : pos + 1]
+        soft = arm.gate_data[i][1]
+        cls = self._beyond_class(arm, i, char) if admits(char, *soft) else _DEAD
         if self._caches.probing:
             # Inside a probe boundaries resolve GREEDILY by class — probes
             # never nest. The terminator class (a MANDATORY item anywhere up
@@ -225,23 +246,19 @@ class Attempting:
             # (uncertain).
             if cls == _ADMITS_HARD:
                 self._caches.uncertain = True
-                return _close_loop(frame, i, pos)
+                return False
             if cls == _ADMITS:
                 self._caches.uncertain = True
         elif cls in (_ADMITS, _ADMITS_HARD):
             verdict = self._fork_verdict(arm, i, pos, got)
             if verdict == _STOP_FORCED:
-                return _close_loop(frame, i, pos)
+                return False
             if verdict == _FORKED:
                 raise ProbeFork(
                     f"attempt loop at {pos}: taking and stopping are both viable",
                     pos,
                 )
-        end, values = got
-        self._sink_for(frame, arm, i).extend(values)
-        frame[F_COUNT] += 1
-        self.pos = end
-        return i
+        return True
 
     def _beyond_class(self, arm: FlatArm, i: int, char: str) -> int:
         """The boundary's viability CLASS over the whole live chain.

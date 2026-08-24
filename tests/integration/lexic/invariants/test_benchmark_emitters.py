@@ -26,10 +26,17 @@ import pytest
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
-from tools.benchmark.bench import Parse, _competitors, unfaithful
+from tools.benchmark import bench as benchmark
+from tools.benchmark.bench import (
+    Parse,
+    _competitors,
+    _interleaved,
+    _warmup_note,
+    unfaithful,
+)
 from tools.benchmark.charsets import of_points
-from tools.benchmark.emit import lexical_layer
-from tools.benchmark.grammars import BENCHES, Bench
+from tools.benchmark.emit import antlr_grammar, lexical_layer, peg_grammar
+from tools.benchmark.grammars import BENCHES, Bench, variant_marks
 
 _ALL = frozenset(
     {
@@ -38,13 +45,24 @@ _ALL = frozenset(
         "lark-earley-lex",
         "lark-lalr-lex",
         "parsimonious",
+        "parsimonious-lex",
         "pyparsing",
         "antlr",
+        "antlr-lex",
         "antlr-py",
+        "antlr-py-lex",
     }
 )
 
-_DIRECTIVE_MATCHED = frozenset({"lark-earley-lex", "lark-lalr-lex"})
+_DIRECTIVE_MATCHED = frozenset(
+    {
+        "lark-earley-lex",
+        "lark-lalr-lex",
+        "parsimonious-lex",
+        "antlr-lex",
+        "antlr-py-lex",
+    }
+)
 """The seats built with the grammar's own directives translated. Folding a rule
 into a TERMINAL moves a decision from the parser to the lexer, and a lexer has
 neither the parser state nor the backtracking to make it — so the fold is worth
@@ -76,7 +94,7 @@ EXPECTED: dict[str, frozenset[str]] = {
     # markdown loses lark-lalr-lex: folding `fenceline` into a terminal makes it
     # munch the newline that closes the fence, which the contextual lexer cannot
     # take back. The unfolded lark-lalr seat still holds the row.
-    "markdown": _ALL - frozenset({"parsimonious", "lark-lalr-lex"}),
+    "markdown": _ALL - frozenset({"parsimonious", "parsimonious-lex", "lark-lalr-lex"}),
     # 200 nested levels: pyparsing recurses per level and exhausts the
     # interpreter stack. A depth limit of the tool, not of the translation.
     "nested": _ALL - frozenset({"pyparsing"}),
@@ -219,3 +237,70 @@ def test_the_emitted_lexical_layer_is_the_one_lexic_derives(bench: Bench) -> Non
         f"{bench.name}: lexic derives {len(licensed)} run terminals here and the "
         "emitters handed out none — the lexical layer is being dissolved"
     )
+
+
+def test_each_timed_benchmark_sample_is_preconditioned_by_its_own_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each isolated worker measures hot executions of its one engine.
+
+    The initial parse is the ordinary one-time prime. Each timed sample then
+    gets one untimed pass of the SAME engine immediately before it, keeping the
+    reported value a median of individual timed parses. Public workers contain
+    no other engine; this pins the low-level sampling protocol itself.
+    """
+    events: list[str] = []
+
+    def parse(_text: str) -> object:
+        events.append("parse")
+        return object()
+
+    def timed(_parse: Parse, _text: str) -> float:
+        events.append("timed")
+        return 1.0
+
+    monkeypatch.setattr(benchmark, "_once", timed)
+    monkeypatch.setattr(benchmark.gc, "collect", lambda: None)
+
+    assert _interleaved({"row": parse}, {"row": "x"}, 2) == {"row": [1.0, 1.0]}
+    assert events == ["parse", "parse", "timed", "parse", "timed"]
+
+
+def test_peg_and_antlr_can_translate_the_directive_matched_variant() -> None:
+    """The new seats receive the same authored marks as Lark's ``-lex`` rows."""
+    bench = next(candidate for candidate in BENCHES if candidate.name == "json")
+    marks = variant_marks(bench.ast)
+
+    assert peg_grammar(bench.ast, marks) != peg_grammar(bench.ast)
+    assert antlr_grammar(bench.ast, "MarkedJson", marks) != antlr_grammar(
+        bench.ast, "MarkedJson"
+    )
+
+
+def test_the_antlr_warmup_note_displays_its_cold_first_parse(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Cold execution is visible beside, but separate from, the warm median."""
+
+    class Parser:
+        """A callable exposing the Java benchmark's reporting attributes."""
+
+        warmed = (24, True)
+        cold_us_per_char = 3.25
+
+        def __call__(self, _text: str) -> object:
+            """Satisfy the benchmark parser protocol."""
+            return object()
+
+        @staticmethod
+        def charstream_share() -> float:
+            """A representative stream-construction share."""
+            return 0.2
+
+    engines: dict[str, Parse] = {"antlr": Parser()}
+    _warmup_note(engines)
+
+    shown = capsys.readouterr().out
+    assert "antlr first" in shown
+    assert "3.250 µs/char" in shown
+    assert "cold" in shown

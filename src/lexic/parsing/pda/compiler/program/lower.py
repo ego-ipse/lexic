@@ -28,6 +28,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_CONST,
     M_VALUE,
     MODE_CODE,
+    OP_AVDISP,
+    OP_AVSTR,
     OP_CC,
     OP_CC1,
     OP_FAIL,
@@ -319,7 +321,17 @@ alternations can spell a very large source for very little discrimination;
 past this the entry keeps its first-char test and its window instead."""
 
 _PREFIX_REF_OPS = frozenset(
-    {OP_REF, OP_REF1, OP_LEAF1, OP_VSTR, OP_VRUN, OP_V1, OP_VDISP}
+    {
+        OP_REF,
+        OP_REF1,
+        OP_LEAF1,
+        OP_VSTR,
+        OP_VRUN,
+        OP_V1,
+        OP_VDISP,
+        OP_AVSTR,
+        OP_AVDISP,
+    }
 )
 """Item op-codes whose payload is a clone the prefix may descend into.
 

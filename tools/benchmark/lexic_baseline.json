@@ -1,0 +1,109 @@
+{
+  "schema": 1,
+  "unit": "microseconds_per_character",
+  "rounds": 7,
+  "confirmation_rounds": {
+    "batch": 7,
+    "minimum": 14,
+    "maximum": 35
+  },
+  "threshold_percent": 5.0,
+  "values": {
+    "abnf-meta": {
+      "lexic-earley": 73.460113,
+      "lexic-lex": 2.238112,
+      "lexic-lex-ns": 1.951795,
+      "lexic-mt": 0.476016,
+      "lexic-mt-lex-ns": 0.452668,
+      "lexic-pda": 2.35061
+    },
+    "announced": {
+      "lexic-earley": 5.299834,
+      "lexic-lex": 0.140221,
+      "lexic-lex-ns": 0.140479,
+      "lexic-mt": 0.078785,
+      "lexic-mt-lex-ns": 0.058992,
+      "lexic-pda": 0.205327
+    },
+    "arithmetic": {
+      "lexic-earley": 69.187134,
+      "lexic-lex": 1.965366,
+      "lexic-lex-ns": 2.029252,
+      "lexic-mt": 0.646434,
+      "lexic-mt-lex-ns": 0.556689,
+      "lexic-pda": 2.231832
+    },
+    "backtrack": {
+      "lexic-earley": 8.625246,
+      "lexic-lex": 0.202587,
+      "lexic-lex-ns": 0.201611,
+      "lexic-mt": 0.085721,
+      "lexic-mt-lex-ns": 0.071377,
+      "lexic-pda": 0.279557
+    },
+    "csv": {
+      "lexic-earley": 14.799433,
+      "lexic-lex": 0.432603,
+      "lexic-lex-ns": 0.44334,
+      "lexic-mt": 0.188889,
+      "lexic-mt-lex-ns": 0.155997,
+      "lexic-pda": 0.650907
+    },
+    "gbnf-meta": {
+      "lexic-earley": 71.044853,
+      "lexic-lex": 2.347761,
+      "lexic-lex-ns": 2.357562,
+      "lexic-mt": 0.537172,
+      "lexic-mt-lex-ns": 4.020688,
+      "lexic-pda": 2.715194
+    },
+    "json": {
+      "lexic-earley": 37.973733,
+      "lexic-lex": 1.089529,
+      "lexic-lex-ns": 1.096204,
+      "lexic-mt": 0.303465,
+      "lexic-mt-lex-ns": 0.270479,
+      "lexic-pda": 1.317112
+    },
+    "lexruns": {
+      "lexic-earley": 8.476415,
+      "lexic-lex": 0.190126,
+      "lexic-lex-ns": 0.190206,
+      "lexic-mt": 0.071127,
+      "lexic-mt-lex-ns": 0.067417,
+      "lexic-pda": 0.215507
+    },
+    "markdown": {
+      "lexic-earley": 45.907743,
+      "lexic-lex": 0.759574,
+      "lexic-lex-ns": 0.759514,
+      "lexic-mt": 0.237638,
+      "lexic-mt-lex-ns": 0.199447,
+      "lexic-pda": 0.981597
+    },
+    "mixedends": {
+      "lexic-earley": 16.734266,
+      "lexic-lex": 0.335324,
+      "lexic-lex-ns": 0.350182,
+      "lexic-mt": 0.183546,
+      "lexic-mt-lex-ns": 0.155659,
+      "lexic-pda": 0.558969
+    },
+    "nested": {
+      "lexic-earley": 36.125218,
+      "lexic-lex": 1.342281,
+      "lexic-lex-ns": 1.36068,
+      "lexic-mt": 0.53213,
+      "lexic-mt-lex-ns": 0.488671,
+      "lexic-pda": 1.345256
+    },
+    "vyx": {
+      "lexic-earley": 60.663298,
+      "lexic-lex": 2.458795,
+      "lexic-lex-ns": 2.468265,
+      "lexic-mt": 0.500596,
+      "lexic-mt-lex-ns": 0.443083,
+      "lexic-pda": 2.800706
+    }
+  }
+}

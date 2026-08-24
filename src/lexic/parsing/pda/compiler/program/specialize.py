@@ -28,6 +28,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_VALUE_STR,
     DISPATCH_EMPTY,
     GATE_ATTEMPT,
+    OP_AVDISP,
+    OP_AVSTR,
     OP_CC,
     OP_CC1,
     OP_GRP,
@@ -163,23 +165,21 @@ def _inline_value_strs(arm: FlatArm) -> None:
     target is inlinable becomes :data:`OP_VDISP` (:func:`vdisp_target`): the
     lookup is unavailable but the chase still is.
 
-    **Never an item gated :data:`GATE_ATTEMPT`.** That gate is the TERMINAL
-    attempt decision; the driver routes a non-terminal attempt item to
-    :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel.attempt_iteration`
-    instead, which speculates and rolls back. An inline matcher consults the
-    gate directly, so rewriting such an item swaps a speculating loop for one
-    that REFUSES when taking and stopping are both viable — the parse then falls
-    back to the engine, same model, many times the cost.
+    An item gated :data:`GATE_ATTEMPT` gets the corresponding attempt-aware
+    opcode. The ordinary inline loop consults the terminal gate directly, but
+    ``OP_AVSTR`` / ``OP_AVDISP`` keep the attempt driver as decision owner and
+    use the frame-less matcher only for its one tentative iteration.
     """
     kinds = list(arm.kinds)
     for i, kind in enumerate(kinds):
-        if kind != OP_REF or arm.gate_kinds[i] == GATE_ATTEMPT:
+        if kind != OP_REF:
             continue
         target = arm.payloads[i]
+        attempted = arm.gate_kinds[i] == GATE_ATTEMPT
         if _vstr_inlinable(target) or target.chartable is not None:
-            kinds[i] = OP_VSTR
+            kinds[i] = OP_AVSTR if attempted else OP_VSTR
         elif vdisp_target(target):
-            kinds[i] = OP_VDISP
+            kinds[i] = OP_AVDISP if attempted else OP_VDISP
     arm.kinds = tuple(kinds)
 
 

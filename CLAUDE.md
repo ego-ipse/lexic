@@ -333,6 +333,7 @@ src/lexic/
         matchers.py                Terminal matching — the PDA runtime's cursor-free recognition leaf
         kernel/                   The kernel — the fused driver and its shed halves
           __init__.py              the group's package marker
+          attempt_inline.py        Frame-less attempt-aware value-string loops
           decisions.py             The attempt/probe method group — the kernel's decision half
           execution.py             Leaf execution, island delegation, and completion
           kernel.py                Fused predictive runtime + `pda_model` entry — parses text to a model, no ParseTree

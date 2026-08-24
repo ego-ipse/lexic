@@ -21,6 +21,7 @@ from pathlib import Path
 from antlr4 import CommonTokenStream, InputStream
 
 from lexic.ir import IrAst
+from tools.benchmark.directives import NO_MARKS, Marks
 from tools.benchmark.emit import antlr_grammar
 
 BUILD_ROOT = Path(tempfile.mkdtemp(prefix="lexic-antlr-"))
@@ -83,7 +84,7 @@ class _Strict:
     reportContextSensitivity = note_prediction
 
 
-def generate(ast: IrAst, name: str, language: str) -> Path:
+def generate(ast: IrAst, name: str, language: str, marks: Marks = NO_MARKS) -> Path:
     """Run the ANTLR tool over ``ast`` for one target language.
 
     :param ast: The one canonical grammar, as for every other competitor.
@@ -96,7 +97,7 @@ def generate(ast: IrAst, name: str, language: str) -> Path:
     target = BUILD_ROOT / language / name
     target.mkdir(parents=True, exist_ok=True)
     source = target / f"{name}.g4"
-    source.write_text(antlr_grammar(ast, name), encoding="utf-8")
+    source.write_text(antlr_grammar(ast, name, marks), encoding="utf-8")
     done = subprocess.run(
         [
             "antlr4",
@@ -123,7 +124,9 @@ def generate(ast: IrAst, name: str, language: str) -> Path:
     return target
 
 
-def antlr_parser(ast: IrAst, name: str) -> Callable[[str], object]:
+def antlr_parser(
+    ast: IrAst, name: str, marks: Marks = NO_MARKS
+) -> Callable[[str], object]:
     """Generate, import and return a ``parse(text)`` on the PYTHON runtime.
 
     The lexer and parser objects are built once and re-fed per call. A freshly
@@ -138,7 +141,7 @@ def antlr_parser(ast: IrAst, name: str) -> Callable[[str], object]:
     :returns: A callable parsing a whole input, raising on any syntax error.
     :raises RuntimeError: When the ANTLR tool refuses the grammar.
     """
-    target = generate(ast, name, "Python3")
+    target = generate(ast, name, "Python3", marks)
     if str(target) not in sys.path:
         sys.path.insert(0, str(target))
     lexer = getattr(importlib.import_module(f"{name}Lexer"), f"{name}Lexer")

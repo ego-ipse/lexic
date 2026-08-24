@@ -56,6 +56,7 @@ from tools.benchmark.charsets import (
     overlap,
     partition,
 )
+from tools.benchmark.directives import NO_MARKS, Marks, inlined_marks
 
 _UNIT = IrQuantifier(1, 1)
 _STAR = IrQuantifier(0, IrNone)
@@ -128,14 +129,6 @@ class RunTerminal(NamedTuple):
     chars: CharSet
     optional: bool
 
-
-Marks = tuple[frozenset[str], frozenset[str]]
-"""The ``(lexical, non_semantic)`` directive sets an emission translates —
-:func:`~tools.benchmark.grammars.variant_marks` derives them from the grammar
-and lexic's own variant rows run on the same pair."""
-
-NO_MARKS: Marks = (frozenset(), frozenset())
-"""No directives: the grammar exactly as authored."""
 
 Runs = dict[IrItem, RunTerminal]
 """Authored item → the run terminal lexic collapses it to. The KEY is the item
@@ -526,14 +519,17 @@ def _choice_arms(node: IrAlternation) -> list[IrSequence]:
 # ── parsimonious (PEG) ─────────────────────────────────────────────────────
 
 
-def peg_grammar(ast: IrAst) -> str:
+def peg_grammar(ast: IrAst, marks: Marks = NO_MARKS) -> str:
     """``ast`` as a parsimonious PEG, start rule first.
 
     PEG's choice is ORDERED and its repetition POSSESSIVE, so this is faithful
     only for a grammar that never needs to back out of a committed arm. The
     differential proves that per grammar rather than per assumption.
-    Scannerless, so there is no lexical layer to hand it.
+    Scannerless, so there is no lexical layer to hand it. Directive-matched
+    rows inline refs to lexical and non-semantic rules, the available spelling
+    that avoids building their otherwise-mandatory ``Node`` wrappers.
     """
+    ast = inlined_marks(ast, marks)
     rules, start = _rule_map(ast)
     names = _names(rules)
     ordered = [(start, rules[start])] + [(n, b) for n, b in rules.items() if n != start]
@@ -847,7 +843,7 @@ def _blocks(rules: dict[str, IrSelf], runs: Runs) -> Blocks:
     )
 
 
-def antlr_grammar(ast: IrAst, name: str) -> str:
+def antlr_grammar(ast: IrAst, name: str, marks: Marks = NO_MARKS) -> str:
     """``ast`` as an ANTLR 4 grammar named ``name``.
 
     ANTLR splits a grammar into two TIERS and the lexer runs FIRST, with no view
@@ -875,6 +871,7 @@ def antlr_grammar(ast: IrAst, name: str) -> str:
     the Java tool runs over this text before anything parses, outside the timed
     region, as `Lark(...)` construction is.
     """
+    ast = inlined_marks(ast, marks)
     candidates = lexical_layer(ast)
     runs = _safe_runs(_live(ast, candidates)[0], candidates)
     rules, start = _live(ast, runs)

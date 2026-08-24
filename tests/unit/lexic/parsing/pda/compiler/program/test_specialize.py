@@ -26,6 +26,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     GATE_STOP,
     HI_UNBOUNDED,
+    OP_AVDISP,
+    OP_AVSTR,
     OP_CC,
     OP_CC1,
     OP_FAIL,
@@ -228,17 +230,12 @@ def test_a_dispatch_reachable_empty_arm_is_not_inlined():
     assert only_arm(pda_from_text(text).program.start).kinds[0] != OP_VDISP
 
 
-def test_an_attempt_gated_item_never_inlines_its_dispatch():
-    """``GATE_ATTEMPT`` is the TERMINAL attempt decision — an inlined dispatch
-    would consult it directly and REFUSE where the driver speculates.
+def test_an_attempt_gated_dispatch_gets_the_attempt_aware_inline_opcode():
+    """An inlinable dispatch keeps speculate/rollback semantics in its opcode.
 
-    The driver routes a non-terminal attempt item to ``attempt_iteration``,
-    which tries the iteration and rolls back. ``gate_take`` instead raises when
-    taking and stopping are both viable, so such an item must keep its entry:
-    the parse would otherwise fall back to the engine for the same model.
-
-    Runs the pass twice over the same item — the licence holds either way, so
-    only the gate can decide.
+    ``OP_AVDISP`` lets ``attempt_iteration`` run the existing frame-less
+    dispatch matcher for one tentative iteration. It must not become ordinary
+    ``OP_VDISP``, whose loop driver consults ``gate_take`` before speculation.
     """
     arm = _vdisp_item_arm(_VDISP)
     assert arm.kinds[0] == OP_VDISP  # stop-gated: inlined
@@ -246,18 +243,15 @@ def test_an_attempt_gated_item_never_inlines_its_dispatch():
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
     _inline_value_strs(arm)
-    assert arm.kinds[0] == OP_REF  # attempt-gated: the entry is kept
+    assert arm.kinds[0] == OP_AVDISP
 
 
-def test_an_attempt_gated_item_never_inlines_its_value_str():
-    """The ``value_str`` twin of the test above — the branch the defect (I12)
-    actually lived in.
+def test_an_attempt_gated_value_str_gets_the_attempt_aware_inline_opcode():
+    """The I12 soundness guard becomes an explicit attempt-aware opcode.
 
-    ``_vstr_inlinable(target) or target.chartable is not None`` used to set
-    ``OP_VSTR`` with NO gate check at all — only the ``OP_VDISP`` branch had
-    one. An attempt-gated ref to a plain (untabled) value_str clone must stay
-    ``OP_REF``, exactly like the dispatch case above; the same item un-gated
-    inlines to ``OP_VSTR``.
+    Ordinary ``OP_VSTR`` cannot own this gate because it asks the one-character
+    terminal decision directly. ``OP_AVSTR`` retains ``attempt_iteration`` as
+    the decision owner while identifying the same frame-less matcher.
     """
     arm = only_arm(
         pda_from_text('root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n').program.start
@@ -269,14 +263,15 @@ def test_an_attempt_gated_item_never_inlines_its_value_str():
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
     _inline_value_strs(arm)
-    assert arm.kinds[0] == OP_REF  # attempt-gated: the entry is kept
+    assert arm.kinds[0] == OP_AVSTR
 
+    arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_STOP, *arm.gate_kinds[1:])
     _inline_value_strs(arm)
     assert arm.kinds[0] == OP_VSTR  # un-gated again: inlines
 
 
-_ATTEMPT_GATED_VSTR = (
+ATTEMPT_GATED_VSTR = (
     "# @lexical unit\n"
     "root ::= n tail\n"
     "n ::= unit*\n"
@@ -299,10 +294,11 @@ where the fixed build's ``attempt_iteration`` speculates and succeeds."""
 
 @pytest.mark.parametrize("text", ["ac", "aac", "aaac", "bc", "abac"])
 def test_an_attempt_gated_value_str_ref_routes_pda_and_round_trips(text: str) -> None:
-    """I12's own witness: the attempt-gated ``value_str`` reference must stay
-    ``OP_REF`` and actually run through the predictive route, not just decline
-    cleanly to the gated engine."""
-    pda = pda_from_text(_ATTEMPT_GATED_VSTR)
+    """I12's witness stays predictive through the attempt-aware fast path."""
+    pda = pda_from_text(ATTEMPT_GATED_VSTR)
+    root = only_arm(pda.program.start)
+    attempted = only_arm(root.payloads[0])
+    assert attempted.kinds[0] == OP_AVSTR
     model = pda_model(pda, text)
     assert model.to_text() == text
 
@@ -625,5 +621,12 @@ def test_every_exactly_once_terminal_is_specialised_across_ground_truth():
                 if kind in (OP_LIT, OP_CC):
                     assert not (arm.los[i] == 1 and arm.his[i] == 1)
                 payload = arm.payloads[i]
-                if kind in (OP_GRP, OP_REF, OP_REF1, OP_VSTR):
+                if kind in (
+                    OP_GRP,
+                    OP_REF,
+                    OP_REF1,
+                    OP_VSTR,
+                    OP_AVSTR,
+                    OP_AVDISP,
+                ):
                     stack.append(payload)

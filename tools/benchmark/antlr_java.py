@@ -27,6 +27,7 @@ from pathlib import Path
 
 from lexic.ir import IrAst
 from tools.benchmark.antlr_build import TOOL_VERSION, generate
+from tools.benchmark.directives import NO_MARKS, Marks
 
 _JAR = Path.home() / f".m2/repository/org/antlr/antlr4/{TOOL_VERSION}"
 """Where `antlr4-tools` leaves the jar it fetched — it carries the Java runtime."""
@@ -53,13 +54,13 @@ def _classpath(classes: str) -> str:
     return f"{jar}:{classes}"
 
 
-def _build(ast: IrAst, name: str) -> Path:
+def _build(ast: IrAst, name: str, marks: Marks = NO_MARKS) -> Path:
     """Generate the Java parser, compile it with the driver, return the class dir.
 
     :raises RuntimeError: When the ANTLR tool or `javac` refuses — a capability
         result about the toolchain, reported rather than worked around.
     """
-    target = generate(ast, name, "Java")
+    target = generate(ast, name, "Java", marks)
     driver = Path(__file__).with_name("Driver.java")
     sources = sorted(str(path) for path in target.glob("*.java")) + [str(driver)]
     done = subprocess.run(
@@ -92,14 +93,14 @@ class JavaAntlr:
     :ivar warmed: Parses spent reaching a stable median, and whether it settled.
     """
 
-    def __init__(self, ast: IrAst, name: str) -> None:
+    def __init__(self, ast: IrAst, name: str, marks: Marks = NO_MARKS) -> None:
         """Build the parser, start the JVM, and leave it waiting on stdin.
 
         The JVM must outlive this call — that is the whole design — so it is
         owned by an `ExitStack` on the instance rather than a `with` block, and
         :meth:`close` unwinds it.
         """
-        target = _build(ast, name)
+        target = _build(ast, name, marks)
         self._owned = ExitStack()
         self._proc = self._owned.enter_context(
             subprocess.Popen(
@@ -111,6 +112,7 @@ class JavaAntlr:
         )
         self._parse_ns = 0.0
         self._stream_ns = 0.0
+        self.cold_us_per_char: float | None = None
         self.warmed: tuple[int, bool] = (0, False)
 
     def __call__(self, text: str) -> object:
@@ -128,6 +130,8 @@ class JavaAntlr:
             raise SyntaxError(reply[4:])
         _ok, parse_ns, stream_ns = reply.split()
         self._parse_ns, self._stream_ns = float(parse_ns), float(stream_ns)
+        if self.cold_us_per_char is None:
+            self.cold_us_per_char = self.measured_us() / max(len(text), 1)
         return "ParserRuleContext"
 
     def measured_us(self) -> float:
@@ -190,7 +194,7 @@ class JavaAntlr:
         self._owned.close()
 
 
-def java_antlr_parser(ast: IrAst, name: str) -> JavaAntlr:
+def java_antlr_parser(ast: IrAst, name: str, marks: Marks = NO_MARKS) -> JavaAntlr:
     """A live Java-target ANTLR parser for ``ast``, its JVM running.
 
     The JIT settles separately, through :meth:`JavaAntlr.warm`, because warmup
@@ -201,4 +205,4 @@ def java_antlr_parser(ast: IrAst, name: str) -> JavaAntlr:
     :returns: The parser, ready to take a round.
     :raises RuntimeError: When the toolchain refuses the grammar.
     """
-    return JavaAntlr(ast, name)
+    return JavaAntlr(ast, name, marks)

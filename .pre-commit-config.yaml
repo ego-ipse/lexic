@@ -1,6 +1,13 @@
 repos:
   - repo: local
     hooks:
+      # Measure before lint/tests heat or contend with the performance run.
+      - id: lexic-benchmark-regression
+        name: Lexic benchmark regression guard
+        entry: uv run python -m tools.benchmark.regression
+        language: system
+        pass_filenames: false
+        always_run: true
       - id: lexic-checks
         name: Lexic checks
         entry: tools/run_checks.sh

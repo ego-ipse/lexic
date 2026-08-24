@@ -26,6 +26,7 @@ carry one (vyx does).
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import NamedTuple
@@ -37,6 +38,8 @@ from lexic.ir import IrAst, IrRuleRef, census, inline_refs
 from lexic.parsing.fold import ModelFold
 
 _ROOT = Path(__file__).resolve().parents[2]
+_ONLY_BENCHMARK = os.environ.get("LEXIC_BENCHMARK_GRAMMAR")
+"""Worker-only selector: skip compiling every unrelated benchmark grammar."""
 
 
 class Bench(NamedTuple):
@@ -94,12 +97,14 @@ def _bench(
     samples: Samples,
     good: tuple[str, ...],
     bad: tuple[str, ...],
-) -> Bench:
+) -> Bench | None:
     """Compile ``source`` and pair it with the inputs that pin its language.
 
     The flavour is read off the source, so a self-grammar row compiles in its
     own notation without an extra parameter.
     """
+    if _ONLY_BENCHMARK is not None and name != _ONLY_BENCHMARK:
+        return None
     flavour = "abnf" if name.endswith("abnf-meta") else "gbnf"
     compiled = compile_text(source, cache_key=f"bench-{name}", flavour=flavour)
     return Bench(
@@ -535,7 +540,7 @@ def _meta_corpus(stem: str, copies: int) -> str:
     return "".join(out)
 
 
-BENCHES: tuple[Bench, ...] = (
+_DEFINED_BENCHES = (
     _bench(
         "arithmetic",
         _ARITH,
@@ -690,5 +695,8 @@ BENCHES: tuple[Bench, ...] = (
         ("#h\n", "#h\nbody\n", "#a\nb\n#c\n", "#h with spaces\n"),
         ("", "no hash\n", "#h", "#h\nx", "#H\n"),
     ),
+)
+BENCHES: tuple[Bench, ...] = tuple(
+    bench for bench in _DEFINED_BENCHES if bench is not None
 )
 """Every benchmarked language. Adding one is a row here, not a per-tool grammar."""

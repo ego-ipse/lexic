@@ -61,6 +61,18 @@ prefixes (``lower._arm_prefix_steps``) both do. An omission there does not slow
 the parse: it silently costs an alternation its frame-less chase, or an attempt
 its skip, which is a frame and a model per occurrence."""
 
+OP_AVSTR, OP_AVDISP = 14, 15
+"""Attempt-aware inline reference op-codes.
+
+The target has the same frame-less licence as :data:`OP_VSTR` or
+:data:`OP_VDISP`, but the item's loop carries :data:`GATE_ATTEMPT`. Such a
+loop must let the attempt driver try and roll back one iteration; sending it
+through the ordinary span-loop path asks the terminal gate directly and can
+refuse a parse whose speculative iteration succeeds. These codes preserve the
+decision owner while letting that tentative iteration use the existing
+frame-less matcher.
+"""
+
 GATE_STOP, GATE_PAIR, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4, 5
 """Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, the
 ``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved

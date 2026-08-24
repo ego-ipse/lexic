@@ -33,9 +33,10 @@ parsimonious a `Node` tree, pyparsing a `ParseResults`, ANTLR a
 `ParserRuleContext`. Nobody gets semantic actions. That difference is real work
 inside every number, so each row names what it built.
 
-Interleaved, because a loaded machine moves every column together and only
-alternating rounds make that visible. A noise floor is measured first — the same
-engine timed twice — so the reader knows what a difference must beat.
+Each row is built, validated, and timed in a fresh interpreter process. Adding
+an ANTLR or Lark seat therefore cannot change Lexic's heap, cache distance, or
+absolute number. Worker order is deterministically shuffled, and a same-engine
+noise floor says what difference must be beaten.
 """
 
 from __future__ import annotations
@@ -67,13 +68,14 @@ from lexic.parsing.products import _model_product, earley_model, parse_model
 from lexic.parsing.trace import watch
 from tools.benchmark.antlr_build import antlr_parser
 from tools.benchmark.antlr_java import java_antlr_parser
+from tools.benchmark.directives import NO_MARKS
 from tools.benchmark.emit import (
-    NO_MARKS,
     lark_grammar,
     peg_grammar,
     pyparsing_parser,
 )
 from tools.benchmark.grammars import BENCHES, Bench, variant_marks
+from tools.benchmark.isolation import IsolatedRow, noise_floor, run_row
 from tools.benchmark.refusals import REFUSALS, accepts, refusal
 
 SUMMARY = "Time every engine on the same grammar and the same input."
@@ -94,9 +96,12 @@ ENGINE: dict[str, str] = {
     "lark-earley-lex": "lark-earley with the grammar's own directives translated",
     "lark-lalr-lex": "lark-lalr with the grammar's own directives translated",
     "parsimonious": "PEG: scannerless, ordered choice, possessive repetition",
+    "parsimonious-lex": "parsimonious with the grammar's directives inlined",
     "pyparsing": "combinator tree on the cheapest alternation that stays faithful",
     "antlr": "ANTLR's ALL(*) parser on a warmed JVM — tool AND runtime, not Python",
+    "antlr-lex": "ANTLR Java with the grammar's own directives translated",
     "antlr-py": "the same generated parser on the pure-Python ATN simulator",
+    "antlr-py-lex": "ANTLR Python with the grammar's own directives translated",
     "stdlib-json": "the stdlib's hand-written C parser for the format",
     "msgspec": "a hand-written C parser for the format, the specialist floor",
 }
@@ -120,9 +125,12 @@ PRODUCT: dict[str, str] = {
     "lark-earley-lex": "Tree · @lexical @non-semantic",
     "lark-lalr-lex": "Tree · @lexical @non-semantic",
     "parsimonious": "Node tree",
+    "parsimonious-lex": "Node tree · @lexical @non-semantic",
     "pyparsing": "ParseResults",
     "antlr": "ParserRuleContext · JAVA",
+    "antlr-lex": "ParserRuleContext · JAVA · @lexical @non-semantic",
     "antlr-py": "ParserRuleContext",
+    "antlr-py-lex": "ParserRuleContext · @lexical @non-semantic",
     "stdlib-json": "dict · C parser for the FORMAT, takes no grammar",
     "msgspec": "dict · C parser for the FORMAT, takes no grammar",
 }
@@ -160,8 +168,21 @@ def _antlr_name(bench: str) -> str:
     return "B" + "".join(part.title() for part in bench.replace("-", "_").split("_"))
 
 
+LEXIC_ROWS = frozenset(
+    {
+        "lexic-pda",
+        "lexic-earley",
+        "lexic-lex",
+        "lexic-lex-ns",
+        "lexic-mt",
+        "lexic-mt-lex-ns",
+    }
+)
+"""Every Lexic row, shared by the report and regression guard."""
+
+
 def _lexic(
-    bench: Bench, cores: int | None
+    bench: Bench, cores: int | None, only: frozenset[str] | None = None
 ) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
     """Both lexic engines over one compiled product — the PDA and Earley.
 
@@ -181,21 +202,26 @@ def _lexic(
 
     :param cores: The mt rows' worker count, or ``None`` for no mt rows.
     """
+    wanted = LEXIC_ROWS if only is None else only
+    unknown = wanted - LEXIC_ROWS
+    if unknown:
+        raise ValueError(f"unknown Lexic benchmark rows: {sorted(unknown)}")
     fold = bench.fold
-    product = _model_product(bench.compiled.codegen_grammar, fold)
     sequential = bench.compiled.parse
-    engines: dict[str, Parse] = {
-        # the production seam, like every competitor's own entry API — the
-        # raw-kernel arm measured +1.3% apart from it, which was enough to
-        # fake a persistent @lexical "regression" on arithmetic when variant
-        # rows ran the seam and this row ran the kernel (t11_arith probe)
-        "lexic-pda": lambda text: sequential(text, cores=1),
-        "lexic-earley": lambda text: earley_model(
+    engines: dict[str, Parse] = {}
+    # The production seam, like every competitor's own entry API — the
+    # raw-kernel arm measured +1.3% apart from it, which was enough to fake a
+    # persistent @lexical "regression" on arithmetic when variant rows ran the
+    # seam and this row ran the kernel (t11_arith probe).
+    if "lexic-pda" in wanted:
+        engines["lexic-pda"] = lambda text: sequential(text, cores=1)
+    if "lexic-earley" in wanted:
+        product = _model_product(bench.compiled.codegen_grammar, fold)
+        engines["lexic-earley"] = lambda text: earley_model(
             product.instance_grammar, text, fold, product.tables
-        ),
-    }
+        )
     mt_artifacts: dict[str, CompiledGrammar] = {}
-    if cores is not None:
+    if cores is not None and "lexic-mt" in wanted:
         engines["lexic-mt"] = lambda text: sequential(text, cores=cores)
         mt_artifacts["lexic-mt"] = bench.compiled
     # The declared-variant engines: the SAME source under the directives a
@@ -203,12 +229,20 @@ def _lexic(
     # + @non-semantic (the fixture set's authored noise vocabulary). Both are
     # language-preserving, so both rows face the same unfaithful gate as
     # every other engine; what they measure is what the declarations buy.
+    variant_rows = wanted & {"lexic-lex", "lexic-lex-ns", "lexic-mt-lex-ns"}
+    if not variant_rows:
+        return engines, mt_artifacts
     lex_marks, ns_marks = variant_marks(bench.ast)
     lex_marks = _licensed_marks(bench, lex_marks)
     for label, directives in (
         ("lexic-lex", Directives(lexical=lex_marks)),
         ("lexic-lex-ns", Directives(lexical=lex_marks, non_semantic=ns_marks)),
     ):
+        needed = label in wanted or (
+            label == "lexic-lex-ns" and "lexic-mt-lex-ns" in wanted
+        )
+        if not needed:
+            continue
         variant = compile_text(
             bench.source,
             cache_key=f"bench-{bench.name}-{label}-{len(lex_marks)}",
@@ -217,8 +251,13 @@ def _lexic(
         )
         # the PRODUCTION seam: an author who declares directives runs
         # CompiledGrammar.parse, composition included.
-        engines[label] = lambda text, parse=variant.parse: parse(text, cores=1)
-        if label == "lexic-lex-ns" and cores is not None:
+        if label in wanted:
+            engines[label] = lambda text, parse=variant.parse: parse(text, cores=1)
+        if (
+            label == "lexic-lex-ns"
+            and cores is not None
+            and "lexic-mt-lex-ns" in wanted
+        ):
             engines["lexic-mt-lex-ns"] = lambda text, parse=variant.parse: parse(
                 text, cores=cores
             )
@@ -316,7 +355,7 @@ def _lark_parse(bench: Bench, parser: str, marked: bool = False) -> Parse:
     return lark.Lark(text, parser=parser).parse
 
 
-def _peg_parse(bench: Bench) -> Parse:
+def _peg_parse(bench: Bench, marked: bool = False) -> Parse:
     """parsimonious over the emitted PEG, compiled on stdlib ``re``.
 
     parsimonious prefers the third-party ``regex`` module when installed and
@@ -328,7 +367,8 @@ def _peg_parse(bench: Bench) -> Parse:
     preferred = getattr(parsimonious.expressions, "re")
     setattr(parsimonious.expressions, "re", re)
     try:
-        return parsimonious.Grammar(peg_grammar(bench.ast)).parse
+        marks = variant_marks(bench.ast) if marked else NO_MARKS
+        return parsimonious.Grammar(peg_grammar(bench.ast, marks)).parse
     finally:
         setattr(parsimonious.expressions, "re", preferred)
 
@@ -362,11 +402,28 @@ _CANDIDATES: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
     ("lark-earley-lex", lambda bench: _lark_parse(bench, "earley", marked=True)),
     ("lark-lalr-lex", lambda bench: _lark_parse(bench, "lalr", marked=True)),
     ("parsimonious", _peg_parse),
+    ("parsimonious-lex", lambda bench: _peg_parse(bench, marked=True)),
     # ANTLR builds a parser before anything runs — the Java tool, then javac for
     # the Java row. That is part of using ANTLR, as `Lark(...)` construction is,
     # so it happens here and never inside a timed round.
     ("antlr", lambda bench: java_antlr_parser(bench.ast, _antlr_name(bench.name))),
+    (
+        "antlr-lex",
+        lambda bench: java_antlr_parser(
+            bench.ast,
+            _antlr_name(f"{bench.name}-lex"),
+            variant_marks(bench.ast),
+        ),
+    ),
     ("antlr-py", lambda bench: antlr_parser(bench.ast, _antlr_name(bench.name))),
+    (
+        "antlr-py-lex",
+        lambda bench: antlr_parser(
+            bench.ast,
+            _antlr_name(f"{bench.name}-lex"),
+            variant_marks(bench.ast),
+        ),
+    ),
     ("pyparsing", _pp_parse),
 )
 """Every competitor, as a name and the one way to build it from a bench."""
@@ -420,48 +477,48 @@ MT_ROWS = frozenset({"lexic-mt", "lexic-mt-lex-ns"})
 """The rows that always read the full corpus — a split needs the scale."""
 
 
-def _engines(
-    bench: Bench, cores: int | None, full: bool
-) -> tuple[
-    dict[str, Parse],
-    dict[str, str],
-    dict[str, str],
-    dict[str, CompiledGrammar],
-]:
-    """Every engine to time, its document, and who could not take the grammar.
+class EngineBuild(NamedTuple):
+    """One isolated row's parser, input, refusal, and optional MT artifact."""
 
-    lexic's own rows pass through the SAME :func:`unfaithful` gate as every
-    competitor — accepts and rejects both directions, plus the exact document
-    the row will be timed on; the mt rows included, since a split that
-    changed what an input means would be the worst possible way to get a
-    faster number. The gate exists so no engine gets a number for a
-    different language, and an engine exempt from it would be exactly the
-    sycophancy the gate is there to prevent.
-    """
-    lexic, mt_artifacts = _lexic(bench, cores)
-    competitors, refused = _competitors(bench)
-    documents = {
-        name: bench.full if full or name in MT_ROWS else bench.corpus
-        for name in (*lexic, *competitors)
-    }
-    working: dict[str, Parse] = {}
-    for label, parse in lexic.items():
-        wrong = unfaithful(parse, bench, documents[label])
-        if wrong is None:
-            working[label] = parse
-        else:
-            refused[label] = wrong
-    if full:
-        for label, parse in list(competitors.items()):
-            wrong = unfaithful(parse, bench, documents[label])
-            if wrong is not None:
-                refused[label] = wrong
-                competitors.pop(label)
-                getattr(parse, "close", lambda: None)()
-    active_mt = {
-        name: artifact for name, artifact in mt_artifacts.items() if name in working
-    }
-    return {**working, **competitors}, refused, documents, active_mt
+    parse: Parse | None
+    document: str
+    refusal: str | None
+    artifact: CompiledGrammar | None
+
+
+def _one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> EngineBuild:
+    """Construct and validate exactly one requested benchmark row."""
+    document = bench.full if full or name in MT_ROWS else bench.corpus
+    artifact = None
+    if name in LEXIC_ROWS:
+        built, artifacts = _lexic(bench, cores, frozenset({name}))
+        parse = built.get(name)
+        artifact = artifacts.get(name)
+        if parse is None:
+            return EngineBuild(
+                None,
+                document,
+                "requires free-threaded Python with at least two workers",
+                None,
+            )
+    else:
+        makers = dict(_candidates(bench))
+        if name not in makers:
+            raise ValueError(f"unknown benchmark row {name!r} for {bench.name}")
+        try:
+            parse = makers[name](bench)
+        except REFUSALS as exc:
+            return EngineBuild(
+                None,
+                document,
+                f"{type(exc).__name__}: {' '.join(str(exc).split())}",
+                None,
+            )
+    wrong = unfaithful(parse, bench, document)
+    if wrong is not None:
+        getattr(parse, "close", lambda: None)()
+        return EngineBuild(None, document, wrong, None)
+    return EngineBuild(parse, document, None, artifact)
 
 
 def _once(parse: Parse, corpus: str) -> float:
@@ -498,23 +555,22 @@ def _prime(parse: Parse, corpus: str) -> None:
 def _interleaved(
     engines: dict[str, Parse], texts: dict[str, str], rounds: int
 ) -> dict[str, list[float]]:
-    """One pass per engine per round, so machine load moves every column alike.
+    """Low-level sampler used inside one isolated worker.
 
     ``texts`` names each row's document: the mt rows always read the full
     corpus, everyone else reads whatever the ``--full`` decision assigned.
 
-    Each row's pass is followed by an UNTIMED ``gc.collect()``: the passes run
-    under ``gc.disable()``, so without it a row inherits its predecessor's
-    uncollected garbage — the row seated behind lexic-earley's allocation-heavy
-    parse read +2-3% against a byte-identical artifact seated elsewhere. The
-    collect levels the heap between rows; it is what removes that bias.
+    Each pass is followed by an UNTIMED ``gc.collect()``. Timed passes run
+    under ``gc.disable()``, so this prevents garbage from one sample moving
+    collection work into a later sample.
 
-    The seats are still reshuffled every round so no row keeps one predecessor
-    for effects a collect cannot level (cache warmth, frequency scaling). The
-    shuffle is from a fixed seed, which makes runs REPRODUCIBLE, not unbiased:
-    every process replays the identical schedule, so whatever residual seating
-    effect a permutation carries is a constant across runs, never averaged
-    away. The seat-check line is the display's own measurement of what's left.
+    Immediately before its timed pass, each row gets one untimed pass of ITSELF.
+    A same-engine untimed pass immediately before the clock makes each sample
+    a hot execution. This was introduced after foreign rows displaced 5–6% of
+    the working set; fresh worker isolation now removes the foreign rows too.
+    The reported noun remains ONE timed parse and the statistic remains the
+    median — no batching, division, or fastest-run swap. Multiple entries are
+    retained for controlled harness tests, but public workers pass one row.
     """
     for name, parse in engines.items():
         _prime(parse, texts[name])
@@ -524,6 +580,7 @@ def _interleaved(
     for _ in range(rounds):
         rng.shuffle(seats)
         for name, parse in seats:
+            parse(texts[name])  # untimed: restore this row's own hot working set
             samples[name].append(_once(parse, texts[name]))
             gc.collect()
     return samples
@@ -567,6 +624,9 @@ _TINT: dict[str, str] = {
     "msgspec": "\x1b[38;5;213m",
     "lark-earley-lex": "\x1b[38;5;250m",
     "lark-lalr-lex": "\x1b[38;5;250m",
+    "parsimonious-lex": "\x1b[38;5;250m",
+    "antlr-lex": "\x1b[38;5;250m",
+    "antlr-py-lex": "\x1b[38;5;250m",
 }
 """One distinct colour per lexic mode — the two rows this benchmark exists to
 place are findable at a glance — plus one shared tint for the format
@@ -746,21 +806,18 @@ def _seat_check(bench: Bench, samples: dict[str, list[float]]) -> None:
     machine even when the codegen grammars compare equal (the noise
     declaration feeds the skip alphabet, not the grammar's shape), and no
     cheap artifact comparison certifies sameness in either direction — so a
-    marked grammar gets no seat check rather than a false one. The statistic
-    is PAIRED: the median of the per-round differences, so common-mode load
-    cancels and its sign is readable — a signed constant is a seating bias,
-    a wandering sign is noise.
+    marked grammar gets no seat check rather than a false one. Each row now
+    runs in its own process, so this is the spread between independent medians;
+    it measures the isolation harness rather than a seating position.
     """
     if "lexic-lex" not in samples or "lexic-lex-ns" not in samples:
         return
     _, ns_marks = variant_marks(bench.ast)
     if ns_marks:
         return
-    diffs = sorted(
-        (ns - lex) / max(min(lex, ns), 1e-9) * 100
-        for lex, ns in zip(samples["lexic-lex"], samples["lexic-lex-ns"])
-    )
-    spread = diffs[len(diffs) // 2]
+    lex = _medians({"lex": samples["lexic-lex"]})["lex"]
+    ns = _medians({"ns": samples["lexic-lex-ns"]})["ns"]
+    spread = (ns - lex) / max(min(lex, ns), 1e-9) * 100
     print(
         f"  {'seat check':<13}{spread:+8.2f}%    lexic-lex vs lexic-lex-ns run "
         "the same program — this spread is the harness's own error"
@@ -773,13 +830,32 @@ def _warmup_note(engines: dict[str, Parse]) -> None:
         warmed = getattr(parse, "warmed", None)
         if warmed is None:
             continue
-        spent, settled = warmed
-        state = "median settled" if settled else "STILL MOVING — number is soft"
-        share = getattr(parse, "charstream_share", lambda: 0.0)()
-        print(
-            f"  {name + ' warmup':<13}{spent:6} parses   {state}; "
-            f"{share * 100:.0f}% of the timed region builds the CharStream"
+        _warmup_values(
+            name,
+            warmed,
+            getattr(parse, "cold_us_per_char", None),
+            getattr(parse, "charstream_share", lambda: 0.0)(),
         )
+
+
+def _warmup_values(
+    name: str,
+    warmed: tuple[int, bool],
+    cold: float | None,
+    share: float,
+) -> None:
+    """Print one Java worker's cold parse and warmup state."""
+    if cold is not None:
+        print(
+            f"  {name + ' first':<17}{_amount(cold)}    cold first parse "
+            "before JIT warmup"
+        )
+    spent, settled = warmed
+    state = "median settled" if settled else "STILL MOVING — number is soft"
+    print(
+        f"  {name + ' warmup':<13}{spent:6} parses   {state}; "
+        f"{share * 100:.0f}% of the timed region builds the CharStream"
+    )
 
 
 def _legend(color: bool) -> None:
@@ -806,6 +882,44 @@ def _mt_cores(asked: int | None) -> int | None:
     """
     workers = available_workers() if asked in (None, AUTO) else asked
     return workers if workers > 1 else None
+
+
+def _row_names(bench: Bench, cores: int | None) -> list[str]:
+    """The isolated worker roster for one grammar."""
+    lexic = ["lexic-pda", "lexic-earley", "lexic-lex", "lexic-lex-ns"]
+    if cores is not None:
+        lexic.extend(("lexic-mt", "lexic-mt-lex-ns"))
+    return lexic + [name for name, _make in _candidates(bench)]
+
+
+def _isolated_bench(
+    bench: Bench, cores: int | None, full: bool, rounds: int
+) -> tuple[Block, dict[str, IsolatedRow]]:
+    """Measure every row in a separate process and assemble one report block."""
+    names = _row_names(bench, cores)
+    order = names.copy()
+    random.Random(f"lexic-bench:{bench.name}").shuffle(order)
+    results = {name: run_row(bench.name, name, rounds, cores, full) for name in order}
+    samples = {
+        name: result.samples for name, result in results.items() if result.samples
+    }
+    refused = {
+        name: result.refusal or "refused without a reason"
+        for name, result in results.items()
+        if result.refusal is not None
+    }
+    documents = {
+        name: bench.full if full or name in MT_ROWS else bench.corpus
+        for name in samples
+    }
+    mt_notes = {
+        name: result.mt_reason
+        for name, result in results.items()
+        if result.mt_reason is not None
+    }
+    anchor = next((name for name in names if name in samples), None)
+    floor = noise_floor(bench.name, anchor, rounds, cores, full) if anchor else 0.0
+    return Block(bench, samples, refused, floor, documents, mt_notes), results
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -859,27 +973,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     _legend(color)
     for bench in benches:
-        engines, refused, documents, mt_artifacts = _engines(bench, cores, args.full)
-        anchor = next(iter(engines), None)
-        floor = (
-            _noise_floor(engines[anchor], documents[anchor], args.rounds)
-            if anchor
-            else 0.0
-        )
-        _report(
-            Block(
-                bench,
-                _interleaved(engines, documents, args.rounds),
-                refused,
-                floor,
-                documents,
-                _mt_check(mt_artifacts, bench.full, cores),
-            ),
-            color,
-        )
-        _warmup_note(engines)
-        for parse in engines.values():
-            getattr(parse, "close", lambda: None)()
+        block, results = _isolated_bench(bench, cores, args.full, args.rounds)
+        _report(block, color)
+        for name in _row_names(bench, cores):
+            result = results[name]
+            if result.warmed is not None:
+                _warmup_values(
+                    name,
+                    result.warmed,
+                    result.cold_us_per_char,
+                    result.charstream_share,
+                )
 
 
 if __name__ == "__main__":

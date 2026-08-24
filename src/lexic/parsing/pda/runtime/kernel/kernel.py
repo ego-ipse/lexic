@@ -63,6 +63,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_TRANSPARENT,
     GATE_ATTEMPT,
     GATE_STOP,
+    OP_AVSTR,
     OP_CC,
     OP_CC1,
     OP_FAIL,
@@ -94,6 +95,7 @@ from lexic.parsing.pda.runtime.build import (
 from lexic.parsing.pda.runtime.islands import (
     IslandPolicy,
 )
+from lexic.parsing.pda.runtime.kernel.attempt_inline import AttemptInlineMixin
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.execution import KernelExecutionMixin
 from lexic.parsing.pda.runtime.matchers import (
@@ -109,7 +111,9 @@ _EMPTY_SLOT: Any = None
 each slot later holding a sub-model list) without narrowing their type."""
 
 
-class PdaKernel[M](KernelExecutionMixin, Attempting, IrLeaf[IrSelf, IrSelf]):
+class PdaKernel[M](
+    KernelExecutionMixin, Attempting, AttemptInlineMixin, IrLeaf[IrSelf, IrSelf]
+):
     """One predictive parse of ``text`` over a compiled :class:`PdaProgram`.
 
     Construct per parse, call :meth:`run` once; it returns the start clone's
@@ -302,7 +306,15 @@ class PdaKernel[M](KernelExecutionMixin, Attempting, IrLeaf[IrSelf, IrSelf]):
                     i += 1
                     continue
                 elif k == OP_VSTR or k >= OP_VRUN or k <= OP_CC:  # span-producing
-                    pos = self._match_span(frame, arm, i, pos)
+                    pos = (
+                        self.attempt_inline_loop(frame, arm, i, pos)
+                        # Attempt-inline opcodes are the final contiguous
+                        # opcode range. Classify the common span path first:
+                        # putting a tuple-membership test before it taxed every
+                        # JSON item even though JSON emits no attempt opcodes.
+                        if k >= OP_AVSTR
+                        else self._match_span(frame, arm, i, pos)
+                    )
                 else:  # OP_REF / OP_GRP / OP_ISLAND / OP_FAIL
                     i = self._quant_step(frame, arm, i, pos)
                     if i < 0:
