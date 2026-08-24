@@ -90,6 +90,10 @@ EXPECTED: dict[str, frozenset[str]] = {
     # own delimiter: nothing here is hard for any formalism. What the row
     # prices is lexic's SPLIT declining, not any engine struggling.
     "mixedends": _ALL,
+    # A header line then body lines until the next header — one token of
+    # lookahead for everyone. Same as above: the row prices the split, and
+    # every engine holds the grammar.
+    "announced": _ALL,
     "gbnf-meta": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
     # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
     # terminal, which Lark's dynamic Earley refuses outright ("zero-width
