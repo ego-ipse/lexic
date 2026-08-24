@@ -70,12 +70,15 @@ class Terminator(NamedTuple):
     with an anchor, so a cut after any occurrence lands between two complete
     units and each chunk is a document in its own right.
 
-    :ivar mark: The terminating spelling.
+    :ivar mark: The terminating spellings — the set of ways a unit may end.
+        One agreed spelling for a unit whose arms all close alike; the unit's
+        whole ending alphabet where they close differently and no occurrence of
+        it can stand anywhere but at an end.
     :ivar container: The rule owning the repeated item.
     :ivar unit: The repeated rule.
     """
 
-    mark: str
+    mark: frozenset[str]
     container: str
     unit: str
 
@@ -100,7 +103,12 @@ class Roles(NamedTuple):
     @property
     def marks(self) -> frozenset[str]:
         """Every spelling the scan marks: separators and terminators."""
-        return self.separators | {record.mark for record in self.terminators}
+        ended = (
+            frozenset().union(*(r.mark for r in self.terminators))
+            if self.terminators
+            else frozenset()
+        )
+        return self.separators | ended
 
 
 def _anchor_char(item: IrItem, anchor_set: frozenset[str]) -> str | None:
@@ -148,7 +156,16 @@ def _anchor_marks(item: IrItem, anchor_set: frozenset[str]) -> frozenset[str]:
 def _arm_pair(
     items: tuple[IrItem, ...], anchor_set: frozenset[str]
 ) -> tuple[str, str] | None:
-    """The arm's opener/closer pair, when it has the bracketing shape."""
+    """The arm's opener/closer pair, when it has the bracketing shape.
+
+    DELIMITING, not nesting, is the test. A pair serves two readers at once:
+    the scan counts depth with it, and
+    :func:`~...stitch.safety.owner_excludes` attributes what stands between
+    the delimiters to the nested region rather than to its owner. The second
+    reader needs no recursion — a flat ``"{" inner "}"`` owns its own commas
+    just as a nesting one does — and narrowing the derivation to constructs
+    that can hold another instance of themselves silently un-attributes them.
+    """
     if len(items) < 3:
         return None
     opener = _anchor_char(items[0], anchor_set)
@@ -165,10 +182,10 @@ def _arm_pair(
     closer = _anchor_char(items[closer_at], anchor_set)
     if closer is None or closer == opener:
         return None
-    interior = any(
+    delimited = any(
         isinstance(item.atom, (IrRuleRef, IrAlternation)) for item in items[1:closer_at]
     )
-    return (opener, closer) if interior else None
+    return (opener, closer) if delimited else None
 
 
 def _lead_info(
@@ -248,11 +265,23 @@ def roles(grammar: IrAst) -> Roles:
     paired = {char for pair in pairs for char in pair}
     kept = tuple(record for record in records if not set(record.mark) & paired)
     ended = tuple(
-        record
+        narrowed
         for record in _terminators(grammar, by_name, anchor_set)
-        if not set(record.mark) & paired
+        if (narrowed := _unpaired(record, paired)) is not None
     )
     return Roles(tuple(pairs), kept, ended)
+
+
+def _unpaired(record: Terminator, paired: set[str]) -> Terminator | None:
+    """``record`` with every pair-playing spelling removed, or ``None``.
+
+    A character the scan counts depth with cannot also be a mark, and a set of
+    endings NARROWS rather than dies when one of them is spent that way: the
+    survivors are still endings, and each is still a boundary wherever it
+    stands. Losing every one of them is what leaves no terminator at all.
+    """
+    kept = frozenset(mark for mark in record.mark if not set(mark) & paired)
+    return record._replace(mark=kept) if kept else None
 
 
 def _terminators(
@@ -278,20 +307,51 @@ def _terminators(
 
 def _edge_marks(
     unit: IrRule, by_name: dict[str, IrRule], anchor_set: frozenset[str]
-) -> tuple[str, ...]:
-    """The terminator spellings every arm of ``unit`` agrees on, shortest first.
+) -> tuple[frozenset[str], ...]:
+    """The terminator mark sets ``unit`` offers, narrowest first.
 
-    The single agreed character is what a repetition has always been cut on. A
-    unit whose boundary is wider — a text line's own terminator plus the blank
-    line that closes the paragraph — agrees on a spelling instead. Both are
-    offered and the cascade tries the narrower one first, so a grammar that
-    already splits keeps exactly the plan it had.
+    Three derivations, and a unit may offer any of them. The single agreed
+    CHARACTER is what a repetition has always been cut on. The agreed
+    SPELLING is wider — a text line's own terminator plus the blank line that
+    closes the paragraph. The unit's whole ending ALPHABET is the last resort
+    and the only one available to a unit whose arms close differently: a
+    record stream ending ``;``, ``>`` and a newline agrees on nothing, yet
+    every one of those characters may still be a boundary.
+
+    The cascade tries them in this order, so a grammar that already splits
+    keeps exactly the plan it had. Which of them a safety proof licenses is
+    :mod:`~lexic.parsing.parallel.stitch.safety`'s question, not this one's.
     """
     seen = frozenset({str(unit.name)})
     char = _body_edge(unit.body, -1, by_name, anchor_set, seen)
     wide = agreed_tail(unit.body, MARK_ARITY, by_name, seen)
-    found = [mark for mark in (char, wide) if mark and set(mark) <= anchor_set]
+    found = [
+        frozenset({mark}) for mark in (char, wide) if mark and set(mark) <= anchor_set
+    ]
+    ending = _ending_alphabet(unit, by_name, anchor_set)
+    if ending:
+        found.append(ending)
     return tuple(dict.fromkeys(found))
+
+
+def _ending_alphabet(
+    unit: IrRule, by_name: dict[str, IrRule], anchor_set: frozenset[str]
+) -> frozenset[str]:
+    """Every character ``unit`` can END with, when they are all anchors.
+
+    An anchor is a character no opaque interior can spell and no maximal-munch
+    run contains, which is what lets a window scan find every occurrence with
+    no left context. A unit that can end on anything else has an unreadable
+    boundary whatever else is true of it, so the set is offered only whole.
+    """
+    found = CharSet.EMPTY
+    for arm in unit.body:
+        found = found.union(
+            last_charset(tuple(arm), by_name, frozenset({str(unit.name)}))
+        )
+    if found.negated or not found.chars or not found.chars <= anchor_set:
+        return frozenset()
+    return frozenset(found.chars)
 
 
 def _item_edge(

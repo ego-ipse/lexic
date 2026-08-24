@@ -283,6 +283,62 @@ def arm_empty(
     return all(derives_empty(item, rule_map, path) for item in items)
 
 
+def interior(
+    rule_map: dict[str, IrRule], name: str, path: frozenset[str] = frozenset()
+) -> CharSet:
+    """Every character a rule can emit at a NON-final position of its text.
+
+    The complement of :func:`last_charset` over one rule: what it may spell
+    with something still to come. A mark standing outside this set can only
+    ever be a unit's closing edge, which is what turns a set of terminator
+    characters into a set of BOUNDARIES.
+
+    Overapproximating is the safe direction — a character wrongly included
+    merely declines — so a cycle or an unresolvable name answers ``ANY``.
+    """
+    target = rule_map.get(name)
+    if target is None or name in path:
+        return CharSet.ANY
+    found = CharSet.EMPTY
+    for arm in target.body:
+        items = tuple(arm)
+        if not items:
+            continue
+        for item in items[:-1]:
+            found = found.union(emit_charset(item, rule_map, frozenset()))
+        found = found.union(_item_interior(rule_map, items[-1], path | {name}))
+    return found
+
+
+def _item_interior(
+    rule_map: dict[str, IrRule], item: IrItem, path: frozenset[str]
+) -> CharSet:
+    """What an arm's FINAL item can emit before its own last character.
+
+    A repeated item stands beside itself, so every character it spells is an
+    interior one; a reference is followed; a literal contributes all but its
+    last character; a single-character atom contributes nothing.
+    """
+    if repeats(item):
+        return emit_charset(item, rule_map, frozenset())
+    atom = item.atom
+    if isinstance(atom, IrRuleRef):
+        return interior(rule_map, str(atom), path)
+    if isinstance(atom, IrAlternation):
+        found = CharSet.EMPTY
+        for arm in atom:
+            items = tuple(arm)
+            for inner in items[:-1]:
+                found = found.union(emit_charset(inner, rule_map, frozenset()))
+            if items:
+                found = found.union(_item_interior(rule_map, items[-1], path))
+        return found
+    if isinstance(atom, IrLiteral):
+        text = str(atom)
+        return CharSet.from_chars(*text[:-1]) if len(text) > 1 else CharSet.EMPTY
+    return CharSet.EMPTY
+
+
 def sole_char(found: CharSet) -> str:
     """The one character a set holds, or ``""`` for any other count.
 

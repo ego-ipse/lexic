@@ -31,8 +31,10 @@ class SplitPlan(NamedTuple):
 
     :ivar grammar: The codegen grammar chunks parse under.
     :ivar scanner: The role-driven structural scan.
-    :ivar mark: The spelling cuts key on — one character for most grammars,
-        two where the boundary is a blank line or a doubled anchor.
+    :ivar mark: The spellings cuts key on. One for most grammars; two
+        characters where the boundary is a blank line or a doubled anchor; a
+        whole SET where the unit's arms close differently and every one of
+        their closing characters bounds a unit.
     :ivar owner: The repeated unit that must exclude the mark; empty for a
         terminated plan whose mark belongs to the unit itself.
     :ivar wrappers: Single-reference rules between the grammar start and the
@@ -59,7 +61,7 @@ class SplitPlan(NamedTuple):
 
     grammar: IrAst
     scanner: Scanner
-    mark: str
+    mark: frozenset[str]
     owner: str
     wrappers: tuple[str, ...]
     sep: Separator | None
@@ -121,3 +123,16 @@ def lead_skip(
                 for inner in arm:
                     out |= _atom_chars(inner.atom)
     return frozenset(out) - set(mark)
+
+
+def matched(text: str, at: int, marks: frozenset[str]) -> str:
+    """The mark standing at ``at``, longest first, or ``""`` when none does.
+
+    Longest first for the same reason a region's skip table orders its
+    openings that way: a two-character spelling whose first character is also
+    a mark must read as the wider one, or the cut lands mid-spelling.
+    """
+    for mark in sorted(marks, key=len, reverse=True):
+        if text.startswith(mark, at):
+            return mark
+    return ""

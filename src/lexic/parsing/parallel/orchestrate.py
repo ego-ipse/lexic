@@ -37,7 +37,7 @@ from lexic.parsing.parallel.plan.envelope import (
     envelope_plans,
     unit_witness,
 )
-from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip
+from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip, matched
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers, worker_count
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
@@ -52,6 +52,7 @@ from lexic.parsing.parallel.stitch.model import (
     stitch_terminated,
 )
 from lexic.parsing.parallel.stitch.safety import (
+    bounds_units,
     mark_interiors,
     mark_overlap,
     owner_excludes,
@@ -90,6 +91,16 @@ def _unit_ref(item: IrItem) -> str | None:
     if isinstance(atom, IrRuleRef) and item.quantifier == UNIT:
         return str(atom)
     return None
+
+
+def _sole_mark(plan: SplitPlan) -> str:
+    """The plan's one mark spelling, or ``""`` when it keys on a whole set.
+
+    The proofs stated over a single mark — the announcing prefix, the separator
+    exclusion, the agreed terminator — have no reading over a set, and say so
+    by declining rather than by picking one of its members.
+    """
+    return next(iter(plan.mark)) if len(plan.mark) == 1 else ""
 
 
 def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
@@ -159,7 +170,7 @@ def _plan_for(
     return SplitPlan(
         grammar,
         Scanner(roles(grammar)),
-        sep.mark,
+        frozenset({sep.mark}),
         unit,
         wrappers,
         sep,
@@ -282,8 +293,8 @@ def _scan(
     """
     scanned = windows or _scan_windows(plan.scanner, text, workers, pool)
     at_depth = plan.scanner.offsets(scanned, depth=0)
-    found = [at for at in at_depth if text.startswith(plan.mark, at)]
-    return clustered(found, len(plan.mark), plan.trailing)
+    widths = {at: len(hit) for at in at_depth if (hit := matched(text, at, plan.mark))}
+    return clustered(sorted(widths), widths, plan.trailing)
 
 
 def _cut_offsets(
@@ -316,11 +327,11 @@ def _cut_offsets(
             # a boundary: keep the ones a unit actually begins after. A
             # terminated unit starts immediately past its mark, with no
             # separator run to extend over — the envelope path's one difference.
-            after = len(plan.mark)
+            bound = _sole_mark(plan)
             marks = [
-                at for at in marks if admits(text, at + after, plan.bound, plan.mark)
+                at for at in marks if admits(text, at + len(bound), plan.bound, bound)
             ]
-    if plan.terminated and marks and marks[-1] == len(text) - len(plan.mark):
+    if plan.terminated and marks and _after_mark(plan, text, marks[-1]) == len(text):
         marks.pop()
     workers = worker_count(len(text), len(marks), cores)
     while workers >= 2:
@@ -357,7 +368,7 @@ def _after_mark(plan: SplitPlan, text: str, mark: int) -> int:
     """First source offset owned by the piece after ``mark``."""
     if plan.envelope is not None:
         return plan.envelope.resumes(text, mark)
-    after = mark + len(plan.mark)
+    after = mark + len(matched(text, mark, plan.mark))
     while after < len(text) and text[after] in plan.skip:
         after += 1
     return after
@@ -373,7 +384,8 @@ def _safe_mark(
     """Nearest target mark whose adjacent spans can still clear the floor."""
     want, remaining = target
     terminated = plan.terminated
-    lo = bisect_left(marks, previous + MIN_CHUNK - len(plan.mark) * int(terminated))
+    widest = max(len(mark) for mark in plan.mark) if plan.mark else 1
+    lo = bisect_left(marks, previous + MIN_CHUNK - widest * int(terminated))
     hi = bisect_right(marks, len(text) - remaining * MIN_CHUNK - 1)
     for candidate in _nearby_marks(marks, want, lo, hi):
         after = _after_mark(plan, text, candidate)
@@ -412,7 +424,8 @@ def _spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[str]
         # An envelope piece KEEPS the mark: a separator that begins before one
         # (a comment closed by it) would otherwise straddle the cut, and the
         # piece's own tail is what absorbs the run before the join takes it.
-        owned = cut + len(plan.mark) if plan.envelope is not None else cut
+        kept = cut + len(matched(text, cut, plan.mark))
+        owned = kept if plan.envelope is not None else cut
         spans.append((prev, after if terminated else owned))
         leads.append("" if terminated else text[owned:after])
         prev = after
@@ -536,18 +549,23 @@ def _certified(plan: SplitPlan, view: IrAst) -> SplitPlan | None:
     the marks that begin a unit and refuse the ones that do not. A unit with
     neither is what it always was: not splittable on this mark.
     """
+    mark = _sole_mark(plan)
     if plan.envelope is not None:
-        return plan if unit_boundary(view, plan.owner, plan.mark) is not None else None
+        return plan if unit_boundary(view, plan.owner, mark) is not None else None
     if plan.sep is not None:
-        if not owner_excludes(view, plan.owner, plan.mark):
+        if not owner_excludes(view, plan.owner, mark):
             return None
-        overlap = mark_overlap(view, plan.owner, plan.mark)
+        overlap = mark_overlap(view, plan.owner, mark)
         return plan._replace(trailing=overlap.trailing) if overlap.decided else None
-    if terminates_once(view, plan.owner, plan.mark) and scan_agrees(
-        view, plan.grammar, plan.owner, plan.mark
+    if (
+        mark
+        and terminates_once(view, plan.owner, mark)
+        and scan_agrees(view, plan.grammar, plan.owner, plan.mark)
     ):
         return plan
-    bound = unit_boundary(view, plan.owner, plan.mark)
+    if bounds_units(view, plan.owner, plan.mark):
+        return plan
+    bound = unit_boundary(view, plan.owner, mark) if mark else None
     return None if bound is None else plan._replace(bound=bound)
 
 
@@ -622,7 +640,7 @@ def _envelope_split_plan(grammar: IrAst) -> tuple[SplitPlan, ...]:
         SplitPlan(
             grammar,
             Scanner(derived),
-            found.mark,
+            frozenset({found.mark}),
             found.shape.unit,
             (),
             None,

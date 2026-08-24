@@ -64,7 +64,7 @@ def test_a_common_terminator_resolves_through_recursive_rule_refs():
     )
 
     got = roles(parse_grammar(grammar, GBNF_FLAVOUR))
-    assert got.terminators == (Terminator("\n", "root", "entry"),)
+    assert got.terminators == (Terminator(frozenset({"\n"}), "root", "entry"),)
 
 
 def test_finite_anchor_class_derives_each_separator_alternative():
@@ -92,8 +92,8 @@ def test_a_merged_tail_literal_derives_the_terminator_from_its_last_character():
     grammar = 'root ::= unit+\nunit ::= [a-z]+ "}\\n"\n'
     got = roles(compile_text(grammar).codegen_grammar)
     assert got.terminators == (
-        Terminator("\n", "root", "unit"),
-        Terminator("}\n", "root", "unit"),
+        Terminator(frozenset({"\n"}), "root", "unit"),
+        Terminator(frozenset({"}\n"}), "root", "unit"),
     )
 
 
@@ -101,10 +101,17 @@ def test_a_repeated_terminator_character_resolves_at_the_wider_spelling():
     """The candidate CHARACTER occurs twice in the merged literal, so which
     occurrence is the boundary is unprovable and no character edge derives.
     The two-character tail ``"b\\n"`` stands only at the end, so it does —
-    a wider mark is what settles an ambiguous narrow one."""
+    a wider mark is what settles an ambiguous narrow one.
+
+    The unit's ending ALPHABET is offered behind it and rightly fails to
+    certify: the newline it would cut on stands inside the merged literal too,
+    so not every occurrence of it bounds a unit."""
     grammar = 'root ::= unit+\nunit ::= [a-z]+ "a\\nb\\n"\n'
     got = roles(compile_text(grammar).codegen_grammar)
-    assert got.terminators == (Terminator("b\n", "root", "unit"),)
+    assert got.terminators == (
+        Terminator(frozenset({"b\n"}), "root", "unit"),
+        Terminator(frozenset({"\n"}), "root", "unit"),
+    )
 
 
 def test_a_grammar_without_the_shapes_derives_empty_roles():
@@ -171,8 +178,8 @@ def test_a_wider_terminator_is_offered_behind_the_narrower_one():
         'line ::= [a-z0-9 ]+ nl\nblank ::= nl\nnl ::= "\\n"\n'
     )
     got = roles(compile_text(source).codegen_grammar)
-    para = [record.mark for record in got.terminators if record.unit == "para"]
-    assert para == ["\n", "\n\n"]
+    para = [sorted(record.mark) for record in got.terminators if record.unit == "para"]
+    assert para == [["\n"], ["\n\n"]]
 
 
 def test_a_multi_character_separator_derives_as_one_mark():

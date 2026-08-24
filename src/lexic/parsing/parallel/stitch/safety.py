@@ -28,6 +28,7 @@ from lexic.parsing.parallel.discovery.interiors import (
     interiors,
 )
 from lexic.parsing.parallel.discovery.regions import pair_rules
+from lexic.parsing.parallel.discovery.scan import mark_overlap
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
     UNIT,
@@ -38,6 +39,7 @@ from lexic.parsing.parallel.discovery.shapes import (
     emits,
     exact_text,
     first_charset,
+    interior,
     joins,
     last_charset,
     leads_with,
@@ -94,51 +96,6 @@ def owner_excludes(
     return entry[1]
 
 
-class Overlap(NamedTuple):
-    """How a mark's own overlapping occurrences sit around a true boundary.
-
-    A spelling whose prefix is also its suffix reads more than once inside a
-    run of its characters, and all but one of those readings is a false
-    boundary. Which one is real is decided by the owner, statically.
-
-    :ivar decided: Whether one occurrence of a run is identifiable at all.
-    :ivar trailing: Whether that occurrence is the run's LAST.
-    """
-
-    decided: bool
-    trailing: bool
-
-
-def mark_overlap(grammar: IrAst, owner: str, mark: str) -> Overlap:
-    """Which occurrence of an overlapping run is the grammar's boundary.
-
-    Text ending with the mark's border pushes the run LEFT of the boundary, so
-    the boundary is the run's last occurrence; text beginning with the border
-    pushes it right, so the boundary is the first. An owner able to do both
-    puts the boundary somewhere in the middle with nothing to say where, and
-    the plan declines. A mark that is not its own border never overlaps.
-
-    :param grammar: The analysis view.
-    :param owner: The repeated unit the mark separates.
-    :param mark: The mark spelling.
-    :returns: The verdict — the caller drops an undecided plan.
-    """
-    if len(mark) < 2 or mark[0] != mark[1]:
-        return Overlap(True, False)
-    rules = {str(rule.name): rule for rule in grammar.rules}
-    target = rules.get(owner)
-    if target is None:
-        return Overlap(False, False)
-    path = frozenset({owner})
-    ends = any(
-        last_charset(tuple(arm), rules, path).has(mark[0]) for arm in target.body
-    )
-    begins = any(
-        first_charset(tuple(arm), rules, path).has(mark[1]) for arm in target.body
-    )
-    return Overlap(False, False) if ends and begins else Overlap(True, ends)
-
-
 def _arm_target(items: tuple[IrItem, ...]) -> str:
     """The rule an arm consists of, when it is one plain unit reference."""
     atom = items[0].atom if len(items) == 1 else None
@@ -167,13 +124,15 @@ def _unit_anchored(rules: dict[str, IrRule], owner: str, region: Interior) -> bo
     return len(leading) == 1 and _arm_target(leading[0]) == region.rule
 
 
-_MARK_REGIONS: dict[tuple[int, str, str], tuple[IrAst, tuple[Interior, ...]]] = memo(
-    {}, 0
-)
+_MARK_REGIONS: dict[
+    tuple[int, str, frozenset[str]], tuple[IrAst, tuple[Interior, ...]]
+] = memo({}, 0)
 """The regions one owner's mark scan skips, with a strong identity pin."""
 
 
-def mark_interiors(grammar: IrAst, owner: str, mark: str) -> tuple[Interior, ...]:
+def mark_interiors(
+    grammar: IrAst, owner: str, marks: frozenset[str]
+) -> tuple[Interior, ...]:
     """The opaque regions a scan for ``mark`` inside ``owner`` may skip.
 
     Only regions that actually HIDE the mark are returned: skipping one that
@@ -185,20 +144,20 @@ def mark_interiors(grammar: IrAst, owner: str, mark: str) -> tuple[Interior, ...
 
     :param grammar: The analysis view.
     :param owner: The repeated unit whose marks are being scanned.
-    :param mark: The character cuts key on.
+    :param marks: The spellings cuts key on.
     :returns: The certified regions, definition order; empty is the common
         answer and the cue that the windowed scan applies unchanged.
     """
-    key = (id(grammar), owner, mark)
+    key = (id(grammar), owner, marks)
     entry = _MARK_REGIONS.get(key)
     if entry is None:
-        entry = (grammar, _derive_mark_interiors(grammar, owner, mark))
+        entry = (grammar, _derive_mark_interiors(grammar, owner, marks))
         _MARK_REGIONS[key] = entry
     return entry[1]
 
 
 def _derive_mark_interiors(
-    grammar: IrAst, owner: str, mark: str
+    grammar: IrAst, owner: str, marks: frozenset[str]
 ) -> tuple[Interior, ...]:
     """Certify the mark-hiding regions of one owner, once."""
     if roles(grammar).pairs:
@@ -208,7 +167,7 @@ def _derive_mark_interiors(
     return tuple(
         region
         for region in interior_shapes(grammar)
-        if hides(grammar, region, frozenset({mark}))
+        if hides(grammar, region, marks)
         and (region in certified or _unit_anchored(rules, owner, region))
     )
 
@@ -254,11 +213,9 @@ def _final_edge(
 ) -> bool:
     """Whether the arm's ONE occurrence of ``mark`` is its closing edge.
 
-    Two productions reach it. The final item spells the mark itself — and then
-    the join into it must not add a second, overlapping occurrence. Or the
-    final item spells the mark's tail exactly while everything before it always
-    ends with the mark's head, which is how a blank line closes a paragraph of
-    lines that each end in a newline of their own.
+    Either the final item spells the mark and the join into it adds no second
+    overlapping occurrence, or it spells the mark's tail exactly while what
+    precedes it always ends with the head — a blank line closing a paragraph.
     """
     head, last = items[:-1], items[-1]
     if _spells_edge(last, mark, scope, path):
@@ -274,10 +231,9 @@ def _spells_edge(last: IrItem, mark: str, scope: Scope, path: frozenset[str]) ->
     """Whether the arm's final item ends with ``mark`` and holds no other."""
     atom = last.atom
     if isinstance(atom, IrLiteral):
-        # A merged tail like "}\n" ends the unit too; the mark must be its
-        # final characters and stand nowhere earlier in it, or the scan would
-        # mark an offset inside the unit. ``find`` is overlap-exact: the
-        # leftmost occurrence being the last one is what makes it the only one.
+        # A merged tail like "}\n" ends the unit too, so the mark must be its
+        # final characters and stand nowhere earlier. ``find`` is overlap-exact:
+        # the leftmost occurrence being the last one makes it the only one.
         text = str(atom)
         return text.endswith(mark) and text.find(mark) == len(text) - len(mark)
     if not isinstance(atom, IrRuleRef):
@@ -299,7 +255,7 @@ def _skip_set(regions: tuple[Interior, ...]) -> frozenset[tuple[str, str, str]]:
     )
 
 
-def scan_agrees(view: IrAst, scanned: IrAst, owner: str, mark: str) -> bool:
+def scan_agrees(view: IrAst, scanned: IrAst, owner: str, marks: frozenset[str]) -> bool:
     """Whether the regions ``scanned`` skips are the ones ``view`` proves.
 
     The proof runs over the structural view while the scan runs over the
@@ -308,8 +264,8 @@ def scan_agrees(view: IrAst, scanned: IrAst, owner: str, mark: str) -> bool:
     same ones — a view that elides a region proves nothing about a scan that
     still skips it, and the reverse leaves marks the proof never saw.
     """
-    return _skip_set(mark_interiors(view, owner, mark)) == _skip_set(
-        mark_interiors(scanned, owner, mark)
+    return _skip_set(mark_interiors(view, owner, marks)) == _skip_set(
+        mark_interiors(scanned, owner, marks)
     )
 
 
@@ -329,32 +285,62 @@ def terminates_once(grammar: IrAst, owner: str, terminator: str) -> bool:
             _protected(grammar, False),
             {
                 (region.rule, region.arm): region.resumes
-                for region in mark_interiors(grammar, owner, terminator)
+                for region in mark_interiors(grammar, owner, frozenset({terminator}))
             },
         )
         proven = (
             target is not None
             and _ends_once(target, terminator, scope, frozenset({owner}))
-            and not _units_straddle(target, terminator, rules)
+            # A unit ending with the mark ends with the mark's LAST character,
+            # so an extra reading straddling two units needs the mark to be its
+            # own border and the next unit to open with it — exactly the
+            # undecidable case of the overlap question, asked of an owner this
+            # proof has already shown ends with the mark.
+            and mark_overlap(grammar, owner, terminator).decided
         )
         entry = (grammar, proven)
         _TERMINATOR_PROOFS[key] = entry
     return entry[1]
 
 
-def _units_straddle(unit: IrRule, mark: str, rules: dict[str, IrRule]) -> bool:
-    """Whether two adjacent units read an EXTRA ``mark`` across their join.
+_BOUNDARY_SETS: dict[tuple[int, str, frozenset[str]], tuple[IrAst, bool]] = memo({}, 0)
+"""Per-analysis-view set-valued boundary proofs, with a strong identity pin."""
 
-    A unit proven to end with the mark ends with the mark's last character, so
-    an occurrence straddling the join needs that character to be the mark's
-    first as well, and the next unit to begin with it. A run of three then
-    offers two boundaries where the grammar has one, and the plan must decline
-    rather than pick.
+
+def bounds_units(grammar: IrAst, owner: str, marks: frozenset[str]) -> bool:
+    """Prove every occurrence of ``marks`` is a boundary of ``owner``.
+
+    The set-valued terminator proof, for a unit whose arms close DIFFERENTLY
+    and so agree on no single terminator. One obligation carries it: no
+    character of ``marks`` may stand at a non-final position of any derivation
+    of the unit. Every occurrence in a document of ``owner+`` then stands at
+    some unit's last position, so a cut after it is exact — no candidate
+    filter, no verification. Covering every way the unit can end is NOT
+    required; missing one costs candidates, never exactness. A vanishing unit
+    is refused, its end naming no position.
+
+    :param grammar: The analysis view.
+    :param owner: The repeated unit.
+    :param marks: The candidate boundary characters.
+    :returns: Whether every occurrence bounds a unit; ``False`` declines.
     """
-    if len(mark) < 2 or mark[0] != mark[1]:
-        return False
-    path = frozenset({str(unit.name)})
-    return any(first_charset(tuple(arm), rules, path).has(mark[1]) for arm in unit.body)
+    key = (id(grammar), owner, marks)
+    entry = _BOUNDARY_SETS.get(key)
+    if entry is None:
+        rules = {str(rule.name): rule for rule in grammar.rules}
+        target = rules.get(owner)
+        single = bool(marks) and all(len(mark) == 1 for mark in marks)
+        vanishes = target is None or any(
+            arm_empty(tuple(arm), rules, frozenset()) for arm in target.body
+        )
+        proven = (
+            single
+            and not vanishes
+            and not interior(rules, owner).overlaps(CharSet.from_chars(*marks))
+        )
+        entry = (grammar, proven)
+        _BOUNDARY_SETS[key] = entry
+    return entry[1]
 
 
 class Boundary(NamedTuple):

@@ -77,7 +77,9 @@ def test_marks_carry_segment_floors():
 
 def _mark_scanner(*marks: str) -> Scanner:
     """A scanner whose only roles are the given mark spellings."""
-    return Scanner(Roles((), (), tuple(Terminator(m, "root", "u") for m in marks)))
+    return Scanner(
+        Roles((), (), tuple(Terminator(frozenset({m}), "root", "u") for m in marks))
+    )
 
 
 def test_a_spelling_straddling_a_window_boundary_is_found_exactly_once():
@@ -98,16 +100,18 @@ def test_overlapping_occurrences_thin_to_one_boundary_per_run():
     boundary in it. Which end it stands at is the plan's static answer; either
     way no two boundaries are adjacent and no piece can be empty."""
     marks = [0, 1, 2, 7, 9, 10]
-    assert clustered(marks, 2, trailing=False) == [0, 7, 9]
-    assert clustered(marks, 2, trailing=True) == [2, 7, 10]
+    widths = dict.fromkeys(marks, 2)
+    assert clustered(marks, widths, trailing=False) == [0, 7, 9]
+    assert clustered(marks, widths, trailing=True) == [2, 7, 10]
 
 
 def test_a_one_character_mark_thins_to_itself():
     """One character never overlaps, so every occurrence is its own run and
     the filter is the identity — the strict-extension guarantee at the scan."""
     marks = [0, 1, 2, 7, 9, 10]
-    assert clustered(marks, 1, trailing=False) == marks
-    assert clustered(marks, 1, trailing=True) == marks
+    widths = dict.fromkeys(marks, 1)
+    assert clustered(marks, widths, trailing=False) == marks
+    assert clustered(marks, widths, trailing=True) == marks
 
 
 def test_occurrences_finds_a_mark_starting_at_the_windows_last_offset():
@@ -135,12 +139,14 @@ def test_a_run_of_four_newlines_thins_to_one_boundary():
     text = "\n\n\n\n"
     marks = sorted(_occurrences(text, "\n\n", 0, len(text)))
     assert marks == [0, 1, 2]
-    assert clustered(marks, 2, trailing=False) == [0]
-    assert clustered(marks, 2, trailing=True) == [2]
+    widths = dict.fromkeys(marks, 2)
+    assert clustered(marks, widths, trailing=False) == [0]
+    assert clustered(marks, widths, trailing=True) == [2]
 
 
 def test_occurrences_exactly_width_apart_are_both_kept():
     """Two occurrences with nothing between them are NOT the same run — only
     occurrences closer than the mark's own width overlap."""
-    assert clustered([0, 2], 2, trailing=False) == [0, 2]
-    assert clustered([0, 2], 2, trailing=True) == [0, 2]
+    widths = {0: 2, 2: 2}
+    assert clustered([0, 2], widths, trailing=False) == [0, 2]
+    assert clustered([0, 2], widths, trailing=True) == [0, 2]

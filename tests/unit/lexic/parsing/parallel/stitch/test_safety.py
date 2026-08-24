@@ -14,14 +14,13 @@ from lexic.grammars.json import JSON_GRAMMAR
 from lexic.parsing import parse_model
 from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.discovery.interiors import interior_rules
+from lexic.parsing.parallel.discovery.scan import Overlap, mark_overlap
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.stitch.safety import (
     Boundary,
-    Overlap,
     Refutation,
     _leads_once,
-    mark_overlap,
     owner_excludes,
     scan_agrees,
     terminates_once,
@@ -207,7 +206,7 @@ def test_scan_agrees_declines_when_the_view_derives_a_different_delimiter() -> N
     )
 
     assert terminates_once(view, "fence", "\n")
-    assert not scan_agrees(view, scanned, "fence", "\n")
+    assert not scan_agrees(view, scanned, "fence", frozenset({"\n"}))
 
 
 def test_start_plan_guard_is_non_vacuous_for_a_flat_comma_owner() -> None:

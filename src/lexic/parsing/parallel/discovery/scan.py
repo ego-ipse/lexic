@@ -20,11 +20,13 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from lexic.ir import IrAst
 from lexic.parsing.parallel.discovery.interiors import (
     Interior,
     skip_opaque,
     skip_table,
 )
+from lexic.parsing.parallel.discovery.shapes import first_charset, last_charset
 from lexic.parsing.parallel.roles import Roles
 
 
@@ -181,7 +183,7 @@ class Scanner:
         return out
 
 
-def clustered(marks: list[int], width: int, trailing: bool) -> list[int]:
+def clustered(marks: list[int], widths: dict[int, int], trailing: bool) -> list[int]:
     """One boundary per overlapping RUN of a spelling's occurrences.
 
     A spelling that is its own border reads several times inside a run of its
@@ -189,17 +191,21 @@ def clustered(marks: list[int], width: int, trailing: bool) -> list[int]:
     its start, whichever the owner's own edges settled. A one-character mark
     never overlaps, so every occurrence is its own run and this is the identity.
 
+    The width is per OFFSET, not per plan: a plan keying on a set of spellings
+    may match a different one at each occurrence, and what overlaps what is
+    decided by the spelling that actually stands there.
+
     :param marks: The scanned offsets, in document order.
-    :param width: The mark spelling's width.
+    :param widths: Each offset's matched spelling width.
     :param trailing: Whether a run's LAST occurrence is its boundary.
     :returns: One offset per run, in document order.
     """
-    if width == 1 or not marks:
+    if not marks or all(widths[at] == 1 for at in marks):
         return marks
     kept: list[int] = []
     run = previous = marks[0]
     for at in marks[1:]:
-        if at - previous >= width:
+        if at - previous >= widths[previous]:
             kept.append(run)
             run = at
         elif trailing:
@@ -207,3 +213,47 @@ def clustered(marks: list[int], width: int, trailing: bool) -> list[int]:
         previous = at
     kept.append(run)
     return kept
+
+
+class Overlap(NamedTuple):
+    """How a mark's own overlapping occurrences sit around a true boundary.
+
+    A spelling whose prefix is also its suffix reads more than once in a run of
+    its characters, and all but one of those readings is false.
+
+    :ivar decided: Whether one occurrence of a run is identifiable at all.
+    :ivar trailing: Whether that occurrence is the run's LAST.
+    """
+
+    decided: bool
+    trailing: bool
+
+
+def mark_overlap(grammar: IrAst, owner: str, mark: str) -> Overlap:
+    """Which occurrence of an overlapping run is the grammar's boundary.
+
+    Text ending with the mark's border pushes the run LEFT of the boundary, so
+    the boundary is its last occurrence; text beginning with the border pushes
+    it right, so the boundary is the first. An owner able to do both leaves
+    nothing to say where, and the plan declines. A mark that is not its own
+    border never overlaps.
+
+    :param grammar: The analysis view.
+    :param owner: The repeated unit the mark separates.
+    :param mark: The mark spelling.
+    :returns: The verdict — the caller drops an undecided plan.
+    """
+    if len(mark) < 2 or mark[0] != mark[1]:
+        return Overlap(True, False)
+    rules = {str(rule.name): rule for rule in grammar.rules}
+    target = rules.get(owner)
+    if target is None:
+        return Overlap(False, False)
+    path = frozenset({owner})
+    ends = any(
+        last_charset(tuple(arm), rules, path).has(mark[0]) for arm in target.body
+    )
+    begins = any(
+        first_charset(tuple(arm), rules, path).has(mark[1]) for arm in target.body
+    )
+    return Overlap(False, False) if ends and begins else Overlap(True, ends)

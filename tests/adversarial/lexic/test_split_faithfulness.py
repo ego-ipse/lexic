@@ -301,23 +301,23 @@ remain faithful with the interiors READ, not skipped."""
 
 
 def test_identical_openings_with_different_closers_stay_faithful() -> None:
-    """``engaged=False`` is an HONEST DECLINE, and the reason is the grammar's
-    own: the unit's arms end ``;``, ``!`` and a newline, so no terminator
-    exists for any conjunction over them to agree on — not at one character
-    and not at any wider spelling. The twin regions also correctly refuse
-    certification (identical opening, different closers) and nothing
-    separates. A unit whose arms genuinely end three ways has no boundary to
-    cut on; the faithfulness half is the live assertion.
+    """``engaged=True``: the unit's arms end ``;``, ``!`` and a newline, so no
+    conjunction over them agrees on a terminator — and agreement was never what
+    a boundary needed. Each of those three characters stands ONLY at an arm's
+    end, so every occurrence of any of them bounds a unit and the whole ending
+    alphabet is the mark set. The twin regions still correctly refuse
+    certification (identical opening, different closers) and nothing separates;
+    the split reads the interiors rather than skipping them, and stays exact.
 
-    The document DERIVES, which is what makes that half say anything: ``plain``
-    carries its own newline, so a bare run of text between two twins is not an
-    item and a document written that way compares two refusals rather than two
-    parses."""
+    The document DERIVES, which is what makes the faithfulness half say
+    anything: ``plain`` carries its own newline, so a bare run of text between
+    two twins is not an item and a document written that way compares two
+    refusals rather than two parses."""
     text = "".join(f"%abc;%{n}!post {n} here\n" for n in range(800))
     assert len(text) > 4 * MIN_CHUNK
     compiled = compile_text(_TWINS, cache_key="adv-faith-twin-openers")
     assert compiled.parse(text, cores=1).to_text() == text
-    assert_faithful(_TWINS, text, "twin-openers", engaged=False)
+    assert_faithful(_TWINS, text, "twin-openers", engaged=True)
 
 
 # ── malformed documents refuse identically at every count ──────────────────
