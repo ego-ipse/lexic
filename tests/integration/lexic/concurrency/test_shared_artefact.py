@@ -82,6 +82,27 @@ def test_concurrent_parses_of_one_document_agree_with_each_other(width: int) -> 
     assert all(model == reference for model in models)
 
 
+def test_concurrent_parses_of_one_document_round_trip_byte_identical() -> None:
+    """Two threads racing the SAME ``str`` object still round-trip exactly.
+
+    The engine's per-thread document copy (the product entries' private
+    ``_owned_text``) is what makes a shared document safe under free
+    threading. If it ever degraded to one of the no-op idioms CPython
+    shortcuts for an exact ``str`` — pinned directly in
+    ``tests/unit/lexic/parsing/test_products.py`` — this is the behavioural
+    surface where a torn parse would show up: not a wrong model, but a
+    ``to_text()`` that no longer equals the input.
+    """
+    compiled = compile_text(FLAT, cache_key="concurrency-flat")
+    text = flat_doc(0)
+    reference = compiled.parse(text)
+    models = clean(
+        parallel(partial(_parse, compiled=compiled, texts=[text, text], cores=1), 2)
+    )
+    assert all(model == reference for model in models)
+    assert all(model.to_text() == text for model in models)
+
+
 def test_concurrent_split_parses_on_one_artefact_stay_exact() -> None:
     """Threads whose own parses split: pool leases contended, models exact.
 

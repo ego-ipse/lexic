@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import ctypes
+import sys
+import threading
 from typing import Any, cast
 
 import pytest
@@ -34,15 +37,18 @@ from lexic.ir import (
 )
 from lexic.model import GrammarModel
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
+from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import (
     _MODEL_CACHE,
     _model_product,
+    _owned_text,
     earley_model,
     parse_model,
     pda_tables,
     reset_product_cache,
+    token_model,
 )
 from tests.reduce_helpers import reduce_text
 from tests.unit.lexic.parsing.parsing_helpers import compiled
@@ -420,3 +426,166 @@ def test_a_negated_expected_set_keeps_its_polarity():
     assert readout is not None
     assert readout.negated is True
     assert "<" in readout.expected and ">" in readout.expected
+
+
+# ── the thread-owned document copy ─────────────────────────────────────────
+
+_OB_TID = 0
+"""``ob_tid`` — byte offset of the owning thread in a free-threaded ``PyObject``."""
+
+_OB_REF_LOCAL = 12
+"""``ob_ref_local`` — byte offset of the owning thread's private refcount."""
+
+_OB_REF_SHARED = 16
+"""``ob_ref_shared`` — byte offset of the cross-thread refcount; zero means
+the object has never left the thread that made it."""
+
+
+def _header(obj: object) -> tuple[int, int, int]:
+    """``(ob_tid, ob_ref_local, ob_ref_shared)`` read straight out of the
+    free-threaded object header at the offsets above."""
+    at = id(obj)
+    return (
+        ctypes.c_uint64.from_address(at + _OB_TID).value,
+        ctypes.c_uint32.from_address(at + _OB_REF_LOCAL).value,
+        ctypes.c_int64.from_address(at + _OB_REF_SHARED).value,
+    )
+
+
+def _this_thread() -> int:
+    """This thread's ``ob_tid``, taken from an object it just made."""
+    return _header(object())[0]
+
+
+def _free_threaded() -> bool:
+    """Whether the GIL is off for this run — ``ob_tid``/``ob_ref_shared`` are
+    only maintained then; a GIL build must skip rather than fail."""
+    gil_enabled = getattr(sys, "_is_gil_enabled", None)
+    return gil_enabled is not None and not gil_enabled()
+
+
+class _StrSubclass(str):
+    """A ``str`` subclass, to pin that ``_owned_text`` normalizes to exact
+    ``str`` regardless of what subtype a caller hands in."""
+
+
+def _parse_into(
+    grammar: IrAst,
+    text: str,
+    fold: ModelFold,
+    results: list[GrammarModel | None],
+    index: int,
+) -> None:
+    """Run ``parse_model`` and stash the result at ``results[index]`` — the
+    flat, non-closure body a thread target needs."""
+    results[index] = parse_model(grammar, text, fold)
+
+
+def test_owned_text_returns_a_distinct_but_equal_object():
+    """``_owned_text`` copies an exact ``str`` — same value, different object.
+
+    The load-bearing pin: CPython shortcuts ten different "copy" idioms back
+    to the SAME object for an exact ``str`` (``s[:]``, ``str(s)``, ``s + ""``,
+    ``"".join([s])``, ``s * 1`` all no-op). A regression to any of them would
+    make the thread-owned copy silently vanish while every behavioural test in
+    this module stayed green — this is the one that goes red instead.
+    """
+    text = "abc" * 100
+    owned = _owned_text(text)
+    assert owned is not text
+    assert owned == text
+    assert len(owned) == len(text)
+    assert owned.__class__ is str
+
+
+@pytest.mark.skipif(
+    not _free_threaded(), reason="ob_tid/ob_ref_shared are free-threaded-build fields"
+)
+def test_owned_text_copy_is_owned_by_the_calling_thread():
+    """The copy has never left this thread: ``ob_tid`` matches this thread and
+    ``ob_ref_shared`` is zero — the local fast-refcount path every terminal
+    match takes, which is the whole reason the copy exists."""
+    text = "abc" * 100
+    owned = _owned_text(text)
+    tid, _local, shared = _header(owned)
+    assert tid == _this_thread()
+    assert shared == 0
+
+
+def test_owned_text_normalizes_a_str_subclass_to_exact_str():
+    """A ``str`` subclass in yields an exact ``str`` out."""
+    owned = _owned_text(_StrSubclass("ab"))
+    assert owned.__class__ is str
+    assert owned == "ab"
+
+
+def test_parse_model_parses_a_str_subclass_identically_to_the_exact_str():
+    """A ``str`` subclass parses to the same model as the exact ``str`` it
+    equals, and the model's ``to_text()`` round-trips to the original TEXT
+    value rather than to the subclass."""
+    cg = compiled()
+    subclass_model = parse_model(cg.codegen_grammar, _StrSubclass("ab"), cg.fold)
+    exact_model = parse_model(cg.codegen_grammar, "ab", cg.fold)
+    assert subclass_model.semantic_dump() == exact_model.semantic_dump()
+    assert subclass_model.to_text() == "ab"
+    assert subclass_model.to_text().__class__ is str
+
+
+def test_parse_model_result_is_unaffected_by_pre_owning_the_text():
+    """Composing ``_owned_text`` before calling ``parse_model`` changes
+    nothing — the entry's own copy is transparent to the result, which is the
+    behavioural half of "the entry consumed a copy, not the caller's object"
+    (identity itself is pinned directly against ``_owned_text``, above)."""
+    cg = compiled()
+    text = "ab"
+    direct = parse_model(cg.codegen_grammar, text, cg.fold)
+    pre_owned = parse_model(cg.codegen_grammar, _owned_text(text), cg.fold)
+    assert direct.semantic_dump() == pre_owned.semantic_dump()
+    assert direct.to_text() == pre_owned.to_text() == text
+
+
+def test_token_model_result_is_unaffected_by_pre_owning_the_text():
+    """Same behavioural parity as ``parse_model``, through the token route."""
+    token_grammar = compile_text(
+        _TOKEN_ARM_CHOICE, vocabulary=_token_vocabulary(), cache_key="tok-owned-text"
+    )
+    text = "<a>"
+    tok = token_grammar.tokens.tokenizer
+    assert tok is not None, "this must exercise the token route"
+    bounds = {start: (tid, end - start) for start, end, tid in tok.boundaries(text)}
+    direct = token_model(
+        token_grammar.codegen_grammar,
+        text,
+        token_grammar.fold,
+        bounds,
+        resolve=lambda first, _other: first,
+    )
+    pre_owned = token_model(
+        token_grammar.codegen_grammar,
+        _owned_text(text),
+        token_grammar.fold,
+        bounds,
+        resolve=lambda first, _other: first,
+    )
+    assert direct.semantic_dump() == pre_owned.semantic_dump()
+    assert direct.to_text() == pre_owned.to_text() == text
+
+
+def test_parse_model_gives_the_same_result_across_two_threads_sequentially():
+    """Two distinct threads, run one after the other (not racing — that is
+    the concurrency lane's job), parsing the SAME ``str`` object: the models
+    are byte-identical both times, proving the per-call copy does not depend
+    on whether the text object was already touched by another thread."""
+    cg = compiled()
+    text = "ab"
+    results: list[GrammarModel | None] = [None, None]
+    for index in range(2):
+        thread = threading.Thread(
+            target=_parse_into, args=(cg.codegen_grammar, text, cg.fold, results, index)
+        )
+        thread.start()
+        thread.join()
+    first, second = results
+    assert first is not None and second is not None
+    assert first.semantic_dump() == second.semantic_dump()
+    assert first.to_text() == second.to_text() == text

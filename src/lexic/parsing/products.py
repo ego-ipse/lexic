@@ -8,6 +8,11 @@ first and completes on the Earley engine on any
 
 The Earley model completion is the route-forcing seam.
 
+Both product entries take their own copy of the document first. Under free
+threading a reference to an object another thread can reach costs an atomic
+read-modify-write, and the parse loop takes one per terminal match, so the
+engine owns its input rather than trusting callers not to share a string.
+
 A leaf inside ``lexic.parsing``: imports the Earley engine and the PDA compiler/
 runtime by public name; ``__init__`` re-exports the product entries and the
 Earley completions at the package root, the sole surface ``compile.py`` (and
@@ -49,6 +54,24 @@ __all__ = [
     "pda_tables",
     "reset_product_cache",
 ]
+
+
+# ── the document's thread ownership ────────────────────────────────────────
+
+
+def _owned_text(text: str) -> str:
+    """``text`` copied onto the calling thread, so the parse's increfs stay local.
+
+    Every terminal match takes the document as its first argument, so one
+    document shared across worker threads puts a single cache line under an
+    atomic read-modify-write per match — enough to hold sixteen threads below
+    the throughput of one.
+
+    Joining a TWO-element sequence is what makes this a real copy: ``str.join``
+    hands back its argument unchanged for a one-element sequence, and so do
+    ``text[:]``, ``str(text)``, ``text + ""`` and ``text * 1``.
+    """
+    return "".join((text, ""))
 
 
 # ── the Earley completion (also the tests' route-forcing seam) ─────────────
@@ -110,6 +133,7 @@ def token_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or means two
         things and no resolver was supplied.
     """
+    text = _owned_text(text)
     tables = _token_tables(grammar, tier_for(len(text)))
     kernel = TokenKernel(tables, text, bounds, record_links=True).run()
     if accept_item(kernel) < 0:
@@ -269,6 +293,7 @@ def parse_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
     """
+    text = _owned_text(text)
     product = _model_product(grammar, fold, tier_for(len(text)))
     try:
         return pda_model(product.pda, text, fold, resolve=resolve)

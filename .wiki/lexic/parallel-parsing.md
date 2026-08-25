@@ -103,7 +103,35 @@ hence its own memo entry, hence its own cache lines. Measured on 8 threads:
 5.34× once the fold's container spine is copied too. Synthesized model classes
 stay shared by necessity — two workers building two different classes for one
 rule would break model equality, which is the thing the split exists to
-preserve — so their refcount traffic remains and sets the ceiling.
+preserve.
+
+Sharing those classes turns out to cost nothing, and the reason generalises:
+free-threaded CPython gives heap **types**, functions and module dicts
+*deferred* reference counts, so instantiating one shared class from sixteen
+threads measures the same as instantiating a per-worker one. Only ordinary
+mortal objects pay per reference.
+
+## The document is copied per thread
+
+An object every worker reaches costs an atomic read-modify-write on one cache
+line for each reference taken. The parse loop takes one per terminal match —
+the kernel holds the document as `self.text` and passes it as the first
+argument of every matcher — so a document shared across threads is the densest
+possible case: one line, every core, millions of times a second. Measured, it
+runs *slower than a single thread*.
+
+`parse_model` and `token_model` therefore take their own copy of the input
+before doing anything else, and every parse owns the string it reads. The copy
+is `"".join((text, ""))`: `str.join` returns its argument unchanged for a
+one-element sequence, and so do `text[:]`, `str(text)`, `text + ""` and
+`text * 1` — every obvious idiom hands back the shared object and does nothing.
+It costs one `memcpy` (~0.02 ms/MB, 0.002–0.005% of a parse at every size from
+16 KB to 10.6 MB) and lifts independent documents on 8 threads from 4.97× to
+7.23×, against a 7.62× process control.
+
+Splitting one document is already clear of this: `orchestrate.py` slices
+`text[a:b]` inside the worker, so each piece is a fresh string made on the
+thread that parses it.
 
 **Identity caches pin their key objects.** `id()` is recycled the moment an
 address is free, so a cache keyed on bare ints can be hit by a brand-new object
