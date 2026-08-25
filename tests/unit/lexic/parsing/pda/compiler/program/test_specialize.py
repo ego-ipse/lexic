@@ -33,12 +33,14 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_FAIL,
     OP_GRP,
     OP_ISLAND,
+    OP_LEAF1,
     OP_LIT,
     OP_LIT1,
     OP_REF,
     OP_REF1,
     OP_V1,
     OP_VDISP,
+    OP_VRUN,
     OP_VSTR,
     TERMINAL_OPS,
 )
@@ -630,3 +632,78 @@ def test_every_exactly_once_terminal_is_specialised_across_ground_truth():
                     OP_AVDISP,
                 ):
                     stack.append(payload)
+
+
+_CLONE_VALUED_OPS = frozenset(
+    (
+        OP_GRP,
+        OP_REF,
+        OP_REF1,
+        OP_VSTR,
+        OP_VRUN,
+        OP_V1,
+        OP_VDISP,
+        OP_LEAF1,
+        OP_AVSTR,
+        OP_AVDISP,
+    )
+)
+"""Every op-code whose payload is a :class:`FlatClone` — a full clone-graph
+walk's edges. Wider than :func:`~...specialize.all_clones`'s own worklist,
+which only follows :data:`OP_GRP` (its callers only ever need a clone's
+DIRECTLY nested groups); counting a program-wide opcode like the number of
+:data:`OP_AVSTR`/:data:`OP_AVDISP` sites needs every reference kind followed."""
+
+
+def _reachable_clones(root: object) -> list[FlatClone]:
+    """Every :class:`FlatClone` reachable from ``root``, through every
+    clone-valued op-code (dispatch selectors included)."""
+    seen: set[int] = set()
+    out: list[FlatClone] = []
+    work = [root]
+    while work:
+        clone = work.pop()
+        if not isinstance(clone, FlatClone) or id(clone) in seen:
+            continue
+        seen.add(id(clone))
+        out.append(clone)
+        if clone.mode == BUILD_DISPATCH:
+            work.extend(target for _chars, _negated, target in clone.selectors)
+            if clone.default is not None:
+                work.append(clone.default)
+            continue
+        for arm in clone_arms(clone):
+            for kind, payload in zip(arm.kinds, arm.payloads):
+                if kind in _CLONE_VALUED_OPS:
+                    work.append(payload)
+    return out
+
+
+def test_vyx_keeps_its_eight_attempt_aware_inline_sites():
+    """Vyx's own regression witness, held as a program-shape count.
+
+    ``json_history.md`` §7: de-specialising these sites back to ordinary
+    clone frames (the pre-``OP_AVSTR``/``OP_AVDISP`` state) grew
+    ``attempt_iteration`` calls from 13,800 to 52,260 per profiled
+    population and cost real wall-clock — the exact regression the fix
+    exists to prevent from recurring silently. A drop in this count is a
+    de-specialisation regression the moment it happens, not the moment
+    someone next runs the benchmark and wonders why Vyx got slower.
+
+    Vyx carries no ``@lexical`` directive of its own — these eight sites are
+    ordinary attempt-gated ``value_str``/dispatch references the grammar's
+    own shape produces, so this compiles the ground-truth file exactly as
+    :meth:`~lexic.compile.artifact.CompiledGrammar.parse` would.
+    """
+    pda = pda_for(GROUND_TRUTH / "vyx.gbnf")
+    clones = _reachable_clones(pda.program.start)
+    kinds = [
+        kind for clone in clones for arm in clone_arms(clone) for kind in arm.kinds
+    ]
+    avstr = kinds.count(OP_AVSTR)
+    avdisp = kinds.count(OP_AVDISP)
+    assert (avstr, avdisp) == (6, 2), (
+        f"expected 6 OP_AVSTR + 2 OP_AVDISP (the eight re-specialised sites "
+        f"json_history.md §7 names), got {avstr} + {avdisp} — a "
+        "de-specialisation regression"
+    )

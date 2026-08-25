@@ -48,6 +48,9 @@ from tests.integration.lexic.parity.pda_parity_helpers import (
 )
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 from tests.unit.lexic.parsing.parsing_helpers import prod
+from tests.unit.lexic.parsing.pda.compiler.program.test_specialize import (
+    ATTEMPT_GATED_VSTR,
+)
 from tests.unit.lexic.parsing.pda.runtime.kernel.test_kernel import (
     arithmetic_bench_corpus,
 )
@@ -343,6 +346,37 @@ def test_both_engines_build_the_same_model_not_just_the_same_meaning(
         f"{stem}: {len(differed)} of {checked} inputs build different models; "
         f"first: {differed[0]}"
     )
+
+
+# ── I12's guard, held to the parity bar (not round-trip alone) ────────────
+
+
+@pytest.mark.parametrize("text", ["ac", "aac", "aaac", "bc", "abac"])
+def test_an_attempt_gated_value_str_builds_the_same_model_pda_and_earley(
+    text: str,
+) -> None:
+    """I12's guard (`_inline_value_strs` must never inline a `GATE_ATTEMPT`
+    item) held to the equality bar this module owns, not just round-trip.
+
+    The unit-level pin beside `ATTEMPT_GATED_VSTR`'s own definition
+    (`tests/unit/.../test_specialize.py::
+    test_an_attempt_gated_value_str_ref_routes_pda_and_round_trips`) only
+    checks that the PDA route's model round-trips to the input text. That
+    is necessary but not sufficient: a regression that made the PDA build a
+    DIFFERENT model which still happens to round-trip (e.g. picking the
+    wrong arm at an overlap the attempt driver was supposed to settle)
+    would pass that pin and fail this one. This is the "1b regression
+    shape under an attempt-gated loop" parity check — same document, both
+    engines, raw model equality.
+    """
+    cg = compile_text(
+        ATTEMPT_GATED_VSTR, flavour="gbnf", cache_key="i18-attempt-parity"
+    )
+    product = prod(cg)
+    pda_built = pda_model(product.pda, text, cg.fold)
+    earley_built = forced_engine(cg, text)
+    assert repr(pda_built) == repr(earley_built)
+    assert pda_built.to_text() == earley_built.to_text() == text
 
 
 # ── an arm choice is refused, not silently picked ────────────────────────

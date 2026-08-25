@@ -462,6 +462,23 @@ def test_owner_exclusion_refuses_an_assembled_separator():
     assert owner_excludes(_grammar(_SAFE_SOURCE), "para", "\n\n")
 
 
+def test_assembling_and_safe_derive_the_same_plan_only_certification_differs():
+    """The review's exact claim, as a direct assertion rather than a proto
+    printout: one character (``[a-z]*`` vs ``[a-z]+``) changes nothing about
+    what PLAN the scan derives — same mark, same owner — and everything
+    about whether the assembly proof licenses it. If a future change made
+    these two grammars derive DIFFERENT plans, this test would stop proving
+    what it claims to, silently; asserting plan equality directly is what
+    keeps it honest."""
+    assembling_plan = split_plan(compile_text(_ASSEMBLING_SOURCE).codegen_grammar)
+    safe_plan = split_plan(compile_text(_SAFE_SOURCE).codegen_grammar)
+    assert assembling_plan is not None and safe_plan is not None
+    assert assembling_plan.mark == safe_plan.mark == frozenset({"\n\n"})
+    assert assembling_plan.owner == safe_plan.owner == "para"
+    assert not owner_excludes(_grammar(_ASSEMBLING_SOURCE), "para", "\n\n")
+    assert owner_excludes(_grammar(_SAFE_SOURCE), "para", "\n\n")
+
+
 def test_an_owner_that_ends_with_the_border_puts_the_boundary_last():
     """``para`` ends with a newline and the separator is two, so every real
     boundary reads as a run of three and the left occurrence is false. The

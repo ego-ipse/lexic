@@ -121,6 +121,43 @@ def test_a_grammar_without_the_shapes_derives_empty_roles():
     assert roles(ast) == Roles((), ())
 
 
+def test_arms_that_close_three_different_ways_derive_the_ending_alphabet():
+    """The twin-openers shape: three record kinds end ``;``, ``!`` and a
+    newline, agreeing on nothing — no agreed CHARACTER, no agreed SPELLING,
+    so ``agreed_tail``'s conjunction derives nothing at either width. The
+    ending ALPHABET is the last resort in the cascade and the only one that
+    does not need agreement: each of the three characters stands only at an
+    arm's end, so every one of them may still be a boundary, and all three
+    are anchors here (none occurs anywhere else in the grammar)."""
+    grammar = (
+        "root ::= record+\n"
+        "record ::= a | b | c\n"
+        'a ::= "x" ";"\n'
+        'b ::= "y" "!"\n'
+        'c ::= [a-z]+ "\\n"\n'
+    )
+    got = roles(compile_text(grammar).codegen_grammar)
+    assert _tail(grammar, "record") == ""  # no agreed spelling
+    assert got.terminators == (
+        Terminator(frozenset({";", "!", "\n"}), "root", "record"),
+    )
+
+
+def test_a_multi_character_separator_with_a_non_anchor_character_derives_nothing():
+    """A wide separator is admitted only when EVERY character it spells is an
+    anchor. ``"=@"`` qualifies (neither character occurs anywhere else);
+    ``"=x"`` does not — ``x`` also stands inside ``block``'s own
+    maximal-munch run, so a window scan finding an ``x`` cannot tell the
+    separator from ordinary content without left context, and the mark is
+    unreadable whatever else is true of it."""
+    admits = 'root ::= block (sep block)*\nsep ::= "=@"\nblock ::= [a-y]+\n'
+    declines = admits.replace('"=@"', '"=x"')
+    got_admits = roles(compile_text(admits).codegen_grammar)
+    got_declines = roles(compile_text(declines).codegen_grammar)
+    assert got_admits.records == (Separator("=@", "root", "root-item", "sep"),)
+    assert got_declines.records == ()
+
+
 # ── agreed_tail: the arm-family conjunction, one character wider ──────────
 
 
