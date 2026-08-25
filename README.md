@@ -15,7 +15,7 @@ parse one document across many threads on free-threaded Python.
 ![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.8x_on_16_threads-2a78d6)
 <!-- lexic:end mt-badge -->
 <!-- lexic:begin tests-badge -->
-![Tests](https://img.shields.io/badge/tests-3.6k%2B-brightgreen)
+![Tests](https://img.shields.io/badge/tests-5.3k%2B-brightgreen)
 <!-- lexic:end tests-badge -->
 ![Status](https://img.shields.io/badge/status-pre--1.0-orange)
 ![License: LGPL](https://img.shields.io/badge/license-LGPL-blue)

@@ -25,9 +25,11 @@ a suite invariant, so a stale README fails CI instead of waiting to be noticed.
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import math
+import re
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -70,18 +72,24 @@ def fmt(value: float) -> str:
 
 
 def count_tests() -> int:
-    """Statically count ``def test_*`` functions across the test tree."""
-    total = 0
-    for path in sorted((ROOT / "tests").rglob("test_*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        walker = ast.walk(tree)
-        defs = (ast.FunctionDef, ast.AsyncFunctionDef)
-        total += sum(
-            1
-            for node in walker
-            if isinstance(node, defs) and node.name.startswith("test_")
-        )
-    return total
+    """Count the tests pytest actually collects — parametrized cases included.
+
+    A static ``def test_*`` census undercounts by a third here (parametrized
+    families expand at collection), so the badge counts what the suite runs.
+    Collection is skip-independent, so the number is stable across
+    environments.
+    """
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/", "--collect-only", "-q"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    match = re.search(r"(\d+) tests? collected", out.stdout)
+    if match is None:
+        raise SystemExit(f"test collection failed:\n{out.stdout[-2000:]}{out.stderr[-2000:]}")
+    return int(match.group(1))
 
 
 def tests_badge() -> str:
