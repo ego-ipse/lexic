@@ -149,7 +149,7 @@ class ReduceFold:
         hundreds of groups deep can exceed Python's recursion limit even when
         every individual compiler pass is iterative. Collect the model nodes
         first and assemble their channels in post-order; nested calls made by
-        :meth:`wrapped` then read an already-built child channel.
+        :meth:`fold_subtree` then read an already-built child channel.
         """
         key = (id(model), rule)
         if self._channel_cache is not None:
@@ -269,7 +269,7 @@ class ReduceFold:
             return
         if rule in self.tables.drops:
             return
-        parts.append(self.wrapped(value, rule, rule, slot))
+        parts.append(self.fold_subtree(value, rule, rule, slot))
 
     def _terminal_channel(self, model: Any, rule: str) -> list[IrSelf]:
         """An UNMARKED value_str rule's channel — what its terminals drop or keep.
@@ -314,7 +314,7 @@ class ReduceFold:
             return
         if owner in self.tables.drops:
             return
-        parts.append(self.wrapped(value, rule, owner, slot))
+        parts.append(self.fold_subtree(value, rule, owner, slot))
 
     def _splice_run(self, value: Any, parts: list[IrSelf], rule: str) -> None:
         """A marked run: raw text when poison-free, else sub-parse + fold."""
@@ -328,10 +328,26 @@ class ReduceFold:
         sub = self.plan.subs[rule]
         parts.extend(sub.fold.channel(sub.parse(text), rule))
 
-    def wrapped(
+    def fold_subtree(
         self, value: Any, rule: str, body_rule: str, slot: tuple[str, bool] | None
     ) -> IrSelf:
-        """The value under every body its chain applies — last ``YIELD`` wins."""
+        """One subtree's value, under every body its chain applies — last ``YIELD`` wins.
+
+        This is the whole unit of folding: the value ``value``'s subtree
+        contributes to its parent's channel. It reads nothing but the node, the
+        compiled tables, the plan, the reducer and — through :meth:`channel` —
+        its own children's values, so it may be evaluated anywhere the same four
+        arguments can be supplied, including on another thread. Calling it
+        standalone starts a fresh channel-cache lifecycle, exactly as a
+        whole-document fold does.
+
+        :param value: The subtree's root model node.
+        :param rule: The rule ``value`` was synthesized for.
+        :param body_rule: The rule whose body applies first — its own, or the
+            alternation owner it was hoisted into.
+        :param slot: The parent's slot, which names the pass-through chain to
+            re-apply; ``None`` when there is no bound edge to follow.
+        """
         names = [body_rule] + (self.chain(slot[0], body_rule) if slot else [])
         bodies = [self.tables.bodies[n] for n in names]
         last = max((k for k, b in enumerate(bodies) if b is YIELD), default=-1)

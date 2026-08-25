@@ -471,6 +471,31 @@ def test_a_grammar_without_a_separated_start_has_no_plan():
     assert split_model(parse_model, grammar, Request("abc", fold), 4) is None
 
 
+def test_split_model_settles_too_few_workers_before_entering_poollease(
+    monkeypatch,
+) -> None:
+    """Obligation B, the other half (see ``tests/unit/lexic/compile/reduce/
+    test_fold.py::test_sub_run_binds_its_sub_parse_at_cores_1`` for the
+    first): a reducer fold can issue thousands of tiny ``cores=1`` sub-parses
+    from ``_splice_run``, so ``split_model`` must settle "too few workers"
+    (``cores=1`` always qualifies) BEFORE it ever takes a pool lease — a fold
+    worker's sub-parse must never be the caller that blocks waiting on the
+    fold pool's own lease.
+
+    Monkeypatching ``PoolLease.__enter__`` to raise makes "never entered"
+    loud: if a future change moved the ``workers < 2`` guard to after the
+    lease, this fails outright instead of merely deadlocking under load.
+    """
+
+    def _entered_the_lease(self):
+        raise AssertionError("PoolLease entered despite workers < 2")
+
+    monkeypatch.setattr(orchestrate.PoolLease, "__enter__", _entered_the_lease)
+    compiled = compile_text(LEAD_RULE)
+    grammar, fold = compiled.codegen_grammar, compiled.fold
+    assert split_model(parse_model, grammar, Request(_doc(), fold), 1) is None
+
+
 def test_a_bad_input_declines_rather_than_inventing_a_refusal():
     """A failing chunk is a verdict on the SPLIT, not on the input: the
     split declines and the caller's sequential parse is what raises."""

@@ -10,7 +10,12 @@ grammars.
 
 from __future__ import annotations
 
+import functools
+
 from lexic.compile import compile_ast, compile_text
+from lexic.compile.artifact import _sub_run
+from lexic.compile.reduction import derive_reduction
+from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import (
     DROP,
     KEEP_RAW,
@@ -46,6 +51,7 @@ def _chain_grammar() -> IrAst:
 
 
 def test_reduce_applies_the_default_body_when_no_rule_is_mapped():
+    """An unmapped rule falls through to the reducer's default (YIELD)."""
     reducer = Reducer(actions=IrMap(), default=YIELD)
     assert compile_ast(_chain_grammar()).reduce("x", reducer) == IrStr("x")
 
@@ -68,6 +74,7 @@ def test_a_mapped_leaf_body_is_reached_through_a_pass_through_chain():
 
 
 def test_keep_raw_literal_policy_includes_literal_characters_in_the_channel():
+    """``literal=KEEP_RAW`` puts inline literal characters on the channel."""
     grammar = IrAst(
         IrSeq(
             IrRule(
@@ -88,6 +95,7 @@ def test_keep_raw_literal_policy_includes_literal_characters_in_the_channel():
 
 
 def test_drop_literal_policy_excludes_literal_characters_from_the_channel():
+    """``literal=DROP`` (the default) keeps inline literals off the channel."""
     grammar = IrAst(
         IrSeq(
             IrRule(
@@ -122,3 +130,28 @@ def test_reduce_refuses_a_no_body_default_of_a_dispatch_miss_the_same_way_as_par
     reducer = Reducer(actions=IrMap(), default=DROP)
     result = compile_ast(_chain_grammar()).reduce("x", reducer)
     assert result == () or not str(result)
+
+
+# ── Obligation B — a fold worker's sub-parse can never contend the fold pool
+
+
+def test_sub_run_binds_its_sub_parse_at_cores_1():
+    """A poisoned marked run's escape hatch (``_splice_run``, T2 in the
+    design notes) re-enters the parser FROM INSIDE a fold. ``_sub_run``
+    binds that sub-parse to ``cores=1`` via ``functools.partial`` — so a
+    later "helpful" parallelisation of the sub-parse cannot silently
+    deadlock a future partitioned fold's own worker pool. This is a pin, not
+    new coverage: the binding already exists (``artifact.py``); a
+    regression here must fail loudly rather than surface as a deadlock.
+
+    The other half of this obligation — that ``split_model`` itself settles
+    "too few workers" BEFORE ever taking a pool lease, so cores=1 alone is
+    the second line of defence even if this binding were ever dropped — is
+    pinned in ``tests/unit/lexic/parsing/parallel/test_orchestrate.py``.
+    """
+    cg = compile_ast(JSON_GRAMMAR, cache_key="fold-obligation-b-subrun")
+    derivation = derive_reduction(JSON_GRAMMAR, JSON_REDUCER)
+    spec = derivation.runs["char-run"]
+    sub = _sub_run(cg, JSON_REDUCER, "char-run", spec)
+    assert isinstance(sub.parse, functools.partial)
+    assert sub.parse.keywords == {"cores": 1}
