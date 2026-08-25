@@ -11,9 +11,9 @@ from typing import cast
 import pytest
 
 from tools.benchmark import bench as benchmark
-from tools.benchmark.execution import isolation, worker
 from tools.benchmark.bench import EngineBuild
 from tools.benchmark.cases.grammars import Bench
+from tools.benchmark.execution import isolation, worker
 from tools.benchmark.execution.isolation import RowRequest
 
 

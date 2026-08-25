@@ -27,8 +27,8 @@ from typing import NamedTuple
 from tools.benchmark.bench import LEXIC_ROWS, MT_ROWS
 from tools.benchmark.cases.grammars import BENCHES
 from tools.benchmark.cases.variants import variant_marks
-from tools.benchmark.presentation.cli import _mt_cores
 from tools.benchmark.execution.isolation import Job, RowRequest, run_jobs
+from tools.benchmark.presentation.cli import _mt_cores
 
 DEFAULT_ROUNDS = 7
 CONFIRM_BATCH_ROUNDS = DEFAULT_ROUNDS

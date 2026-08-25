@@ -7,7 +7,7 @@ import sys
 from math import log10
 from typing import NamedTuple
 
-from tools.benchmark.bench import ENGINE, PRODUCT, Parse, _JSON_SPECIALISTS, _medians
+from tools.benchmark.bench import _JSON_SPECIALISTS, ENGINE, PRODUCT, Parse, _medians
 from tools.benchmark.cases.grammars import Bench
 from tools.benchmark.cases.variants import variant_marks
 

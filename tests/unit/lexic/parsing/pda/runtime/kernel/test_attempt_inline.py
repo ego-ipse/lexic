@@ -8,11 +8,11 @@ from lexic.compile import Directives, compile_text
 from lexic.parsing.pda.runtime.kernel.decisions import Attempting
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.trace import watch
-from tools.benchmark.cases.grammars import BENCHES
 from tests.unit.lexic.parsing.pda.compiler.program.test_specialize import (
     ATTEMPT_GATED_VSTR,
 )
 from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
+from tools.benchmark.cases.grammars import BENCHES
 
 
 def test_an_attempt_aware_value_str_runs_its_fused_loop(

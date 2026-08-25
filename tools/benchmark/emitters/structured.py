@@ -29,18 +29,18 @@ from tools.benchmark.emitters.charsets import (
 )
 from tools.benchmark.emitters.directives import NO_MARKS, Marks, inlined_marks
 from tools.benchmark.emitters.emit import (
-    Lex,
-    Runs,
     _ANTLR_SPECIALS,
     _UNIT,
+    Lex,
+    Runs,
     _antlr_escaped,
     _bounds,
     _choice_arms,
+    _known_ref,
     _live,
     _members,
-    _negated_class,
     _names,
-    _known_ref,
+    _negated_class,
     _quantified,
     _ranges,
     _rule_map,

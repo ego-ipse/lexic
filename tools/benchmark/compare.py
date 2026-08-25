@@ -13,8 +13,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from tools.benchmark.presentation.cli import _mt_cores
 from tools.benchmark.execution.isolation import IsolatedRow, Job, RowRequest, run_jobs
+from tools.benchmark.presentation.cli import _mt_cores
 from tools.benchmark.regression import (
     CONFIRM_BATCH_ROUNDS,
     CONFIRM_MAX_ROUNDS,
