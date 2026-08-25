@@ -1,0 +1,227 @@
+{
+  "schema": 1,
+  "unit": "microseconds_per_character",
+  "measured": "2026-08-25",
+  "rounds": 7,
+  "cores": 16,
+  "noise_floor_percent": [
+    0.63,
+    3.84
+  ],
+  "note": "Cross-engine medians of isolated rounds. Refreshed deliberately by rerunning the full bench with --json; README rendering reads this file and never triggers a run.",
+  "engines": {
+    "lexic-mt": {
+      "label": "lexic-mt",
+      "runtime": "python"
+    },
+    "lexic-mt-lex-ns": {
+      "label": "lexic-mt-lex-ns",
+      "runtime": "python"
+    },
+    "lexic-lex": {
+      "label": "lexic-lex",
+      "runtime": "python"
+    },
+    "lexic-lex-ns": {
+      "label": "lexic-lex-ns",
+      "runtime": "python"
+    },
+    "lexic-pda": {
+      "label": "lexic-pda",
+      "runtime": "python"
+    },
+    "lexic-earley": {
+      "label": "lexic-earley",
+      "runtime": "python"
+    },
+    "lark-lalr": {
+      "label": "lark (LALR)",
+      "runtime": "python"
+    },
+    "lark-lalr-lex": {
+      "label": "lark (LALR, marked)",
+      "runtime": "python"
+    },
+    "lark-earley": {
+      "label": "lark (Earley)",
+      "runtime": "python"
+    },
+    "lark-earley-lex": {
+      "label": "lark (Earley, marked)",
+      "runtime": "python"
+    },
+    "parsimonious": {
+      "label": "parsimonious",
+      "runtime": "python"
+    },
+    "parsimonious-lex": {
+      "label": "parsimonious (marked)",
+      "runtime": "python"
+    },
+    "pyparsing": {
+      "label": "pyparsing",
+      "runtime": "python"
+    },
+    "antlr-py": {
+      "label": "ANTLR (Python)",
+      "runtime": "python"
+    },
+    "antlr-py-lex": {
+      "label": "ANTLR (Python, marked)",
+      "runtime": "python"
+    },
+    "antlr": {
+      "label": "ANTLR (Java)",
+      "runtime": "java"
+    },
+    "antlr-lex": {
+      "label": "ANTLR (Java, marked)",
+      "runtime": "java"
+    },
+    "stdlib-json": {
+      "label": "json.loads (stdlib)",
+      "runtime": "python"
+    },
+    "msgspec": {
+      "label": "msgspec",
+      "runtime": "python"
+    }
+  },
+  "values": {
+    "arithmetic": {
+      "lexic-mt": 0.58165,
+      "lexic-mt-lex-ns": 0.542585,
+      "lexic-lex": 1.78453,
+      "lexic-lex-ns": 1.807661,
+      "lexic-pda": 2.204395,
+      "lexic-earley": 68.845392,
+      "lark-lalr": 2.809664,
+      "lark-lalr-lex": 2.49384,
+      "lark-earley": 52.854224,
+      "lark-earley-lex": 46.434374,
+      "parsimonious": 2.453291,
+      "parsimonious-lex": 2.45172,
+      "pyparsing": 23.524313,
+      "antlr-py": 8.73905,
+      "antlr-py-lex": 8.812556,
+      "antlr": 0.129448,
+      "antlr-lex": 0.121984
+    },
+    "csv": {
+      "lexic-mt": 0.217218,
+      "lexic-mt-lex-ns": 0.179607,
+      "lexic-lex": 0.42996,
+      "lexic-lex-ns": 0.421909,
+      "lexic-pda": 0.585915,
+      "lexic-earley": 16.469616,
+      "lark-lalr": 0.792957,
+      "lark-lalr-lex": 0.585672,
+      "lark-earley": 14.52871,
+      "lark-earley-lex": 9.081779,
+      "parsimonious": 0.955787,
+      "parsimonious-lex": 0.96277,
+      "pyparsing": 4.065321,
+      "antlr-py": 2.564164,
+      "antlr-py-lex": 2.329146,
+      "antlr": 0.031907,
+      "antlr-lex": 0.04552
+    },
+    "json": {
+      "lexic-mt": 0.29353,
+      "lexic-mt-lex-ns": 0.26217,
+      "lexic-lex": 0.975406,
+      "lexic-lex-ns": 1.030428,
+      "lexic-pda": 1.254612,
+      "lexic-earley": 37.238737,
+      "lark-lalr": 3.592285,
+      "lark-lalr-lex": 1.057429,
+      "lark-earley": 39.885418,
+      "lark-earley-lex": 16.207764,
+      "parsimonious": 1.840675,
+      "parsimonious-lex": 1.888385,
+      "pyparsing": 11.580419,
+      "antlr-py": 10.312828,
+      "antlr-py-lex": 8.730012,
+      "antlr": 0.329263,
+      "antlr-lex": 0.174627,
+      "stdlib-json": 0.007488,
+      "msgspec": 0.005345
+    },
+    "gbnf-meta": {
+      "lexic-mt": 0.544069,
+      "lexic-mt-lex-ns": 0.459493,
+      "lexic-lex": 2.191879,
+      "lexic-lex-ns": 2.220489,
+      "lexic-pda": 2.613785,
+      "lexic-earley": 69.912257,
+      "lark-lalr": "refuses",
+      "lark-lalr-lex": "refuses",
+      "lark-earley": 200.594042,
+      "lark-earley-lex": 132.569709,
+      "parsimonious": "refuses",
+      "parsimonious-lex": "refuses",
+      "pyparsing": "refuses",
+      "antlr-py": 12.243886,
+      "antlr-py-lex": 11.54042,
+      "antlr": 0.392954,
+      "antlr-lex": 0.274518
+    },
+    "abnf-meta": {
+      "lexic-mt": 0.484369,
+      "lexic-mt-lex-ns": 0.420229,
+      "lexic-lex": 2.132944,
+      "lexic-lex-ns": 1.845209,
+      "lexic-pda": 2.300367,
+      "lexic-earley": 67.401968,
+      "lark-lalr": "refuses",
+      "lark-lalr-lex": "refuses",
+      "lark-earley": 140.340744,
+      "lark-earley-lex": "refuses",
+      "parsimonious": 3.694476,
+      "parsimonious-lex": 3.094887,
+      "pyparsing": 38.115178,
+      "antlr-py": 14.387014,
+      "antlr-py-lex": 10.865532,
+      "antlr": 0.349167,
+      "antlr-lex": 0.29318
+    },
+    "vyx": {
+      "lexic-mt": 0.534539,
+      "lexic-mt-lex-ns": 0.426684,
+      "lexic-lex": 2.301033,
+      "lexic-lex-ns": 2.280977,
+      "lexic-pda": 2.756602,
+      "lexic-earley": 53.798912,
+      "lark-lalr": "refuses",
+      "lark-lalr-lex": "refuses",
+      "lark-earley": 104.094463,
+      "lark-earley-lex": 49.081159,
+      "parsimonious": 2.412279,
+      "parsimonious-lex": 2.461479,
+      "pyparsing": 16.913865,
+      "antlr-py": 11.068351,
+      "antlr-py-lex": 9.869858,
+      "antlr": 0.219581,
+      "antlr-lex": 0.129686
+    },
+    "markdown": {
+      "lexic-mt": 0.231047,
+      "lexic-mt-lex-ns": 0.190231,
+      "lexic-lex": 0.718564,
+      "lexic-lex-ns": 0.702016,
+      "lexic-pda": 0.913327,
+      "lexic-earley": 38.991643,
+      "lark-lalr": 3.409488,
+      "lark-lalr-lex": "refuses",
+      "lark-earley": 99.154721,
+      "lark-earley-lex": 13.370349,
+      "parsimonious": "refuses",
+      "parsimonious-lex": "refuses",
+      "pyparsing": 95.816238,
+      "antlr-py": 8.72099,
+      "antlr-py-lex": 7.197203,
+      "antlr": 0.092011,
+      "antlr-lex": 0.085467
+    }
+  }
+}

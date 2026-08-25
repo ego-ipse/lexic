@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 434" width="880" height="434" role="img" aria-label="Parse speed per engine and grammar, log µs/char">
+<style>
+text{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;fill:#52514e}
+.p{fill:#0b0b0b}.m{fill:#898781}.b{font-weight:600}
+.gl{stroke:#e1e0d9}.ax{stroke:#c3c2b7}
+circle{stroke:#fcfcfb;stroke-width:2}
+.c0{fill:#2a78d6}.c1{fill:#eb6834}.c2{fill:#1baf7a}.c3{fill:#eda100}
+.c4{fill:#e87ba4}.c5{fill:#008300}.c6{fill:#4a3aa7}.c7{fill:#e34948}
+@media(prefers-color-scheme:dark){
+text{fill:#c3c2b7}
+.p{fill:#ffffff}
+.gl{stroke:#2c2c2a}.ax{stroke:#383835}
+circle{stroke:#1a1a19}
+.c0{fill:#3987e5}.c1{fill:#d95926}.c2{fill:#199e70}.c3{fill:#c98500}
+.c4{fill:#d55181}.c6{fill:#9085e9}.c7{fill:#e66767}
+}
+</style>
+<circle cx="155.0" cy="22" r="5" class="c0"/>
+<text x="164.0" y="26.0" font-size="12">arithmetic</text>
+<circle cx="259.0" cy="22" r="5" class="c1"/>
+<text x="268.0" y="26.0" font-size="12">csv</text>
+<circle cx="312.6" cy="22" r="5" class="c2"/>
+<text x="321.6" y="26.0" font-size="12">json</text>
+<circle cx="373.4" cy="22" r="5" class="c3"/>
+<text x="382.4" y="26.0" font-size="12">gbnf-meta</text>
+<circle cx="470.2" cy="22" r="5" class="c4"/>
+<text x="479.2" y="26.0" font-size="12">abnf-meta</text>
+<circle cx="567.0" cy="22" r="5" class="c5"/>
+<text x="576.0" y="26.0" font-size="12">vyx</text>
+<circle cx="620.6" cy="22" r="5" class="c6"/>
+<text x="629.6" y="26.0" font-size="12">markdown</text>
+<line x1="201.6" y1="48.0" x2="201.6" y2="380.0" class="gl" stroke-width="1"/>
+<text x="191.1" y="396.0" font-size="12" class="m">0.1</text>
+<line x1="373.0" y1="48.0" x2="373.0" y2="380.0" class="gl" stroke-width="1"/>
+<text x="369.5" y="396.0" font-size="12" class="m">1</text>
+<line x1="544.4" y1="48.0" x2="544.4" y2="380.0" class="gl" stroke-width="1"/>
+<text x="537.4" y="396.0" font-size="12" class="m">10</text>
+<line x1="715.8" y1="48.0" x2="715.8" y2="380.0" class="gl" stroke-width="1"/>
+<text x="705.3" y="396.0" font-size="12" class="m">100</text>
+<text x="606.0" y="412.0" font-size="12" class="m">µs/char — log scale, lower is faster</text>
+<text x="8.0" y="76.0" font-size="13">ANTLR (Java)</text>
+<circle cx="220.8" cy="72.0" r="5" class="c0"/>
+<circle cx="116.6" cy="72.0" r="5" class="c1"/>
+<circle cx="290.3" cy="72.0" r="5" class="c2"/>
+<circle cx="303.5" cy="72.0" r="5" class="c3"/>
+<circle cx="294.7" cy="72.0" r="5" class="c4"/>
+<circle cx="260.1" cy="72.0" r="5" class="c5"/>
+<circle cx="195.4" cy="72.0" r="5" class="c6"/>
+<text x="8.0" y="108.0" font-size="13" class="b">lexic-mt (16 workers)</text>
+<circle cx="332.7" cy="104.0" r="5" class="c0"/>
+<circle cx="259.3" cy="104.0" r="5" class="c1"/>
+<circle cx="281.8" cy="104.0" r="5" class="c2"/>
+<circle cx="327.7" cy="104.0" r="5" class="c3"/>
+<circle cx="319.0" cy="104.0" r="5" class="c4"/>
+<circle cx="326.4" cy="104.0" r="5" class="c5"/>
+<circle cx="263.9" cy="104.0" r="5" class="c6"/>
+<text x="8.0" y="140.0" font-size="13" class="b">lexic-lex-ns</text>
+<circle cx="417.1" cy="136.0" r="5" class="c0"/>
+<circle cx="308.8" cy="136.0" r="5" class="c1"/>
+<circle cx="375.2" cy="136.0" r="5" class="c2"/>
+<circle cx="432.4" cy="136.0" r="5" class="c3"/>
+<circle cx="418.6" cy="136.0" r="5" class="c4"/>
+<circle cx="434.4" cy="136.0" r="5" class="c5"/>
+<circle cx="346.7" cy="136.0" r="5" class="c6"/>
+<text x="8.0" y="172.0" font-size="13" class="b">lexic-pda</text>
+<circle cx="431.8" cy="168.0" r="5" class="c0"/>
+<circle cx="333.2" cy="168.0" r="5" class="c1"/>
+<circle cx="389.9" cy="168.0" r="5" class="c2"/>
+<circle cx="444.5" cy="168.0" r="5" class="c3"/>
+<circle cx="435.0" cy="168.0" r="5" class="c4"/>
+<circle cx="448.5" cy="168.0" r="5" class="c5"/>
+<circle cx="366.2" cy="168.0" r="5" class="c6"/>
+<text x="8.0" y="204.0" font-size="13">parsimonious</text>
+<circle cx="439.8" cy="200.0" r="5" class="c0"/>
+<circle cx="369.6" cy="200.0" r="5" class="c1"/>
+<circle cx="418.4" cy="200.0" r="5" class="c2"/>
+<text x="800.0" y="204.5" font-size="13" class="c3 b">×</text>
+<circle cx="470.3" cy="200.0" r="5" class="c4"/>
+<circle cx="438.5" cy="200.0" r="5" class="c5"/>
+<text x="816.0" y="204.5" font-size="13" class="c6 b">×</text>
+<text x="800.0" y="42.0" font-size="11" class="m">refuses</text>
+<text x="8.0" y="236.0" font-size="13">lark (LALR)</text>
+<circle cx="449.9" cy="232.0" r="5" class="c0"/>
+<circle cx="355.7" cy="232.0" r="5" class="c1"/>
+<circle cx="468.2" cy="232.0" r="5" class="c2"/>
+<text x="800.0" y="236.5" font-size="13" class="c3 b">×</text>
+<text x="816.0" y="236.5" font-size="13" class="c4 b">×</text>
+<text x="832.0" y="236.5" font-size="13" class="c5 b">×</text>
+<circle cx="464.3" cy="232.0" r="5" class="c6"/>
+<text x="800.0" y="42.0" font-size="11" class="m">refuses</text>
+<text x="8.0" y="268.0" font-size="13">ANTLR (Python)</text>
+<circle cx="534.4" cy="264.0" r="5" class="c0"/>
+<circle cx="443.1" cy="264.0" r="5" class="c1"/>
+<circle cx="546.7" cy="264.0" r="5" class="c2"/>
+<circle cx="559.5" cy="264.0" r="5" class="c3"/>
+<circle cx="571.5" cy="264.0" r="5" class="c4"/>
+<circle cx="552.0" cy="264.0" r="5" class="c5"/>
+<circle cx="534.2" cy="264.0" r="5" class="c6"/>
+<text x="8.0" y="300.0" font-size="13">pyparsing</text>
+<circle cx="608.1" cy="296.0" r="5" class="c0"/>
+<circle cx="477.4" cy="296.0" r="5" class="c1"/>
+<circle cx="555.3" cy="296.0" r="5" class="c2"/>
+<text x="800.0" y="300.5" font-size="13" class="c3 b">×</text>
+<circle cx="644.0" cy="296.0" r="5" class="c4"/>
+<circle cx="583.5" cy="296.0" r="5" class="c5"/>
+<circle cx="712.6" cy="296.0" r="5" class="c6"/>
+<text x="800.0" y="42.0" font-size="11" class="m">refuses</text>
+<text x="8.0" y="332.0" font-size="13" class="b">lexic-earley</text>
+<circle cx="688.0" cy="328.0" r="5" class="c0"/>
+<circle cx="581.5" cy="328.0" r="5" class="c1"/>
+<circle cx="642.3" cy="328.0" r="5" class="c2"/>
+<circle cx="689.2" cy="328.0" r="5" class="c3"/>
+<circle cx="686.4" cy="328.0" r="5" class="c4"/>
+<circle cx="669.6" cy="328.0" r="5" class="c5"/>
+<circle cx="645.7" cy="328.0" r="5" class="c6"/>
+<text x="8.0" y="364.0" font-size="13">lark (Earley)</text>
+<circle cx="668.3" cy="360.0" r="5" class="c0"/>
+<circle cx="572.2" cy="360.0" r="5" class="c1"/>
+<circle cx="647.4" cy="360.0" r="5" class="c2"/>
+<circle cx="767.6" cy="360.0" r="5" class="c3"/>
+<circle cx="741.0" cy="360.0" r="5" class="c4"/>
+<circle cx="718.8" cy="360.0" r="5" class="c5"/>
+<circle cx="715.2" cy="360.0" r="5" class="c6"/>
+<text x="8.0" y="426.0" font-size="11" class="m">measured 2026-08-25; 9 further seats (directive-matched competitor variants, format specialists) stay in the artifact</text>
+</svg>

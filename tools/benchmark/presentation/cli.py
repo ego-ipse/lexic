@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import datetime
+import json
 import random
 from collections.abc import Sequence
+from pathlib import Path
 
 from lexic.parsing.parallel import AUTO, available_workers
 from tools.benchmark.bench import (
@@ -27,10 +30,75 @@ from tools.benchmark.presentation.reporting import (
     Block,
     _legend,
     _mark,
+    _medians,
     _report,
     _use_color,
     _warmup_values,
 )
+
+ENGINE_META = {
+    "lexic-mt": {"label": "lexic-mt", "runtime": "python"},
+    "lexic-mt-lex-ns": {"label": "lexic-mt-lex-ns", "runtime": "python"},
+    "lexic-lex": {"label": "lexic-lex", "runtime": "python"},
+    "lexic-lex-ns": {"label": "lexic-lex-ns", "runtime": "python"},
+    "lexic-pda": {"label": "lexic-pda", "runtime": "python"},
+    "lexic-earley": {"label": "lexic-earley", "runtime": "python"},
+    "lark-lalr": {"label": "lark (LALR)", "runtime": "python"},
+    "lark-lalr-lex": {"label": "lark (LALR, marked)", "runtime": "python"},
+    "lark-earley": {"label": "lark (Earley)", "runtime": "python"},
+    "lark-earley-lex": {"label": "lark (Earley, marked)", "runtime": "python"},
+    "parsimonious": {"label": "parsimonious", "runtime": "python"},
+    "parsimonious-lex": {"label": "parsimonious (marked)", "runtime": "python"},
+    "pyparsing": {"label": "pyparsing", "runtime": "python"},
+    "antlr-py": {"label": "ANTLR (Python)", "runtime": "python"},
+    "antlr-py-lex": {"label": "ANTLR (Python, marked)", "runtime": "python"},
+    "antlr": {"label": "ANTLR (Java)", "runtime": "java"},
+    "antlr-lex": {"label": "ANTLR (Java, marked)", "runtime": "java"},
+    "stdlib-json": {"label": "json.loads (stdlib)", "runtime": "python"},
+    "msgspec": {"label": "msgspec", "runtime": "python"},
+}
+"""Display metadata per row, in the artifact's column order."""
+
+
+def _dump_json(path: Path, rounds: int, cores: int | None, blocks: list[Block]) -> None:
+    """Write EVERY measured or refused row as the cross-engine artifact.
+
+    Nothing is dropped: a row the metadata table does not know gets a default
+    label rather than silence, so a new seat cannot vanish from the record.
+    """
+    values: dict[str, dict[str, float | str]] = {}
+    rows: list[str] = []
+    for block in blocks:
+        medians = _medians(block.samples)
+        cells: dict[str, float | str] = {
+            name: round(median, 6) for name, median in medians.items()
+        }
+        cells |= dict.fromkeys(block.refused, "refuses")
+        known = [name for name in ENGINE_META if name in cells]
+        ordered = known + sorted(set(cells) - set(known))
+        values[block.bench.name] = {name: cells[name] for name in ordered}
+        rows += [name for name in ordered if name not in rows]
+    payload = {
+        "schema": 1,
+        "unit": "microseconds_per_character",
+        "measured": datetime.date.today().isoformat(),
+        "rounds": rounds,
+        "cores": cores,
+        "noise_floor_percent": [
+            round(min(b.floor for b in blocks), 2),
+            round(max(b.floor for b in blocks), 2),
+        ],
+        "note": "Cross-engine medians of isolated rounds. Refreshed "
+        "deliberately by rerunning the full bench with --json; README "
+        "rendering reads this file and never triggers a run.",
+        "engines": {
+            name: ENGINE_META.get(name, {"label": name, "runtime": "python"})
+            for name in rows
+        },
+        "values": values,
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {path}")
 
 
 def _mt_cores(asked: int | None) -> int | None:
@@ -132,6 +200,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         action="store_true",
         help="force ANSI colour (auto: only on a terminal, honouring NO_COLOR)",
     )
+    parser.add_argument(
+        "--json",
+        type=Path,
+        metavar="PATH",
+        help="also write the measured medians as the cross-engine artifact "
+        "(the file tools/render_readme.py renders the README from)",
+    )
     args = parser.parse_args(argv)
     if args.cores and available_workers() == 1:
         raise SystemExit(
@@ -148,8 +223,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"rounds={args.rounds}{_mark(cores)}  grammars={', '.join(b.name for b in benches)}"
     )
     _legend(color)
+    blocks: list[Block] = []
     for bench in benches:
         block, results = _isolated_bench(bench, cores, args.full, args.rounds)
+        blocks.append(block)
         _report(block, color)
         for name in _row_names(bench, cores):
             result = results[name]
@@ -160,6 +237,8 @@ def main(argv: Sequence[str] | None = None) -> None:
                     result.cold_us_per_char,
                     result.charstream_share,
                 )
+    if args.json:
+        _dump_json(args.json, args.rounds, cores, blocks)
 
 
 if __name__ == "__main__":

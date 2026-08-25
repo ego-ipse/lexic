@@ -1871,3 +1871,7 @@ Two repository invariants added: unit tests mirror `src` in BOTH directions (a
 test file naming no module is drift, unless it is a listed behaviour suite), and
 committed code carries no citation into the gitignored working directory —
 nine such dangling references were removed.
+
+2026-08-25: Added [[lexic/transpilation]] — the user-facing transpilation story (both planes, the RULES vocabulary, the run-time contract gates), extracted from the README so the front page can link instead of inline it.
+
+2026-08-25: [[lexic/parallel-parsing]] corrected — shared synthesized classes do NOT set the free-threaded ceiling (heap types carry deferred refcounts; measured equal to per-worker classes). New section: the document is copied per thread at the product entries; the copy idiom and why every obvious idiom is a no-op; orchestrate's slices already clear.
