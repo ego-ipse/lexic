@@ -11,10 +11,16 @@ grammars.
 from __future__ import annotations
 
 import functools
+from typing import Any
+
+import pytest
 
 from lexic.compile import compile_ast, compile_text
-from lexic.compile.artifact import _sub_run
+from lexic.compile.artifact import _reduce_entry, _sub_run
+from lexic.compile.reduce.fold import Unit
 from lexic.compile.reduction import derive_reduction
+from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars import EBNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import (
     DROP,
@@ -28,14 +34,21 @@ from lexic.ir import (
     IrJoin,
     IrLiteral,
     IrMap,
+    IrRaise,
     IrRule,
     IrRuleRef,
+    IrSelf,
     IrSeq,
     IrSequence,
     IrStr,
     IrTuple,
     Reducer,
 )
+from tests.integration.lexic.parity.fold_recorder_helpers import (
+    CarriesFoldState,
+    count_pool_entries,
+)
+from tests.paths import GROUND_TRUTH
 
 
 def _chain_grammar() -> IrAst:
@@ -155,3 +168,139 @@ def test_sub_run_binds_its_sub_parse_at_cores_1():
     sub = _sub_run(cg, JSON_REDUCER, "char-run", spec)
     assert isinstance(sub.parse, functools.partial)
     assert sub.parse.keywords == {"cores": 1}
+
+
+# ── the parallel fold (I22 step 4) ──────────────────────────────────────────
+
+
+class _ScratchProbe(CarriesFoldState):
+    """Exposes ``_memo``/``_roots``/``_frontier`` through PUBLIC methods, so
+    a test can inspect the parallel fold's per-thread scratch without
+    external protected access — the same shape as
+    ``tests/integration/lexic/parity/test_fold_refusals.py``'s ``_Probe``.
+    """
+
+    def probe_memo(self) -> dict[tuple[int, str, str, tuple[str, bool] | None], IrSelf]:
+        """The calling thread's worker-results memo, right now."""
+        return self._memo
+
+    def probe_roots(self) -> set[tuple[int, str]]:
+        """The calling thread's unit-root set, right now."""
+        return self._roots
+
+    def probe_frontier(self, model: Any, rule: str, target: int) -> list[Unit]:
+        """The partition ``_frontier`` derives for ``target`` units."""
+        return self._frontier(model, rule, target)
+
+
+def test_a_divisible_model_actually_partitions_at_cores_2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Engagement, observed rather than inferred from a speedup: a model with
+    enough independent subtrees takes a ``PoolLease`` when ``cores=2`` grants
+    more than one worker — ``reduce()`` only ever enters one when it actually
+    partitions, never on the sequential path.
+    """
+    entered = count_pool_entries(monkeypatch)
+    cg = compile_ast(GBNF_FLAVOUR.grammar, cache_key="fold-engage-arithmetic")
+    text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
+    cg.reduce(text, GBNF_FLAVOUR.reducer, cores=2)
+    assert entered[0] >= 1, "the pool was never entered — did not partition"
+
+
+def test_a_model_below_the_unit_floor_folds_in_place(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The floor that keeps every ``compile_text`` fast, pinned loudly: a
+    self-grammar-sized fold — the size of the hand-written grammar snippets
+    this test file and most of the suite compile — stays sequential even
+    when ``cores`` would grant many workers, because it never reaches the
+    ``2 * workers`` unit floor. The pool is never entered at all.
+    """
+    entered = count_pool_entries(monkeypatch)
+    cg = compile_ast(GBNF_FLAVOUR.grammar, cache_key="fold-decline-self-grammar")
+    cg.reduce('root ::= "a" "b"\n', GBNF_FLAVOUR.reducer, cores=8)
+    assert entered[0] == 0, f"pool entered {entered[0]} times — should have declined"
+
+
+_RAISING_RUN_GRAMMAR = (
+    'root ::= item*\nitem ::= good | bad\ngood ::= [a-y]\nbad ::= "z"\n'
+)
+"""Many independent ``item`` units (enough to partition at ``cores=2``); one
+arm (``bad``) is mapped to an unconditional refusal, so a document with a
+single ``z`` among many other characters refuses from INSIDE a worker's
+fold — the realistic shape a real refusal takes under this design (T2's
+poisoned-run precedent is the same shape: a worker-side raise, not a
+root-level one)."""
+
+
+def _raising_run_reducer() -> Reducer:
+    """``bad`` refuses; every other rule is mapped (never left ``YIELD``, for
+    the same reason ``test_fold_refusals.py``'s poison fixture states: a
+    ``YIELD`` ancestor would collapse the whole subtree to a span first)."""
+    return Reducer(
+        actions=IrMap(
+            IrTuple(IrRuleRef("root"), IrJoin(IrArgs())),
+            IrTuple(IrRuleRef("item"), IrArg(0)),
+            IrTuple(IrRuleRef("good"), IrArg(0)),
+            IrTuple(
+                IrRuleRef("bad"),
+                IrRaise(UnsupportedConstructError, "refusal BANG"),
+            ),
+        ),
+        default=YIELD,
+    )
+
+
+def test_scratch_is_empty_on_the_calling_thread_after_a_successful_reduce():
+    """``_memo``/``_roots`` are per-call scratch, not a cache — after
+    ``reduce()`` returns successfully, both are empty on the thread that
+    called it, so a second unrelated ``reduce()`` on the same fold instance
+    never sees a prior call's units."""
+    cg = compile_text(_RAISING_RUN_GRAMMAR, cache_key="fold-scratch-success")
+    reducer = _raising_run_reducer()
+    entry = _reduce_entry(cg, reducer)
+    probe = _ScratchProbe.carrying(entry.fold)
+    text = "a" * 40  # no "z" — every unit folds cleanly
+    probe.reduce(entry.variant.parse(text, cores=1), cores=2)
+    assert not probe.probe_memo()
+    assert probe.probe_roots() == set()
+
+
+def test_scratch_is_empty_on_the_calling_thread_after_a_refusal():
+    """The refusal counterpart. ``WorkPool.map`` raises the earliest failing
+    unit's own exception FROM INSIDE the ``with PoolLease(...)`` block —
+    before the join ever assembles ``_memo`` — so this pins the stronger
+    property the design actually needs: a failed partition never leaves
+    ANY stale scratch behind, whether or not the join got far enough to
+    populate one in the first place."""
+    cg = compile_text(_RAISING_RUN_GRAMMAR, cache_key="fold-scratch-refusal")
+    reducer = _raising_run_reducer()
+    entry = _reduce_entry(cg, reducer)
+    probe = _ScratchProbe.carrying(entry.fold)
+    text = "a" * 40 + "z" + "a" * 5
+    model = entry.variant.parse(text, cores=1)
+    with pytest.raises(UnsupportedConstructError, match="refusal BANG"):
+        probe.reduce(model, cores=2)
+    assert not probe.probe_memo()
+    assert probe.probe_roots() == set()
+
+
+def test_the_frontier_is_monotone_nondecreasing_as_the_target_rises():
+    """The step-3 bug, permanently pinned: a shape whose branches bottom out
+    at DIFFERENT depths (``arithmetic.ebnf`` under its own EBNF self-grammar
+    reducer, the exact witness that caught the original defect) must never
+    yield FEWER units for a HIGHER target — a bottomed-out unit with no
+    contributions of its own stays at its own depth instead of being
+    descended past and deleted from the frontier."""
+    text = (GROUND_TRUTH / "arithmetic.ebnf").read_text(encoding="utf-8")
+    entry = _reduce_entry(
+        compile_ast(EBNF_FLAVOUR.grammar, cache_key="fold-frontier-monotone"),
+        EBNF_FLAVOUR.reducer,
+    )
+    probe = _ScratchProbe.carrying(entry.fold)
+    model = entry.variant.parse(text, cores=1)
+    rule = probe.rule(model)
+    counts = [len(probe.probe_frontier(model, rule, target)) for target in (8, 64, 512)]
+    assert counts == sorted(counts), f"frontier unit counts not monotone: {counts}"
+    assert counts[0] < counts[-1], "targets never actually grew the partition"

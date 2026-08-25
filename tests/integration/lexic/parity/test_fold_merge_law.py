@@ -31,9 +31,12 @@ reducer" cannot be shown on one. Kept corpus-SIZED-DOWN relative to the
 
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple, Self
+
+import pytest
 
 from lexic.compile import compile_ast
 from lexic.compile.artifact import _reduce_entry
@@ -41,7 +44,10 @@ from lexic.compile.reduce.fold import ReduceFold
 from lexic.grammars import ABNF_FLAVOUR, EBNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrAst, IrSelf, Reducer
-from tests.integration.lexic.parity.fold_recorder_helpers import CarriesFoldState
+from tests.integration.lexic.parity.fold_recorder_helpers import (
+    CarriesFoldState,
+    count_pool_entries,
+)
 from tests.paths import GROUND_TRUTH
 
 _SEED = 20260825
@@ -260,6 +266,78 @@ def _build(w: Witness) -> tuple[ReduceFold, Any]:
         compile_ast(w.grammar, cache_key=f"i22-law-{w.name}"), w.reducer
     )
     return entry.fold, entry.variant.parse(w.text, cores=1)
+
+
+def _synthetic_json_moderate() -> str:
+    """A JSON document sized to clear the partition floor at 8 workers (~180
+    fold units) while staying fast — the ``witnesses()`` synthetic document
+    is deliberately too small for that; this one is deliberately bigger."""
+    return json.dumps({f"k{i}": {"a": i, "b": [i, i + 1]} for i in range(30)})
+
+
+def cores_witnesses() -> tuple[Witness, ...]:
+    """One witness per reducer family, sized to clear the partition floor at
+    cores=8 (>= 16 fold units) — ``witnesses()``'s own documents are
+    deliberately small for V1/V2/V4's per-call re-fold cost and mostly fall
+    UNDER that floor, so the cores-equivalence pin needs its own, bigger (but
+    still small and fast) set."""
+    return (
+        Witness(
+            "gbnf:arithmetic.gbnf",
+            GBNF_FLAVOUR.grammar,
+            GBNF_FLAVOUR.reducer,
+            (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8"),
+        ),
+        Witness(
+            "abnf:arithmetic.abnf",
+            ABNF_FLAVOUR.grammar,
+            ABNF_FLAVOUR.reducer,
+            (GROUND_TRUTH / "arithmetic.abnf").read_text(encoding="utf-8"),
+        ),
+        Witness(
+            "ebnf:arithmetic.ebnf",
+            EBNF_FLAVOUR.grammar,
+            EBNF_FLAVOUR.reducer,
+            (GROUND_TRUTH / "arithmetic.ebnf").read_text(encoding="utf-8"),
+        ),
+        Witness(
+            "json:synthetic-moderate",
+            JSON_GRAMMAR,
+            JSON_REDUCER,
+            _synthetic_json_moderate(),
+        ),
+    )
+
+
+# ── cores equivalence — the public reduce(cores=N) seam ────────────────────
+
+
+def test_reduce_is_value_and_type_identical_at_cores_1_and_cores_8(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``CompiledGrammar.reduce(text, reducer, cores=8)`` builds the exact
+    value ``cores=1`` builds — not merely an equal-looking one — on a
+    witness per reducer family, each sized to actually cross the partition
+    floor at 8 workers. A ``PoolLease`` entry-counting spy on the ``cores=8``
+    call proves the FOLD genuinely engaged the parallel path rather than
+    falling back to sequential and comparing the same code path to itself —
+    every witness text here is well under the parse side's own 2 KiB split
+    floor, so an observed entry can only be the fold's.
+    """
+    entered = count_pool_entries(monkeypatch)
+    for w in cores_witnesses():
+        cg = compile_ast(w.grammar, cache_key=f"i22-cores-eq-{w.name}")
+        assert len(w.text) < 2048, (
+            f"{w.name}: text long enough for the parse to split too"
+        )
+        sequential = cg.reduce(w.text, w.reducer, cores=1)
+        entered[0] = 0
+        parallel = cg.reduce(w.text, w.reducer, cores=8)
+        assert entered[0] >= 1, f"{w.name}: cores=8 never entered the pool"
+        assert parallel == sequential, f"{w.name}: cores=8 differs from cores=1"
+        assert type(parallel) is type(sequential), (
+            f"{w.name}: cores=8 changed the reduction's leaf kind"
+        )
 
 
 # ── V1 — the partition oracle ───────────────────────────────────────────────

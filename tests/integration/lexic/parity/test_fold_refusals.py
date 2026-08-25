@@ -54,7 +54,10 @@ from lexic.ir import (
     IrTuple,
     Reducer,
 )
-from tests.integration.lexic.parity.fold_recorder_helpers import CarriesFoldState
+from tests.integration.lexic.parity.fold_recorder_helpers import (
+    CarriesFoldState,
+    count_pool_entries,
+)
 
 # ── the one reachable site: a poisoned marked run's sub-parse refuses ──────
 
@@ -117,6 +120,66 @@ def test_a_poisoned_marked_run_refuses_from_its_sub_parse() -> None:
     grammar = compile_text(_POISON_GRAMMAR, cache_key="fold-refusal-poison-hit")
     with pytest.raises(UnsupportedConstructError, match="poisoned bang encountered"):
         grammar.reduce("ab!c", _poison_reducer())
+
+
+_POISON_RUN_GRAMMAR = (
+    "root ::= item+\n"
+    'item ::= char* "c" nl\n'
+    "char ::= plain | bang\n"
+    "plain ::= [^!c\\n]\n"
+    'bang ::= "!"\n'
+    'nl ::= "\\n"\n'
+)
+"""``_POISON_GRAMMAR`` widened to REPEATED items — one poison-free ``item``
+per line, thirty-odd of them — so the outer fold has enough independent
+units to actually cross the ``2 * workers`` partition floor. The anchor
+above proves the sub-parse refuses correctly at all; this proves it still
+refuses correctly when the refusing item's OWN fold is one of MANY units
+running through the parallel path, not the document's only unit."""
+
+
+def _poison_run_reducer() -> Reducer:
+    """Every rule mapped, same reason as ``_poison_reducer``: a ``YIELD``
+    ancestor would collapse everything to a span before the run mechanism —
+    or the parallel partitioner, which reads the same tables — ever
+    engages."""
+    return Reducer(
+        actions=IrMap(
+            IrTuple(IrRuleRef("root"), IrJoin(IrArgs())),
+            IrTuple(IrRuleRef("item"), IrJoin(IrArgs())),
+            IrTuple(IrRuleRef("char"), IrArg(0)),
+            IrTuple(
+                IrRuleRef("bang"),
+                IrRaise(UnsupportedConstructError, "poisoned bang encountered"),
+            ),
+        ),
+        default=YIELD,
+    )
+
+
+def test_the_poisoned_run_anchor_refuses_correctly_from_inside_a_parallel_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Item 5: verify the committed anchor actually reaches the PARALLEL
+    branch under threads, not just the sequential/AUTO-on-a-tiny-document
+    path the anchor above exercises.
+
+    Thirty poison-free ``item``s plus one poisoned one is enough to clear
+    the partition floor at ``cores=4`` — a ``PoolLease`` entry-counting spy
+    (the same observable ``tests/unit/lexic/compile/reduce/test_fold.py``'s
+    engagement pins use) confirms the pool was entered before the raise
+    ever surfaces, so the refusing unit's fold genuinely runs as one of
+    several parallel units, and the exception that reaches the caller is
+    still exactly T2's: ``UnsupportedConstructError('poisoned bang
+    encountered')``, raised via ``_splice_run``'s sub-parse from inside
+    that one worker.
+    """
+    entered = count_pool_entries(monkeypatch)
+    grammar = compile_text(_POISON_RUN_GRAMMAR, cache_key="fold-refusal-poison-run")
+    text = "abdc\n" * 15 + "ab!c\n" + "abdc\n" * 15
+    with pytest.raises(UnsupportedConstructError, match="poisoned bang encountered"):
+        grammar.reduce(text, _poison_run_reducer(), cores=4)
+    assert entered[0] >= 1, "the pool was never entered — did not partition"
 
 
 # ── the three sites no authored document reaches ────────────────────────────
