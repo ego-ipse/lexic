@@ -339,7 +339,7 @@ class CompiledGrammar:
             )
         entry = _reduce_entry(self, reducer)
         model = entry.variant.parse(text, cores=cores)
-        return entry.fold.reduce(model)
+        return entry.fold.reduce(model, cores=cores)
 
     def pda_tables(self) -> PdaTables:
         """The predictive engine's compiled tables for this artefact.

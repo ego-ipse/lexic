@@ -1,9 +1,17 @@
-"""Thin-fold execution for a reducer-derived model variant."""
+"""Thin-fold execution for a reducer-derived model variant.
+
+The fold runs across workers when the model offers enough independent subtrees.
+Workers exchange **values, not caches**: each folds a disjoint, subtree-closed
+partition through an ordinary :meth:`ReduceFold.fold_subtree` call, and the
+join substitutes those values where the sequential fold would have computed
+them. No fold state is shared beyond the read-only tables, so the concurrency
+argument is short enough to check.
+"""
 
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import Any, NamedTuple
 
 from lexic.compile.reduction import (
     DROP,
@@ -25,6 +33,29 @@ from lexic.compile.reduction import (
     exactly_once,
     fold_tables,
 )
+from lexic.parsing.parallel.policy import AUTO, doc_workers
+from lexic.parsing.parallel.pool import PoolLease
+
+UNITS_PER_WORKER = 64
+"""Partition targets this many subtrees per worker before folding them.
+
+Whole LEVELS of the model are taken, never part of one: stopping mid-level
+gives exact unit counts and a far worse partition, because the unexpanded
+remainder holds the largest subtrees and a few units then dominate the run.
+"""
+
+
+class Unit(NamedTuple):
+    """One partition unit — exactly :meth:`ReduceFold.fold_subtree`'s arguments."""
+
+    value: Any
+    rule: str
+    body_rule: str
+    slot: tuple[str, bool] | None
+
+    def key(self) -> tuple[int, str, str, tuple[str, bool] | None]:
+        """Identity of the unit, as the join's memo keys it."""
+        return (id(self.value), self.rule, self.body_rule, self.slot)
 
 
 class ReduceFold:
@@ -77,13 +108,125 @@ class ReduceFold:
         """Install or clear this thread's in-progress channel cache."""
         self._scratch.cache = cache
 
-    def reduce(self, model: GrammarModel) -> IrSelf:
+    @property
+    def _memo(self) -> dict[tuple[int, str, str, tuple[str, bool] | None], IrSelf]:
+        """Values workers already folded, for the join running ON THIS THREAD.
+
+        Per-thread for the reason :attr:`_channel_cache` is: one fold instance
+        serves every caller, so a join's scratch must not be visible to a
+        concurrent reduce of something else.
+        """
+        return getattr(self._scratch, "memo", {})
+
+    @_memo.setter
+    def _memo(
+        self, memo: dict[tuple[int, str, str, tuple[str, bool] | None], IrSelf]
+    ) -> None:
+        """Install or clear this thread's worker results."""
+        self._scratch.memo = memo
+        self._scratch.roots = {(node, rule) for node, rule, _b, _s in memo}
+
+    @property
+    def _roots(self) -> set[tuple[int, str]]:
+        """Unit roots the channel pass must not descend past."""
+        return getattr(self._scratch, "roots", set())
+
+    def reduce(self, model: GrammarModel, *, cores: int = AUTO) -> IrSelf:
         """Fold a parsed variant model to the reducer's value.
 
+        Folds across workers when the model offers enough independent subtrees
+        and the policy grants more than one worker; otherwise folds in place.
+        The parallel result is the sequential result — the same values in the
+        same channel positions — and a refusing body refuses identically,
+        because the pool raises the LOWEST-indexed failure and the units are
+        submitted in the order a sequential fold would reach them.
+
         :param model: The variant artefact's parse result.
+        :param cores: 0 = as many workers as this machine allows, 1 = fold
+            sequentially, N = at most N workers.
         :returns: The reduction — whatever the start rule's body builds.
         """
-        return self.apply(model, self.rule(model))
+        rule = self.rule(model)
+        units = self._partition(model, rule, cores)
+        if units is None:
+            return self.apply(model, rule)
+        with PoolLease(cores) as pool:
+            values = pool.map(self._fold_unit, units)
+        self._memo = dict(zip((u.key() for u in units), values, strict=True))
+        try:
+            return self.apply(model, rule)
+        finally:
+            self._memo = {}
+
+    def _fold_unit(self, unit: Unit) -> IrSelf:
+        """Fold one partition unit — an ordinary top-level fold on this thread."""
+        return self.fold_subtree(unit.value, unit.rule, unit.body_rule, unit.slot)
+
+    def _partition(self, model: Any, rule: str, cores: int) -> list[Unit] | None:
+        """The units to fold in parallel, or ``None`` to fold in place."""
+        workers = doc_workers(cores)
+        if workers < 2:
+            return None
+        units = self._frontier(model, rule, workers * UNITS_PER_WORKER)
+        return units if len(units) >= 2 * workers else None
+
+    def _frontier(self, model: Any, rule: str, target: int) -> list[Unit]:
+        """Descend whole levels until there are at least ``target`` units.
+
+        A unit with no contributions of its own is kept at its depth rather
+        than descended past: branches bottom out at different depths, so
+        descending one more level can otherwise SHRINK the partition.
+        """
+        level = self._contributions(model, rule)
+        while level and len(level) < target:
+            deeper: list[Unit] = []
+            grew = False
+            for unit in level:
+                kids = self._contributions(unit.value, unit.rule)
+                deeper.extend(kids or [unit])
+                grew = grew or bool(kids)
+            if not grew:
+                break
+            level = deeper
+        return level
+
+    def _contributions(self, model: Any, rule: str) -> list[Unit]:
+        """Every ``fold_subtree`` call this node's channel assembly would make.
+
+        Mirrors :meth:`_channel_once` and :meth:`contribute` without folding, so
+        a unit's arguments are derived rather than observed from a prior run.
+        """
+        if rule in self.plan.marks or rule in self.tables.text_rules:
+            return []
+        out: list[Unit] = []
+        slots = self.tables.slots.get(rule, {})
+        for name, bind in self.tables.fields_of.get(rule, ()):
+            self._contributed(getattr(model, name), slots.get(bind.item), out)
+        return out
+
+    def _contributed(
+        self, value: Any, slot: tuple[str, bool] | None, out: list[Unit]
+    ) -> None:
+        """One field value's units — a hoisted splice contributes its OWN."""
+        if value is None or isinstance(value, IrNoneType):
+            return
+        if isinstance(value, tuple) and not hasattr(value, "to_text"):
+            for element in value:
+                self._contributed(element, slot, out)
+            return
+        if not hasattr(value, "to_text"):
+            return
+        rule = self.rule(value)
+        if rule in self.plan.runs or rule in self.tables.drops:
+            return
+        if rule not in self.tables.hoisted:
+            out.append(Unit(value, rule, rule, slot))
+            return
+        owner = self.tables.arm_owner.get(rule)
+        if owner is None:
+            out.extend(self._contributions(value, rule))
+        elif owner not in self.tables.drops:
+            out.append(Unit(value, rule, owner, slot))
 
     def rule(self, model: Any) -> str:
         """The rule a model node was synthesized for."""
@@ -185,7 +328,19 @@ class ReduceFold:
             order.append((node, node_rule))
             fields = self.tables.fields_of.get(node_rule, ())
             for name, _bind in fields:
-                stack.extend(self._model_values(getattr(node, name)))
+                # Never below a unit root a worker already folded. Answering
+                # `fold_subtree` from the memo is not enough on its own: this
+                # pass would still discover and re-assemble every subtree
+                # underneath, which costs the whole sequential fold again and
+                # makes the parallel path slower than no parallelism at all.
+                # A unit root's channel is never wanted — the memo answers
+                # before `fold_subtree` reaches `channel`, and a splice is
+                # never a unit, so nothing else asks for it.
+                stack.extend(
+                    pair
+                    for pair in self._model_values(getattr(node, name))
+                    if (id(pair[0]), pair[1]) not in self._roots
+                )
         for node, node_rule in reversed(order):
             key = (id(node), node_rule)
             if key not in self._channel_cache:
@@ -348,6 +503,9 @@ class ReduceFold:
         :param slot: The parent's slot, which names the pass-through chain to
             re-apply; ``None`` when there is no bound edge to follow.
         """
+        found = self._memo.get((id(value), rule, body_rule, slot))
+        if found is not None:
+            return found
         names = [body_rule] + (self.chain(slot[0], body_rule) if slot else [])
         bodies = [self.tables.bodies[n] for n in names]
         last = max((k for k, b in enumerate(bodies) if b is YIELD), default=-1)
