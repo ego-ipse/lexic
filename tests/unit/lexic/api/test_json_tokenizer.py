@@ -15,7 +15,7 @@ import json as _json
 
 import pytest
 
-from lexic.api.json_tokenizer import read, read_from_path, tokenizer_of
+from lexic.api.json_tokenizer import _dyad, _vocab, read, read_from_path, tokenizer_of
 from lexic.api.pretokens import (
     QWEN_PATTERN,
     IrByteLevel,
@@ -26,7 +26,7 @@ from lexic.api.pretokens import (
 from lexic.compile import compile_ast, compile_from_path
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir import IrChr, IrMap, IrReplace, IrStr, IrUnicodeForm
+from lexic.ir import IrChr, IrInt, IrMap, IrReplace, IrStr, IrTuple, IrUnicodeForm
 from tests.paths import GROUND_TRUTH
 
 
@@ -197,6 +197,60 @@ def test_an_added_token_already_in_the_vocab_keeps_its_vocab_id() -> None:
     """The vocab is authoritative where it covers the spelling."""
     tok = _load(_document(added_tokens='[{"id": 99, "content": "hell"}]'))
     assert tok.tokenize("hell") == [6]
+
+
+# --- _vocab / _dyad — no rebuild of the reduced leaves ----------------------
+
+
+def test_vocab_carries_the_reduced_leaves_by_identity() -> None:
+    """``_vocab``'s values ARE the reduced ``IrMap``'s value objects.
+
+    Identity, not just equality: an ``IrInt`` copy of the same ordinal is
+    ``==`` to the original but is a fresh allocation, which is exactly the
+    per-datum re-wrap this reader stopped doing. Equality alone could not
+    tell "carried" from "rebuilt to something equal", so the pin has to
+    check identity.
+    """
+    zero, one = IrInt(0), IrInt(1)
+    table = IrMap(IrTuple(IrStr("h"), zero), IrTuple(IrStr("e"), one))
+    model = IrMap(IrTuple(IrStr("vocab"), table))
+    vocab = _vocab(model, [])
+    assert vocab["h"] is zero
+    assert vocab["e"] is one
+
+
+def test_an_added_token_absent_from_vocab_lands_with_its_own_id() -> None:
+    """An added-token spelling the vocab does not already cover gets its own
+    id from the ``added_tokens`` entry — the id there is authoritative only
+    for spellings the vocab is silent about."""
+    table = IrMap(IrTuple(IrStr("h"), IrInt(0)))
+    model = IrMap(IrTuple(IrStr("vocab"), table))
+    added = [
+        IrMap(
+            IrTuple(IrStr("content"), IrStr("<end>")),
+            IrTuple(IrStr("id"), IrInt(9)),
+        )
+    ]
+    vocab = _vocab(model, added)
+    assert vocab["<end>"] == 9
+
+
+def test_dyad_array_form_carries_the_same_two_objects() -> None:
+    """``[l, r]``'s parts are already ``IrStr`` — ``_dyad`` carries them,
+    it does not rebuild a copy of either."""
+    left, right = IrStr("a"), IrStr("b")
+    result = _dyad(IrTuple(left, right))
+    assert result == (left, right)
+    assert result[0] is left
+    assert result[1] is right
+
+
+def test_dyad_string_form_still_splits_at_the_first_space() -> None:
+    """The ``"l r"`` string form genuinely produces new text, so it still
+    allocates — this is the one branch of ``_dyad`` that must keep doing
+    so, and it splits at the FIRST space only."""
+    assert _dyad(IrStr("h e")) == ("h", "e")
+    assert _dyad(IrStr("a b c")) == ("a", "b c")
 
 
 # --- refusals --------------------------------------------------------------

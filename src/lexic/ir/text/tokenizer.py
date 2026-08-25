@@ -35,19 +35,46 @@ Merges = Sequence[tuple[str, str]] | IrTuple
 """Ordered merge dyads — position is rank; coerced to the ``ranks`` map."""
 
 
+def _spelling(value: str) -> IrStr:
+    """``value`` as an ``IrStr``, reused when it already is exactly one.
+
+    Both halves of the test do work: ``isinstance`` establishes the type, and
+    ``__class__`` establishes that it is that type EXACTLY. Distinct leaf kinds
+    never compare equal, so an ``IrStr`` subclass carried through would miss
+    every lookup made with a plain ``IrStr`` key — it is rebuilt instead.
+    """
+    if isinstance(value, IrStr) and value.__class__ is IrStr:
+        return value
+    return IrStr(value)
+
+
+def _identifier(value: int) -> IrChr:
+    """``value`` as an ``IrChr``, reused when it already is exactly one.
+
+    A reducer hands ids over as ``IrInt``, which is a different leaf kind and so
+    unequal to the ``IrChr`` the ``decode`` map and :meth:`IrTokenizer.spell`
+    key on — those genuinely have to be rebuilt. The exactness test is the one
+    :func:`_spelling` explains.
+    """
+    if isinstance(value, IrChr) and value.__class__ is IrChr:
+        return value
+    return IrChr(int(value))
+
+
 def _vocab_map(vocab: Vocab) -> IrMap:
     """Coerce a pythonic ``spelling → id`` Mapping to the spine's ``IrMap``.
 
-    Values coerce through ``IrChr(int(v))`` unconditionally, so reducer
-    products (``IrInt`` / numeric ``IrStr`` ids) feed the builders directly.
+    Built through ``from_table`` so the pairs never become ``IrTuple`` dyads
+    only to be unpacked again, and each leaf is carried when it is already the
+    canonical one — a reducer's vocabulary arrives fully typed.
     """
-    return IrMap(*(IrTuple(IrStr(s), IrChr(int(i))) for s, i in vocab.items()))
+    return IrMap.from_table((_spelling(s), _identifier(i)) for s, i in vocab.items())
 
 
 def _rank_map(merges: Merges) -> IrMap:
     """Index ordered merge dyads by position into the ``dyad → IrInt`` rank map."""
-    dyads = (IrTuple(IrStr(left), IrStr(right)) for left, right in merges)
-    return IrMap(*(IrTuple(dyad, IrInt(i)) for i, dyad in enumerate(dyads)))
+    dyads = (IrTuple(_spelling(left), _spelling(right)) for left, right in merges)
+    return IrMap.from_table((dyad, IrInt(i)) for i, dyad in enumerate(dyads))
 
 
 def _piece_slices(

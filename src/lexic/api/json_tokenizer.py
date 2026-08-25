@@ -29,6 +29,7 @@ reading one as a literal would lie.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from lexic.api.pretokens import (
@@ -157,16 +158,20 @@ def tokenizer_of(doc: IrMap, name: str) -> IrTokenizer:
     )
 
 
-def _vocab(model: IrMap, added: list[IrMap]) -> dict[str, int]:
+def _vocab(model: IrMap, added: list[IrMap]) -> Mapping[str, int]:
     """``model.vocab``, extended by any added token it does not already cover.
 
     Some families list their specials only under ``added_tokens``; the ids
     there are authoritative for exactly those spellings.
+
+    The reduced leaves are carried, not rebuilt: an ``IrStr`` IS a ``str`` and
+    an ``IrInt`` IS an ``int``, so copying them into primitives would allocate a
+    second whole vocabulary that reads identically to the first.
     """
     table = IrMap.ensure(model[IrStr("vocab")], "'vocab'")
-    vocab = {str(k): int(v) for k, v in table.items()}
+    vocab: dict[str, int] = dict(table.items())
     for token in added:
-        spelling = str(token[IrStr("content")])
+        spelling = IrStr.ensure(token[IrStr("content")], "an added token's content")
         if spelling not in vocab:
             vocab[spelling] = int(token[IrStr("id")])
     return vocab
@@ -178,6 +183,9 @@ def _dyad(merge: IrSelf) -> tuple[str, str]:
     Both encodings occur in the wild — an ``[l, r]`` array and an ``"l r"``
     string. The array form is the unambiguous one; the string form splits at
     the first space, so a part containing a space needs the array form.
+
+    The array form's parts are already ``IrStr`` and are carried as they are;
+    only the string form, which genuinely produces new text, allocates.
     """
     if not isinstance(merge, IrTuple):
         left, _, right = str(merge).partition(" ")
@@ -186,7 +194,7 @@ def _dyad(merge: IrSelf) -> tuple[str, str]:
         raise UnsupportedConstructError(
             f"tokenizer.json: merge of {len(merge)} parts — expected 2"
         )
-    return str(merge[0]), str(merge[1])
+    return merge[0], merge[1]
 
 
 def _pipeline(doc: IrMap, model: IrMap, added: list[IrMap]) -> IrTokenPipeline:
