@@ -37,12 +37,12 @@ circle{stroke:#1a1a19}
 <text x="8.0" y="95.0" font-size="13">abnf-meta</text>
 <path d="M 120.0 82.0 H 498.9 Q 502.9 82.0 502.9 86.0 V 94.0 Q 502.9 98.0 498.9 98.0 H 120.0 Z" class="c0"/>
 <text x="509.9" y="95.0" font-size="12" class="p b">4.7×</text>
-<text x="8.0" y="121.0" font-size="13">json</text>
-<path d="M 120.0 108.0 H 452.5 Q 456.5 108.0 456.5 112.0 V 120.0 Q 456.5 124.0 452.5 124.0 H 120.0 Z" class="c0"/>
-<text x="463.5" y="121.0" font-size="12" class="p b">4.1×</text>
-<text x="8.0" y="147.0" font-size="13">markdown</text>
-<path d="M 120.0 134.0 H 450.0 Q 454.0 134.0 454.0 138.0 V 146.0 Q 454.0 150.0 450.0 150.0 H 120.0 Z" class="c0"/>
-<text x="461.0" y="147.0" font-size="12" class="p b">4.1×</text>
+<text x="8.0" y="121.0" font-size="13">markdown</text>
+<path d="M 120.0 108.0 H 471.2 Q 475.2 108.0 475.2 112.0 V 120.0 Q 475.2 124.0 471.2 124.0 H 120.0 Z" class="c0"/>
+<text x="482.2" y="121.0" font-size="12" class="p b">4.4×</text>
+<text x="8.0" y="147.0" font-size="13">json</text>
+<path d="M 120.0 134.0 H 452.5 Q 456.5 134.0 456.5 138.0 V 146.0 Q 456.5 150.0 452.5 150.0 H 120.0 Z" class="c0"/>
+<text x="463.5" y="147.0" font-size="12" class="p b">4.1×</text>
 <text x="8.0" y="173.0" font-size="13">arithmetic</text>
 <path d="M 120.0 160.0 H 407.2 Q 411.2 160.0 411.2 164.0 V 172.0 Q 411.2 176.0 407.2 176.0 H 120.0 Z" class="c0"/>
 <text x="418.2" y="173.0" font-size="12" class="p b">3.6×</text>
