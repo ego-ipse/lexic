@@ -7,7 +7,7 @@ artifacts — ``tools/benchmark/lexic_baseline.json`` (the pre-commit ratchet's
 fresh-process Lexic rows, updated whenever a performance change is accepted)
 and ``tools/benchmark/competitors_baseline.json`` (the dated cross-engine
 medians, refreshed deliberately by rerunning the full bench). The test count
-is a static census of ``def test_*`` under ``tests/``. Nothing here runs a
+is what pytest collects, parametrized cases included. Nothing here runs a
 benchmark.
 
 Each chart is ONE theme-adaptive SVG: a ``<style>`` block carries the
@@ -88,7 +88,9 @@ def count_tests() -> int:
     )
     match = re.search(r"(\d+) tests? collected", out.stdout)
     if match is None:
-        raise SystemExit(f"test collection failed:\n{out.stdout[-2000:]}{out.stderr[-2000:]}")
+        raise SystemExit(
+            f"test collection failed:\n{out.stdout[-2000:]}{out.stderr[-2000:]}"
+        )
     return int(match.group(1))
 
 
