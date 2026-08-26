@@ -15,10 +15,11 @@ those are what this pins.
 One trap is recorded here as an assertion rather than a comment, because it
 silently makes fork tests vacuous: **a non-empty ``_IDLE`` does not mean a
 split engaged.** ``split_model`` takes its lease before deciding, so a
-declining grammar leaves a retained pool whose executor owns zero threads. An
-engaging parse leaves at least one thread in a retained executor. The tests
-inspect those owned executor thread sets directly; the process-global thread
-count includes unrelated runtime threads and is not evidence about this pool.
+declining grammar leaves a retained pool. Planning may already have submitted
+discovery work by then, so even executor-owned threads do not prove the final
+split engaged. The tests ask ``split_model`` itself whether it produced a
+model; owned threads witness only the separate fork hazard. The process-global
+thread count includes unrelated runtime threads and proves neither fact.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from lexic.parsing.parallel.pool import _IDLE
 from tests.integration.lexic.concurrency.fixtures import (
     FLAT,
     SPLITTING,
+    engages,
     flat_doc,
     split_doc,
 )
@@ -60,7 +62,7 @@ def _split_parse() -> CompiledGrammar:
     """Run one engaging split parse and hand back the artefact it used."""
     compiled = compile_text(SPLITTING, cache_key="concurrency-fork")
     text = split_doc()
-    assert compiled.parse(text, cores=WORKERS).to_text() == text
+    assert engages(compiled, text, WORKERS), "the split witness declined"
     return compiled
 
 
@@ -74,16 +76,15 @@ def _child_parses(queue: multiprocessing.queues.Queue[str]) -> None:
 def test_a_retained_pool_does_not_prove_a_split_engaged() -> None:
     """The vacuity trap, pinned: ``_IDLE`` fills even when nothing split.
 
-    The lease is taken before the plan is consulted, so a declining grammar
-    leaves a retained pool that owns no threads at all. Anything using
-    ``_IDLE`` as an engagement witness is measuring the wrong thing.
+    The lease is taken before the final plan result, so a declining grammar
+    leaves a retained pool. Its discovery phases may even have submitted work.
+    Only the split entry's result answers whether the split produced a model.
     """
     reset_pools()
     compiled = compile_text(FLAT, cache_key="concurrency-declines")
     text = flat_doc(0, 3000)
-    assert compiled.parse(text, cores=WORKERS).to_text() == text
+    assert not engages(compiled, text, WORKERS), "the decline witness engaged"
     assert _IDLE, "expected the declining parse to retain a pool anyway"
-    assert not _retained_executor_threads(), "the declining parse submitted work"
 
 
 def test_an_engaging_split_parse_leaves_live_pool_threads() -> None:

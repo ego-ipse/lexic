@@ -26,8 +26,9 @@ def engages(compiled: CompiledGrammar, text: str, cores: int = WORKERS) -> bool:
 
     Note what this is NOT: a retained pool in ``lexic.parsing.parallel.pool``
     is no evidence of engagement, because the lease is taken before the plan
-    is consulted. A declining grammar leaves a warm pool behind that never had
-    work submitted to it.
+    settles. A declining grammar leaves a warm pool behind, and discovery may
+    already have submitted work to it. Only ``split_model``'s result answers
+    whether the split itself produced a model.
 
     :param compiled: The artefact whose split path is in question.
     :param text: The document to offer it.
