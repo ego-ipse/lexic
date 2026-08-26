@@ -1,6 +1,6 @@
 [project]
 name = "lexic"
-version = "0.0.1a0"
+version = "0.0.2a0"
 description = "A grammar-centric framework."
 readme = "README.md"
 authors = [
