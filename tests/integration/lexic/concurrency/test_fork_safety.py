@@ -15,9 +15,10 @@ those are what this pins.
 One trap is recorded here as an assertion rather than a comment, because it
 silently makes fork tests vacuous: **a non-empty ``_IDLE`` does not mean a
 split engaged.** ``split_model`` takes its lease before deciding, so a
-declining grammar leaves a retained pool whose executor never had work
-submitted and therefore owns no threads. A fork test built on such a grammar
-forks a single-threaded process and passes for the wrong reason.
+declining grammar leaves a retained pool whose executor owns zero threads. An
+engaging parse leaves at least one thread in a retained executor. The tests
+inspect those owned executor thread sets directly; the process-global thread
+count includes unrelated runtime threads and is not evidence about this pool.
 """
 
 from __future__ import annotations
@@ -25,6 +26,8 @@ from __future__ import annotations
 import multiprocessing
 import multiprocessing.queues
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from typing import cast
 
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.parsing.parallel import reset_pools
@@ -38,6 +41,19 @@ from tests.integration.lexic.concurrency.fixtures import (
 
 WORKERS = 8
 CHILD_TIMEOUT = 60.0
+
+
+def _retained_executor_threads() -> set[threading.Thread]:
+    """Return the threads owned by every executor retained in ``_IDLE``."""
+    return {
+        thread
+        for waiting in _IDLE.values()
+        for work_pool in waiting
+        for thread in cast(
+            set[threading.Thread],
+            vars(cast(ThreadPoolExecutor, vars(work_pool)["_pool"]))["_threads"],
+        )
+    }
 
 
 def _split_parse() -> CompiledGrammar:
@@ -67,7 +83,7 @@ def test_a_retained_pool_does_not_prove_a_split_engaged() -> None:
     text = flat_doc(0, 3000)
     assert compiled.parse(text, cores=WORKERS).to_text() == text
     assert _IDLE, "expected the declining parse to retain a pool anyway"
-    assert threading.active_count() == 1, "this grammar was expected to decline"
+    assert not _retained_executor_threads(), "the declining parse submitted work"
 
 
 def test_an_engaging_split_parse_leaves_live_pool_threads() -> None:
@@ -75,22 +91,26 @@ def test_an_engaging_split_parse_leaves_live_pool_threads() -> None:
 
     A floor rather than an exact count: ``ThreadPoolExecutor`` spawns lazily,
     so how many of the eight workers exist depends on how much of the split
-    ran concurrently. What must hold is that this process is no longer alone.
+    ran concurrently. What must hold is that the retained executor owns a live
+    worker, which is exactly the state a later fork must not inherit.
     """
     reset_pools()
-    assert threading.active_count() == 1, "the process was not clean to begin with"
+    assert not _retained_executor_threads(), "reset left executor threads behind"
     _split_parse()
     assert _IDLE, "no pool was retained"
-    assert threading.active_count() > 1, "the fork hazard is not present here"
+    assert any(thread.is_alive() for thread in _retained_executor_threads()), (
+        "the engaging parse retained no live worker"
+    )
 
 
-def test_reset_pools_returns_the_process_to_a_single_thread() -> None:
-    """The fix's effect: after a reset there is nothing left to inherit."""
+def test_reset_pools_closes_all_retained_executor_threads() -> None:
+    """The fix leaves no retained executor worker thread to inherit."""
     _split_parse()
-    assert threading.active_count() > 1
+    retained = _retained_executor_threads()
+    assert any(thread.is_alive() for thread in retained)
     reset_pools()
-    assert threading.active_count() == 1
     assert not _IDLE
+    assert not any(thread.is_alive() for thread in retained)
 
 
 def test_a_forked_child_parses_after_the_pools_are_reset() -> None:
