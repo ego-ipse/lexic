@@ -39,13 +39,15 @@ class Options(NamedTuple):
 
 
 def _validate_options(options: Options) -> None:
-    """Refuse unsupported worker allocations and non-positive rounds."""
+    """Refuse unsupported workers or a pair-order-unbalanced round count."""
     if options.region_workers not in (1, 2, 3, 4, 5, 6, 7):
         raise UnsupportedConstructError(
             "carrier gc prototype: region workers must be 1 through 7"
         )
-    if options.rounds < 1:
-        raise UnsupportedConstructError("carrier gc prototype: rounds must be positive")
+    if options.rounds < 2 or options.rounds % 2:
+        raise UnsupportedConstructError(
+            "carrier gc prototype: rounds must be positive and even"
+        )
 
 
 class Prepared(NamedTuple):
@@ -65,9 +67,19 @@ class Reading(NamedTuple):
     wall_seconds: float
 
 
+class Delta(NamedTuple):
+    """Enabled minus disabled within one order-balanced pair."""
+
+    process_seconds: float
+    wall_seconds: float
+
+
 def _measure(prepared: Prepared, collector_on: bool) -> tuple[Reading, Product]:
     """Time capture through record construction under one collector state."""
-    if not collector_on:
+    prior = gc.isenabled()
+    if collector_on:
+        gc.enable()
+    else:
         gc.disable()
     process_started = time.process_time()
     wall_started = time.perf_counter()
@@ -84,7 +96,10 @@ def _measure(prepared: Prepared, collector_on: bool) -> tuple[Reading, Product]:
     finally:
         process_elapsed = time.process_time() - process_started
         wall_elapsed = time.perf_counter() - wall_started
-        gc.enable()
+        if prior:
+            gc.enable()
+        else:
+            gc.disable()
     return Reading(process_elapsed, wall_elapsed), product
 
 
@@ -92,7 +107,7 @@ def _parse_options(arguments: Sequence[str] | None = None) -> Options:
     """Parse one isolated collector-policy comparison."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--region-workers", type=int, default=4)
-    parser.add_argument("--rounds", type=int, default=7)
+    parser.add_argument("--rounds", type=int, default=8)
     space = parser.parse_args(arguments)
     options = Options(int(space.region_workers), int(space.rounds))
     _validate_options(options)
@@ -141,12 +156,17 @@ def main(arguments: Sequence[str] | None = None) -> None:
     prepared = _prepare(options)
     enabled: list[Reading] = []
     disabled: list[Reading] = []
+    deltas: list[Delta] = []
     try:
+        gc.collect()
         for number in range(1, options.rounds + 1):
-            for collector_on in (True, False):
+            order = (True, False) if number % 2 else (False, True)
+            pair: dict[bool, Reading] = {}
+            for collector_on in order:
                 reading, product = _measure(prepared, collector_on)
                 _validate(prepared.text, product)
                 (enabled if collector_on else disabled).append(reading)
+                pair[collector_on] = reading
                 print(
                     "round",
                     number,
@@ -157,10 +177,20 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 )
                 del product
                 gc.collect()
+            deltas.append(
+                Delta(
+                    pair[True].process_seconds - pair[False].process_seconds,
+                    pair[True].wall_seconds - pair[False].wall_seconds,
+                )
+            )
     finally:
         prepared.pool.shutdown()
     on_row = _median(enabled)
     off_row = _median(disabled)
+    delta = Delta(
+        statistics.median(each.process_seconds for each in deltas),
+        statistics.median(each.wall_seconds for each in deltas),
+    )
     print(
         "median_enabled",
         f"{on_row.process_seconds:.6f}",
@@ -175,9 +205,10 @@ def main(arguments: Sequence[str] | None = None) -> None:
     )
     print(
         "collector_wall_delta",
-        f"{on_row.wall_seconds - off_row.wall_seconds:.6f}",
+        f"{delta.wall_seconds:.6f}",
         sep="\t",
     )
+    print("collector_process_delta", f"{delta.process_seconds:.6f}", sep="\t")
 
 
 if __name__ == "__main__":

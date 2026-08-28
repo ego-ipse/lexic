@@ -3,7 +3,9 @@
 **Status:** independently approved by substantive review passes 4 and 5 for §2
 and ABI/lifecycle §3. The §3 real-engine gates must close before §4. This
 replaces the rejected direct-carrier and post-parse demand-projection
-directions. It is not an implementation checklist.
+directions. REVIEW_7's rulings and the `PROTOTYPE_6` consistency corrections
+are folded here; the corrected packet awaits REVIEW_8. It is not an
+implementation checklist.
 
 ## Decision
 
@@ -15,12 +17,12 @@ traverse the map into a Python or tokenizer product.
 The public seam remains one operation:
 
 ```python
-compiled.reduce(text, reducer, into=target, cores=cores)
+compiled.reduce(text, reducer, into=target, resolve=resolver, cores=cores)
 ```
 
 The standing 11,422,654-byte / 10,635,788-character Qwen3 witness sets two
-distinct target envelopes: less than 0.100 s wall for its complete reduced
-recursive Python mapping/list value, and less than 1.000 s wall for a ready
+distinct target envelopes: a pursued less-than-0.100 s wall for its complete
+reduced recursive Python mapping/list value, and a gated less-than-1.000 s wall for a ready
 resident-text `IrTokenizer` while continuing toward roughly 105x for the Qwen
 tokenizer scenario. Resident, cold-path, and warm-path comparisons are separate;
 the multiplier is not a universal gate for every reduction. The former is a
@@ -65,12 +67,32 @@ predicates are advanced morphism work, not silently inferred selection syntax.
 A reducer/signature unable to supply decoded mapping/value events is refused at
 binding.
 
+Reducer-free extraction is the other source contract, not a fake reducer. A
+`GrammarMorphism[T]` binds from the compiled grammar and its binding view alone:
+
+```python
+raw = select_raw("entry", {'"version"': KEEP})
+values = compiled.reduce(text, into=raw, resolve=resolver, cores=cores)
+```
+
+`select_raw` is available only when the named entry has the compatible
+key/value mapping shape derivable from binding data. Its paths are raw grammar
+spellings, so escape-equivalent keys remain distinct. The default capture is a
+round-trippable `GrammarModel`; `capture=EXTENT` selects the statically
+model-free certified-extent codomain. These are typed declaration values, not a
+boolean execution mode, and one declaration has one exact result type.
+
 The static result surface is exact:
 
 ```python
 @overload
 def reduce(
-    self, text: str, reducer: Reducer, *, cores: int = AUTO
+    self,
+    text: str,
+    reducer: Reducer,
+    *,
+    resolve: Resolver | None = None,
+    cores: int = AUTO,
 ) -> IrSelf: ...
 
 @overload
@@ -80,6 +102,17 @@ def reduce[Result](
     reducer: Reducer,
     *,
     into: ReductionMorphism[Result],
+    resolve: Resolver | None = None,
+    cores: int = AUTO,
+) -> Result: ...
+
+@overload
+def reduce[Result](
+    self,
+    text: str,
+    *,
+    into: GrammarMorphism[Result],
+    resolve: Resolver | None = None,
     cores: int = AUTO,
 ) -> Result: ...
 ```
@@ -183,15 +216,17 @@ all known layers; execution constructs only the final requested codomain.
 
 ## Target contract
 
-A morphism declares five things.
+A morphism declares five things. A reduction morphism names a reducer semantic
+signature; a grammar morphism names a compatible grammar/binding shape instead.
 
 ### Source signature and schema
 
-The morphism names the lower `SemanticSignature` it accepts and, when it narrows
-that language, supplies a `TargetSchema` over the signature's events. Compile
-refuses a mismatched or unlowerable reducer with words. Generic parser code
-sees only composed state ids and product operations; it contains no grammar,
-JSON, or tokenizer names.
+A `ReductionMorphism` names the lower `SemanticSignature` it accepts and, when
+it narrows that language, supplies a `TargetSchema` over the signature's events.
+A `GrammarMorphism` instead declares the binding shape and raw occurrence demand
+it requires; it has no reducer identity or semantic signature. Compile refuses
+either mismatch with words. Generic parser code sees only contextual state ids
+and product operations; it contains no grammar, JSON, or tokenizer names.
 
 ### Codomain
 
@@ -216,8 +251,9 @@ bound compilation and execution without erasing it. It is not a second public
 execution method. `ReductionMorphism[Result]` is recursively immutable public
 signature/schema/algebra data only; it contains no cache, lock, mutable factory,
 executor, or entry dictionary. A distinct private compiler/artifact binding
-registry owns those implementation details and keys entries by stable
-declaration identity plus source grammar and reducer identities. Each entry has
+registry owns those implementation details. Reduction entries key stable
+declaration + source grammar + reducer identities; grammar entries key stable
+declaration + source grammar identity only. Each entry has
 a weak source-artefact reference, strong immutable declaration and reducer
 identities, and a result-typed bound program which is forbidden to retain the
 source artefact. Cache eviction changes residency only: recompilation from the
@@ -229,8 +265,9 @@ entry into the existing `parsing.caches` lifetime protocol. A pool retaining a
 bound program is an explicit owner and remains valid after source-cache release.
 Mutable builders are never cached or shared between parses or workers.
 
-This registry is the only cache of `(CompiledGrammar, morphism) ->
-BoundProduct`. `parsing.products` does not retain a second product memo;
+This registry is the only cache of reduction
+`(CompiledGrammar, reducer, morphism)` and reducer-free
+`(CompiledGrammar, morphism)` bindings. `parsing.products` does not retain a second product memo;
 `parsing.caches` owns only parser tables and replicas derived from the bound
 program. This keeps residency, derivation, and pool ownership from becoming
 three overlapping caches of the same product.
@@ -250,14 +287,18 @@ appended value or key; it never scans all live builders or reconstructs a
 retained key set. Nested marks are LIFO. The outer successful commit clears the
 log without copying accumulated data.
 
-Earley folds each competing derivation from a fresh isolated `ParseState` and
-commits only the selected meaning. It does not clone live builders or mutation
-logs from the base candidate. The current forest already constructs alternate
-derivations independently, so ambiguity pays another target fold only at an
-actual competing arm. Island/delegate failure discards its child state.
-Parallel workers always own disjoint states and return immutable/owned
-fragments to the coordinator. No alternate derivation, failed attempt, or
-worker can mutate the state which becomes the final result.
+Earley's default derivation retains immutable completed-handle meanings beside
+its final value. One competing packed family is evaluated by marking its
+completed owner and ancestor cone dirty, replaying those completion ranges in
+a fresh isolated `ParseState`, and reusing every unchanged sibling meaning.
+This produces the alternate complete root meaning without cloning live
+builders or refolding the document. The memo contains semantic values only,
+never builder handles or mutation logs; the unambiguous specialization carries
+no dependency index. Separate accepting root items still require one complete
+fold each. Island/delegate failure discards its child state. Parallel workers
+always own disjoint states and return immutable/owned fragments to the
+coordinator. No alternate derivation, failed attempt, or worker can mutate the
+state which becomes the final result.
 
 `ParseState` is not an unconditional engine tax. A product with no mutable
 builders, transaction log, or deferred verdict—most importantly the existing
@@ -337,6 +378,13 @@ probe measured dictionary lookup at 28.9–33.5 ns for 2–64 routes versus
 121.9–907.8 ns for linear tuple scans; dense destination indexing measured
 18.1 ns versus 262.2 ns for a choice scan. Tuple scans are therefore rejected
 as a production representation.
+
+Decoded selection routes on the semantic discriminator; reducer-free raw
+selection routes on the already-matched surface spelling. Both use this side
+table and add zero grammar arms. The route mechanism therefore never consumes
+the public `resolve=` channel: a supplied resolver reaches only genuine
+authored arm ambiguity after contextual routing is already part of the packed
+code.
 
 In the PDA, successful producer completion writes `(consumer position, route)`
 into a dedicated parent-frame lane. The following child may read it across its
@@ -436,6 +484,11 @@ The exception vocabulary is declared here, once, against the existing
   contiguous ranks, special membership — raises `FieldValidationError`, the
   existing hand-constructed-record contract family.
 
+This intentionally changes tokenizer-reader semantic refusals which currently
+surface as `UnsupportedConstructError`: after migration they surface as
+`TargetRefusalError`. Pre-0.1 carries no compatibility adapter or alias; §13
+pins the new public exception types and messages explicitly.
+
 The default IR target preserves the current full-reduction contract while it is
 the parity oracle. The tokenizer target intentionally owns a new explicit
 pre-0.1 contract: the complete lower syntax is recognized first; semantic
@@ -521,25 +574,35 @@ and direct completion shapes unless a measured simplification is faster: no
 interpreter, opcode, or frame slot may be added to its paid path merely to make
 the abstraction uniform.
 
-Value-string terminal consumption is where the throughput lives, and the ABI
-states its shape: a `value_str`-classified rule whose closure the recognizer
-compiler accepts is consumed by ONE compiled-recognizer consult per
-occurrence, never a per-character loop. `reports/PROTOTYPE_5.md` prices this:
-per-rule single-consult matching plus flat int-op completion dispatch runs the
-Qwen vocab region at 0.368907 s sequential against 11.93 s for the current
-per-character route — the interpreted ABI, not the capturing lowering, closes
-most of the gap, and it is generic over any recognizer-safe rule.
+Value-string terminal consumption is where the throughput lives. The PDA
+program specializer explicitly compiles one exact recognizer consult for an
+eligible `value_str` occurrence; ineligible rules retain the existing
+per-character program. Eligibility uses the same language-preserving regular
+proof as an authoritative region, not the fail-soft scanner licence. The
+specialization returns the one matched extent and the ordinary completion range
+performs capture/build; it introduces no target callback or per-character
+target branch. It has a dedicated generated-model parse non-regression gate.
+`PROTOTYPE_7.md` prices the consult-plus-int-ops shape in one alternating
+process at 0.345750 s minimum CPU versus 0.242277 s for whole-entry capture,
+with a 0.000950 s control floor. It omits PDA frames, transactions, driver work,
+the merge region, and the remaining document, so it is a lower-bound mechanism
+witness—not proof that the complete interpreted product fits `<1.000 s`.
 
-Above that sits the scheduled capturing lowering: a composed region the
-compiler proves regular — repeated entry, acyclic simple closure, no arm
-ambiguity — lowers to one capturing recognizer per entry, its demanded items
-as positional named groups derived from the rules' own pattern sources, worth
-a further 1.40x on the witness region. The proof (decline on a recursive
-closure), the demand-derived lowering, and a four-way identity — native
-formulation, GBNF formulation, stdlib oracle, generic engine `reduce` — are
-prototyped in `proto/regular_region_lowering.py`; the production task is gated
-at the §7 exit and proven the way §4 gates the model path. The ~105x
-objective is contingent on it; the <1.000 s envelope is not.
+Above that sits the scheduled capturing lowering. `compile/product/compose.py`
+derives a repeated region from reducer semantic roles × target demand;
+`parsing/product/regular.py` proves its simple closure acyclic, its authored
+arms first-disjoint, its repetitions non-nullable, and every variable/capture
+boundary deterministic against the next entry separator or terminator. The
+surrounding parser owns the opener and terminator; the delegated interior does
+not promote the scanner's fail-soft shell match into an authoritative answer.
+An acyclic/simple shape whose possessive repetition would steal its successor
+declines. A proved region lowers demanded positions to one capturing
+recognizer per entry; an unproved region remains on the same interpreted
+product from the start. The derivation/proof, a non-JSON catalog witness, and
+native/GBNF/ABNF/EBNF JSON identity are in
+`proto/regular_region_proof.py`/`regular_region_lowering.py`. The ~105x
+objective is contingent on this further lowering; the `<1.000 s` envelope is
+not, but still depends on the scheduled value-string consult above.
 
 ### Predictive PDA
 
@@ -572,37 +635,59 @@ same target program. It must not build a generated model and hand that to a
 second reducer. PDA islands use this same route, so a target has identical
 semantics whether a span was predictive or delegated.
 
-Ambiguity is orthogonal to ordinary retention but its value equality is
-target-dependent. Every product declares a typed `MeaningOp` and equality law
-over derivations which survive the composed grammar. The generated-model and
-default IR products reproduce their current ambiguity semantics. A narrower
-schema may reject one derivation; a projection may identify discarded
-differences only when its declared target meaning says they are unobservable.
-No generic `same_value` guess is applied to arbitrary custom classes.
+Ambiguity is orthogonal to ordinary retention but equality is target-dependent.
+Every product declares a typed root meaning and equality law over derivations
+which survive the composed grammar. The generated-model product reproduces its
+current observable model-value semantics. Default IR uses the definitive
+reduced root value rather than the temporary variant-model relation; those
+migration divergences are enumerated. A narrower schema may reject one
+derivation; a projection may identify a discarded difference only when both
+complete target products are equal. No generic equality guess is applied to an
+arbitrary custom class.
 
-The unambiguous hot path carries no witness graph. When an actual arm-choice
-ambiguity is exposed, the same product program computes only the declared local
-meaning and compares it through the target's equality operation; split families
-with a defined extent remain permitted. A parent dropping a child cannot erase
-an ambiguity whose `MeaningOp` keeps it. This requirement is implemented from
-first principles, not recovered by copying the rejected implementation.
+The unambiguous hot path carries no witness graph. At an actual internal
+arm-choice, the default derivation's completed-handle memo is reused and only
+the alternate family's ancestor cone is replayed to the root. The verdict is
+therefore exactly the complete requested value. Semantic-operation replay is
+proportional to the changed subtree plus its continuation rather than document
+size; `proto/root_meaning_incremental.py` proves that narrower claim at three
+alternate fold bodies versus a 1,207-body baseline. It does not treat fold-body
+count as a proxy for eager-container allocation or equality.
 
-"Local" has a stated mechanism (`proto/local_meaning_fold.py`): each family at
-an arm-choice point names a differing CHILD subtree, and the alternate meaning
-is folded from that child with fresh local state — building from the packed
-point itself re-enters the parent chain and its policies, and a root-rooted
-refold prices ambiguity at n+1 whole-document folds. The child-rooted fold is
-also what makes the dropping-parent law above computable at all: the measured
-witness shows the root-value comparison cannot see a kept difference a parent
-drops. Deep meanings also need an iterative equality walk — the current
-recursive `same_value` overflows near depth 1000.
+Built-in accumulators retain an immutable persistent contribution meaning:
+unchanged branches are identity-shared, a dirty completion path-copies only its
+ancestors, and exact iterative equality skips shared branches. No digest is an
+equality proof. The chosen meaning alone is materialized into its eager public
+result, once, after ambiguity resolution. `proto/persistent_meaning.py` visits
+18 nodes to distinguish one changed leaf and 33 to prove an equal path-copied
+leaf over a 65,536-item sequence, then performs one final materialization. A
+custom target without an exact shareable meaning may pay a whole-result cold
+comparison; that limitation is explicit and never moves a graph, callback, or
+alternate result onto the unambiguous path.
+
+The dropping-parent counterexample in `proto/local_meaning_fold.py` rejects
+child-local comparison. Completion operations are selected by completed code,
+which is also the contextual-clone identity. Split families with a defined
+extent remain permitted. Deep meanings and persistent contribution trees use
+iterative walks.
+
+Separate accepting items at the document root are not internal packed-family
+points. They each construct one complete root meaning; ancestor-cone replay
+applies only where roots share an internal packed point. When `resolve=` is
+present and meanings differ, the engine supplies the existing complete
+derivation pair to that resolver. A predictive ambiguity bails to Earley before
+committing target state so the same derivation resolver is used; no shadow
+generated model is constructed. The chosen meaning alone is then materialized
+as the final target product.
 
 Fold execution over the shared packed forest is a separate stated contract
 (`proto/shared_forest_refold.py`): the built derivation is a DAG (zero-width
 and unit-chain subtrees are shared objects), and the current walk's fold-body
 count per shared node is a traversal accident — two executions in two witness
-shapes, one in a third, for identical two-slot sharing. The product fold
-therefore computes each node's VALUE exactly once, guarded at fold entry, and
+shapes, one in a third, for identical two-slot sharing; a transparent synthetic
+node also repeats because it never enters today's value table. The product fold
+therefore computes each node's VALUE exactly once using a finished set distinct
+from the value table, and
 applies occurrence-owned effects (appends, verdicts, duplicate-set entries)
 from the parent's slot consumption so effect counts follow occurrences, never
 traversal interleaving. All three witness shapes are §3 exit gates through the
@@ -686,7 +771,8 @@ stitchers.
 The omitted-`into` product is the reducer's reference codomain. It constructs the
 reducer's `IrSelf` result directly during parsing and preserves current output,
 exception type and message, hoists, drops, `YIELD`, epsilon behavior, poisoned
-runs, ordering, and ambiguity behavior. It constructs neither a
+runs, and ordering. Its ambiguity law is the definitive reduced-value relation
+described above, not the superseded variant-model comparison. It constructs neither a
 `GrammarModel` nor a subsequent `ReduceFold` channel.
 
 `ReduceFold` must be deleted before landing. During development only, it is a
@@ -753,17 +839,19 @@ not justify the old construction cost: the composed grammar streams directly
 into encode, decode, and rank builders together and constructs each final IR
 container once.
 
-Tokenizer runtime tables are three tokenizer-index roles over one immutable
-dict-backed IR mapping base: spelling-to-id, id-to-spelling, and dyad-to-rank.
+Tokenizer runtime tables are three role-specific subclasses of the immutable
+dict-backed `IrMapping` base: spelling-to-id, id-to-spelling, and dyad-to-rank.
 Their private payloads are exact Python `str`, `int`, and `tuple[str, str]`
 values; the index itself is the IR node, so wrapping every internal entry in a
 spine scalar/dyad is not required. Encode/decode iteration is canonical token-id
 order and ranks iteration is canonical rank order. A direct builder already in
 that order is validated and frozen without sorting; a noncanonical public or
-payload-readback input is ordered once. Equal values therefore have equal hash
-and one repr/notation/payload order. General `IrMap` keeps its repr-key invariant
-for every existing consumer; the tokenizer does not pay its roughly 0.408 s
-sort.
+payload-readback input is ordered once. Mapping equality and hash are
+deliberately order-insensitive, so they cannot certify this invariant: every
+constructor validates item order, and tests pin `tuple(items())`, repr,
+notation, payload, and generated-module order directly. General `IrMap` keeps
+its repr-key invariant for every existing consumer; the tokenizer does not pay
+its roughly 0.408 s sort.
 `IrTokenizer.from_indexes` is the one final construction tail. It accepts
 encode, decode, and rank indexes together, validates pipeline references, and
 constructs the record without inverse derivation, rank re-indexing, or dyad
@@ -771,8 +859,10 @@ materialization. Existing `from_vocab`/`from_merges` converge on the same tail.
 Public `resolve` and `spell` retain the `IrEncoding` return boundary while the
 tokenizer's internal lookups use primitives and allocate no temporary IR key.
 The composed prototype captures, joins, canonically freezes, and installs all
-three dominant Qwen indexes in an actual record in 0.138739 s median. The
-per-entry IR-leaf alternative takes 0.346817 s and is rejected.
+three dominant Qwen indexes in an actual record at 0.700274 s median process
+CPU / 0.130779 s median wall with GC enabled. The earlier 0.138739 s
+GC-disabled component decomposition is provenance only. The per-entry IR-leaf
+alternative takes 0.346817 s and is rejected.
 The eliminated work is generic JSON arm selection where the upper shape already
 decides it, the generated JSON model, the full JSON `IrMap`, its tuple dyads and
 scalar wrappers, and the second traversal through `tokenizer_of`.
@@ -788,6 +878,18 @@ deferred parse. It is not evidence that an eager tokenizer can be built for the
 same cost: Qwen's vocabulary and merges are almost entirely demanded by the
 final tokenizer.
 
+### Reducer-free raw selection
+
+`select_raw(entry, spec)` is a `GrammarMorphism`, not a signature-bearing
+reduction target. Binding derives and validates a compatible recursive mapping
+shape from the named entry and the grammar binding view, compiles selected
+occurrences into contextual demand, and recognizes the document once. The
+model capture retains only selected `GrammarModel` values; the extent capture
+has a static reachability proof that no model-building rule is reachable.
+Selected levels retain raw keys for routing and duplicate refusal; unselected
+subtrees are recognition-only. This preserves the grammar-native templating
+capability without retaining its spans-then-reparse executor.
+
 ## Code ownership after the redesign
 
 The implementation begins with a source review which assigns every current
@@ -798,9 +900,13 @@ owner to its final role. Nothing remains merely because it is the old path.
   target-specific JSON/tokenizer declarations.
 - a new `compile/product/` package: owns signature verification, lower × upper
   state composition, demand propagation, product-op lowering, bound-product
-  caching, and `ReductionMorphism`.
+  caching, `ReductionMorphism`, and reducer-free `GrammarMorphism`.
+  `compose.py` derives regular regions from semantic roles × target demand;
+  `shape.py` privately owns the binding-derived recursive map-shape analysis
+  moved from `MapShape.for_entry`.
 - a new `parsing/product/` package: `records.py` owns immutable authored and
   flat ABI records, `state.py` owns parse-local builders and transactions,
+  `regular.py` owns the authoritative regular-language proof,
   `verify.py` owns physical-table verification, and `__init__.py` is the sole
   parsing-internal façade. The package imports only `lexic.ir`.
 - `compile/artifact.py`: `reduce` selects and runs a cached `BoundProduct`.
@@ -825,15 +931,20 @@ owner to its final role. Nothing remains merely because it is the old path.
 - `compile/output/templating.py`: its separate parse architecture is removed.
   `select(spec)` becomes the beginner declaration and returns a real
   `ReductionMorphism[Selection]`; `CompiledGrammar.reduce(..., into=selection)`
-  remains the only execution seam. `MapShape`, `Template`, `Template.run`,
-  `spanify`, raw-key paths, and their span/skip folds are deleted. Advanced
-  schema/morphism authoring uses the same target contract.
+  remains the only execution seam. The `MapShape` public export disappears;
+  its required binding analysis moves privately to `compile/product/shape.py`.
+  `Template`, `Template.run`,
+  `spanify`, and their span/skip folds are deleted. Their reducer-free raw-key
+  capability moves to `select_raw`, a `GrammarMorphism` through the same
+  `CompiledGrammar.reduce` execution seam. Advanced schema/morphism authoring
+  uses the same target contract.
 - `parsing/fold.py`: model-only `FOLD_KINDS`, `FieldFold`, `FastCtor`,
   `RuleFold`, `ModelBody`, and `ModelFold` are deleted after callers move.
   Generated-model synthesis lowers directly to `CaptureSpec`,
   `RuleProduct[GrammarModel]`, a typed constructor operand table, and one
-  `ProductProgram[GrammarModel, RootModel]`, where `RootModel` is the compiled
-  start class rather than a widened carrier. Public `parse()` still has that
+  `ProductProgram[GrammarModel, GrammarModel]`; the concrete start class is
+  synthesized at runtime, while the static result never widens beyond
+  `GrammarModel`. Public `parse()` still has that
   legitimate generated-model product, not a privileged engine implementation
   beside the target product.
 - `parsing/pda/compiler`, its flat-program records/opcodes, and
@@ -898,8 +1009,11 @@ The design is complete only when the following claims are demonstrated:
    do not alter that composed language or its failures.
 2. Two formulations exposing the same semantic signature compile the same
    target schema without rule-name or generated-class knowledge.
-3. The default IR target is exactly differential with current reduction,
-   including exception type/message and ambiguity.
+3. The default IR target is exactly differential with current reduction for
+   values and ordinary refusals; ambiguity compares complete root products.
+   Differences caused solely by the definitive reduced-root relation replacing
+   variant-model comparison are enumerated and reviewed; child-local scope is
+   forbidden.
 4. Python JSON is differential with its declared reference semantics on nested
    values, fractions, escapes, duplicates, empty values, and malformed input.
 5. Layer composition accepts exactly the intersection declared by the lower
@@ -954,9 +1068,11 @@ profiler; those observations run separately and are not timing evidence.
 
 Every row records its garbage-collector state; only rows with equal GC state
 compare, and production/acceptance rows run with the collector enabled (`src`
-never touches collector state — the paired carrier delta is +0.016948 s wall,
-`reports/PROTOTYPE_5.md` §5). Quoted historical constants are provenance, not
-denominators: the §12 comparison re-measures the `0faa7289` baseline in the
+never touches collector state). The even, order-balanced eight-pair carrier
+probe records +0.004562 s median process CPU and -0.002075 s wall; the wall sign
+is noise, not a benefit claim (`reports/PROTOTYPE_7.md`). Earlier fixed-order
+and odd-round deltas are rejected. Quoted historical constants are provenance,
+not denominators: the §12 comparison re-measures the `0faa7289` baseline in the
 same alternating session as the candidate, per §0's own rule.
 
 Parsing is a hard non-regression gate of its own. Generated-model and
@@ -988,15 +1104,17 @@ Performance expectations are codomain-dependent:
 | Codomain | Work that remains | Governing comparison |
 |---|---|---|
 | certified extent | recognition plus source bounds | measured 13.14 s → about 0.13 s construction result |
-| Python JSON | decode every retained scalar and allocate the complete recursive tree | less than 0.100 s on the 11,422,654-byte Qwen3 witness; direct product versus old IR route and `json.loads` |
+| Python JSON | decode every retained scalar and allocate the complete recursive tree | pursue less than 0.100 s on the 11,422,654-byte Qwen3 witness; gate the multiplier versus the remeasured old IR route, with `json.loads` as a lower-bound witness |
 | default IR | construct the complete reducer codomain with IR validation/order | direct product versus model plus `ReduceFold` |
-| `IrTokenizer` | recognize the composed tokenizer language; decode demanded fields; allocate final encode/decode/rank/pipeline tables | less than 1.000 s for resident text; compare with the 17.203148 s resident path and continue toward 105x for this scenario; report cold/warm `read_from_path` separately against 17.416359 s |
+| `IrTokenizer` | recognize the composed tokenizer language; decode demanded fields; allocate final encode/decode/rank/pipeline tables | less than 1.000 s for resident text; compare with the baseline remeasured in the same alternating session and continue toward 105x for this scenario; report cold/warm `read_from_path` separately (historical 17.203148 s / 17.416359 s are provenance only) |
 
 The selected feasibility shape measures the two dominant Qwen sections through
 native capture, joins, canonical tokenizer-index freeze, and an actual tokenizer
-record at 0.138739 s on eight retained workers: 0.121197 s capture/join,
-0.017504 s index finalization, and 0.000032 s record construction. Fresh
-single-run carriers increased peak RSS by about 79–82 MiB. A 6,098-character
+record at 0.700274 s median process CPU / 0.130779 s median wall with GC enabled
+on eight retained workers. The older 0.121197 s capture/join, 0.017504 s index
+finalization, and 0.000032 s construction decomposition was GC-disabled and is
+provenance only. Fresh single-run carriers increased peak RSS by about
+79–82 MiB. A 6,098-character
 shell-control prototype costs 0.001864 s for its stdlib stand-in; production
 must replace it with the corresponding typed-hole check through the composed
 product. Small fields, production shell execution, target bind/setup,
@@ -1011,8 +1129,8 @@ replace the historical 0.213211 s observed stage. Final reports measure the
 complete resident and path operations rather than adding independent medians.
 
 The measured extent result establishes the scale of removable work. The
-standing concrete goals are less than 0.100 s for the reduced recursive Python
-value and less than 1.000 s for the resident-text ready tokenizer, with
+standing concrete goals are a pursued less-than-0.100 s for the reduced
+recursive Python value and a gated less-than-1.000 s for the resident-text ready tokenizer, with
 continued optimization toward roughly 105x for the Qwen tokenizer scenario.
 That multiplier is not a universal gate on every reduction. The tokenizer's
 upper grammar is far narrower than general JSON and can remove generic choices

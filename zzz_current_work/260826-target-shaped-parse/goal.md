@@ -31,15 +31,24 @@ codomain is compared with the current path producing the same result. They are
 optimization goals for products derived from arbitrary compatible grammars,
 never permission for a JSON-specific parser.
 
-**Two-regime ruling (2026-08-28).** The <1.000 s resident envelope is pursued
-on the interpreted product ABI: `reports/PROTOTYPE_5.md` measures one
-compiled-recognizer consult per lexical rule completion plus flat int-op
-dispatch at 0.368907 s sequential over the 3.6 M-char vocab region — 1.40x
-the whole-entry capturing recognizer, versus 11.93 s for the current route.
-The roughly 105x objective is explicitly contingent on the proved-regular
-capturing lowering (repeated entry, acyclic closure, demand-named groups)
-scheduled as a gated §7-exit task; its mechanism, genericity, and identity
-proof are prototyped in `proto/regular_region_lowering.py`.
+**Two-regime ruling (revised after REVIEW_8).** The interpreted envelope
+requires an explicit generic specialization: one exact compiled-recognizer
+consult per eligible value-string rule occurrence, followed by flat int
+completion operations. It is a scheduled paid-loop task, not a property of the
+current engine. `reports/PROTOTYPE_7.md` measures that mechanism against fused
+whole-entry capture in one alternating process: 0.345750 s versus 0.242277 s
+minimum process CPU, **1.427088x**, with a 0.000950 s control floor. Both are
+microkernels omitting the driver, frames, transactions, merge region, and the
+remaining document; neither proves the complete `<1.000 s` gate.
+
+The roughly 105x objective is explicitly contingent on the further capturing
+regular-region lowering. Its compiler proof covers acyclic simple closure, arm
+non-ambiguity, non-nullable repetition, and deterministic capture boundaries;
+an acyclic-but-ambiguous possessive shape declines. Region programs are derived
+from reducer semantic roles × target demand, including a non-JSON witness, not
+from JSON locators. These mechanisms are prototyped in
+`proto/regular_region_proof.py` and `proto/regular_region_lowering.py` and are
+scheduled as gated tasks.
 
 This is a replacement architecture, not an optimized branch beside the current
 one.
@@ -49,15 +58,18 @@ one.
 There remains one reduction operation:
 
 ```python
+compiled.reduce(text, reducer, resolve=resolver, cores=cores)
 compiled.reduce(text, reducer, into=target, resolve=resolver, cores=cores)
+compiled.reduce(text, into=grammar_target, resolve=resolver, cores=cores)
 ```
 
 - Omitting `into` returns the reducer's current IR codomain.
 - `resolve=` is the same caller-supplied ambiguity resolver `parse` takes —
   `CLAUDE.md` names the resolver as THE ambiguity opt-out, and it reaches
-  whichever engine chooses; target products are not exempt. Both overloads
+  whichever engine chooses; target products are not exempt. All overloads
   carry it.
-- A supplied `ReductionMorphism[T]` returns its unbounded result type `T`.
+- A supplied `ReductionMorphism[T]` or `GrammarMorphism[T]` returns its exact
+  result type `T`.
 - `select({"key": KEEP, "nested": {"key": KEEP}})` is the beginner
   selection declaration. It returns a real morphism over decoded semantic
   keys and runs only through `reduce`; there is no `Template.run` twin. Its
@@ -65,6 +77,22 @@ compiled.reduce(text, reducer, into=target, resolve=resolver, cores=cores)
   absent, repeated decoded keys refuse, unselected values are recognition-only,
   and nested non-mappings produce a target-shape verdict after syntax succeeds.
   The beginner declaration traverses finite nested mappings only.
+- `select_raw(entry, spec)` is the reducer-free twin over RAW-span keys. It is a
+  `GrammarMorphism` and binds against a compiled grammar alone when the named
+  entry has the compatible mapping shape derivable from binding data; no
+  reducer or signature exists on its path. It returns declaration-ordered
+  round-trippable `GrammarModel`s by default; `capture=EXTENT` returns
+  parser-certified extents with a distinct exact result type. Both are built
+  during the same single parse that
+  recognizes the document. Raw keys mean escape-equivalent spellings are
+  DISTINCT and raw duplicates refuse at selected levels; that declared
+  difference is why `select` remains the beginner surface where a
+  signature-bearing reducer exists. It runs only through `reduce`; these are
+  two declared semantics, not two APIs for one task.
+- Raw and decoded route selection is compiled into finite PDA/Earley
+  continuation tables and adds no grammar arm. It never consumes `resolve=`;
+  that channel remains solely the caller's answer to genuine authored grammar
+  ambiguity.
 - The target may produce IR, recursive Python values, a certified extent,
   `IrTokenizer`, and—only if the §6 immutability proof succeeds—an authored
   custom Python class.
@@ -95,6 +123,10 @@ class knowledge.
 Native, GBNF, ABNF, and EBNF formulations which implement the same semantic
 signature can run the same target morphism. Compile verifies the reducer's
 authored actions against the signature and refuses an unlowerable mismatch.
+
+Reducer-free `GrammarMorphism`s are the separate source contract: they bind
+against a compatible grammar/binding shape and carry no reducer or signature
+identity. Both lower to the same engine-neutral product ABI after binding.
 
 ### Upper schema
 
@@ -140,16 +172,32 @@ parallel fragments consume the same capture layouts and completion operations.
 ### State safety
 
 Mutable accumulators belong to one collection occurrence. Speculative PDA work
-uses mark/commit/rollback. Failed islands discard child state. Each actual
-competing Earley arm folds from a fresh isolated state; live base builders are
-never cloned. Alternate meaning folds are rooted at the ambiguity family's
-child subtrees with fresh local state — never a root-rooted whole-document
-refold per flipped point. Side-effecting completion work over a shared forest
-node executes exactly once per node, guarded at fold entry; occurrence-owned
-effects ride the parent's slot consumption (the current walk's count is a
-traversal accident — `reports/PROTOTYPE_5.md` §3). Workers own disjoint states and return owned fragments. A failed
-or unchosen derivation cannot contaminate the result, duplicate set, or ordered
-semantic verdict.
+uses mark/commit/rollback. Failed islands discard child state. Earley's default
+derivation leaves a memo of completed-handle meanings. For one packed-family
+alternate, a dependency index marks only that family's completed owner and its
+ancestors dirty; unchanged sibling meanings are reused and the target program
+replays the dirty continuation to the root in isolated state. This preserves
+the existing observable root-value relation, including a parent which drops
+the differing child, without another whole-document semantic replay
+(`reports/PROTOTYPE_7.md` §1). Completion ranges are selected by completed code,
+so occurrence clones retain their own meaning program. Built-in accumulators
+represent ambiguity meanings as immutable persistent contribution trees:
+unchanged branches are identity-shared, dirty ancestors are path-copied, exact
+iterative equality skips shared branches, and the chosen eager result is
+materialized once. No hash or digest stands in for exact equality. A custom
+target unable to supply an exact shareable meaning may pay a full cold
+comparison, but adds nothing to the unambiguous hot path.
+
+Side-effecting completion work over a shared forest node executes exactly once
+per node through a finished set distinct from the value table; transparent
+synthetic nodes are included. Occurrence-owned effects ride the parent's slot
+consumption. Separate accepting root items each construct one complete meaning
+because no shared internal packed point contains their choice. When root
+meanings differ and `resolve=` is supplied, PDA bails before committing target
+state and Earley gives the complete derivation pair to the same resolver
+`parse` uses; only the chosen meaning materializes the final target product.
+Workers own disjoint states. Failed or unchosen work cannot contaminate the
+result, duplicate set, or ordered semantic verdict.
 
 Products without mutable builders or deferred verdicts allocate no
 `ParseState`. The generated-model specialization retains direct completion and
@@ -183,16 +231,17 @@ It is differential with the current output, refusal type/message, contribution
 order, `DROP`, `YIELD`, epsilon, and run behavior. This parity is a migration
 proof; the old implementation is deleted before landing.
 
-**Ambiguity relation ruling (2026-08-28).** The current route judges ambiguity
-by structural comparison of built variant models; the product judges it by the
-declared meaning law over reduced values, computed at the ambiguity point. The
-value-meaning relation is definitive and supersedes the variant-model relation
-— it is the reading `CLAUDE.md`'s "the question is about VALUES" invariant
-states, and it is the only relation that can keep a difference a dropping
-parent erases (`reports/PROTOTYPE_5.md` §4). The §5 differential therefore
-compares values and refusal types exactly, while ambiguity-refusal divergences
-between the two relations are enumerated, attributed, and coordinator-reviewed
-rather than required to be zero.
+**Ambiguity relation ruling (corrected after REVIEW_8).** The product judges
+ambiguity by the complete requested root value, not by the temporary variant
+model and not by an isolated child's value. The value relation supersedes the
+variant-model relation, but its scope remains the observable root product.
+Child-local comparison is rejected because the dropping-parent witness would
+refuse two derivations whose final value is equal. The §5 differential compares
+values and ordinary refusals exactly; only differences caused by replacing the
+variant-model relation with the definitive root-value relation are enumerated
+and reviewed. The accepted language is not deliberately narrowed. The
+persistent internal meaning is an execution representation of that same root
+value, not a weaker digest relation or a second public codomain.
 
 ### Python JSON
 
@@ -226,12 +275,15 @@ tokenizer schema and validation contract.
 - Pipeline sections use small typed accumulators.
 - Root finalization passes those indexes through one
   `IrTokenizer.from_indexes` constructor. Tokenizer indexes are immutable
-  dict-backed IR values with tokenizer-native primitive tables. Encode/decode
-  order is canonical token-id order and merge order is canonical rank order.
-  A direct builder already in that order is validated and frozen; a
-  noncanonical public/readback input is ordered once. The indexes do not pay
-  `IrMap`'s repr-key sort. The constructor neither derives inverse vocabulary
-  nor re-indexes merges, and constructs one ready tokenizer.
+  role-specific subclasses of `IrMapping` with tokenizer-native primitive
+  tables and duplicate refusal. Encode/decode order is canonical token-id order
+  and merge order is canonical rank order. Equality and hashing remain
+  order-insensitive, so canonical order is validated at every constructor and
+  pinned through direct item-order plus repr/notation/payload round trips; it is
+  never inferred from equality. A direct builder already in order is frozen;
+  noncanonical public/readback input is ordered once. The constructor neither
+  derives inverse vocabulary nor re-indexes merges, and constructs one ready
+  tokenizer.
 
 ### Extent
 
@@ -294,8 +346,9 @@ Absent:
 - `_ReduceEntry`, `_reduce_entry`, and model-then-fold reduction;
 - reduction-only carrier, channel cache, run fold, or fallback adapter;
 - a separate templating parser/extraction execution path;
-- `MapShape`, `Template`, `Template.run`, `spanify`, or raw-surface selection
-  paths;
+- `MapShape`, `Template`, `Template.run`, `spanify`, or any separate
+  parse/extract execution path (the raw-span capability itself survives as
+  the `select_raw` morphism through `reduce`);
 - target copies of model stitching;
 - `DirectCarrier`, `CarrierComposition`, or
   `parallel/stitch/carrier.py`;
@@ -384,12 +437,13 @@ and RSS are identified and optimized rather than treated as an assumed floor.
 
 The selected performance-feasibility prototype runs both dominant Qwen regions
 from resident text through native capture, joins, duplicate/rank checks,
-canonical immutable indexes, and an actual tokenizer record in 0.138739 s
-median on eight retained workers: 0.121197 s capture/join, 0.017504 s index
-finalization, and 0.000032 s record construction. Its observed retained-carrier
-RSS increase is about 79–82 MiB. Constructing an IR scalar/dyad for every entry
-instead costs 0.346817 s and is rejected. A 6,098-character stdlib shell control
-costs 0.001864 s, but does not certify the future composed product. Small fields,
+canonical immutable indexes, and an actual tokenizer record. The current
+GC-enabled eight-worker row is 0.700274 s median process CPU and 0.130779 s
+median wall. The earlier 0.138739 s GC-disabled component decomposition is
+provenance, not the budget. Observed retained-carrier RSS growth is about
+79–82 MiB. Constructing an IR scalar/dyad for every entry instead costs
+0.346817 s and is rejected. A 6,098-character stdlib shell control costs
+0.001864 s, but does not certify the future composed product. Small fields,
 production shell execution, target bind/setup, pipeline/root validation, and a
 ready-tokenizer result remain to be measured. These are scenario budgets, not
 an already-complete 105x claim.
@@ -399,16 +453,15 @@ An isolated `Path.read_text` probe measured 0.046713 s on its first read and
 0.213211 s stage; it requires resident, cold-path, and warm-path rows to remain
 separate in the final alternating measurement.
 
-`reports/PROTOTYPE_5.md` adds the interpreted-ABI and collector rows. One
-compiled-recognizer consult per lexical rule completion plus flat int-op
-dispatch runs the 3.6 M-char vocab region in 0.368907 s sequential (GC on),
-1.40x the 0.262931 s whole-entry capturing recognizer — so the interpreted
-product ABI carries the <1.000 s envelope and the capturing lowering carries
-the 105x objective. The composed carrier's paired in-process GC delta is
-+0.016948 s wall (~11 %): the GC-enabled carrier budget is ~0.170 s in that
-session's state. Production runs with the collector enabled; `src` never
-manipulates collector state; every measurement row records its GC state, and
-comparisons pair rows with equal GC state only.
+`reports/PROTOTYPE_7.md` corrects the interpreted/capture comparison to an
+in-process alternating measurement with a control: 0.345750 s versus
+0.242277 s minimum process CPU, 1.427088x, with a 0.000950 s control floor.
+This is evidence for the explicitly scheduled exact value-string recognizer
+consult, not for today's per-character PDA loop and not a complete-envelope
+proof. The balanced eight-pair collector probe reports +0.004562 s process CPU
+and -0.002075 s wall; the wall sign is noise. Production runs with the collector
+enabled; `src` never manipulates collector state; every measurement row records
+its GC state, and comparisons pair rows with equal GC state only.
 
 Python JSON is compared with the current IR route and `json.loads`. Default IR
 is compared with model + `ReduceFold` only during development. Extent retains

@@ -121,7 +121,7 @@ def _shared_node(root: ParseTree, rule: str) -> int:
 
 
 def _push_unfolded(
-    stack: list[tuple[ParseTree, bool]], node: ParseTree, results: set[int]
+    stack: list[tuple[ParseTree, bool]], node: ParseTree, completed: set[int]
 ) -> None:
     """The current walk's push guard: skip only kids whose fold FINISHED.
 
@@ -130,7 +130,7 @@ def _push_unfolded(
     guard and is pushed again.
     """
     for kid in node.kids:
-        if isinstance(kid, ParseTree) and id(kid) not in results:
+        if isinstance(kid, ParseTree) and id(kid) not in completed:
             stack.append((kid, False))
 
 
@@ -144,18 +144,40 @@ def _walk_folds(root: ParseTree, guard_fold: bool) -> dict[int, int]:
     """
     executed: dict[int, int] = {}
     results: set[int] = set()
+    finished: set[int] = set()
     stack: list[tuple[ParseTree, bool]] = [(root, False)]
     while stack:
         node, expanded = stack.pop()
         if not expanded:
             stack.append((node, True))
-            _push_unfolded(stack, node, results)
+            _push_unfolded(stack, node, finished if guard_fold else results)
             continue
-        if guard_fold and id(node) in results:
+        if guard_fold and id(node) in finished:
             continue
         executed[id(node)] = executed.get(id(node), 0) + 1
-        results.add(id(node))
+        finished.add(id(node))
+        if not str(node.symbol).startswith("__"):
+            results.add(id(node))
     return executed
+
+
+def _synthetic_exercise() -> None:
+    """Pin the worse case: transparent folds never enter ``results``."""
+    witness = WITNESSES[0]
+    tree = _tree(witness.grammar, witness.text)
+    shared = _shared_node(tree, "__rep_1")
+    unguarded = _walk_folds(tree, False)
+    guarded = _walk_folds(tree, True)
+    if unguarded.get(shared, 0) != 2 or guarded.get(shared, 0) != 1:
+        raise AssertionError(
+            "synthetic witness lost its twice-versus-once fold discipline"
+        )
+    print(
+        "synthetic-transparent",
+        f"unguarded_folds={unguarded[shared]}",
+        f"guarded_folds={guarded[shared]}",
+        sep="\t",
+    )
 
 
 def _exercise(witness: Witness) -> None:
@@ -192,6 +214,7 @@ def main() -> None:
     """Run every witness; the walk must show both over- and under-execution."""
     for witness in WITNESSES:
         _exercise(witness)
+    _synthetic_exercise()
     counts = {witness.unguarded_folds for witness in WITNESSES}
     if counts != {1, 2}:
         raise AssertionError("the witnesses no longer span both miscounts")
@@ -199,6 +222,7 @@ def main() -> None:
         "conclusion",
         "fold-body executions per shared node depend on traversal order:"
         " 2 for duplicate-slot/pending-frame, 1 for sibling-memo —"
+        " transparent synthetic folds also repeat because they store no result;"
         " neither per-node-once nor per-occurrence semantics holds",
         sep="\t",
     )

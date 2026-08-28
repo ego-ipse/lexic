@@ -1,13 +1,37 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — REVIEW_7 rulings folded, mechanisms prototyped (2026-08-28)
+## CURRENT SESSION — consistency and evidence correction (2026-08-28)
+
+A full post-REVIEW_7 audit found four substantive gaps in the first ruling
+pass. `select_raw` could not be called by the DESIGN's two reducer-required
+overloads; “any compiled grammar” overstated its binding-derived map-shape
+precondition; child-local ambiguity omitted separate accepting root items; and
+the GC probe always ran enabled before disabled. The interpreted 0.368907 s row
+also omitted too much production machinery to support the statement that it
+carried the complete <1.000 s envelope.
+
+`proto/reducer_free_surface.py` now pins three exact overloads and typed
+MODEL/EXTENT raw-selection codomains. `regular_region_lowering.py` now covers
+native/GBNF/ABNF/EBNF formulations, arbitrary 1/2/3 capture arity, the complete
+vocab table/boundary, empty validity, and malformed refusal. The ambiguity
+prototype covers separate root siblings beside child-local internal points.
+The order-balanced eight-worker GC probe corrects the paired delta to
++0.005182 s wall / +0.005439 s process CPU; the old +0.016948 s claim is
+rejected. Evidence and boundaries are in `reports/PROTOTYPE_6.md`.
+
+`context.md`, `goal.md`, `DESIGN.md`, `TODO.md`, and `PROTOTYPE_5.md` are
+reconciled to those results. `src` remains unchanged. No reviewer is called
+until the prototypes and documents pass their local gates; the next fresh
+review deliverable is `reports/REVIEW_8.md`.
+
+## PRIOR SESSION — REVIEW_7 rulings folded, mechanisms prototyped (2026-08-28)
 
 `reports/REVIEW_7.md` (coordinator + fresh cross-model pass) was verified
 against source and plan: all fifteen findings held. The trivial findings are
 folded into `goal.md`/`DESIGN.md`/`TODO.md` as recorded rulings; the
 non-trivial or unclear mechanisms are prototyped in `proto/` and measured in
 `reports/PROTOTYPE_5.md` — four REVIEW_7 mechanisms plus the finding-10
-option-(a) exhibit `demand_selection.py` (a first spans-then-reparse draft of
+morphism exhibit `demand_selection.py` (a first spans-then-reparse draft of
 it was rejected and deleted as unfaithful to the one-parse architecture). All
 five new prototypes pass pyright, ruff check/format, and pylint 10.00/10 with
 zero suppressions. `src` unchanged.
@@ -54,20 +78,17 @@ GrammarModel]` typing; `parsing/trace.py` assigned to §4;
 `compile/product/` layout pinned; `stitch/model.py` decided-keep; §13 gains
 select-contract, extent, and binding-registry-lifecycle rows.
 
-**Open user decision:** REVIEW_7 finding 10 — keep one reducer-free extraction
-morphism, or record the deliberate pre-0.1 drop of reducer-free grammar-native
-extraction (see the TODO status block). Option (a)'s feasibility and contract
-are prototyped in `proto/demand_selection.py`
-(`reports/PROTOTYPE_5.md` §6): the selection compiles into contextual clones
-over any compiled grammar with no reducer/signature — one engine parse per
-document, kept models/extents built during it, undemanded subtrees
-recognition-only, deterministic key routing, syntax-first shape verdicts,
-declaration-ordered round-trippable models or statically model-free certified
-extents, empty-level and raw-duplicate refusals, demand-local retention
-(2 models + 998 key records over 1,000 entries), formulation-independent
-(GBNF == native JSON), raw keys declaredly distinct from decoded. It is a
-feasibility exhibit; the decision is the user's and is not recorded. All
-other REVIEW_7 re-entry conditions are satisfied.
+**Finding 10:** the reducer-free extraction capability stays as the
+`select_raw` grammar-demand morphism; feasibility and contract are prototyped
+in `proto/demand_selection.py` (`reports/PROTOTYPE_5.md` §6): the selection
+compiles into contextual clones over any compiled grammar with no
+reducer/signature — one engine parse per document, kept models/extents built
+during it, undemanded subtrees recognition-only, deterministic key routing,
+syntax-first shape verdicts, declaration-ordered round-trippable models or
+statically model-free certified extents, empty-level and raw-duplicate
+refusals, demand-local retention (2 models + 998 key records over 1,000
+entries), formulation-independent (GBNF == native JSON), raw keys declaredly
+distinct from decoded. All REVIEW_7 re-entry conditions are satisfied.
 
 ## PRIOR SESSION — reviewed handoff (2026-08-27)
 

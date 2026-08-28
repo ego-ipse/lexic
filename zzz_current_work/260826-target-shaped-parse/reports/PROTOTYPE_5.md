@@ -10,7 +10,7 @@ region alone is 3,596,468 characters / 151,643 entries. All timings on the
 Python 3.14.3 free-threading host; sequential rows run with the collector
 ENABLED unless stated (the new §0 GC rule).
 
-## 1 — the regular-region lowering exists, is generic, and is proved by identity
+## 1 — the regular-region lowering exists; its original identity was bounded
 
 `proto/regular_region_lowering.py` answers REVIEW_7 finding 1's mechanism
 question. A `RegionSpec` — opener, entry rule names, demanded item indices,
@@ -31,6 +31,11 @@ separator, terminator — is witness-locator *data*. The mechanism is generic:
   stdlib oracle, and (c) the **generic engine product**
   `compile_ast(JSON_GRAMMAR).reduce(slice, JSON_REDUCER, cores=1)`.
 
+`reports/PROTOTYPE_6.md` extends this witness across native, GBNF, ABNF, and
+EBNF formulations, 1/2/3 demanded captures, the complete vocab region, empty
+valid input, and malformed refusals. The original two-capture/valid-slice result
+alone was not a generic production proof.
+
 ## 2 — the interpreted completion-op ABI is 1.40x the fused capture, not 16.7x
 
 The same file lowers the same region two more ways and times both over the
@@ -41,10 +46,11 @@ full 3.60 M-char vocab region, sequential, GC on, seven rounds:
 | one capturing match per whole entry (`--mode capture`) | 0.262931 s | 576,741 | 13.7 |
 | one C-level match per rule + flat int-op dispatch (`--mode ops`) | 0.368907 s | 411,060 | 9.7 |
 
-The `ops` row is the honest floor for the §3 flat ABI on this region: one
+The `ops` row is an optimistic lower bound for the §3 flat ABI on this region: one
 compiled-recognizer consult per lexical rule completion (string, separator,
 int), one `if/elif` int dispatch per op, decode/int/insert as ops — no
-per-character loop, no frames. It is **1.40x** the fused whole-entry
+per-character loop, no frames, transactions, PDA driver, merge region, or
+remaining document. It is **1.40x** the fused whole-entry
 recognizer, while the current reduction-variant parse of the same witness is
 11.93 s (0.96 MB/s per core).
 
@@ -53,7 +59,8 @@ engine and the prototype carrier is NOT primarily "regex versus interpreter".
 It is per-character value-string consumption plus model construction. An
 interpreted product ABI whose value-string terminals are consumed by one
 compiled-recognizer consult per occurrence reaches ~10 of the needed
-~16 MB/s per core on the dominant region; the whole-entry capturing lowering
+~16 MB/s per core on this dominant region; it does not prove the complete
+<1.000 s envelope. The whole-entry capturing lowering
 buys the remaining 1.40x and is what the ~105x objective needs. Both rows are
 published beside the 0.121197 s eight-worker capture/join row as required.
 
@@ -108,6 +115,10 @@ context back in — measured and rejected inside the prototype's history):
   overflows the interpreter stack near depth ~1000 — deep meanings need an
   iterative comparator when §8 lands.
 
+The initial witness covered internal packed-family points only.
+`PROTOTYPE_6.md` adds the separate accepting-root-item case: each sibling root
+needs one complete fold because no internal ambiguity key contains that choice.
+
 ## 5 — the carrier budget with the collector enabled (finding 11)
 
 `proto/carrier_gc_cost.py` re-runs the exact composed carrier
@@ -119,22 +130,19 @@ collector states round by round in one process, eight retained workers:
 | enabled | 0.801694 s | 0.170211 s |
 | disabled | 0.790703 s | 0.153264 s |
 
-The paired in-process delta is **+0.016948 s wall (~11 %)** for the enabled
-collector. The GC-enabled carrier budget is therefore ~0.170 s in this
-session's state (the dedicated PROTOTYPE_4 process measured 0.138739 s
-disabled; absolute rows differ across sessions, the paired delta is the
-ruling-grade quantity). Production runs with GC on; `src` never manipulates
-collector state; the §0 protocol now records GC state per row.
+This first comparison always ran enabled before disabled, so its
+**+0.016948 s wall (~11 %)** delta is order-confounded and rejected.
+`PROTOTYPE_6.md` alternates pair order and measures +0.005182 s median wall and
++0.005439 s process CPU. Production runs with GC on; `src` never manipulates
+collector state; the §0 protocol records GC state per row.
 
-## 6 — the reducer-free selection morphism (finding 10, option (a) prototyped — decision open)
+## 6 — the reducer-free selection morphism (finding 10)
 
-`proto/demand_selection.py` prototypes finding 10's option (a) — one
-reducer-free selection morphism, compiled as OCCURRENCE DEMAND the way the
-target architecture executes — as a feasibility exhibit for the user's
-decision. It records no ruling; option (b) (deliberate drop) remains on the
-table. An earlier draft that pre-passed spans with the current templating
-machinery and re-parsed kept text was deleted as unfaithful to the new
-architecture; this one executes the new shape:
+`proto/demand_selection.py` prototypes the kept reducer-free selection
+morphism — `select_raw(entry, spec)`, compiled as OCCURRENCE DEMAND the way
+the target architecture executes. An earlier draft that pre-passed spans with
+the current templating machinery and re-parsed kept text was deleted as
+unfaithful to the new architecture; this one executes the new shape:
 
 - **One parse per document, no re-parse.** Binding compiles the selection
   into a single contextual clone grammar: the rule-keyed fold becomes
@@ -168,7 +176,8 @@ architecture; this one executes the new shape:
   unchecked; missing paths are absent; results are declaration-ordered;
   `to_text()` equals the certified slice.
 - **No reducer, no signature, no formulation privilege.** Binding consumes
-  the compiled grammar and its binding view only; the toy `(k=v, ...)`
+  a compiled grammar with the compatible mapping shape and its binding view
+  only; the toy `(k=v, ...)`
   grammar has no reducer at all, and the GBNF ground-truth and native JSON
   formulations return identical kept values. Raw keys are declaredly
   distinct from decoded keys (`{"a": 1, "a": 2}` selects the raw
@@ -179,12 +188,11 @@ architecture; this one executes the new shape:
   machinery re-folds candidate derivations — the same root-refold cost §8's
   local-meaning mechanism removes.
 
-If the user rules for option (a), the production §6 implementation lowers
-this same contract through the product compiler's demand analysis and runs
-only through the one `reduce` morphism channel — no `Template.run` twin —
-with the toy-grammar templating assertions ported to it. If the user rules
-for option (b), this section stands as the record of what was measured
-before the drop.
+The production §6 implementation lowers this same contract through the
+product compiler's demand analysis and runs only through the one `reduce`
+morphism channel — no `Template.run` twin — with the toy-grammar templating
+assertions ported to it. `PROTOTYPE_6.md` supplies the missing third `reduce`
+overload and exact model/extent capture result types.
 
 ## Gates retained
 

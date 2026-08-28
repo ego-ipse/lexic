@@ -36,8 +36,8 @@ different decoding/allocation costs. Do not transfer a measured multiplier from
 one target to another without a cost account.
 
 For the 11,422,654-byte / 10,635,788-character local Qwen3 witness, the target
-envelopes are less than 0.100 s wall for the complete reduced Python
-mapping/list value and less than 1.000 s wall for a ready `IrTokenizer`, with
+objectives are a pursued less-than-0.100 s wall for the complete reduced Python
+mapping/list value and a gated less-than-1.000 s wall for a ready `IrTokenizer`, with
 the ready tokenizer still pursuing roughly 105x against its like-for-like
 current scenario. That multiplier is not a universal gate for every reduction;
 each codomain reports current versus projected performance separately. These
@@ -93,6 +93,17 @@ Both require §3 to demonstrate occurrence-keyed recognition-time routing in
 the actual PDA/Earley/island paths, verify every physical completion table,
 integrate the repository cache-owner protocol, and measure rollback plus fresh
 alternate-state cost before §4 opens.
+
+`reports/REVIEW_7.md` exposed performance-evidence and ambiguity gaps;
+`REVIEW_8.md` then caught an unsound child-local ruling, an unscheduled
+value-string specialization, and an insufficient authoritative regular proof.
+`PROTOTYPE_5.md` and `PROTOTYPE_6.md` are the earlier bounded evidence.
+`PROTOTYPE_7.md` supplies the current corrections: root-equivalent incremental
+ambiguity replay, a conservative possessive-boundary proof, signature-derived
+regions including a non-JSON witness, an in-process interpreted/capture row,
+declaration-only morphisms, raw route continuation, a transparent-synthetic DAG
+witness, and an even-order collector comparison. These remain mechanism
+witnesses, not production throughput proof.
 
 ## Current source state
 
@@ -245,9 +256,15 @@ Ambiguity support is under:
 
 The discarded direct-carrier attempt tried to retain model-shaped witnesses to
 the root. That recreated the representation the optimization was meant to
-remove. The new product declares a typed local `MeaningOp`; Earley folds
-competing derivations in isolated product state, and the unambiguous hot path
-retains no witness graph.
+remove. The new product declares a typed root-product meaning. Earley reuses
+the already-built baseline meanings and replays only the changed packed
+family's ancestor continuation to the root. This preserves the observable
+root-value relation without another whole-document semantic replay. The
+fold-body prototype does not price eager-container rebuilding; built-in
+products therefore retain exact persistent contribution meanings, share
+unchanged branches, and materialize only the chosen eager result. Competing
+work uses isolated product state, and the unambiguous hot path retains no
+witness graph.
 
 ## Current templating path
 
@@ -262,8 +279,11 @@ separate architecture which must not survive as a second parser:
   values through additional steps.
 
 Keep the proof: one shared lower rule may need different behavior by
-occurrence. Replace the separate run-time path with `TargetSchema` + demand
-composition. Do not stack templating on top of a completed general parse.
+occurrence. Replace the separate run-time path with demand composition.
+Signature-bearing `select` uses `TargetSchema`; reducer-free `select_raw` uses a
+private binding-derived mapping shape and `GrammarMorphism`. The derivation
+moves to `compile/product/shape.py`; the public `MapShape` export disappears
+with templating. Do not stack templating on top of a completed general parse.
 
 ## Current parallel boundary
 
@@ -346,11 +366,12 @@ dyads, and ranks. Encode/decode are canonical by id and merges by rank; a direct
 canonical builder validates and freezes without sorting, while noncanonical
 public/readback input is ordered once. They do not pay `IrMap`'s repr-key sort.
 The target does not ask `from_merges` to derive inverse vocabulary or re-index
-merges already built. The composed feasibility measurement is 0.138739 s for
-both dominant regions through native capture, joins, canonical index freeze,
-and an actual tokenizer record. Per-entry IR leaves instead cost 0.346817 s and
-are rejected. The 0.001864 s shell row remains a stdlib control, not production
-typed-hole certification.
+merges already built. The current GC-enabled composed feasibility row is
+0.700274 s process CPU and 0.130779 s wall for both dominant regions through
+native capture, joins, canonical index freeze, and an actual tokenizer record.
+The earlier 0.138739 s GC-disabled component decomposition is provenance only.
+Per-entry IR leaves instead cost 0.346817 s and are rejected. The 0.001864 s
+shell row remains a stdlib control, not production typed-hole certification.
 
 `src/lexic/ir/action/mapping.py` matters because `_indexed` supplies decoded
 duplicate-key refusal and `IrMap.from_table` canonicalizes. I9 proved that
@@ -362,17 +383,21 @@ special-casing the existing `IrMap` invariant.
 
 Read these before changing source:
 
-1. `zzz_current_work/260826-target-shaped-parse/reports/PROTOTYPE.md` — typed
+1. `zzz_current_work/260826-target-shaped-parse/reports/REVIEW_8.md` and
+   `PROTOTYPE_7.md` — the latest review and its corrected ambiguity, regular,
+   routing, typing, DAG, and measurement mechanisms. Read `REVIEW_7.md`,
+   `PROTOTYPE_5.md`, and `PROTOTYPE_6.md` for provenance only.
+2. `zzz_current_work/260826-target-shaped-parse/reports/PROTOTYPE.md` — typed
    carrier/builder separation, real formulation binding, real reducer-action
    coverage, public-surface inference, and plain-int opcode evidence.
-2. `zzz_current_work/260821-one-path/reports/i23_report.md` — uncontaminated
+3. `zzz_current_work/260821-one-path/reports/i23_report.md` — uncontaminated
    external attribution and measurement discipline.
-3. `zzz_current_work/260821-one-path/reports/i9_report.md` — demand size,
+4. `zzz_current_work/260821-one-path/reports/i9_report.md` — demand size,
    duplicate-key discovery, and the double-representation conclusion.
-4. `zzz_current_work/260821-one-path/reports/i24_report.md` — why spans alone do
+5. `zzz_current_work/260821-one-path/reports/i24_report.md` — why spans alone do
    not prove semantic validity or ambiguity, and why model-shaped carriers/MT
    stitching were rejected.
-5. `zzz_current_work/260821-one-path/DEMAND_PROJECTION.md` —
+6. `zzz_current_work/260821-one-path/DEMAND_PROJECTION.md` —
    occurrence-sensitive demand, dynamic keys, and validation dimensions. Treat
    its suggested incremental old-template route as superseded by this design.
 
@@ -401,8 +426,8 @@ direct representation fusion: demanded data should be built once in its final
 form.
 
 The 13.14 s → about 0.13 s extent-construction result establishes the scale of
-work removable by target shaping. The concrete local goals are now less than
-0.100 s for the reduced recursive Python product, less than 1.000 s for the
+work removable by target shaping. The concrete local goals are now a pursued
+less-than-0.100 s for the reduced recursive Python product, a gated less-than-1.000 s for the
 resident-text ready tokenizer, and continued optimization of the Qwen tokenizer
 scenario toward roughly 105x. Resident, cold-path, and warm-path tokenizer rows
 remain separate. An isolated source-read probe measured 0.046713 s first-read

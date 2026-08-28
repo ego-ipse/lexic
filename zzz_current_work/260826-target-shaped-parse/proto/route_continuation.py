@@ -1,4 +1,4 @@
-"""Decoded semantic route continuation across one following reference.
+"""Semantic or raw route continuation across one following reference.
 
 The witness is JSON ``member`` shape, but every runtime record contains only
 integer completion/item positions and finite routes.  Grammar and target names
@@ -83,8 +83,8 @@ class PdaRouteFrame:
         self.routes[mark.slot] = mark.prior
 
 
-def decoded_route(table: RouteTable, key: str) -> int:
-    """Collapse an arbitrary decoded key to one finite route."""
+def route_for(table: RouteTable, key: str) -> int:
+    """Collapse one already-spelled semantic or raw key to a finite route."""
     for spelling, route in table.known:
         if spelling == key:
             return route
@@ -193,15 +193,15 @@ def prove_pda() -> None:
     continuation = routes.continuations[0]
     frame = PdaRouteFrame(1)
 
-    model = decoded_route(routes.tables[0], _decoded_key('"model"'))
-    escaped = decoded_route(routes.tables[0], _decoded_key('"m\\u006fdel"'))
+    model = route_for(routes.tables[0], _decoded_key('"model"'))
+    escaped = route_for(routes.tables[0], _decoded_key('"m\\u006fdel"'))
     assert model == escaped == 1
     mark = frame.publish(continuation.route_slot, model)
     assert pda_child(routes, continuation, frame, 2) == 101
     frame.rollback(mark)
     assert frame.routes == [UNSET]
 
-    extension = decoded_route(routes.tables[0], _decoded_key('"other"'))
+    extension = route_for(routes.tables[0], _decoded_key('"other"'))
     frame.publish(continuation.route_slot, extension)
     assert pda_child(routes, continuation, frame, 2) == 102
 
@@ -211,11 +211,11 @@ def prove_earley() -> None:
     routes = _routes()
     continuation = routes.continuations[0]
 
-    model = decoded_route(routes.tables[0], _decoded_key('"model"'))
+    model = route_for(routes.tables[0], _decoded_key('"model"'))
     specialised = earley_successor(routes, continuation, 300, model)
     assert specialised == 301
 
-    extension = decoded_route(routes.tables[0], _decoded_key('"other"'))
+    extension = route_for(routes.tables[0], _decoded_key('"other"'))
     generic = earley_successor(routes, continuation, 300, extension)
     assert generic == 302
     assert specialised != generic
@@ -225,11 +225,37 @@ def prove_earley() -> None:
     assert nested != specialised
 
 
+def prove_raw() -> None:
+    """Route raw spellings without adding a competing grammar arm."""
+    routes = _routes()
+    decoded = routes.tables[0]
+    raw = RouteTable(
+        (('"model"', 1),),
+        decoded.extension,
+        decoded.choices,
+    )
+    continuation = routes.continuations[0]
+    frame = PdaRouteFrame(1)
+
+    exact = route_for(raw, '"model"')
+    escaped = route_for(raw, '"m\\u006fdel"')
+    if exact != 1 or escaped != raw.extension:
+        raise AssertionError("raw route collapsed distinct surface spellings")
+    frame.publish(continuation.route_slot, exact)
+    if pda_child(routes, continuation, frame, 2) != 101:
+        raise AssertionError("raw route lost its predictive destination")
+    if earley_successor(routes, continuation, 300, exact) != 301:
+        raise AssertionError("raw route lost its Earley successor")
+
+
 def main() -> None:
     """Run both engine-shaped continuation proofs."""
     prove_pda()
     prove_earley()
-    print("PASS: decoded route controls the following PDA/Earley child")
+    prove_raw()
+    print(
+        "PASS: decoded/raw routes control PDA/Earley children; grammar_arm_additions=0"
+    )
 
 
 if __name__ == "__main__":

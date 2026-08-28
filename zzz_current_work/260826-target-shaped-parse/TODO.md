@@ -11,22 +11,29 @@ completion-op throughput, shared-forest fold discipline, ambiguity-local
 meaning folds, GC-enabled carrier budget). Source implementation has not
 started.
 
-**OPEN USER DECISION (REVIEW_7 finding 10):** deleting templating for `select`
-drops a reducer-free, `GrammarModel`-returning extraction capability that
-worked over ANY compiled grammar (`template(compiled, shape, spec)` takes no
-reducer; only JSON gains a semantic signature at §2). Options: (a) keep one
-reducer-free extraction morphism in the new architecture (occurrence-demand
-driven, `GrammarModel` or certified-extent codomain, no `SemanticSignature`
-required) with `select` as the beginner surface over reducers; or (b) record
-in `goal.md` that reducer-free grammar-native extraction is deliberately
-dropped pre-0.1, rewrite ex10 as a JSON+reducer example, and delete rather
-than port the toy-grammar extraction tests. §10's templating deletion and
-§11's ex10 rewrite execute whichever the user rules; nothing else blocks on
-it. Option (a)'s feasibility and exact contract are prototyped in
-`proto/demand_selection.py` (`reports/PROTOTYPE_5.md` §6) — occurrence-demand
-compiled into contextual clones, one parse per document, recognition-only
-undemanded subtrees, a statically model-free extent variant — a feasibility
-exhibit for the decision, not a decision.
+`reports/PROTOTYPE_6.md` records the consistency iteration after that ruling:
+the third reducer-free overload and exact model/extent capture types, compatible
+map-shape scope, all-formulation/arity/edge regular-lowering witnesses,
+root-sibling ambiguity handling, and the corrected order-balanced GC result.
+
+`reports/REVIEW_8.md` rejects the child-local ambiguity scope, identifies the
+unscheduled value-string recognizer consult, and requires an authoritative
+regular proof. `reports/PROTOTYPE_7.md` supplies the correction set:
+root-equivalent ancestor-cone replay, conservative possessive-boundary proof,
+signature-derived JSON and non-JSON regions, in-process controlled
+interpreted/capture timing, declaration-only morphisms, zero-arm raw routing,
+transparent-synthetic DAG accounting, and an even-order GC row. The queue below
+uses these mechanisms; source implementation has still not begun.
+
+**Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
+is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
+`select` as the beginner surface over signature-bearing reducers. Feasibility
+and contract are prototyped in `proto/demand_selection.py`
+(`reports/PROTOTYPE_5.md` §6): occurrence demand compiled into contextual
+clones, one parse per document, recognition-only undemanded subtrees, a
+statically model-free extent variant. §6 implements it, §10's templating
+deletion names it as the successor, §11 keeps ex10's grammar-generic story, and
+§13 tests it.
 
 This is the executable queue for `context.md`, `goal.md`, and `DESIGN.md`. Read
 all three before touching source. Do not reopen settled architecture unless the
@@ -61,8 +68,8 @@ and export follow-ups until every item here is complete.
       shrink once §13 begins. This is visibility, not test authorship — Terra
       writes no committed tests.
 - [ ] Each phase that adds, moves, or deletes a source module updates the
-      `CLAUDE.md`/`AGENTS.md` package-map lines in the same phase (mechanical
-      edit only), keeping `tests/integration/test_doc_drift.py` green
+      `CLAUDE.md` package-map lines in the same phase (mechanical edit only),
+      keeping `tests/integration/lexic/invariants/test_doc_drift.py` green
       throughout; §11 remains the prose pass.
 - [ ] Terra and Luna run sequentially, never concurrently.
 - [ ] Run no two multithreaded benchmarks at once.
@@ -142,8 +149,10 @@ and export follow-ups until every item here is complete.
       digest, cold compile/bind, cold first parse, warmed parse, opcode/capture
       counts, garbage-collector state per row, and product-table bytes.
       Production/acceptance rows run with the collector enabled; only rows
-      with equal GC state compare (`reports/PROTOTYPE_5.md` §5 measures the
-      +0.016948 s carrier delta); `src` never manipulates collector state.
+      with equal GC state compare (`reports/PROTOTYPE_7.md` records the even,
+      order-balanced eight-pair row: +0.004562 s process CPU / -0.002075 s
+      wall, with the wall sign treated as noise); `src` never manipulates
+      collector state.
       The baseline source remains reproducible
       from commit `0faa7289`; compare it later in alternating whole processes,
       not by trusting measurements from different machine states.
@@ -246,7 +255,9 @@ paid-loop measurement gates; the prototypes do not claim them.
       `TargetRefusalError(LexicError)` over `SemanticVerdict` value records
       (never the bare name `Verdict` — `compile/verdict.py` owns it);
       `from_indexes` validation is `FieldValidationError`. Luna pins type and
-      message against this declaration.
+      message against this declaration. This intentionally replaces the
+      tokenizer reader's current semantic `UnsupportedConstructError` cases;
+      pre-0.1 gets no compatibility subclass, alias, or adapter.
 - [ ] Add the JSON semantic signature beside `JSON_REDUCER` in
       `src/lexic/grammars/json.py`: decoded null/bool/integer/fraction/string,
       array item/array, object entry/object, and completion. It contains no
@@ -262,7 +273,8 @@ the same signature object; a mismatched target can be diagnosed before parse.
 
 - [ ] Add the focused parsing-owned `src/lexic/parsing/product/` package:
       `records.py` owns immutable authored/flat ABI records, `state.py` owns
-      parse-local builders and transactions, `verify.py` owns physical-table
+      parse-local builders and transactions, `regular.py` owns the
+      authoritative regular-language proof, `verify.py` owns physical-table
       verification, and `__init__.py` is the one parsing-internal façade. Do
       not grow a monolithic product module or expose parallel import paths.
 - [ ] Define the typed authored operation records, flat opcodes/tables,
@@ -315,12 +327,12 @@ the same signature object; a mismatched target can be diagnosed before parse.
       failure with constant-size marks and mutation-proportional undo. Measure
       valid and failed speculation across large retained builders. Commit a
       child to its parent only after successful completion.
-- [ ] Give each actual competing Earley arm a fresh isolated `ParseState` and
-      fold that candidate independently, matching the forest's existing
-      alternate-build boundary. Do not clone live builders or mutation logs.
-      Ordinary chart filing, prediction, nullable advancement, and split
-      handling allocate no alternate product state; only the chosen candidate
-      can reach root finalization.
+- [ ] Make the Earley product capable of retaining immutable completed-handle
+      meanings for the default derivation and replaying a dirty ancestor cone
+      in a fresh isolated `ParseState`. The memo contains no builder handle or
+      mutation log. Ordinary/unambiguous chart execution carries neither the
+      dependency index nor alternate state; only an actual arm-choice enables
+      it. §8 pins the root-equivalent verdict mechanism.
 - [ ] Make the Earley product fold execute each shared forest node's VALUE
       exactly once, guarded at fold entry, with occurrence-owned effects
       (appends, map inserts, verdicts, duplicate-set entries) applied from the
@@ -329,8 +341,10 @@ the same signature object; a mismatched target can be diagnosed before parse.
       shared_forest_refold.py` measures 2/2/1 fold-body executions for
       identical two-slot sharing across its three witness shapes
       (duplicate-slot, pending-frame, sibling-memo); all three shapes run
-      through the Earley fallback as §3 exit witnesses with deterministic
-      value-once/effect-per-occurrence counts.
+      through the Earley fallback, plus its transparent `__rep_1` witness whose
+      missing value-table entry currently repeats. Use a finished set distinct
+      from the value table; all four shapes are §3 exit witnesses with
+      deterministic value-once/effect-per-occurrence counts.
 - [ ] Define the lifecycle seam through the existing
       `parsing.caches.memo/track/adopt/release` protocol. Product programs and
       bound runners retain no source artefact; derived PDA/Earley/replica cache
@@ -383,6 +397,16 @@ holds.
       `pda/runtime/kernel/execution.py::_run_leaf`/`_complete` with common
       product completion. Target selection must be absent from the character
       and item loops.
+- [ ] Implement the generic eligible-value-string specialization in
+      `pda/compiler/program/specialize.py`: when
+      `parsing/product/regular.py` proves one `value_str` occurrence exact,
+      compile one recognizer consult returning its extent instead of the
+      current per-character program. A declined rule retains the current
+      program. Completion/capture remains the ordinary rule range; the
+      recognizer invokes no target code. Gate ordinary generated-model and
+      token-segmented parse rows separately so this task cannot trade a parsing
+      regression for later target speed. The controlled mechanism row is in
+      `PROTOTYPE_7.md` §4.
 - [ ] Update `earley_model`, `ModelFold.apply`'s replacement, island completion,
       and delegated completion to execute the same rule operation/captures.
 - [ ] Compare flat programs/opcode streams for the generated-model target before
@@ -422,10 +446,13 @@ bugfix-related exception has the user's explicit final approval recorded first.
 - [ ] Add `src/lexic/compile/product/` with the pinned layout (the sibling
       `parsing/product/` is pinned; this one is too): `signature.py` owns
       signature verification, `compose.py` owns lower × upper state
-      composition, `demand.py` owns demand propagation, `lower.py` owns
+      composition and semantic-role × target-demand region derivation,
+      `shape.py` privately owns the binding-derived recursive raw-map analysis
+      moved from `MapShape.for_entry`, `demand.py` owns demand propagation, `lower.py` owns
       lower-action and operation lowering, `binding.py` owns the private
       bound-product registry/cache, `morphism.py` owns the public
-      `ReductionMorphism` surface, and `__init__.py` is the one façade.
+      `ReductionMorphism` and reducer-free `GrammarMorphism` surfaces, and
+      `__init__.py` is the one façade.
 - [ ] Use open `IrDispatch`/`IrTypeMap` lowering over authored action types with
       a raising default. No closed `isinstance` cascade and no runtime action
       evaluator fallback.
@@ -454,14 +481,18 @@ bugfix-related exception has the user's explicit final approval recorded first.
       `parsing.caches` release ownership and test concurrent first binding,
       explicit release, and a pool-retained bound program after release.
 - [ ] Make that private artifact registry the sole cache of
-      `(CompiledGrammar, morphism) -> BoundProduct`. `parsing.products` owns no
+      reduction entries key `(CompiledGrammar, reducer, morphism)` and grammar
+      entries key `(CompiledGrammar, morphism)`, each producing one
+      `BoundProduct`. `parsing.products` owns no
       second bound-product memo; `parsing.caches` owns only tables/replicas
       derived from the bound program, and a pool is an explicit lifetime owner.
 - [ ] Update `CompiledGrammar.reduce` in `compile/artifact.py` to select a
       `BoundProduct`: omitted `into` returns `IrSelf`; supplied
       `ReductionMorphism[T]` returns `T`; `cores` reaches the same product.
-- [ ] Give `reduce` the two exact overloads recorded in `DESIGN.md` and
-      `reports/PROTOTYPE.md`, and give BOTH overloads the same `resolve=`
+- [ ] Give `reduce` the three exact overloads recorded in `DESIGN.md` and
+      `proto/reducer_free_surface.py`: default reducer → `IrSelf`, reducer plus
+      `ReductionMorphism[T]` → `T`, and reducer-free
+      `GrammarMorphism[T]` → `T`. Give ALL overloads the same `resolve=`
       resolver parameter `parse` carries — the resolver is the one ambiguity
       opt-out and it reaches whichever engine chooses; target products are not
       exempt. The overload declarations are typing only; the
@@ -493,14 +524,18 @@ bugfix-related exception has the user's explicit final approval recorded first.
       versus the current route, sequential, alternating processes, from this
       effort's `proto/`) and record it in `reports/` — the first timed number
       for any target product must not wait until §12.
+- [ ] Stop before §6 if the warmed direct-IR row is more than 3x the remeasured
+      current route on the same codomain, or if any generated-model parsing row
+      regresses outside its control floor. The 3x threshold is an architectural
+      early-warning bound, not permission to land a slower final product.
 - [ ] After coordinator review of the differential report, create the §5
       checkpoint commit and resume the same warm Terra agent.
 
 Exit: default reduction constructs its `IrSelf` during parsing with exact
-current parity and no `GrammarModel` or `ReduceFold` on the executed route
-(ambiguity-refusal divergences between the variant-model and value-meaning
-relations are enumerated and attributed per `goal.md`'s ruling, not required
-to be zero). The old oracle has no production caller and its last broad
+current parity and no `GrammarModel` or `ReduceFold` on the executed route.
+Ambiguity compares complete root values; divergences caused solely by replacing
+the variant-model relation are enumerated, while child-local language narrowing
+is forbidden. The old oracle has no production caller and its last broad
 differential of THIS phase is frozen; the oracle itself stays importable for
 the §8/§9 re-runs.
 
@@ -534,6 +569,28 @@ the §8/§9 re-runs.
       retained reducer values, recognition-only extensions, decoded duplicate
       refusal, and syntax-first nested-shape verdicts. Refuse an incompatible
       source signature at binding; do not add array/predicate sugar.
+- [ ] Implement `select_raw(entry, spec)` — the reducer-free grammar-demand
+      selection morphism (`proto/demand_selection.py` pins the contract):
+      binding requires and derives a compatible recursive map shape from the
+      entry rule's own binding data
+      and requires no reducer or signature; the selection compiles into
+      occurrence-demand contextual states so ONE parse recognizes the
+      document, kept values build during it, undemanded subtrees stay
+      recognition-only, and the extent variant constructs no values; raw
+      duplicates refuse at selected levels, escape-equivalent spellings are
+      distinct, and a selected non-mapping value is a syntax-first shape
+      verdict. Default model capture and `capture=EXTENT` are typed declaration
+      values producing exact `RawSelection[GrammarModel]` and
+      `RawSelection[CertifiedExtent]` results, never a boolean execution mode or
+      result union. It executes only through the one `reduce` morphism channel —
+      no `Template.run` twin, no second parse API — and the prototype's
+      resolver-based route stand-in is replaced by the real route
+      continuation.
+- [ ] Prove raw and decoded routing add zero grammar arms: discriminator
+      completion writes a finite route and the following contextual code reads
+      it, as in `proto/route_continuation.py`. `resolve=` remains untouched and
+      reaches genuine authored ambiguity only. The toy raw selection and every
+      JSON formulation must have zero route-created arm-choice ambiguity points.
 - [ ] Implement the declared empty-edge rulings so tests cannot freeze an
       accident: `select({})` refuses at declaration (an empty selection
       declares no demand — `UnsupportedConstructError`); a spec leaf that is
@@ -547,9 +604,13 @@ the §8/§9 re-runs.
 - [ ] Exercise the same target over native JSON plus GBNF/ABNF/EBNF JSON
       formulations using the shared semantic signature. If any target lowering
       names a formulation rule, stop and fix the signature.
+- [ ] Derive at least one non-JSON repeated region from a distinct semantic
+      signature and the same target-demand mechanism before §7; the catalog
+      witness in `regular_region_lowering.py` pins the required separation.
 
-Exit: one compiled mechanism builds default IR, Python JSON, and extents with
-their distinct semantics and costs. No target is a post-reduction mapper.
+Exit: one compiled mechanism builds default IR, Python JSON, extents, decoded
+selection, and reducer-free raw selection with their distinct semantics and
+costs. No target is a post-reduction mapper.
 
 ## 7 — implement the layered tokenizer product
 
@@ -579,27 +640,36 @@ their distinct semantics and costs. No target is a post-reduction mapper.
       entries, tuple dyads, merge lists, or a complete intermediate map.
 - [ ] Review `src/lexic/ir/text/tokenizer.py::_vocab_map`, `_rank_map`,
       `IrTokenizer.from_merges`, and `_build`. Add three tokenizer-native index
-      roles over one immutable mapping base: primitive `str -> int` encode,
+      roles as distinct subclasses of the immutable `IrMapping` base:
+      primitive `str -> int` encode,
       `int -> str` decode, and `(str, str) -> int` ranks. Encode/decode order is
       canonical by id and merges by rank. Validate and freeze an already
       canonical direct builder without sorting; order a noncanonical
-      public/readback input once. Equal indexes must share hash,
-      iteration/repr, notation, and payload order. Add the one final constructor
+      public/readback input once. Equality and hash are order-insensitive and
+      cannot certify canonicality; validate order at every constructor and pin
+      `tuple(items())`, repr, notation, payload, and generated-module order.
+      Add the one final constructor
       `IrTokenizer.from_indexes`, accepting all three together. Direct parsing
       populates them together: no inverse derivation, rank re-index, repr-key
       sort, IR scalar/dyad per entry, or dyad list. Keep public encoding return
       types while using primitive internal lookups. Make
       `from_vocab`/`from_merges` converge on the same validation and
-      record-construction tail. Update payload/notation/emission and every
-      tokenizer field type for the new pre-alpha representation; retain no
-      compatibility adapter to `IrMap` fields.
+      record-construction tail. Preserve the existing segmentation-tokenizer
+      binding and encoding-registry/concretization lifecycle: indexes created
+      by direct parse, notation, payload readback, and public constructors all
+      reach the same bind/registry tail exactly once. Update
+      payload/notation/emission and every tokenizer field type for the new
+      pre-alpha representation; retain no compatibility adapter to `IrMap`
+      fields.
 - [x] Before fixing that source layout, use the real Qwen cardinalities in an
       external prototype to compare pair-buffer/duplicate-set and indexed
       accumulators. `PROTOTYPE_4.md` rejects per-entry IR leaves at 0.346817 s
       and selects primitive tokenizer-index payloads. Both dominant regions
       through capture/join, canonical freeze, and actual tokenizer-record
-      construction measure 0.138739 s at eight workers, with about 79–82 MiB
-      first-run RSS growth. Re-prove rollback, payload/notation fixpoint,
+      construction currently measures 0.700274 s median process CPU /
+      0.130779 s median wall with GC enabled at eight workers, with about
+      79–82 MiB first-run RSS growth. The older 0.138739 s GC-disabled
+      decomposition is provenance only. Re-prove rollback, payload/notation fixpoint,
       deterministic emission, and final semantic equality in source.
 - [ ] Change `json_tokenizer.read`/`read_from_path` to use
       `compiled.reduce(..., into=tokenizer_morphism)` and return the ready
@@ -609,17 +679,29 @@ their distinct semantics and costs. No target is a post-reduction mapper.
 - [ ] Verify root finalization is independent of JSON object key order and runs
       exactly once.
 - [ ] Implement the proved-regular capturing lowering as a gated task at this
-      exit: a composed region the compiler proves regular — repeated entry,
-      acyclic simple closure, no arm ambiguity — lowers to one capturing
+      exit. `compile/product/compose.py` derives a repeated region from semantic
+      roles × target demand. `parsing/product/regular.py` proves acyclic simple
+      closure, first-disjoint arms, non-nullable repetition, and deterministic
+      entry/capture boundaries against separator/terminator before atomic or
+      possessive sources become authoritative. The surrounding parser owns the
+      opener and terminator. An acyclic simple shape whose possessive repeat
+      steals its successor must decline. A proved region lowers to one capturing
       recognizer per entry with demand-derived positional groups over the
-      rules' own pattern sources, no grammar-name case. Prove it identical to
-      the generic product on the same region and gate it the way §4 gates the
+      rules' own pattern sources, no grammar-name case. Support arbitrary
+      demanded capture arity; empty proved regions remain valid. Prove it
+      identical on valid, empty, malformed, and boundary cases to the generic
+      product on the same region, across native/GBNF/ABNF/EBNF formulations,
+      and gate it the way §4 gates the
       model path; a region losing the proof declines to the interpreted
-      product. Mechanism, genericity (native + GBNF formulations), decline,
-      and four-way identity are prototyped in
-      `proto/regular_region_lowering.py`; the ~105x objective is contingent
-      on this task, the <1.000 s envelope is not
-      (`reports/PROTOTYPE_5.md` §§1–2).
+      product. The recursive and acyclic-but-boundary-ambiguous witnesses must
+      both decline. Mechanism, JSON/non-JSON derivation, all formulation rows,
+      controlled timing, and decline are prototyped in
+      `proto/regular_region_proof.py` and `regular_region_lowering.py`; the
+      ~105x objective is contingent on this task. The 0.345750 s interpreted
+      microkernel assumes §4's scheduled rule recognizer consult and still
+      omits driver, frame, transaction, merge-region, and remaining-document
+      work, so it does not prove the complete `<1.000 s` envelope; the §7 timed
+      exit decides that gate (`reports/PROTOTYPE_7.md` §§2–4).
 - [ ] Run the payload/notation/generated-twin fixpoint gate before this
       checkpoint: the three-index `IrTokenizer` rework touches the payload
       codec, the zero-import reader, notation, and the twin modules — run
@@ -642,26 +724,48 @@ and the timed resident row is recorded inside its stop factor.
 ## 8 — make ambiguity and failure isolation target-correct
 
 - [ ] Replace any generated-model-only ambiguity hook with the product's typed
-      `MeaningOp` and equality law in
+      root-meaning operation and equality law in
       `parsing/earley/kernel/forest/support/ambiguity.py` and its callers.
-- [ ] Default IR and generated-model products reproduce their current ambiguity
-      semantics.
+- [ ] Generated-model products reproduce current model-value ambiguity
+      semantics. Default IR uses the definitive complete reduced-root relation;
+      enumerate and review differences from the superseded variant-model
+      relation. Do not narrow acceptance through child-local comparison.
 - [ ] A narrower schema rejects derivations outside its language before meaning
       comparison. A projection identifies a discarded difference only when its
       declared meaning law says so.
 - [ ] Keep nullable/repetition split families separate from arm-choice
       ambiguity.
-- [ ] Fold base and each alternate Earley derivation from a fresh isolated
-      product state. Never copy the base candidate's live builders/logs.
-- [ ] Root alternate meaning folds at the ambiguity family's differing CHILD
-      subtrees with fresh local state — never a root-rooted whole-document
-      refold per flipped point, and never a build from the packed point
-      itself (it re-enters the parent chain and its dropping policies). This
-      is what makes the design's "computes only the declared local meaning"
-      true, prices ambiguity per point instead of n+1 full folds, and keeps a
-      difference a dropping parent erases; mechanism, verdict table, and cost
-      (4 folds versus 2,414 on a 601-char witness) are in
-      `proto/local_meaning_fold.py` / `reports/PROTOTYPE_5.md` §4.
+- [ ] Retain immutable completed-handle meanings from the default Earley
+      derivation. For one alternate family, mark its completed owner and
+      ancestors dirty, replay only that cone in a fresh isolated product state,
+      and reuse unchanged sibling meanings. Never copy the base candidate's
+      live builders/logs. Index every predecessor key in a resolved completion
+      chain to its owning completed handle; a packed choice can live in that
+      column rather than at a direct child handle. Completion ranges are
+      selected by completed code so contextual clones retain their own meaning
+      operation. The verdict must equal a complete root refold on every witness;
+      the dropping-parent case must remain accepted.
+      `proto/root_meaning_incremental.py` measures three alternate fold bodies
+      versus a 1,207-body baseline on the distant case; this is a
+      semantic-operation count, not an eager-container allocation claim.
+      `local_meaning_fold.py` is the rejected child-local counterexample.
+- [ ] Give built-in accumulators an immutable persistent contribution meaning.
+      Path-copy only dirty ancestors, identity-share unchanged branches, and
+      compare them with an exact iterative structural walk which skips shared
+      branches. A hash/digest may reject quickly but is never equality proof.
+      Materialize the selected eager list/map/IR/tokenizer result once after
+      ambiguity resolution. Exercise a large flat accumulation so ancestor
+      replay does not hide an O(document)-per-alternate container rebuild.
+      `proto/persistent_meaning.py` proves 18/33 visited nodes for changed/equal
+      paths over 65,536 leaves and one final materialization. If an admitted
+      custom target cannot supply exact shareable meaning, record its
+      whole-result cold ambiguity cost; never move it onto the unambiguous path.
+- [ ] Handle separate accepting root items explicitly: construct each complete
+      root meaning once because no internal packed-family point contains that
+      choice. With
+      `resolve=`, PDA bails before target-state commit and Earley supplies the
+      existing complete derivation pair to the resolver; only its chosen
+      meaning materializes the final target product.
 - [ ] Make the target equality walk iterative: the current recursive
       `same_value` overflows the interpreter stack near depth 1000, and deep
       meanings are ordinary under quantifier desugaring.
@@ -678,6 +782,11 @@ Exit: PDA, Earley, islands, and target projections agree on acceptance,
 refusal, and chosen product without retained shadow models.
 
 ## 9 — derive target-aware parallel fragments
+
+Entry condition: lift `parallel/orchestrate.py::split_model` and its request/
+result typing off the current `IrNamedTuple` bound before implementing any
+target fragment. `IrTokenizer` happens to satisfy that bound; recursive Python
+`dict`/`list` does not, and no later bullet can compensate for the mismatch.
 
 - [ ] Keep `SplitPlan`, cut certification, worker policy, replicas, and
       `MIN_CHUNK` in the existing parallel packages. Generic discovery remains
@@ -763,11 +872,16 @@ This phase is mandatory. “Unused but retained” is failure.
 - [ ] Delete the old model-only fold/build records and helpers after all model
       callers use the product ABI. Retain only genuinely specialized final
       model operations, in their correct owner.
-- [ ] Delete `MapShape`, `Template`, `Template.run`, `spanify`, raw-surface
-      selection paths, the separate parse/extract architecture, and old
-      span/skip fold machinery. Add `select(spec) -> ReductionMorphism[Selection]`
-      over decoded semantic keys; it executes only through
-      `CompiledGrammar.reduce(..., into=...)`.
+- [ ] Delete `MapShape`, `Template`, `Template.run`, `spanify`, the separate
+      parse/extract architecture, and old span/skip fold machinery. Their
+      capability survives as the two selection morphisms through the one
+      `reduce` channel: `select(spec)` over decoded semantic keys
+      (signature-bearing reducers) and `select_raw(entry, spec)` over raw-span
+      keys (a compiled grammar with the compatible binding-derived map shape,
+      §6). The public `MapShape` export disappears, but its needed private
+      analysis has already moved to `compile/product/shape.py`. Port the toy-grammar templating test
+      assertions to `select_raw`; delete only tests whose exact deleted symbol
+      (`Template`, `spanify`, ...) is the subject.
 - [ ] Delete committed target/model stitch duplication. Never adopt an
       untracked `parallel/stitch/carrier.py`; the user already deleted the
       rejected file, so do not reconstruct it.
@@ -802,14 +916,15 @@ exists.
       `invariants.md`, `testing.md`, `decisions.md`, `transpilation.md`, and
       `codegen.md` where the final design changes their claims.
 - [ ] Add a `.wiki/log.md` entry for the significant knowledge change.
-- [ ] Update `AGENTS.md`/`CLAUDE.md` exhaustive package maps and annotations for
+- [ ] Update `CLAUDE.md`'s exhaustive package map and annotations for
       every added, moved, or deleted source module.
 - [ ] Update API docstrings and examples for `reduce(..., into=...)`, semantic
       signatures/schemas, `select({"key": KEEP})`, direct tokenizer reading,
       any custom codomain surface which actually passed §6, and MT behavior.
       Rewrite
       `getting_started/ex10_templating.py` and its README row to the final
-      selection surface.
+      selection surface — `select_raw` keeps ex10's "works over any compatible
+      map-shaped compiled grammar" story without requiring a reducer.
 - [ ] Remove descriptions of model → `ReduceFold`, the separate templating
       parser, old build records, old stitch ownership, and old fallbacks.
 - [ ] Review getting-started examples and public exports for one canonical path
@@ -915,6 +1030,24 @@ test-authoring handoff, with no simultaneous benchmark contamination.
       value identity, decoded/escape-equivalent duplicates, shape verdicts,
       syntax-first precedence, and every §6 empty-edge ruling (`select({})`,
       non-KEEP/non-mapping leaves, non-mapping root, empty vocab/merges).
+- [ ] Add the `select_raw` contract tests, porting the toy-grammar templating
+      assertions: raw-key selection over a reducer-less grammar in one parse,
+      declaration order, absence, extent certification with no value
+      materialized, raw-duplicate refusal at selected levels only,
+      escape-twin distinctness, syntax-first shape verdicts, demand locality,
+      exact model/extent result typing, zero route-added grammar arms, the
+      caller resolver seeing genuine authored ambiguity only, and
+      native/GBNF/ABNF/EBNF formulation agreement.
+- [ ] Pin `TargetRefusalError` as the intentional pre-0.1 tokenizer-reader
+      semantic failure: test its ordered verdict payload, syntax-first
+      precedence, and the absence of an `UnsupportedConstructError`
+      compatibility adapter.
+- [ ] Exercise tokenizer indexes through direct parse, public construction,
+      notation, payload readback, generated modules, segmentation-tokenizer
+      binding, encoding registry, and concretization. Assert exact item order
+      directly before and after every fixpoint; mapping equality/hash is not an
+      order oracle. Include noncanonical public/readback input and prove it is
+      ordered once.
 - [ ] Add committed extent-target tests — the only codomain otherwise without
       a committed-test row: certified bounds, the declared validity contract,
       and refusal shapes.
@@ -925,6 +1058,10 @@ test-authoring handoff, with no simultaneous benchmark contamination.
       concurrency claims must not remain Terra-side one-time witnesses.
 - [ ] Add ambiguity tests for equal/different target meanings, dropped child
       meaning, schema-rejected alternatives, and permitted split families.
+      Cover a choice owned by a predecessor-column key, contextual completed
+      codes with different operations, unchanged root siblings, separate
+      accepting roots, a deep iterative comparison, and a large flat persistent
+      accumulation whose selected eager product materializes once.
 - [ ] Add `FragmentProduct` tests for entry/exit state, associative ordered join,
       deferred validation, duplicate/failure order, root-finalize-once, every
       supported split shape, and sequential decline without submitted work.

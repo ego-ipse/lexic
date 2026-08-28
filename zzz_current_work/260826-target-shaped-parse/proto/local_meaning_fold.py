@@ -1,4 +1,4 @@
-"""Fold alternate ambiguity meanings at the ambiguity node, not the root."""
+"""Expose why child-local ambiguity meaning is not root-value equivalent."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import NamedTuple
 from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir import IrSelf
+from lexic.ir import IrAlternation, IrAst, IrLiteral, IrRule, IrRuleRef, IrSelf, IrSeq
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
@@ -19,6 +19,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
     accept_item,
+    accept_items,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
@@ -88,8 +89,8 @@ WITNESSES = (
         True,
     ),
 )
-"""``dropping-parent`` is the declared divergence: the design's meaning law
-keeps a difference a dropping parent erases from the root value."""
+"""``dropping-parent`` is the counterexample: child-local comparison refuses
+even though both complete derivations produce the same root value."""
 
 
 class MeaningFold(NamedTuple):
@@ -158,6 +159,14 @@ def _kernel(grammar: str, text: str) -> Kernel:
     return kernel
 
 
+def _kernel_ast(grammar: IrAst, text: str) -> Kernel:
+    """Run one recorded kernel over an already-native witness grammar."""
+    kernel = Kernel(compile_tables(normalize(grammar)), text, True).run()
+    if accept_item(kernel) < 0:
+        raise UnsupportedConstructError("local meaning prototype: no native parse")
+    return kernel
+
+
 def _first_tree(kernel: Kernel) -> ParseTree:
     """The default-family derivation the engine holds before the check."""
     built = FastTree(kernel, {}).build(accept_handle(kernel))
@@ -190,7 +199,20 @@ def _key_differs(kernel: Kernel, key: int, fold: MeaningFold) -> bool:
 
 
 def _local_differs(kernel: Kernel, handle: int, fold: MeaningFold) -> bool:
-    """The ambiguity verdict from ambiguity-node-rooted folds only."""
+    """The ambiguity verdict from root siblings then node-rooted folds."""
+    roots = [
+        (item << kernel.tables.packing.bits) | len(kernel.text)
+        for item in accept_items(kernel)
+    ]
+    if len(roots) > 1:
+        meanings: list[Meaning] = []
+        for root in roots:
+            built = FastTree(kernel, {}).build(root)
+            if isinstance(built, ParseTree):
+                meanings.append(fold.apply(built))
+        for index in range(1, len(meanings)):
+            if not same_value(meanings[0], meanings[index]):
+                return True
     bits = kernel.tables.packing.bits
     for key in ambiguity_points(kernel, handle):
         bucket = kernel.st.links[key]
@@ -199,6 +221,34 @@ def _local_differs(kernel: Kernel, handle: int, fold: MeaningFold) -> bool:
         if _key_differs(kernel, key, fold):
             return True
     return False
+
+
+def _root_sibling_witness() -> None:
+    """Pin the separate accepting-item case the internal-point walk cannot see."""
+    grammar = IrAst(
+        IrSeq(
+            IrRule("v", IrAlternation(IrRuleRef("a"), IrRuleRef("b"))),
+            IrRule("a", IrLiteral("x")),
+            IrRule("b", IrLiteral("x")),
+        ),
+        "v",
+    )
+    kernel = _kernel_ast(grammar, "x")
+    if len(accept_items(kernel)) != 2:
+        raise AssertionError("root sibling witness lost its two accepting items")
+    different = MeaningFold({}, [0])
+    if not _local_differs(kernel, accept_handle(kernel), different):
+        raise AssertionError("local mechanism missed differing root siblings")
+    same = MeaningFold({"a": "atom", "b": "atom"}, [0])
+    if _local_differs(kernel, accept_handle(kernel), same):
+        raise AssertionError("local mechanism split equal root sibling meanings")
+    print(
+        "root-siblings",
+        "accepting_items=2",
+        f"different_folds={different.folds}",
+        f"same_folds={same.folds}",
+        sep="\t",
+    )
 
 
 class Outcome(NamedTuple):
@@ -250,7 +300,8 @@ def _check(witness: Witness, outcome: Outcome) -> None:
 
 
 def main() -> None:
-    """Run every witness and require locality to also be materially cheaper."""
+    """Run every witness and pin the cheap but unsound local divergence."""
+    _root_sibling_witness()
     distant: Outcome | None = None
     for witness in WITNESSES:
         outcome = _exercise(witness)
@@ -275,9 +326,8 @@ def main() -> None:
         )
     print(
         "conclusion",
-        "node-rooted folds return the declared verdict (including the"
-        " dropping-parent divergence) at a per-point cost independent of"
-        " document size",
+        "child-local folds are cheap but not root-value equivalent;"
+        " dropping-parent forbids this scope",
         sep="\t",
     )
 
