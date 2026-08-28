@@ -363,7 +363,7 @@ Earley, and island/delegate paths; occurrence routing selects the following
 child during recognition; every physical execution table verifies one exact-int
 completion range; rollback, fresh-alternate isolation, and cache release pass;
 side-effecting completion is exactly-once per shared forest node with
-per-occurrence effects across all three shared-subtree witness shapes;
+per-occurrence effects across all four shared-subtree/synthetic witness shapes;
 and measured valid/failed speculation exposes no unaccounted frequent-path
 branch, allocation, or whole-state copy. §4 remains closed until all of this
 holds.
@@ -748,8 +748,8 @@ and the timed resident row is recorded inside its stop factor.
       and reuse unchanged sibling meanings. Never copy the base candidate's
       live builders/logs or its document-sized meaning memo: use a read-only
       baseline plus one sparse alternate overlay. Index every predecessor key
-      in a resolved completion
-      chain to its owning completed handle; a packed choice can live in that
+      in a resolved completion chain to its owning completed handle; a packed
+      choice can live in that
       column rather than at a direct child handle. Completion ranges are
       selected by completed code so contextual clones retain their own meaning
       operation. The verdict must equal a complete root refold on every witness;
@@ -758,17 +758,22 @@ and the timed resident row is recorded inside its stop factor.
       versus a 1,207-body baseline on the distant case; this is a
       semantic-operation count, not an eager-container allocation claim.
       `local_meaning_fold.py` is the rejected child-local counterexample.
-- [ ] Give built-in accumulators an immutable persistent contribution meaning.
+- [ ] Give sequence-like built-in accumulators an immutable persistent
+      contribution meaning.
       Path-copy only dirty ancestors, identity-share unchanged branches, and
       compare them with an exact iterative structural walk which skips shared
       branches. A hash/digest may reject quickly but is never equality proof.
-      Materialize the selected eager list/map/IR/tokenizer result once after
-      ambiguity resolution. Exercise a large flat accumulation so ancestor
+      Materialize the selected eager sequence once after ambiguity resolution.
+      Exercise a large flat accumulation so ancestor
       replay does not hide an O(document)-per-alternate container rebuild.
       `proto/persistent_meaning.py` proves 18/33 visited nodes for changed/equal
-      paths over 65,536 leaves and one final materialization. If an admitted
-      custom target cannot supply exact shareable meaning, record its
-      whole-result cold ambiguity cost; never move it onto the unambiguous path.
+      paths over 65,536 leaves and one final materialization. For map, IR, and
+      tokenizer products, either prove an exact persistent meaning against that
+      product's equality, duplicate, and order law or use and measure an exact
+      isolated whole-result cold comparison; do not transfer the sequence
+      result by analogy. An admitted custom target without exact shareable
+      meaning uses the same honest fallback. Never move it onto the
+      unambiguous path.
 - [ ] Handle separate accepting root items explicitly: construct each complete
       root meaning once because no internal packed-family point contains that
       choice. With

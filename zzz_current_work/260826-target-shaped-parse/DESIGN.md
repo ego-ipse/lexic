@@ -650,23 +650,26 @@ The unambiguous hot path carries no witness graph. At an actual internal
 arm-choice, the default derivation's completed-handle memo is reused and only
 the alternate family's ancestor cone is replayed to the root through a sparse
 overlay over the read-only baseline; no alternate copies the completed-handle
-table. The verdict is
-therefore exactly the complete requested value. Semantic-operation replay is
+table. The verdict is therefore exactly the complete requested value.
+Semantic-operation replay is
 proportional to the changed subtree plus its continuation rather than document
 size; `proto/root_meaning_incremental.py` proves that narrower claim at three
 alternate fold bodies versus a 1,207-body baseline. It does not treat fold-body
 count as a proxy for eager-container allocation or equality.
 
-Built-in accumulators retain an immutable persistent contribution meaning:
+Sequence-like built-in accumulators retain an immutable persistent contribution meaning:
 unchanged branches are identity-shared, a dirty completion path-copies only its
 ancestors, and exact iterative equality skips shared branches. No digest is an
 equality proof. The chosen meaning alone is materialized into its eager public
 result, once, after ambiguity resolution. `proto/persistent_meaning.py` visits
 18 nodes to distinguish one changed leaf and 33 to prove an equal path-copied
-leaf over a 65,536-item sequence, then performs one final materialization. A
-custom target without an exact shareable meaning may pay a whole-result cold
-comparison; that limitation is explicit and never moves a graph, callback, or
-alternate result onto the unambiguous path.
+leaf over a 65,536-item sequence, then performs one final materialization. Each
+map/IR/tokenizer product must separately prove an exact shareable meaning under
+its own equality, duplicate, and order law before claiming the same allocation
+bound. Until it does, it pays an isolated whole-result cold comparison. A
+custom target without an exact shareable meaning does likewise; that limitation
+is explicit and never moves a graph, callback, or alternate result onto the
+unambiguous path.
 
 The dropping-parent counterexample in `proto/local_meaning_fold.py` rejects
 child-local comparison. Completion operations are selected by completed code,
@@ -681,7 +684,9 @@ present and meanings differ, the engine supplies the existing complete
 derivation pair to that resolver. A predictive ambiguity bails to Earley before
 committing target state so the same derivation resolver is used; no shadow
 generated model is constructed. The chosen meaning alone is then materialized
-as the final target product.
+as the final target product when the target supplies the proved shareable
+representation; otherwise the exact cold whole-result comparison above owns
+both temporary results explicitly.
 
 Fold execution over the shared packed forest is a separate stated contract
 (`proto/shared_forest_refold.py`): the built derivation is a DAG (zero-width

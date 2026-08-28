@@ -181,13 +181,15 @@ the read-only baseline. It does not copy the document-sized memo. This preserves
 the existing observable root-value relation, including a parent which drops
 the differing child, without another whole-document semantic replay
 (`reports/PROTOTYPE_7.md` §1). Completion ranges are selected by completed code,
-so occurrence clones retain their own meaning program. Built-in accumulators
-represent ambiguity meanings as immutable persistent contribution trees:
+so occurrence clones retain their own meaning program. Sequence-like built-in
+accumulators represent ambiguity meanings as immutable persistent contribution trees:
 unchanged branches are identity-shared, dirty ancestors are path-copied, exact
 iterative equality skips shared branches, and the chosen eager result is
-materialized once. No hash or digest stands in for exact equality. A custom
-target unable to supply an exact shareable meaning may pay a full cold
-comparison, but adds nothing to the unambiguous hot path.
+materialized once. No hash or digest stands in for exact equality. Map, IR, and
+tokenizer products earn that representation separately against their equality,
+duplicate, and order law; otherwise they use an exact full cold comparison. A
+custom target unable to supply an exact shareable meaning does the same, but
+adds nothing to the unambiguous hot path.
 
 Side-effecting completion work over a shared forest node executes exactly once
 per node through a finished set distinct from the value table; transparent
@@ -197,6 +199,9 @@ because no shared internal packed point contains their choice. When root
 meanings differ and `resolve=` is supplied, PDA bails before committing target
 state and Earley gives the complete derivation pair to the same resolver
 `parse` uses; only the chosen meaning materializes the final target product.
+For a target using the exact whole-result fallback, the discarded cold
+comparison result is explicit instead of being mislabeled as a shareable
+meaning.
 Workers own disjoint states. Failed or unchosen work cannot contaminate the
 result, duplicate set, or ordered semantic verdict.
 

@@ -81,7 +81,8 @@ dirty-cone **semantic-operation count**. A flat eager list/map could still copy
 or compare the whole document per alternate, so “alternate cost follows the
 cone” was too broad.
 
-`proto/persistent_meaning.py` supplies the built-in accumulator representation:
+`proto/persistent_meaning.py` supplies the sequence-like accumulator
+representation:
 an immutable balanced contribution tree, identity-shared unchanged branches,
 path-copying at the changed leaf, and iterative exact equality. It uses no
 probabilistic digest as an equality decision. On 65,536 leaves:
@@ -92,9 +93,10 @@ persistent items=65536 different_visits=18 equal_visits=33 dropped_visits=1 mate
 
 Only the resolver's chosen meaning is flattened into the eager public result.
 This keeps exact root-value semantics and makes changed/equal internal choices
-proportional to shared structure for built-in products. A custom target which
-cannot expose an exact shareable meaning may pay a full cold ambiguity
-comparison; it may not add witness state to the unambiguous hot path.
+proportional to shared sequence structure. It does not prove map equality,
+duplicate, or order semantics. Every other built-in or custom target either
+proves its own exact shareable meaning or pays a full cold ambiguity comparison;
+it may not add witness state to the unambiguous hot path.
 
 ## 4 — current-consumer inventory
 
@@ -135,8 +137,9 @@ and performance assertion rather than deleting behavior with a symbol.
 - §0 now has explicit cold/resident and warm-process RSS denominators.
 - RSS comparison is scenario-matched; the cold and retained-warm ceilings are
   not interchangeable.
-- Root ambiguity uses persistent exact meanings for built-in accumulators and
-  materializes the chosen eager product once.
+- Sequence-like root ambiguity uses persistent exact meanings and materializes
+  the chosen eager product once; every other codomain must prove that property
+  or report its exact whole-result cold comparison.
 - The predecessor-key dependency index, contextual completed-code operations,
   dropping-parent acceptance, separate roots, and large flat accumulation are
   committed test obligations rather than prototype assumptions.

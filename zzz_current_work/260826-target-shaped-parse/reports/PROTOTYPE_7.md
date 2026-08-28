@@ -35,11 +35,12 @@ or equality for an eager target container.
 `proto/persistent_meaning.py` closes that representation gap for sequence-like
 products without a probabilistic digest. It retains an immutable balanced
 contribution tree, path-copies one changed leaf, skips identity-shared branches
-during exact iterative equality, and materializes the selected eager result
+during exact iterative equality, and materializes the selected eager sequence
 once. Over 65,536 leaves it visits 18 nodes for a changed value, 33 for an equal
 path-copied value, and one for a parent-dropped singleton; only the chosen value
-is flattened. This is the production shape for built-in accumulators. A target
-which cannot provide an exact shareable meaning may pay a full cold ambiguity
+is flattened. This is the production shape for sequence-like accumulators, not
+evidence for map equality, duplicate, or order semantics. Each other product
+either proves its own exact shareable meaning or pays a full cold ambiguity
 comparison, but may not put witness state on the unambiguous hot path or use a
 collision-prone digest as equality.
 
