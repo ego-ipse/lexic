@@ -412,6 +412,30 @@ decoded-key and duplicate policy, exception vocabulary, and failure order.
 Validation never becomes incidental behavior of an intermediate `IrMap` or
 builder.
 
+The exception vocabulary is declared here, once, against the existing
+`exceptions.py` hierarchy (Luna pins type and message against this list):
+
+- **Binding-time refusals** — signature/morphism mismatch, invalid or
+  nullable route producer, an action the lowering cannot express, an
+  incompatible `select` source signature — raise `UnsupportedConstructError`,
+  the existing "this construct cannot run here" family.
+- **Physical-table verification failure** (missing, empty, mixed, or
+  out-of-bounds completion range before execution) raises
+  `UnsupportedConstructError`: it is a defect of the compiled artefact,
+  diagnosed with words before the paid loop starts.
+- **Syntax failure** stays `UnsupportedConstructError` exactly as `parse`
+  raises it today, and syntax-first precedence means it wins over any
+  recorded semantic verdict.
+- **Raised semantic target verdicts** — unsupported knob, missing required
+  field, repeated decoded key, nested target-shape mismatch, root cross-field
+  failure — raise a new `TargetRefusalError(LexicError)` carrying the ordered
+  verdict value. The verdict value record is spelled `SemanticVerdict`;
+  `compile/verdict.py` already owns the bare name `Verdict` for an unrelated
+  concept, so neither the exception nor the record reuses it.
+- **`IrTokenizer.from_indexes` validation** — cross-index bijection,
+  contiguous ranks, special membership — raises `FieldValidationError`, the
+  existing hand-constructed-record contract family.
+
 The default IR target preserves the current full-reduction contract while it is
 the parity oracle. The tokenizer target intentionally owns a new explicit
 pre-0.1 contract: the complete lower syntax is recognized first; semantic
@@ -497,6 +521,26 @@ and direct completion shapes unless a measured simplification is faster: no
 interpreter, opcode, or frame slot may be added to its paid path merely to make
 the abstraction uniform.
 
+Value-string terminal consumption is where the throughput lives, and the ABI
+states its shape: a `value_str`-classified rule whose closure the recognizer
+compiler accepts is consumed by ONE compiled-recognizer consult per
+occurrence, never a per-character loop. `reports/PROTOTYPE_5.md` prices this:
+per-rule single-consult matching plus flat int-op completion dispatch runs the
+Qwen vocab region at 0.368907 s sequential against 11.93 s for the current
+per-character route — the interpreted ABI, not the capturing lowering, closes
+most of the gap, and it is generic over any recognizer-safe rule.
+
+Above that sits the scheduled capturing lowering: a composed region the
+compiler proves regular — repeated entry, acyclic simple closure, no arm
+ambiguity — lowers to one capturing recognizer per entry, its demanded items
+as positional named groups derived from the rules' own pattern sources, worth
+a further 1.40x on the witness region. The proof (decline on a recursive
+closure), the demand-derived lowering, and a four-way identity — native
+formulation, GBNF formulation, stdlib oracle, generic engine `reduce` — are
+prototyped in `proto/regular_region_lowering.py`; the production task is gated
+at the §7 exit and proven the way §4 gates the model path. The ~105x
+objective is contingent on it; the <1.000 s envelope is not.
+
 ### Predictive PDA
 
 The PDA clone compiler lowers the target program with the grammar. Each clone
@@ -542,6 +586,27 @@ meaning and compares it through the target's equality operation; split families
 with a defined extent remain permitted. A parent dropping a child cannot erase
 an ambiguity whose `MeaningOp` keeps it. This requirement is implemented from
 first principles, not recovered by copying the rejected implementation.
+
+"Local" has a stated mechanism (`proto/local_meaning_fold.py`): each family at
+an arm-choice point names a differing CHILD subtree, and the alternate meaning
+is folded from that child with fresh local state — building from the packed
+point itself re-enters the parent chain and its policies, and a root-rooted
+refold prices ambiguity at n+1 whole-document folds. The child-rooted fold is
+also what makes the dropping-parent law above computable at all: the measured
+witness shows the root-value comparison cannot see a kept difference a parent
+drops. Deep meanings also need an iterative equality walk — the current
+recursive `same_value` overflows near depth 1000.
+
+Fold execution over the shared packed forest is a separate stated contract
+(`proto/shared_forest_refold.py`): the built derivation is a DAG (zero-width
+and unit-chain subtrees are shared objects), and the current walk's fold-body
+count per shared node is a traversal accident — two executions in two witness
+shapes, one in a third, for identical two-slot sharing. The product fold
+therefore computes each node's VALUE exactly once, guarded at fold entry, and
+applies occurrence-owned effects (appends, verdicts, duplicate-set entries)
+from the parent's slot consumption so effect counts follow occurrences, never
+traversal interleaving. All three witness shapes are §3 exit gates through the
+Earley fallback.
 
 ### Parallel parsing
 
@@ -599,6 +664,15 @@ regex compiler caches by source, so compiling the same source once per worker
 does not create replicas. Binding gives each worker a cache-distinct compiled
 pattern with identical language. The distinction is cold compiled state only;
 no worker id or recognizer branch enters the paid loop.
+
+Ownership does not stop at regex patterns. On the free-threaded build, EVERY
+per-completion-hot shared object is a refcount-contention candidate — the
+`ProductProgram`/`BoundProduct` flat operand and route tables are touched by
+every worker at every completion, the exact shape `parallel/replicas.py`
+already exists to fix for parser tables. Where measurement shows refcount
+traffic on such an object, binding gives each worker its own physically
+distinct copy; and the §12 scaling ladder attributes any scaling loss to a
+NAMED object rather than reporting an aggregate.
 
 If a target or split shape has no lawful composition, the target runs once on
 the whole document. There is no partial direct attempt followed by a complete
@@ -877,6 +951,13 @@ prepared cohorts are not used for this effort's MT rows because preparation
 itself performs real parses. Alternation changes process order, never overlaps
 workers. Timing passes carry no allocation tracer, constructor spy, or call
 profiler; those observations run separately and are not timing evidence.
+
+Every row records its garbage-collector state; only rows with equal GC state
+compare, and production/acceptance rows run with the collector enabled (`src`
+never touches collector state — the paired carrier delta is +0.016948 s wall,
+`reports/PROTOTYPE_5.md` §5). Quoted historical constants are provenance, not
+denominators: the §12 comparison re-measures the `0faa7289` baseline in the
+same alternating session as the candidate, per §0's own rule.
 
 Parsing is a hard non-regression gate of its own. Generated-model and
 token-segmented parse rows are compared independently of reduction and final

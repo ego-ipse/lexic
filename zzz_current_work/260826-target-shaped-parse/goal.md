@@ -14,18 +14,32 @@ JSON `IrMap`, reduction channels, sidecar carrier tuples, or a second
 On the 11,422,654-byte / 10,635,788-character local Qwen3 witness, the explicit
 target envelopes are:
 
-- reduced recursive Python mappings/lists in less than 0.100 s wall;
-- a ready `IrTokenizer` in less than 1.000 s wall for resident text, with cold
-  and warm `read_from_path` totals reported separately, while continuing toward
-  roughly 105x for the Qwen tokenizer scenario.
+- reduced recursive Python mappings/lists in less than 0.100 s wall — a
+  PURSUED objective, not a pass/fail gate (see the performance-acceptance
+  ruling: `json.loads`, single-threaded C, measures 0.084940 s on this
+  witness, so the number is a language-implementation frontier);
+- a ready `IrTokenizer` in less than 1.000 s wall for resident text — a GATE,
+  measured at the public `cores=AUTO` engaged shape on the witness host, with
+  the sequential row and aggregate process CPU per byte reported beside it —
+  with cold and warm `read_from_path` totals reported separately, while
+  continuing toward roughly 105x for the Qwen tokenizer scenario.
 
-The first target requires more than 114 MB/s of source while decoding and
-allocating the complete retained Python value. The second includes recognition, demanded
-decode, final encode/decode/rank/pipeline allocation, validation, and root
-finalization. The 105x figure is not a universal acceptance threshold for every
-reduction: each codomain is compared with the current path producing the same
-result. They are optimization goals for products derived from arbitrary
-compatible grammars, never permission for a JSON-specific parser.
+Both rows include recognition, demanded decode, final
+encode/decode/rank/pipeline allocation, validation, and root finalization. The
+105x figure is not a universal acceptance threshold for every reduction: each
+codomain is compared with the current path producing the same result. They are
+optimization goals for products derived from arbitrary compatible grammars,
+never permission for a JSON-specific parser.
+
+**Two-regime ruling (2026-08-28).** The <1.000 s resident envelope is pursued
+on the interpreted product ABI: `reports/PROTOTYPE_5.md` measures one
+compiled-recognizer consult per lexical rule completion plus flat int-op
+dispatch at 0.368907 s sequential over the 3.6 M-char vocab region — 1.40x
+the whole-entry capturing recognizer, versus 11.93 s for the current route.
+The roughly 105x objective is explicitly contingent on the proved-regular
+capturing lowering (repeated entry, acyclic closure, demand-named groups)
+scheduled as a gated §7-exit task; its mechanism, genericity, and identity
+proof are prototyped in `proto/regular_region_lowering.py`.
 
 This is a replacement architecture, not an optimized branch beside the current
 one.
@@ -35,10 +49,14 @@ one.
 There remains one reduction operation:
 
 ```python
-compiled.reduce(text, reducer, into=target, cores=cores)
+compiled.reduce(text, reducer, into=target, resolve=resolver, cores=cores)
 ```
 
 - Omitting `into` returns the reducer's current IR codomain.
+- `resolve=` is the same caller-supplied ambiguity resolver `parse` takes —
+  `CLAUDE.md` names the resolver as THE ambiguity opt-out, and it reaches
+  whichever engine chooses; target products are not exempt. Both overloads
+  carry it.
 - A supplied `ReductionMorphism[T]` returns its unbounded result type `T`.
 - `select({"key": KEEP, "nested": {"key": KEEP}})` is the beginner
   selection declaration. It returns a real morphism over decoded semantic
@@ -124,7 +142,12 @@ parallel fragments consume the same capture layouts and completion operations.
 Mutable accumulators belong to one collection occurrence. Speculative PDA work
 uses mark/commit/rollback. Failed islands discard child state. Each actual
 competing Earley arm folds from a fresh isolated state; live base builders are
-never cloned. Workers own disjoint states and return owned fragments. A failed
+never cloned. Alternate meaning folds are rooted at the ambiguity family's
+child subtrees with fresh local state — never a root-rooted whole-document
+refold per flipped point. Side-effecting completion work over a shared forest
+node executes exactly once per node, guarded at fold entry; occurrence-owned
+effects ride the parent's slot consumption (the current walk's count is a
+traversal accident — `reports/PROTOTYPE_5.md` §3). Workers own disjoint states and return owned fragments. A failed
 or unchosen derivation cannot contaminate the result, duplicate set, or ordered
 semantic verdict.
 
@@ -157,8 +180,19 @@ The work required and the validity contract depend on the target.
 
 The default product directly constructs the reducer's complete `IrSelf` result.
 It is differential with the current output, refusal type/message, contribution
-order, `DROP`, `YIELD`, epsilon, run, and ambiguity behavior. This parity is a
-migration proof; the old implementation is deleted before landing.
+order, `DROP`, `YIELD`, epsilon, and run behavior. This parity is a migration
+proof; the old implementation is deleted before landing.
+
+**Ambiguity relation ruling (2026-08-28).** The current route judges ambiguity
+by structural comparison of built variant models; the product judges it by the
+declared meaning law over reduced values, computed at the ambiguity point. The
+value-meaning relation is definitive and supersedes the variant-model relation
+— it is the reading `CLAUDE.md`'s "the question is about VALUES" invariant
+states, and it is the only relation that can keep a difference a dropping
+parent erases (`reports/PROTOTYPE_5.md` §4). The §5 differential therefore
+compares values and refusal types exactly, while ambiguity-refusal divergences
+between the two relations are enumerated, attributed, and coordinator-reviewed
+rather than required to be zero.
 
 ### Python JSON
 
@@ -319,18 +353,30 @@ The final tokenizer path must:
 - remove fold and `tokenizer_of` as separate full-data traversals;
 - reduce generic JSON recognition where the composed schema decides the shape;
 - build only final tokenizer tables and small validation state;
-- complete the resident-text operation in less than 1.000 s wall and reduce
-  peak RSS;
+- complete the resident-text operation in less than 1.000 s wall at the public
+  `cores=AUTO` engaged shape on the witness host, with the sequential row and
+  aggregate process CPU per byte reported beside it in every row (an MT row
+  cannot pass by burning cores unreported);
+- when route anchors decline and AUTO runs sequentially, gate the sequential
+  row against the same envelope — the decline case is not exempt;
+- not raise peak RSS above the §0-measured baseline of the current resident
+  path (the criterion is a number recorded in the §0 matrix, not a direction);
 - report sequential and 1/2/4/8/16-worker results without changing the 2 KiB
   floor or suppressing eligible shapes.
 
-The reduced recursive Python product must complete in less than 0.100 s wall
-on the same 11,422,654-byte Qwen3 witness. The measured 13.14 s → about 0.13 s
-extent construction result establishes the scale of removable work. The ready
-tokenizer must first fit below 1.000 s for resident text and continue toward
-roughly 105x against the like-for-like 17.203148 s resident reference, about
-0.164 s. Cold and warm path-inclusive totals compare separately with the
-17.416359 s historical path. It must earn every result with its own
+The reduced recursive Python product pursues less than 0.100 s wall on the
+same 11,422,654-byte Qwen3 witness. That number is a pursued objective in the
+same sense as the 105x figure, not a pass/fail gate: `json.loads` — C,
+single-threaded — measures 0.084940 s on this witness, so the gate quantity is
+instead the reported multiplier against the current IR route producing the
+same value, at the same reported worker shapes and CPU-per-byte contract as
+the tokenizer row. The measured 13.14 s → about 0.13 s extent construction
+result establishes the scale of removable work. The ready tokenizer must
+first fit below 1.000 s for resident text and continue toward roughly 105x
+against the like-for-like 17.203148 s resident reference, about 0.164 s —
+the capturing regular-region lowering scheduled at §7 is what that objective
+is contingent on. Cold and warm path-inclusive totals compare separately with
+the 17.416359 s historical path. It must earn every result with its own
 recognition, demanded decoding, and final-table work. The 105x objective does
 not gate a different codomain which materially improves its own scenario. If a
 target is missed, the remaining decoded bytes, constructor time, allocations,
@@ -352,6 +398,17 @@ An isolated `Path.read_text` probe measured 0.046713 s on its first read and
 0.019701 s median across seven reads. It does not overwrite the historical
 0.213211 s stage; it requires resident, cold-path, and warm-path rows to remain
 separate in the final alternating measurement.
+
+`reports/PROTOTYPE_5.md` adds the interpreted-ABI and collector rows. One
+compiled-recognizer consult per lexical rule completion plus flat int-op
+dispatch runs the 3.6 M-char vocab region in 0.368907 s sequential (GC on),
+1.40x the 0.262931 s whole-entry capturing recognizer — so the interpreted
+product ABI carries the <1.000 s envelope and the capturing lowering carries
+the 105x objective. The composed carrier's paired in-process GC delta is
++0.016948 s wall (~11 %): the GC-enabled carrier budget is ~0.170 s in that
+session's state. Production runs with the collector enabled; `src` never
+manipulates collector state; every measurement row records its GC state, and
+comparisons pair rows with equal GC state only.
 
 Python JSON is compared with the current IR route and `json.loads`. Default IR
 is compared with model + `ReduceFold` only during development. Extent retains

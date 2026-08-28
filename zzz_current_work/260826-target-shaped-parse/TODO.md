@@ -3,8 +3,30 @@
 **Status:** substantive reviews 4 and 5 independently approve §2 and the
 ABI/lifecycle work in §3. Review 6 exposed a non-composable tokenizer timing
 account and index-order ambiguity; `reports/PROTOTYPE_4.md` supplies the revised
-carrier, representation decision, and scenario boundaries. The user will
-arrange the next independent review. Source implementation has not started.
+carrier, representation decision, and scenario boundaries. `reports/REVIEW_7.md`
+audited feasibility arithmetic and gate placement; its rulings are folded into
+this queue, `goal.md`, and `DESIGN.md`, with the supporting mechanisms measured
+in `reports/PROTOTYPE_5.md` (regular-region lowering + identity, interpreted
+completion-op throughput, shared-forest fold discipline, ambiguity-local
+meaning folds, GC-enabled carrier budget). Source implementation has not
+started.
+
+**OPEN USER DECISION (REVIEW_7 finding 10):** deleting templating for `select`
+drops a reducer-free, `GrammarModel`-returning extraction capability that
+worked over ANY compiled grammar (`template(compiled, shape, spec)` takes no
+reducer; only JSON gains a semantic signature at §2). Options: (a) keep one
+reducer-free extraction morphism in the new architecture (occurrence-demand
+driven, `GrammarModel` or certified-extent codomain, no `SemanticSignature`
+required) with `select` as the beginner surface over reducers; or (b) record
+in `goal.md` that reducer-free grammar-native extraction is deliberately
+dropped pre-0.1, rewrite ex10 as a JSON+reducer example, and delete rather
+than port the toy-grammar extraction tests. §10's templating deletion and
+§11's ex10 rewrite execute whichever the user rules; nothing else blocks on
+it. Option (a)'s feasibility and exact contract are prototyped in
+`proto/demand_selection.py` (`reports/PROTOTYPE_5.md` §6) — occurrence-demand
+compiled into contextual clones, one parse per document, recognition-only
+undemanded subtrees, a statically model-free extent variant — a feasibility
+exhibit for the decision, not a decision.
 
 This is the executable queue for `context.md`, `goal.md`, and `DESIGN.md`. Read
 all three before touching source. Do not reopen settled architecture unless the
@@ -32,6 +54,16 @@ and export follow-ups until every item here is complete.
       checkpoint and the complete source tree externally after §11.
 - [ ] Only after the complete-source §12 profile does Luna create/port tests
       and run formatting, linting, pyright, and repository gates.
+- [ ] At EVERY phase exit from §4 on, Terra runs `uv run pytest tests/ -q -n
+      auto` and `uv run pyright` and ledgers the exact failing-file set with a
+      one-line attribution each. An exit is blocked by any failure not
+      attributable to a deliberate deletion; the attributed set may only
+      shrink once §13 begins. This is visibility, not test authorship — Terra
+      writes no committed tests.
+- [ ] Each phase that adds, moves, or deletes a source module updates the
+      `CLAUDE.md`/`AGENTS.md` package-map lines in the same phase (mechanical
+      edit only), keeping `tests/integration/test_doc_drift.py` green
+      throughout; §11 remains the prose pass.
 - [ ] Terra and Luna run sequentially, never concurrently.
 - [ ] Run no two multithreaded benchmarks at once.
 - [ ] During every timing window, hold all agents and unrelated repository
@@ -108,9 +140,18 @@ and export follow-ups until every item here is complete.
       matrix: fixture hashes, environment/topology, public/direct engine route,
       requested/actual workers, engaged/declined split shape, result/refusal
       digest, cold compile/bind, cold first parse, warmed parse, opcode/capture
-      counts, and product-table bytes. The baseline source remains reproducible
+      counts, garbage-collector state per row, and product-table bytes.
+      Production/acceptance rows run with the collector enabled; only rows
+      with equal GC state compare (`reports/PROTOTYPE_5.md` §5 measures the
+      +0.016948 s carrier delta); `src` never manipulates collector state.
+      The baseline source remains reproducible
       from commit `0faa7289`; compare it later in alternating whole processes,
       not by trusting measurements from different machine states.
+- [ ] Measure baseline peak RSS on the `0faa7289` tree in the §0 matrix —
+      resident and cold/warm path rows — so `goal.md`'s "not above the
+      baseline" RSS criterion is a recorded number before any candidate row
+      exists. The only RSS figure in the record today is the prototype's own
+      79–82 MiB retained-carrier increase, which is not a baseline.
 - [ ] Inventory all callers before moving these symbols:
       `Reducer`, `ModelBody`, `ModelFold`, `RuleFold`, `fold_config`,
       `model_fold`, `derive_reduction`, `ReduceFold`, `Template`,
@@ -179,7 +220,10 @@ Exit: passed under the repository Pyright environment with real compiled
 grammars, reducers, generated models, and `IrTokenizer`; see
 `reports/PROTOTYPE.md`, `reports/PROTOTYPE_2.md`, and
 `reports/PROTOTYPE_3.md`, with the corrected composed carrier and acceptance
-boundaries in `reports/PROTOTYPE_4.md`. No production module was added merely
+boundaries in `reports/PROTOTYPE_4.md`, and the REVIEW_7 mechanism prototypes
+(regular lowering + identity, interpreted-ABI throughput, shared-forest fold
+discipline, local meaning folds, GC delta) in `reports/PROTOTYPE_5.md`. No
+production module was added merely
 to discover the typing or performance model. The source implementation still
 owes semantic differential, composed-shell certification, ready-tokenizer acceptance, and
 paid-loop measurement gates; the prototypes do not claim them.
@@ -196,6 +240,13 @@ paid-loop measurement gates; the prototypes do not claim them.
       relevant spine/package façades without introducing a second import path.
 - [ ] Give every unknown event/action/schema construct a raising
       `UnsupportedConstructError` dispatch default.
+- [ ] Implement the declared exception vocabulary exactly as `DESIGN.md`
+      §validation records it: binding refusals, verifier failures, and syntax
+      stay `UnsupportedConstructError`; raised semantic verdicts are the new
+      `TargetRefusalError(LexicError)` over `SemanticVerdict` value records
+      (never the bare name `Verdict` — `compile/verdict.py` owns it);
+      `from_indexes` validation is `FieldValidationError`. Luna pins type and
+      message against this declaration.
 - [ ] Add the JSON semantic signature beside `JSON_REDUCER` in
       `src/lexic/grammars/json.py`: decoded null/bool/integer/fraction/string,
       array item/array, object entry/object, and completion. It contains no
@@ -270,6 +321,16 @@ the same signature object; a mismatched target can be diagnosed before parse.
       Ordinary chart filing, prediction, nullable advancement, and split
       handling allocate no alternate product state; only the chosen candidate
       can reach root finalization.
+- [ ] Make the Earley product fold execute each shared forest node's VALUE
+      exactly once, guarded at fold entry, with occurrence-owned effects
+      (appends, map inserts, verdicts, duplicate-set entries) applied from the
+      parent's slot consumption so effect counts follow occurrences. The
+      current walk's count is a traversal accident — `proto/
+      shared_forest_refold.py` measures 2/2/1 fold-body executions for
+      identical two-slot sharing across its three witness shapes
+      (duplicate-slot, pending-frame, sibling-memo); all three shapes run
+      through the Earley fallback as §3 exit witnesses with deterministic
+      value-once/effect-per-occurrence counts.
 - [ ] Define the lifecycle seam through the existing
       `parsing.caches.memo/track/adopt/release` protocol. Product programs and
       bound runners retain no source artefact; derived PDA/Earley/replica cache
@@ -280,6 +341,8 @@ Exit: the product ABI executes a tiny sequence/map target through actual PDA,
 Earley, and island/delegate paths; occurrence routing selects the following
 child during recognition; every physical execution table verifies one exact-int
 completion range; rollback, fresh-alternate isolation, and cache release pass;
+side-effecting completion is exactly-once per shared forest node with
+per-occurrence effects across all three shared-subtree witness shapes;
 and measured valid/failed speculation exposes no unaccounted frequent-path
 branch, allocation, or whole-state copy. §4 remains closed until all of this
 holds.
@@ -292,8 +355,15 @@ holds.
       and `ModelFold` after their callers move; do not preserve them as wrappers
       or generic-looking renames. Generated-model synthesis lowers directly to
       `CaptureSpec`, `RuleProduct[GrammarModel]`, the typed constructor operand
-      table, and one `ProductProgram[GrammarModel, RootModel]` specialization;
-      `RootModel` is the compiled start class, not a widened carrier.
+      table, and one `ProductProgram[GrammarModel, GrammarModel]`
+      specialization — the start class is synthesized at runtime and has no
+      static name, so the static bound is `GrammarModel` exactly as
+      `ModelFold[M]` spells it today; the real constraint is that the model
+      product's `Result` never widens past `GrammarModel`.
+- [ ] Rewrite `parsing/trace.py` alongside this migration: it is a public
+      `PdaKernel` subclass shadowing exactly the completion surfaces §4
+      rewrites. It follows the rewrite with its public surface unchanged; its
+      port target is `tests/unit/lexic/parsing/test_trace.py`.
 - [ ] Update `src/lexic/compile/pipeline/synthesis.py::fold_config` and binding
       callers to author the model product through the new operation records.
 - [ ] Migrate `src/lexic/compile/foldkit.py::seq` and `model_fold`, plus every
@@ -349,10 +419,13 @@ bugfix-related exception has the user's explicit final approval recorded first.
 
 ## 5 — compile reducer semantics directly into products
 
-- [ ] Add `src/lexic/compile/product/` with focused modules for:
-      signature verification, lower-action lowering, lower × upper state
-      composition, demand propagation, operation lowering, bound-product
-      caching, and the public `ReductionMorphism` surface.
+- [ ] Add `src/lexic/compile/product/` with the pinned layout (the sibling
+      `parsing/product/` is pinned; this one is too): `signature.py` owns
+      signature verification, `compose.py` owns lower × upper state
+      composition, `demand.py` owns demand propagation, `lower.py` owns
+      lower-action and operation lowering, `binding.py` owns the private
+      bound-product registry/cache, `morphism.py` owns the public
+      `ReductionMorphism` surface, and `__init__.py` is the one façade.
 - [ ] Use open `IrDispatch`/`IrTypeMap` lowering over authored action types with
       a raising default. No closed `isinstance` cascade and no runtime action
       evaluator fallback.
@@ -388,7 +461,10 @@ bugfix-related exception has the user's explicit final approval recorded first.
       `BoundProduct`: omitted `into` returns `IrSelf`; supplied
       `ReductionMorphism[T]` returns `T`; `cores` reaches the same product.
 - [ ] Give `reduce` the two exact overloads recorded in `DESIGN.md` and
-      `reports/PROTOTYPE.md`. The overload declarations are typing only; the
+      `reports/PROTOTYPE.md`, and give BOTH overloads the same `resolve=`
+      resolver parameter `parse` carries — the resolver is the one ambiguity
+      opt-out and it reaches whichever engine chooses; target products are not
+      exempt. The overload declarations are typing only; the
       implementation performs one pre-engine target choice and one cached bind.
       A repeated-document pool retains the bound product directly.
 - [ ] Support char and token-segmented grammars through the existing grammar
@@ -407,15 +483,26 @@ bugfix-related exception has the user's explicit final approval recorded first.
       effort and record the exact commands/results in `reports/` for Luna to
       port after the old oracle is gone.
 - [ ] At §5 exit, `CompiledGrammar.reduce` executes exactly the new product.
-      `ReduceFold` may remain temporarily importable only as the direct oracle
-      for the recorded differential: no production caller, flag, fallback,
-      adapter, or representation bridge may reach it.
+      `ReduceFold` remains importable only as the uncommitted direct oracle
+      THROUGH THE §9 EXIT (not merely §5): the most differential-hungry
+      changes — contextual clones at §6, ambiguity rewiring at §8, parallel
+      composition at §9 — come after §5, and fresh-input comparison must
+      survive them. No production caller, flag, fallback, adapter, or
+      representation bridge may reach it; §10 deletes it.
+- [ ] At the §5 exit, run a timed direct-IR throughput probe (default product
+      versus the current route, sequential, alternating processes, from this
+      effort's `proto/`) and record it in `reports/` — the first timed number
+      for any target product must not wait until §12.
 - [ ] After coordinator review of the differential report, create the §5
       checkpoint commit and resume the same warm Terra agent.
 
 Exit: default reduction constructs its `IrSelf` during parsing with exact
-current parity and no `GrammarModel` or `ReduceFold` on the executed route. The
-old oracle has no production caller and its last broad differential is frozen.
+current parity and no `GrammarModel` or `ReduceFold` on the executed route
+(ambiguity-refusal divergences between the variant-model and value-meaning
+relations are enumerated and attributed per `goal.md`'s ruling, not required
+to be zero). The old oracle has no production caller and its last broad
+differential of THIS phase is frozen; the oracle itself stays importable for
+the §8/§9 re-runs.
 
 ## 6 — implement signature composition and target-dependent products
 
@@ -447,6 +534,16 @@ old oracle has no production caller and its last broad differential is frozen.
       retained reducer values, recognition-only extensions, decoded duplicate
       refusal, and syntax-first nested-shape verdicts. Refuse an incompatible
       source signature at binding; do not add array/predicate sugar.
+- [ ] Implement the declared empty-edge rulings so tests cannot freeze an
+      accident: `select({})` refuses at declaration (an empty selection
+      declares no demand — `UnsupportedConstructError`); a spec leaf that is
+      neither `KEEP` nor a mapping refuses at declaration; a non-mapping root
+      document under a selection is a target-shape verdict after syntax
+      succeeds, exactly like nested non-mappings; a present-but-empty
+      `model.vocab`/`model.merges` is valid and produces empty indexes
+      (empty merges are a real tokenizer shape) — whether a model type
+      requires a nonempty vocabulary is a declared root cross-field check,
+      not an index-level refusal.
 - [ ] Exercise the same target over native JSON plus GBNF/ABNF/EBNF JSON
       formulations using the shared semantic signature. If any target lowering
       names a formulation rule, stop and fix the signature.
@@ -511,11 +608,36 @@ their distinct semantics and costs. No target is a post-reduction mapper.
       invokes it directly or on decline.
 - [ ] Verify root finalization is independent of JSON object key order and runs
       exactly once.
+- [ ] Implement the proved-regular capturing lowering as a gated task at this
+      exit: a composed region the compiler proves regular — repeated entry,
+      acyclic simple closure, no arm ambiguity — lowers to one capturing
+      recognizer per entry with demand-derived positional groups over the
+      rules' own pattern sources, no grammar-name case. Prove it identical to
+      the generic product on the same region and gate it the way §4 gates the
+      model path; a region losing the proof declines to the interpreted
+      product. Mechanism, genericity (native + GBNF formulations), decline,
+      and four-way identity are prototyped in
+      `proto/regular_region_lowering.py`; the ~105x objective is contingent
+      on this task, the <1.000 s envelope is not
+      (`reports/PROTOTYPE_5.md` §§1–2).
+- [ ] Run the payload/notation/generated-twin fixpoint gate before this
+      checkpoint: the three-index `IrTokenizer` rework touches the payload
+      codec, the zero-import reader, notation, and the twin modules — run
+      `uv run python tools/check_generated.py` plus a notation/payload
+      round-trip over the new representation and record the result.
+- [ ] Time the resident tokenizer row AT THIS EXIT: ready tokenizer from
+      resident text, sequential and `cores=AUTO`, external alternating
+      processes with a byte-identical control, recorded in `reports/` with
+      the existing proto harness. Stop factor: if the row misses the
+      <1.000 s envelope by more than 3x, the effort halts here with the old
+      path still present in the tree, and the miss is attributed before any
+      §8+ work opens. §12 remains the complete matrix.
 - [ ] After coordinator review of sequential target parity, create the §7
       checkpoint commit and resume the same warm Terra agent.
 
 Exit: Qwen, GPT-2, SmolLM2, Gemma, and the small fixture can reach a ready
-`IrTokenizer` without generated JSON models, JSON `IrMap`, or `tokenizer_of`.
+`IrTokenizer` without generated JSON models, JSON `IrMap`, or `tokenizer_of`,
+and the timed resident row is recorded inside its stop factor.
 
 ## 8 — make ambiguity and failure isolation target-correct
 
@@ -531,11 +653,26 @@ Exit: Qwen, GPT-2, SmolLM2, Gemma, and the small fixture can reach a ready
       ambiguity.
 - [ ] Fold base and each alternate Earley derivation from a fresh isolated
       product state. Never copy the base candidate's live builders/logs.
+- [ ] Root alternate meaning folds at the ambiguity family's differing CHILD
+      subtrees with fresh local state — never a root-rooted whole-document
+      refold per flipped point, and never a build from the packed point
+      itself (it re-enters the parent chain and its dropping policies). This
+      is what makes the design's "computes only the declared local meaning"
+      true, prices ambiguity per point instead of n+1 full folds, and keeps a
+      difference a dropping parent erases; mechanism, verdict table, and cost
+      (4 folds versus 2,414 on a 601-char witness) are in
+      `proto/local_meaning_fold.py` / `reports/PROTOTYPE_5.md` §4.
+- [ ] Make the target equality walk iterative: the current recursive
+      `same_value` overflows the interpreter stack near depth 1000, and deep
+      meanings are ordinary under quantifier desugaring.
 - [ ] Exercise adversarial rollback: a failed PDA attempt, failed island, and
       unchosen ambiguity alternative must leave vocab/map entries, duplicate
       sets, and verdict order unchanged.
 - [ ] Carry no ambiguity witness graph on a statically/predictively unambiguous
       path.
+- [ ] Re-run the §5 property differential through `tools/guarded.sh` from this
+      effort's `proto/` at this exit (the oracle is retained for exactly this)
+      and record command and result in `reports/`.
 
 Exit: PDA, Earley, islands, and target projections agree on acceptance,
 refusal, and chosen product without retained shadow models.
@@ -560,6 +697,11 @@ refusal, and chosen product without retained shadow models.
       worker-owned pattern. Equal source sent repeatedly through `re.compile`
       is not a replica because the regex cache returns one mortal pattern.
       Keep cache distinction in cold binding; no worker branch enters runtime.
+- [ ] Extend that ownership to every per-completion-hot shared object where
+      measurement shows refcount traffic — the `ProductProgram`/`BoundProduct`
+      flat operand and route tables are the same contention shape
+      `parallel/replicas.py` exists for. The §12 ladder attributes any scaling
+      loss to a NAMED object, never an aggregate.
 - [ ] Generalize `parallel/orchestrate.py::Request` and execution around a bound
       product without narrowing the result to `IrNamedTuple`.
 - [ ] Compile one `FragmentProduct[Carry]` per licensed target/split shape with:
@@ -586,13 +728,18 @@ refusal, and chosen product without retained shadow models.
       constructing the one coordinator-owned final rank index. Do not pre-scan
       every entry merely to assign worker rank bases and do not retain a dyad
       tuple sidecar.
-- [ ] Keep generated-model reconstruction in `parallel/stitch/model.py` only as
-      the generated-model product's composition implementation, or migrate it
-      into the common fragment vocabulary when that reduces duplication.
+- [ ] Keep generated-model reconstruction in `parallel/stitch/model.py` as the
+      generated-model product's composition implementation — DECIDED, not
+      optional: migrating it into the common fragment vocabulary is not
+      attempted in this effort (an optional consolidation at phase 9 of 14
+      would not happen and must not linger as an open choice).
 - [ ] Do not copy `stitch/model.py`, add `DirectCarrier`, or adopt the rejected
       `stitch/carrier.py`.
 - [ ] If composition cannot be proved, run the same direct product sequentially
       from the start. Never perform partial work and then parse/fold again.
+- [ ] Re-run the §5 property differential through `tools/guarded.sh` from this
+      effort's `proto/` at this exit — the last fresh-input comparison before
+      §10 deletes the oracle — and record command and result in `reports/`.
 - [ ] After coordinator review of sequential/parallel parity and fragment laws,
       create the §9 checkpoint commit and resume the same warm Terra agent.
 
@@ -696,10 +843,12 @@ folder.
       their own cost accounts; do not apply one codomain's multiplier to
       another.
 - [ ] For the tokenizer, report resident `read(text, ...)`, cold
-      `read_from_path`, and warm `read_from_path` separately. Compare them with
-      the like-for-like current 17.203148 s resident and 17.416359 s historical
-      path references. Do not add an isolated source-read median to a resident
-      product and call the sum a measured path.
+      `read_from_path`, and warm `read_from_path` separately. Re-measure the
+      `0faa7289` baseline rows in the SAME alternating session as the
+      candidate — §0's own rule; the quoted 17.203148 s / 17.416359 s
+      constants remain provenance, never the comparison denominator. Do not
+      add an isolated source-read median to a resident product and call the
+      sum a measured path.
 - [ ] Measure tokenizer 1/2/4/8/16-worker ladders one at a time and include every
       eligible split shape. Keep the 2 KiB floor.
 - [ ] Attribute route proposal, composed shell/fragment certification,
@@ -709,17 +858,24 @@ folder.
 - [ ] Compare shared and physically worker-owned compiled recognizers in the
       landed implementation; identity-check the patterns so the regex cache
       cannot make a nominal replica row shared.
-- [ ] Record wall, aggregate process CPU as core-seconds, source bytes, decoded
-      bytes, constructed objects/containers, final table sizes, peak RSS, and
-      semantic witness equality.
-- [ ] Require less than 0.100 s wall for the complete reduced recursive Python
-      product and less than 1.000 s wall for the resident-text ready tokenizer
-      on the 11,422,654-byte Qwen3 witness. Continue toward roughly 105x for the
-      Qwen tokenizer scenario, but do not make that multiplier a universal gate
-      on other reductions. For every scenario, publish current and new wall,
-      process CPU, RSS, and multiplier. If a target is missed, attribute and
-      optimize remaining recognition, decode, final-table, allocation, and RSS
-      costs rather than hiding work or falling back.
+- [ ] Record wall, aggregate process CPU as core-seconds AND per byte, source
+      bytes, decoded bytes, constructed objects/containers, final table sizes,
+      peak RSS against the §0 baseline, garbage-collector state, and semantic
+      witness equality — CPU per byte is a gate quantity beside wall in every
+      row, so an MT row cannot pass by burning cores unreported.
+- [ ] Gate less than 1.000 s wall for the resident-text ready tokenizer at the
+      public `cores=AUTO` engaged shape on the 11,422,654-byte Qwen3 witness,
+      the sequential row reported beside it, and the sequential row gated
+      against the same envelope when route anchors decline. Pursue less than
+      0.100 s wall for the complete reduced recursive Python product and
+      report its multiplier against the current route as its gate quantity
+      (`goal.md`'s ruling — 0.084940 s `json.loads` makes the absolute number
+      a frontier, not a floor for pass/fail). Continue toward roughly 105x for
+      the Qwen tokenizer scenario, but do not make that multiplier a universal
+      gate on other reductions. For every scenario, publish current and new
+      wall, process CPU, RSS, and multiplier. If a target is missed, attribute
+      and optimize remaining recognition, decode, final-table, allocation, and
+      RSS costs rather than hiding work or falling back.
 - [ ] If the implementation regresses or duplicated work remains, return it to
       Terra. Do not send it to Luna until the source design and numbers are
       acceptable.
@@ -755,6 +911,18 @@ test-authoring handoff, with no simultaneous benchmark contamination.
       values, syntax-versus-semantic precedence, and final-table equality.
 - [ ] Add real tokenizer differentials for Qwen, GPT-2, SmolLM2, and Gemma; use
       fetched fixtures and preserve skips when absent.
+- [ ] Add the `select` contract tests: declaration order, absence, retained
+      value identity, decoded/escape-equivalent duplicates, shape verdicts,
+      syntax-first precedence, and every §6 empty-edge ruling (`select({})`,
+      non-KEEP/non-mapping leaves, non-mapping root, empty vocab/merges).
+- [ ] Add committed extent-target tests — the only codomain otherwise without
+      a committed-test row: certified bounds, the declared validity contract,
+      and refusal shapes.
+- [ ] Add binding-registry lifecycle regression guards: concurrent cold bind
+      compiles once, eviction recomputes equivalently, a bound program retains
+      no source artefact, a pool-retained program stays valid after release,
+      and derived caches release transitively — the design's hardest
+      concurrency claims must not remain Terra-side one-time witnesses.
 - [ ] Add ambiguity tests for equal/different target meanings, dropped child
       meaning, schema-rejected alternatives, and permitted split families.
 - [ ] Add `FragmentProduct` tests for entry/exit state, associative ordered join,

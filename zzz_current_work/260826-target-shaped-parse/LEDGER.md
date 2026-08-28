@@ -1,6 +1,75 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — reviewed handoff (2026-08-27)
+## CURRENT SESSION — REVIEW_7 rulings folded, mechanisms prototyped (2026-08-28)
+
+`reports/REVIEW_7.md` (coordinator + fresh cross-model pass) was verified
+against source and plan: all fifteen findings held. The trivial findings are
+folded into `goal.md`/`DESIGN.md`/`TODO.md` as recorded rulings; the
+non-trivial or unclear mechanisms are prototyped in `proto/` and measured in
+`reports/PROTOTYPE_5.md` — four REVIEW_7 mechanisms plus the finding-10
+option-(a) exhibit `demand_selection.py` (a first spans-then-reparse draft of
+it was rejected and deleted as unfaithful to the one-parse architecture). All
+five new prototypes pass pyright, ruff check/format, and pylint 10.00/10 with
+zero suppressions. `src` unchanged.
+
+**Prototyped mechanisms.** (1) `regular_region_lowering.py`: the
+proved-regular capturing lowering is generic (acyclic-closure proof via
+`build_recognizer`, demand-derived positional groups, recursive region
+declines) and identity-proven four ways — native lowering == GBNF-formulation
+lowering == stdlib oracle == generic engine `reduce` over 4,000 entries. Its
+interpreted-ABI probe reframes REVIEW_7's blocker 1: one recognizer consult
+per rule completion plus flat int dispatch runs the 3.6 M-char vocab region in
+0.368907 s sequential GC-on — 1.40x the 0.262931 s whole-entry capture, versus
+11.93 s current. The 16.7x gap is per-character consumption plus model
+construction, not "regex versus interpreter". Ruling recorded: <1.000 s rides
+the interpreted ABI; ~105x is contingent on the capturing lowering, now a
+gated §7-exit task. (2) `shared_forest_refold.py`: the fold walk executes a
+shared subtree's body 2/2/1 times across three witness shapes for identical
+two-slot sharing — traversal-dependent, so the side-effecting ABI would get
+duplicated AND missing effects; §3 exit now requires value-once-per-node with
+per-occurrence effects, all three shapes as witnesses. (3)
+`local_meaning_fold.py`: alternate meanings fold at the ambiguity family's
+child subtrees — declared verdict at 4 folds versus 2,414 root-rooted on a
+601-char witness, and the dropping-parent divergence resolves toward the
+declared local law, settling findings 6+8 together (value-meaning relation is
+definitive; §5 enumerates divergences). Also: recursive `same_value` overflows
+near depth 1000 — §8 makes the equality walk iterative. (4)
+`carrier_gc_cost.py`: paired in-process GC delta on the composed carrier is
++0.016948 s wall (~11 %); GC state is now a recorded §0 protocol field and
+production rows run collector-enabled.
+
+**Rulings folded as plan edits.** Python <0.100 s demoted to pursued objective
+(gate = multiplier versus current route); tokenizer <1.000 s gated at engaged
+`cores=AUTO` with sequential and CPU-per-byte reported and the decline case
+gated sequentially; timed rows at the §5 and §7 exits with a 3x stop factor at
+§7; suite+pyright with attributed failing-file ledger at every exit from §4,
+package-map lines updated mechanically per phase; oracle retained through the
+§9 exit with §8/§9 differential re-runs; §12 re-measures the `0faa7289`
+baseline in the same alternating session and needs the §0 RSS baseline;
+free-threading ownership extended to per-completion-hot flat tables; exception
+vocabulary declared (`TargetRefusalError`/`SemanticVerdict` — bare `Verdict`
+is taken); `resolve=` on both `reduce` overloads; empty-edge rulings
+(`select({})` refuses, empty vocab/merges valid); `ProductProgram[GrammarModel,
+GrammarModel]` typing; `parsing/trace.py` assigned to §4;
+`compile/product/` layout pinned; `stitch/model.py` decided-keep; §13 gains
+select-contract, extent, and binding-registry-lifecycle rows.
+
+**Open user decision:** REVIEW_7 finding 10 — keep one reducer-free extraction
+morphism, or record the deliberate pre-0.1 drop of reducer-free grammar-native
+extraction (see the TODO status block). Option (a)'s feasibility and contract
+are prototyped in `proto/demand_selection.py`
+(`reports/PROTOTYPE_5.md` §6): the selection compiles into contextual clones
+over any compiled grammar with no reducer/signature — one engine parse per
+document, kept models/extents built during it, undemanded subtrees
+recognition-only, deterministic key routing, syntax-first shape verdicts,
+declaration-ordered round-trippable models or statically model-free certified
+extents, empty-level and raw-duplicate refusals, demand-local retention
+(2 models + 998 key records over 1,000 entries), formulation-independent
+(GBNF == native JSON), raw keys declaredly distinct from decoded. It is a
+feasibility exhibit; the decision is the user's and is not recorded. All
+other REVIEW_7 re-entry conditions are satisfied.
+
+## PRIOR SESSION — reviewed handoff (2026-08-27)
 
 **Scope:** replace model-then-fold reduction with one engine-neutral product
 architecture which constructs the requested final codomain during recognition.
