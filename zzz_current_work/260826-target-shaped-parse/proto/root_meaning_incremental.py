@@ -59,6 +59,30 @@ class Outcome(NamedTuple):
     alternate_folds: int
 
 
+class MeaningMemo:
+    """A read-only baseline plus one alternate's sparse changed meanings."""
+
+    __slots__ = ("base", "changed")
+
+    def __init__(self, base: dict[int, Meaning]) -> None:
+        self.base = base
+        self.changed: dict[int, Meaning] = {}
+
+    def contains(self, handle: int) -> bool:
+        """Whether either layer contains ``handle``."""
+        return handle in self.changed or handle in self.base
+
+    def read(self, handle: int) -> Meaning:
+        """Read the sparse alternate before its immutable baseline."""
+        if handle in self.changed:
+            return self.changed[handle]
+        return self.base[handle]
+
+    def write(self, handle: int, meaning: Meaning) -> None:
+        """Write only this evaluation's changed layer."""
+        self.changed[handle] = meaning
+
+
 AMBIGUOUS = 'root ::= t "z"\nt ::= u | v\nu ::= "x"\nv ::= "x"\n'
 DISTANT = (
     "root ::= filler t filler\n"
@@ -206,7 +230,7 @@ class Folder:
     def apply(
         self,
         root: int,
-        memo: dict[int, Meaning],
+        memo: MeaningMemo,
         dirty: set[int],
         choice: Choice | None,
     ) -> Meaning:
@@ -214,23 +238,23 @@ class Folder:
         stack: list[tuple[int, bool]] = [(root, False)]
         while stack:
             handle, expanded = stack.pop()
-            if handle in memo and handle not in dirty:
+            if memo.contains(handle) and handle not in dirty:
                 continue
             children, _keys = _resolved(self.kernel, handle, choice)
             if not expanded:
                 stack.append((handle, True))
                 for child in reversed(children):
-                    if child not in memo or child in dirty:
+                    if not memo.contains(child) or child in dirty:
                         stack.append((child, False))
                 continue
-            memo[handle] = self._assemble(handle, children, memo)
-        return memo[root]
+            memo.write(handle, self._assemble(handle, children, memo))
+        return memo.read(root)
 
     def _assemble(
         self,
         handle: int,
         children: tuple[int, ...],
-        memo: dict[int, Meaning],
+        memo: MeaningMemo,
     ) -> Meaning:
         """Execute one code-selected meaning operation."""
         self.folds += 1
@@ -244,7 +268,7 @@ class Folder:
             return ("atom", self.kernel.text[start:end])
         if policy == "drop":
             return (name,)
-        return (name,) + tuple(memo[child] for child in children)
+        return (name,) + tuple(memo.read(child) for child in children)
 
 
 def _exercise(witness: Witness) -> Outcome:
@@ -253,8 +277,9 @@ def _exercise(witness: Witness) -> Outcome:
     root = accept_handle(kernel)
     graph = _graph(kernel, root)
     folder = Folder(kernel, witness.policies)
-    baseline: dict[int, Meaning] = {}
-    first = folder.apply(root, baseline, set(), None)
+    initial = MeaningMemo({})
+    first = folder.apply(root, initial, set(), None)
+    baseline = initial.changed
     baseline_folds = folder.folds
     folder.folds = 0
     differs = False
@@ -267,7 +292,7 @@ def _exercise(witness: Witness) -> Outcome:
         for family in range(1, len(bucket)):
             alternate = folder.apply(
                 root,
-                dict(baseline),
+                MeaningMemo(baseline),
                 affected,
                 Choice(key, family),
             )

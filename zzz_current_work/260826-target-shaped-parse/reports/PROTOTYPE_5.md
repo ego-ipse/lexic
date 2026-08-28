@@ -10,6 +10,16 @@ region alone is 3,596,468 characters / 151,643 entries. All timings on the
 Python 3.14.3 free-threading host; sequential rows run with the collector
 ENABLED unless stated (the new §0 GC rule).
 
+**Supersession note (2026-08-29):** this report is provenance, not the current
+design ruling. `PROTOTYPE_7.md` replaces scanner admission with the stronger
+boundary proof and signature × demand region derivation; replaces the
+cross-process 0.368907/0.262931 comparison with the in-process controlled
+0.351784/0.246319 row; rejects the resolver-based route stand-in; rejects
+child-local ambiguity as language-narrowing; and supersedes the odd/fixed-order
+GC rows with an even eight-pair run. `PROTOTYPE_8.md` further distinguishes
+dirty-cone semantic-operation count from exact persistent meaning comparison
+and eager materialization.
+
 ## 1 — the regular-region lowering exists; its original identity was bounded
 
 `proto/regular_region_lowering.py` answers REVIEW_7 finding 1's mechanism
@@ -87,9 +97,12 @@ fold-entry guard (also exercised) makes the value fold exactly-once per node
 in all three shapes; occurrence-owned effects must then ride the parent's slot
 consumption, not the child's fold body. Both witnesses become §3 exit gates.
 
-## 4 — ambiguity-node-rooted alternate folds are the workable local mechanism (finding 8)
+## 4 — rejected child-local ambiguity experiment (finding 8)
 
-`proto/local_meaning_fold.py` compares the current root-rooted
+This experiment measured a cheap mechanism but its semantic ruling is
+**rejected**: the dropping-parent row proves child-local comparison would refuse
+two derivations with one complete root value. `proto/local_meaning_fold.py`
+compares the current root-rooted
 `another_meaning` against folds rooted at each ambiguity family's differing
 **child** subtree (building from the packed key itself drags the parent
 context back in — measured and rejected inside the prototype's history):
@@ -104,13 +117,11 @@ context back in — measured and rejected inside the prototype's history):
 - The distant-point row is the cost statement: root-rooted comparison refolds
   the whole document per flipped point (n+1 full folds — 2,414 and growing
   linearly with document size), the local fold pays 4 nodes regardless.
-- The dropping-parent row is the *declared divergence*: the design's meaning
-  law ("a parent dropping a child cannot erase an ambiguity whose `MeaningOp`
-  keeps it") is exactly the local verdict; the current root-value comparison
-  cannot express it. This resolves finding 6's relation question and finding
-  8's mechanism question together: the value-meaning relation, computed
-  locally at the ambiguity family's children with fresh state, supersedes the
-  variant-model relation.
+- The dropping-parent row refutes the proposed local law. The observable
+  product is the complete requested root value; a parent which drops the child
+  can erase the distinction. `PROTOTYPE_7.md` replaces this with completed-code
+  ancestor replay to the root, and `PROTOTYPE_8.md` supplies exact persistent
+  meanings for large built-in accumulators.
 - Incidental finding: the engine's `same_value` recurses per nesting level and
   overflows the interpreter stack near depth ~1000 — deep meanings need an
   iterative comparator when §8 lands.

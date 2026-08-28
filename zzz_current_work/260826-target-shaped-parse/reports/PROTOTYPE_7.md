@@ -13,9 +13,10 @@ equal. Child-local meaning is therefore rejected as the ambiguity relation.
 `proto/root_meaning_incremental.py` instead folds the default derivation once,
 indexes completed-handle dependencies, and evaluates an alternate by replaying
 only the dirty completed handles from its packed family to the root. Every
-unchanged sibling meaning comes from the baseline memo. Meaning programs are
-indexed by completed code, not rule name, so future occurrence clones select
-their own completion range directly.
+unchanged sibling meaning comes from the read-only baseline memo; each
+alternate writes a sparse overlay and never copies that document-sized table.
+Meaning programs are indexed by completed code, not rule name, so future
+occurrence clones select their own completion range directly.
 
 The real Earley-kernel witnesses print:
 
@@ -96,19 +97,19 @@ stays on the same interpreted product rather than guessing a boundary.
 
 ## 4 — the toggleable interpreted/capture ratio is now in-process
 
-`regular_region_lowering.py --mode compare --rounds 7` alternates `capture` and
+`regular_region_lowering.py --mode compare --rounds 8` alternates `capture` and
 `ops` in one process, takes minima, and carries two labels executing the same
 capture body as the unreachable control.
 
 | row | process CPU minimum | wall minimum |
 |---|---:|---:|
-| whole-entry capture | 0.242277 s | 0.242284 s |
-| one recognizer consult per rule + int ops | 0.345750 s | 0.345878 s |
-| control left | 0.244864 s | 0.244878 s |
-| control right | 0.243914 s | 0.243920 s |
+| whole-entry capture | 0.246319 s | 0.246350 s |
+| one recognizer consult per rule + int ops | 0.351784 s | 0.351812 s |
+| control left | 0.251292 s | 0.251314 s |
+| control right | 0.250163 s | 0.250197 s |
 
-The process-CPU ratio is **1.427088x** and the control CPU floor is 0.000950 s
-(about 0.39% of capture), so the interpreted/capture difference is material.
+The process-CPU ratio is **1.428162x** and the control CPU floor is 0.001129 s
+(about 0.46% of capture), so the interpreted/capture difference is material.
 The interpreted row still assumes one exact compiled-recognizer consult per
 eligible value-string rule occurrence. It is evidence only if that generic
 specialization is an explicit implementation task; it is not the shipped

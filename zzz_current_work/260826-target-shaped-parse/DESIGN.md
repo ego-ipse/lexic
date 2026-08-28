@@ -3,8 +3,9 @@
 **Status:** independently approved by substantive review passes 4 and 5 for §2
 and ABI/lifecycle §3. The §3 real-engine gates must close before §4. This
 replaces the rejected direct-carrier and post-parse demand-projection
-directions. REVIEW_7's rulings and the `PROTOTYPE_6` consistency corrections
-are folded here; the corrected packet awaits REVIEW_8. It is not an
+directions. REVIEW_8's NO-GO findings are answered by the `PROTOTYPE_7` root,
+regular, routing, and measurement corrections plus `PROTOTYPE_8`'s persistent
+meaning and exact §0 baseline. The packet now awaits REVIEW_9. It is not an
 implementation checklist.
 
 ## Decision
@@ -582,9 +583,9 @@ proof as an authoritative region, not the fail-soft scanner licence. The
 specialization returns the one matched extent and the ordinary completion range
 performs capture/build; it introduces no target callback or per-character
 target branch. It has a dedicated generated-model parse non-regression gate.
-`PROTOTYPE_7.md` prices the consult-plus-int-ops shape in one alternating
-process at 0.345750 s minimum CPU versus 0.242277 s for whole-entry capture,
-with a 0.000950 s control floor. It omits PDA frames, transactions, driver work,
+`PROTOTYPE_7.md` prices the consult-plus-int-ops shape in one order-balanced
+alternating process at 0.351784 s minimum CPU versus 0.246319 s for whole-entry
+capture, with a 0.001129 s control floor. It omits PDA frames, transactions, driver work,
 the merge region, and the remaining document, so it is a lower-bound mechanism
 witness—not proof that the complete interpreted product fits `<1.000 s`.
 
@@ -647,7 +648,9 @@ arbitrary custom class.
 
 The unambiguous hot path carries no witness graph. At an actual internal
 arm-choice, the default derivation's completed-handle memo is reused and only
-the alternate family's ancestor cone is replayed to the root. The verdict is
+the alternate family's ancestor cone is replayed to the root through a sparse
+overlay over the read-only baseline; no alternate copies the completed-handle
+table. The verdict is
 therefore exactly the complete requested value. Semantic-operation replay is
 proportional to the changed subtree plus its continuation rather than document
 size; `proto/root_meaning_incremental.py` proves that narrower claim at three
@@ -1074,6 +1077,15 @@ is noise, not a benefit claim (`reports/PROTOTYPE_7.md`). Earlier fixed-order
 and odd-round deltas are rejected. Quoted historical constants are provenance,
 not denominators: the §12 comparison re-measures the `0faa7289` baseline in the
 same alternating session as the candidate, per §0's own rule.
+
+The pinned §0 memory references are 633,000 KiB for a first resident-text ready
+tokenizer, 632,888 KiB for a first cold path call, and 838,120 KiB at the second
+path call in one retained warm process (`reports/PROTOTYPE_8.md`). The warm
+process had already reached 634,592 KiB after its first call; the subsequent
+203,528 KiB increase is a monotonic high-water delta, not a live-retention
+diagnosis. Candidate RSS is compared to the matching lifecycle scenario in
+fresh alternating processes. A cold result cannot excuse a warm retained
+regression, and a close one-sample RSS result is rerun rather than declared.
 
 Parsing is a hard non-regression gate of its own. Generated-model and
 token-segmented parse rows are compared independently of reduction and final

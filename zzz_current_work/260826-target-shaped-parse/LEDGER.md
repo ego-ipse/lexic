@@ -1,6 +1,52 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — consistency and evidence correction (2026-08-28)
+## CURRENT SESSION — REVIEW_8 corrections and implementation-ready pass (2026-08-29)
+
+`REVIEW_8.md` returned NO-GO on three architectural claims: child-local
+ambiguity narrowed the root-value language, the `<1.000 s` interpreted budget
+depended on an unscheduled value-string recognizer consult, and scanner
+admission did not prove possessive capture boundaries. Its remaining findings
+identified an unowned region derivation, executable public morphisms, a
+resolver-consuming raw route, incomplete synthetic-DAG accounting, stale GC
+protocol, and missing pre-alpha cleanup successors.
+
+`PROTOTYPE_7.md` now records the correction set. Real Earley completions keep a
+baseline completed-handle memo and replay a packed family's dirty ancestor
+cone by completed code, preserving the dropping-parent root verdict at three
+alternate fold bodies versus a 1,207-body baseline. A conservative regular
+proof adds acyclic closure, first-disjoint arms, non-nullable repeats, and
+continuation/separator/terminator boundary ownership; it declines an acyclic
+possessive counterexample which scanner admission accepts. Region input is
+derived from semantic roles × target demand and works for a non-JSON catalog
+grammar. The in-process order-balanced capture/ops comparison is 0.246319 s
+versus 0.351784 s process CPU (1.428162x), with a 0.001129 s
+duplicate-control floor;
+the ops row remains conditional on the now-scheduled exact value-string
+specialization. Public morphisms are inert declarations, raw routing adds zero
+grammar arms and leaves `resolve=` untouched, transparent synthetic folds use
+a distinct finished set, and the even eight-pair GC probe makes 0.700274 s CPU /
+0.130779 s wall the collector-enabled carrier reference.
+
+The final adversarial pass found one further cost overclaim: dirty-cone
+fold-body count did not price eager-container equality/materialization.
+`proto/persistent_meaning.py` adds exact immutable contribution trees with
+identity sharing and one chosen-result materialization; a 65,536-leaf changed
+path visits 18 nodes, an equal path-copy 33, and a dropped singleton one.
+
+Step 0 is now complete. `src` is identical to `0faa7289`; the host is CPython
+3.14.3t on an 8-core/16-thread Ryzen 5700X3D; the Qwen fixture hash and full
+consumer inventory are frozen in `PROTOTYPE_8.md`. Isolated GC-on public-reader
+rows return the same final-table digest and peak at 633,000 KiB resident-first,
+632,888 KiB path-cold, and 838,120 KiB on the second call in one retained warm
+process. The last number is a lifecycle-matched high-water reference, not a
+leak diagnosis.
+
+`context.md`, `goal.md`, `DESIGN.md`, and `TODO.md` now state these mechanisms,
+owners, tests, performance gates, cleanup, and scenario-matched RSS denominators.
+All work remains in the gitignored effort folder; `src` is unchanged. The next
+fresh cross-model deliverable is `reports/REVIEW_9.md`.
+
+## PRIOR SESSION — consistency and evidence correction (2026-08-28)
 
 A full post-REVIEW_7 audit found four substantive gaps in the first ruling
 pass. `select_raw` could not be called by the DESIGN's two reducer-required

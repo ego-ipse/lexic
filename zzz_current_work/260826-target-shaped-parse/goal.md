@@ -36,8 +36,8 @@ requires an explicit generic specialization: one exact compiled-recognizer
 consult per eligible value-string rule occurrence, followed by flat int
 completion operations. It is a scheduled paid-loop task, not a property of the
 current engine. `reports/PROTOTYPE_7.md` measures that mechanism against fused
-whole-entry capture in one alternating process: 0.345750 s versus 0.242277 s
-minimum process CPU, **1.427088x**, with a 0.000950 s control floor. Both are
+whole-entry capture in one order-balanced alternating process: 0.351784 s versus
+0.246319 s minimum process CPU, **1.428162x**, with a 0.001129 s control floor. Both are
 microkernels omitting the driver, frames, transactions, merge region, and the
 remaining document; neither proves the complete `<1.000 s` gate.
 
@@ -176,7 +176,8 @@ uses mark/commit/rollback. Failed islands discard child state. Earley's default
 derivation leaves a memo of completed-handle meanings. For one packed-family
 alternate, a dependency index marks only that family's completed owner and its
 ancestors dirty; unchanged sibling meanings are reused and the target program
-replays the dirty continuation to the root in isolated state. This preserves
+replays the dirty continuation to the root in an isolated sparse overlay over
+the read-only baseline. It does not copy the document-sized memo. This preserves
 the existing observable root-value relation, including a parent which drops
 the differing child, without another whole-document semantic replay
 (`reports/PROTOTYPE_7.md` §1). Completion ranges are selected by completed code,
@@ -412,8 +413,11 @@ The final tokenizer path must:
   cannot pass by burning cores unreported);
 - when route anchors decline and AUTO runs sequentially, gate the sequential
   row against the same envelope — the decline case is not exempt;
-- not raise peak RSS above the §0-measured baseline of the current resident
-  path (the criterion is a number recorded in the §0 matrix, not a direction);
+- not raise peak RSS above the scenario-matched §0 baseline: 633,000 KiB for a
+  first resident product, 632,888 KiB for a first cold path product, and
+  838,120 KiB for the second product in one retained warm process. These are
+  pinned single-run references; §12 alternates and reruns any close result.
+  Never compare a warm retained candidate with the cold ceiling;
 - report sequential and 1/2/4/8/16-worker results without changing the 2 KiB
   floor or suppressing eligible shapes.
 
@@ -441,7 +445,10 @@ canonical immutable indexes, and an actual tokenizer record. The current
 GC-enabled eight-worker row is 0.700274 s median process CPU and 0.130779 s
 median wall. The earlier 0.138739 s GC-disabled component decomposition is
 provenance, not the budget. Observed retained-carrier RSS growth is about
-79–82 MiB. Constructing an IR scalar/dyad for every entry instead costs
+79–82 MiB. The unchanged reader peaks near 633 MiB for its first complete
+product and 838,120 KiB by the second call in one retained process
+(`PROTOTYPE_8.md`); the latter is a high-water observation, not a leak
+diagnosis. Constructing an IR scalar/dyad for every entry instead costs
 0.346817 s and is rejected. A 6,098-character stdlib shell control costs
 0.001864 s, but does not certify the future composed product. Small fields,
 production shell execution, target bind/setup, pipeline/root validation, and a
@@ -454,8 +461,9 @@ An isolated `Path.read_text` probe measured 0.046713 s on its first read and
 separate in the final alternating measurement.
 
 `reports/PROTOTYPE_7.md` corrects the interpreted/capture comparison to an
-in-process alternating measurement with a control: 0.345750 s versus
-0.242277 s minimum process CPU, 1.427088x, with a 0.000950 s control floor.
+in-process order-balanced alternating measurement with a control: 0.351784 s
+versus 0.246319 s minimum process CPU, 1.428162x, with a 0.001129 s control
+floor.
 This is evidence for the explicitly scheduled exact value-string recognizer
 consult, not for today's per-character PDA loop and not a complete-envelope
 proof. The balanced eight-pair collector probe reports +0.004562 s process CPU

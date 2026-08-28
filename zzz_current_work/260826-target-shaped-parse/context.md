@@ -103,7 +103,9 @@ ambiguity replay, a conservative possessive-boundary proof, signature-derived
 regions including a non-JSON witness, an in-process interpreted/capture row,
 declaration-only morphisms, raw route continuation, a transparent-synthetic DAG
 witness, and an even-order collector comparison. These remain mechanism
-witnesses, not production throughput proof.
+witnesses, not production throughput proof. `PROTOTYPE_8.md` supplies the exact
+starting-tree RSS matrix and the persistent exact-meaning representation which
+separates dirty-cone semantic work from eager-result materialization.
 
 ## Current source state
 
@@ -383,9 +385,10 @@ special-casing the existing `IrMap` invariant.
 
 Read these before changing source:
 
-1. `zzz_current_work/260826-target-shaped-parse/reports/REVIEW_8.md` and
-   `PROTOTYPE_7.md` — the latest review and its corrected ambiguity, regular,
-   routing, typing, DAG, and measurement mechanisms. Read `REVIEW_7.md`,
+1. `zzz_current_work/260826-target-shaped-parse/reports/REVIEW_8.md`,
+   `PROTOTYPE_7.md`, and `PROTOTYPE_8.md` — the latest review, its corrected
+   ambiguity/regular/routing/typing/DAG mechanisms, persistent exact meanings,
+   and the exact §0 memory/consumer baseline. Read `REVIEW_7.md`,
    `PROTOTYPE_5.md`, and `PROTOTYPE_6.md` for provenance only.
 2. `zzz_current_work/260826-target-shaped-parse/reports/PROTOTYPE.md` — typed
    carrier/builder separation, real formulation binding, real reducer-action

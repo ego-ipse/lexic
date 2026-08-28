@@ -3,6 +3,12 @@
 **Phase:** post-`PROTOTYPE_5` consistency iteration. `src` remains unchanged.
 The work is confined to `proto/` and the active planning documents.
 
+**Supersession note (2026-08-29):** `PROTOTYPE_7.md` makes public morphisms
+declaration-only, replaces the public map-shape witness with private shape
+analysis, strengthens regular-region proof and derivation, rejects §3's
+child-local rule, and replaces §4's odd-pair collector row with an even run.
+The measurements below remain provenance only.
+
 ## 1 — reducer-free selection needs a third overload
 
 `proto/reducer_free_surface.py` pins three non-overlapping forms of the one
@@ -56,7 +62,7 @@ and actual engine integration. The 0.368907 s `ops` row remains an optimistic
 microkernel: it omits frames, transactions, the PDA driver, the merge region,
 and the rest of the document. It does not prove the complete <1.000 s gate.
 
-## 3 — root siblings are not child-local ambiguity points
+## 3 — historical child-local rule, rejected after REVIEW_8
 
 `proto/local_meaning_fold.py` now exercises a native start rule with two
 separate accepting items. Different root meanings refuse and equal root
@@ -64,19 +70,21 @@ meanings agree, each at four fold-body executions across the two tiny roots.
 The existing internal distant-point witness remains 4 child-local folds versus
 2,414 root-rooted folds.
 
-The resulting rule is two-part:
+The resulting rule was two-part, but its first part is unsound and no longer
+belongs to the design:
 
-- internal packed-family ambiguity compares the differing child meanings in
-  fresh local state;
+- internal packed-family ambiguity comparing only differing child meanings is
+  rejected by the dropping-parent counterexample;
 - separate accepting root items require one complete fold per root, because no
   internal packed point contains that choice.
 
 `resolve=` remains the existing derivation resolver. A predictive ambiguity
 must bail before target-state commit; Earley supplies the complete derivation
-pair, and only the chosen derivation constructs the final target product. This
-preserves one resolver contract without a generated-model shadow.
+pair, and only the chosen derivation constructs the final target product.
+`PROTOTYPE_7.md` preserves that contract by replaying the dirty
+completed-handle ancestor cone to the complete root meaning instead.
 
-## 4 — the original collector delta was order-confounded
+## 4 — order correction, later superseded by an even-pair run
 
 `proto/carrier_gc_cost.py` previously ran enabled then disabled in every pair.
 The revised probe alternates pair order, forces the requested state before the
@@ -97,9 +105,12 @@ Median paired enabled-minus-disabled:
 | process CPU | +0.005439 s |
 | wall | +0.005182 s |
 
-The prior +0.016948 s / ~11% fixed-order claim is rejected. The corrected row
-still supports the only production ruling needed here: acceptance measurements
-run with GC enabled, compare equal GC states, and never manipulate GC in `src`.
+The prior +0.016948 s / ~11% fixed-order claim is rejected. Because seven pairs
+are not order-balanced, this row is not the final toggle measurement.
+`PROTOTYPE_7.md` records eight alternating pairs and makes the GC-enabled
+carrier row the headline. The production ruling remains: acceptance
+measurements run with GC enabled, compare equal GC states, and never manipulate
+GC in `src`.
 
 ## Verification
 

@@ -23,7 +23,11 @@ root-equivalent ancestor-cone replay, conservative possessive-boundary proof,
 signature-derived JSON and non-JSON regions, in-process controlled
 interpreted/capture timing, declaration-only morphisms, zero-arm raw routing,
 transparent-synthetic DAG accounting, and an even-order GC row. The queue below
-uses these mechanisms; source implementation has still not begun.
+uses these mechanisms. `reports/PROTOTYPE_8.md` then closes §0 with exact
+source/environment/consumer inventory and scenario-matched RSS rows, and adds
+the persistent exact meaning representation needed to keep flat eager
+accumulators from rebuilding once per alternate. Source implementation has
+still not begun.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -126,24 +130,24 @@ and export follow-ups until every item here is complete.
 
 ## 0 — orient and pin the starting tree
 
-- [ ] Read, in order:
+- [x] Read, in order:
       `context.md`, `goal.md`, `DESIGN.md`, `docs/STYLE.md`,
       `.wiki/lexic/architecture.md`, `.wiki/lexic/decisions.md`,
       `.wiki/lexic/invariants.md`, `.wiki/lexic/public-api.md`,
       `.wiki/lexic/ir-shapes.md`, `.wiki/lexic/parallel-parsing.md`, and
       `.wiki/lexic/tokens.md`.
-- [ ] Read the evidence:
+- [x] Read the evidence:
       `zzz_current_work/260821-one-path/DEMAND_PROJECTION.md`,
       `zzz_current_work/260821-one-path/reports/i9_report.md`,
       `zzz_current_work/260821-one-path/reports/i23_report.md`, and
       `zzz_current_work/260821-one-path/reports/i24_report.md`.
-- [ ] Run `git status --short` and preserve unrelated user work.
-- [ ] Confirm that the direct-carrier commit and
+- [x] Run `git status --short` and preserve unrelated user work.
+- [x] Confirm that the direct-carrier commit and
       `src/lexic/parsing/parallel/stitch/carrier.py` are absent. The user
       deleted the untracked file; do not reconstruct it.
-- [ ] Record the exact baseline commit and interpreter/build details in the new
+- [x] Record the exact baseline commit and interpreter/build details in the new
       implementation report. Do not add a production timing seam.
-- [ ] Before source edits, freeze the external baseline protocol and witness
+- [x] Before source edits, freeze the external baseline protocol and witness
       matrix: fixture hashes, environment/topology, public/direct engine route,
       requested/actual workers, engaged/declined split shape, result/refusal
       digest, cold compile/bind, cold first parse, warmed parse, opcode/capture
@@ -156,18 +160,21 @@ and export follow-ups until every item here is complete.
       The baseline source remains reproducible
       from commit `0faa7289`; compare it later in alternating whole processes,
       not by trusting measurements from different machine states.
-- [ ] Measure baseline peak RSS on the `0faa7289` tree in the §0 matrix —
+- [x] Measure baseline peak RSS on the `0faa7289` tree in the §0 matrix —
       resident and cold/warm path rows — so `goal.md`'s "not above the
       baseline" RSS criterion is a recorded number before any candidate row
-      exists. The only RSS figure in the record today is the prototype's own
-      79–82 MiB retained-carrier increase, which is not a baseline.
-- [ ] Inventory all callers before moving these symbols:
+      exists. `reports/PROTOTYPE_8.md` records 633,000 KiB resident-first,
+      632,888 KiB path-cold, and 838,120 KiB on the second call in one retained
+      warm process, all with the same final-table digest. The 79–82 MiB
+      retained-carrier increase is a separate prototype figure, not a baseline.
+- [x] Inventory all callers before moving these symbols:
       `Reducer`, `ModelBody`, `ModelFold`, `RuleFold`, `fold_config`,
       `model_fold`, `derive_reduction`, `ReduceFold`, `Template`,
       `split_model`, `read`, `tokenizer_of`, and `IrTokenizer.from_merges`.
 
-Exit: the report names the source baseline and every current consumer of a
-surface scheduled to move/delete.
+Exit: passed. `reports/PROTOTYPE_8.md` names the exact source baseline,
+environment, frozen matrix, scenario-matched RSS rows, and every current
+production consumer of a surface scheduled to move/delete.
 
 ## 1 — prove the types and flat ABI before broad source edits
 
@@ -697,7 +704,7 @@ costs. No target is a post-reduction mapper.
       both decline. Mechanism, JSON/non-JSON derivation, all formulation rows,
       controlled timing, and decline are prototyped in
       `proto/regular_region_proof.py` and `regular_region_lowering.py`; the
-      ~105x objective is contingent on this task. The 0.345750 s interpreted
+      ~105x objective is contingent on this task. The 0.351784 s interpreted
       microkernel assumes §4's scheduled rule recognizer consult and still
       omits driver, frame, transaction, merge-region, and remaining-document
       work, so it does not prove the complete `<1.000 s` envelope; the §7 timed
@@ -739,7 +746,9 @@ and the timed resident row is recorded inside its stop factor.
       derivation. For one alternate family, mark its completed owner and
       ancestors dirty, replay only that cone in a fresh isolated product state,
       and reuse unchanged sibling meanings. Never copy the base candidate's
-      live builders/logs. Index every predecessor key in a resolved completion
+      live builders/logs or its document-sized meaning memo: use a read-only
+      baseline plus one sparse alternate overlay. Index every predecessor key
+      in a resolved completion
       chain to its owning completed handle; a packed choice can live in that
       column rather than at a direct child handle. Completion ranges are
       selected by completed code so contextual clones retain their own meaning
