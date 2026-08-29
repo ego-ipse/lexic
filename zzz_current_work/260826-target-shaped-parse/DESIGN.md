@@ -5,10 +5,13 @@ and ABI/lifecycle §3. The §3 real-engine gates must close before §4. This
 replaces the rejected direct-carrier and post-parse demand-projection
 directions. REVIEW_8's NO-GO findings are answered by the `PROTOTYPE_7` root,
 regular, routing, and measurement corrections plus `PROTOTYPE_8`'s persistent
-meaning and exact §0 baseline. `PROTOTYPE_10.md` supplies useful island,
-custom-class, keyed-meaning, and RSS evidence; `REVIEW_10.md` accepts its narrow
-results and keeps the unsupported composite gates open. Production source has
-not started. This document is not an implementation checklist.
+meaning and exact §0 baseline. `PROTOTYPE_11.md` establishes the one-flip
+defect, real keyed-product costs, complete resolver-pair feasibility, a flat
+dependency-index candidate, and the non-pool custom-binding lifecycle. The
+cyclic relation, tokenizer validation equivalence, zero-allocation control,
+real trace-frame cost, pool retention, and resolver scope remain explicit
+gates. Production source has not started. This document is not an
+implementation checklist.
 
 ## Decision
 
@@ -312,18 +315,27 @@ unless the compiled completion operations carry a proved separability
 certificate. Purity alone is insufficient: two substitutions can be
 individually erased and jointly observable. Without that certificate, the
 runtime must preserve every jointly observable combination through an exact
-mechanism. Its representation, semantic-deduplication law, and pruning rule
-remain a planning gate before §8.
+mechanism. Per-node semantic value sets over all packed families, island-leaf
+options, and sibling accepting items are the reference relation on an acyclic
+completed-node graph. The prototype's cyclic escape remains rejected because
+its global assignment enumeration is `2^k` with unbounded `k` and defines only
+a one-lap relation. Exact cyclic termination, the production meaning
+representation, and its semantic-deduplication law remain a planning gate
+before §8.
 
 The dependency index is proportional to the default derivation and is built
 once only after a real arm-choice ambiguity is discovered. It is not allocated
 for unambiguous parses or split-only families. §12 measures it with an
 ambiguous-input peak-RSS row rather than folding it into the unambiguous
 tokenizer ceiling. `PROTOTYPE_10.md` rejects a Python dict-of-sets index at
-about 1.9 KiB per input character. Production uses neither that shape nor its
-Qwen-scale extrapolation; a flat dense-handle edge representation must first
-prove exact dirty-cone parity, build cost, and memory at the retained ambiguity
-witness scales.
+about 1.9 KiB per input character. `PROTOTYPE_11.md` proves dirty-cone parity
+for a flat CSR/forward-star candidate; its arrays cost 112 B per character, but
+the measured retained shape costs 293–316 B per character because it includes
+a handle-numbering dictionary. Production assigns dense numbers when
+completions are created and must measure the dictionary-free integrated build.
+The control path must allocate no ambiguity structure at all, and trace-frame
+pricing must include one child tuple per completion rather than one tuple for
+the entire ancestor depth.
 
 `ParseState` is not an unconditional engine tax. A product with no mutable
 builders, transaction log, or deferred verdict—most importantly the existing
@@ -453,10 +465,13 @@ as the constructor symbol plus its field/path data. A private homogeneous
 registry caches only a result-free lowering plan; binding reconstructs the
 result-typed view without casts. The class object is invoked only at root
 finalization. No bound callable, lambda, factory, executor, mutable rebinding
-registry, import-path lookup, or class inspection is admitted. Before §6 exits,
-the bound executable must remain usable after source-artefact collection and
-cache eviction by retaining exactly its immutable derived tables, and the
-closed frequent-completion path must remain callback-free.
+registry, import-path lookup, or class inspection is admitted. The external
+binding witness retains derived grammar data and tables, executes after source
+collection and cache eviction, recompiles a larger table tier without the
+source artefact, tolerates unhashable constructor classes and identity reuse,
+and cold-binds once under the free-threaded interpreter. Before §6 exits, a
+real pool must retain and run that bound view after source collection, and the
+production frequent-completion path must remain callback-free.
 
 ### Demand
 
@@ -720,12 +735,15 @@ its own equality, duplicate, and order law before claiming the same allocation
 bound. Ordered contribution trees are rejected for keyed products because
 insertion order is not mapping meaning. The incremental hash-priority treap is
 also rejected: it costs seconds at Qwen scale and hash collisions make its
-claimed canonical shape insertion-order-dependent. The prior plain-dict timing
-is only a lower-level reference, not a measurement of `IrMap` or a ready
-`IrTokenizer`. Until real product rows decide otherwise, keyed products retain
-the exact isolated whole-result cold comparison as the correctness baseline,
-not as a performance conclusion. A custom target without an exact shareable
-meaning does likewise; that limitation
+claimed canonical shape insertion-order-dependent. Real carrier rows now
+select the exact isolated cold comparison for recursive Python dictionaries
+and establish document-level normalization for `IrMap`'s
+key/value/duplicate law. The ready-tokenizer row prices every valid constructor
+lane, but its normalized verdict omits final-constructor refusals for duplicate
+ordinals and duplicate merge keys. Tokenizer adoption therefore remains open
+until its full validation relation is represented and differential. A custom
+target without an exact shareable meaning uses the cold comparison; that
+limitation
 is explicit and never moves a graph, callback, or alternate result onto the
 unambiguous path.
 
@@ -747,12 +765,18 @@ representation; otherwise the exact cold whole-result comparison above owns
 both temporary results explicitly.
 
 An island seed is not a span-local refusal or syntax error. Equal root meanings
-keep the predictive result. The resolver handoff scope remains explicit
-planning work: today's island implementation supplies an island-local pair,
-while the general Earley path supplies requested-root derivations. Before §8,
-the implementation must prove which pair makes PDA and Earley expose the same
-public ambiguity opt-out. If complete-document derivations are required, the
-extra recognition/tree construction occurs only after root inequality and an
+keep the predictive result. Both complete-document derivations are
+constructible and exactly associated with their target meanings. On the
+one-island Earley-delegated witness, replacing the payload leaf with the
+retained island derivation creates the complete pair without another
+recognition. The resolver handoff scope remains explicit planning work: today's
+island implementation supplies an island-local pair, while the general Earley
+path supplies requested-root derivations, and a context-sensitive resolver can
+choose differently between them. Before §8, the implementation must decide
+which pair makes PDA and Earley expose the same public ambiguity opt-out. A
+complete-document design must add occurrence-identified multi-island splicing;
+the fused PDA path still needs one cold recognition because it retains no
+document `ParseTree`. Any extra work occurs only after root inequality and an
 actual `resolve=` invocation; refusal and equality perform none.
 
 Fold execution over the shared packed forest is a separate stated contract

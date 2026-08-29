@@ -26,8 +26,8 @@ of those bytes, but it does not need the intermediate representations.
 The replacement is target-shaped parsing: compile grammar + reducer semantics
 + optional upper schema + target algebra into one parser product, then construct
 only the requested codomain. The codomain may be the reducer's default IR, a
-Python JSON tree, a certified extent, or an `IrTokenizer`. An arbitrary custom
-Python result is optional and lands only if §6 proves immutable,
+Python JSON tree, a certified extent, an `IrTokenizer`, or an arbitrary custom
+Python result. The custom product lands only after §6 proves pool-retained,
 eviction-stable constructor lowering without a public callback/factory field.
 
 Performance depends on the codomain. Extent capture, a full Python tree, a full
@@ -279,30 +279,60 @@ unchanged branches, and materialize only the chosen eager result. Competing
 work uses isolated product state, and the unambiguous hot path retains no
 witness graph.
 
-`PROTOTYPE_10.md` narrows, but does not close, that architecture. A single
-island alternate can replay through an Earley leaf dependency or PDA completion
-trace, and island discovery must include sibling accepting items. Its proposed
-one-flip rule for multiple/nested seeds is not justified: pure completion
-functions can erase each substitution separately and expose them jointly.
-`REVIEW_10.md` therefore keeps interaction propagation and resolver handoff as
-planning gates.
+`PROTOTYPE_11.md` proves the interaction defect on a real two-point chart:
+production `another_meaning` can miss a jointly observable result when every
+single flip is equal to the baseline. Per-node semantic value sets over packed
+families, island-leaf options, and sibling accepting items are the exact
+reference relation on an acyclic completed-node graph. A compiler certificate
+may avoid propagation only where the complete continuation is choice-free and
+injective in retained children or constant in dropped children. The proposed
+cyclic escape is not accepted: it enumerates `2^k` global assignments with no
+bound on reachable choice points and defines only a one-lap relation. Cyclic
+semantics, general semantic deduplication, and the production representation
+remain planning gates.
+
+The resolver prototype now constructs both real complete-document trees,
+associates them with their target meanings, and proves that island-local and
+complete-document resolvers can choose differently. On its one-island Earley
+witness, replacing the delegated payload leaf with the retained island
+derivation produces the complete pair without another recognition. This
+closes feasibility, not policy: the public implementation currently supplies
+an island-local pair, the complete-document scope has not been ruled, a
+multi-island splice needs occurrence identity, and the fused PDA path has no
+document `ParseTree` to splice.
 
 For meanings, ordered persistent contribution trees remain sequence-only.
 They are wrong for order-insensitive mappings, and the incremental hash treap
-is rejected on both construction cost and collision correctness. The reported
-Qwen cold row built only a plain encode dictionary, so real Python-map, `IrMap`,
-and complete `IrTokenizer` construction/comparison still require separate
-measurements. The dict-of-sets dependency index is also rejected at roughly
-1.9 KiB per character; the replacement flat representation remains to be
-prototyped. Recursive meaning equality is already known to fail on the retained
-deep witness and must become iterative.
+is rejected on both construction cost and collision correctness. Real rows now
+price recursive Python dictionaries under all declared duplicate policies,
+canonical `IrMap`, and ready `IrTokenizer` construction including vocab,
+decode, ranks, merges, and pipeline. Python's exact cold comparison remains
+cheaper than normalized document comparison at the measured medium scale.
+`IrMap`'s document-level key normalization matches its exercised carrier laws.
+The tokenizer document-level candidate is not yet exact: duplicate ordinals
+and duplicate merge keys can refuse in final construction but are absent from
+its normalized verdict lane. Its valid-input timings stand; adoption waits for
+the complete validation relation.
 
-Custom classes remain in scope. One immutable class object is the constructor
-symbol; the rest of the declaration is inert data. A homogeneous result-free
-plan cache plus a reconstructed result-typed view resolves the typing shape.
-The existing prototype does not yet prove executable lifetime after source
-collection, because its runner still accepts the source grammar, and it must
-remove its `__qualname__` inspection.
+The dict-of-sets dependency index remains rejected at roughly 1.9 KiB per
+character. A flat CSR/forward-star candidate proves dirty-cone parity at the
+retained scaling ladder and uses 112 B per character in arrays, but the
+actually retained prototype costs 293–316 B per character because it still
+keeps a handle-numbering dictionary. Production must assign dense numbers as
+completions are created and measure that integrated shape. The supposed
+zero-allocation control still constructs a document-sized meaning overlay, and
+the trace-frame row shares one child tuple across every depth rather than one
+tuple per completion; neither measurement closes its gate. Recursive meaning
+equality is already known to fail on the retained deep witness and must become
+iterative.
+
+Custom classes remain in scope. The revised prototype proves a reflection-free
+bound executable which retains derived tables, parses after its source
+artefact and registry entry die, recompiles a larger tier from retained derived
+grammar data, tolerates unhashable constructor classes through an identity-plus-
+pin cache, and cold-binds once under the free-threaded interpreter. It does not
+exercise a pool-owned bound executable. Pool retention and production paid-loop
+neutrality therefore remain the §6 gate.
 
 ## Current templating path
 

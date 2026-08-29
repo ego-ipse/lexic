@@ -1,6 +1,45 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — Prototype 10 closure audit and next investigation (2026-08-29)
+## CURRENT SESSION — Prototype 11 evidence fold and surviving gates (2026-08-29)
+
+`reports/PROTOTYPE_11.md` and its five revised/new prototypes were audited
+against `PROMPT_11.md`, the active design, and their executable behavior. Ruff
+and Pyright pass. The ambiguity-interaction, generic keyed-product,
+resolver-pair, custom-binding, control, and trace-frame witnesses were rerun
+sequentially; the interpreter reports `Py_GIL_DISABLED=1`. No Qwen benchmark
+was rerun during the documentation audit.
+
+Established results are now folded into `context.md`, `goal.md`, `DESIGN.md`,
+and `TODO.md`. Production one-flip ambiguity is unsound on interacting sources;
+per-node deduplicated meaning sets are the exact acyclic reference relation,
+subject only to compiler-proved choice-free injective/constant continuation
+shortcuts. Real carrier rows select cold comparison for recursive Python
+dictionaries and document-level normalization for `IrMap`. Complete resolver
+pairs and a zero-recognition one-island Earley splice are feasible. The flat
+CSR/forward-star index has dirty-cone parity and measured retained cost. The
+custom binding core executes through source death, tier escape, eviction,
+unhashable constructors, identity-safe caching, and concurrent free-threaded
+cold binding.
+
+No composite gate was falsely closed. Cyclic interaction still uses an
+unbounded `2^k` one-lap fallback; tokenizer normalization omits duplicate-id and
+duplicate-merge constructor refusals; the ambiguity control allocates and then
+clears a real meaning overlay; the frame row shares one child tuple across all
+depths and therefore underprices production-shaped frames; the custom witness
+never enters a real retained pool; and resolver scope has no recorded user
+ruling. `TODO.md` marks each established sub-decision closed and each remaining
+mechanism or decision separately open. Production source remains untouched.
+
+`PROMPT_12.md` assigns only the four remaining mechanism gates: exact cyclic
+ambiguity, complete tokenizer refusal equivalence, dictionary-free flat
+structures plus honest control/frame accounting, and real-pool custom binding
+with paid-loop neutrality. Its done-gate requires two specialized internal
+adversarial reviewers and one fresh closure auditor, invoked sequentially after
+all benchmarks, with substantive findings fixed and rerun. If the investigator
+cannot call its internal `Agent` tool, it must stop and leave the complete
+reviewer prompts for manual execution rather than declaring readiness.
+
+## PRIOR SESSION — Prototype 10 closure audit and next investigation (2026-08-29)
 
 The external investigation produced `reports/PROTOTYPE_10.md` and four
 prototypes. `reports/REVIEW_10.md` accepts the narrow results: single-island

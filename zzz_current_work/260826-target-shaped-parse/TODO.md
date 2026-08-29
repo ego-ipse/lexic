@@ -43,7 +43,15 @@ through one immutable class constructor symbol plus a result-free plan cache.
 `reports/REVIEW_10.md` keeps the unsupported composite claims open: multiple
 seed interaction, resolver scope, real keyed-product cost, flat-index cost,
 actual seed-lane RSS, and executable custom binding lifetime. `PROMPT_11.md`
-owns the next evidence round.
+tasks the resulting evidence round. `reports/PROTOTYPE_11.md` now establishes
+the one-flip defect and exact acyclic reference relation, real carrier costs,
+complete resolver-pair and one-island splice feasibility, flat-index parity,
+and the non-pool custom-binding lifecycle. It does not close cyclic ambiguity,
+the tokenizer's full validation relation, dictionary-free numbering, the
+zero-allocation control, real trace-frame pricing, pool retention, or resolver
+scope. Those remaining gates are explicit below. `PROMPT_12.md` tasks the four
+mechanism gates and requires sequential internal adversarial review; resolver
+scope remains a separate user decision.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -653,14 +661,21 @@ the §8/§9 re-runs.
       rebinding registry, import-path lookup, reflection, or second executor is
       admitted. `PROTOTYPE_10.md` proves the public/typing shape; omission was
       rejected by the user.
-- [ ] **PLANNING REQUIRED AT §6 EXIT:** close the remaining binding proof before
-      §7. The pool-retained bound executable must parse/build successfully
-      after its source artefact and registry entry die, without accepting the
-      source grammar again at `run`; cache identity must tolerate unhashable
-      class objects and id reuse; eviction must recompute equivalently; and the
-      class is invoked only at root finalization. Remove the prototype's
-      `__qualname__` inspection and measure that frequent completions contain no
-      constructor/callback traffic. `PROMPT_11.md` §E owns the prototype.
+- [x] **PLANNING REQUIRED AT §6 EXIT — NON-POOL BINDING PART CLOSED:**
+      `proto/custom_class_target.py` binds without class inspection, retains
+      derived grammar data and tables rather than the source artefact, runs
+      after source death and registry eviction, recompiles a larger table tier,
+      tolerates unhashable constructor classes and identity reuse through an
+      identity-plus-pin cache, recomputes equivalently after eviction, and
+      cold-binds once under the free-threaded interpreter. Construction has one
+      structural call site after the completion walk.
+- [ ] **PLANNING REQUIRED AT §6 EXIT:** place the bound executable in the real
+      retained pool lifecycle, release its source artefact and registry entry,
+      then parse/build successfully through that pool. Measure the production
+      completion path separately and prove it contains no constructor or
+      callback traffic. A local variable or binding-registry entry is not the
+      pool-retention witness. `reports/PROTOTYPE_11.md` §E supplies the proven
+      substrate; the pool and paid-loop rows remain open.
 - [ ] Implement `select(spec)` as the finite nested-mapping morphism specified
       in `DESIGN.md`: declaration-ordered path results, absent missing paths,
       retained reducer values, recognition-only extensions, decoded duplicate
@@ -836,30 +851,59 @@ and the timed resident row is recorded inside its stop factor.
       isolated replay, dropping-parent result, and sibling-accepting-item
       requirement for one alternate substitution. Equal requested roots retain
       the predictive result without recognizing the document again.
-- [ ] **PLANNING REQUIRED BEFORE §8:** close multiple/nested interaction and
-      resolver handoff before source ambiguity work. One-flip replay is legal
-      only under a compiler-proved separability law; purity is insufficient.
-      Otherwise preserve every jointly observable combination through an exact
-      mechanism whose representation and pruning law are proved. Build and
-      invoke the real resolver pair rather than counting ambiguity points, then
-      decide island-local versus complete requested-root scope under the
-      PDA/Earley public-equivalence invariant.
-      Refusal and equal-root paths perform no complete-document reparse.
-      `PROMPT_11.md` §§A and C own the proof.
-- [ ] **DECISION REQUIRED AT §8 EXIT:** for map, IR, and tokenizer products,
-      choose exact persistent meanings only where a product-specific proof and
-      measurement establish equality, duplicate, order, and allocation
-      behavior. Otherwise record and retain the exact isolated whole-result
-      cold comparison. Ordered contribution trees and the incremental
-      hash-priority treap are already rejected for keyed products. The prior
-      0.025-second row built only a plain encode dict and does not decide Python
-      map, `IrMap`, or complete `IrTokenizer` cost. Measure each real product's
-      equal, changed-value, key-set, duplicate, dropped, and finalization cases.
-      No digest or analogy decides this. `PROMPT_11.md` §B owns the evidence.
+- [x] **PLANNING REQUIRED BEFORE §8 — ACYCLIC INTERACTION PART CLOSED:**
+      production one-flip replay is disproven on a real two-point chart. On an
+      acyclic completed-node graph, the exact reference relation is the
+      semantic-deduplicated value set over each node's packed families and
+      island-leaf options, unioned across sibling accepting items. A compiler
+      may short-circuit only under a choice-free continuation proved injective
+      in retained children or constant in dropped children. The shipped model
+      fold satisfies that narrower condition; purity alone never grants it.
+- [ ] **PLANNING REQUIRED BEFORE §8 — CYCLIC INTERACTION:** replace the
+      prototype's global `2^k` assignment enumeration. Reachable choice count
+      is unbounded, and the consumed-choice `FastTree` fallback defines only a
+      one-lap relation. Prove an exact terminating cyclic representation and
+      semantic-deduplication law, or state and justify an explicit compile-time
+      refusal contract. Do not accept a cap, sampled flips, unconditional
+      Cartesian enumeration, or the current one-lap relation as exact.
+- [x] **PLANNING REQUIRED BEFORE §8 — RESOLVER MECHANISM PART CLOSED:** both
+      complete-document trees are constructible and associated with their
+      replayed meanings. A context-sensitive resolver can choose differently
+      between island-local and complete pairs. On the one-island
+      Earley-delegated witness, occurrence replacement splices the retained
+      island derivation into a structurally identical complete pair with no
+      recognition. Refusal and equal-root paths perform no document reparse.
+- [ ] **DECISION REQUIRED BEFORE §8 — RESOLVER SCOPE:** choose today's
+      island-local pair or complete-document pairs for both engines under the
+      PDA/Earley public-equivalence invariant. If complete pairs are chosen,
+      specify occurrence-identified multi-island splicing and the fused PDA's
+      one cold recognition after inequality and an actual `resolve=` call. No
+      user ruling is inferred from the investigator report.
+- [x] **DECISION REQUIRED AT §8 EXIT — PYTHON AND IRMAP CLOSED:** real carrier
+      rows cover equal, changed-value, key-set-changing, duplicate, dropped,
+      merge-order, pipeline, and finalization cases. Recursive Python mappings
+      keep the exact isolated cold comparison; their normalized comparison is
+      slower at the measured medium scale. `IrMap` uses document-level
+      key/value/duplicate normalization rather than reconstructing an alternate
+      carrier. Ordered contribution trees and the incremental keyed treap stay
+      rejected.
+- [ ] **PLANNING REQUIRED AT §8 EXIT — TOKENIZER VALIDATION RELATION:** the
+      measured ready-tokenizer construction and valid-lane timings stand, but
+      the document-level candidate does not represent every constructor
+      refusal. Add duplicate-ordinal, duplicate-merge-key, and every other
+      `IrTokenizer.from_indexes` validation outcome to the ordered verdict
+      relation; differential both-equal and differing refusals against real
+      construction before adopting it. Until then, exact isolated whole-result
+      comparison remains the correctness fallback. No digest or analogy
+      decides this.
 
 - [ ] Replace any generated-model-only ambiguity hook with the product's typed
       root-meaning operation and equality law in
       `parsing/earley/kernel/forest/support/ambiguity.py` and its callers.
+- [ ] Remove `another_meaning`'s single-flip claim. No public entry currently
+      accepts its arbitrary `build` callable, but the internal contract is
+      false. Replace it with the settled exact interaction mechanism; do not
+      preserve the callable-shaped helper as pre-alpha compatibility surface.
 - [ ] Generated-model products reproduce current model-value ambiguity
       semantics. Default IR uses the definitive complete reduced-root relation;
       enumerate and review differences from the superseded variant-model
@@ -888,10 +932,18 @@ and the timed resident row is recorded inside its stop factor.
       The predecessor/parent dependency index is proportional to the default
       derivation and is built once only after a real arm-choice ambiguity;
       unambiguous and split-only parses allocate none. A dict-of-sets index is
-      forbidden by `PROTOTYPE_10.md`'s measured memory growth. Prototype a flat
-      dense-handle edge representation, prove dirty-cone parity against the
-      dict oracle, and measure numbering/build/replay/RSS cost before choosing
-      the production layout (`PROMPT_11.md` §D).
+      forbidden by `PROTOTYPE_10.md`'s measured memory growth.
+- [x] **FLAT-INDEX MECHANISM PART CLOSED:** `proto/ambiguity_rss.py` proves
+      dirty-cone parity for CSR/forward-star parent and owner edges across the
+      2,000/8,000/32,000 scaling ladder and a two-key shared-ancestor witness.
+      Arrays cost 112 B per character. The retained prototype costs 293–316 B
+      per character because its handle-to-dense-number dictionary remains;
+      that larger figure, not the array-only figure, is the measured result.
+- [ ] Assign dense completed-handle numbers during production completion so no
+      numbering dictionary survives. Measure integrated numbering, index build,
+      replay CPU, wall, and RSS; prove the same dirty-cone parity and cleanup.
+      Do not infer the dictionary-free 112 B-per-character result from the
+      external prototype.
 - [ ] Give sequence-like built-in accumulators an immutable persistent
       contribution meaning.
       Path-copy only dirty ancestors, identity-share unchanged branches, and
@@ -934,6 +986,11 @@ and the timed resident row is recorded inside its stop factor.
       sets, and verdict order unchanged.
 - [ ] Carry no ambiguity witness graph on a statically/predictively unambiguous
       path.
+- [ ] Price the real PDA seed/trace lane with one child tuple per completion,
+      shared only among seeds crossing that completion. The Prototype 11
+      96–98 B-per-frame result shares one tuple across the entire ancestor
+      depth and is rejected; on the measured free-threaded interpreter a
+      two-child tuple alone is 64 bytes.
 - [ ] Re-run the §5 property differential through `tools/guarded.sh` from this
       effort's `proto/` at this exit (the oracle is retained for exactly this)
       and record command and result in `reports/`.
@@ -1123,9 +1180,13 @@ folder.
       ambiguity-unreachable control which allocates no memo/index/overlay/seed/
       trace, allocate and measure real seed/trace frames rather than estimating
       them, and keep lazy chart expansion out of attributed product-structure
-      bytes. The ambiguous row must use the selected flat dependency index and
-      assert its semantic result. `PROMPT_11.md` §D owns this work; do not
-      improvise it inside the benchmark window.
+      bytes. Empty side containers do not prove this when the executed control
+      still allocates and clears an `Overlay`. Frame pricing must allocate one
+      child tuple per completion. The ambiguous row must use the
+      dictionary-free production flat index and assert its semantic result.
+      `PROTOTYPE_11.md` supplies the scaling ladder and flat-index reference;
+      its control and frame figures are rejected. Do not improvise corrections
+      inside the benchmark window.
 - [ ] Do not use `tools/benchmark/compare.py` unchanged for MT rows: its worker
       cohort is prepared concurrently, and preparation performs real parses.
       Prepare, warm, time, and close one entire baseline/candidate/control

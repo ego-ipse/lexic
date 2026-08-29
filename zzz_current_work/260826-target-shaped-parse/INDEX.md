@@ -1,12 +1,15 @@
 # Index — target-shaped parsing
 
 **Current state (2026-08-29):** `REVIEW_9.md` returned GO for §2.
-`PROTOTYPE_10.md` investigated the remaining design gates; `REVIEW_10.md`
-accepts its narrow eliminations and requirements while rejecting five
-overstated closures. The active documents distinguish those closed facts from
-the multiple-seed, resolver, real keyed-product, flat-index/RSS, and custom
-executable-lifetime gates. `PROMPT_11.md` tasks the next evidence round.
-Production source has not started in this effort.
+`PROTOTYPE_11.md` establishes the one-flip defect, real keyed-product cost
+rows, complete resolver-pair construction and a one-island splice, a flat
+dependency-index candidate, and the non-pool custom-binding lifecycle. The
+active documents fold those results without accepting the report's unbounded
+cyclic Cartesian fallback, incomplete tokenizer refusal relation, invalid
+zero-allocation control, underpriced trace frames, untested pool retention, or
+unrecorded resolver-scope ruling. Production source has not started in this
+effort. `PROMPT_12.md` tasks only the four surviving mechanism gates and makes
+sequential internal adversarial review part of its done-gate.
 
 ## Start here
 
@@ -31,9 +34,19 @@ before source work.
 
 The current packet is:
 
+- [`PROMPT_12.md`](PROMPT_12.md) — focused tasking for cyclic ambiguity,
+  tokenizer refusals, production-shaped ambiguity structures, and custom pool
+  retention, followed by three sequential internal adversarial reviews;
+- [`reports/PROTOTYPE_11.md`](reports/PROTOTYPE_11.md) — latest mechanism and
+  measurement evidence; use it through the narrower conclusions recorded in
+  the active documents;
+- [`reports/P11_ADVERSARIAL.md`](reports/P11_ADVERSARIAL.md) — the
+  investigator's adversarial pass over Prototype 11; useful provenance, but it
+  does not close the remaining gates enumerated above;
+- [`PROMPT_11.md`](PROMPT_11.md) — exact tasking and acceptance conditions for
+  Prototype 11;
 - [`reports/REVIEW_10.md`](reports/REVIEW_10.md) — closure audit of the latest
-  investigation; records which conclusions stand and which gates remain open;
-- [`PROMPT_11.md`](PROMPT_11.md) — exact tasking for the next prototype round;
+  preceding investigation; records the gates Prototype 11 was asked to close;
 - [`reports/PROTOTYPE_10.md`](reports/PROTOTYPE_10.md) — island, custom-class,
   keyed-meaning, and ambiguity-RSS evidence, constrained by `REVIEW_10.md`;
 - [`reports/REVIEW_9.md`](reports/REVIEW_9.md) — latest independent review; GO
@@ -73,6 +86,8 @@ newer reports do not explicitly supersede them.
 | [`PROTOTYPE_9.md`](reports/PROTOTYPE_9.md) | Executes the REVIEW_9 proof/routing/ABI corrections and enumerates the remaining marked planning gates. |
 | [`PROTOTYPE_10.md`](reports/PROTOTYPE_10.md) | Investigates island seeds, custom classes, keyed meanings, and ambiguity RSS; use only through REVIEW_10's corrected scope. |
 | [`REVIEW_10.md`](reports/REVIEW_10.md) | Accepts the narrow Prototype 10 results and identifies the unsupported interaction, measurement, resolver, RSS, and lifetime claims. |
+| [`PROTOTYPE_11.md`](reports/PROTOTYPE_11.md) | Supplies the latest interaction, keyed-product, resolver, flat-index, and custom-binding evidence; several claimed closures remain gates in the active documents. |
+| [`P11_ADVERSARIAL.md`](reports/P11_ADVERSARIAL.md) | Records the investigator's internal adversarial passes and corrections to Prototype 11. |
 
 ## Prototype inventory
 
@@ -81,7 +96,8 @@ measurement witnesses, never production modules.
 
 | Prototype | One-line purpose |
 |---|---|
-| [`ambiguity_rss.py`](proto/ambiguity_rss.py) | Establishes the retained ambiguous-memory witness and rejects a dict-of-sets dependency index; its seed-lane/control protocol is incomplete. |
+| [`ambiguity_interaction.py`](proto/ambiguity_interaction.py) | Disproves one-flip interaction and prototypes exact acyclic value-set propagation; its cyclic Cartesian fallback remains rejected. |
+| [`ambiguity_rss.py`](proto/ambiguity_rss.py) | Proves flat-index dirty-cone parity and retained size; its control still allocates a meaning overlay and its trace-frame row underprices child tuples. |
 | [`anchored_tokenizer_regions.py`](proto/anchored_tokenizer_regions.py) | Measures one-pass target-region capture from schema route anchors. |
 | [`baseline_rss.py`](proto/baseline_rss.py) | Measures unchanged-reader peak RSS for resident, cold-path, and retained warm-path scenarios. |
 | [`bulk_lexical_cost.py`](proto/bulk_lexical_cost.py) | Measures grammar-derived bulk lexical recognition across real grammars. |
@@ -91,9 +107,10 @@ measurement witnesses, never production modules.
 | [`carrier_gc_cost.py`](proto/carrier_gc_cost.py) | Measures the composed carrier with collector state explicit and order-balanced. |
 | [`composed_ir_regions.py`](proto/composed_ir_regions.py) | Measures routed high-volume capture into final tokenizer IR leaves; the leaf-heavy representation is rejected. |
 | [`composed_native_tokenizer.py`](proto/composed_native_tokenizer.py) | Measures native target capture through canonical final tokenizer indexes and a ready record. |
-| [`custom_class_target.py`](proto/custom_class_target.py) | Proves the constructor-symbol/result-free-plan typing shape; executable lifetime and reflection-free binding remain open. |
+| [`custom_class_target.py`](proto/custom_class_target.py) | Proves reflection-free executable binding through source death, identity-safe caching, and free-threaded cold binding; pool retention remains open. |
 | [`demand_selection.py`](proto/demand_selection.py) | Proves reducer-free selection as occurrence demand in one parse; its resolver route stand-in is rejected. |
 | [`island_alternate_seed.py`](proto/island_alternate_seed.py) | Proves single-seed cone/trace continuation and sibling-root discovery; its one-flip multiple-seed rule is rejected. |
+| [`keyed_product_rows.py`](proto/keyed_product_rows.py) | Prices real Python, `IrMap`, and ready-tokenizer carriers; tokenizer refusal normalization remains incomplete. |
 | [`local_meaning_fold.py`](proto/local_meaning_fold.py) | Supplies the counterexample proving child-local ambiguity is not root-value equivalent. |
 | [`opcode_cost.py`](proto/opcode_cost.py) | Checks the CPU cost of enum values leaking into flat opcode tables. |
 | [`parallel_lexical_ownership.py`](proto/parallel_lexical_ownership.py) | Measures shared versus private recognizers across non-JSON grammars. |
@@ -109,6 +126,7 @@ measurement witnesses, never production modules.
 | [`region_discovery_cost.py`](proto/region_discovery_cost.py) | Measures current grammar-derived structural region discovery on Qwen. |
 | [`regular_region_lowering.py`](proto/regular_region_lowering.py) | Derives, lowers, differentials, and prices a composed regular region. |
 | [`regular_region_proof.py`](proto/regular_region_proof.py) | Conservatively proves possessive regular-region lowering exact or declines it. |
+| [`resolver_pair.py`](proto/resolver_pair.py) | Builds real complete resolver pairs and a one-island delegated-tree splice; pair scope and multi-island routing remain open. |
 | [`root_meaning_incremental.py`](proto/root_meaning_incremental.py) | Uses the real Earley kernel to replay one ambiguity's completed-handle ancestor cone to the root. |
 | [`route_continuation.py`](proto/route_continuation.py) | Proves semantic/raw following-child routing in PDA and Earley with zero added grammar arms. |
 | [`route_table_cost.py`](proto/route_table_cost.py) | Compares finite-route representations outside parser source. |

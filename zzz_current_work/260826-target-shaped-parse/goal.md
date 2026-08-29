@@ -96,8 +96,8 @@ compiled.reduce(text, into=grammar_target, resolve=resolver, cores=cores)
   that channel remains solely the caller's answer to genuine authored grammar
   ambiguity.
 - The target may produce IR, recursive Python values, a certified extent,
-  `IrTokenizer`, and—only if the §6 immutability proof succeeds—an authored
-  custom Python class.
+  `IrTokenizer`, and an authored custom Python class. The custom product cannot
+  pass §6 until its remaining pool-retention and paid-loop proofs succeed.
 - A custom result never introduces a callback-only alternate parse API. Lexic
   does not infer class shape or inspect consumer code. If an arbitrary class
   cannot lower from immutable declaration data through a private write-once
@@ -187,31 +187,46 @@ the existing observable root-value relation, including a parent which drops
 the differing child, without another whole-document semantic replay
 (`reports/PROTOTYPE_7.md` §1). Completion ranges are selected by completed code,
 so occurrence clones retain their own meaning program. Sequence-like built-in
-accumulators represent ambiguity meanings as immutable persistent contribution trees:
+accumulators represent ambiguity meanings as immutable persistent contribution
+trees:
 unchanged branches are identity-shared, dirty ancestors are path-copied, exact
 iterative equality skips shared branches, and the chosen eager result is
 materialized once. No hash or digest stands in for exact equality. Map, IR, and
 tokenizer products earn that representation separately against their equality,
 duplicate, and order law; otherwise they use an exact full cold comparison.
 Ordered contribution trees and the incremental hash-priority treap are rejected
-for keyed products. The plain encode-dict timing does not settle the final
-Python-map, `IrMap`, or complete-tokenizer representation. A custom target
+for keyed products. Real carrier rows select exact cold comparison for
+recursive Python dictionaries and establish document-level normalization for
+`IrMap`'s key/value/duplicate law. The corresponding tokenizer candidate is not
+selected until its normalized verdict lane covers every final-constructor
+refusal, including duplicate ordinals and duplicate merge keys. A custom target
 unable to supply an exact shareable meaning uses the same fallback, but adds
 nothing to the unambiguous hot path.
 
 Multiple packed choices and multiple or nested island seeds preserve the full
 requested-root meaning relation. They may use linear one-flip replay only where
 the compiled completion operations prove that alternatives are separable.
-Purity alone is not that proof. The chosen exact mechanism preserves every
-jointly observable result; an individually invisible substitution cannot hide
-one.
+Purity alone is not that proof: a real two-point chart demonstrates two
+individually invisible substitutions whose joint value differs. On an acyclic
+completed-node graph, the reference semantics propagates exact deduplicated
+meaning sets over every packed family, island-leaf option, and sibling
+accepting item. A node may short-circuit only under a compiler-proved
+choice-free continuation which is injective in retained children or constant
+in dropped children. Cyclic charts do not use the prototype's unbounded `2^k`
+one-lap enumeration; their exact terminating representation must be settled
+before §8 implementation begins.
 
 The dependency index is itself proportional to the default derivation. It is
 built once only after a real arm-choice ambiguity is found, never on an
 unambiguous or split-only parse, and its peak memory is measured with an
 ambiguous-input RSS row. A dict-of-sets representation is forbidden by the
-measured memory result. The production flat representation must prove exact
-dirty-cone parity and bounded build/RSS cost before ambiguity work lands.
+measured memory result. The flat CSR/forward-star candidate has exact
+dirty-cone parity at the retained scales, but its measured 293–316 B per
+character includes a handle-numbering dictionary. Production assigns dense
+numbers during completion and must prove the resulting dictionary-free
+build/RSS cost before ambiguity work lands. A genuinely unambiguous path
+allocates no ambiguity memo, dependency index, overlay, seed, or trace;
+clearing one afterward does not satisfy this rule.
 
 Side-effecting completion work over a shared forest node executes exactly once
 per node through a finished set distinct from the value table; transparent
@@ -220,7 +235,11 @@ consumption. Separate accepting root items each construct one complete meaning
 because no shared internal packed point contains their choice. When root
 meanings differ and `resolve=` is supplied, PDA may use Earley to obtain the
 resolver pair required by the handoff scope settled before §8; only the chosen
-meaning materializes the final target product. An island never settles
+meaning materializes the final target product. Complete-document pairs are
+constructible, and an Earley-delegated one-island tree can splice the retained
+island derivation without another recognition. This establishes feasibility,
+not the still-open choice between today's island-local resolver pair and
+complete-document pairs for both engines. An island never settles
 target ambiguity at its own accepting span. It returns its baseline value plus
 a cold alternate-meaning seed; the enclosing product records and replays only
 the semantic continuation from that occurrence to the requested root. Equal
@@ -337,11 +356,15 @@ target.
 Arbitrary result classes remain in scope without weakening the core. Their
 declaration carries one immutable class object as a constructor symbol plus
 inert field/path data. A homogeneous private cache stores a result-free plan;
-binding reconstructs a result-typed view without casts. The class is invoked
-only at cold root finalization. Bound callables, factories, mutable rebinding
-registries, reflection, and a second executor are forbidden. §6 must still
-prove that a pool-retained bound executable runs after source collection and
-cache eviction and that frequent completions contain no constructor traffic.
+binding reconstructs a result-typed view without casts. The bound view retains
+derived grammar data and tables rather than its source artefact; source death,
+registry eviction, larger-tier recompilation, unhashable constructor classes,
+identity-reuse safety, equivalent recomputation, and concurrent cold binding
+are proven externally. The class is invoked only at cold root finalization.
+Bound callables, factories, mutable rebinding registries, reflection, and a
+second executor are forbidden. §6 must still prove that a real pool retains and
+executes the bound view after source collection and that production frequent
+completions contain no constructor traffic.
 
 ## Parallel result
 
