@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import gc
 import time
+import types
 import weakref
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -33,6 +34,7 @@ from typing import NamedTuple, Protocol, assert_type
 
 from lexic.compile import compile_text
 from lexic.compile.artifact import CompiledGrammar
+from lexic.ir import IrAst
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir.grammar.nodes import IrLiteral
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
@@ -87,15 +89,18 @@ class RecordDeclaration(Protocol):
 
 
 class RecordBinding(NamedTuple):
-    """The cached result-free binding: validated plan + derived tables.
+    """The cached result-free binding: plan + derived AST + base-tier tables.
 
-    Everything the bound view needs to RUN without the source artefact:
-    the parameter/key plan and the real compiled `ParserTables` derived from
-    the grammar at bind time. No class object, no callable.
+    Everything the bound view needs to RUN without the source artefact: the
+    parameter/key plan, the DERIVED normalized grammar AST (a fresh object,
+    not the artefact's), and base-tier `ParserTables`. A document beyond the
+    base tier recompiles tables cold from the retained derived AST — never
+    from the source artefact. No class object, no callable.
     """
 
     parameter_order: tuple[str, ...]
     keys: tuple[str, ...]
+    ast: IrAst
     tables: ParserTables
 
 
@@ -123,11 +128,15 @@ def _release_entry(
     entries: dict[BindKey, BindEntry],
     lock: Lock,
     key: BindKey,
-    _grammar: weakref.ReferenceType[CompiledGrammar],
+    dead: weakref.ReferenceType[CompiledGrammar],
 ) -> None:
-    """Drop one entry (and its declaration pin) when its artefact dies."""
+    """Drop one entry (and its pin) when ITS artefact dies — the callback
+    validates that the entry still belongs to the dead weakref, so a
+    recycled id can never evict a live successor's entry."""
     with lock:
-        entries.pop(key, None)
+        cached = entries.get(key)
+        if cached is not None and cached.grammar is dead:
+            del entries[key]
 
 
 def _derive_binding[Result](
@@ -153,8 +162,76 @@ def _derive_binding[Result](
             raise UnsupportedConstructError(
                 f"record target: field {name!r} declares an empty semantic key"
             )
-    tables = compile_tables(normalize(grammar.grammar), tier_for(BIND_TIER_CHARS))
-    return RecordBinding(names, tuple(key for _name, key in declaration.fields), tables)
+    ast, tables = _SHARED_TABLES.derive(grammar)
+    return RecordBinding(
+        names, tuple(key for _name, key in declaration.fields), ast, tables
+    )
+
+
+class SharedTables:
+    """One derived (AST, base-tier tables) pair per source artefact.
+
+    N declarations against one grammar share one derivation; the entry dies
+    with the weakly referenced artefact, exactly like binding entries.
+    """
+
+    __slots__ = ("_by_grammar", "_derives", "_lock")
+
+    def __init__(self) -> None:
+        self._by_grammar: dict[
+            int,
+            tuple[weakref.ReferenceType[CompiledGrammar], IrAst, ParserTables],
+        ] = {}
+        self._derives = 0
+        self._lock = Lock()
+
+    @property
+    def derive_count(self) -> int:
+        """How many grammars were actually lowered."""
+        return self._derives
+
+    def release(self, grammar: CompiledGrammar) -> None:
+        """Explicitly drop one artefact's shared derivation."""
+        with self._lock:
+            self._by_grammar.pop(id(grammar), None)
+
+    def derive(self, grammar: CompiledGrammar) -> tuple[IrAst, ParserTables]:
+        """One normalized AST + base-tier tables per live artefact.
+
+        The stored weakref is re-validated on every read — the same
+        id-reuse-safety rule the binding entries follow: an id hit whose
+        referent is not THIS grammar is a stale entry, never an answer.
+        """
+        key = id(grammar)
+        cached = self._by_grammar.get(key)
+        if cached is not None and cached[0]() is grammar:
+            return cached[1], cached[2]
+        with self._lock:
+            cached = self._by_grammar.get(key)
+            if cached is not None and cached[0]() is grammar:
+                return cached[1], cached[2]
+            ast = normalize(grammar.grammar)
+            tables = compile_tables(ast, tier_for(BIND_TIER_CHARS))
+            self._derives += 1
+            source = weakref.ref(grammar, partial(_release_tables, self, key))
+            self._by_grammar[key] = (source, ast, tables)
+            return ast, tables
+
+
+def _release_tables(
+    shared: SharedTables,
+    key: int,
+    dead: weakref.ReferenceType[CompiledGrammar],
+) -> None:
+    """Drop one shared derivation when ITS artefact dies — validated against
+    the stored weakref, under the lock, symmetric with `_release_entry`."""
+    with shared._lock:
+        cached = shared._by_grammar.get(key)
+        if cached is not None and cached[0] is dead:
+            del shared._by_grammar[key]
+
+
+_SHARED_TABLES = SharedTables()
 
 
 class BindingRegistry:
@@ -206,11 +283,13 @@ class BindingRegistry:
             return binding
 
     def release(self, grammar: CompiledGrammar) -> None:
-        """Explicitly drop every entry bound against ``grammar``."""
+        """Explicitly drop every entry AND the shared derivation for
+        ``grammar`` — eviction may only ever cause equivalent recomputation."""
         with self._lock:
             stale = [key for key in self._entries if key.grammar == id(grammar)]
             for key in stale:
                 del self._entries[key]
+        _SHARED_TABLES.release(grammar)
 
 
 _RECORD_BINDINGS = BindingRegistry()
@@ -239,16 +318,26 @@ class BoundRecord[Result]:
         self.last_report = RunReport(0, 0)
 
     def run(self, text: str) -> Result:
-        """Parse over the RETAINED tables; construct the class ONCE at root."""
+        """Parse over the RETAINED derived tables; construct ONCE at root.
+
+        A document beyond the base tier recompiles tables COLD from the
+        retained derived AST — the source artefact is never consulted.
+        """
+        tables = self.binding.tables
         if len(text) > BIND_TIER_CHARS:
-            raise UnsupportedConstructError("record target: text beyond bind tier")
-        kernel = Kernel(self.binding.tables, text, True).run()
+            tables = compile_tables(self.binding.ast, tier_for(len(text)))
+        kernel = Kernel(tables, text, True).run()
         if accept_item(kernel) < 0:
             raise UnsupportedConstructError("record target: document did not parse")
         tree = FastTree(kernel, {}).build(accept_handle(kernel))
         if not isinstance(tree, ParseTree):
             raise UnsupportedConstructError("record target: derivation missing")
-        values, completions = _extract(tree)
+        invocations: list[str] = []
+        values, completions = _extract(tree, invocations)
+        if invocations:
+            raise UnsupportedConstructError(
+                "record target: a constructor ran inside the completion walk"
+            )
         arguments: dict[str, int] = {}
         for name, key in zip(self.binding.parameter_order, self.binding.keys):
             if key not in values:
@@ -256,17 +345,23 @@ class BoundRecord[Result]:
                     f"record target: document has no key {key!r}"
                 )
             arguments[name] = values[key]
+        invocations.append("root")
         result = self.declaration.constructor(**arguments)
-        self.last_report = RunReport(completions, 1)
+        self.last_report = RunReport(completions, len(invocations))
         return result
 
 
-def _extract(tree: ParseTree) -> tuple[dict[str, int], int]:
+def _extract(tree: ParseTree, invocations: list[str]) -> tuple[dict[str, int], int]:
     """Walk the real derivation once, decoding entry key/value pairs.
 
-    Engine-shaped closed decode (text and int) — no target callable runs in
-    this loop, and the completion count proves it against constructor_calls.
+    Engine-shaped closed decode (text and int). The zero-constructor-traffic
+    property is STRUCTURAL: the walk holds no reference to the constructor
+    (only the caller does, and it constructs after this returns); the shared
+    ``invocations`` list documents the single call site rather than claiming
+    a runtime count of calls nothing else could make.
     """
+    if invocations:
+        raise UnsupportedConstructError("record target: walk started dirty")
     values: dict[str, int] = {}
     completions = 0
     pending: list[ParseTree] = [tree]
@@ -445,17 +540,118 @@ def prove_identity_semantics(grammar: CompiledGrammar) -> None:
         if key.declaration == pinned_id
     ]
     assert survivors, "the entry pin failed to keep the declaration alive"
-    fresh_hits = 0
-    for _round in range(512):
-        probe = RecordSpec(CheckedRange, (("low", "low"),))
-        if id(probe) == pinned_id:
-            fresh_hits += 1
-        del probe
-    assert fresh_hits == 0 or survivors[0].pin.fields == (("version", "version"),)
+    assert survivors[0].pin.fields == (("version", "version"),)
     print(
         "identity-semantics",
-        "equal declarations bind separately by design; the strong pin makes"
-        " id reuse against a live entry impossible",
+        "equal declarations bind separately by design; id-reuse safety is the"
+        " DOUBLE identity check — the strong pin keeps the declaration alive"
+        " (its id cannot recycle while the entry lives) and every lookup"
+        " re-validates `pin is declaration` AND `grammar() is grammar`",
+        sep="\t",
+    )
+
+
+def _closure_reaches_compiled(root_object: BoundRecord[TokenizerInfo]) -> bool:
+    """Whether a `CompiledGrammar` is reachable through DATA edges.
+
+    Types, modules, functions, and code objects are ambient code references
+    (every class reaches its module's globals and thereby the compile memo);
+    the retention question is about the bound view's DATA, so the walk stops
+    at those.
+    """
+    ambient = (types.ModuleType, types.CodeType)
+    seen: set[int] = set()
+    # Seeded THROUGH get_referents of a wrapping tuple so the pending lane
+    # carries the same dynamic typing the referent stream itself has.
+    pending = list(gc.get_referents((root_object,)))
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, CompiledGrammar):
+            return True
+        if isinstance(current, type):
+            # A class defined outside builtins can carry DATA in class
+            # attributes (a registry hanging off a class is a retention
+            # shape); walk its dict's values while still skipping the
+            # module-globals escape (methods are functions, handled below).
+            if current.__module__ != "builtins":
+                pending.extend(vars(current).values())
+            continue
+        if isinstance(current, ambient):
+            continue
+        if isinstance(current, types.FunctionType):
+            # A function's __globals__ is ambient code reference, but its
+            # closure cells and defaults are DATA — a closure over the
+            # artefact is exactly the retention shape this check exists to
+            # rule out, so those edges are walked.
+            pending.extend(current.__defaults__ or ())
+            for cell in current.__closure__ or ():
+                try:
+                    pending.append(cell.cell_contents)
+                except ValueError:
+                    continue
+            continue
+        pending.extend(gc.get_referents(current))
+    return False
+
+
+def prove_shared_tables_and_retention() -> None:
+    """N declarations share ONE derived table set; the retention rule is
+    explicit: entries (and their declaration pins) live exactly as long as
+    the weakly referenced artefact, or until `release`."""
+    grammar = _grammar()
+    entries_before = _RECORD_BINDINGS.entry_count
+    derives_before = _SHARED_TABLES.derive_count
+    tables_seen: set[int] = set()
+    for index in range(50):
+        spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+        bound = spec._bind(grammar)
+        tables_seen.add(id(bound.binding.tables))
+        del spec, bound
+    gc.collect()
+    held = _RECORD_BINDINGS.entry_count - entries_before
+    derived = _SHARED_TABLES.derive_count - derives_before
+    assert derived == 1 and len(tables_seen) == 1
+    assert held == 50
+    source = weakref.ref(grammar)
+    del grammar
+    gc.collect()
+    assert source() is None
+    assert _RECORD_BINDINGS.entry_count == entries_before
+    print(
+        "shared-tables-retention",
+        f"equal_distinct_declarations=50 entries_held={held} table_derivations="
+        f"{derived} shared_tables=1; all fifty entries (and pins) died with"
+        " the artefact — retention is artefact-bounded, and the caller idiom"
+        " is one held declaration object per target",
+        sep="\t",
+    )
+
+
+def prove_long_document_after_death() -> None:
+    """Beyond-tier documents parse from the RETAINED derived AST after the
+    source artefact is collected — no artefact consult exists to fall back
+    on, and none is needed."""
+    grammar = _grammar()
+    spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+    bound = spec._bind(grammar)
+    assert not _closure_reaches_compiled(bound)
+    source = weakref.ref(grammar)
+    del grammar
+    gc.collect()
+    assert source() is None
+    filler = "".join(f"pad{index}={index};" for index in range(600))
+    long_doc = filler + "version=4;size=8;"
+    assert len(long_doc) > BIND_TIER_CHARS
+    result = bound.run(long_doc)
+    assert result == TokenizerInfo(4, 8)
+    print(
+        "long-document-after-death",
+        f"doc_chars={len(long_doc)} parsed over tables recompiled from the"
+        " retained derived AST; no CompiledGrammar reachable from the bound"
+        " view (checked over the data-edge gc referent closure)",
         sep="\t",
     )
 
@@ -554,6 +750,8 @@ def main() -> None:
     prove_traffic(grammar)
     prove_executable_lifetime()
     prove_identity_semantics(grammar)
+    prove_shared_tables_and_retention()
+    prove_long_document_after_death()
     prove_eviction(grammar)
     prove_concurrent_cold_bind(grammar)
     prove_cold_root_failure(grammar)

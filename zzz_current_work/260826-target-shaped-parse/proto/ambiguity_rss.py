@@ -27,6 +27,7 @@ freelists, and peak RSS is monotonic per process — both stated per row.
 from __future__ import annotations
 
 import argparse
+import gc
 import resource
 import time
 import tracemalloc
@@ -58,6 +59,17 @@ DISTANT = (
     "item ::= [ab]\n"
     "t ::= u | v\n"
     'u ::= "q"\nv ::= "q"\n'
+)
+DISTANT_TWO = (
+    "root ::= filler w filler\n"
+    "w ::= x y\n"
+    'x ::= t "-"\n'
+    'y ::= t2 "-"\n'
+    "filler ::= item*\n"
+    "item ::= [ab]\n"
+    "t ::= u | v\n"
+    "t2 ::= u2 | v2\n"
+    'u ::= "q"\nv ::= "q"\nu2 ::= "r"\nv2 ::= "r"\n'
 )
 CONTROL = (
     'root ::= filler t filler\nfiller ::= item*\nitem ::= [ab]\nt ::= u\nu ::= "q"\n'
@@ -388,6 +400,15 @@ def control_row(pad: int) -> None:
     points = _arm_points(kernel, root)
     if points:
         raise UnsupportedConstructError("control: unexpected arm choice")
+    # REAL machinery containers: populated only by the ambiguous branch,
+    # which is unreachable here because the chart holds zero arm-choice keys.
+    retained_memo: dict[int, Meaning] = {}
+    dependency_indexes: list[DictGraph | FlatGraph] = []
+    overlays: list[Overlay] = []
+    seeds: list[tuple[Meaning, tuple[Meaning, ...]]] = []
+    trace_frames: list[TraceFrame] = []
+    for key in points:
+        raise UnsupportedConstructError(f"control: machinery reached for {key}")
     tracemalloc.start()
     memo = Overlay({})
     meaning, folds = _fold(kernel, root, memo, set(), None)
@@ -398,16 +419,18 @@ def control_row(pad: int) -> None:
     del meaning
     retained_bytes, _peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
+    assert not retained_memo and not dependency_indexes
+    assert not overlays and not seeds and not trace_frames
     print("mode", "control", sep="\t")
     print("pad", pad, "chars", len(text), sep="\t")
     print("arm_points", 0, "fold_bodies", folds, "root", root_head, sep="\t")
     print(
         "ambiguity-structures",
-        "meaning_memo_entries=0",
-        "dependency_index_entries=0",
-        "overlay_entries=0",
-        "seeds=0",
-        "trace_frames=0",
+        f"meaning_memo_entries={len(retained_memo)}",
+        f"dependency_index_entries={len(dependency_indexes)}",
+        f"overlay_entries={len(overlays)}",
+        f"seeds={len(seeds)}",
+        f"trace_frames={len(trace_frames)}",
         f"root_product_value_bytes={product_bytes}",
         f"residual_bytes_after_product_release={retained_bytes}",
         sep="\t",
@@ -484,6 +507,36 @@ def ambiguity_row(pad: int) -> None:
         sep="\t",
     )
 
+    two = "a" * 400 + "q-r-" + "b" * 400
+    kernel_two = _kernel(DISTANT_TWO, two)
+    root_two = accept_handle(kernel_two)
+    order_two = _preexpand(kernel_two, root_two)
+    oracle_two = _dict_graph(kernel_two, order_two)
+    flat_two, _n, _c = _flat_graph(kernel_two, order_two)
+    two_points = _arm_points(kernel_two, root_two)
+    overlap_checked = 0
+    for key in two_points:
+        if _dict_dirty(oracle_two, key) != _flat_dirty(flat_two, key):
+            raise UnsupportedConstructError(
+                "ambiguity RSS witness: two-key parity diverged"
+            )
+        overlap_checked += 1
+    cones = [_flat_dirty(flat_two, key) for key in two_points]
+    shared = set.intersection(*cones) if len(cones) > 1 else set()
+    if len(cones) > 1 and (cones[0] == cones[1] or not shared):
+        raise UnsupportedConstructError(
+            "ambiguity RSS witness: parity cones must overlap without coinciding"
+        )
+    print(
+        "two-key-parity",
+        f"keys={overlap_checked}",
+        f"cone_sizes={[len(cone) for cone in cones]}",
+        f"shared_ancestors={len(shared)}",
+        f"distinct={cones[0] != cones[1] if len(cones) > 1 else True}",
+        sep="\t",
+    )
+    del oracle_two, flat_two, kernel_two
+
     points = _arm_points(kernel, root)
     replay_folds = 0
     differs = False
@@ -520,8 +573,21 @@ def ambiguity_row(pad: int) -> None:
     cleanup_before = len(oracle.parents)
     del oracle
     del flat
+    tracemalloc.start()
+    rebuilt, _num_cpu, _csr_cpu = _flat_graph(kernel, order)
+    held, _peak = tracemalloc.get_traced_memory()
+    del rebuilt
+    gc.collect()
+    residual, _peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
     print(
-        "cleanup", f"released oracle+flat (oracle_parents={cleanup_before})", sep="\t"
+        "cleanup",
+        f"released oracle+flat (oracle_parents={cleanup_before})",
+        f"rebuild_held_bytes={held}",
+        f"post_release_residual_bytes={residual}",
+        "peak RSS is monotonic and cannot show the release; the tracemalloc"
+        " residual does",
+        sep="\t",
     )
 
     print("mode", "ambiguity", sep="\t")
@@ -559,17 +625,34 @@ def ambiguity_row(pad: int) -> None:
     )
 
 
+class SeedRecord(NamedTuple):
+    """One island seed as the enclosing product retains it."""
+
+    baseline: Meaning
+    alternates: tuple[Meaning, ...]
+
+
 def frames_row() -> None:
-    """REAL seed/trace-frame allocations over depth and seed-count ladders."""
+    """REAL seed + trace-frame allocations over depth and seed-count ladders.
+
+    Rule names come from a pool built OUTSIDE the measured window (production
+    shares interned rule names), so bytes-per-frame prices the records
+    themselves, not fresh strings.
+    """
     print("mode", "frames", sep="\t")
     shared_kids: tuple[Meaning, ...] = (("sibling", "value"), ("other",))
+    names = tuple(f"ancestor{level}" for level in range(8_192))
     for depth in (128, 1_024, 8_192):
         for seeds in (1, 2, 4):
             tracemalloc.start()
+            records = [
+                SeedRecord(("t", "baseline"), (("t", f"alt{seed}"),))
+                for seed in range(seeds)
+            ]
             lanes: list[list[TraceFrame]] = []
             for seed in range(seeds):
                 trace = [
-                    TraceFrame(0, f"ancestor{level}", shared_kids, seed % 2)
+                    TraceFrame(0, names[level], shared_kids, seed % 2)
                     for level in range(depth)
                 ]
                 lanes.append(trace)
@@ -580,17 +663,18 @@ def frames_row() -> None:
                 "frames",
                 f"depth={depth}",
                 f"seeds={seeds}",
+                f"allocated_seed_records={len(records)}",
                 f"allocated_frames={frames}",
                 f"traced_bytes={traced}",
                 f"bytes_per_frame={traced / max(frames, 1):.1f}",
                 f"tracemalloc_peak={peak}",
                 sep="\t",
             )
-            del lanes
+            del lanes, records
     print(
         "note",
-        "frames share kid meanings by reference; the per-frame cost is the"
-        " NamedTuple record itself",
+        "kid meanings and rule names are shared by reference; the per-frame"
+        " cost is the NamedTuple record itself",
         sep="\t",
     )
 

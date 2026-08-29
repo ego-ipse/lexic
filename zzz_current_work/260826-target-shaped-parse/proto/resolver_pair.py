@@ -25,6 +25,7 @@ from typing import NamedTuple
 
 import island_alternate_seed as harness
 from lexic.compile import compile_text
+from lexic.ir import IrSelf, IrSeq
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir.grammar.nodes import IrLiteral
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
@@ -169,7 +170,8 @@ def prove_missing_information(case: SeedCase) -> None:
         "missing-information",
         f"outer_tree_island_child=PayloadLeaf(text={leaves[0].text!r})",
         f"island_interior_completions_in_outer_chart={interior_completions}",
-        "a complete pair therefore requires one un-delegated recognition",
+        "a complete pair therefore needs either a splice of the retained"
+        " island derivation or one un-delegated recognition",
         sep="\t",
     )
     assert interior_completions == 0
@@ -326,6 +328,62 @@ def prove_selection_correspondence(case: SeedCase, pair: CompletePair) -> None:
     )
 
 
+def _splice(tree: ParseTree, replacement: ParseTree) -> ParseTree:
+    """The outer derivation with its delegated leaf replaced by a real island
+    derivation — path-copying only the spine above the leaf."""
+    new_kids: list[IrSelf] = []
+    changed = False
+    for kid in tree.kids:
+        if isinstance(kid, PayloadLeaf) and not changed:
+            new_kids.append(replacement)
+            changed = True
+        elif isinstance(kid, ParseTree):
+            spliced = _splice(kid, replacement)
+            if spliced is not kid:
+                changed = True
+            new_kids.append(spliced)
+        else:
+            new_kids.append(kid)
+    if not changed:
+        return tree
+    return ParseTree(tree.symbol, IrSeq(*new_kids))
+
+
+def prove_splice_alternative(case: SeedCase, pair: CompletePair) -> None:
+    """The zero-recognition alternative REVIEW asked about: splice the island
+    kernel's own derivations into the delegated outer tree, and prove the
+    result is STRUCTURALLY IDENTICAL to the un-delegated complete pair."""
+    outer_tree = FastTree(case.run.kernel, {}).build(case.run.root)
+    assert isinstance(outer_tree, ParseTree)
+    local_first, local_second, _cost = island_local_pair(case)
+
+    def construct() -> tuple[ParseTree, ParseTree]:
+        return _splice(outer_tree, local_first), _splice(outer_tree, local_second)
+
+    (spliced_a, spliced_b), cost = _timed(construct)
+    spliced = {
+        tree_meaning(spliced_a, {}): spliced_a,
+        tree_meaning(spliced_b, {}): spliced_b,
+    }
+    assert set(spliced) == {case.baseline_root, case.alternate_root}
+    identical = (
+        spliced[case.baseline_root] == pair.baseline_tree
+        and spliced[case.alternate_root] == pair.alternate_tree
+    )
+    print(
+        "splice-alternative",
+        "recognitions=0",
+        f"construction_cpu={cost.cpu:.6f}",
+        f"construction_wall={cost.wall:.6f}",
+        f"structurally_identical_to_undelegated_pair={identical}",
+        "NOTE: available on the Earley-delegated path only — the fused PDA"
+        " runtime builds models with no document-level ParseTree, so the PDA"
+        " path still requires one recognition to produce a complete pair",
+        sep="\t",
+    )
+    assert identical
+
+
 def prove_no_reparse_paths() -> None:
     """Refusal and equal-root paths never run a complete-document parse."""
     text = "[(xy)]"
@@ -387,6 +445,7 @@ def main() -> None:
     )
     prove_selection_correspondence(case, pair)
     prove_scope_divergence(case, pair)
+    prove_splice_alternative(case, pair)
     prove_no_reparse_paths()
     prove_public_scope_today()
     print(
