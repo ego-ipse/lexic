@@ -42,9 +42,11 @@ microkernels omitting the driver, frames, transactions, merge region, and the
 remaining document; neither proves the complete `<1.000 s` gate.
 
 The roughly 105x objective is explicitly contingent on the further capturing
-regular-region lowering. Its compiler proof covers acyclic simple closure, arm
-non-ambiguity, non-nullable repetition, and deterministic capture boundaries;
-an acyclic-but-ambiguous possessive shape declines. Region programs are derived
+regular-region lowering. Its compiler proof covers acyclic simple closure,
+ordered arm exactness, repetition/nullable-atom continuation ownership, and
+deterministic capture boundaries. A nullable arm is permitted only last; a
+variable or nullable atom whose first set overlaps its continuation declines.
+Three distinct acyclic possessive hazards decline. Region programs are derived
 from reducer semantic roles × target demand, including a non-JSON witness, not
 from JSON locators. These mechanisms are prototyped in
 `proto/regular_region_proof.py` and `proto/regular_region_lowering.py` and are
@@ -155,8 +157,11 @@ All engines execute one typed `ProductProgram[Carry, Result]`:
 
 The authored operation vocabulary lowers to flat int-coded records. Generic
 parsing code contains no target names and invokes no arbitrary target callback
-in frequently completed rules. The character and item loops do not test which
-codomain is active.
+in any frequently completed rule. Scalar decode, validation, mapping insertion,
+and declared record construction are engine-owned closed operations selected by
+plain integers. Target-supplied callables are admitted only at collection
+finish, root finalization, and meaning comparison. The character and item loops
+do not test which codomain is active.
 
 Every contextual rule executes one lowered completion range. The default IR
 range may evaluate the reducer's typed expression program; a fused target range
@@ -191,14 +196,26 @@ duplicate, and order law; otherwise they use an exact full cold comparison. A
 custom target unable to supply an exact shareable meaning does the same, but
 adds nothing to the unambiguous hot path.
 
+The dependency index is itself proportional to the default derivation. It is
+built once only after a real arm-choice ambiguity is found, never on an
+unambiguous or split-only parse, and its peak memory is measured with an
+ambiguous-input RSS row.
+
 Side-effecting completion work over a shared forest node executes exactly once
 per node through a finished set distinct from the value table; transparent
 synthetic nodes are included. Occurrence-owned effects ride the parent's slot
 consumption. Separate accepting root items each construct one complete meaning
 because no shared internal packed point contains their choice. When root
-meanings differ and `resolve=` is supplied, PDA bails before committing target
-state and Earley gives the complete derivation pair to the same resolver
-`parse` uses; only the chosen meaning materializes the final target product.
+meanings differ and `resolve=` is supplied, PDA may use Earley to obtain the
+complete derivation pair expected by the same resolver `parse` uses; only the
+chosen meaning materializes the final target product. An island never settles
+target ambiguity at its own accepting span. It returns its baseline value plus
+a cold alternate-meaning seed; the enclosing product records and replays only
+the semantic continuation from that occurrence to the requested root. Equal
+root meanings keep the predictive result without reparsing the document. The
+ordinary unambiguous island splice remains unchanged. A differing root with
+`resolve=` may enter complete-document Earley solely to supply the resolver's
+required derivation pair, not to discover the root meaning again.
 For a target using the exact whole-result fallback, the discarded cold
 comparison result is explicit instead of being mislabeled as a shareable
 meaning.
@@ -213,15 +230,19 @@ verification, or a generic operation interpreter for the sake of uniformity.
 Marks are constant-size. Mutations are logged only while speculation is live;
 rollback is proportional to mutations after the mark, not to retained builder
 size, and successful outer commit is copy-free. In PDA, a routed discriminator
-writes its consumer position and finite route into a rollback-owned parent
-lane until that occurrence advances. In Earley, a sparse routed-advance table
+writes its descendant consumer path and finite route into a rollback-owned
+parent lane until the first routed occurrence advances; deeper route identity
+is baked into the selected contextual clone chain. In Earley, a sparse routed-advance table
 selects a distinct existing packed successor code; unrelated items keep their
 current representation and hot advance path.
 
 Reusable morphisms are recursively immutable signature/schema/algebra data and
-contain no cache, lock, factory, or executor. A private compiler/artifact
-binding registry weakly references source artefacts, serializes cold first
-binding, and participates in the parser cache release protocol. Eviction only
+contain no cache, lock, factory, or executor. Their private `_bind` protocol
+enters one homogeneous compiler/artifact binding registry per declaration kind;
+there is no heterogeneous result-erasing registry. Each registry weakly
+references source artefacts, serializes cold first binding, and participates in
+the parser cache release protocol. No second cache of the same binding exists.
+Eviction only
 causes equivalent recomputation; it cannot change declared semantics. Pools
 retain a bound program only as an explicit lifetime owner, and that retained
 program remains valid after the source cache releases it.
@@ -379,8 +400,9 @@ The implementation is accepted only when:
    values, fractions, decoded/escaped keys, duplicates, field order, missing
    fields, extension data, malformed discarded values, and unsupported
    features;
-4. PDA, Earley, islands, ambiguity, sequential, and every engaged parallel
-   shape agree;
+4. PDA, Earley, ambiguity, sequential, and every engaged parallel shape agree;
+   island alternatives replay through their enclosing product to the same root
+   relation without an unconditional document reparse;
 5. attempt rollback, alternate isolation, worker isolation, verdict ordering,
    and root finalization are pinned adversarially;
 6. no discarded value/model is constructed, no target engages both direct and
@@ -416,8 +438,10 @@ The final tokenizer path must:
   `cores=AUTO` engaged shape on the witness host, with the sequential row and
   aggregate process CPU per byte reported beside it in every row (an MT row
   cannot pass by burning cores unreported);
-- when route anchors decline and AUTO runs sequentially, gate the sequential
-  row against the same envelope — the decline case is not exempt;
+- when route anchors decline and AUTO runs sequentially, report that row with
+  CPU-per-byte and named attribution; it is diagnostic, not a `<1.000 s` gate.
+  The public engaged `cores=AUTO` row remains the performance gate, and decline
+  cannot hide submitted work or a base-parse regression;
 - not raise peak RSS above the scenario-matched §0 baseline: 633,000 KiB for a
   first resident product, 632,888 KiB for a first cold path product, and
   838,120 KiB for the second product in one retained warm process. These are

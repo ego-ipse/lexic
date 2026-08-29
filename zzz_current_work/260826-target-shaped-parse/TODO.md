@@ -29,6 +29,12 @@ the persistent exact meaning representation needed to keep flat eager
 accumulators from rebuilding once per alternate. Source implementation has
 still not begun.
 
+`reports/REVIEW_9.md` gives GO for §2 and finds ten later-phase corrections.
+`reports/PROTOTYPE_9.md` closes the executable proof, non-sibling routing, and
+hot-callback contradictions. This queue records every remaining mechanism plan
+or evidence choice as an explicit gate; none is delegated silently to an
+implementer.
+
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
 `select` as the beginner surface over signature-bearing reducers. Feasibility
@@ -48,6 +54,18 @@ inventing a bridge.
 and export follow-ups until every item here is complete.
 
 ## Working protocol
+
+Marker meanings are binding:
+
+- **DECISION REQUIRED** — architecture or acceptance is not yet ruled. Stop
+  before the named phase exit and obtain the recorded decision.
+- **PLANNING REQUIRED** — the architecture is ruled, but its exact mechanism,
+  owner, witness, or measurement row must be written down before source work in
+  the consuming phase begins.
+- **USER DECISION REQUIRED** — only the user can authorize the stated outcome.
+
+An unmarked checklist item is implementation work under an already settled
+design. An implementer must not resolve a marked item implicitly while coding.
 
 - [ ] Terra owns the complete source implementation and source cleanup.
 - [ ] The coordinator guides Terra, reviews every phase, and is the only agent
@@ -105,8 +123,8 @@ and export follow-ups until every item here is complete.
       A later reduction,
       tokenizer, memory, or MT win cannot offset a parse regression. If a
       correctness bugfix necessarily regresses parsing, stop with isolated
-      alternating measurements and attribution; only the user's explicit final
-      approval licenses it.
+      alternating measurements and attribution. **USER DECISION REQUIRED:**
+      only the user's explicit final approval licenses that regression.
 - [ ] Do not land an incomplete public path, compatibility adapter, deprecated
       alias, feature flag, or fallback through model + fold.
 - [x] Obtain substantive re-review of the post-`REVIEW_2` mechanisms. Do not
@@ -201,6 +219,12 @@ production consumer of a surface scheduled to move/delete.
       checked tagged completion-range index and plain-int capture layout per
       contextual rule. Authored enums must be converted to exact `int` values
       before runtime; do not use one heterogeneous payload array.
+- [x] Remove target-supplied scalar decoder, validator, and record-constructor
+      callables from frequent-completion operand tables. Scalar decode,
+      validation, insertion, and declared record construction use engine-owned
+      closed operations selected by plain integers. Only collection finish,
+      root finalization, and meaning comparison may retain typed target
+      callables; `proto/product_types.py` executes this boundary.
 - [x] Inventory the real GBNF, ABNF, EBNF, and JSON reducer expressions and
       specify the separate typed `ExprProgram[Carry]` lowering they require.
       A contextual rule executes its reducer-expression range or its fused
@@ -238,11 +262,12 @@ grammars, reducers, generated models, and `IrTokenizer`; see
 `reports/PROTOTYPE_3.md`, with the corrected composed carrier and acceptance
 boundaries in `reports/PROTOTYPE_4.md`, and the REVIEW_7 mechanism prototypes
 (regular lowering + identity, interpreted-ABI throughput, shared-forest fold
-discipline, local meaning folds, GC delta) in `reports/PROTOTYPE_5.md`. No
-production module was added merely
-to discover the typing or performance model. The source implementation still
-owes semantic differential, composed-shell certification, ready-tokenizer acceptance, and
-paid-loop measurement gates; the prototypes do not claim them.
+discipline, local meaning folds, GC delta) in `reports/PROTOTYPE_5.md`.
+The REVIEW_9 corrections are executed and typed in `reports/PROTOTYPE_9.md`.
+No production module was added merely to discover the typing or performance
+model. The source implementation still owes semantic differential,
+composed-shell certification, ready-tokenizer acceptance, and paid-loop
+measurement gates; the prototypes do not claim them.
 
 ## 2 — add the declarative signature/schema vocabulary
 
@@ -278,12 +303,26 @@ the same signature object; a mismatched target can be diagnosed before parse.
 
 ## 3 — introduce the engine-neutral product program
 
+- [x] **PLANNING REQUIRED BEFORE §3 — CLOSED:** fix the frequent-completion
+      operation boundary before source work. `proto/product_types.py` now uses
+      plain-int engine-owned scalar decoders and no target decoder/validator/
+      record-constructor callable table. Target callables are limited to
+      collection finish, root finalization, and meaning comparison.
+- [x] **PLANNING REQUIRED BEFORE §3 — CLOSED:** make routing independent of
+      producer/consumer sibling placement. `proto/route_continuation.py` now
+      carries a finite route through an intervening contextual PDA clone and
+      Earley successor code; the implementation rule is the descendant clone
+      chain described below.
+
 - [ ] Add the focused parsing-owned `src/lexic/parsing/product/` package:
       `records.py` owns immutable authored/flat ABI records, `state.py` owns
       parse-local builders and transactions, `regular.py` owns the
       authoritative regular-language proof, `verify.py` owns physical-table
       verification, and `__init__.py` is the one parsing-internal façade. Do
       not grow a monolithic product module or expose parallel import paths.
+      `regular.py` imports and reuses `CharSet`, `build_recognizer`, and
+      `compile_source` from the existing `parsing/pda/core/` leaves; it must not
+      reimplement first-set algebra or possessive lowering.
 - [ ] Define the typed authored operation records, flat opcodes/tables,
       typed reducer-expression program, `CaptureSpec`, `RuleProduct`,
       `ProductProgram`, parse-local state, transaction marks, meaning contract,
@@ -297,13 +336,15 @@ the same signature object; a mismatched target can be diagnosed before parse.
       instances using `type(value) is int`, never `isinstance`; frequent
       completion dispatch compares/indexes plain ints.
 - [ ] Lower an occurrence-scoped `RouteContinuation`; refuse a nullable or
-      non-single-discriminator producer. In PDA frames store `(consumer
-      position, route)` until that value occurrence successfully advances,
-      with both integers under rollback. In Earley, route only producer
-      completion through a sparse `(waiting contextual code, route) ->
-      successor contextual code` table. The existing packed successor code is
-      the filing/dedup identity; do not widen every item or touch ordinary
-      `_advance_all`. The later forest fold cannot perform routing.
+      non-single-discriminator producer. It records a descendant consumer path,
+      not merely one sibling position. In PDA frames store `(consumer path,
+      route)` until the first routed child successfully advances, with the lane
+      under rollback; route-specialized intervening clones bake every deeper
+      child. In Earley, route producer completion through a sparse `(waiting
+      contextual code, route) -> successor contextual code` chain. The existing
+      packed successor codes carry route and occurrence identity; do not widen
+      every item or touch ordinary `_advance_all`. The later forest fold cannot
+      perform routing.
 - [ ] Lower the producer's discriminator to direct scalar decode/classification
       at recognition-time completion. It must not call the general reducer
       expression evaluator or construct a model. Specialize the lookup by
@@ -314,12 +355,18 @@ the same signature object; a mismatched target can be diagnosed before parse.
 - [ ] Run nested mapping witnesses through PDA, ordinary Earley fallback, and
       island/delegate execution. Outer and inner occurrences route
       independently, escaped-equivalent keys agree, and rollback/abandonment
-      leaves no stale route for another attempt or member.
+      leaves no stale route for another attempt or member. Include the
+      non-sibling `member ::= string tail; tail ::= separator value` shape and
+      assert the route reaches the descendant value in all three execution
+      paths.
 - [ ] Keep the parsing layer a leaf: imports may reach `lexic.ir`, never
       `lexic.compile`, `lexic.grammars`, or `lexic.api`.
 - [ ] Lower operations to data. No target object or morphism is called from the
-      character matcher, item loop, gate selection, or a frequent lexical
-      completion.
+      character matcher, item loop, gate selection, or any frequent completion.
+      Scalar decode, validation, insertion, and declared record construction
+      dispatch through engine-owned closed int codes. Keep collection-finish,
+      root-finalizer, and meaning-comparator callables in separate typed cold/
+      boundary tables.
 - [ ] Keep the ABI capable of a closed cold/root constructor operation, but add
       no public custom callable/factory field and no custom operation at a
       frequent completion. The arbitrary-class public surface is gated in §6.
@@ -370,6 +417,12 @@ holds.
 
 ## 4 — migrate generated-model parsing onto the common ABI
 
+- [x] **PLANNING REQUIRED BEFORE §4 — CLOSED:** strengthen the authoritative
+      regular proof before the value-string consult can use it. A nullable arm
+      must be last, and `(variable or atom.nullable) and FIRST(atom) overlaps
+      FOLLOW(atom)` declines. `proto/regular_region_lowering.py --mode identity`
+      executes the `{1,1}` nullable-reference and early-nullable-arm witnesses.
+
 - [ ] Start from `src/lexic/parsing/fold.py`. Re-express model field capture and
       construction as the generated-model specialization of `ProductProgram`.
 - [ ] Delete `FOLD_KINDS`, `FieldFold`, `FastCtor`, `RuleFold`, `ModelBody`,
@@ -388,8 +441,11 @@ holds.
 - [ ] Update `src/lexic/compile/pipeline/synthesis.py::fold_config` and binding
       callers to author the model product through the new operation records.
 - [ ] Migrate `src/lexic/compile/foldkit.py::seq` and `model_fold`, plus every
-      notation/generated-self-grammar caller, to the final vocabulary. Preserve
-      `foldkit`'s authored-data role; do not fold it into runtime reduction.
+      notation/generated-self-grammar caller, to the final vocabulary. Account
+      explicitly for `IrNamed`, `FOLD_SYMBOLS`, `first_rest`, `absent_tail`,
+      `ABSENT`, `FIRST_REST`, and `DECODE_INT`; preserve the no-`eval` notation
+      symbol channel. Preserve `foldkit`'s authored-data role; do not fold it
+      into runtime reduction.
 - [ ] Update `src/lexic/parsing/products.py` so PDA and Earley receive one bound
       product. Preserve the public generated-model and segmented-token products.
 - [ ] Update `pda/compiler/specs.py::CloneSpec`,
@@ -413,7 +469,8 @@ holds.
       recognizer invokes no target code. Gate ordinary generated-model and
       token-segmented parse rows separately so this task cannot trade a parsing
       regression for later target speed. The controlled mechanism row is in
-      `PROTOTYPE_7.md` §4.
+      `PROTOTYPE_7.md` §4. The proof must enforce nullable-arm-last and
+      nullable-atom continuation ownership, not only variable repetition.
 - [ ] Update `earley_model`, `ModelFold.apply`'s replacement, island completion,
       and delegated completion to execute the same rule operation/captures.
 - [ ] Compare flat programs/opcode streams for the generated-model target before
@@ -426,6 +483,9 @@ holds.
 - [ ] Run the existing generated-model, PDA, Earley, island, token, round-trip,
       and ambiguity tests relevant to changed files. Terra does not add the new
       committed tests or run lint; Luna does that after profiling.
+- [ ] Run `uv run python tools/check_generated.py` at this exit. §4 changes the
+      authored fold vocabulary and its notation/generated-self-grammar users;
+      the generated-twin gate cannot wait until §7.
 - [ ] Pause Terra at the completed §4 tree. The coordinator profiles the
       generated-model product with alternating baseline/new processes and a
       byte-identical control row under `docs/STYLE.md`. Instrumentation remains
@@ -449,6 +509,12 @@ still only one generated-model route, and the §4 checkpoint is recorded. Any
 bugfix-related exception has the user's explicit final approval recorded first.
 
 ## 5 — compile reducer semantics directly into products
+
+- [x] **PLANNING REQUIRED BEFORE §5 — CLOSED:** use the private `_bind`
+      protocol proved by `proto/product_types.py` and one homogeneous typed
+      registry per declaration kind. `proto/reducer_free_surface.py` is
+      explicitly only the public data-half witness; it is not a second binding
+      design.
 
 - [ ] Add `src/lexic/compile/product/` with the pinned layout (the sibling
       `parsing/product/` is pinned; this one is too): `signature.py` owns
@@ -481,16 +547,19 @@ bugfix-related exception has the user's explicit final approval recorded first.
       private typed binding registry.
 - [ ] Make morphism declarations recursively immutable data only. Put locks,
       factories, executors, and entries in a distinct private compiler/artifact
-      binding registry. Bound entries use weak source references, lock-free warm
-      lookup, double-checked serialized cold build, and no source retention by
-      the result-only bound program; eviction must only cause equivalent
-      recompilation. Adopt derived product/PDA/Earley/replica cache entries into
-      `parsing.caches` release ownership and test concurrent first binding,
-      explicit release, and a pool-retained bound program after release.
-- [ ] Make that private artifact registry the sole cache of
-      reduction entries key `(CompiledGrammar, reducer, morphism)` and grammar
-      entries key `(CompiledGrammar, morphism)`, each producing one
-      `BoundProduct`. `parsing.products` owns no
+      binding registries. The declaration's private `_bind` enters the one
+      homogeneous registry for its kind, preserving `BoundProduct[Result]`
+      without a cast or heterogeneous result bag. Bound entries use weak source
+      references, lock-free warm lookup, double-checked serialized cold build,
+      and no source retention by the result-only bound program; eviction must
+      only cause equivalent recompilation. Adopt derived product/PDA/Earley/
+      replica cache entries into `parsing.caches` release ownership and test
+      concurrent first binding, explicit release, and a pool-retained bound
+      program after release.
+- [ ] Permit no second cache of the same binding. Reduction registries key
+      `(CompiledGrammar, reducer, morphism)` and grammar registries key
+      `(CompiledGrammar, morphism)`, each producing one typed `BoundProduct`.
+      `parsing.products` owns no
       second bound-product memo; `parsing.caches` owns only tables/replicas
       derived from the bound program, and a pool is an explicit lifetime owner.
 - [ ] Update `CompiledGrammar.reduce` in `compile/artifact.py` to select a
@@ -566,11 +635,13 @@ the §8/§9 re-runs.
       duplicate behavior, with no generated or IR JSON tree.
 - [ ] Implement the parser-certified extent target. State its validity contract
       in the result type; do not infer or scan delimiters.
-- [ ] Prototype arbitrary-class construction as an immutable constructor symbol
+- [ ] **DECISION REQUIRED AT §6 EXIT:** prototype arbitrary-class construction
+      as an immutable constructor symbol
       lowered through a private write-once, eviction-stable binding. If it
       requires a public callable/factory, mutable rebinding registry, bare
       reflection, or second executor, omit the optional custom-class surface;
-      do not compromise the core architecture to keep it.
+      do not compromise the core architecture to keep it. Record the measured
+      proof and the explicit keep/omit ruling before §7.
 - [ ] Implement `select(spec)` as the finite nested-mapping morphism specified
       in `DESIGN.md`: declaration-ordered path results, absent missing paths,
       retained reducer values, recognition-only extensions, decoded duplicate
@@ -620,6 +691,12 @@ selection, and reducer-free raw selection with their distinct semantics and
 costs. No target is a post-reduction mapper.
 
 ## 7 — implement the layered tokenizer product
+
+- [x] **DECISION REQUIRED BEFORE §7 — CLOSED:** the `<1.000 s` gate applies to
+      the public engaged `cores=AUTO` tokenizer row. A route-anchor decline to
+      sequential is reported with CPU-per-byte and named attribution but is not
+      gated against the same envelope. It still must submit no work and cannot
+      conceal a base-parse regression.
 
 - [ ] In `src/lexic/api/json_tokenizer.py`, declare the tokenizer
       `TargetSchema` against the JSON semantic signature. Generic compile/parser
@@ -688,11 +765,13 @@ costs. No target is a post-reduction mapper.
 - [ ] Implement the proved-regular capturing lowering as a gated task at this
       exit. `compile/product/compose.py` derives a repeated region from semantic
       roles × target demand. `parsing/product/regular.py` proves acyclic simple
-      closure, first-disjoint arms, non-nullable repetition, and deterministic
-      entry/capture boundaries against separator/terminator before atomic or
-      possessive sources become authoritative. The surrounding parser owns the
-      opener and terminator. An acyclic simple shape whose possessive repeat
-      steals its successor must decline. A proved region lowers to one capturing
+      closure, first-disjoint ordered arms, and deterministic repetition,
+      nullable-atom, and entry/capture boundaries against separator/terminator
+      before atomic or possessive sources become authoritative. A nullable arm
+      must be last. A variable or nullable atom whose first set overlaps its
+      continuation declines, including a once-required nullable reference. The
+      surrounding parser owns the opener and terminator. An acyclic simple shape
+      whose possessive atom steals its successor must decline. A proved region lowers to one capturing
       recognizer per entry with demand-derived positional groups over the
       rules' own pattern sources, no grammar-name case. Support arbitrary
       demanded capture arity; empty proved regions remain valid. Prove it
@@ -700,8 +779,9 @@ costs. No target is a post-reduction mapper.
       product on the same region, across native/GBNF/ABNF/EBNF formulations,
       and gate it the way §4 gates the
       model path; a region losing the proof declines to the interpreted
-      product. The recursive and acyclic-but-boundary-ambiguous witnesses must
-      both decline. Mechanism, JSON/non-JSON derivation, all formulation rows,
+      product. The recursive, variable-boundary, `{1,1}` nullable-reference,
+      and early-nullable-arm witnesses must all decline. Mechanism,
+      JSON/non-JSON derivation, all formulation rows,
       controlled timing, and decline are prototyped in
       `proto/regular_region_proof.py` and `regular_region_lowering.py`; the
       ~105x objective is contingent on this task. The 0.351784 s interpreted
@@ -729,6 +809,21 @@ Exit: Qwen, GPT-2, SmolLM2, Gemma, and the small fixture can reach a ready
 and the timed resident row is recorded inside its stop factor.
 
 ## 8 — make ambiguity and failure isolation target-correct
+
+- [ ] **PLANNING REQUIRED BEFORE §8:** prototype and specify the cold island
+      alternate-meaning seed. The decision is fixed: an island with a second
+      target meaning remains in the predictive product and does not decide at
+      its span. Name the seed, the outer completion dependency/continuation
+      trace, isolated replay state, ownership, resolver handoff, and
+      dropping-parent witness before editing source. Equal requested roots must
+      retain the predictive result without reparsing the document. A differing
+      root may use complete-document Earley only when `resolve=` needs the
+      complete derivation pair.
+- [ ] **DECISION REQUIRED AT §8 EXIT:** for map, IR, and tokenizer products,
+      choose exact persistent meanings only where a product-specific proof and
+      measurement establish equality, duplicate, order, and allocation
+      behavior. Otherwise record and retain the exact isolated whole-result
+      cold comparison. No digest or analogy decides this.
 
 - [ ] Replace any generated-model-only ambiguity hook with the product's typed
       root-meaning operation and equality law in
@@ -758,6 +853,9 @@ and the timed resident row is recorded inside its stop factor.
       versus a 1,207-body baseline on the distant case; this is a
       semantic-operation count, not an eager-container allocation claim.
       `local_meaning_fold.py` is the rejected child-local counterexample.
+      The predecessor/parent dependency index is proportional to the default
+      derivation and is built once only after a real arm-choice ambiguity;
+      unambiguous and split-only parses allocate none.
 - [ ] Give sequence-like built-in accumulators an immutable persistent
       contribution meaning.
       Path-copy only dirty ancestors, identity-share unchanged branches, and
@@ -780,6 +878,13 @@ and the timed resident row is recorded inside its stop factor.
       `resolve=`, PDA bails before target-state commit and Earley supplies the
       existing complete derivation pair to the resolver; only its chosen
       meaning materializes the final target product.
+- [ ] Replace island-local ambiguity settlement with the planned alternate seed
+      and outer continuation replay. An unambiguous island still splices
+      locally; a second island meaning is substituted into isolated semantic
+      replay from that occurrence to the root. The dropping-parent island
+      witness must be accepted without whole-document reparse when its complete
+      root meanings are equal. If they differ, refusal needs no reparse; only an
+      invoked `resolve=` may enter Earley to obtain complete derivations.
 - [ ] Make the target equality walk iterative: the current recursive
       `same_value` overflows the interpreter stack near depth 1000, and deep
       meanings are ordinary under quantifier desugaring.
@@ -792,8 +897,10 @@ and the timed resident row is recorded inside its stop factor.
       effort's `proto/` at this exit (the oracle is retained for exactly this)
       and record command and result in `reports/`.
 
-Exit: PDA, Earley, islands, and target projections agree on acceptance,
-refusal, and chosen product without retained shadow models.
+Exit: PDA and Earley agree on acceptance, refusal, and chosen products without
+retained shadow models. Unambiguous islands splice identically; ambiguous
+islands replay through the enclosing product continuation and never settle at
+their span or trigger unconditional whole-document recognition.
 
 ## 9 — derive target-aware parallel fragments
 
@@ -902,8 +1009,11 @@ This phase is mandatory. “Unused but retained” is failure.
 - [ ] Remove every fallback, decline-to-old-route branch, old/new mode switch,
       compatibility adapter, deprecated alias, unused import, and dead cache.
 - [ ] Port shared `foldkit` callers to the final vocabulary, then delete old
-      helpers which have no caller. Do not delete live notation/generated
-      self-grammar behavior.
+      helpers which have no caller. Account by name for `IrNamed`,
+      `FOLD_SYMBOLS`, `seq`, `model_fold`, `first_rest`, `absent_tail`,
+      `ABSENT`, `FIRST_REST`, and `DECODE_INT`. Do not delete the live
+      notation/generated-self-grammar behavior or weaken its no-`eval` symbol
+      channel.
 - [ ] Keep `tokenizer_of` only as the already-reduced input API; remove any
       reader fallback through it.
 - [ ] Search the complete tree for deleted names and old pipeline language:
@@ -960,6 +1070,11 @@ folder.
       prove observer/control equivalence.
 - [ ] Run one benchmark process at a time. Announce and preserve a quiet window
       for every multithreaded row.
+- [ ] **PLANNING REQUIRED BEFORE §12:** choose and record one bounded ambiguous
+      grammar/input whose default derivation is large enough to expose the
+      completed-meaning memo plus predecessor/parent dependency index. Define
+      the unchanged baseline/candidate RSS command and semantic witness before
+      timing; do not improvise the row inside the benchmark window.
 - [ ] Do not use `tools/benchmark/compare.py` unchanged for MT rows: its worker
       cohort is prepared concurrently, and preparation performs real parses.
       Prepare, warm, time, and close one entire baseline/candidate/control
@@ -992,10 +1107,16 @@ folder.
       peak RSS against the §0 baseline, garbage-collector state, and semantic
       witness equality — CPU per byte is a gate quantity beside wall in every
       row, so an MT row cannot pass by burning cores unreported.
+- [ ] Measure peak RSS for the planned ambiguous-input row. Report the default
+      meaning memo and dependency-index populations beside peak RSS. This row
+      is separate from the unambiguous tokenizer ceilings and is the cost
+      account for §8's document-sized cold ambiguity structures.
 - [ ] Gate less than 1.000 s wall for the resident-text ready tokenizer at the
       public `cores=AUTO` engaged shape on the 11,422,654-byte Qwen3 witness,
-      the sequential row reported beside it, and the sequential row gated
-      against the same envelope when route anchors decline. Pursue less than
+      with the sequential row reported beside it. When route anchors decline,
+      report the sequential row, CPU-per-byte, whether any work was submitted,
+      and named attribution; the declined row is diagnostic and is not gated
+      against the engaged `<1.000 s` envelope. Pursue less than
       0.100 s wall for the complete reduced recursive Python product and
       report its multiplier against the current route as its gate quantity
       (`goal.md`'s ruling — 0.084940 s `json.loads` makes the absolute number
@@ -1023,6 +1144,17 @@ test-authoring handoff, with no simultaneous benchmark contamination.
 - [ ] Port assertions from deleted reduction/model/template tests to the new
       owners. Delete only tests whose exact public/internal symbol disappeared;
       preserve the behavior they defended.
+- [ ] Consume the §5 frozen semantic/refusal goldens explicitly. Port fixed
+      corpus cases to deterministic direct-product value/refusal tests. Retain
+      the fresh-input generators in
+      `tests/property/lexic/test_reduce_differential.py`,
+      `test_reduce_differential_abnf.py`, and
+      `test_reduce_differential_ebnf.py`; replace the deleted model+fold oracle
+      in `reduce_differential_helpers.py` with surviving one-path invariants:
+      deterministic repeated reduction, exact refusal contract, contribution
+      order, and flavour grammar round-trip/canonical equality where defined.
+      Do not replace generated coverage with only frozen examples, and do not
+      retain `ReduceFold` as a test-only legacy oracle.
 - [ ] Add semantic-signature tests proving native/GBNF/ABNF/EBNF formulation
       independence and mismatched-signature refusal.
 - [ ] Add product-op ABI tests for typed captures, route tables, decode,

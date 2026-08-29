@@ -118,18 +118,14 @@ class ParseState[Carry]:
         self.sequence_count += 1
         return SequenceHandle(slot)
 
-    def append_sequence(
-        self, handle: SequenceHandle, value: Carry
-    ) -> None:
+    def append_sequence(self, handle: SequenceHandle, value: Carry) -> None:
         """Append to one sequence occurrence."""
         self.sequences[handle.slot].values.append(value)
         if self.marks:
             self.mutation_kinds.append(SEQUENCE_APPEND)
             self.mutation_slots.append(handle.slot)
 
-    def finish_sequence(
-        self, handle: SequenceHandle
-    ) -> tuple[Carry, ...]:
+    def finish_sequence(self, handle: SequenceHandle) -> tuple[Carry, ...]:
         """Read one completed sequence occurrence."""
         return tuple(self.sequences[handle.slot].values)
 
@@ -158,9 +154,7 @@ class ParseState[Carry]:
             self.mutation_kinds.append(MAPPING_INSERT)
             self.mutation_slots.append(handle.slot)
 
-    def finish_mapping(
-        self, handle: MappingHandle
-    ) -> tuple[tuple[str, Carry], ...]:
+    def finish_mapping(self, handle: MappingHandle) -> tuple[tuple[str, Carry], ...]:
         """Read one completed mapping occurrence."""
         return tuple(self.mappings[handle.slot].entries)
 
@@ -207,17 +201,18 @@ class ParseState[Carry]:
                 raise UnsupportedConstructError(
                     f"prototype transaction: unknown mutation {kind}"
                 )
-        del self.mutation_kinds[mark.mutation_count:]
-        del self.mutation_slots[mark.mutation_count:]
-        del self.sequences[mark.sequence_count:]
+        del self.mutation_kinds[mark.mutation_count :]
+        del self.mutation_slots[mark.mutation_count :]
+        del self.sequences[mark.sequence_count :]
         self.sequence_count = mark.sequence_count
-        del self.mappings[mark.mapping_count:]
+        del self.mappings[mark.mapping_count :]
         self.mapping_count = mark.mapping_count
-        del self.verdicts[mark.verdict_count:]
+        del self.verdicts[mark.verdict_count :]
         self.marks.pop()
         if not self.marks:
             self.mutation_kinds.clear()
             self.mutation_slots.clear()
+
 
 class CaptureMode(IntEnum):
     """The closed per-occurrence capture vocabulary."""
@@ -364,9 +359,7 @@ type RuleCompletion[Carry] = (
     | MappingOp
     | RecordOp
 )
-type ProductOp[Carry, Result] = (
-    RuleCompletion[Carry] | RouteOp | MeaningOp | RootOp
-)
+type ProductOp[Carry, Result] = RuleCompletion[Carry] | RouteOp | MeaningOp | RootOp
 
 
 class RuleProduct[Carry](NamedTuple):
@@ -405,28 +398,18 @@ class RouteTable(NamedTuple):
     extension: int
 
 
-type Decoder[Carry] = Callable[[str], Carry]
-type Validator[Carry] = Callable[[Carry], Verdict | None]
 type SequenceFinisher[Carry] = Callable[[tuple[Carry, ...]], Carry]
-type MappingFinisher[Carry] = Callable[
-    [tuple[tuple[str, Carry], ...]], Carry
-]
-type RecordConstructor[Carry] = Callable[[tuple[Carry, ...]], Carry]
+type MappingFinisher[Carry] = Callable[[tuple[tuple[str, Carry], ...]], Carry]
 type MeaningComparator[Carry] = Callable[[Carry, Carry], bool]
-type RootFinalizer[Carry, Result] = Callable[
-    [Carry, ParseState[Carry]], Result
-]
+type RootFinalizer[Carry, Result] = Callable[[Carry, ParseState[Carry]], Result]
 
 
 class OperandTables[Carry, Result](NamedTuple):
-    """Separate typed operand tables for the flat runtime program."""
+    """Typed operands admitted only at collection and cold boundaries."""
 
     constants: tuple[Carry, ...]
-    decoders: tuple[Decoder[Carry], ...]
-    validators: tuple[Validator[Carry], ...]
     sequences: tuple[SequenceFinisher[Carry], ...]
     mappings: tuple[MappingFinisher[Carry], ...]
-    records: tuple[RecordConstructor[Carry], ...]
     meanings: tuple[MeaningComparator[Carry], ...]
     roots: tuple[RootFinalizer[Carry, Result], ...]
     routes: tuple[RouteTable, ...]
@@ -674,9 +657,7 @@ class BindingRegistry[Declaration, Result]:
 
     def __init__(self) -> None:
         self._build_count = 0
-        self._entries: dict[
-            tuple[int, int, int], BoundEntry[Declaration, Result]
-        ] = {}
+        self._entries: dict[tuple[int, int, int], BoundEntry[Declaration, Result]] = {}
         self._lock = Lock()
 
     @property
@@ -716,9 +697,7 @@ class BindingRegistry[Declaration, Result]:
                 grammar,
                 partial(_release_bound, self._entries, self._lock, key),
             )
-            self._entries[key] = BoundEntry(
-                declaration, source, reducer.reducer, bound
-            )
+            self._entries[key] = BoundEntry(declaration, source, reducer.reducer, bound)
             return bound
 
 
@@ -836,9 +815,7 @@ class SelectionMorphism(NamedTuple):
         self, grammar: SourceGrammar, reducer: ReducerBinding
     ) -> BoundProduct[Selection]:
         """Enter the private selection binding owner."""
-        return _SELECTION_BINDINGS.bind(
-            self, grammar, reducer, _build_selection
-        )
+        return _SELECTION_BINDINGS.bind(self, grammar, reducer, _build_selection)
 
 
 def _build_selection(
@@ -902,13 +879,16 @@ def join_json(left: JsonValue, right: JsonValue) -> JsonValue:
 
 
 def decode_ir(text: str) -> IrSelf:
-    """Prototype semantic decoder."""
+    """Execute the engine-owned IR-string scalar decoder."""
     return IrStr(text)
 
 
-def same_ir(
-    left: IrSelf, right: IrSelf
-) -> bool:
+def decode_text(text: str) -> str:
+    """Execute the engine-owned text scalar decoder."""
+    return text
+
+
+def same_ir(left: IrSelf, right: IrSelf) -> bool:
     """Prototype meaning law."""
     return type(left) is type(right) and left == right
 
@@ -926,9 +906,6 @@ def ir_program(
     """Build one typed default-IR program."""
     del grammar, reducer
     operands = OperandTables[IrSelf, IrSelf](
-        (),
-        (decode_ir,),
-        (),
         (),
         (),
         (),
@@ -949,8 +926,8 @@ def ir_program(
         (),
         (),
         (int(DecodeOpCode.DECODE),),
-        (0,),
-        (0, len(operands.decoders)),
+        (DECODE_IR_STRING,),
+        (0, CLOSED_DECODER_COUNT),
         operands,
         RootOp(0),
         MeaningOp(0),
@@ -965,13 +942,22 @@ class DecodeOpCode(IntEnum):
     DECODE = 1
 
 
+DECODE_IR_STRING = 0
+DECODE_TEXT = 1
+CLOSED_DECODER_COUNT = 2
+"""Engine-owned scalar decoder ids; no callable lives in an operand table."""
+
+
 def execute_ir(
     program: ProductProgram[IrSelf, IrSelf], text: str, cores: int
 ) -> IrSelf:
     """Exercise a typed program through the public bound runner."""
     del cores
     state = ParseState[IrSelf]()
-    carry = program.operands.decoders[0](text)
+    decoder = program.fused_operands[0]
+    if decoder != DECODE_IR_STRING:
+        raise UnsupportedConstructError("prototype: wrong closed IR decoder")
+    carry = decode_ir(text)
     return finish_root(program, carry, state)
 
 
@@ -1007,50 +993,28 @@ _IR_BINDINGS = BindingRegistry[DefaultIrMorphism, IrSelf]()
 DEFAULT_IR = DefaultIrMorphism(SignatureRequirement(frozenset()))
 
 
-class TokenizerCarry(NamedTuple):
-    """Typed accumulator state before real tokenizer finalization."""
-
-    name: str
-    vocab: tuple[tuple[str, int], ...]
-    merges: tuple[tuple[str, str], ...]
-
-
-def decode_tokenizer(text: str) -> TokenizerCarry:
-    """Stand in for streamed target accumulators, not an intermediate tree."""
-    return TokenizerCarry(
-        text,
-        (("a", 0), ("b", 1), ("ab", 2)),
-        (("a", "b"),),
-    )
-
-
-def same_tokenizer(left: TokenizerCarry, right: TokenizerCarry) -> bool:
-    """Compare typed tokenizer accumulator meanings."""
+def same_tokenizer(left: str, right: str) -> bool:
+    """Compare the prototype tokenizer's typed text meanings."""
     return left == right
 
 
-def tokenizer_root(
-    carry: TokenizerCarry, state: ParseState[TokenizerCarry]
-) -> IrTokenizer:
+def tokenizer_root(carry: str, state: ParseState[str]) -> IrTokenizer:
     """Build the real final class once at the cold root boundary."""
     if state.verdicts:
         raise UnsupportedConstructError(state.verdicts[0].message)
     return IrTokenizer.from_merges(
-        carry.name,
-        dict(carry.vocab),
-        carry.merges,
+        carry,
+        {"a": 0, "b": 1, "ab": 2},
+        (("a", "b"),),
     )
 
 
 def tokenizer_program(
     grammar: SourceGrammar, reducer: ReducerBinding
-) -> ProductProgram[TokenizerCarry, IrTokenizer]:
+) -> ProductProgram[str, IrTokenizer]:
     """Build one advanced typed program."""
     del grammar, reducer
-    operands = OperandTables[TokenizerCarry, IrTokenizer](
-        (),
-        (decode_tokenizer,),
-        (),
+    operands = OperandTables[str, IrTokenizer](
         (),
         (),
         (),
@@ -1071,8 +1035,8 @@ def tokenizer_program(
         (),
         (),
         (int(DecodeOpCode.DECODE),),
-        (0,),
-        (0, len(operands.decoders)),
+        (DECODE_TEXT,),
+        (0, CLOSED_DECODER_COUNT),
         operands,
         RootOp(0),
         MeaningOp(0),
@@ -1082,12 +1046,15 @@ def tokenizer_program(
 
 
 def execute_tokenizer(
-    program: ProductProgram[TokenizerCarry, IrTokenizer], text: str, cores: int
+    program: ProductProgram[str, IrTokenizer], text: str, cores: int
 ) -> IrTokenizer:
     """Exercise an advanced typed program."""
     del cores
-    state = ParseState[TokenizerCarry]()
-    carry = program.operands.decoders[0](text)
+    state = ParseState[str]()
+    decoder = program.fused_operands[0]
+    if decoder != DECODE_TEXT:
+        raise UnsupportedConstructError("prototype: wrong closed text decoder")
+    carry = decode_text(text)
     return finish_root(program, carry, state)
 
 
@@ -1100,9 +1067,7 @@ class TokenizerMorphism(NamedTuple):
         self, grammar: SourceGrammar, reducer: ReducerBinding
     ) -> BoundProduct[IrTokenizer]:
         """Enter the private tokenizer binding owner."""
-        return _TOKENIZER_BINDINGS.bind(
-            self, grammar, reducer, _build_tokenizer
-        )
+        return _TOKENIZER_BINDINGS.bind(self, grammar, reducer, _build_tokenizer)
 
 
 def _build_tokenizer(
@@ -1118,15 +1083,11 @@ def _build_tokenizer(
         raise UnsupportedConstructError(
             f"product: reducer lacks semantic events {names}"
         )
-    return TypedBoundProduct(
-        tokenizer_program(grammar, reducer), execute_tokenizer
-    )
+    return TypedBoundProduct(tokenizer_program(grammar, reducer), execute_tokenizer)
 
 
 _TOKENIZER_BINDINGS = BindingRegistry[TokenizerMorphism, IrTokenizer]()
-TOKENIZER = TokenizerMorphism(
-    SignatureRequirement(frozenset({"mapping"}))
-)
+TOKENIZER = TokenizerMorphism(SignatureRequirement(frozenset({"mapping"})))
 
 
 def prove_transactions() -> None:
@@ -1170,9 +1131,7 @@ def prove_transactions() -> None:
     assert json_array(state.finish_sequence(sequence)) == JsonArray(
         (1, JsonArray(("nested",)))
     )
-    assert json_array(
-        alternative.finish_sequence(alternative_sequence)
-    ) == JsonArray(
+    assert json_array(alternative.finish_sequence(alternative_sequence)) == JsonArray(
         (1, JsonArray(("nested",)), 3)
     )
 
@@ -1201,12 +1160,8 @@ def prove_transactions() -> None:
     assert state.finish_mapping(mapping) == (("stable", 1),)
     assert island.finish_mapping(island_mapping) == (("island", 4),)
 
-    left: FragmentProduct[JsonValue] = FragmentProduct(
-        0, 0, 1, 1, JsonArray((1,)), ()
-    )
-    right: FragmentProduct[JsonValue] = FragmentProduct(
-        1, 1, 2, 2, JsonArray((2,)), ()
-    )
+    left: FragmentProduct[JsonValue] = FragmentProduct(0, 0, 1, 1, JsonArray((1,)), ())
+    right: FragmentProduct[JsonValue] = FragmentProduct(1, 1, 2, 2, JsonArray((2,)), ())
     joined = join_fragments(left, right, join_json)
     assert joined.carry == JsonArray((1, 2))
 
@@ -1303,9 +1258,7 @@ def prove_decoded_routes() -> None:
     )
     program = ir_program(compiled, reducer)
     table = RouteTable((("model", 1),), 2)
-    routed = program._replace(
-        operands=program.operands._replace(routes=(table,))
-    )
+    routed = program._replace(operands=program.operands._replace(routes=(table,)))
     assert route(routed, 0, str(plain)) == 1
     assert route(routed, 0, str(escaped)) == 1
     assert route(routed, 0, "extension-a") == 2
@@ -1363,9 +1316,7 @@ def prove_completion_verifier() -> None:
         DEFAULT_IR,
     )
     program = ir_program(compiled, reducer)
-    outside = program._replace(
-        completions=(CompletionRange(FUSED_RANGE, 1, 1),)
-    )
+    outside = program._replace(completions=(CompletionRange(FUSED_RANGE, 1, 1),))
     try:
         verify_product_program(outside)
     except UnsupportedConstructError as error:
@@ -1373,7 +1324,7 @@ def prove_completion_verifier() -> None:
     else:
         raise AssertionError("out-of-bounds completion range was accepted")
 
-    bad_operand = program._replace(fused_operands=(1,))
+    bad_operand = program._replace(fused_operands=(CLOSED_DECODER_COUNT,))
     try:
         verify_product_program(bad_operand)
     except UnsupportedConstructError as error:

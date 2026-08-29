@@ -1,8 +1,10 @@
 # Index — target-shaped parsing
 
-**Current state (2026-08-29):** planning/prototyping is complete through
-`PROTOTYPE_8.md`; production source has not started. `src` is identical to
-baseline `0faa7289`. `REVIEW_9.md` is the next deliverable.
+**Current state (2026-08-29):** `REVIEW_9.md` returned GO for §2 and identified
+five high and five medium corrections. The settled corrections and the
+remaining explicitly marked planning gates are folded into the current packet;
+`PROTOTYPE_9.md` records the executable corrections. Production source has not
+started in this effort.
 
 ## Start here
 
@@ -27,13 +29,15 @@ before source work.
 
 The current packet is:
 
-- [`reports/REVIEW_8.md`](reports/REVIEW_8.md) — latest independent NO-GO and
-  the issues this pass had to close;
-- [`reports/PROTOTYPE_7.md`](reports/PROTOTYPE_7.md) — root-equivalent
-  ambiguity, authoritative regular-region proof/derivation, declaration-only
-  morphisms, zero-arm routing, DAG accounting, and controlled timing;
+- [`reports/REVIEW_9.md`](reports/REVIEW_9.md) — latest independent review; GO
+  for §2, with corrections required before later consuming phases;
+- [`reports/PROTOTYPE_9.md`](reports/PROTOTYPE_9.md) — REVIEW_9 proof, routing,
+  and closed-operation ABI corrections plus the remaining planning gates;
 - [`reports/PROTOTYPE_8.md`](reports/PROTOTYPE_8.md) — exact §0 source/RSS/
-  consumer baseline and persistent exact root meanings.
+  consumer baseline and persistent exact root meanings;
+- [`reports/PROTOTYPE_7.md`](reports/PROTOTYPE_7.md) — root-equivalent
+  ambiguity, regular-region derivation, declaration-only morphisms, DAG
+  accounting, and controlled timing, as corrected by `PROTOTYPE_9.md`.
 
 Earlier reports are provenance. Their results remain useful only where the
 newer reports do not explicitly supersede them.
@@ -58,6 +62,8 @@ newer reports do not explicitly supersede them.
 | [`REVIEW_8.md`](reports/REVIEW_8.md) | Rejected child-local semantics, implicit value-string consult, and weak regular proof. |
 | [`PROTOTYPE_7.md`](reports/PROTOTYPE_7.md) | Current root/regular/routing/DAG/measurement correction set. |
 | [`PROTOTYPE_8.md`](reports/PROTOTYPE_8.md) | Current §0 RSS/consumer baseline and persistent exact-meaning correction. |
+| [`REVIEW_9.md`](reports/REVIEW_9.md) | GO for §2; found nullable possessive, island scope, non-sibling routing, hot-callback, ownership, test, and cost-account gaps. |
+| [`PROTOTYPE_9.md`](reports/PROTOTYPE_9.md) | Executes the REVIEW_9 proof/routing/ABI corrections and enumerates the remaining marked planning gates. |
 
 ## Prototype inventory
 
@@ -112,8 +118,10 @@ part of the packet.
 ## Implementation landmarks
 
 - §0 is complete in `TODO.md` / `PROTOTYPE_8.md`.
-- §1 type/prototype gate is complete.
+- §1 type/prototype gate is complete as corrected by `PROTOTYPE_9.md`.
 - Production begins at §2, then follows §3–§11 in order.
+- Explicit `PLANNING REQUIRED` and `DECISION REQUIRED` markers in `TODO.md`
+  are hard entry/exit gates, not implementer discretion.
 - §4, §5, §7, §9, and §11 have checkpoint gates.
 - §12 is the complete-source external profile.
 - §13 is the sequential Luna test/lint handoff.

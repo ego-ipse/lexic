@@ -1,4 +1,9 @@
-"""Type the reducer-bearing and reducer-free forms of one ``reduce`` seam."""
+"""Type only the public declaration half of the two ``reduce`` source forms.
+
+``product_types.py`` owns the separate private ``_bind`` protocol and one
+homogeneous binding registry per declaration kind. This surface witness keeps
+that compiler-owned mechanism intentionally out of the public data records.
+"""
 
 from __future__ import annotations
 
@@ -31,14 +36,14 @@ class RawSelection[Item](NamedTuple):
 
 
 class ReductionMorphism[Result](NamedTuple):
-    """Immutable signature-bearing declaration data; ``Result`` is exact."""
+    """Signature-bearing public data half; ``Result`` is exact."""
 
     signature: tuple[str, ...]
     operations: tuple[int, ...]
 
 
 class GrammarMorphism[Result](NamedTuple):
-    """Immutable grammar-demand declaration data; ``Result`` is exact."""
+    """Grammar-demand public data half; ``Result`` is exact."""
 
     entry: str
     paths: tuple[str, ...]

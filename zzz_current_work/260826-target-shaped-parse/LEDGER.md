@@ -1,6 +1,51 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — REVIEW_8 corrections and implementation-ready pass (2026-08-29)
+## CURRENT SESSION — REVIEW_9 corrections and explicit planning gates (2026-08-29)
+
+`REVIEW_9.md` returned GO for §2 and ten later-phase findings. The regular proof
+now declines a once-required nullable atom which can steal its continuation and
+an ordered alternation whose nullable arm is not last. The identity probe passes
+those two witnesses beside the earlier variable-boundary case. Route lowering
+now carries a finite route through intervening contextual PDA clones and Earley
+successor codes rather than assuming producer and consumer are siblings. The
+flat ABI prototype no longer stores target decoder, validator, or record-
+constructor callables at frequent completions: engine-owned closed operations
+are selected by plain integers, with target callables restricted to collection
+finish, root finalization, and meaning comparison.
+
+The first correction pass chose a whole-document Earley bailout for an
+ambiguous PDA island. The user correctly rejected the inference: a parent which
+drops or transforms a differing child proves only that the island cannot decide
+locally, not that the island parse should be discarded. The corrected design
+carries a cold alternate-meaning seed through the enclosing product continuation
+and compares at the requested root. A complete Earley parse is reserved for a
+differing root whose caller supplied `resolve=`, because that existing API needs
+complete derivations. The public engaged `cores=AUTO` tokenizer
+row remains the `<1.000 s` gate, while sequential route-anchor decline is a
+reported diagnostic. Morphism `_bind` dispatch uses one homogeneous typed
+registry per declaration kind. `parsing/product/regular.py` reuses the existing
+PDA core `CharSet` and scanner lowering. §4 runs the generated-twin gate and
+accounts for every named foldkit symbol. §13 consumes the frozen goldens while
+preserving fresh property generators. §12 adds an ambiguous-input RSS row for
+the document-sized dependency index.
+
+`TODO.md` now defines `DECISION REQUIRED`, `PLANNING REQUIRED`, and `USER
+DECISION REQUIRED` as hard gates. Remaining open work is visibly marked: the
+island seed/dependency/replay mechanism before §8, product-specific
+persistent-meaning keep/fallback decisions at §8, the custom-class keep/omit
+decision at §6, the ambiguous RSS witness plan before §12, and any user-only
+approval of a bugfix-related parse regression. `PROTOTYPE_9.md` records the
+executed corrections. No production source was changed by this pass.
+
+Five corrected prototypes pass Ruff and Pyright. Their executable witnesses
+pass: typed products/transactions/fragments/overloads; three exact public
+`reduce` overloads with inert declarations; decoded/raw non-sibling routes with
+zero grammar-arm additions; native/GBNF/ABNF/EBNF/JSON/engine identity; and all
+three unsafe possessive shapes declining. `git diff --check` passes, every
+effort `.md`/`.py` basename appears in `INDEX.md`, and the current packet has no
+stale whole-document island-bailout or sequential-decline-gate claim.
+
+## PRIOR SESSION — REVIEW_8 corrections and implementation-ready pass (2026-08-29)
 
 `REVIEW_8.md` returned NO-GO on three architectural claims: child-local
 ambiguity narrowed the root-value language, the `<1.000 s` interpreted budget
@@ -230,7 +275,7 @@ pyright, and gates. Terra and Luna run sequentially. If tests or formatting
 require a source correction, return to Terra, reprofile the exact corrected
 tree, then return to Luna.
 
-**Checkpoints and compaction:** the coordinator reviews and commits after §4,
+**Checkpoints:** the coordinator reviews and commits after §4,
 §5, §7, §9, and §11. Terra writes a checkpoint report and ledger update, then
 continues warm through adjacent increments. Run `tools/usage_watch.sh 90 60
 540` during agent-heavy work and follow the repository's hold/resume protocol.

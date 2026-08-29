@@ -251,8 +251,10 @@ compile/artifact seam; it hides `Carry` only after the concrete morphism has
 bound compilation and execution without erasing it. It is not a second public
 execution method. `ReductionMorphism[Result]` is recursively immutable public
 signature/schema/algebra data only; it contains no cache, lock, mutable factory,
-executor, or entry dictionary. A distinct private compiler/artifact binding
-registry owns those implementation details. Reduction entries key stable
+executor, or entry dictionary. A private `_bind` protocol transfers each
+declaration into one homogeneous compiler/artifact binding registry for that
+declaration kind; a heterogeneous result-erasing registry is forbidden.
+Reduction entries key stable
 declaration + source grammar + reducer identities; grammar entries key stable
 declaration + source grammar identity only. Each entry has
 a weak source-artefact reference, strong immutable declaration and reducer
@@ -266,9 +268,10 @@ entry into the existing `parsing.caches` lifetime protocol. A pool retaining a
 bound program is an explicit owner and remains valid after source-cache release.
 Mutable builders are never cached or shared between parses or workers.
 
-This registry is the only cache of reduction
-`(CompiledGrammar, reducer, morphism)` and reducer-free
-`(CompiledGrammar, morphism)` bindings. `parsing.products` does not retain a second product memo;
+No second cache of the same reduction `(CompiledGrammar, reducer, morphism)` or
+reducer-free `(CompiledGrammar, morphism)` binding exists. The per-kind
+registries are the sole owners of their homogeneous entries;
+`parsing.products` does not retain a second product memo;
 `parsing.caches` owns only parser tables and replicas derived from the bound
 program. This keeps residency, derivation, and pool ownership from becoming
 three overlapping caches of the same product.
@@ -301,6 +304,12 @@ always own disjoint states and return immutable/owned fragments to the
 coordinator. No alternate derivation, failed attempt, or worker can mutate the
 state which becomes the final result.
 
+The dependency index is proportional to the default derivation and is built
+once only after a real arm-choice ambiguity is discovered. It is not allocated
+for unambiguous parses or split-only families. §12 measures it with an
+ambiguous-input peak-RSS row rather than folding it into the unambiguous
+tokenizer ceiling.
+
 `ParseState` is not an unconditional engine tax. A product with no mutable
 builders, transaction log, or deferred verdict—most importantly the existing
 generated-model product—allocates none and does not test transaction state at
@@ -327,8 +336,12 @@ records cover at least:
 
 The PDA and Earley interpreters consume the same records. Target selection is
 baked into clone capture and completion; the character/item loop does not call
-a morphism or branch on its Python type. Frequently completed lexical rules use
-specialized closed operations, not a Python callable hidden in a record.
+a morphism or branch on its Python type. Every frequently completed rule uses
+engine-owned closed operations selected by plain integer codes. Scalar decode,
+validation, sequence/mapping begin and append/insert, and declared record
+construction never come from a target callable table. A target-supplied callable
+may appear only at collection finish, root finalization, or meaning comparison;
+those typed tables are separate from the closed-operation operands.
 
 The authored completion ABI is a named union of typed operation records:
 `PassOp`, `ConstantOp[Carry]`, `DecodeOp`, `RouteOp`, `ValidateOp`,
@@ -364,9 +377,12 @@ widened to `Any` or `object`.
 
 `RouteOp` maps one semantic-signature discriminator to a finite route id. A
 compiled `RouteContinuation` names the unique contextual producer completion,
-the following consumer item/reference position, and the finite
-route-to-contextual-child table. A route producer must be non-nullable and
-produce exactly one discriminator; compile refuses otherwise.
+the descendant consumer reference path, and the finite route-to-contextual-
+clone chain. A sibling consumer is the one-link case. For a non-sibling
+consumer, each intervening PDA clone and Earley successor code is specialized
+by the route, so no descendant dynamically reaches back into an ancestor frame.
+A route producer must be non-nullable and produce exactly one discriminator;
+compile refuses otherwise.
 
 The discriminator is obtained at producer completion by its compiled scalar
 decoder. Routing may not invoke the general reducer-expression evaluator,
@@ -387,11 +403,13 @@ the public `resolve=` channel: a supplied resolver reaches only genuine
 authored arm ambiguity after contextual routing is already part of the packed
 code.
 
-In the PDA, successful producer completion writes `(consumer position, route)`
+In the PDA, successful producer completion writes `(consumer path, route)`
 into a dedicated parent-frame lane. The following child may read it across its
 own internal attempts; the parent clears it only after that occurrence
 successfully advances. The parent's transaction mark restores both integers on
 rollback, so neither an abandoned attempt nor the next member can inherit it.
+The first routed child is chosen from that lane; every deeper child is already
+baked into the selected contextual clone chain.
 
 Earley does not widen every packed item with a route tuple. Only a routed
 producer completion consults a sparse compiled
@@ -592,18 +610,21 @@ witness—not proof that the complete interpreted product fits `<1.000 s`.
 Above that sits the scheduled capturing lowering. `compile/product/compose.py`
 derives a repeated region from reducer semantic roles × target demand;
 `parsing/product/regular.py` proves its simple closure acyclic, its authored
-arms first-disjoint, its repetitions non-nullable, and every variable/capture
-boundary deterministic against the next entry separator or terminator. The
+arms first-disjoint and ordered-exact, and every repetition, nullable atom, and
+capture boundary deterministic against the next entry separator or terminator.
+A nullable arm must be last. A variable or nullable atom whose first set
+overlaps its continuation declines, including a `{1,1}` nullable reference. The
 surrounding parser owns the opener and terminator; the delegated interior does
 not promote the scanner's fail-soft shell match into an authoritative answer.
-An acyclic/simple shape whose possessive repetition would steal its successor
-declines. A proved region lowers demanded positions to one capturing
+An acyclic/simple shape whose possessive atom or ordered arm would steal its
+successor declines. A proved region lowers demanded positions to one capturing
 recognizer per entry; an unproved region remains on the same interpreted
 product from the start. The derivation/proof, a non-JSON catalog witness, and
 native/GBNF/ABNF/EBNF JSON identity are in
 `proto/regular_region_proof.py`/`regular_region_lowering.py`. The ~105x
-objective is contingent on this further lowering; the `<1.000 s` envelope is
-not, but still depends on the scheduled value-string consult above.
+objective is contingent on this further lowering. The `<1.000 s` gate applies
+to the engaged public `cores=AUTO` row. A sequential route-anchor decline is
+reported with attribution rather than treated as the same performance gate.
 
 ### Predictive PDA
 
@@ -633,8 +654,14 @@ part of the redesign, not fixed infrastructure that every target must pay.
 Earley still owns the chart/forest required for general recognition and real
 ambiguity. Once it selects or compares a derivation, it folds directly with the
 same target program. It must not build a generated model and hand that to a
-second reducer. PDA islands use this same route, so a target has identical
-semantics whether a span was predictive or delegated.
+second reducer. An unambiguous PDA island returns its ordinary local product.
+If an island has a second target meaning, it does not settle at the island
+handle and does not discard the predictive parse. It returns the baseline value
+plus a cold alternate-meaning seed. The enclosing product records the semantic
+completion dependency from that occurrence to the root, then replays only that
+continuation with the alternate value in isolated state. The same requested-
+root ambiguity relation therefore applies without recognizing the document
+twice.
 
 Ambiguity is orthogonal to ordinary retention but equality is target-dependent.
 Every product declares a typed root meaning and equality law over derivations
@@ -687,6 +714,12 @@ generated model is constructed. The chosen meaning alone is then materialized
 as the final target product when the target supplies the proved shareable
 representation; otherwise the exact cold whole-result comparison above owns
 both temporary results explicitly.
+
+An island seed is not a span-local refusal or syntax error. Equal root meanings
+keep the predictive result. If root meanings differ and `resolve=` is present,
+the coordinator may use complete-document Earley only to obtain the complete
+derivation pair required by the existing resolver contract; root equality has
+already been decided by continuation replay.
 
 Fold execution over the shared packed forest is a separate stated contract
 (`proto/shared_forest_refold.py`): the built derivation is a DAG (zero-width
@@ -916,7 +949,10 @@ owner to its final role. Nothing remains merely because it is the old path.
   flat ABI records, `state.py` owns parse-local builders and transactions,
   `regular.py` owns the authoritative regular-language proof,
   `verify.py` owns physical-table verification, and `__init__.py` is the sole
-  parsing-internal façade. The package imports only `lexic.ir`.
+  parsing-internal façade. The package imports `lexic.ir` plus the existing
+  `parsing/pda/core/` leaves `charsets` and `scanner`; `regular.py` reuses their
+  `CharSet`, `build_recognizer`, and `compile_source` rather than implementing a
+  second possessive lowering.
 - `compile/artifact.py`: `reduce` selects and runs a cached `BoundProduct`.
   `_ReduceEntry`, `_reduce_entry`, the reduction-only `_variant_artifact`, and
   `_sub_run` are removed or replaced by generally named target-program
@@ -933,9 +969,11 @@ owner to its final role. Nothing remains merely because it is the old path.
   contextual lower-plus-upper composition. The reduction-specific surface is
   deleted once its proof machinery has moved.
 - `compile/foldkit.py`: this is shared authored-fold vocabulary, not disposable
-  reduction code. Its notation and generated-self-grammar users migrate to the
-  common product-operation vocabulary; it is simplified or renamed only after
-  those users have one final home.
+  reduction code. Its `IrNamed`, `FOLD_SYMBOLS`, `seq`, `model_fold`,
+  `first_rest`, `absent_tail`, `ABSENT`, `FIRST_REST`, and `DECODE_INT`
+  consumers in notation and generated self-grammar migrate to the common
+  product-operation vocabulary while preserving the no-`eval` symbol channel;
+  it is simplified or renamed only after those users have one final home.
 - `compile/output/templating.py`: its separate parse architecture is removed.
   `select(spec)` becomes the beginner declaration and returns a real
   `ReductionMorphism[Selection]`; `CompiledGrammar.reduce(..., into=selection)`
@@ -1034,12 +1072,15 @@ The design is complete only when the following claims are demonstrated:
    failure order.
 7. A discarded occurrence creates no model or target value. A validate-only
    occurrence releases successful temporaries at its completion boundary.
-8. PDA, Earley fallback, islands, sequential execution, and every engaged
-   parallel split return or refuse identically for the same target.
+8. PDA, Earley fallback, sequential execution, and every engaged parallel split
+   return or refuse identically for the same target. An unambiguous island
+   splices locally; an ambiguous island carries an alternate seed through the
+   enclosing product continuation and is decided at the requested root, never
+   by span-local target equality or unconditional whole-document reparsing.
 9. PDA and Earley execute the same flat product operations and capture layouts;
    each contextual rule executes either its differential reducer-expression
    range or its fused target range exactly once, every paid opcode/capture mode
-   is a plain integer, and a target-specific callback cannot appear in a
+   is a plain integer, and a target-specific callback cannot appear in any
    frequently completed rule.
 10. Every parse-local builder is isolated by parse and worker. Public morphisms
     expose only recursively immutable declaration data; private artifact-owned

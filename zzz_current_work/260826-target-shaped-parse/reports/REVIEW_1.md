@@ -215,21 +215,20 @@ code, and relaxing it is the user's call, not the implementer's.
 
 ---
 
-### 8 — Plan the implementer's compaction points
+### 8 — Plan the implementer's checkpoint cadence
 
 **Severity:** medium · **Owner:** coordinator
 
 **Status:** CLOSED — `TODO.md` and `LEDGER.md` define the checkpoint, warm-agent,
-usage-watch, and compaction protocol.
+and usage-watch protocol.
 
 **Evidence.** §0–§11 is twelve phases of source work plus a full documentation
-pass for one implementer, with no test-authoring relief until §13. Checkpoint
-commits help; context exhaustion is still likely mid-effort.
+pass for one implementer, with no test-authoring relief until §13.
 
-**Action.** Decide the handoff points deliberately rather than discovering
-them. Adjacent increments continue the warm implementer via `SendMessage`; a
-fresh spawn is for unrelated work only. Run `tools/usage_watch.sh` as a
-background task during agent-heavy stretches.
+**Action.** Adjacent increments continue the warm implementer via
+`SendMessage`; a fresh spawn is for unrelated work only. Context-window length
+is never a reason to hold or replace an agent (user ruling 2026-08-25). Run
+`tools/usage_watch.sh` as a background task during agent-heavy stretches.
 
 ---
 

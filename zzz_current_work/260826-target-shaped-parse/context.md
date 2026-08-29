@@ -59,8 +59,10 @@ mechanism witnesses, not source integration or performance evidence:
   into a PDA producer route lane and a sparse Earley
   `(waiting contextual code, route) -> successor contextual code` transition.
   The existing packed Earley successor code carries route and occurrence
-  identity; ordinary items and their advance path are unchanged. Decoded plain
-  and escaped-equivalent keys select the same child.
+  identity; ordinary items and their advance path are unchanged. A second
+  witness carries the route through an intervening contextual clone, so the
+  producer and consumer need not be siblings. Decoded plain and
+  escaped-equivalent keys select the same child.
 - `proto/cache_lifetime.py` separates recursively immutable public declaration
   data from a private compiler/artifact registry, then uses real
   `CompiledGrammar` identities to prove single-build concurrent binding,
@@ -106,6 +108,15 @@ witness, and an even-order collector comparison. These remain mechanism
 witnesses, not production throughput proof. `PROTOTYPE_8.md` supplies the exact
 starting-tree RSS matrix and the persistent exact-meaning representation which
 separates dirty-cone semantic work from eager-result materialization.
+`REVIEW_9.md` found two missing possessive conditions, island-local ambiguity
+settlement, a sibling-only route witness, target callables in the prototype's
+frequent-completion operand tables, and five plan/accounting gaps.
+`PROTOTYPE_9.md` records the corrected proof, non-sibling contextual route, and
+closed-operation ABI. An ambiguous PDA island remains part of the predictive
+product: it publishes a cold alternate-meaning seed which is replayed through
+the enclosing product continuation to the requested root. The island span does
+not decide final equality, and the complete document is not reparsed merely
+because the parent may discard the difference.
 
 ## Current source state
 
@@ -385,10 +396,10 @@ special-casing the existing `IrMap` invariant.
 
 Read these before changing source:
 
-1. `zzz_current_work/260826-target-shaped-parse/reports/REVIEW_8.md`,
-   `PROTOTYPE_7.md`, and `PROTOTYPE_8.md` — the latest review, its corrected
-   ambiguity/regular/routing/typing/DAG mechanisms, persistent exact meanings,
-   and the exact §0 memory/consumer baseline. Read `REVIEW_7.md`,
+1. `zzz_current_work/260826-target-shaped-parse/reports/REVIEW_9.md`,
+   `PROTOTYPE_9.md`, `PROTOTYPE_8.md`, and `PROTOTYPE_7.md` — the latest review,
+   its proof/routing/ABI corrections, persistent exact meanings, and the exact
+   §0 memory/consumer baseline. Read `REVIEW_8.md`, `REVIEW_7.md`,
    `PROTOTYPE_5.md`, and `PROTOTYPE_6.md` for provenance only.
 2. `zzz_current_work/260826-target-shaped-parse/reports/PROTOTYPE.md` — typed
    carrier/builder separation, real formulation binding, real reducer-action
@@ -447,8 +458,11 @@ and none licenses a base parse regression.
   cases.
 - `parsing` remains a leaf with respect to `compile` and `grammars`.
 - No `eval`, `exec`, new `Any`, new `object`, suppression, or ignore directive.
-- No opaque target callback in frequently completed rules or the character/item
-  loop.
+- No opaque target callback in any frequently completed rule or the
+  character/item loop. Scalar decode, validation, insertion, and record
+  construction are engine-owned closed operations selected by plain integers;
+  target-supplied callables are restricted to collection finish, root
+  finalization, and meaning comparison.
 - Mutable builders are parse-local, occurrence-owned, transactional, and
   worker-isolated.
 - Whole lower syntax remains checked according to the target's declared failure
