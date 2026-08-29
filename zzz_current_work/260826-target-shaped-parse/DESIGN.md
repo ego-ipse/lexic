@@ -5,8 +5,10 @@ and ABI/lifecycle §3. The §3 real-engine gates must close before §4. This
 replaces the rejected direct-carrier and post-parse demand-projection
 directions. REVIEW_8's NO-GO findings are answered by the `PROTOTYPE_7` root,
 regular, routing, and measurement corrections plus `PROTOTYPE_8`'s persistent
-meaning and exact §0 baseline. The packet now awaits REVIEW_9. It is not an
-implementation checklist.
+meaning and exact §0 baseline. `PROTOTYPE_10.md` supplies useful island,
+custom-class, keyed-meaning, and RSS evidence; `REVIEW_10.md` accepts its narrow
+results and keeps the unsupported composite gates open. Production source has
+not started. This document is not an implementation checklist.
 
 ## Decision
 
@@ -304,11 +306,24 @@ always own disjoint states and return immutable/owned fragments to the
 coordinator. No alternate derivation, failed attempt, or worker can mutate the
 state which becomes the final result.
 
+That statement is exact for one alternate substitution. Multiple packed
+choices, sibling islands, or nested seeds are not evaluated one flip at a time
+unless the compiled completion operations carry a proved separability
+certificate. Purity alone is insufficient: two substitutions can be
+individually erased and jointly observable. Without that certificate, the
+runtime must preserve every jointly observable combination through an exact
+mechanism. Its representation, semantic-deduplication law, and pruning rule
+remain a planning gate before §8.
+
 The dependency index is proportional to the default derivation and is built
 once only after a real arm-choice ambiguity is discovered. It is not allocated
 for unambiguous parses or split-only families. §12 measures it with an
 ambiguous-input peak-RSS row rather than folding it into the unambiguous
-tokenizer ceiling.
+tokenizer ceiling. `PROTOTYPE_10.md` rejects a Python dict-of-sets index at
+about 1.9 KiB per input character. Production uses neither that shape nor its
+Qwen-scale extrapolation; a flat dense-handle edge representation must first
+prove exact dirty-cone parity, build cost, and memory at the retained ambiguity
+witness scales.
 
 `ParseState` is not an unconditional engine tax. A product with no mutable
 builders, transaction log, or deferred verdict—most importantly the existing
@@ -432,14 +447,16 @@ used by the shipped reducers, notation, and generated self-grammar must lower
 to this ABI with differential semantics. An unknown action refuses at compile
 time; it never enters a runtime evaluator or model/fold fallback.
 
-An arbitrary custom result class is not allowed to weaken this contract. Before
-such a public target lands, a focused §6 proof must represent its constructor
-as immutable declaration data whose private write-once lowering produces the
-bound cold/root operation. Cache eviction cannot rebind that symbol. If this
-requires a public mutable callable/factory, mutable rebinding registry, bare
-class reflection, or a second callback API, the custom-class promise is omitted
-from the pre-alpha surface. A custom callback is never admitted to a
-per-character or frequent completion rule.
+An arbitrary custom result class is not allowed to weaken this contract and is
+not optional. Its inert declaration carries exactly one immutable class object
+as the constructor symbol plus its field/path data. A private homogeneous
+registry caches only a result-free lowering plan; binding reconstructs the
+result-typed view without casts. The class object is invoked only at root
+finalization. No bound callable, lambda, factory, executor, mutable rebinding
+registry, import-path lookup, or class inspection is admitted. Before §6 exits,
+the bound executable must remain usable after source-artefact collection and
+cache eviction by retaining exactly its immutable derived tables, and the
+closed frequent-completion path must remain callback-free.
 
 ### Demand
 
@@ -663,6 +680,13 @@ continuation with the alternate value in isolated state. The same requested-
 root ambiguity relation therefore applies without recognizing the document
 twice.
 
+The accepted mechanism is baseline-plus-alternates, an Earley leaf dependency
+and ancestor cone, and a PDA completion trace recorded only while a seed is
+live. Island alternate discovery includes sibling accepting items because a
+start-rule arm choice need not appear in `ambiguity_points`. The mechanism does
+not license one-flip evaluation across multiple or nested ambiguity sources;
+the interaction rule in State and transaction safety governs those cases.
+
 Ambiguity is orthogonal to ordinary retention but equality is target-dependent.
 Every product declares a typed root meaning and equality law over derivations
 which survive the composed grammar. The generated-model product reproduces its
@@ -693,8 +717,15 @@ result, once, after ambiguity resolution. `proto/persistent_meaning.py` visits
 leaf over a 65,536-item sequence, then performs one final materialization. Each
 map/IR/tokenizer product must separately prove an exact shareable meaning under
 its own equality, duplicate, and order law before claiming the same allocation
-bound. Until it does, it pays an isolated whole-result cold comparison. A
-custom target without an exact shareable meaning does likewise; that limitation
+bound. Ordered contribution trees are rejected for keyed products because
+insertion order is not mapping meaning. The incremental hash-priority treap is
+also rejected: it costs seconds at Qwen scale and hash collisions make its
+claimed canonical shape insertion-order-dependent. The prior plain-dict timing
+is only a lower-level reference, not a measurement of `IrMap` or a ready
+`IrTokenizer`. Until real product rows decide otherwise, keyed products retain
+the exact isolated whole-result cold comparison as the correctness baseline,
+not as a performance conclusion. A custom target without an exact shareable
+meaning does likewise; that limitation
 is explicit and never moves a graph, callback, or alternate result onto the
 unambiguous path.
 
@@ -716,10 +747,13 @@ representation; otherwise the exact cold whole-result comparison above owns
 both temporary results explicitly.
 
 An island seed is not a span-local refusal or syntax error. Equal root meanings
-keep the predictive result. If root meanings differ and `resolve=` is present,
-the coordinator may use complete-document Earley only to obtain the complete
-derivation pair required by the existing resolver contract; root equality has
-already been decided by continuation replay.
+keep the predictive result. The resolver handoff scope remains explicit
+planning work: today's island implementation supplies an island-local pair,
+while the general Earley path supplies requested-root derivations. Before §8,
+the implementation must prove which pair makes PDA and Earley expose the same
+public ambiguity opt-out. If complete-document derivations are required, the
+extra recognition/tree construction occurs only after root inequality and an
+actual `resolve=` invocation; refusal and equality perform none.
 
 Fold execution over the shared packed forest is a separate stated contract
 (`proto/shared_forest_refold.py`): the built derivation is a DAG (zero-width
@@ -834,8 +868,9 @@ explicit last-key or pair-hook policy. A stricter form is a distinct declared
 morphism, not an incidental consequence of `IrMap` construction.
 
 Custom Python classes use the same mechanism: their morphism declares which
-occurrences feed which constructor or builder. The compiler does not privilege
-JSON names or synthesize a class schema from annotations.
+occurrences feed one immutable class constructor symbol at root finalization.
+The compiler does not privilege JSON names, inspect annotations, infer class
+shape, or call arbitrary constructors at frequent completions.
 
 ### `IrTokenizer`
 

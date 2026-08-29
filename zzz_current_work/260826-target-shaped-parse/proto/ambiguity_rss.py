@@ -1,21 +1,27 @@
-"""Price the ambiguous-parse structures the §12 RSS row must observe.
+"""Price the ambiguous-parse structures — flat index, real frames, honest control.
 
-One bounded distant-ambiguity witness (the `root_meaning_incremental.py`
-grammar at a parametric pad) runs the REAL Earley kernel, then stages the
-ambiguity machinery one structure at a time and reports each structure's
-population and tracemalloc bytes beside monotonic peak RSS:
+Modes (each invocation is one isolated process; run alone under
+`tools/guarded.sh`):
 
-- the chart itself (the control every mode pays);
-- the baseline completed-meaning memo;
-- the predecessor/parent dependency index;
-- the sparse alternate overlay;
-- the island-seed continuation lane (O(ancestor depth), priced directly);
-- one persistent sequence contribution tree over the filler items (the §8
-  sequence meaning at the same document size).
+- `--mode control`: an UNAMBIGUOUS variant of the witness grammar. The
+  ambiguity machinery is statically unreachable (the chart holds zero
+  arm-choice points) and the row asserts that no meaning memo is retained and
+  no dependency index, overlay, seed, or trace frame is allocated — counter
+  AND tracemalloc evidence, not absence of a print.
+- `--mode ambiguity`: the `DISTANT` witness. Stages, each in its own
+  tracemalloc window after one pre-expansion sweep (lazy Leo expansion
+  otherwise lands in whichever window touches it first — an attribution limit
+  stated in the output): baseline meaning memo, dict-of-sets dependency
+  index (the REJECTED oracle), the flat dense-numbering + CSR/forward-star
+  replacement with dirty-cone parity against the oracle, sparse alternate
+  overlay, and the replay verdict.
+- `--mode frames`: REAL `TraceFrame`/seed allocations over an ancestor-depth
+  and seed-count ladder, tracemalloc-attributed — allocated populations, not
+  estimates.
 
-Modes are separate processes so RSS rows never share an arena:
-`--mode fold` is the no-ambiguity-machinery control; `--mode ambiguity`
-stages everything. Run each invocation alone under `tools/guarded.sh`.
+tracemalloc attributes only Python-level allocations made inside a window; it
+cannot attribute the kernel's own chart arrays or allocations served from
+freelists, and peak RSS is monotonic per process — both stated per row.
 """
 
 from __future__ import annotations
@@ -24,15 +30,15 @@ import argparse
 import resource
 import time
 import tracemalloc
+from array import array
+from bisect import bisect_left
 from collections.abc import Sequence
 from typing import NamedTuple
 
 from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.parsing.earley.kernel.forest.support.ambiguity import (
-    ambiguity_points,
-)
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ambiguity_points
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
     accept_item,
@@ -53,6 +59,9 @@ DISTANT = (
     "t ::= u | v\n"
     'u ::= "q"\nv ::= "q"\n'
 )
+CONTROL = (
+    'root ::= filler t filler\nfiller ::= item*\nitem ::= [ab]\nt ::= u\nu ::= "q"\n'
+)
 
 
 class Choice(NamedTuple):
@@ -62,11 +71,13 @@ class Choice(NamedTuple):
     family: int
 
 
-class Graph(NamedTuple):
-    """Default-derivation dependency index — parents and key owners."""
+class TraceFrame(NamedTuple):
+    """One PDA ancestor completion recorded while a seed is live."""
 
-    parents: dict[int, set[int]]
-    owners: dict[int, set[int]]
+    policy: int
+    name: str
+    kids: tuple[Meaning, ...]
+    dirty: int
 
 
 class Overlay:
@@ -89,20 +100,18 @@ class Overlay:
         return self.base[handle]
 
 
-class Branch(NamedTuple):
-    """One persistent sequence contribution join with a cached size."""
-
-    size: int
-    left: "Contribution"
-    right: "Contribution"
-
-
-type Contribution = str | Branch
-
-
 def _rss_kib() -> int:
     """This process's high-water RSS in KiB (monotonic)."""
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+
+
+def _kernel(grammar: str, text: str) -> Kernel:
+    """Run the real kernel over one witness input."""
+    ast = normalize(canonical_grammar(grammar, GBNF_FLAVOUR))
+    kernel = Kernel(compile_tables(ast, tier_for(len(text))), text, True).run()
+    if accept_item(kernel) < 0:
+        raise UnsupportedConstructError("ambiguity RSS witness: no parse")
+    return kernel
 
 
 def _resolved(
@@ -136,6 +145,28 @@ def _resolved(
         (predecessor << bits) | end for predecessor, end, _child in chain
     )
     return children, keys
+
+
+def _preexpand(kernel: Kernel, root: int) -> list[int]:
+    """Resolve every reachable handle once BEFORE any measured window, so
+    lazy Leo expansion cannot land inside a named structure's tracemalloc
+    bucket. Returns the default derivation's postorder."""
+    order: list[int] = []
+    seen: set[int] = set()
+    stack: list[tuple[int, bool]] = [(root, False)]
+    while stack:
+        handle, expanded = stack.pop()
+        if expanded:
+            order.append(handle)
+            continue
+        if handle in seen:
+            continue
+        seen.add(handle)
+        stack.append((handle, True))
+        children, _keys = _resolved(kernel, handle, None)
+        for child in reversed(children):
+            stack.append((child, False))
+    return order
 
 
 def _fold(
@@ -176,28 +207,28 @@ def _fold(
     return memo.read(root), folds
 
 
-def _graph(kernel: Kernel, root: int) -> Graph:
-    """Index the default derivation once — the priced dependency structure."""
+class DictGraph(NamedTuple):
+    """The REJECTED dict-of-sets dependency index — retained as the oracle."""
+
+    parents: dict[int, set[int]]
+    owners: dict[int, set[int]]
+
+
+def _dict_graph(kernel: Kernel, order: list[int]) -> DictGraph:
+    """Build the oracle index over the default derivation."""
     parents: dict[int, set[int]] = {}
     owners: dict[int, set[int]] = {}
-    pending = [root]
-    seen: set[int] = set()
-    while pending:
-        handle = pending.pop()
-        if handle in seen:
-            continue
-        seen.add(handle)
+    for handle in order:
         children, keys = _resolved(kernel, handle, None)
         for key in keys:
             owners.setdefault(key, set()).add(handle)
         for child in children:
             parents.setdefault(child, set()).add(handle)
-            pending.append(child)
-    return Graph(parents, owners)
+    return DictGraph(parents, owners)
 
 
-def _dirty(graph: Graph, key: int) -> set[int]:
-    """Handles whose meanings depend on one packed key."""
+def _dict_dirty(graph: DictGraph, key: int) -> set[int]:
+    """Oracle dirty cone."""
     dirty = set(graph.owners.get(key, ()))
     pending = list(dirty)
     while pending:
@@ -210,11 +241,127 @@ def _dirty(graph: Graph, key: int) -> set[int]:
     return dirty
 
 
+class FlatGraph(NamedTuple):
+    """Dense numbering plus CSR parent edges and forward-star key owners."""
+
+    handles: array
+    numbering: dict[int, int]
+    parent_offsets: array
+    parent_edges: array
+    owner_keys: array
+    owner_offsets: array
+    owner_nodes: array
+
+    def bytes_total(self) -> int:
+        """Buffer bytes of every flat array (numbering dict priced apart)."""
+        return (
+            self.handles.itemsize * len(self.handles)
+            + self.parent_offsets.itemsize * len(self.parent_offsets)
+            + self.parent_edges.itemsize * len(self.parent_edges)
+            + self.owner_keys.itemsize * len(self.owner_keys)
+            + self.owner_offsets.itemsize * len(self.owner_offsets)
+            + self.owner_nodes.itemsize * len(self.owner_nodes)
+        )
+
+
+def _flat_graph(kernel: Kernel, order: list[int]) -> tuple[FlatGraph, float, float]:
+    """Build the flat index; the dense-numbering cost is returned separately."""
+    numbering_cpu = time.process_time()
+    handles = array("q", order)
+    numbering = {handle: index for index, handle in enumerate(order)}
+    numbering_cost = time.process_time() - numbering_cpu
+
+    build_cpu = time.process_time()
+    degree = array("i", bytes(4 * (len(order) + 1)))
+    child_lists: list[tuple[int, ...]] = []
+    key_pairs: list[tuple[int, int]] = []
+    for handle in order:
+        children, keys = _resolved(kernel, handle, None)
+        child_lists.append(children)
+        owner = numbering[handle]
+        for key in keys:
+            key_pairs.append((key, owner))
+        for child in children:
+            degree[numbering[child]] += 1
+    parent_offsets = array("i", bytes(4 * (len(order) + 1)))
+    total = 0
+    for index in range(len(order)):
+        parent_offsets[index] = total
+        total += degree[index]
+    parent_offsets[len(order)] = total
+    cursor = array("i", parent_offsets)
+    parent_edges = array("i", bytes(4 * total))
+    for parent_index, children in enumerate(child_lists):
+        for child in children:
+            child_index = numbering[child]
+            parent_edges[cursor[child_index]] = parent_index
+            cursor[child_index] += 1
+    key_pairs.sort()
+    owner_nodes = array("i", (owner for _key, owner in key_pairs))
+    distinct: list[int] = []
+    owner_offsets_list: list[int] = []
+    previous = -1
+    for position, (key, _owner) in enumerate(key_pairs):
+        if key != previous:
+            distinct.append(key)
+            owner_offsets_list.append(position)
+            previous = key
+    owner_offsets_list.append(len(key_pairs))
+    graph = FlatGraph(
+        handles,
+        numbering,
+        parent_offsets,
+        parent_edges,
+        array("q", distinct),
+        array("i", owner_offsets_list),
+        owner_nodes,
+    )
+    return graph, numbering_cost, time.process_time() - build_cpu
+
+
+def _flat_dirty(graph: FlatGraph, key: int) -> set[int]:
+    """Dirty cone over the flat index, returned as HANDLES for parity."""
+    slot = bisect_left(graph.owner_keys, key)
+    if slot >= len(graph.owner_keys) or graph.owner_keys[slot] != key:
+        return set()
+    lo = graph.owner_offsets[slot]
+    hi = graph.owner_offsets[slot + 1]
+    seen = bytearray(len(graph.handles))
+    pending = list(graph.owner_nodes[lo:hi])
+    for index in pending:
+        seen[index] = 1
+    while pending:
+        index = pending.pop()
+        for at in range(graph.parent_offsets[index], graph.parent_offsets[index + 1]):
+            parent = graph.parent_edges[at]
+            if not seen[parent]:
+                seen[parent] = 1
+                pending.append(parent)
+    return {graph.handles[index] for index in range(len(seen)) if seen[index]}
+
+
+class Stage(NamedTuple):
+    """One structure's population, attributed bytes, and RSS afterwards."""
+
+    name: str
+    population: int
+    traced_bytes: int
+    rss_kib: int
+
+
+def _arm_points(kernel: Kernel, root: int) -> list[int]:
+    """Arm-choice keys reachable from the root."""
+    bits = kernel.tables.packing.bits
+    return [
+        key
+        for key in ambiguity_points(kernel, root)
+        if is_arm_choice(kernel.st.links[key], bits, kernel.tables.code_choice)
+    ]
+
+
 def _same_meaning(one: Meaning, other: Meaning) -> bool:
-    """Iterative exact equality — the engine's recursive ``same_value``
-    overflows the interpreter stack at this witness's depth (pad 2000 nests
-    about 2000 levels through the desugared quantifier chain), which is the
-    §8 iterative-walk obligation observed live."""
+    """Iterative exact equality (the engine's recursive walk overflows at
+    this witness's depth — the standing §8 obligation)."""
     pending: list[tuple[Meaning, Meaning]] = [(one, other)]
     while pending:
         left, right = pending.pop()
@@ -230,41 +377,68 @@ def _same_meaning(one: Meaning, other: Meaning) -> bool:
     return True
 
 
-def _contribution_tree(items: Sequence[str]) -> Contribution:
-    """One balanced persistent sequence meaning over the filler items."""
-    level: list[Contribution] = list(items)
-    while len(level) > 1:
-        joined: list[Contribution] = []
-        for index in range(0, len(level) - 1, 2):
-            left, right = level[index], level[index + 1]
-            left_size = left.size if isinstance(left, Branch) else 1
-            right_size = right.size if isinstance(right, Branch) else 1
-            joined.append(Branch(left_size + right_size, left, right))
-        if len(level) % 2:
-            joined.append(level[-1])
-        level = joined
-    return level[0] if level else ""
-
-
-class Stage(NamedTuple):
-    """One structure's population, attributed bytes, and RSS afterwards."""
-
-    name: str
-    population: int
-    traced_bytes: int
-    rss_kib: int
-
-
-def _measure(pad: int, mode: str) -> None:
-    """Run one isolated row: parse, fold, then stage the ambiguity machinery."""
+def control_row(pad: int) -> None:
+    """The genuinely-unreachable control: zero ambiguity structures."""
     text = "a" * pad + "q" + "b" * pad
     started_wall = time.perf_counter()
     started_cpu = time.process_time()
-    ast = normalize(canonical_grammar(DISTANT, GBNF_FLAVOUR))
-    kernel = Kernel(compile_tables(ast, tier_for(len(text))), text, True).run()
-    if accept_item(kernel) < 0:
-        raise UnsupportedConstructError("ambiguity RSS witness: no parse")
+    kernel = _kernel(CONTROL, text)
     root = accept_handle(kernel)
+    order = _preexpand(kernel, root)
+    points = _arm_points(kernel, root)
+    if points:
+        raise UnsupportedConstructError("control: unexpected arm choice")
+    tracemalloc.start()
+    memo = Overlay({})
+    meaning, folds = _fold(kernel, root, memo, set(), None)
+    root_head = meaning[0] if isinstance(meaning, tuple) else meaning
+    memo.changed.clear()
+    del memo
+    product_bytes, _peak = tracemalloc.get_traced_memory()
+    del meaning
+    retained_bytes, _peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    print("mode", "control", sep="\t")
+    print("pad", pad, "chars", len(text), sep="\t")
+    print("arm_points", 0, "fold_bodies", folds, "root", root_head, sep="\t")
+    print(
+        "ambiguity-structures",
+        "meaning_memo_entries=0",
+        "dependency_index_entries=0",
+        "overlay_entries=0",
+        "seeds=0",
+        "trace_frames=0",
+        f"root_product_value_bytes={product_bytes}",
+        f"residual_bytes_after_product_release={retained_bytes}",
+        sep="\t",
+    )
+    print(
+        "note",
+        "the fold memo was transient and cleared; the bytes above are the root"
+        " PRODUCT value itself (every parse pays them) and the residual after"
+        " even the product is dropped; the machinery block is unreachable"
+        " because the chart holds zero arm-choice keys",
+        sep="\t",
+    )
+    print(
+        "totals",
+        f"wall_seconds={time.perf_counter() - started_wall:.6f}",
+        f"cpu_seconds={time.process_time() - started_cpu:.6f}",
+        f"peak_rss_kib={_rss_kib()}",
+        f"chart_keys={len(kernel.st.links)}",
+        f"nodes={len(order)}",
+        sep="\t",
+    )
+
+
+def ambiguity_row(pad: int) -> None:
+    """The ambiguous candidate row: oracle index, flat index, parity, replay."""
+    text = "a" * pad + "q" + "b" * pad
+    started_wall = time.perf_counter()
+    started_cpu = time.process_time()
+    kernel = _kernel(DISTANT, text)
+    root = accept_handle(kernel)
+    order = _preexpand(kernel, root)
     stages: list[Stage] = [Stage("chart", len(kernel.st.links), 0, _rss_kib())]
 
     tracemalloc.start()
@@ -275,66 +449,91 @@ def _measure(pad: int, mode: str) -> None:
     tracemalloc.stop()
     stages.append(Stage("meaning-memo", len(base_layer), memo_bytes, _rss_kib()))
 
+    tracemalloc.start()
+    oracle = _dict_graph(kernel, order)
+    oracle_bytes, _peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    stages.append(
+        Stage(
+            "dict-of-sets-index[REJECTED oracle]",
+            len(oracle.parents) + len(oracle.owners),
+            oracle_bytes,
+            _rss_kib(),
+        )
+    )
+
+    tracemalloc.start()
+    flat, numbering_cpu, csr_cpu = _flat_graph(kernel, order)
+    flat_bytes, _peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    edges = len(flat.parent_edges)
+    keys = len(flat.owner_keys)
+    stages.append(
+        Stage("flat-csr-index", len(order) + edges + keys, flat_bytes, _rss_kib())
+    )
+    print(
+        "flat-index-detail",
+        f"nodes={len(order)}",
+        f"parent_edges={edges}",
+        f"distinct_keys={keys}",
+        f"array_bytes={flat.bytes_total()}",
+        f"bytes_per_edge={flat.bytes_total() / max(edges, 1):.1f}",
+        f"bytes_per_char={flat.bytes_total() / len(text):.1f}",
+        f"numbering_cpu={numbering_cpu:.6f}",
+        f"csr_build_cpu={csr_cpu:.6f}",
+        sep="\t",
+    )
+
+    points = _arm_points(kernel, root)
     replay_folds = 0
     differs = False
-    if mode == "ambiguity":
-        tracemalloc.start()
-        graph = _graph(kernel, root)
-        graph_bytes, _peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        stages.append(
-            Stage(
-                "dependency-index",
-                len(graph.parents) + len(graph.owners),
-                graph_bytes,
-                _rss_kib(),
-            )
-        )
-        bits = kernel.tables.packing.bits
-        for key in ambiguity_points(kernel, root):
-            bucket = kernel.st.links[key]
-            if not is_arm_choice(bucket, bits, kernel.tables.code_choice):
-                continue
-            for family in range(1, len(bucket)):
-                tracemalloc.start()
-                overlay = Overlay(base_layer)
-                alternate, folds = _fold(
-                    kernel, root, overlay, _dirty(graph, key), Choice(key, family)
-                )
-                overlay_bytes, _peak = tracemalloc.get_traced_memory()
-                tracemalloc.stop()
-                replay_folds += folds
-                stages.append(
-                    Stage(
-                        "alternate-overlay",
-                        len(overlay.changed),
-                        overlay_bytes,
-                        _rss_kib(),
-                    )
-                )
-                if not _same_meaning(baseline, alternate):
-                    differs = True
-        if not differs:
+    parity_checked = 0
+    for key in points:
+        oracle_dirty = _dict_dirty(oracle, key)
+        flat_dirty = _flat_dirty(flat, key)
+        if oracle_dirty != flat_dirty:
             raise UnsupportedConstructError(
-                "ambiguity RSS witness: expected a differing root meaning"
+                "ambiguity RSS witness: flat dirty cone diverged from oracle"
             )
-        seed_frames = len(_dirty(graph, root)) + 1
-        stages.append(Stage("island-seed-lane", seed_frames, 0, _rss_kib()))
-
-        tracemalloc.start()
-        tree = _contribution_tree(tuple(text))
-        tree_bytes, _peak = tracemalloc.get_traced_memory()
-        tracemalloc.stop()
-        population = tree.size if isinstance(tree, Branch) else 1
-        stages.append(
-            Stage("sequence-contribution-tree", population, tree_bytes, _rss_kib())
+        parity_checked += 1
+        for family in range(1, len(kernel.st.links[key])):
+            tracemalloc.start()
+            overlay = Overlay(base_layer)
+            alternate, folds = _fold(
+                kernel, root, overlay, set(flat_dirty), Choice(key, family)
+            )
+            overlay_bytes, _peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+            replay_folds += folds
+            stages.append(
+                Stage(
+                    "alternate-overlay", len(overlay.changed), overlay_bytes, _rss_kib()
+                )
+            )
+            if not _same_meaning(baseline, alternate):
+                differs = True
+    if not differs:
+        raise UnsupportedConstructError(
+            "ambiguity RSS witness: expected a differing root meaning"
         )
 
-    wall = time.perf_counter() - started_wall
-    cpu = time.process_time() - started_cpu
-    print("mode", mode, sep="\t")
+    cleanup_before = len(oracle.parents)
+    del oracle
+    del flat
+    print(
+        "cleanup", f"released oracle+flat (oracle_parents={cleanup_before})", sep="\t"
+    )
+
+    print("mode", "ambiguity", sep="\t")
     print("pad", pad, "chars", len(text), sep="\t")
-    print("baseline_folds", baseline_folds, "replay_folds", replay_folds, sep="\t")
+    print(
+        "counts",
+        f"baseline_folds={baseline_folds}",
+        f"replay_folds={replay_folds}",
+        f"parity_checked_keys={parity_checked}",
+        f"verdict_differs={differs}",
+        sep="\t",
+    )
     for stage in stages:
         print(
             "stage",
@@ -344,31 +543,76 @@ def _measure(pad: int, mode: str) -> None:
             f"rss_kib={stage.rss_kib}",
             sep="\t",
         )
-    print("verdict_differs", differs if mode == "ambiguity" else "n/a", sep="\t")
+    print(
+        "attribution-note",
+        "tracemalloc windows exclude pre-expanded chart growth; kernel-internal"
+        " arrays and freelist-served allocations are not attributable and are"
+        " visible only in peak RSS",
+        sep="\t",
+    )
     print(
         "totals",
-        f"wall_seconds={wall:.6f}",
-        f"cpu_seconds={cpu:.6f}",
+        f"wall_seconds={time.perf_counter() - started_wall:.6f}",
+        f"cpu_seconds={time.process_time() - started_cpu:.6f}",
         f"peak_rss_kib={_rss_kib()}",
         sep="\t",
     )
 
 
+def frames_row() -> None:
+    """REAL seed/trace-frame allocations over depth and seed-count ladders."""
+    print("mode", "frames", sep="\t")
+    shared_kids: tuple[Meaning, ...] = (("sibling", "value"), ("other",))
+    for depth in (128, 1_024, 8_192):
+        for seeds in (1, 2, 4):
+            tracemalloc.start()
+            lanes: list[list[TraceFrame]] = []
+            for seed in range(seeds):
+                trace = [
+                    TraceFrame(0, f"ancestor{level}", shared_kids, seed % 2)
+                    for level in range(depth)
+                ]
+                lanes.append(trace)
+            traced, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+            frames = sum(len(lane) for lane in lanes)
+            print(
+                "frames",
+                f"depth={depth}",
+                f"seeds={seeds}",
+                f"allocated_frames={frames}",
+                f"traced_bytes={traced}",
+                f"bytes_per_frame={traced / max(frames, 1):.1f}",
+                f"tracemalloc_peak={peak}",
+                sep="\t",
+            )
+            del lanes
+    print(
+        "note",
+        "frames share kid meanings by reference; the per-frame cost is the"
+        " NamedTuple record itself",
+        sep="\t",
+    )
+
+
 def main(arguments: Sequence[str] | None = None) -> None:
-    """Run exactly one isolated scale/mode row."""
+    """Run exactly one isolated row."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pad", type=int, required=True)
+    parser.add_argument("--pad", type=int, default=2_000)
     parser.add_argument("--mode", default="ambiguity")
     options = parser.parse_args(arguments)
-    if options.mode not in ("ambiguity", "fold"):
+    if options.pad < 1 or options.pad > 200_000:
+        raise UnsupportedConstructError("ambiguity RSS witness: pad out of range")
+    if options.mode == "control":
+        control_row(options.pad)
+    elif options.mode == "ambiguity":
+        ambiguity_row(options.pad)
+    elif options.mode == "frames":
+        frames_row()
+    else:
         raise UnsupportedConstructError(
             f"ambiguity RSS witness: unsupported mode {options.mode!r}"
         )
-    if options.pad < 1 or options.pad > 200_000:
-        raise UnsupportedConstructError(
-            "ambiguity RSS witness: pad outside the bounded range"
-        )
-    _measure(options.pad, options.mode)
 
 
 if __name__ == "__main__":

@@ -192,14 +192,26 @@ unchanged branches are identity-shared, dirty ancestors are path-copied, exact
 iterative equality skips shared branches, and the chosen eager result is
 materialized once. No hash or digest stands in for exact equality. Map, IR, and
 tokenizer products earn that representation separately against their equality,
-duplicate, and order law; otherwise they use an exact full cold comparison. A
-custom target unable to supply an exact shareable meaning does the same, but
-adds nothing to the unambiguous hot path.
+duplicate, and order law; otherwise they use an exact full cold comparison.
+Ordered contribution trees and the incremental hash-priority treap are rejected
+for keyed products. The plain encode-dict timing does not settle the final
+Python-map, `IrMap`, or complete-tokenizer representation. A custom target
+unable to supply an exact shareable meaning uses the same fallback, but adds
+nothing to the unambiguous hot path.
+
+Multiple packed choices and multiple or nested island seeds preserve the full
+requested-root meaning relation. They may use linear one-flip replay only where
+the compiled completion operations prove that alternatives are separable.
+Purity alone is not that proof. The chosen exact mechanism preserves every
+jointly observable result; an individually invisible substitution cannot hide
+one.
 
 The dependency index is itself proportional to the default derivation. It is
 built once only after a real arm-choice ambiguity is found, never on an
 unambiguous or split-only parse, and its peak memory is measured with an
-ambiguous-input RSS row.
+ambiguous-input RSS row. A dict-of-sets representation is forbidden by the
+measured memory result. The production flat representation must prove exact
+dirty-cone parity and bounded build/RSS cost before ambiguity work lands.
 
 Side-effecting completion work over a shared forest node executes exactly once
 per node through a finished set distinct from the value table; transparent
@@ -207,15 +219,16 @@ synthetic nodes are included. Occurrence-owned effects ride the parent's slot
 consumption. Separate accepting root items each construct one complete meaning
 because no shared internal packed point contains their choice. When root
 meanings differ and `resolve=` is supplied, PDA may use Earley to obtain the
-complete derivation pair expected by the same resolver `parse` uses; only the
-chosen meaning materializes the final target product. An island never settles
+resolver pair required by the handoff scope settled before §8; only the chosen
+meaning materializes the final target product. An island never settles
 target ambiguity at its own accepting span. It returns its baseline value plus
 a cold alternate-meaning seed; the enclosing product records and replays only
 the semantic continuation from that occurrence to the requested root. Equal
 root meanings keep the predictive result without reparsing the document. The
 ordinary unambiguous island splice remains unchanged. A differing root with
-`resolve=` may enter complete-document Earley solely to supply the resolver's
-required derivation pair, not to discover the root meaning again.
+`resolve=` may perform extra derivation construction only under the resolver
+handoff scope settled before §8, never to discover the root meaning again.
+Island alternate discovery includes sibling accepting items.
 For a target using the exact whole-result fallback, the discarded cold
 comparison result is explicit instead of being mislabeled as a shareable
 meaning.
@@ -321,12 +334,14 @@ target.
 
 ### Custom classes
 
-An arbitrary result class is conditional, not a reason to weaken the core. §6
-must first prove an immutable constructor symbol whose private binding is
-write-once and eviction-stable. A public callable/factory field, mutable
-rebinding registry, reflection channel, or second executor fails the gate and
-removes this optional pre-alpha surface. Any admitted constructor is cold/root
-finalization; no custom callback enters a frequent completion.
+Arbitrary result classes remain in scope without weakening the core. Their
+declaration carries one immutable class object as a constructor symbol plus
+inert field/path data. A homogeneous private cache stores a result-free plan;
+binding reconstructs a result-typed view without casts. The class is invoked
+only at cold root finalization. Bound callables, factories, mutable rebinding
+registries, reflection, and a second executor are forbidden. §6 must still
+prove that a pool-retained bound executable runs after source collection and
+cache eviction and that frequent completions contain no constructor traffic.
 
 ## Parallel result
 

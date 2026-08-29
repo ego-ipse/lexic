@@ -279,6 +279,31 @@ unchanged branches, and materialize only the chosen eager result. Competing
 work uses isolated product state, and the unambiguous hot path retains no
 witness graph.
 
+`PROTOTYPE_10.md` narrows, but does not close, that architecture. A single
+island alternate can replay through an Earley leaf dependency or PDA completion
+trace, and island discovery must include sibling accepting items. Its proposed
+one-flip rule for multiple/nested seeds is not justified: pure completion
+functions can erase each substitution separately and expose them jointly.
+`REVIEW_10.md` therefore keeps interaction propagation and resolver handoff as
+planning gates.
+
+For meanings, ordered persistent contribution trees remain sequence-only.
+They are wrong for order-insensitive mappings, and the incremental hash treap
+is rejected on both construction cost and collision correctness. The reported
+Qwen cold row built only a plain encode dictionary, so real Python-map, `IrMap`,
+and complete `IrTokenizer` construction/comparison still require separate
+measurements. The dict-of-sets dependency index is also rejected at roughly
+1.9 KiB per character; the replacement flat representation remains to be
+prototyped. Recursive meaning equality is already known to fail on the retained
+deep witness and must become iterative.
+
+Custom classes remain in scope. One immutable class object is the constructor
+symbol; the rest of the declaration is inert data. A homogeneous result-free
+plan cache plus a reconstructed result-typed view resolves the typing shape.
+The existing prototype does not yet prove executable lifetime after source
+collection, because its runner still accepts the source grammar, and it must
+remove its `__qualname__` inspection.
+
 ## Current templating path
 
 `src/lexic/compile/output/templating.py` contains useful prior art and a

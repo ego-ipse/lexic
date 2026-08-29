@@ -35,6 +35,16 @@ hot-callback contradictions. This queue records every remaining mechanism plan
 or evidence choice as an explicit gate; none is delegated silently to an
 implementer.
 
+`reports/PROTOTYPE_10.md` closes several narrower facts: ordered meanings are
+sequence-only, the incremental keyed treap and dict-of-sets dependency index
+are rejected, equality must be iterative, island discovery includes sibling
+accepting items, the single-seed cone/trace is viable, and custom classes stay
+through one immutable class constructor symbol plus a result-free plan cache.
+`reports/REVIEW_10.md` keeps the unsupported composite claims open: multiple
+seed interaction, resolver scope, real keyed-product cost, flat-index cost,
+actual seed-lane RSS, and executable custom binding lifetime. `PROMPT_11.md`
+owns the next evidence round.
+
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
 `select` as the beginner surface over signature-bearing reducers. Feasibility
@@ -635,13 +645,22 @@ the §8/§9 re-runs.
       duplicate behavior, with no generated or IR JSON tree.
 - [ ] Implement the parser-certified extent target. State its validity contract
       in the result type; do not infer or scan delimiters.
-- [ ] **DECISION REQUIRED AT §6 EXIT:** prototype arbitrary-class construction
-      as an immutable constructor symbol
-      lowered through a private write-once, eviction-stable binding. If it
-      requires a public callable/factory, mutable rebinding registry, bare
-      reflection, or second executor, omit the optional custom-class surface;
-      do not compromise the core architecture to keep it. Record the measured
-      proof and the explicit keep/omit ruling before §7.
+- [x] **DECISION REQUIRED AT §6 EXIT — CLOSED:** arbitrary classes remain in
+      scope. Their inert declaration carries exactly one immutable class object
+      as the constructor symbol plus field/path data. A homogeneous private
+      registry caches a result-free plan, and binding reconstructs the
+      result-typed view without casts. No bound callable, factory, mutable
+      rebinding registry, import-path lookup, reflection, or second executor is
+      admitted. `PROTOTYPE_10.md` proves the public/typing shape; omission was
+      rejected by the user.
+- [ ] **PLANNING REQUIRED AT §6 EXIT:** close the remaining binding proof before
+      §7. The pool-retained bound executable must parse/build successfully
+      after its source artefact and registry entry die, without accepting the
+      source grammar again at `run`; cache identity must tolerate unhashable
+      class objects and id reuse; eviction must recompute equivalently; and the
+      class is invoked only at root finalization. Remove the prototype's
+      `__qualname__` inspection and measure that frequent completions contain no
+      constructor/callback traffic. `PROMPT_11.md` §E owns the prototype.
 - [ ] Implement `select(spec)` as the finite nested-mapping morphism specified
       in `DESIGN.md`: declaration-ordered path results, absent missing paths,
       retained reducer values, recognition-only extensions, decoded duplicate
@@ -810,20 +829,33 @@ and the timed resident row is recorded inside its stop factor.
 
 ## 8 — make ambiguity and failure isolation target-correct
 
-- [ ] **PLANNING REQUIRED BEFORE §8:** prototype and specify the cold island
-      alternate-meaning seed. The decision is fixed: an island with a second
-      target meaning remains in the predictive product and does not decide at
-      its span. Name the seed, the outer completion dependency/continuation
-      trace, isolated replay state, ownership, resolver handoff, and
-      dropping-parent witness before editing source. Equal requested roots must
-      retain the predictive result without reparsing the document. A differing
-      root may use complete-document Earley only when `resolve=` needs the
-      complete derivation pair.
+- [x] **PLANNING REQUIRED BEFORE §8 — SINGLE-SEED PART CLOSED:** an island with
+      a second target meaning remains in the predictive product and does not
+      decide at its span. `PROTOTYPE_10.md` proves the baseline-plus-alternates
+      seed, Earley leaf dependency/cone, PDA-shaped continuation trace,
+      isolated replay, dropping-parent result, and sibling-accepting-item
+      requirement for one alternate substitution. Equal requested roots retain
+      the predictive result without recognizing the document again.
+- [ ] **PLANNING REQUIRED BEFORE §8:** close multiple/nested interaction and
+      resolver handoff before source ambiguity work. One-flip replay is legal
+      only under a compiler-proved separability law; purity is insufficient.
+      Otherwise preserve every jointly observable combination through an exact
+      mechanism whose representation and pruning law are proved. Build and
+      invoke the real resolver pair rather than counting ambiguity points, then
+      decide island-local versus complete requested-root scope under the
+      PDA/Earley public-equivalence invariant.
+      Refusal and equal-root paths perform no complete-document reparse.
+      `PROMPT_11.md` §§A and C own the proof.
 - [ ] **DECISION REQUIRED AT §8 EXIT:** for map, IR, and tokenizer products,
       choose exact persistent meanings only where a product-specific proof and
       measurement establish equality, duplicate, order, and allocation
       behavior. Otherwise record and retain the exact isolated whole-result
-      cold comparison. No digest or analogy decides this.
+      cold comparison. Ordered contribution trees and the incremental
+      hash-priority treap are already rejected for keyed products. The prior
+      0.025-second row built only a plain encode dict and does not decide Python
+      map, `IrMap`, or complete `IrTokenizer` cost. Measure each real product's
+      equal, changed-value, key-set, duplicate, dropped, and finalization cases.
+      No digest or analogy decides this. `PROMPT_11.md` §B owns the evidence.
 
 - [ ] Replace any generated-model-only ambiguity hook with the product's typed
       root-meaning operation and equality law in
@@ -855,7 +887,11 @@ and the timed resident row is recorded inside its stop factor.
       `local_meaning_fold.py` is the rejected child-local counterexample.
       The predecessor/parent dependency index is proportional to the default
       derivation and is built once only after a real arm-choice ambiguity;
-      unambiguous and split-only parses allocate none.
+      unambiguous and split-only parses allocate none. A dict-of-sets index is
+      forbidden by `PROTOTYPE_10.md`'s measured memory growth. Prototype a flat
+      dense-handle edge representation, prove dirty-cone parity against the
+      dict oracle, and measure numbering/build/replay/RSS cost before choosing
+      the production layout (`PROMPT_11.md` §D).
 - [ ] Give sequence-like built-in accumulators an immutable persistent
       contribution meaning.
       Path-copy only dirty ancestors, identity-share unchanged branches, and
@@ -869,8 +905,9 @@ and the timed resident row is recorded inside its stop factor.
       tokenizer products, either prove an exact persistent meaning against that
       product's equality, duplicate, and order law or use and measure an exact
       isolated whole-result cold comparison; do not transfer the sequence
-      result by analogy. An admitted custom target without exact shareable
-      meaning uses the same honest fallback. Never move it onto the
+      result by analogy. Ordered trees and the incremental keyed treap are
+      rejected for keyed products. An admitted custom target without exact
+      shareable meaning uses the same honest fallback. Never move it onto the
       unambiguous path.
 - [ ] Handle separate accepting root items explicitly: construct each complete
       root meaning once because no internal packed-family point contains that
@@ -884,10 +921,14 @@ and the timed resident row is recorded inside its stop factor.
       replay from that occurrence to the root. The dropping-parent island
       witness must be accepted without whole-document reparse when its complete
       root meanings are equal. If they differ, refusal needs no reparse; only an
-      invoked `resolve=` may enter Earley to obtain complete derivations.
+      invoked `resolve=` may perform the extra derivation work selected by the
+      resolver-scope decision. Search sibling accepting items as well as
+      internal ambiguity points. Multiple/nested seeds follow the proved
+      interaction rule; never infer one-flip exactness from purity.
 - [ ] Make the target equality walk iterative: the current recursive
       `same_value` overflows the interpreter stack near depth 1000, and deep
-      meanings are ordinary under quantifier desugaring.
+      meanings are ordinary under quantifier desugaring. `PROTOTYPE_10.md`
+      reproduces the failure at pad 2,000.
 - [ ] Exercise adversarial rollback: a failed PDA attempt, failed island, and
       unchosen ambiguity alternative must leave vocab/map entries, duplicate
       sets, and verdict order unchanged.
@@ -1070,11 +1111,21 @@ folder.
       prove observer/control equivalence.
 - [ ] Run one benchmark process at a time. Announce and preserve a quiet window
       for every multithreaded row.
-- [ ] **PLANNING REQUIRED BEFORE §12:** choose and record one bounded ambiguous
-      grammar/input whose default derivation is large enough to expose the
-      completed-meaning memo plus predecessor/parent dependency index. Define
-      the unchanged baseline/candidate RSS command and semantic witness before
-      timing; do not improvise the row inside the benchmark window.
+- [x] **PLANNING REQUIRED BEFORE §12 — WITNESS PART CLOSED:** retain the generic
+      `DISTANT` grammar at pads 2,000, 8,000, and 32,000. It exposes linear
+      completed-meaning and dependency populations while a distant alternate's
+      replay cone stays constant. Run every scale/mode in an isolated process;
+      record the input digest, GC state, semantic verdict, wall, process CPU,
+      populations, and peak RSS. This is separate from the unambiguous
+      tokenizer ceiling.
+- [ ] **PLANNING REQUIRED BEFORE §12:** finish the protocol and production-shape
+      evidence. Define unchanged baseline/candidate commands, use a genuinely
+      ambiguity-unreachable control which allocates no memo/index/overlay/seed/
+      trace, allocate and measure real seed/trace frames rather than estimating
+      them, and keep lazy chart expansion out of attributed product-structure
+      bytes. The ambiguous row must use the selected flat dependency index and
+      assert its semantic result. `PROMPT_11.md` §D owns this work; do not
+      improvise it inside the benchmark window.
 - [ ] Do not use `tools/benchmark/compare.py` unchanged for MT rows: its worker
       cohort is prepared concurrently, and preparation performs real parses.
       Prepare, warm, time, and close one entire baseline/candidate/control
@@ -1108,9 +1159,10 @@ folder.
       witness equality — CPU per byte is a gate quantity beside wall in every
       row, so an MT row cannot pass by burning cores unreported.
 - [ ] Measure peak RSS for the planned ambiguous-input row. Report the default
-      meaning memo and dependency-index populations beside peak RSS. This row
-      is separate from the unambiguous tokenizer ceilings and is the cost
-      account for §8's document-sized cold ambiguity structures.
+      meaning memo, flat dependency-index nodes/edges, alternate overlay, and
+      actual island seed/trace populations beside peak RSS. This row is
+      separate from the unambiguous tokenizer ceilings and is the cost account
+      for §8's document-sized cold ambiguity structures.
 - [ ] Gate less than 1.000 s wall for the resident-text ready tokenizer at the
       public `cores=AUTO` engaged shape on the 11,422,654-byte Qwen3 witness,
       with the sequential row reported beside it. When route anchors decline,

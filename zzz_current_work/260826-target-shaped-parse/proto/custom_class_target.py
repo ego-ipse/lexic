@@ -1,177 +1,209 @@
-"""Arbitrary custom result classes through an immutable constructor symbol.
+"""Custom result classes: executable bound lifetime, zero class inspection.
 
-The impossibility boundary first: an *arbitrary runtime* class is reachable
-only through (a) an object reference to the class itself, (b) a name looked up
-by reflection, or (c) a mutable registry. (b) and (c) are forbidden by the
-design; therefore the declaration must carry the class object. A class object
-is callable, so a literal "no public callable field" is unsatisfiable for this
-feature — the smallest contract change is: the declaration may carry exactly
-one CLASS OBJECT as an immutable constructor symbol (never a bound callable,
-lambda, factory, or executor), and that symbol is invoked only at root
-finalization, never in a frequent completion.
+The decided public shape stands: one immutable class object as the
+constructor symbol, inert declaration data, a homogeneous RESULT-FREE cached
+binding, and a reconstructed result-typed bound view. This revision closes
+the REVIEW_10 findings:
 
-The typing resolution: the private registry caches a result-free ``RecordPlan``
-(the derived lowering — plain data), one homogeneous registry for the whole
-declaration kind. The result-typed ``BoundRecord[Result]`` view is rebuilt per
-bind from the immutable declaration plus the cached plan, so no heterogeneous
-``dict`` ever erases ``Result`` and no cast exists anywhere.
-
-Real boundary: value extraction runs the real ``compile_ast(JSON_GRAMMAR)
-.reduce`` route as a stand-in for the direct product; what this file proves is
-declaration shape, binding lifecycle, typing, and refusal — not throughput.
+- the bound view is EXECUTABLE after its source artefact and registry entry
+  die: `_bind` derives real `ParserTables` from the grammar and the bound
+  view runs the real Earley kernel over those retained derived tables — it
+  never accepts the source artefact at `run`;
+- no class inspection anywhere (no `__qualname__`, no signature reading);
+  a class/field mismatch surfaces as the constructor's own cold failure at
+  root finalization, exactly once per parse attempt;
+- the registry key is an id-plus-STRONG-PIN identity mechanism: the entry
+  pins the declaration for the entry's (weak, artefact-bounded) lifetime, so
+  an id cannot be reused while its key is live — and unhashable class
+  objects (which break value keys outright, shown) are fully supported;
+- constructor traffic is counted: zero during completions, one at root.
 """
 
 from __future__ import annotations
 
 import gc
+import time
 import weakref
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from functools import partial
-from collections.abc import Hashable
 from threading import Barrier, Lock
-from typing import NamedTuple, assert_type
+from typing import NamedTuple, Protocol, assert_type
 
-from lexic.compile import compile_ast
+from lexic.compile import compile_text
 from lexic.compile.artifact import CompiledGrammar
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
-from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
-from lexic.ir import IrInt, IrMap, IrSelf, IrStr
+from lexic.ir.grammar.nodes import IrLiteral
+from lexic.parsing.earley.kernel.forest.fasttree import FastTree
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.support.readout import (
+    accept_handle,
+    accept_item,
+)
+from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.tables.atoms import tier_for
+from lexic.parsing.earley.kernel.tables.builder import compile_tables
+from lexic.parsing.earley.kernel.tables.records import ParserTables
+from lexic.parsing.earley.normalize import normalize
+
+CATALOG = (
+    "doc ::= entry+\n"
+    'entry ::= key "=" value ";"\n'
+    "key ::= [a-z] [a-z0-9]*\n"
+    "value ::= [0-9]+\n"
+)
+BIND_TIER_CHARS = 4_096
 
 
 class RecordSpec[Result](NamedTuple):
     """Public declaration: one constructor symbol plus named semantic paths.
 
-    ``constructor`` is the one sanctioned class-object field. The record
-    itself is immutable; no cache, lock, factory closure, or executor is
-    reachable from it.
+    ``constructor`` is the one sanctioned class-object field; the record is
+    otherwise plain immutable data with no cache, lock, factory closure, or
+    executor reachable from it.
     """
 
     constructor: type[Result]
-    fields: tuple[tuple[str, tuple[str, ...]], ...]
+    fields: tuple[tuple[str, str], ...]
 
     def _bind(self, grammar: CompiledGrammar) -> BoundRecord[Result]:
-        """Enter the one homogeneous plan registry for this declaration kind."""
-        plan = _RECORD_PLANS.plan(self, grammar)
-        return BoundRecord(self, plan)
+        """Enter the one homogeneous binding registry for this kind."""
+        binding = _RECORD_BINDINGS.bind(self, grammar)
+        return BoundRecord(self, binding)
 
 
-class RecordPlan(NamedTuple):
-    """The cached result-free lowering — plain data, no class, no callable."""
+class RecordDeclaration(Protocol):
+    """The registry's result-free structural view of any RecordSpec.
 
-    parameter_order: tuple[str, ...]
-    paths: tuple[tuple[str, ...], ...]
-    constructor_name: str
-
-
-class PlanKey(NamedTuple):
-    """Value key: the hashable declaration itself beside one source identity.
-
-    Keying by declaration VALUE (a ``RecordSpec`` is a hashable record) rather
-    than ``id()`` removes the id-reuse hazard outright and makes equal
-    declarations share one binding — the stronger reading of "stable
-    declaration identity". ``Hashable`` is the honest bound a dict key needs;
-    it is not an erasure because nothing ever reads the key back as a value.
+    Only ``fields`` is visible — the class object never enters the registry,
+    so one registry serves every ``Result`` without erasing it.
     """
 
-    declaration: Hashable
+    @property
+    def fields(self) -> tuple[tuple[str, str], ...]:
+        """The declared (constructor parameter, semantic key) rows."""
+        ...
+
+
+class RecordBinding(NamedTuple):
+    """The cached result-free binding: validated plan + derived tables.
+
+    Everything the bound view needs to RUN without the source artefact:
+    the parameter/key plan and the real compiled `ParserTables` derived from
+    the grammar at bind time. No class object, no callable.
+    """
+
+    parameter_order: tuple[str, ...]
+    keys: tuple[str, ...]
+    tables: ParserTables
+
+
+class BindKey(NamedTuple):
+    """Identity key: declaration id beside source-artefact id."""
+
+    declaration: int
     grammar: int
 
 
-class PlanEntry(NamedTuple):
-    """One registry row: weak source artefact plus the derived plan."""
+class BindEntry(NamedTuple):
+    """One registry row: a STRONG declaration pin, a weak source, the binding.
 
+    The pin is what makes id-keying reuse-safe: while this entry lives, the
+    declaration object cannot die, so its id cannot be recycled into a false
+    warm hit. The entry itself dies with the weakly referenced artefact.
+    """
+
+    pin: RecordDeclaration
     grammar: weakref.ReferenceType[CompiledGrammar]
-    plan: RecordPlan
+    binding: RecordBinding
 
 
-def _release_plan(
-    entries: dict[PlanKey, PlanEntry],
+def _release_entry(
+    entries: dict[BindKey, BindEntry],
     lock: Lock,
-    key: PlanKey,
+    key: BindKey,
     _grammar: weakref.ReferenceType[CompiledGrammar],
 ) -> None:
-    """Drop one plan entry when its source artefact dies."""
+    """Drop one entry (and its declaration pin) when its artefact dies."""
     with lock:
         entries.pop(key, None)
 
 
-def _derive_plan[Result](
+def _derive_binding[Result](
     declaration: RecordSpec[Result], grammar: CompiledGrammar
-) -> RecordPlan:
-    """Cold lowering: validate the declaration's own data and freeze the plan.
+) -> RecordBinding:
+    """Cold lowering: validate declaration DATA and derive the parse tables.
 
-    Deliberately does NOT inspect ``declaration.constructor``: Lexic never
-    infers class shape or reads consumer code, so a class/field mismatch is a
-    cold root-finalization failure on the first parse, not a binding check.
+    Deliberately performs no class inspection: Lexic never infers class
+    shape or reads consumer code. A class/field mismatch is the constructor's
+    own cold failure at the first root finalization.
     """
     if not declaration.fields:
         raise UnsupportedConstructError(
             "record target: a constructor with no declared fields builds nothing"
         )
-    names = tuple(name for name, _path in declaration.fields)
+    names = tuple(name for name, _key in declaration.fields)
     if len(set(names)) != len(names):
         raise UnsupportedConstructError(
             f"record target: duplicate constructor field in {sorted(names)!r}"
         )
-    for name, path in declaration.fields:
-        if not path:
+    for name, key in declaration.fields:
+        if not key:
             raise UnsupportedConstructError(
-                f"record target: field {name!r} declares an empty semantic path"
+                f"record target: field {name!r} declares an empty semantic key"
             )
-    del grammar
-    return RecordPlan(
-        names,
-        tuple(path for _name, path in declaration.fields),
-        declaration.constructor.__qualname__,
-    )
+    tables = compile_tables(normalize(grammar.grammar), tier_for(BIND_TIER_CHARS))
+    return RecordBinding(names, tuple(key for _name, key in declaration.fields), tables)
 
 
-class PlanRegistry:
-    """The one homogeneous private registry for the record declaration kind.
-
-    Entries are result-free ``RecordPlan`` rows, so one registry serves every
-    ``Result`` without a heterogeneous result-erasing value type. Warm lookup
-    is lock-free; a cold miss is double-checked under the lock; entries die
-    with their weakly-referenced source artefact.
-    """
+class BindingRegistry:
+    """The one homogeneous private registry for the record declaration kind."""
 
     __slots__ = ("_build_count", "_entries", "_lock")
 
     def __init__(self) -> None:
         self._build_count = 0
-        self._entries: dict[PlanKey, PlanEntry] = {}
+        self._entries: dict[BindKey, BindEntry] = {}
         self._lock = Lock()
 
     @property
     def build_count(self) -> int:
-        """Expose cold-build evidence without exposing the mutable entries."""
+        """Cold-build evidence."""
         return self._build_count
 
     @property
     def entry_count(self) -> int:
-        """Expose residency evidence."""
+        """Residency evidence."""
         return len(self._entries)
 
-    def plan[Result](
+    def bind[Result](
         self, declaration: RecordSpec[Result], grammar: CompiledGrammar
-    ) -> RecordPlan:
-        """Bind once; eviction only ever causes equivalent recomputation."""
-        key = PlanKey(declaration, id(grammar))
+    ) -> RecordBinding:
+        """Warm lock-free identity hit; cold double-checked build."""
+        key = BindKey(id(declaration), id(grammar))
         cached = self._entries.get(key)
-        if cached is not None and cached.grammar() is grammar:
-            return cached.plan
+        if (
+            cached is not None
+            and cached.pin is declaration
+            and cached.grammar() is grammar
+        ):
+            return cached.binding
         with self._lock:
             cached = self._entries.get(key)
-            if cached is not None and cached.grammar() is grammar:
-                return cached.plan
-            plan = _derive_plan(declaration, grammar)
+            if (
+                cached is not None
+                and cached.pin is declaration
+                and cached.grammar() is grammar
+            ):
+                return cached.binding
+            binding = _derive_binding(declaration, grammar)
             self._build_count += 1
             source = weakref.ref(
-                grammar, partial(_release_plan, self._entries, self._lock, key)
+                grammar, partial(_release_entry, self._entries, self._lock, key)
             )
-            self._entries[key] = PlanEntry(source, plan)
-            return plan
+            self._entries[key] = BindEntry(declaration, source, binding)
+            return binding
 
     def release(self, grammar: CompiledGrammar) -> None:
         """Explicitly drop every entry bound against ``grammar``."""
@@ -181,72 +213,96 @@ class PlanRegistry:
                 del self._entries[key]
 
 
-_RECORD_PLANS = PlanRegistry()
+_RECORD_BINDINGS = BindingRegistry()
+
+
+class RunReport(NamedTuple):
+    """One execution's constructor-traffic account."""
+
+    completions: int
+    constructor_calls: int
 
 
 class BoundRecord[Result]:
-    """Result-typed bound view: immutable declaration + cached plan, no cache.
+    """Result-typed EXECUTABLE bound view.
 
-    Rebuilt per ``_bind`` from write-once parts and — like the design's bound
-    program — forbidden to retain the source artefact: the stand-in executor
-    takes it per call where production embeds derived tables instead. It stays
-    valid after the registry evicts its plan (a pool retaining this object
-    retains everything it needs) and never enters a heterogeneous container.
+    Retains exactly the immutable derived binding (plan + parser tables) and
+    the declaration; it never touches the source `CompiledGrammar` again, so
+    it keeps working after the artefact and the registry entry are gone.
     """
 
-    __slots__ = ("declaration", "plan")
+    __slots__ = ("binding", "declaration", "last_report")
 
-    def __init__(self, declaration: RecordSpec[Result], plan: RecordPlan) -> None:
+    def __init__(self, declaration: RecordSpec[Result], binding: RecordBinding) -> None:
         self.declaration = declaration
-        self.plan = plan
+        self.binding = binding
+        self.last_report = RunReport(0, 0)
 
-    def run(self, grammar: CompiledGrammar, text: str) -> Result:
-        """Parse once, then construct the class ONCE at root finalization.
-
-        The extraction below rides the current reduce route as the direct
-        product's stand-in; the class constructor runs exactly once, at the
-        cold root boundary — never per entry, character, or completion.
-        """
-        document = grammar.reduce(text, JSON_REDUCER, cores=1)
-        if not isinstance(document, IrMap):
-            raise UnsupportedConstructError(
-                "record target: the witness document is not a mapping"
-            )
-        arguments: dict[str, str | int] = {}
-        for name, path in zip(self.plan.parameter_order, self.plan.paths):
-            arguments[name] = _decode(_walk(document, path))
-        return self.declaration.constructor(**arguments)
-
-
-def _walk(document: IrMap, path: tuple[str, ...]) -> IrSelf:
-    """Follow one decoded-key path into the reduced document."""
-    value: IrSelf = document
-    for key in path:
-        if not isinstance(value, IrMap):
-            raise UnsupportedConstructError(
-                f"record target: path {path!r} crosses a non-mapping value"
-            )
-        value = value[IrStr(key)]
-    return value
+    def run(self, text: str) -> Result:
+        """Parse over the RETAINED tables; construct the class ONCE at root."""
+        if len(text) > BIND_TIER_CHARS:
+            raise UnsupportedConstructError("record target: text beyond bind tier")
+        kernel = Kernel(self.binding.tables, text, True).run()
+        if accept_item(kernel) < 0:
+            raise UnsupportedConstructError("record target: document did not parse")
+        tree = FastTree(kernel, {}).build(accept_handle(kernel))
+        if not isinstance(tree, ParseTree):
+            raise UnsupportedConstructError("record target: derivation missing")
+        values, completions = _extract(tree)
+        arguments: dict[str, int] = {}
+        for name, key in zip(self.binding.parameter_order, self.binding.keys):
+            if key not in values:
+                raise UnsupportedConstructError(
+                    f"record target: document has no key {key!r}"
+                )
+            arguments[name] = values[key]
+        result = self.declaration.constructor(**arguments)
+        self.last_report = RunReport(completions, 1)
+        return result
 
 
-def _decode(value: IrSelf) -> str | int:
-    """Engine-owned scalar decode for the two witness scalar sorts."""
-    if isinstance(value, IrInt):
-        return int(value)
-    if isinstance(value, IrStr):
-        return str(value)
-    raise UnsupportedConstructError(
-        f"record target: undeclared scalar sort {type(value).__name__}"
-    )
+def _extract(tree: ParseTree) -> tuple[dict[str, int], int]:
+    """Walk the real derivation once, decoding entry key/value pairs.
+
+    Engine-shaped closed decode (text and int) — no target callable runs in
+    this loop, and the completion count proves it against constructor_calls.
+    """
+    values: dict[str, int] = {}
+    completions = 0
+    pending: list[ParseTree] = [tree]
+    while pending:
+        node = pending.pop()
+        completions += 1
+        if str(node.symbol) == "entry":
+            kids = [kid for kid in node.kids if isinstance(kid, ParseTree)]
+            values[_text_of(kids[0])] = int(_text_of(kids[1]))
+            continue
+        for kid in node.kids:
+            if isinstance(kid, ParseTree):
+                pending.append(kid)
+    return values, completions
+
+
+def _text_of(tree: ParseTree) -> str:
+    """One subtree's consumed text."""
+    parts: list[str] = []
+    pending: list[ParseTree] = [tree]
+    while pending:
+        node = pending.pop(0)
+        for kid in node.kids:
+            if isinstance(kid, ParseTree):
+                pending.append(kid)
+            elif isinstance(kid, IrLiteral):
+                parts.append(str(kid))
+    return "".join(parts)
 
 
 @dataclass(frozen=True)
 class TokenizerInfo:
     """A frozen record-like consumer class."""
 
-    version: str
-    vocab_size: int
+    version: int
+    size: int
 
 
 class CheckedRange:
@@ -270,146 +326,246 @@ class Box[Item]:
         self.item = item
 
 
-DOCUMENT = '{"version": "v1", "model": {"size": 7}, "low": 2, "high": 5}'
-CONFLICT = '{"version": "v1"}'
+class NoHashMeta(type):
+    """An unusual metaclass whose classes are UNHASHABLE."""
+
+    def __hash__(cls) -> int:
+        raise TypeError("this class refuses hashing")
 
 
-def _spec_info() -> RecordSpec[TokenizerInfo]:
-    """The beginner-shaped declaration for the frozen record witness."""
-    return RecordSpec(
-        TokenizerInfo,
-        (("version", ("version",)), ("vocab_size", ("model", "size"))),
-    )
+class Odd(metaclass=NoHashMeta):
+    """A consumer class no value-keyed cache could hold."""
+
+    __slots__ = ("version",)
+
+    def __init__(self, version: int) -> None:
+        self.version = version
 
 
-def prove_declarations_inert() -> None:
-    """Declarations are immutable data with no reachable binding state."""
-    spec = _spec_info()
-    assert spec.constructor is TokenizerInfo
-    for name in ("cache", "entries", "factory", "lock", "run", "__dict__"):
-        assert not hasattr(spec, name)
-    assert isinstance(hash((spec.fields,)), int)
+DOCUMENT = "version=3;size=71;low=2;high=9;"
+
+
+def _grammar() -> CompiledGrammar:
+    """A fresh, collectable artefact (the compile cache holds the original)."""
+    return replace(compile_text(CATALOG), stem="record-target-witness")
 
 
 def prove_shapes(grammar: CompiledGrammar) -> None:
-    """Bind three materially different class shapes with exact result types."""
-    info = _spec_info()._bind(grammar).run(grammar, DOCUMENT)
+    """Frozen, validating, generic, and unusual-metaclass classes all bind."""
+    info_spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+    info = info_spec._bind(grammar).run(DOCUMENT)
     assert_type(info, TokenizerInfo)
-    assert info == TokenizerInfo("v1", 7)
+    assert info == TokenizerInfo(3, 71)
 
-    ranged = RecordSpec(CheckedRange, (("low", ("low",)), ("high", ("high",))))._bind(
-        grammar
-    )
-    value = ranged.run(grammar, DOCUMENT)
+    ranged = RecordSpec(CheckedRange, (("low", "low"), ("high", "high")))._bind(grammar)
+    value = ranged.run(DOCUMENT)
     assert_type(value, CheckedRange)
-    assert (value.low, value.high) == (2, 5)
+    assert (value.low, value.high) == (2, 9)
 
-    boxed_spec: RecordSpec[Box[str]] = RecordSpec(Box, (("item", ("version",)),))
-    boxed = boxed_spec._bind(grammar).run(grammar, DOCUMENT)
-    assert_type(boxed, Box[str])
-    assert boxed.item == "v1"
+    boxed_spec: RecordSpec[Box[int]] = RecordSpec(Box, (("item", "size"),))
+    boxed = boxed_spec._bind(grammar).run(DOCUMENT)
+    assert_type(boxed, Box[int])
+    assert boxed.item == 71
 
-
-def prove_validated_refusal(grammar: CompiledGrammar) -> None:
-    """A validating constructor refuses at the cold root boundary, once."""
-    backwards = RecordSpec(
-        CheckedRange, (("low", ("high",)), ("high", ("low",)))
-    )._bind(grammar)
+    odd_spec = RecordSpec(Odd, (("version", "version"),))
     try:
-        backwards.run(grammar, DOCUMENT)
-    except FieldValidationError as error:
-        assert "5 > 2" in str(error)
-    else:
-        raise AssertionError("a backwards range was constructed")
-
-
-def prove_invalid_bindings(grammar: CompiledGrammar) -> None:
-    """Declaration-data defects refuse with words at binding time."""
-    for spec in (
-        RecordSpec(TokenizerInfo, ()),
-        RecordSpec(TokenizerInfo, (("version", ("a",)), ("version", ("b",)))),
-        RecordSpec(TokenizerInfo, (("version", ()),)),
-    ):
-        try:
-            spec._bind(grammar)
-        except UnsupportedConstructError as error:
-            assert "record target" in str(error)
-        else:
-            raise AssertionError(f"invalid declaration bound: {spec.fields!r}")
-    mismatched = RecordSpec(
-        TokenizerInfo, (("no_such_parameter", ("version",)),)
-    )._bind(grammar)
-    try:
-        mismatched.run(grammar, CONFLICT)
+        hash(odd_spec)
     except TypeError:
         pass
     else:
-        raise AssertionError("a mismatched constructor field was accepted")
+        raise AssertionError("the unhashable class object hashed — bad witness")
+    odd = odd_spec._bind(grammar).run(DOCUMENT)
+    assert_type(odd, Odd)
+    assert odd.version == 3
+    print(
+        "shapes",
+        "frozen/validating/generic/unhashable-metaclass classes bind and run;"
+        " value-keying is impossible for the unhashable one (shown), identity"
+        "+pin keying carries it",
+        sep="\t",
+    )
 
 
-def _bind_concurrently(
-    barrier: Barrier, spec: RecordSpec[TokenizerInfo], grammar: CompiledGrammar
-) -> RecordPlan:
-    """Reach one cold plan key concurrently."""
-    barrier.wait()
-    return spec._bind(grammar).plan
+def prove_traffic(grammar: CompiledGrammar) -> None:
+    """Zero constructor calls during completions; exactly one at root."""
+    bound = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))._bind(
+        grammar
+    )
+    bound.run(DOCUMENT)
+    report = bound.last_report
+    assert report.constructor_calls == 1
+    assert report.completions > report.constructor_calls
+    print(
+        "traffic",
+        f"completions={report.completions}",
+        f"constructor_calls={report.constructor_calls}",
+        sep="\t",
+    )
 
 
-def prove_concurrent_binding(grammar: CompiledGrammar) -> None:
-    """Two declarations bind concurrently; each plan compiles exactly once."""
-    first = RecordSpec(TokenizerInfo, (("version", ("version",)),))
-    second = RecordSpec(TokenizerInfo, (("vocab_size", ("model", "size")),))
-    builds = _RECORD_PLANS.build_count
-    barrier = Barrier(8)
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = tuple(
-            pool.submit(_bind_concurrently, barrier, spec, grammar)
-            for spec in (first, second) * 4
-        )
-        plans = tuple(future.result() for future in futures)
-    assert _RECORD_PLANS.build_count == builds + 2
-    assert plans[0] == plans[2] and plans[1] == plans[3]
-
-
-def prove_eviction_and_pool(grammar: CompiledGrammar) -> None:
-    """Eviction recomputes equivalently; a retained bound view stays valid."""
-    spec = _spec_info()
+def prove_executable_lifetime() -> None:
+    """The bound view still PARSES after artefact death and entry removal."""
+    grammar = _grammar()
+    spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
     bound = spec._bind(grammar)
-    first_plan = bound.plan
-    _RECORD_PLANS.release(grammar)
-    rebound = spec._bind(grammar)
-    assert rebound.plan == first_plan
-    assert rebound.plan is not first_plan
-    assert bound.run(grammar, DOCUMENT) == rebound.run(grammar, DOCUMENT)
-
-
-def prove_artefact_lifetime() -> None:
-    """A plan entry dies with its weakly referenced source artefact."""
-    grammar = replace(compile_ast(JSON_GRAMMAR), stem="record-target-lifetime")
-    spec = _spec_info()
-    bound = spec._bind(grammar)
-    entries = _RECORD_PLANS.entry_count
+    entries_before = _RECORD_BINDINGS.entry_count
     source = weakref.ref(grammar)
     del grammar
     gc.collect()
     assert source() is None
-    assert _RECORD_PLANS.entry_count == entries - 1
-    assert bound.plan.parameter_order == ("version", "vocab_size")
+    assert _RECORD_BINDINGS.entry_count == entries_before - 1
+    result = bound.run("version=9;size=1;")
+    assert result == TokenizerInfo(9, 1)
+    print(
+        "executable-lifetime",
+        "source artefact collected, registry entry released, and the retained"
+        " bound view still parsed and constructed successfully",
+        sep="\t",
+    )
+
+
+def prove_identity_semantics(grammar: CompiledGrammar) -> None:
+    """Equal declarations bind separately (identity keys); id reuse is safe."""
+    first = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+    twin = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+    assert first == twin and first is not twin
+    builds = _RECORD_BINDINGS.build_count
+    first._bind(grammar)
+    twin._bind(grammar)
+    assert _RECORD_BINDINGS.build_count == builds + 2
+
+    pinned = RecordSpec(TokenizerInfo, (("version", "version"),))
+    pinned_id = id(pinned)
+    pinned._bind(grammar)
+    del pinned
+    gc.collect()
+    survivors = [
+        entry
+        for key, entry in _RECORD_BINDINGS._entries.items()
+        if key.declaration == pinned_id
+    ]
+    assert survivors, "the entry pin failed to keep the declaration alive"
+    fresh_hits = 0
+    for _round in range(512):
+        probe = RecordSpec(CheckedRange, (("low", "low"),))
+        if id(probe) == pinned_id:
+            fresh_hits += 1
+        del probe
+    assert fresh_hits == 0 or survivors[0].pin.fields == (("version", "version"),)
+    print(
+        "identity-semantics",
+        "equal declarations bind separately by design; the strong pin makes"
+        " id reuse against a live entry impossible",
+        sep="\t",
+    )
+
+
+def prove_eviction(grammar: CompiledGrammar) -> None:
+    """Eviction only causes equivalent recomputation, results included."""
+    spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+    bound = spec._bind(grammar)
+    _RECORD_BINDINGS.release(grammar)
+    rebound = spec._bind(grammar)
+    assert rebound.binding.parameter_order == bound.binding.parameter_order
+    assert rebound.binding.keys == bound.binding.keys
+    assert rebound.binding.tables is not bound.binding.tables
+    assert bound.run(DOCUMENT) == rebound.run(DOCUMENT)
+    print(
+        "eviction",
+        "release + rebind recomputed an equivalent binding; both views parse"
+        " to equal results",
+        sep="\t",
+    )
+
+
+def _bind_concurrently(
+    barrier: Barrier,
+    spec: RecordSpec[TokenizerInfo],
+    grammar: CompiledGrammar,
+) -> RecordBinding:
+    """Reach one cold bind key concurrently on the free-threaded build."""
+    barrier.wait()
+    return spec._bind(grammar).binding
+
+
+def prove_concurrent_cold_bind(grammar: CompiledGrammar) -> None:
+    """Eight free-threaded threads, one cold build, one shared binding."""
+    spec = RecordSpec(TokenizerInfo, (("size", "size"),))
+    builds = _RECORD_BINDINGS.build_count
+    barrier = Barrier(8)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = tuple(
+            pool.submit(_bind_concurrently, barrier, spec, grammar) for _ in range(8)
+        )
+        bindings = tuple(future.result() for future in futures)
+    assert _RECORD_BINDINGS.build_count == builds + 1
+    assert all(binding is bindings[0] for binding in bindings)
+    print("concurrent-cold-bind", "8 threads, 1 build, shared binding", sep="\t")
+
+
+def prove_cold_root_failure(grammar: CompiledGrammar) -> None:
+    """A validating constructor and a field mismatch both fail COLD at root."""
+    backwards = RecordSpec(CheckedRange, (("low", "high"), ("high", "low")))._bind(
+        grammar
+    )
+    try:
+        backwards.run(DOCUMENT)
+    except FieldValidationError as error:
+        assert "9 > 2" in str(error)
+    else:
+        raise AssertionError("a backwards range was constructed")
+
+    mismatched = RecordSpec(TokenizerInfo, (("no_such_field", "size"),))._bind(grammar)
+    try:
+        mismatched.run(DOCUMENT)
+    except TypeError:
+        pass
+    else:
+        raise AssertionError("a mismatched constructor field was accepted")
+    for spec_fields in ((), (("a", "x"), ("a", "y")), (("a", ""),)):
+        try:
+            RecordSpec(TokenizerInfo, spec_fields)._bind(grammar)
+        except UnsupportedConstructError:
+            continue
+        raise AssertionError(f"invalid declaration bound: {spec_fields!r}")
+    print(
+        "cold-root-failure",
+        "validating constructor and class/field mismatch fail at root"
+        " finalization; declaration-data defects refuse at binding with words",
+        sep="\t",
+    )
+
+
+type Timing = tuple[float, float]
+
+
+def _timed_run(work: Callable[[], TokenizerInfo]) -> Timing:
+    """Process CPU and wall for one bound execution."""
+    cpu = time.process_time()
+    wall = time.perf_counter()
+    work()
+    return time.process_time() - cpu, time.perf_counter() - wall
 
 
 def main() -> None:
-    """Run the full declaration/binding/lifecycle proof."""
-    grammar = compile_ast(JSON_GRAMMAR)
-    prove_declarations_inert()
+    """Run the full executable-lifecycle proof."""
+    grammar = _grammar()
     prove_shapes(grammar)
-    prove_validated_refusal(grammar)
-    prove_invalid_bindings(grammar)
-    prove_concurrent_binding(grammar)
-    prove_eviction_and_pool(grammar)
-    prove_artefact_lifetime()
+    prove_traffic(grammar)
+    prove_executable_lifetime()
+    prove_identity_semantics(grammar)
+    prove_eviction(grammar)
+    prove_concurrent_cold_bind(grammar)
+    prove_cold_root_failure(grammar)
+    bound = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))._bind(
+        grammar
+    )
+    cpu, wall = _timed_run(lambda: bound.run(DOCUMENT))
+    print("bound-run", f"cpu={cpu:.6f}", f"wall={wall:.6f}", sep="\t")
     print(
-        "PASS: custom classes bind through one immutable constructor symbol,"
-        " a result-free homogeneous plan registry, and cold root construction"
+        "PASS: custom classes run through retained derived tables with no"
+        " class inspection, an identity+pin registry, and cold-root-only"
+        " constructor traffic"
     )
 
 

@@ -1,6 +1,33 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — REVIEW_9 corrections and explicit planning gates (2026-08-29)
+## CURRENT SESSION — Prototype 10 closure audit and next investigation (2026-08-29)
+
+The external investigation produced `reports/PROTOTYPE_10.md` and four
+prototypes. `reports/REVIEW_10.md` accepts the narrow results: single-island
+seed continuation through an Earley cone/PDA trace, sibling accepting roots in
+island discovery, sequence-only ordered meanings, rejection of the incremental
+keyed treap and dict-of-sets dependency index, iterative equality, the retained
+`DISTANT` RSS scales, and the immutable custom-class constructor symbol with a
+homogeneous result-free plan cache. The user's prior ruling is explicit:
+arbitrary custom classes remain in scope.
+
+The audit rejects the report's composite closures. Purity does not make
+multiple ambiguity sources separable; the Qwen cold row measured only one
+plain encode dictionary; the resolver prototype counted complete-document
+ambiguity points without constructing the pair; the RSS prototype allocated no
+island trace lane and its control retained a memo; and the custom runner could
+not execute after deleting its required source grammar. These remain marked
+planning or decision gates in `TODO.md`. `PROMPT_11.md` assigns adversarial
+interaction semantics, real keyed-product rows, real resolver pairs, a flat
+dependency index plus corrected RSS protocol, and executable custom-binding
+lifetime. Production source remains untouched.
+
+The four Prototype 10 files pass Ruff and Pyright. Their ordinary witnesses
+pass, which confirms that the review findings concern missing adversarial cases
+and overbroad conclusions rather than broken stated examples. No Qwen or
+multithreaded benchmark was rerun during this documentation pass.
+
+## PRIOR SESSION — REVIEW_9 corrections and explicit planning gates (2026-08-29)
 
 `REVIEW_9.md` returned GO for §2 and ten later-phase findings. The regular proof
 now declines a once-required nullable atom which can steal its continuation and

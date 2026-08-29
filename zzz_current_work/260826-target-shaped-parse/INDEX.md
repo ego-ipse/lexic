@@ -1,10 +1,12 @@
 # Index — target-shaped parsing
 
-**Current state (2026-08-29):** `REVIEW_9.md` returned GO for §2 and identified
-five high and five medium corrections. The settled corrections and the
-remaining explicitly marked planning gates are folded into the current packet;
-`PROTOTYPE_9.md` records the executable corrections. Production source has not
-started in this effort.
+**Current state (2026-08-29):** `REVIEW_9.md` returned GO for §2.
+`PROTOTYPE_10.md` investigated the remaining design gates; `REVIEW_10.md`
+accepts its narrow eliminations and requirements while rejecting five
+overstated closures. The active documents distinguish those closed facts from
+the multiple-seed, resolver, real keyed-product, flat-index/RSS, and custom
+executable-lifetime gates. `PROMPT_11.md` tasks the next evidence round.
+Production source has not started in this effort.
 
 ## Start here
 
@@ -29,6 +31,11 @@ before source work.
 
 The current packet is:
 
+- [`reports/REVIEW_10.md`](reports/REVIEW_10.md) — closure audit of the latest
+  investigation; records which conclusions stand and which gates remain open;
+- [`PROMPT_11.md`](PROMPT_11.md) — exact tasking for the next prototype round;
+- [`reports/PROTOTYPE_10.md`](reports/PROTOTYPE_10.md) — island, custom-class,
+  keyed-meaning, and ambiguity-RSS evidence, constrained by `REVIEW_10.md`;
 - [`reports/REVIEW_9.md`](reports/REVIEW_9.md) — latest independent review; GO
   for §2, with corrections required before later consuming phases;
 - [`reports/PROTOTYPE_9.md`](reports/PROTOTYPE_9.md) — REVIEW_9 proof, routing,
@@ -64,6 +71,8 @@ newer reports do not explicitly supersede them.
 | [`PROTOTYPE_8.md`](reports/PROTOTYPE_8.md) | Current §0 RSS/consumer baseline and persistent exact-meaning correction. |
 | [`REVIEW_9.md`](reports/REVIEW_9.md) | GO for §2; found nullable possessive, island scope, non-sibling routing, hot-callback, ownership, test, and cost-account gaps. |
 | [`PROTOTYPE_9.md`](reports/PROTOTYPE_9.md) | Executes the REVIEW_9 proof/routing/ABI corrections and enumerates the remaining marked planning gates. |
+| [`PROTOTYPE_10.md`](reports/PROTOTYPE_10.md) | Investigates island seeds, custom classes, keyed meanings, and ambiguity RSS; use only through REVIEW_10's corrected scope. |
+| [`REVIEW_10.md`](reports/REVIEW_10.md) | Accepts the narrow Prototype 10 results and identifies the unsupported interaction, measurement, resolver, RSS, and lifetime claims. |
 
 ## Prototype inventory
 
@@ -72,6 +81,7 @@ measurement witnesses, never production modules.
 
 | Prototype | One-line purpose |
 |---|---|
+| [`ambiguity_rss.py`](proto/ambiguity_rss.py) | Establishes the retained ambiguous-memory witness and rejects a dict-of-sets dependency index; its seed-lane/control protocol is incomplete. |
 | [`anchored_tokenizer_regions.py`](proto/anchored_tokenizer_regions.py) | Measures one-pass target-region capture from schema route anchors. |
 | [`baseline_rss.py`](proto/baseline_rss.py) | Measures unchanged-reader peak RSS for resident, cold-path, and retained warm-path scenarios. |
 | [`bulk_lexical_cost.py`](proto/bulk_lexical_cost.py) | Measures grammar-derived bulk lexical recognition across real grammars. |
@@ -81,13 +91,16 @@ measurement witnesses, never production modules.
 | [`carrier_gc_cost.py`](proto/carrier_gc_cost.py) | Measures the composed carrier with collector state explicit and order-balanced. |
 | [`composed_ir_regions.py`](proto/composed_ir_regions.py) | Measures routed high-volume capture into final tokenizer IR leaves; the leaf-heavy representation is rejected. |
 | [`composed_native_tokenizer.py`](proto/composed_native_tokenizer.py) | Measures native target capture through canonical final tokenizer indexes and a ready record. |
+| [`custom_class_target.py`](proto/custom_class_target.py) | Proves the constructor-symbol/result-free-plan typing shape; executable lifetime and reflection-free binding remain open. |
 | [`demand_selection.py`](proto/demand_selection.py) | Proves reducer-free selection as occurrence demand in one parse; its resolver route stand-in is rejected. |
+| [`island_alternate_seed.py`](proto/island_alternate_seed.py) | Proves single-seed cone/trace continuation and sibling-root discovery; its one-flip multiple-seed rule is rejected. |
 | [`local_meaning_fold.py`](proto/local_meaning_fold.py) | Supplies the counterexample proving child-local ambiguity is not root-value equivalent. |
 | [`opcode_cost.py`](proto/opcode_cost.py) | Checks the CPU cost of enum values leaking into flat opcode tables. |
 | [`parallel_lexical_ownership.py`](proto/parallel_lexical_ownership.py) | Measures shared versus private recognizers across non-JSON grammars. |
 | [`parallel_merge_region_cost.py`](proto/parallel_merge_region_cost.py) | Measures a grammar-derived repeated-dyad region and direct rank product. |
 | [`parallel_region_cost.py`](proto/parallel_region_cost.py) | Measures grammar-derived regular-region fragments over one retained pool. |
 | [`persistent_meaning.py`](proto/persistent_meaning.py) | Proves exact identity-sharing equality and one chosen-result materialization for large meanings. |
+| [`product_meaning_structures.py`](proto/product_meaning_structures.py) | Rejects ordered keyed meanings and the incremental treap; its plain-dict timing does not decide real keyed products. |
 | [`product_types.py`](proto/product_types.py) | Proves typed flat ABI, state, marks, operations, completion ranges, and binding shape. |
 | [`python_tree_cost.py`](proto/python_tree_cost.py) | Measures the stdlib recursive-Python lower-bound witness on Qwen. |
 | [`qwen_parse_cost.py`](proto/qwen_parse_cost.py) | Measures current Qwen grammar parsing without fold or tokenizer construction. |
