@@ -133,12 +133,18 @@ def _overlapping_arms(
     rules: Mapping[str, IrRule],
     memo: dict[str, Summary],
 ) -> bool:
-    """Whether two arms compete on a first character or empty input."""
+    """Whether ordered atomic arms can commit before the correct arm."""
+    arms = tuple(body)
     seen = CharSet.EMPTY
     nullable = False
-    for arm in body:
+    for index, arm in enumerate(arms):
         row = _body_summary(IrAlternation(arm), rules, memo, set())
-        if row is None or seen.overlaps(row.first) or (nullable and row.nullable):
+        if (
+            row is None
+            or seen.overlaps(row.first)
+            or (nullable and row.nullable)
+            or (row.nullable and index != len(arms) - 1)
+        ):
             return True
         seen = seen.union(row.first)
         nullable = nullable or row.nullable
@@ -202,7 +208,7 @@ def _prove_arm(
         variable = hi is None or hi != lo
         if atom.nullable and repeats:
             return False
-        if variable and atom.first.overlaps(after):
+        if (variable or atom.nullable) and atom.first.overlaps(after):
             return False
         atom_follow = after.union(atom.first) if repeats else after
         if not _prove_atom(item.atom, atom_follow, rules, memo, active):

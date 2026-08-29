@@ -126,6 +126,32 @@ AMBIGUOUS_SPEC = RegionSpec(
 )
 """A simple acyclic closure whose possessive entry boundary is not exact."""
 
+NULLABLE_REFERENCE_GRAMMAR = (
+    'root ::= open maybe tail close\nopen ::= "{"\nmaybe ::= "x" |\n'
+    'tail ::= "x"\nseparator ::= ","\nclose ::= "}"\n'
+)
+NULLABLE_REFERENCE_SPEC = RegionSpec(
+    "open",
+    ("maybe", "tail"),
+    (0,),
+    "separator",
+    "close",
+)
+"""A once-required nullable atom which can steal its continuation."""
+
+EARLY_NULLABLE_ARM_GRAMMAR = (
+    'root ::= open choice close\nopen ::= "{"\nchoice ::= "a"? | "b"\n'
+    'separator ::= ","\nclose ::= "}"\n'
+)
+EARLY_NULLABLE_ARM_SPEC = RegionSpec(
+    "open",
+    ("choice",),
+    (0,),
+    "separator",
+    "close",
+)
+"""An ordered atomic alternation whose nullable arm is not last."""
+
 CATALOG_GRAMMAR = (
     'catalog ::= open ( row ( separator row )* )? close\nopen ::= "["\n'
     'row ::= word assign count\nseparator ::= ";"\nclose ::= "]"\n'
@@ -430,6 +456,12 @@ def _identity(text: str) -> None:
         raise AssertionError("the acyclic ambiguity witness lost its simple closure")
     if _prove(ambiguous_rules, AMBIGUOUS_SPEC) is not None:
         raise AssertionError("an ambiguous possessive boundary claimed the proof")
+    nullable_reference = _source_rules(NULLABLE_REFERENCE_GRAMMAR)
+    if _prove(nullable_reference, NULLABLE_REFERENCE_SPEC) is not None:
+        raise AssertionError("a nullable atom stole its continuation")
+    early_nullable_arm = _source_rules(EARLY_NULLABLE_ARM_GRAMMAR)
+    if _prove(early_nullable_arm, EARLY_NULLABLE_ARM_SPEC) is not None:
+        raise AssertionError("an early nullable arm claimed ordered exactness")
     native = _lower(_proved(_rules(), VOCAB_SPEC), VOCAB_SPEC)
     formulations = (
         (
@@ -520,7 +552,7 @@ def _identity(text: str) -> None:
     )
     print(
         "edges",
-        "1/2/3 captures; empty valid; malformed refused; ambiguous declined",
+        "1/2/3 captures; empty valid; malformed refused; three unsafe shapes declined",
         sep="\t",
     )
     print("derived", "JSON vocab + non-JSON catalog", sep="\t")

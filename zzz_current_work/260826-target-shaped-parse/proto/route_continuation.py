@@ -18,10 +18,10 @@ UNSET = -1
 
 
 class RouteChoice(NamedTuple):
-    """One finite route's predictive contextual destination."""
+    """One finite route's contextual clone chain."""
 
     route: int
-    pda_clone: int
+    pda_clones: tuple[int, ...]
 
 
 class EarleyRouteAdvance(NamedTuple):
@@ -41,10 +41,10 @@ class RouteTable(NamedTuple):
 
 
 class RouteContinuation(NamedTuple):
-    """A producer completion controlling one following reference position."""
+    """A producer completion controlling one descendant reference path."""
 
     producer_completion: int
-    consumer_position: int
+    consumer_positions: tuple[int, ...]
     route_slot: int
     table: int
 
@@ -105,19 +105,28 @@ def pda_child(
     routes: ProductRoutes,
     continuation: RouteContinuation,
     frame: PdaRouteFrame,
-    position: int,
+    positions: tuple[int, ...],
 ) -> int:
-    """Select the contextual clone at the routed reference opcode."""
-    if position != continuation.consumer_position:
+    """Select the first contextual clone for a routed descendant path."""
+    if positions != continuation.consumer_positions:
         raise UnsupportedConstructError(
-            "prototype continuation: routed reference position mismatch"
+            "prototype continuation: routed reference path mismatch"
         )
     route = frame.routes[continuation.route_slot]
     if route == UNSET:
         raise UnsupportedConstructError(
             "prototype continuation: producer has not completed"
         )
-    return _choice(routes.tables[continuation.table], route).pda_clone
+    return _choice(routes.tables[continuation.table], route).pda_clones[0]
+
+
+def pda_descendant(choice: RouteChoice, depth: int) -> int:
+    """Read the child already baked into a route-specialized clone."""
+    if depth < 1 or depth >= len(choice.pda_clones):
+        raise UnsupportedConstructError(
+            "prototype continuation: contextual clone depth mismatch"
+        )
+    return choice.pda_clones[depth]
 
 
 def earley_successor(
@@ -172,12 +181,12 @@ def _routes() -> ProductRoutes:
                 (("model", 1),),
                 2,
                 (
-                    RouteChoice(1, 101),
-                    RouteChoice(2, 102),
+                    RouteChoice(1, (101,)),
+                    RouteChoice(2, (102,)),
                 ),
             ),
         ),
-        (RouteContinuation(names["string"], refs.index("value"), 0, 0),),
+        (RouteContinuation(names["string"], (refs.index("value"),), 0, 0),),
         (
             EarleyRouteAdvance(300, 1, 301),
             EarleyRouteAdvance(300, 2, 302),
@@ -197,13 +206,13 @@ def prove_pda() -> None:
     escaped = route_for(routes.tables[0], _decoded_key('"m\\u006fdel"'))
     assert model == escaped == 1
     mark = frame.publish(continuation.route_slot, model)
-    assert pda_child(routes, continuation, frame, 2) == 101
+    assert pda_child(routes, continuation, frame, (2,)) == 101
     frame.rollback(mark)
     assert frame.routes == [UNSET]
 
     extension = route_for(routes.tables[0], _decoded_key('"other"'))
     frame.publish(continuation.route_slot, extension)
-    assert pda_child(routes, continuation, frame, 2) == 102
+    assert pda_child(routes, continuation, frame, (2,)) == 102
 
 
 def prove_earley() -> None:
@@ -242,10 +251,46 @@ def prove_raw() -> None:
     if exact != 1 or escaped != raw.extension:
         raise AssertionError("raw route collapsed distinct surface spellings")
     frame.publish(continuation.route_slot, exact)
-    if pda_child(routes, continuation, frame, 2) != 101:
+    if pda_child(routes, continuation, frame, (2,)) != 101:
         raise AssertionError("raw route lost its predictive destination")
     if earley_successor(routes, continuation, 300, exact) != 301:
         raise AssertionError("raw route lost its Earley successor")
+
+
+def prove_non_sibling() -> None:
+    """Carry one route through an intervening contextual clone."""
+    base = _routes()
+    table = RouteTable(
+        base.tables[0].known,
+        base.tables[0].extension,
+        (
+            RouteChoice(1, (201, 211)),
+            RouteChoice(2, (202, 212)),
+        ),
+    )
+    continuation = RouteContinuation(10, (1, 1), 0, 0)
+    routes = ProductRoutes(
+        (table,),
+        (continuation,),
+        (
+            EarleyRouteAdvance(500, 1, 501),
+            EarleyRouteAdvance(500, 2, 502),
+            EarleyRouteAdvance(501, 1, 511),
+            EarleyRouteAdvance(502, 2, 512),
+        ),
+    )
+    frame = PdaRouteFrame(1)
+    route = route_for(table, "model")
+    frame.publish(continuation.route_slot, route)
+    outer = pda_child(routes, continuation, frame, (1, 1))
+    choice = _choice(table, route)
+    inner = pda_descendant(choice, 1)
+    if (outer, inner) != (201, 211):
+        raise AssertionError("PDA route did not survive the contextual clone")
+    tail = earley_successor(routes, continuation, 500, route)
+    value = earley_successor(routes, continuation, tail, route)
+    if (tail, value) != (501, 511):
+        raise AssertionError("Earley route did not survive the contextual code")
 
 
 def main() -> None:
@@ -253,8 +298,9 @@ def main() -> None:
     prove_pda()
     prove_earley()
     prove_raw()
+    prove_non_sibling()
     print(
-        "PASS: decoded/raw routes control PDA/Earley children; grammar_arm_additions=0"
+        "PASS: decoded/raw routes cross PDA/Earley descendants; grammar_arm_additions=0"
     )
 
 
