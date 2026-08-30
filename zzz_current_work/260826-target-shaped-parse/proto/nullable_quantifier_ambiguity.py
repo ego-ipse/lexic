@@ -13,14 +13,21 @@ until deferred Leo provenance is expanded.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
-from lexic.compile import canonical_grammar, compile_text
+from lexic.compile import (
+    canonical_grammar,
+    compile_ast,
+    compile_from_path,
+    compile_text,
+)
+from lexic.compile.artifact import CompiledGrammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension
-from lexic.ir import IrItem
+from lexic.ir import IrAst, IrItem, IrNode, IrSelf
 from lexic.model import GrammarModel
 from lexic.parsing import earley_model, pda_tables
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
@@ -47,11 +54,20 @@ class Case(NamedTuple):
     name: str
     body: str
     gap: str = 'gap ::= item?\nitem ::= "a"\n'
+    control_gap: str = 'gap ::= item\nitem ::= "a"\n'
+    control_text: str = "xa"
 
     @property
     def grammar(self) -> str:
         """The complete grammar for this case."""
         return f'root ::= pad list\nlist ::= {self.body}\n{self.gap}pad ::= "x"\n'
+
+    @property
+    def control(self) -> str:
+        """The matched grammar whose quantified atom is NOT nullable."""
+        return (
+            f'root ::= pad list\nlist ::= {self.body}\n{self.control_gap}pad ::= "x"\n'
+        )
 
 
 CASES = (
@@ -60,10 +76,67 @@ CASES = (
     Case("optional-ref", "gap?"),
     Case("bounded-zero-two", "gap{0,2}"),
     Case("bounded-one-two", "gap{1,2}"),
-    Case("exact-two", "gap{2}"),
+    Case("exact-two", "gap{2}", control_text="xaa"),
     Case("star-group", "(gap)*"),
-    Case("star-empty-rule", "gap*", 'gap ::= ""\n'),
+    Case("star-empty-rule", "gap*", 'gap ::= ""\n', 'gap ::= "a"\n'),
 )
+
+BASELINE: dict[str, tuple[str, str, str, str]] = {
+    "star-ref": (
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+    ),
+    "plus-ref": (
+        "Root(Pad('x'), List((Gap(),)))",
+        "Root(Pad('x'), List((Gap(),)))",
+        "Root(Pad('x'), List((Gap(),)))",
+        "Root(Pad('x'), List((Gap(),)))",
+    ),
+    "optional-ref": (
+        "Root(Pad('x'), List(Gap()))",
+        "Root(Pad('x'), List(Gap()))",
+        "Root(Pad('x'), List(Gap()))",
+        "Root(Pad('x'), List())",
+    ),
+    "bounded-zero-two": (
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+    ),
+    "bounded-one-two": (
+        "Root(Pad('x'), List((Gap(),)))",
+        "Root(Pad('x'), List((Gap(),)))",
+        "Root(Pad('x'), List((Gap(),)))",
+        "Root(Pad('x'), List((Gap(),)))",
+    ),
+    "exact-two": (
+        "Root(Pad('x'), List((Gap(), Gap())))",
+        "Root(Pad('x'), List((Gap(), Gap())))",
+        "Root(Pad('x'), List((Gap(), Gap())))",
+        "Root(Pad('x'), List((Gap(), Gap())))",
+    ),
+    "star-group": (
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+    ),
+    "star-empty-rule": (
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+        "Root(Pad('x'), List(()))",
+    ),
+}
+"""The UNCONTAMINATED pre-fix answer of each route, pinned so the source phase
+cannot silently redefine what it is comparing against.
+
+Order is ``(public, pda, earley, raw_earley)``. Every entry is the wrong
+answer for a case whose quantifier admits more than one occurrence count over
+a nullable atom, and the right answer for ``exact-two``, which admits one."""
 
 
 class FamilyScope(NamedTuple):
@@ -151,6 +224,8 @@ def prove_quantifier_scope() -> None:
         raw_earley = _answer(
             lambda: earley_model(raw_grammar, "x", compiled.fold, raw_tables)
         )
+        pinned = BASELINE[case.name]
+        assert (public, predictive, earley, raw_earley) == pinned, (case.name, pinned)
         print(
             "quantifier",
             case.name,
@@ -184,25 +259,37 @@ def prove_leo_readout() -> None:
     text = "version=3;size=7;"
     kernel = Kernel(tables, text, True).run()
     root = accept_handle(kernel)
+    # Nothing may materialise the forest between the run and this read: the
+    # defect IS that a standalone predicate is wrong before expansion, and a
+    # tree build here would satisfy the hidden precondition by accident.
+    deferred = len(kernel.st.leo_links)
     before = len(ambiguity_points(kernel, root))
+    assert deferred > 0, deferred
     after = len(complete_ambiguity_points(kernel, root))
     assert before == 0 and after == 2, (before, after)
+    forced = FastTree(kernel, {}).build(root)
+    assert isinstance(forced, ParseTree)
+    settled = len(ambiguity_points(kernel, root))
+    assert settled == after, (settled, after)
     print(
         "leo-readout",
-        f"deferred={len(kernel.st.leo_links)}",
-        f"before={before}",
-        f"after={after}",
+        f"deferred_before_any_tree={deferred}",
+        f"points_before_expansion={before}",
+        f"points_after_expansion={after}",
+        f"points_after_a_tree_build={settled}",
+        "no tree was built between the run and the first read",
         sep="\t",
     )
 
 
 class CorpusSite(NamedTuple):
-    """One authored quantified atom whose body can consume no characters."""
+    """One quantified atom whose body can consume no characters."""
 
     path: str
     rule: str
     low: int
     high: str
+    atom: str
 
 
 class CorpusScope(NamedTuple):
@@ -213,48 +300,418 @@ class CorpusScope(NamedTuple):
     sites: tuple[CorpusSite, ...]
 
 
-def corpus_scope() -> CorpusScope:
-    """Inventory quantified-nullable atoms in every shipped grammar corpus."""
+def _items(node: IrSelf) -> tuple[IrItem, ...]:
+    """Every item anywhere below one grammar node, nesting included.
+
+    A top-level walk misses a quantified item inside a group — the
+    ``star-group`` shape this module itself tests — so the census recurses.
+    """
+    found: list[IrItem] = []
+    stack: list[IrSelf] = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, IrItem):
+            found.append(current)
+        if isinstance(current, IrNode):
+            stack.extend(current.children())
+    return tuple(found)
+
+
+def scan_grammar(name: str, grammar: IrAst) -> tuple[CorpusSite, ...]:
+    """Every quantified-nullable site in one grammar, at one pipeline stage."""
+    analysis = GrammarAnalysis(grammar)
+    found: list[CorpusSite] = []
+    for rule in grammar.rules:
+        for item in _items(rule.body):
+            quantifier = item.quantifier
+            low, high = int(quantifier.lo), str(quantifier.hi)
+            if low == 1 and high == "1":
+                continue
+            if analysis.atom_nullable(item.atom):
+                found.append(
+                    CorpusSite(name, str(rule.name), low, high, str(item.atom))
+                )
+    return tuple(found)
+
+
+def corpus_scope(stage: str) -> CorpusScope:
+    """Inventory quantified-nullable atoms in the shipped grammar corpus.
+
+    ``stage`` selects WHICH grammar is measured, and the two answers differ:
+
+    - ``canonical`` is the authored grammar. It has none of these sites.
+    - ``codegen`` is what the parser actually runs. The ``@non-semantic`` pass
+      relaxes a required reference to a NULLABLE noise rule to ``min=0``, which
+      MAKES a quantified-nullable site out of a rule that had none.
+
+    Measuring the canonical stage and reporting it as corpus exposure is the
+    error this function now exists to prevent.
+    """
     root = Path(__file__).resolve().parents[3]
     found: list[CorpusSite] = []
     grammars = 0
     flavours: set[str] = set()
-    paths = sorted((root / "resources" / "ground_truth").glob("*.*"))
-    for path in paths:
+    for path in sorted((root / "resources" / "ground_truth").glob("*.*")):
         if path.suffix not in (".gbnf", ".abnf", ".ebnf"):
             continue
         grammars += 1
         flavours.add(path.suffix.removeprefix("."))
-        grammar = canonical_grammar(
+        canonical = canonical_grammar(
             path.read_text(encoding="utf-8"), flavour_for_extension(path)
         )
-        analysis = GrammarAnalysis(grammar)
-        for rule in grammar.rules:
-            for arm in rule.body:
-                for part in arm:
-                    if not isinstance(part, IrItem):
-                        continue
-                    quantifier = part.quantifier
-                    low = int(quantifier.lo)
-                    high = str(quantifier.hi)
-                    if low == 1 and high == "1":
-                        continue
-                    if analysis.atom_nullable(part.atom):
-                        found.append(CorpusSite(path.name, str(rule.name), low, high))
+        grammar = (
+            canonical
+            if stage == "canonical"
+            else compile_ast(canonical).codegen_grammar
+        )
+        found.extend(scan_grammar(path.name, grammar))
     return CorpusScope(grammars, tuple(sorted(flavours)), tuple(found))
 
 
 def prove_corpus_scope() -> None:
-    """Report real cross-flavour exposure before implementing refusal."""
-    scope = corpus_scope()
-    print(
-        "corpus",
-        f"grammars={scope.grammars}",
-        f"flavours={scope.flavours}",
-        f"quantified_nullable_sites={len(scope.sites)}",
-        f"sites={scope.sites}",
-        sep="\t",
+    """Report real cross-flavour exposure at BOTH pipeline stages."""
+    for stage in ("canonical", "codegen"):
+        scope = corpus_scope(stage)
+        per_grammar: dict[str, int] = {}
+        atoms: set[str] = set()
+        for site in scope.sites:
+            per_grammar[site.path] = per_grammar.get(site.path, 0) + 1
+            atoms.add(site.atom)
+        print(
+            "corpus",
+            f"stage={stage}",
+            f"grammars={scope.grammars}",
+            f"flavours={scope.flavours}",
+            f"quantified_nullable_sites={len(scope.sites)}",
+            f"per_grammar={dict(sorted(per_grammar.items()))}",
+            f"atoms={sorted(atoms)}",
+            sep="\t",
+        )
+
+
+EXPOSED = (
+    ("json.gbnf", '{"a": 1, "b": [2, 3]}'),
+    ("json.abnf", '{"a": 1, "b": [2, 3]}'),
+    ("json.ebnf", '{"a": 1, "b": [2, 3]}'),
+    ("json_ws.gbnf", '{"a": 1, "b": [2, 3]}'),
+    ("json_arr.gbnf", "[\n1,\n2]"),
+    ("arithmetic.gbnf", "a=1\n"),
+)
+"""One real document per shipped grammar whose CODEGEN stage is exposed."""
+
+
+def _exposure(path: Path, text: str, *, lift: bool) -> tuple[int, int, int, int]:
+    """Points, arm-choice points, differing POINTS and differing FAMILIES.
+
+    The two differing counts are reported separately on purpose: a point can
+    pack more than two families, so one differing point can contribute several
+    differing families, and a ratio that mixes the two denominators is not a
+    fact about either.
+    """
+    compiled = compile_from_path(path)
+    source = (
+        lift_optional_nullables(compiled.codegen_grammar)
+        if lift
+        else compiled.codegen_grammar
     )
+    grammar = normalize(source)
+    tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
+    kernel = Kernel(tables, text, True).run()
+    root = accept_handle(kernel)
+    baseline_tree = FastTree(kernel, {}).build(root)
+    if not isinstance(baseline_tree, ParseTree):
+        raise UnsupportedConstructError(f"corpus exposure: {path.name} did not parse")
+    baseline = compiled.fold.apply(baseline_tree)
+    points = complete_ambiguity_points(kernel, root)
+    bits = kernel.tables.packing.bits
+    arms = sum(
+        1
+        for key in points
+        if is_arm_choice(kernel.st.links[key], bits, kernel.tables.code_choice)
+    )
+    differing_points = 0
+    differing_families = 0
+    for key in points:
+        changed = 0
+        for family in range(1, len(kernel.st.links[key])):
+            alternate = FastTree(kernel, {key: family}).build(root)
+            if not isinstance(alternate, ParseTree):
+                continue
+            if not same_value(baseline, compiled.fold.apply(alternate)):
+                changed += 1
+        differing_points += 1 if changed else 0
+        differing_families += changed
+    return len(points), arms, differing_points, differing_families
+
+
+def prove_corpus_exposure() -> None:
+    """What the proposed fix would DO to the shipped corpus, measured.
+
+    The decisive row of this module. Every exposed site is a
+    ``@non-semantic``-relaxed reference to the nullable ``ws`` rule, and ``ws``
+    IS a bound model field — a JSON document folds to ``JsonText(…, Ws(''),
+    Ws(''))``. So an absent versus present empty ``ws`` is a difference the
+    public model shows, and with ``lift_optional_nullables`` removed the
+    shipped JSON grammars stop being a control and become the exposure.
+    """
+    root = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
+    for name, text in EXPOSED:
+        path = root / name
+        lifted = _exposure(path, text, lift=True)
+        raw = _exposure(path, text, lift=False)
+        print(
+            "corpus-exposure",
+            name,
+            f"chars={len(text)}",
+            f"lift_on_points={lifted[0]} lift_on_differing_points={lifted[2]}",
+            f"lift_off_points={raw[0]} lift_off_arm_choice={raw[1]}",
+            f"lift_off_differing_points={raw[2]} lift_off_differing_families={raw[3]}",
+            sep="\t",
+        )
+
+
+def prove_exposure_scaling() -> None:
+    """How the un-exempted point population grows with the document.
+
+    Structural counts only — no timing. `another_meaning` builds a whole-handle
+    tree and folds it per family at every point it does not skip, so a point
+    population linear in the document makes the per-parse ambiguity check
+    quadratic in it.
+    """
+    path = (
+        Path(__file__).resolve().parents[3] / "resources" / "ground_truth" / "json.gbnf"
+    )
+    for repeats in (1, 8, 64):
+        text = "[" + ", ".join('{"a": 1}' for _ in range(repeats)) + "]"
+        lifted = _exposure(path, text, lift=True)
+        raw = _exposure(path, text, lift=False)
+        print(
+            "exposure-scaling",
+            "json.gbnf",
+            f"chars={len(text)}",
+            f"lift_on_points={lifted[0]}",
+            f"lift_off_points={raw[0]}",
+            f"lift_off_differing_points={raw[2]}",
+            f"lift_off_differing_families={raw[3]}",
+            sep="\t",
+        )
+
+
+def prove_island_placement() -> None:
+    """Which witnesses the PDA answers WITHOUT an Earley chart.
+
+    `code_choices` is a table the predictive runtime never consults. A witness
+    the PDA islands escapes to Earley and would meet the corrected table; a
+    witness it answers predictively would not. The post-fix differential asks
+    all three routes to refuse, so the two populations must be separated before
+    a placement can be called complete.
+    """
+    for case in CASES:
+        compiled = compile_text(case.grammar)
+        tables = pda_tables(compiled.codegen_grammar, compiled.fold)
+        islands = sorted(str(name) for name in getattr(tables, "islands", ()))
+        print(
+            "island-placement",
+            case.name,
+            f"pda_islands={islands}",
+            f"reaches_earley_tables={bool(islands)}",
+            "code_choices can only decide a witness that escapes to Earley",
+            sep="\t",
+        )
+
+
+def prove_leo_expansion_cost() -> None:
+    """How many deferred Leo keys a complete readout would expand per parse.
+
+    Structural counts only. `another_meaning` calls `ambiguity_points` on every
+    parse, so making that call own complete Leo readout adds one eager
+    expansion of every deferred key to the unambiguous path too.
+    """
+    path = (
+        Path(__file__).resolve().parents[3] / "resources" / "ground_truth" / "json.gbnf"
+    )
+    compiled = compile_from_path(path)
+    grammar = normalize(lift_optional_nullables(compiled.codegen_grammar))
+    for repeats in (1, 16, 128, 512):
+        text = "[" + ", ".join('{"a": 1}' for _ in range(repeats)) + "]"
+        tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
+        kernel = Kernel(tables, text, True).run()
+        print(
+            "leo-expansion-cost",
+            "json.gbnf",
+            f"chars={len(text)}",
+            f"deferred_leo_keys={len(kernel.st.leo_links)}",
+            "a complete readout expands all of them on every parse",
+            sep="\t",
+        )
+
+
+REPEATS = 2_000
+"""Parses per timed lane — the witnesses are three characters long."""
+
+ROUNDS = 5
+"""Alternating rounds; the reported figure is the minimum of the rounds."""
+
+
+def _lane(compiled: CompiledGrammar, text: str) -> float:
+    """One lane's process CPU for :data:`REPEATS` unchanged public parses."""
+    started = time.process_time()
+    for _ in range(REPEATS):
+        compiled.parse(text, cores=1)
+    return time.process_time() - started
+
+
+def prove_baseline_timing() -> None:
+    """Time UNCHANGED public parsing on each witness and a matched control.
+
+    In-process and alternating because nothing is being swapped yet: this is
+    the pre-fix reference the source phase re-runs. The control is the SAME
+    grammar shape with a non-nullable quantified atom, so it exercises the
+    same quantifier helper, the same fold and the same public entry.
+
+    The two lanes do NOT parse the same document — a non-nullable ``gap+``
+    cannot accept ``"x"`` — so the ratio between them is not a matched
+    comparison and is reported as two absolute numbers, never as a factor. The
+    island flag is printed beside them because it, not the ambiguity check, is
+    what separates the fast rows from the slow ones.
+
+    Run this row on its own: no other benchmark, pool or agent may be alive.
+    """
+    for case in CASES:
+        affected = compile_text(case.grammar)
+        control = compile_text(case.control)
+        affected.parse("x", cores=1)
+        control.parse(case.control_text, cores=1)
+        affected_cpu = []
+        control_cpu = []
+        for round_index in range(ROUNDS):
+            if round_index % 2 == 0:
+                affected_cpu.append(_lane(affected, "x"))
+                control_cpu.append(_lane(control, case.control_text))
+                continue
+            control_cpu.append(_lane(control, case.control_text))
+            affected_cpu.append(_lane(affected, "x"))
+        best_affected = min(affected_cpu) / REPEATS
+        best_control = min(control_cpu) / REPEATS
+        islands = sorted(
+            str(name)
+            for name in getattr(
+                pda_tables(affected.codegen_grammar, affected.fold), "islands", ()
+            )
+        )
+        print(
+            "baseline-timing",
+            case.name,
+            f"parses_per_lane={REPEATS}",
+            f"rounds={ROUNDS}",
+            f"affected_document='x' affected_cpu_per_parse={best_affected:.9f}",
+            f"control_document={case.control_text!r}"
+            f" control_cpu_per_parse={best_control:.9f}",
+            f"affected_pda_islands={islands}",
+            "documents differ, so these are two absolute numbers and not a"
+            " ratio; the island escape is what separates them",
+            sep="\t",
+        )
+
+
+POST_FIX_DIFFERENTIALS = (
+    "every CASES row except exact-two must REFUSE under compiled.parse(text)"
+    " with no resolver, on the public route, forced pda_model and forced"
+    " earley_model alike; the refusal must name the rule and the occurrence"
+    " counts, not a generic ambiguity. optional-ref, bounded-one-two and"
+    " exact-two do NOT island, so the predictive route answers them without an"
+    " Earley chart and code_choices cannot reach them: a PDA-side placement in"
+    " pda/analysis/gates/ is required, and its cost is not measured here",
+    "exact-two must still return Root(Pad('x'), List((Gap(), Gap()))) — one"
+    " admitted count is not a family",
+    "with a deterministic resolver supplied, all three routes must return the"
+    " resolver's choice and must be handed the SAME pair under whichever"
+    " scope the user rules in the resolver-scope decision",
+    "optional-ref must agree between the raw and lifted routes; today they"
+    " return List(Gap()) and List() respectively, so lift_optional_nullables"
+    " must be removed or replaced rather than kept beside the fix",
+    "the SIX exposed ground-truth grammars — arithmetic.gbnf, json.gbnf,"
+    " json.abnf, json.ebnf, json_arr.gbnf, json_ws.gbnf — must still parse"
+    " ordinary documents. They do so today only because"
+    " lift_optional_nullables hides the family; with the lift removed and no"
+    " further condition they REFUSE, because ws is a bound model field and"
+    " 14 of 17 alternate families on a 21-character JSON document build a"
+    " different model. The other NINE must reparse to byte-identical models"
+    " and round-trip text",
+    "ambiguity_points on the LEO_GRAMMAR witness must return 2 on a finished"
+    " kernel with no intervening tree build, and the same 2 afterwards",
+    "cyclic_meaning's witnesses must keep their current verdicts: the"
+    " quantified-nullable family is a SEPARATE universe and must not change"
+    " any component classification",
+)
+
+REGRESSION_COMPARISON = (
+    "the family classification is present on every parse, so it is a"
+    " STRUCTURAL change: compare two trees CROSS-PROCESS, alternating, with a"
+    " byte-identical control tree through the same harness to read the floor",
+    "rows: the 15 ground-truth grammars parsed by their own flavours, the"
+    " generic catalog witness, and the Qwen tokenizer document; sequential"
+    " first, then cores=AUTO, never two multithreaded rows at once",
+    "report process CPU and wall separately, per row, with the control floor"
+    " beside them; a row inside the floor is not a result",
+    "no parse regression is accepted by this report; the user gives the final"
+    " go-ahead after isolated attribution, even for a bugfix",
+    "BUG 2's complete Leo readout is NOT free: ambiguity_points runs on every"
+    " parse and the deferred key population is linear in the document (2 / 17"
+    " / 129 / 513 keys at 10 / 160 / 1280 / 5120 characters on json.gbnf), so"
+    " eager expansion on the unambiguous path reverses part of what Leo buys"
+    " and must be measured with the same cross-process discipline",
+)
+
+IMPLEMENTATION_PLACEMENT = (
+    "the SHIPPED CORPUS IS THE EXPOSURE, not the control: at the codegen"
+    " stage the @non-semantic relaxation creates 71 quantified-nullable sites"
+    " across arithmetic.gbnf, json.gbnf/abnf/ebnf, json_arr.gbnf and"
+    " json_ws.gbnf, all of them a nullable ws reference, and ws IS a bound"
+    " model field. With lift_optional_nullables removed, 389 of 578 ambiguity"
+    " points on a 640-character json.gbnf document have an alternate family"
+    " that builds a DIFFERENT model, so a fix that only un-exempts quantifier"
+    " helpers would refuse ordinary JSON. USER DECISION REQUIRED. Excluding"
+    " relaxation-created optionality from the count-family universe is NOT one"
+    " of the options: goal.md already rules that every family capable of"
+    " changing the requested target meaning enters the relation even when"
+    " normalization generated it. What remains is to replace"
+    " lift_optional_nullables with something genuinely value-preserving, to"
+    " accept that the shipped JSON formulations become ambiguous and require a"
+    " resolver, or to change that goal.md ruling — and TODO.md's ticked"
+    " SEMANTIC FAMILY UNIVERSE gate must be reopened either way",
+    "the un-exempted point population grows linearly with the document (11 /"
+    " 74 / 578 points at 10 / 80 / 640 characters on json.gbnf), and"
+    " another_meaning builds a whole-handle tree and folds it per family at"
+    " every point it does not skip, so the per-parse ambiguity check becomes"
+    " quadratic in the document under whichever answer the decision above"
+    " takes, unless that answer also removes the points",
+    "the classification belongs in code_choices"
+    " (parsing/earley/kernel/tables/records.py), which already derives"
+    " code -> authored choice identity at TABLE-COMPILATION time: a quantifier"
+    " helper keeps its shared negative identity only when its atom is"
+    " non-nullable or its quantifier admits exactly one count, and takes"
+    " distinct arm ids otherwise",
+    "the nullability it reads is a grammar property the analysis already"
+    " computes (GrammarAnalysis.atom_nullable); nothing per-character, nothing"
+    " dynamic, and no instrumentation in the paid loop",
+    "the paid loop never reads code_choice at all — only the forest readers"
+    " do — so a correct fix cannot touch the kernel's inner loop; the cost"
+    " lands instead in another_meaning, which runs on EVERY parse",
+)
+
+
+def prove_post_fix_specification() -> None:
+    """State the exact differentials the source phase must satisfy."""
+    canonical = len(corpus_scope("canonical").sites)
+    codegen = len(corpus_scope("codegen").sites)
+    assert (canonical, codegen) == (0, 71), (canonical, codegen)
+    for line in POST_FIX_DIFFERENTIALS:
+        print("post-fix-differential", line, sep="\t")
+    for line in REGRESSION_COMPARISON:
+        print("regression-comparison", line, sep="\t")
+    for line in IMPLEMENTATION_PLACEMENT:
+        print("implementation-placement", line, sep="\t")
 
 
 def main() -> None:
@@ -262,6 +719,12 @@ def main() -> None:
     prove_quantifier_scope()
     prove_leo_readout()
     prove_corpus_scope()
+    prove_corpus_exposure()
+    prove_exposure_scaling()
+    prove_island_placement()
+    prove_leo_expansion_cost()
+    prove_baseline_timing()
+    prove_post_fix_specification()
 
 
 if __name__ == "__main__":
