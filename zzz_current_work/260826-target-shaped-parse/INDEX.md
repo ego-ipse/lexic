@@ -1,15 +1,17 @@
 # Index — target-shaped parsing
 
-**Current state (2026-08-29):** `REVIEW_9.md` returned GO for §2.
-`PROTOTYPE_11.md` establishes the one-flip defect, real keyed-product cost
-rows, complete resolver-pair construction and a one-island splice, a flat
-dependency-index candidate, and the non-pool custom-binding lifecycle. The
-active documents fold those results without accepting the report's unbounded
-cyclic Cartesian fallback, incomplete tokenizer refusal relation, invalid
-zero-allocation control, underpriced trace frames, untested pool retention, or
-unrecorded resolver-scope ruling. Production source has not started in this
-effort. `PROMPT_12.md` tasks only the four surviving mechanism gates and makes
-sequential internal adversarial review part of its done-gate.
+**Current state (2026-08-30):** `PROTOTYPE_13.md` corrects the Prototype 12
+closure claims. The carrier-scoped cyclic classification, current-constructor
+tokenizer relation, retained flat layout, frame shape, custom pool lifecycle,
+and fused-product control protocol stand. The quantified-nullable semantic
+family and Leo-complete readout plans are now closed. §8 remains closed to
+implementation until real-operation cyclic classification and a constructive
+resolver pair for an infinite SCC are planned; resolver-pair scope also remains
+a user decision. The final tokenizer validation contract, completion-time
+family-aware numbering, and production custom paid-loop neutrality also remain
+explicit gates. Production source has not started in this effort, and no final
+fresh reviewer has returned `READY` on this packet. `PROMPT_14.md` tasks the
+four remaining investigable gates and forbids Fable subagents.
 
 ## Start here
 
@@ -34,6 +36,18 @@ before source work.
 
 The current packet is:
 
+- [`PROMPT_14.md`](PROMPT_14.md) — final pre-implementation investigation of
+  real cyclic operation laws, an infinite-SCC resolver pair, resolver scope,
+  and the tokenizer's three open contract lanes, with sequential non-Fable
+  adversarial review;
+- [`reports/PROTOTYPE_13.md`](reports/PROTOTYPE_13.md) — authoritative
+  correction of Prototype 12's gate classification plus the shipped
+  quantified-nullable and Leo-readout scope;
+- [`CURRENT_BUG_REPORT.md`](CURRENT_BUG_REPORT.md) — the two shipped ambiguity
+  defects, their established scope, and their production owners;
+- [`reports/PROTOTYPE_12.md`](reports/PROTOTYPE_12.md) — cyclic, tokenizer,
+  flat/frame, and custom-pool evidence; its "conclusively closed" section is
+  superseded by Prototype 13;
 - [`PROMPT_12.md`](PROMPT_12.md) — focused tasking for cyclic ambiguity,
   tokenizer refusals, production-shaped ambiguity structures, and custom pool
   retention, followed by three sequential internal adversarial reviews;
@@ -88,6 +102,9 @@ newer reports do not explicitly supersede them.
 | [`REVIEW_10.md`](reports/REVIEW_10.md) | Accepts the narrow Prototype 10 results and identifies the unsupported interaction, measurement, resolver, RSS, and lifetime claims. |
 | [`PROTOTYPE_11.md`](reports/PROTOTYPE_11.md) | Supplies the latest interaction, keyed-product, resolver, flat-index, and custom-binding evidence; several claimed closures remain gates in the active documents. |
 | [`P11_ADVERSARIAL.md`](reports/P11_ADVERSARIAL.md) | Records the investigator's internal adversarial passes and corrections to Prototype 11. |
+| [`PROTOTYPE_12.md`](reports/PROTOTYPE_12.md) | Supplies the cyclic/tokenizer/flat/frame/custom-pool round; its closure classification is superseded. |
+| [`PROTOTYPE_13.md`](reports/PROTOTYPE_13.md) | Removes arbitrary cyclic caps, corrects the control, scopes both shipped ambiguity defects, and states the remaining gates. |
+| [`PROMPT_14.md`](PROMPT_14.md) | Tasks the last four investigable design gates, bugfix baselines, and three sequential general-purpose adversarial reviews; Fable is forbidden. |
 
 ## Prototype inventory
 
@@ -96,8 +113,8 @@ measurement witnesses, never production modules.
 
 | Prototype | One-line purpose |
 |---|---|
-| [`ambiguity_interaction.py`](proto/ambiguity_interaction.py) | Disproves one-flip interaction and prototypes exact acyclic value-set propagation; its cyclic Cartesian fallback remains rejected. |
-| [`ambiguity_rss.py`](proto/ambiguity_rss.py) | Proves flat-index dirty-cone parity and retained size; its control still allocates a meaning overlay and its trace-frame row underprices child tuples. |
+| [`ambiguity_interaction.py`](proto/ambiguity_interaction.py) | Disproves one-flip interaction, prototypes exact acyclic value sets, and delegates cyclic decisions to the SCC candidate without an arbitrary census cap. |
+| [`ambiguity_rss.py`](proto/ambiguity_rss.py) | Prices the retained flat index and real frames; its control now uses the existing fused PDA product instead of a post-parse meaning table. |
 | [`anchored_tokenizer_regions.py`](proto/anchored_tokenizer_regions.py) | Measures one-pass target-region capture from schema route anchors. |
 | [`baseline_rss.py`](proto/baseline_rss.py) | Measures unchanged-reader peak RSS for resident, cold-path, and retained warm-path scenarios. |
 | [`bulk_lexical_cost.py`](proto/bulk_lexical_cost.py) | Measures grammar-derived bulk lexical recognition across real grammars. |
@@ -107,11 +124,13 @@ measurement witnesses, never production modules.
 | [`carrier_gc_cost.py`](proto/carrier_gc_cost.py) | Measures the composed carrier with collector state explicit and order-balanced. |
 | [`composed_ir_regions.py`](proto/composed_ir_regions.py) | Measures routed high-volume capture into final tokenizer IR leaves; the leaf-heavy representation is rejected. |
 | [`composed_native_tokenizer.py`](proto/composed_native_tokenizer.py) | Measures native target capture through canonical final tokenizer indexes and a ready record. |
-| [`custom_class_target.py`](proto/custom_class_target.py) | Proves reflection-free executable binding through source death, identity-safe caching, and free-threaded cold binding; pool retention remains open. |
+| [`custom_class_target.py`](proto/custom_class_target.py) | Proves reflection-free binding and real-pool lifetime through source death; production completion traffic and neutrality remain open. |
+| [`cyclic_meaning.py`](proto/cyclic_meaning.py) | Classifies zero-width SCCs under the closed slot algebra and solves finitely representable components without numeric caps. |
 | [`demand_selection.py`](proto/demand_selection.py) | Proves reducer-free selection as occurrence demand in one parse; its resolver route stand-in is rejected. |
 | [`island_alternate_seed.py`](proto/island_alternate_seed.py) | Proves single-seed cone/trace continuation and sibling-root discovery; its one-flip multiple-seed rule is rejected. |
 | [`keyed_product_rows.py`](proto/keyed_product_rows.py) | Prices real Python, `IrMap`, and ready-tokenizer carriers; tokenizer refusal normalization remains incomplete. |
 | [`local_meaning_fold.py`](proto/local_meaning_fold.py) | Supplies the counterexample proving child-local ambiguity is not root-value equivalent. |
+| [`nullable_quantifier_ambiguity.py`](proto/nullable_quantifier_ambiguity.py) | Scopes quantified-nullable model ambiguity on PDA/Earley, audits every shipped grammar flavour, and proves Leo readout must expand before inspection. |
 | [`opcode_cost.py`](proto/opcode_cost.py) | Checks the CPU cost of enum values leaking into flat opcode tables. |
 | [`parallel_lexical_ownership.py`](proto/parallel_lexical_ownership.py) | Measures shared versus private recognizers across non-JSON grammars. |
 | [`parallel_merge_region_cost.py`](proto/parallel_merge_region_cost.py) | Measures a grammar-derived repeated-dyad region and direct rank product. |

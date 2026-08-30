@@ -3,13 +3,12 @@
 Modes (each invocation is one isolated process; run alone under
 `tools/guarded.sh`):
 
-- `--mode control`: an UNAMBIGUOUS variant of the witness grammar. Every
-  ambiguity-only structure is constructed through ONE allocator object, and
-  the control installs a refusing allocator whose every method raises — so the
-  row completing IS the proof that no meaning memo, dependency index, overlay,
-  seed, or trace frame was allocated, and the zero counters are read off the
-  same allocator afterwards. The ordinary direct product's own state is
-  reported beside it, separately and by name.
+- `--mode control`: an UNAMBIGUOUS variant of the witness grammar, executed by
+  the existing fused PDA model product rather than a post-parse tree fold. The
+  current source has no candidate ambiguity factories to instrument, so this
+  row proves only the external control shape and prices its product allocation
+  envelope. The landed implementation must connect a refusing factory before
+  claiming zero candidate structures.
 - `--mode ambiguity`: the `DISTANT` witness. Stages, each in its own
   tracemalloc window after one pre-expansion sweep: baseline meaning memo,
   dict-of-sets dependency index (the REJECTED oracle), the dictionary-free
@@ -40,7 +39,7 @@ from bisect import bisect_left
 from collections.abc import Sequence
 from typing import NamedTuple
 
-from lexic.compile import canonical_grammar
+from lexic.compile import canonical_grammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.kernel.forest.support.ambiguity import ambiguity_points
@@ -54,6 +53,8 @@ from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain, tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.splits import ChainSpec, is_arm_choice
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.products import pda_tables
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 
 type Meaning = str | tuple["Meaning", ...]
 
@@ -284,38 +285,6 @@ class Structures:
         return TraceFrame(policy, name, kids, dirty)
 
 
-class RefusingStructures(Structures):
-    """The control's allocator: every ambiguity structure is a hard error."""
-
-    __slots__ = ()
-
-    def retained_memo(self, table: dict[int, Meaning]) -> dict[int, Meaning]:
-        """:raises UnsupportedConstructError: Always."""
-        raise UnsupportedConstructError("control: a meaning memo was retained")
-
-    def overlay(self, base: dict[int, Meaning]) -> Overlay:
-        """:raises UnsupportedConstructError: Always."""
-        raise UnsupportedConstructError("control: an alternate overlay was built")
-
-    def dict_index(self, kernel: Kernel, order: list[int]) -> DictGraph:
-        """:raises UnsupportedConstructError: Always."""
-        raise UnsupportedConstructError("control: a dependency index was built")
-
-    def flat_index(self, kernel: Kernel, order: list[int]) -> FlatBuild:
-        """:raises UnsupportedConstructError: Always."""
-        raise UnsupportedConstructError("control: a dependency index was built")
-
-    def seed(self, baseline: Meaning, alternates: tuple[Meaning, ...]) -> SeedRecord:
-        """:raises UnsupportedConstructError: Always."""
-        raise UnsupportedConstructError("control: an island seed was published")
-
-    def frame(
-        self, policy: int, name: str, kids: tuple[Meaning, ...], dirty: int
-    ) -> TraceFrame:
-        """:raises UnsupportedConstructError: Always."""
-        raise UnsupportedConstructError("control: a trace frame was recorded")
-
-
 def _rss_kib() -> int:
     """This process's high-water RSS in KiB (monotonic)."""
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -431,52 +400,6 @@ def _fold(
                 memo.read(child) for child in children
             )
     return memo.read(root), folds
-
-
-class DirectFold(NamedTuple):
-    """The ordinary unambiguous product: its value and its own state."""
-
-    value: Meaning
-    folds: int
-    peak_table: int
-
-
-def _direct_fold(kernel: Kernel, root: int, names: tuple[str, ...]) -> DirectFold:
-    """The plain product fold — no `Overlay`, no retained memo, no index.
-
-    Its transient value table IS ordinary direct product state: it is dropped
-    when the root value is returned, and the control row prices it under that
-    name rather than calling it an ambiguity structure.
-    """
-    bits = kernel.tables.packing.bits
-    mask = kernel.tables.packing.mask
-    table: dict[int, Meaning] = {}
-    folds = 0
-    peak = 0
-    stack: list[tuple[int, bool]] = [(root, False)]
-    while stack:
-        handle, expanded = stack.pop()
-        if handle in table:
-            continue
-        children, _keys = _resolved(kernel, handle, None)
-        if not expanded:
-            stack.append((handle, True))
-            for child in reversed(children):
-                if child not in table:
-                    stack.append((child, False))
-            continue
-        folds += 1
-        name = _name_of(kernel, names, handle)
-        if not children:
-            start = (handle >> bits) & mask
-            table[handle] = (name, kernel.text[start : handle & mask])
-        else:
-            table[handle] = (name,) + tuple(table[child] for child in children)
-        if len(table) > peak:
-            peak = len(table)
-    value = table[root]
-    table.clear()
-    return DirectFold(value, folds, peak)
 
 
 def _dict_graph(kernel: Kernel, order: list[int]) -> DictGraph:
@@ -691,70 +614,43 @@ def _gc_state() -> str:
 
 
 def control_row(pad: int) -> None:
-    """The genuinely-unreachable control: zero ambiguity allocations.
-
-    The allocator installed here raises on every ambiguity structure, so the
-    row reaching its final print is the evidence — the zero counters are the
-    same object's census, not a separate empty container.
-    """
+    """Price the existing fused product as the future unambiguous control."""
     text = "a" * pad + "q" + "b" * pad
     started_wall = time.perf_counter()
     started_cpu = time.process_time()
-    structures: Structures = RefusingStructures()
-    kernel = _kernel(CONTROL, text)
-    root = accept_handle(kernel)
-    names = _names(kernel)
-    _preexpand(kernel, root)
-    points = _arm_points(kernel, root)
-    if points:
-        # The ambiguous branch begins here and is the ONLY caller of the
-        # allocator. It is unreachable on this grammar, and the refusing
-        # allocator makes any future reachability a hard failure.
-        structures.dict_index(kernel, [])
+    compiled = compile_text(CONTROL)
+    tables = pda_tables(compiled.codegen_grammar, compiled.fold, tier_for(len(text)))
     tracemalloc.start()
-    started_fold_cpu = time.process_time()
-    started_fold_wall = time.perf_counter()
-    direct = _direct_fold(kernel, root, names)
-    fold_cpu = time.process_time() - started_fold_cpu
-    fold_wall = time.perf_counter() - started_fold_wall
+    started_product_cpu = time.process_time()
+    started_product_wall = time.perf_counter()
+    result = pda_model(tables, text, compiled.fold)
+    product_cpu = time.process_time() - started_product_cpu
+    product_wall = time.perf_counter() - started_product_wall
     product_bytes, product_peak = tracemalloc.get_traced_memory()
-    root_head = direct.value[0] if isinstance(direct.value, tuple) else direct.value
-    folds, peak_table = direct.folds, direct.peak_table
-    del direct
+    root_head = type(result).__name__
+    del result
     gc.collect()
     residual_bytes, _peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    counts = structures.counts
-    assert counts.total() == 0, counts
     print("mode", "control", sep="\t")
     print("pad", pad, "chars", len(text), "gc", _gc_state(), sep="\t")
     print("arm_points", 0, "root", root_head, sep="\t")
     print(
-        "ambiguity-allocations",
-        f"allocator={type(structures).__name__}",
-        f"meaning_memo={counts.memo}",
-        f"dependency_index={counts.dict_index + counts.flat_index}",
-        f"overlay={counts.overlay}",
-        f"seeds={counts.seed}",
-        f"trace_frames={counts.frame}",
-        f"total={counts.total()}",
-        "every one of these is constructed ONLY through the allocator above,"
-        " whose control implementation raises — the row completed, so none ran",
+        "ambiguity-instrumentation",
+        "not-wired",
+        "the candidate structures exist only in this external prototype;"
+        " zero-allocation proof waits for landed factories",
         sep="\t",
     )
     print(
         "direct-product-state",
-        f"fold_bodies={folds}",
-        f"peak_value_table_entries={peak_table}",
-        f"root_product_value_bytes={product_bytes}",
-        f"fold_peak_bytes={product_peak}",
-        f"fold_cpu={fold_cpu:.6f}",
-        f"fold_wall={fold_wall:.6f}",
+        f"product_live_bytes={product_bytes}",
+        f"product_peak_bytes={product_peak}",
+        f"product_cpu={product_cpu:.6f}",
+        f"product_wall={product_wall:.6f}",
         f"residual_bytes_after_release={residual_bytes}",
-        "ordinary direct product state, named as such: the value bytes are"
-        " the root product the fold RETURNS, the peak additionally holds the"
-        " transient value table the fold clears before returning, and neither"
-        " is a post-parse meaning memo",
+        "the existing fused PDA builds the model during recognition; no"
+        " ParseTree or completed-handle meaning table exists on this route",
         sep="\t",
     )
     print(
@@ -762,7 +658,6 @@ def control_row(pad: int) -> None:
         f"wall_seconds={time.perf_counter() - started_wall:.6f}",
         f"cpu_seconds={time.process_time() - started_cpu:.6f}",
         f"peak_rss_kib={_rss_kib()}",
-        f"chart_keys={len(kernel.st.links)}",
         sep="\t",
     )
 

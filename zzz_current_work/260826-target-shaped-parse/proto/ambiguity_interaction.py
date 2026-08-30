@@ -117,7 +117,7 @@ def enumerate_island_meanings(
     # point/family census and repeat until it stops changing.
     census: list[tuple[int, int]] = []
     meanings: list[Meaning] = []
-    for _round in range(8):
+    while True:
         points = [
             key
             for key in _all_arm_points(kern, roots)
@@ -138,8 +138,6 @@ def enumerate_island_meanings(
         if after == census:
             break
         census = after
-    else:
-        raise UnsupportedConstructError("interaction: family census did not settle")
     deduped = algebra.dedup(meanings)
     metrics.retained += len(deduped)
     return deduped
@@ -401,7 +399,7 @@ def _node_meanings(
 
 class ChartCycle(UnsupportedConstructError):
     """A back edge was found: the chart is cyclic and the walk must switch
-    to production's consume-on-first-visit (one-lap unroll) discipline."""
+    to the zero-width-SCC meaning mechanism."""
 
 
 def _exact_root_set(
@@ -409,16 +407,16 @@ def _exact_root_set(
     root: int,
     policies: dict[str, str],
     metrics: Metrics,
-    sky: dict[int, bool] | None,
+    root_path: dict[int, bool] | None,
 ) -> MeaningSet | None:
     """The exact meaning set at ``root`` — packed families AND leaf options.
 
-    With ``sky`` supplied, a node whose exact local set exceeds one meaning
-    under a choice-free all-injective sky refuses immediately (returns
-    ``None``) without enumerating anything above it.
+    With ``root_path`` supplied, a node whose exact local set exceeds one
+    meaning under an injective family path to an accepting root refuses
+    immediately (returns ``None``) without enumerating anything above it.
 
     :raises ChartCycle: When a missing child is already in progress — a unit
-        cycle. The caller falls back to the one-lap tree enumeration.
+        cycle. The caller switches to the SCC mechanism.
     """
     folder = algebra.SetFolder(
         run.kernel, policies, run.occurrences, harness.Counters(), "oracle"
@@ -435,7 +433,7 @@ def _exact_root_set(
             stack.pop()
             continue
         in_progress.add(handle)
-        metrics.early_ok = sky is not None and sky.get(handle, False)
+        metrics.early_ok = root_path is not None and root_path.get(handle, False)
         node_set, missing = _node_meanings(
             run.kernel, handle, folder, sets, leaf_options, metrics
         )
@@ -454,7 +452,7 @@ def _exact_root_set(
         live += len(node_set)
         metrics.note(live)
         metrics.retained += len(node_set)
-        if sky is not None and len(node_set) > 1 and sky.get(handle, False):
+        if root_path is not None and len(node_set) > 1 and root_path.get(handle, False):
             return None
         stack.pop()
     return sets[root]
@@ -498,26 +496,23 @@ def value_sets(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
 
 
 def certificate(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
-    """HYBRID: sky-certified early refusal plus exact sets elsewhere.
+    """HYBRID: path-certified early refusal plus exact sets elsewhere.
 
     Certificate rule: a node may refuse the moment its exact local set holds
-    two meanings IF every ancestor completion (across ALL parent edges, over
-    ALL family assignments) applies a jointly injective operation and owns no
-    arm-choice key. Choice-free injective ancestors both preserve the node's
-    multiplicity and guarantee the node appears in every derivation, so root
-    multiplicity follows. Anywhere that certificate fails, exact deduplicated
-    sets continue to the root.
+    two meanings when at least one complete family path carries that child
+    through an injective slot to an accepting root. Fixing the families on
+    that path and varying only the child's derivation constructs two distinct
+    root meanings. Other parent paths may drop the child without invalidating
+    the witness. Anywhere that certificate fails, exact deduplicated sets
+    continue to the root.
     """
     metrics = Metrics()
     roots = algebra.accepting_roots(run.kernel, run.root)
     union: list[Meaning] = []
     try:
-        # With sibling accepting roots the certificate is skipped entirely:
-        # sound (it only ever forgoes an early exit, never causes one), and
-        # stated in the report — multi-root charts pay full set propagation.
-        sky = _sky_certificate(run, policies) if len(roots) == 1 else None
+        root_path = _path_certificate(run, policies)
         for root in roots:
-            root_set = _exact_root_set(run, root, policies, metrics, sky)
+            root_set = _exact_root_set(run, root, policies, metrics, root_path)
             if root_set is None:
                 return Verdict(True, metrics.ops, metrics.retained, metrics.max_live)
             union.extend(root_set)
@@ -536,58 +531,40 @@ def certificate(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
     return Verdict(len(deduped) > 1, metrics.ops, metrics.retained, metrics.max_live)
 
 
-def _sky_certificate(
+def _path_certificate(
     run: harness.OuterRun, policies: dict[str, str]
 ) -> dict[int, bool]:
-    """The conservative sky predicate over the FULL family-aware DAG.
+    """Nodes with an injective per-slot path to any accepting root.
 
-    ``sky[n]`` holds only when every parent edge of ``n`` (discovered under
-    every family assignment, not just the default derivation) leads to a
-    parent with a jointly injective operation, no local arm-choice key, and a
-    true sky of its own — a meet over all parents on a real topological
-    order, never a last-write over one tree.
+    Every local family is inspected. A child is marked when at least one
+    selected family places it in an ``ident`` or ``grow`` slot of an already
+    marked parent. This is an existence proof over real family-aware edges,
+    not a meet over unrelated parents and not a default-tree approximation.
     """
     kernel = run.kernel
     folder = algebra.SetFolder(
         run.kernel, policies, run.occurrences, harness.Counters(), "oracle"
     )
-    parents: dict[int, set[int]] = {run.root: set()}
-    injective_op: dict[int, bool] = {}
-    choice_free: dict[int, bool] = {}
-    pending = [run.root]
+    roots = algebra.accepting_roots(kernel, run.root)
+    marked = {root: True for root in roots}
+    visited: set[int] = set()
+    pending = list(roots)
     while pending:
         handle = pending.pop()
-        if handle in injective_op:
+        if handle in visited:
             continue
+        visited.add(handle)
         keys = algebra.local_choice_keys(kernel, handle)
-        choice_free[handle] = not keys
         policy = folder.program[harness._code(kernel, handle)]
-        injective_op[handle] = policy in algebra.INJECTIVE
         for assignment in algebra.assignments(kernel, list(keys)):
-            for child in algebra.selected_resolved(kernel, handle, assignment).children:
-                parents.setdefault(child, set()).add(handle)
-                pending.append(child)
-    sky: dict[int, bool] = {}
-    queue = [run.root] + list(injective_op)
-    stalled = 0
-    while queue and stalled <= len(queue):
-        node = queue.pop(0)
-        if node in sky:
-            continue
-        node_parents = parents.get(node, set())
-        if not all(parent in sky for parent in node_parents):
-            # No topological order exists on a cyclic parent graph; a node
-            # whose sky never settles simply carries NO certificate (readers
-            # default missing entries to False), which is the sound answer.
-            queue.append(node)
-            stalled += 1
-            continue
-        stalled = 0
-        sky[node] = all(
-            sky[parent] and injective_op[parent] and choice_free[parent]
-            for parent in node_parents
-        )
-    return sky
+            resolved = algebra.selected_resolved(kernel, handle, assignment)
+            for slot, child in zip(
+                algebra.child_slots(resolved), resolved.children, strict=True
+            ):
+                if algebra.slot_class(policy, slot) in (algebra.IDENT, algebra.GROW):
+                    marked[child] = True
+                    pending.append(child)
+    return marked
 
 
 def cartesian_count(run: harness.OuterRun) -> int:
@@ -1066,9 +1043,9 @@ def main() -> None:
         " |root set| > 1; a CYCLIC chart is handed to `cyclic_meaning`, whose"
         " zero-width-component classification is exact and terminating and"
         " replaces the rejected 2^k one-lap fallback entirely; a node may"
-        " refuse early only under a choice-free all-injective sky (meet over"
-        " ALL family-aware parent edges; skipped under sibling accepting"
-        " roots)",
+        " refuse early when at least one real family path carries its differing"
+        " slot injectively to an accepting root; unrelated dropping parents"
+        " do not invalidate that constructive witness",
         sep="\t",
     )
 

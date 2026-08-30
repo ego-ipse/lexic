@@ -1,6 +1,58 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — Prototype 11 evidence fold and surviving gates (2026-08-29)
+## CURRENT SESSION — Prototype 12 correction and shipped ambiguity scope (2026-08-30)
+
+Prototype 12 and all five changed prototypes were audited against
+`PROMPT_12.md`. Its final review gate was not met: four reviewers returned
+`NOT READY`, no fresh reviewer examined the final text, and several mechanism
+claims remained broader than their evidence. `reports/PROTOTYPE_13.md`
+supersedes the four-way closure classification while retaining the useful
+measurements and mechanisms.
+
+The cyclic prototype no longer contains the arbitrary eight-round family
+census or two-lap infinite-family evaluation. Finite components iterate to a
+structural/value fixpoint; an injectively visible growing carrier decides
+ambiguity from the SCC classification. Real-operation lowering and a
+constructive complete resolver pair for an infinite SCC remain pre-§8 gates.
+The acyclic prototype now exercises the selected existential per-slot rule:
+one real injective family path to a requested root is sufficient, and unrelated
+dropping parents do not invalidate its constructive witness.
+
+`proto/nullable_quantifier_ambiguity.py` establishes the shipped defect's
+scope. PDA, Earley, and the public path silently choose among different models
+for nullable atoms under `*`, `+`, `{0,2}`, `{1,2}`, groups, and directly empty
+rules. Exact counts are unaffected. `?` is also affected, but
+`lift_optional_nullables` erases its absent/present family and changes which
+model wins. The generic rule is a nullable atom under a quantifier admitting
+more than one count. The shipped GBNF, ABNF, and EBNF ground-truth grammars
+contain zero such sites.
+The same probe confirms that `ambiguity_points` changes from zero to two after
+deferred Leo expansion on one finished kernel, so complete readout owns that
+expansion.
+
+The ambiguity RSS control now runs the existing fused PDA model product rather
+than a post-parse full-tree meaning table: at 4,001 characters it measured
+0.004065 s process CPU, with no ParseTree/completed-handle memo. Candidate
+ambiguity factories are not wired into current source, so the external control
+does not claim a zero-allocation proof; the landed factories must supply it.
+The retained flat layout and frame shape stand, while completion-time
+family-aware numbering remains production work.
+The custom real-pool lifecycle stands; its timed ParseTree extraction does not
+close production paid-loop neutrality. The tokenizer relation is exact for the
+currently specified constructors, while ordinal-domain, merge-reference, and
+pipeline fallback/unknown semantics remain a final-contract investigation.
+
+No `src/`, `tests/`, or `pyproject.toml` file was changed. The generated
+`cyclic_meaning` bytecode artefact was removed. Ruff and Pyright pass on the
+corrected prototypes; focused executable verification is recorded in
+`PROTOTYPE_13.md`.
+
+`PROMPT_14.md` now tasks the four remaining investigable gates plus clean
+pre-fix baselines for both shipped defects. Its three internal adversarial
+reviewers must run synchronously and sequentially as `general-purpose` agents;
+Fable subagents are explicitly prohibited and may not be substituted.
+
+## PRIOR SESSION — Prototype 11 evidence fold and surviving gates (2026-08-29)
 
 `reports/PROTOTYPE_11.md` and its five revised/new prototypes were audited
 against `PROMPT_11.md`, the active design, and their executable behavior. Ruff

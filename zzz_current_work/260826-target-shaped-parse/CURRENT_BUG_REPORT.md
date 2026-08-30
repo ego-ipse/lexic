@@ -72,9 +72,9 @@ the item count.
 
 ### Blast radius
 
-- Any grammar with a quantifier over a nullable item. `gap*` over `item?` is
-  the minimal witness; `+`, `?`, bounded counts, and a quantifier over a
-  nullable *rule reference* are unchecked.
+- Any grammar with a variable-count quantifier over a nullable item. `gap*`
+  over `item?` is the minimal witness; the established combinations are
+  detailed below.
 - The authored grammar really is infinitely ambiguous on `"x"` — one derivation
   per empty `gap` — so this is not a desugaring defect.
   `__rep_1 ::= "" | gap __rep_1` is the correct language-preserving shape.
@@ -85,16 +85,31 @@ the item count.
   the chart reports acyclic, so the zero-width cycle its binding-time analysis
   flags is never instantiated.
 
-### Unknown / to establish
+### Established scope
 
-1. **Scope.** Which quantifier × nullable combinations reach it, and whether
-   the PDA path agrees with Earley here (only Earley was tested).
-2. **The rule.** Adding a nullability condition to the quantifier-helper
-   exemption is the smallest change, but it makes every nullable repetition
-   refuse — measure that against `resources/ground_truth/` before choosing it.
-3. **The alternative,** if refusal is too broad: a declared canonical choice
-   (fewest items) written into the ambiguity contract, rather than left to
-   family order as it is now.
+`proto/nullable_quantifier_ambiguity.py` now forces the public, PDA, and Earley
+routes separately and evaluates alternate families with the real model fold.
+All three routes silently choose one model for nullable atoms under `*`, `+`,
+`{0,2}`, and `{1,2}`; the same holds for a grouped nullable atom and a directly
+empty rule. An exact-count `{2}` has no count choice and is unaffected.
+
+`?` is affected differently. Before `lift_optional_nullables`, its absent and
+present families build different models. The lift removes the family and makes
+the present model win, while the raw Earley default chooses the absent model.
+The current lift therefore hides the ambiguity rather than resolving it under
+the public root-value contract.
+
+The general structural predicate is: **a quantifier admits more than one count
+and its atom is nullable**. Such a helper family represents different
+occurrence counts, not two allocations of consumed text, and cannot inherit the
+ordinary split exemption. Whether it refuses still depends on the complete
+target meanings: a parent may discard the count difference.
+
+The shipped GBNF, ABNF, and EBNF ground-truth grammars contain zero
+quantified-nullable sites, so no corpus dependency argues for silently choosing
+one count. The correctness fix remains subject to the standing isolated
+parse-performance gate and the user's final approval of any measured
+regression.
 
 Owners: `parsing/earley/kernel/tables/splits.py` (`is_arm_choice`),
 `parsing/earley/kernel/forest/support/ambiguity.py` (`another_meaning`),
@@ -144,9 +159,11 @@ caller asking "is this ambiguous?" would want to ask.
 
 ### Fix direction
 
-Either `ambiguity_points` expands what it walks, or the precondition becomes an
-explicit part of its contract and every caller is audited against it. The
-second is cheaper; the first is harder to misuse.
+`ambiguity_points` must own complete readout: expand every deferred Leo key
+before walking the links. An implicit precondition is rejected because the
+call is specifically the public internal predicate future fast paths will ask
+before constructing a tree. `proto/nullable_quantifier_ambiguity.py` supplies
+the external reference helper and reproduces `0 -> 2` on the same kernel.
 
 Owners: `parsing/earley/kernel/forest/support/ambiguity.py`,
 `parsing/earley/kernel/loop/leo.py` (`expand_leo`).

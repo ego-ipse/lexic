@@ -1,17 +1,14 @@
 # Target-shaped parsing
 
-**Status:** independently approved by substantive review passes 4 and 5 for §2
-and ABI/lifecycle §3. The §3 real-engine gates must close before §4. This
-replaces the rejected direct-carrier and post-parse demand-projection
-directions. REVIEW_8's NO-GO findings are answered by the `PROTOTYPE_7` root,
-regular, routing, and measurement corrections plus `PROTOTYPE_8`'s persistent
-meaning and exact §0 baseline. `PROTOTYPE_11.md` establishes the one-flip
-defect, real keyed-product costs, complete resolver-pair feasibility, a flat
-dependency-index candidate, and the non-pool custom-binding lifecycle. The
-cyclic relation, tokenizer validation equivalence, zero-allocation control,
-real trace-frame cost, pool retention, and resolver scope remain explicit
-gates. Production source has not started. This document is not an
-implementation checklist.
+**Status:** substantive review passes 4 and 5 approved §2 and ABI/lifecycle §3.
+The later prototype rounds establish the exact acyclic meaning relation,
+carrier-scoped cyclic refusal decision, current tokenizer relation, retained
+flat dependency layout, real trace-frame shape, fused control protocol, and
+custom binding through a real retained pool. The remaining pre-implementation
+decisions are real-operation cyclic lowering, construction of an infinite-SCC
+resolver pair, resolver scope, and the tokenizer's final three validation
+lanes. A final fresh reviewer has not returned `READY`. Production source has
+not started. This document is not an implementation checklist.
 
 ## Decision
 
@@ -28,9 +25,10 @@ compiled.reduce(text, reducer, into=target, resolve=resolver, cores=cores)
 
 The standing 11,422,654-byte / 10,635,788-character Qwen3 witness sets two
 distinct target envelopes: a pursued less-than-0.100 s wall for its complete
-reduced recursive Python mapping/list value, and a gated less-than-1.000 s wall for a ready
-resident-text `IrTokenizer` while continuing toward roughly 105x for the Qwen
-tokenizer scenario. Resident, cold-path, and warm-path comparisons are separate;
+reduced recursive Python mapping/list value, and a gated less-than-1.000 s wall
+for a ready resident-text `IrTokenizer` while continuing toward roughly 105x
+for the Qwen tokenizer scenario. Resident, cold-path, and warm-path comparisons
+are separate;
 the multiplier is not a universal gate for every reduction. The former is a
 shape-preserving target; the latter is a stricter layered grammar with a
 narrower language but heavier retained final tables. Neither target privileges
@@ -315,27 +313,39 @@ unless the compiled completion operations carry a proved separability
 certificate. Purity alone is insufficient: two substitutions can be
 individually erased and jointly observable. Without that certificate, the
 runtime must preserve every jointly observable combination through an exact
-mechanism. Per-node semantic value sets over all packed families, island-leaf
-options, and sibling accepting items are the reference relation on an acyclic
-completed-node graph. The prototype's cyclic escape remains rejected because
-its global assignment enumeration is `2^k` with unbounded `k` and defines only
-a one-lap relation. Exact cyclic termination, the production meaning
-representation, and its semantic-deduplication law remain a planning gate
-before §8.
+mechanism. Per-node semantic value sets over all semantic packed families,
+island-leaf options, and sibling accepting items are the reference relation on
+an acyclic completed-node graph. Cyclic graphs use carrier-scoped zero-width
+SCCs under four per-slot laws: constant, identity, declared-finite image, and
+proper-subvalue growth. Safe components reach a monotone exact-set fixpoint;
+an invisible growing carrier is opaque, an injectively visible carrier proves
+root ambiguity, and the remaining unrepresentable class refuses at binding.
+The mechanism contains no numeric census or semantic-lap cap. Production must
+still lower real operations to those laws and construct two certified complete
+derivations when an infinite component reaches `resolve=`.
+
+The family universe is semantic, not synonymous with authored arm identity. A
+quantifier which admits more than one occurrence count over a nullable atom
+creates same-span count families. They are not ordinary extent splits and must
+reach the target meaning relation. The optional-nullable lift is removed or
+replaced because it erases an absent/present model difference. Ordinary
+same-production text allocation retains the leftmost split rule. A complete
+ambiguity readout expands deferred Leo provenance before reporting points; no
+caller relies on prior tree materialization.
 
 The dependency index is proportional to the default derivation and is built
-once only after a real arm-choice ambiguity is discovered. It is not allocated
-for unambiguous parses or split-only families. §12 measures it with an
+once only after a real semantic-choice family is discovered. It is not
+allocated for unambiguous parses or ordinary split-only families. §12 measures it with an
 ambiguous-input peak-RSS row rather than folding it into the unambiguous
 tokenizer ceiling. `PROTOTYPE_10.md` rejects a Python dict-of-sets index at
-about 1.9 KiB per input character. `PROTOTYPE_11.md` proves dirty-cone parity
-for a flat CSR/forward-star candidate; its arrays cost 112 B per character, but
-the measured retained shape costs 293–316 B per character because it includes
-a handle-numbering dictionary. Production assigns dense numbers when
-completions are created and must measure the dictionary-free integrated build.
-The control path must allocate no ambiguity structure at all, and trace-frame
-pricing must include one child tuple per completion rather than one tuple for
-the entire ancestor depth.
+about 1.9 KiB per input character. The corrected flat CSR/forward-star
+candidate retains 98–112 B per character after releasing its external
+numbering/build transient. Production assigns dense numbers when completions
+are created, records every required family-aware edge, and measures the
+dictionary-free integrated build. The control protocol runs an existing fused
+product without a ParseTree or completed-handle meaning table. The final
+control must allocate no real ambiguity structure, and trace-frame pricing
+includes one child tuple per completion shared only by seeds crossing it.
 
 `ParseState` is not an unconditional engine tax. A product with no mutable
 builders, transaction log, or deferred verdict—most importantly the existing
@@ -698,7 +708,8 @@ twice.
 The accepted mechanism is baseline-plus-alternates, an Earley leaf dependency
 and ancestor cone, and a PDA completion trace recorded only while a seed is
 live. Island alternate discovery includes sibling accepting items because a
-start-rule arm choice need not appear in `ambiguity_points`. The mechanism does
+start-rule choice need not appear in one accepting item's internal points.
+Point readout first expands deferred Leo provenance. The mechanism does
 not license one-flip evaluation across multiple or nested ambiguity sources;
 the interaction rule in State and transaction safety governs those cases.
 
@@ -713,7 +724,7 @@ complete target products are equal. No generic equality guess is applied to an
 arbitrary custom class.
 
 The unambiguous hot path carries no witness graph. At an actual internal
-arm-choice, the default derivation's completed-handle memo is reused and only
+semantic-choice family, the default derivation's completed-handle memo is reused and only
 the alternate family's ancestor cone is replayed to the root through a sparse
 overlay over the read-only baseline; no alternate copies the completed-handle
 table. The verdict is therefore exactly the complete requested value.
@@ -738,10 +749,10 @@ also rejected: it costs seconds at Qwen scale and hash collisions make its
 claimed canonical shape insertion-order-dependent. Real carrier rows now
 select the exact isolated cold comparison for recursive Python dictionaries
 and establish document-level normalization for `IrMap`'s
-key/value/duplicate law. The ready-tokenizer row prices every valid constructor
-lane, but its normalized verdict omits final-constructor refusals for duplicate
-ordinals and duplicate merge keys. Tokenizer adoption therefore remains open
-until its full validation relation is represented and differential. A custom
+key/value/duplicate law. The ready-tokenizer candidate covers every currently
+specified constructor input and ordered refusal. Tokenizer adoption remains
+open until the final contract decides ordinal-domain, merge-reference, and
+pipeline fallback/unknown constraints from real fixtures. A custom
 target without an exact shareable meaning uses the cold comparison; that
 limitation
 is explicit and never moves a graph, callback, or alternate result onto the

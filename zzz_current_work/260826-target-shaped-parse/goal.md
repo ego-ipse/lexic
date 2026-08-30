@@ -97,7 +97,8 @@ compiled.reduce(text, into=grammar_target, resolve=resolver, cores=cores)
   ambiguity.
 - The target may produce IR, recursive Python values, a certified extent,
   `IrTokenizer`, and an authored custom Python class. The custom product cannot
-  pass §6 until its remaining pool-retention and paid-loop proofs succeed.
+  pass §6 until the landed completion path proves cold-root-only constructor
+  traffic and paid-loop neutrality; external pool retention is already proven.
 - A custom result never introduces a callback-only alternate parse API. Lexic
   does not infer class shape or inspect consumer code. If an arbitrary class
   cannot lower from immutable declaration data through a private write-once
@@ -197,9 +198,10 @@ duplicate, and order law; otherwise they use an exact full cold comparison.
 Ordered contribution trees and the incremental hash-priority treap are rejected
 for keyed products. Real carrier rows select exact cold comparison for
 recursive Python dictionaries and establish document-level normalization for
-`IrMap`'s key/value/duplicate law. The corresponding tokenizer candidate is not
-selected until its normalized verdict lane covers every final-constructor
-refusal, including duplicate ordinals and duplicate merge keys. A custom target
+`IrMap`'s key/value/duplicate law. The tokenizer candidate covers every
+currently specified constructor input and ordered refusal. Its final adoption
+waits for the tokenizer contract to decide ordinal-domain, merge-reference,
+and pipeline fallback/unknown constraints from real fixtures. A custom target
 unable to supply an exact shareable meaning uses the same fallback, but adds
 nothing to the unambiguous hot path.
 
@@ -210,21 +212,37 @@ Purity alone is not that proof: a real two-point chart demonstrates two
 individually invisible substitutions whose joint value differs. On an acyclic
 completed-node graph, the reference semantics propagates exact deduplicated
 meaning sets over every packed family, island-leaf option, and sibling
-accepting item. A node may short-circuit only under a compiler-proved
-choice-free continuation which is injective in retained children or constant
-in dropped children. Cyclic charts do not use the prototype's unbounded `2^k`
-one-lap enumeration; their exact terminating representation must be settled
-before §8 implementation begins.
+accepting item. A node may refuse early once some compiled path from that node
+to a requested root is injective in the carried slot. Cyclic charts use the
+carrier-scoped zero-width-SCC classification: finitely representable
+components reach an exact monotone fixpoint, an invisible growing carrier is
+opaque, an injectively visible growing carrier proves root ambiguity, and an
+unrepresentable consumer class refuses at binding. Numeric census and semantic
+lap caps are forbidden. Production adoption still requires real-operation slot
+classification and constructive complete derivations for `resolve=`.
+
+Every family capable of changing the requested target meaning enters this
+relation even when normalization generated it. A variable-count quantifier
+over a nullable atom creates occurrence-count families, not text-allocation
+splits. `*`, `+`, bounded variable counts, groups, empty rules, and `?` are
+covered. `lift_optional_nullables` may not erase the absent/present family.
+Ordinary same-production extent allocation keeps its defined leftmost answer.
+The final refusal still depends on complete root meanings, so a parent which
+drops the different count remains accepted.
+
+Ambiguity readout is complete on a finished kernel without caller preparation:
+deferred Leo provenance is expanded before points are reported. No fast path
+may infer unambiguity from the current pre-expansion link table.
 
 The dependency index is itself proportional to the default derivation. It is
-built once only after a real arm-choice ambiguity is found, never on an
-unambiguous or split-only parse, and its peak memory is measured with an
+built once only after a real semantic-choice family is found, never on an
+unambiguous or ordinary split-only parse, and its peak memory is measured with an
 ambiguous-input RSS row. A dict-of-sets representation is forbidden by the
-measured memory result. The flat CSR/forward-star candidate has exact
-dirty-cone parity at the retained scales, but its measured 293–316 B per
-character includes a handle-numbering dictionary. Production assigns dense
-numbers during completion and must prove the resulting dictionary-free
-build/RSS cost before ambiguity work lands. A genuinely unambiguous path
+measured memory result. The flat CSR/forward-star candidate retains 98–112 B
+per character after its external numbering/build transient is released.
+Production assigns dense numbers during completion, includes the required
+family-aware edges, and proves the integrated dictionary-free build/RSS cost
+before ambiguity work lands. A genuinely unambiguous path
 allocates no ambiguity memo, dependency index, overlay, seed, or trace;
 clearing one afterward does not satisfy this rule.
 
@@ -359,12 +377,13 @@ inert field/path data. A homogeneous private cache stores a result-free plan;
 binding reconstructs a result-typed view without casts. The bound view retains
 derived grammar data and tables rather than its source artefact; source death,
 registry eviction, larger-tier recompilation, unhashable constructor classes,
-identity-reuse safety, equivalent recomputation, and concurrent cold binding
-are proven externally. The class is invoked only at cold root finalization.
+identity-reuse safety, equivalent recomputation, concurrent cold binding, and
+real-pool ownership after source death are proven externally. The class is
+invoked only at cold root finalization.
 Bound callables, factories, mutable rebinding registries, reflection, and a
-second executor are forbidden. §6 must still prove that a real pool retains and
-executes the bound view after source collection and that production frequent
-completions contain no constructor traffic.
+second executor are forbidden. §6 must still prove on the production completion
+executor that frequent completions contain no constructor traffic and that the
+custom target does not regress the paid loop.
 
 ## Parallel result
 

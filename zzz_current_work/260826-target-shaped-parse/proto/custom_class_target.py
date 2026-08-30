@@ -32,13 +32,13 @@ from functools import partial
 from threading import Barrier, Lock
 from typing import NamedTuple, Protocol, assert_type
 
+from nullable_quantifier_ambiguity import complete_ambiguity_points
 from lexic.compile import compile_text
 from lexic.compile.artifact import CompiledGrammar
 from lexic.parsing.parallel.pool import ParsePool
 from lexic.ir import IrAst
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir.grammar.nodes import IrLiteral
-from lexic.parsing.earley.kernel.forest.support.ambiguity import ambiguity_points
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.readout import (
@@ -337,7 +337,7 @@ class BoundRecord[Result]:
         if accept_item(kernel) < 0:
             raise UnsupportedConstructError("record target: document did not parse")
         root = accept_handle(kernel)
-        if ambiguity_points(kernel, root):
+        if complete_ambiguity_points(kernel, root):
             # The refusal happens BEFORE any result exists, so an ambiguous
             # document can never reach the consumer constructor.
             raise UnsupportedConstructError(
@@ -498,8 +498,9 @@ CONSTRUCTOR_CALLS: dict[str, int] = {}
 """External allocation counter, incremented by the consumer classes below.
 
 The count lives OUTSIDE the target machinery: nothing in `BoundRecord` or the
-completion walk can decrement or bypass it, so a zero here after a walk is
-evidence about the walk rather than a list documenting a known call site.
+prototype derivation walk can decrement or bypass it, so a zero here after a
+walk is evidence about the prototype rather than a list documenting a known
+call site.
 """
 
 
@@ -522,14 +523,14 @@ class Forbidden:
 
     def __init__(self, **fields: int) -> None:
         """:raises AssertionError: Always — the frequent path called it."""
-        raise AssertionError(f"the completion walk constructed a result: {fields!r}")
+        raise AssertionError(f"the derivation walk constructed a result: {fields!r}")
 
 
 def prove_traffic(grammar: CompiledGrammar) -> None:
     """Zero constructor calls on the frequent path; exactly one at the root.
 
     Two independent checks: an external counter on a real consumer class, and
-    the same completion walk driven through a declaration whose constructor
+    the same prototype walk driven through a declaration whose constructor
     raises on any call — so a walk that touched it could not finish.
     """
     CONSTRUCTOR_CALLS.clear()
@@ -989,9 +990,9 @@ def prove_pool_failure_and_eviction() -> None:
 class DefaultProduct:
     """The control target: the same walk, finalized by the engine itself.
 
-    It is the paid-loop comparison partner — identical recognition, identical
-    completion walk, and a root finalizer that is engine-owned rather than a
-    consumer class.
+    It is the prototype-walk comparison partner — identical recognition,
+    identical derivation walk, and a root finalizer that is engine-owned rather
+    than a consumer class.
     """
 
     __slots__ = ("bound",)
@@ -1006,11 +1007,11 @@ class DefaultProduct:
 
 
 def prove_paid_loop_neutrality(grammar: CompiledGrammar) -> None:
-    """Default control vs custom target through the SAME engine shape.
+    """Default control vs custom target through the same prototype shape.
 
     Alternating, in one process, minimum of the rounds: the two arms differ
-    only in the root finalizer, so any gap is the constructor call and not
-    the paid loop.
+    only in the root finalizer. This isolates finalization cost inside the
+    prototype; it does not measure the production paid loop.
     """
     spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
     bound = spec._bind(grammar)
@@ -1033,7 +1034,7 @@ def prove_paid_loop_neutrality(grammar: CompiledGrammar) -> None:
             cpu_lane.append(time.process_time() - cpu)
             wall_lane.append(time.perf_counter() - wall)
     print(
-        "paid-loop-neutrality",
+        "prototype-finalizer-neutrality",
         f"document_chars={len(document)}",
         "rounds=8 x 4 parses",
         f"control_min_cpu={min(control_cpu):.6f}",
@@ -1041,8 +1042,9 @@ def prove_paid_loop_neutrality(grammar: CompiledGrammar) -> None:
         f"cpu_ratio={min(custom_cpu) / min(control_cpu):.6f}",
         f"control_min_wall={min(control_wall):.6f}",
         f"custom_min_wall={min(custom_wall):.6f}",
-        "same tables, same kernel, same completion walk; the arms differ only"
-        " in the root finalizer, and the order alternates every round",
+        "same tables, same kernel, same derivation walk; the arms differ only"
+        " in the root finalizer, and the order alternates every round; this is"
+        " not production completion traffic",
         sep="\t",
     )
 

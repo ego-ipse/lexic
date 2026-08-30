@@ -36,8 +36,7 @@ the same component never holds the unbounded family:
 
 - an all-injective path to an accepting root makes the ROOT family infinite, so
   the exact verdict is "more than one meaning" — refuse the parse as ambiguous
-  (or hand ``resolve=`` two witness derivations). Two laps exhibit the pair;
-  they are a witness construction, not an approximation of the set;
+  without attempting a bounded unrolling of that infinite family;
 - no value-carrying path at all makes the carriers invisible, so they are
   frozen to one representative while every non-carrier member of the component
   is still evaluated exactly;
@@ -329,7 +328,7 @@ def local_choice_keys(kernel: Kernel, handle: int) -> tuple[int, ...]:
     """
     bits = kernel.tables.packing.bits
     known: tuple[int, ...] = ()
-    for _round in range(8):
+    while True:
         found: set[int] = set(known)
         for assignment in assignments(kernel, list(known)):
             for key in selected_resolved(kernel, handle, assignment).keys:
@@ -344,7 +343,6 @@ def local_choice_keys(kernel: Kernel, handle: int) -> tuple[int, ...]:
         if settled == known:
             return settled
         known = settled
-    raise UnsupportedConstructError("cyclic meaning: local key census did not settle")
 
 
 def accepting_roots(kernel: Kernel, root: int) -> tuple[int, ...]:
@@ -697,12 +695,9 @@ def _solve_component(
             sets[node] = (("opaque", harness._name(kernel, node)),)
             metrics.note(1)
         pending = tuple(node for node in group if node not in verdict.carriers)
-    laps = 2 if verdict.kind == CYCLIC_INFINITE else 0
     for node in pending:
         sets.setdefault(node, ())
-    lap = 0
     while True:
-        lap += 1
         metrics.laps += 1
         changed = False
         for node in pending:
@@ -723,8 +718,6 @@ def _solve_component(
                 # and whatever the ancestors' own arm choices are: fix that
                 # path's families and vary only this node's subderivation.
                 raise _EarlyRefusal
-        if laps and lap >= laps:
-            return
         if not changed:
             return
 
@@ -784,6 +777,7 @@ def exact_meanings(
     sets: dict[int, MeaningSet] = {}
     kinds: list[str] = []
     early = False
+    early_kind = ACYCLIC
     lane = classes.injective if early_exit else None
     groups = components(chart.nodes, chart.children)
     for group, internal in zip(groups, _bucket_edges(groups, chart)):
@@ -797,10 +791,12 @@ def exact_meanings(
                 f" {harness._name(kernel, group[0])!r}; the exact relation is"
                 " not finitely representable"
             )
-        if early_exit and kind == CYCLIC_INFINITE:
+        if kind == CYCLIC_INFINITE:
             # The classification alone decides: an infinite family under an
-            # injective sky makes the root family infinite. No fold at all.
+            # injective path makes the root family infinite. No bounded
+            # unrolling is needed to manufacture a witness pair.
             early = True
+            early_kind = CYCLIC_INFINITE
             break
         try:
             _solve_component(
@@ -816,15 +812,15 @@ def exact_meanings(
             )
         except _EarlyRefusal:
             early = True
+            early_kind = _dominant(kinds)
             break
     metrics.retained = sum(len(values) for values in sets.values())
-    infinite = CYCLIC_INFINITE in kinds
     cyclic = sum(1 for kind in kinds if kind != ACYCLIC)
     if early:
         return Outcome(
             True,
             (),
-            CYCLIC_INFINITE if infinite else _dominant(kinds),
+            early_kind,
             len(kinds),
             cyclic,
             metrics.laps,
@@ -834,15 +830,10 @@ def exact_meanings(
             True,
         )
     union = dedup([meaning for node in roots for meaning in sets.get(node, ())])
-    if infinite and len(union) < 2:
-        raise CyclicRefusal(
-            "cyclic meaning: an injective sky over an infinite family did not"
-            " exhibit two root meanings — the injectivity law is violated"
-        )
     return Outcome(
         len(union) > 1,
         union,
-        CYCLIC_INFINITE if infinite else _dominant(kinds),
+        _dominant(kinds),
         len(kinds),
         cyclic,
         metrics.laps,
@@ -1382,7 +1373,15 @@ CASES = (
         ACYCLIC,
         False,
     ),
-    Case("nullable-star-collapsed", NULLABLE_STAR, "xa", {}, False, ACYCLIC, False),
+    Case(
+        "nullable-star-consuming-item",
+        NULLABLE_STAR,
+        "xa",
+        {},
+        False,
+        ACYCLIC,
+        False,
+    ),
     Case(
         "sibling-roots-over-cycle",
         SIBLING_CYCLE,
@@ -1511,11 +1510,7 @@ def _check_case(case: Case) -> None:
         + ("  <-- ONE-LAP UNSOUND" if one_lap_differs != case.differs else ""),
         f"one_lap_set={len(one_lap)}",
         f"exact_set={len(outcome.meanings)}"
-        + (
-            "  (two-lap witnesses of an INFINITE family)"
-            if outcome.kind == CYCLIC_INFINITE
-            else ""
-        ),
+        + ("  (classification decides)" if outcome.kind == CYCLIC_INFINITE else ""),
         f"components={outcome.components}",
         f"cyclic_components={outcome.cyclic_components}",
         f"laps={outcome.laps}",
@@ -1735,7 +1730,7 @@ def main() -> None:
         " asserted every lap; a surviving grow component is judged on its"
         " CARRIERS — the ident/grow upward closure of the growing sub-cycle,"
         " never the whole component — and is INFINITE under an injective path"
-        " to an accepting root (refuse, two-lap witness pair), OPAQUE when no"
+        " to an accepting root (classification decides), OPAQUE when no"
         " carrier is value-visible (carriers frozen to a representative, every"
         " non-carrier member still exact), and otherwise refused at BINDING"
         " with words; the one-lap relation is neither the exact set nor a"

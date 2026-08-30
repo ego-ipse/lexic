@@ -35,23 +35,17 @@ hot-callback contradictions. This queue records every remaining mechanism plan
 or evidence choice as an explicit gate; none is delegated silently to an
 implementer.
 
-`reports/PROTOTYPE_10.md` closes several narrower facts: ordered meanings are
-sequence-only, the incremental keyed treap and dict-of-sets dependency index
-are rejected, equality must be iterative, island discovery includes sibling
-accepting items, the single-seed cone/trace is viable, and custom classes stay
-through one immutable class constructor symbol plus a result-free plan cache.
-`reports/REVIEW_10.md` keeps the unsupported composite claims open: multiple
-seed interaction, resolver scope, real keyed-product cost, flat-index cost,
-actual seed-lane RSS, and executable custom binding lifetime. `PROMPT_11.md`
-tasks the resulting evidence round. `reports/PROTOTYPE_11.md` now establishes
-the one-flip defect and exact acyclic reference relation, real carrier costs,
-complete resolver-pair and one-island splice feasibility, flat-index parity,
-and the non-pool custom-binding lifecycle. It does not close cyclic ambiguity,
-the tokenizer's full validation relation, dictionary-free numbering, the
-zero-allocation control, real trace-frame pricing, pool retention, or resolver
-scope. Those remaining gates are explicit below. `PROMPT_12.md` tasks the four
-mechanism gates and requires sequential internal adversarial review; resolver
-scope remains a separate user decision.
+`reports/PROTOTYPE_10.md` and `PROTOTYPE_11.md` establish the one-flip defect,
+exact acyclic reference relation, real carrier costs, complete resolver-pair
+and one-island splice feasibility, flat-index parity, and the initial custom
+binding lifecycle. `PROTOTYPE_12.md` supplies the cyclic, tokenizer, flat/frame,
+and real-pool round. `PROTOTYPE_13.md` is the authoritative correction: it
+removes arbitrary cyclic caps, scopes quantified-nullable semantic families
+and Leo-complete readout, limits the control to an external fused-product
+protocol, and records the gates still open below. Resolver scope remains a
+separate user decision, and a final fresh reviewer has not returned `READY`.
+`PROMPT_14.md` tasks only the remaining investigable gates and the pre-fix
+parsing baselines; it does not authorize source implementation.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -669,13 +663,16 @@ the §8/§9 re-runs.
       identity-plus-pin cache, recomputes equivalently after eviction, and
       cold-binds once under the free-threaded interpreter. Construction has one
       structural call site after the completion walk.
-- [ ] **PLANNING REQUIRED AT §6 EXIT:** place the bound executable in the real
-      retained pool lifecycle, release its source artefact and registry entry,
-      then parse/build successfully through that pool. Measure the production
-      completion path separately and prove it contains no constructor or
-      callback traffic. A local variable or binding-registry entry is not the
-      pool-retention witness. `reports/PROTOTYPE_11.md` §E supplies the proven
-      substrate; the pool and paid-loop rows remain open.
+- [x] **PLANNING REQUIRED AT §6 EXIT — POOL LIFECYCLE CLOSED:** the real
+      `ParsePool` is the bound executable's sole owner after the source
+      artefact and registry entry die. Multiple and concurrent maps, tier
+      escape, constructor failure, eviction/rebind, shutdown refusal, and
+      cleanup pass in `proto/custom_class_target.py`.
+- [ ] **PRODUCTION MEASUREMENT REQUIRED AT §6 EXIT:** prove that the landed
+      completion executor contains no constructor or callback traffic before
+      root finalization and compare it with the default product through the
+      same paid loop. Prototype 12's timed walk builds and extracts a
+      `ParseTree`, so its near-1.0 ratio does not close this source-path gate.
 - [ ] Implement `select(spec)` as the finite nested-mapping morphism specified
       in `DESIGN.md`: declaration-ordered path results, absent missing paths,
       retained reducer values, recognition-only extensions, decoded duplicate
@@ -731,6 +728,13 @@ costs. No target is a post-reduction mapper.
       sequential is reported with CPU-per-byte and named attribution but is not
       gated against the same envelope. It still must submit no work and cannot
       conceal a base-parse regression.
+- [ ] **PLANNING REQUIRED BEFORE FINALIZING `from_indexes`:** inventory Qwen,
+      GPT-2, SmolLM2, Gemma, and the small fixture for three currently accepted
+      lanes: negative versus sparse nonnegative ordinals, merge dyads naming
+      spellings outside the vocabulary, and pipeline byte-fallback/unknown
+      spellings outside the vocabulary. Select and justify the final pre-alpha
+      validation contract and its ordered verdicts. Existing reader
+      permissiveness is evidence, never authority.
 
 - [ ] In `src/lexic/api/json_tokenizer.py`, declare the tokenizer
       `TargetSchema` against the JSON semantic signature. Generic compile/parser
@@ -856,16 +860,38 @@ and the timed resident row is recorded inside its stop factor.
       acyclic completed-node graph, the exact reference relation is the
       semantic-deduplicated value set over each node's packed families and
       island-leaf options, unioned across sibling accepting items. A compiler
-      may short-circuit only under a choice-free continuation proved injective
-      in retained children or constant in dropped children. The shipped model
-      fold satisfies that narrower condition; purity alone never grants it.
-- [ ] **PLANNING REQUIRED BEFORE §8 — CYCLIC INTERACTION:** replace the
-      prototype's global `2^k` assignment enumeration. Reachable choice count
-      is unbounded, and the consumed-choice `FastTree` fallback defines only a
-      one-lap relation. Prove an exact terminating cyclic representation and
-      semantic-deduplication law, or state and justify an explicit compile-time
-      refusal contract. Do not accept a cap, sampled flips, unconditional
-      Cartesian enumeration, or the current one-lap relation as exact.
+      may refuse early when some path from the differing node to a requested
+      root is proved injective in the carried slot. A constant edge blocks that
+      path. Purity alone never grants the certificate.
+- [x] **PLANNING REQUIRED BEFORE §8 — CYCLIC REFUSAL DECISION CLOSED:** use
+      carrier-scoped zero-width SCCs under the per-slot `const` / `ident` /
+      declared-`finite` / proper-subvalue-`grow` algebra. Safe components reach
+      a monotone exact-set fixpoint. An invisible growing carrier is opaque; an
+      injectively visible carrier proves requested-root ambiguity; the
+      remaining unrepresentable consumer class refuses at binding. Family and
+      island censuses iterate to a structural fixpoint. Numeric census and
+      semantic-lap caps, the one-lap relation, and chart-wide Cartesian
+      assignment enumeration are forbidden.
+- [ ] **PLANNING REQUIRED BEFORE §8 — CYCLIC PRODUCTION COMPLETION:** map every
+      real product operation and child slot to the closed algebra or refuse the
+      binding with words. For an infinite component and an actual `resolve=`,
+      construct two complete derivations from a certified base path plus one
+      explicit growing-SCC traversal; do not reinstate a numeric runtime lap
+      count. Differential the real tables against `proto/cyclic_meaning.py`.
+- [x] **PLANNING REQUIRED BEFORE §8 — SEMANTIC FAMILY UNIVERSE CLOSED:** a
+      quantifier admitting more than one occurrence count over a nullable atom
+      creates semantic count families. `*`, `+`, bounded variable counts,
+      groups, empty rules, and `?` all reach complete target-meaning comparison.
+      They are not ordinary text-allocation splits. Remove or replace
+      `lift_optional_nullables`; it currently erases the `?` absent/present
+      difference and changes which model wins. The shipped GBNF, ABNF, and EBNF
+      ground-truth grammars have zero such sites, and
+      `proto/nullable_quantifier_ambiguity.py` pins PDA/Earley
+      parity on the wrong answer.
+- [x] **PLANNING REQUIRED BEFORE §8 — COMPLETE READOUT CLOSED:** ambiguity
+      point discovery expands all deferred Leo provenance before walking the
+      links. The same finished kernel currently reports `0` points before and
+      `2` after expansion; caller ordering is not a supported precondition.
 - [x] **PLANNING REQUIRED BEFORE §8 — RESOLVER MECHANISM PART CLOSED:** both
       complete-document trees are constructible and associated with their
       replayed meanings. A context-sensitive resolver can choose differently
@@ -887,15 +913,15 @@ and the timed resident row is recorded inside its stop factor.
       key/value/duplicate normalization rather than reconstructing an alternate
       carrier. Ordered contribution trees and the incremental keyed treap stay
       rejected.
-- [ ] **PLANNING REQUIRED AT §8 EXIT — TOKENIZER VALIDATION RELATION:** the
-      measured ready-tokenizer construction and valid-lane timings stand, but
-      the document-level candidate does not represent every constructor
-      refusal. Add duplicate-ordinal, duplicate-merge-key, and every other
-      `IrTokenizer.from_indexes` validation outcome to the ordered verdict
-      relation; differential both-equal and differing refusals against real
-      construction before adopting it. Until then, exact isolated whole-result
-      comparison remains the correctness fallback. No digest or analogy
-      decides this.
+- [x] **PLANNING REQUIRED AT §8 EXIT — CURRENT TOKENIZER RELATION CLOSED:**
+      the document meaning carries every input and ordered refusal for the
+      shipped `from_merges` and prototype `from_indexes` constructors,
+      including duplicate spellings, ordinals, merge dyads, inverse/rank,
+      special, pipeline, and segmenter lanes. Every ordered pair in the
+      20-document family agrees with eager construction. Final adoption still
+      waits for §7 to decide ordinal-domain, merge-reference, and pipeline
+      fallback/unknown constraints; the current-constructor proof cannot choose
+      the final contract.
 
 - [ ] Replace any generated-model-only ambiguity hook with the product's typed
       root-meaning operation and equality law in
@@ -911,8 +937,10 @@ and the timed resident row is recorded inside its stop factor.
 - [ ] A narrower schema rejects derivations outside its language before meaning
       comparison. A projection identifies a discarded difference only when its
       declared meaning law says so.
-- [ ] Keep nullable/repetition split families separate from arm-choice
-      ambiguity.
+- [ ] Compile three distinct family classes: authored arms, semantic
+      quantified-nullable count choices, and ordinary extent splits. Only the
+      last receives the leftmost allocation answer without target-meaning
+      comparison. Do not infer the class solely from generated choice identity.
 - [ ] Retain immutable completed-handle meanings from the default Earley
       derivation. For one alternate family, mark its completed owner and
       ancestors dirty, replay only that cone in a fresh isolated product state,
@@ -930,20 +958,20 @@ and the timed resident row is recorded inside its stop factor.
       semantic-operation count, not an eager-container allocation claim.
       `local_meaning_fold.py` is the rejected child-local counterexample.
       The predecessor/parent dependency index is proportional to the default
-      derivation and is built once only after a real arm-choice ambiguity;
-      unambiguous and split-only parses allocate none. A dict-of-sets index is
+      derivation and is built once only after a real semantic-choice family;
+      unambiguous and ordinary split-only parses allocate none. A dict-of-sets index is
       forbidden by `PROTOTYPE_10.md`'s measured memory growth.
-- [x] **FLAT-INDEX MECHANISM PART CLOSED:** `proto/ambiguity_rss.py` proves
-      dirty-cone parity for CSR/forward-star parent and owner edges across the
-      2,000/8,000/32,000 scaling ladder and a two-key shared-ancestor witness.
-      Arrays cost 112 B per character. The retained prototype costs 293–316 B
-      per character because its handle-to-dense-number dictionary remains;
-      that larger figure, not the array-only figure, is the measured result.
+- [x] **FLAT-INDEX RETAINED-LAYOUT PART CLOSED:** `proto/ambiguity_rss.py`
+      proves default-family dirty-cone parity for CSR/forward-star parent and
+      owner edges across the 2,000/8,000/32,000 ladder and a two-key
+      shared-ancestor witness. The retained arrays cost 98–112 B per character;
+      the external numbering/build transient costs 1200–1223 B per character
+      and is released before retained pricing.
 - [ ] Assign dense completed-handle numbers during production completion so no
-      numbering dictionary survives. Measure integrated numbering, index build,
-      replay CPU, wall, and RSS; prove the same dirty-cone parity and cleanup.
-      Do not infer the dictionary-free 112 B-per-character result from the
-      external prototype.
+      numbering dictionary survives. Include parent and owner edges required by
+      every semantic family, not only the default derivation. Measure integrated
+      numbering, index build, replay CPU, wall, and RSS; prove dirty-cone parity
+      and cleanup. The retained external arrays do not prove this integration.
 - [ ] Give sequence-like built-in accumulators an immutable persistent
       contribution meaning.
       Path-copy only dirty ancestors, identity-share unchanged branches, and
@@ -986,11 +1014,12 @@ and the timed resident row is recorded inside its stop factor.
       sets, and verdict order unchanged.
 - [ ] Carry no ambiguity witness graph on a statically/predictively unambiguous
       path.
-- [ ] Price the real PDA seed/trace lane with one child tuple per completion,
-      shared only among seeds crossing that completion. The Prototype 11
-      96–98 B-per-frame result shares one tuple across the entire ancestor
-      depth and is rejected; on the measured free-threaded interpreter a
-      two-child tuple alone is 64 bytes.
+- [x] **EXTERNAL FRAME SHAPE CLOSED:** real seed and frame records allocate one
+      child tuple per completion, shared only among seeds crossing that
+      completion. The measured range is 144.2–446.4 B per completion and
+      96.8–177.7 B per frame across depth, seed count, arity, and dirty slot.
+      Reprice the landed records at §12; the Prototype 11 shared-depth figure
+      remains rejected.
 - [ ] Re-run the §5 property differential through `tools/guarded.sh` from this
       effort's `proto/` at this exit (the oracle is retained for exactly this)
       and record command and result in `reports/`.
@@ -1175,18 +1204,20 @@ folder.
       record the input digest, GC state, semantic verdict, wall, process CPU,
       populations, and peak RSS. This is separate from the unambiguous
       tokenizer ceiling.
-- [ ] **PLANNING REQUIRED BEFORE §12:** finish the protocol and production-shape
-      evidence. Define unchanged baseline/candidate commands, use a genuinely
-      ambiguity-unreachable control which allocates no memo/index/overlay/seed/
-      trace, allocate and measure real seed/trace frames rather than estimating
-      them, and keep lazy chart expansion out of attributed product-structure
-      bytes. Empty side containers do not prove this when the executed control
-      still allocates and clears an `Overlay`. Frame pricing must allocate one
-      child tuple per completion. The ambiguous row must use the
-      dictionary-free production flat index and assert its semantic result.
-      `PROTOTYPE_11.md` supplies the scaling ladder and flat-index reference;
-      its control and frame figures are rejected. Do not improvise corrections
-      inside the benchmark window.
+- [x] **PLANNING REQUIRED BEFORE §12 — CONTROL/FRAME PROTOCOL CLOSED:** the
+      unambiguous control runs an existing fused PDA product, constructs no
+      `ParseTree` or completed-handle meaning table. The current source has no
+      candidate ambiguity factories to instrument, so zero-allocation is not
+      claimed by the external control. Real frame pricing allocates one child
+      tuple per completion and shares it only among crossing seeds. Lazy Leo
+      expansion stays outside attributed structure windows.
+- [ ] **PRODUCTION EVIDENCE REQUIRED BEFORE §12:** define unchanged
+      baseline/candidate commands and run the landed ambiguity factories under
+      the refusing fused-product control. The ambiguous row uses production
+      completion-time numbering, every required family-aware edge, and asserts
+      its semantic result. Measure integrated flat build, replay, cleanup, and
+      RSS; the external retained arrays and allocator cannot prove future source
+      wiring. Do not improvise corrections inside the benchmark window.
 - [ ] Do not use `tools/benchmark/compare.py` unchanged for MT rows: its worker
       cohort is prepared concurrently, and preparation performs real parses.
       Prepare, warm, time, and close one entire baseline/candidate/control
