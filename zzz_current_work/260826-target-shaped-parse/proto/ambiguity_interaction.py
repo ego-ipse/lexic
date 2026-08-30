@@ -18,7 +18,11 @@ harness; nothing there is re-implemented):
 - the hybrid that uses the certificate where the compiler proves it and exact
   deduplicated sets inside every non-injective cone.
 
-Unconditional Cartesian enumeration is priced as the rejected upper bound.
+The meaning algebra, the chart-resolution helpers, and the exact CYCLIC
+mechanism live in `cyclic_meaning`, which this module imports: one algebra, so
+the acyclic and cyclic lanes cannot drift apart. Unconditional Cartesian
+enumeration is priced here as the rejected upper bound, and the one-lap
+relation it used for cyclic charts is now only a comparison lane.
 """
 
 from __future__ import annotations
@@ -26,10 +30,9 @@ from __future__ import annotations
 import tracemalloc
 from typing import NamedTuple
 
+import cyclic_meaning as algebra
 import island_alternate_seed as harness
-from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
-from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
@@ -41,22 +44,12 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_item,
 )
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
-from lexic.parsing.earley.kernel.loop.leo import expand_leo
-from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain, tier_for
-from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
-from lexic.parsing.earley.kernel.tables.splits import ChainSpec, is_arm_choice
-from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
 from lexic.parsing.pda.runtime.islands import island_run
 
 type Meaning = harness.Meaning
 type MeaningSet = tuple[Meaning, ...]
-
-# Flag content that never appears in a DEFAULT-family baseline (the
-# engine's first families spell onetwo/m1/b), so a threshold over these
-# markers reads 0 on every baseline and counts alternates only.
-MARKERS = frozenset({"two", "m2", "a"})
-INJECTIVE = frozenset({"", "swap", "wrap"})
 
 TWO_POINT = (
     "root ::= s t\n"
@@ -93,153 +86,6 @@ class Metrics:
         """Track the peak count of concurrently stored meanings."""
         if live > self.max_live:
             self.max_live = live
-
-
-def _flagged(meaning: Meaning) -> int:
-    """Count marker atoms in one meaning — a pure decoded-content predicate."""
-    if isinstance(meaning, str):
-        return 1 if meaning in MARKERS else 0
-    total = 0
-    pending: list[Meaning] = [meaning]
-    while pending:
-        node = pending.pop()
-        if isinstance(node, str):
-            total += 1 if node in MARKERS else 0
-        else:
-            pending.extend(node)
-    return total
-
-
-def apply_policy(policy: str, name: str, kids: tuple[Meaning, ...]) -> Meaning:
-    """One meaning operation — the planned algebra's shapes, including the
-    non-injective validation/conditional forms."""
-    if policy == "atom":
-        raise UnsupportedConstructError(
-            "interaction: the set lanes do not carry span text; span policies"
-            " are island-internal in these witnesses"
-        )
-    if policy == "drop":
-        return (name,)
-    if policy == "swap":
-        return (name,) + tuple(reversed(kids))
-    if policy == "wrap":
-        return (name, ("layer",) + kids)
-    if policy == "atmost1":
-        count = sum(_flagged(kid) for kid in kids)
-        return ("verdict", "ok" if count <= 1 else "too-many")
-    if policy == "cond":
-        left = _flagged(kids[0]) > 0
-        right = _flagged(kids[1]) > 0 if len(kids) > 1 else False
-        return ("cond", "same" if left == right else "mixed")
-    if policy == "dupkey":
-        keys = ["K" if _flagged(kid) else f"k{index}" for index, kid in enumerate(kids)]
-        duplicate = len(keys) != len(set(keys))
-        return ("verdict", "dup" if duplicate else "ok")
-    return (name,) + kids
-
-
-class SetFolder(harness.Folder):
-    """The harness meaning folder extended with the interaction operations."""
-
-    def _assemble(
-        self,
-        handle: int,
-        resolved: harness.Resolved,
-        memo: harness.Overlay,
-        leaf_override: dict[int, Meaning],
-    ) -> Meaning:
-        """Apply the extended algebra; fall back to the harness for spans."""
-        policy = self.program[harness._code(self.kernel, handle)]
-        if policy in ("atmost1", "cond", "dupkey"):
-            self._count()
-            kids = self._kids(resolved, memo, leaf_override)
-            return apply_policy(policy, harness._name(self.kernel, handle), kids)
-        return super()._assemble(handle, resolved, memo, leaf_override)
-
-
-def _dedup(meanings: list[Meaning]) -> MeaningSet:
-    """Semantic deduplication, first-seen order (meanings are value tuples)."""
-    seen: set[Meaning] = set()
-    out: list[Meaning] = []
-    for meaning in meanings:
-        if meaning not in seen:
-            seen.add(meaning)
-            out.append(meaning)
-    return tuple(out)
-
-
-def _tables(grammar: str, size: int) -> ParserTables:
-    """Real compiled tables for one witness grammar."""
-    return compile_tables(
-        normalize(canonical_grammar(grammar, GBNF_FLAVOUR)), tier_for(size)
-    )
-
-
-def _selected_resolved(
-    kernel: Kernel, handle: int, selected: dict[int, int]
-) -> harness.Resolved:
-    """`harness._resolved` under a MULTI-key family selection."""
-    bits = kernel.tables.packing.bits
-    codes = kernel.tables.codes
-    base = codes.arm_base[codes.code_arm[harness._code(kernel, handle)]]
-    if handle in kernel.st.leo_links:
-        expand_leo(kernel.st, kernel.tables, handle)
-    chain = predecessor_chain(
-        kernel.st.links,
-        handle,
-        ChainSpec(base, bits, kernel.tables.code_choice),
-        # The chain walk CONSUMES entries from its choices dict (a flipped
-        # point is spent at first visit), so every resolve gets a fresh copy.
-        dict(selected),
-    )
-    if chain is None:
-        start = (handle >> bits) & kernel.tables.packing.mask
-        if start == (handle & kernel.tables.packing.mask):
-            return harness.Resolved((), (), (), (handle,))
-        raise UnsupportedConstructError("interaction: handle did not resolve")
-    children: list[int] = []
-    leaves = []
-    slots: list[int] = []
-    slot = 0
-    for _predecessor, _end, child in chain:
-        if isinstance(child, harness.PayloadLeaf):
-            leaves.append(child)
-            slots.append(slot)
-            slot += 1
-        elif isinstance(child, int) and not isinstance(child, bool):
-            children.append(child)
-            slot += 1
-    keys = (handle,) + tuple(
-        (predecessor << bits) | end for predecessor, end, _child in chain
-    )
-    return harness.Resolved(tuple(children), tuple(leaves), tuple(slots), keys)
-
-
-def _local_choice_keys(kernel: Kernel, handle: int) -> tuple[int, ...]:
-    """Every arm-choice packed key owned by THIS completion's chains.
-
-    Family indices and even the key population are only stable at a census
-    fixpoint under lazy Leo expansion, so the discovery iterates assignments
-    until no new key appears.
-    """
-    bits = kernel.tables.packing.bits
-    known: tuple[int, ...] = ()
-    for _round in range(8):
-        found: set[int] = set(known)
-        for assignment in _assignments(kernel, list(known)):
-            for key in _selected_resolved(kernel, handle, assignment).keys:
-                bucket = kernel.st.links.get(key)
-                if (
-                    bucket is not None
-                    and len(bucket) > 1
-                    and is_arm_choice(bucket, bits, kernel.tables.code_choice)
-                ):
-                    found.add(key)
-        settled = tuple(sorted(found))
-        if settled == known:
-            return settled
-        known = settled
-    raise UnsupportedConstructError("interaction: local key census did not settle")
 
 
 def enumerate_island_meanings(
@@ -281,8 +127,8 @@ def enumerate_island_meanings(
         ]
         meanings = []
         for accepting in roots:
-            for assignment in _assignments(kern, points):
-                for overrides in _leaf_combos(leaf_sets):
+            for assignment in algebra.assignments(kern, points):
+                for overrides in algebra._leaf_combos(leaf_sets):
                     metrics.ops += 1
                     meanings.append(
                         _fold_selected(kern, accepting, policies, assignment, overrides)
@@ -294,7 +140,7 @@ def enumerate_island_meanings(
         census = after
     else:
         raise UnsupportedConstructError("interaction: family census did not settle")
-    deduped = _dedup(meanings)
+    deduped = algebra.dedup(meanings)
     metrics.retained += len(deduped)
     return deduped
 
@@ -311,25 +157,6 @@ def _all_arm_points(kern: Kernel, roots: tuple[int, ...]) -> list[int]:
     return sorted(found)
 
 
-def _assignments(kern: Kernel, points: list[int]) -> list[dict[int, int]]:
-    """Every family assignment over the island's own arm-choice keys."""
-    combos: list[dict[int, int]] = [{}]
-    for key in points:
-        families = len(kern.st.links[key])
-        combos = [
-            {**combo, key: family} for combo in combos for family in range(families)
-        ]
-    return combos
-
-
-def _leaf_combos(leaf_sets: dict[int, MeaningSet]) -> list[dict[int, Meaning]]:
-    """Every override combination over nested delegated leaves."""
-    combos: list[dict[int, Meaning]] = [{}]
-    for leaf_id, options in leaf_sets.items():
-        combos = [{**combo, leaf_id: option} for combo in combos for option in options]
-    return combos
-
-
 def _fold_selected(
     kern: Kernel,
     root: int,
@@ -339,14 +166,16 @@ def _fold_selected(
 ) -> Meaning:
     """Fold one fully selected island derivation to its meaning."""
     occurrences = {leaf_id: override for leaf_id, override in overrides.items()}
-    folder = SetFolder(kern, policies, occurrences, harness.Counters(), "oracle")
+    folder = algebra.SetFolder(
+        kern, policies, occurrences, harness.Counters(), "oracle"
+    )
     memo: dict[int, Meaning] = {}
     stack: list[tuple[int, bool]] = [(root, False)]
     while stack:
         handle, expanded = stack.pop()
         if handle in memo:
             continue
-        resolved = _selected_resolved(kern, handle, selected)
+        resolved = algebra.selected_resolved(kern, handle, selected)
         missing = [child for child in resolved.children if child not in memo]
         if not expanded or missing:
             # Lazy Leo expansion can extend link buckets between the two
@@ -413,7 +242,7 @@ def one_flip_island_meanings(
             candidates.append(_fold_selected(kern, root, policies, {}, overrides))
     alternates_found = tuple(
         meaning
-        for meaning in _dedup(candidates)
+        for meaning in algebra.dedup(candidates)
         if not harness.same_value(baseline, meaning)
     )
     return (baseline,) + alternates_found
@@ -473,14 +302,18 @@ class Verdict(NamedTuple):
 def one_flip(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
     """The accepted single-seed replay, applied one flip at a time (unsound)."""
     counters = harness.Counters()
-    folder = SetFolder(run.kernel, policies, run.occurrences, counters, "baseline")
+    folder = algebra.SetFolder(
+        run.kernel, policies, run.occurrences, counters, "baseline"
+    )
     memo = harness.Overlay({})
     baseline = folder.apply(run.root, memo, set(), None, {})
     base_layer = dict(memo.changed)
     if not run.seeds:
         return Verdict(False, counters.baseline_folds, 1, len(base_layer))
     graph = harness._graph(run.kernel, run.root)
-    replay = SetFolder(run.kernel, policies, run.occurrences, counters, "replay")
+    replay = algebra.SetFolder(
+        run.kernel, policies, run.occurrences, counters, "replay"
+    )
     differs = False
     for leaf_id, seed in run.seeds.items():
         dirty = harness._dirty(graph, leaf_id)
@@ -511,7 +344,7 @@ def _leaf_option_table(run: harness.OuterRun) -> dict[int, MeaningSet]:
 def _node_meanings(
     kernel: Kernel,
     handle: int,
-    folder: SetFolder,
+    folder: algebra.SetFolder,
     sets: dict[int, MeaningSet],
     leaf_options: dict[int, MeaningSet],
     metrics: Metrics,
@@ -521,10 +354,11 @@ def _node_meanings(
     Returns ``(None, missing_children)`` when a child set is not yet
     computed (the caller re-pushes), else ``(set, ())``.
     """
-    keys = _local_choice_keys(kernel, handle)
-    assignments = _assignments(kernel, list(keys))
+    keys = algebra.local_choice_keys(kernel, handle)
+    assignments = algebra.assignments(kernel, list(keys))
     resolveds = [
-        _selected_resolved(kernel, handle, assignment) for assignment in assignments
+        algebra.selected_resolved(kernel, handle, assignment)
+        for assignment in assignments
     ]
     missing = tuple(
         child
@@ -536,7 +370,7 @@ def _node_meanings(
         return None, missing
     policy = folder.program[harness._code(kernel, handle)]
     name = harness._name(kernel, handle)
-    if metrics.early_ok and not keys and policy in INJECTIVE:
+    if metrics.early_ok and not keys and policy in algebra.INJECTIVE:
         # Sound precheck: with a SINGLE family, an operation jointly injective
         # in its children turns any child/leaf multiplicity into node
         # multiplicity — no local-family collision is possible because there
@@ -561,8 +395,8 @@ def _node_meanings(
             combos = [prefix + (option,) for prefix in combos for option in options]
         for kids in combos:
             metrics.ops += 1
-            meanings.append(apply_policy(policy, name, kids))
-    return _dedup(meanings), ()
+            meanings.append(algebra.apply_policy(policy, name, kids))
+    return algebra.dedup(meanings), ()
 
 
 class ChartCycle(UnsupportedConstructError):
@@ -586,7 +420,7 @@ def _exact_root_set(
     :raises ChartCycle: When a missing child is already in progress — a unit
         cycle. The caller falls back to the one-lap tree enumeration.
     """
-    folder = SetFolder(
+    folder = algebra.SetFolder(
         run.kernel, policies, run.occurrences, harness.Counters(), "oracle"
     )
     leaf_options = _leaf_option_table(run)
@@ -626,106 +460,17 @@ def _exact_root_set(
     return sets[root]
 
 
-def _accepting_roots(run: harness.OuterRun) -> list[int]:
-    """EVERY accepting item at the document end — a many-production start
-    symbol has no parent waiter, so its alternatives are sibling accepting
-    ITEMS, invisible to the link table (production's `_sibling_roots`)."""
-    bits = run.kernel.tables.packing.bits
-    mask = run.kernel.tables.packing.mask
-    end = len(run.kernel.text)
-    accepts = run.kernel.tables.codes.accept_codes
-    roots = [
-        (item << bits) | end
-        for item in run.kernel.cols[end]
-        if item >> bits in accepts and item & mask == 0
-    ]
-    if run.root not in roots:
-        roots.insert(0, run.root)
-    return roots
+def _cyclic(run: harness.OuterRun, policies: dict[str, str]) -> algebra.Outcome:
+    """Hand a cyclic chart to the exact terminating component mechanism.
 
-
-def _all_points_everywhere(run: harness.OuterRun, roots: list[int]) -> list[int]:
-    """Every arm-choice key reachable from any accepting root."""
-    bits = run.kernel.tables.packing.bits
-    found: list[int] = []
-    seen: set[int] = set()
-    for root in roots:
-        for key in ambiguity_points(run.kernel, root):
-            bucket = run.kernel.st.links.get(key)
-            if key in seen or bucket is None:
-                continue
-            seen.add(key)
-            if is_arm_choice(bucket, bits, run.kernel.tables.code_choice):
-                found.append(key)
-    return sorted(found)
-
-
-def _one_lap_meanings(
-    run: harness.OuterRun,
-    roots: list[int],
-    policies: dict[str, str],
-    metrics: Metrics,
-) -> MeaningSet:
-    """The cyclic-chart rule, adopted verbatim from production: build each
-    derivation with `FastTree`, whose choices dict is CONSUMED at first
-    visit, so a flipped point names the one-lap unroll and the enumeration
-    terminates. Meanings are tree folds under the same policy algebra."""
-    leaf_options = _leaf_option_table(run)
-    meanings: list[Meaning] = []
-    points = _all_points_everywhere(run, roots)
-    assignments = _assignments(run.kernel, points)
-    for root in roots:
-        for assignment in assignments:
-            tree = FastTree(run.kernel, dict(assignment)).build(root)
-            if not isinstance(tree, ParseTree):
-                continue
-            for overrides in _leaf_combos(leaf_options):
-                metrics.ops += 1
-                meanings.append(_tree_policy_meaning(tree, policies, overrides))
-                metrics.note(len(meanings))
-    if not meanings:
-        raise UnsupportedConstructError("interaction: no derivation built")
-    deduped = _dedup(meanings)
-    metrics.retained += len(deduped)
-    return deduped
-
-
-def _tree_policy_meaning(
-    tree: ParseTree, policies: dict[str, str], overrides: dict[int, Meaning]
-) -> Meaning:
-    """Fold one real derivation under the policy algebra, substituting
-    delegated leaves from the override table.
-
-    ITERATIVE by explicit stack: derivation depth is ordinary under
-    quantifier desugaring (the standing iterative-equality ruling), so a
-    recursive fold would die on a 2,000-character cyclic-rule document.
+    The rejected fallback enumerated ``2^k`` global assignments through
+    `FastTree` and answered over one lap; `cyclic_meaning` classifies each
+    zero-width component instead and is exact, terminating, and linear in
+    chart nodes.
     """
-    values: list[Meaning] = []
-    stack: list[tuple[ParseTree, bool]] = [(tree, False)]
-    while stack:
-        node, expanded = stack.pop()
-        subtrees = [kid for kid in node.kids if isinstance(kid, ParseTree)]
-        if not expanded:
-            stack.append((node, True))
-            for kid in reversed(subtrees):
-                stack.append((kid, False))
-            continue
-        taken = values[len(values) - len(subtrees) :] if subtrees else []
-        del values[len(values) - len(subtrees) :]
-        kids: list[Meaning] = []
-        position = 0
-        for kid in node.kids:
-            if isinstance(kid, ParseTree):
-                kids.append(taken[position])
-                position += 1
-            elif isinstance(kid, harness.PayloadLeaf):
-                kids.append(overrides[id(kid)])
-        values.append(
-            apply_policy(
-                policies.get(str(node.symbol), ""), str(node.symbol), tuple(kids)
-            )
-        )
-    return values[0]
+    return algebra.exact_meanings(
+        run.kernel, run.root, policies, run.occurrences, run.seeds, algebra.Metrics()
+    )
 
 
 def value_sets(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
@@ -738,7 +483,7 @@ def value_sets(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
     root refuses ⟺ its set holds more than one meaning.
     """
     metrics = Metrics()
-    roots = _accepting_roots(run)
+    roots = algebra.accepting_roots(run.kernel, run.root)
     union: list[Meaning] = []
     try:
         for root in roots:
@@ -746,8 +491,9 @@ def value_sets(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
             assert root_set is not None
             union.extend(root_set)
     except ChartCycle:
-        union = list(_one_lap_meanings(run, roots, policies, metrics))
-    deduped = _dedup(union)
+        outcome = _cyclic(run, policies)
+        return Verdict(outcome.differs, outcome.ops, outcome.retained, outcome.max_live)
+    deduped = algebra.dedup(union)
     return Verdict(len(deduped) > 1, metrics.ops, metrics.retained, metrics.max_live)
 
 
@@ -763,7 +509,7 @@ def certificate(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
     sets continue to the root.
     """
     metrics = Metrics()
-    roots = _accepting_roots(run)
+    roots = algebra.accepting_roots(run.kernel, run.root)
     union: list[Meaning] = []
     try:
         # With sibling accepting roots the certificate is skipped entirely:
@@ -776,8 +522,17 @@ def certificate(run: harness.OuterRun, policies: dict[str, str]) -> Verdict:
                 return Verdict(True, metrics.ops, metrics.retained, metrics.max_live)
             union.extend(root_set)
     except ChartCycle:
-        union = list(_one_lap_meanings(run, roots, policies, metrics))
-    deduped = _dedup(union)
+        outcome = algebra.exact_meanings(
+            run.kernel,
+            run.root,
+            policies,
+            run.occurrences,
+            run.seeds,
+            algebra.Metrics(),
+            early_exit=True,
+        )
+        return Verdict(outcome.differs, outcome.ops, outcome.retained, outcome.max_live)
+    deduped = algebra.dedup(union)
     return Verdict(len(deduped) > 1, metrics.ops, metrics.retained, metrics.max_live)
 
 
@@ -793,7 +548,7 @@ def _sky_certificate(
     order, never a last-write over one tree.
     """
     kernel = run.kernel
-    folder = SetFolder(
+    folder = algebra.SetFolder(
         run.kernel, policies, run.occurrences, harness.Counters(), "oracle"
     )
     parents: dict[int, set[int]] = {run.root: set()}
@@ -804,12 +559,12 @@ def _sky_certificate(
         handle = pending.pop()
         if handle in injective_op:
             continue
-        keys = _local_choice_keys(kernel, handle)
+        keys = algebra.local_choice_keys(kernel, handle)
         choice_free[handle] = not keys
         policy = folder.program[harness._code(kernel, handle)]
-        injective_op[handle] = policy in INJECTIVE
-        for assignment in _assignments(kernel, list(keys)):
-            for child in _selected_resolved(kernel, handle, assignment).children:
+        injective_op[handle] = policy in algebra.INJECTIVE
+        for assignment in algebra.assignments(kernel, list(keys)):
+            for child in algebra.selected_resolved(kernel, handle, assignment).children:
                 parents.setdefault(child, set()).add(handle)
                 pending.append(child)
     sky: dict[int, bool] = {}
@@ -967,11 +722,11 @@ WITNESSES = (
 def _set_outer_run(witness: Witness, metrics: Metrics) -> harness.OuterRun:
     """The delegated outer run whose seeds carry exact island meaning sets."""
     size = len(witness.text)
-    outer = _tables(witness.outer, size)
-    island = _tables(witness.island, size)
+    outer = algebra.tables_for(witness.outer, size)
+    island = algebra.tables_for(witness.island, size)
     inner: dict[int, Delegate] | None = None
     if witness.nested:
-        nested = _tables(witness.nested, size)
+        nested = algebra.tables_for(witness.nested, size)
         inner = {
             harness._rule_id(island, witness.nested_rule): set_delegate(
                 nested, witness.island_policies, metrics
@@ -997,12 +752,12 @@ def _set_outer_run(witness: Witness, metrics: Metrics) -> harness.OuterRun:
 def _one_flip_outer_run(witness: Witness) -> harness.OuterRun:
     """The delegated outer run whose seeds carry only single-flip alternates."""
     size = len(witness.text)
-    outer = _tables(witness.outer, size)
-    island = _tables(witness.island, size)
+    outer = algebra.tables_for(witness.outer, size)
+    island = algebra.tables_for(witness.island, size)
     metrics = Metrics()
     inner: dict[int, Delegate] | None = None
     if witness.nested:
-        nested = _tables(witness.nested, size)
+        nested = algebra.tables_for(witness.nested, size)
         inner = {
             harness._rule_id(island, witness.nested_rule): one_flip_delegate(
                 nested, witness.island_policies, metrics
@@ -1033,7 +788,7 @@ def _outer_root(kernel: Kernel) -> int:
 def prove_production_unsound() -> None:
     """Real kernel + real `another_meaning` + pure threshold build: unsound."""
     text = "xy"
-    kern = Kernel(_tables(TWO_POINT, len(text)), text, True).run()
+    kern = Kernel(algebra.tables_for(TWO_POINT, len(text)), text, True).run()
     if accept_item(kern) < 0:
         raise UnsupportedConstructError("interaction: two-point parse failed")
     root = accept_handle(kern)
@@ -1121,19 +876,85 @@ def _exercise(witness: Witness) -> None:
 
 def _tree_tuple_meaning(tree: ParseTree) -> Meaning:
     """The default injective tuple meaning of one real derivation (iterative)."""
-    return _tree_policy_meaning(tree, {}, {})
+    return algebra.tree_meaning(tree, {}, {})
+
+
+CYCLIC_CASES = frozenset({"unit-cycle", "deep-cycle-pad20", "deep-cycle-pad2000"})
+"""Differential cases whose chart carries a zero-width cycle."""
+
+STACK_SAFETY_ONLY = frozenset({"deep-cycle-pad2000"})
+"""Cyclic cases kept for DEPTH, whose verdict is oracled at a small twin.
+
+The bounded-depth derivation oracle enumerates derivations, so it cannot be
+run at 2,001 characters. Rather than fall back on production
+`another_meaning` — which the round's own tasking forbids as an oracle — the
+deep case is paired with `deep-cycle-pad20`: the SAME grammar and policies at
+a size the oracle handles. The deep row then proves only that depth changes
+neither the verdict nor the mechanism's stack safety.
+"""
+
+
+def _oracle_name(case: str) -> str:
+    """Which independent oracle a differential case is held against."""
+    if case in STACK_SAFETY_ONLY:
+        return "verdict_oracled_at_pad20_twin"
+    if case in CYCLIC_CASES:
+        return "bounded_depth_oracle"
+    return "enumeration_oracle"
+
+
+def _oracle_verdict(case: str, run: harness.OuterRun, policies: dict[str, str]) -> bool:
+    """The independent oracle's answer for one differential case.
+
+    An ACYCLIC chart's every derivation is one global family assignment, so
+    the `FastTree` enumeration is exhaustive there. A CYCLIC chart has
+    infinitely many derivations and that enumeration is NOT exhaustive, so a
+    cyclic case is held against the bounded-depth derivation oracle instead.
+    The deep case borrows its twin's verdict; production `another_meaning` is
+    used as an oracle nowhere.
+    """
+    if case in STACK_SAFETY_ONLY:
+        return _twin_verdict(policies)
+    if case in CYCLIC_CASES:
+        report = algebra.bounded_depth_meanings(
+            run.kernel, run.root, policies, run.occurrences, run.seeds, 5
+        )
+        return report.unbounded or len(report.meanings) > 1
+    return (
+        len(
+            algebra.one_lap_meanings(
+                run.kernel, run.root, policies, run.occurrences, run.seeds
+            )
+        )
+        > 1
+    )
+
+
+def _twin_verdict(policies: dict[str, str]) -> bool:
+    """The bounded-depth oracle's verdict on the pad-20 twin of DEEP_CYCLE."""
+    text = "x" + "a" * 20
+    kern = Kernel(algebra.tables_for(DEEP_CYCLE, len(text)), text, True).run()
+    if accept_item(kern) < 0:
+        raise UnsupportedConstructError("interaction: deep-cycle twin failed")
+    twin = harness.OuterRun(kern, accept_handle(kern), {}, {})
+    report = algebra.bounded_depth_meanings(
+        kern, twin.root, policies, twin.occurrences, twin.seeds, 5
+    )
+    return report.unbounded or len(report.meanings) > 1
 
 
 def prove_chart_differential() -> None:
-    """value_sets vs TWO oracles on island-free ambiguous charts.
+    """value_sets against its ORACLE, plus a production cross-check.
 
-    Oracle 1 (always): an independent exhaustive enumeration — every family
-    assignment through `FastTree` (whose consumed choices dict is exactly
-    production's one-lap cycle rule) across every accepting item, folded and
-    deduplicated. Oracle 2 (injective default policies only, where the
-    production one-flip IS sound): `another_meaning`. Cases include both
-    sibling-accepting-root shapes, two same-meaning NEGATIVES under a
-    dropping policy, and a unit cycle.
+    The oracle is `_oracle_verdict`: an exhaustive `FastTree` enumeration on an
+    acyclic chart (where it really is exhaustive), and the bounded-depth
+    derivation enumeration on a cyclic one. Production `another_meaning` is
+    NOT an oracle here — it is reported and pinned as a CROSS-CHECK on today's
+    shipped behaviour, on the default-policy cases only, so a change in
+    shipped behaviour shows up as a failure rather than passing unnoticed. The
+    truth source is the case's declared verdict and the oracle beside it.
+    Cases include both sibling-accepting-root shapes, two same-meaning
+    NEGATIVES under a dropping policy, and cyclic charts at two depths.
     """
     sibling_shared = 'root ::= p | q\np ::= t "z"\nq ::= t "z"\nt ::= "x"\n'
     sibling_two = 'root ::= u | v\nu ::= "x" "y"\nv ::= "x" "y"\n'
@@ -1162,20 +983,19 @@ def prove_chart_differential() -> None:
             False,
         ),
         ("unit-cycle", unit_cycle, "x", {}, True),
+        ("deep-cycle-pad20", DEEP_CYCLE, "x" + "a" * 20, {}, True),
         ("deep-cycle-pad2000", DEEP_CYCLE, "x" + "a" * 2_000, {}, True),
         ("shared-node-kept", shared_node, "[xz]", {}, True),
         ("NEGATIVE-shared-node-dropped", shared_node, "[xz]", {"m": "drop"}, False),
     )
     for name, grammar, text, policies, expected in cases:
-        kern = Kernel(_tables(grammar, len(text)), text, True).run()
+        kern = Kernel(algebra.tables_for(grammar, len(text)), text, True).run()
         if accept_item(kern) < 0:
             raise UnsupportedConstructError(f"interaction differential: {name}")
         run = harness.OuterRun(kern, accept_handle(kern), {}, {})
         exact = value_sets(run, policies)
         hybrid = certificate(run, policies)
-        enum_oracle = (
-            len(_one_lap_meanings(run, _accepting_roots(run), policies, Metrics())) > 1
-        )
+        enum_oracle = _oracle_verdict(name, run, policies)
         assert exact.differs == hybrid.differs == enum_oracle == expected, name
         am_note = ""
         if not policies:
@@ -1184,23 +1004,23 @@ def prove_chart_differential() -> None:
             production = (
                 another_meaning(kern, run.root, _tree_tuple_meaning, first) is not None
             )
+            # Cross-check, not oracle: it pins shipped behaviour on the
+            # shapes where the one-flip walk is sound.
             assert exact.differs == production, name
-            am_note = f"\tanother_meaning={production}"
+            am_note = f"\tshipped_another_meaning={production}"
         print(
             "chart-differential",
             name,
             f"value_sets={exact.differs}",
-            f"enumeration_oracle={enum_oracle}" + am_note,
+            f"{_oracle_name(name)}={enum_oracle}" + am_note,
             "AGREE",
             sep="\t",
         )
 
 
-def prove_cycle_pricing() -> None:
-    """The cycle fallback IS the rejected general architecture, accepted
-    only as the bounded cycle path — price it: 2^k tree builds over k
-    reachable arm points."""
-    for points in (1, 2, 3):
+def prove_cycle_replacement() -> None:
+    """The cyclic lane: exact component ops beside the REJECTED 2^k lane."""
+    for points in (1, 2, 3, 4):
         extra = "".join(
             f's{index} ::= p{index} | q{index}\np{index} ::= "y"\nq{index} ::= "y"\n'
             for index in range(points - 1)
@@ -1212,18 +1032,22 @@ def prove_cycle_pricing() -> None:
             + extra
         )
         text = "x" + "y" * (points - 1)
-        kern = Kernel(_tables(grammar, len(text)), text, True).run()
+        kern = Kernel(algebra.tables_for(grammar, len(text)), text, True).run()
         if accept_item(kern) < 0:
             raise UnsupportedConstructError("interaction: pricing parse failed")
         run = harness.OuterRun(kern, accept_handle(kern), {}, {})
-        verdict = value_sets(run, {})
+        exact = value_sets(run, {})
+        hybrid = certificate(run, {})
+        assert exact.differs and hybrid.differs
         print(
-            "cycle-fallback-pricing",
+            "cycle-replacement",
             f"arm_points={points}",
-            f"one_lap_ops={verdict.ops}",
-            f"retained={verdict.retained}",
-            "growth is 2^k in reachable arm points — the rejected general"
-            " architecture, accepted only as the bounded cycle fallback",
+            f"exact_ops={exact.ops}",
+            f"exact_retained={exact.retained}",
+            f"certified_ops={hybrid.ops}",
+            f"rejected_one_lap_assignments={2**points}",
+            "the 2^k global-assignment fallback is replaced by component"
+            " classification plus a per-node fixpoint",
             sep="\t",
         )
 
@@ -1232,19 +1056,19 @@ def main() -> None:
     """Prove the defect, then run every interaction witness."""
     prove_production_unsound()
     prove_chart_differential()
-    prove_cycle_pricing()
+    prove_cycle_replacement()
     for witness in WITNESSES:
         _exercise(witness)
     print(
         "invariant",
         "node set == exact distinct meanings over the node's OWN packed"
         " families x leaf options, unioned across accepting items; refuse iff"
-        " |root set| > 1; on a CYCLIC chart the relation is one-lap-bounded"
-        " (both here and in production) and computed by the consumed-choices"
-        " enumeration, which is interaction-exact and therefore strictly"
-        " broader than production's single flips; a node may refuse early"
-        " only under a choice-free all-injective sky (meet over ALL"
-        " family-aware parent edges; skipped under sibling accepting roots)",
+        " |root set| > 1; a CYCLIC chart is handed to `cyclic_meaning`, whose"
+        " zero-width-component classification is exact and terminating and"
+        " replaces the rejected 2^k one-lap fallback entirely; a node may"
+        " refuse early only under a choice-free all-injective sky (meet over"
+        " ALL family-aware parent edges; skipped under sibling accepting"
+        " roots)",
         sep="\t",
     )
 

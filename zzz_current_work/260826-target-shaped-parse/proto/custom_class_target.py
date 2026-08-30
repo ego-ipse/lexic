@@ -34,9 +34,11 @@ from typing import NamedTuple, Protocol, assert_type
 
 from lexic.compile import compile_text
 from lexic.compile.artifact import CompiledGrammar
+from lexic.parsing.parallel.pool import ParsePool
 from lexic.ir import IrAst
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.ir.grammar.nodes import IrLiteral
+from lexic.parsing.earley.kernel.forest.support.ambiguity import ambiguity_points
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.readout import (
@@ -310,18 +312,23 @@ class BoundRecord[Result]:
     it keeps working after the artefact and the registry entry are gone.
     """
 
-    __slots__ = ("binding", "declaration", "last_report")
+    # `__weakref__` exists only so the pool-retention proof can watch this
+    # object's lifetime from outside; it adds no field and no behaviour.
+    __slots__ = ("__weakref__", "binding", "declaration", "last_report")
 
     def __init__(self, declaration: RecordSpec[Result], binding: RecordBinding) -> None:
         self.declaration = declaration
         self.binding = binding
         self.last_report = RunReport(0, 0)
 
-    def run(self, text: str) -> Result:
-        """Parse over the RETAINED derived tables; construct ONCE at root.
+    def walk(self, text: str) -> tuple[dict[str, int], int]:
+        """Recognize and complete — the FREQUENT path, constructor-free.
 
-        A document beyond the base tier recompiles tables COLD from the
-        retained derived AST — the source artefact is never consulted.
+        Nothing on this path holds a reference to the consumer class: the
+        walk is a module-level function of the derivation alone, and the
+        binding it reads carries no class object. A document beyond the base
+        tier recompiles tables COLD from the retained derived AST; the source
+        artefact is never consulted.
         """
         tables = self.binding.tables
         if len(text) > BIND_TIER_CHARS:
@@ -329,39 +336,45 @@ class BoundRecord[Result]:
         kernel = Kernel(tables, text, True).run()
         if accept_item(kernel) < 0:
             raise UnsupportedConstructError("record target: document did not parse")
-        tree = FastTree(kernel, {}).build(accept_handle(kernel))
+        root = accept_handle(kernel)
+        if ambiguity_points(kernel, root):
+            # The refusal happens BEFORE any result exists, so an ambiguous
+            # document can never reach the consumer constructor.
+            raise UnsupportedConstructError(
+                "record target: the document has more than one derivation"
+            )
+        tree = FastTree(kernel, {}).build(root)
         if not isinstance(tree, ParseTree):
             raise UnsupportedConstructError("record target: derivation missing")
-        invocations: list[str] = []
-        values, completions = _extract(tree, invocations)
-        if invocations:
-            raise UnsupportedConstructError(
-                "record target: a constructor ran inside the completion walk"
-            )
-        arguments: dict[str, int] = {}
+        return _extract(tree)
+
+    def arguments(self, values: dict[str, int]) -> dict[str, int]:
+        """The declared constructor arguments, by name — still class-free."""
+        found: dict[str, int] = {}
         for name, key in zip(self.binding.parameter_order, self.binding.keys):
             if key not in values:
                 raise UnsupportedConstructError(
                     f"record target: document has no key {key!r}"
                 )
-            arguments[name] = values[key]
-        invocations.append("root")
-        result = self.declaration.constructor(**arguments)
-        self.last_report = RunReport(completions, len(invocations))
+            found[name] = values[key]
+        return found
+
+    def run(self, text: str) -> Result:
+        """Parse over the RETAINED derived tables; construct ONCE at root."""
+        values, completions = self.walk(text)
+        result = self.declaration.constructor(**self.arguments(values))
+        self.last_report = RunReport(completions, 1)
         return result
 
 
-def _extract(tree: ParseTree, invocations: list[str]) -> tuple[dict[str, int], int]:
+def _extract(tree: ParseTree) -> tuple[dict[str, int], int]:
     """Walk the real derivation once, decoding entry key/value pairs.
 
-    Engine-shaped closed decode (text and int). The zero-constructor-traffic
-    property is STRUCTURAL: the walk holds no reference to the constructor
-    (only the caller does, and it constructs after this returns); the shared
-    ``invocations`` list documents the single call site rather than claiming
-    a runtime count of calls nothing else could make.
+    Engine-shaped closed decode (text and int). It takes the derivation and
+    nothing else, so no consumer constructor is reachable from this path — a
+    property `prove_traffic` checks by running it under a constructor that
+    raises on any call.
     """
-    if invocations:
-        raise UnsupportedConstructError("record target: walk started dirty")
     values: dict[str, int] = {}
     completions = 0
     pending: list[ParseTree] = [tree]
@@ -481,19 +494,74 @@ def prove_shapes(grammar: CompiledGrammar) -> None:
     )
 
 
+CONSTRUCTOR_CALLS: dict[str, int] = {}
+"""External allocation counter, incremented by the consumer classes below.
+
+The count lives OUTSIDE the target machinery: nothing in `BoundRecord` or the
+completion walk can decrement or bypass it, so a zero here after a walk is
+evidence about the walk rather than a list documenting a known call site.
+"""
+
+
+@dataclass(frozen=True)
+class CountedInfo:
+    """A consumer class that counts every construction, wherever it happens."""
+
+    version: int
+    size: int
+
+    def __post_init__(self) -> None:
+        """Record one construction."""
+        CONSTRUCTOR_CALLS["CountedInfo"] = CONSTRUCTOR_CALLS.get("CountedInfo", 0) + 1
+
+
+class Forbidden:
+    """A consumer class that must never be constructed."""
+
+    __slots__ = ()
+
+    def __init__(self, **fields: int) -> None:
+        """:raises AssertionError: Always — the frequent path called it."""
+        raise AssertionError(f"the completion walk constructed a result: {fields!r}")
+
+
 def prove_traffic(grammar: CompiledGrammar) -> None:
-    """Zero constructor calls during completions; exactly one at root."""
-    bound = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))._bind(
-        grammar
+    """Zero constructor calls on the frequent path; exactly one at the root.
+
+    Two independent checks: an external counter on a real consumer class, and
+    the same completion walk driven through a declaration whose constructor
+    raises on any call — so a walk that touched it could not finish.
+    """
+    CONSTRUCTOR_CALLS.clear()
+    counted = RecordSpec(CountedInfo, (("version", "version"), ("size", "size")))
+    bound = counted._bind(grammar)
+    values, completions = bound.walk(DOCUMENT)
+    walk_calls = CONSTRUCTOR_CALLS.get("CountedInfo", 0)
+    result = bound.run(DOCUMENT)
+    assert result == CountedInfo(3, 71)
+    # The equality above constructs one more CountedInfo; the run itself is
+    # the difference between the two reads.
+    run_calls = CONSTRUCTOR_CALLS.get("CountedInfo", 0) - walk_calls - 1
+    assert walk_calls == 0 and run_calls == 1, CONSTRUCTOR_CALLS
+
+    refusing = RecordSpec(Forbidden, (("version", "version"), ("size", "size")))
+    refusing_bound = refusing._bind(grammar)
+    refused_values, refused_completions = refusing_bound.walk(DOCUMENT)
+    assert refused_values == values and refused_completions == completions
+    assert refusing_bound.arguments(refused_values) == {"version": 3, "size": 71}
+
+    walk_names = set(_extract.__code__.co_names) | set(
+        BoundRecord.walk.__code__.co_names
     )
-    bound.run(DOCUMENT)
-    report = bound.last_report
-    assert report.constructor_calls == 1
-    assert report.completions > report.constructor_calls
+    assert "constructor" not in walk_names and "declaration" not in walk_names
     print(
         "traffic",
-        f"completions={report.completions}",
-        f"constructor_calls={report.constructor_calls}",
+        f"completions={completions}",
+        f"walk_constructor_calls={walk_calls}",
+        f"root_constructor_calls={run_calls}",
+        "the same walk finishes under a constructor that raises on any call,"
+        " and neither the walk nor the extraction names `constructor` or"
+        " `declaration` in its code object",
         sep="\t",
     )
 
@@ -515,6 +583,58 @@ def prove_executable_lifetime() -> None:
         "executable-lifetime",
         "source artefact collected, registry entry released, and the retained"
         " bound view still parsed and constructed successfully",
+        sep="\t",
+    )
+
+
+def prove_no_traffic_on_refusal(grammar: CompiledGrammar) -> None:
+    """Syntax failure and ambiguity refusal both construct nothing.
+
+    Both are checked with the counting consumer class, so a construction
+    anywhere — including one this file does not know about — would show up.
+    """
+    CONSTRUCTOR_CALLS.clear()
+    bound = RecordSpec(CountedInfo, (("version", "version"), ("size", "size")))._bind(
+        grammar
+    )
+    for text in ("version=3;size", "!!!", ""):
+        try:
+            bound.run(text)
+        except UnsupportedConstructError:
+            continue
+        raise AssertionError(f"malformed document {text!r} produced a result")
+
+    ambiguous = replace(
+        compile_text(
+            # Two explicit entries rather than `entry+`: `ambiguity_points`
+            # does not surface an arm choice under a quantifier chain, and the
+            # completeness of production's refusal PREDICATE is §8's question,
+            # not this gate's — the gate needs a chart that really refuses.
+            "doc ::= entry entry\n"
+            'entry ::= key "=" value ";"\n'
+            "value ::= num1 | num2\n"
+            "num1 ::= [0-9]\n"
+            "num2 ::= [0-9]\n"
+            "key ::= [a-z] [a-z0-9]*\n"
+        ),
+        stem="ambiguous-record-witness",
+    )
+    ambiguous_bound = RecordSpec(
+        CountedInfo, (("version", "version"), ("size", "size"))
+    )._bind(ambiguous)
+    try:
+        ambiguous_bound.run("version=3;size=7;")
+    except UnsupportedConstructError as error:
+        assert "more than one derivation" in str(error), str(error)
+    else:
+        raise AssertionError("an ambiguous document produced a result")
+    assert CONSTRUCTOR_CALLS.get("CountedInfo", 0) == 0, CONSTRUCTOR_CALLS
+    print(
+        "no-traffic-on-refusal",
+        "three malformed documents and one genuinely ambiguous document all"
+        f" refuse with constructor_calls={CONSTRUCTOR_CALLS.get('CountedInfo', 0)};"
+        " the ambiguity refusal happens before any result exists, so no"
+        " unchosen result is ever constructed",
         sep="\t",
     )
 
@@ -743,18 +863,207 @@ def _timed_run(work: Callable[[], TokenizerInfo]) -> Timing:
     return time.process_time() - cpu, time.perf_counter() - wall
 
 
+POOL_DOCUMENTS = tuple(
+    f"version={index};size={index * 7};low=1;high=9;" for index in range(1, 33)
+)
+"""Distinct documents mapped through one retained pool."""
+
+
+def _long_document(version: int) -> str:
+    """A document past the bind tier — the pool's tier-escape witness."""
+    filler = "".join(f"pad{index}={index};" for index in range(600))
+    return f"{filler}version={version};size=8;"
+
+
+def _pool_owner() -> tuple[
+    ParsePool[str, TokenizerInfo], weakref.ReferenceType[BoundRecord[TokenizerInfo]]
+]:
+    """Bind a target, hand the bound product to a real pool, kill the source.
+
+    The pool's ordinary work binding is the ONLY thing holding the bound view
+    afterwards: the local reference and the registry entry are both gone.
+    """
+    grammar = _grammar()
+    spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+    bound = spec._bind(grammar)
+    watch = weakref.ref(bound)
+    pool: ParsePool[str, TokenizerInfo] = ParsePool(bound.run, cores=4)
+    source = weakref.ref(grammar)
+    entries_before = _RECORD_BINDINGS.entry_count
+    del grammar, bound, spec
+    gc.collect()
+    assert source() is None, "the source artefact survived"
+    assert _RECORD_BINDINGS.entry_count == entries_before - 1
+    assert watch() is not None, "the pool did not retain the bound product"
+    return pool, watch
+
+
+def prove_pool_lifecycle() -> None:
+    """A real `ParsePool` owns the bound product past source and entry death."""
+    pool, watch = _pool_owner()
+    results = pool.map(POOL_DOCUMENTS)
+    assert len(results) == len(POOL_DOCUMENTS)
+    assert results[0] == TokenizerInfo(1, 7)
+    assert results[-1] == TokenizerInfo(32, 224)
+    long_result = pool.map([_long_document(4)])[0]
+    assert long_result == TokenizerInfo(4, 8)
+    workers = pool.workers
+    pool.close()
+    del pool
+    gc.collect()
+    assert watch() is None, "the bound product outlived the pool that owned it"
+    print(
+        "pool-lifecycle",
+        f"workers={workers}",
+        f"documents={len(POOL_DOCUMENTS)}",
+        f"beyond_tier_chars={len(_long_document(4))}",
+        "source artefact collected and registry entry released BEFORE the"
+        " first map; the pool's own work binding was the sole owner, and"
+        " closing the pool dropped the bound product",
+        sep="\t",
+    )
+
+
+def _map_slice(pool: ParsePool[str, TokenizerInfo], start: int) -> list[TokenizerInfo]:
+    """One concurrent map over half the documents."""
+    return pool.map(POOL_DOCUMENTS[start::2])
+
+
+def prove_pool_concurrency() -> None:
+    """Concurrent maps through one retained pool return the same results."""
+    pool, _watch = _pool_owner()
+    with ThreadPoolExecutor(max_workers=2) as outer:
+        futures = tuple(outer.submit(_map_slice, pool, start) for start in (0, 1))
+        halves = tuple(future.result() for future in futures)
+    interleaved: list[TokenizerInfo] = []
+    for even, odd in zip(halves[0], halves[1]):
+        interleaved.extend((even, odd))
+    assert interleaved == pool.map(POOL_DOCUMENTS)
+    pool.close()
+    print(
+        "pool-concurrency",
+        "2 concurrent maps x 16 documents through one retained pool agree with"
+        " the sequential map over the same documents",
+        sep="\t",
+    )
+
+
+def prove_pool_failure_and_eviction() -> None:
+    """Constructor failure and registry eviction, both through the pool."""
+    grammar = _grammar()
+    ranged = RecordSpec(CheckedRange, (("low", "high"), ("high", "low")))
+    bad: ParsePool[str, CheckedRange] = ParsePool(ranged._bind(grammar).run, cores=2)
+    try:
+        bad.map([DOCUMENT, DOCUMENT])
+    except FieldValidationError as error:
+        assert "9 > 2" in str(error)
+    else:
+        raise AssertionError("a backwards range survived the pool")
+    finally:
+        bad.close()
+
+    spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+    first: ParsePool[str, TokenizerInfo] = ParsePool(spec._bind(grammar).run, cores=2)
+    before = first.map(POOL_DOCUMENTS[:4])
+    first.close()
+    _RECORD_BINDINGS.release(grammar)
+    second: ParsePool[str, TokenizerInfo] = ParsePool(spec._bind(grammar).run, cores=2)
+    after = second.map(POOL_DOCUMENTS[:4])
+    second.close()
+    assert before == after
+    closed = False
+    try:
+        second.map(POOL_DOCUMENTS[:1])
+    except RuntimeError:
+        closed = True
+    assert closed, "a closed pool still accepted work"
+    print(
+        "pool-failure-and-eviction",
+        "a failing constructor surfaces as its own exception through"
+        " ParsePool.map; release + rebind recomputes an equivalent binding"
+        " whose pooled results are identical; a closed pool refuses work",
+        sep="\t",
+    )
+
+
+class DefaultProduct:
+    """The control target: the same walk, finalized by the engine itself.
+
+    It is the paid-loop comparison partner — identical recognition, identical
+    completion walk, and a root finalizer that is engine-owned rather than a
+    consumer class.
+    """
+
+    __slots__ = ("bound",)
+
+    def __init__(self, bound: BoundRecord[TokenizerInfo]) -> None:
+        self.bound = bound
+
+    def run(self, text: str) -> dict[str, int]:
+        """Walk, then finalize into the engine's own default codomain."""
+        values, _completions = self.bound.walk(text)
+        return self.bound.arguments(values)
+
+
+def prove_paid_loop_neutrality(grammar: CompiledGrammar) -> None:
+    """Default control vs custom target through the SAME engine shape.
+
+    Alternating, in one process, minimum of the rounds: the two arms differ
+    only in the root finalizer, so any gap is the constructor call and not
+    the paid loop.
+    """
+    spec = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))
+    bound = spec._bind(grammar)
+    control = DefaultProduct(bound)
+    document = _long_document(9)
+    control_cpu: list[float] = []
+    control_wall: list[float] = []
+    custom_cpu: list[float] = []
+    custom_wall: list[float] = []
+    for round_index in range(8):
+        arms = (
+            (control_cpu, control_wall, control.run),
+            (custom_cpu, custom_wall, bound.run),
+        )
+        for cpu_lane, wall_lane, work in arms if round_index % 2 == 0 else arms[::-1]:
+            cpu = time.process_time()
+            wall = time.perf_counter()
+            for _repeat in range(4):
+                work(document)
+            cpu_lane.append(time.process_time() - cpu)
+            wall_lane.append(time.perf_counter() - wall)
+    print(
+        "paid-loop-neutrality",
+        f"document_chars={len(document)}",
+        "rounds=8 x 4 parses",
+        f"control_min_cpu={min(control_cpu):.6f}",
+        f"custom_min_cpu={min(custom_cpu):.6f}",
+        f"cpu_ratio={min(custom_cpu) / min(control_cpu):.6f}",
+        f"control_min_wall={min(control_wall):.6f}",
+        f"custom_min_wall={min(custom_wall):.6f}",
+        "same tables, same kernel, same completion walk; the arms differ only"
+        " in the root finalizer, and the order alternates every round",
+        sep="\t",
+    )
+
+
 def main() -> None:
     """Run the full executable-lifecycle proof."""
     grammar = _grammar()
     prove_shapes(grammar)
     prove_traffic(grammar)
     prove_executable_lifetime()
+    prove_no_traffic_on_refusal(grammar)
     prove_identity_semantics(grammar)
     prove_shared_tables_and_retention()
     prove_long_document_after_death()
     prove_eviction(grammar)
     prove_concurrent_cold_bind(grammar)
     prove_cold_root_failure(grammar)
+    prove_pool_lifecycle()
+    prove_pool_concurrency()
+    prove_pool_failure_and_eviction()
+    prove_paid_loop_neutrality(grammar)
     bound = RecordSpec(TokenizerInfo, (("version", "version"), ("size", "size")))._bind(
         grammar
     )
