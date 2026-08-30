@@ -11,21 +11,24 @@ protocol stand. Resolver-pair scope is the only open user decision. Production
 family-aware numbering, new operation-law rows, integrated memory, and custom
 paid-loop neutrality remain explicit implementation gates. Three shipped
 ambiguity defects are pinned. Production source has not started, and the
-corrected packet has not received a fresh external review.
+corrected packet has not received a fresh external review. `PROMPT_15.md`
+tasks the one missing composition proof and that review.
 
 ## Start here
 
 Read these in order before implementation:
 
 1. [`INDEX.md`](INDEX.md) — this inventory and authority map.
-2. [`context.md`](context.md) — current code, historical failure modes, and
+2. [`SUMMARY.md`](SUMMARY.md) — the plan at one-line, brief, and full-detail
+   resolutions.
+3. [`context.md`](context.md) — current code, historical failure modes, and
    evidence boundaries.
-3. [`goal.md`](goal.md) — final public behavior, acceptance, performance, and
+4. [`goal.md`](goal.md) — final public behavior, acceptance, performance, and
    deletion conditions.
-4. [`DESIGN.md`](DESIGN.md) — the coherent architecture and proof obligations.
-5. [`TODO.md`](TODO.md) — executable implementation order and phase gates.
-6. [`LEDGER.md`](LEDGER.md) — chronological state and corrections.
-7. [`TBD_after.md`](TBD_after.md) — explicitly deferred work; do not mix it
+5. [`DESIGN.md`](DESIGN.md) — the coherent architecture and proof obligations.
+6. [`TODO.md`](TODO.md) — executable implementation order and phase gates.
+7. [`LEDGER.md`](LEDGER.md) — chronological state and corrections.
+8. [`TBD_after.md`](TBD_after.md) — explicitly deferred work; do not mix it
    into this implementation.
 
 `TODO.md` is the implementation queue. `DESIGN.md` explains the choices; it is
@@ -36,6 +39,9 @@ before source work.
 
 The current packet is:
 
+- [`PROMPT_15.md`](PROMPT_15.md) — composes cached island-to-root semantic
+  continuations with exact interacting-family handling, then requires three
+  fresh sequential non-Fable reviews;
 - [`reports/PROTOTYPE_14.md`](reports/PROTOTYPE_14.md) — current cyclic-law,
   infinite-pair, tokenizer-contract, shipped-bug, and recognition/binding
   evidence, including the coordinator corrections;
@@ -112,6 +118,7 @@ newer reports do not explicitly supersede them.
 | [`PROMPT_14.md`](PROMPT_14.md) | Tasked the Prototype 14 investigations, bugfix baselines, and sequential adversarial reviews; Fable was forbidden. |
 | [`PROTOTYPE_14.md`](reports/PROTOTYPE_14.md) | Closes the cyclic and tokenizer planning gates, pins the third shipped defect, and proves the recognition/binding grammar split. |
 | [`P14_ADVERSARIAL.md`](reports/P14_ADVERSARIAL.md) | Records the sequential review loop and the coordinator corrections that invalidate its historical `READY` until fresh review. |
+| [`PROMPT_15.md`](PROMPT_15.md) | Tasks cached island-continuation composition, exact interacting choices, active-document folding, and three sequential non-Fable reviews. |
 
 ## Prototype inventory
 
