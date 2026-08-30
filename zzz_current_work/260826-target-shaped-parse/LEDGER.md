@@ -1,6 +1,46 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — Prototype 12 correction and shipped ambiguity scope (2026-08-30)
+## CURRENT SESSION — Prototype 14 correction and active-plan fold (2026-08-30)
+
+The coordinator reviewed the Prototype 14 code after the returned adversarial
+`READY` and found six substantive survivors: discarded real tokenizer pipeline
+payload, additive rather than multiplicative finite-image composition, a false
+rule/span occurrence-uniqueness claim, explicit forbidden `object` use and
+nested helpers, a stale quantified-nullable policy fork, and a production-ready
+heading broader than the evidence. The earlier verdict is historical; the
+corrected packet has not received a fresh external review.
+
+All five touched prototypes now execute under the effort constraints.
+`operation_slot_laws.py` proves finite `2 × 3 = 6` and `0 × 7 = 0`;
+`scc_resolver_pair.py` reports one baseline and two spliced same-rule/same-span
+occurrences and uses the explicit path as identity; `resolver_pair.py` has flat
+module helpers and pins the third shipped ambiguity defect;
+`tokenizer_validation_lanes.py` retains real fallback, unknown/fused-unknown,
+byte remap, and atomic added-token payload while distinguishing the
+tokenizer-format `special` flag; `nullable_quantifier_ambiguity.py` proves the
+recognition/binding grammar split.
+
+The nullable census is 0 sites in 15 canonical grammars and 71 compiler-made
+sites across six relaxed codegen grammars. The selected solution does not
+exclude a meaning-changing parser family: the parser recognizes the armed
+pre-relaxation grammar, while binding and synthesis keep relaxed for optional
+constructor fields. On all six exposed fixtures the current lifted relaxed
+grammar equals armed, Earley and the gated product match today's public model,
+and the forced PDA either matches or lawfully declines. Token-bound artefacts
+concretize armed separately. `lift_optional_nullables` and every canceling
+relax-then-lift parser route are deletion work. Authored optional nullable
+sites remain semantic families.
+
+The cyclic-production and tokenizer-three-lane planning gates are closed.
+Resolver scope is the only open user decision. Production operation rows,
+completion-time numbering, integrated ambiguity memory, PDA authored-family
+placement, custom paid-loop neutrality, and all parse-performance comparisons
+remain implementation gates. Three shipped ambiguity defects are now recorded
+and owned. No `src/`, test, harness, wiki, or `pyproject.toml` file changed.
+The corrected prototypes were rerun sequentially; no multithreaded benchmark
+ran.
+
+## PRIOR SESSION — Prototype 12 correction and shipped ambiguity scope (2026-08-30)
 
 Prototype 12 and all five changed prototypes were audited against
 `PROMPT_12.md`. Its final review gate was not met: four reviewers returned
@@ -13,7 +53,8 @@ The cyclic prototype no longer contains the arbitrary eight-round family
 census or two-lap infinite-family evaluation. Finite components iterate to a
 structural/value fixpoint; an injectively visible growing carrier decides
 ambiguity from the SCC classification. Real-operation lowering and a
-constructive complete resolver pair for an infinite SCC remain pre-§8 gates.
+constructive complete resolver pair for an infinite SCC remained pre-§8 gates
+at that session and are closed by the current Prototype 14 entry above.
 The acyclic prototype now exercises the selected existential per-slot rule:
 one real injective family path to a requested root is sufficient, and unrelated
 dropping parents do not invalidate its constructive witness.
@@ -24,8 +65,9 @@ for nullable atoms under `*`, `+`, `{0,2}`, `{1,2}`, groups, and directly empty
 rules. Exact counts are unaffected. `?` is also affected, but
 `lift_optional_nullables` erases its absent/present family and changes which
 model wins. The generic rule is a nullable atom under a quantifier admitting
-more than one count. The shipped GBNF, ABNF, and EBNF ground-truth grammars
-contain zero such sites.
+more than one count. The 15 canonical ground-truth grammars contain zero such
+sites; Prototype 14 later finds 71 after compiler relaxation and separates the
+recognition and binding moments.
 The same probe confirms that `ambiguity_points` changes from zero to two after
 deferred Leo expansion on one finished kernel, so complete readout owns that
 expansion.
@@ -48,7 +90,7 @@ corrected prototypes; focused executable verification is recorded in
 `PROTOTYPE_13.md`.
 
 `PROMPT_14.md` now tasks the four remaining investigable gates plus clean
-pre-fix baselines for both shipped defects. Its three internal adversarial
+pre-fix baselines for the first two shipped defects. Its three internal adversarial
 reviewers must run synchronously and sequentially as `general-purpose` agents;
 Fable subagents are explicitly prohibited and may not be substituted.
 
@@ -66,8 +108,9 @@ and `TODO.md`. Production one-flip ambiguity is unsound on interacting sources;
 per-node deduplicated meaning sets are the exact acyclic reference relation,
 subject only to compiler-proved choice-free injective/constant continuation
 shortcuts. Real carrier rows select cold comparison for recursive Python
-dictionaries and document-level normalization for `IrMap`. Complete resolver
-pairs and a zero-recognition one-island Earley splice are feasible. The flat
+dicts and document-level normalization for `IrMap`. Complete resolver pairs and
+a one-island Earley splice with no second document recognition are feasible;
+Prototype 14 later proves today's island derivations are not retained for free. The flat
 CSR/forward-star index has dirty-cone parity and measured retained cost. The
 custom binding core executes through source death, tier escape, eviction,
 unhashable constructors, identity-safe caching, and concurrent free-threaded

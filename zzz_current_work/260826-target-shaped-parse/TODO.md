@@ -43,9 +43,11 @@ and real-pool round. `PROTOTYPE_13.md` is the authoritative correction: it
 removes arbitrary cyclic caps, scopes quantified-nullable semantic families
 and Leo-complete readout, limits the control to an external fused-product
 protocol, and records the gates still open below. Resolver scope remains a
-separate user decision, and a final fresh reviewer has not returned `READY`.
-`PROMPT_14.md` tasks only the remaining investigable gates and the pre-fix
-parsing baselines; it does not authorize source implementation.
+separate user decision. `PROTOTYPE_14.md` and `P14_ADVERSARIAL.md`, as corrected
+by the coordinator rerun, close the investigable cyclic and tokenizer gates,
+pin the third shipped ambiguity defect, and separate the parser's recognition
+grammar from its constructor-binding grammar. A final fresh reviewer has not
+returned `READY`. Source implementation remains unauthorized.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -728,13 +730,20 @@ costs. No target is a post-reduction mapper.
       sequential is reported with CPU-per-byte and named attribution but is not
       gated against the same envelope. It still must submit no work and cannot
       conceal a base-parse regression.
-- [ ] **PLANNING REQUIRED BEFORE FINALIZING `from_indexes`:** inventory Qwen,
+- [x] **PLANNING REQUIRED BEFORE FINALIZING `from_indexes` — CLOSED:** inventory Qwen,
       GPT-2, SmolLM2, Gemma, and the small fixture for three currently accepted
       lanes: negative versus sparse nonnegative ordinals, merge dyads naming
       spellings outside the vocabulary, and pipeline byte-fallback/unknown
-      spellings outside the vocabulary. Select and justify the final pre-alpha
-      validation contract and its ordered verdicts. Existing reader
-      permissiveness is evidence, never authority.
+      spellings outside the vocabulary. `proto/tokenizer_validation_lanes.py`
+      accepts every nonnegative ordinal including sparse/above-count ids,
+      accepts merge parts outside vocab, preserves declared fallback, unknown,
+      fused-unknown, remap, and atomic added-token data, and refuses conflicts.
+      Its nine verdict lanes are ordered independently of document entry order.
+      The real-fixture candidate retains every lane-relevant pipeline field
+      presented to `IrTokenizer`. Format-level `special` flags remain distinct schema
+      inputs for the explicit reader-contract task below; `pipeline.specials`
+      names every atomic added token, including entries whose format flag is
+      false. Existing reader permissiveness is evidence, never authority.
 
 - [ ] In `src/lexic/api/json_tokenizer.py`, declare the tokenizer
       `TargetSchema` against the JSON semantic signature. Generic compile/parser
@@ -872,22 +881,31 @@ and the timed resident row is recorded inside its stop factor.
       island censuses iterate to a structural fixpoint. Numeric census and
       semantic-lap caps, the one-lap relation, and chart-wide Cartesian
       assignment enumeration are forbidden.
-- [ ] **PLANNING REQUIRED BEFORE §8 — CYCLIC PRODUCTION COMPLETION:** map every
-      real product operation and child slot to the closed algebra or refuse the
-      binding with words. For an infinite component and an actual `resolve=`,
-      construct two complete derivations from a certified base path plus one
-      explicit growing-SCC traversal; do not reinstate a numeric runtime lap
-      count. Differential the real tables against `proto/cyclic_meaning.py`.
+- [x] **PLANNING REQUIRED BEFORE §8 — CYCLIC PRODUCTION COMPLETION CLOSED:**
+      `proto/operation_slot_laws.py` maps every current completion operation and
+      child slot through an open type-keyed law table with a raising default;
+      independent finite argument images multiply and alternative images add.
+      `proto/scc_resolver_pair.py` constructs the engine's accepting derivation
+      plus one addressed growing closed-walk splice, trying every certified
+      carrier in `O(E × (V + E))` with no numeric lap count. Production still
+      implements the law rows, refuses undeclared future operations with words,
+      and differentials real tables against both prototypes.
 - [x] **PLANNING REQUIRED BEFORE §8 — SEMANTIC FAMILY UNIVERSE CLOSED:** a
       quantifier admitting more than one occurrence count over a nullable atom
       creates semantic count families. `*`, `+`, bounded variable counts,
       groups, empty rules, and `?` all reach complete target-meaning comparison.
-      They are not ordinary text-allocation splits. Remove or replace
-      `lift_optional_nullables`; it currently erases the `?` absent/present
-      difference and changes which model wins. The shipped GBNF, ABNF, and EBNF
-      ground-truth grammars have zero such sites, and
-      `proto/nullable_quantifier_ambiguity.py` pins PDA/Earley
-      parity on the wrong answer.
+      They are not ordinary text-allocation splits. Remove
+      `lift_optional_nullables`; it erases the `?` absent/present difference and
+      changes which model wins. The canonical ground-truth grammars have zero
+      such sites, while `@non-semantic` relaxation manufactures 71 across six
+      codegen grammars. Those 71 do not enter the family universe because the
+      parser recognizes the pre-relaxation armed grammar; the relaxed grammar
+      remains only the binding/synthesis shape for optional constructor fields.
+      Authored optionality remains in armed and is fully observable. For a
+      token-bound artefact, concretize armed into a distinct parse-ready moment
+      rather than reusing resolved-relaxed. The six exposed fixtures must keep
+      byte-identical models through both parser engines; the prototype proves
+      this separation with the current fold.
 - [x] **PLANNING REQUIRED BEFORE §8 — COMPLETE READOUT CLOSED:** ambiguity
       point discovery expands all deferred Leo provenance before walking the
       links. The same finished kernel currently reports `0` points before and
@@ -896,9 +914,11 @@ and the timed resident row is recorded inside its stop factor.
       complete-document trees are constructible and associated with their
       replayed meanings. A context-sensitive resolver can choose differently
       between island-local and complete pairs. On the one-island
-      Earley-delegated witness, occurrence replacement splices the retained
-      island derivation into a structurally identical complete pair with no
-      recognition. Refusal and equal-root paths perform no document reparse.
+      Earley-delegated witness, occurrence replacement constructs the two
+      island derivations and splices them into a structurally identical
+      complete pair with no second document recognition. Today's island gate
+      decides inline and discards its kernel, so this is new deferred state,
+      not free reuse. Refusal and equal-root paths perform no document reparse.
 - [ ] **DECISION REQUIRED BEFORE §8 — RESOLVER SCOPE:** choose today's
       island-local pair or complete-document pairs for both engines under the
       PDA/Earley public-equivalence invariant. If complete pairs are chosen,
@@ -918,11 +938,21 @@ and the timed resident row is recorded inside its stop factor.
       shipped `from_merges` and prototype `from_indexes` constructors,
       including duplicate spellings, ordinals, merge dyads, inverse/rank,
       special, pipeline, and segmenter lanes. Every ordered pair in the
-      20-document family agrees with eager construction. Final adoption still
-      waits for §7 to decide ordinal-domain, merge-reference, and pipeline
-      fallback/unknown constraints; the current-constructor proof cannot choose
-      the final contract.
+      21-document family agrees with eager construction. Prototype 14 closes
+      ordinal-domain, merge-reference, and pipeline fallback/unknown policy
+      against five real fixtures and proves that accepted lane-relevant
+      pipeline payloads survive final construction.
 
+- [ ] Give `CompileMoments` separate recognition and binding grammar moments.
+      Recognition starts from `moments.grammar.armed` and, when an encoding
+      registry is bound, concretizes that armed shape independently. Binding,
+      synthesis, field defaults, and emission continue to consume the relaxed
+      shape. Route `CompiledGrammar.parse`, PDA clone compilation, token scan,
+      parallel speculation, and every product table through the parse-ready
+      moment. Delete `lift_optional_nullables` and every call/documented
+      precondition around it; do not retain a relax-then-lift compatibility
+      path. Differential the six exposed ground-truth grammars and authored
+      nullable-quantifier witnesses before ambiguity-family work proceeds.
 - [ ] Replace any generated-model-only ambiguity hook with the product's typed
       root-meaning operation and equality law in
       `parsing/earley/kernel/forest/support/ambiguity.py` and its callers.

@@ -1,16 +1,17 @@
 # Current bug report — shipped ambiguity defects
 
-Two defects in the **currently shipped** engine, found on 2026-08-30 while
-building Prototype 12 witnesses. Neither is deferred work and neither is
-introduced by the target-shaped effort: both reproduce against the tip of
+Three defects in the **currently shipped** engine, found on 2026-08-30 while
+building the ambiguity witnesses. None is deferred work and none is
+introduced by the target-shaped effort: all three reproduce against the tip of
 `src/` with no prototype involved. They are recorded here rather than in
 `TBD_after.md` because that file is for work re-evaluated *after* the
 architecture lands, and these are wrong answers being returned today.
 
-Both were verified through the public API and the engine's own `build` /
+All three were verified through the public API and the engine's own machinery,
+with the first two additionally checked through `build` /
 `same_value` — not through a prototype meaning function. My first
-characterisation of each was wrong; what follows is the corrected, reproduced
-version.
+characterisation of the first two was wrong; what follows is the corrected,
+reproduced version.
 
 ---
 
@@ -105,11 +106,23 @@ occurrence counts, not two allocations of consumed text, and cannot inherit the
 ordinary split exemption. Whether it refuses still depends on the complete
 target meanings: a parent may discard the count difference.
 
-The shipped GBNF, ABNF, and EBNF ground-truth grammars contain zero
-quantified-nullable sites, so no corpus dependency argues for silently choosing
-one count. The correctness fix remains subject to the standing isolated
-parse-performance gate and the user's final approval of any measured
-regression.
+The 15 canonical ground-truth grammars contain zero such sites, but this is not
+the parser-stage census. `@non-semantic` relaxation manufactures 71 optional
+nullable `ws` references across six codegen grammars, and `ws` is a bound model
+field. Removing `lift_optional_nullables` while continuing to recognize that
+relaxed shape would therefore expose real alternative models throughout
+ordinary JSON.
+
+The clean implementation boundary is separate: recognize the pre-relaxation
+`armed` grammar, while retaining the relaxed grammar only for binding,
+synthesis, and constructor ergonomics. On all six exposed fixtures, the
+current lifted relaxed grammar equals the armed grammar; parsing armed with the
+existing relaxed fold returns the current public model through Earley and the
+gated product. A token-bound artefact needs a separately concretized armed
+parse moment. Authored quantified-nullable sites remain semantic families;
+only compiler-manufactured constructor optionality stays out of recognition.
+The correctness fix remains subject to the standing isolated parse-performance
+gate and the user's final approval of any measured regression.
 
 Owners: `parsing/earley/kernel/tables/splits.py` (`is_arm_choice`),
 `parsing/earley/kernel/forest/support/ambiguity.py` (`another_meaning`),
@@ -170,7 +183,47 @@ Owners: `parsing/earley/kernel/forest/support/ambiguity.py`,
 
 ---
 
+## BUG 3 — PDA islands and Earley expose different resolver pairs and refusals
+
+**Severity: public-contract divergence.** The same grammar, document, and
+resolver receive an island-rooted pair through the predictive route and a
+document-rooted pair through Earley. The refusal messages differ as well. This
+violates `Resolver`'s contract that both engines given the same pair answer the
+same way.
+
+### Reproduction
+
+`proto/resolver_pair.py` forces both shipped routes for `"(xy)z"` and asserts
+the uncontaminated baseline:
+
+```text
+pda     pair_root=t     refusal="parsing: island 't' derives the same text two ways that mean different things — supply a resolver to choose between them"
+earley  pair_root=root  refusal="parsing: ambiguous input — two derivations that mean different things; supply a resolver to choose between them"
+```
+
+Both routes preserve pair order: the first element is the derivation already
+chosen and the second is the first differing derivation. Scope is the defect.
+A context-sensitive resolver can observe which engine ran and can make the
+public result diverge.
+
+### Fix direction
+
+One resolver scope must govern both engines. The design proves that complete
+document pairs are constructible without retaining a shadow model on the
+unambiguous path, but the user has not yet ruled between complete-document and
+island-local scope. Complete-document scope requires occurrence-addressed
+multi-island splicing; the fused PDA path requires one cold Earley recognition
+only after root inequality and an actual resolver call. Refusal wording must be
+shared by the selected public gate.
+
+Owners: `parsing/pda/runtime/islands.py` (`island_parse`),
+`parsing/earley/engine.py`, and `parsing/products.py`, against the resolver
+contract in `parsing/earley/kernel/forest/support/ambiguity.py`.
+
+---
+
 ## Status
 
-Neither is fixed. No source file was touched: `git diff -- src tests` is empty.
-Both reproductions above run against the current tip with no prototype import.
+None is fixed. No source file was touched: `git diff -- src tests` is empty.
+All three reproductions above run against the current tip with no prototype in
+the shipped path.

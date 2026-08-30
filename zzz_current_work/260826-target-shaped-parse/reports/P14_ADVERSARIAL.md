@@ -1,5 +1,9 @@
 # P14 adversarial record
 
+**Current status:** the coordinator verification in §5 found substantive issues
+after the historical reviewer `READY`; they are corrected and rerun, but the
+corrected packet has not received a fresh external review.
+
 Every reviewer prompt, finding, fix, rerun and verdict for the Prototype 14
 round. Reviewers are fresh `general-purpose` internal agents, run
 **sequentially**, one at a time, read-only, with no benchmark, pool or
@@ -706,3 +710,52 @@ the resolver-pair scope (§2 of the deliverable) and the quantified-nullable
 family universe (§1.12). Four fold obligations must land in the active planning
 documents before §8 may be entered; they are listed in §3b of the deliverable,
 and one of them requires reopening a gate the packet currently marks closed.
+
+---
+
+## 5 — Coordinator verification after the returned verdict
+
+The returned `READY` did not survive a final code-and-claim comparison. Six
+substantive issues remained:
+
+1. the tokenizer fixture candidate discarded accepted fallback, unknown,
+   fused-unknown, remap, and atomic added-token pipeline data before claiming
+   constructor parity;
+2. independent finite argument-image bounds were added rather than multiplied;
+3. rule/span uniqueness was claimed for the SCC splice even though the splice
+   itself nests the same rule over the same span;
+4. one prototype used explicit `object` construction and annotations, and
+   another used nested helpers contrary to the effort constraints and style;
+5. the quantified-nullable analysis stopped at three bad policy options even
+   though the compile moments expose a cleaner recognition/binding separation;
+6. the report called mechanisms production-ready while those errors and
+   unimplemented production gates remained.
+
+All six are corrected in the executable artefacts and active report. The
+nullable prototype now proves that the current lifted relaxed grammar equals
+the pre-relaxation armed grammar on all six exposed fixtures, and that armed
+recognition with the existing relaxed fold returns today's public model.
+Consequently the semantic-family gate stays closed: recognition uses armed,
+binding/synthesis use relaxed, and `lift_optional_nullables` is deleted.
+
+The corrected sequential reruns were:
+
+```text
+uv run python proto/operation_slot_laws.py             exit 0
+  finite-composition  two_by_three_bound=6  empty_by_seven_bound=0
+uv run python proto/scc_resolver_pair.py               exit 0
+  baseline occurrences=1, spliced occurrences=2 on every cyclic witness
+uv run python proto/resolver_pair.py                   exit 0
+uv run python proto/tokenizer_validation_lanes.py      exit 0
+  21 witnesses, 441 ordered pairs; every lane-relevant pipeline field retained
+uv run python proto/tokenizer_validation_lanes.py --fixtures   exit 0
+  five fixtures; format special flags inventoried separately
+uv run python proto/nullable_quantifier_ambiguity.py   exit 0
+  six armed-grammar products match current public models
+```
+
+No two runs overlapped and none was multithreaded. The earlier `READY` remains
+historical reviewer output, not the packet's current verdict. The corrected
+packet has not received a fresh external review. Resolver scope is now the only
+open user decision; production-performance and integration checks remain
+implementation gates rather than planning questions.

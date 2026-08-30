@@ -290,8 +290,10 @@ injective in the carried slot. `PROTOTYPE_12.md`, corrected by
 `PROTOTYPE_13.md`, replaces the cyclic `2^k` one-lap fallback with a
 carrier-scoped zero-width-SCC classification and exact fixpoints over finitely
 representable components. The prototype has no numeric census or semantic-lap
-cap. Production still needs real-operation slot classification and a
-constructive complete-derivation pair for `resolve=` on an infinite component.
+cap. `PROTOTYPE_14.md` completes the plan with an open type-keyed operation/slot
+law table, multiplicative finite-image composition, and a constructive
+infinite-SCC pair: the engine's accepting derivation plus one addressed growing
+closed-walk splice, trying every carrier in `O(E × (V + E))`.
 
 The current ambiguity-point universe is itself incomplete. A quantifier which
 admits more than one count over a nullable atom creates same-span families with
@@ -300,8 +302,15 @@ and directly empty rules all produce different public models which both PDA
 and Earley silently choose between. `lift_optional_nullables` hides the same
 defect for `?` and changes which model wins. These are semantic count families,
 not ordinary text-allocation splits; they must reach complete target-meaning
-comparison. All shipped GBNF, ABNF, and EBNF ground-truth grammars currently
-contain zero such sites.
+comparison. The 15 canonical ground-truth grammars contain zero such sites,
+but `@non-semantic` relaxation manufactures 71 optional nullable `ws`
+references across six codegen grammars. The parser must recognize the armed
+pre-relaxation grammar while binding and synthesis retain the relaxed grammar
+for constructor ergonomics. On all six exposed fixtures the current lifted
+relaxed grammar equals armed, and parsing armed with the existing fold returns
+the current public model. A token-bound artefact concretizes armed separately.
+`lift_optional_nullables` and the canceling relax-then-lift parser route leave;
+authored optional nullable sites already in armed remain semantic families.
 
 `ambiguity_points` also undercounts a finished chart until deferred Leo
 provenance is expanded. A standalone precheck therefore owns complete Leo
@@ -310,10 +319,12 @@ readout; callers do not carry an implicit materialize-first precondition.
 The resolver prototype now constructs both real complete-document trees,
 associates them with their target meanings, and proves that island-local and
 complete-document resolvers can choose differently. On its one-island Earley
-witness, replacing the delegated payload leaf with the retained island
-derivation produces the complete pair without another recognition. This
-closes feasibility, not policy: the public implementation currently supplies
-an island-local pair, the complete-document scope has not been ruled, a
+witness, constructing both island derivations and replacing the delegated
+payload leaf produces the complete pair without another document recognition.
+Today's island gate decides inline and discards its kernel, so complete scope
+requires new deferred state rather than reusing a retained pair. This closes
+feasibility, not policy: the public implementation currently supplies an
+island-local pair, the complete-document scope has not been ruled, a
 multi-island splice needs occurrence identity, and the fused PDA path has no
 document `ParseTree` to splice.
 
@@ -326,12 +337,14 @@ decode, ranks, merges, and pipeline. Python's exact cold comparison remains
 cheaper than normalized document comparison at the measured medium scale.
 `IrMap`'s document-level key normalization matches its exercised carrier laws.
 The tokenizer document-level candidate now matches duplicate spelling,
-ordinal, merge-key, bijection, rank, special, pipeline, and segmenter outcomes
-for both currently specified constructors. Three final-contract questions
-remain: the ordinal domain, merge references into the vocabulary, and pipeline
-byte-fallback/unknown membership. The candidate is exact relative to its
-current constructor; it is not the final target contract until those lanes are
-selected from real tokenizer evidence.
+ordinal, merge-key, bijection, rank, atomic-added-token, pipeline, and
+segmenter outcomes for both currently specified constructors. Prototype 14
+closes the three final-contract questions from five real fixtures: token ids
+are any unique nonnegative integers; merge parts need not be vocabulary
+spellings; declared fallback, unknown, fused-unknown, byte remap, and atomic
+added-token payloads survive final construction even when vocabulary coverage
+is partial. The tokenizer-format `special` flag remains a distinct schema
+input; the internal `pipeline.specials` field contains every atomic added token.
 
 The dict-of-sets dependency index remains rejected at roughly 1.9 KiB per
 character. A flat CSR/forward-star candidate retains 98–112 B per character in

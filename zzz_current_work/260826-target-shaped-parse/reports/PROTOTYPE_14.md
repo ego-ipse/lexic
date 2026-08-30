@@ -1,5 +1,10 @@
 # Prototype 14 — real operation laws, a constructive infinite-SCC pair, resolver scope, the tokenizer's last three lanes, and the bugfix baselines
 
+**Current status:** coordinator-corrected after the returned adversarial
+`READY`; every corrected witness below reruns, active documents are folded, and
+the packet now awaits fresh external review. Resolver scope is the only open
+user decision.
+
 The final investigation round before implementation review. No production
 source, test, harness or wiki file was changed — `git status --short -- src
 tests pyproject.toml .wiki` is empty and `git diff --stat -- src tests
@@ -15,11 +20,11 @@ Three new prototypes, two revised ones:
 | `proto/scc_resolver_pair.py` | new — constructs two complete derivations with different requested-root meanings for an infinite zero-width component |
 | `proto/tokenizer_validation_lanes.py` | new — inventories all five fixtures for the three open lanes and executes the recommended contract against an independent oracle |
 | `proto/resolver_pair.py` | revised — engine pair scope, multi-island and nested occurrence identity, the no-shadow question, per-scope cost |
-| `proto/nullable_quantifier_ambiguity.py` | revised — pinned pre-fix baselines, a strengthened Leo readout proof, alternating timings, and the post-fix differential specification |
+| `proto/nullable_quantifier_ambiguity.py` | revised — pinned pre-fix baselines, complete Leo readout, and the executed separation of recognition from constructor binding |
 
 ---
 
-## 1 — Facts conclusively established by real source and fixture evidence
+## 1 — Established evidence and selected mechanisms
 
 ### 1.1 Every shipped operation declaration reaches a class or a named refusal
 
@@ -164,6 +169,16 @@ Four results here are load-bearing and were not obvious:
   Where an operation raises it produces no value, which is the `finite(0)`
   bottom `IrRaise` already names, and an absent value cannot make a requested
   root mean two things. The law is stated over the operation's domain.
+
+Finite-image composition is multiplicative across independent arguments and
+additive across alternatives. Summing independent argument bounds would
+under-count their Cartesian product. The executable law pins both the ordinary
+and empty-image cases:
+
+```text
+finite-composition  two_by_three_bound=6  empty_by_seven_bound=0
+                    independent argument images multiply; branch alternatives add
+```
 
 ### 1.3 The slots that can actually sit in a zero-width component
 
@@ -336,7 +351,9 @@ uv run python proto/scc_resolver_pair.py
 
 pair  unary-unit-cycle  carrier=a  carriers_tried=1  walk_edges=2
       walk=['a->b@0', 'b->a@0']  occurrence_path=[0]
-      occurrences_of_rule_and_span=1  first_is_engine_derivation=True
+      baseline_occurrences_of_rule_and_span=1
+      spliced_occurrences_of_rule_and_span=2
+      first_is_engine_derivation=True
       changed_positions=1  meanings_differ=True  both_in_oracle=True
       oracle_set=4  deterministic_repeat=True  cpu=0.000350
 pair  two-key-multi-node-cycle  carrier=s  carriers_tried=1  walk_edges=3
@@ -353,7 +370,8 @@ pair  grow-edge-on-side-cycle  carrier=x  carriers_tried=1  walk_edges=4
       walk=['x->y@0', 'y->z@0', 'z->y@0', 'y->x@0']  occurrence_path=[0]
       first_is_engine_derivation=True  changed_positions=1  meanings_differ=True
 pair  nested-island-source  carrier=c  walk_edges=2  delegated_leaves=1
-      occurrences_of_rule_and_span=1  changed_positions=1  meanings_differ=True
+      baseline_occurrences_of_rule_and_span=1
+      changed_positions=1  meanings_differ=True
 pair  deep-stack-safe  chars=2001  carrier=c  walk_edges=2  changed_positions=1
       meanings_differ=True  cpu=0.126042
 pair  deep-stack-safe  chars=8001  carrier=c  walk_edges=2  changed_positions=1
@@ -384,12 +402,13 @@ answer. There is no lap count, no depth ladder, and nothing parameterised by a
 number a reviewer could move.
 
 **Occurrence identity is addressed and measured.** A completed handle encodes
-its own span and a derivation's sibling spans are disjoint, so a rule over a
-fixed span stands at at most one position; `occurrences_of` returns them all and
-every witness reports `occurrences_of_rule_and_span=1` rather than assuming it.
-`difference_count` short-circuits on structural equality, so the splice's own
-path-copied spine is not miscounted — `changed_positions=1` is the measurement
-that exactly one position differs.
+its own span and sibling spans are disjoint, but a zero-width cycle can nest the
+same rule over the same span. The baseline has one such occurrence and the
+spliced tree has two on every cyclic witness. Rule/span uniqueness is therefore
+false; the explicit path is the identity of the splice. `difference_count`
+short-circuits on structural equality, so the splice's path-copied spine is not
+miscounted — `changed_positions=1` measures one addressed replacement, not one
+rule/span occurrence.
 
 **Independent validation.** Both trees' yields equal the document; every node
 instantiates a real arm of the normalized grammar, character-class membership
@@ -476,24 +495,12 @@ third-defect-baseline
   messages_differ=True   pair_roots=pda=t earley=root
 ```
 
-`CURRENT_BUG_REPORT.md` records two defects; this is a third, established this
-round on the shipped engines with no prototype in the path. It is pinned as an
-asserted baseline in `resolver_pair.THIRD_DEFECT_BASELINE` so the source phase
-has an uncontaminated reference. This report does not edit active planning
-documents, so the coordinator folds it in. That is a body edit, not a counter
-edit: `CURRENT_BUG_REPORT.md` is structured one `## BUG N` section per defect,
-so this needs its own **`## BUG 3`**. Alongside it, every passage that counts
-two has to change —
-`CURRENT_BUG_REPORT.md`'s opening "Two defects … Neither is deferred work and
-neither is introduced" and its "**Both** were verified through the public
-API"; its closing "Neither is fixed" and "**Both** reproductions above run
-against the current tip"; `INDEX.md`'s authority map, which calls that file
-"the two shipped ambiguity defects"; `INDEX.md`'s history-table row "scopes
-**both** shipped ambiguity defects"; and `LEDGER.md`'s "pre-fix baselines for
-**both** shipped defects". The defect also needs an owner — `parsing/pda/runtime/islands.py`
-(`island_parse`, which decides island-locally), `parsing/earley/engine.py`
-(the document gate) and `parsing/products.py` (which emits the byte-identical
-document-gate refusal), against `ambiguity.Resolver`'s own declared contract.
+This is a third defect, established on the shipped engines with no prototype in
+the path. It is pinned as an asserted baseline in
+`resolver_pair.THIRD_DEFECT_BASELINE` so the source phase has an uncontaminated
+reference. `CURRENT_BUG_REPORT.md` now owns the full reproduction and names
+`parsing/pda/runtime/islands.py`, `parsing/earley/engine.py`, and
+`parsing/products.py` against `ambiguity.Resolver`'s declared contract.
 
 ### 1.9 Occurrence identity across islands and nesting
 
@@ -573,25 +580,11 @@ here:
   which is a property of the two scopes and not evidence about how often a
   shipped grammar does it.
 
-The zero-extra-recognition half of the earlier claim still holds; the
-"retained / free re-use" half does not, and it is the half the scope
-recommendation's cost line rested on. Five active documents still carry the
-superseded framing, for the coordinator to fold:
-
-| Document | Passage |
-|---|---|
-| `TODO.md` | the ticked `[x] PLANNING REQUIRED BEFORE §8 — RESOLVER MECHANISM PART CLOSED` gate — "occurrence replacement splices the **retained island derivation** into a structurally identical complete pair with no recognition" |
-| `DESIGN.md` | §8 — "replacing the payload leaf with the **retained** island derivation creates the complete pair without another recognition" |
-| `context.md` | §"Earley and ambiguity" — "replacing the delegated payload leaf with the retained island derivation produces the complete pair without another recognition" |
-| `goal.md` | "an Earley-delegated one-island tree can splice the **retained** island derivation without another recognition" |
-| `LEDGER.md` | "Complete resolver pairs and a **zero-recognition one-island Earley splice** are feasible" — the same superseded claim, in wording neither "retained" nor "another recognition" matches, which is why a phrase search missed it |
-
-This list was rebuilt by searching for the CLAIM rather than the phrase. Two
-audits reported the earlier, phrase-derived list complete; it was not, and the
-fifth carrier surfaced only once the search stopped keying on wording. The
-equal-root passages (`TODO.md`'s single-seed gate, `DESIGN.md`'s "equal root
-meanings keep the predictive result") are deliberately NOT on this list: that
-half still holds.
+The zero-extra-document-recognition half of the earlier claim still holds; the
+"retained / free re-use" half does not. The active documents now say that
+complete scope needs a deferred decision and per-occurrence derivation state
+because today's island gate decides inline and discards its kernel. Equal-root
+handling remains unchanged and carries no unconditional reparse.
 
 The cold recognition a document-scoped PDA pair costs is **linear in the
 document** — the very cost PDA-first composition exists to avoid — so it is
@@ -640,19 +633,21 @@ the vocabulary:
 
 **Lane 3 — pipeline spellings.**
 
-| fixture | byte_fallback | fallback in vocab | unk | unk in vocab | fuse_unk | added | added absent from `model.vocab` | added id conflicts | remap chars absent |
-|---|:--|---:|---|:--|:--|---:|---:|---:|---:|
-| hf_bpe | no | 0/256 | — | — | no | 2 | 0 | 0 | 253/256 |
-| gpt2 | no | 0/256 | — | — | no | 1 | 0 | 0 | 0/256 |
-| smollm2 | no | 0/256 | — | — | no | 17 | 0 | 0 | 21/256 |
-| qwen3 | no | 0/256 | — | — | no | 26 | **26** | 0 | 0/256 |
-| gemma4 | **yes** | **256/256** | `<unk>` | yes | **yes** | 6415 | **1** | 0 | 3/256 |
+| fixture | byte_fallback | fallback in vocab | unk | unk in vocab | fuse_unk | added | format special true/false | added absent from `model.vocab` | added id conflicts | remap chars absent |
+|---|:--|---:|---|:--|:--|---:|---:|---:|---:|---:|
+| hf_bpe | no | 0/256 | — | — | no | 2 | 2 / 0 | 0 | 0 | 253/256 |
+| gpt2 | no | 0/256 | — | — | no | 1 | 1 / 0 | 0 | 0 | 0/256 |
+| smollm2 | no | 0/256 | — | — | no | 17 | 17 / 0 | 0 | 0 | 21/256 |
+| qwen3 | no | 0/256 | — | — | no | 26 | **14 / 12** | **26** | 0 | 0/256 |
+| gemma4 | **yes** | **256/256** | `<unk>` | yes | **yes** | 6415 | **9 / 6406** | **1** | 0 | 3/256 |
 
 Three facts decide the contract:
 
-- Qwen lists **all 26** of its specials only under `added_tokens`; an index
-  built from `model.vocab` alone cannot spell them, so a
-  special-membership check against `model.vocab` would refuse the file.
+- Qwen lists all 26 atomic added tokens outside `model.vocab`; 14 carry the
+  tokenizer-format `special` flag and 12 do not. The shipped
+  `IrTokenPipeline.specials` field means atomic added-token matching and contains
+  all 26, so it must not be confused with the format flag. A membership check
+  against `model.vocab` before the added-token merge would refuse the file.
 - Gemma is the only fixture declaring `byte_fallback`, and it covers all 256
   spellings. The others' `0/256` is not a gap: they do not declare the table.
 - SmolLM2 (21), gemma4 (3) and hf_bpe (253) have byte-level working-alphabet
@@ -730,43 +725,37 @@ formulation**, and the un-exempted point population grows linearly with the
 document while `another_meaning` pays a whole-handle tree build and fold per
 family at each point it does not skip.
 
-**This reopens a gate the packet marks closed, and narrows the escape route.**
-`TODO.md`'s `PLANNING REQUIRED BEFORE §8 — SEMANTIC FAMILY UNIVERSE` gate is
-ticked `[x]`, and its own text rests on the falsified premise. Worse, the
-obvious way out — excluding directive-created optionality from the count-family
-universe — is already forbidden: `goal.md` rules that "Every family capable of
-changing the requested target meaning enters this relation even when
-normalization generated it", and these 71 families are exactly
-normalization-generated and do change the model. So the remaining options are
-narrower than "either/or":
+**The clean boundary is recognition versus constructor binding.** The 71 sites
+are created by `relax_non_semantic` to make nullable noise fields optional in
+generated constructors. They need not be—and must not be—the grammar the parser
+recognizes. `GrammarMoments.armed` is the post-hoist, pre-relaxation grammar.
+Across all six exposed fixtures, today's lifted relaxed parser grammar equals
+armed exactly. The prototype parses armed with the existing relaxed fold and
+generated classes:
 
-1. keep a value-preserving normalization for exactly the directive-created
-   relaxation — which is what `lift_optional_nullables` does today, except that
-   it makes *present* win rather than preserving both, so it would have to be
-   replaced by something that genuinely preserves the value; or
-2. accept that the shipped JSON formulations become ambiguous under the fix and
-   require a resolver, which changes what those grammars mean to every caller;
-   or
-3. rule that `goal.md`'s "even when normalization generated it" does not extend
-   to a directive-driven `min=0` relaxation — a change to a settled decision,
-   and the user's to make.
+```text
+non-semantic-parse-shape  json.gbnf        relaxed_differing_points=14
+  armed_quantified_nullable_sites=0  current_lifted_grammar_equals_armed=True
+  earley_matches_current=True  predictive_route=matched current
+  gated_product_matches_current=True
+non-semantic-parse-shape  json.abnf        relaxed_differing_points=14  ... same
+non-semantic-parse-shape  json.ebnf        relaxed_differing_points=14  ... same
+non-semantic-parse-shape  json_ws.gbnf     relaxed_differing_points=9
+  earley_matches_current=True  predictive_route=declined to gated completion
+  gated_product_matches_current=True
+non-semantic-parse-shape  json_arr.gbnf    relaxed_differing_points=4
+  earley_matches_current=True  predictive_route=declined to gated completion
+  gated_product_matches_current=True
+non-semantic-parse-shape  arithmetic.gbnf relaxed_differing_points=3  ... same
+```
 
-**USER DECISION REQUIRED**, and the `[x]` gate must be reopened before §8.
-
-**The falsified "zero sites" statement survives in seven passages across five
-active documents.**
-This report does not edit active planning documents, so the coordinator folds
-the correction into all seven passages below:
-
-| Document | Passage |
-|---|---|
-| `CURRENT_BUG_REPORT.md` | §"Established scope" — "contain zero quantified-nullable sites, so no corpus dependency argues for silently choosing one count" |
-| `TODO.md` | the `[x] PLANNING REQUIRED BEFORE §8 — SEMANTIC FAMILY UNIVERSE CLOSED` gate — "have zero such sites"; **this one also has to lose its tick** |
-| `context.md` | §"Earley and ambiguity" — "All shipped GBNF, ABNF, and EBNF ground-truth grammars currently contain zero such sites" |
-| `LEDGER.md` | the "Prototype 12 correction" section, carrying the same count |
-| `INDEX.md` | the current-state paragraph — "The quantified-nullable semantic family and Leo-complete readout plans are now closed"; the family half is reopened here |
-| `INDEX.md` | the packet list — `PROTOTYPE_13.md` is called "authoritative … plus the shipped quantified-nullable and Leo-readout scope". That scope is exactly what §1.12 falsifies, so folding the rows above while leaving this line enthrones the falsified source as the packet's authority on this very question |
-| `INDEX.md` | the history table's `PROTOTYPE_13.md` row — "scopes both shipped ambiguity defects" — now wrong in both its scope and its count (§1.8b) |
+The selected design therefore deletes `lift_optional_nullables`, gives the
+artefact a distinct parse-ready armed grammar, and keeps relaxed solely as the
+binding/synthesis shape. A token-bound artefact concretizes armed independently
+instead of using the resolved-relaxed moment. Authored nullable optionality is
+already present in armed, so it still enters the semantic-family universe. The
+gate remains closed under its original root-meaning rule; compiler-manufactured
+constructor optionality is no longer mistaken for an authored parse family.
 
 The `BASELINE` table in that prototype now **asserts** the exact pre-fix
 `(public, pda, earley, raw_earley)` answer of every case, so the source phase
@@ -874,7 +863,7 @@ The user rules.
 
 ---
 
-## 3 — Mechanisms ready for production implementation
+## 3 — Validated mechanisms and remaining production gates
 
 1. **Real-operation slot classification.** One open `IrTypeMap` of declared
    laws, composed over the authored expression trees, with a raising default
@@ -898,8 +887,8 @@ The user rules.
    5. duplicate merge dyad — *streaming*;
    6. encode/decode bijection — *root cross-field*;
    7. contiguous ranks `0 .. n-1` — *root cross-field*;
-   8. every pipeline special is a vocabulary spelling, checked **after** the
-      added-token merge — *root cross-field*;
+   8. every atomic pipeline spelling is in the merged vocabulary, checked
+      **after** the added-token merge — *root cross-field*;
    9. segmenter consistency with the rank index — *root cross-field*.
 
    Every streaming-decidable lane precedes every root cross-field one. That is
@@ -996,13 +985,26 @@ The user rules.
                      specials=26     all_nine_lanes_verdict=None  cpu=1.356092
    fixture-contract  gemma4   merged_entries=262145  merge_dyads=514906
                      specials=6415   all_nine_lanes_verdict=None  cpu=3.920601
+   fixture-pipeline  hf_bpe   atomic_added_tokens=2     byte_fallback_entries=0
+                     unknown=''      fuse_unknown=False remap_entries=256
+   fixture-pipeline  gpt2     atomic_added_tokens=1     byte_fallback_entries=0
+                     unknown=''      fuse_unknown=False remap_entries=256
+   fixture-pipeline  smollm2  atomic_added_tokens=17    byte_fallback_entries=0
+                     unknown=''      fuse_unknown=False remap_entries=256
+   fixture-pipeline  qwen3    atomic_added_tokens=26    byte_fallback_entries=0
+                     unknown=''      fuse_unknown=False remap_entries=256
+   fixture-pipeline  gemma4   atomic_added_tokens=6415  byte_fallback_entries=256
+                     unknown='<unk>' fuse_unknown=True  remap_entries=0
    ```
 
    All **nine** lanes run on every real fixture's merged indexes — the
    document-level twin, the independently written oracle and the eager
    construction all agreeing — not three of nine read off the inventory. Qwen's
-   26 specials and Gemma's 6415 go through `merged_encode` at full scale, which
-   is where that mechanism actually has to work.
+   26 and Gemma's 6415 atomic added tokens go through `merged_encode` at full
+   scale, which is where that mechanism actually has to work. Candidate
+   construction also retains the real fallback, unknown/fused-unknown, remap,
+   and atomic-token lane payload exactly; the contract does not validate a
+   hollow replacement tuple.
 
    The document-level twin is held against two things, not one. Per witness it
    must equal what the CONSTRUCTOR really decided (`None`, or its refusal
@@ -1018,12 +1020,11 @@ The user rules.
 5. **BUG 2 — complete Leo readout** in `ambiguity_points`, expanding every
    deferred key before walking the links. Its cost is in §4, not here.
 
-**Deliberately NOT listed as ready: the quantified-nullable classification
-(BUG 1).** Its Earley-side placement is understood (below), but two of its
-preconditions are open — the family universe is a `USER DECISION REQUIRED`
-(§1.12) and its PDA-side placement is unpriced (§4) — so it belongs to the
-blocked column, not this one. The placement is recorded here because it is
-settled *given* those two answers:
+6. **BUG 1 — recognition/binding separation plus authored-family
+   classification.** Recognition uses the armed grammar and binding/synthesis
+   keep the relaxed grammar; `lift_optional_nullables` leaves. The Earley-side
+   authored-family placement is understood, while the PDA-side implementation
+   and its production performance remain §4 gates:
    - the quantified-nullable family classification belongs in `code_choices`
      (`parsing/earley/kernel/tables/records.py`), which already derives
      `code → authored choice identity` at **table-compilation** time: a
@@ -1038,21 +1039,13 @@ settled *given* those two answers:
 
 ---
 
-## 3b — Fold obligations this round cannot discharge itself
+## 3b — Active-document fold
 
-`PROMPT_14.md` forbids editing the active planning documents, so the following
-corrections are handed over rather than made. Each is a fact this round
-established against the shipped tree; leaving any of them unfolded would let
-§8 proceed on a premise the evidence disproved.
-
-| Obligation | Where | Why |
-|---|---|---|
-| The "zero quantified-nullable sites" claim is false at the codegen stage (71 sites, 6 grammars) — seven passages, including the two `INDEX.md` lines that make `PROTOTYPE_13.md` authoritative on that scope | `CURRENT_BUG_REPORT.md`, `TODO.md`, `context.md`, `LEDGER.md`, `INDEX.md` (×3) | §1.12 |
-| The `[x] PLANNING REQUIRED BEFORE §8 — SEMANTIC FAMILY UNIVERSE CLOSED` gate must be **reopened** | `TODO.md` | its text rests on the falsified premise, and the remaining options are a `USER DECISION REQUIRED` (§1.12) |
-| A third shipped defect (engine pair scope + refusal message) must be recorded, counted and owned — a new `## BUG 3` section plus every passage counting two | `CURRENT_BUG_REPORT.md` (opening, both "Both …" sentences, closing), `INDEX.md` (authority map and history table), `LEDGER.md` ("both shipped defects") | §1.8b |
-| "the retained island derivation … without another recognition" is only half true — the recognition count holds, the free re-use does not | `TODO.md` (inside the ticked `[x] RESOLVER MECHANISM PART CLOSED` gate), `DESIGN.md`, `context.md`, `goal.md`, `LEDGER.md` ("zero-recognition one-island Earley splice") | §1.10 |
-| The tokenizer lane order was changed to put every streaming-decidable lane before every root cross-field one, matching `TODO.md`'s pinned failure order | none — the change is in this round's prototype; the row is here so the coordinator sees the alignment was deliberate | §3.4 |
-| The packet inventory and the chronology do not yet list `PROTOTYPE_14.md`, `P14_ADVERSARIAL.md`, the three new prototypes, or `resolver_pair.py`'s widened scope (it now pins the third defect's baseline) | `INDEX.md`, `LEDGER.md` | routine folding |
+The coordinator folded the corrected census, third shipped defect,
+recognition/binding split, island-state qualification, tokenizer contract, and
+packet inventory into the active documents. The semantic-family gate remains
+closed under the now-executed parse-ready-grammar mechanism. Resolver scope is
+the only remaining user decision.
 
 ## 4 — Implementation-time proofs still required
 
@@ -1125,14 +1118,16 @@ Recorded executably in `nullable_quantifier_ambiguity.py`:
 - `exact-two` must still return `Root(Pad('x'), List((Gap(), Gap())))`;
 - with a resolver, all three routes must return its choice and be handed the
   same pair under whichever scope §2 rules;
-- `optional-ref` must agree between the raw and lifted routes — today they
-  return `List(Gap())` and `List()`, so `lift_optional_nullables` is removed or
-  replaced, never kept beside the fix;
+- `optional-ref` must agree between the authored parser grammar and every
+  engine route — today relaxed and lifted parsing return `List()` and
+  `List(Gap())`, so both `lift_optional_nullables` and the optional parser shape
+  leave;
 - the six exposed ground-truth grammars (`arithmetic.gbnf`, `json.gbnf`,
   `json.abnf`, `json.ebnf`, `json_arr.gbnf`, `json_ws.gbnf`) must still parse
-  ordinary documents. Today they do only because `lift_optional_nullables`
-  hides the family; with the lift removed and no further condition they refuse.
-  The other nine must reparse to byte-identical models and round-trip;
+  ordinary documents through the armed parse-ready grammar while generated
+  constructors keep the relaxed shape. The executed proof matches today's
+  public model on all six; the other nine must reparse to byte-identical models
+  and round-trip;
 - `ambiguity_points` returns 2 on the Leo witness with no intervening tree
   build, and the same 2 afterwards;
 - `cyclic_meaning`'s witnesses keep their verdicts — the quantified-nullable
@@ -1172,9 +1167,9 @@ gives the final go-ahead after isolated attribution, even for a bugfix.
 | Quoting the document-scoped PDA pair's cold cost at one document size | that recognition is linear in the document, and the user is ruling on a public contract |
 | Requiring dense `0 .. n-1` tokenizer ordinals | no fixture declares `vocab_size`; density is an observation about five files, not a format law, and refusing sparsity would refuse a legal file for no gain |
 | Requiring merge parts to be in the vocabulary | zero occurrences in five fixtures, and the ranked-merge rewrite never needs the parts to be tokens |
-| Checking specials against `model.vocab` | Qwen's 26 specials live only in `added_tokens`; the check runs after the merge |
+| Checking atomic added-token spellings against `model.vocab` | Qwen's 26 atomic additions live only in `added_tokens`; the check runs after the merge, independently of their format-level `special` flags |
 | Requiring byte-fallback or remap coverage | gemma4 is the only fixture declaring fallback; remap gaps are the documented `carries()` case in three of five fixtures |
-| Retaining a shadow model or tree for a document-scope pair | unnecessary — §1.10 shows the pair is built post hoc from state already held |
+| Retaining a shadow model or tree on the unambiguous path | unnecessary — §1.10 builds the pair only after inequality; complete scope does require new deferred per-occurrence state because today's island decides and discards inline |
 
 ---
 
@@ -1200,14 +1195,13 @@ uv run isort        <the five files>   All sorted
 uv run ruff check   <the five files>   All checks passed
 uv run pyright      <the five files>   0 errors, 0 warnings
 
-git status --short -- zzz_current_work   two revised .py, one ruff-cache entry
+git status --short -- src tests pyproject.toml .wiki   empty
 ```
 
-**Working-tree footprint, unscoped.** Two revised prototypes
-(`nullable_quantifier_ambiguity.py`, `resolver_pair.py`), three new untracked
-prototypes, this report and the adversarial record. Two intermediate actions
-touched files this effort does not own, and both were undone rather than
-described:
+**Working-tree footprint, unscoped.** The current coordinator correction touches
+the five Prototype 14 Python files and the active effort documents only. Two
+earlier intermediate actions touched files outside that set, and both were
+undone rather than described:
 
 - a `ruff format` over the whole `proto/` directory reflowed 28 untouched
   prototypes — **reverted with `git checkout`**, because a formatting change to
@@ -1218,11 +1212,10 @@ described:
   and all 22 have been **restored with `git checkout`**. `git status --
   proto/__pycache__` is now empty.
 
-The tracked `proto/.ruff_cache/` entry is modified because every `ruff`
-invocation writes to it — the investigator's and every reviewer's alike. An
-earlier `git status -- proto/*.py` line is deliberately replaced above: a glob
-over `.py` cannot see a deleted `.pyc`, which is precisely how the deletion
-went unnoticed.
+The coordinator rerun uses `ruff --no-cache`, and neither `.ruff_cache/` nor
+`__pycache__/` is part of the current diff. An earlier status glob over `.py`
+could not see a deleted `.pyc`, which is precisely how the deletion went
+unnoticed during the investigator round.
 
 `keyed_product_rows.py` is rerun because `tokenizer_validation_lanes.py`
 imports its `Indexes` record and its duplicate-detection helpers; nothing in it

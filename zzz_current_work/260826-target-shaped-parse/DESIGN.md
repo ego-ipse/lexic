@@ -5,10 +5,11 @@ The later prototype rounds establish the exact acyclic meaning relation,
 carrier-scoped cyclic refusal decision, current tokenizer relation, retained
 flat dependency layout, real trace-frame shape, fused control protocol, and
 custom binding through a real retained pool. The remaining pre-implementation
-decisions are real-operation cyclic lowering, construction of an infinite-SCC
-resolver pair, resolver scope, and the tokenizer's final three validation
-lanes. A final fresh reviewer has not returned `READY`. Production source has
-not started. This document is not an implementation checklist.
+decision is resolver scope. Real-operation cyclic lowering, the constructive
+infinite-SCC pair, the tokenizer's final three validation lanes, and the
+recognition/binding grammar split are established by Prototype 14 and its
+coordinator rerun. A final fresh reviewer has not returned `READY`. Production
+source has not started. This document is not an implementation checklist.
 
 ## Decision
 
@@ -223,6 +224,24 @@ all known layers; execution constructs only the final requested codomain.
 A morphism declares five things. A reduction morphism names a reducer semantic
 signature; a grammar morphism names a compatible grammar/binding shape instead.
 
+### Recognition and binding grammar moments
+
+The grammar a parser recognizes and the grammar generated constructors expose
+are distinct compile products. Recognition starts at the post-hoist `armed`
+moment, before `relax_non_semantic`; a token-bound artefact concretizes that
+armed shape into its own parse-ready moment. Binding, synthesis, field defaults,
+and authored emission retain the relaxed moment, where nullable non-semantic
+references provide optional constructor fields.
+
+This is not two parser paths. Every parser, PDA clone, token scanner, parallel
+plan, and product table consumes the one parse-ready grammar. The relaxed shape
+never reaches recognition. `lift_optional_nullables` and its relax-then-lift
+call sites are deleted. On the six exposed ground-truth fixtures the current
+lifted relaxed grammar equals armed, and parsing armed with the existing
+relaxed fold returns the current public model; the split therefore removes a
+canceling transform instead of changing accepted input. Authored optional
+nullable atoms already present in armed remain semantic count families.
+
 ### Source signature and schema
 
 A `ReductionMorphism` names the lower `SemanticSignature` it accepts and, when
@@ -320,18 +339,25 @@ SCCs under four per-slot laws: constant, identity, declared-finite image, and
 proper-subvalue growth. Safe components reach a monotone exact-set fixpoint;
 an invisible growing carrier is opaque, an injectively visible carrier proves
 root ambiguity, and the remaining unrepresentable class refuses at binding.
-The mechanism contains no numeric census or semantic-lap cap. Production must
-still lower real operations to those laws and construct two certified complete
-derivations when an infinite component reaches `resolve=`.
+The mechanism contains no numeric census or semantic-lap cap. Independent
+finite argument images compose by multiplication; alternative operation images
+compose by addition. Production lowers operations through an open type-keyed
+law table whose default refuses the operation and slot with words. An infinite
+component reaching `resolve=` uses the accepting derivation plus one addressed
+growing closed-walk splice, trying every certified carrier. The construction is
+`O(E × (V + E))` and has no runtime lap parameter.
 
 The family universe is semantic, not synonymous with authored arm identity. A
 quantifier which admits more than one occurrence count over a nullable atom
 creates same-span count families. They are not ordinary extent splits and must
-reach the target meaning relation. The optional-nullable lift is removed or
-replaced because it erases an absent/present model difference. Ordinary
-same-production text allocation retains the leftmost split rule. A complete
-ambiguity readout expands deferred Leo provenance before reporting points; no
-caller relies on prior tree materialization.
+reach the target meaning relation. The optional-nullable lift is deleted
+because it erases an absent/present model difference. Compiler-created
+constructor optionality is not a parser family: recognition uses the armed
+grammar before `@non-semantic` relaxation, while binding and synthesis use the
+relaxed grammar. Authored optionality remains in armed and stays observable.
+Ordinary same-production text allocation retains the leftmost split rule. A
+complete ambiguity readout expands deferred Leo provenance before reporting
+points; no caller relies on prior tree materialization.
 
 The dependency index is proportional to the default derivation and is built
 once only after a real semantic-choice family is discovered. It is not
@@ -541,9 +567,10 @@ The exception vocabulary is declared here, once, against the existing
   verdict value. The verdict value record is spelled `SemanticVerdict`;
   `compile/verdict.py` already owns the bare name `Verdict` for an unrelated
   concept, so neither the exception nor the record reuses it.
-- **`IrTokenizer.from_indexes` validation** — cross-index bijection,
-  contiguous ranks, special membership — raises `FieldValidationError`, the
-  existing hand-constructed-record contract family.
+- **`IrTokenizer.from_indexes` validation** — nonnegative token ids,
+  cross-index bijection, contiguous ranks, atomic-added-token membership after
+  the vocabulary merge, and segmenter consistency — raises
+  `FieldValidationError`, the existing hand-constructed-record contract family.
 
 This intentionally changes tokenizer-reader semantic refusals which currently
 surface as `UnsupportedConstructError`: after migration they surface as
@@ -779,11 +806,13 @@ An island seed is not a span-local refusal or syntax error. Equal root meanings
 keep the predictive result. Both complete-document derivations are
 constructible and exactly associated with their target meanings. On the
 one-island Earley-delegated witness, replacing the payload leaf with the
-retained island derivation creates the complete pair without another
-recognition. The resolver handoff scope remains explicit planning work: today's
-island implementation supplies an island-local pair, while the general Earley
-path supplies requested-root derivations, and a context-sensitive resolver can
-choose differently between them. Before §8, the implementation must decide
+two constructed island derivations creates the complete pair without another
+document recognition. Today's island implementation decides inline and
+discards its kernel, so complete-document scope requires new deferred state; it
+does not get those derivations by free reuse. The resolver handoff scope remains
+explicit decision work: today's island implementation supplies an island-local
+pair, while the general Earley path supplies requested-root derivations, and a
+context-sensitive resolver can choose differently between them. Before §8, the user must decide
 which pair makes PDA and Earley expose the same public ambiguity opt-out. A
 complete-document design must add occurrence-identified multi-island splicing;
 the fused PDA path still needs one cold recognition because it retains no
@@ -967,6 +996,13 @@ its roughly 0.408 s sort.
 encode, decode, and rank indexes together, validates pipeline references, and
 constructs the record without inverse derivation, rank re-indexing, or dyad
 materialization. Existing `from_vocab`/`from_merges` converge on the same tail.
+Token ids may be sparse or above the entry count but may not be negative or
+duplicated. Merge parts need not themselves be vocabulary spellings; ranks are
+contiguous by document order. Declared byte fallback, byte remap, unknown and
+fused-unknown data survive unchanged even when their spellings are not covered
+by vocab. Every added token joins the atomic-match pipeline and merged vocab;
+its tokenizer-format `special` flag remains a separate schema input rather than
+being confused with the internal `pipeline.specials` field.
 Public `resolve` and `spell` retain the `IrEncoding` return boundary while the
 tokenizer's internal lookups use primitives and allocate no temporary IR key.
 The composed prototype captures, joins, canonically freezes, and installs all

@@ -29,7 +29,7 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension
 from lexic.ir import IrAst, IrItem, IrNode, IrSelf
 from lexic.model import GrammarModel
-from lexic.parsing import earley_model, pda_tables
+from lexic.parsing import earley_model, parse_model, pda_tables
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
@@ -470,6 +470,56 @@ def prove_corpus_exposure() -> None:
         )
 
 
+def prove_non_semantic_parse_shape() -> None:
+    """Keep directive ergonomics out of the grammar the parser recognizes.
+
+    `GrammarMoments.armed` is the exact pre-relaxation grammar. Parsing that
+    shape while retaining the already-built classes and fold from the relaxed
+    binding moment removes only the compiler-created optional occurrence: the
+    nullable noise rule remains required in the parse and still constructs the
+    same empty noise model. Authored optionality is untouched because it is
+    already present in `armed`.
+    """
+    root = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
+    for name, text in EXPOSED:
+        compiled = compile_from_path(root / name)
+        parse_shape = compiled.moments.grammar.armed
+        lifted = lift_optional_nullables(compiled.codegen_grammar)
+        grammar = normalize(parse_shape)
+        tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
+        current = compiled.parse(text, cores=1)
+        general = earley_model(grammar, text, compiled.fold, tables)
+        predictive_status = "matched current"
+        try:
+            predictive = pda_model(
+                pda_tables(parse_shape, compiled.fold), text, compiled.fold
+            )
+            assert same_value(current, predictive), name
+        except PdaFail:
+            predictive_status = "declined to gated completion"
+        gated = parse_model(parse_shape, text, compiled.fold)
+        scope = _exposure(root / name, text, lift=False)
+        assert same_value(current, general), name
+        assert same_value(current, gated), name
+        assert lifted == parse_shape, name
+        assert scope[2] > 0, (name, scope)
+        assert not scan_grammar(name, parse_shape), name
+        print(
+            "non-semantic-parse-shape",
+            name,
+            f"chars={len(text)}",
+            f"relaxed_differing_points={scope[2]}",
+            "armed_quantified_nullable_sites=0",
+            f"current_lifted_grammar_equals_armed={lifted == parse_shape}",
+            f"earley_matches_current={same_value(current, general)}",
+            f"predictive_route={predictive_status}",
+            f"gated_product_matches_current={same_value(current, gated)}",
+            "the parser can retain required nullable noise while binding keeps"
+            " its separate constructor ergonomics",
+            sep="\t",
+        )
+
+
 def prove_exposure_scaling() -> None:
     """How the un-exempted point population grows with the document.
 
@@ -627,17 +677,16 @@ POST_FIX_DIFFERENTIALS = (
     "with a deterministic resolver supplied, all three routes must return the"
     " resolver's choice and must be handed the SAME pair under whichever"
     " scope the user rules in the resolver-scope decision",
-    "optional-ref must agree between the raw and lifted routes; today they"
-    " return List(Gap()) and List() respectively, so lift_optional_nullables"
-    " must be removed or replaced rather than kept beside the fix",
+    "optional-ref must agree between the authored parser grammar and every"
+    " engine route; today the relaxed grammar and its lifted parser shape"
+    " return List() and List(Gap()) respectively, so"
+    " lift_optional_nullables and the optional parser shape both leave",
     "the SIX exposed ground-truth grammars — arithmetic.gbnf, json.gbnf,"
     " json.abnf, json.ebnf, json_arr.gbnf, json_ws.gbnf — must still parse"
-    " ordinary documents. They do so today only because"
-    " lift_optional_nullables hides the family; with the lift removed and no"
-    " further condition they REFUSE, because ws is a bound model field and"
-    " 14 of 17 alternate families on a 21-character JSON document build a"
-    " different model. The other NINE must reparse to byte-identical models"
-    " and round-trip text",
+    " ordinary documents through the pre-relaxation armed grammar while the"
+    " generated constructors keep their relaxed shape. All six match today's"
+    " public model in the executed proof; the other NINE must reparse to"
+    " byte-identical models and round-trip text",
     "ambiguity_points on the LEO_GRAMMAR witness must return 2 on a finished"
     " kernel with no intervening tree build, and the same 2 afterwards",
     "cyclic_meaning's witnesses must keep their current verdicts: the"
@@ -664,28 +713,24 @@ REGRESSION_COMPARISON = (
 )
 
 IMPLEMENTATION_PLACEMENT = (
-    "the SHIPPED CORPUS IS THE EXPOSURE, not the control: at the codegen"
-    " stage the @non-semantic relaxation creates 71 quantified-nullable sites"
-    " across arithmetic.gbnf, json.gbnf/abnf/ebnf, json_arr.gbnf and"
-    " json_ws.gbnf, all of them a nullable ws reference, and ws IS a bound"
-    " model field. With lift_optional_nullables removed, 389 of 578 ambiguity"
-    " points on a 640-character json.gbnf document have an alternate family"
-    " that builds a DIFFERENT model, so a fix that only un-exempts quantifier"
-    " helpers would refuse ordinary JSON. USER DECISION REQUIRED. Excluding"
-    " relaxation-created optionality from the count-family universe is NOT one"
-    " of the options: goal.md already rules that every family capable of"
-    " changing the requested target meaning enters the relation even when"
-    " normalization generated it. What remains is to replace"
-    " lift_optional_nullables with something genuinely value-preserving, to"
-    " accept that the shipped JSON formulations become ambiguous and require a"
-    " resolver, or to change that goal.md ruling — and TODO.md's ticked"
-    " SEMANTIC FAMILY UNIVERSE gate must be reopened either way",
-    "the un-exempted point population grows linearly with the document (11 /"
-    " 74 / 578 points at 10 / 80 / 640 characters on json.gbnf), and"
-    " another_meaning builds a whole-handle tree and folds it per family at"
-    " every point it does not skip, so the per-parse ambiguity check becomes"
-    " quadratic in the document under whichever answer the decision above"
-    " takes, unless that answer also removes the points",
+    "the parser recognizes the armed grammar, before @non-semantic relaxation;"
+    " the relaxed grammar remains the binding and synthesis shape that gives"
+    " generated constructors their optional noise fields. For token-bound"
+    " grammars the parse-ready moment is concretize(armed, registry), not the"
+    " existing resolved-relaxed moment",
+    "the current lifted relaxed grammar equals the armed grammar on all six"
+    " exposed fixtures, and parsing armed with the existing relaxed fold"
+    " returns the current public model through Earley and the gated product."
+    " The forced PDA matches on four and lawfully declines on json_ws.gbnf"
+    " and json_arr.gbnf, after which the gated product still matches",
+    "the 71 relaxed quantified-nullable sites are compiler-manufactured and"
+    " never enter the parser grammar, so they create neither semantic families"
+    " nor the measured linear point population. Authored optional nullable"
+    " sites remain in armed and still enter the complete meaning relation",
+    "delete lift_optional_nullables rather than preserve a canceling"
+    " relax-then-lift parser path. Keep the relaxation only where its separate"
+    " constructor contract consumes it, and name the two moments so no caller"
+    " mistakes a binding shape for a recognition shape",
     "the classification belongs in code_choices"
     " (parsing/earley/kernel/tables/records.py), which already derives"
     " code -> authored choice identity at TABLE-COMPILATION time: a quantifier"
@@ -696,8 +741,8 @@ IMPLEMENTATION_PLACEMENT = (
     " computes (GrammarAnalysis.atom_nullable); nothing per-character, nothing"
     " dynamic, and no instrumentation in the paid loop",
     "the paid loop never reads code_choice at all — only the forest readers"
-    " do — so a correct fix cannot touch the kernel's inner loop; the cost"
-    " lands instead in another_meaning, which runs on EVERY parse",
+    " do — so the authored-family classification does not touch the kernel's"
+    " inner loop. Complete family discovery remains cold ambiguity work",
 )
 
 
@@ -720,6 +765,7 @@ def main() -> None:
     prove_leo_readout()
     prove_corpus_scope()
     prove_corpus_exposure()
+    prove_non_semantic_parse_shape()
     prove_exposure_scaling()
     prove_island_placement()
     prove_leo_expansion_cost()

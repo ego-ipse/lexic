@@ -276,10 +276,9 @@ def occurrences_of(
 ) -> tuple[Occurrence, ...]:
     """Every position deriving ``symbol`` over exactly ``span``, addressed.
 
-    A completed handle encodes its own span and a derivation's sibling spans
-    are disjoint, so a rule over a fixed span stands at at most one position.
-    This RETURNS them all rather than assuming that, so the claim is measured
-    at every witness instead of argued once.
+    Siblings cannot share a non-empty span, but a zero-width cycle can nest the
+    same rule and span more than once. The explicit path, not ``(rule, span)``,
+    is therefore the occurrence identity used by the splice.
     """
     memo: dict[int, int] = {}
     found: list[Occurrence] = []
@@ -302,7 +301,7 @@ def occurrences_of(
 def locate_span(
     tree: ParseTree, symbol: IrRuleRef, span: tuple[int, int]
 ) -> Occurrence:
-    """The one occurrence deriving ``symbol`` over ``span``.
+    """The first deterministic occurrence deriving ``symbol`` over ``span``.
 
     :raises PairRefusal: When the derivation holds no such occurrence.
     """
@@ -440,7 +439,7 @@ class Pair(NamedTuple):
     path: tuple[int, ...]
     carrier: str
     carriers_tried: int
-    occurrences: int
+    baseline_occurrences: int
 
 
 def construct_pair(
@@ -747,7 +746,11 @@ def prove_case(case: Case) -> None:
     assert valid_derivation(pair.first, ast) == "", case.name
     assert valid_derivation(pair.other, ast) == "", case.name
     assert pair.first_meaning != pair.other_meaning, case.name
-    assert pair.occurrences == 1, (case.name, pair.occurrences)
+    assert pair.baseline_occurrences >= 1, (case.name, pair.baseline_occurrences)
+    span = (0, len(case.text))
+    other_occurrences = len(
+        occurrences_of(pair.other, IrRuleRef(pair.carrier), span)
+    )
     differences = difference_count(pair.first, pair.other)
     oracle = cyclic.bounded_depth_meanings(
         kernel, root, case.policies, {}, {}, case.oracle_ceiling
@@ -764,7 +767,9 @@ def prove_case(case: Case) -> None:
         f"walk_edges={len(pair.walk)}",
         f"walk={[_edge_label(kernel, e) for e in pair.walk]}",
         f"occurrence_path={list(pair.path)}",
-        f"occurrences_of_rule_and_span={pair.occurrences}",
+        f"baseline_occurrences_of_rule_and_span={pair.baseline_occurrences}",
+        f"spliced_occurrences_of_rule_and_span={other_occurrences}",
+        "the addressed path, not rule/span uniqueness, identifies the splice",
         f"first_is_engine_derivation={pair.first == engine}",
         f"changed_positions={differences}",
         f"meanings_differ={pair.first_meaning != pair.other_meaning}",
@@ -864,7 +869,7 @@ def prove_nested_island_pair() -> None:
     assert valid_derivation(pair.first, ast) == ""
     assert valid_derivation(pair.other, ast) == ""
     assert pair.first_meaning != pair.other_meaning
-    assert pair.occurrences == 1
+    assert pair.baseline_occurrences >= 1
     print(
         "pair",
         "nested-island-source",
@@ -872,7 +877,7 @@ def prove_nested_island_pair() -> None:
         f"walk_edges={len(pair.walk)}",
         f"delegated_leaves={len(run.occurrences)}",
         f"occurrence_path={list(pair.path)}",
-        f"occurrences_of_rule_and_span={pair.occurrences}",
+        f"baseline_occurrences_of_rule_and_span={pair.baseline_occurrences}",
         f"changed_positions={difference_count(pair.first, pair.other)}",
         f"meanings_differ={pair.first_meaning != pair.other_meaning}",
         sep="\t",
@@ -893,7 +898,7 @@ def prove_deep_pair() -> None:
         assert valid_derivation(pair.first, ast) == ""
         assert valid_derivation(pair.other, ast) == ""
         assert pair.first_meaning != pair.other_meaning
-        assert pair.occurrences == 1
+        assert pair.baseline_occurrences >= 1
         print(
             "pair",
             "deep-stack-safe",

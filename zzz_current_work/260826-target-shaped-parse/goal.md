@@ -226,9 +226,14 @@ relation even when normalization generated it. A variable-count quantifier
 over a nullable atom creates occurrence-count families, not text-allocation
 splits. `*`, `+`, bounded variable counts, groups, empty rules, and `?` are
 covered. `lift_optional_nullables` may not erase the absent/present family.
-Ordinary same-production extent allocation keeps its defined leftmost answer.
-The final refusal still depends on complete root meanings, so a parent which
-drops the different count remains accepted.
+It is deleted. Recognition uses the armed grammar before `@non-semantic`
+relaxation; binding and synthesis use the relaxed grammar for constructor
+ergonomics. Compiler-manufactured optional constructor fields are therefore not
+parser families, while authored optionality already present in armed remains
+observable. Token-bound artefacts concretize armed into their own parse-ready
+moment. Ordinary same-production extent allocation keeps its defined leftmost
+answer. The final refusal still depends on complete root meanings, so a parent
+which drops the different count remains accepted.
 
 Ambiguity readout is complete on a finished kernel without caller preparation:
 deferred Leo provenance is expanded before points are reported. No fast path
@@ -254,10 +259,12 @@ because no shared internal packed point contains their choice. When root
 meanings differ and `resolve=` is supplied, PDA may use Earley to obtain the
 resolver pair required by the handoff scope settled before §8; only the chosen
 meaning materializes the final target product. Complete-document pairs are
-constructible, and an Earley-delegated one-island tree can splice the retained
-island derivation without another recognition. This establishes feasibility,
-not the still-open choice between today's island-local resolver pair and
-complete-document pairs for both engines. An island never settles
+constructible, and an Earley-delegated one-island tree can construct both
+island derivations and splice them without another document recognition.
+Today's island gate decides inline and discards its kernel, so complete scope
+requires new deferred state rather than free reuse. This establishes
+feasibility, not the still-open choice between today's island-local resolver
+pair and complete-document pairs for both engines. An island never settles
 target ambiguity at its own accepting span. It returns its baseline value plus
 a cold alternate-meaning seed; the enclosing product records and replays only
 the semantic continuation from that occurrence to the requested root. Equal
@@ -347,9 +354,18 @@ tokenizer schema and validation contract.
 - Object key order is irrelevant.
 - Vocabulary entries stream as primitive spelling/id payloads into
   tokenizer-native encode/decode indexes.
+- Token ids are unique nonnegative integers; sparse and above-entry-count ids
+  are valid. Dense numbering is not a format requirement.
 - Merge entries stream as primitive spelling dyads and ranks into a
-  tokenizer-native rank index.
-- Pipeline sections use small typed accumulators.
+  tokenizer-native rank index. Dyad parts need not be vocabulary spellings;
+  ranks remain contiguous in document order.
+- Pipeline sections use small typed accumulators. Declared byte fallback,
+  byte remap, unknown/fused-unknown behavior, and atomic added tokens survive
+  final construction without requiring complete vocabulary coverage. Added
+  tokens merge before atomic-spelling membership is checked; a contradictory
+  id refuses. The tokenizer-format `special` flag remains a separate schema
+  input—`pipeline.specials` names every atomic added token, including entries
+  whose flag is false.
 - Root finalization passes those indexes through one
   `IrTokenizer.from_indexes` constructor. Tokenizer indexes are immutable
   role-specific subclasses of `IrMapping` with tokenizer-native primitive

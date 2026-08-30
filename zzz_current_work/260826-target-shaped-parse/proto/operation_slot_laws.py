@@ -161,7 +161,6 @@ class LawRule(IrStr):
     The `foldkit.IrNamed` precedent: a registry-resolved symbol rather than an
     embedded closure, so a declaration table stays repr-able and a reader can
     see WHICH law an operation claims without executing anything.
-    """
 
     A scalar declaration needs no custom allocation, equality, hashing, or
     executable action surface. Keeping it on the existing scalar spine also
@@ -232,7 +231,11 @@ def _combine(laws: Sequence[SlotLaw], what: str) -> SlotLaw:
             " carries the slot, so the result is unclassified"
         )
     if FINITE in kinds:
-        return finite(sum(law.bound for law in laws if law.kind == FINITE))
+        bound = 1
+        for law in laws:
+            if law.kind == FINITE:
+                bound *= law.bound
+        return finite(bound)
     return CONST_LAW
 
 
@@ -1775,6 +1778,21 @@ def prove_algebra_agreement() -> None:
     )
 
 
+def prove_finite_composition() -> None:
+    """Independent finite positions compose by Cartesian product."""
+    two_by_three = _combine((finite(2), finite(3)), "finite-product-witness")
+    empty = _combine((finite(0), finite(7)), "finite-empty-witness")
+    assert two_by_three == finite(6), two_by_three
+    assert empty == finite(0), empty
+    print(
+        "finite-composition",
+        f"two_by_three_bound={two_by_three.bound}",
+        f"empty_by_seven_bound={empty.bound}",
+        "independent argument images multiply; branch alternatives add",
+        sep="\t",
+    )
+
+
 def prove_bounds() -> None:
     """State the cost in operations, slots, expression nodes, and SCC size."""
     counts = Counts()
@@ -1815,6 +1833,7 @@ def main() -> None:
     prove_unknown_operation_refuses()
     prove_cyclic_parity()
     prove_algebra_agreement()
+    prove_finite_composition()
     prove_bounds()
     print(
         "invariant",

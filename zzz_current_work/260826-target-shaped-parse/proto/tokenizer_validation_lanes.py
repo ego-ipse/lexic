@@ -54,6 +54,11 @@ CONSTRUCT_TOKENIZER: Callable[..., IrTokenizer] = IrTokenizer
 
 ROOT = Path(__file__).resolve().parents[3]
 
+type JsonValue = (
+    None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+)
+type RawMerge = str | list[JsonValue]
+
 FIXTURES = (
     ("hf_bpe", ROOT / "tests/integration/lexic/tokens/fixtures/hf_bpe.tokenizer.json"),
     ("gpt2", ROOT / "resources/tokenizers/gpt2.tokenizer.json"),
@@ -101,6 +106,8 @@ class PipelineFacts(NamedTuple):
     unknown_in_vocab: bool
     fuse_unknown: bool
     added: int
+    flagged_special: int
+    ordinary_added: int
     added_absent: int
     added_conflicting: int
     remap_absent: int
@@ -140,7 +147,7 @@ def _ordinal_facts(vocab: dict[str, int], declared: int) -> OrdinalFacts:
     )
 
 
-def _dyads(merges: Iterable[object]) -> list[tuple[str, str, bool]]:
+def _dyads(merges: Iterable[RawMerge]) -> list[tuple[str, str, bool]]:
     """Each merge as ``(left, right, was_an_array)`` — both wild encodings."""
     out: list[tuple[str, str, bool]] = []
     for merge in merges:
@@ -152,7 +159,7 @@ def _dyads(merges: Iterable[object]) -> list[tuple[str, str, bool]]:
     return out
 
 
-def _merge_facts(merges: Sequence[object], vocab: dict[str, int]) -> MergeFacts:
+def _merge_facts(merges: Sequence[RawMerge], vocab: dict[str, int]) -> MergeFacts:
     """Lane 2 over one document's ``model.merges``."""
     dyads = _dyads(merges)
     left_absent = [d for d in dyads if d[0] not in vocab]
@@ -174,21 +181,31 @@ def _merge_facts(merges: Sequence[object], vocab: dict[str, int]) -> MergeFacts:
     )
 
 
-def _pipeline_facts(doc: dict, model: dict, vocab: dict[str, int]) -> PipelineFacts:
+def _pipeline_facts(
+    doc: dict[str, JsonValue],
+    model: dict[str, JsonValue],
+    vocab: dict[str, int],
+) -> PipelineFacts:
     """Lane 3 over one document's fallback, unknown, added and remap spellings."""
     fallback = bool(model.get("byte_fallback"))
     spellings = [str(value) for value in BYTE_FALLBACK.values()]
     present = sum(1 for spelling in spellings if spelling in vocab)
     unknown = model.get("unk_token")
     added = doc.get("added_tokens") or []
+    if not isinstance(added, list):
+        raise LaneRefusal("tokenizer: 'added_tokens' is not an array")
     absent = 0
     conflicting = 0
+    flagged_special = 0
     for entry in added:
+        if not isinstance(entry, dict):
+            raise LaneRefusal("tokenizer: an added token is not a mapping")
         content = str(entry.get("content"))
+        flagged_special += bool(entry.get("special"))
         found = vocab.get(content)
         if found is None:
             absent += 1
-        elif int(entry.get("id", found)) != found:
+        elif _token_id(entry.get("id"), f"added-token id for {content!r}") != found:
             conflicting += 1
     remap = [str(value) for value in BYTE_LEVEL_REMAP.values()]
     return PipelineFacts(
@@ -199,6 +216,8 @@ def _pipeline_facts(doc: dict, model: dict, vocab: dict[str, int]) -> PipelineFa
         unknown is not None and str(unknown) in vocab,
         bool(model.get("fuse_unk")),
         len(added),
+        flagged_special,
+        len(added) - flagged_special,
         absent,
         conflicting,
         sum(1 for spelling in remap if spelling not in vocab),
@@ -211,11 +230,17 @@ def inspect(name: str, path: Path) -> FixtureFacts:
     tracemalloc.start()
     cpu = time.process_time()
     wall = time.perf_counter()
-    doc = json.loads(raw)
+    loaded: JsonValue = json.loads(raw)
+    if not isinstance(loaded, dict):
+        raise LaneRefusal("tokenizer: document root is not a mapping")
+    doc = loaded
     model = doc.get("model") or {}
-    vocab = {str(k): int(v) for k, v in (model.get("vocab") or {}).items()}
-    ordinals = _ordinal_facts(vocab, int(model.get("vocab_size") or 0))
-    merges = _merge_facts(model.get("merges") or (), vocab)
+    if not isinstance(model, dict):
+        raise LaneRefusal("tokenizer: 'model' is not a mapping")
+    vocab = _fixture_vocab(model)
+    declared = model.get("vocab_size") or 0
+    ordinals = _ordinal_facts(vocab, _token_id(declared, "'model.vocab_size'"))
+    merges = _merge_facts(_raw_merges(model), vocab)
     pipeline = _pipeline_facts(doc, model, vocab)
     elapsed_cpu = time.process_time() - cpu
     elapsed_wall = time.perf_counter() - wall
@@ -284,6 +309,8 @@ def report(facts: FixtureFacts) -> None:
         f"unknown_in_vocab={pipeline.unknown_in_vocab}",
         f"fuse_unknown={pipeline.fuse_unknown}",
         f"added_tokens={pipeline.added}",
+        f"format_special_true={pipeline.flagged_special}",
+        f"format_special_false={pipeline.ordinary_added}",
         f"added_absent_from_vocab={pipeline.added_absent}",
         f"added_id_conflicts_with_vocab={pipeline.added_conflicting}",
         f"byte_level_remap_chars_absent={pipeline.remap_absent}/256",
@@ -313,6 +340,24 @@ PIPELINE_CONTRACT = (
 
 class LaneRefusal(FieldValidationError):
     """A refusal produced by the candidate final constructor."""
+
+
+def _token_id(value: JsonValue, what: str) -> int:
+    """One JSON integer at a tokenizer-id boundary."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    raise LaneRefusal(f"tokenizer: {what} is not an integer")
+
+
+def _fixture_vocab(model: dict[str, JsonValue]) -> dict[str, int]:
+    """A checked fixture vocabulary for inventory and contract witnesses."""
+    raw = model.get("vocab") or {}
+    if not isinstance(raw, dict):
+        raise LaneRefusal("tokenizer: 'model.vocab' is not a mapping")
+    return {
+        spelling: _token_id(ordinal, f"vocabulary id for {spelling!r}")
+        for spelling, ordinal in raw.items()
+    }
 
 
 def merged_encode(
@@ -900,6 +945,87 @@ def prove_lane_pairs() -> None:
     )
 
 
+def _added_entries(
+    doc: dict[str, JsonValue],
+) -> tuple[tuple[str, int, bool], ...]:
+    """Added-token spelling, ordinal, and format ``special`` flag."""
+    raw = doc.get("added_tokens") or []
+    if not isinstance(raw, list):
+        raise LaneRefusal("tokenizer: 'added_tokens' is not an array")
+    out: list[tuple[str, int, bool]] = []
+    for value in raw:
+        if not isinstance(value, dict):
+            raise LaneRefusal("tokenizer: an added token is not a mapping")
+        spelling = value.get("content")
+        ordinal = value.get("id")
+        if not isinstance(spelling, str):
+            raise LaneRefusal("tokenizer: an added token has no spelling")
+        out.append(
+            (
+                spelling,
+                _token_id(ordinal, f"added-token id for {spelling!r}"),
+                bool(value.get("special")),
+            )
+        )
+    return tuple(out)
+
+
+def _raw_merges(model: dict[str, JsonValue]) -> tuple[RawMerge, ...]:
+    """The two admitted raw merge encodings, checked at the JSON boundary."""
+    raw = model.get("merges") or []
+    if not isinstance(raw, list):
+        raise LaneRefusal("tokenizer: 'model.merges' is not an array")
+    out: list[RawMerge] = []
+    for value in raw:
+        if isinstance(value, str) or isinstance(value, list):
+            out.append(value)
+            continue
+        raise LaneRefusal("tokenizer: a merge is neither text nor an array")
+    return tuple(out)
+
+
+def _contains_type(value: JsonValue, expected: str) -> bool:
+    """Whether a nested tokenizer section declares ``type == expected``."""
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, dict):
+            if current.get("type") == expected:
+                return True
+            pending.extend(current.values())
+        elif isinstance(current, list):
+            pending.extend(current)
+    return False
+
+
+def _validation_pipeline(
+    doc: dict[str, JsonValue],
+    model: dict[str, JsonValue],
+    added: Sequence[tuple[str, int, bool]],
+) -> IrTokenPipeline:
+    """The pipeline fields that participate in the three validation lanes."""
+    unknown = model.get("unk_token")
+    unknown_spec = (
+        IrUnknown(unknown, bool(model.get("fuse_unk")))
+        if isinstance(unknown, str)
+        else IrUnknown()
+    )
+    remap = (
+        BYTE_LEVEL_REMAP
+        if _contains_type(doc.get("pre_tokenizer"), "ByteLevel")
+        else IrMap()
+    )
+    fallback = BYTE_FALLBACK if bool(model.get("byte_fallback")) else IrMap()
+    return IrTokenPipeline(
+        IrTuple(*(IrStr(spelling) for spelling, _ordinal, _special in added)),
+        remap,
+        IrTuple(),
+        IrTuple(),
+        fallback,
+        unknown_spec,
+    )
+
+
 def fixture_indexes(path: Path) -> Indexes:
     """One real fixture streamed into the three indexes the contract validates.
 
@@ -908,29 +1034,45 @@ def fixture_indexes(path: Path) -> Indexes:
     derived, ranks numbered by position, and the pipeline's specials taken from
     the added tokens exactly as the shipped reader takes them.
     """
-    doc = json.loads(path.read_bytes())
+    loaded: JsonValue = json.loads(path.read_bytes())
+    if not isinstance(loaded, dict):
+        raise LaneRefusal("tokenizer: document root is not a mapping")
+    doc = loaded
     model = doc.get("model") or {}
-    vocab = tuple((str(k), int(v)) for k, v in (model.get("vocab") or {}).items())
-    added = tuple(
-        (str(entry.get("content")), int(entry.get("id")))
-        for entry in (doc.get("added_tokens") or [])
-    )
-    encode = merged_encode(vocab, added)
-    dyads = _dyads(model.get("merges") or ())
+    if not isinstance(model, dict):
+        raise LaneRefusal("tokenizer: 'model' is not a mapping")
+    vocab = tuple(_fixture_vocab(model).items())
+    added = _added_entries(doc)
+    encode = merged_encode(vocab, tuple((s, i) for s, i, _special in added))
+    dyads = _dyads(_raw_merges(model))
     return Indexes(
         encode,
         tuple((ordinal, spelling) for spelling, ordinal in encode),
         tuple(((left, right), rank) for rank, (left, right, _a) in enumerate(dyads)),
-        IrTokenPipeline(
-            IrTuple(*(IrStr(spelling) for spelling, _o in added)),
-            IrMap(),
-            IrTuple(),
-            IrTuple(),
-            IrMap(),
-            IrUnknown(),
-        ),
+        _validation_pipeline(doc, model, added),
         IrRankedMerge(),
     )
+
+
+def prove_fixture_pipeline_payload() -> None:
+    """Accepted fallback/unknown data survives the candidate construction."""
+    for name, path in FIXTURES:
+        if not path.exists():
+            continue
+        indexes = fixture_indexes(path)
+        tokenizer = from_indexes_final(name, indexes)
+        assert tokenizer.pipeline == indexes.pipeline, name
+        print(
+            "fixture-pipeline",
+            name,
+            f"atomic_added_tokens={len(indexes.pipeline.specials)}",
+            f"byte_fallback_entries={len(indexes.pipeline.byte_fallback)}",
+            f"unknown={indexes.pipeline.unknown.spelling!r}",
+            f"fuse_unknown={indexes.pipeline.unknown.fuse}",
+            f"remap_entries={len(indexes.pipeline.remap)}",
+            "candidate construction retained every lane-relevant field",
+            sep="\t",
+        )
 
 
 def prove_fixture_contract() -> None:
@@ -1004,6 +1146,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
                 continue
             report(inspect(name, path))
         prove_fixture_contract()
+        prove_fixture_pipeline_payload()
         return
     prove_contract()
     prove_boundary_witnesses()
@@ -1011,6 +1154,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
     prove_added_merge()
     prove_lane_pairs()
     prove_fixture_admission()
+    prove_fixture_pipeline_payload()
     print(
         "recommendation",
         f"lane_1={ORDINAL_CONTRACT}",

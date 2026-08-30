@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from functools import partial
 from typing import NamedTuple
 
 import island_alternate_seed as harness
@@ -44,6 +45,7 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 )
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
+from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.kernel.tables.splits import is_arm_choice
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.fold import collapsed_fold_tables, lift_optional_nullables
@@ -73,6 +75,46 @@ def _timed[Result](work: Callable[[], Result]) -> tuple[Result, Phase]:
     wall = time.perf_counter()
     result = work()
     return result, Phase(time.process_time() - cpu, time.perf_counter() - wall)
+
+
+def _take_first(first: ParseTree, _other: ParseTree) -> ParseTree:
+    """Deterministic first-derivation resolver."""
+    return first
+
+
+def _take_second(_first: ParseTree, other: ParseTree) -> ParseTree:
+    """Deterministic second-derivation resolver."""
+    return other
+
+
+def _record_first(
+    seen: list[tuple[ParseTree, ParseTree]], first: ParseTree, other: ParseTree
+) -> ParseTree:
+    """Record one resolver pair and keep its first derivation."""
+    seen.append((first, other))
+    return first
+
+
+def _record_symbol(
+    observed: list[str], first: ParseTree, other: ParseTree
+) -> ParseTree:
+    """Record both resolver roots and keep the first derivation."""
+    observed.extend((str(first.symbol), str(other.symbol)))
+    return first
+
+
+def _record_order(
+    order: list[str], first: ParseTree, _other: ParseTree
+) -> ParseTree:
+    """Record when a resolver runs relative to document construction."""
+    order.append(f"resolver({first.symbol})")
+    return first
+
+
+def _count_call(calls: list[int], first: ParseTree, _other: ParseTree) -> ParseTree:
+    """Count a resolver invocation and keep the first derivation."""
+    calls.append(1)
+    return first
 
 
 def tree_meaning(tree: ParseTree, policies: dict[str, str]) -> Meaning:
@@ -212,16 +254,36 @@ class CompletePair(NamedTuple):
     construction: Phase
 
 
+def _recognize_document(
+    tables: ParserTables, text: str, counters: harness.Counters
+) -> Kernel:
+    """Run and count the cold complete-document recognition."""
+    counters.full_document_parses += 1
+    return Kernel(tables, text, True).run()
+
+
+def _tree_pair(kernel: Kernel, root: int, point: int) -> tuple[ParseTree, ParseTree]:
+    """Baseline and one-point alternate trees from one finished kernel."""
+    first = FastTree(kernel, {}).build(root)
+    second = FastTree(kernel, {point: 1}).build(root)
+    if not isinstance(first, ParseTree) or not isinstance(second, ParseTree):
+        raise UnsupportedConstructError("resolver pair: tree did not build")
+    return first, second
+
+
+def _spliced_pair(
+    outer: ParseTree, first: ParseTree, second: ParseTree
+) -> tuple[ParseTree, ParseTree]:
+    """Two complete trees made by replacing one delegated occurrence."""
+    return _splice(outer, first), _splice(outer, second)
+
+
 def build_complete_pair(case: SeedCase, counters: harness.Counters) -> CompletePair:
     """One un-delegated recognition; two complete trees; exact association."""
     text = case.run.kernel.text
     tables = harness._tables(harness.OUTER_ONE, len(text))
 
-    def recognize() -> Kernel:
-        counters.full_document_parses += 1
-        return Kernel(tables, text, True).run()
-
-    kernel, recognition = _timed(recognize)
+    kernel, recognition = _timed(partial(_recognize_document, tables, text, counters))
     if accept_item(kernel) < 0:
         raise UnsupportedConstructError("resolver pair: full parse failed")
     root = accept_handle(kernel)
@@ -234,14 +296,9 @@ def build_complete_pair(case: SeedCase, counters: harness.Counters) -> CompleteP
     ]
     assert len(points) == 1
 
-    def construct() -> tuple[ParseTree, ParseTree]:
-        first = FastTree(kernel, {}).build(root)
-        second = FastTree(kernel, {points[0]: 1}).build(root)
-        if not isinstance(first, ParseTree) or not isinstance(second, ParseTree):
-            raise UnsupportedConstructError("resolver pair: tree did not build")
-        return first, second
-
-    (first, second), construction = _timed(construct)
+    (first, second), construction = _timed(
+        partial(_tree_pair, kernel, root, points[0])
+    )
     meanings = {tree_meaning(first, {}): first, tree_meaning(second, {}): second}
     if set(meanings) != {case.baseline_root, case.alternate_root}:
         raise UnsupportedConstructError(
@@ -257,17 +314,9 @@ def build_complete_pair(case: SeedCase, counters: harness.Counters) -> CompleteP
 
 def island_local_pair(case: SeedCase) -> tuple[ParseTree, ParseTree, Phase]:
     """Both island-local derivations — free from the island kernel in hand."""
-
-    def construct() -> tuple[ParseTree, ParseTree]:
-        first = FastTree(case.island_kernel, {}).build(case.island_root)
-        second = FastTree(case.island_kernel, {case.island_point: 1}).build(
-            case.island_root
-        )
-        if not isinstance(first, ParseTree) or not isinstance(second, ParseTree):
-            raise UnsupportedConstructError("resolver pair: island tree missing")
-        return first, second
-
-    (first, second), construction = _timed(construct)
+    (first, second), construction = _timed(
+        partial(_tree_pair, case.island_kernel, case.island_root, case.island_point)
+    )
     return first, second, construction
 
 
@@ -369,10 +418,9 @@ def prove_splice_alternative(case: SeedCase, pair: CompletePair) -> None:
     assert isinstance(outer_tree, ParseTree)
     local_first, local_second, _cost = island_local_pair(case)
 
-    def construct() -> tuple[ParseTree, ParseTree]:
-        return _splice(outer_tree, local_first), _splice(outer_tree, local_second)
-
-    (spliced_a, spliced_b), cost = _timed(construct)
+    (spliced_a, spliced_b), cost = _timed(
+        partial(_spliced_pair, outer_tree, local_first, local_second)
+    )
     spliced = {
         tree_meaning(spliced_a, {}): spliced_a,
         tree_meaning(spliced_b, {}): spliced_b,
@@ -423,12 +471,9 @@ def prove_public_scope_today() -> None:
     compiled = compile_text(PUBLIC_ISLAND)
     observed: list[str] = []
 
-    def resolver(first: ParseTree, other: ParseTree) -> ParseTree:
-        observed.append(str(first.symbol))
-        observed.append(str(other.symbol))
-        return first
-
-    model = compiled.parse("(xy)z", cores=1, resolve=resolver)
+    model = compiled.parse(
+        "(xy)z", cores=1, resolve=partial(_record_symbol, observed)
+    )
     assert model.to_text() == "(xy)z"
     assert observed and set(observed) == {"t"}
     print(
@@ -602,7 +647,7 @@ class RouteObservation(NamedTuple):
 
 
 def _observe(
-    route: str, run: Callable[[Callable], GrammarModel], fold: ModelFold
+    route: str, run: Callable[[Resolver], GrammarModel], fold: ModelFold
 ) -> RouteObservation:
     """Run one route twice — take-first and take-second — and MEASURE which
     derivation the returned model corresponds to.
@@ -614,15 +659,11 @@ def _observe(
     """
     seen: list[tuple[ParseTree, ParseTree]] = []
 
-    def record(first: ParseTree, other: ParseTree) -> ParseTree:
-        seen.append((first, other))
-        return first
-
-    kept_first_model = run(record)
+    kept_first_model = run(partial(_record_first, seen))
     if not seen:
         return RouteObservation(route, False, "", "", False, False, False)
     first, other = seen[0]
-    kept_other_model = run(lambda _a, b: b)
+    kept_other_model = run(_take_second)
     return RouteObservation(
         route,
         True,
@@ -781,12 +822,7 @@ def prove_island_refusal_is_inline() -> None:
     compiled = compile_text(PUBLIC_ISLAND)
     order: list[str] = []
 
-    def resolver(first: ParseTree, other: ParseTree) -> ParseTree:
-        del other
-        order.append(f"resolver({first.symbol})")
-        return first
-
-    model = compiled.parse("(xy)z", cores=1, resolve=resolver)
+    model = compiled.parse("(xy)z", cores=1, resolve=partial(_record_order, order))
     order.append(f"document_model({type(model).__name__})")
     refusal = ""
     try:
@@ -878,12 +914,9 @@ def prove_no_shadow_on_unambiguous_path() -> None:
     compiled = compile_text(PUBLIC_ISLAND)
     calls: list[int] = []
 
-    def resolver(first: ParseTree, other: ParseTree) -> ParseTree:
-        calls.append(1)
-        del other
-        return first
-
-    ambiguous = compiled.parse("(xy)z", cores=1, resolve=resolver)
+    ambiguous = compiled.parse(
+        "(xy)z", cores=1, resolve=partial(_count_call, calls)
+    )
     assert ambiguous.to_text() == "(xy)z"
     print(
         "no-shadow",
