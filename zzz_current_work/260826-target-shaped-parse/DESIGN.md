@@ -4,15 +4,19 @@
 The later prototype rounds establish the exact acyclic meaning relation,
 carrier-scoped cyclic refusal decision, current tokenizer relation, retained
 flat dependency layout, real trace-frame shape, fused control protocol, and
-custom binding through a real retained pool. The remaining pre-implementation
-decision is resolver scope. Real-operation cyclic lowering, the constructive
+custom binding through a real retained pool. Resolver scope is settled to
+complete-document pairs for both engines, constructed only for an invoked
+resolver after root inequality. Real-operation cyclic lowering, the constructive
 infinite-SCC pair, the tokenizer's final three validation lanes, and the
 recognition/binding grammar split are established by Prototype 14 and its
 coordinator rerun. The compiled per-occurrence island continuation, its
 constant and injective certificates, the exact per-node relation over the dirty
 cone, and the retained island kernel a spliced resolver pair needs are
-established by Prototype 15. A final fresh reviewer has not returned `READY`. Production
-source has not started. This document is not an implementation checklist.
+established by Prototype 15 on its non-shared witnesses. Its closure auditor
+returned `READY` on re-check; that verdict approves the reviewed evidence, not
+source implementation or a parsing regression. Shared-occurrence composition
+remains a planning gate. Production source has not started. This document is
+not an implementation checklist.
 
 ## Decision
 
@@ -349,6 +353,15 @@ law table whose default refuses the operation and slot with words. An infinite
 component reaching `resolve=` uses the accepting derivation plus one addressed
 growing closed-walk splice, trying every certified carrier. The construction is
 `O(E × (V + E))` and has no runtime lap parameter.
+
+A completed forest node may be referenced by more than one grammatical
+occurrence. Its meaning set is computed once, but each parent slot ranges over
+that set independently: sharing the representation does not correlate the
+occurrences' family choices. A derivation oracle keyed globally by packed
+choice therefore cannot validate this case. The exact relation must agree with
+an occurrence-unrolled oracle across the known duplicate-slot, pending-frame,
+sibling-memo, and transparent-synthetic DAG shapes before shared-occurrence
+composition is considered closed.
 
 The family universe is semantic, not synonymous with authored arm identity. A
 quantifier which admits more than one occurrence count over a nullable atom
@@ -857,12 +870,10 @@ one-island Earley-delegated witness, replacing the payload leaf with the
 two constructed island derivations creates the complete pair without another
 document recognition. Today's island implementation decides inline and
 discards its kernel, so complete-document scope requires new deferred state; it
-does not get those derivations by free reuse. The resolver handoff scope remains
-explicit decision work: today's island implementation supplies an island-local
-pair, while the general Earley path supplies requested-root derivations, and a
-context-sensitive resolver can choose differently between them. Before §8, the user must decide
-which pair makes PDA and Earley expose the same public ambiguity opt-out. A
-complete-document design must add occurrence-identified multi-island splicing;
+does not get those derivations by free reuse. The resolver handoff uses
+complete-document scope for both engines: a context-sensitive resolver must not
+observe whether PDA or Earley recognized the input. Production adds occurrence-
+identified multi-island splicing;
 the fused PDA path still needs one cold recognition because it retains no
 document `ParseTree`. Any extra work occurs only after root inequality and an
 actual `resolve=` invocation; refusal and equality perform none.

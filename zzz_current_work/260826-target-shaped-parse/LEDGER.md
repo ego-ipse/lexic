@@ -1,5 +1,34 @@
 # Ledger — target-shaped parsing
 
+## Coordinator review — shared-occurrence boundary and Round 16 (2026-08-31)
+
+The delivered Prototype 15 executable reran cleanly with `python -B`; every
+reported structural row reproduced and the only changed number was the report's
+explicitly non-conclusive process-CPU sample. The coordinator nevertheless
+rejected the packet's GENERAL composition closure. The prototype's own
+`prove_oracle_precondition` asserts that no completed node has two parents and
+no choice key is claimed twice, and `PROTOTYPE_15.md` §11 admits that a chart
+where a key is reached twice is not exercised. That excludes the real
+duplicate-slot, pending-frame, sibling-memo, and transparent-synthetic DAG
+shapes already pinned by `proto/shared_forest_refold.py`.
+
+The ruling is narrower than a mechanism rejection. The compiled continuation
+certificate and every non-shared interaction witness remain closed. Forest
+sharing is representation sharing: compute a shared node's meaning set once,
+then let each consuming occurrence range over it independently. The global-key
+assignment used by Prototype 15's oracle correlates those occurrences and is
+not a valid control for that shape. `TODO.md` now carries an unchecked
+**SHARED-OCCURRENCE COMPOSITION** gate, and `context.md`, `goal.md`, `DESIGN.md`,
+`INDEX.md`, and `SUMMARY.md` state the same boundary. `DESIGN.md`'s stale claim
+that no final reviewer returned `READY` is corrected to the recorded re-check
+verdict without treating it as source authorization.
+
+`PROMPT_16.md` tasks two remaining planning questions together: an
+occurrence-unrolled oracle over the known shared-DAG shapes, and an exact-lane
+cost policy which avoids silently replacing exact semantics with an arbitrary
+cap. Resolver-pair scope is already settled: both engines provide complete-
+document pairs only after root inequality and an actual resolver invocation.
+
 ## CURRENT SESSION — Prototype 15, the island-continuation composition (2026-08-31)
 
 `proto/island_continuation.py` compiles one immutable continuation row per
@@ -66,10 +95,10 @@ cannot reach a document whose island CHOICE is live, because the shipped gate
 refuses those; widening it needs `reduce(..., resolve=)`, which is `goal.md`'s
 own public-surface work.
 
-Resolver scope remains the only open user decision, and this round narrows its
-inputs in one way only: semantic settlement needs no derivation pair at any
-scope, so the scope question is confined to what an invoked `resolve=`
-receives. Production hot-path, memory and parse-performance evidence remains
+This round narrowed the resolver inputs before the later ruling: semantic
+settlement needs no derivation pair, and an invoked `resolve=` receives the
+complete-document pair under both engines. Production hot-path, memory and
+parse-performance evidence remains
 entirely open, as do the exact channel index, cache adoption into
 `parsing.caches`, the emit-family and `YIELD` obligations, and the product
 operations that do not exist yet. The prototype's root-down descent for the
@@ -83,8 +112,8 @@ had already read the packet. It also caught two fixes this round had claimed
 and the files did not carry — an edit script aborted mid-way and the summary
 was written from intent — both now applied and both recorded in
 `reports/P15_ADVERSARIAL.md`. `READY` authorizes no source implementation and
-accepts no parsing regression, and resolver scope remains the one open user
-decision.
+accepts no parsing regression. Resolver scope is the already-ruled complete-
+document contract, not an open decision delegated to the investigator.
 
 No `src/`, test, harness, wiki or `pyproject.toml` file changed —
 `git status --short -- src tests pyproject.toml .wiki` is empty and
@@ -185,7 +214,8 @@ relax-then-lift parser route are deletion work. Authored optional nullable
 sites remain semantic families.
 
 The cyclic-production and tokenizer-three-lane planning gates are closed.
-Resolver scope is the only open user decision. Production operation rows,
+The later complete-document resolver ruling closes the user decision recorded
+by this round. Production operation rows,
 completion-time numbering, integrated ambiguity memory, PDA authored-family
 placement, custom paid-loop neutrality, and all parse-performance comparisons
 remain implementation gates. Three shipped ambiguity defects are now recorded

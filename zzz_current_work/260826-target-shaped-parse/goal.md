@@ -221,6 +221,13 @@ unrepresentable consumer class refuses at binding. Numeric census and semantic
 lap caps are forbidden. Production adoption still requires real-operation slot
 classification and constructive complete derivations for `resolve=`.
 
+Forest sharing is representation sharing, not semantic correlation. When one
+completed node supplies more than one grammatical occurrence, its value set is
+computed once and each consuming slot chooses from it independently. A global
+assignment keyed by the packed family is not a complete derivation oracle for
+that shape. The exact relation is accepted only after it agrees with an
+occurrence-unrolled oracle on every known shared-DAG shape.
+
 Every family capable of changing the requested target meaning enters this
 relation even when normalization generated it. A variable-count quantifier
 over a nullable atom creates occurrence-count families, not text-allocation
@@ -263,8 +270,10 @@ constructible, and an Earley-delegated one-island tree can construct both
 island derivations and splice them without another document recognition.
 Today's island gate decides inline and discards its kernel, so complete scope
 requires new deferred state rather than free reuse. This establishes
-feasibility, not the still-open choice between today's island-local resolver
-pair and complete-document pairs for both engines. The enclosing product's continuation is compiled, not discovered per parse: one
+feasibility for the selected contract: `resolve=` receives complete-document
+pairs under both engines. The pair is constructed only after root inequality
+and an actual resolver invocation; refusal and equal meanings construct none.
+The enclosing product's continuation is compiled, not discovered per parse: one
 immutable row per contextual occurrence — consuming clone, channel slot,
 requested root, bound product — carries the slot's class under the real
 operation algebra plus two reachability lanes, and contains no parse value and

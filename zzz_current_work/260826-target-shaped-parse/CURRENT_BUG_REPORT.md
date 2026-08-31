@@ -210,8 +210,8 @@ public result diverge.
 
 One resolver scope must govern both engines. The design proves that complete
 document pairs are constructible without retaining a shadow model on the
-unambiguous path, but the user has not yet ruled between complete-document and
-island-local scope. Complete-document scope requires occurrence-addressed
+unambiguous path, and that is the selected public scope. Complete-document
+scope requires occurrence-addressed
 multi-island splicing; the fused PDA path requires one cold Earley recognition
 only after root inequality and an actual resolver call. Refusal wording must be
 shared by the selected public gate.

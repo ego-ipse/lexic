@@ -1,8 +1,9 @@
 # Index — target-shaped parsing
 
 **Current state (2026-08-31):** `PROTOTYPE_15.md` closes the island-continuation
-composition. One immutable row per contextual occurrence — keyed by consuming
-clone, channel slot, requested root and bound product — settles a constant
+certificate and its non-shared composition witnesses. One immutable row per
+contextual occurrence — keyed by consuming clone, channel slot, requested root
+and bound product — settles a constant
 continuation universally and an injective one existentially, both without
 executing an operation or recognizing the document again; everything else
 reaches the exact per-node relation, where interacting occurrences compose
@@ -12,8 +13,9 @@ through deduplicated option products rather than global assignments. Complete
 `P14_ADVERSARIAL.md`, remains the cyclic-law, infinite-pair, tokenizer-contract
 and recognition/binding evidence. Recognition uses the armed pre-relaxation
 grammar; binding and synthesis retain the relaxed grammar, and
-`lift_optional_nullables` leaves. Resolver-pair scope is the only open user
-decision. Production family-aware numbering, new operation-law rows, integrated
+`lift_optional_nullables` leaves. Resolver-pair scope is settled to complete-
+document pairs for both engines, constructed only after root inequality and an
+actual `resolve=` invocation. Production family-aware numbering, new operation-law rows, integrated
 memory, custom paid-loop neutrality, and every parse-performance comparison
 remain explicit implementation gates, and Prototype 15 adds three more: the
 exact lane runs over the dirty cone of a family-aware Earley chart, so an
@@ -23,6 +25,10 @@ one-flip probe is linear, and its bound is an unclosed §8 planning gate; and a
 resolver pair without re-recognition costs one retained island kernel per
 ambiguous occurrence, whose release boundary is unsettled. Three shipped ambiguity defects are
 pinned, and one `goal.md` §5 value-relation divergence is now executable.
+Its complete-fold oracle globally assigns families by packed key and every
+witness excludes a node or key reached twice, while the repository already has
+real shared-DAG shapes. Shared-occurrence composition is therefore an open
+planning gate, tasked by `PROMPT_16.md` together with the exact-lane cost bound.
 The closure audit returned `READY` on its fourth
 auditor's re-check, which authorizes neither source implementation nor any
 parsing regression. Production source has not started.
@@ -52,6 +58,8 @@ before source work.
 
 The current packet is:
 
+- [`PROMPT_16.md`](PROMPT_16.md) — closes shared-occurrence ambiguity against
+  an occurrence-unrolled oracle and determines the exact-lane cost policy;
 - [`PROMPT_15.md`](PROMPT_15.md) — composes cached island-to-root semantic
   continuations with exact interacting-family handling, then requires three
   fresh sequential non-Fable reviews;
@@ -69,7 +77,7 @@ The current packet is:
   adversarial record plus the final coordinator verification which supersedes
   its earlier `READY` verdict;
 - [`PROMPT_14.md`](PROMPT_14.md) — tasking for the completed cyclic and
-  tokenizer investigations plus still-open resolver scope, with sequential
+  tokenizer investigations plus the then-open resolver scope, with sequential
   non-Fable adversarial review;
 - [`reports/PROTOTYPE_13.md`](reports/PROTOTYPE_13.md) — authoritative
   correction of Prototype 12's gate classification; Prototype 14 supersedes
@@ -142,6 +150,7 @@ newer reports do not explicitly supersede them.
 | [`PROTOTYPE_15.md`](reports/PROTOTYPE_15.md) | Compiles and executes the island→root continuation: const/injective/execute certificate, interaction composition, occurrence identity, resolver-tree separation, and the shipped-grammar row census. |
 | [`P15_ADVERSARIAL.md`](reports/P15_ADVERSARIAL.md) | Records the Prototype 15 review prompts, findings, fixes, reruns, and verdicts. |
 | [`REVIEW_15.md`](reports/REVIEW_15.md) | The fresh closure audit of the Prototype 15 packet. |
+| [`PROMPT_16.md`](PROMPT_16.md) | Tasks the shared-DAG ambiguity proof and exact-lane cost policy while preserving complete-document resolver scope. |
 
 ## Prototype inventory
 
@@ -213,6 +222,8 @@ part of the packet.
 - Production begins at §2, then follows §3–§11 in order.
 - Explicit `PLANNING REQUIRED` and `DECISION REQUIRED` markers in `TODO.md`
   are hard entry/exit gates, not implementer discretion.
+- Shared-occurrence composition and the exact-lane cost policy are the two
+  planning gates assigned to `PROMPT_16.md`.
 - §4, §5, §7, §9, and §11 have checkpoint gates.
 - §12 is the complete-source external profile.
 - §13 is the sequential Luna test/lint handoff.

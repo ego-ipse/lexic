@@ -42,8 +42,9 @@ binding lifecycle. `PROTOTYPE_12.md` supplies the cyclic, tokenizer, flat/frame,
 and real-pool round. `PROTOTYPE_13.md` is the authoritative correction: it
 removes arbitrary cyclic caps, scopes quantified-nullable semantic families
 and Leo-complete readout, limits the control to an external fused-product
-protocol, and records the gates still open below. Resolver scope remains a
-separate user decision. `PROTOTYPE_14.md` and `P14_ADVERSARIAL.md`, as corrected
+protocol, and records the gates still open below. Resolver scope was a separate
+question at that checkpoint; the later complete-document ruling closes
+it below. `PROTOTYPE_14.md` and `P14_ADVERSARIAL.md`, as corrected
 by the coordinator rerun, close the investigable cyclic and tokenizer gates,
 pin the third shipped ambiguity defect, and separate the parser's recognition
 grammar from its constructor-binding grammar. `PROTOTYPE_15.md` closes the
@@ -861,7 +862,8 @@ and the timed resident row is recorded inside its stop factor.
 
 ## 8 — make ambiguity and failure isolation target-correct
 
-- [x] **PLANNING REQUIRED BEFORE §8 — CONTINUATION COMPOSITION CLOSED:**
+- [x] **PLANNING REQUIRED BEFORE §8 — CONTINUATION CERTIFICATE AND NON-SHARED
+      COMPOSITION CLOSED:**
       the enclosing continuation is a compiled artefact, one immutable row per
       contextual occurrence keyed `(consuming clone, channel slot, requested
       root, bound product)`, holding the slot's operation class and two
@@ -885,10 +887,21 @@ and the timed resident row is recorded inside its stop factor.
       one-flip comparisons equal to the baseline and the joint choice
       differing. Occurrence identity is the delegated leaf object, so one
       island rule settles differently at two sites, and nested delegation adds
-      no second mechanism. Every candidate result agrees with an independent
-      complete-Earley-fold oracle. Production reads the key off the island's
-      entry frame or waiter code instead of the prototype's root-down descent,
-      and a cyclic chart is refused by name to `cyclic_meaning`.
+      no second mechanism. Every exercised non-shared candidate agrees with an
+      independent complete-Earley-fold oracle. Production reads the key off the
+      island's entry frame or waiter code instead of the prototype's root-down
+      descent, and a cyclic chart is refused by name to `cyclic_meaning`.
+- [ ] **PLANNING REQUIRED BEFORE §8 — SHARED-OCCURRENCE COMPOSITION:**
+      `proto/island_continuation.py` gives every occurrence an independent
+      family choice, but its complete-fold oracle fixes one family per packed
+      key and every witness asserts zero shared nodes and zero keys claimed
+      twice. Real duplicate-slot, pending-frame, sibling-memo, and transparent-
+      synthetic DAGs already exist in `proto/shared_forest_refold.py`. Add
+      semantic ambiguity under each shape and compare the exact per-node lane
+      with an occurrence-unrolled complete-derivation oracle. A shared node's
+      meaning set is computed once; each parent-slot occurrence ranges over it
+      independently, and occurrence-owned effects still apply per consumption.
+      Keep the general composition claim open until all shapes agree.
 - [ ] Implement the exact lane over the DIRTY CONE, not the whole chart: fold
       every completed node once to its baseline meaning — that fold is the
       parse's own product — and run the meaning-SET lane only on the upward
@@ -986,12 +999,13 @@ and the timed resident row is recorded inside its stop factor.
       complete pair with no second document recognition. Today's island gate
       decides inline and discards its kernel, so this is new deferred state,
       not free reuse. Refusal and equal-root paths perform no document reparse.
-- [ ] **DECISION REQUIRED BEFORE §8 — RESOLVER SCOPE:** choose today's
-      island-local pair or complete-document pairs for both engines under the
-      PDA/Earley public-equivalence invariant. If complete pairs are chosen,
-      specify occurrence-identified multi-island splicing and the fused PDA's
-      one cold recognition after inequality and an actual `resolve=` call. No
-      user ruling is inferred from the investigator report.
+- [x] **DECISION REQUIRED BEFORE §8 — RESOLVER SCOPE CLOSED:** `resolve=`
+      receives complete-document pairs under both engines. Semantic settlement
+      constructs no pair. After root meanings differ and only when `resolve=`
+      is actually invoked, use occurrence-identified multi-island splicing;
+      the fused PDA may perform one cold Earley recognition because it retains
+      no document `ParseTree`. Refusal and equal-root paths perform none of
+      this work. An island-local pair is not a second public contract.
 - [x] **DECISION REQUIRED AT §8 EXIT — PYTHON AND IRMAP CLOSED:** real carrier
       rows cover equal, changed-value, key-set-changing, duplicate, dropped,
       merge-order, pipeline, and finalization cases. Recursive Python mappings
@@ -1110,8 +1124,8 @@ and the timed resident row is recorded inside its stop factor.
       replay from that occurrence to the root. The dropping-parent island
       witness must be accepted without whole-document reparse when its complete
       root meanings are equal. If they differ, refusal needs no reparse; only an
-      invoked `resolve=` may perform the extra derivation work selected by the
-      resolver-scope decision. Search sibling accepting items as well as
+      invoked `resolve=` may construct the selected complete-document pair.
+      Search sibling accepting items as well as
       internal ambiguity points. Multiple/nested seeds follow the proved
       interaction rule; never infer one-flip exactness from purity.
 - [ ] Make the target equality walk iterative: the current recursive

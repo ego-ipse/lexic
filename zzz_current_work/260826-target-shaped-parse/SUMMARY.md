@@ -61,7 +61,7 @@ Compile grammar semantics and the requested codomain into one parser product tha
 - Different local trees are harmless when their requested root values are equal.
 - Ordinary split allocation retains its defined leftmost answer.
 - Nullable quantifiers preserve differing semantic occurrence counts.
-- Interacting packed choices are evaluated together rather than one flip at a time.
+- Interacting and shared-occurrence choices are evaluated together, never one flip at a time.
 - Leo links are expanded as part of ambiguity readout.
 - Finite zero-width cycles reach an exact structural fixpoint.
 - Infinite growing cycles can produce an occurrence-addressed second derivation.
@@ -73,7 +73,7 @@ Compile grammar semantics and the requested codomain into one parser product tha
 - A local alternative is discarded only when that continuation proves root equivalence.
 - Non-injective continuations execute against the actual competing meanings.
 - Interacting island and outer choices remain part of one exact ambiguity question.
-- Complete document trees are constructed only when a resolver requires them.
+- Both engines construct complete-document pairs only when a resolver requires them.
 
 ### Direct codomains and tokenizer
 

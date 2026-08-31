@@ -354,6 +354,15 @@ cyclic chart by name to `cyclic_meaning`. Its root-down descent for the
 consuming clone is a prototype stand-in: production reads the key off the
 island's entry frame or waiter code.
 
+The round's complete-Earley oracle has one explicit boundary: it assigns one
+family per packed key, and every witness asserts that no node or key is reached
+twice. That does not cover the real shared-DAG shapes already pinned by
+`proto/shared_forest_refold.py`. The intended semantics remains occurrence-
+local — compute a shared node's meaning set once, then let each consuming slot
+range over it independently — but an occurrence-unrolled derivation oracle
+must verify duplicate-slot, pending-frame, sibling-memo, and transparent-
+synthetic shapes before the general composition claim closes.
+
 The same round produced one executable member of `goal.md` §5's enumerated
 divergence set: a document whose two derivations build different generated
 models but the same reducer value, which the shipped `reduce` refuses and the
@@ -367,10 +376,11 @@ witness, constructing both island derivations and replacing the delegated
 payload leaf produces the complete pair without another document recognition.
 Today's island gate decides inline and discards its kernel, so complete scope
 requires new deferred state rather than reusing a retained pair. This closes
-feasibility, not policy: the public implementation currently supplies an
-island-local pair, the complete-document scope has not been ruled, a
-multi-island splice needs occurrence identity, and the fused PDA path has no
-document `ParseTree` to splice.
+feasibility for the ruled public contract: both engines supply complete-
+document pairs. A multi-island splice needs occurrence identity, and the fused
+PDA path has no document `ParseTree` to splice, so it performs one cold Earley
+recognition only after root inequality and an actual `resolve=` invocation.
+Refusal and equal meanings do not perform that work.
 
 For meanings, ordered persistent contribution trees remain sequence-only.
 They are wrong for order-insensitive mappings, and the incremental hash treap
