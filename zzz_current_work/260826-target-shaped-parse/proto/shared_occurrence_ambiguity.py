@@ -25,8 +25,12 @@ grammatical OCCURRENCE its own family choice?
 
 **What the three lanes establish.** A packed forest node is keyed by
 ``(item, end)``: it is a VALUE, and two grammatical occurrences of one rule can
-reach it. The occurrence is named by ``(consuming handle, family index, slot)``
-— the forest edge, which the chart carries and a built `ParseTree` does not.
+reach it. The occurrence is named by ``(consuming handle, family index, slot)``.
+That triple is DERIVABLE from what the forest already holds — nothing new need
+be recorded during recognition — but no structure carries it:
+`cyclic_meaning.Edge` is ``(parent, child, slot)`` with no family field, and
+production's `forest/chart.py` has no parent-to-child edge at all. Materialising
+it is real work, on the ambiguity path only.
 The shared value's set is computed once; each consuming slot ranges over it
 independently; and the consumer's own operation runs once per slot consumption.
 Correlating the two occurrences — which a key-global assignment does — loses
@@ -182,6 +186,7 @@ def unrolled_meanings(
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
     counts: UnrolledCounts,
+    partial: frozenset[str] = frozenset(),
 ) -> tuple[IrSelf, ...]:
     """Every requested-root meaning, with a FAMILY CHOICE PER OCCURRENCE.
 
@@ -212,12 +217,21 @@ def unrolled_meanings(
             stack.extend(_pending_children(families, handle, at, results))
             continue
         results[at] = _occurrence_set(
-            kernel, handle, at, families, results, options, reducer, counts
+            kernel, handle, at, families, results, options, reducer, counts, partial
         )
     found: list[IrSelf] = []
     for index, root in enumerate(roots):
         for meaning in results[((root, 0, index),)]:
             add_unique(found, meaning)
+    if not found:
+        # The ONLY refusal. Every requested-root branch lost its meaning, so
+        # the document has none; refusing here — and nowhere below — is what
+        # keeps "an internal node has no image" from being confused with "this
+        # document does not parse".
+        raise UnsupportedConstructError(
+            "shared occurrence: no complete requested-root meaning survives;"
+            " every derivation's operations refused"
+        )
     return tuple(found)
 
 
@@ -255,50 +269,63 @@ def _occurrence_set(
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
     counts: UnrolledCounts,
+    partial: frozenset[str],
 ) -> tuple[IrSelf, ...]:
-    """One occurrence's meanings, over its own families and child occurrences."""
+    """One occurrence's meanings, under BOTTOM semantics.
+
+    Three rules, and no raise anywhere below the root. A family whose operation
+    refuses contributes nothing. A family one of whose slot lanes is EMPTY —
+    because the child occurrence has no meaning — contributes nothing, so an
+    empty internal image eliminates exactly the parent families that consume
+    it and leaves the parent's other families alone. An occurrence with no
+    surviving family returns the empty set and lets its own consumers apply the
+    same rule. Only the requested ROOT decides refusal, in
+    :func:`unrolled_meanings`.
+
+    `cyclic_meaning.node_set:657-661` already does this — an empty option lane
+    is a `continue`, not an error — so bottom semantics is the production
+    precedent rather than a new invention here.
+    """
     name = harness._name(kernel, handle)
     found: list[IrSelf] = []
     for family, resolved in enumerate(families):
         lanes = _occurrence_lanes(resolved, handle, family, at, results, options)
+        if lanes is None:
+            continue
         for kids in product(*lanes):
             counts.apply(name)
-            add_unique(found, _partial_apply(reducer, name, kids))
-    live = tuple(value for value in found if value is not _ABSENT)
-    if not live:
-        # Every family refused, so this occurrence has NO meaning. Returning an
-        # empty lane would let the parent's product silently drop the family —
-        # narrowing the meaning set, which is the one direction a default must
-        # not take. `island_continuation._slot_options` raises for the same
-        # reason; the oracle has to raise here or the two lanes would disagree
-        # exactly where it matters.
-        raise UnsupportedConstructError(
-            f"shared occurrence: every family of {name!r} refused, so this"
-            " occurrence has no meaning; the set cannot be formed and must not"
-            " be silently narrowed"
-        )
-    return live
+            meaning = apply_or_none(reducer, name, kids, partial)
+            if meaning is not None:
+                add_unique(found, meaning)
+    return tuple(found)
 
 
-_ABSENT = IrStr("\x00shared-occurrence-absent")
-"""The value a family whose operation RAISED contributes — that is, none.
+def apply_or_none(
+    reducer: Reducer, name: str, kids: tuple[IrSelf, ...], partial: frozenset[str]
+) -> IrSelf | None:
+    """Run the authored body; a DECLARED partial operation that refuses has none.
 
-`operation_slot_laws._prove_partial_operation` rules the semantics: an
-operation that refuses (a duplicate `IrMap` key) produces no value at all, the
-``finite(0)`` bottom, and an absent value cannot make a requested root mean two
-things. A sentinel is used rather than a `None` because every meaning lane here
-is typed `IrSelf`; it is filtered out before any set is published.
-"""
+    Bottom semantics, in the one place it is decided.
+    `operation_slot_laws._prove_partial_operation` rules that an operation which
+    refuses produces no value at all — the ``finite(0)`` bottom — so the family
+    contributes nothing rather than contributing a marker.
 
-
-def _partial_apply(reducer: Reducer, name: str, kids: tuple[IrSelf, ...]) -> IrSelf:
-    """Apply the authored body, or report the absent value when it refuses."""
-    if any(value is _ABSENT for value in kids):
-        return _ABSENT
+    **The absorption is narrow by DECLARATION, not by exception type.** Only a
+    rule the witness declares partial may swallow a refusal; every other
+    `UnsupportedConstructError` propagates, because that type is also what an
+    open `IrDispatch`/`IrTypeMap` raises for an undeclared construct and
+    absorbing it would turn an engine failure into a silently dropped family.
+    Production cannot use a declaration list: it needs a **distinct
+    value-refusal exception**, raised by the operation itself and by nothing
+    else. That signal does not exist today and is
+    :func:`prove_the_required_production_signal`'s subject.
+    """
     try:
         return apply_body(reducer, name, kids)
     except UnsupportedConstructError:
-        return _ABSENT
+        if name in partial:
+            return None
+        raise
 
 
 def _occurrence_lanes(
@@ -308,16 +335,24 @@ def _occurrence_lanes(
     at: Occurrence,
     results: dict[Occurrence, tuple[IrSelf, ...]],
     options: dict[int, tuple[IrSelf, ...]],
-) -> list[tuple[IrSelf, ...]]:
-    """One family's per-slot option lanes, read at THIS occurrence."""
+) -> list[tuple[IrSelf, ...]] | None:
+    """One family's per-slot lanes, or ``None`` when a lane is EMPTY.
+
+    ``None`` eliminates this one family and nothing else — the parent's other
+    families are untouched. That is what "an empty internal image eliminates
+    only the parent families consuming it" means operationally.
+    """
     width = len(resolved.children) + len(resolved.leaves)
     paths = iter(child_occurrences(resolved, handle, family, at))
     lanes: list[tuple[IrSelf, ...]] = []
     for index in range(width):
         if index in resolved.slots:
-            lanes.append(options[id(resolved.leaves[resolved.slots.index(index)])])
-            continue
-        lanes.append(results[next(paths)[1]])
+            lane = options[id(resolved.leaves[resolved.slots.index(index)])]
+        else:
+            lane = results[next(paths)[1]]
+        if not lane:
+            return None
+        lanes.append(lane)
     return lanes
 
 
@@ -329,6 +364,7 @@ def key_correlated_meanings(
     roots: tuple[int, ...],
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
+    partial: frozenset[str] = frozenset(),
 ) -> tuple[IrSelf, ...]:
     """Prototype 15's oracle: ONE family per arm-choice key per derivation.
 
@@ -345,9 +381,9 @@ def key_correlated_meanings(
             if not isinstance(tree, ParseTree):
                 continue
             for combo in _leaf_combos(options):
-                add_unique(found, _tree_meaning(tree, reducer, combo))
-    if not found:
-        raise UnsupportedConstructError("shared occurrence: the control built nothing")
+                meaning = _tree_meaning(tree, reducer, combo, partial)
+                if meaning is not None:
+                    add_unique(found, meaning)
     return tuple(found)
 
 
@@ -396,7 +432,9 @@ def production_enumeration(parsed: Parsed) -> Enumerated:
     for tree in built:
         if _has_starved_node(tree, parsed.reducer):
             continue
-        add_unique(found, _tree_meaning(tree, parsed.reducer, {}))
+        meaning = _tree_meaning(tree, parsed.reducer, {})
+        if meaning is not None:
+            add_unique(found, meaning)
     return Enumerated(len(built), len(found), malformed)
 
 
@@ -441,9 +479,17 @@ def _leaf_combos(
 
 
 def _tree_meaning(
-    tree: ParseTree, reducer: Reducer, overrides: dict[int, IrSelf]
-) -> IrSelf:
-    """Fold one complete derivation, absorbing a refusing operation."""
+    tree: ParseTree,
+    reducer: Reducer,
+    overrides: dict[int, IrSelf],
+    partial: frozenset[str] = frozenset(),
+) -> IrSelf | None:
+    """One complete derivation's meaning, or ``None`` when it has none.
+
+    A single derivation has one value or no value: if any node's operation
+    refuses, the whole derivation contributes nothing. There is no set to
+    narrow here, so bottom semantics is just propagation.
+    """
     order: list[ParseTree] = []
     stack: list[ParseTree] = [tree]
     while stack:
@@ -452,7 +498,10 @@ def _tree_meaning(
         stack.extend(kid for kid in node.kids if isinstance(kid, ParseTree))
     values: dict[int, IrSelf] = {}
     for node in reversed(order):
-        values[id(node)] = _node_value(node, reducer, overrides, values)
+        found = _node_value(node, reducer, overrides, values, partial)
+        if found is None:
+            return None
+        values[id(node)] = found
     return values[id(tree)]
 
 
@@ -461,57 +510,21 @@ def _node_value(
     reducer: Reducer,
     overrides: dict[int, IrSelf],
     values: dict[int, IrSelf],
-) -> IrSelf:
-    """One derivation node's value under the real body, or the absent value."""
+    partial: frozenset[str],
+) -> IrSelf | None:
+    """One derivation node's value, or ``None`` when its operation refuses."""
     kids: list[IrSelf] = []
     for kid in node.kids:
         if isinstance(kid, ParseTree):
+            if id(kid) not in values:
+                return None
             kids.append(values[id(kid)])
         elif isinstance(kid, PayloadLeaf):
             kids.append(overrides[id(kid)])
-    return _partial_apply(reducer, str(node.symbol), tuple(kids))
+    return apply_or_none(reducer, str(node.symbol), tuple(kids), partial)
 
 
-# ── the candidate, with the partial-operation semantics restored ──────────
-
-
-class Partial(Reducer):
-    """A reducer whose refusing bodies contribute NO value, not an exception.
-
-    The candidate's `island_continuation._node_set` applies the authored body
-    directly, so a family whose operation refuses aborts the whole settlement
-    instead of dropping out of the image — see
-    :func:`prove_partial_family_defect`. Wrapping the reducer restores the
-    semantics `operation_slot_laws._prove_partial_operation` already ruled,
-    without editing the candidate.
-    """
-
-    def body(self, symbol: IrSelf) -> IrSelf:
-        """The authored body, wrapped so a refusal evaluates to the absent value."""
-        return Absorbing(super().body(symbol))
-
-
-class Absorbing(IrTuple):
-    """One authored body, evaluated with its refusal turned into no value."""
-
-    def eval(self, d: IrSelf, n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
-        """Evaluate the wrapped body; a refusal becomes :data:`_ABSENT`."""
-        if any(value is _ABSENT for value in nc):
-            return _ABSENT
-        try:
-            return self[0].eval(d, n, nc)
-        except UnsupportedConstructError:
-            return _ABSENT
-
-
-def partial_reducer(reducer: Reducer) -> Partial:
-    """The same authored actions, with the partial-operation ruling applied."""
-    return Partial(
-        actions=reducer.actions,
-        default=reducer.default,
-        literal=reducer.literal,
-        noise=reducer.noise,
-    )
+# ── the candidate lane, and the bottom-semantics lane beside it ───────────
 
 
 def candidate_meanings(
@@ -521,16 +534,97 @@ def candidate_meanings(
     reducer: Reducer,
     counters: candidate.Counters,
 ) -> tuple[IrSelf, ...]:
-    """The CANDIDATE per-node relation, run under the partial-operation ruling."""
-    found = candidate.exact_meanings(
-        kernel,
-        roots,
-        options,
-        partial_reducer(reducer),
-        counters,
-        candidate.SETTLEMENT_LANE,
+    """The CANDIDATE per-node relation, exactly as it stands.
+
+    Not wrapped and not corrected. Where a witness has no refusing operation
+    this is the relation under test; where one does, it RAISES, and
+    :func:`prove_partial_family_defect` pins that as the implementation task it
+    is.
+    """
+    return candidate.exact_meanings(
+        kernel, roots, options, reducer, counters, candidate.SETTLEMENT_LANE
     )
-    return tuple(value for value in found if value is not _ABSENT)
+
+
+def bottom_meanings(
+    kernel: Kernel,
+    roots: tuple[int, ...],
+    options: dict[int, tuple[IrSelf, ...]],
+    reducer: Reducer,
+    partial: frozenset[str],
+) -> tuple[IrSelf, ...]:
+    """The candidate's per-node shape with empty lanes propagated CORRECTLY.
+
+    The minimal correction, not a second architecture: same family-aware chart,
+    same per-node set, same deduplication through `same_value`. The two
+    differences are the two the round asks for — a refusing declared-partial
+    operation contributes no meaning, and a family with an empty slot lane is
+    skipped instead of raising, exactly as `cyclic_meaning.node_set` already
+    does. Refusal happens once, at the requested root.
+
+    :raises UnsupportedConstructError: When no complete requested-root meaning
+        survives.
+    """
+    chart = algebra.build_chart(kernel, roots)
+    candidate._refuse_cyclic(chart, kernel)
+    sets: dict[int, tuple[IrSelf, ...]] = {}
+    for handle in candidate._topological(chart, roots):
+        sets[handle] = _bottom_node(
+            kernel, handle, chart, sets, options, reducer, partial
+        )
+    found: list[IrSelf] = []
+    for root in roots:
+        for meaning in sets.get(root, ()):
+            add_unique(found, meaning)
+    if not found:
+        raise UnsupportedConstructError(
+            "shared occurrence: no complete requested-root meaning survives;"
+            " every derivation's operations refused"
+        )
+    return tuple(found)
+
+
+def _bottom_node(
+    kernel: Kernel,
+    handle: int,
+    chart: algebra.Chart,
+    sets: dict[int, tuple[IrSelf, ...]],
+    options: dict[int, tuple[IrSelf, ...]],
+    reducer: Reducer,
+    partial: frozenset[str],
+) -> tuple[IrSelf, ...]:
+    """One node's image; an empty one eliminates only its consuming families."""
+    name = harness._name(kernel, handle)
+    found: list[IrSelf] = []
+    for resolved in chart.resolveds[handle]:
+        lanes = _bottom_lanes(resolved, sets, options)
+        if lanes is None:
+            continue
+        for kids in product(*lanes):
+            meaning = apply_or_none(reducer, name, kids, partial)
+            if meaning is not None:
+                add_unique(found, meaning)
+    return tuple(found)
+
+
+def _bottom_lanes(
+    resolved: harness.Resolved,
+    sets: dict[int, tuple[IrSelf, ...]],
+    options: dict[int, tuple[IrSelf, ...]],
+) -> list[tuple[IrSelf, ...]] | None:
+    """One family's per-slot lanes, or ``None`` when one of them is empty."""
+    width = len(resolved.children) + len(resolved.leaves)
+    ints = iter(resolved.children)
+    lanes: list[tuple[IrSelf, ...]] = []
+    for index in range(width):
+        if index in resolved.slots:
+            lane = options[id(resolved.leaves[resolved.slots.index(index)])]
+        else:
+            lane = sets.get(next(ints), ())
+        if not lane:
+            return None
+        lanes.append(lane)
+    return lanes
 
 
 # ── the witnesses ─────────────────────────────────────────────────────────
@@ -615,6 +709,10 @@ class Witness(NamedTuple):
     :ivar correlated: What the key-global control answers — lower where the
         occurrences are independently mixable.
     :ivar flavour: The surface the grammar is written in.
+    :ivar partial: Rules whose authored operation is DECLARED partial — the
+        only ones whose refusal may be read as "no meaning" rather than
+        propagated. Production needs a distinct exception instead; see
+        :func:`prove_the_required_production_signal`.
     """
 
     name: str
@@ -627,6 +725,7 @@ class Witness(NamedTuple):
     meanings: int
     correlated: int
     flavour: IrFlavour = GBNF_FLAVOUR
+    partial: frozenset[str] = frozenset()
 
 
 WITNESSES = (
@@ -776,10 +875,10 @@ WITNESSES = (
 
 
 EFFECTS = (
-    ("append", APPEND, 4, 2),
-    ("insert", INSERT, 4, 2),
-    ("verdict", VERDICT, 2, 1),
-    ("duplicate", DUPLICATE, 2, 0),
+    ("append", APPEND, 4, 2, frozenset()),
+    ("insert", INSERT, 4, 2, frozenset()),
+    ("verdict", VERDICT, 2, 1, frozenset()),
+    ("duplicate", DUPLICATE, 2, 0, frozenset({"root"})),
 )
 """Occurrence-owned effects: label, root body, exact meanings, correlated ones.
 
@@ -1034,21 +1133,19 @@ def prove_occurrence_owned_effects() -> None:
     execution would produce — it collapses the two occurrences into one value
     and answers a smaller image every time.
     """
-    for label, root_body, exact_count, correlated_count in EFFECTS:
+    for label, root_body, exact_count, correlated_count, partial in EFFECTS:
         actions = (("root", root_body),) + PASS_THROUGH + LEAVES
         parsed = recognize(DUP_SLOT, GBNF_FLAVOUR, "x", actions)
-        counters = candidate.Counters()
-        exact = candidate_meanings(
-            parsed.kernel, parsed.roots, parsed.options, parsed.reducer, counters
+        exact = bottom_meanings(
+            parsed.kernel, parsed.roots, parsed.options, parsed.reducer, partial
         )
         counts = UnrolledCounts()
         oracle = unrolled_meanings(
-            parsed.kernel, parsed.roots, parsed.options, parsed.reducer, counts
+            parsed.kernel, parsed.roots, parsed.options, parsed.reducer, counts, partial
         )
-        correlated = key_correlated_meanings(
-            parsed.kernel, parsed.roots, parsed.options, parsed.reducer
+        live = key_correlated_meanings(
+            parsed.kernel, parsed.roots, parsed.options, parsed.reducer, partial
         )
-        live = tuple(value for value in correlated if value is not _ABSENT)
         node = shared_nodes(parsed.kernel, parsed.chart, "a")[0]
         expansions = occurrence_paths_at(
             parsed.kernel, parsed.roots, parsed.options, parsed.reducer, node
@@ -1065,6 +1162,7 @@ def prove_occurrence_owned_effects() -> None:
             "occurrence-effect",
             label,
             f"operation={type(root_body).__name__}",
+            f"declared_partial={sorted(partial)}",
             f"consumer_body_executions={counts.by_rule['root']}",
             f"shared_node_occurrence_expansions={expansions}",
             f"exact_meanings={len(exact)}",
@@ -1085,111 +1183,68 @@ def prove_occurrence_owned_effects() -> None:
     )
 
 
-def prove_partial_family_defect() -> None:
-    """The candidate ABORTS on a family whose operation refuses — a real gap.
+ONE_REFUSES = 'root ::= a a "x"\na ::= b\nb ::= p | q\np ::= "y"*\nq ::= "z"*\n'
+"""Witness (a): one requested-root branch refuses, another survives."""
 
-    `operation_slot_laws._prove_partial_operation` rules that a refusing
-    operation contributes no value; `island_continuation._node_set` applies the
-    authored body with no guard, so the refusal escapes and the settlement dies
-    instead of the family dropping out of the image. The row executes both
-    behaviours side by side and states the production obligation.
-    """
-    actions = (("root", DUPLICATE),) + PASS_THROUGH + LEAVES
-    parsed = recognize(DUP_SLOT, GBNF_FLAVOUR, "x", actions)
-    raised = ""
-    try:
-        candidate.exact_meanings(
-            parsed.kernel,
-            parsed.roots,
-            parsed.options,
-            parsed.reducer,
-            candidate.Counters(),
-            candidate.SETTLEMENT_LANE,
-        )
-    except UnsupportedConstructError as error:
-        raised = str(error)
-    assert raised, "the unguarded candidate did not refuse"
-    guarded = candidate_meanings(
-        parsed.kernel,
-        parsed.roots,
-        parsed.options,
-        parsed.reducer,
-        candidate.Counters(),
-    )
-    assert len(guarded) == 2, guarded
-    print(
-        "partial-family-defect",
-        f"unguarded_candidate={raised}",
-        f"guarded_meanings={len(guarded)}",
-        f"values={[repr(value) for value in guarded]}",
-        "a family whose operation refuses must contribute NO value, which is"
-        " the finite(0) bottom operation_slot_laws already declares; the"
-        " candidate propagates the refusal instead, so production owes this"
-        " guard before the exact lane lands",
-        sep="\t",
-    )
-    _prove_the_guard_is_coarse()
-    _prove_a_fully_refusing_node_still_raises()
-
-
-def _prove_the_guard_is_coarse() -> None:
-    """The prototype's guard catches a TYPE, and that type is overloaded.
-
-    Stated because §7 hands this guard to production and the boundary matters.
-    `UnsupportedConstructError` is also what an open `IrDispatch`/`IrTypeMap`
-    raises for an undeclared construct — CLAUDE.md's stated default — so a
-    catch on the type alone would turn a genuine engine failure into a silently
-    dropped family. The row executes both raises from one `except` clause to
-    show they are indistinguishable, so production owes a DISTINCT value-level
-    refusal signal before this guard can land.
-    """
-    duplicate = ""
-    undeclared = ""
-    try:
-        IrBuild(IrMap).eval(
-            candidate.reducer_of(()),
-            FOCUS,
-            (IrTuple(MARK_P, MARK_P), IrTuple(MARK_P, MARK_Q)),
-        )
-    except UnsupportedConstructError as error:
-        duplicate = type(error).__name__
-    try:
-        algebra.slot_class("no-such-operation", 0)
-    except UnsupportedConstructError as error:
-        undeclared = type(error).__name__
-    assert duplicate == undeclared == "UnsupportedConstructError"
-    print(
-        "partial-guard-boundary",
-        f"value_refusal_type={duplicate}",
-        f"undeclared_construct_type={undeclared}",
-        f"distinguishable_by_type={duplicate != undeclared}",
-        "the prototype absorbs a TYPE and that type is overloaded, so this"
-        " guard as written would also swallow an engine failure; production"
-        " owes a distinct value-refusal exception before adopting it. Absorbing"
-        " is still the correct SEMANTICS — operation_slot_laws already ruled"
-        " it — but the signal it keys on does not exist yet",
-        sep="\t",
-    )
-
-
-ALWAYS_REFUSES = IrBuild(
+ALL_REFUSE = IrBuild(
     IrMap, IrTuple(IrTuple(IrStr("k"), IrArg(0)), IrTuple(IrStr("k"), IrArg(1)))
 )
 """A consumer that refuses on EVERY combination — a constant duplicate key."""
 
 
-def _prove_a_fully_refusing_node_still_raises() -> None:
-    """A node whose every family refuses has NO meaning, and must say so.
+def prove_one_refusing_branch_beside_a_surviving_one() -> None:
+    """Witness (a): a refusing family must not remove the surviving meaning.
 
-    The boundary the absorbing guard must not cross. With a consumer that
-    refuses on every combination the requested root has no meaning at all;
-    reporting an empty set — or, worse, letting the parent's product silently
-    drop the family — would turn "no meaning exists" into "one meaning" or
-    into a narrower set. Both lanes are checked, because a guard that raises in
-    one and not the other would make them agree only by luck.
+    `DUPLICATE` inserts the two occurrence values as MAP KEYS, so the two mixed
+    derivations succeed and the two matched ones refuse. Bottom semantics keeps
+    exactly the survivors; anything that let a refusal stand as a value, or
+    that raised on the refusing family, would answer differently.
     """
-    actions = (("root", ALWAYS_REFUSES),) + PASS_THROUGH + LEAVES
+    actions = (("root", DUPLICATE),) + PASS_THROUGH + LEAVES
     parsed = recognize(DUP_SLOT, GBNF_FLAVOUR, "x", actions)
+    partial = frozenset({"root"})
+    bottom = bottom_meanings(
+        parsed.kernel, parsed.roots, parsed.options, parsed.reducer, partial
+    )
+    oracle = unrolled_meanings(
+        parsed.kernel,
+        parsed.roots,
+        parsed.options,
+        parsed.reducer,
+        UnrolledCounts(),
+        partial,
+    )
+    assert same_meaning_set(bottom, oracle) and len(bottom) == 2
+    print(
+        "partial-one-refusing-branch",
+        f"surviving_meanings={len(bottom)}",
+        f"unrolled_oracle={len(oracle)}",
+        f"agree={same_meaning_set(bottom, oracle)}",
+        f"values={[repr(value) for value in bottom]}",
+        "two of the four combinations refuse (equal keys) and two survive; a"
+        " refusing family removes itself and nothing else, so the document"
+        " parses and means two things",
+        sep="\t",
+    )
+
+
+def prove_every_root_branch_refusing() -> None:
+    """Witness (b): when NO requested-root meaning survives, parsing refuses.
+
+    The consumer inserts one constant key twice, so every combination refuses
+    and no derivation has a value. This is the one place a refusal is correct,
+    and it is the ROOT's decision — no internal node raised on the way here.
+    """
+    actions = (("root", ALL_REFUSE),) + PASS_THROUGH + LEAVES
+    parsed = recognize(DUP_SLOT, GBNF_FLAVOUR, "x", actions)
+    partial = frozenset({"root"})
+    bottom_said = ""
+    try:
+        bottom_meanings(
+            parsed.kernel, parsed.roots, parsed.options, parsed.reducer, partial
+        )
+    except UnsupportedConstructError as error:
+        bottom_said = str(error)
     oracle_said = ""
     try:
         unrolled_meanings(
@@ -1198,13 +1253,84 @@ def _prove_a_fully_refusing_node_still_raises() -> None:
             parsed.options,
             parsed.reducer,
             UnrolledCounts(),
+            partial,
         )
     except UnsupportedConstructError as error:
         oracle_said = str(error)
-    candidate_said = ""
-    empty: tuple[IrSelf, ...] = ()
+    assert bottom_said and oracle_said
+    print(
+        "partial-every-branch-refusing",
+        f"bottom_lane_refuses={bool(bottom_said)}",
+        f"unrolled_oracle_refuses={bool(oracle_said)}",
+        f"same_refusal={bottom_said == oracle_said}",
+        f"message={bottom_said}",
+        "both lanes refuse, and only at the requested root: no internal node"
+        " raised, because an empty internal image is a fact about that node"
+        " rather than about the document",
+        sep="\t",
+    )
+
+
+def prove_empty_image_eliminates_only_its_consumers() -> None:
+    """An empty INTERNAL image must not take the parent's other families with it.
+
+    The sharpest form of the rule. `inner` is consumed by one arm of `m` and
+    refuses on every combination; the other arm of `m` does not consume it. If
+    an empty image eliminated the whole parent the document would lose its
+    meaning, and it does not.
+    """
+    source = (
+        'root ::= m "z"\nm ::= viainner | direct\nviainner ::= inner\n'
+        'inner ::= t t\ndirect ::= t t\nt ::= p | q\np ::= "y"\nq ::= "y"\n'
+    )
+    actions = (
+        ("root", IrArg(0)),
+        ("m", IrArg(0)),
+        ("viainner", IrArg(0)),
+        ("inner", ALL_REFUSE),
+        ("direct", IrBuild(IrTuple, IrTuple(IrArg(0), IrArg(1)))),
+        ("t", IrArg(0)),
+    ) + LEAVES
+    parsed = recognize(source, GBNF_FLAVOUR, "yyz", actions)
+    partial = frozenset({"inner"})
+    bottom = bottom_meanings(
+        parsed.kernel, parsed.roots, parsed.options, parsed.reducer, partial
+    )
+    oracle = unrolled_meanings(
+        parsed.kernel,
+        parsed.roots,
+        parsed.options,
+        parsed.reducer,
+        UnrolledCounts(),
+        partial,
+    )
+    assert same_meaning_set(bottom, oracle) and bottom
+    print(
+        "empty-image-scope",
+        f"surviving_meanings={len(bottom)}",
+        f"unrolled_oracle={len(oracle)}",
+        f"agree={same_meaning_set(bottom, oracle)}",
+        "the refusing rule's image is empty, which eliminates the parent"
+        " families that CONSUME it and leaves the parent's other arm intact;"
+        " the document still means something",
+        sep="\t",
+    )
+
+
+def prove_partial_family_defect() -> None:
+    """The candidate RAISES where bottom semantics eliminates a family.
+
+    `island_continuation._slot_options` raises on an empty option lane, so the
+    candidate cannot express "this family has no meaning" — it turns a local
+    fact into a whole-parse refusal. `cyclic_meaning.node_set:657-661` already
+    does it correctly with a `continue`, so this is a defect against an existing
+    production precedent rather than an open question.
+    """
+    actions = (("root", DUPLICATE),) + PASS_THROUGH + LEAVES
+    parsed = recognize(DUP_SLOT, GBNF_FLAVOUR, "x", actions)
+    raised = ""
     try:
-        empty = candidate_meanings(
+        candidate_meanings(
             parsed.kernel,
             parsed.roots,
             parsed.options,
@@ -1212,20 +1338,62 @@ def _prove_a_fully_refusing_node_still_raises() -> None:
             candidate.Counters(),
         )
     except UnsupportedConstructError as error:
-        candidate_said = str(error)
-    assert oracle_said, "the oracle silently narrowed a fully-refusing node"
+        raised = str(error)
+    bottom = bottom_meanings(
+        parsed.kernel,
+        parsed.roots,
+        parsed.options,
+        parsed.reducer,
+        frozenset({"root"}),
+    )
+    assert raised and len(bottom) == 2
     print(
-        "fully-refusing-node",
-        f"oracle_raises={bool(oracle_said)}",
-        f"oracle_message={oracle_said}",
-        f"candidate_raises={bool(candidate_said)}",
-        f"candidate_returned_meanings={len(empty)}",
-        "the oracle refuses, which is correct: no meaning exists. The"
-        " candidate under the absorbing wrapper returns an EMPTY set instead —"
-        " its own empty-lane raise is unreachable because the wrapper hands"
-        " every slot a sentinel rather than an empty lane. That is a second"
-        " production obligation on the same guard: absorbing a refusal must not"
-        " make 'no meaning' indistinguishable from 'settled'",
+        "partial-family-defect",
+        f"candidate_raises={raised}",
+        f"bottom_lane_meanings={len(bottom)}",
+        "the candidate propagates the operation's refusal and loses a document"
+        " that means two things; the correction is the one cyclic_meaning"
+        " already implements — skip the family, refuse only at the root",
+        sep="\t",
+    )
+    prove_the_required_production_signal()
+
+
+def prove_the_required_production_signal() -> None:
+    """WHAT production needs before bottom semantics can land: a distinct type.
+
+    The prototype absorbs a refusal only for rules a witness DECLARES partial,
+    which production cannot do. Keying on the exception type instead is not
+    available: `UnsupportedConstructError` is also what an open dispatch raises
+    for an undeclared construct, so the two are indistinguishable, and
+    absorbing the type would turn an engine failure into a silently dropped
+    family. The row executes both raises to show they cannot be told apart.
+    """
+    value_refusal = ""
+    undeclared = ""
+    try:
+        IrBuild(IrMap).eval(
+            candidate.reducer_of(()),
+            FOCUS,
+            (IrTuple(MARK_P, MARK_P), IrTuple(MARK_P, MARK_Q)),
+        )
+    except UnsupportedConstructError as error:
+        value_refusal = type(error).__name__
+    try:
+        algebra.slot_class("no-such-operation", 0)
+    except UnsupportedConstructError as error:
+        undeclared = type(error).__name__
+    assert value_refusal == undeclared == "UnsupportedConstructError"
+    print(
+        "required-production-signal",
+        f"value_refusal_type={value_refusal}",
+        f"undeclared_construct_type={undeclared}",
+        f"distinguishable_by_type={value_refusal != undeclared}",
+        "REQUIRED: a distinct value-refusal exception raised by the operation"
+        " itself and by nothing else — a partial operation reporting it has no"
+        " value for these arguments. Until that exists, bottom semantics cannot"
+        " be keyed on an exception type; the prototype substitutes an explicit"
+        " per-rule declaration, which production must not",
         sep="\t",
     )
 
@@ -1458,8 +1626,11 @@ def prove_tree_identity_is_not_occurrence_identity() -> None:
     because the two spans differ — hands the fold one object at two positions.
     Production's `ModelFold.apply` keys its results on ``id(node)`` and
     `fold._tree_offsets` records one start per ``id``, so neither can tell the
-    occurrences apart. The chart can: the occurrence is the
-    ``(consuming handle, family, slot)`` edge `Chart.edges` already holds.
+    occurrences apart. The chart can DISTINGUISH them — the occurrence is the
+    ``(consuming handle, family index, kid slot)`` triple — but it does not
+    RECORD it: `cyclic_meaning.Edge` carries no family index and production's
+    chart carries no parent-to-child edge, so the triple is derivable and
+    unmaterialised.
     """
     witness = WITNESSES[0]
     parsed = recognize(witness.grammar, witness.flavour, witness.text, witness.actions)
@@ -1488,7 +1659,9 @@ def prove_tree_identity_is_not_occurrence_identity() -> None:
         " off the tree would execute once for two occurrences — and the twin"
         " shows the tree sharing a node the CHART does not share at all;"
         " (consuming handle, family, slot) is the identity the meaning relation"
-        " must use, and it is already there",
+        " must use; it is DERIVABLE from the forest and recorded by no structure"
+        " — Edge has no family index and production's chart has no"
+        " parent-to-child edge — so materialising it is production work",
         sep="\t",
     )
     assert memo_shared and edges == 2 and twin_shared
@@ -1658,6 +1831,9 @@ def main() -> None:
     prove_production_enumeration_truncates()
     prove_shared_value_is_computed_once()
     prove_occurrence_owned_effects()
+    prove_one_refusing_branch_beside_a_surviving_one()
+    prove_every_root_branch_refusing()
+    prove_empty_image_eliminates_only_its_consumers()
     prove_partial_family_defect()
     prove_unambiguous_sharing_allocates_nothing()
     prove_separate_accepting_roots()
@@ -1668,8 +1844,10 @@ def main() -> None:
     print(
         "invariant",
         "a packed forest node is a VALUE keyed by its span; a grammatical"
-        " occurrence is the (consuming handle, family, slot) edge that reaches"
-        " it, which the chart carries and the built tree does not. The shared"
+        " occurrence is the (consuming handle, family index, kid slot) triple"
+        " that reaches"
+        " it; that triple is DERIVABLE from the forest and recorded by no"
+        " structure, so materialising it is production work. The shared"
         " value's meaning set is computed once and every consuming slot ranges"
         " over it independently, so occurrence-owned append, insert, verdict"
         " and duplicate effects execute per slot consumption; a relation that"

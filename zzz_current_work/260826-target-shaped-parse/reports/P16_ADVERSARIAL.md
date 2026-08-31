@@ -59,8 +59,8 @@ the write allowlist and both prototypes were rerun after them.
 | A8 | The sibling-memo negative is a query artefact: `shared=""` makes `shared_nodes` match nothing regardless of the chart. | **FIXED.** Added `all_shared_nodes` (no name filter); every witness reports `every_shared_rule`, and a witness declaring no shared node is asserted to have none at all. |
 | A9 | The delegated-island row has no control and cannot support "compose the same way". | **FIXED.** Added the correlated column (2) and stated plainly that the row does not discriminate the relations, because the two consumptions are in different derivations. |
 | A10 | The shared-vs-twin differential is uncontrolled — the twin has 13 nodes against 8. | **FIXED.** The assertion is now `twin_products - shared_products == shared_node_own_families` (2 == 2): exactly one more copy of that node's set, not a size difference. |
-| A11 | **Blocker.** "Only the operation's own `UnsupportedConstructError` is absorbed" is false — the type is also the dispatch default, so the guard would swallow engine failures. | **FIXED.** Added `partial-guard-boundary`, which raises both from one `except` and shows `distinguishable_by_type=False`. The report now states production owes a distinct value-refusal exception before the guard can land. |
-| A12 | **Blocker.** "A node whose whole set comes out empty still raises" happens in neither lane; the two lanes have different partial-operation semantics and agree only because no witness has a fully-refusing subtree. | **FIXED in the oracle, PINNED in the candidate.** `_occurrence_set` now raises when every family refuses. Added `ALWAYS_REFUSES` and `_prove_a_fully_refusing_node_still_raises`: the oracle raises, the candidate returns an empty set. Reported as a second production obligation on the same guard. |
+| A11 | **Blocker.** "Only the operation's own `UnsupportedConstructError` is absorbed" is false — the type is also the dispatch default, so the guard would swallow engine failures. | **FIXED, then SUPERSEDED by §4.1.** The broad catch is gone entirely: absorption is now by explicit per-rule declaration, and `prove_the_required_production_signal` (which replaced `partial-guard-boundary`) states the distinct value-refusal exception production must add. The finding stands; the mechanism it described no longer exists. |
+| A12 | **Blocker.** "A node whose whole set comes out empty still raises" happens in neither lane; the two lanes have different partial-operation semantics and agree only because no witness has a fully-refusing subtree. | **SUPERSEDED by §4.1 — and the fix it prompted was WRONG.** Making `_occurrence_set` raise on an empty node image was the opposite of the correct semantics: an empty INTERNAL image must eliminate only the parent families consuming it, and refusal belongs at the requested root alone. The finding correctly identified that the two lanes disagreed; the disposition picked the wrong lane to change. Both now take bottom semantics, with the three witnesses in §A6. |
 | A13 | No split-ambiguous shared node anywhere — `is_arm_choice` excludes split families — so "every real shared-DAG shape" is scoped and §8 did not say so. | **FIXED.** Scope stated in §A3 and in answer 1. |
 | B1 | `exact_lane_cost`'s oracle cross-check compares a boolean, not a set. | **FIXED.** Added `_materialized_set`; the check is now `same_meaning_set` and the rows print both cardinalities. |
 | B2 | "The unambiguous path pays none of it" excludes the family-resolved `build_chart`, which runs before dirtiness is known and is charged by no counter. | **FIXED, and measured.** §B6 now reports `unconditional_chart_build_cpu` against `whole_settle_cpu`: the build is **68.1%** of settle on an unambiguous document. The claim is narrowed to the SET lane, and a demand-driven chart is added as implementation gate (d). |
@@ -102,7 +102,7 @@ This round's largest correction: the headline cost claim was wrong.
 | B1 | No stacked-product control — "the exponential term is one node's own product" is an artefact of a ladder with one multi-slot consumer. | **FIXED.** Added `stacked_grammar`/`prove_multiplicity_is_paid_at_every_level`: with a retaining consumer at every level the root's share is **50% / 40% / 46%**. The general claim is withdrawn; only the per-node identity is kept. |
 | B2 | Six claimed cases over four rungs; "interacting invisible substitutions" has no rung, and the law-shortcut and exponential-image cases are the same rung. | **FIXED by disclosure.** The §B2 table gains a "Distinct?" column naming both re-reads, and the text states the honest count: four rungs, two cost shapes, five distinct configurations plus the new stacked control. |
 | B3 | `prove_multiplicity_is_the_cost` is definitional, not a measurement. | **FIXED.** §B1 now says so explicitly and no longer presents it under "Executed". |
-| B4 | The floor control does not reproduce (2.6/1.3/2.3% against the quoted 1.7/0.08/0.15%, sign flipping) and the arms are not alternated, contrary to `docs/STYLE.md`. | **FIXED.** `_time_alternating` runs two byte-identical arms alternated in one process; spreads are now 0.19–0.45%. The report states the band is read per run and is **not** quoted as fixed, and records the reviewer's non-reproducing figures. |
+| B4 | The floor control does not reproduce (2.6/1.3/2.3% against the quoted 1.7/0.08/0.15%, sign flipping) and the arms are not alternated, contrary to `docs/STYLE.md`. | **FIXED.** `_time_alternating` runs two byte-identical arms alternated in one process. The spread is read PER RUN and is **not** quoted as a fixed band — an earlier version of this row quoted 0.19–0.45% and an independent run measured 0.53/2.37/0.63%, which is the same defect over again. The conclusions the table carries are orders of magnitude apart and survive any of these spreads. |
 | B5 | §B6's unambiguous-path account is still incomplete: three more uncharged passes, one allocation per clean node, and the 68% ratio is a 3-node chart with no floor control. | **FIXED by disclosure.** §B6 rewritten as a four-point account naming each omission, including the singleton-per-clean-node allocation and the ratio's own limits. |
 | B6 | The certificate's "two applications" is a best case; no negative control; `_carries`/`_injective_nodes` fix no family despite the docstring. | **FIXED by disclosure** — see A6's row. |
 | — | Three semantic choices misclassified as implementation gates: value identity, fully-refusing-node behaviour, and adopting the quotient. | **FIXED.** §7's user-decision list goes from one to **four**, each with the sentence explaining why it changes when a document parses or raises. |
@@ -167,7 +167,80 @@ grep the run OUTPUT, not the source or the report, for any claim it retracts.
 
 ---
 
-## 4 — final state
+## 4 — coordinator correction pass (round reopened)
+
+The round was reopened as NOT ready to fold. Seven correction groups, all
+inside the write allowlist; both prototypes rerun sequentially after each.
+
+| # | Correction | What changed |
+|---|---|---|
+| 1 | **Partial operations take bottom semantics.** | The `_ABSENT` sentinel is gone. A refusing family contributes no meaning; an empty internal image eliminates only the parent families consuming it; parsing refuses only when no complete requested-root meaning survives. `cyclic_meaning.node_set:657-661` is the production precedent. Three new witnesses: one refusing branch beside a surviving one, every root branch refusing, and the empty-image scope case. Absorption is by explicit per-rule DECLARATION, never by exception type; `prove_the_required_production_signal` states the distinct value-refusal exception production must add first. |
+| 2 | **Injective/grow certificate fixed.** | No sentinel can be counted as a meaning. `_local_witness` collects only meanings that exist, so one refusing family plus one live value is not ambiguity. The baseline now comes from the first LIVE family instead of `resolveds[0]`. Two negative controls added: `refusing-family-is-not-ambiguity` and `baseline-past-a-refusing-default`. |
+| 3 | **Value identity is not open.** | Production `same_value` is authoritative; both lanes use it. `island_continuation.dedup`'s `repr` is recorded as a prototype shortcut and an implementation task. Removed from the user-decision list. |
+| 4 | **Declared-image quotient REJECTED.** | `Settings.quotient` deleted; no lane consults a bound. `prove_the_quotient_is_rejected` records the three grounds — unproved cross-slot composition, zero shipped rules with an image wider than one, and silent narrowing risk. Not carried into the plan. |
+| 5 | **No resource ceiling.** | `BudgetRefusal`, `Settings.budget` and the budget proof deleted. §B7 now records the exponential worst case as a property of the current enumeration, explicitly neither a user decision nor an implementation blocker. |
+| 6 | **Scope and overclaims.** | The oracle's shared family-decomposition machinery is stated wherever the agreement is claimed, including answer 1. The occurrence triple is described as derivable but carried by no existing structure. The transparent-synthetic case is reported as covered only as a synthetic CONSUMER. The exponential bound is qualified to the current enumeration and slot laws, with future symbolic analysis explicitly not ruled out. The witness table now lists all ten rows and reads "six of the ten". |
+| 7 | **Implementation work preserved and classified.** | §7.7 lists eight ordered implementation tasks — ForestCtx defect, bottom semantics, the distinct refusal exception (prerequisite), the live-family baseline, occurrence identity on the ambiguity path only, a demand-driven chart, `same_value`, and unchanged resolver scope — plus four §12 measurement tasks. **Zero user decisions remain.** |
+
+---
+
+## 4.2 — fold-readiness review (fresh, sequential)
+
+**Prompt role:** fold readiness, not "fit for coordinator review". READY only if
+no semantic/planning/user decision remains, every conclusion is directly
+foldable, remaining items are implementation or measurement only, no unsupported
+closure claim remains, and executable output and prose agree exactly.
+
+**Pass 1: NOT READY**, three blockers. All three were the same failure mode the
+round had already named and then committed again: a claim corrected in the
+REPORT and left standing in the ARTEFACT.
+
+| # | Finding | Disposition |
+|---|---|---|
+| B1 | **A user decision was still open in a deliverable.** `exact_lane_cost.py`'s module docstring still read "What remains is a refusal contract, and choosing it — and its unit — is the user's", contradicting three places in the report that say no user decision remains and the `Settings` docstring that says no budget is proposed. The budget machinery was deleted; the sentence assigning the choice was not. | **FIXED.** Replaced with §B7's settled position: the exponential is recorded as the current lane's worst case under this enumeration and these slot laws, and is neither a user decision nor an implementation blocker. |
+| B2 | **The run OUTPUT asserted the occurrence triple already exists.** Four places — module docstring, `prove_tree_identity_is_not_occurrence_identity`'s docstring, and two PRINTED rows (`tree-versus-occurrence-identity`, the closing `invariant`) — said the triple is "already there" / "which the chart carries". False of the prototype's own `cyclic_meaning.Edge`, and it deletes implementation task 5 for anyone reading the artefact. Reviewer 1's A4 was recorded FIXED but the fix reached only the report. | **FIXED in all four, and verified in the OUTPUT.** Every site now states the triple is DERIVABLE from the forest and recorded by no structure — `Edge` has no family index, production's chart has no parent-to-child edge — so materialising it is production work on the ambiguity path only. `grep` over the run output for the retracted wording returns 0. |
+| B3 | **§B3 quoted a `lever-isolation` block the artefact no longer produces**, showing the rejected quotient as a measured lane, thirty lines above the statement that no lane reads a bound. Four further prose survivals inside the artefact described the declared bound as an exact stop, and a dead `bounds`/`name` channel was still threaded into `_ceiling`. | **FIXED.** The block is regenerated from the run (two lanes, not four). The four prose sites are rewritten; `_ceiling` now takes `(handle, roots, settings)` with no bound, so the code cannot re-suggest the lever. The two output rows that named "the declared bound" as a lever were reworded. |
+| — | Secondary: `P16_ADVERSARIAL.md` asserted alternated spreads of "0.19–0.45%", which an independent run did not reproduce (0.53/2.37/0.63%). | **FIXED.** The record and §B5 both now state the spread is read per run and is not a fixed band, and name the non-reproducing figures. Only the order-of-magnitude gaps are load-bearing. |
+
+**The pattern, recorded for the last time.** Three separate reviewers have now
+caught the same thing: this round corrects prose faster than it corrects code.
+The check that catches it is mechanical — grep the RUN OUTPUT, never the source
+and never the report, for any claim being withdrawn — and it is the check that
+was skipped each time it recurred.
+
+**Pass 2: one blocker remained — the SAME claim, displaced into the report.**
+
+| # | Finding | Disposition |
+|---|---|---|
+| B4 | §A1's **lead sentence** still read "the forest edge … which `Chart.edges` already carries", contradicting its own bullets four lines below, answer 3, implementation task 5 and the corrected output rows. Reviewer 1's A4 fix rewrote §A1's BODY and never touched the lead; the B2 fix was scoped to four prototype sites and verified by grepping the run output — which cannot see a report-only survival. | **FIXED.** The lead now states the triple is derivable and recorded by no structure, and points at implementation task 5. |
+| — | The B3 edit removed a sentence's antecedent, leaving a truncated module docstring at `exact_lane_cost.py:30-31`. | **FIXED.** The `finite`-consumer precondition is restored. |
+| — | The 68.1% chart-build ratio was quoted as fixed; an independent run measured 71.7%. | **FIXED, then RE-FIXED in pass 3.** The first fix quoted "68–72% across runs" — a band derived from two samples, which a third run falsified at 64.6%. It is now the §B5 form: §B6 carries the three samples explicitly labelled samples-not-a-band, and the two folded sections (implementation task 6, handoff) carry no digits at all. |
+| — | "The dead `bounds`/`name` channel is gone" was one level narrower than true: `settle` still declared and forwarded `bounds`. | **FIXED.** `bounds` is removed from `settle`, `_settled_set`, `_root_multiplicity`, `parse_ladder` and `_refusing_arm_case`. `bounds_for` survives only for the rejection census. |
+
+**The check, corrected.** §4.2's "grep the run OUTPUT" was necessary and NOT
+sufficient — it is blind to a report-only survival, which is exactly how B4
+lived through it. The sufficient form, now run: grep each withdrawn STRING
+across **all four deliverables and both run outputs**. Executed for
+`Chart.edges already`, `already there`, `which the chart carries`,
+`is the user's`, `Theta(local multiplicity)`, `Theta(m(h))`,
+`exponential term is one node`, `declared-bound-only`, `BudgetRefusal`,
+`quotient=True`, `_ABSENT` and the later `68-72` band: zero hits in either
+prototype source and either run output. The only residuals are THREE lines in
+`PROTOTYPE_16.md` that are the report explicitly RECORDING a withdrawal, and
+this record, which must retain the history.
+
+**Pass 3: one item — a two-sample range asserted as an across-runs band.**
+The chart-build ratio fix over-corrected: quoting "68–72% across runs" turned
+two observations into a bounded claim, and a third run measured 64.6%. §B5 had
+already solved this shape correctly by quoting no band at all, and §B6 now
+follows it — three samples, labelled as samples, with the two folded sections
+carrying no digits. The reviewer also counted three legitimate
+withdrawal-recording hits in `PROTOTYPE_16.md` where this record said two;
+corrected above.
+
+---
+
+## 5 — final state
 
 ```text
 proto/shared_occurrence_ambiguity.py   exit 0

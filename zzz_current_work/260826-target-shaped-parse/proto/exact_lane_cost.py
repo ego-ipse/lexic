@@ -17,24 +17,26 @@ delegated island's published option set, or — for a sibling accepting item —
 one root of the union. ``m(h)`` is what the dirty cone does not bound: the cone
 bounds HOW MANY nodes pay, never what one node pays.
 
-**The four lanes.** ``full`` materializes every node's set (the candidate,
-`island_continuation.exact_meanings`). ``streaming`` stops a node's own
-enumeration at a certified second distinct requested-root meaning and at its
-declared image bound. ``certified`` answers from the slot laws plus ONE
-witnessing node's own families. ``budgeted`` is ``streaming`` under a declared
-ceiling that REFUSES rather than guessing.
+**The three lanes.** ``full`` materializes every node's set (the candidate,
+`island_continuation.exact_meanings`). ``streaming`` stops a ROOT node's
+enumeration at a certified second distinct requested-root meaning — that is its
+only stop. ``certified`` answers from the slot laws plus ONE witnessing node's
+own families. No budget lane exists and no declared-image quotient exists: this
+round proposes no resource policy and rejects the quotient
+(:func:`prove_the_quotient_is_rejected`).
 
 **The result.** Where the requested root is reachable through ``ident``/``grow``
 slots alone, the law lane drops the question from the root's product to one
-node's family count — two applications against 2^k, measured. Where a node's
-law declares a finite image, its retained set is bounded by that image exactly
-and its WORK is not. And where a ``finite`` consumer sits above interacting
-children, the second distinct value can appear only at the LAST product —
+node's family count — two applications against 2^k, measured. Where a ``finite``
+consumer sits above interacting children, the second distinct value can appear
+only at the LAST product —
 executed here — so the APPLICATION count is Omega(m(h)) and no lever reduces it.
 Wall cost is that count times a value-identity factor which is not constant, so
 this module states no single-unit Theta; see
-:func:`prove_applications_are_not_the_cost`. What remains is a refusal contract,
-and choosing it — and its unit — is the user's.
+:func:`prove_applications_are_not_the_cost`. That exponential is RECORDED as the
+current lane's worst case under this enumeration and these slot laws. No refusal
+contract, budget or ceiling is proposed — neither a user decision nor an
+implementation blocker.
 
 Run directly.
 """
@@ -53,13 +55,15 @@ import operation_slot_laws as laws
 import shared_occurrence_ambiguity as shared
 
 from lexic.compile import canonical_grammar
-from lexic.exceptions import LexicError, UnsupportedConstructError
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.ir import (
     IrArg,
     IrArgs,
     IrAst,
+    IrBuild,
     IrCompare,
+    IrMap,
     IrOp,
     IrSelf,
     IrStr,
@@ -83,20 +87,6 @@ MARK_Q = IrStr("Q")
 
 VERDICT_DIFFERS = "differs"
 VERDICT_EQUAL = "equal"
-
-
-class BudgetRefusal(LexicError):
-    """Exact settlement exceeded the declared work budget.
-
-    Deliberately NOT an `UnsupportedConstructError`. The round's own recommended
-    partial-operation guard absorbs that type
-    (`shared_occurrence_ambiguity._partial_apply`), so a budget refusal raised
-    inside a reducer evaluation would be swallowed into the absent value and
-    the family would silently drop — turning a refusal into "equal", which is
-    exactly what the tasking forbids. It must never be readable as "this
-    document is unambiguous", and being outside the absorbed type is how that
-    is enforced rather than hoped for.
-    """
 
 
 def counted_add_unique(found: list[IrSelf], value: IrSelf, lane: Lane) -> None:
@@ -175,7 +165,7 @@ def _lane_widths(
     return tuple(found)
 
 
-# ── the declared image bound: an exact quotient, not a cap ────────────────
+# ── the declared image bound: REJECTED, and the census that rejects it ────
 
 
 def image_bound(
@@ -302,17 +292,17 @@ class Lane:
 class Settings(NamedTuple):
     """What a lane is allowed to do.
 
+    One lever, because only one survived. The declared-image quotient is
+    REJECTED (:func:`prove_the_quotient_is_rejected`) and no resource budget is
+    proposed: this round records the exact lane's exponential worst case as a
+    property of the current enumeration rather than proposing a policy against
+    it.
+
     :ivar stop_at: Stop a ROOT node's enumeration once this many distinct
         meanings exist; ``0`` disables the early stop.
-    :ivar quotient: Honour each node's declared image bound as an exact
-        ceiling on its own enumeration.
-    :ivar budget: Refuse past this many ambiguity-lane applications; ``0``
-        disables the refusal.
     """
 
     stop_at: int = 0
-    quotient: bool = False
-    budget: int = 0
 
 
 def settle(
@@ -320,8 +310,8 @@ def settle(
     roots: tuple[int, ...],
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
-    bounds: dict[str, int],
     settings: Settings,
+    partial: frozenset[str] = frozenset(),
 ) -> Cost:
     """Settle one document's requested-root ambiguity under ``settings``.
 
@@ -329,25 +319,33 @@ def settle(
     :param roots: Every accepting handle.
     :param options: Delegated-leaf option sets, by leaf identity.
     :param reducer: The reducer whose authored bodies define meaning.
-    :param bounds: Rule → declared image bound, ``0`` meaning unbounded.
     :param settings: Which levers this lane is allowed.
     :returns: The verdict and what it cost.
-    :raises BudgetRefusal: When the ambiguity lane exceeds ``settings.budget``.
     """
     chart = algebra.build_chart(kernel, roots)
     candidate._refuse_cyclic(chart, kernel)
     order = candidate._topological(chart, roots)
     lane = Lane()
-    baselines = _baselines(kernel, order, chart, options, reducer, lane)
+    baselines = _baselines(kernel, order, chart, options, reducer, lane, partial)
     dirty = candidate._dirty_cone(chart, options)
     sets: dict[int, tuple[IrSelf, ...]] = {}
     found: list[IrSelf] = []
     for handle in order:
         if handle not in dirty:
-            sets[handle] = (baselines[handle],)
+            baseline = baselines.get(handle)
+            sets[handle] = () if baseline is None else (baseline,)
             continue
         sets[handle] = _settled_set(
-            kernel, handle, chart, sets, options, reducer, bounds, settings, lane, roots
+            kernel,
+            handle,
+            chart,
+            sets,
+            options,
+            reducer,
+            settings,
+            lane,
+            roots,
+            partial,
         )
         lane.retain(len(sets[handle]))
     stopped = False
@@ -398,14 +396,24 @@ def _baselines(
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
     lane: Lane,
+    partial: frozenset[str] = frozenset(),
 ) -> dict[int, IrSelf]:
-    """Every node's baseline meaning — the parse's OWN product, counted apart."""
+    """Each node's baseline — the first family that HAS a value, if any.
+
+    `island_continuation._baseline_node` reads `resolveds[0]` and applies its
+    body directly, so a refusing default family both loses the baseline and
+    propagates the refusal. Under bottom semantics the baseline is the first
+    LIVE family, and a node with none simply has no entry — its consumers then
+    see an empty lane and eliminate their own families.
+    """
     baselines: dict[int, IrSelf] = {}
     for handle in order:
         lane.baseline += 1
-        baselines[handle] = candidate._baseline_node(
-            kernel, handle, chart, baselines, options, reducer
+        found = _first_live_family(
+            kernel, handle, chart, baselines, options, reducer, partial
         )
+        if found is not None:
+            baselines[handle] = found
     return baselines
 
 
@@ -416,73 +424,69 @@ def _settled_set(
     sets: dict[int, tuple[IrSelf, ...]],
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
-    bounds: dict[str, int],
     settings: Settings,
     lane: Lane,
     roots: tuple[int, ...],
+    partial: frozenset[str],
 ) -> tuple[IrSelf, ...]:
-    """One dirty node's set, under the declared bound and the early stop.
+    """One dirty node's set, under bottom semantics and the ROOT stop.
 
-    Two exact stops, neither a cap. The declared image bound says how many
-    distinct values the operation CAN produce, so collecting that many ends the
-    enumeration with the complete set in hand. The root stop ends it once the
+    One stop, and it is not a cap: the root stop ends the enumeration once the
     ambiguity question — more than one requested-root meaning — already has its
-    answer; the set is then deliberately incomplete and :attr:`Cost.meanings`
-    reports zero rather than a number that would be read as a set size.
+    answer, so the set is then deliberately incomplete and :attr:`Cost.complete`
+    is ``False`` rather than a cardinality that would be read as a set size. The
+    declared-image quotient that once stopped here is REJECTED
+    (:func:`prove_the_quotient_is_rejected`) and no bound is consulted.
     """
     name = harness._name(kernel, handle)
-    ceiling = _ceiling(handle, roots, bounds, name, settings)
+    ceiling = _ceiling(handle, roots, settings)
     found: list[IrSelf] = []
     for resolved in chart.resolveds[handle]:
-        lanes = candidate._slot_options(resolved, sets, options)
+        lanes = _lanes_or_none(resolved, sets, options)
+        if lanes is None:
+            continue  # an empty child image eliminates THIS family, not the node
         for kids in product(*lanes):
             lane.applications += 1
-            _refuse_past_budget(settings, lane, name)
-            counted_add_unique(found, shared._partial_apply(reducer, name, kids), lane)
-            # The ceiling counts LIVE meanings only. Counting the refusal
-            # sentinel toward it would let one refusing family plus one real
-            # value end the enumeration at a one-element set — the lane then
-            # reporting `equal` on an ambiguous document, which is settling by
-            # exhaustion and is the one thing the early stop must never do.
-            if ceiling and _live_count(found) >= ceiling:
-                return _live(found)
-    return _live(found)
+            meaning = shared.apply_or_none(reducer, name, kids, partial)
+            if meaning is not None:
+                counted_add_unique(found, meaning, lane)
+            # The ceiling counts meanings that EXIST. A refusing family
+            # contributes none, so one refusal beside one live value can never
+            # end the enumeration at a one-element set and report `equal` on an
+            # ambiguous document.
+            if ceiling and len(found) >= ceiling:
+                return tuple(found)
+    return tuple(found)
 
 
-def _live(found: Sequence[IrSelf]) -> tuple[IrSelf, ...]:
-    """The meanings that exist — the refusal sentinel is not one."""
-    return tuple(value for value in found if value is not shared._ABSENT)
+def _lanes_or_none(
+    resolved: harness.Resolved,
+    sets: dict[int, tuple[IrSelf, ...]],
+    options: dict[int, tuple[IrSelf, ...]],
+) -> list[tuple[IrSelf, ...]] | None:
+    """One family's per-slot lanes, or ``None`` when one of them is EMPTY.
+
+    `island_continuation._slot_options` raises here; `cyclic_meaning.node_set`
+    skips the family. The second is right, and this follows it: an empty
+    internal image is a fact about that node, not about the document.
+    """
+    width = len(resolved.children) + len(resolved.leaves)
+    ints = iter(resolved.children)
+    lanes: list[tuple[IrSelf, ...]] = []
+    for index in range(width):
+        if index in resolved.slots:
+            lane = options[id(resolved.leaves[resolved.slots.index(index)])]
+        else:
+            lane = sets.get(next(ints), ())
+        if not lane:
+            return None
+        lanes.append(lane)
+    return lanes
 
 
-def _live_count(found: Sequence[IrSelf]) -> int:
-    """How many real meanings have been collected so far."""
-    return sum(1 for value in found if value is not shared._ABSENT)
-
-
-def _ceiling(
-    handle: int,
-    roots: tuple[int, ...],
-    bounds: dict[str, int],
-    name: str,
-    settings: Settings,
-) -> int:
-    """The smallest exact stop this node may take, or ``0`` for none."""
-    declared = bounds.get(name, 0) if settings.quotient else 0
-    at_root = settings.stop_at if handle in roots else 0
-    if declared and at_root:
-        return min(declared, at_root)
-    return declared or at_root
-
-
-def _refuse_past_budget(settings: Settings, lane: Lane, name: str) -> None:
-    """Refuse with words once the ambiguity lane passes its declared budget."""
-    if settings.budget and lane.applications > settings.budget:
-        raise BudgetRefusal(
-            f"parsing: settling ambiguity exactly at {name!r} passed the"
-            f" declared budget of {settings.budget} operation applications;"
-            " the requested root's meaning set is NOT known to be a singleton"
-            " — raise the budget or supply a resolver"
-        )
+def _ceiling(handle: int, roots: tuple[int, ...], settings: Settings) -> int:
+    """The root stop, or ``0``. No bound is consulted — the quotient is rejected."""
+    return settings.stop_at if handle in roots else 0
 
 
 # ── the law lane: a verdict from the slot laws plus one local witness ─────
@@ -515,6 +519,7 @@ def certified(
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
     aligned: frozenset[str],
+    partial: frozenset[str] = frozenset(),
 ) -> Certificate:
     """Settle from the slot laws plus ONE node's own families, if it can.
 
@@ -534,13 +539,13 @@ def certified(
     """
     marked = _injective_nodes(kernel, roots, chart, reducer, aligned)
     lane = Lane()
-    baselines = _baseline_table(kernel, roots, chart, options, reducer, lane)
+    baselines = _baseline_table(kernel, roots, chart, options, reducer, lane, partial)
     spent = 0
     for node in chart.nodes:
         if node not in marked:
             continue
         found, applications = _local_witness(
-            kernel, node, chart, baselines, options, reducer
+            kernel, node, chart, baselines, options, reducer, partial
         )
         spent += applications
         if found:
@@ -555,11 +560,59 @@ def _baseline_table(
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
     lane: Lane,
+    partial: frozenset[str],
 ) -> dict[int, IrSelf]:
-    """Every node's baseline meaning — counted into ``lane``, never discarded."""
+    """The certificate's view of the same baselines the settlement lane builds."""
     return _baselines(
-        kernel, candidate._topological(chart, roots), chart, options, reducer, lane
+        kernel,
+        candidate._topological(chart, roots),
+        chart,
+        options,
+        reducer,
+        lane,
+        partial,
     )
+
+
+def _first_live_family(
+    kernel: Kernel,
+    handle: int,
+    chart: algebra.Chart,
+    baselines: dict[int, IrSelf],
+    options: dict[int, tuple[IrSelf, ...]],
+    reducer: Reducer,
+    partial: frozenset[str],
+) -> IrSelf | None:
+    """This node's baseline: the first family that yields a value, or none."""
+    name = harness._name(kernel, handle)
+    for resolved in chart.resolveds[handle]:
+        kids = _baseline_channel(resolved, baselines, options)
+        if kids is None:
+            continue
+        found = shared.apply_or_none(reducer, name, kids, partial)
+        if found is not None:
+            return found
+    return None
+
+
+def _baseline_channel(
+    resolved: harness.Resolved,
+    baselines: dict[int, IrSelf],
+    options: dict[int, tuple[IrSelf, ...]],
+) -> tuple[IrSelf, ...] | None:
+    """One family's baseline channel, or ``None`` if a child has no baseline."""
+    width = len(resolved.children) + len(resolved.leaves)
+    ints = iter(resolved.children)
+    kids: list[IrSelf] = []
+    for index in range(width):
+        if index in resolved.slots:
+            kids.append(options[id(resolved.leaves[resolved.slots.index(index)])][0])
+            continue
+        found = baselines.get(next(ints))
+        if found is None:
+            return None
+        kids.append(found)
+    return tuple(kids)
 
 
 def _local_witness(
@@ -569,8 +622,16 @@ def _local_witness(
     baselines: dict[int, IrSelf],
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
+    partial: frozenset[str],
 ) -> tuple[bool, int]:
-    """Does this node hold two meanings with every child at its baseline?"""
+    """Does this node hold two meanings that EXIST, with children at baseline?
+
+    Two corrections over the first version, both of which decided a verdict.
+    A family whose operation refuses contributes nothing, so a refusal can
+    never be counted as the second meaning — one refusal beside one live value
+    is not ambiguity. And a family whose baseline channel is incomplete is
+    skipped rather than crashing.
+    """
     families = chart.resolveds[node]
     if len(families) < 2 and not _has_wide_leaf(families, options):
         return False, 0
@@ -580,7 +641,9 @@ def _local_witness(
     for resolved in families:
         for kids in _baseline_lanes(resolved, baselines, options):
             spent += 1
-            shared.add_unique(found, shared._partial_apply(reducer, name, kids))
+            meaning = shared.apply_or_none(reducer, name, kids, partial)
+            if meaning is not None:
+                shared.add_unique(found, meaning)
     return len(found) > 1, spent
 
 
@@ -598,7 +661,11 @@ def _baseline_lanes(
     baselines: dict[int, IrSelf],
     options: dict[int, tuple[IrSelf, ...]],
 ) -> list[tuple[IrSelf, ...]]:
-    """One family's channels with children at baseline and leaves at each option."""
+    """One family's channels with children at baseline and leaves at each option.
+
+    A child with NO baseline — every one of its families refused — yields no
+    channel at all, so this family contributes nothing rather than raising.
+    """
     width = len(resolved.children) + len(resolved.leaves)
     ints = iter(resolved.children)
     lanes: list[tuple[IrSelf, ...]] = []
@@ -606,7 +673,10 @@ def _baseline_lanes(
         if index in resolved.slots:
             lanes.append(options[id(resolved.leaves[resolved.slots.index(index)])])
             continue
-        lanes.append((baselines[next(ints)],))
+        found = baselines.get(next(ints))
+        if found is None:
+            return []
+        lanes.append((found,))
     return [tuple(kids) for kids in product(*lanes)]
 
 
@@ -803,7 +873,7 @@ class Rung(NamedTuple):
 
 def parse_ladder(
     points: int, root_body: IrSelf, flavour: IrFlavour
-) -> tuple[Kernel, tuple[int, ...], Reducer, dict[str, int], frozenset[str]]:
+) -> tuple[Kernel, tuple[int, ...], Reducer, frozenset[str]]:
     """Recognize one rung's document and compile everything its lanes read."""
     source = (
         ladder_grammar_abnf(points)
@@ -818,26 +888,20 @@ def parse_ladder(
         raise UnsupportedConstructError("exact lane: the ladder did not parse")
     roots = algebra.accepting_roots(kernel, accept_handle(kernel))
     reducer = candidate.reducer_of(ladder_actions(points, root_body))
-    rules = tuple(harness._name(kernel, node) for node in roots)
-    chart = algebra.build_chart(kernel, roots)
-    names = tuple(harness._name(kernel, node) for node in chart.nodes) + rules
-    bounds = bounds_for(canonical, normalized, reducer, names)
     dropped = laws.dropped_rules(reducer)
     aligned = candidate.aligned_rules(canonical, normalized, dropped)
-    return kernel, roots, reducer, bounds, aligned
+    return kernel, roots, reducer, aligned
 
 
 def run_rung(name: str, points: int, flavour: IrFlavour = GBNF_FLAVOUR) -> Rung:
     """Execute one rung through the materializing, streaming and law lanes."""
     body = ROW_BODIES[name if name in ROW_BODIES else "grow"](points)
-    kernel, roots, reducer, bounds, aligned = parse_ladder(points, body, flavour)
+    kernel, roots, reducer, aligned = parse_ladder(points, body, flavour)
     chart = algebra.build_chart(kernel, roots)
-    full = settle(kernel, roots, {}, reducer, bounds, Settings())
-    streamed = settle(
-        kernel, roots, {}, reducer, bounds, Settings(stop_at=2, quotient=True)
-    )
+    full = settle(kernel, roots, {}, reducer, Settings())
+    streamed = settle(kernel, roots, {}, reducer, Settings(stop_at=2))
     law = certified(kernel, roots, chart, {}, reducer, aligned)
-    top = _root_multiplicity(kernel, roots, chart, reducer, bounds)
+    top = _root_multiplicity(kernel, roots, chart, reducer)
     return Rung(
         name,
         points,
@@ -854,7 +918,6 @@ def _root_multiplicity(
     roots: tuple[int, ...],
     chart: algebra.Chart,
     reducer: Reducer,
-    bounds: dict[str, int],
 ) -> int:
     """The accepting node's own local multiplicity, from the settled child sets."""
     order = candidate._topological(chart, roots)
@@ -869,7 +932,16 @@ def _root_multiplicity(
             sets[handle] = (baselines[handle],)
             continue
         sets[handle] = _settled_set(
-            kernel, handle, chart, sets, {}, reducer, bounds, Settings(), lane, roots
+            kernel,
+            handle,
+            chart,
+            sets,
+            {},
+            reducer,
+            Settings(),
+            lane,
+            roots,
+            frozenset(),
         )
     return node_multiplicity(kernel, roots[0], chart, sets, {}).applications
 
@@ -966,10 +1038,8 @@ def prove_multiplicity_is_paid_at_every_level() -> None:
         roots = algebra.accepting_roots(kernel, accept_handle(kernel))
         reducer = candidate.reducer_of(stacked_actions(levels))
         chart = algebra.build_chart(kernel, roots)
-        names = tuple(harness._name(kernel, node) for node in chart.nodes)
-        bounds = bounds_for(canonical, normalized, reducer, names)
-        cost = settle(kernel, roots, {}, reducer, bounds, Settings())
-        top = _root_multiplicity(kernel, roots, chart, reducer, bounds)
+        cost = settle(kernel, roots, {}, reducer, Settings())
+        top = _root_multiplicity(kernel, roots, chart, reducer)
         print(
             "stacked-product",
             f"levels={levels}",
@@ -1040,8 +1110,8 @@ def prove_lower_bound(rungs: dict[str, list[Rung]]) -> None:
         "the consumer's law declares a finite image and says nothing about"
         " WHICH combination collapses, so an exact algorithm has to apply the"
         " operation; this operation's second distinct value is the last"
-        " product, so streaming, the declared bound, deduplication and the"
-        " dirty cone all still pay 2^k APPLICATIONS. The bound is stated in"
+        " product, so streaming, deduplication and the dirty cone all"
+        " still pay 2^k APPLICATIONS. The bound is stated in"
         " that unit and only that unit: applications are Omega(m(h)) here and"
         " no lever reduces them. Wall cost is this count times the"
         " value-identity work each application triggers, which"
@@ -1078,31 +1148,25 @@ def prove_streaming_wins_where_it_can(rungs: dict[str, list[Rung]]) -> None:
 
 LEVER_SETTINGS = (
     ("full", Settings()),
-    ("declared-bound-only", Settings(quotient=True)),
     ("root-stop-only", Settings(stop_at=2)),
-    ("both", Settings(stop_at=2, quotient=True)),
 )
-"""The lever isolation: each lane on its own, then together."""
+"""The two lanes that remain: materializing, and the certified-second stop."""
 
 
 def prove_levers_isolated() -> None:
     """Run each lever alone, so no lane can be credited with another's saving.
 
-    The declared image bound turns out NOT to be an independent lever on this
-    ladder, and the row says so: a node's produced set is already deduplicated,
-    so the bound only ever ends an enumeration whose distinct values appeared
-    early — which the root stop ends anyway. What the bound does supply that
-    dedup cannot is a COMPILE-TIME ceiling on the retained set, which is what
-    :func:`prove_static_census` reports.
+    Two lanes remain: materializing, and the certified-second root stop. The
+    declared-image quotient was a third and is REJECTED
+    (:func:`prove_the_quotient_is_rejected`), so it is not isolated here — a
+    lever no lane consults has nothing to isolate.
     """
     for name in ("collapse", "early-second", "late-second", "grow"):
         for points in (4, 8):
             body = ROW_BODIES[name](points)
-            kernel, roots, reducer, bounds, _aligned = parse_ladder(
-                points, body, GBNF_FLAVOUR
-            )
+            kernel, roots, reducer, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
             costs = [
-                (label, settle(kernel, roots, {}, reducer, bounds, settings))
+                (label, settle(kernel, roots, {}, reducer, settings))
                 for label, settings in LEVER_SETTINGS
             ]
             applications = {label: cost.applications for label, cost in costs}
@@ -1119,25 +1183,169 @@ def prove_levers_isolated() -> None:
             )
 
 
-def prove_quotient_bounds_the_set_not_the_work(rungs: dict[str, list[Rung]]) -> None:
-    """A declared finite image bounds what is RETAINED, never the work."""
-    collapse, grow = rungs["collapse"], rungs["law-settled"]
-    for rung in collapse:
-        assert rung.full.peak <= 2 * rung.full.nodes, rung
-        assert rung.streamed.applications == rung.full.applications, rung
+ALWAYS_REFUSES = IrBuild(
+    IrMap, IrTuple(IrTuple(IrStr("k"), IrArg(0)), IrTuple(IrStr("k"), IrArg(1)))
+)
+"""A consumer that refuses on every combination — a constant duplicate key."""
+
+REFUSING_ARM = (
+    'root ::= pick "z"\npick ::= viadup | plain\nviadup ::= t t\n'
+    'plain ::= t t\nt ::= p | q\np ::= "y"\nq ::= "y"\n'
+)
+"""One arm refuses on every combination; the other survives."""
+
+
+def _refusing_arm_case(
+    plain_body: IrSelf,
+) -> tuple[Kernel, tuple[int, ...], Reducer, frozenset[str]]:
+    """Recognize the refusing-arm control and compile what its lanes read."""
+    actions = (
+        ("root", IrArg(0)),
+        ("pick", IrArg(0)),
+        ("viadup", ALWAYS_REFUSES),
+        ("plain", plain_body),
+        ("t", IrArg(0)),
+        ("p", MARK_P),
+        ("q", MARK_Q),
+    )
+    text = "yyz"
+    canonical = canonical_grammar(REFUSING_ARM, GBNF_FLAVOUR)
+    normalized = normalize(canonical)
+    kernel = Kernel(compile_tables(normalized, tier_for(len(text))), text, True).run()
+    if accept_item(kernel) < 0:
+        raise UnsupportedConstructError("exact lane: the control did not parse")
+    roots = algebra.accepting_roots(kernel, accept_handle(kernel))
+    reducer = candidate.reducer_of(actions)
+    dropped = laws.dropped_rules(reducer)
+    aligned = candidate.aligned_rules(canonical, normalized, dropped)
+    return kernel, roots, reducer, aligned
+
+
+def prove_the_quotient_is_rejected() -> None:
+    """The declared-image quotient is REJECTED — this row is why, not a lever.
+
+    Three independent reasons, none of them "it needs more work":
+
+    - its cross-slot composition is UNPROVED. `image_bound` multiplies per-slot
+      bounds across distinct slots, and per-slot bounds do not compose by
+      product: ``f(i,j) = v_i if i == j else x`` varies over at most two values
+      in either coordinate alone and has an image of ``n+1``.
+      `operation_slot_laws.differential_law` validates one slot at a time with
+      every other position held at a filler, so it never probes the product;
+    - it fires NOWHERE useful — on all four shipped surfaces every rule with a
+      bounded image bounds to ONE, the constant actions;
+    - a wrong bound would silently NARROW a meaning set, the "unambiguous"
+      wrong answer.
+
+    No settlement lane in this module consults it. `image_bound` survives only
+    to produce this census, which is the evidence for the rejection.
+    """
+    total = 0
+    for surface, reducer in laws.DISPATCHERS.items():
+        canonical, normalized = laws._canonical(surface), laws._normalized(surface)
+        dropped = laws.dropped_rules(reducer)
+        aligned = candidate.aligned_rules(canonical, normalized, dropped)
+        widths = laws.rule_arity(normalized, dropped)
+        wide = sum(
+            1
+            for rule, width in widths.items()
+            if image_bound(reducer, aligned, rule, width) > 1
+        )
+        total += wide
+        print(
+            "quotient-rejected",
+            surface,
+            f"rules={len(widths)}",
+            f"rules_with_a_declared_image_wider_than_one={wide}",
+            sep="\t",
+        )
+    assert total == 0, total
     print(
-        "declared-bound-quotient",
-        f"collapse_full_peak={[r.full.peak for r in collapse]}",
-        f"collapse_full_applications={[r.full.applications for r in collapse]}",
-        f"collapse_streaming_applications={[r.streamed.applications for r in collapse]}",
-        f"grow_full_peak={[r.full.peak for r in grow]}",
-        f"grow_full_applications={[r.full.applications for r in grow]}",
-        "a finite(b) law caps a node's RETAINED set at b exactly — the"
-        " predicate rows' peak stays linear in the point count while the"
-        " retaining row's grows with its image — and it does NOT cap the work:"
-        " the collapse row's streaming lane pays exactly what the"
-        " materializing lane pays, because the operation still has to be"
-        " applied to find out which combinations collapse",
+        "quotient-rejected",
+        "conclusion",
+        f"shipped_rules_the_quotient_could_ever_help={total}",
+        "rejected on composition (unproved across slots), on reach (zero"
+        " shipped rules) and on risk (a wrong bound narrows a meaning set"
+        " silently); no lane consults it and it is not carried into the plan",
+        sep="\t",
+    )
+
+
+def prove_a_refusing_family_is_not_ambiguity() -> None:
+    """NEGATIVE CONTROL: one refusing family plus one live value is NOT two.
+
+    The decisive case for the certificate. `pick` has two families; one refuses
+    on every combination and one produces a value, so its image holds exactly
+    ONE meaning. A lane that counted the refusal — as a sentinel, or by reading
+    "two families" as "two meanings" — would certify ambiguity here.
+    """
+    kernel, roots, reducer, aligned = _refusing_arm_case(IrStr("only"))
+    chart = algebra.build_chart(kernel, roots)
+    partial = frozenset({"viadup"})
+    cost = settle(kernel, roots, {}, reducer, Settings(), partial)
+    law = certified(kernel, roots, chart, {}, reducer, aligned, partial)
+    oracle = shared.unrolled_meanings(
+        kernel, roots, {}, reducer, shared.UnrolledCounts(), partial
+    )
+    assert cost.verdict == VERDICT_EQUAL, cost
+    assert not law.differs, law
+    assert len(oracle) == 1, oracle
+    print(
+        "refusing-family-is-not-ambiguity",
+        f"settle_verdict={cost.verdict}",
+        f"law_lane_differs={law.differs}",
+        f"unrolled_oracle_meanings={len(oracle)}",
+        f"settle_meanings={len(cost.values)}",
+        "a node carrying two families, one refusing on every combination, has"
+        " an image of ONE meaning; neither the certificate nor the settlement"
+        " lane may call that ambiguous",
+        sep="\t",
+    )
+
+
+def prove_baseline_survives_a_refusing_default_family() -> None:
+    """NEGATIVE CONTROL: the baseline must come from a family that HAS a value.
+
+    `island_continuation._baseline_node` takes `resolveds[0]` unconditionally,
+    so a node whose default family refuses would have no baseline — and the
+    certificate reads baselines to build its witness. The corrected baseline
+    takes the first LIVE family, and the settlement still matches the oracle.
+    """
+    kernel, roots, reducer, _aligned = _refusing_arm_case(
+        IrBuild(IrTuple, IrTuple(IrArg(0), IrArg(1)))
+    )
+    chart = algebra.build_chart(kernel, roots)
+    partial = frozenset({"viadup"})
+    baselines = _baseline_table(kernel, roots, chart, {}, reducer, Lane(), partial)
+    picks = [node for node in chart.nodes if harness._name(kernel, node) == "pick"]
+    starved = [node for node in picks if node not in baselines]
+    live = [node for node in picks if node in baselines]
+    families = len(chart.resolveds[roots[0]])
+    cost = settle(kernel, roots, {}, reducer, Settings(), partial)
+    oracle = shared.unrolled_meanings(
+        kernel, roots, {}, reducer, shared.UnrolledCounts(), partial
+    )
+    # The engine gives each arm its own completed code, so the refusing and the
+    # surviving arm are two `pick` NODES and the node carrying both families is
+    # the accepting root. Both halves are pinned: the starved node correctly has
+    # no baseline, and the root — whose first family reaches it — still does.
+    assert starved and live, (starved, live)
+    assert families > 1 and roots[0] in baselines, (families, roots[0])
+    assert shared.same_meaning_set(cost.values, oracle), (cost.values, oracle)
+    print(
+        "baseline-past-a-refusing-default",
+        f"pick_nodes={len(picks)}",
+        f"starved_of_a_baseline={len(starved)}",
+        f"with_a_baseline={len(live)}",
+        f"root_families={families}",
+        f"root_has_a_baseline={roots[0] in baselines}",
+        f"settle_meanings={len(cost.values)}",
+        f"unrolled_oracle_meanings={len(oracle)}",
+        f"agree={shared.same_meaning_set(cost.values, oracle)}",
+        "a node whose only family refuses correctly has NO baseline, and its"
+        " consumer — which carries both the refusing and the surviving family —"
+        " still gets one from the family that lives; a baseline read off"
+        " resolveds[0] unconditionally would have neither",
         sep="\t",
     )
 
@@ -1179,12 +1387,10 @@ def prove_dedup_stops_multiplicity_climbing() -> None:
     saving is visible as a number rather than argued.
     """
     for points in (4, 6, 8):
-        kernel, roots, reducer, bounds, _aligned = parse_ladder(
-            points, IrArgs(), GBNF_FLAVOUR
-        )
+        kernel, roots, reducer, _aligned = parse_ladder(points, IrArgs(), GBNF_FLAVOUR)
         wrapped = candidate.reducer_of(collapsing_actions(points))
-        plain = settle(kernel, roots, {}, reducer, bounds, Settings())
-        collapsed = settle(kernel, roots, {}, wrapped, bounds, Settings())
+        plain = settle(kernel, roots, {}, reducer, Settings())
+        collapsed = settle(kernel, roots, {}, wrapped, Settings())
         assert len(plain.values) == 2**points and len(collapsed.values) == 1
         print(
             "dedup-climb",
@@ -1199,52 +1405,6 @@ def prove_dedup_stops_multiplicity_climbing() -> None:
             " already in the per-node form",
             sep="\t",
         )
-
-
-def prove_budget_refuses_rather_than_guessing() -> None:
-    """A resource ceiling REFUSES; it never answers 'unambiguous'.
-
-    The budget is not a numeric cap on the algebra: it is a declared resource
-    ceiling whose only outcome is a refusal that names the node and the count.
-    Executed at a budget the late-second rung provably exceeds, and checked
-    against the same rung settling exactly under a budget it does not.
-    """
-    points = 8
-    body = late_body(points)
-    kernel, roots, reducer, bounds, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
-    refusal = ""
-    try:
-        settle(
-            kernel,
-            roots,
-            {},
-            reducer,
-            bounds,
-            Settings(stop_at=2, quotient=True, budget=64),
-        )
-    except BudgetRefusal as error:
-        refusal = str(error)
-    generous = settle(
-        kernel,
-        roots,
-        {},
-        reducer,
-        bounds,
-        Settings(stop_at=2, quotient=True, budget=1 << 20),
-    )
-    assert refusal and generous.verdict == VERDICT_DIFFERS
-    print(
-        "budget-refusal",
-        f"points={points}",
-        f"budget=64  refusal={refusal}",
-        f"generous_budget_verdict={generous.verdict}",
-        f"generous_budget_applications={generous.applications}",
-        "the refusal is a distinct exception, says the set is NOT known to be"
-        " a singleton, and neither picks a derivation nor falls back to the"
-        " one-flip probe; whether production carries one at all, and at what"
-        " ceiling, is a public-semantics choice and therefore the user's",
-        sep="\t",
-    )
 
 
 def prove_unambiguous_path_allocates_nothing() -> None:
@@ -1272,18 +1432,12 @@ def prove_unambiguous_path_allocates_nothing() -> None:
     kernel = Kernel(compile_tables(normalized, tier_for(len(text))), text, True).run()
     roots = algebra.accepting_roots(kernel, accept_handle(kernel))
     reducer = candidate.reducer_of((("root", IrArgs()), ("s", IrArg(0)), ("p", MARK_P)))
-    names = tuple(
-        harness._name(kernel, node) for node in algebra.build_chart(kernel, roots).nodes
-    )
-    bounds = bounds_for(canonical, normalized, reducer, names)
-    cost = settle(
-        kernel, roots, {}, reducer, bounds, Settings(stop_at=2, quotient=True)
-    )
+    cost = settle(kernel, roots, {}, reducer, Settings(stop_at=2))
     chart_cpu = _time_chart_build(kernel, roots)
     settle_cpu = 0.0
     for index in range(REPEATS):
         started = time.process_time()
-        settle(kernel, roots, {}, reducer, bounds, Settings(stop_at=2, quotient=True))
+        settle(kernel, roots, {}, reducer, Settings(stop_at=2))
         elapsed = time.process_time() - started
         settle_cpu = elapsed if index == 0 else min(settle_cpu, elapsed)
     assert cost.applications == 0 and cost.dirty == 0 and cost.peak == 0
@@ -1358,20 +1512,17 @@ def prove_verdicts_against_the_unrolled_oracle() -> None:
     for row in ROWS:
         for points in (2, 4):
             body = ROW_BODIES[row.body](points)
-            kernel, roots, reducer, bounds, _aligned = parse_ladder(
-                points, body, GBNF_FLAVOUR
-            )
+            kernel, roots, reducer, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
             oracle = shared.unrolled_meanings(
                 kernel, roots, {}, reducer, shared.UnrolledCounts()
             )
-            full = settle(kernel, roots, {}, reducer, bounds, Settings())
+            full = settle(kernel, roots, {}, reducer, Settings())
             streamed = settle(
                 kernel,
                 roots,
                 {},
                 reducer,
-                bounds,
-                Settings(stop_at=2, quotient=True),
+                Settings(stop_at=2),
             )
             differs = len(oracle) > 1
             same = shared.same_meaning_set(full.values, oracle)
@@ -1433,8 +1584,9 @@ def prove_static_census() -> None:
         " Read the rows plainly: every bounded rule on the shipped surfaces"
         " bounds to ONE — they are the constant actions — so no shipped rule"
         " today has a finite image wider than a constant, and the declared"
-        " bound has nothing to quotient there. The rules that force the"
-        " exponential product are the unbounded ones, which are the majority",
+        " rejected quotient would have had nothing to work on. The rules that"
+        " force the exponential product are the unbounded ones, which are the"
+        " majority",
         sep="\t",
     )
 
@@ -1449,11 +1601,11 @@ REPEATS = 5
 def _time_lane(name: str, points: int, settings: Settings) -> float:
     """Minimum process CPU of one lane over :data:`REPEATS` in-process passes."""
     body = ROW_BODIES[name](points)
-    kernel, roots, reducer, bounds, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
+    kernel, roots, reducer, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
     best = 0.0
     for index in range(REPEATS):
         started = time.process_time()
-        settle(kernel, roots, {}, reducer, bounds, settings)
+        settle(kernel, roots, {}, reducer, settings)
         elapsed = time.process_time() - started
         best = elapsed if index == 0 else min(best, elapsed)
     return best
@@ -1462,7 +1614,7 @@ def _time_lane(name: str, points: int, settings: Settings) -> float:
 def _time_certificate(name: str, points: int) -> float:
     """Minimum process CPU of the LAW lane over :data:`REPEATS` passes."""
     body = ROW_BODIES[name](points)
-    kernel, roots, reducer, _bounds, aligned = parse_ladder(points, body, GBNF_FLAVOUR)
+    kernel, roots, reducer, aligned = parse_ladder(points, body, GBNF_FLAVOUR)
     chart = algebra.build_chart(kernel, roots)
     best = 0.0
     for index in range(REPEATS):
@@ -1484,15 +1636,15 @@ def _time_alternating(
     did not reproduce.
     """
     body = ROW_BODIES[name](points)
-    kernel, roots, reducer, bounds, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
+    kernel, roots, reducer, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
     left = 0.0
     right = 0.0
     for index in range(REPEATS):
         started = time.process_time()
-        settle(kernel, roots, {}, reducer, bounds, settings)
+        settle(kernel, roots, {}, reducer, settings)
         first = time.process_time() - started
         started = time.process_time()
-        settle(kernel, roots, {}, reducer, bounds, settings)
+        settle(kernel, roots, {}, reducer, settings)
         second = time.process_time() - started
         left = first if index == 0 else min(left, first)
         right = second if index == 0 else min(right, second)
@@ -1514,7 +1666,7 @@ def prove_timing_with_a_control() -> None:
     is why :func:`prove_applications_are_not_the_cost` exists and why this
     module no longer states a bound in applications alone.
     """
-    streaming = Settings(stop_at=2, quotient=True)
+    streaming = Settings(stop_at=2)
     for points in (6, 8, 10):
         late, floor = _time_alternating("late-second", points, streaming)
         early, _ = _time_alternating("early-second", points, streaming)
@@ -1549,11 +1701,11 @@ def prove_applications_are_not_the_cost() -> None:
     over values that are themselves growing.
 
     So the exact lane's cost is applications x per-comparison value identity,
-    not applications alone, and a budget denominated in applications buys
-    wildly different amounts of work. Both factors are counted here.
+    not applications alone. Both factors are counted here. This round proposes
+    no budget; the ratio is recorded as the current lane's worst case.
     """
     for points in (6, 8, 10):
-        late = _measure("late-second", points, Settings(stop_at=2, quotient=True))
+        late = _measure("late-second", points, Settings(stop_at=2))
         grow = _measure("grow", points, Settings())
         assert late.applications == grow.applications, (late, grow)
         # Derived, not arbitrary: a lane whose set stays at two compares each
@@ -1587,8 +1739,8 @@ def prove_applications_are_not_the_cost() -> None:
         " magnitude in CPU, so an application count is not a cost. The exact"
         " lane's cost is the product of applications and the value-identity"
         " work each one triggers, and the second factor grows with the node's"
-        " own image; any budget must be denominated in the work, not in"
-        " applications",
+        " own image. No budget is proposed: the ratio is recorded as the"
+        " current enumeration's worst case, not as a policy",
         sep="\t",
     )
 
@@ -1596,8 +1748,8 @@ def prove_applications_are_not_the_cost() -> None:
 def _measure(name: str, points: int, settings: Settings) -> Cost:
     """One rung's full cost record under one lane setting."""
     body = ROW_BODIES[name](points)
-    kernel, roots, reducer, bounds, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
-    return settle(kernel, roots, {}, reducer, bounds, settings)
+    kernel, roots, reducer, _aligned = parse_ladder(points, body, GBNF_FLAVOUR)
+    return settle(kernel, roots, {}, reducer, settings)
 
 
 def main() -> None:
@@ -1608,11 +1760,12 @@ def main() -> None:
     prove_verdicts_against_the_unrolled_oracle()
     prove_streaming_wins_where_it_can(rungs)
     prove_levers_isolated()
-    prove_quotient_bounds_the_set_not_the_work(rungs)
+    prove_the_quotient_is_rejected()
+    prove_a_refusing_family_is_not_ambiguity()
+    prove_baseline_survives_a_refusing_default_family()
     prove_grow_image_is_computed_not_enumerated()
     prove_dedup_stops_multiplicity_climbing()
     prove_lower_bound(rungs)
-    prove_budget_refuses_rather_than_guessing()
     prove_unambiguous_path_allocates_nothing()
     prove_flavour_neutrality()
     prove_static_census()
@@ -1634,10 +1787,10 @@ def main() -> None:
         " product, executed here at 2^k APPLICATIONS for every point count. Applications are Omega(m(h)) and no lever reduces them; wall cost is"
         " that count times a value-identity factor which is NOT constant"
         " (equal application counts differ by three orders of magnitude in"
-        " comparisons), so no single-unit Theta is claimed and no budget may be"
-        " denominated in applications. The only remaining lever is a refusal"
-        " that names the node and the count — never a chosen derivation, never"
-        " a one-flip fallback, and never 'unambiguous'",
+        " comparisons), so no single-unit Theta is claimed. That exponential"
+        " is recorded as the CURRENT exact lane's worst case under this"
+        " enumeration and these slot laws — no resource policy is proposed"
+        " against it, and a future symbolic analysis is not ruled out",
         sep="\t",
     )
 
