@@ -225,8 +225,13 @@ Forest sharing is representation sharing, not semantic correlation. When one
 completed node supplies more than one grammatical occurrence, its value set is
 computed once and each consuming slot chooses from it independently. A global
 assignment keyed by the packed family is not a complete derivation oracle for
-that shape. The exact relation is accepted only after it agrees with an
-occurrence-unrolled oracle on every known shared-DAG shape.
+that shape. Occurrence identity is `(consuming handle, family index, kid slot)`,
+never the packed child handle or `id(ParseTree)`, and occurrence-owned work
+executes per consumption. The exact relation agrees with an occurrence-
+unrolled oracle on every known shared-DAG shape, including genuinely shared
+transparent synthetics. A refusing family contributes no meaning, an empty
+child image removes only consuming families, and refusal occurs only when no
+complete requested-root meaning survives.
 
 Every family capable of changing the requested target meaning enters this
 relation even when normalization generated it. A variable-count quantifier
@@ -279,13 +284,17 @@ requested root, bound product — carries the slot's class under the real
 operation algebra plus two reachability lanes, and contains no parse value and
 no callback. A universally constant continuation discards the occurrence's
 alternates — and where every occurrence of an island rule is constant, the
-island reads that before it enumerates and never builds them; an injective
-continuation whose route the chart realizes proves requested-root inequality;
-neither executes an operation, allocates ambiguity state or recognizes the
-document again. A slot whose coordinates or whose injectivity the analysis
-cannot establish keeps no law and reaches the exact relation, which runs over
-the dirty cone of a family-aware chart and is therefore an Earley escalation on
-the predictive path. Assembling a resolver pair without re-recognizing the
+island reads that before it enumerates and never builds them. An
+`ident`/`grow` row proves requested-root inequality only after the exact lane
+constructs two local meanings and carries both through one live family-aware
+route to an accepting item. This check executes operations; partial bodies may
+refuse selectively. A slot whose coordinates or injectivity cannot be proved
+keeps no law and reaches exact execution. The exact lane runs over the dirty
+cone of a demand-built family-aware chart and is therefore an Earley escalation
+on the predictive path. It has no arbitrary multiplicity ceiling: unproved
+cases enumerate exactly, deduplicate with `same_value`, and may stop only at a
+certified second requested-root meaning. Baseline-family results are reused
+across liveness and route work. Assembling a resolver pair without re-recognizing the
 island requires retaining that island's kernel for as long as the occurrence
 has an unsettled alternate. Everything else runs the exact per-node
 relation. An island never settles

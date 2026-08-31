@@ -1,5 +1,39 @@
 # Ledger — target-shaped parsing
 
+## Round 16 folded — implementation may begin (2026-08-31)
+
+The corrected Round 16 packet reran sequentially: both
+`proto/shared_occurrence_ambiguity.py` and `proto/exact_lane_cost.py` exited 0.
+The reopened audit reached `READY` on its fourth pass. Shared-occurrence
+composition is closed: a packed chart node's meaning set is computed once and
+each `(consuming handle, family index, kid slot)` occurrence ranges over it
+independently. The occurrence-unrolled oracle agrees across the known shared-
+DAG shapes, including genuinely shared transparent synthetics, and disproves a
+family assignment keyed globally by packed handle.
+
+The exact-lane policy is also closed. There is no arbitrary multiplicity cap or
+resource refusal. Full enumeration pays one reducer application per local
+family product plus image-dependent `same_value` comparisons. Constant
+continuations, a family-aware end-to-end `ident`/`grow` certificate, and a
+certified-second-root-meaning stop are exact shortcuts; an unproved case
+executes exactly. Partial operations use bottom semantics and require a
+distinct value-refusal exception.
+
+Coordinator review found one counter boundary which does not reopen the design:
+`law_lane_applications` counts the local witness and route lifts, not reducer
+applications used to establish live families or the value comparisons. Active
+documents therefore do not treat four as total lane cost. Production builds the
+family chart on demand, caches baseline-family outcomes for liveness and route
+reuse, and reports reducer applications and comparisons separately. This is an
+implementation requirement, not a planning blocker.
+
+The round also pins a fourth shipped defect: `ForestCtx.open` confuses a
+suspended shared zero-width handle with a nullable cycle, so `DERIVATIONS`
+emits malformed and incomplete duplicate-slot and pending-frame trees. It is
+now in `CURRENT_BUG_REPORT.md` and §8's implementation queue. No planning or
+user decision remains before §2. No source work or parsing regression is
+authorized by the evidence itself.
+
 ## Prompt organization and durable orchestration (2026-08-31)
 
 The investigator prompts now live together under `prompts/`, with every

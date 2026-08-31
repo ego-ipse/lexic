@@ -27,7 +27,8 @@ round proposes no resource policy and rejects the quotient
 
 **The result.** Where the requested root is reachable through ``ident``/``grow``
 slots alone, the law lane drops the question from the root's product to one
-node's family count — two applications against 2^k, measured. Where a ``finite``
+node's family count plus an end-to-end route check — four applications against
+2^k, measured. Where a ``finite``
 consumer sits above interacting children, the second distinct value can appear
 only at the LAST product —
 executed here — so the APPLICATION count is Omega(m(h)) and no lever reduces it.
@@ -505,12 +506,11 @@ class Certificate(NamedTuple):
 
     :ivar differs: Whether some node holding two meanings carries injectively
         to an accepting item.
-    :ivar applications: Operation applications the local witness paid — the
-        witnessing node's OWN family count, never the root's product.
-    :ivar baseline: The full baseline fold this lane runs UNCONDITIONALLY
-        before examining any marked node. Counted, because reporting only
-        :attr:`applications` would state a lane cost that excludes most of the
-        lane's work.
+    :ivar applications: Operation applications paid by local witnesses and
+        route lifts. This excludes family-liveness discovery and comparisons.
+    :ivar baseline: Nodes visited by the unconditional baseline pass. This is
+        not an application count: finding the first live family may try more
+        than one operation at a node.
     :ivar node: The rule the witness was found at, or ``""``.
     """
 
@@ -1511,7 +1511,7 @@ def prove_the_positive_certificate_still_fires() -> None:
         rung = run_rung("grow", points)
         assert rung.law.differs, (points, rung.law)
         # Two for the local witness, plus one lift per value per route step.
-        assert rung.law.applications < rung.full.applications, (points, rung.law)
+        assert rung.law.applications == 4, (points, rung.law)
         print(
             "positive-certificate",
             f"points={points}",
@@ -1662,9 +1662,9 @@ def prove_grow_image_is_computed_not_enumerated() -> None:
     The lever that actually removes the exponential: ``grow`` is injective, so
     no two products collapse and the image size is the product of the child set
     sizes. Where the requested root is reachable through ``ident``/``grow``
-    alone the verdict follows from one local witness, so the law lane answers
-    in two applications while the materializing lane pays 2^k for a set nobody
-    asked for.
+    alone the verdict follows from one local witness plus carrying its two
+    values up the route, so the law lane answers in FOUR applications while the
+    materializing lane pays 2^k for a set nobody asked for.
     """
     for points in LADDER_POINTS:
         rung = run_rung("grow", points)
@@ -2091,7 +2091,8 @@ def main() -> None:
         " which the dirty cone never bounds. Two levers reduce it and both are"
         " exact: an injective (ident/grow) route to an accepting item drops the"
         " question from the root's product to ONE witnessing node's own family"
-        " count, measured at two applications against 2^k; and stopping at a"
+        " count plus an end-to-end route check, measured at four applications"
+        " against 2^k; and stopping at a"
         " certified second requested-root meaning ends the enumeration on its"
         " answer rather than on exhaustion. A declared finite image bounds what"
         " a node RETAINS and never its work, and on the shipped surfaces every"

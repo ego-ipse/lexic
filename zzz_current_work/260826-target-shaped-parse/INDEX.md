@@ -1,38 +1,38 @@
 # Index — target-shaped parsing
 
 **Current state (2026-08-31):** `PROTOTYPE_15.md` closes the island-continuation
-certificate and its non-shared composition witnesses. One immutable row per
-contextual occurrence — keyed by consuming clone, channel slot, requested root
-and bound product — settles a constant
-continuation universally and an injective one existentially, both without
-executing an operation or recognizing the document again; everything else
-reaches the exact per-node relation, where interacting occurrences compose
-through deduplicated option products rather than global assignments. Complete
-`ParseTree`s are built only after root inequality and an invoked resolver.
+certificate and `PROTOTYPE_16.md` closes its shared-occurrence boundary and the
+exact-lane policy. One immutable row per contextual occurrence — keyed by
+consuming clone, channel slot, requested root and bound product — settles a
+constant continuation universally and an injective one existentially. The
+injective certificate is family-aware and carries two meanings through the
+realized route before it concludes root inequality. Everything else reaches
+the exact per-node relation. A shared chart node's meaning set is computed
+once, while every `(consuming handle, family index, kid slot)` occurrence ranges
+over it independently. No global family assignment is valid for that case.
+Complete `ParseTree`s are built only after root inequality and an invoked
+resolver.
 `PROTOTYPE_14.md`, corrected by the coordinator verification in
 `P14_ADVERSARIAL.md`, remains the cyclic-law, infinite-pair, tokenizer-contract
 and recognition/binding evidence. Recognition uses the armed pre-relaxation
 grammar; binding and synthesis retain the relaxed grammar, and
 `lift_optional_nullables` leaves. Resolver-pair scope is settled to complete-
 document pairs for both engines, constructed only after root inequality and an
-actual `resolve=` invocation. Production family-aware numbering, new operation-law rows, integrated
-memory, custom paid-loop neutrality, and every parse-performance comparison
-remain explicit implementation gates, and Prototype 15 adds three more: the
-exact lane runs over the dirty cone of a family-aware Earley chart, so an
-EXECUTE verdict on the predictive path is a deliberate escalation; exactness is
-exponential in a single node's local multiplicity where today's unsound
-one-flip probe is linear, and its bound is an unclosed §8 planning gate; and a
-resolver pair without re-recognition costs one retained island kernel per
-ambiguous occurrence, whose release boundary is unsettled. Three shipped ambiguity defects are
-pinned, and one `goal.md` §5 value-relation divergence is now executable.
-Its complete-fold oracle globally assigns families by packed key and every
-witness excludes a node or key reached twice, while the repository already has
-real shared-DAG shapes. Shared-occurrence composition is therefore an open
-planning gate, tasked by `prompts/PROMPT_16.md` together with the exact-lane
-cost bound.
-The closure audit returned `READY` on its fourth
-auditor's re-check, which authorizes neither source implementation nor any
-parsing regression. Production source has not started.
+actual `resolve=` invocation. Production family-aware numbering, operation-law
+rows, integrated memory, custom paid-loop neutrality, and every parse-
+performance comparison remain implementation gates. The exact lane has no
+arbitrary resource ceiling: full enumeration costs one reducer application per
+local family product plus image-dependent value comparisons. Exact constant,
+injective-route, and certified-second-meaning exits avoid work where proved;
+otherwise exact semantics remain mandatory. Its family-resolved chart must be
+demand-driven, and baseline-family results must be reused rather than
+re-evaluated during route discovery. A resolver pair without re-recognition
+costs one retained island kernel per ambiguous occurrence, whose release
+boundary remains implementation work. Four shipped ambiguity defects are
+pinned, including `ForestCtx` truncating a suspended shared zero-width handle as
+a cycle. The Round 16 closure audit returned `READY` on its fourth re-check.
+No unresolved planning or user decision prevents §2 implementation. No review
+authorizes a parsing regression. Production source has not started.
 
 ## Start here
 
@@ -64,6 +64,13 @@ The current packet is:
 - [`PROMPT_16.md`](prompts/PROMPT_16.md) — closes shared-occurrence ambiguity
   against an occurrence-unrolled oracle and determines the exact-lane cost
   policy;
+- [`reports/PROTOTYPE_16.md`](reports/PROTOTYPE_16.md) — executes the shared-DAG
+  relation, bottom semantics, exact-lane costs, proven shortcuts, and rejected
+  resource policies;
+- [`reports/P16_ADVERSARIAL.md`](reports/P16_ADVERSARIAL.md) — records the
+  correction and adversarial-review loop for Prototype 16;
+- [`reports/REVIEW_16.md`](reports/REVIEW_16.md) — the final fold-readiness audit
+  after the reopened round;
 - [`PROMPT_15.md`](prompts/PROMPT_15.md) — composes cached island-to-root semantic
   continuations with exact interacting-family handling, then requires three
   fresh sequential non-Fable reviews;
@@ -86,7 +93,7 @@ The current packet is:
 - [`reports/PROTOTYPE_13.md`](reports/PROTOTYPE_13.md) — authoritative
   correction of Prototype 12's gate classification; Prototype 14 supersedes
   its quantified-nullable corpus conclusion;
-- [`CURRENT_BUG_REPORT.md`](CURRENT_BUG_REPORT.md) — the three shipped ambiguity
+- [`CURRENT_BUG_REPORT.md`](CURRENT_BUG_REPORT.md) — the four shipped ambiguity
   defects, their established scope, and their production owners;
 - [`reports/PROTOTYPE_12.md`](reports/PROTOTYPE_12.md) — cyclic, tokenizer,
   flat/frame, and custom-pool evidence; its "conclusively closed" section is
@@ -155,6 +162,9 @@ newer reports do not explicitly supersede them.
 | [`P15_ADVERSARIAL.md`](reports/P15_ADVERSARIAL.md) | Records the Prototype 15 review prompts, findings, fixes, reruns, and verdicts. |
 | [`REVIEW_15.md`](reports/REVIEW_15.md) | The fresh closure audit of the Prototype 15 packet. |
 | [`PROMPT_16.md`](prompts/PROMPT_16.md) | Tasks the shared-DAG ambiguity proof and exact-lane cost policy while preserving complete-document resolver scope. |
+| [`PROTOTYPE_16.md`](reports/PROTOTYPE_16.md) | Closes shared-occurrence composition, bottom semantics, the family-aware route certificate, and the uncapped exact-lane policy. |
+| [`P16_ADVERSARIAL.md`](reports/P16_ADVERSARIAL.md) | Records the Round 16 findings, corrections, reruns, and four-pass reopening review. |
+| [`REVIEW_16.md`](reports/REVIEW_16.md) | Gives the final fold-readiness verdict for the corrected Round 16 packet. |
 
 ## Prototype inventory
 
@@ -177,6 +187,7 @@ measurement witnesses, never production modules.
 | [`custom_class_target.py`](proto/custom_class_target.py) | Proves reflection-free binding and real-pool lifetime through source death; production completion traffic and neutrality remain open. |
 | [`cyclic_meaning.py`](proto/cyclic_meaning.py) | Classifies zero-width SCCs under the closed slot algebra and solves finitely representable components without numeric caps. |
 | [`demand_selection.py`](proto/demand_selection.py) | Proves reducer-free selection as occurrence demand in one parse; its resolver route stand-in is rejected. |
+| [`exact_lane_cost.py`](proto/exact_lane_cost.py) | Measures exact per-node multiplicity, deduplication, early exit, and family-aware operation-law certificates without imposing a semantic cap. |
 | [`island_continuation.py`](proto/island_continuation.py) | Compiles one immutable island-to-root continuation per contextual occurrence and executes the constant, injective, non-injective, interacting, multi-occurrence and unambiguous cases against a complete-Earley-fold oracle. |
 | [`island_alternate_seed.py`](proto/island_alternate_seed.py) | Proves single-seed cone/trace continuation and sibling-root discovery; its one-flip multiple-seed rule is rejected. |
 | [`keyed_product_rows.py`](proto/keyed_product_rows.py) | Prices real Python, `IrMap`, and ready-tokenizer carriers; tokenizer refusal normalization remains incomplete. |
@@ -207,6 +218,7 @@ measurement witnesses, never production modules.
 | [`selection_contract.py`](proto/selection_contract.py) | Executes the finite nested-mapping beginner selection contract. |
 | [`self_locating_region_cuts.py`](proto/self_locating_region_cuts.py) | Measures schema-derived self-locating cuts without an all-mark sidecar. |
 | [`shared_forest_refold.py`](proto/shared_forest_refold.py) | Exposes interleaving-dependent fold execution over shared and transparent-synthetic subtrees. |
+| [`shared_occurrence_ambiguity.py`](proto/shared_occurrence_ambiguity.py) | Executes occurrence-independent composition on shared forest nodes, transparent synthetics, partial operations, and the shipped `ForestCtx` truncation. |
 | [`source_read_cost.py`](proto/source_read_cost.py) | Measures the path-only boundary excluded from resident-text products. |
 | [`suspended_fragment.py`](proto/suspended_fragment.py) | Proves a routed-interior product as a suspended shell plus lawful fragments. |
 | [`token_parse_cost.py`](proto/token_parse_cost.py) | Baselines the public token-segmented grammar product in one process. |
@@ -226,8 +238,9 @@ part of the packet.
 - Production begins at §2, then follows §3–§11 in order.
 - Explicit `PLANNING REQUIRED` and `DECISION REQUIRED` markers in `TODO.md`
   are hard entry/exit gates, not implementer discretion.
-- Shared-occurrence composition and the exact-lane cost policy are the two
-  planning gates assigned to `prompts/PROMPT_16.md`.
+- Shared-occurrence composition and the exact-lane policy are closed by
+  Prototype 16. Their remaining items are implementation and measurement work,
+  not open decisions.
 - §4, §5, §7, §9, and §11 have checkpoint gates.
 - §12 is the complete-source external profile.
 - §13 is the sequential Luna test/lint handoff.

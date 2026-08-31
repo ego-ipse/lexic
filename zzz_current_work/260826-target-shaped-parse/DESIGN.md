@@ -10,13 +10,16 @@ resolver after root inequality. Real-operation cyclic lowering, the constructive
 infinite-SCC pair, the tokenizer's final three validation lanes, and the
 recognition/binding grammar split are established by Prototype 14 and its
 coordinator rerun. The compiled per-occurrence island continuation, its
-constant and injective certificates, the exact per-node relation over the dirty
-cone, and the retained island kernel a spliced resolver pair needs are
-established by Prototype 15 on its non-shared witnesses. Its closure auditor
+constant certificate and candidate injective classification, the exact
+per-node relation over the dirty cone, and the retained island kernel a spliced
+resolver pair needs are established by Prototype 15 on its non-shared
+witnesses. Its closure auditor
 returned `READY` on re-check; that verdict approves the reviewed evidence, not
-source implementation or a parsing regression. Shared-occurrence composition
-remains a planning gate. Production source has not started. This document is
-not an implementation checklist.
+source implementation or a parsing regression. Prototype 16 closes shared-
+occurrence composition, partial-operation bottom semantics, and the exact-lane
+policy after a four-pass reopening review. No semantic or planning decision
+blocks implementation. Production source has not started. This document is not
+an implementation checklist.
 
 ## Decision
 
@@ -357,11 +360,23 @@ growing closed-walk splice, trying every certified carrier. The construction is
 A completed forest node may be referenced by more than one grammatical
 occurrence. Its meaning set is computed once, but each parent slot ranges over
 that set independently: sharing the representation does not correlate the
-occurrences' family choices. A derivation oracle keyed globally by packed
-choice therefore cannot validate this case. The exact relation must agree with
-an occurrence-unrolled oracle across the known duplicate-slot, pending-frame,
-sibling-memo, and transparent-synthetic DAG shapes before shared-occurrence
-composition is considered closed.
+occurrences' family choices. The occurrence identity is `(consuming handle,
+family index, kid slot)`, not the packed child handle and not `id(ParseTree)`.
+Occurrence-owned operations execute per parent-slot consumption. A derivation
+oracle keyed globally by packed choice is therefore invalid: it correlates
+independent occurrences and loses meanings. The exact relation agrees with an
+occurrence-unrolled oracle across duplicate-slot, pending-frame, sibling-memo,
+arm-shared, mixed, separate-root, delegated, unambiguous, and genuinely shared
+transparent-synthetic shapes. Transparent synthetics need no special semantic
+case; they take the reducer's default action in this relation.
+
+The current `DERIVATIONS` reader is not a valid implementation of that rule.
+`ForestCtx.open` treats a suspended shared zero-width handle as a nullable
+cycle, emits an empty prefix, and produces malformed incomplete trees. The
+forest reader must distinguish recursive derivation-path re-entry from a second
+grammatical consumption while preserving real nullable-cycle termination.
+Resolver-tree materialization cannot depend on it until the duplicate-slot and
+pending-frame regressions pass.
 
 The family universe is semantic, not synonymous with authored arm identity. A
 quantifier which admits more than one occurrence count over a nullable atom
@@ -753,29 +768,42 @@ immutable row per contextual occurrence, owned by the bound product and keyed
 `(consuming clone, channel slot, requested root, product)`. Its fields are the
 slot's class under the operation algebra and two reachability lanes over the
 grammar's flow graph; it holds no parse value, no derivation and no callable,
-so it cannot retain a parse. Two shortcuts read it, and their quantifiers point
-opposite ways on purpose. Discarding an alternate is UNIVERSAL — the slot is
+so it cannot retain a parse. Discarding an alternate is UNIVERSAL — the slot is
 `const`, or no non-`const` path reaches its consumer from the root — so the
-grammar's over-approximation of realizable paths can only withhold the
-shortcut, never grant it wrongly. Proving root inequality is EXISTENTIAL — some
-`ident`/`grow` route to the root — so it is verified against the chart's
-realized route before use, because an unrealized grammar path would be unsound
-there. A slot whose law refused blocks the injective lane and does not block
-the observable one. The rule-level half of the discard is readable BEFORE the
-island enumerates: where every row into a rule is unobservable, its island
-publishes a baseline and builds no alternate at all. Neither shortcut executes
-an operation, allocates a dependency index or recognizes the document again;
-what neither settles reaches the exact per-node relation.
+grammar's over-approximation of realizable paths can only withhold the shortcut,
+never grant it wrongly. The rule-level half is readable BEFORE the island
+enumerates: where every row into a rule is unobservable, its island publishes a
+baseline and builds no alternate at all.
 
-That relation needs the family-aware chart: the predictive path holds none, so an
-EXECUTE verdict there escalates to Earley, while a constant or injective row
-settles without a chart at all. Its cost is stated rather than assumed —
-exactness is exponential in a node's own local multiplicity where today's
-one-flip probe is linear and unsound; the per-node lane confines the work to
-the dirty cone (the upward closure of nodes holding a live occurrence or
-carrying more than one family), and every node outside it keeps the baseline
-meaning the parse builds anyway. No global family assignment is formed
-anywhere, island included.
+An `ident`/`grow` row is only a candidate for the opposite, EXISTENTIAL proof.
+Production first finds a live family-aware route in the realized chart, builds
+two distinct meanings at one marked node, and carries both through that same
+route with every other slot at baseline. It concludes requested-root inequality
+only if both survive and remain distinct at an accepting item. This executes
+operations; the earlier zero-operation claim is rejected because a partial
+`grow` body may refuse selectively. A law refusal simply blocks the shortcut.
+
+The exact relation and the injective route check need the family-aware chart.
+The predictive path holds none, so any ambiguity not discarded by the constant
+certificate escalates deliberately to Earley. The chart and its occurrence
+edges are built on demand only after a semantic-choice family is found. At node
+`h`, full enumeration applies the reducer once for every element of every
+family's child-image product, then deduplicates with `same_value`; comparison
+count and comparison structure are separate costs. Enumeration may stop at a
+certified second requested-root meaning. The injective route certificate can
+replace the root product with one local witness plus two route lifts, but its
+baseline fold, family-liveness search, failed marked nodes, route length, and
+value comparisons remain real work. Production caches each family's baseline
+outcome and reuses it across those stages.
+
+No arbitrary local-multiplicity ceiling or resource refusal is part of the
+semantics. The current worst case is exponential in local multiplicity, and an
+unproved case executes exactly. The dirty cone confines how many nodes pay; it
+does not bound a paying node's product. A refusing family contributes no
+meaning, an empty child image removes only consuming families, and the parse
+refuses only when no complete requested-root meaning survives. This bottom
+semantics requires a value-refusal exception distinct from an unsupported
+construct. No global family assignment is formed anywhere, island included.
 
 Two refusals keep the table sound and both cost work rather than correctness.
 The chart's chain slot and the authored body's ``IrArg`` index are different

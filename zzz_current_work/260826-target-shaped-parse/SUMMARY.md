@@ -61,10 +61,10 @@ Compile grammar semantics and the requested codomain into one parser product tha
 - Different local trees are harmless when their requested root values are equal.
 - Ordinary split allocation retains its defined leftmost answer.
 - Nullable quantifiers preserve differing semantic occurrence counts.
-- Interacting and shared-occurrence choices are evaluated together, never one flip at a time.
+- Shared node sets are computed once; parent-slot occurrences choose independently.
+- Interacting choices use exact local products, never one flip or an arbitrary cost cap.
 - Leo links are expanded as part of ambiguity readout.
-- Finite zero-width cycles reach an exact structural fixpoint.
-- Infinite growing cycles can produce an occurrence-addressed second derivation.
+- Finite zero-width cycles reach a fixpoint; infinite growth yields an addressed second derivation.
 
 ### PDA islands
 

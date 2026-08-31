@@ -1,15 +1,16 @@
 # Current bug report — shipped ambiguity defects
 
-Three defects in the **currently shipped** engine, found on 2026-08-30 while
-building the ambiguity witnesses. None is deferred work and none is
-introduced by the target-shaped effort: all three reproduce against the tip of
+Four defects in the **currently shipped** engine, found while building the
+ambiguity witnesses. None is deferred work and none is introduced by the
+target-shaped effort: all four reproduce against the tip of
 `src/` with no prototype involved. They are recorded here rather than in
 `TBD_after.md` because that file is for work re-evaluated *after* the
 architecture lands, and these are wrong answers being returned today.
 
-All three were verified through the public API and the engine's own machinery,
-with the first two additionally checked through `build` /
-`same_value` — not through a prototype meaning function. My first
+The first three were verified through the public API and the engine's own
+machinery, with the first two additionally checked through `build` /
+`same_value`. The fourth is in the shipped `DERIVATIONS` reader over a real
+kernel chart. My first
 characterisation of the first two was wrong; what follows is the corrected,
 reproduced version.
 
@@ -222,8 +223,53 @@ contract in `parsing/earley/kernel/forest/support/ambiguity.py`.
 
 ---
 
+## BUG 4 — forest enumeration truncates a suspended shared handle as a nullable cycle
+
+**Severity: high on the resolver/derivation path.** A zero-width completed node
+consumed at two slots of one derivation is shared, not recursively cyclic. The
+shipped `DERIVATIONS` reader nevertheless substitutes an empty prefix at the
+second consumption and emits malformed, incomplete derivations.
+
+### Reproduction
+
+`proto/shared_occurrence_ambiguity.py` recognizes the real duplicate-slot and
+pending-frame shapes, then invokes the shipped forest enumerator:
+
+```text
+duplicate-slot  shipped_derivations=2  shipped_wellformed_meanings=0
+                shipped_malformed_derivations=2  grammar_meanings=4
+pending-frame   shipped_derivations=2  shipped_wellformed_meanings=0
+                shipped_malformed_derivations=2  grammar_meanings=4
+```
+
+The arm-shared control returns four well-formed derivations and the expected
+two meanings.
+
+### Mechanism
+
+`ForestCtx.open` records every handle whose prefix generator is suspended.
+`PrefixSource` treats any re-entry into that set as a nullable cycle and emits
+one empty prefix. During the lazy trampolined product, the first consumption of
+a shared zero-width handle can still be suspended when the second slot requests
+the same handle. The guard therefore confuses ordinary sharing with recursive
+re-entry and constructs a node with no children under a rule whose operation
+requires one.
+
+### Fix direction
+
+Cycle termination must distinguish a recursive derivation-path re-entry from a
+second grammatical consumption of a suspended replayable stream. Preserve real
+nullable-cycle termination while allowing the shared handle's derivations to
+replay at each occurrence. Pin both failing shapes and the arm-shared control
+before resolver-tree materialization depends on `DERIVATIONS`.
+
+Owner: `parsing/earley/kernel/forest/forest.py` (`ForestCtx`, `PrefixSource`,
+`ChildDerivs`, and `DERIVATIONS`).
+
+---
+
 ## Status
 
 None is fixed. No source file was touched: `git diff -- src tests` is empty.
-All three reproductions above run against the current tip with no prototype in
-the shipped path.
+All four reproduce against the current tip; the prototypes only drive and
+compare shipped machinery.

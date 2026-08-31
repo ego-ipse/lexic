@@ -539,7 +539,7 @@ The cases the tasking asks to be covered, and — stated plainly — how many
 | early second root value | `early-second` | `streaming = 2k + 2` against `full = 2^k + 2k` | yes |
 | late second root value | `late-second` | `streaming = full = 2^k + 2k` | cost-identical to `collapse` |
 | interacting invisible substitutions | — | `one_flip_differs=False`, re-read off `collapse` and `late-second` | **no rung of its own** |
-| operation-law shortcut | `law-settled` | law lane 2 applications against 2^k | yes |
+| operation-law shortcut | `law-settled` | law lane 4 applications against 2^k | yes |
 | genuinely exponential image | `law-settled` | image `2^k`, all distinct; `full_peak_retained = 2^k` | **same rung as the row above** |
 
 Six named cases rest on **four rungs and two cost shapes**; the `grow`
@@ -653,24 +653,35 @@ law at every step. The witness that the marked node really holds two meanings is
 its baseline, which is a lower bound on its true set. Acting only on "yes, two"
 keeps that sound: the lane never concludes "one" from it and falls through to
 the executing lane instead. So the exact question drops from the ROOT's local
-multiplicity to **one witnessing node's family count** — two applications
-against `2^k`. Prototype 15 described this lane as "zero executed operations";
-it is **four** — two for the local witness, plus one lift per value per route
-step to check the route actually transmits both.
+multiplicity to **one witnessing node's family count plus an end-to-end route
+check** — four applications against `2^k`. Prototype 15 described this lane as
+"zero executed operations"; it is **four** — two for the local witness, plus one
+lift per value per route step to check the route actually transmits both.
 
 Four things keep that honest, all of which an earlier draft omitted:
 
-- **The two applications are not the lane's cost.** `certified` runs a full
+- **The four applications are not the lane's cost.** `certified` runs a full
   baseline fold *unconditionally*, before examining any marked node.
-  `law_lane_unconditional_baseline_folds=51` at `k=10`, against the two the
-  witness pays. The counter now reports both, because reporting only the two
-  states a lane cost that excludes most of the lane's work — the same pattern
-  §B6 admits for the chart build.
-- **Two is a best case.** `certified` accumulates over marked nodes until the
-  first witness; the reproduced witnesses (`s1, s3, s5, s7, s9`) happen to have
-  exactly two families each. The general cost is the sum over marked nodes
-  examined before the first witness, and chart order decides it. Nothing here
-  bounds that.
+  `law_lane_unconditional_baseline_folds=51` at `k=10`, against the four the
+  witness and route lift pay. Even those two counters are not a complete cost:
+  the baseline column counts nodes, not reducer calls; finding live families
+  can try multiple operations at a node; route discovery re-applies candidate
+  families; and local deduplication and the final route comparison call
+  `same_value`. Production must cache family baseline outcomes and count those
+  calls and comparisons. The same accounting boundary §B6 admits for the chart
+  build applies here.
+- **Four is a best case, for TWO independent reasons.** The figure splits into
+  a local witness and a route lift, and each half is favourable here.
+  *(a) Family count.* `certified` accumulates over marked nodes until the first
+  witness; the reproduced witnesses (`s1, s3, s5, s7, s9`) happen to have
+  exactly two families each, so the local half costs 2. The general cost is the
+  sum over marked nodes examined before the first witness, and chart order
+  decides it.
+  *(b) Route length.* The lift costs one application per value per STEP, so the
+  route half costs 2 only because those witnesses sit ONE step below the
+  accepting item. A witness three steps down costs `2 + 6`. Route length is a
+  cost dimension the end-to-end check introduced, and nothing here bounds it
+  either — see §8.
 - **There is no negative control.** No row exercises the case where the
   certificate finds no witness but the truth is "differs" — where the lever
   makes the parse *slower* (certificate cost plus the full lane). The three
@@ -940,8 +951,9 @@ shows the total is not the root's product plus a linear tail.
 occurrence is dropped before any product forms — Prototype 15), and
 `ident`/`grow` composing to an accepting item, which reduces the question to one
 witnessing node's family count plus an end-to-end route check: four
-applications against `2^k`, measured, with the unconditional baseline fold
-reported beside it. The declared-image quotient
+reported witness/lift applications against `2^k`, with the unconditional
+baseline-node count beside them. Family-liveness applications and comparisons
+are not included in that four. The declared-image quotient
 is **rejected** (§B3) and is not among them.
 
 **6. Is exponential work unavoidable, and what refusal is recommended?** Under
@@ -1019,6 +1031,13 @@ chart.
 - **The declared-image quotient.** Rejected (§B3); no lane consults it.
 - **A negative control for the law lane.** No row exercises a marked node with
   no witness, where the certificate costs and then falls through.
+- **The route lift's length.** The end-to-end check costs one application per
+  value per route step, and every witness here sits one step below its
+  accepting item. Nothing measures or bounds a long route, so the law lane's
+  four applications are not a figure to plan against. Four is not a floor
+  either: a witness that IS an accepting item has no route to lift along
+  (`routes[root] is None`), so that case costs 2. The true range runs from 2 to
+  the local witness plus two applications per step, unbounded here.
 - **The value-identity primitive's COST.** §B1 measures the comparison count;
   it does not cost one comparison or price a hashed alternative. Which relation
   is authoritative is not open — production `same_value` is — but its price is
@@ -1109,7 +1128,8 @@ This round edits no active document. Everything below is foldable as written;
   on six of ten witnesses.
 - Prototype 15's "zero executed operations" for the injective lane: it is four
   — two for the local witness and two to carry those values up the route —
-  plus an unconditional baseline fold the counter previously excluded.
+  plus an unconditional baseline pass, family-liveness applications, and value
+  comparisons. Four is the reported witness/lift portion, not total lane cost.
 - The declared-image quotient: rejected on composition, reach and risk.
 - A resource ceiling for this implementation: not proposed.
 - A shipped defect — `forest.ForestCtx`'s open-handle guard cannot tell a

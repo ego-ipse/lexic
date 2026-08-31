@@ -334,34 +334,35 @@ by retaining a mapped focus has no law, because it is not injective over an
 empty focus. Both reach the exact executed relation, and on the recursive
 shipped grammars they leave the shortcut a small minority of rows until
 production reads the binding view's real `fields_of`. The exact relation runs
-over the dirty cone of a family-aware chart — measured at one dirty node and
-two operation applications over a 161-node chart — beside the per-node baseline
-fold that is the parse's own product; it needs an Earley chart, which the
-predictive path does not hold, and it is exponential in a single node's local
-multiplicity where today's unsound one-flip probe is linear. Retaining the
-island's kernel while an occurrence has an unsettled alternate is what lets a
-resolver pair be spliced without re-recognizing anything. A row whose slot is `ident`/`grow`
-under a route the chart actually realizes proves requested-root inequality
-existentially. Neither executes an operation, allocates a dependency index or
-recognizes the document again. Everything else runs the exact per-node
-relation, where interacting occurrences compose through deduplicated option
-products; propagation is removed, the local product where multiplicitous
-children meet is not. The certificate removes an occurrence from that product
-before it is formed. `proto/island_continuation.py` executes all of this over
-real grammar tables, the real delegated island seam and real authored reducer
-bodies, in two flavours, against complete-Earley-fold oracles, and refuses a
-cyclic chart by name to `cyclic_meaning`. Its root-down descent for the
-consuming clone is a prototype stand-in: production reads the key off the
-island's entry frame or waiter code.
+over the dirty cone of a family-aware chart beside the per-node baseline fold
+that is the parse's own product. The predictive path holds no such chart, so
+ambiguity not eliminated by a universal constant certificate escalates
+deliberately to Earley.
 
-The round's complete-Earley oracle has one explicit boundary: it assigns one
-family per packed key, and every witness asserts that no node or key is reached
-twice. That does not cover the real shared-DAG shapes already pinned by
-`proto/shared_forest_refold.py`. The intended semantics remains occurrence-
-local — compute a shared node's meaning set once, then let each consuming slot
-range over it independently — but an occurrence-unrolled derivation oracle
-must verify duplicate-slot, pending-frame, sibling-memo, and transparent-
-synthetic shapes before the general composition claim closes.
+An `ident`/`grow` law is only a candidate existential certificate. The exact
+lane builds two local meanings and carries both through one live realized route
+before concluding requested-root inequality. This operation-executing check
+replaces Prototype 15's zero-operation claim. Full enumeration applies once per
+local family product and deduplicates with `same_value`; its current worst case
+is exponential in local multiplicity. No arbitrary ceiling or resource refusal
+is accepted. The chart is demand-driven, and production reuses cached baseline-
+family outcomes across liveness and route work. Partial operations use bottom
+semantics and require a distinct value-refusal exception.
+
+Retaining the island's kernel while an occurrence has an unsettled alternate is
+what lets a resolver pair be spliced without re-recognizing anything. A
+constant certificate removes an occurrence before its product forms.
+Everything else runs the exact per-node relation; propagation is removed, the
+local product where multiplicitous children meet is not. Production reads the
+occurrence key off the island's entry frame or waiter code.
+
+Forest sharing is representation sharing. A shared node's meaning set is
+computed once; every `(consuming handle, family index, kid slot)` occurrence
+ranges over it independently, and occurrence-owned work executes per
+consumption. `proto/shared_occurrence_ambiguity.py` agrees with an occurrence-
+unrolled oracle across the known shared-DAG and transparent-synthetic shapes.
+It disproves Prototype 15's packed-key-global oracle, which correlates
+independent occurrences and loses meanings.
 
 The same round produced one executable member of `goal.md` §5's enumerated
 divergence set: a document whose two derivations build different generated

@@ -51,8 +51,13 @@ grammar from its constructor-binding grammar. `PROTOTYPE_15.md` closes the
 island-continuation composition: the compiled per-occurrence row, its universal
 constant and existential injective certificates, the exact interaction rule,
 occurrence identity across siblings and nesting, and the separation of semantic
-settlement from resolver-tree materialization. Source implementation remains
-unauthorized, and no parse regression is authorized by any of it.
+settlement from resolver-tree materialization. `PROTOTYPE_16.md`, corrected by
+`P16_ADVERSARIAL.md` and closed by `REVIEW_16.md`, completes the shared-DAG
+relation and exact-lane policy. Shared nodes are values computed once; their
+parent-slot occurrences choose independently. Exact execution is uncapped and
+uses only proved constant, injective-route, and second-meaning exits. No
+planning question or user decision blocks §2. Source implementation has not
+started, and no parse regression is authorized by any of this evidence.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -872,10 +877,11 @@ and the timed resident row is recorded inside its stop factor.
       the real delegated island seam and real authored reducer bodies in two
       flavours: a universally constant continuation discards the occurrence's
       alternates — and the rule-level half is read BEFORE the island
-      enumerates, so those alternates are never built — while an injective
-      continuation whose route the chart realizes proves requested-root
-      inequality; both run with zero executed operations, zero chart nodes,
-      zero settlement trees and the one delegated document recognition. Two
+      enumerates, so those alternates are never built and no ambiguity
+      operation executes. The former claim that an injective continuation also
+      proves inequality without execution is superseded: `PROTOTYPE_16.md`
+      constructs two local meanings and carries both through one family-aware
+      realized route. Only then may it conclude requested-root inequality. Two
       refusals keep the rows sound and both cost work, not correctness: a rule
       whose pre- and post-normalization contributing references differ has no
       law (the authored `IrArg` index is not the chart's chain slot wherever a
@@ -891,25 +897,42 @@ and the timed resident row is recorded inside its stop factor.
       independent complete-Earley-fold oracle. Production reads the key off the
       island's entry frame or waiter code instead of the prototype's root-down
       descent, and a cyclic chart is refused by name to `cyclic_meaning`.
-- [ ] **PLANNING REQUIRED BEFORE §8 — SHARED-OCCURRENCE COMPOSITION:**
-      `proto/island_continuation.py` gives every occurrence an independent
-      family choice, but its complete-fold oracle fixes one family per packed
-      key and every witness asserts zero shared nodes and zero keys claimed
-      twice. Real duplicate-slot, pending-frame, sibling-memo, and transparent-
-      synthetic DAGs already exist in `proto/shared_forest_refold.py`. Add
-      semantic ambiguity under each shape and compare the exact per-node lane
-      with an occurrence-unrolled complete-derivation oracle. A shared node's
-      meaning set is computed once; each parent-slot occurrence ranges over it
-      independently, and occurrence-owned effects still apply per consumption.
-      Keep the general composition claim open until all shapes agree.
+- [x] **PLANNING REQUIRED BEFORE §8 — SHARED-OCCURRENCE COMPOSITION CLOSED:**
+      `proto/shared_occurrence_ambiguity.py` agrees with an occurrence-unrolled
+      complete-derivation oracle on duplicate-slot, pending-frame, sibling-
+      memo, arm-shared, mixed, separate-root, delegated, unambiguous, and both
+      genuinely shared transparent-synthetic shapes. A completed chart node is
+      a value: compute its meaning set once. Every grammatical occurrence is
+      the `(consuming handle, family index, kid slot)` edge which reaches that
+      node, and each such slot ranges over the set independently. Occurrence-
+      owned append, insert, verdict, and duplicate work executes per slot
+      consumption. A family assignment keyed globally by the packed handle is
+      forbidden because it correlates independent occurrences and loses
+      meanings.
+- [ ] Fix `ForestCtx` before relying on `forest.DERIVATIONS` for ambiguity or
+      resolver materialization. Its open-handle set currently treats a
+      suspended shared zero-width handle as a nullable cycle, emits an empty
+      prefix, and produces two malformed derivations where the grammar derives
+      four. Pin duplicate-slot and pending-frame regressions and preserve real
+      nullable-cycle termination.
 - [ ] Implement the exact lane over the DIRTY CONE, not the whole chart: fold
       every completed node once to its baseline meaning — that fold is the
       parse's own product — and run the meaning-SET lane only on the upward
       closure of nodes holding a live occurrence or carrying more than one
-      family. `proto/island_continuation.py` measures one dirty node and two
-      operation applications over a 161-node chart on an 81-character
-      document. Form no global family assignment anywhere, island seeds
-      included.
+      family. Apply bottom semantics: a refusing family contributes no meaning,
+      an empty child image removes only consuming families, and the document
+      refuses only when no requested-root meaning survives. Introduce a
+      distinct value-refusal exception first; `UnsupportedConstructError`
+      cannot distinguish an operation's empty image from an unsupported
+      construct. Take each node's baseline from the first family which produces
+      a value, use production `same_value` for deduplication, and form no global
+      family assignment anywhere, island seeds included.
+- [ ] Build the family-resolved chart and occurrence edges on demand after a
+      real semantic-choice family is found. The unambiguous path allocates none
+      of them. Cache each evaluated family's baseline outcome and reuse it for
+      liveness, route discovery, and lifting; do not re-run reducer bodies merely
+      to rediscover that a family is live. Count reducer applications and value
+      comparisons separately in the implementation report.
 - [ ] Route an EXECUTE verdict on the predictive path to Earley deliberately.
       The exact lane needs the family-aware chart and a PDA-first parse holds
       no SPPF, so that escalation is real and must be a named, measured route
@@ -922,21 +945,22 @@ and the timed resident row is recorded inside its stop factor.
       test the release boundary; `proto/island_continuation.py` proves the
       splice and counts the retention but does not settle when production
       drops it.
-- [ ] **PLANNING REQUIRED BEFORE THE EXACT LANE LANDS — EXACT-LANE
-      COST BOUND:** the exact
-      relation replaces `another_meaning`'s deliberately LINEAR one-flip probe
-      (which case 4 proves unsound) with a per-node product exponential in a
-      single node's local multiplicity. The certificate and the dirty cone
-      bound how many nodes pay; neither bounds the local product, and
-      `PROTOTYPE_15.md` claims no bound. Before the mechanism lands, state the
-      bound the production classifier enforces — or the refusal it raises when
-      a node's local multiplicity exceeds it. That STATEMENT gates the exact
-      lane's own implementation inside §8 — before it lands, not at §8's exit,
-      which comes after it; the MEASUREMENT of the exact lane on an ambiguous input belongs
-      beside the §12 RSS row, so the two halves land at different phases and
-      neither substitutes for the other. Do not discover this cost after
-      landing: a parse regression still needs the user's explicit
-      post-measurement approval.
+- [x] **PLANNING REQUIRED BEFORE THE EXACT LANE LANDS — EXACT-LANE POLICY
+      CLOSED:** no arbitrary multiplicity ceiling or resource refusal lands.
+      At node `h`, full enumeration performs exactly
+      `sum(family products of child-image widths)` reducer applications, plus
+      image-dependent `same_value` comparisons whose structural cost remains a
+      §12 measurement. The current worst case is exponential in local
+      multiplicity. Two exact shortcuts reduce it: constant continuations, and
+      a family-aware `ident`/`grow` certificate which constructs two local
+      meanings and carries both through one realized route to an accepting
+      item. Enumeration also stops as soon as a second distinct requested-root
+      meaning is certified. None concludes equality; an unproved case executes
+      the exact relation. The prototype's reported witness/lift application
+      count is not the lane's total cost: baseline folding, family liveness,
+      failed candidate nodes, route length, and value comparisons remain real
+      work. Production must reuse family evaluations and measure the complete
+      lane. No parse regression is authorized.
 - [x] **PLANNING REQUIRED BEFORE §8 — SINGLE-SEED PART CLOSED:** an island with
       a second target meaning remains in the predictive product and does not
       decide at its span. `PROTOTYPE_10.md` proves the baseline-plus-alternates
@@ -1378,6 +1402,13 @@ folder.
       actual island seed/trace populations beside peak RSS. This row is
       separate from the unambiguous tokenizer ceilings and is the cost account
       for §8's document-sized cold ambiguity structures.
+- [ ] On production ambiguity machinery, report exact-lane reducer
+      applications, `same_value` comparisons, route length, failed marked
+      nodes, baseline-family cache hits, and family-chart build cost. Include a
+      real unambiguous document, a real ambiguous document, and a shipped-
+      grammar census of wide-multiplicity nodes which actually become dirty.
+      Prototype 16's four witness/lift applications and three-node control are
+      not production cost measurements.
 - [ ] Gate less than 1.000 s wall for the resident-text ready tokenizer at the
       public `cores=AUTO` engaged shape on the 11,422,654-byte Qwen3 witness,
       with the sequential row reported beside it. When route anchors decline,
