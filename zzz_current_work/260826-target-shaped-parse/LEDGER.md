@@ -76,6 +76,16 @@ operations that do not exist yet. The prototype's root-down descent for the
 consuming clone is an explicit stand-in for what production reads off the
 island's entry frame or waiter code.
 
+The fourth closure auditor returned `READY` on re-check, after its two
+provenance blockers were fixed; the user ruled against spawning a fifth fresh
+reviewer for documentation nits, so that verdict comes from an auditor which
+had already read the packet. It also caught two fixes this round had claimed
+and the files did not carry — an edit script aborted mid-way and the summary
+was written from intent — both now applied and both recorded in
+`reports/P15_ADVERSARIAL.md`. `READY` authorizes no source implementation and
+accepts no parsing regression, and resolver scope remains the one open user
+decision.
+
 No `src/`, test, harness, wiki or `pyproject.toml` file changed —
 `git status --short -- src tests pyproject.toml .wiki` is empty and
 `git diff --check` is clean. The effort's own tracked documents ARE modified;

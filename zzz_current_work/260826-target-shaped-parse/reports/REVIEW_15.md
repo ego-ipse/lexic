@@ -137,6 +137,52 @@ NOT READY
 
 ---
 
-## Pass 4
+## Pass 4 — NOT READY, then READY on re-check
 
-_Awaiting the fourth fresh closure audit._
+Pass 4's first response raised two provenance/gate-labelling blockers (E1: the
+pass-3 gate relabel had reached `TODO.md` only, so `LEDGER.md` and
+`PROTOTYPE_15.md` Q7 still named the superseded label and moment; E2:
+`LEDGER.md` recorded two closure passes where three had run and omitted pass
+3's blocker). The user ruled that no fifth fresh agent should be spawned to
+re-review documentation nits, so the fixes were sent to the same auditor. Its
+re-check verdict, verbatim:
+
+Reviewer 3 — final packet closure audit, pass 4 re-check. Verdict: READY. Both blockers are genuinely fixed; no substantive blocker remains. Two of the three non-blocking items you reported as addressed are not in the files — neither is blocking, but I am correcting the record rather than accepting the account.
+
+E1 — FIXED, both halves.
+
+- `LEDGER.md:110-114` now names the gate `PLANNING REQUIRED BEFORE THE EXACT LANE LANDS — EXACT-LANE COST BOUND` and states the split verbatim: "whose STATEMENT half gates the exact lane's own implementation inside §8 while its MEASUREMENT half belongs beside the §12 RSS row." That matches `TODO.md:912-926` word for word on both the label and the two moments.
+- `PROTOTYPE_15.md:627-633` (Q7) now reads "The gate has two halves at two moments, and `TODO.md` places them: production STATES the bound it enforces — or the refusal it raises past it — before the exact lane lands, inside §8; the MEASUREMENT of that lane on an ambiguous input belongs beside the §12 RSS row. Neither half substitutes for the other." The "measure … before the mechanism lands" clause I blocked on is gone.
+- `grep -rn "AT §8 EXIT — EXACT-LANE"` now returns only audit-trail hits: `REVIEW_15.md:68/85/109` (verbatim reviewer responses, which must survive) and `P15_ADVERSARIAL.md:460` (the pass-1 B4 disposition, explicitly superseded by the relabel recorded at `:565-567`). No active document carries the old label.
+
+E2 — FIXED. `LEDGER.md:87-91` now reads "the closure auditor returned NOT READY three times: four documentation-and-coherence blockers, then two numeric/provenance ones, then one more", and `LEDGER.md:117-123` states pass 3's blocker ("this ledger still cited 'one seed derivation against a control's three', the figure the round's own earlier fix had invalidated"), its re-citation to the chart, product and seed columns, and attributes the gate relabel to that same pass. It now agrees with `P15_ADVERSARIAL.md:541-559` and `REVIEW_15.md:98-136` on both the pass count and the provenance.
+
+CORRECTIONS TO YOUR ACCOUNT (both non-blocking, neither changes the verdict)
+
+- The census CPU spread was NOT widened to four samples. `P15_ADVERSARIAL.md:569` still reads "(0.048225 / 0.049503 / 0.050712)", and `0.051303` appears nowhere in the packet. Harmless — `PROTOTYPE_15.md:511-516` disclaims that figure outright and draws no conclusion from it — but the fix you described is not in the file. My re-run printed a fifth value, `cpu=0.049550`, which is the point the disclaimer already makes.
+- `DESIGN.md`'s status paragraph does NOT name Prototype 15. `grep -n "Prototype 15\|PROTOTYPE_15\|island_continuation\|island-continuation" DESIGN.md` returns nothing; `DESIGN.md:3-12` still names Prototype 14 and its coordinator rerun as the establishing round. Non-blocking exactly as I scoped it originally, because `DESIGN.md:751-800` carries the round's content in full — but unfixed.
+- The third item IS in place: `PROTOTYPE_15.md:726-729` now records that importing `resolver_pair` regenerates its `__pycache__` entry and running Ruff rewrites `proto/.ruff_cache/`, that both directories are tracked, and that each was restored with `git checkout` after the last run.
+
+FINAL SWEEP (figures and gate labels an active document states that the artefact or the queue does not carry)
+
+- I re-ran `island_continuation.py` once: exit 0, and the output is byte-identical to my pass-4 run on every line except the disclaimed `row-census cpu` sample. Every §3 case-table figure, both ABNF rows, all four elision-equality claims, the `control_seeds` exception on exactly the two const rows, the five cost counters and their maxima, §3.2/§3.3/§4/§5/§6/§7/§9 rows, the flatness/lifetime/residency rows and all four census rows still reproduce exactly.
+- `git status --short` is byte-identical before and after that run — no tracked `.ruff_cache` or `__pycache__` file was regenerated or dirtied. `git status --short -- src tests pyproject.toml .wiki` is empty and `git diff --check` exits 0. Working-tree modification remains confined to the same nine tracked effort files.
+- Round figures in active documents all check out against the run: 161-node chart, one dirty node, two operation applications, the 81-character document (`DISTANT_PAD = 40` at island_continuation.py:1361-1362), 73.9–95.6% EXECUTE with DROP under 5%, and the const-witness columns `skipped_enumerations=1` / `seed_chart_nodes=0` / `seed_products=0` / `seeds=0` against `control_seeds=1`. `SUMMARY.md` carries none of the round's figures and contradicts nothing.
+- `LEDGER.md:88-89`'s "twelve findings, four blocking" for each topic reviewer matches `P15_ADVERSARIAL.md:80` and `:280` — that is the reviewers' own stated count, recorded identically in both places, not a discrepancy with the lettered sub-points.
+- Gate labelling is accurate throughout. `TODO.md:864-891`'s `[x]` discloses its own stand-ins inside the gate text; `TODO.md:892-911`'s three unchecked items and `:912-926`'s planning gate are unchecked and correctly placed; `TODO.md:989-994`'s `DECISION REQUIRED BEFORE §8 — RESOLVER SCOPE` is unchecked with "No user ruling is inferred from the investigator report". `INDEX.md:212-213` treats every `PLANNING REQUIRED` marker as a hard gate, and the relabelled gate still carries that prefix.
+- Resolver scope is not selected: TODO.md:989-994, PROTOTYPE_15.md:612-618, PROTOTYPE_14.md:809-810 and :864, DESIGN.md:8 and :858-862, goal.md:266-267, CURRENT_BUG_REPORT.md:210-213. No parse regression is authorized: PROTOTYPE_15.md:670-671, TODO.md:924-926, INDEX.md:219-221, PROMPT_15.md:182. No document claims READY on its own behalf; DESIGN.md:11 still says a final fresh reviewer has not returned it.
+
+I ran no Ruff, Pyright, benchmark, timing comparison or test suite, and made no edit. `proto/.ruff_cache/` is tracked, so a Ruff invocation would rewrite a tracked file — `PROTOTYPE_15.md:711-712`'s clean claim is therefore unverified by me, as it was in pass 4 (passes 2 and 3 both verified it). Everything in `PROTOTYPE_15.md` §11's not-proved list remains unverified by this audit, which is what §11 says. READY neither authorizes source implementation nor accepts any parsing regression.
+
+READY
+
+---
+
+**Coordinator note.** The two corrections the auditor made to the account are
+right and are now actually applied: the CPU spread is recorded five samples wide
+and `DESIGN.md`'s status paragraph names Prototype 15. An edit script had
+aborted on a failed anchor after writing two of its four files, and the round's
+summary of it was written from intent rather than from the files —
+`reports/P15_ADVERSARIAL.md` records that. The `READY` above is from the fourth
+fresh closure auditor on re-check, not from a fifth fresh reviewer; the user
+ruled against spawning one for documentation nits.

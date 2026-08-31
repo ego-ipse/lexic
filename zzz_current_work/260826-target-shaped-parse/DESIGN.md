@@ -8,7 +8,10 @@ custom binding through a real retained pool. The remaining pre-implementation
 decision is resolver scope. Real-operation cyclic lowering, the constructive
 infinite-SCC pair, the tokenizer's final three validation lanes, and the
 recognition/binding grammar split are established by Prototype 14 and its
-coordinator rerun. A final fresh reviewer has not returned `READY`. Production
+coordinator rerun. The compiled per-occurrence island continuation, its
+constant and injective certificates, the exact per-node relation over the dirty
+cone, and the retained island kernel a spliced resolver pair needs are
+established by Prototype 15. A final fresh reviewer has not returned `READY`. Production
 source has not started. This document is not an implementation checklist.
 
 ## Decision

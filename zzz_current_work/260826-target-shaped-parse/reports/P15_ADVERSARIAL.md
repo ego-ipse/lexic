@@ -565,8 +565,8 @@ build the one derivation production builds, so what the row saves is set work
 rather than a tree. `TODO.md`'s cost-bound gate is relabelled **PLANNING
 REQUIRED BEFORE THE EXACT LANE LANDS**, since §8's exit comes after the lane it
 gates. `DESIGN.md`'s duplicated opening sentence, an artefact of the pass-1 B3
-insertion, is removed. The census CPU spread is now three samples wide
-(0.048225 / 0.049503 / 0.050712), which the report's own disclaimer covers, and
+insertion, is removed. The census CPU spread is now five samples wide
+(0.048225 / 0.049503 / 0.050712 / 0.051303 / 0.049550), which the report's own disclaimer covers, and
 `reports/REVIEW_15.md` being untracked is the user's call at commit time.
 
 ### Rerun after the pass-3 fixes
@@ -612,17 +612,51 @@ rounds that established the current design; §12 records that Ruff rewrites the
 tracked `.ruff_cache` and that both it and `__pycache__` are restored after the
 last run.
 
+### Pass 4 re-check — READY
+
+The same auditor re-checked E1 and E2 against the files rather than against the
+account, and returned **READY**. It confirmed the gate label and its two
+moments now agree word for word between `LEDGER.md` and `TODO.md`, that Q7's
+"before the mechanism lands" measurement clause is gone, that the only
+surviving instances of the old label are audit-trail text, and that `LEDGER.md`
+now records three closure passes with pass 3's blocker and the gate relabel
+attributed to it. It re-ran `island_continuation.py` (exit 0, byte-identical to
+its previous run except the disclaimed CPU sample), re-verified every case
+figure, both ABNF rows, all four elision-equality classes, the census
+arithmetic and the round's headline figures, and confirmed that no active
+document names a gate or a figure the queue or the artefact does not carry.
+
+**It also caught two fixes this record had claimed and the files did not have.**
+The census CPU spread had not been widened and `DESIGN.md`'s status paragraph
+did not name Prototype 15; an earlier edit script aborted on a failed anchor
+after writing two of its four files, and the round's own summary of that script
+was written from intent rather than from the files. Both are now actually
+applied — the spread is recorded five samples wide (0.048225 / 0.049503 /
+0.050712 / 0.051303 / 0.049550) and `DESIGN.md`'s status paragraph names
+Prototype 15's contributions — and the failure is recorded here because it is
+the same class the round blocked on four times: a deliverable stating something
+the files do not carry. The auditor found it by checking rather than accepting
+the account, which is what the role is for.
+
+One claim in `PROTOTYPE_15.md` §12 the final auditor could not verify: it
+declined to run Ruff or Pyright because `proto/.ruff_cache/` is tracked in this
+repository and a Ruff invocation rewrites it. The coordinator ran both after
+every change — clean, 0 errors — and restored the cache; closure passes 2 and 3
+verified them independently.
+
 ### The review loop stops here, by the user's ruling
 
 Pass 4's blockers were provenance and gate-label accuracy in the deliverables,
-not mechanism findings — the same auditor confirmed the executable artefact,
-every figure, every mechanism-to-code mapping, the absence of any authorized
-parse regression and the untouched resolver-scope decision. The user ruled that
-a fresh agent should not be spawned to re-review nits, and directed the fixes to
-the existing auditor instead. **`READY` was therefore never returned by a fresh
-reviewer**, and `PROMPT_15.md`'s done gate is not met on that clause; the round
-is complete on substance and incomplete on that formality. Nothing in this
-packet may be read as authorizing source implementation.
+not mechanism findings. The user ruled that no fresh agent should be spawned to
+re-review documentation nits and directed the re-check to the existing auditor,
+which returned `READY` above.
+
+That verdict is therefore from a reviewer that had already audited the packet
+once, not from a fifth fresh one. `PROMPT_15.md` asks for a fresh reviewer at
+each role; four fresh closure auditors ran, and the final `READY` came from the
+fourth on re-check. The distinction is recorded rather than smoothed over.
+`READY` neither authorizes source implementation nor accepts any parsing
+regression, and the resolver-scope USER DECISION remains open and unselected.
 
 ### Rerun after the pass-4 fixes
 

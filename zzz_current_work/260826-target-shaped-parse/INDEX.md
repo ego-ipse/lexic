@@ -23,7 +23,9 @@ one-flip probe is linear, and its bound is an unclosed §8 planning gate; and a
 resolver pair without re-recognition costs one retained island kernel per
 ambiguous occurrence, whose release boundary is unsettled. Three shipped ambiguity defects are
 pinned, and one `goal.md` §5 value-relation divergence is now executable.
-Production source has not started.
+The closure audit returned `READY` on its fourth
+auditor's re-check, which authorizes neither source implementation nor any
+parsing regression. Production source has not started.
 
 ## Start here
 
