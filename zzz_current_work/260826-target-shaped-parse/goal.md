@@ -274,7 +274,11 @@ island reads that before it enumerates and never builds them; an injective
 continuation whose route the chart realizes proves requested-root inequality;
 neither executes an operation, allocates ambiguity state or recognizes the
 document again. A slot whose coordinates or whose injectivity the analysis
-cannot establish keeps no law and reaches the exact relation. Everything else runs the exact per-node
+cannot establish keeps no law and reaches the exact relation, which runs over
+the dirty cone of a family-aware chart and is therefore an Earley escalation on
+the predictive path. Assembling a resolver pair without re-recognizing the
+island requires retaining that island's kernel for as long as the occurrence
+has an unsettled alternate. Everything else runs the exact per-node
 relation. An island never settles
 target ambiguity at its own accepting span. It returns its baseline value plus
 a cold alternate-meaning seed; the enclosing product records and replays only

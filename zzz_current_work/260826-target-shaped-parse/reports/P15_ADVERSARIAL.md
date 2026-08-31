@@ -145,8 +145,14 @@ already built and folded.
 recognition and the delegate reads the table FIRST: `unobservable_rule` is the
 rule-level half of the DROP certificate, and an island whose every row is
 unobservable publishes its baseline and enumerates nothing. Case 1 records
-`skipped_enumerations=1` and `seed_trees=1` against a control run's
-`control_seed_trees=3`. §11 states the prototype's remaining weakness honestly:
+`skipped_enumerations=1`, `seed_chart_nodes=0`, `seed_products=0` and
+`seeds=0` against the control run's `control_seeds=1`.
+
+*(Superseded figure, kept so the trail is readable: this originally cited
+`seed_trees=1` against `control_seed_trees=3`. Reviewer 2's B1 fix removed the
+island's redundant second derivation, so BOTH runs now build one tree and the
+saving shows in the chart/product/seed columns instead. Re-run against the
+columns above, not against the 3.)* §11 states the prototype's remaining weakness honestly:
 an Earley delegate does not receive its consumer, so only the rule-wide half
 can fire before enumeration, while production — entering the island from its
 contextual clone — has the per-occurrence row at entry.
@@ -271,7 +277,119 @@ benchmarks. Return substantive file:line findings and READY only if none
 remain. Ignore prose nits.
 ```
 
-_Pending._
+**Verdict returned: NOT READY — twelve findings, four blocking.** Recorded
+below with dispositions and the rerun that verified them.
+
+### A2 (blocking) — the EXECUTE lane needs a whole-document chart, unstated
+
+`exact_root_meanings` built `algebra.build_chart` over the outer kernel and
+applied the reducer at EVERY node, so "one set per node on the union of the
+live continuations" was true of cardinality only. And a PDA-first parse holds
+no SPPF (`parsing/products.py` reaches Earley only on `PdaFail`), so obtaining
+that chart is Earley escalation — on the 73.9–95.6% of shipped rows the census puts
+in EXECUTE.
+
+**Disposition: reduced where it was reducible, and stated where it was not.**
+The lane now folds every node ONCE to its baseline — the parse's own product,
+counted in its own `baseline_products` lane — and runs the SET lane only on the
+DIRTY CONE: the upward closure of nodes holding a live occurrence or carrying
+more than one family. Everything outside has only non-dirty descendants and
+takes its baseline. A new `distant-island` witness makes the difference
+measurable: 161 chart nodes, 161 baseline folds, **1 dirty node, 2 set
+applications** on an 81-character document. What could not be reduced is
+stated: §3.5 says the chart is Earley's, that CONST and INJECTIVE settle
+without it (`settlement_chart_nodes=0` on cases 1, 2, 5a, 5b), and that on
+shipped grammars most ambiguous spans would escalate. §11 carries it.
+
+### B1 (blocking) — the unambiguous island gained work
+
+The island built a baseline derivation AND re-derived it during enumeration, so
+an unambiguous island cost two trees where production costs one, while three
+documents said "no tree".
+
+**Disposition: fixed.** The island's set now comes from the same per-node lane
+the document uses, so it builds exactly one derivation — the engine's own,
+which is what `islands.island_parse` builds today. `seed_trees=1` on every
+single-island witness. The zero-claims are rescoped to what is true: no
+alternate, no node set, no chart walk, no COMPLETE-DOCUMENT tree — and the
+module's own closing invariant now says so.
+
+### C3 (blocking) — linear replaced by exponential, unstated
+
+`another_meaning`'s docstring declares itself linear in ambiguity points; the
+exact relation is a per-node product.
+
+**Disposition: stated, and partly reduced.** §4 now says it outright — exactness
+costs that asymptotic class, the certificate and the dirty cone bound how many
+nodes pay but not the local product, and no bound is claimed. §11 lists it as
+the round's largest performance consequence. The reduction is real: the island
+lane no longer enumerates global assignments at all (C1 with it), so **no
+global family assignment is formed anywhere in the mechanism** — only in the
+oracle, which is what keeps the oracle independent.
+
+### D3 (blocking) — the resolver re-recognized the island
+
+`_resolver_pair` called `harness.island_run` again, so "spliced from the island
+kernel already in hand" was false as executed, and no counter could see it.
+
+**Disposition: fixed, with its price made a counter.** The seed now retains its
+island kernel — but only when it published an alternate, so an unambiguous
+island retains `None`. The pair is spliced from that kernel and both
+`document_recognitions` and `island_runs` are asserted unchanged across the
+resolver call. §6 states the retention as the cost it is: one live kernel per
+ambiguous delegated occurrence until settlement, which is exactly the deferred
+per-occurrence state `PROTOTYPE_14.md` §2 named, now with a shape and a number.
+§11 carries its production release boundary.
+
+### The non-blocking findings
+
+- **A1, A4** — §0 of the report now says plainly that this is the Earley
+  delegation seam, not the PDA island entry, and that `OP_ISLAND` has zero
+  measured occurrences; §11 repeats both.
+- **A3** — the `distant-island` witness replaces the tiny-chart numbers where a
+  locality claim is made.
+- **B2** — `settle` returns before touching `accepting_roots` or
+  `rules_reaching` when there is no seed, so the control's zeros are path facts.
+- **B3** — §2 scopes the pre-enumeration skip to the rule-wide half explicitly,
+  and §8 gives DROP's share (under 5%).
+- **C1** — removed: the island uses the per-node lane. **C2** — stated in §4 as
+  the exact relation's inherent per-node cost.
+- **D1** — the double increment is gone; `trees_after_the_resolver=3` for three
+  trees. **D2** — the claim is rescoped to "complete-document tree".
+- **E1** — the grammar moments and reducer are memoized per witness, so one
+  witness binds ONE table and the registry's hit path is exercised by every
+  proof that binds. **E2** — a new `registry-residency` row reports 13 entries
+  and drains to 0, the meter `caches.cached_entries()` exists to provide.
+  **E3** — §10 Q4 and §11 both say the parse-local release boundary, the
+  retained kernel included, is not settled here.
+- **F1** — §3.1 now says "rule-wide half". **F2** — §11 names the dependency:
+  production's per-occurrence key at island entry needs the same coordinate
+  join §2.1 refuses, so the descent's cost stays open with it.
+- **G1** — the census CPU row carries its own disclaimer and no conclusion is
+  drawn from it.
+- **H1** — an empty option lane RAISES instead of skipping the family, because
+  skipping shrinks the meaning set: a wrong acceptance, the one direction a
+  silent default must not take. **H2** — §11 names the `repr` value-identity
+  primitive and its uncounted cost as production work.
+- **I1** — §3 now lists the columns shown and the columns elided, and states
+  that nothing elided differs from a column shown.
+- The dead `text` parameter is gone with `_resolver_pair`'s rewrite.
+
+### What the reviewer confirmed sound
+
+Complete-document trees built only after inequality and an invoked resolver;
+`settlement_trees=0` a real code-path fact; the cached table flat and unable to
+retain a parse; the DROP over-approximation conservative; no multithreaded row
+anywhere; production measurements held open and no external timing presented as
+a source result.
+
+### Rerun after the fixes
+
+```text
+uv run python proto/island_continuation.py   exit 0  (1.07 s wall, whole file)
+uv run ruff format / isort / ruff check      clean
+uv run pyright                               0 errors, 0 warnings
+```
 
 ---
 
@@ -290,4 +408,227 @@ Return only substantive blockers followed by READY or NOT READY, with exact
 file:line evidence. Ignore prose nits.
 ```
 
-_Pending._
+**Pass 1 verdict: NOT READY — four blockers, all documentation and coherence;
+the reviewer verified the executable artefact reproduces exactly and found no
+forbidden construct, no source change, no authorized parse regression, and no
+silent selection of the resolver scope.** The four are fixed below and the
+complete pass-1 response is copied into `reports/REVIEW_15.md`.
+
+### B1 — a deliverable cited a figure the round's own fix superseded
+
+This record's F4 entry quoted `control_seed_trees=3`, which was true before
+Reviewer 2's B1 fix removed the island's redundant second derivation. Both runs
+now build one tree.
+
+**Disposition: corrected in place**, with the superseded figure kept and
+labelled so the trail stays readable, and the saving re-cited to the columns
+that still show it — `seeds=0` against `control_seeds=1`, `seed_chart_nodes=0`,
+`seed_products=0`.
+
+### B2 — TODO.md and INDEX.md were not folded for Reviewer 2's consequences
+
+The other four active documents took them; the implementation queue and the
+inventory did not, so an implementer working from the queue alone would build
+the mechanism without them.
+
+**Disposition: folded.** `TODO.md` §8 gains three unchecked items — the exact
+lane over the dirty cone with the measured 1-dirty-node/2-application figure,
+the deliberate Earley escalation an EXECUTE verdict implies on the predictive
+path with the 73.9–95.6% census share, and the retained island kernel per ambiguous
+occurrence with its undefined release boundary. `INDEX.md`'s gate sentence now
+names all three.
+
+### B3 — two mechanisms for one case, with no precedence
+
+`DESIGN.md` carried both the exact per-node relation over the dirty cone and
+the single-alternate ancestor-cone replay through a sparse overlay, and
+`TODO.md` prescribed only the second.
+
+**Disposition: precedence stated in both.** The exact per-node relation
+GOVERNS; the single-alternate overlay replay is its permitted SPECIALIZATION,
+admissible exactly where the compiled completion operations carry the proved
+separability certificate — which is the same certificate one-flip evaluation
+needs and, absent it, does not have. Where it is absent the per-node relation
+governs and no overlay is built.
+
+### B4 — the round's largest performance consequence had no labelled gate
+
+`PROTOTYPE_15.md` recorded the linear→exponential change as unmeasured while Q7
+answered that no gate was open, and nothing in `TODO.md` §8 carried it.
+
+**Disposition: the gate exists and is labelled.** `TODO.md` §8 gains
+**PLANNING REQUIRED AT §8 EXIT — EXACT-LANE COST BOUND**: production states the
+bound it enforces on a node's local multiplicity — or the refusal it raises
+past it — and measures the exact lane on an ambiguous input beside the §12 RSS
+row, before the mechanism lands. Q7 now names that gate as one this round
+OPENED rather than answering "no gate".
+
+### Non-blocking, addressed anyway
+
+`PROTOTYPE_15.md` §3's elision list now names `control_seeds` as a column that
+differs from the shown `seeds`, in the direction that understates the round's
+own saving; §12 says `REVIEW_15.md` joins the round's files when the closure
+audit returns rather than asserting it already exists. The reviewer also noted
+that commit `eb205ebe` — the user's own savepoint of this round — carries a
+tracked `proto/__pycache__` artefact while `INDEX.md` calls `__pycache__/` a
+local tool artefact; that is the user's commit and is left alone.
+
+### Rerun after the fixes
+
+```text
+uv run python proto/island_continuation.py   exit 0
+uv run python proto/operation_slot_laws.py   exit 0
+uv run python proto/route_continuation.py    exit 0
+uv run python proto/root_meaning_incremental.py  exit 0
+uv run python proto/island_alternate_seed.py exit 0
+uv run python proto/ambiguity_interaction.py exit 0
+uv run python proto/resolver_pair.py         exit 0
+uv run ruff check / pyright                  clean, 0 errors
+git status --short -- src tests pyproject.toml .wiki   empty
+```
+
+### Pass 2 — NOT READY, two numeric/provenance blockers
+
+The second fresh auditor independently re-verified pass 1's four dispositions
+against the artefact rather than the record, ran all seven prototypes (exit 0
+each), executed the `weakref.ref` refusal on `IrAst` and `Reducer`, and
+confirmed every case figure, the elision-equality claims, the
+forbidden-construct scan, the cited production seams, the absence of any
+authorized parse regression, and that six separate documents leave the resolver
+scope to the user. It then found two things wrong.
+
+**C1 — the EXECUTE census range was quoted as 80–95%; the artefact prints
+73.9–95.6%.** ABNF is 102/138 = 73.9%, six points below the stated floor,
+because it is the one shipped grammar where the certificate still yields
+injective rows (thirty). The figure had been written into `TODO.md`'s unchecked
+escalation item, whose whole justification is that share — pass 1's B1 class
+exactly, a deliverable stating a figure the artefact contradicts.
+
+**Disposition: corrected in all five places** (`PROTOTYPE_15.md` twice,
+`TODO.md`, `LEDGER.md`, this record twice) to `73.9–95.6%` with the four
+per-grammar fractions and the reason ABNF sits at the low end. The DROP half —
+under 5% everywhere, 4.7 / 4.3 / 4.4 / 3.3% — was correct and is now spelled
+out. The substance is unchanged: EXECUTE is still the common path on every
+shipped grammar.
+
+**C2 — the ledger recorded two reviewers where three had run**, and headed the
+round's substantive changes as Reviewer 2's when three of them are Reviewer 3
+pass-1 dispositions: the precedence ruling, the three new `TODO.md` §8 items,
+and the `EXACT-LANE COST BOUND` gate.
+
+**Disposition: corrected.** `LEDGER.md` now records three fresh reviewers, the
+closure auditor's two passes, which changes came from which, and both of the
+pass-2 blockers; it cites `reports/REVIEW_15.md` as the auditor's own record.
+
+**Non-blocking, addressed anyway.** `PROTOTYPE_15.md` §3 no longer claims every
+elided column equals a shown one — it names the five cost counters that have no
+equal, says none contradicts a shown column, and quotes the row where they are
+largest. The census CPU line now says outright that it is the one figure in the
+report that does not reproduce exactly (0.048225 against a later 0.049503),
+which is what an uncontrolled single sample is worth. `TODO.md`'s
+`EXACT-LANE COST BOUND` gate now separates its halves: the STATEMENT of the
+bound is the §8 exit, the MEASUREMENT belongs beside the §12 RSS row.
+
+### Rerun after the pass-2 fixes
+
+```text
+uv run python proto/island_continuation.py   exit 0
+uv run ruff check / pyright                  clean, 0 errors
+git status --short -- src tests pyproject.toml .wiki   empty
+git diff --check                                       clean
+```
+
+### Pass 3 — NOT READY, one blocker: the same superseded figure, one document further
+
+The third fresh auditor re-ran all seven prototypes (exit 0 each), reproduced
+every case figure and every elision-equality claim, verified both pass-2
+dispositions and all four pass-1 dispositions against the artefact, confirmed
+that no run dirtied a tracked `.ruff_cache` or `__pycache__` file, and checked
+the resolver-scope and no-parse-regression statements in six documents apiece.
+
+**D1 — `LEDGER.md` still cited "one seed derivation against a control's
+three".** That is the third appearance of the class pass 1 called B1 and pass 2
+called C1: a number Reviewer 2's own fix invalidated when it removed the
+island's redundant second derivation. The two earlier fixes reached
+`P15_ADVERSARIAL.md` and `PROTOTYPE_15.md`; the ledger paragraph predates this
+round's working diff (it is committed text), so `git diff` never surfaced it.
+
+**Disposition: corrected, and re-cited to the columns that still carry the
+claim** — `skipped_enumerations=1`, `seed_chart_nodes=0`, `seed_products=0`,
+`seeds=0` against the control's `control_seeds=1` — with the superseded phrase
+kept and labelled.
+
+**Non-blocking, addressed anyway.** `PROTOTYPE_15.md` §3.1 no longer cites
+`control_seed_trees=1` as something case 1 is measured "against" when both runs
+print 1; it names the columns that differ and says outright that both runs
+build the one derivation production builds, so what the row saves is set work
+rather than a tree. `TODO.md`'s cost-bound gate is relabelled **PLANNING
+REQUIRED BEFORE THE EXACT LANE LANDS**, since §8's exit comes after the lane it
+gates. `DESIGN.md`'s duplicated opening sentence, an artefact of the pass-1 B3
+insertion, is removed. The census CPU spread is now three samples wide
+(0.048225 / 0.049503 / 0.050712), which the report's own disclaimer covers, and
+`reports/REVIEW_15.md` being untracked is the user's call at commit time.
+
+### Rerun after the pass-3 fixes
+
+```text
+uv run python proto/island_continuation.py   exit 0
+uv run ruff check / pyright                  clean, 0 errors
+git status --short -- src tests pyproject.toml .wiki   empty
+git diff --check                                       clean
+```
+
+### Pass 4 — NOT READY, two provenance/gate-labelling blockers
+
+The fourth auditor re-ran all seven prototypes (exit 0 each), reproduced every
+case figure including both ABNF rows and all four elision-equality classes,
+re-derived §8's census arithmetic, and confirmed pass 3's D1 fix and its three
+prose dispositions. It declined to run Ruff or Pyright because
+`proto/.ruff_cache/` is tracked here and invoking Ruff rewrites it — a fact now
+recorded in §12 rather than left implicit.
+
+**E1 — the pass-3 gate relabel reached `TODO.md` and nothing else**, so the
+packet named one gate's moment three ways: `LEDGER.md` still listed
+`PLANNING REQUIRED AT §8 EXIT`, and `PROTOTYPE_15.md` Q7 still required the
+MEASUREMENT "before the mechanism lands" where the queue puts it beside the §12
+RSS row.
+
+**Disposition: both corrected.** `LEDGER.md` names the current label and states
+the split; Q7 now says the gate has two halves at two moments and names both —
+the STATEMENT inside §8 before the lane lands, the MEASUREMENT beside the §12
+RSS row, neither substituting for the other.
+
+**E2 — `LEDGER.md` recorded two closure-audit passes where three had run**, and
+omitted pass 3's blocker and its disposition — pass 2's C2 recurring one pass
+later, in the document `INDEX.md` makes the corrections record.
+
+**Disposition: corrected.** The ledger now records three closure passes, states
+pass 3's blocker and its re-citation, and attributes the gate relabel to that
+pass.
+
+**Non-blocking, addressed anyway.** The census CPU spread is recorded as four
+samples wide; `DESIGN.md`'s status paragraph now names Prototype 15 among the
+rounds that established the current design; §12 records that Ruff rewrites the
+tracked `.ruff_cache` and that both it and `__pycache__` are restored after the
+last run.
+
+### The review loop stops here, by the user's ruling
+
+Pass 4's blockers were provenance and gate-label accuracy in the deliverables,
+not mechanism findings — the same auditor confirmed the executable artefact,
+every figure, every mechanism-to-code mapping, the absence of any authorized
+parse regression and the untouched resolver-scope decision. The user ruled that
+a fresh agent should not be spawned to re-review nits, and directed the fixes to
+the existing auditor instead. **`READY` was therefore never returned by a fresh
+reviewer**, and `PROMPT_15.md`'s done gate is not met on that clause; the round
+is complete on substance and incomplete on that formality. Nothing in this
+packet may be read as authorizing source implementation.
+
+### Rerun after the pass-4 fixes
+
+```text
+uv run python proto/island_continuation.py   exit 0
+uv run ruff check / pyright                  clean, 0 errors
+git status --short -- src tests pyproject.toml .wiki   empty
+git diff --check                                       clean
+```

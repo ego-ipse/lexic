@@ -889,6 +889,41 @@ and the timed resident row is recorded inside its stop factor.
       complete-Earley-fold oracle. Production reads the key off the island's
       entry frame or waiter code instead of the prototype's root-down descent,
       and a cyclic chart is refused by name to `cyclic_meaning`.
+- [ ] Implement the exact lane over the DIRTY CONE, not the whole chart: fold
+      every completed node once to its baseline meaning — that fold is the
+      parse's own product — and run the meaning-SET lane only on the upward
+      closure of nodes holding a live occurrence or carrying more than one
+      family. `proto/island_continuation.py` measures one dirty node and two
+      operation applications over a 161-node chart on an 81-character
+      document. Form no global family assignment anywhere, island seeds
+      included.
+- [ ] Route an EXECUTE verdict on the predictive path to Earley deliberately.
+      The exact lane needs the family-aware chart and a PDA-first parse holds
+      no SPPF, so that escalation is real and must be a named, measured route
+      rather than an accident; constant and injective rows settle with no chart
+      at all and must keep doing so. On the shipped self-grammars the census
+      puts EXECUTE at 73.9–95.6% of rows, so this is the common path.
+- [ ] Retain one island kernel per AMBIGUOUS delegated occurrence — and only
+      while its alternate is unsettled — so a resolver pair is spliced rather
+      than re-recognized. An unambiguous island retains nothing. Define and
+      test the release boundary; `proto/island_continuation.py` proves the
+      splice and counts the retention but does not settle when production
+      drops it.
+- [ ] **PLANNING REQUIRED BEFORE THE EXACT LANE LANDS — EXACT-LANE
+      COST BOUND:** the exact
+      relation replaces `another_meaning`'s deliberately LINEAR one-flip probe
+      (which case 4 proves unsound) with a per-node product exponential in a
+      single node's local multiplicity. The certificate and the dirty cone
+      bound how many nodes pay; neither bounds the local product, and
+      `PROTOTYPE_15.md` claims no bound. Before the mechanism lands, state the
+      bound the production classifier enforces — or the refusal it raises when
+      a node's local multiplicity exceeds it. That STATEMENT gates the exact
+      lane's own implementation inside §8 — before it lands, not at §8's exit,
+      which comes after it; the MEASUREMENT of the exact lane on an ambiguous input belongs
+      beside the §12 RSS row, so the two halves land at different phases and
+      neither substitutes for the other. Do not discover this cost after
+      landing: a parse regression still needs the user's explicit
+      post-measurement approval.
 - [x] **PLANNING REQUIRED BEFORE §8 — SINGLE-SEED PART CLOSED:** an island with
       a second target meaning remains in the predictive product and does not
       decide at its span. `PROTOTYPE_10.md` proves the baseline-plus-alternates
@@ -1013,7 +1048,14 @@ and the timed resident row is recorded inside its stop factor.
       ancestors dirty, replay only that cone in a fresh isolated product state,
       and reuse unchanged sibling meanings. Never copy the base candidate's
       live builders/logs or its document-sized meaning memo: use a read-only
-      baseline plus one sparse alternate overlay. Index every predecessor key
+      baseline plus one sparse alternate overlay. **Precedence:** the exact
+      per-node meaning-set relation over the dirty cone is the governing
+      mechanism (`DESIGN.md` §Earley and islands); this single-alternate
+      overlay replay is its permitted SPECIALIZATION, admissible only where the
+      compiled completion operations carry the proved separability certificate
+      — the same certificate one-flip evaluation needs and, absent it, does not
+      have. Where the certificate is absent the per-node relation governs and
+      no overlay is built. Index every predecessor key
       in a resolved completion chain to its owning completed handle; a packed
       choice can live in that
       column rather than at a direct child handle. Completion ranges are

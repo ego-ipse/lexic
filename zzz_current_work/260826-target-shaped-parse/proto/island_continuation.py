@@ -129,8 +129,13 @@ class Counters:
     """
 
     __slots__ = (
+        "baseline_products",
+        "seed_baseline_products",
         "chart_nodes",
         "descent_steps",
+        "dirty_nodes",
+        "seed_chart_nodes",
+        "seed_dirty_nodes",
         "document_recognitions",
         "dropped_alternates",
         "executed_products",
@@ -138,14 +143,16 @@ class Counters:
         "island_runs",
         "lookups",
         "multiplicity_nodes",
+        "seed_multiplicity_nodes",
         "one_flip_trees",
         "oracle_trees",
         "resolver_calls",
         "resolver_trees",
+        "retained_island_kernels",
+        "seed_products",
         "seed_trees",
         "settlement_trees",
         "skipped_enumerations",
-        "verification_products",
     )
 
     def __init__(self) -> None:
@@ -157,15 +164,52 @@ class Counters:
         self.skipped_enumerations = 0
         self.injective_settlements = 0
         self.chart_nodes = 0
+        self.dirty_nodes = 0
+        self.seed_chart_nodes = 0
+        self.seed_dirty_nodes = 0
         self.multiplicity_nodes = 0
+        self.seed_multiplicity_nodes = 0
+        self.baseline_products = 0
+        self.seed_baseline_products = 0
         self.executed_products = 0
-        self.verification_products = 0
+        self.seed_products = 0
+        self.retained_island_kernels = 0
         self.settlement_trees = 0
         self.seed_trees = 0
         self.one_flip_trees = 0
         self.oracle_trees = 0
         self.resolver_trees = 0
         self.resolver_calls = 0
+
+    def chart(self, lane: str, nodes: int, dirty: int) -> None:
+        """Attribute one chart walk's node and dirty-cone counts to its lane."""
+        if lane == SEED_LANE:
+            self.seed_chart_nodes += nodes
+            self.seed_dirty_nodes += dirty
+            return
+        self.chart_nodes += nodes
+        self.dirty_nodes += dirty
+
+    def baseline(self, lane: str) -> None:
+        """Attribute one baseline node fold — the parse's own product — to a lane."""
+        if lane == SEED_LANE:
+            self.seed_baseline_products += 1
+        else:
+            self.baseline_products += 1
+
+    def multiple(self, lane: str) -> None:
+        """Attribute one node that holds more than one meaning to its lane."""
+        if lane == SEED_LANE:
+            self.seed_multiplicity_nodes += 1
+        else:
+            self.multiplicity_nodes += 1
+
+    def product(self, lane: str) -> None:
+        """Attribute one meaning-operation application to its lane."""
+        if lane == SEED_LANE:
+            self.seed_products += 1
+        else:
+            self.executed_products += 1
 
     def tree(self, lane: str) -> None:
         """Attribute one derivation build to its lane."""
@@ -572,15 +616,26 @@ def dedup(meanings: Sequence[IrSelf]) -> tuple[IrSelf, ...]:
 
 
 class IslandSeed(NamedTuple):
-    """One island occurrence's baseline meaning beside its cold alternates.
+    """One island occurrence's baseline meaning, its cold alternates, and — only
+    while it HAS alternates — the island kernel a resolver would need.
 
     `island_alternate_seed.IslandSeed` is the same record over that module's
-    ``str | tuple`` meaning type; this one carries real IR values, so the two
-    are the same shape with different codomains rather than a second design.
+    ``str | tuple`` meaning type; this one carries real IR values.
+
+    :ivar kernel: The island's own finished kernel, retained ONLY when this
+        occurrence published an alternate. That retention is the deferred
+        per-occurrence state `PROTOTYPE_14.md` §2 says a document-rooted pair
+        needs — made concrete rather than described. An unambiguous island
+        retains ``None``, so the cost falls exactly on the occurrences that
+        might reach a resolver. Without it a resolver has to RE-RECOGNIZE the
+        island, because `islands.island_parse` lets its kernel die.
+    :ivar root: That kernel's accepting handle.
     """
 
     baseline: IrSelf
     alternates: tuple[IrSelf, ...]
+    kernel: Kernel | None
+    root: int
 
 
 class OuterRun(NamedTuple):
@@ -616,18 +671,19 @@ def island_meanings(
 ) -> tuple[int, IslandSeed] | None:
     """One real windowed island, published as baseline plus cold alternates.
 
-    **The compiled row is consulted FIRST.** When every occurrence of this
+    **The compiled table is consulted FIRST.** When every occurrence of this
     island rule is unobservable at the requested root, the island publishes its
-    baseline and stops: no accepting item is enumerated, no family assignment
-    is formed, no alternate derivation is built. That is the shortcut the
-    design claims — the alternates are never PAID FOR, not merely discarded
-    afterwards.
+    baseline and stops: no set is formed, no alternate is built. That is the
+    shortcut the design claims — the alternates are never PAID FOR. Note the
+    scope: this is the RULE-WIDE half of the DROP certificate, the only half a
+    delegate can read, because an Earley delegate is not told which occurrence
+    invoked it. The per-occurrence half is read later, in :func:`settle`.
 
-    Otherwise the island's own set is EXACT: every accepting item, every family
-    assignment, and every nested delegated-leaf option, folded through complete
-    island derivations. Nothing is settled at the island span — the seed leaves
-    the decision to the enclosing continuation, exactly as `PROTOTYPE_10.md`
-    requires.
+    Otherwise the island's own exact set comes from the SAME per-node lane the
+    document uses (:func:`exact_meanings`) — not from a global assignment
+    enumeration. One derivation is built, the engine's own, which is what
+    `islands.island_parse` builds today and what fixes the pair's first
+    element; the set is read off the chart.
     """
     counters.island_runs += 1
     kern, best = harness.island_run(tables, window[pos : pos + 256], delegates)
@@ -646,27 +702,19 @@ def island_meanings(
     )
     if unobservable_rule(artefact, rule):
         counters.skipped_enumerations += 1
-        return pos + end, IslandSeed(baseline, ())
+        return pos + end, IslandSeed(baseline, (), None, root)
     roots = (root,) + harness._sibling_accepts(kern, root)
-    points = _arm_points(kern, roots)
-    found: list[IrSelf] = []
-    for accepting in roots:
-        for assignment in algebra.assignments(kern, points):
-            found.extend(
-                _all_leaf_meanings(
-                    kern,
-                    accepting,
-                    assignment,
-                    reducer,
-                    leaf_options,
-                    counters,
-                    SEED_LANE,
-                )
-            )
-    alternates = tuple(
-        value for value in dedup(found) if not same_value(baseline, value)
+    found = exact_meanings(kern, roots, leaf_options, reducer, counters, SEED_LANE)
+    if not any(same_value(baseline, value) for value in found):
+        raise UnsupportedConstructError(
+            "island continuation: the engine's own island derivation is not in"
+            " the island's exact meaning set"
+        )
+    alternates = tuple(value for value in found if not same_value(baseline, value))
+    counters.retained_island_kernels += 1 if alternates else 0
+    return pos + end, IslandSeed(
+        baseline, alternates, kern if alternates else None, root
     )
-    return pos + end, IslandSeed(baseline, alternates)
 
 
 def _seed_options(seed: IslandSeed) -> tuple[IrSelf, ...]:
@@ -916,6 +964,8 @@ def settle(
     proves root inequality with no execution at all; only what neither row
     settles reaches the exact per-node relation.
     """
+    if not run.seeds:
+        return Settlement(False, (), "no-alternate", 0, False)
     roots = algebra.accepting_roots(run.kernel, run.root)
     live: dict[int, tuple[IrSelf, ...]] = {}
     dropped = 0
@@ -935,8 +985,7 @@ def settle(
         counters.injective_settlements += 1
         return Settlement(True, (), "injective-route", dropped, False)
     if not live:
-        settled = "every-alternate-dropped" if run.seeds else "no-alternate"
-        return Settlement(False, (), settled, dropped, False)
+        return Settlement(False, (), "every-alternate-dropped", dropped, False)
     meanings = exact_root_meanings(run, roots, live, reducer, counters)
     return Settlement(len(meanings) > 1, meanings, "executed", dropped, True)
 
@@ -973,30 +1022,119 @@ def exact_root_meanings(
     reducer: Reducer,
     counters: Counters,
 ) -> tuple[IrSelf, ...]:
-    """The exact requested-root meaning set, by per-node option products.
-
-    Each node's set is its OWN packed families × its children's DEDUPLICATED
-    option sets. A node every one of whose children is a singleton stays a
-    singleton and costs one operation, so the enumeration is confined to the
-    union of the live continuations. No global family assignment is ever
-    formed — `ambiguity_interaction.py`'s rejected Cartesian lane is priced
-    beside this one in the report.
-    """
-    chart = algebra.build_chart(run.kernel, roots)
-    counters.chart_nodes += len(chart.nodes)
-    _refuse_cyclic(chart, run.kernel)
+    """The document's exact requested-root meaning set."""
     options: dict[int, tuple[IrSelf, ...]] = {}
     for leaf in run.kernel.delegated.values():
         payload = leaf.payload
         if isinstance(payload, IslandSeed):
             options[id(leaf)] = live.get(id(leaf), _seed_options(payload)[:1])
+    return exact_meanings(
+        run.kernel, roots, options, reducer, counters, SETTLEMENT_LANE
+    )
+
+
+def exact_meanings(
+    kernel: Kernel,
+    roots: tuple[int, ...],
+    options: dict[int, tuple[IrSelf, ...]],
+    reducer: Reducer,
+    counters: Counters,
+    lane: str,
+) -> tuple[IrSelf, ...]:
+    """The exact requested-root meaning set, by per-node option products.
+
+    Each node's set is its OWN packed families × its children's DEDUPLICATED
+    option sets. No global family assignment is ever formed anywhere in the
+    mechanism — the island's set comes through this same function.
+
+    **What is document-wide and what is not, exactly.** Every node is folded
+    ONCE to its baseline meaning, in the ``baseline_products`` lane: that fold
+    is the parse's own product, the value it would build with no ambiguity
+    machinery at all, and it is counted separately for precisely that reason.
+    The SET lane then runs only on the DIRTY cone — the upward closure of the
+    nodes that hold a live occurrence or carry more than one family — because
+    every node outside it has only non-dirty descendants and therefore a
+    singleton set equal to its baseline. ``executed_products`` counts that
+    cone's applications alone, so the ambiguity machinery's own cost is
+    cone-proportional even though the baseline fold is not.
+    """
+    chart = algebra.build_chart(kernel, roots)
+    _refuse_cyclic(chart, kernel)
+    order = _topological(chart, roots)
+    baselines: dict[int, IrSelf] = {}
+    for handle in order:
+        counters.baseline(lane)
+        baselines[handle] = _baseline_node(
+            kernel, handle, chart, baselines, options, reducer
+        )
+    dirty = _dirty_cone(chart, options)
+    counters.chart(lane, len(chart.nodes), len(dirty))
     sets: dict[int, tuple[IrSelf, ...]] = {}
-    for handle in _topological(chart, roots):
-        found = _node_set(run.kernel, handle, chart, sets, options, reducer, counters)
+    for handle in order:
+        if handle not in dirty:
+            sets[handle] = (baselines[handle],)
+            continue
+        found = _node_set(kernel, handle, chart, sets, options, reducer, counters, lane)
         sets[handle] = found
         if len(found) > 1:
-            counters.multiplicity_nodes += 1
+            counters.multiple(lane)
     return dedup([meaning for root in roots for meaning in sets.get(root, ())])
+
+
+def _baseline_node(
+    kernel: Kernel,
+    handle: int,
+    chart: algebra.Chart,
+    baselines: dict[int, IrSelf],
+    options: dict[int, tuple[IrSelf, ...]],
+    reducer: Reducer,
+) -> IrSelf:
+    """One node's baseline meaning — the parse's own value, folded once."""
+    resolved = chart.resolveds[handle][0]
+    kids: list[IrSelf] = []
+    ints = iter(resolved.children)
+    for index in range(len(resolved.children) + len(resolved.leaves)):
+        if index in resolved.slots:
+            kids.append(options[id(resolved.leaves[resolved.slots.index(index)])][0])
+            continue
+        kids.append(baselines[next(ints)])
+    return meaning_of(reducer, harness._name(kernel, handle), kids)
+
+
+def _dirty_cone(
+    chart: algebra.Chart, options: dict[int, tuple[IrSelf, ...]]
+) -> frozenset[int]:
+    """Nodes whose meaning can be more than one thing, and their ancestors.
+
+    Seeded by a node that carries more than one packed family or holds an
+    occurrence with more than one option; closed upward through the chart's own
+    family-aware edges. Everything outside has only non-dirty descendants, so
+    its set is its baseline.
+    """
+    parents: dict[int, list[int]] = {}
+    for edge in chart.edges:
+        parents.setdefault(edge.child, []).append(edge.parent)
+    pending = [node for node in chart.nodes if _node_is_multiple(chart, node, options)]
+    dirty = set(pending)
+    while pending:
+        for parent in parents.get(pending.pop(), ()):
+            if parent not in dirty:
+                dirty.add(parent)
+                pending.append(parent)
+    return frozenset(dirty)
+
+
+def _node_is_multiple(
+    chart: algebra.Chart, node: int, options: dict[int, tuple[IrSelf, ...]]
+) -> bool:
+    """Whether this completion can mean more than one thing by itself."""
+    if len(chart.resolveds[node]) > 1:
+        return True
+    return any(
+        len(options[id(leaf)]) > 1
+        for resolved in chart.resolveds[node]
+        for leaf in resolved.leaves
+    )
 
 
 def _refuse_cyclic(chart: algebra.Chart, kernel: Kernel) -> None:
@@ -1048,16 +1186,14 @@ def _node_set(
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
     counters: Counters,
+    lane: str,
 ) -> tuple[IrSelf, ...]:
     """One node's exact set over its own families × its children's sets."""
     name = harness._name(kernel, handle)
     found: list[IrSelf] = []
     for resolved in chart.resolveds[handle]:
-        lanes = _slot_options(resolved, sets, options)
-        if lanes is None:
-            continue
-        for kids in product(*lanes):
-            counters.executed_products += 1
+        for kids in product(*_slot_options(resolved, sets, options)):
+            counters.product(lane)
             found.append(meaning_of(reducer, name, kids))
     return dedup(found)
 
@@ -1066,8 +1202,14 @@ def _slot_options(
     resolved: harness.Resolved,
     sets: dict[int, tuple[IrSelf, ...]],
     options: dict[int, tuple[IrSelf, ...]],
-) -> list[tuple[IrSelf, ...]] | None:
-    """One family's per-slot option lanes, or ``None`` when a lane is empty."""
+) -> list[tuple[IrSelf, ...]]:
+    """One family's per-slot option lanes.
+
+    An empty lane RAISES. Skipping the family instead would shrink the meaning
+    set — declaring a document unambiguous because a child's set was missing —
+    which is the silent default `docs/STYLE.md` §2 forbids, in the one place
+    where it would produce a wrong acceptance rather than a wrong error.
+    """
     width = len(resolved.children) + len(resolved.leaves)
     ints = iter(resolved.children)
     out: list[tuple[IrSelf, ...]] = []
@@ -1077,7 +1219,10 @@ def _slot_options(
         else:
             lane = sets.get(next(ints), ())
         if not lane:
-            return None
+            raise UnsupportedConstructError(
+                "island continuation: a child slot has no meaning; the exact"
+                " set cannot be formed and must not be silently narrowed"
+            )
         out.append(lane)
     return out
 
@@ -1206,6 +1351,16 @@ SITES_GBNF = (
 )
 NESTED_ISLAND = 't ::= "x" inner\ninner ::= p | q\np ::= "y"\nq ::= "y"\n'
 NESTED_INNER = 'inner ::= p | q\np ::= "y"\nq ::= "y"\n'
+DISTANT_GBNF = (
+    "root ::= left t right\n"
+    "left ::= item left | item\n"
+    "right ::= item right | item\n"
+    "item ::= [ab]\n"
+    't ::= alpha | beta\nalpha ::= "x"\nbeta ::= "x"\n'
+)
+DISTANT_PAD = 40
+DISTANT_TEXT = "a" * DISTANT_PAD + "x" + "b" * DISTANT_PAD
+
 TRIPLE_GBNF = (
     "root ::= inner\ninner ::= t hidden t\nhidden ::= t\n"
     't ::= alpha | beta\nalpha ::= "x"\nbeta ::= "x"\n'
@@ -1282,6 +1437,22 @@ WITNESSES = (
         ISLAND_GBNF,
         "x",
         (("root", IrCompare(IrArg(0), IrOp("=="), IrStr("two"))),) + ISLAND_ARMS,
+        True,
+        "executed",
+    ),
+    Witness(
+        "distant-island",
+        "3 — a finite continuation whose cone does not grow with the document",
+        DISTANT_GBNF,
+        ISLAND_GBNF,
+        DISTANT_TEXT,
+        (
+            ("root", IrCompare(IrArg(1), IrOp("=="), MARKER)),
+            ("left", IrStr("f")),
+            ("right", IrStr("f")),
+            ("item", IrStr("i")),
+        )
+        + ISLAND_ARMS,
         True,
         "executed",
     ),
@@ -1396,10 +1567,25 @@ class Grammars(NamedTuple):
     normalized: IrAst
 
 
+_GRAMMARS: dict[tuple[str, str], Grammars] = {}
+"""Witness source → its grammar moments, so one witness has ONE identity.
+
+Without this every caller minted fresh objects, every bind missed, and the
+registry's HIT path — the thing "compiled once and shared by every parse"
+claims — was never exercised by a witness at all.
+"""
+
+
 def _grammars(source: str, flavour: IrFlavour) -> Grammars:
-    """One witness grammar's canonical and normalized moments."""
+    """One witness grammar's canonical and normalized moments, built once."""
+    key = (source, type(flavour).__name__)
+    found = _GRAMMARS.get(key)
+    if found is not None:
+        return found
     canonical = canonical_grammar(source, flavour)
-    return Grammars(canonical, normalize(canonical))
+    built = Grammars(canonical, normalize(canonical))
+    _GRAMMARS[key] = built
+    return built
 
 
 def _ast(source: str, flavour: IrFlavour) -> IrAst:
@@ -1442,7 +1628,7 @@ def run_witness(witness: Witness, artefact: ContinuationArtefact) -> Lanes:
     an alternate is worth enumerating at all.
     """
     counters = Counters()
-    reducer = reducer_of(witness.actions)
+    reducer = reducer_for(witness)
     grammars = _grammars(witness.outer, witness.flavour)
     size = len(witness.text)
     outer = compile_tables(grammars.normalized, tier_for(size))
@@ -1466,11 +1652,25 @@ def run_witness(witness: Witness, artefact: ContinuationArtefact) -> Lanes:
     return Lanes(settlement, oracle, flip, artefact, run, counters)
 
 
+_REDUCERS: dict[str, Reducer] = {}
+"""Witness name → its reducer, so a witness's binding identity is stable."""
+
+
+def reducer_for(witness: Witness) -> Reducer:
+    """One witness's reducer, built once."""
+    found = _REDUCERS.get(witness.name)
+    if found is not None:
+        return found
+    built = reducer_of(witness.actions)
+    _REDUCERS[witness.name] = built
+    return built
+
+
 def bind_witness(witness: Witness) -> ContinuationArtefact:
     """Compile one witness's continuation table before its document is read."""
     grammars = _grammars(witness.outer, witness.flavour)
     return bind_continuations(
-        grammars.canonical, grammars.normalized, reducer_of(witness.actions)
+        grammars.canonical, grammars.normalized, reducer_for(witness)
     )
 
 
@@ -1495,7 +1695,7 @@ def _exercise(witness: Witness) -> Lanes:
         control.run,
         algebra.accepting_roots(control.run.kernel, control.run.root),
         {leaf: _seed_options(seed) for leaf, seed in control.run.seeds.items()},
-        reducer_of(witness.actions),
+        reducer_for(witness),
         control.counters,
     )
     assert same_set(full, control.oracle), witness.name
@@ -1527,9 +1727,17 @@ def _exercise(witness: Witness) -> Lanes:
         f"shortcut_root_meanings={len(lanes.oracle)}",
         f"exact_lane_matches_control_oracle={same_set(full, control.oracle)}",
         f"one_flip_differs={lanes.one_flip}",
-        f"executed_products={counters.executed_products}",
+        f"settlement_products={counters.executed_products}",
+        f"settlement_chart_nodes={counters.chart_nodes}",
+        f"settlement_dirty_nodes={counters.dirty_nodes}",
+        f"settlement_baseline_products={counters.baseline_products}",
         f"multiplicity_nodes={counters.multiplicity_nodes}",
-        f"chart_nodes={counters.chart_nodes}",
+        f"seed_chart_nodes={counters.seed_chart_nodes}",
+        f"seed_dirty_nodes={counters.seed_dirty_nodes}",
+        f"seed_baseline_products={counters.seed_baseline_products}",
+        f"seed_products={counters.seed_products}",
+        f"control_seed_products={control.counters.seed_products}",
+        f"retained_island_kernels={counters.retained_island_kernels}",
         f"row_lookups={counters.lookups}",
         f"descent_steps={counters.descent_steps}",
         f"document_recognitions={counters.document_recognitions}",
@@ -1672,7 +1880,7 @@ def prove_drop_is_not_a_guess(witness: Witness) -> None:
     failure a boolean verdict comparison would miss.
     """
     counters = Counters()
-    reducer = reducer_of(witness.actions)
+    reducer = reducer_for(witness)
     ast = _ast(witness.outer, witness.flavour)
     size = len(witness.text)
     run = outer_run(
@@ -1711,6 +1919,32 @@ def prove_drop_is_not_a_guess(witness: Witness) -> None:
         "the universal const certificate is executed, not asserted",
         sep="\t",
     )
+
+
+def prove_registry_residency() -> None:
+    """Every pinned entry, counted — then released, and counted again.
+
+    `parsing/caches.py` ships `cached_entries()` as its own leak meter for
+    exactly this reason: a pinned identity key is an immortal key, so the
+    entry count is the cost, and asserting it is benign without reporting it
+    would be the claim this row exists to avoid.
+    """
+    resident = len(_REGISTRY)
+    witnesses = len({(witness.outer, witness.name) for witness in WITNESSES})
+    for witness in WITNESSES:
+        release_continuations(
+            _grammars(witness.outer, witness.flavour).normalized, reducer_for(witness)
+        )
+    print(
+        "registry-residency",
+        f"entries_after_the_run={resident}",
+        f"distinct_bound_products={witnesses}",
+        f"entries_after_release={len(_REGISTRY)}",
+        "one entry per bound product, each pinning its grammar and reducer"
+        " until released; release drains every one",
+        sep="\t",
+    )
+    assert not _REGISTRY
 
 
 def prove_artefact_is_flat(artefact: ContinuationArtefact) -> None:
@@ -1754,7 +1988,7 @@ def _semantics_of(artefact: ContinuationArtefact) -> tuple[Continuation, ...]:
 def prove_artefact_lifetime() -> None:
     """Compiled once per bound product; eviction changes residency only."""
     witness = WITNESSES[1]
-    reducer = reducer_of(witness.actions)
+    reducer = reducer_for(witness)
     grammars = _grammars(witness.outer, witness.flavour)
     ast = grammars.normalized
     first = bind_continuations(grammars.canonical, ast, reducer)
@@ -1764,11 +1998,11 @@ def prove_artefact_lifetime() -> None:
     rebound = bind_continuations(grammars.canonical, ast, reducer)
     assert rebound is not first
     assert _semantics_of(rebound) == _semantics_of(first)
-    other = bind_continuations(
-        grammars.canonical, ast, reducer_of(WITNESSES[0].actions)
-    )
+    spare = reducer_of(WITNESSES[0].actions)
+    other = bind_continuations(grammars.canonical, ast, spare)
     assert other.product != rebound.product
     assert _semantics_of(other) != _semantics_of(rebound)
+    assert release_continuations(ast, spare)
     print(
         "artefact-lifetime",
         f"same_object_on_rebind={first is again}",
@@ -1842,7 +2076,15 @@ def prove_row_census() -> None:
             f"slot_classes={dict(sorted(kinds.items()))}",
             sep="\t",
         )
-    print("row-census", f"cpu={time.process_time() - started:.6f}", sep="\t")
+    print(
+        "row-census",
+        f"cpu={time.process_time() - started:.6f}",
+        "ONE un-repeated process-CPU sample with no control row: it says the"
+        " compile step runs, not how much it costs. docs/STYLE.md wants a"
+        " control beside any number that carries a conclusion, and no"
+        " conclusion is drawn from this one",
+        sep="\t",
+    )
 
 
 def prove_resolver_materialization(witness: Witness) -> None:
@@ -1854,7 +2096,7 @@ def prove_resolver_materialization(witness: Witness) -> None:
     what that costs, and pins that the settlement path before it built nothing.
     """
     counters = Counters()
-    reducer = reducer_of(witness.actions)
+    reducer = reducer_for(witness)
     ast = _ast(witness.outer, witness.flavour)
     size = len(witness.text)
     island_tables = _tables(witness.island, witness.flavour, size)
@@ -1872,49 +2114,59 @@ def prove_resolver_materialization(witness: Witness) -> None:
     assert settlement.differs
     assert counters.settlement_trees == 0
     recognitions = counters.document_recognitions
+    islands = counters.island_runs
     assert recognitions == 1
     before = counters.resolver_trees
-    trees = _resolver_pair(run, island_tables, witness.text, counters)
+    trees = _resolver_pair(run, counters)
     counters.resolver_calls += 1
     assert counters.document_recognitions == recognitions
+    assert counters.island_runs == islands
     chosen = trees[0]
     print(
         "resolver-materialization",
         witness.name,
-        f"trees_before_the_resolver={before}",
+        f"complete_document_trees_before_the_resolver={before}",
         f"trees_after_the_resolver={counters.resolver_trees}",
         f"recognitions_before_the_resolver={recognitions}",
         f"recognitions_after_the_resolver={counters.document_recognitions}",
         f"resolver_calls={counters.resolver_calls}",
         f"chosen_root={chosen.symbol}",
         f"pair_is_two_distinct_trees={trees[0] is not trees[1]}",
-        "the pair is spliced from the island kernel already in hand, per"
-        " resolver_pair.py; no second document recognition, and nothing was"
-        " built before inequality was proven",
+        f"island_recognitions_after={counters.island_runs}",
+        f"retained_island_kernels={counters.retained_island_kernels}",
+        "the pair is spliced from the kernel the SEED retained, so neither the"
+        " document nor the island is recognized again — and the price is that"
+        " retention, one live kernel per ambiguous occurrence. No"
+        " COMPLETE-DOCUMENT tree existed before inequality was proven; the"
+        " island's own single derivation did, exactly as it does today",
         sep="\t",
     )
     assert trees[0] is not trees[1]
 
 
-def _resolver_pair(
-    run: OuterRun,
-    island_tables: ParserTables,
-    text: str,
-    counters: Counters,
-) -> tuple[ParseTree, ParseTree]:
-    """Two complete derivations, by occurrence-addressed splice."""
+def _resolver_pair(run: OuterRun, counters: Counters) -> tuple[ParseTree, ParseTree]:
+    """Two complete derivations, by occurrence-addressed splice.
+
+    Built from the island kernel the SEED retained, so this performs no second
+    recognition of any kind — neither of the document nor of the island. That
+    retention is the price: one live kernel per ambiguous delegated occurrence,
+    from the moment the island publishes an alternate until settlement.
+    `islands.island_parse` retains nothing today, which is exactly why
+    `PROTOTYPE_14.md` §2 calls a document-rooted pair new deferred state rather
+    than free re-use.
+    """
     outer_tree = build_tree(run.kernel, run.root, {}, counters, RESOLVER_LANE)
     leaf = pairs.payload_leaves(outer_tree)[0]
-    del text
-    kern, best = harness.island_run(island_tables, str(leaf.text))
-    if best is None:
-        raise UnsupportedConstructError("island continuation: island did not match")
-    item, end = best
-    root = (item << kern.tables.packing.bits) | end
+    payload = leaf.payload
+    if not isinstance(payload, IslandSeed) or payload.kernel is None:
+        raise UnsupportedConstructError(
+            "island continuation: this occurrence retained no island kernel"
+        )
+    kern = payload.kernel
     built: list[ParseTree] = []
-    for accepting in (root,) + harness._sibling_accepts(kern, root):
-        derivation = build_tree(kern, accepting, {}, counters, RESOLVER_LANE)
-        counters.resolver_trees += 1
+    accepting = (payload.root,) + harness._sibling_accepts(kern, payload.root)
+    for handle in accepting:
+        derivation = build_tree(kern, handle, {}, counters, RESOLVER_LANE)
         built.append(pairs.splice_leaf(outer_tree, leaf, derivation))
     if len(built) < 2:
         raise UnsupportedConstructError("island continuation: no complete pair")
@@ -1968,7 +2220,7 @@ def prove_shipped_path(witness: Witness, lanes: Lanes) -> None:
     shipped value, which separates a carrying consumer from a constant one.
     """
     compiled = compile_text(witness.outer, flavour=witness.flavour)
-    reducer = reducer_of(witness.actions)
+    reducer = reducer_for(witness)
     outcome = ""
     value: IrSelf | None = None
     try:
@@ -2008,7 +2260,7 @@ def prove_value_relation_divergence(lanes: Lanes, witness: Witness) -> None:
     `goal.md` §5 already owns.
     """
     compiled = compile_text(witness.outer, flavour=witness.flavour)
-    reducer = reducer_of(witness.actions)
+    reducer = reducer_for(witness)
     refusal = ""
     try:
         compiled.reduce(witness.text, reducer, cores=1)
@@ -2048,6 +2300,7 @@ def main() -> None:
         prove_drop_is_not_a_guess(next(w for w in WITNESSES if w.name == name))
     prove_artefact_is_flat(lanes["injective-consumer"].artefact)
     prove_artefact_lifetime()
+    prove_registry_residency()
     prove_resolver_materialization(WITNESSES[1])
     prove_row_census()
     for witness in WITNESSES:
@@ -2059,8 +2312,12 @@ def main() -> None:
         " without executing an operation or recognizing the document again;"
         " everything else reaches the exact per-node relation, where"
         " interacting occurrences compose through deduplicated option products"
-        " rather than global assignments; an unambiguous document allocates no"
-        " alternate, no node set, no chart walk and no tree",
+        " rather than global assignments — nowhere, island included, is a"
+        " global family assignment formed; the set lane runs only on the dirty"
+        " cone, while the per-node baseline fold beside it is the parse's own"
+        " product; an unambiguous document allocates no alternate, no node set,"
+        " no chart walk and no COMPLETE-DOCUMENT tree, and its island builds"
+        " the one derivation `islands.island_parse` builds today",
         sep="\t",
     )
 

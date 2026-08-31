@@ -751,6 +751,16 @@ publishes a baseline and builds no alternate at all. Neither shortcut executes
 an operation, allocates a dependency index or recognizes the document again;
 what neither settles reaches the exact per-node relation.
 
+That relation needs the family-aware chart: the predictive path holds none, so an
+EXECUTE verdict there escalates to Earley, while a constant or injective row
+settles without a chart at all. Its cost is stated rather than assumed —
+exactness is exponential in a node's own local multiplicity where today's
+one-flip probe is linear and unsound; the per-node lane confines the work to
+the dirty cone (the upward closure of nodes holding a live occurrence or
+carrying more than one family), and every node outside it keeps the baseline
+meaning the parse builds anyway. No global family assignment is formed
+anywhere, island included.
+
 Two refusals keep the table sound and both cost work rather than correctness.
 The chart's chain slot and the authored body's ``IrArg`` index are different
 coordinates wherever a hoisted group or a quantified repeat splices into the
@@ -779,8 +789,14 @@ derivation; a projection may identify a discarded difference only when both
 complete target products are equal. No generic equality guess is applied to an
 arbitrary custom class.
 
-The unambiguous hot path carries no witness graph. At an actual internal
-semantic-choice family, the default derivation's completed-handle memo is reused and only
+The unambiguous hot path carries no witness graph. **Precedence, where two
+mechanisms describe one case:** the exact per-node meaning-set relation over
+the dirty cone governs; the single-alternate ancestor-cone replay below is its
+SPECIALIZATION, admissible exactly where the compiled completion operations
+carry the proved separability certificate — without it, replaying one alternate
+at a time is the one-flip reasoning a real two-point chart disproves. At an
+actual internal
+semantic-choice family under that certificate, the default derivation's completed-handle memo is reused and only
 the alternate family's ancestor cone is replayed to the root through a sparse
 overlay over the read-only baseline; no alternate copies the completed-handle
 table. The verdict is therefore exactly the complete requested value.

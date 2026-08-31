@@ -15,7 +15,13 @@ grammar; binding and synthesis retain the relaxed grammar, and
 `lift_optional_nullables` leaves. Resolver-pair scope is the only open user
 decision. Production family-aware numbering, new operation-law rows, integrated
 memory, custom paid-loop neutrality, and every parse-performance comparison
-remain explicit implementation gates. Three shipped ambiguity defects are
+remain explicit implementation gates, and Prototype 15 adds three more: the
+exact lane runs over the dirty cone of a family-aware Earley chart, so an
+EXECUTE verdict on the predictive path is a deliberate escalation; exactness is
+exponential in a single node's local multiplicity where today's unsound
+one-flip probe is linear, and its bound is an unclosed §8 planning gate; and a
+resolver pair without re-recognition costs one retained island kernel per
+ambiguous occurrence, whose release boundary is unsettled. Three shipped ambiguity defects are
 pinned, and one `goal.md` §5 value-relation divergence is now executable.
 Production source has not started.
 

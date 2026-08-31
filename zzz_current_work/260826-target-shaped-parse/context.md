@@ -333,7 +333,14 @@ authored `IrArg` index is then not the chart's chain slot; and a `grow` derived
 by retaining a mapped focus has no law, because it is not injective over an
 empty focus. Both reach the exact executed relation, and on the recursive
 shipped grammars they leave the shortcut a small minority of rows until
-production reads the binding view's real `fields_of`. A row whose slot is `ident`/`grow`
+production reads the binding view's real `fields_of`. The exact relation runs
+over the dirty cone of a family-aware chart — measured at one dirty node and
+two operation applications over a 161-node chart — beside the per-node baseline
+fold that is the parse's own product; it needs an Earley chart, which the
+predictive path does not hold, and it is exponential in a single node's local
+multiplicity where today's unsound one-flip probe is linear. Retaining the
+island's kernel while an occurrence has an unsettled alternate is what lets a
+resolver pair be spliced without re-recognizing anything. A row whose slot is `ident`/`grow`
 under a route the chart actually realizes proves requested-root inequality
 existentially. Neither executes an operation, allocates a dependency index or
 recognizes the document again. Everything else runs the exact per-node
