@@ -225,7 +225,7 @@ Reviewer 1 — description `cyclic semantics adversary`:
 
 ```text
 Read the repository instructions, docs/STYLE.md, the complete target-shaped-
-parse active packet, PROMPT_14.md, CURRENT_BUG_REPORT.md, every Prototype 14
+parse active packet, prompts/PROMPT_14.md, CURRENT_BUG_REPORT.md, every Prototype 14
 file, and the draft PROTOTYPE_14.md/P14_ADVERSARIAL.md. Try to falsify the real-
 operation slot classification, SCC termination/refusal boundary, and the
 constructive infinite-SCC resolver pair. Look for name-based classification,
@@ -258,7 +258,7 @@ Wait for reviewer 2. Fix every substantive finding and rerun affected evidence.
 Then call reviewer 3 — description `final implementation-readiness audit`:
 
 ```text
-Perform a fresh read-only closure audit of PROMPT_14.md, all Prototype 14 code
+Perform a fresh read-only closure audit of prompts/PROMPT_14.md, all Prototype 14 code
 and reports, CURRENT_BUG_REPORT.md, and the active INDEX/context/goal/DESIGN/
 TODO. Verify that established facts remain coherent, every investigable gate is
 closed or precisely blocked, the resolver policy is still marked USER DECISION

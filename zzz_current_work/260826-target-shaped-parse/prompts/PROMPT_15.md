@@ -120,7 +120,7 @@ Reviewer 1 — `island semantics adversary`:
 
 ```text
 Read the repository instructions, STYLE, the complete target-shaped-parse
-packet, PROMPT_15.md, every prototype it names, island_continuation.py, and the
+packet, prompts/PROMPT_15.md, every prototype it names, island_continuation.py, and the
 draft Prototype 15 report. Try to falsify static continuation settlement,
 cache identity/lifetime, exact multi-island composition, occurrence identity,
 and the complete-Earley oracle. Look specifically for one-flip reasoning,
@@ -151,7 +151,7 @@ remain. Ignore prose nits.
 Wait, fix and rerun. Then call Reviewer 3 — `final packet closure audit`:
 
 ```text
-Freshly audit PROMPT_15.md, the complete revised active packet, Prototype 14
+Freshly audit prompts/PROMPT_15.md, the complete revised active packet, Prototype 14
 and its coordinator correction, all Prototype 15 deliverables, and the current
 working-tree diff. Verify that every established claim is executable, every
 remaining decision/planning/implementation gate is labelled accurately, no

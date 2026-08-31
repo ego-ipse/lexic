@@ -7,7 +7,7 @@ Read, in order:
 
 1. `AGENTS.md`/the supplied repository instructions and `docs/STYLE.md`;
 2. the effort's `INDEX.md`, `context.md`, `goal.md`, `DESIGN.md`, and `TODO.md`;
-3. `PROMPT_11.md`, `reports/PROTOTYPE_11.md`, and
+3. `prompts/PROMPT_11.md`, `reports/PROTOTYPE_11.md`, and
    `reports/P11_ADVERSARIAL.md`;
 4. the Prototype 11 files named below and every production seam they import.
 
@@ -194,7 +194,7 @@ Call reviewer 1 with description `adversarial semantic review` and this prompt:
 
 ```text
 Read AGENTS.md, docs/STYLE.md, the target-shaped-parse INDEX/context/goal/
-DESIGN/TODO, PROMPT_12.md, reports/PROTOTYPE_11.md, every prototype changed by
+DESIGN/TODO, prompts/PROMPT_12.md, reports/PROTOTYPE_11.md, every prototype changed by
 Prototype 12, and the complete draft reports/PROTOTYPE_12.md. Adversarially
 review correctness only. Try to falsify the cyclic ambiguity invariant and
 termination argument, tokenizer success/refusal equivalence and verdict order,
@@ -212,7 +212,7 @@ reviewer 2 with description `adversarial performance review` and this prompt:
 
 ```text
 Read AGENTS.md, docs/STYLE.md, the target-shaped-parse INDEX/context/goal/
-DESIGN/TODO, PROMPT_12.md, reports/PROTOTYPE_11.md, every prototype changed by
+DESIGN/TODO, prompts/PROMPT_12.md, reports/PROTOTYPE_11.md, every prototype changed by
 Prototype 12, and the revised reports/PROTOTYPE_12.md. Adversarially review the
 representation and performance evidence only. Check that the control cannot
 reach ambiguity allocations, dense-numbering transient and retained memory are
@@ -230,7 +230,7 @@ Then call a **fresh third** `general-purpose` reviewer, also synchronously and
 at high effort, with description `final closure audit` and this prompt:
 
 ```text
-Perform a final read-only closure audit of PROMPT_12.md, all Prototype 12 code,
+Perform a final read-only closure audit of prompts/PROMPT_12.md, all Prototype 12 code,
 and the final reports/PROTOTYPE_12.md against the active target-shaped-parse
 INDEX/context/goal/DESIGN/TODO. Confirm that every earlier semantic and
 performance finding is actually resolved, that open user decisions remain

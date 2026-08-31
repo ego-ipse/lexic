@@ -1,10 +1,12 @@
 # Prototype 16 — shared occurrences, and what bounds the exact lane
 
 **Status:** an EVIDENCE round for the two planning questions Prototype 15
-opened, corrected against production semantics. It approves nothing and edits no
-active document. **No user decision remains open**; every conclusion below is
-foldable as written, and what is left is implementation and later measurement.
- The active packet,
+opened, corrected against production semantics across two coordinator
+reopenings. It approves nothing and edits no active document. **No user decision
+remains open**; what is left is implementation and later measurement. Fold
+readiness rests on the CURRENT adversarial review, not on the withdrawn verdict
+in `reports/REVIEW_16.md` — see `reports/P16_ADVERSARIAL.md` §4.3 for the three
+blockers that invalidated it. The active packet,
 `src/`, `tests/`, `pyproject.toml`, `.wiki`, and every earlier prototype and
 report were read-only throughout; §9 records the before/after file comparison.
 No commit, no push, no worktree. Every run was sequential, one process at a
@@ -214,20 +216,41 @@ reported `0` whatever the chart shared. `arm-shared` is its chart-shared twin:
 node `s` reached by two parents in two different derivations, each of which
 consumes it once, where the correlated relation is also right.
 
-**Two scope limits, executed rather than argued away.**
+**The transparent-synthetic shape IS covered — an earlier claim to the contrary
+was wrong.** A previous pass reported "no synthetic node is ever itself the
+shared one" and argued it structurally: normalization supposedly gives each
+alternative its own hoisted arm. That is false. Normalization **dedups
+identical generated rules**, so one `__rep_1` can be referenced from two slots
+and carry two occurrence edges on a single chart node. Both forms are now
+witnessed:
 
 ```text
-synthetic-sharing-scope  witnesses=10  shared_synthetic_nodes_found=0
+shared-transparent-synthetic  inter-derivation  shared_synthetic_rule=__rep_1
+                              occurrence_edges=2  has_a_reducer_action=False
+                              exact_meanings=2  unrolled_oracle=2  agree=True
+shared-transparent-synthetic  intra-derivation  shared_synthetic_rule=__rep_1
+                              occurrence_edges=2  has_a_reducer_action=False
+                              exact_meanings=2  unrolled_oracle=2  agree=True
 ```
 
-*No synthetic node is ever itself the shared one.* `shared_forest_refold.py`'s
-fourth shape is a transparent synthetic node whose fold repeats because it
-stores no result; this round reaches it only as a synthetic *consumer* over a
-shared authored rule (`transparent-synthetic`, `synthetic-consumers`).
-Normalization gives each alternative its own hoisted arm, so two consumers reach
-two distinct synthetic handles. Nothing here depends on the gap — the meaning
-relation has no result-less node — but it is a gap, and the row reports it
-instead of letting the shape count as covered.
+The inter-derivation witness writes `b*` in two rules, which dedup to one
+`__rep_1` consumed by both, with the ambiguity BENEATH it. The intra-derivation
+witness writes `"y"?` twice in one arm, so both slots of a single root family
+consume one `__rep_1`, with the ambiguity BESIDE it. Neither node has a reducer
+action — they are transparent.
+
+**How a transparent, result-less synthetic composes.** It is result-less only
+in `ModelFold`'s sense: `_fold_node` returns early for a rule with no config
+entry (`src/lexic/parsing/fold.py:498-500`), so it never enters `results` and
+the walk re-folds it — which is exactly `shared_forest_refold.py`'s finding. In
+the target-shaped meaning relation it is **not special at all**: it is an
+ordinary chart node, it takes the reducer's DEFAULT action, its meaning set is
+computed once per handle like any other node's, and each consuming slot ranges
+over that set independently. Transparency is a fold-configuration property, not
+a meaning property — so the relation needs no result-less case, and the two
+lanes agree on both forms.
+
+**One scope limit does remain, executed rather than argued away.**
 
 *No split-ambiguous shared node either.* `cyclic_meaning.local_choice_keys`
 admits a key only when `is_arm_choice` holds, so split families — two adjacent
@@ -457,8 +480,12 @@ applications-are-not-the-cost
         grow_comparisons_quadratic_in_its_image=True
 ```
 
-So the exact lane's cost is **applications × the value-identity work each one
-triggers**, and the second factor grows with the node's own image. An earlier
+So an application count alone is **not** the cost. The defensible
+decomposition — and nothing wider — is: reducer evaluation and result
+construction (exactly `m(h)` applications) **+** an image-dependent
+deduplication comparison count **×** the structural cost of one comparison,
+which this round does not measure. The first two terms are counted above; no
+product of the three is asserted. An earlier
 draft of this report stated the bound as `Θ(local multiplicity)` three times and
 drew no conclusion from the two equal-count rows in its own §B5 table. That was
 wrong, and the correction propagates: §B7's budget cannot be denominated in
@@ -612,11 +639,11 @@ unshared twin.
 applies.**
 
 ```text
-grow-image  k=2   full_applications=8     image=4     law_lane_applications=2  witness=s1
-grow-image  k=4   full_applications=24    image=16    law_lane_applications=2  witness=s3
-grow-image  k=6   full_applications=76    image=64    law_lane_applications=2  witness=s5
-grow-image  k=8   full_applications=272   image=256   law_lane_applications=2  witness=s7
-grow-image  k=10  full_applications=1044  image=1024  law_lane_applications=2  witness=s9
+grow-image  k=2   full_applications=8     image=4     law_lane_applications=4  witness=s1
+grow-image  k=4   full_applications=24    image=16    law_lane_applications=4  witness=s3
+grow-image  k=6   full_applications=76    image=64    law_lane_applications=4  witness=s5
+grow-image  k=8   full_applications=272   image=256   law_lane_applications=4  witness=s7
+grow-image  k=10  full_applications=1044  image=1024  law_lane_applications=4  witness=s9
 ```
 
 The certificate is existential over real family-aware chart edges: a node is
@@ -628,7 +655,8 @@ keeps that sound: the lane never concludes "one" from it and falls through to
 the executing lane instead. So the exact question drops from the ROOT's local
 multiplicity to **one witnessing node's family count** — two applications
 against `2^k`. Prototype 15 described this lane as "zero executed operations";
-it is two.
+it is **four** — two for the local witness, plus one lift per value per route
+step to check the route actually transmits both.
 
 Four things keep that honest, all of which an earlier draft omitted:
 
@@ -648,11 +676,19 @@ Four things keep that honest, all of which an earlier draft omitted:
   makes the parse *slower* (certificate cost plus the full lane). The three
   rungs reporting `law_lane_applications=0` are not that case: nothing is marked
   there, so the certificate is inert while still paying the baseline fold above.
-- **The executed certificate is weaker than the stated one.** Its docstring
-  speaks of "fixing that route's families", but `_injective_nodes` fixes no
-  family — it is plain reachability over edges whose slot law carries, and
-  `algebra.Edge` has no family index (§A1). The gap between the stated and the
-  executed certificate is real and unclosed.
+- **The certificate is now family-aware AND checked end to end — two earlier
+  versions were unsound.** `_injective_nodes` first walked `chart.edges`,
+  `(parent, child, slot)` with the family collapsed away, so a slot of a family
+  that can produce no meaning still propagated the mark. Making the walk
+  family-aware fixed that but left a second hole of the same species: a `grow`
+  body can refuse SELECTIVELY, so a family live at its BASELINE may transmit no
+  second value. The lane now records the route and carries two of the
+  witnessing node's values up it, re-applying each step's own family with the
+  other slots at baseline, certifying only when both reach an accepting item
+  and differ there — the constructive argument executed rather than asserted.
+  It costs one lift per value per step: four applications against `2^k`. The
+  required negative control is §B3a; the positive shortcut is re-checked
+  beside it.
 
 **Compile-time refusal — investigated and NOT recommended.** The census above is
 what a compile-time refusal would have to key on, and it refuses the wrong
@@ -669,6 +705,42 @@ Both lanes are flavour-neutral:
 flavour-neutral  late-second  gbnf_applications=76  abnf_applications=76  law=False
 flavour-neutral  grow         gbnf_applications=76  abnf_applications=76  law=True  2/2
 ```
+
+## B3a — the certificate's family-aware route, and its negative control
+
+The certificate marks a node when some route to an accepting item carries its
+value through `ident`/`grow` slots. An earlier version walked `chart.edges`,
+which drops the family index — so a slot belonging to a family that produces no
+meaning still propagated the mark, and the lane could certify ambiguity from a
+route no derivation takes. The required control:
+
+```text
+dead-family-route  two_valued_node_marked_by_collapsed_walk=True
+                   two_valued_node_marked_by_family_aware_walk=False
+                   certificate_reports_ambiguity=False
+                   settle_verdict=equal  settle_meanings=1
+                   unrolled_oracle_meanings=1
+```
+
+One root family reaches a two-valued node through carrying slots but is DEAD —
+its other required child refuses on every input, so its image is empty. The
+other root family survives with exactly one constant meaning, so the document
+means one thing. The collapsed walk marks the two-valued node and would certify
+ambiguity; the family-aware walk does not, and the settlement lane and the
+occurrence-unrolled oracle both answer one meaning, which is what says the
+family-aware answer is the right one.
+
+The shortcut is unharmed:
+
+```text
+positive-certificate  points=4  law_lane_differs=True  law_lane_applications=4
+                      law_lane_witness=s3  materializing_applications=24
+positive-certificate  points=8  law_lane_differs=True  law_lane_applications=4
+                      law_lane_witness=s7  materializing_applications=272
+```
+
+A live family's `ident`/`grow` route still settles the verdict, now END TO END:
+four applications against 24 and 272.
 
 ## B4 — the lower bound, executed
 
@@ -692,10 +764,12 @@ route.
 **The bound, stated in the unit the round can defend.** Exact settlement at a
 node requires `Ω(m(h))` operation APPLICATIONS — that much this witness
 establishes, and it is a lower bound on the applications, not on the wall cost.
-The wall cost is that count multiplied by the value-identity work each
-application triggers (§B1), which is itself image-dependent, so the round does
-**not** state a single `Θ` in one unit. What it states is: applications are
-`Ω(m(h))` here and no lever reduces them; and the per-application factor is not
+The cost decomposes into that count of reducer evaluations PLUS an
+image-dependent deduplication comparison count, TIMES an unmeasured
+per-comparison structural cost (§B1), so the round does
+**not** state a single `Θ` in one unit and asserts no product of the three.
+What it states is: applications are
+`Ω(m(h))` here and no lever reduces them; and the comparison term is not
 constant, so any cost or budget expressed in applications alone is unsound.
 
 **Scope of that bound.** It applies to the CURRENT enumeration and the CURRENT
@@ -741,8 +815,9 @@ row is flat in `k` while the late-second row tracks `2^k`.
 **What this table does NOT say, and an earlier draft did.** `late-second`
 streaming and `grow` materializing have the *same* application count at every
 `k` and differ by two orders of magnitude, so these numbers are not "the
-application counts translating into time as stated". They are the counts times
-the value-identity work of §B1, and the 4500× gap between `grow_materialized`
+application counts translating into time as stated". They are the
+reducer-evaluation counts PLUS the comparison counts of §B1, scaled by a
+per-comparison cost this round does not measure, and the 4500× gap between `grow_materialized`
 and `grow_law_lane` at `k=10` is mostly deduplication, not operation
 applications. No benchmark of production parsing was run and none is implied.
 
@@ -794,8 +869,11 @@ one. What the round records instead is a property of the code as it stands:
 
 > Under the CURRENT enumeration and the CURRENT slot-law machinery, the exact
 > lane's worst case is exponential in a node's local multiplicity — `Ω(m(h))`
-> operation applications, with the §B4 witness — and the wall cost is that count
-> times a value-identity factor that grows with the node's image.
+> operation applications, with the §B4 witness. The cost decomposition this
+> round can defend is `reducer evaluation and result construction` (exactly
+> `m(h)` applications under full enumeration) `+ deduplication comparison count`
+> (image-dependent, counted) `×` the structural cost of one comparison
+> (UNMEASURED). No product of the three is asserted.
 
 Three scope qualifications, all of which matter:
 
@@ -817,11 +895,12 @@ nor an implementation blocker.**
 ## 7 — the questions the report must answer
 
 **1. Does the candidate agree with the occurrence-unrolled oracle on every
-shared shape?** Yes, on all ten witnesses in GBNF and ABNF. **Scoped**, both
-scopes executed: to arm-choice families (splits never enter either lane, because
-`local_choice_keys` admits a key only when `is_arm_choice` holds), and to shapes
-where a synthetic node is a CONSUMER — no witness shares a synthetic node
-itself, which is reported as NOT COVERED rather than counted. And the agreement
+shared shape?** Yes, on all ten witnesses in GBNF and ABNF, plus the two
+shared-transparent-synthetic witnesses of §A3 — a genuinely shared `__rep_1`
+with two occurrence edges, in both its inter- and intra-derivation forms. **One
+scope remains**, executed: arm-choice families only, because
+`local_choice_keys` admits a key when `is_arm_choice` holds, so splits never
+enter either lane. And the agreement
 is on COMPOSITION, not on family decomposition: both lanes obtain families from
 `local_choice_keys`/`assignments`/`selected_resolved`, so a fault shared by that
 machinery would be invisible to this comparison.
@@ -839,19 +918,30 @@ kid slot must be recovered by re-resolving the binarised chain and the family
 index is an index into an enumerated assignment produced by a fixpoint.
 Materialising it is real work, and §7.7 carries it as an implementation task.
 
-**4. What is exact-lane cost in terms of real option lanes?** Two factors. The
-APPLICATION count at a node is its local multiplicity
-`m(h) = Σ_families Π_slots |set(child)|`. The WALL cost is that count times the
-value-identity work each application triggers, which grows with the node's own
-image — two rungs with an identical 1044 applications differ by two orders of
-magnitude in CPU (§B1). The dirty cone bounds neither, and the stacked control
+**4. What is exact-lane cost in terms of real option lanes?** In three terms,
+only two of which this round measures:
+
+```text
+    reducer evaluation and result construction   exactly m(h) applications,
+                                                 m(h) = Σ_families Π_slots |set(child)|
+  + deduplication comparison count               image-dependent; counted
+  × structural cost of one comparison            UNMEASURED
+```
+
+The application count is *exactly* local multiplicity under full enumeration —
+that identity is definitional. Linear-scan deduplication adds a comparison count
+that grows with the node's own image (58×/247×/1013× at k=6/8/10 against a lane
+whose image stays at two). What one comparison costs structurally is not
+measured here, so **no product of the three is asserted** and no single-unit
+bound is quoted. The dirty cone bounds none of them, and the stacked control
 shows the total is not the root's product plus a linear tail.
 
 **5. Which laws avoid enumeration without changing semantics?** `const` (the
 occurrence is dropped before any product forms — Prototype 15), and
 `ident`/`grow` composing to an accepting item, which reduces the question to one
-witnessing node's family count: two applications against `2^k`, measured, with
-the unconditional baseline fold reported beside it. The declared-image quotient
+witnessing node's family count plus an end-to-end route check: four
+applications against `2^k`, measured, with the unconditional baseline fold
+reported beside it. The declared-image quotient
 is **rejected** (§B3) and is not among them.
 
 **6. Is exponential work unavoidable, and what refusal is recommended?** Under
@@ -995,10 +1085,13 @@ This round edits no active document. Everything below is foldable as written;
   meaning, an empty internal image eliminates only its consuming families, and
   parsing refuses only when no complete requested-root meaning survives. Both
   required witnesses execute.
-- The exact lane's application count at a node is its local multiplicity; its
-  wall cost is that count times a value-identity factor that grows with the
-  node's image. Neither is bounded by the dirty cone, and with a retaining
-  consumer at every level the root is under half the total.
+- The exact lane's application count at a node is EXACTLY its local
+  multiplicity under full enumeration. Its cost decomposes as reducer
+  evaluation and result construction (that many applications) plus an
+  image-dependent deduplication comparison count, times a per-comparison
+  structural cost this round does not measure — so no product of the three is
+  asserted. Neither counted term is bounded by the dirty cone, and with a
+  retaining consumer at every level the root is under half the total.
 - Two exact levers: the `const` discard, and the `ident`/`grow` certificate,
   which reduces the question to one witnessing node's family count. The
   certified-second-value stop is exact and helps where the second value comes
@@ -1014,7 +1107,8 @@ This round edits no active document. Everything below is foldable as written;
 - Prototype 15's key-global complete-fold oracle is not a valid control for a
   shared node whose family choice sits inside its own chain: it loses meanings
   on six of ten witnesses.
-- Prototype 15's "zero executed operations" for the injective lane: it is two,
+- Prototype 15's "zero executed operations" for the injective lane: it is four
+  — two for the local witness and two to carry those values up the route —
   plus an unconditional baseline fold the counter previously excluded.
 - The declared-image quotient: rejected on composition, reach and risk.
 - A resource ceiling for this implementation: not proposed.

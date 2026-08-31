@@ -1,5 +1,17 @@
 # Ledger — target-shaped parsing
 
+## Prompt organization and durable orchestration (2026-08-31)
+
+The investigator prompts now live together under `prompts/`, with every
+durable index and ledger reference updated to the new path. The new
+`prompts/ORCHESTRATOR.md` is deliberately status-agnostic: it requires the
+orchestrator to establish the current phase from the active packet and working
+tree before acting. It maps Terra work to Anthropic Opus and Luna work to
+Anthropic Sonnet while leaving model selection to the orchestrator when task
+complexity, context continuity, availability, or budget warrants a different
+choice. Related work resumes the same warm agent; production and test roles
+remain sequential.
+
 ## Coordinator review — shared-occurrence boundary and Round 16 (2026-08-31)
 
 The delivered Prototype 15 executable reran cleanly with `python -B`; every
@@ -23,7 +35,7 @@ not a valid control for that shape. `TODO.md` now carries an unchecked
 that no final reviewer returned `READY` is corrected to the recorded re-check
 verdict without treating it as source authorization.
 
-`PROMPT_16.md` tasks two remaining planning questions together: an
+`prompts/PROMPT_16.md` tasks two remaining planning questions together: an
 occurrence-unrolled oracle over the known shared-DAG shapes, and an exact-lane
 cost policy which avoids silently replacing exact semantics with an arbitrary
 cap. Resolver-pair scope is already settled: both engines provide complete-
@@ -226,7 +238,7 @@ ran.
 ## PRIOR SESSION — Prototype 12 correction and shipped ambiguity scope (2026-08-30)
 
 Prototype 12 and all five changed prototypes were audited against
-`PROMPT_12.md`. Its final review gate was not met: four reviewers returned
+`prompts/PROMPT_12.md`. Its final review gate was not met: four reviewers returned
 `NOT READY`, no fresh reviewer examined the final text, and several mechanism
 claims remained broader than their evidence. `reports/PROTOTYPE_13.md`
 supersedes the four-way closure classification while retaining the useful
@@ -272,7 +284,7 @@ No `src/`, `tests/`, or `pyproject.toml` file was changed. The generated
 corrected prototypes; focused executable verification is recorded in
 `PROTOTYPE_13.md`.
 
-`PROMPT_14.md` now tasks the four remaining investigable gates plus clean
+`prompts/PROMPT_14.md` now tasks the four remaining investigable gates plus clean
 pre-fix baselines for the first two shipped defects. Its three internal adversarial
 reviewers must run synchronously and sequentially as `general-purpose` agents;
 Fable subagents are explicitly prohibited and may not be substituted.
@@ -280,7 +292,7 @@ Fable subagents are explicitly prohibited and may not be substituted.
 ## PRIOR SESSION — Prototype 11 evidence fold and surviving gates (2026-08-29)
 
 `reports/PROTOTYPE_11.md` and its five revised/new prototypes were audited
-against `PROMPT_11.md`, the active design, and their executable behavior. Ruff
+against `prompts/PROMPT_11.md`, the active design, and their executable behavior. Ruff
 and Pyright pass. The ambiguity-interaction, generic keyed-product,
 resolver-pair, custom-binding, control, and trace-frame witnesses were rerun
 sequentially; the interpreter reports `Py_GIL_DISABLED=1`. No Qwen benchmark
@@ -308,7 +320,7 @@ never enters a real retained pool; and resolver scope has no recorded user
 ruling. `TODO.md` marks each established sub-decision closed and each remaining
 mechanism or decision separately open. Production source remains untouched.
 
-`PROMPT_12.md` assigns only the four remaining mechanism gates: exact cyclic
+`prompts/PROMPT_12.md` assigns only the four remaining mechanism gates: exact cyclic
 ambiguity, complete tokenizer refusal equivalence, dictionary-free flat
 structures plus honest control/frame accounting, and real-pool custom binding
 with paid-loop neutrality. Its done-gate requires two specialized internal
@@ -334,7 +346,7 @@ plain encode dictionary; the resolver prototype counted complete-document
 ambiguity points without constructing the pair; the RSS prototype allocated no
 island trace lane and its control retained a memo; and the custom runner could
 not execute after deleting its required source grammar. These remain marked
-planning or decision gates in `TODO.md`. `PROMPT_11.md` assigns adversarial
+planning or decision gates in `TODO.md`. `prompts/PROMPT_11.md` assigns adversarial
 interaction semantics, real keyed-product rows, real resolver pairs, a flat
 dependency index plus corrected RSS protocol, and executable custom-binding
 lifetime. Production source remains untouched.

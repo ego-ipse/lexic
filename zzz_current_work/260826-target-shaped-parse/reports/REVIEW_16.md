@@ -1,5 +1,14 @@
 # Review 16 — fold-readiness review
 
+> **THIS VERDICT IS WITHDRAWN.** The coordinator reopened the round after the
+> READY below: three substantive blockers remained — the shared
+> transparent-synthetic DAG was never covered, the injective certificate was
+> unsound over families and the gap had been documented rather than closed, and
+> the cost model asserted a product the evidence does not support. The
+> corrections are recorded in `reports/P16_ADVERSARIAL.md` §4.3. The response
+> below is retained as history; it does NOT certify the current package, and
+> the round is not fold-ready on its authority.
+
 The reopened round's reviewer response, copied verbatim. One fresh
 `general-purpose` reviewer ran the FOLD-READINESS role — a strictly higher bar
 than the earlier closure audit, which certified only fitness for coordinator

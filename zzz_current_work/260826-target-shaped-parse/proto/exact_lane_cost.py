@@ -31,8 +31,16 @@ node's family count — two applications against 2^k, measured. Where a ``finite
 consumer sits above interacting children, the second distinct value can appear
 only at the LAST product —
 executed here — so the APPLICATION count is Omega(m(h)) and no lever reduces it.
-Wall cost is that count times a value-identity factor which is not constant, so
-this module states no single-unit Theta; see
+
+**The cost decomposition this module can defend**, and nothing wider:
+
+    reducer evaluation and result construction   (exactly m(h) applications
+                                                  under full enumeration)
+  + deduplication comparison count               (image-dependent, counted)
+  x the structural cost of one comparison        (UNMEASURED here)
+
+The first two terms are counted per row. The third is not measured, so this
+module states no single-unit bound and no product of the three; see
 :func:`prove_applications_are_not_the_cost`. That exponential is RECORDED as the
 current lane's worst case under this enumeration and these slot laws. No refusal
 contract, budget or ceiling is proposed — neither a user decision nor an
@@ -527,30 +535,93 @@ def certified(
     marked when some realized route to an accepting item has an ``ident`` or
     ``grow`` slot law at every step; fixing that route's families and varying
     only this node's derivation then builds two distinct root meanings. The
-    witness that the node really holds two meanings is constructive and local:
-    its own families are applied with every CHILD held at its baseline, which
-    is a lower bound on the node's true set. Acting only on "yes, two" keeps
-    that sound — the lane never concludes "one" from it, and falls through to
-    the executing lane instead.
+    The witness is constructive and it is checked END TO END. The node's own
+    families are applied with every CHILD at its baseline, which is a lower
+    bound on its true set; then two of those values are CARRIED UP the recorded
+    route, re-applying each step's own family with the other slots at baseline,
+    and the lane certifies only when both reach an accepting item and differ
+    there. Marking a live route is not sufficient on its own — a ``grow`` body
+    can refuse selectively, so a family live at its baseline may transmit no
+    second value. Acting only on "yes, two distinct root meanings" keeps this
+    sound; the lane never concludes "one" from it and falls through to the
+    executing lane instead.
 
     This is what actually removes the exponential where it can be removed: the
     exact question drops from the ROOT's local multiplicity to one witnessing
     node's family count.
     """
-    marked = _injective_nodes(kernel, roots, chart, reducer, aligned)
     lane = Lane()
     baselines = _baseline_table(kernel, roots, chart, options, reducer, lane, partial)
+    routes = _injective_nodes(
+        kernel, roots, chart, reducer, aligned, baselines, options, partial
+    )
     spent = 0
     for node in chart.nodes:
-        if node not in marked:
+        if node not in routes:
             continue
-        found, applications = _local_witness(
+        values, applications = _local_witness(
             kernel, node, chart, baselines, options, reducer, partial
         )
         spent += applications
-        if found:
+        if len(values) < 2:
+            continue
+        carried, lifted = _route_transmits_two_values(
+            kernel, node, routes, baselines, options, reducer, partial, values
+        )
+        spent += lifted
+        if carried:
             return Certificate(True, spent, lane.baseline, harness._name(kernel, node))
     return Certificate(False, spent, lane.baseline, "")
+
+
+def _route_transmits_two_values(
+    kernel: Kernel,
+    node: int,
+    routes: dict[int, Step | None],
+    baselines: dict[int, IrSelf],
+    options: dict[int, tuple[IrSelf, ...]],
+    reducer: Reducer,
+    partial: frozenset[str],
+    values: Sequence[IrSelf],
+) -> tuple[bool, int]:
+    """Carry TWO of the node's values up its route and check both survive, distinct.
+
+    The step that closes the certificate's remaining hole. Marking a live route
+    is not enough: a ``grow`` body can refuse selectively, so a family that is
+    live at its BASELINE may still produce nothing for the witnessing node's
+    second value. This walks the recorded route once per value, re-applying each
+    step's own family with the other slots held at baseline, and certifies only
+    when both values reach an accepting item and differ there.
+
+    That is precisely the constructive argument the certificate states — "fix
+    that route's families and vary only this node's derivation" — executed
+    rather than asserted.
+    """
+    spent = 0
+    lifted: list[IrSelf] = []
+    for value in values[:2]:
+        carried: IrSelf | None = value
+        at = node
+        while carried is not None:
+            step = routes[at]
+            if step is None:
+                break
+            kids = _baseline_channel(step.family, baselines, options)
+            if kids is None:
+                carried = None
+                break
+            channel = kids[: step.slot] + (carried,) + kids[step.slot + 1 :]
+            spent += 1
+            carried = shared.apply_or_none(
+                reducer, harness._name(kernel, step.parent), channel, partial
+            )
+            at = step.parent
+        if carried is None:
+            return False, spent
+        lifted.append(carried)
+    if len(lifted) < 2:
+        return False, spent
+    return not shared.same_value(lifted[0], lifted[1]), spent
 
 
 def _baseline_table(
@@ -623,8 +694,8 @@ def _local_witness(
     options: dict[int, tuple[IrSelf, ...]],
     reducer: Reducer,
     partial: frozenset[str],
-) -> tuple[bool, int]:
-    """Does this node hold two meanings that EXIST, with children at baseline?
+) -> tuple[tuple[IrSelf, ...], int]:
+    """The meanings this node holds with its children at baseline, and the cost.
 
     Two corrections over the first version, both of which decided a verdict.
     A family whose operation refuses contributes nothing, so a refusal can
@@ -634,7 +705,7 @@ def _local_witness(
     """
     families = chart.resolveds[node]
     if len(families) < 2 and not _has_wide_leaf(families, options):
-        return False, 0
+        return (), 0
     name = harness._name(kernel, node)
     found: list[IrSelf] = []
     spent = 0
@@ -644,7 +715,7 @@ def _local_witness(
             meaning = shared.apply_or_none(reducer, name, kids, partial)
             if meaning is not None:
                 shared.add_unique(found, meaning)
-    return len(found) > 1, spent
+    return tuple(found), spent
 
 
 def _has_wide_leaf(
@@ -680,14 +751,124 @@ def _baseline_lanes(
     return [tuple(kids) for kids in product(*lanes)]
 
 
+class Step(NamedTuple):
+    """One route step: the consuming node, the LIVE family, and the kid slot.
+
+    The family is kept, not collapsed away — carrying a value up a route means
+    re-applying that family's operation with the other slots at their
+    baselines, which needs the family itself.
+
+    :ivar parent: The consuming completion.
+    :ivar family: The resolved family the step goes through.
+    :ivar slot: The kid slot the child occupies in that family.
+    """
+
+    parent: int
+    family: harness.Resolved
+    slot: int
+
+
 def _injective_nodes(
     kernel: Kernel,
     roots: tuple[int, ...],
     chart: algebra.Chart,
     reducer: Reducer,
     aligned: frozenset[str],
+    baselines: dict[int, IrSelf],
+    options: dict[int, tuple[IrSelf, ...]],
+    partial: frozenset[str],
+) -> dict[int, "Step | None"]:
+    """Each reachable node's ROUTE STEP, from an accepting item through live families.
+
+    Returns the route rather than a set, because the certificate has to do more
+    than mark: it must carry the witnessing node's two values UP that route and
+    check both survive. A `grow` body can refuse selectively, so "this family is
+    live at the baseline" does not by itself mean the route transmits a second
+    value — see :func:`_route_transmits_two_values`.
+
+    The correction. An earlier version walked `chart.edges`, which is
+    ``(parent, child, slot)`` with the family index collapsed away, so a slot
+    belonging to a family that cannot produce any meaning still propagated the
+    mark. The certificate then certified ambiguity from a node reachable only
+    through a DEAD route — see
+    :func:`prove_a_dead_family_route_is_not_a_certificate`.
+
+    A step is admitted only when all three hold: the parent is already marked;
+    the step's FAMILY is live, meaning every one of its slots has a non-empty
+    image and its own operation yields a value; and that slot's law is ``ident``
+    or ``grow``. Preserving the family is what makes the route a real one.
+    """
+    marked: dict[int, Step | None] = {root: None for root in roots}
+    pending = list(roots)
+    while pending:
+        parent = pending.pop()
+        name = harness._name(kernel, parent)
+        for resolved in _live_families(
+            kernel, parent, chart, baselines, options, reducer, partial
+        ):
+            for slot, child in zip(
+                algebra.child_slots(resolved), resolved.children, strict=True
+            ):
+                if child in marked or not _slot_carries(name, slot, reducer, aligned):
+                    continue
+                marked[child] = Step(parent, resolved, slot)
+                pending.append(child)
+    return marked
+
+
+def _live_families(
+    kernel: Kernel,
+    handle: int,
+    chart: algebra.Chart,
+    baselines: dict[int, IrSelf],
+    options: dict[int, tuple[IrSelf, ...]],
+    reducer: Reducer,
+    partial: frozenset[str],
+) -> list[harness.Resolved]:
+    """This node's families that can actually produce a meaning.
+
+    A family is dead when one of its slots has an empty image — the child has
+    no baseline, so no derivation through this family exists — or when its own
+    operation refuses on the baseline channel. A dead family's slots must not
+    carry a certificate route.
+    """
+    name = harness._name(kernel, handle)
+    live: list[harness.Resolved] = []
+    for resolved in chart.resolveds[handle]:
+        kids = _baseline_channel(resolved, baselines, options)
+        if kids is None:
+            continue
+        if shared.apply_or_none(reducer, name, kids, partial) is None:
+            continue
+        live.append(resolved)
+    return live
+
+
+def _slot_carries(
+    parent: str, slot: int, reducer: Reducer, aligned: frozenset[str]
+) -> bool:
+    """Whether one slot's declared law retains its child's value."""
+    return candidate.slot_law(reducer, parent, slot, aligned).kind in (
+        laws.IDENT,
+        laws.GROW,
+    )
+
+
+def _collapsed_injective_nodes(
+    kernel: Kernel,
+    roots: tuple[int, ...],
+    chart: algebra.Chart,
+    reducer: Reducer,
+    aligned: frozenset[str],
 ) -> frozenset[int]:
-    """Nodes reachable from an accepting item through ident/grow slots only."""
+    """The REJECTED family-collapsed walk, kept only as the comparison lane.
+
+    `chart.edges` drops the family index, so this marks a child through any
+    slot whose law carries — including one belonging to a family that produces
+    no meaning at all. Executed beside the corrected walk in
+    :func:`prove_a_dead_family_route_is_not_a_certificate` to show the two
+    disagree, and that the disagreement is a false positive.
+    """
     outgoing: dict[int, list[algebra.Edge]] = {}
     for edge in chart.edges:
         outgoing.setdefault(edge.parent, []).append(edge)
@@ -696,22 +877,14 @@ def _injective_nodes(
     while pending:
         parent = pending.pop()
         for edge in outgoing.get(parent, ()):
-            if edge.child in marked or not _carries(kernel, edge, reducer, aligned):
+            name = harness._name(kernel, edge.parent)
+            if edge.child in marked or not _slot_carries(
+                name, edge.slot, reducer, aligned
+            ):
                 continue
             marked.add(edge.child)
             pending.append(edge.child)
     return frozenset(marked)
-
-
-def _carries(
-    kernel: Kernel, edge: algebra.Edge, reducer: Reducer, aligned: frozenset[str]
-) -> bool:
-    """Whether one realized chart edge's slot law retains its child's value."""
-    parent = harness._name(kernel, edge.parent)
-    return candidate.slot_law(reducer, parent, edge.slot, aligned).kind in (
-        laws.IDENT,
-        laws.GROW,
-    )
 
 
 # ── the rejected one-flip probe, executed for comparison only ─────────────
@@ -1113,10 +1286,12 @@ def prove_lower_bound(rungs: dict[str, list[Rung]]) -> None:
         " product, so streaming, deduplication and the dirty cone all"
         " still pay 2^k APPLICATIONS. The bound is stated in"
         " that unit and only that unit: applications are Omega(m(h)) here and"
-        " no lever reduces them. Wall cost is this count times the"
-        " value-identity work each application triggers, which"
-        " prove_applications_are_not_the_cost shows is not constant, so there"
-        " is no single-unit Theta to quote",
+        " no lever reduces them. The defensible decomposition is: reducer"
+        " evaluation and result construction, exactly m(h) applications"
+        " under full enumeration; PLUS an image-dependent deduplication"
+        " comparison count, counted here; TIMES the structural cost of one"
+        " comparison, which this round does not measure. No single-unit"
+        " bound is quoted",
         sep="\t",
     )
 
@@ -1219,6 +1394,137 @@ def _refusing_arm_case(
     dropped = laws.dropped_rules(reducer)
     aligned = candidate.aligned_rules(canonical, normalized, dropped)
     return kernel, roots, reducer, aligned
+
+
+REFUSES_ONE = IrBuild(
+    IrMap, IrTuple(IrTuple(IrStr("k"), IrArg(0)), IrTuple(IrStr("k"), IrArg(0)))
+)
+"""A one-argument consumer that refuses on EVERY input — a constant duplicate key."""
+
+DEAD_ROUTE = (
+    'root ::= pick "z"\npick ::= dead | alive\ndead ::= amb bad\n'
+    'amb ::= u\nu ::= p | q\np ::= "y"\nq ::= "y"\n'
+    'bad ::= t\nt ::= "y"\nalive ::= k\nk ::= "yy"\n'
+)
+"""One root family carries a two-valued child injectively but is DEAD.
+
+``dead`` consumes ``amb`` — which has two meanings — through a ``grow`` slot,
+and reaches the root through ``ident`` slots, so a family-collapsed walk marks
+``amb`` as injectively reachable. That family cannot produce a meaning: its
+other required child ``bad`` refuses on every input, so ``dead``'s image is
+empty. The surviving family through ``alive`` has exactly ONE constant meaning,
+so the document is unambiguous and the certificate must say so.
+"""
+
+
+def _dead_route_case() -> tuple[
+    Kernel, tuple[int, ...], algebra.Chart, Reducer, frozenset[str], frozenset[str]
+]:
+    """Recognize the dead-route control and compile what its lanes read."""
+    actions = (
+        ("root", IrArg(0)),
+        ("pick", IrArg(0)),
+        ("dead", IrBuild(IrTuple, IrTuple(IrArg(0), IrArg(1)))),
+        ("amb", IrArg(0)),
+        ("u", IrArg(0)),
+        ("bad", REFUSES_ONE),
+        ("t", IrStr("t")),
+        ("alive", IrStr("only")),
+        ("k", IrStr("k")),
+        ("p", MARK_P),
+        ("q", MARK_Q),
+    )
+    text = "yyz"
+    canonical = canonical_grammar(DEAD_ROUTE, GBNF_FLAVOUR)
+    normalized = normalize(canonical)
+    kernel = Kernel(compile_tables(normalized, tier_for(len(text))), text, True).run()
+    if accept_item(kernel) < 0:
+        raise UnsupportedConstructError("exact lane: the dead-route control failed")
+    roots = algebra.accepting_roots(kernel, accept_handle(kernel))
+    reducer = candidate.reducer_of(actions)
+    chart = algebra.build_chart(kernel, roots)
+    dropped = laws.dropped_rules(reducer)
+    aligned = candidate.aligned_rules(canonical, normalized, dropped)
+    return kernel, roots, chart, reducer, aligned, frozenset({"bad"})
+
+
+def prove_a_dead_family_route_is_not_a_certificate() -> None:
+    """REQUIRED NEGATIVE CONTROL: a dead family's slot must not carry the route.
+
+    The shape the corrected certificate exists for. One root family reaches a
+    two-valued node through carrying slots but is DEAD — a required sibling has
+    an empty image. The other root family survives with exactly one constant
+    meaning, so the document means one thing and the certificate must not
+    report ambiguity.
+
+    Both walks run: the family-collapsed one marks the two-valued node and
+    would certify ambiguity, the family-aware one does not. The settlement lane
+    and the occurrence-unrolled oracle both answer one meaning, which is what
+    says the family-aware answer is the correct one.
+    """
+    kernel, roots, chart, reducer, aligned, partial = _dead_route_case()
+    lane = Lane()
+    baselines = _baseline_table(kernel, roots, chart, {}, reducer, lane, partial)
+    collapsed = _collapsed_injective_nodes(kernel, roots, chart, reducer, aligned)
+    family_aware = _injective_nodes(
+        kernel, roots, chart, reducer, aligned, baselines, {}, partial
+    )
+    amb = [n for n in chart.nodes if harness._name(kernel, n) == "amb"]
+    law = certified(kernel, roots, chart, {}, reducer, aligned, partial)
+    cost = settle(kernel, roots, {}, reducer, Settings(), partial)
+    oracle = shared.unrolled_meanings(
+        kernel, roots, {}, reducer, shared.UnrolledCounts(), partial
+    )
+    assert amb, "the control lost its two-valued node"
+    assert any(node in collapsed for node in amb), "collapsed walk did not mark it"
+    assert not any(node in family_aware for node in amb), family_aware
+    assert not law.differs, law
+    assert cost.verdict == VERDICT_EQUAL and len(cost.values) == 1, cost
+    assert len(oracle) == 1, oracle
+    print(
+        "dead-family-route",
+        f"two_valued_node_marked_by_collapsed_walk="
+        f"{any(node in collapsed for node in amb)}",
+        f"two_valued_node_marked_by_family_aware_walk="
+        f"{any(node in family_aware for node in amb)}",
+        f"certificate_reports_ambiguity={law.differs}",
+        f"settle_verdict={cost.verdict}",
+        f"settle_meanings={len(cost.values)}",
+        f"unrolled_oracle_meanings={len(oracle)}",
+        "the collapsed (parent, child, slot) walk marks a node reachable only"
+        " through a family that cannot produce a meaning, and would certify"
+        " ambiguity on a document that means ONE thing; preserving the family"
+        " on the route removes the false positive",
+        sep="\t",
+    )
+
+
+def prove_the_positive_certificate_still_fires() -> None:
+    """The shortcut still works: the family-aware route certifies where it should.
+
+    The other half of the control pair. Making the walk family-aware must not
+    cost the certificate its positive case, so the retaining ladder rung is
+    re-checked here: a live family carries a two-valued node injectively to the
+    root and the lane settles from one local witness.
+    """
+    for points in (4, 8):
+        rung = run_rung("grow", points)
+        assert rung.law.differs, (points, rung.law)
+        # Two for the local witness, plus one lift per value per route step.
+        assert rung.law.applications < rung.full.applications, (points, rung.law)
+        print(
+            "positive-certificate",
+            f"points={points}",
+            f"law_lane_differs={rung.law.differs}",
+            f"law_lane_applications={rung.law.applications}",
+            f"law_lane_witness={rung.law.node}",
+            f"materializing_applications={rung.full.applications}",
+            "a LIVE family's ident/grow route still settles the verdict — now"
+            " end to end: two of the witnessing node's values are carried up"
+            " the route and both reach an accepting item distinct, which costs"
+            " a lift per value per step on top of the local witness",
+            sep="\t",
+        )
 
 
 def prove_the_quotient_is_rejected() -> None:
@@ -1700,9 +2006,12 @@ def prove_applications_are_not_the_cost() -> None:
     grows pays quadratically in that image on top of its application count,
     over values that are themselves growing.
 
-    So the exact lane's cost is applications x per-comparison value identity,
-    not applications alone. Both factors are counted here. This round proposes
-    no budget; the ratio is recorded as the current lane's worst case.
+    So an application count alone is not the cost. The defensible
+    decomposition is: reducer evaluation and result construction, exactly m(h)
+    applications under full enumeration; PLUS an image-dependent deduplication
+    comparison count; TIMES the structural cost of one comparison, which this
+    round does not measure. The first two terms are counted here; no product of
+    the three is asserted. No budget is proposed.
     """
     for points in (6, 8, 10):
         late = _measure("late-second", points, Settings(stop_at=2))
@@ -1736,11 +2045,13 @@ def prove_applications_are_not_the_cost() -> None:
         "applications-are-not-the-cost",
         "conclusion",
         "two rungs with EQUAL application counts differ by two orders of"
-        " magnitude in CPU, so an application count is not a cost. The exact"
-        " lane's cost is the product of applications and the value-identity"
-        " work each one triggers, and the second factor grows with the node's"
-        " own image. No budget is proposed: the ratio is recorded as the"
-        " current enumeration's worst case, not as a policy",
+        " magnitude in CPU, so an application count alone is not the cost. The"
+        " defensible decomposition is reducer evaluation and result"
+        " construction — exactly m(h) applications — PLUS an image-dependent"
+        " deduplication comparison count, TIMES the structural cost of one"
+        " comparison, which this round does not measure. The first two terms"
+        " are counted above; no product of the three is asserted and no budget"
+        " is proposed",
         sep="\t",
     )
 
@@ -1762,6 +2073,8 @@ def main() -> None:
     prove_levers_isolated()
     prove_the_quotient_is_rejected()
     prove_a_refusing_family_is_not_ambiguity()
+    prove_a_dead_family_route_is_not_a_certificate()
+    prove_the_positive_certificate_still_fires()
     prove_baseline_survives_a_refusing_default_family()
     prove_grow_image_is_computed_not_enumerated()
     prove_dedup_stops_multiplicity_climbing()
@@ -1785,9 +2098,11 @@ def main() -> None:
         " bounded rule bounds to one, so it buys nothing there. Neither lever"
         " reaches a finite consumer whose second distinct value is its LAST"
         " product, executed here at 2^k APPLICATIONS for every point count. Applications are Omega(m(h)) and no lever reduces them; wall cost is"
-        " that count times a value-identity factor which is NOT constant"
-        " (equal application counts differ by three orders of magnitude in"
-        " comparisons), so no single-unit Theta is claimed. That exponential"
+        " reducer evaluation and result construction (exactly m(h)"
+        " applications) PLUS an image-dependent comparison count (equal"
+        " application counts differ by three orders of magnitude in"
+        " comparisons) TIMES an unmeasured per-comparison structural cost, so"
+        " no single-unit Theta is claimed. That exponential"
         " is recorded as the CURRENT exact lane's worst case under this"
         " enumeration and these slot laws — no resource policy is proposed"
         " against it, and a future symbolic analysis is not ruled out",

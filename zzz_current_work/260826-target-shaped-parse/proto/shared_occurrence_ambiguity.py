@@ -652,6 +652,28 @@ SYNTHETIC_SHARED = (
     'p ::= "y"*\nq ::= "z"*\n'
 )
 SYNTHETIC_NODE_SHARED = 'root ::= (p | q) (p | q) "x"\np ::= "y"*\nq ::= "z"*\n'
+SYNTHETIC_INTER = (
+    'root ::= "[" m "]"\nm ::= l | r\nl ::= b* "z"\nr ::= b* "z"\n'
+    'b ::= c\nc ::= p | q\np ::= "y"\nq ::= "y"\n'
+)
+"""A genuinely shared SYNTHETIC node: one `__rep_1`, two occurrence edges.
+
+Normalization DEDUPS identical generated rules, so the ``b*`` written in both
+``l`` and ``r`` becomes one `__rep_1` referenced from two slots — and at
+``[1,2)`` one chart node carries both occurrence edges. It is transparent
+(no reducer action, so it takes the default) and result-less in
+`ModelFold`'s sense, and the ambiguity of ``c`` sits beneath it.
+"""
+SYNTHETIC_INTRA = (
+    'root ::= "y"? "y"? s "x"\ns ::= t\nt ::= p | q\np ::= "w"*\nq ::= "v"*\n'
+)
+"""The same dedup, INTRA-derivation: one `__rep_1` at two slots of one arm.
+
+``"y"?`` written twice becomes one `__rep_1`, and at ``[0,0)`` both slots of the
+single root family consume that one node. The ambiguity sits beside it in
+``s``, so the transparent shared node has to compose correctly while a meaning
+choice flows past it.
+"""
 """Two hoisted `__grp` nodes CONSUMING one shared rule at two occurrences.
 
 The nearest this round gets to the transparent-synthetic shape, and the limit
@@ -1530,40 +1552,107 @@ def _leaf_options(kernel: Kernel) -> dict[int, tuple[IrSelf, ...]]:
     return out
 
 
-def prove_no_synthetic_node_is_ever_shared() -> None:
-    """A SCOPE LIMIT, executed: no witness here shares a synthetic node itself.
+def prove_shared_transparent_synthetic() -> None:
+    """The shape the gate requires: a GENUINELY shared transparent synthetic node.
 
-    `shared_forest_refold.py`'s fourth shape is a transparent synthetic node
-    whose fold repeats because it stores no result. This round reaches the
-    shape only as a synthetic CONSUMER over a shared authored rule: across
-    every witness, no `__`-prefixed node is ever reached by two occurrence
-    edges. The reason is structural — normalization gives a hoisted group or
-    repeat its own arm per alternative, so two consumers reach two distinct
-    synthetic handles — but "structural" is an argument, not a witness, and the
-    row reports the gap instead of claiming the shape was covered.
+    An earlier pass of this round claimed no synthetic node is ever shared, and
+    argued it structurally: "normalization gives each alternative its own
+    hoisted arm". That was WRONG. Normalization DEDUPS identical generated
+    rules, so one `__rep_1` can be referenced from two slots and carry two
+    occurrence edges on a single chart node. Both forms are witnessed here.
+
+    **How a transparent, result-less synthetic composes.** It is result-less
+    only in `ModelFold`'s sense: `_fold_node` returns early for a rule with no
+    config entry (`src/lexic/parsing/fold.py:498-500`), so it never enters
+    `results` and the walk re-folds it — which is
+    `shared_forest_refold.py`'s finding. In the target-shaped meaning relation
+    it is NOT special: it is an ordinary chart node, it takes the reducer's
+    default action, its meaning set is computed ONCE per handle like any
+    other, and each consuming slot ranges over that set independently.
+    Transparency is a fold-configuration fact, not a meaning fact — so nothing
+    in the relation needs a result-less case, and the two lanes agree.
     """
-    synthetic: list[tuple[str, str]] = []
-    for witness in WITNESSES:
-        parsed = recognize(
-            witness.grammar, witness.flavour, witness.text, witness.actions
+    for label, source, text, actions, shape in (
+        (
+            "inter-derivation",
+            SYNTHETIC_INTER,
+            "[yz]",
+            (
+                ("root", IrArg(0)),
+                ("m", IrArg(0)),
+                ("l", IrArg(0)),
+                ("r", IrArg(0)),
+                ("b", IrArg(0)),
+                ("c", IrArg(0)),
+            )
+            + LEAVES,
+            "two derivations share it; the ambiguity is BENEATH it",
+        ),
+        (
+            "intra-derivation",
+            SYNTHETIC_INTRA,
+            "x",
+            (
+                ("root", IrArgs()),
+                ("s", IrArg(0)),
+                ("t", IrArg(0)),
+            )
+            + LEAVES,
+            "two slots of ONE family share it; the ambiguity is BESIDE it",
+        ),
+    ):
+        parsed = recognize(source, GBNF_FLAVOUR, text, actions)
+        consumptions = slot_consumptions(parsed.chart)
+        synthetic = [
+            node
+            for node in parsed.chart.nodes
+            if harness._name(parsed.kernel, node).startswith("__")
+            and len(consumptions.get(node, ())) > 1
+        ]
+        exact = bottom_meanings(
+            parsed.kernel, parsed.roots, parsed.options, parsed.reducer, frozenset()
         )
-        for rule in all_shared_nodes(parsed.kernel, parsed.chart):
-            if rule.startswith("__"):
-                synthetic.append((witness.name, rule))
-    assert not synthetic, synthetic
+        oracle = unrolled_meanings(
+            parsed.kernel,
+            parsed.roots,
+            parsed.options,
+            parsed.reducer,
+            UnrolledCounts(),
+        )
+        assert synthetic, (label, all_shared_nodes(parsed.kernel, parsed.chart))
+        assert same_meaning_set(exact, oracle), (label, exact, oracle)
+        # Unconditional: a witness that carried no ambiguity would prove nothing
+        # about composition, so neither form is allowed to pass vacuously.
+        assert len(exact) > 1, (label, exact)
+        print(
+            "shared-transparent-synthetic",
+            label,
+            f"shared_synthetic_rule={harness._name(parsed.kernel, synthetic[0])}",
+            f"occurrence_edges={len(consumptions[synthetic[0]])}",
+            f"has_a_reducer_action={_has_action(parsed.reducer, synthetic[0], parsed.kernel)}",
+            f"exact_meanings={len(exact)}",
+            f"unrolled_oracle={len(oracle)}",
+            f"agree={same_meaning_set(exact, oracle)}",
+            shape,
+            sep="\t",
+        )
     print(
-        "synthetic-sharing-scope",
-        f"witnesses={len(WITNESSES)}",
-        f"shared_synthetic_nodes_found={len(synthetic)}",
-        "NOT COVERED: a synthetic node is never itself the shared one here."
-        " Normalization gives each alternative its own hoisted arm, so two"
-        " consumers reach two distinct synthetic handles; the transparent shape"
-        " is exercised as a synthetic CONSUMER over a shared authored rule"
-        " (synthetic-consumers, transparent-synthetic) and not as a shared"
-        " synthetic node. The meaning relation has no result-less node, so"
-        " nothing here depends on the gap — but it is a gap",
+        "shared-transparent-synthetic",
+        "composition",
+        "a transparent synthetic node is result-less only to ModelFold, whose"
+        " _fold_node returns early for a rule with no config entry so the node"
+        " never enters `results` and the walk re-folds it. The meaning relation"
+        " has no such case: the node is an ordinary chart node taking the"
+        " reducer's DEFAULT action, its set is computed once per handle, and"
+        " each consuming slot ranges over it independently — so transparency"
+        " needs no special rule and the lanes agree",
         sep="\t",
     )
+
+
+def _has_action(reducer: Reducer, handle: int, kernel: Kernel) -> bool:
+    """Whether the reducer declares an explicit action for this node's rule."""
+    return reducer.actions.get(IrRuleRef(harness._name(kernel, handle))) is not None
 
 
 def prove_intra_derivation_sharing_is_zero_width() -> None:
@@ -1838,7 +1927,7 @@ def main() -> None:
     prove_unambiguous_sharing_allocates_nothing()
     prove_separate_accepting_roots()
     prove_delegated_option_under_a_shared_completion()
-    prove_no_synthetic_node_is_ever_shared()
+    prove_shared_transparent_synthetic()
     prove_intra_derivation_sharing_is_zero_width()
     prove_tree_identity_is_not_occurrence_identity()
     print(

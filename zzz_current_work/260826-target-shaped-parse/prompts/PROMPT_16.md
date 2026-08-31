@@ -125,7 +125,7 @@ Use the strongest available reasoning model at high effort.
 Reviewer 1 — shared occurrences:
 
 ```text
-Read PROMPT_16.md, its inputs, both Round 16 prototypes, and the draft report.
+Read prompts/PROMPT_16.md, its inputs, both Round 16 prototypes, and the draft report.
 Try to falsify the oracle's independence and every shared-DAG result. Look for
 globally correlated keys, circular controls, node identity mistaken for
 occurrence identity, missing nullable or synthetic sharing, and effects run per
@@ -152,7 +152,7 @@ Ignore prose nits.
 Fix, rerun, and record. Then call Reviewer 3 — closure:
 
 ```text
-Audit PROMPT_16.md, its inputs, Prototype 15's limits, every Round 16
+Audit prompts/PROMPT_16.md, its inputs, Prototype 15's limits, every Round 16
 deliverable, and the before/after file record. Require an independent
 occurrence-unrolled oracle, an honest exact-lane cost policy, correct
 classification of open gates and decisions, preserved resolver scope, no

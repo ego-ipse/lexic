@@ -28,7 +28,8 @@ pinned, and one `goal.md` §5 value-relation divergence is now executable.
 Its complete-fold oracle globally assigns families by packed key and every
 witness excludes a node or key reached twice, while the repository already has
 real shared-DAG shapes. Shared-occurrence composition is therefore an open
-planning gate, tasked by `PROMPT_16.md` together with the exact-lane cost bound.
+planning gate, tasked by `prompts/PROMPT_16.md` together with the exact-lane
+cost bound.
 The closure audit returned `READY` on its fourth
 auditor's re-check, which authorizes neither source implementation nor any
 parsing regression. Production source has not started.
@@ -49,6 +50,8 @@ Read these in order before implementation:
 7. [`LEDGER.md`](LEDGER.md) — chronological state and corrections.
 8. [`TBD_after.md`](TBD_after.md) — explicitly deferred work; do not mix it
    into this implementation.
+9. [`prompts/ORCHESTRATOR.md`](prompts/ORCHESTRATOR.md) — status-agnostic
+   coordination prompt for carrying the effort through implementation.
 
 `TODO.md` is the implementation queue. `DESIGN.md` explains the choices; it is
 not a second checklist. When they appear to disagree, stop and reconcile them
@@ -58,9 +61,10 @@ before source work.
 
 The current packet is:
 
-- [`PROMPT_16.md`](PROMPT_16.md) — closes shared-occurrence ambiguity against
-  an occurrence-unrolled oracle and determines the exact-lane cost policy;
-- [`PROMPT_15.md`](PROMPT_15.md) — composes cached island-to-root semantic
+- [`PROMPT_16.md`](prompts/PROMPT_16.md) — closes shared-occurrence ambiguity
+  against an occurrence-unrolled oracle and determines the exact-lane cost
+  policy;
+- [`PROMPT_15.md`](prompts/PROMPT_15.md) — composes cached island-to-root semantic
   continuations with exact interacting-family handling, then requires three
   fresh sequential non-Fable reviews;
 - [`reports/PROTOTYPE_15.md`](reports/PROTOTYPE_15.md) — the compiled
@@ -76,7 +80,7 @@ The current packet is:
 - [`reports/P14_ADVERSARIAL.md`](reports/P14_ADVERSARIAL.md) — the sequential
   adversarial record plus the final coordinator verification which supersedes
   its earlier `READY` verdict;
-- [`PROMPT_14.md`](PROMPT_14.md) — tasking for the completed cyclic and
+- [`PROMPT_14.md`](prompts/PROMPT_14.md) — tasking for the completed cyclic and
   tokenizer investigations plus the then-open resolver scope, with sequential
   non-Fable adversarial review;
 - [`reports/PROTOTYPE_13.md`](reports/PROTOTYPE_13.md) — authoritative
@@ -87,7 +91,7 @@ The current packet is:
 - [`reports/PROTOTYPE_12.md`](reports/PROTOTYPE_12.md) — cyclic, tokenizer,
   flat/frame, and custom-pool evidence; its "conclusively closed" section is
   superseded by Prototype 13;
-- [`PROMPT_12.md`](PROMPT_12.md) — focused tasking for cyclic ambiguity,
+- [`PROMPT_12.md`](prompts/PROMPT_12.md) — focused tasking for cyclic ambiguity,
   tokenizer refusals, production-shaped ambiguity structures, and custom pool
   retention, followed by three sequential internal adversarial reviews;
 - [`reports/PROTOTYPE_11.md`](reports/PROTOTYPE_11.md) — latest mechanism and
@@ -96,8 +100,8 @@ The current packet is:
 - [`reports/P11_ADVERSARIAL.md`](reports/P11_ADVERSARIAL.md) — the
   investigator's adversarial pass over Prototype 11; useful provenance, but it
   does not close the remaining gates enumerated above;
-- [`PROMPT_11.md`](PROMPT_11.md) — exact tasking and acceptance conditions for
-  Prototype 11;
+- [`PROMPT_11.md`](prompts/PROMPT_11.md) — exact tasking and acceptance
+  conditions for Prototype 11;
 - [`reports/REVIEW_10.md`](reports/REVIEW_10.md) — closure audit of the latest
   preceding investigation; records the gates Prototype 11 was asked to close;
 - [`reports/PROTOTYPE_10.md`](reports/PROTOTYPE_10.md) — island, custom-class,
@@ -143,14 +147,14 @@ newer reports do not explicitly supersede them.
 | [`P11_ADVERSARIAL.md`](reports/P11_ADVERSARIAL.md) | Records the investigator's internal adversarial passes and corrections to Prototype 11. |
 | [`PROTOTYPE_12.md`](reports/PROTOTYPE_12.md) | Supplies the cyclic/tokenizer/flat/frame/custom-pool round; its closure classification is superseded. |
 | [`PROTOTYPE_13.md`](reports/PROTOTYPE_13.md) | Removes arbitrary cyclic caps and corrects the control; Prototype 14 supersedes its first-two-defect scope and remaining-gate count. |
-| [`PROMPT_14.md`](PROMPT_14.md) | Tasked the Prototype 14 investigations, bugfix baselines, and sequential adversarial reviews; Fable was forbidden. |
+| [`PROMPT_14.md`](prompts/PROMPT_14.md) | Tasked the Prototype 14 investigations, bugfix baselines, and sequential adversarial reviews; Fable was forbidden. |
 | [`PROTOTYPE_14.md`](reports/PROTOTYPE_14.md) | Closes the cyclic and tokenizer planning gates, pins the third shipped defect, and proves the recognition/binding grammar split. |
 | [`P14_ADVERSARIAL.md`](reports/P14_ADVERSARIAL.md) | Records the sequential review loop and the coordinator corrections that invalidate its historical `READY` until fresh review. |
-| [`PROMPT_15.md`](PROMPT_15.md) | Tasks cached island-continuation composition, exact interacting choices, active-document folding, and three sequential non-Fable reviews. |
+| [`PROMPT_15.md`](prompts/PROMPT_15.md) | Tasks cached island-continuation composition, exact interacting choices, active-document folding, and three sequential non-Fable reviews. |
 | [`PROTOTYPE_15.md`](reports/PROTOTYPE_15.md) | Compiles and executes the island→root continuation: const/injective/execute certificate, interaction composition, occurrence identity, resolver-tree separation, and the shipped-grammar row census. |
 | [`P15_ADVERSARIAL.md`](reports/P15_ADVERSARIAL.md) | Records the Prototype 15 review prompts, findings, fixes, reruns, and verdicts. |
 | [`REVIEW_15.md`](reports/REVIEW_15.md) | The fresh closure audit of the Prototype 15 packet. |
-| [`PROMPT_16.md`](PROMPT_16.md) | Tasks the shared-DAG ambiguity proof and exact-lane cost policy while preserving complete-document resolver scope. |
+| [`PROMPT_16.md`](prompts/PROMPT_16.md) | Tasks the shared-DAG ambiguity proof and exact-lane cost policy while preserving complete-document resolver scope. |
 
 ## Prototype inventory
 
@@ -223,7 +227,7 @@ part of the packet.
 - Explicit `PLANNING REQUIRED` and `DECISION REQUIRED` markers in `TODO.md`
   are hard entry/exit gates, not implementer discretion.
 - Shared-occurrence composition and the exact-lane cost policy are the two
-  planning gates assigned to `PROMPT_16.md`.
+  planning gates assigned to `prompts/PROMPT_16.md`.
 - §4, §5, §7, §9, and §11 have checkpoint gates.
 - §12 is the complete-source external profile.
 - §13 is the sequential Luna test/lint handoff.

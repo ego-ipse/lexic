@@ -240,6 +240,55 @@ corrected above.
 
 ---
 
+## 4.3 — second coordinator reopening: the READY verdict was invalid
+
+The fold-readiness READY was withdrawn. Three substantive blockers, all of
+which had been *documented* rather than fixed — the round's recurring failure
+in its final form: admitting a gap in prose and folding anyway.
+
+| # | Blocker | Disposition |
+|---|---|---|
+| 1 | **The shared transparent-synthetic DAG was never covered.** The round tested a synthetic CONSUMER over an authored shared node and reported the real shape as NOT COVERED, narrowing a requirement the active gate makes. Worse, it justified the narrowing with a false structural argument — "normalization gives each alternative its own hoisted arm". | **FIXED, and the argument RETRACTED.** Normalization **dedups identical generated rules**, so one `__rep_1` can be referenced from two slots and carry two occurrence edges on one chart node. Two witnesses now execute: `inter-derivation` (one `b*` written in two rules, ambiguity beneath it) and `intra-derivation` (one `"y"?` written twice in one arm, ambiguity beside it). Both: 2 occurrence edges, no reducer action, `exact == oracle == 2`. §A3 states how a transparent/result-less node composes — it is result-less only to `ModelFold`, and in the meaning relation it is an ordinary node taking the default action whose set is computed once per handle. |
+| 2 | **The injective certificate was unsound over families, and the round documented the gap instead of closing it.** `_injective_nodes` walked `chart.edges` — `(parent, child, slot)` with the family collapsed — so a slot of a family that can produce no meaning still propagated the mark. | **FIXED.** `_injective_nodes` is family-aware: a step is admitted only when the parent is marked, the step's family is LIVE (every slot has a non-empty image and its own operation yields a value), and the slot's law is `ident`/`grow`. The rejected walk is kept as `_collapsed_injective_nodes` for the comparison. Required negative control `dead-family-route` executes: the collapsed walk marks the two-valued node, the family-aware walk does not, the certificate reports no ambiguity, and settle and the oracle both answer one meaning. `positive-certificate` re-checks the shortcut at k=4 and k=8 — still 2 applications. |
+| 3 | **The cost model asserted a product the evidence does not establish** — "wall cost = application count × value-identity factor". | **FIXED — but the first pass MISSED FIVE SITES**, including one in the run output (`applications-are-not-the-cost conclusion`) and three in the report (§B1, §B4, §B5); a reviewer caught them and they are now corrected. The defensible decomposition is now stated and nothing wider: `reducer evaluation and result construction` (exactly `m(h)` applications under full enumeration, an identity) `+ deduplication comparison count` (image-dependent, counted) `×` the structural cost of one comparison (**unmeasured**). No product of the three is asserted, and no new timing was run to reach this. |
+
+**Two claims this round made and has now retracted outright**, both of which had
+been recorded as findings-fixed:
+
+- "No synthetic node is ever itself the shared one" — false; normalization
+  dedups generated rules.
+- "`_injective_nodes` fixes no family … the gap is real and unclosed" — the gap
+  was real; documenting it was not a disposition.
+
+**The pattern, finally named correctly.** Every earlier recurrence was framed
+as a synchronisation failure between prose and code. This reopening shows the
+deeper one: a claim narrowed to what had been *tested* rather than to what the
+gate *required*, and a known-unsound mechanism carried behind an honest-sounding
+admission. Grepping outputs would not have caught either. What catches them is
+checking each requirement against the gate's wording rather than against the
+round's own summary of it.
+
+**Review of §4.3: NOT READY, then corrected.** A fresh reviewer attacked the
+three corrections and confirmed 1 and 2 landed, with two substantive residuals:
+
+| # | Finding | Disposition |
+|---|---|---|
+| R1 | **Correction 3 was not landed.** The retracted multiplicative claim survived at five sites — `prove_applications_are_not_the_cost`'s docstring, its PRINTED conclusion row, and §B1/§B4/§B5 — so the report contradicted itself (§6, §7.4 and the handoff say no product is asserted) and contradicted its own run output in both directions. | **FIXED at all five.** Every site now states the three-term decomposition and says explicitly that no product of the three is asserted. `grep` for the claim form returns zero across both prototypes, both run outputs and the report. |
+| R2 | **The certificate had a second hole of the same species, and the round had DELETED the honest admission while it remained.** Liveness was decided on the baseline channel only, but a `grow` body can refuse SELECTIVELY — so a family live at baseline may transmit no second value, and the lane could still false-positive. | **CLOSED, not documented.** `_injective_nodes` now returns the ROUTE (a `Step` per node: consuming handle, live family, kid slot), and `certified` carries two of the witnessing node's values up that route, re-applying each step's own family with the other slots at baseline, certifying only when both reach an accepting item and differ there. That is the constructive argument the docstring always stated, executed. It costs one lift per value per step — the lane is four applications, not two, and every figure was updated. |
+| R3 | `shared_occurrence_ambiguity.py`'s intra witness guarded its ambiguity assertion with `or label == "intra-derivation"`, which would have let a vacuous witness pass. | **FIXED.** The assertion is unconditional on both forms. |
+| R4 | §A4 cross-references pointed at material living in §A3. | **FIXED** in both files. |
+| — | The reviewer observed `INDEX.md` and the `PROMPT_*.md` files changing mid-review. | **Out of scope — the user's own concurrent work in another agent**, not this round's. Round 16 touched neither. |
+
+**What R2 says about this round's method.** §4.3 named the pattern as "narrowing
+a requirement to what was tested, and documenting a known-unsound mechanism".
+R2 is the second half of that pattern caught again *inside the fix for the first
+half*: replacing an honest admission with an unqualified claim that was itself
+not quite true. The lesson that generalises is narrower than "check the gate
+wording" — it is that a fix which removes an admission must close the gap the
+admission described, not just the instance that prompted it.
+
+---
+
 ## 5 — final state
 
 ```text
