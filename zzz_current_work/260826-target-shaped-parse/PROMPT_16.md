@@ -1,219 +1,179 @@
-# Investigator prompt 16 — shared occurrences and the exact-lane bound
+# Investigator prompt 16 — shared occurrences and exact-lane cost
 
-Work in `/home/mika/projects/lexic` on
-`zzz_current_work/260826-target-shaped-parse/`.
+Work in `zzz_current_work/260826-target-shaped-parse/`. This is an evidence
+round. Do not edit or approve the active plan.
 
-Read the repository instructions and `docs/STYLE.md`, then `INDEX.md`,
-`context.md`, `goal.md`, `DESIGN.md`, `TODO.md`, `LEDGER.md`,
-`reports/PROTOTYPE_15.md`, `reports/P15_ADVERSARIAL.md`, and
-`reports/REVIEW_15.md`. Read these prototypes completely:
+## Scope and authority
 
-- `island_continuation.py`;
-- `shared_forest_refold.py`;
-- `ambiguity_interaction.py`;
-- `cyclic_meaning.py`;
-- `operation_slot_laws.py`;
-- `root_meaning_incremental.py`.
+Read the repository instructions, `docs/STYLE.md`, the active packet, the three
+Round 15 reports, and these prototypes in full: `island_continuation.py`,
+`shared_forest_refold.py`, `ambiguity_interaction.py`, `cyclic_meaning.py`,
+`operation_slot_laws.py`, and `root_meaning_incremental.py`. Inspect the
+production Earley forest, ambiguity readout, fold, completion tables, and PDA
+island seams they model.
 
-Inspect the production Earley forest, `FastTree`, ambiguity readout, fold walk,
-and completion tables which those prototypes model.
-
-Do not edit `src/`, `tests/`, `pyproject.toml`, or `.wiki`. Put prototypes only
-in this effort's `proto/`, never `/tmp`. Do not commit, push, or create a
-worktree. Use `uv run`. No `eval`, `exec`, `Any`, `object`, casts, nested
-helpers, or ignore/suppression directive of any kind. No grammar-specific
-branch may enter generic machinery. JSON is not privileged.
-
-Deliver:
+The active packet, `src/`, `tests/`, `pyproject.toml`, `.wiki`, and all earlier
+prototypes and reports are read-only. Record their initial status before work.
+You may write only:
 
 - `proto/shared_occurrence_ambiguity.py`;
 - `proto/exact_lane_cost.py`;
 - `reports/PROTOTYPE_16.md`;
 - `reports/P16_ADVERSARIAL.md`;
-- `reports/REVIEW_16.md` containing the final closure review;
-- coherent updates to `INDEX.md`, `context.md`, `goal.md`, `DESIGN.md`,
-  `TODO.md`, `LEDGER.md`, and `SUMMARY.md`, limited to conclusions established
-  by executable evidence.
+- `reports/REVIEW_16.md`;
+- `reports/P16_REVIEWER_PROMPTS.md` if reviewers cannot be called.
 
-## 1 — close shared-occurrence composition
+Do not commit, push, or create a worktree. Keep prototypes in this effort's
+`proto/`, never `/tmp`. Use `uv run`. Run no concurrent measurements. No
+`eval`, `exec`, `Any`, `object`, casts, nested helpers, or suppression
+directives. Generic machinery may contain no grammar-specific branch. JSON is
+not privileged.
 
-Prototype 15's mechanism gives every grammatical occurrence an independent
-family choice, but its complete-fold oracle fixes one choice per packed key.
-Every delivered witness asserts that no completed node has two parents and no
-choice key is claimed twice. That leaves the exact case the repository already
-knows exists: a forest node shared by multiple occurrences.
+Resolver scope is settled: `resolve=` receives complete-document pairs under
+both engines. Construct no pair during semantic settlement. Construct pairs
+only after requested-root meanings differ and the resolver is invoked. The
+fused PDA may then perform one cold Earley recognition; refusal and equal-root
+paths do not. Ordinary PDA island recognition remains local. Do not reopen
+this decision.
 
-Start from all four real shapes in `shared_forest_refold.py`:
+Parsing performance may not regress. Only the user may approve a measured
+regression, including one caused by a bug fix. This round authorizes no source
+implementation.
 
-- duplicate slot;
-- pending frame;
-- sibling memo;
-- transparent synthetic node.
+## A — shared-occurrence composition
 
-Put semantic ambiguity under each shared shape. At least one witness must make
-the independently mixed occurrence choices observable only jointly, so a
-globally key-correlated oracle produces a different answer and is explicitly
-disproved. Exercise both an internal packed family and, where the real engine
-can express it, a delegated island option beneath a shared completion.
+Prototype 15's oracle fixes one choice per packed key and excludes shared
+completed nodes. Replace that control with an independent, occurrence-unrolled
+complete-derivation oracle.
 
-The control is an occurrence-unrolled complete-derivation oracle. It must give
-each occurrence path its own family decision even when the packed forest reuses
-one node or one ambiguity key. It may not call the candidate's per-node set
-function, reuse its deduplication, or key choices globally. Fold real authored
-reducer operations over real derivations.
+Exercise all real shapes in `shared_forest_refold.py`: duplicate slot, pending
+frame, sibling memo, and transparent synthetic node. Put semantic ambiguity
+beneath each. Include a case where independent occurrence choices differ from
+globally key-correlated choices. Cover an internal packed family and, where the
+engine permits it, a delegated island option.
 
-Compare the candidate exact relation with that oracle on every witness. Pin all
-of these separately:
+The oracle must give each consuming occurrence its own decision. It may not
+call the candidate relation, reuse its deduplication, or key choices globally.
+Fold real authored reducer operations over real derivations.
 
-- a shared node's semantic set is computed once;
-- each consuming parent slot ranges over that set independently;
-- occurrence-owned append, insert, verdict, and duplicate effects execute per
-  slot consumption rather than per shared node;
-- interacting shared and non-shared choices remain exact;
-- ordinary unambiguous sharing allocates no ambiguity-only state;
-- separate accepting root items remain separate complete meanings.
+Establish whether:
 
-Do not weaken grammar semantics to match `FastTree`'s current object sharing.
-If the intended occurrence-unrolled relation cannot be represented by the
-current forest, report the precise missing edge or occurrence identity and keep
-the planning gate open.
+- one shared node's meaning set can be computed once while each consuming slot
+  ranges over it independently;
+- append, insert, verdict, and duplicate effects execute per consumption;
+- shared and non-shared choices compose exactly;
+- unambiguous sharing allocates no ambiguity-only state;
+- separate accepting roots remain separate meanings.
 
-## 2 — decide what bounds the exact lane
+Do not weaken semantics to match `FastTree` identity. If the forest lacks a
+required occurrence edge, identify it and leave the gate open.
 
-Prototype 15 replaces a linear one-flip probe with a local option product. Its
-dirty cone bounds the number of nodes visited, not the multiplicity paid at one
-node. Determine the exact cost and the strongest sound way to avoid an
-unbounded accidental explosion.
+## B — exact-lane cost
 
-Define local multiplicity from real chart data: packed families, child meaning
-sets, island options, semantic deduplication, and sibling accepting items.
-Build a controlled ladder which separates:
+The dirty cone bounds visited nodes, not multiplicity within a node. Define
+that multiplicity from real packed families, child meaning sets, island
+options, deduplication, and sibling accepting items.
 
-- many derivations collapsing to one requested value;
-- the second distinct root value appearing early;
-- the second distinct root value appearing only after substantial work;
-- interacting children whose individual substitutions are invisible;
-- operation laws which settle without enumeration;
-- a product whose exact image genuinely grows exponentially.
+Measure controlled cases covering collapsed derivations, early and late second
+root values, interacting invisible substitutions, operation-law shortcuts,
+and a genuinely exponential image. Investigate streaming early stop, exact
+finite quotients, structural sharing, compile-time refusal, and runtime
+resource refusal.
 
-Investigate, do not assume, these possible levers:
+An arbitrary cap is rejected. If exponential exact settlement is unavoidable,
+demonstrate it and recommend the narrowest honest refusal contract: what is
+counted, when it refuses, which exception it uses, and what requires a user
+decision. Exhaustion must never mean unambiguous, select a derivation, or fall
+back to one-flip reasoning.
 
-- streaming products with immediate stop after a certified second root value;
-- operation-law image bounds and exact finite quotients;
-- memoized/persistent target meanings and structural sharing;
-- compile-time refusal for an operation whose exact relation is not
-  representable;
-- runtime resource refusal when exact settlement exceeds a declared budget.
+Keep ambiguity machinery off the unambiguous path. Measure one process at a
+time using process CPU and an appropriate control. Do not run an MT benchmark.
 
-An arbitrary numeric cap is not a solution. If no generic exact algorithm can
-avoid exponential work, demonstrate the lower-bound witness and state the
-narrowest honest refusal contract: what is counted, when it refuses, which
-exception it uses, and whether choosing that resource policy requires the
-user's decision. Never turn exhaustion into “unambiguous,” choose a derivation,
-or silently fall back to one-flip evaluation.
+## Report
 
-The resulting production rule must keep all ambiguity machinery off the
-unambiguous path. This round does not authorize any base-parse regression.
-Measure only prototype mechanisms, one process at a time, with process CPU and
-a control wherever a timing carries a conclusion. No multithreaded benchmark
-belongs in this round.
+`PROTOTYPE_16.md` must answer:
 
-## Questions the report must answer
+1. Does the candidate agree with the occurrence-unrolled oracle on every
+   shared shape?
+2. What identifies each consumption of a shared value?
+3. Does the current forest retain enough information?
+4. What is exact-lane cost in terms of real option lanes?
+5. Which laws avoid enumeration without changing semantics?
+6. Is exponential work unavoidable, and what refusal is recommended?
+7. What remains an implementation gate, measurement gate, or user decision?
+8. Does anything obstruct the settled resolver contract?
 
-1. Do the per-node relation and an occurrence-unrolled oracle agree on every
-   real shared-DAG shape?
-2. What identity distinguishes a shared value from its consuming occurrences?
-3. Does the current forest carry enough information, or must production retain
-   another occurrence edge?
-4. What is the exact local-product cost as a function of the real option lanes?
-5. Which operation laws avoid enumeration without changing semantics?
-6. Is exponential work unavoidable for an admitted product, and if so what
-   exact refusal contract is recommended?
-7. Which conclusions are architecture, which remain implementation gates, and
-   which require an explicit user decision?
-8. Does any new evidence threaten the settled complete-document resolver-pair
-   scope? Preserve it; do not reopen the public contract.
+End with a short coordinator handoff: proved conclusions, disproved claims,
+open gates, user decisions, and active-plan claims that should change. Do not
+edit those active documents yourself.
 
-## Mandatory sequential adversarial review
+## Sequential adversarial review
 
-Finish both prototypes, the report, the active-document fold, reruns, Ruff, and
-Pyright before calling reviewers. Reviewers are fresh, read-only, synchronous,
-and strictly sequential. No measurement or other agent may be alive while one
-runs. **Do not use Fable or any `fable` subagent type.**
-
-In Claude Code call the `Agent` tool exactly as follows:
+Finish and check the prototypes and draft report first. Call fresh, read-only
+reviewers synchronously and sequentially. No other agent or measurement may be
+active. **Do not use Fable.** In Claude Code use:
 
 ```text
 subagent_type: general-purpose
 run_in_background: false
-description: <role below>
-prompt: <complete role prompt below>
+description: <role>
+prompt: <prompt below>
 ```
 
-Use the strongest available reasoning model at high effort if the tool exposes
-that choice.
+Use the strongest available reasoning model at high effort.
 
-Reviewer 1 — `shared-forest semantics adversary`:
+Reviewer 1 — shared occurrences:
 
 ```text
-Read the repository instructions, STYLE, the complete target-shaped-parse
-packet, PROMPT_16.md, every prototype it names, and the draft Prototype 16
-report. Try to falsify occurrence-unrolled ambiguity semantics on every shared
-DAG shape. Look for globally correlated packed-key choices, a circular oracle,
-tree-object identity confused with grammatical occurrence identity, missing
-nullable or synthetic sharing, duplicated value work, and occurrence effects
-executed per node. Read-only; no edits or benchmarks. Return substantive
-findings with exact file:line evidence and READY only if none remain. Ignore
-prose nits.
+Read PROMPT_16.md, its inputs, both Round 16 prototypes, and the draft report.
+Try to falsify the oracle's independence and every shared-DAG result. Look for
+globally correlated keys, circular controls, node identity mistaken for
+occurrence identity, missing nullable or synthetic sharing, and effects run per
+node instead of per consumption. Verify the active packet was not edited.
+Read-only; no benchmarks. Return substantive file:line findings and READY only
+if the evidence is sound. Ignore prose nits.
 ```
 
-Wait, fix every substantive finding, rerun affected evidence, and record the
-finding and disposition in `P16_ADVERSARIAL.md`.
+Fix findings within the write allowlist, rerun, and record dispositions in
+`P16_ADVERSARIAL.md`. Record active-plan findings without editing the plan.
 
-Reviewer 2 — `exact-lane complexity adversary`:
+Reviewer 2 — exact-lane cost:
 
 ```text
-Read the revised packet and both Round 16 prototypes. Try to falsify every
-claimed complexity bound, early stop, quotient, deduplication, and refusal
-rule. Demand a worst case where many candidates collapse, a late second value,
-and a genuinely growing image. Reject arbitrary caps, one-flip fallbacks,
-timings without controls, and any ambiguity allocation on the unambiguous
-path. Check whether the proposed refusal changes public semantics and therefore
-requires a user ruling. Read-only; no edits or concurrent measurements. Return
-substantive findings with exact file:line evidence and READY only if none
-remain. Ignore prose nits.
+Read the revised Round 16 evidence. Falsify its bounds, early stops, quotients,
+deduplication, and refusal rule. Require collapse-heavy, late-second-value, and
+growing-image controls. Reject arbitrary caps, one-flip fallbacks, uncontrolled
+timings, and unambiguous-path ambiguity state. Identify semantic choices that
+require the user. Verify the settled resolver scope remains fixed. Read-only;
+no benchmarks. Return substantive file:line findings and READY only if sound.
+Ignore prose nits.
 ```
 
-Wait, fix and rerun. Then call Reviewer 3 — `final packet closure audit`:
+Fix, rerun, and record. Then call Reviewer 3 — closure:
 
 ```text
-Freshly audit PROMPT_16.md, the complete revised active packet, Prototype 15's
-explicit limits, every Round 16 deliverable, and the working-tree diff. Verify
-that shared-occurrence composition is closed only if an independent unrolled
-oracle proves it, the exact-lane cost policy is stated without hiding a semantic
-decision, every remaining planning/user/implementation gate is labelled, no
-source or test changed, no parse regression is authorized, and resolver scope
-remains the settled complete-document contract. Read-only; no edits or
-benchmarks. Return only substantive
-blockers followed by READY or NOT READY, with exact file:line evidence. Ignore
-prose nits.
+Audit PROMPT_16.md, its inputs, Prototype 15's limits, every Round 16
+deliverable, and the before/after file record. Require an independent
+occurrence-unrolled oracle, an honest exact-lane cost policy, correct
+classification of open gates and decisions, preserved resolver scope, no
+authorized parse regression, and no writes outside the allowlist. READY means
+only that the evidence is fit for coordinator review; it does not approve the
+plan or authorize implementation. Read-only; no benchmarks. Return substantive
+blockers followed by READY or NOT READY. Ignore prose nits.
 ```
 
-Copy Reviewer 3's final response into `reports/REVIEW_16.md`. Record every
-review prompt, finding, fix, rerun, and verdict in `P16_ADVERSARIAL.md`.
+Copy Reviewer 3 verbatim to `REVIEW_16.md`. Record all prompts, findings,
+fixes, reruns, and verdicts in `P16_ADVERSARIAL.md`. If the required Agent tool
+is unavailable, write the prompts to `P16_REVIEWER_PROMPTS.md` and stop; do not
+substitute Fable.
 
-If the `Agent` tool or `general-purpose` type is unavailable, stop. Write the
-three complete prompts to `reports/P16_REVIEWER_PROMPTS.md`; do not substitute
-Fable and do not call the packet ready.
+## Done
 
-## Done gate
+Run both prototypes sequentially. Run Ruff format/check and Pyright only on
+them. Search for forbidden constructs, restore cache or bytecode changes, and
+run `git diff --check`. Compare final state with the recorded baseline: the
+round may change only its allowlisted files.
 
-Run changed prototypes sequentially. Run Ruff format/check and Pyright only on
-the changed prototype files. Search them for every forbidden construct. Restore
-generated cache or bytecode changes. `git diff --check` must pass, and
-`git status --short -- src tests pyproject.toml .wiki` must be empty.
-
-The round is complete only when substantive findings are fixed, Reviewer 3
-returns `READY`, and the active documents distinguish established semantics,
-remaining implementation work, and user decisions. `READY` neither authorizes
-source implementation nor accepts a parsing regression.
+Reviewer 3 must return `READY`. That verdict approves only the evidence
+package. It does not modify the plan, authorize source work, or accept a parse
+regression.
