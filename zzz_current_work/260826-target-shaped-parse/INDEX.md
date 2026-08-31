@@ -1,18 +1,23 @@
 # Index — target-shaped parsing
 
-**Current state (2026-08-30):** `PROTOTYPE_14.md`, corrected by the coordinator
-verification recorded in `P14_ADVERSARIAL.md`, closes real-operation cyclic
-classification, the constructive infinite-SCC pair, the tokenizer's final
-three validation lanes, and quantified-nullable planning. Recognition uses the
-armed pre-relaxation grammar; binding and synthesis retain the relaxed grammar,
-and `lift_optional_nullables` leaves. Leo-complete readout, retained flat
-layout, frame shape, custom pool lifecycle, and the fused-product control
-protocol stand. Resolver-pair scope is the only open user decision. Production
-family-aware numbering, new operation-law rows, integrated memory, and custom
-paid-loop neutrality remain explicit implementation gates. Three shipped
-ambiguity defects are pinned. Production source has not started, and the
-corrected packet has not received a fresh external review. `PROMPT_15.md`
-tasks the one missing composition proof and that review.
+**Current state (2026-08-31):** `PROTOTYPE_15.md` closes the island-continuation
+composition. One immutable row per contextual occurrence — keyed by consuming
+clone, channel slot, requested root and bound product — settles a constant
+continuation universally and an injective one existentially, both without
+executing an operation or recognizing the document again; everything else
+reaches the exact per-node relation, where interacting occurrences compose
+through deduplicated option products rather than global assignments. Complete
+`ParseTree`s are built only after root inequality and an invoked resolver.
+`PROTOTYPE_14.md`, corrected by the coordinator verification in
+`P14_ADVERSARIAL.md`, remains the cyclic-law, infinite-pair, tokenizer-contract
+and recognition/binding evidence. Recognition uses the armed pre-relaxation
+grammar; binding and synthesis retain the relaxed grammar, and
+`lift_optional_nullables` leaves. Resolver-pair scope is the only open user
+decision. Production family-aware numbering, new operation-law rows, integrated
+memory, custom paid-loop neutrality, and every parse-performance comparison
+remain explicit implementation gates. Three shipped ambiguity defects are
+pinned, and one `goal.md` §5 value-relation divergence is now executable.
+Production source has not started.
 
 ## Start here
 
@@ -42,6 +47,13 @@ The current packet is:
 - [`PROMPT_15.md`](PROMPT_15.md) — composes cached island-to-root semantic
   continuations with exact interacting-family handling, then requires three
   fresh sequential non-Fable reviews;
+- [`reports/PROTOTYPE_15.md`](reports/PROTOTYPE_15.md) — the compiled
+  per-occurrence continuation, its certificate, the six executed cases across
+  two flavours, and the complete-Earley-fold oracle;
+- [`reports/P15_ADVERSARIAL.md`](reports/P15_ADVERSARIAL.md) — the sequential
+  adversarial record for that round;
+- [`reports/REVIEW_15.md`](reports/REVIEW_15.md) — the final fresh closure
+  audit;
 - [`reports/PROTOTYPE_14.md`](reports/PROTOTYPE_14.md) — current cyclic-law,
   infinite-pair, tokenizer-contract, shipped-bug, and recognition/binding
   evidence, including the coordinator corrections;
@@ -119,6 +131,9 @@ newer reports do not explicitly supersede them.
 | [`PROTOTYPE_14.md`](reports/PROTOTYPE_14.md) | Closes the cyclic and tokenizer planning gates, pins the third shipped defect, and proves the recognition/binding grammar split. |
 | [`P14_ADVERSARIAL.md`](reports/P14_ADVERSARIAL.md) | Records the sequential review loop and the coordinator corrections that invalidate its historical `READY` until fresh review. |
 | [`PROMPT_15.md`](PROMPT_15.md) | Tasks cached island-continuation composition, exact interacting choices, active-document folding, and three sequential non-Fable reviews. |
+| [`PROTOTYPE_15.md`](reports/PROTOTYPE_15.md) | Compiles and executes the island→root continuation: const/injective/execute certificate, interaction composition, occurrence identity, resolver-tree separation, and the shipped-grammar row census. |
+| [`P15_ADVERSARIAL.md`](reports/P15_ADVERSARIAL.md) | Records the Prototype 15 review prompts, findings, fixes, reruns, and verdicts. |
+| [`REVIEW_15.md`](reports/REVIEW_15.md) | The fresh closure audit of the Prototype 15 packet. |
 
 ## Prototype inventory
 
@@ -141,6 +156,7 @@ measurement witnesses, never production modules.
 | [`custom_class_target.py`](proto/custom_class_target.py) | Proves reflection-free binding and real-pool lifetime through source death; production completion traffic and neutrality remain open. |
 | [`cyclic_meaning.py`](proto/cyclic_meaning.py) | Classifies zero-width SCCs under the closed slot algebra and solves finitely representable components without numeric caps. |
 | [`demand_selection.py`](proto/demand_selection.py) | Proves reducer-free selection as occurrence demand in one parse; its resolver route stand-in is rejected. |
+| [`island_continuation.py`](proto/island_continuation.py) | Compiles one immutable island-to-root continuation per contextual occurrence and executes the constant, injective, non-injective, interacting, multi-occurrence and unambiguous cases against a complete-Earley-fold oracle. |
 | [`island_alternate_seed.py`](proto/island_alternate_seed.py) | Proves single-seed cone/trace continuation and sibling-root discovery; its one-flip multiple-seed rule is rejected. |
 | [`keyed_product_rows.py`](proto/keyed_product_rows.py) | Prices real Python, `IrMap`, and ready-tokenizer carriers; tokenizer refusal normalization remains incomplete. |
 | [`local_meaning_fold.py`](proto/local_meaning_fold.py) | Supplies the counterexample proving child-local ambiguity is not root-value equivalent. |

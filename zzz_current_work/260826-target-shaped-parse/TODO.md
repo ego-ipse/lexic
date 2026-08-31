@@ -46,8 +46,12 @@ protocol, and records the gates still open below. Resolver scope remains a
 separate user decision. `PROTOTYPE_14.md` and `P14_ADVERSARIAL.md`, as corrected
 by the coordinator rerun, close the investigable cyclic and tokenizer gates,
 pin the third shipped ambiguity defect, and separate the parser's recognition
-grammar from its constructor-binding grammar. A final fresh reviewer has not
-returned `READY`. Source implementation remains unauthorized.
+grammar from its constructor-binding grammar. `PROTOTYPE_15.md` closes the
+island-continuation composition: the compiled per-occurrence row, its universal
+constant and existential injective certificates, the exact interaction rule,
+occurrence identity across siblings and nesting, and the separation of semantic
+settlement from resolver-tree materialization. Source implementation remains
+unauthorized, and no parse regression is authorized by any of it.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -857,6 +861,34 @@ and the timed resident row is recorded inside its stop factor.
 
 ## 8 — make ambiguity and failure isolation target-correct
 
+- [x] **PLANNING REQUIRED BEFORE §8 — CONTINUATION COMPOSITION CLOSED:**
+      the enclosing continuation is a compiled artefact, one immutable row per
+      contextual occurrence keyed `(consuming clone, channel slot, requested
+      root, bound product)`, holding the slot's operation class and two
+      reachability lanes and no parse value or callback.
+      `proto/island_continuation.py` executes the certificate on real tables,
+      the real delegated island seam and real authored reducer bodies in two
+      flavours: a universally constant continuation discards the occurrence's
+      alternates — and the rule-level half is read BEFORE the island
+      enumerates, so those alternates are never built — while an injective
+      continuation whose route the chart realizes proves requested-root
+      inequality; both run with zero executed operations, zero chart nodes,
+      zero settlement trees and the one delegated document recognition. Two
+      refusals keep the rows sound and both cost work, not correctness: a rule
+      whose pre- and post-normalization contributing references differ has no
+      law (the authored `IrArg` index is not the chart's chain slot wherever a
+      hoisted group or quantified repeat splices), and a `grow` derived by
+      retaining a mapped focus has no law. Closing `PROTOTYPE_14.md` §4's exact
+      channel-index obligation is what widens the first.
+      Everything else runs the exact per-node relation; interacting
+      occurrences compose through deduplicated option products, with both
+      one-flip comparisons equal to the baseline and the joint choice
+      differing. Occurrence identity is the delegated leaf object, so one
+      island rule settles differently at two sites, and nested delegation adds
+      no second mechanism. Every candidate result agrees with an independent
+      complete-Earley-fold oracle. Production reads the key off the island's
+      entry frame or waiter code instead of the prototype's root-down descent,
+      and a cyclic chart is refused by name to `cyclic_meaning`.
 - [x] **PLANNING REQUIRED BEFORE §8 — SINGLE-SEED PART CLOSED:** an island with
       a second target meaning remains in the predictive product and does not
       decide at its span. `PROTOTYPE_10.md` proves the baseline-plus-alternates
@@ -964,6 +996,11 @@ and the timed resident row is recorded inside its stop factor.
       semantics. Default IR uses the definitive complete reduced-root relation;
       enumerate and review differences from the superseded variant-model
       relation. Do not narrow acceptance through child-local comparison.
+      `proto/island_continuation.py` supplies the first executable member of
+      that enumeration: a document whose two derivations build different
+      generated models but the same reducer value, refused by the shipped
+      `reduce` and accepted by the root-value relation. Port it as a pinned
+      §5/§8 divergence case.
 - [ ] A narrower schema rejects derivations outside its language before meaning
       comparison. A projection identifies a discarded difference only when its
       declared meaning law says so.

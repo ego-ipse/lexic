@@ -732,6 +732,35 @@ continuation with the alternate value in isolated state. The same requested-
 root ambiguity relation therefore applies without recognizing the document
 twice.
 
+The occurrence's continuation to the requested root is a COMPILED artefact, one
+immutable row per contextual occurrence, owned by the bound product and keyed
+`(consuming clone, channel slot, requested root, product)`. Its fields are the
+slot's class under the operation algebra and two reachability lanes over the
+grammar's flow graph; it holds no parse value, no derivation and no callable,
+so it cannot retain a parse. Two shortcuts read it, and their quantifiers point
+opposite ways on purpose. Discarding an alternate is UNIVERSAL — the slot is
+`const`, or no non-`const` path reaches its consumer from the root — so the
+grammar's over-approximation of realizable paths can only withhold the
+shortcut, never grant it wrongly. Proving root inequality is EXISTENTIAL — some
+`ident`/`grow` route to the root — so it is verified against the chart's
+realized route before use, because an unrealized grammar path would be unsound
+there. A slot whose law refused blocks the injective lane and does not block
+the observable one. The rule-level half of the discard is readable BEFORE the
+island enumerates: where every row into a rule is unobservable, its island
+publishes a baseline and builds no alternate at all. Neither shortcut executes
+an operation, allocates a dependency index or recognizes the document again;
+what neither settles reaches the exact per-node relation.
+
+Two refusals keep the table sound and both cost work rather than correctness.
+The chart's chain slot and the authored body's ``IrArg`` index are different
+coordinates wherever a hoisted group or a quantified repeat splices into the
+parent channel, and that splice is input-dependent, so a rule keeps a law only
+while its pre- and post-normalization contributing references agree; reading
+the binding view's real ``fields_of`` is what widens it. A ``grow`` derived by
+retaining a MAPPED focus is not injective over an empty focus, so a body
+reaching a focus-mapping operation gets no law. Both refusals reach the exact
+executed relation.
+
 The accepted mechanism is baseline-plus-alternates, an Earley leaf dependency
 and ancestor cone, and a PDA completion trace recorded only while a seed is
 live. Island alternate discovery includes sibling accepting items because a

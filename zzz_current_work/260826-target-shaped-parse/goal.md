@@ -264,7 +264,18 @@ island derivations and splice them without another document recognition.
 Today's island gate decides inline and discards its kernel, so complete scope
 requires new deferred state rather than free reuse. This establishes
 feasibility, not the still-open choice between today's island-local resolver
-pair and complete-document pairs for both engines. An island never settles
+pair and complete-document pairs for both engines. The enclosing product's continuation is compiled, not discovered per parse: one
+immutable row per contextual occurrence — consuming clone, channel slot,
+requested root, bound product — carries the slot's class under the real
+operation algebra plus two reachability lanes, and contains no parse value and
+no callback. A universally constant continuation discards the occurrence's
+alternates — and where every occurrence of an island rule is constant, the
+island reads that before it enumerates and never builds them; an injective
+continuation whose route the chart realizes proves requested-root inequality;
+neither executes an operation, allocates ambiguity state or recognizes the
+document again. A slot whose coordinates or whose injectivity the analysis
+cannot establish keeps no law and reaches the exact relation. Everything else runs the exact per-node
+relation. An island never settles
 target ambiguity at its own accepting span. It returns its baseline value plus
 a cold alternate-meaning seed; the enclosing product records and replays only
 the semantic continuation from that occurrence to the requested root. Equal

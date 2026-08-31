@@ -1,6 +1,93 @@
 # Ledger — target-shaped parsing
 
-## CURRENT SESSION — Prototype 14 correction and active-plan fold (2026-08-30)
+## CURRENT SESSION — Prototype 15, the island-continuation composition (2026-08-31)
+
+`proto/island_continuation.py` compiles one immutable continuation row per
+contextual occurrence — keyed by consuming clone, channel slot, requested root
+and bound product — and composes the mechanisms the packet already held rather
+than adding a second architecture. The row carries the slot's class under the
+real operation algebra plus two reachability lanes and nothing else; a typed
+flatness walk shows it cannot hold a kernel, a derivation, a meaning or a
+callable. The entry PINS its key objects, which is what `parsing/caches.py`
+says a bare id-keyed dict must do to stay correct against address reuse —
+correct and immortal until released; production's mortal owner is the
+`CompiledGrammar` artefact through `parsing.caches`, which `cache_lifetime.py`
+proved and this round does not re-derive.
+
+The certificate is stated with its quantifiers: discarding an alternate is
+universal over every flow path, so the grammar's over-approximation can only
+withhold the shortcut; proving root inequality is existential and is therefore
+verified against the chart's realized route. The rule-level half of the discard
+is read BEFORE the island enumerates, so a constant continuation's alternates
+are never built — `skipped_enumerations=1` with one seed derivation against a
+control's three. Two refusals keep the rows sound and both cost work rather
+than correctness: a rule whose pre- and post-normalization contributing
+references differ keeps no law, because a hoisted group or quantified repeat
+splices the parent channel input-dependently and the authored `IrArg` index is
+then not the chart's chain slot; and a `grow` obtained by retaining a MAPPED
+focus keeps no law, because it is not injective over an empty focus. On the
+recursive shipped grammars those refusals leave the shortcut a small minority
+of rows, which is the honest cost of `PROTOTYPE_14.md` §4's still-open exact
+channel-index obligation.
+
+All the required cases execute over real tables, the real delegated island
+seam and real authored reducer bodies, in GBNF and ABNF. Every witness runs
+TWICE — once under its own table and once under a table that decides nothing —
+and three things are required of every one, statically settled ones included:
+the exact per-node lane equals the control's complete-Earley oracle, the
+shortcut run's oracle equals the control's, and the declared verdict follows
+from the control's cardinality. A constant continuation settles at zero
+executed operations and zero chart nodes; an injective one proves inequality at
+zero; a finite one executes and matches the oracle both when the alternatives
+agree at the root and when they differ; two and three interacting occurrences
+differ jointly while every one-flip comparison equals the baseline; ONE consumer
+rule's two slots settle differently, as do two sibling sites of one island rule
+under nested delegation, keyed on the delegated leaf object; and the
+unambiguous control performs no lookup, descent, chart walk, execution or tree
+build. Every derivation goes through one constructor and every recognition
+through one entry, so a zero count is a fact about the code path. A cyclic
+chart is refused by name to `cyclic_meaning`, and the precondition under which
+the per-node and per-assignment relations coincide is checked on every witness
+rather than assumed.
+
+Two further results. The shipped `CompiledGrammar.reduce` returns the same
+value the mechanism computes as its baseline wherever it does not refuse, with
+the island's own meaning standing inside it exactly where the compiled row says
+the continuation carries — grounding the semantics as the real reducer's. And
+one `goal.md` §5 divergence is now executable: a document whose derivations
+build different generated models but the same reducer value, refused by the
+shipped model relation and accepted by the definitive root-value relation — the
+declared successor relation, not a fourth shipped defect. That differential
+cannot reach a document whose island CHOICE is live, because the shipped gate
+refuses those; widening it needs `reduce(..., resolve=)`, which is `goal.md`'s
+own public-surface work.
+
+Resolver scope remains the only open user decision, and this round narrows its
+inputs in one way only: semantic settlement needs no derivation pair at any
+scope, so the scope question is confined to what an invoked `resolve=`
+receives. Production hot-path, memory and parse-performance evidence remains
+entirely open, as do the exact channel index, cache adoption into
+`parsing.caches`, the emit-family and `YIELD` obligations, and the product
+operations that do not exist yet. The prototype's root-down descent for the
+consuming clone is an explicit stand-in for what production reads off the
+island's entry frame or waiter code.
+
+No `src/`, test, harness, wiki or `pyproject.toml` file changed —
+`git status --short -- src tests pyproject.toml .wiki` is empty and
+`git diff --check` is clean. The effort's own tracked documents ARE modified;
+they are the deliverable. The six named prototypes were rerun sequentially and
+pass; Ruff, isort and Pyright pass on the new file; the tracked `resolver_pair`
+bytecode artefact regenerated by the reruns is restored at the end of the
+round. No multithreaded row was run at any point.
+
+Reviewer 1 (`island semantics adversary`) returned NOT READY with twelve
+findings, four blocking, all recorded with their dispositions in
+`reports/P15_ADVERSARIAL.md`. The four blocking ones — an unsound drop under a
+splicing channel, a bare id-keyed cache presented as a safety property,
+counters whose zeros could not fail, and a shortcut measured after the work it
+avoids — are fixed in the executable artefact above, not argued away.
+
+## PRIOR SESSION — Prototype 14 correction and active-plan fold (2026-08-30)
 
 The coordinator reviewed the Prototype 14 code after the returned adversarial
 `READY` and found six substantive survivors: discarded real tokenizer pipeline

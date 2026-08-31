@@ -316,6 +316,43 @@ authored optional nullable sites already in armed remain semantic families.
 provenance is expanded. A standalone precheck therefore owns complete Leo
 readout; callers do not carry an implicit materialize-first precondition.
 
+The island's alternate seed and the enclosing continuation now compose through
+one compiled artefact. For each bound product (grammar identity, reducer
+identity, requested root) one immutable row per contextual occurrence —
+consuming clone, channel slot, requested root, product — carries the slot's
+class under the real operation algebra and two grammar-level reachability
+lanes, and nothing else: the rows are ints and declaration strings, so the
+table cannot retain a kernel, a derivation, a meaning or a callable. A row
+whose slot is `const`, or whose consumer no non-`const` path reaches, discards
+that occurrence's alternates universally; where that holds at every occurrence
+of an island rule, the island reads it before enumerating and never builds
+them. Two refusals keep the rows sound: a rule whose pre- and
+post-normalization contributing references differ has no law, because a hoisted
+group or quantified repeat splices the parent channel input-dependently and the
+authored `IrArg` index is then not the chart's chain slot; and a `grow` derived
+by retaining a mapped focus has no law, because it is not injective over an
+empty focus. Both reach the exact executed relation, and on the recursive
+shipped grammars they leave the shortcut a small minority of rows until
+production reads the binding view's real `fields_of`. A row whose slot is `ident`/`grow`
+under a route the chart actually realizes proves requested-root inequality
+existentially. Neither executes an operation, allocates a dependency index or
+recognizes the document again. Everything else runs the exact per-node
+relation, where interacting occurrences compose through deduplicated option
+products; propagation is removed, the local product where multiplicitous
+children meet is not. The certificate removes an occurrence from that product
+before it is formed. `proto/island_continuation.py` executes all of this over
+real grammar tables, the real delegated island seam and real authored reducer
+bodies, in two flavours, against complete-Earley-fold oracles, and refuses a
+cyclic chart by name to `cyclic_meaning`. Its root-down descent for the
+consuming clone is a prototype stand-in: production reads the key off the
+island's entry frame or waiter code.
+
+The same round produced one executable member of `goal.md` §5's enumerated
+divergence set: a document whose two derivations build different generated
+models but the same reducer value, which the shipped `reduce` refuses and the
+definitive root-value relation accepts. That is the declared successor
+relation, not a fourth shipped defect.
+
 The resolver prototype now constructs both real complete-document trees,
 associates them with their target meanings, and proves that island-local and
 complete-document resolvers can choose differently. On its one-island Earley
