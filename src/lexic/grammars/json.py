@@ -22,6 +22,10 @@ objects ``IrMap``, arrays ``IrTuple``, strings decoded ``IrStr`` (escapes
 per-unit, surrogate pairs combined through :class:`~lexic.ir.encoding.IrUtf`),
 integers ``IrInt``, truth ``IrInt(0|1)``, null ``IrNone`` — via
 ``compile_ast(JSON_GRAMMAR).reduce(text, JSON_REDUCER)``.
+
+``JSON_SIGNATURE`` is what that reduction MEANS, stated without a rule name so
+a layer above can describe a product over json events rather than over one
+spelling of json; ``JSON_EVENTS`` binds this formulation's symbols to it.
 """
 
 from __future__ import annotations
@@ -30,6 +34,16 @@ from lexic.ir import (
     DROP,
     IR_DEFAULT,
     KEEP_REDUCED,
+    SORT_ABSENCE,
+    SORT_COMPLETION,
+    SORT_ENTRY,
+    SORT_FRACTION,
+    SORT_INTEGER,
+    SORT_ITEM,
+    SORT_MAPPING,
+    SORT_SEQUENCE,
+    SORT_TEXT,
+    SORT_TRUTH,
     YIELD,
     IrAlternation,
     IrArg,
@@ -59,6 +73,7 @@ from lexic.ir import (
     IrUnradix,
     IrUtf,
     Reducer,
+    SemanticSignature,
 )
 
 JSON_GRAMMAR = IrAst(
@@ -469,7 +484,59 @@ JSON_NOISE: IrMap = IrMap(
 """Child-contribution policy, derived from the grammar's own noise flags
 (``escape`` stays semantic — it is :data:`_CHAR`'s dispatch marker)."""
 
-JSON_REDUCER = Reducer(
-    actions=JSON_REDUCTIONS, default=YIELD, noise=JSON_NOISE, literal=DROP
+JSON_SIGNATURE = SemanticSignature(
+    IrStr("json"),
+    IrMap(
+        IrTuple(IrStr("document"), SORT_COMPLETION),
+        IrTuple(IrStr("object"), SORT_MAPPING),
+        IrTuple(IrStr("object-entry"), SORT_ENTRY),
+        IrTuple(IrStr("array"), SORT_SEQUENCE),
+        IrTuple(IrStr("item"), SORT_ITEM),
+        IrTuple(IrStr("string"), SORT_TEXT),
+        IrTuple(IrStr("integer"), SORT_INTEGER),
+        IrTuple(IrStr("fraction"), SORT_FRACTION),
+        IrTuple(IrStr("true"), SORT_TRUTH),
+        IrTuple(IrStr("false"), SORT_TRUTH),
+        IrTuple(IrStr("null"), SORT_ABSENCE),
+    ),
 )
-"""The configured json reducer — the grammar's parse half."""
+"""The semantic boundary a json reduction presents to a layer above it.
+
+Names what a json document MEANS and nothing about how it is spelled: no rule,
+no flavour, no target field. A layer over this boundary describes a product in
+these eleven words, and every formulation that binds them — native, GBNF,
+ABNF, EBNF — serves that same layer."""
+
+JSON_EVENTS: IrMap[IrRuleRef, IrStr] = IrMap(
+    IrTuple(IrRuleRef("json-text"), IrStr("document")),
+    IrTuple(IrRuleRef("object"), IrStr("object")),
+    IrTuple(IrRuleRef("member"), IrStr("object-entry")),
+    IrTuple(IrRuleRef("array"), IrStr("array")),
+    IrTuple(IrRuleRef("value"), IrStr("item")),
+    IrTuple(IrRuleRef("string"), IrStr("string")),
+    IrTuple(IrRuleRef("number"), IrStr("integer")),
+    IrTuple(IrRuleRef("frac"), IrStr("fraction")),
+    IrTuple(IrRuleRef("true"), IrStr("true")),
+    IrTuple(IrRuleRef("false"), IrStr("false")),
+    IrTuple(IrRuleRef("null"), IrStr("null")),
+)
+"""Which of :data:`JSON_SIGNATURE`'s events each symbol of THIS formulation
+raises — the one place the semantic boundary meets a grammar spelling.
+
+Authored, never inferred: ``member`` and ``array`` reduce through the same
+``IrBuild(IrTuple)`` body, so no analysis of the bodies could tell an entry
+from a sequence, and matching on what a rule is called would privilege this
+spelling of json over every other. ``value`` raises the item event in every
+position a value stands, which occurrence context — not the symbol — resolves
+into an array element or a member's value."""
+
+JSON_REDUCER = Reducer(
+    actions=JSON_REDUCTIONS,
+    default=YIELD,
+    noise=JSON_NOISE,
+    literal=DROP,
+    signature=JSON_SIGNATURE,
+    events=JSON_EVENTS,
+)
+"""The configured json reducer — the grammar's parse half, and the semantic
+boundary that parse presents."""

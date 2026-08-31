@@ -18,7 +18,8 @@ returned `READY` on re-check; that verdict approves the reviewed evidence, not
 source implementation or a parsing regression. Prototype 16 closes shared-
 occurrence composition, partial-operation bottom semantics, and the exact-lane
 policy after a four-pass reopening review. No semantic or planning decision
-blocks implementation. Production source has not started. This document is not
+blocks implementation. Production source began 2026-08-31 (§2 accepted, §3 in
+progress — `TODO.md` and `LEDGER.md` carry the state). This document is not
 an implementation checklist.
 
 ## Decision
@@ -1145,7 +1146,9 @@ owner to its final role. Nothing remains merely because it is the old path.
   parsing-internal façade. The package imports `lexic.ir` plus the existing
   `parsing/pda/core/` leaves `charsets` and `scanner`; `regular.py` reuses their
   `CharSet`, `build_recognizer`, and `compile_source` rather than implementing a
-  second possessive lowering.
+  second possessive lowering, and (coordinator-accepted, 2026-08-31) the
+  first-set algebra from `parsing/pda/analysis/gates/windows.py` rather than a
+  second FIRST implementation.
 - `compile/artifact.py`: `reduce` selects and runs a cached `BoundProduct`.
   `_ReduceEntry`, `_reduce_entry`, the reduction-only `_variant_artifact`, and
   `_sub_run` are removed or replaced by generally named target-program

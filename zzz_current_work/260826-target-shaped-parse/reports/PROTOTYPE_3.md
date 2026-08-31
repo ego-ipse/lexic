@@ -6,7 +6,7 @@ tokenizer budget. The measurements remain evidence for their isolated phases;
 the selected composed carrier, canonical index contract, and scenario-relative
 acceptance boundary are in `PROTOTYPE_4.md`.
 
-**Date:** 2026-08-28  
+**Date:** 2026-08-28
 **Tree:** branch `targeter`, source baseline `0faa7289`; every executable and
 instrumentation change is under this effort's `proto/`. `src/` is unchanged.
 

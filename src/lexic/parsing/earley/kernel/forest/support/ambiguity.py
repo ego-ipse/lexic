@@ -32,9 +32,13 @@ if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
 
 __all__ = [
     "AmbiguityPolicy",
+    "MeaningMemo",
     "Resolver",
     "ambiguity_points",
     "another_meaning",
+    "dirty_cone",
+    "remembered",
+    "replayed",
     "same_value",
 ]
 
@@ -107,6 +111,141 @@ def _reachable(bucket: list, bits: int, mask: int) -> list[int]:
         if isinstance(child, int) and not isinstance(child, bool):
             out.append(((child >> bits) << bits) | (child & mask))
     return out
+
+
+def dirty_cone(kernel: Kernel, root: int, flipped: int) -> frozenset[int]:
+    """Every handle whose meaning can change when ``flipped`` chooses again.
+
+    Flipping one ambiguity point cannot change a value that does not contain
+    it, so a replay only has to redo ``flipped`` and the handles it is nested
+    inside — its ancestor cone up to ``root``. Every other completed handle's
+    meaning is exactly what it already was, which is what makes an alternate
+    derivation reusable rather than a second whole-document fold.
+
+    Computed by walking the link table forward once to learn who reaches whom,
+    then reading that relation backwards from ``flipped``. The forward walk is
+    the same reachability :func:`ambiguity_points` uses, so the two agree on
+    what "inside" means.
+
+    :param kernel: The finished kernel whose links to walk.
+    :param root: The packed accepting handle the meaning is wanted for.
+    :param flipped: The ambiguity point choosing a different family.
+    :returns: The handles to recompute — always containing ``flipped``, and
+        ``root`` whenever ``flipped`` is reachable from it. Empty when
+        ``flipped`` is not under ``root`` at all, which is the honest answer
+        that nothing about this root changes.
+    """
+    parents = _parent_edges(kernel, root)
+    if flipped not in parents and flipped != root:
+        return frozenset()
+    cone = {flipped}
+    frontier = [flipped]
+    while frontier:
+        for parent in parents.get(frontier.pop(), ()):
+            if parent not in cone:
+                cone.add(parent)
+                frontier.append(parent)
+    return frozenset(cone)
+
+
+class MeaningMemo(NamedTuple):
+    """What the default derivation meant, kept so an alternate can reuse it.
+
+    Values only. No builder handle, no mutation log, no engine state — an
+    alternate derivation is evaluated in its own isolation, and anything
+    mutable retained here would leak one derivation's construction into
+    another's.
+
+    :ivar nodes: Packed handle → the subtree the default build produced for
+        it. Seeding a later build with these makes the unchanged parts the
+        SAME objects, which is what keeps :attr:`values` addressable.
+    :ivar values: ``id(node)`` → the value that node folded to.
+    """
+
+    nodes: dict[int, ParseTree]
+    values: dict[int, object]
+
+
+def remembered(
+    kernel: Kernel, root: int, fold: Callable[[ParseTree, dict[int, object]], object]
+) -> tuple[object, MeaningMemo] | None:
+    """Build and fold the default derivation, keeping what each handle meant.
+
+    :param kernel: The finished kernel.
+    :param root: The packed accepting handle.
+    :param fold: Folds a tree, recording every node's value in the map it is
+        given.
+    :returns: ``(value, memo)``, or ``None`` when the fast path misses.
+    """
+    tree = FastTree(kernel, {})
+    built = tree.build(root)
+    if not isinstance(built, ParseTree):
+        return None
+    values: dict[int, object] = {}
+    return fold(built, values), MeaningMemo(dict(tree.memo), values)
+
+
+def replayed(
+    kernel: Kernel,
+    root: int,
+    flipped: int,
+    fold: Callable[[ParseTree, dict[int, object]], object],
+    memo: MeaningMemo,
+) -> object | None:
+    """One alternate derivation's value, recomputing only the dirty cone.
+
+    The saving is the point: everything outside :func:`dirty_cone` keeps the
+    subtree AND the value it already had, so an alternate costs the cone
+    rather than the document. Seeding the build's memo is what makes the
+    reused subtrees the same objects, so the seeded values still address them.
+
+    The seeded value map is a fresh dict per call, so one alternate cannot
+    observe or disturb another's evaluation.
+
+    :param kernel: The finished kernel.
+    :param root: The packed accepting handle.
+    :param flipped: The ambiguity point taking a different family.
+    :param fold: Folds a tree, seeded with the values it may reuse.
+    :param memo: What the default derivation meant.
+    :returns: The alternate's value, or ``None`` when it does not build.
+    """
+    cone = dirty_cone(kernel, root, flipped)
+    keep = {handle: node for handle, node in memo.nodes.items() if handle not in cone}
+    tree = FastTree(kernel, {flipped: 1})
+    tree.memo.update(keep)
+    built = tree.build(root)
+    if not isinstance(built, ParseTree):
+        return None
+    seeded = {
+        id(node): memo.values[id(node)]
+        for node in keep.values()
+        if id(node) in memo.values
+    }
+    return fold(built, seeded)
+
+
+def _parent_edges(kernel: Kernel, root: int) -> dict[int, list[int]]:
+    """Reverse reachability under ``root`` — handle → the handles containing it."""
+    bits, mask = kernel.tables.packing.bits, kernel.tables.packing.mask
+    codes, links = kernel.tables.codes, kernel.st.links
+    parents: dict[int, list[int]] = {}
+    seen: set[int] = set()
+    stack = [root]
+    while stack:
+        handle = stack.pop()
+        if handle in seen:
+            continue
+        seen.add(handle)
+        item = handle >> bits
+        if (item >> bits) == codes.arm_base[codes.code_arm[item >> bits]]:
+            continue
+        bucket = links.get(handle)
+        if bucket is None:
+            continue
+        for reached in _reachable(bucket, bits, mask):
+            parents.setdefault(reached, []).append(handle)
+            stack.append(reached)
+    return parents
 
 
 def _sibling_roots(kernel: Kernel, handle: int) -> list[int]:

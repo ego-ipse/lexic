@@ -1,6 +1,6 @@
 # Prototype report — target-shaped products
 
-**Date:** 2026-08-27  
+**Date:** 2026-08-27
 **Tree:** branch `targeter`, source baseline `0faa7289`; all prototype code is
 outside `src`.
 

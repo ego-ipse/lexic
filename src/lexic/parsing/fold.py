@@ -465,15 +465,30 @@ class ModelFold[M]:
         names = tables.decode.rule_names
         return not any(names[rid] in self.config for rid in leaf_rids)
 
-    def apply(self, root: ParseTree) -> M:
+    def apply(self, root: ParseTree, results: dict[int, object] | None = None) -> M:
         """Fold the parse tree of a start-rule match into its model.
 
+        :param root: The start-rule match to fold.
+        :param results: An optional per-node value map, ``id(node) -> value``.
+            Passed in, it is both SEEDED and FILLED: nodes already in it are
+            taken as folded and their subtrees are not walked again, and every
+            node this call folds is recorded. That is what lets an alternate
+            derivation reuse the meanings an earlier one computed instead of
+            refolding a document — hand back the map, seed the next call with
+            the parts that did not change. Omitted, the map is private to the
+            call and discarded, which is what every ordinary parse wants.
         :returns: The start rule's model — of the type ``M`` this fold's
             constructors were built to produce. A transparent root passes
             through its first descendant model, or ``None`` when its entire
             subtree is recognition-only.
         """
-        results: dict[int, object] = {}
+        results = {} if results is None else results
+        # `folded` is deliberately NOT `results`: a synthetic node stores no
+        # result, so a results-keyed guard re-expands and re-folds it every
+        # time it is reached, and a shared node still PENDING on the stack is
+        # not in `results` either and gets pushed twice. The forest is a DAG —
+        # one node's value is one value, computed once.
+        folded: set[int] = set(results)
         offsets = _tree_offsets(root) if self.wants_spans else _NO_OFFSETS
         stack: list[tuple[ParseTree, bool]] = [(root, False)]
         push = stack.append
@@ -482,9 +497,12 @@ class ModelFold[M]:
             if not expanded:
                 push((node, True))
                 for k in node.kids:
-                    if k.__class__ is ParseTree and id(k) not in results:
+                    if k.__class__ is ParseTree and id(k) not in folded:
                         push((k, False))
                 continue
+            if id(node) in folded:
+                continue
+            folded.add(id(node))
             self._fold_node(node, results, offsets)
         if id(root) in results:
             return cast(M, results[id(root)])

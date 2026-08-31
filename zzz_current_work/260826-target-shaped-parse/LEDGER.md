@@ -1,5 +1,411 @@
 # Ledger — target-shaped parsing
 
+## §3 increment: meaning memo and cone replay landed (2026-08-31)
+
+`MeaningMemo` + `remembered`/`replayed` land in
+`earley/kernel/forest/support/ambiguity.py`: the default derivation's
+per-handle subtrees and per-node values are retained (values only — no
+builder handle, log, or engine state), an alternate seeds a fresh
+`FastTree.memo` with every unchanged subtree so retained values stay
+addressable, and only the dirty cone refolds. `ModelFold.apply` gained an
+optional seeded-and-filled `results` map — omitted (every ordinary parse) it
+is private and discarded, so the unambiguous path allocates nothing. Measured
+on five packing shapes: replay folds 3–4 nodes where refold folds 5–6, with
+the replayed value ASSERTED equal to a full refold on every shape including
+the genuinely meaning-changing flip. Per-alternate isolation is a fresh
+seeded dict per `replayed` call.
+
+Accepted wording resolution: §3's "fresh isolated ParseState" names the
+product executor's state, which does not exist yet; the isolation property is
+kept with the executor that does (`ModelFold`), and `remembered`/`replayed`
+take the fold as a parameter so §4/§5 re-point them at the product executor
+and the phrasing becomes literal. Coordinator reran the witness and read both
+diffs.
+
+Remaining for the §3 exit: the tiny sequence/map target end-to-end through
+real PDA / Earley fallback / island-delegate paths, then the §3 exit report.
+
+## §3 increment: dirty ancestor cone landed and measured (2026-08-31)
+
+`dirty_cone(kernel, root, flipped)` lands in
+`earley/kernel/forest/support/ambiguity.py`: one forward link-table walk
+builds reverse reachability (the same relation `ambiguity_points` uses), read
+backwards from the flipped point. On five real packing shapes the cone is 1–2
+handles against 15–23 reachable — a replay reuses 13–22 meanings instead of
+refolding, versus today's whole-tree `build` per flip. Witness
+`proto/s3_dirty_cone.py` (exit 0, coordinator-rerun) includes a
+changed-meaning flip (`e ::= e e | "a" | "b"` over "aba") and honestly reports
+the shape-differs/meaning-equal case rather than asserting it changes —
+Terra's own correction, which matches goal.md §5's declared successor
+relation. Cone soundness is stated structurally (a non-ancestor cannot
+contain the flip), not measured; the witness says so explicitly.
+
+**Ruling:** §3's "capable of" wording is confirmed — the cone mechanism
+satisfies §3; the live memo wired into completion rides the product executor
+(§4/§5) and the `another_meaning` replacement is §8's, per those sections'
+own bullets. Making today's whole-tree `build` incremental first was
+rejected as building on the vocabulary §4 deletes.
+
+Also: Terra staged the working tree (`git add`) for diff visibility; nothing
+committed. Coordinator reminder issued — visibility via
+`--untracked-files=all` or `git add -N`; staging belongs to the coordinator
+at commit time.
+
+Remaining for the §3 exit: the tiny sequence/map target end-to-end through
+real PDA / Earley fallback / island-delegate paths.
+
+## Ruling: recognition-time routing executes at §6 (2026-08-31)
+
+Terra hit the structural boundary of §3's route work: the lane read belongs at
+clone entry (`_enter` substituting the destination clone), but `PdaTables`
+carries no route/continuation/code→clone data and CANNOT until a
+`TargetSchema` declares a discriminator at §6/§7 — the PDA compiler's analysis
+rightly has no route concept. Wiring `_enter` now would add an attribute load
+and `None` test to every clone entry (hotter than the fork sites, on the model
+product's §4-priced paid path) guarding a branch that cannot fire.
+
+**Coordinator ruling — option 2 of Terra's three:** §3 proves the routing
+MECHANISM (the lane with four stale cases, both fork sites carrying it, the
+authored→lowered→verified route chain with cardinality specialization);
+recognition-time route selection executes at §6 where the first compiled
+schema routes exist. This is distinct from the earlier rejected deferral: the
+mechanism §4 rebuilds on is proved, and the model product routes nothing, so
+§4 is untouched by the moved hop. Extending `PdaTables` with a dead field
+filled by a hand-built tables witness was rejected as scaffolding masquerading
+as coverage. §6 obligations recorded on its RouteOp bullet: route data enters
+`PdaTables`; prefer a clone-baked consult (routed consumer clones marked in
+their own data) over a global per-entry test so unrouted programs gain no new
+branch; §3's moved nested-mapping/non-sibling/stale-route witnesses run there
+through real parses; §12's parse rows gate the landed shape. TODO's §3 exit
+text is amended accordingly. Unblocked and proceeding now: the Earley meaning
+memo + dirty-cone replay and the tiny target end-to-end (the Earley
+routed-successor table shares the §6 dependency and moves with it).
+
+## §3 increment: side tuple widened to the uniform triple (2026-08-31)
+
+`Side = tuple[list[Any], int, RouteLane | None]` lands in `admission.py`
+beside `RouteLane`/`frames_copy`; `_side`, `_advance`, and `_converged` carry
+the lane through both branches with save/install/restore beside `stack`/`pos`.
+The triple is uniform (lane `None` for unrouted programs) so the
+boundary-decision path stays one shape. Both PDA fork sites now carry the
+lane. Coordinator spot-checked the diff and ran the PDA unit suite (823
+passed); Terra ran the full suite BEFORE reporting (5339/8/1-attributed).
+
+Two self-caught process events. The 700-line gate bit `decisions.py` at 708;
+relocating `Side` to `admission.py` (placement, not shaving) was the fix.
+Then, two lines over, Terra changed `control_signature`'s public signature
+dressed as an improvement — six committed `test_lockstep.py` tests broke, and
+Terra reverted and trimmed its OWN new docstring prose instead. **Standing
+lesson ledgered beside the scripted-edit one:** when a size gate bites, the
+honest moves are relocation to the right owner or trimming prose you just
+wrote — never changing a signature existing callers depend on; an
+"improvement" that only occurs to you while you are two lines over is
+rationalisation.
+
+Route half remaining: clone selection consulting the lane (recognition-time
+publish/read/clear through real parses), then the Earley routed-successor
+table, the meaning memo + dirty-cone replay, and the tiny target end to end.
+
+## §3 increment: synthetic route program through the real chain (2026-08-31)
+
+`proto/s3_route_program.py` (exit 0, coordinator-rerun) authors the
+non-sibling `member ::= string tail; tail ::= separator value` shape at the
+records layer and drives it through the real `lower_product` / `lower_routes`
+/ `verify_program` chain — `path=(1, 1)`, three routed value clones as
+separate contextual rules, cardinality specialization asserted per shape.
+
+Writing it caught a latent defect no gate had flagged:
+`OperandTables.routes` was typed as the AUTHORED `RouteTable` tuple, so the
+runtime would have indexed unlowered pairs — the exact scan the route ruling
+forbids — and `destination_of` (a pylint-driven addition) read a
+`destinations` table `lower_routes` never populated, raising `IndexError` on
+first real data. Both fixed: `OperandTables.routes` is now
+`tuple[LoweredRoute, ...]`; `lower_routes(tables, continuations)` pairs each
+table with its consuming continuation and attaches dense destinations
+(mismatched lengths refuse); and `lower_product` is the route table's sole
+writer via the new `LoweringOwned(constructors, routes)` record — one rule
+for both engine-hot authored tables instead of two coincidences. Lesson
+ledgered: an unexercised addition made to satisfy a linter is a defect
+waiting; every such change gets a witness row when made.
+
+Remaining for the §3 exit: `_fork_side`'s uniform-triple widening, clone
+selection consulting the lane (recognition-time publish/read/clear through
+real PDA / Earley fallback / island-delegate parses), and the Earley sparse
+routed-successor table. Then the meaning memo + dirty-cone replay and the
+tiny target end-to-end.
+
+## §3 increment: probe fork wired; stale case (d) witnessed (2026-08-31)
+
+`_probe` now forks the lane beside the stack under one `is not None` guard and
+restores it in the same `finally` as `stack`/`pos`; `Attempting` declares the
+`_routes` slot. The witness gained stale case (d) — a discarded probe fork
+that published its own route AND consumed the outer route on its copy leaves
+the original lane byte-identical — plus a wiring row that reads the source so
+the fork/restore/guard halves cannot drift apart silently. Coordinator reran
+the witness (exit 0) and read the decisions.py diff.
+
+Incident, self-caught and disclosed: Terra's scripted edit anchored on a
+`finally` block whose text repeats in two functions landed the restore in
+`_advance` instead of `_probe`, breaking 65 tests (NameError on the parity and
+split-model differentials). Found on the full suite before reporting, fixed by
+positional anchoring; suite back to 5339/8/1-attributed. Standing lesson
+recorded: no scripted edits anchored on repeating text in kernel files —
+unique context or by hand, and full suite BEFORE reporting.
+
+Next: the synthetic route-bearing program through the real
+`lower_routes`+`verify_program` chain, `_fork_side`'s uniform-triple widening
+in the same pass, and the routing witnesses through real PDA/Earley/island
+paths including non-sibling `member ::= string tail`.
+
+## §3 increment: route lane landed; fork-wiring ruling (2026-08-31)
+
+`RouteLane` lands in `parsing/pda/runtime/admission.py` beside `frames_copy`,
+publishing `(frame, consumer path, route)` keyed by depth with TWO independent
+guards — frame identity (a later frame at a reused depth reads `NO_ROUTE`) and
+clear-on-advance (a later sibling under the same live parent reads
+`NO_ROUTE`) — plus explicit save/restore across live-stack attempts and a
+`forked` remap that rebinds entries to the copied frames. `PdaKernel` gains
+one `_routes` slot, `None` for every unrouted program (the generated-model
+product permanently). Witness `proto/s3_route_lane.py` (exit 0,
+coordinator-rerun) covers publish, all three stale cases, the real
+`frames_copy` fork remap with aliasing checked, and the outer-route-survives
+property on attempt abandonment. Parsing unit tests (1688) green — the slot
+is behavior-neutral.
+
+**Fork-wiring ruling (option 2):** `_probe`'s fork installs directly and its
+lane copy is wired now; `_fork_side`'s side tuple widens to carry the lane
+ONLY in the same pass as the synthetic route-bearing program, so the invasive
+hot-signature change arrives together with the first thing that exercises it,
+inside §3 and therefore still priced by the §4 gate. When it widens, the side
+stays a UNIFORM triple (lane slot `None` for unrouted programs) so the
+boundary-decision path stays monomorphic. Widening now for dead benefit and
+deferring both halves past the lane work were rejected.
+
+## §3 increment: speculation measured; route-scope ruling (2026-08-31)
+
+`proto/s3_speculation_cost.py` (exit 0) proves the ParseState transaction
+claims by measurement: mark+commit/rollback/commit are flat across a 100x
+retained-size sweep (1.45–2.42x at microsecond absolutes) while rollback is
+linear in mutations performed (16→4096 mutations: 0.000008→0.000917 s), with
+correctness asserted before timing. The PDA/island WIRING of these
+transactions remains engine-integration work, so the TODO bullet stays open.
+
+Terra also surfaced two facts that shape the route lane: `frames_copy` is
+positional so a depth-indexed lane remaps by construction at forks, and
+`_attempt_run` speculates ON THE LIVE STACK under a depth watermark — so an
+abandoned attempt needs an explicit lane save/restore, not fork-discard.
+Accepted; the stale-route witnesses must cover it.
+
+**Route-scope ruling:** nothing in `src/` can declare a route until §6/§7
+supply schemas, so §3's routing exit runs on a SYNTHETIC route-bearing
+program — hand-AUTHORED records driven through the real `lower_routes` +
+`verify_program` path (never raw hand-built flat tables), exercising
+publish/read/clear, later-sibling, abandoned-attempt, and fork semantics
+through the real PDA, Earley fallback, and island/delegate paths, including
+the non-sibling `member ::= string tail` shape. Speculative §6 compiler
+emission was rejected (it would guess the schema declaration shape); deferring
+the route half to §6 was rejected (engine mechanism must be proved before §4
+rebuilds the model path on the same kernel). The §3 exit report must state
+plainly that route coverage is synthetic-authored; schema-compiled routes are
+§6's differential.
+
+## Ruling: PDA route lane is cursor-side, not a frame slot (2026-08-31)
+
+Terra found the plan's two §3 constraints collide against the real kernel:
+"store `(consumer path, route)` in PDA frames" versus "the generated-model
+product gains no extra frame slot on its paid path." The PDA frame is one
+program-independent 9-element literal built at two sites in
+`kernel/kernel.py`; widening it costs every product two elements per frame
+push. The PDA also speculates by `frames_copy` stack forking, not by
+mark-and-log, so "under rollback" means "rides the forked stack."
+
+**Coordinator ruling:** the lane is cursor-side — one `PdaKernel` slot
+(`_routes`), `None` for every program without route continuations (the
+generated-model product permanently), indexed by frame depth so it is
+semantically the parent frame's lane, copied beside the stack at the two fork
+sites under one `is not None` guard. Model-path cost: one attribute plus one
+fork-time test — no per-character, per-item, per-completion, or per-frame
+work. All other route constraints stand unchanged (clear only after the first
+routed occurrence advances; deeper children baked into the clone chain;
+compiled scalar discriminator decode; no general evaluator; cardinality-
+specialized lookup). Added obligation: lane validity is tied to the exact
+parent frame instance — the §3 stale-route witnesses must cover a same-depth
+LATER sibling and an abandoned attempt, not only the fork-discard case. TODO's
+route bullet carries the ruling.
+
+## §3 increment: lifecycle seam landed (2026-08-31)
+
+`src/lexic/compile/product/binding.py` lands `BoundProduct[Result]` (ABC:
+`run` + derived `stateful`), `ProgramProduct[Carry, Result]` (verified program
++ executor, no source retention), and the homogeneous
+`BindingRegistry[Declaration, Result]` on the EXISTING
+`parsing.caches.memo/track/adopt/release` protocol — entries dict registered
+with `memo({}, 1)`, source bound via `track`, derived products `adopt`ed under
+the same identity. Warm reads are lock-free with an identity double-check
+against the live objects (recycled addresses cannot serve stale entries);
+cold misses double-check under one lock. `proto/s3_lifecycle.py` (exit 0,
+coordinator-rerun) covers warm identity, explicit release with
+equivalent-rebind, collection, weak-source retention, an eight-thread
+barrier race compiling once, and a pool-retained product running after both
+release and source collection. TODO's lifecycle bullet is ticked; transitive
+release of REAL engine-derived entries re-exercises at engine integration.
+Terra's ExprProgram pushback was correct — it had already shipped in the
+prior increment; the coordinator's re-flag was stale. Terra proceeds to the
+PDA route-lane execution.
+
+## §3 increment: ExprProgram layer, specialized routes, derived stateful (2026-08-31)
+
+Terra landed the two coordinator scope additions and the lowering-side
+constructor enforcement. `ExprCode`/typed expression records cover the seven
+action categories and `RuleProduct.completion` is now `RuleBody =
+RuleCompletion | ExprProgram` — the field's type selects the physical table,
+so one-body-per-rule is structural; an empty expression program refuses at
+lowering. `lower_routes` specializes by cardinality into slotted classes
+(`UniformRoute`/`SingletonRoute`/`TableRoute`) whose `destination_of` composes
+classification with dense destination indexing; nothing scans the authored
+tuple at runtime. `lower_product` is the sole writer of the constructor
+operand table: it takes `constructors: Sequence[type]`, refuses a non-class
+entry, and refuses a caller-filled record. `stateful` is now DERIVED from the
+lowered instructions (the six collection opcodes) rather than declared.
+
+Coordinator reran both witnesses (exit 0) and confirmed the refusal rows.
+**Standing note for §6:** the stateful derivation currently keys ONLY on
+collection opcodes; DESIGN requires ParseState for deferred VERDICTS too, so
+when the verdict-recording operation lands (poisoned schema states /
+deferred-failure ValidateOp), it must join `_STATEFUL_OPCODES` or the
+derivation must consult the declared failure order — do not bolt the parameter
+back on. Coordinator approved Terra's proposed reorder: the `parsing.caches`
+lifecycle seam next (smaller, independent, settles ownership), then the PDA
+route lane.
+
+## §3 increment: defect fixed, lowering landed (2026-08-31)
+
+Terra fixed the returned `LAST_DUPLICATE` rollback defect with a third logged
+mutation kind `MAPPING_REPLACE` carrying the overwritten entry and position in
+a dedicated `_overwritten` lane, popped LIFO by undo; the pre-mark-overwrite
+rollback case is now a witness row that fails against the old code. Both
+minors are addressed: the verifier bounds capture modes to the lowered
+vocabulary and refuses negative slots, and `OperandTables.constructors`
+documents its binding-owned-only contract with lowering named as the §6
+enforcer.
+
+`src/lexic/compile/product/` now exists with `lower.py` (the pinned §5 layout
+grows around it later). `lower_product` converts authored enums to exact
+ints, gives each rule one instruction and a length-one fused range, and pools
+operand rows per opcode. **Encoding ruling (coordinator-accepted):** a
+multi-field operation lowers to one instruction whose operand indexes a row in
+that opcode's OWN table — `*_operand_limits` became `*_operand_rows`, bounds
+are `len(rows[opcode])`, every table stays typed with no catch-all array. The
+per-completion double index (`rows[opcode][operand]`) is cold-priced as
+acceptable; if the §4/§12 gates attribute hot-path cost to it the encoding is
+revisited then. Witness `proto/s3_lowering.py` lowers a tiny sequence/map
+target with container begin/finish and entry insert on different rules,
+verifies, exact-int audits, and executes it through a proto interpreter —
+explicitly NOT the §3 exit, which needs the real engines.
+
+Coordinator reran all three §3 witnesses (exit 0) and confirmed the new
+refusal/rollback rows. Still owed in §3: the authored typed
+reducer-expression program record layer (its definition is §3's; lowering the
+shipped reducers through it is §5's), route-continuation execution in both
+engines, the routing witnesses, the Earley meaning memo + dirty-cone replay,
+the `parsing.caches` lifecycle seam, speculation measurement, and the tiny
+target through real PDA/Earley/island. Terra proceeds PDA-frame-lane first.
+
+## §3 foundation reviewed — engine integration remains (2026-08-31)
+
+Terra landed the §3 foundation and stopped deliberately before engine surgery:
+`src/lexic/parsing/product/` in the pinned five-module layout plus README, and
+the shared-forest fold fix in `parsing/fold.py` (a `folded` set distinct from
+the value table; all four §3 witness shapes — duplicate-slot, pending-frame,
+sibling-memo, transparent `__rep_1` — now fold each shared node's value exactly
+once through the real Earley fallback, pinned by `proto/s3_shared_forest.py`).
+`proto/s3_product_abi.py` pins the verifier's eight refusal messages, the
+exact-int audit refusing a surviving `IntEnum`, LIFO transactions with
+mutation-proportional rollback, and the regular proof's four declines plus the
+decidable once-required-nullable proof. Coordinator reran both witnesses
+(exit 0), pyright (0 errors), and the targeted invariant/parsing/parity suites
+(2248 passed) — the parity/roundtrip greens are the evidence the fold change is
+behavior-preserving.
+
+Coordinator rulings:
+
+- **Accepted deviation:** `regular.py` imports the first-set algebra
+  (`KWindowFirst`/`collide`/`separable`/`extend_follow`) from
+  `parsing/pda/analysis/gates/windows.py` beyond the pinned `pda/core` leaves —
+  importing the repo's one FIRST implementation is what the
+  no-reimplementation clause intends. TODO §3 and DESIGN record it.
+- **Attributed failure:** `test_test_parity.py` fails naming the four new
+  product modules' missing unit-test mirrors. Terra may not write committed
+  tests and a false ALLOWED entry was rightly refused; the failure stays
+  attributed until Luna mirrors the modules at §13. Everything else is green.
+- **Defect returned to Terra (state.py):** a `LAST_DUPLICATE` `replace` on a
+  key inserted BEFORE the live mark logs nothing, so rollback cannot restore
+  the pre-mark value — a rolled-back speculation leaves the mapping mutated.
+  Fix requires a logged replacement mutation carrying the old value; the
+  docstring's claim that the enclosing insert's log entry covers it is wrong
+  for the pre-mark case.
+- **Minor returned:** the verifier bounds completion ranges and operands but
+  not capture modes (an out-of-range mode passes); and
+  `OperandTables.constructors` must pin, in words now and in lowering checks
+  later, that it holds only binding-owned constructors — never arbitrary
+  target callables — since `RecordOp` runs at frequent completions.
+
+Remaining §3 work, in Terra's stated dependency order: the lowering pass, route
+continuation execution (PDA lane + sparse Earley successor table +
+recognition-time discriminator decode with cardinality-specialized lookup),
+the routing witnesses including non-sibling `member ::= string tail`, the
+Earley meaning memo + dirty-cone replay, the `parsing.caches` lifecycle seam,
+measured valid/failed speculation, and the tiny sequence/map target through
+PDA/Earley/island. Terra also re-ran repo-wide auto_fix against instruction,
+then restored the 21 files itself; future formatting is per-file only.
+
+## §2 implemented and accepted — production source has begun (2026-08-31)
+
+Terra (Opus) implemented §2 in four files: the semantic-signature/target-schema
+vocabulary in `src/lexic/ir/reduction.py` (SemanticSort str-leaf family and ten
+sorts, `SemanticSignature`, the SchemaRoute family with Known/Extension/Entry,
+SchemaCheck/SchemaChecks, DuplicatePolicy, the SchemaState family with
+Accepting/Poisoned/Recovery, MeaningLaw, FailureOrder, `TargetSchema` with
+`verify`), `SemanticVerdict` + `TargetRefusalError(LexicError)` in
+`src/lexic/exceptions.py` (primitives-only verdict record with the `(pos,
+order)` stable total key), `JSON_SIGNATURE`/`JSON_EVENTS` beside `JSON_REDUCER`
+in `src/lexic/grammars/json.py`, and the three-way lazy-façade export in
+`src/lexic/ir/__init__.py`. Every family base raises
+`UnsupportedConstructError` with words; nothing in the vocabulary parses,
+lowers, mutates, or names a format.
+
+**Ruling (coordinator-confirmed, §6 builds on it):** the signature-to-reducer
+data channel is two fields on `Reducer` itself — `signature: IrSelf = IrNone`
+and `events: IrMap[IrRuleRef, IrStr]`. `SemanticSignature` is literally
+rule-name-free so one object serves every formulation; the symbol→event anchor
+lives beside the actions it describes, keyed the same way actions already are.
+Authored, never inferred — body-shape inference is provably impossible
+(`member` and `array` both reduce through `IrBuild(IrTuple)`).
+
+§2 exit criterion holds: `proto/s2_signature_exit.py` (uncommitted witness)
+compiles native + GBNF + ABNF + EBNF JSON, reduces one document to one value
+through all four, confirms all four expose `JSON_SIGNATURE` by identity, and
+diagnoses wrong-boundary, missing-event, and no-boundary mismatches before any
+parse. Coordinator independently reran it (exit 0), pyright src+tests (0
+errors), the full suite (`uv run pytest tests/ -q -n auto`: 5340 passed, 8
+skipped), and `tools/run_checks.sh` (exit 0).
+
+Incidents, both resolved: Terra ran `git checkout -- src/lexic/ir/reduction.py`
+mid-work, reverting its own §2 file, restored it verbatim and re-verified; all
+reported numbers are post-restore. The coordinator restored Terra's 21
+out-of-scope `auto_fix.sh` reformats (tools/ + this effort's proto/) so the §2
+diff is exactly four src files. The coordinator also fixed the pre-existing
+trailing-whitespace failures that kept `tools/checks/10_sanity.sh` red
+(committed reports PROTOTYPE.md/PROTOTYPE_2.md/PROTOTYPE_3.md/REVIEW_6.md plus
+16 untracked historical files across old effort dirs — the untracked edits are
+whitespace-only and irreversible; noted here for provenance). CLAUDE.md's
+`exceptions.py` and `ir/reduction.py` package-map annotations were updated
+mechanically.
+
+Nothing is committed or staged; the first checkpoint commit remains the §4
+exit. No parse-performance-relevant path was touched. Next: §3
+(`parsing/product/` engine-neutral product ABI) on the same warm Terra agent.
+
 ## Round 16 folded — implementation may begin (2026-08-31)
 
 The corrected Round 16 packet reran sequentially: both

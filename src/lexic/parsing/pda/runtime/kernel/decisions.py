@@ -35,6 +35,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
+    RouteLane,
+    Side,
     admits,
     control_signature,
     frames_copy,
@@ -151,6 +153,7 @@ class Attempting:
     pos: int
     stack: list[list[Any]]
     _caches: KernelCaches
+    _routes: RouteLane | None
 
     def _enter(self, clone: FlatClone, out: list[object]) -> bool:
         """Provided by the kernel — push (or inline) ``clone``'s frame."""
@@ -385,7 +388,9 @@ class Attempting:
                 return None  # a dead side — the slow path names which
             target = max(left[1], right[1])
             if left[1] == right[1]:
-                if control_signature(*left) == control_signature(*right):
+                if control_signature(left[0], left[1]) == control_signature(
+                    right[0], right[1]
+                ):
                     return self._converged(left, right, shape)
                 target += _LOCKSTEP_STEP
             left = self._advance(left, target)
@@ -394,8 +399,8 @@ class Attempting:
 
     def _converged(
         self,
-        left: tuple[list[Any], int],
-        right: tuple[list[Any], int],
+        left: Side,
+        right: Side,
         shape: tuple[Any, ...],
     ) -> int | None:
         """The verdict once both sides share a position and a control state.
@@ -419,20 +424,22 @@ class Attempting:
         i: int,
         pos: int,
         taken: tuple[int, list[object]] | None,
-    ) -> tuple[list[Any], int] | None:
-        """One side of the boundary as its own resumable ``(stack, pos)``.
+    ) -> Side | None:
+        """One side of the boundary as its own resumable ``(stack, pos, lane)``.
 
         The same fork :meth:`_probe` builds — a structural stack copy with the
         boundary decided — but handed back undriven so the caller can advance
-        it in step with the other.
+        it in step with the other. The lane forks with the stack, so whichever
+        side loses takes the routes it published with it.
         """
         forked = frames_copy(self.stack)
+        routes = None if self._routes is None else self._routes.forked(forked)
         top = forked[-1]
         if taken is None:
             top[F_COUNT] = 0
             top[F_I] = i + 1
             top[F_ENDS][i] = pos
-            return forked, pos
+            return forked, pos, routes
         top[F_COUNT] += 1
         top[F_I] = i
         saved = self.stack
@@ -441,11 +448,9 @@ class Attempting:
             self._sink_for(top, arm, i).extend(taken[1])
         finally:
             self.stack = saved
-        return forked, taken[0]
+        return forked, taken[0], routes
 
-    def _advance(
-        self, side: tuple[list[Any], int], limit: int
-    ) -> tuple[list[Any], int] | None:
+    def _advance(self, side: Side, limit: int) -> Side | None:
         """Drive one side to ``limit`` (``-1`` = to the end), or ``None`` if it dies.
 
         Swapped in and out under the same discipline :meth:`_probe` uses, and
@@ -458,20 +463,21 @@ class Attempting:
         is the whole population this exists for.
         """
         caches = self._caches
-        saved_stack, saved_pos = self.stack, self.pos
-        self.stack, self.pos = side[0], side[1]
+        saved_stack, saved_pos, saved_routes = self.stack, self.pos, self._routes
+        self.stack, self.pos, self._routes = side[0], side[1], side[2]
         caches.probing += 1
         saved_unc = caches.uncertain
         caches.uncertain = False
         try:
             self._drive(limit=limit)
-            return self.stack, self.pos
+            return self.stack, self.pos, self._routes
         except PdaFail, LexicError:
             return None
         finally:
             caches.probing -= 1
             caches.uncertain = saved_unc
             self.stack, self.pos = saved_stack, saved_pos
+            self._routes = saved_routes
 
     def attempt(self, clone: FlatClone, out: list[object]) -> None:
         """Try an attempt clone's entries in order — the third gate class, live.
@@ -654,6 +660,12 @@ class Attempting:
         caches = self._caches
         saved_stack, saved_pos = self.stack, self.pos
         forked = frames_copy(saved_stack)
+        # The lane rides the fork: a probe that publishes a route must not
+        # leave it behind on the real stack when the probe is discarded.
+        # `None` for every unrouted program, so this costs one test.
+        saved_routes = self._routes
+        if saved_routes is not None:
+            self._routes = saved_routes.forked(forked)
         root_out = forked[0][F_OUT]
         top = forked[-1]
         if taken is None:
@@ -684,3 +696,4 @@ class Attempting:
             caches.probing -= 1
             caches.uncertain = saved_unc
             self.stack, self.pos = saved_stack, saved_pos
+            self._routes = saved_routes

@@ -9,7 +9,7 @@ attempt/probe DRIVERS stay methods — their group writes the cursor's own state
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NamedTuple
 
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
@@ -27,7 +27,10 @@ from lexic.parsing.pda.runtime.build import (
 )
 
 __all__ = [
+    "NO_ROUTE",
     "PROBE_DEPTH",
+    "RouteLane",
+    "Side",
     "control_signature",
     "pending_values",
     "value_shape",
@@ -37,6 +40,18 @@ __all__ = [
     "frames_copy",
     "sole_admitted",
 ]
+
+NO_ROUTE = -1
+"""No route is waiting here. A plain int rather than ``None`` so a routed
+consumer's read stays one comparison against the dense route ids."""
+
+type Side = tuple[list[Any], int, "RouteLane | None"]
+"""One resumable boundary side: its forked stack, its position, its route lane.
+
+A UNIFORM triple. The lane slot is ``None`` for every program without route
+continuations rather than the tuple changing arity by product, so the
+boundary-decision path stays one shape and one call signature whatever is
+being parsed."""
 
 PROBE_DEPTH = 24
 """Stop-probe nesting cap. Past it a boundary reads as undecidable
@@ -143,6 +158,108 @@ def frames_copy(stack: list[list[Any]]) -> list[list[Any]]:
             ]
         copies.append(new)
     return copies
+
+
+class _Published(NamedTuple):
+    """One route waiting in a parent frame for the child that reads it.
+
+    :ivar frame: The publishing frame ITSELF, not its depth. Depth alone
+        aliases: a later frame arriving at the same depth would inherit a
+        route published for the one before it.
+    :ivar path: The descendant slot chain from this frame to the consumer.
+        A one-element path is the sibling case; a longer one is why routing
+        does not depend on the producer and consumer being adjacent.
+    :ivar route: The dense route id the consumer enters on.
+    """
+
+    frame: list[Any]
+    path: tuple[int, ...]
+    route: int
+
+
+class RouteLane:
+    """Where a producer's route waits between publication and consumption.
+
+    Cursor-side rather than a frame slot: a frame is one program-independent
+    flat list, so widening it would tax every product's every frame push —
+    including the generated-model product, which routes nothing, ever. This
+    lives on the kernel instead and is ``None`` there for any program without
+    route continuations, so the unrouted path pays one attribute and one test
+    at a fork.
+
+    Two independent guards keep a route from reaching the wrong occurrence,
+    because they catch different mistakes:
+
+    - **The frame identity** stops a LATER frame at the same depth reading a
+      route published by one that has since popped.
+    - **Clearing on advance** stops a later SIBLING under the same live parent
+      reading a route the first routed child already consumed.
+
+    Neither subsumes the other: the first leaves the parent alive, the second
+    replaces it.
+    """
+
+    __slots__ = ("_table",)
+
+    def __init__(self, table: dict[int, _Published] | None = None) -> None:
+        """Open an empty lane, or adopt an already-remapped table."""
+        self._table: dict[int, _Published] = {} if table is None else table
+
+    def publish(
+        self, depth: int, frame: list[Any], path: tuple[int, ...], route: int
+    ) -> None:
+        """Record the route ``frame`` just classified, for its descendant."""
+        self._table[depth] = _Published(frame, path, route)
+
+    def route_at(self, depth: int, frame: list[Any]) -> int:
+        """The route waiting in ``frame``, or :data:`NO_ROUTE`.
+
+        :param depth: Where the publishing frame sits.
+        :param frame: The frame the caller believes published it — checked by
+            identity, so a recycled depth cannot serve a stale route.
+        :returns: The dense route id, or :data:`NO_ROUTE`.
+        """
+        found = self._table.get(depth)
+        if found is None or found.frame is not frame:
+            return NO_ROUTE
+        return found.route
+
+    def path_at(self, depth: int, frame: list[Any]) -> tuple[int, ...]:
+        """The consumer path waiting in ``frame``, empty when none is."""
+        found = self._table.get(depth)
+        if found is None or found.frame is not frame:
+            return ()
+        return found.path
+
+    def clear(self, depth: int) -> None:
+        """Drop the route at ``depth`` — its routed occurrence has advanced."""
+        self._table.pop(depth, None)
+
+    def discard_above(self, depth: int) -> None:
+        """Drop everything published deeper than ``depth``.
+
+        An abandoned attempt runs ON the live stack under a depth watermark
+        rather than on a discarded copy, so unwinding the stack is not enough:
+        whatever the attempt published below the watermark has to go with it.
+        """
+        for at in [key for key in self._table if key > depth]:
+            del self._table[at]
+
+    def forked(self, copies: list[list[Any]]) -> RouteLane:
+        """This lane rebound to a forked stack's frames.
+
+        :param copies: The forked stack, positionally matching the original —
+            which is what :func:`frames_copy` guarantees, and why a
+            depth-indexed lane needs no identity map of its own.
+        :returns: A lane whose entries name the copied frames.
+        """
+        return RouteLane(
+            {
+                depth: _Published(copies[depth], entry.path, entry.route)
+                for depth, entry in self._table.items()
+                if depth < len(copies)
+            }
+        )
 
 
 def _dup(lst: list[Any], remap: dict[int, list[Any]]) -> list[Any]:

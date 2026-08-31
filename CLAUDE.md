@@ -127,7 +127,7 @@ anyone noticed). Annotations are one line; module docstrings carry the detail.
 ```
 src/lexic/
   __init__.py                      Lexic — Grammar engine
-  exceptions.py                    LexicError hierarchy — UnsupportedConstructError, FieldValidationError
+  exceptions.py                    LexicError hierarchy — UnsupportedConstructError, TargetRefusalError, FieldValidationError
   generate.py                      random string generator — walks a canonical grammar's rules directly
   model.py                         GrammarModel on IrNamedTuple — models ARE IrSelf; to_text/to_grammar/dump
   model_emission.py                Stack records and extent reservation for addressed model emission
@@ -168,6 +168,10 @@ src/lexic/
       encode.py                    Value → the three flat tables — the projection's lexic side
       export.py                    export_value — a projected value as an importable, self-contained module
       reader.py                    The payload's reader — zero lexic imports, by design and by test
+    product/
+      __init__.py                  The compile half of the product ABI — building a program
+      binding.py                   Bound products and their lifetime — one registry per declaration kind
+      lower.py                     Authored product operations → the flat int-coded tables
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
       binding.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
@@ -190,7 +194,7 @@ src/lexic/
     __init__.py                    Public IR surface — a LAZY façade; import everything from here
     flavour.py                     IrFlavour ABC — config bundle every grammar flavour subclasses
     identity.py                    The identity walk — a value's graph under ONE stated child definition
-    reduction.py                   Reducer declarations + contribution-policy sentinels — grammar-side IR data
+    reduction.py                   Reducer, semantic-signature and target-schema declarations — grammar-side IR data
     spine/                        The node substrate — everything else is downstream
       __init__.py                the group's package marker; the façade is the import surface
       bind.py                       IrBind — the field-binding marker generated model fields carry
@@ -264,6 +268,12 @@ src/lexic/
       normalize.py                 Desugar an IR grammar into classical Earley shape
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
+    product/
+      __init__.py                  The product ABI — the package's one import surface
+      records.py                   Immutable authored operations and the flat int-coded tables they lower to
+      state.py                     Parse-local builders, deferred verdicts, constant-size transaction marks
+      verify.py                    Physical-table verification — the cold gate before the paid loop
+      regular.py                   The authoritative regular-language proof
     parallel/
       __init__.py                  The parallel layer — split analysis, roles, scan, policy (orchestrator home)
       orchestrate.py               Split orchestration — one document chunk-parsed and stitched to the exact model

@@ -81,6 +81,7 @@ from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.core.scanner import scan_gate_take
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
+    RouteLane,
     sole_admitted,
 )
 from lexic.parsing.pda.runtime.build import (
@@ -148,7 +149,7 @@ class PdaKernel[M](
         across the boundary).
     """
 
-    __slots__ = ("tables", "text", "pos", "stack", "policy", "_caches")
+    __slots__ = ("tables", "text", "pos", "stack", "policy", "_caches", "_routes")
 
     tables: PdaTables
     text: str
@@ -156,6 +157,7 @@ class PdaKernel[M](
     stack: list[list[Any]]
     policy: IslandPolicy[M]
     _caches: KernelCaches
+    _routes: RouteLane | None
 
     def __init__(
         self,
@@ -182,6 +184,10 @@ class PdaKernel[M](
         self.pos = 0
         self.stack = []
         self._caches = KernelCaches()
+        # `None` for every program without route continuations — which is the
+        # generated-model product permanently. A frame slot would have taxed
+        # every product's every frame push; this taxes one attribute.
+        self._routes = None
 
     # ── the driver ────────────────────────────────────────────────────
 

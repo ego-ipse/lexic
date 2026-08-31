@@ -1,6 +1,6 @@
 # Prototype report — review-pass-2 mechanisms
 
-**Date:** 2026-08-27  
+**Date:** 2026-08-27
 **Tree:** branch `targeter`, source baseline `0faa7289`; all executable work is
 under this effort's `proto/`, with no `src` changes.
 

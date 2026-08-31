@@ -1,6 +1,6 @@
 # Plan review — target-shaped parsing, pass 6
 
-**Reviewed:** 2026-08-28  
+**Reviewed:** 2026-08-28
 **Scope:** the current coherent plan in `context.md`, `goal.md`, `DESIGN.md`,
 `TODO.md`, and `LEDGER.md`; reports through `PROTOTYPE_3.md` and `REVIEW_5.md`;
 the latest feasibility prototypes; and the cited production seams.  This was a

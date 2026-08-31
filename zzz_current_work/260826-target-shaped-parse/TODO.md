@@ -56,8 +56,11 @@ settlement from resolver-tree materialization. `PROTOTYPE_16.md`, corrected by
 relation and exact-lane policy. Shared nodes are values computed once; their
 parent-slot occurrences choose independently. Exact execution is uncapped and
 uses only proved constant, injective-route, and second-meaning exits. No
-planning question or user decision blocks §2. Source implementation has not
-started, and no parse regression is authorized by any of this evidence.
+planning question or user decision blocks §2. Production source began
+2026-08-31: §2 is implemented and coordinator-accepted (see the LEDGER §2
+entry for the Reducer.events ruling and verification), and §3 is in progress
+on the warm Terra agent. No parse regression is authorized by any of this
+evidence.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -295,17 +298,17 @@ measurement gates; the prototypes do not claim them.
 
 ## 2 — add the declarative signature/schema vocabulary
 
-- [ ] Extend `src/lexic/ir/reduction.py` with the strict declarative vocabulary
+- [x] Extend `src/lexic/ir/reduction.py` with the strict declarative vocabulary
       for `SemanticSignature`, semantic sorts/events, `TargetSchema`, route
       classes, accepting/poisoned/recovery states, validation declarations, and
       meaning declarations.
-- [ ] Keep this vocabulary as data on the IR spine. It owns no parser runtime,
+- [x] Keep this vocabulary as data on the IR spine. It owns no parser runtime,
       target-specific JSON declaration, mutable builder, or compile algorithm.
-- [ ] Export the intended surface through `src/lexic/ir/__init__.py` and the
+- [x] Export the intended surface through `src/lexic/ir/__init__.py` and the
       relevant spine/package façades without introducing a second import path.
-- [ ] Give every unknown event/action/schema construct a raising
+- [x] Give every unknown event/action/schema construct a raising
       `UnsupportedConstructError` dispatch default.
-- [ ] Implement the declared exception vocabulary exactly as `DESIGN.md`
+- [x] Implement the declared exception vocabulary exactly as `DESIGN.md`
       §validation records it: binding refusals, verifier failures, and syntax
       stay `UnsupportedConstructError`; raised semantic verdicts are the new
       `TargetRefusalError(LexicError)` over `SemanticVerdict` value records
@@ -314,11 +317,11 @@ measurement gates; the prototypes do not claim them.
       message against this declaration. This intentionally replaces the
       tokenizer reader's current semantic `UnsupportedConstructError` cases;
       pre-0.1 gets no compatibility subclass, alias, or adapter.
-- [ ] Add the JSON semantic signature beside `JSON_REDUCER` in
+- [x] Add the JSON semantic signature beside `JSON_REDUCER` in
       `src/lexic/grammars/json.py`: decoded null/bool/integer/fraction/string,
       array item/array, object entry/object, and completion. It contains no
       tokenizer field names.
-- [ ] Bind the signature to the reducer through one real data channel. Do not
+- [x] Bind the signature to the reducer through one real data channel. Do not
       create parallel registries keyed by reducer identity and do not infer
       semantic roles from grammar rule names.
 
@@ -338,7 +341,7 @@ the same signature object; a mismatched target can be diagnosed before parse.
       Earley successor code; the implementation rule is the descendant clone
       chain described below.
 
-- [ ] Add the focused parsing-owned `src/lexic/parsing/product/` package:
+- [x] Add the focused parsing-owned `src/lexic/parsing/product/` package:
       `records.py` owns immutable authored/flat ABI records, `state.py` owns
       parse-local builders and transactions, `regular.py` owns the
       authoritative regular-language proof, `verify.py` owns physical-table
@@ -346,7 +349,11 @@ the same signature object; a mismatched target can be diagnosed before parse.
       not grow a monolithic product module or expose parallel import paths.
       `regular.py` imports and reuses `CharSet`, `build_recognizer`, and
       `compile_source` from the existing `parsing/pda/core/` leaves; it must not
-      reimplement first-set algebra or possessive lowering.
+      reimplement first-set algebra or possessive lowering. (Coordinator-
+      accepted deviation 2026-08-31: `regular.py` also imports the first-set
+      algebra `KWindowFirst`/`collide`/`separable`/`extend_follow` from
+      `parsing/pda/analysis/gates/windows.py` — importing the repo's one
+      first-set implementation IS the no-reimplementation clause's intent.)
 - [ ] Define the typed authored operation records, flat opcodes/tables,
       typed reducer-expression program, `CaptureSpec`, `RuleProduct`,
       `ProductProgram`, parse-local state, transaction marks, meaning contract,
@@ -355,10 +362,12 @@ the same signature object; a mismatched target can be diagnosed before parse.
       attempt sub-clone, island, and delegate exactly one tagged completion
       range index. Verify its non-empty bounds and operand tables before
       execution; do not store parallel expression and fused fields.
-- [ ] Convert every authored enum to an exact `int` during lowering. Assert the
+- [x] Convert every authored enum to an exact `int` during lowering. Assert the
       flattened rule, expression, and capture tables contain no `IntEnum`
       instances using `type(value) is int`, never `isinstance`; frequent
-      completion dispatch compares/indexes plain ints.
+      completion dispatch compares/indexes plain ints. (Done 2026-08-31 in
+      `compile/product/lower.py` + `parsing/product/verify.py`; the
+      engine-side int dispatch lands with the engine integration bullets.)
 - [ ] Lower an occurrence-scoped `RouteContinuation`; refuse a nullable or
       non-single-discriminator producer. It records a descendant consumer path,
       not merely one sibling position. In PDA frames store `(consumer path,
@@ -369,6 +378,15 @@ the same signature object; a mismatched target can be diagnosed before parse.
       packed successor codes carry route and occurrence identity; do not widen
       every item or touch ordinary `_advance_all`. The later forest fold cannot
       perform routing.
+      (Coordinator ruling 2026-08-31: the PDA lane is CURSOR-SIDE — one
+      `PdaKernel` slot, `None` for every non-routing program, indexed by frame
+      depth so it IS the parent frame's lane semantically, copied beside the
+      stack at the two fork sites. Widening the uniform 9-slot frame literal
+      would tax the generated-model paid path, which this section forbids;
+      "under rollback" is satisfied by the kernel's own copy-discard
+      speculation shape. A lane entry's validity is tied to its exact parent
+      frame instance: the stale-route witnesses must cover a same-depth later
+      sibling and an abandoned attempt.)
 - [ ] Lower the producer's discriminator to direct scalar decode/classification
       at recognition-time completion. It must not call the general reducer
       expression evaluator or construct a model. Specialize the lookup by
@@ -383,6 +401,17 @@ the same signature object; a mismatched target can be diagnosed before parse.
       non-sibling `member ::= string tail; tail ::= separator value` shape and
       assert the route reaches the descendant value in all three execution
       paths.
+      (Coordinator ruling 2026-08-31: EXECUTES AT §6, not §3. `PdaTables`
+      carries no route data and cannot until a `TargetSchema` declares a
+      discriminator — wiring `_enter`/the Earley successor table now would
+      guard a branch that cannot fire, on the model product's paid path.
+      §3 proves the mechanism: the lane with four stale cases, both fork
+      sites, and the authored→lowered→verified route chain with cardinality
+      specialization. This bullet's witnesses run at §6 against the first
+      compiled schema routes, under the same wording. §6 obligation: prefer a
+      clone-baked consult — routed consumer clones marked in their own data —
+      over a global per-entry test, so unrouted programs' clone entries gain
+      no new branch; §12's parse rows still gate whatever shape lands.)
 - [ ] Keep the parsing layer a leaf: imports may reach `lexic.ir`, never
       `lexic.compile`, `lexic.grammars`, or `lexic.api`.
 - [ ] Lower operations to data. No target object or morphism is called from the
@@ -423,15 +452,21 @@ the same signature object; a mismatched target can be diagnosed before parse.
       missing value-table entry currently repeats. Use a finished set distinct
       from the value table; all four shapes are §3 exit witnesses with
       deterministic value-once/effect-per-occurrence counts.
-- [ ] Define the lifecycle seam through the existing
+- [x] Define the lifecycle seam through the existing
       `parsing.caches.memo/track/adopt/release` protocol. Product programs and
       bound runners retain no source artefact; derived PDA/Earley/replica cache
       entries release transitively. Exercise explicit release, collection,
       concurrent first bind, and a pool-retained bound program after release.
+      (Done 2026-08-31 in `compile/product/binding.py` + `proto/s3_lifecycle.py`;
+      transitive release of REAL engine-derived cache entries is re-exercised
+      when the engines integrate.)
 
 Exit: the product ABI executes a tiny sequence/map target through actual PDA,
-Earley, and island/delegate paths; occurrence routing selects the following
-child during recognition; every physical execution table verifies one exact-int
+Earley, and island/delegate paths; the occurrence-routing MECHANISM is proved
+(lane stale cases, both fork sites, authored→lowered→verified route chain) —
+recognition-time route selection executes at §6 with the first compiled schema
+routes, per the 2026-08-31 ruling above; every physical execution table
+verifies one exact-int
 completion range; rollback, fresh-alternate isolation, and cache release pass;
 side-effecting completion is exactly-once per shared forest node with
 per-occurrence effects across all four shared-subtree/synthetic witness shapes;
@@ -650,7 +685,13 @@ the §8/§9 re-runs.
 - [ ] Compile schema `RouteOp` data into the occurrence-scoped continuation
       mechanism proven at §3. Known valid routes select precompiled specialized
       child states; this is not a Python callback, grammar-rule-name lookup, or
-      second route implementation.
+      second route implementation. Per the 2026-08-31 ruling this is also
+      where recognition-time routing first EXECUTES: route data enters
+      `PdaTables`, `_enter` consults the lane (clone-baked consult preferred —
+      routed consumer clones marked in their own data, no global per-entry
+      test), the sparse Earley routed-successor table lands, and §3's moved
+      nested-mapping/non-sibling/stale-route witnesses run through real
+      PDA / Earley fallback / island-delegate parses here.
 - [ ] Implement poisoned schema states. A semantic mismatch records its ordered
       verdict, routes the remaining value/document through generic lower-syntax
       recovery, and defers raising until syntax succeeds.
