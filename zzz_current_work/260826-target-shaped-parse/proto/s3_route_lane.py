@@ -130,13 +130,21 @@ def a_fork_rebinds_to_the_copied_frames() -> None:
     copies = frames_copy(stack)
     forked = lane.forked(copies)
 
-    _check("the fork did not preserve the aliasing topology", copies[1][F_OUT] is copies[0][F_OUT])
-    _check("the forked lane still names the ORIGINAL frame", forked.route_at(0, stack[0]) == NO_ROUTE)
+    _check(
+        "the fork did not preserve the aliasing topology",
+        copies[1][F_OUT] is copies[0][F_OUT],
+    )
+    _check(
+        "the forked lane still names the ORIGINAL frame",
+        forked.route_at(0, stack[0]) == NO_ROUTE,
+    )
     _check("the forked lane lost its route", forked.route_at(0, copies[0]) == 9)
     _check("the forked lane lost its path", forked.path_at(0, copies[0]) == (1,))
     _check("forking mutated the original lane", lane.route_at(0, stack[0]) == 9)
     _check("the forked frames are distinct objects", copies[0] is not stack[0])
-    _check("the per-frame lists were duplicated", copies[0][F_ENDS] is not stack[0][F_ENDS])
+    _check(
+        "the per-frame lists were duplicated", copies[0][F_ENDS] is not stack[0][F_ENDS]
+    )
     _check("an unset sink stayed unset", copies[0][F_SINKS] is None)
     print("fork\tlane rebinds to the copied frames; the original is untouched")
 
@@ -172,7 +180,8 @@ def a_discarded_fork_leaves_the_original_untouched() -> None:
 def the_probe_fork_site_carries_the_lane() -> None:
     """The wired half: `_probe` saves, forks, and restores the lane."""
     source = (
-        __import__("pathlib").Path("src/lexic/parsing/pda/runtime/kernel/decisions.py")
+        __import__("pathlib")
+        .Path("src/lexic/parsing/pda/runtime/kernel/decisions.py")
         .read_text(encoding="utf-8")
     )
     _check(

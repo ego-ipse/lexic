@@ -216,9 +216,7 @@ def _windows(length: int, count: int) -> tuple[tuple[int, int], ...]:
     )
 
 
-def _window_bound(
-    text: str, spec: ScanSpec, bound: tuple[int, int]
-) -> WindowResult:
+def _window_bound(text: str, spec: ScanSpec, bound: tuple[int, int]) -> WindowResult:
     """Run one arithmetic bound through the window scanner."""
     return _window(text, bound[0], bound[1], spec)
 
@@ -251,9 +249,7 @@ def _regions(text: str, events: tuple[Event, ...], spec: ScanSpec) -> list[Regio
         elif char in spec.closers and stack and stack[-1][1] == spec.closers[char]:
             opener, opening, marks = stack.pop()
             if marks and at - opener >= 2_048:
-                found.append(
-                    Region(opener, at, spec.pairs[opening][1], tuple(marks))
-                )
+                found.append(Region(opener, at, spec.pairs[opening][1], tuple(marks)))
         elif char in spec.marks and stack:
             stack[-1][2].append(at)
     if stack:
@@ -302,8 +298,7 @@ def _parse_options(arguments: Sequence[str] | None = None) -> Options:
 def _shape(regions: list[Region]) -> tuple[tuple[int, int, str, tuple[int, ...]], ...]:
     """Return the exact discovery value for oracle comparison."""
     return tuple(
-        (region.opener, region.closer, region.rule, region.marks)
-        for region in regions
+        (region.opener, region.closer, region.rule, region.marks) for region in regions
     )
 
 

@@ -221,7 +221,7 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     compiled = compile_text(text, flavour="gbnf")
-    pda = compile_pda(lifted, normalize(lifted), compiled.fold.config)
+    pda = compile_pda(lifted, normalize(lifted), compiled.product)
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):
             pda_model(pda, inp, compiled.fold)

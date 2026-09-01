@@ -73,7 +73,7 @@ def test_watching_does_not_change_what_the_parse_says(name: str) -> None:
     """
     compiled = compile_from_path(GROUND_TRUTH / name)
     for text in documents(name):
-        model = parse_model(compiled.codegen_grammar, text, compiled.fold)
+        model = parse_model(compiled.codegen_grammar, text, compiled.product)
         run = watch(compiled.pda_tables(), text, compiled.fold)
         if run.derived:
             assert model.to_text() == text, name

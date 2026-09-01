@@ -53,9 +53,7 @@ VALUE_MODEL, VALUE_VOCAB, VALUE_ANY = 4, 5, 6
 
 RULES: tuple[RuleProduct[Carry], ...] = (
     RuleProduct((CaptureSpec(CaptureMode.ONE, 0),), PassOp(0)),
-    RuleProduct(
-        (CaptureSpec(CaptureMode.TEXT, 0),), DecodeOp(0, DecodeCode.TEXT)
-    ),
+    RuleProduct((CaptureSpec(CaptureMode.TEXT, 0),), DecodeOp(0, DecodeCode.TEXT)),
     RuleProduct((CaptureSpec(CaptureMode.ONE, 0),), PassOp(0)),
     RuleProduct((), PassOp(0)),
     RuleProduct((CaptureSpec(CaptureMode.TEXT, 0),), DecodeOp(0, DecodeCode.TEXT)),
@@ -132,8 +130,13 @@ def the_route_reaches_a_non_sibling_consumer() -> None:
     _check("the producer is not the discriminator", CONTINUATION.producer == STRING)
 
     lowered = lower_routes((KEYS,), (CONTINUATION,))[0]
-    _check("a known key missed its destination", lowered.destination_of("model") == VALUE_MODEL)
-    _check("the second known key missed", lowered.destination_of("vocab") == VALUE_VOCAB)
+    _check(
+        "a known key missed its destination",
+        lowered.destination_of("model") == VALUE_MODEL,
+    )
+    _check(
+        "the second known key missed", lowered.destination_of("vocab") == VALUE_VOCAB
+    )
     _check(
         "an unknown key did not take the extension destination",
         lowered.destination_of("anything-else") == VALUE_ANY,
@@ -159,8 +162,13 @@ def cardinality_decides_the_lookup_shape() -> None:
         "classification alone should leave destinations empty",
         uniform.destinations == () and table.destinations == (),
     )
-    _check("a keyless table did not bypass classification", isinstance(uniform, UniformRoute))
-    _check("one key did not become an equality test", isinstance(singleton, SingletonRoute))
+    _check(
+        "a keyless table did not bypass classification",
+        isinstance(uniform, UniformRoute),
+    )
+    _check(
+        "one key did not become an equality test", isinstance(singleton, SingletonRoute)
+    )
     _check("three keys did not become a dict probe", isinstance(table, TableRoute))
     print("cardinality\t0 keys uniform / 1 singleton / 2+ dict", sep="\t")
 

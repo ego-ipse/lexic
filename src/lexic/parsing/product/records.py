@@ -39,6 +39,7 @@ __all__ = [
     "AppendSequenceOp",
     "BeginMappingOp",
     "BeginSequenceOp",
+    "CAPTURE_FOR_BIND",
     "CaptureMode",
     "CaptureSpec",
     "CompletionRange",
@@ -95,6 +96,22 @@ class CaptureMode(IntEnum):
     EXTENT = 2
     ONE = 3
     MANY = 4
+
+
+CAPTURE_FOR_BIND: Mapping[str, CaptureMode] = {
+    "text": CaptureMode.TEXT,
+    "gtext": CaptureMode.TEXT,
+    "model": CaptureMode.ONE,
+    "models": CaptureMode.MANY,
+    "span": CaptureMode.EXTENT,
+}
+"""The IR bind vocabulary in this ABI's terms — the one translation table.
+
+``text`` and ``gtext`` capture the same way (a slot's consumed text) and differ
+only in what an EMPTY capture means, which a rule says with its ``optional``
+set rather than with a second mode. It lives beside :class:`CaptureMode`
+because it is a fact about this vocabulary, and every authoring surface reads
+the same one rather than restating it."""
 
 
 class RangeKind(IntEnum):

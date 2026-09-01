@@ -11,6 +11,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
+from python_tree_cost import _load
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir import IrRule
@@ -20,8 +22,6 @@ from lexic.parsing.pda.core.scanner import (
     build_recognizer,
     compile_source,
 )
-
-from python_tree_cost import _load
 
 
 class Options(argparse.Namespace):
@@ -260,9 +260,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
         else:
             reading, end, tables = _measure(text, start, program)
             if tables != expected:
-                raise AssertionError(
-                    "schema region prototype changed the vocabulary"
-                )
+                raise AssertionError("schema region prototype changed the vocabulary")
             table_count = len(tables.encode)
         if expected_end is None:
             expected_end = end

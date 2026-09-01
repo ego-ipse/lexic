@@ -11,6 +11,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import NamedTuple
 
+from python_tree_cost import _load
+from schema_region_cost import _decode_key
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir import IrRule
@@ -20,9 +23,6 @@ from lexic.parsing.pda.core.scanner import (
     build_recognizer,
     compile_source,
 )
-
-from python_tree_cost import _load
-from schema_region_cost import _decode_key
 
 
 class Options(argparse.Namespace):
@@ -84,9 +84,7 @@ def _rules() -> dict[str, IrRule]:
 
 def _recognizer() -> Recognizer:
     """Compile the acyclic lower rules used by the dyad schema."""
-    roots = frozenset(
-        {"begin-array", "end-array", "string", "value-separator"}
-    )
+    roots = frozenset({"begin-array", "end-array", "string", "value-separator"})
     recognizer = build_recognizer(_rules(), roots)
     if recognizer is None:
         raise UnsupportedConstructError(
@@ -111,9 +109,7 @@ def _program() -> RegionProgram:
         rf"(?P<entry>(?:{begin})(?P<left>{string})(?:{separator})"
         rf"(?P<right>{string})(?:{end}))"
     )
-    plain = (
-        rf"(?:{begin})(?:{string})(?:{separator})(?:{string})(?:{end})"
-    )
+    plain = rf"(?:{begin})(?:{string})(?:{separator})(?:{string})(?:{end})"
     return RegionProgram(
         compile_source(begin),
         compile_source(rf"(?:(?P<outer_end>{end})|{captured})"),
@@ -260,15 +256,12 @@ def _measure(
         else:
             if pool is None:
                 ends = tuple(
-                    _recognize_chunk(text, program.fragment, chunk)
-                    for chunk in chunks
+                    _recognize_chunk(text, program.fragment, chunk) for chunk in chunks
                 )
             else:
                 ends = tuple(
                     pool.map(
-                        lambda chunk: _recognize_chunk(
-                            text, program.fragment, chunk
-                        ),
+                        lambda chunk: _recognize_chunk(text, program.fragment, chunk),
                         chunks,
                     )
                 )

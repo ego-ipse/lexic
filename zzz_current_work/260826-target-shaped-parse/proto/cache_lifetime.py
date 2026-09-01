@@ -119,9 +119,7 @@ class ArtifactBindings[Result]:
                 grammar,
                 partial(_release, self._entries, self._lock, key),
             )
-            self._entries[key] = BoundEntry(
-                declaration, source, reducer, bound
-            )
+            self._entries[key] = BoundEntry(declaration, source, reducer, bound)
             return bound
 
 
@@ -133,9 +131,7 @@ class IntFactory(CallableFactory[int]):
     def __init__(self) -> None:
         self.builds = 0
 
-    def __call__(
-        self, grammar: CompiledGrammar, reducer: Reducer
-    ) -> BoundProduct[int]:
+    def __call__(self, grammar: CompiledGrammar, reducer: Reducer) -> BoundProduct[int]:
         """Build one source-independent result runner."""
         del reducer
         self.builds += 1

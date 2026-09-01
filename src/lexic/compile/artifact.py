@@ -13,8 +13,7 @@ from functools import partial
 from typing import NamedTuple
 
 from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
-from lexic.compile.pipeline.synthesis import fold_config, model_plan
-from lexic.compile.product import rules_by_name
+from lexic.compile.product import bind_model
 from lexic.compile.reduce.fold import ReduceFold
 from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
 from lexic.compile.reduction import (
@@ -525,17 +524,8 @@ def _variant_artifact(
     content = hashlib.sha1(repr(ast).encode("utf-8")).hexdigest()[:12]
     moments = CompileMoments.of(ast, registry, f"{compiled.stem}_{tag}_{content}")
     omit = reachable_rules(moments.grammar.resolved, recognition_roots)
-    plan = model_plan(
-        moments.grammar.resolved, moments.binding, moments.classes, omit=omit
-    )
-    product = ModelBinding(
-        ModelFold(
-            fold_config(
-                moments.grammar.resolved, moments.binding, moments.classes, omit=omit
-            )
-        ),
-        rules_by_name(plan.rules, plan.codes),
-        plan.constructors,
+    product = bind_model(
+        moments.grammar.resolved, moments.binding, moments.classes, omit
     )
     return CompiledGrammar(
         grammar=ast,

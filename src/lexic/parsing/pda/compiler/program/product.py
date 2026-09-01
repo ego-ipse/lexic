@@ -33,7 +33,7 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, clear_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     M_CONST,
     M_GTEXT,
@@ -49,7 +49,6 @@ from lexic.parsing.product import (
     RecordOp,
     RuleProduct,
 )
-
 
 type ConstructionLicence = tuple[
     Callable[[list[Any]], object], Mapping[str, Any], tuple[str, ...]
@@ -137,10 +136,7 @@ def bake_product_build(
     )
     constructor = None if product is None else _constructor_of(product, constructors)
     if product is None or constructor is None or not constructor.licensed:
-        clone.fields = ()
-        clone.plan = ()
-        clone.fast = None
-        clone.defaults = None
+        clear_build(clone)
         return
     make, _class_defaults, order = _licence_of(constructor.cls)
     absent = frozenset(constructor.optional)

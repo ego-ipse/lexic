@@ -16,9 +16,9 @@ from lexic.exceptions import LexicError
 from lexic.generate import generate
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.products import ModelBinding
 from lexic.parsing.parallel.discovery.regions import shell
 from lexic.parsing.parallel.stitch.model import (
     RegionPlan,

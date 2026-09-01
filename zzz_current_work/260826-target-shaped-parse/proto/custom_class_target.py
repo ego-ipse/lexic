@@ -33,11 +33,11 @@ from threading import Barrier, Lock
 from typing import NamedTuple, Protocol, assert_type
 
 from nullable_quantifier_ambiguity import complete_ambiguity_points
+
 from lexic.compile import compile_text
 from lexic.compile.artifact import CompiledGrammar
-from lexic.parsing.parallel.pool import ParsePool
-from lexic.ir import IrAst
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
+from lexic.ir import IrAst
 from lexic.ir.grammar.nodes import IrLiteral
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
@@ -50,6 +50,7 @@ from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.parallel.pool import ParsePool
 
 CATALOG = (
     "doc ::= entry+\n"

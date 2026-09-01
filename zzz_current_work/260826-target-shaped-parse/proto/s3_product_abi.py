@@ -264,7 +264,7 @@ def regular_proof_holds_and_declines() -> None:
     """One region proves; each shape the plan names declines."""
     terminator = CharSet.from_chars('"')
 
-    proved = _rules('root ::= [a-z]+\n')
+    proved = _rules("root ::= [a-z]+\n")
     proof = prove_regular(proved, "root", terminator)  # type: ignore[arg-type]
     _check("a plainly regular region did not prove", proof is not None)
 

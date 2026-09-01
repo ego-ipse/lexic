@@ -41,9 +41,14 @@ SURFACES = (
 """Both authored surfaces. The self-grammar EXTENDS the notation, so its rules
 include the notation's — running both is what says the extension did not drop
 or re-point one of them."""
+from pathlib import Path
+
+from lexic.compile import compile_from_path
+from lexic.compile.output.templating import SPAN_SYMBOLS, MapShape, spanify
 from lexic.compile.product import LoweringOwned, lower_product
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.product import (
+    CAPTURE_FOR_BIND,
     CaptureMode,
     ExprProgram,
     MeaningOp,
@@ -53,16 +58,6 @@ from lexic.parsing.product import (
     SymbolExpr,
     verify_program,
 )
-
-CAPTURE_FOR_BIND = {
-    "text": CaptureMode.TEXT,
-    "gtext": CaptureMode.TEXT,
-    "model": CaptureMode.ONE,
-    "models": CaptureMode.MANY,
-    "span": CaptureMode.EXTENT,
-}
-"""The bind vocabulary in the ABI's terms — the same table the generated-model
-authoring uses, restated here so the differential reads the fold's own words."""
 
 
 def _same_value(left: object, right: object) -> bool:
@@ -75,6 +70,8 @@ def _root(carry: object, verdicts: tuple[object, ...]) -> object:
     del verdicts
     return carry
 
+
+GROUND_TRUTH = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
 
 SURFACE_OPERANDS: OperandTables = OperandTables(
     constants=(),
@@ -194,8 +191,7 @@ def _lowers(label: str, product: Any, symbols: dict) -> None:
     program = lower_product(
         product.rules,
         SURFACE_OPERANDS,
-        owned=LoweringOwned(symbols=product.symbols),
-        registry=symbols,
+        owned=LoweringOwned(symbols=product.symbols, registry=symbols),
         root=RootOp(0),
         meaning=MeaningOp(0),
     )
@@ -229,8 +225,10 @@ def an_unregistered_transform_cannot_reach_a_parse() -> None:
         lower_product(
             NOTATION_PRODUCT.rules,
             SURFACE_OPERANDS,
-            owned=LoweringOwned(symbols=NOTATION_PRODUCT.symbols),
-            registry={"passthrough": NOTATION_SYMBOLS["passthrough"]},
+            owned=LoweringOwned(
+                symbols=NOTATION_PRODUCT.symbols,
+                registry={"passthrough": NOTATION_SYMBOLS["passthrough"]},
+            ),
             root=RootOp(0),
             meaning=MeaningOp(0),
         )
@@ -240,11 +238,51 @@ def an_unregistered_transform_cannot_reach_a_parse() -> None:
     raise AssertionError("s4 authored product: a narrowed registry lowered anyway")
 
 
+def one_slot_can_be_captured_twice_in_two_modes() -> None:
+    """The templating surface's shape: what an entry says AND where it said it.
+
+    A capture is a (mode, slot) pair and nothing makes a slot exclusive, so two
+    captures on one slot in different modes are well-formed. Nothing exercised
+    that until templating authored its product, and slice 2's completion sites
+    will meet it — so it is pinned here rather than discovered there.
+    """
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    pair = spanify(compiled, MapShape("object", "member", "string", "value"))
+    rules = pair.span_binding.rules
+    entry = next(rule for name, rule in rules.items() if name.endswith("member-tm"))
+
+    slots = [spec.slot for spec in entry.captures]
+    repeated = sorted({slot for slot in slots if slots.count(slot) > 1})
+    _check(
+        f"the entry clone captures {len(entry.captures)} times over "
+        f"{len(set(slots))} slots — the two-mode shape is gone",
+        len(entry.captures) == 4 and len(set(slots)) == 2 and len(repeated) == 2,
+    )
+    both = sorted({int(CaptureMode.TEXT), int(CaptureMode.EXTENT)})
+    for slot in repeated:
+        modes = sorted({spec.mode for spec in entry.captures if spec.slot == slot})
+        _check(f"slot {slot} is captured twice under modes {modes}", modes == both)
+
+    program = lower_product(
+        tuple(rules.values()),
+        SURFACE_OPERANDS,
+        owned=LoweringOwned(symbols=tuple(SPAN_SYMBOLS), registry=SPAN_SYMBOLS),
+        root=RootOp(0),
+        meaning=MeaningOp(0),
+    )
+    verify_program(program)
+    print(
+        f"two-mode\tmember-tm captures {len(entry.captures)} times over "
+        f"{len(set(slots))} slots — TEXT and EXTENT on each, and it verifies"
+    )
+
+
 def main() -> None:
     """Run the differential; any disagreement raises."""
     the_two_halves_say_the_same_thing()
     the_product_lowers_against_its_own_registry()
     an_unregistered_transform_cannot_reach_a_parse()
+    one_slot_can_be_captured_twice_in_two_modes()
     print(
         "s4 authored product\tPASS\t"
         "both authored surfaces say one thing in two vocabularies"

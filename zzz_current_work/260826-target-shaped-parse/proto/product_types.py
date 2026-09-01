@@ -7,6 +7,7 @@ target into the parser or widening a value to an unknown top type.
 
 from __future__ import annotations
 
+import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from enum import IntEnum
@@ -15,14 +16,12 @@ from pathlib import Path
 from threading import Lock
 from typing import NamedTuple, Protocol, assert_type, overload
 
-import weakref
-
 from lexic.compile import compile_ast, compile_from_path
 from lexic.compile.artifact import CompiledGrammar as SourceGrammar
 from lexic.exceptions import UnsupportedConstructError
+from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir import IrAst, IrSelf, IrStr, IrTokenizer
 from lexic.ir.reduction import Reducer
-from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.model import GrammarModel
 
 AUTO = 0

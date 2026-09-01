@@ -15,8 +15,8 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
     accept_item,
 )
-from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.earley.kernel.loop.leo import expand_leo
 from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain, tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.splits import ChainSpec, is_arm_choice

@@ -10,10 +10,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
-from lexic.exceptions import UnsupportedConstructError
-
 from anchored_tokenizer_regions import RegionBounds
 from python_tree_cost import JsonValue, _load
+
+from lexic.exceptions import UnsupportedConstructError
 
 
 class Options(argparse.Namespace):
@@ -104,13 +104,8 @@ def _adversarial() -> None:
         '{"noise":{"vocab":{},"merges":[]},'
         '"model":{"vocab":{"a":0},"merges":[["a","b"]]}}'
     )
-    reordered = (
-        '{"model":{"merges":[["a","b"]],"vocab":{"a":0}}}'
-    )
-    escaped = (
-        '{"model":{"v\\u006fcab":{"a":0},'
-        '"m\\u0065rges":[["a","b"]]}}'
-    )
+    reordered = '{"model":{"merges":[["a","b"]],"vocab":{"a":0}}}'
+    escaped = '{"model":{"v\\u006fcab":{"a":0},"m\\u0065rges":[["a","b"]]}}'
     if _certify(nested_false) is not None:
         raise AssertionError("schema shell accepted nested false anchors")
     if _certify(reordered) is not None:

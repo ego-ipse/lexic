@@ -68,7 +68,7 @@ def test_the_split_actually_engages_and_reaches_the_lead_grammar(abnf_meta) -> N
     split = split_model(
         recording_parse,
         abnf_meta.codegen_grammar,
-        Request(DOCUMENT, abnf_meta.fold),
+        Request(DOCUMENT, abnf_meta.product),
         8,
     )
 
@@ -77,7 +77,7 @@ def test_the_split_actually_engages_and_reaches_the_lead_grammar(abnf_meta) -> N
     lead_calls = [size for start, size in calls if start == "rl-cont"]
     assert len(piece_sizes) >= 4, "the document must have split into several pieces"
     assert lead_calls, "at least one separator span must have reparsed"
-    assert split == parse_model(abnf_meta.codegen_grammar, DOCUMENT, abnf_meta.fold)
+    assert split == parse_model(abnf_meta.codegen_grammar, DOCUMENT, abnf_meta.product)
 
 
 @pytest.mark.parametrize("cores", [2, 3, 5, 8, 16])
@@ -127,7 +127,7 @@ def test_a_lex_ns_variant_engages_with_the_same_plan_and_equal_results() -> None
     split = split_model(
         parse_model,
         variant.codegen_grammar,
-        Request(DOCUMENT, variant.fold),
+        Request(DOCUMENT, variant.product),
         8,
     )
     assert split is not None

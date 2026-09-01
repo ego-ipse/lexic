@@ -6,6 +6,7 @@ its clone index, and the island tables the cold path falls back to.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
 from lexic.ir import (
@@ -26,6 +27,7 @@ from lexic.parsing.pda.compiler.specs import (
     IslandRef,
 )
 from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.product import RecordConstructor
 
 if TYPE_CHECKING:  # `clones` imports this module — the reference is mutual
     from lexic.parsing.pda.compiler.clones import PdaCompiler
@@ -73,6 +75,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         compiler: PdaCompiler,
         start_key: CloneKey | IslandRef,
         instance_grammar: IrAst,
+        constructors: Sequence[RecordConstructor] = (),
     ) -> None:
         """Freeze the clone table, lower it to the flat program, seed the caches.
 
@@ -86,7 +89,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         follow = compiler.analysis.follow
         self.island_follow = {name: follow[name] for name in compiler.islands}
         self.instance_grammar = instance_grammar
-        self.program = flatten_program(compiler.clones, start_key)
+        self.program = flatten_program(compiler.clones, start_key, constructors)
         self._island_tables = {}
 
     @property

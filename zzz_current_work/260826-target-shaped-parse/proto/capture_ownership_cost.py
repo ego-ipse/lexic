@@ -11,9 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import NamedTuple
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.core.scanner import compile_source
-
 from parallel_region_cost import (
     CaptureProgram,
     Reading,
@@ -27,6 +24,9 @@ from parallel_region_cost import (
     _program,
 )
 from schema_region_cost import Tables
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.pda.core.scanner import compile_source
 
 
 class Options(argparse.Namespace):
@@ -73,15 +73,9 @@ ARMS = (
 def _program_replica(program: CaptureProgram, index: int) -> CaptureProgram:
     """Compile cache-distinct patterns with identical capture semantics."""
     return CaptureProgram(
-        compile_source(
-            f"{program.first.pattern}(?#capture-ownership-{index}-first)"
-        ),
-        compile_source(
-            f"{program.next.pattern}(?#capture-ownership-{index}-next)"
-        ),
-        compile_source(
-            f"{program.stream.pattern}(?#capture-ownership-{index}-stream)"
-        ),
+        compile_source(f"{program.first.pattern}(?#capture-ownership-{index}-first)"),
+        compile_source(f"{program.next.pattern}(?#capture-ownership-{index}-next)"),
+        compile_source(f"{program.stream.pattern}(?#capture-ownership-{index}-stream)"),
     )
 
 
@@ -126,9 +120,7 @@ def _measure(
         if pool is None:
             parts = tuple(
                 _capture(fragment, program, span)
-                for fragment, program, span in zip(
-                    texts, programs, spans, strict=True
-                )
+                for fragment, program, span in zip(texts, programs, spans, strict=True)
             )
         else:
             parts = tuple(pool.map(_capture, texts, programs, spans))
@@ -168,8 +160,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
     chunks = _chunks(entries, options.workers)
     shared_program = _capture_program()
     private_programs = tuple(
-        _program_replica(shared_program, index)
-        for index, _chunk in enumerate(chunks)
+        _program_replica(shared_program, index) for index, _chunk in enumerate(chunks)
     )
     expected = _expected_vocab(text)
     pool = (

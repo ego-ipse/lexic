@@ -226,20 +226,19 @@ def _verify_range[Carry, Result](
         )
     for index in range(completion.start, stop):
         _verify_instruction(at, index, opcodes[index], operands[index], rows)
+        opcode = opcodes[index]
         _verify_operand_lanes(
             program,
-            at,
-            index,
-            opcodes[index],
-            rows[opcodes[index]][operands[index]],
+            f"rule {at}'s instruction {index} (opcode {opcode})",
+            opcode,
+            rows[opcode][operands[index]],
             lanes,
         )
 
 
 def _verify_operand_lanes[Carry, Result](
     program: ProductProgram[Carry, Result],
-    at: int,
-    index: int,
+    where: str,
     opcode: int,
     row: tuple[int, ...],
     lanes: Mapping[int, tuple[tuple[int, str], ...]],
@@ -252,7 +251,7 @@ def _verify_operand_lanes[Carry, Result](
     """
     for field, table in lanes.get(opcode, ()):
         _verify_lane(
-            f"rule {at}'s instruction {index} (opcode {opcode}) into `{table}`",
+            f"{where} into `{table}`",
             row[field],
             len(getattr(program.operands, table)),
         )

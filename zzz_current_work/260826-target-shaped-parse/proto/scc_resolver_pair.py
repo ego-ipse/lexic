@@ -748,9 +748,7 @@ def prove_case(case: Case) -> None:
     assert pair.first_meaning != pair.other_meaning, case.name
     assert pair.baseline_occurrences >= 1, (case.name, pair.baseline_occurrences)
     span = (0, len(case.text))
-    other_occurrences = len(
-        occurrences_of(pair.other, IrRuleRef(pair.carrier), span)
-    )
+    other_occurrences = len(occurrences_of(pair.other, IrRuleRef(pair.carrier), span))
     differences = difference_count(pair.first, pair.other)
     oracle = cyclic.bounded_depth_meanings(
         kernel, root, case.policies, {}, {}, case.oracle_ceiling

@@ -89,12 +89,16 @@ class LoweringOwned(NamedTuple):
     them back lowered" one rule instead of three coincidences.
 
     ``symbols`` is names, not callables — the authored side of the ABI never
-    holds one. Lowering resolves each through the registry it is given.
+    holds one — and ``registry`` is what turns them into callables. The two
+    travel together because a name is only meaningful against the whitelist it
+    is resolved through: separating them is how a program could name a symbol
+    with no registry to check it against.
     """
 
     constructors: tuple[RecordConstructor, ...] = ()
     routes: tuple[RouteTable, ...] = ()
     symbols: tuple[str, ...] = ()
+    registry: Mapping[str, Callable[..., object]] = MappingProxyType({})
 
 
 _OPCODES: dict[type, OpCode] = {
@@ -414,7 +418,6 @@ def lower_product[Carry, Result](
     operands: OperandTables[Carry, Result],
     *,
     owned: LoweringOwned = LoweringOwned(),
-    registry: Mapping[str, Callable[..., object]] = MappingProxyType({}),
     root: RootOp,
     meaning: MeaningOp,
 ) -> ProductProgram[Carry, Result]:
@@ -429,10 +432,8 @@ def lower_product[Carry, Result](
         routed one, by constructing the record itself.
     :param owned: The authored tables lowering writes — binding-owned
         constructor classes, route tables to specialize by cardinality, and
-        the registry names an authored surface's transforms are spelled as.
-    :param registry: The surface's symbol whitelist. Empty by default, which
-        is what every product without a :class:`SymbolExpr` wants: a program
-        that names a symbol without supplying a registry refuses.
+        the registry names an authored surface's transforms are spelled as,
+        with the whitelist those names resolve through.
     :param root: The root finalizer operation.
     :param meaning: The ambiguity-gate comparison operation.
     :returns: The program. It is NOT verified here — call
@@ -469,7 +470,7 @@ def lower_product[Carry, Result](
         operands._replace(
             constructors=_constructors(owned.constructors),
             routes=lower_routes(owned.routes, operands.continuations),
-            symbols=_symbols(owned.symbols, registry),
+            symbols=_symbols(owned.symbols, owned.registry),
         ),
         root,
         meaning,

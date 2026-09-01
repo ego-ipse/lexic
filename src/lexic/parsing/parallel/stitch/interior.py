@@ -19,8 +19,8 @@ from typing import Any, cast
 from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.products import ModelBinding
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.plan.routed import (
     RoutedPlan,

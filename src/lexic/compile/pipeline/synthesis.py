@@ -37,6 +37,7 @@ from lexic.compile.pipeline.binding import (
     field_kwargs,
 )
 from lexic.compile.pipeline.naming import VALUE_FIELD
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAst,
     IrBind,
@@ -51,10 +52,9 @@ from lexic.ir import (
     rule_closure,
 )
 from lexic.model import GrammarModel
-from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import FastCtor, FieldFold, ModelBody
 from lexic.parsing.product import (
-    CaptureMode,
+    CAPTURE_FOR_BIND,
     CaptureSpec,
     RecordConstructor,
     RecordOp,
@@ -318,18 +318,6 @@ class ModelPlan(NamedTuple):
     codes: dict[str, int]
 
 
-_CAPTURE_MODES: Mapping[str, CaptureMode] = {
-    "text": CaptureMode.TEXT,
-    "gtext": CaptureMode.TEXT,
-    "model": CaptureMode.ONE,
-    "models": CaptureMode.MANY,
-    "span": CaptureMode.EXTENT,
-}
-"""The bind vocabulary in the ABI's terms. ``text`` and ``gtext`` capture the
-same way — a slot's consumed text — and differ only in what an EMPTY capture
-means, which is the rule's ``optional`` set rather than a second mode."""
-
-
 def _model_captures(
     bound: RuleBinding, items: Sequence[IrItem]
 ) -> tuple[tuple[CaptureSpec, ...], tuple[str, ...], tuple[int, ...]]:
@@ -345,7 +333,7 @@ def _model_captures(
     names: list[str] = []
     optional: list[int] = []
     for name, bind in bound.fields.items():
-        mode = _CAPTURE_MODES.get(bind.mode)
+        mode = CAPTURE_FOR_BIND.get(bind.mode)
         if mode is None:
             raise UnsupportedConstructError(
                 f"model product: {bound.rule_name}.{name} binds through "

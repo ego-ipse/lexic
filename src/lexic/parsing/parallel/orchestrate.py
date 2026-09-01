@@ -22,9 +22,9 @@ from lexic.ir import (
     IrRuleRef,
 )
 from lexic.model import GrammarModel
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.products import ModelBinding
 from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
@@ -505,7 +505,9 @@ def _split_regions[M: IrNamedTuple](
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
-    works = region_works(grammar, ask.binding.fold, ask.text, divided, analysis or grammar)
+    works = region_works(
+        grammar, ask.binding.fold, ask.text, divided, analysis or grammar
+    )
     if works is None:
         return None
     parsed = _parse_region_parts(parse, works, ask, pool)

@@ -375,7 +375,7 @@ def test_differs_does_not_refuse_over_a_value_with_no_value_semantics():
 def _vyx_span(seed: int):
     """A vyx parse whose forest holds >2 derivations, and its kernel."""
     compiled = compile_from_path(GROUND_TRUTH / "vyx.gbnf")
-    product = _model_product(compiled.codegen_grammar, compiled.fold)
+    product = _model_product(compiled.codegen_grammar, compiled.product)
     rules = {r.name: r for r in compiled.grammar.rules}
     text = generate(
         compiled.grammar.start, rules, rng=random.Random(seed), max_depth=12

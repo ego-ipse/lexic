@@ -21,12 +21,11 @@ every other consumer) sees.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import adopt, memo
 from lexic.parsing.earley.engine import EarleyParser, first_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
@@ -44,11 +43,14 @@ from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import TokenKernel
-from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
+from lexic.parsing.fold import (
+    ModelFold,
+    collapsed_fold_tables,
+    lift_optional_nullables,
+)
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import ProbeFork
-from lexic.parsing.product import RecordConstructor, RuleProduct
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 
 __all__ = [
@@ -161,37 +163,7 @@ def token_model[M](
     return fold.apply(resolve(tree, witness))
 
 
-# ── the bound model product + per-identity memoisation ─────────────────────
-
-
-class ModelBinding[M](NamedTuple):
-    """One grammar's model product — what a parse entry is handed.
-
-    The product IS the binding: the rules each contextual name completes
-    through, and the constructor table a record completion indexes. It is one
-    object rather than two parameters so a caller cannot pair a grammar's
-    rules with another grammar's constructors, and so the per-identity memo
-    has a single key to hold.
-
-    ``fold`` is transitional. The completion sites still build models through
-    it, and they move in their own step; when they do, the field goes and this
-    record is the product alone. It is a FIELD rather than a parallel
-    parameter for the same reason as above — one object, one identity, one
-    memo key.
-
-    :ivar fold: The positional ParseTree → model fold the completions read.
-    :ivar rules: Rule name → its authored product. An authored compile-time
-        surface fills this from its own table; a generated model from the
-        binding view.
-    :ivar constructors: The constructor operand table a record completion
-        indexes. Empty for a surface that constructs no declared record.
-    """
-
-    fold: ModelFold[M]
-    rules: Mapping[str, RuleProduct] = {}
-    constructors: tuple[RecordConstructor, ...] = ()
-
-
+# ── compiled-product records + per-identity memoisation ────────────────────
 # ── compiled-product records + per-identity memoisation ────────────────────
 
 
@@ -260,7 +232,7 @@ def _model_product(
     product = _ModelProduct(
         grammar,
         binding,
-        compile_pda(lifted, instance, binding.fold.baked),
+        compile_pda(lifted, instance, binding),
         instance,
         collapsed_fold_tables(instance, binding.fold, bits),
     )

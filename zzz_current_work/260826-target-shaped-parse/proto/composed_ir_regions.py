@@ -11,10 +11,6 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import NamedTuple
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrChr, IrInt, IrStr, IrTokenPipeline, IrTokenizer, IrTuple
-from lexic.ir.text.tokenizer import IrRankedMerge
-
 from anchored_tokenizer_regions import (
     _bounds,
     _merge_replica,
@@ -22,20 +18,24 @@ from anchored_tokenizer_regions import (
     _vocab_replica,
     _warm,
 )
-from parallel_merge_region_cost import (
-    RegionProgram as MergeProgram,
-    _expected as _expected_merges,
-    _program as _merge_program,
-)
+from parallel_merge_region_cost import RegionProgram as MergeProgram
+from parallel_merge_region_cost import _expected as _expected_merges
+from parallel_merge_region_cost import _program as _merge_program
 from parallel_region_cost import (
     CaptureProgram,
     Span,
-    _capture_program as _vocab_program,
+)
+from parallel_region_cost import _capture_program as _vocab_program
+from parallel_region_cost import (
     _expected_vocab,
 )
 from schema_region_cost import _decode_key
 from self_locating_region_cuts import _program as _cut_program
 from tokenizer_index_shape import IrTokenIndex
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrChr, IrInt, IrStr, IrTokenizer, IrTokenPipeline, IrTuple
+from lexic.ir.text.tokenizer import IrRankedMerge
 
 
 class Options(argparse.Namespace):
@@ -238,15 +238,11 @@ def _measure(
         )
         vocab_futures = tuple(
             pool.submit(_vocab_part, text, program, span)
-            for program, span in zip(
-                vocab_programs, vocab_spans, strict=True
-            )
+            for program, span in zip(vocab_programs, vocab_spans, strict=True)
         )
         merge_futures = tuple(
             pool.submit(_merge_part, text, program, span)
-            for program, span in zip(
-                merge_programs, merge_spans, strict=True
-            )
+            for program, span in zip(merge_programs, merge_spans, strict=True)
         )
         vocab = _join_vocab(_collect(vocab_futures))
         ranks = _join_ranks(_collect(merge_futures))
@@ -285,8 +281,7 @@ def _validate(text: str, product: Product) -> None:
     ):
         raise AssertionError("composed IR prototype changed decode")
     if {
-        (str(key[0]), str(key[1])): int(value)
-        for key, value in product.ranks.items()
+        (str(key[0]), str(key[1])): int(value) for key, value in product.ranks.items()
     } != expected_ranks:
         raise AssertionError("composed IR prototype changed ranks")
     if product.tokenizer.encode is not product.encode:
@@ -326,12 +321,10 @@ def main(arguments: Sequence[str] | None = None) -> None:
     shared_vocab = _vocab_program()
     shared_merge = _merge_program()
     vocab_programs = tuple(
-        _vocab_replica(shared_vocab, index)
-        for index in range(options.region_workers)
+        _vocab_replica(shared_vocab, index) for index in range(options.region_workers)
     )
     merge_programs = tuple(
-        _merge_replica(shared_merge, index)
-        for index in range(options.region_workers)
+        _merge_replica(shared_merge, index) for index in range(options.region_workers)
     )
     total_workers = options.region_workers * 2
     pool = ThreadPoolExecutor(max_workers=total_workers)

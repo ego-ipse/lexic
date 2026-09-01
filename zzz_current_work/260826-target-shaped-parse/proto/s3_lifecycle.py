@@ -23,6 +23,7 @@ import weakref
 from threading import Barrier, Thread
 
 from lexic.compile.product import BindingRegistry, ProgramProduct, lower_product
+from lexic.parsing.caches import cached_entries, release
 from lexic.parsing.product import (
     MeaningOp,
     OperandTables,
@@ -31,7 +32,6 @@ from lexic.parsing.product import (
     RootOp,
     RuleProduct,
 )
-from lexic.parsing.caches import cached_entries, release
 
 
 class _Source:
@@ -110,7 +110,9 @@ def explicit_release_drops_the_entry() -> None:
     release((id(source),))
     second = REGISTRY.bind(declaration, source, _build)
     _check("release did not evict", REGISTRY.binds == before + 1)
-    _check("recompilation changed the binding's meaning", first.run("x") == second.run("x"))
+    _check(
+        "recompilation changed the binding's meaning", first.run("x") == second.run("x")
+    )
     print("release\tevicted; rebind identical in meaning, fresh in identity")
 
 

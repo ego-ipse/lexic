@@ -109,9 +109,7 @@ def merge_meta(left: FragmentMeta, right: FragmentMeta) -> FragmentMeta:
             cross.append(_duplicate(entry))
         else:
             firsts[entry.key] = entry
-    merged_firsts = tuple(
-        firsts[key] for key in sorted(firsts)
-    )
+    merged_firsts = tuple(firsts[key] for key in sorted(firsts))
     verdicts = tuple(sorted(left.verdicts + right.verdicts + tuple(cross)))
     return FragmentMeta(merged_firsts, verdicts)
 

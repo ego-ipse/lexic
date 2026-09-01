@@ -93,7 +93,7 @@ def _case(name: str):
         text = CONTROL_TEXT
     else:  # pragma: no cover - argparse/constant-owned call sites
         raise ValueError(name)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.fold), text
+    return compiled, _model_product(compiled.codegen_grammar, compiled.product), text
 
 
 def _call(row: Row) -> Callable[[], object]:

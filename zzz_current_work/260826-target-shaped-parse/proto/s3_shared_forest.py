@@ -19,15 +19,18 @@ from typing import NamedTuple
 from lexic.compile import canonical_grammar, compile_text
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.engine import AmbiguityPolicy, EarleyParser, first_meaning
-from lexic.parsing.earley.kernel.forest.forest import ParseTree
-from lexic.parsing.fold import ModelFold
-from lexic.parsing.products import _model_product, earley_model
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest.support.readout import accept_handle, accept_item
+from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.support.readout import (
+    accept_handle,
+    accept_item,
+)
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.fold import ModelFold
+from lexic.parsing.products import _model_product, earley_model
 
 
 class Shape(NamedTuple):
@@ -71,7 +74,9 @@ class _CountingFold[M](ModelFold[M]):
         super().__init__(bodies)  # type: ignore[arg-type]
         self.counts: dict[int, int] = {}
 
-    def _fold_node(self, node: ParseTree, results: dict[int, object], offsets: object) -> None:  # type: ignore[override]
+    def _fold_node(
+        self, node: ParseTree, results: dict[int, object], offsets: object
+    ) -> None:  # type: ignore[override]
         """Count this node's body execution, then fold it normally."""
         self.counts[id(node)] = self.counts.get(id(node), 0) + 1
         super()._fold_node(node, results, offsets)  # type: ignore[arg-type]
@@ -129,7 +134,9 @@ def _exercise(shape: Shape) -> None:
     counting.apply(tree)
 
     slots = _slot_counts(tree)
-    shared = {node for node in _nodes_named(tree, shape.shared) if slots.get(node, 0) > 1}
+    shared = {
+        node for node in _nodes_named(tree, shape.shared) if slots.get(node, 0) > 1
+    }
     if not shared:
         raise AssertionError(f"{shape.name}: {shape.shared!r} is not shared here")
     counts = sorted(counting.counts.get(node, 0) for node in shared)

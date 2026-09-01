@@ -221,7 +221,7 @@ def test_start_plan_guard_is_non_vacuous_for_a_flat_comma_owner() -> None:
         split_model(
             parse_model,
             compiled.codegen_grammar,
-            Request(text, compiled.fold),
+            Request(text, compiled.product),
             2,
         )
         is None
@@ -248,7 +248,7 @@ def test_nested_region_exact_adversarial_declines_without_becoming_vacuous() -> 
         split_model(
             parse_model,
             compiled.codegen_grammar,
-            Request(text, compiled.fold),
+            Request(text, compiled.product),
             2,
             analysis=compiled.grammar,
         )

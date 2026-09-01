@@ -9,10 +9,10 @@ import time
 from collections.abc import Callable, Sequence
 from typing import NamedTuple
 
+from tokenizer_table_cost import Fixture, _fixture
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrChr, IrInt, IrStr, IrTuple
-
-from tokenizer_table_cost import Fixture, _fixture
 
 
 class OwnedTables(NamedTuple):

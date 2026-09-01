@@ -22,6 +22,7 @@ from typing import NamedTuple
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
+from lexic.parsing.product import RuleProduct
 
 LIT, CC, REF, GRP = "lit", "cc", "ref", "grp"
 """The :attr:`ItemSpec.kind` tags: literal, char class, rule reference, group.
@@ -243,6 +244,9 @@ class CloneSpec(NamedTuple):
     :ivar default: The all-nullable default arm's specs, or ``None``.
     :ivar fold: The rule's baked :class:`~lexic.parsing.fold.RuleFold`, or
         ``None`` for a transparent helper clone.
+    :ivar product: The rule's authored :class:`~lexic.parsing.product
+        .RuleProduct`, or ``None`` for a transparent helper clone — what the
+        clone's capture layout and build plan are baked from.
     :ivar match_only: ``True`` for a ``value_str`` rule — pure-terminal
         interior, the runtime slices ``text[a:b]`` instead of building below.
     :ivar struct_arm: The empty-arm structured-noise gate (a
@@ -261,6 +265,7 @@ class CloneSpec(NamedTuple):
     arms: tuple[ArmSpec, ...]
     default: tuple[ItemSpec, ...] | None
     fold: RuleFold | None
+    product: RuleProduct | None
     match_only: bool
     struct_arm: ScanGate | None = None
     attempt_follow: CharSet | None = None

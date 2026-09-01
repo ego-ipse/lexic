@@ -5,7 +5,7 @@ from __future__ import annotations
 from lexic.compile import compile_text
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
-from lexic.parsing import parse_model
+from lexic.parsing import ModelBinding, parse_model
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
 from lexic.parsing.parallel.stitch.model import (
@@ -20,24 +20,28 @@ from tests.unit.lexic.parsing.parallel.stitch.support import (
 )
 
 
-def _envelope_case(cache_key: str) -> tuple[IrAst, ModelFold, Envelope, IrAst]:
+def _envelope_case(cache_key: str) -> tuple[IrAst, ModelBinding, Envelope, IrAst]:
     """The compiled fixture, its envelope shape, and the reparse target."""
     compiled = compile_text(ENVELOPE_SOURCE, cache_key=cache_key)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     plan = _first(envelope_plans(grammar, "root"))
     assert plan is not None
     target = IrAst(grammar.rules, plan.shape.item)
-    return grammar, fold, plan.shape, target
+    return grammar, binding, plan.shape, target
 
 
 def _rebuilt_lead(
-    grammar: IrAst, fold: ModelFold, shape: Envelope, target: IrAst, tail_text: str
+    grammar: IrAst,
+    binding: ModelBinding,
+    shape: Envelope,
+    target: IrAst,
+    tail_text: str,
 ) -> GrammarModel:
     """The reparsed separator span a real cut hands to the join — the
     separator itself is empty in every case exercised here, so only the
     piece's own moved tail and the witness feed the reparse."""
     witness = unit_witness(grammar, shape.unit) or ""
-    return parse_model(target, tail_text + witness, fold)
+    return parse_model(target, tail_text + witness, binding)
 
 
 def _moved_tails(
@@ -67,19 +71,19 @@ def test_a_trailing_comment_absorbed_by_a_pieces_own_tail_reparses_and_stitches(
     field when parsed alone; :func:`envelope_tails` moves it back out to text,
     and the reparsed separator, joined with the next piece's real head,
     equals the document parsed whole — byte for byte."""
-    grammar, fold, shape, target = _envelope_case("test-model-envelope-comment")
+    grammar, binding, shape, target = _envelope_case("test-model-envelope-comment")
     whole = "ua = a; note\nub = b"
-    piece1 = parse_model(grammar, "ua = a; note\n", fold)
-    piece2 = parse_model(grammar, "ub = b", fold)
+    piece1 = parse_model(grammar, "ua = a; note\n", binding)
+    piece2 = parse_model(grammar, "ub = b", binding)
 
-    texts, trimmed = _moved_tails([piece1, piece2], shape, fold)
+    texts, trimmed = _moved_tails([piece1, piece2], shape, binding.fold)
     assert texts == ["; note\n"]
 
-    lead = _rebuilt_lead(grammar, fold, shape, target, texts[0])
-    stitched = stitch_envelope(trimmed, [lead], shape, fold)
+    lead = _rebuilt_lead(grammar, binding, shape, target, texts[0])
+    stitched = stitch_envelope(trimmed, [lead], shape, binding.fold)
 
     assert stitched is not None
-    assert stitched == parse_model(grammar, whole, fold)
+    assert stitched == parse_model(grammar, whole, binding)
     assert stitched.to_text() == whole
 
 
@@ -87,19 +91,19 @@ def test_a_moved_bare_newline_supplies_the_next_items_required_line_ending() -> 
     """A piece ending with nothing but its own trailing blank line still
     moves that ``\\n`` to the separator, which is what lets ``cont``'s
     mandatory ``cnl`` item resolve once the witness is appended."""
-    grammar, fold, shape, target = _envelope_case("test-model-envelope-blank")
+    grammar, binding, shape, target = _envelope_case("test-model-envelope-blank")
     whole = "ua = a\nub = b"
-    piece1 = parse_model(grammar, "ua = a\n", fold)
-    piece2 = parse_model(grammar, "ub = b", fold)
+    piece1 = parse_model(grammar, "ua = a\n", binding)
+    piece2 = parse_model(grammar, "ub = b", binding)
 
-    texts, trimmed = _moved_tails([piece1, piece2], shape, fold)
+    texts, trimmed = _moved_tails([piece1, piece2], shape, binding.fold)
     assert texts == ["\n"]
 
-    lead = _rebuilt_lead(grammar, fold, shape, target, texts[0])
-    stitched = stitch_envelope(trimmed, [lead], shape, fold)
+    lead = _rebuilt_lead(grammar, binding, shape, target, texts[0])
+    stitched = stitch_envelope(trimmed, [lead], shape, binding.fold)
 
     assert stitched is not None
-    assert stitched == parse_model(grammar, whole, fold)
+    assert stitched == parse_model(grammar, whole, binding)
     assert stitched.to_text() == whole
 
 
@@ -108,14 +112,14 @@ def test_a_non_final_piece_carrying_a_head_field_declines_the_envelope_stitch() 
     that parsed one when read independently has read a boundary differently
     than the split did, and the stitch must refuse rather than silently keep
     only the first piece's head."""
-    grammar, fold, shape, target = _envelope_case("test-model-envelope-head")
-    piece1 = parse_model(grammar, "ua = a\n", fold)
-    piece2 = parse_model(grammar, "; lead\nub = b", fold)
+    grammar, binding, shape, target = _envelope_case("test-model-envelope-head")
+    piece1 = parse_model(grammar, "ua = a\n", binding)
+    piece2 = parse_model(grammar, "; lead\nub = b", binding)
 
-    texts, trimmed = _moved_tails([piece1, piece2], shape, fold)
-    lead = _rebuilt_lead(grammar, fold, shape, target, texts[0])
+    texts, trimmed = _moved_tails([piece1, piece2], shape, binding.fold)
+    lead = _rebuilt_lead(grammar, binding, shape, target, texts[0])
 
-    assert stitch_envelope(trimmed, [lead], shape, fold) is None
+    assert stitch_envelope(trimmed, [lead], shape, binding.fold) is None
 
 
 def test_direct_candidate_short_tail_arm_declines_without_index_error() -> None:

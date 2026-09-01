@@ -103,9 +103,7 @@ def _record_symbol(
     return first
 
 
-def _record_order(
-    order: list[str], first: ParseTree, _other: ParseTree
-) -> ParseTree:
+def _record_order(order: list[str], first: ParseTree, _other: ParseTree) -> ParseTree:
     """Record when a resolver runs relative to document construction."""
     order.append(f"resolver({first.symbol})")
     return first
@@ -296,9 +294,7 @@ def build_complete_pair(case: SeedCase, counters: harness.Counters) -> CompleteP
     ]
     assert len(points) == 1
 
-    (first, second), construction = _timed(
-        partial(_tree_pair, kernel, root, points[0])
-    )
+    (first, second), construction = _timed(partial(_tree_pair, kernel, root, points[0]))
     meanings = {tree_meaning(first, {}): first, tree_meaning(second, {}): second}
     if set(meanings) != {case.baseline_root, case.alternate_root}:
         raise UnsupportedConstructError(
@@ -471,9 +467,7 @@ def prove_public_scope_today() -> None:
     compiled = compile_text(PUBLIC_ISLAND)
     observed: list[str] = []
 
-    model = compiled.parse(
-        "(xy)z", cores=1, resolve=partial(_record_symbol, observed)
-    )
+    model = compiled.parse("(xy)z", cores=1, resolve=partial(_record_symbol, observed))
     assert model.to_text() == "(xy)z"
     assert observed and set(observed) == {"t"}
     print(
@@ -914,9 +908,7 @@ def prove_no_shadow_on_unambiguous_path() -> None:
     compiled = compile_text(PUBLIC_ISLAND)
     calls: list[int] = []
 
-    ambiguous = compiled.parse(
-        "(xy)z", cores=1, resolve=partial(_count_call, calls)
-    )
+    ambiguous = compiled.parse("(xy)z", cores=1, resolve=partial(_count_call, calls))
     assert ambiguous.to_text() == "(xy)z"
     print(
         "no-shadow",

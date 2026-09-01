@@ -142,7 +142,9 @@ def one_signature_across_formulations() -> None:
             JSON_REDUCER.signature is JSON_SIGNATURE,
         )
         rules = {str(rule.name) for rule in compiled.grammar.rules}
-        unbound = sorted(str(sym) for sym in JSON_EVENTS.keys() if str(sym) not in rules)
+        unbound = sorted(
+            str(sym) for sym in JSON_EVENTS.keys() if str(sym) not in rules
+        )
         _check(f"{label} has no rule for bound symbols {unbound}", not unbound)
         declared = sorted(
             str(event)
@@ -204,15 +206,25 @@ def mismatch_is_diagnosed_before_parse() -> None:
 def the_vocabulary_refuses_what_it_does_not_know() -> None:
     """Every family answers through itself; an unstated construct raises."""
     root = SchemaState.ensure(SAMPLE_SCHEMA.state(IrStr("root")))
-    _check("root does not continue on document", root.after(IrStr("document")) == "root")
+    _check(
+        "root does not continue on document", root.after(IrStr("document")) == "root"
+    )
     _check("a known key does not route", root.route(IrStr("model")) == "model")
-    _check("an unknown key does not reach the catch-all", root.route(IrStr("x")) == "ignored")
-    _check("root consumes the wrong events", set(root.consumed()) == {
-        IrStr("document"), IrStr("object"), IrStr("object-entry")
-    })
+    _check(
+        "an unknown key does not reach the catch-all",
+        root.route(IrStr("x")) == "ignored",
+    )
+    _check(
+        "root consumes the wrong events",
+        set(root.consumed())
+        == {IrStr("document"), IrStr("object"), IrStr("object-entry")},
+    )
 
     poisoned = SchemaState.ensure(SAMPLE_SCHEMA.state(IrStr("refused")))
-    _check("a poisoned state does not recover", poisoned.after(IrStr("object")) == "ignored")
+    _check(
+        "a poisoned state does not recover",
+        poisoned.after(IrStr("object")) == "ignored",
+    )
     _check("a poisoned state routes elsewhere", poisoned.route(IrStr("x")) == "ignored")
     _check("a poisoned state consumes events", poisoned.consumed() == ())
 
@@ -220,7 +232,9 @@ def the_vocabulary_refuses_what_it_does_not_know() -> None:
     _check("recovery is not absorbing", recovery.after(IrStr("object")) == "ignored")
 
     entry = SchemaState.ensure(SAMPLE_SCHEMA.state(IrStr("model")))
-    _check("a dynamic mapping classified a key", entry.route(IrStr("anything")) == "model")
+    _check(
+        "a dynamic mapping classified a key", entry.route(IrStr("anything")) == "model"
+    )
 
     unknown_event = _refuses(
         "a state admitting an unstated event", lambda: entry.after(IrStr("array"))
@@ -239,7 +253,8 @@ def the_vocabulary_refuses_what_it_does_not_know() -> None:
         "the state family's base", lambda: SchemaState(IrStr("s")).after(IrStr("e"))
     )
     _refuses(
-        "the state family's base route", lambda: SchemaState(IrStr("s")).route(IrStr("k"))
+        "the state family's base route",
+        lambda: SchemaState(IrStr("s")).route(IrStr("k")),
     )
     _refuses(
         "the state family's base consumed", lambda: SchemaState(IrStr("s")).consumed()

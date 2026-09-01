@@ -12,12 +12,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import NamedTuple
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrStr, IrTokenPipeline, IrTokenizer, IrTuple
-from lexic.ir.text.tokenizer import IrRankedMerge
-
+from anchored_tokenizer_regions import Product as NativeProduct
 from anchored_tokenizer_regions import (
-    Product as NativeProduct,
     _bounds,
     _join_merges,
     _merge_part,
@@ -28,21 +24,27 @@ from anchored_tokenizer_regions import (
 )
 from parallel_merge_region_cost import (
     Ranks,
-    RegionProgram as MergeProgram,
-    _expected as _expected_merges,
-    _program as _merge_program,
 )
+from parallel_merge_region_cost import RegionProgram as MergeProgram
+from parallel_merge_region_cost import _expected as _expected_merges
+from parallel_merge_region_cost import _program as _merge_program
 from parallel_region_cost import (
     CaptureProgram,
     Span,
-    _capture_chunk as _capture_vocab,
-    _capture_program as _vocab_program,
-    _expected_vocab,
-    _join as _join_vocab,
 )
+from parallel_region_cost import _capture_chunk as _capture_vocab
+from parallel_region_cost import _capture_program as _vocab_program
+from parallel_region_cost import (
+    _expected_vocab,
+)
+from parallel_region_cost import _join as _join_vocab
 from schema_region_cost import Tables
 from self_locating_region_cuts import _program as _cut_program
 from tokenizer_index_shape import IrTokenDecode, IrTokenEncode, IrTokenRanks
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.ir import IrStr, IrTokenizer, IrTokenPipeline, IrTuple
+from lexic.ir.text.tokenizer import IrRankedMerge
 
 
 class Options(argparse.Namespace):
@@ -144,9 +146,7 @@ def _freeze(vocab: Tables, ranks: Ranks) -> FinalIndexes:
         decode = vocab.decode
     else:
         decode = dict(sorted(vocab.decode.items()))
-        encode = {
-            spelling: identifier for identifier, spelling in decode.items()
-        }
+        encode = {spelling: identifier for identifier, spelling in decode.items()}
     if any(rank != expected for expected, rank in enumerate(ranks.values())):
         raise UnsupportedConstructError(
             "composed native prototype: merge ranks are not contiguous"
@@ -184,9 +184,7 @@ def _measure(
     process_started = time.process_time()
     wall_started = time.perf_counter()
     try:
-        native = _capture(
-            text, workers, vocab_programs, merge_programs, pool
-        )
+        native = _capture(text, workers, vocab_programs, merge_programs, pool)
         capture_finished = time.perf_counter()
         indexes = _freeze(native.vocab, native.ranks)
         freeze_finished = time.perf_counter()
@@ -206,8 +204,7 @@ def _measure(
             wall_elapsed,
             max(
                 0,
-                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-                - rss_started,
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - rss_started,
             ),
         ),
         product,
@@ -270,12 +267,10 @@ def main(arguments: Sequence[str] | None = None) -> None:
     shared_vocab = _vocab_program()
     shared_merge = _merge_program()
     vocab_programs = tuple(
-        _vocab_replica(shared_vocab, index)
-        for index in range(options.region_workers)
+        _vocab_replica(shared_vocab, index) for index in range(options.region_workers)
     )
     merge_programs = tuple(
-        _merge_replica(shared_merge, index)
-        for index in range(options.region_workers)
+        _merge_replica(shared_merge, index) for index in range(options.region_workers)
     )
     total_workers = options.region_workers * 2
     pool = ThreadPoolExecutor(max_workers=total_workers)

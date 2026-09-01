@@ -10,10 +10,10 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import NamedTuple
 
+from bulk_lexical_cost import _pattern, _recognizer, _witness
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.core.scanner import Pattern, compile_source
-
-from bulk_lexical_cost import _pattern, _recognizer, _witness
 
 
 class Options(argparse.Namespace):
@@ -89,9 +89,7 @@ def _scan(text: str, pattern: Pattern, span: Span) -> int:
 
 def _replica(pattern: Pattern, index: int) -> Pattern:
     """Compile one cache-distinct equal lexical recognizer."""
-    return compile_source(
-        f"{pattern.pattern}(?#parallel-lexical-{index})"
-    )
+    return compile_source(f"{pattern.pattern}(?#parallel-lexical-{index})")
 
 
 def _measure(
@@ -112,9 +110,7 @@ def _measure(
         if pool is None:
             counts = tuple(
                 _scan(source, pattern, bounds)
-                for source, pattern, bounds in zip(
-                    texts, patterns, span, strict=True
-                )
+                for source, pattern, bounds in zip(texts, patterns, span, strict=True)
             )
         else:
             counts = tuple(pool.map(_scan, texts, patterns, span))

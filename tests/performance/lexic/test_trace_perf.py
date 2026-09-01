@@ -46,7 +46,7 @@ loop, not scheduler noise."""
 def compiled_fixture():
     """The JSON grammar, compiled and warm (tables and memos already built)."""
     grammar = compile_from_path(GROUND_TRUTH / "json.gbnf")
-    parse_model(grammar.codegen_grammar, DOCUMENT, grammar.fold)
+    parse_model(grammar.codegen_grammar, DOCUMENT, grammar.product)
     watch(grammar.pda_tables(), DOCUMENT, grammar.fold)
     return grammar
 
@@ -54,7 +54,7 @@ def compiled_fixture():
 def unwatched(compiled) -> float:
     """One unwatched parse, timed."""
     _, seconds = timed(
-        lambda: parse_model(compiled.codegen_grammar, DOCUMENT, compiled.fold)
+        lambda: parse_model(compiled.codegen_grammar, DOCUMENT, compiled.product)
     )
     return seconds
 

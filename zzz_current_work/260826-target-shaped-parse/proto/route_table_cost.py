@@ -90,15 +90,11 @@ class Reading(NamedTuple):
 def _queries(keys: tuple[str, ...]) -> tuple[str, ...]:
     """Interleave hits and misses without random-number overhead."""
     return tuple(
-        value
-        for index, key in enumerate(keys)
-        for value in (key, f"extension_{index}")
+        value for index, key in enumerate(keys) for value in (key, f"extension_{index}")
     )
 
 
-def _linear(
-    keys: tuple[str, ...], queries: tuple[str, ...], repeats: int
-) -> int:
+def _linear(keys: tuple[str, ...], queries: tuple[str, ...], repeats: int) -> int:
     """Classify through the prototype's tuple scan."""
     total = 0
     for _repeat in range(repeats):
@@ -112,9 +108,7 @@ def _linear(
     return total
 
 
-def _indexed(
-    keys: tuple[str, ...], queries: tuple[str, ...], repeats: int
-) -> int:
+def _indexed(keys: tuple[str, ...], queries: tuple[str, ...], repeats: int) -> int:
     """Classify through a bound private dictionary."""
     table = {key: index for index, key in enumerate(keys, 1)}
     get = table.get
@@ -125,9 +119,7 @@ def _indexed(
     return total
 
 
-def _singleton(
-    keys: tuple[str, ...], queries: tuple[str, ...], repeats: int
-) -> int:
+def _singleton(keys: tuple[str, ...], queries: tuple[str, ...], repeats: int) -> int:
     """Classify one known key through one equality test."""
     key = keys[0]
     total = 0
@@ -137,9 +129,7 @@ def _singleton(
     return total
 
 
-def _uniform(
-    _keys: tuple[str, ...], queries: tuple[str, ...], repeats: int
-) -> int:
+def _uniform(_keys: tuple[str, ...], queries: tuple[str, ...], repeats: int) -> int:
     """Exercise the dynamic-map route which performs no classification."""
     total = 0
     for _repeat in range(repeats):
@@ -172,9 +162,11 @@ def _readings(size: int) -> tuple[Reading, ...]:
             Callable[[tuple[str, ...], tuple[str, ...], int], int],
         ],
         ...,
-    ] = (
-        (("singleton", _singleton),) if size == 1 else ()
-    ) + (("linear", _linear), ("indexed", _indexed), ("uniform", _uniform))
+    ] = ((("singleton", _singleton),) if size == 1 else ()) + (
+        ("linear", _linear),
+        ("indexed", _indexed),
+        ("uniform", _uniform),
+    )
     samples: dict[str, list[float]] = {name: [] for name, _run in runners}
     witness: int | None = None
     for round_number in range(ROUNDS):
@@ -249,9 +241,7 @@ def _dense_destination() -> tuple[Reading, Reading]:
     dense_values = samples["dense_index"]
     return (
         Reading("choice_scan", min(choice), statistics.median(choice)),
-        Reading(
-            "dense_index", min(dense_values), statistics.median(dense_values)
-        ),
+        Reading("dense_index", min(dense_values), statistics.median(dense_values)),
     )
 
 

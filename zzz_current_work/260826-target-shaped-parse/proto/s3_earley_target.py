@@ -262,7 +262,9 @@ class Executor:
 def _tree(text: str, grammar: str = GRAMMAR) -> ParseTree:
     """A REAL Earley derivation of ``text`` — genuine chart, genuine FastTree."""
     compiled = compile_text(grammar)
-    product = _model_product(compiled.codegen_grammar, compiled.fold, tier_for(len(text)))
+    product = _model_product(
+        compiled.codegen_grammar, compiled.fold, tier_for(len(text))
+    )
     tree = first_meaning(
         EarleyParser(),
         product.instance_grammar,

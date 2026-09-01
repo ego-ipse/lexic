@@ -9,12 +9,12 @@ import time
 from collections.abc import Iterable, Sequence
 from typing import NamedTuple, Self
 
+from tokenizer_table_cost import Fixture, _fixture
+from tokenizer_table_phases import NativeTables, _native_fixture, _populate_native
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrTuple
 from lexic.ir.action.mapping import IrMapping
-
-from tokenizer_table_cost import Fixture, _fixture
-from tokenizer_table_phases import NativeTables, _native_fixture, _populate_native
 
 
 class Options(argparse.Namespace):
@@ -55,9 +55,7 @@ class IrTokenEncode(IrTokenIndex[str, int]):
     @classmethod
     def from_table(cls, pairs: Iterable[tuple[str, int]]) -> Self:
         """Build a canonical public/readback index with duplicate refusal."""
-        return super().from_table(
-            sorted(pairs, key=lambda pair: (pair[1], pair[0]))
-        )
+        return super().from_table(sorted(pairs, key=lambda pair: (pair[1], pair[0])))
 
 
 class IrTokenDecode(IrTokenIndex[int, str]):
@@ -85,13 +83,9 @@ class IrTokenRanks(IrTokenIndex[tuple[str, str], int]):
         return cls.from_table((dyad[0], dyad[1]) for dyad in dyads)
 
     @classmethod
-    def from_table(
-        cls, pairs: Iterable[tuple[tuple[str, str], int]]
-    ) -> Self:
+    def from_table(cls, pairs: Iterable[tuple[tuple[str, str], int]]) -> Self:
         """Build a canonical public/readback index with duplicate refusal."""
-        return super().from_table(
-            sorted(pairs, key=lambda pair: (pair[1], pair[0]))
-        )
+        return super().from_table(sorted(pairs, key=lambda pair: (pair[1], pair[0])))
 
 
 class ReadyIndexes(NamedTuple):
@@ -153,9 +147,7 @@ def _validate(indexes: ReadyIndexes, tables: NativeTables, fixture: Fixture) -> 
         raise AssertionError("tokenizer index canonical readback changed identity")
     first = IrTokenEncode.from_table((("later", 1), ("first", 0)))
     second = IrTokenEncode.from_table((("first", 0), ("later", 1)))
-    reconstructed = IrTokenEncode(
-        IrTuple("later", 1), IrTuple("first", 0)
-    )
+    reconstructed = IrTokenEncode(IrTuple("later", 1), IrTuple("first", 0))
     if first != reconstructed or repr(first) != repr(second):
         raise AssertionError("tokenizer index canonical readback changed repr")
 

@@ -1,5 +1,104 @@
 # Ledger — target-shaped parsing
 
+## Templating is the third authored surface (serves §4's caller-migration bullet) (2026-09-01)
+
+All four option-4 conditions met: `SPAN_SYMBOLS` states its own
+transitionality in words (it exists because a surface that cannot say what
+its rules do cannot be parsed at all, and it dies with the module); the
+previously-unexercised double slot-capture pattern has its witness row
+(`member-tm`: four captures over two slots, exactly {TEXT, EXTENT} on each,
+lowered and verified); templating's 66 tests are green with behaviour
+unmoved (`SpanPair` carries bindings, two test files adapted mechanically,
+assertions untouched); and the pyright/gates fix preceded it. Pylint's
+duplicate-code gate caught the bind-vocabulary→CaptureMode map existing
+twice — root-fixed as `CAPTURE_FOR_BIND` in `parsing/product/records.py`
+beside the vocabulary it describes, read by both authoring surfaces and the
+differential, killing the third copy §5 would have minted. The 700-ceiling
+squeeze was resolved honestly (own prose first, then `_span_fold`+
+`_span_product` folded into one `_span_binding` — the authored statement
+that they die together). Coordinator verified: witness row green, gate exit
+0 by exit code. Slice 2 proper is go on every surface.
+
+
+## Pyright miss root-caused: piped gates masked TWO failures (2026-09-01)
+
+The false "pyright clean" claim's root cause was the verification method, not
+the file: Terra ran gates as `bash gate.sh 2>&1 | tail -N && …`, so the
+pipeline's exit status was `tail`'s and the gate's own status was discarded —
+then read tail TEXT as the verdict. Exactly the standing done-gate rule
+(check `$?`, never the output), broken where it matters. Running unpiped
+exposed a SECOND masked failure: pylint exiting 8 while printing 10.00/10,
+with three real findings — fixed at root (`_verify_operand_lanes` passes the
+already-known phrase instead of coordinates to rebuild it; `registry` folded
+into `LoweringOwned` beside `symbols`, where a name and the whitelist it
+resolves through belong together; the duplicated no-build-state block became
+one `clear_build(clone)` in `flatten.py`). The miss itself: the stitch
+helper's ANNOTATION was the lie — `RecordingParse` receives a `ModelBinding`
+at runtime (which is why the suite was green) but declared `ModelFold`; the
+coordinator's suggested wrap-at-helper fix would have double-wrapped and
+broken the split tests, and Terra correctly fixed the annotation instead.
+**Standing correction adopted: gates run unpiped, one at a time, `$?`
+printed and read.** Coordinator re-verified: `tools/run_checks.sh` exit 0,
+witnesses green; slice 1 is now fully ACCEPTED. Slice 2 unblocked by the
+already-sent option-4 templating ruling (crossed messages).
+
+
+## Option 1 disproved; ruling: templating authors its own product (option 4) (2026-09-01)
+
+Terra verified rather than assumed, and option 1 fails on three independent
+grounds: templating's span fold deliberately captures ONE slot twice
+(text→key AND span→key_at — a layout `model_plan` cannot produce, one bind
+per item); its constructors are plain functions (`_collect`/`_span_entry`
+building `SpanLevel`/`SpanEntry`), which `RecordConstructor.cls` rightly
+refuses; and its 9-rule `-tm` clone set is not the 87-rule grammar the
+binding view describes. It is an authored surface, not a generated-model
+one. Nothing is broken today (empty rule map, bake still reads the fold);
+the collision is strictly at the bake switch.
+
+**Coordinator ruling — option 4, within delegated scope:** templating
+authors its own ~25-line product as a THIRD authored surface (two registry
+symbols, nine rules) on the machinery notation/selfgrammar already exercise.
+This spends throwaway lines on a §10-dead module — the thing the original
+ruling protected against — but 25 lines on existing machinery is de minimis
+against the alternatives: option 2 breaks the one-path invariant; option 3
+(§10's deletion moved ahead of §4's completion sites) would remove the
+shipped templating capability before its §6 `select`/`select_raw` successor
+exists. TODO's scope annotation is amended with the full reasoning.
+Conditions: the authored product is explicitly marked transitional and dies
+with the module at §10; the double slot-capture (two CaptureSpecs, one slot,
+different modes — well-formed but previously unexercised) gets its own
+witness row; templating's committed tests stay green unchanged; and the
+slice-1 pyright miss (stitch support helper) is fixed FIRST.
+
+
+## Slice 1 (channel replacement) reviewed: one miss returned (2026-09-01)
+
+The channel is replaced end to end: `ModelBinding` (fold + rule map +
+constructor table, one object so rules and constructors cannot be mispaired
+and the memo has one identity key; `fold` explicitly transitional) through
+`parse_model`/`pda_tables`/`_model_product`; `CompiledGrammar` stores the
+product with `fold` as a derived property so existing readers kept working;
+replicas clone the binding; the stitch modules read `.fold` keeping their
+model-shaped semantics untouched; all four fold-producing surfaces build one
+(`bind_model` unifies the compile and variant artefact paths; notation and
+selfgrammar bind from their authored tables; templating hands an empty rule
+map, correct while the bake reads the fold). Mid-flight red peaked at 452
+failures and was resolved in six mechanical passes — 30 test files adapted
+with assertions byte-preserved, including the coordinator-endorsed
+`test_replicas` binding hoist that restores the identity-memo property the
+test defends.
+
+Coordinator verification: full suite at `-n 8` rerun (5339/8/1-attributed),
+carrier diff and sampled adaptations read. ONE MISS returned to Terra before
+acceptance: `pyright src tests tools` shows one error Terra's "pyright
+clean" claim missed — `tests/.../parallel/stitch/support.py:32` still hands
+a bare `ModelFold` to `parse_model` (suite-green, so the line is dead or
+differently reached — Terra to determine); fix mechanically, quote the
+pyright summary verbatim, and correct the verification step that produced
+the false claim. Slice 2 (templating verification first, then
+CloneSpec/RuleProduct + bake switch + completion sites) starts with the fix.
+
+
 ## Channel sequencing: two slices; templating rides the standard product (2026-09-01)
 
 Terra's channel call-graph read found `parse_model`'s five src callers

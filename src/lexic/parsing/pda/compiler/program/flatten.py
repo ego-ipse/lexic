@@ -395,6 +395,20 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
         self.delegates = delegates
 
 
+def clear_build(clone: FlatClone) -> None:
+    """Give a clone no fused build state — what a clone without a licence has.
+
+    A transparent clone, an unlicensed rule and a rule that completes some way
+    other than by constructing a declared record all reach the same place: the
+    fused build has nothing to do, so its four fields say nothing rather than
+    something empty-looking. One home for that, because two bakes write it.
+    """
+    clone.fields = ()
+    clone.plan = ()
+    clone.fast = None
+    clone.defaults = None
+
+
 def vstr_model(clone: FlatClone, span: str) -> object:
     """A ``value_str`` clone's model over its matched ``span``.
 

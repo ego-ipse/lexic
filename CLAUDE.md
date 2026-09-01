@@ -235,6 +235,7 @@ src/lexic/
         escapes.py                 EscapeCodec — flavour-side canonical spelling
   parsing/
     __init__.py                    public API: parse_model product + the Earley toolkit
+    binding.py                     The bound model product — what a parse entry is handed
     caches.py                      Identity-memo registry — every id-keyed cache, bounded by its artefact
     fold.py                        ParseTree → object fold — the instance-parsing bridge
     products.py                    The model product entry — PDA-first with Earley completion

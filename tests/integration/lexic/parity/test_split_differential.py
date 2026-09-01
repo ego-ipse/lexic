@@ -46,9 +46,9 @@ def test_split_parse_equals_sequential(name: str, text: str, workers: int):
     if not path.exists():
         pytest.skip(f"fixture absent: {name}")
     compiled = compile_from_path(path)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
-    sequential = parse_model(grammar, text, fold)
-    parallel = split_model(parse_model, grammar, Request(text, fold), workers)
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    sequential = parse_model(grammar, text, binding)
+    parallel = split_model(parse_model, grammar, Request(text, binding), workers)
     if parallel is not None:  # None = this grammar/input does not split
         assert parallel == sequential
         assert type(parallel) is type(sequential)
@@ -63,11 +63,11 @@ def test_a_bad_input_refuses_on_both_paths(name: str, text: str):
     if not path.exists():
         pytest.skip(f"fixture absent: {name}")
     compiled = compile_from_path(path)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     bad = text + "\x00 not in this language"
-    assert split_model(parse_model, grammar, Request(bad, fold), 4) is None
+    assert split_model(parse_model, grammar, Request(bad, binding), 4) is None
     with pytest.raises(UnsupportedConstructError):
-        parse_model(grammar, bad, fold)
+        parse_model(grammar, bad, binding)
     with pytest.raises(UnsupportedConstructError):
         compiled.parse(bad)
 

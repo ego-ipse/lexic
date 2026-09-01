@@ -53,8 +53,8 @@ from lexic.parsing.earley.kernel.tables.atoms import predecessor_chain, tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.splits import ChainSpec, is_arm_choice
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.products import pda_tables
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
+from lexic.parsing.products import pda_tables
 
 type Meaning = str | tuple["Meaning", ...]
 

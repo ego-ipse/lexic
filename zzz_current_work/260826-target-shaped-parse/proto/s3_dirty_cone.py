@@ -206,7 +206,9 @@ def the_flip_is_observable_or_not(shape: Shape) -> None:
         raise AssertionError(f"{shape.name}: a derivation did not build")
 
     before, after = _meanings(first), _meanings(other)
-    changed = {key for key in before | after.keys() if before.get(key) != after.get(key)}
+    changed = {
+        key for key in before | after.keys() if before.get(key) != after.get(key)
+    }
     _check(
         f"{shape.name}: the flipped derivation consumed different text",
         _subtree_text(first) == _subtree_text(other) == shape.text,

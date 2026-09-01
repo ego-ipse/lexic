@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from lexic.ir import IrAst
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.products import ModelBinding
 from lexic.parsing.parallel.discovery.regions import Region, piece_marks
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.stitch.model import RegionWork, derive_plan

@@ -11,9 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import NamedTuple
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.core.scanner import compile_source
-
 from parallel_region_cost import (
     CaptureProgram,
     Span,
@@ -23,6 +20,9 @@ from parallel_region_cost import (
     _program,
 )
 from schema_region_cost import Tables, _decode_key
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.pda.core.scanner import compile_source
 
 
 class Options(argparse.Namespace):
@@ -38,9 +38,7 @@ class Options(argparse.Namespace):
                 f"capture profile: unsupported workers {self.workers}"
             )
         if self.rounds < 1:
-            raise UnsupportedConstructError(
-                "capture profile: rounds must be positive"
-            )
+            raise UnsupportedConstructError("capture profile: rounds must be positive")
 
 
 class Product(NamedTuple):
@@ -235,15 +233,9 @@ STAGES = (
 def _program_replica(program: CaptureProgram, index: int) -> CaptureProgram:
     """Compile cache-distinct patterns with identical capture semantics."""
     return CaptureProgram(
-        compile_source(
-            f"{program.first.pattern}(?#capture-profile-{index}-first)"
-        ),
-        compile_source(
-            f"{program.next.pattern}(?#capture-profile-{index}-next)"
-        ),
-        compile_source(
-            f"{program.stream.pattern}(?#capture-profile-{index}-stream)"
-        ),
+        compile_source(f"{program.first.pattern}(?#capture-profile-{index}-first)"),
+        compile_source(f"{program.next.pattern}(?#capture-profile-{index}-next)"),
+        compile_source(f"{program.stream.pattern}(?#capture-profile-{index}-stream)"),
     )
 
 
@@ -305,8 +297,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
     chunks = _chunks(entries, options.workers)
     shared_program = _capture_program()
     programs = tuple(
-        _program_replica(shared_program, index)
-        for index, _chunk in enumerate(chunks)
+        _program_replica(shared_program, index) for index, _chunk in enumerate(chunks)
     )
     pool = (
         None
@@ -321,9 +312,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
         for number in range(1, options.rounds + 1):
             order = STAGES if number % 2 else tuple(reversed(STAGES))
             for stage in order:
-                reading, checksum = _measure(
-                    text, chunks, programs, pool, stage
-                )
+                reading, checksum = _measure(text, chunks, programs, pool, stage)
                 previous = checksums.setdefault(stage.name, checksum)
                 if checksum != previous:
                     raise AssertionError(

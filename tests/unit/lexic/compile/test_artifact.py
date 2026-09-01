@@ -345,20 +345,20 @@ def test_a_derived_bind_does_not_steal_the_sources_claim() -> None:
     source = _fresh_artifact(_DRAIN_GRAMMAR, "claim-source")
     source.parse(_DRAIN_TEXT, cores=1)
     assert id(source.grammar) in _CLAIMED
-    assert id(source.fold) in _CLAIMED
-    before = _owned_count(source.fold)
-    assert before > 0  # the parse actually populated fold-identity-keyed entries
+    assert id(source.product) in _CLAIMED
+    before = _owned_count(source.product)
+    assert before > 0  # the parse actually populated product-identity-keyed entries
 
     derived = source.bind(tok)
     assert derived.grammar is source.grammar
-    assert derived.fold is source.fold
+    assert derived.product is source.product
     derived.parse(_DRAIN_TEXT, cores=1)
     del derived
     gc.collect()
 
     assert id(source.grammar) in _CLAIMED  # still claimed -- by source
-    assert id(source.fold) in _CLAIMED
-    assert _owned_count(source.fold) == before  # nothing the source owns was evicted
+    assert id(source.product) in _CLAIMED
+    assert _owned_count(source.product) == before  # nothing the source owns was evicted
     reset_cache_for_tests()
 
 

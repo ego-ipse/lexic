@@ -30,10 +30,10 @@ from lexic.compile import compile_from_path
 from lexic.compile.pipeline.synthesis import ModelPlan, model_plan
 from lexic.exceptions import UnsupportedConstructError
 from lexic.generate import generate
-from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.caches import reset_caches
 from lexic.parsing.pda.compiler.program.product import bake_product_build
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import reset_product_cache
 
 ROOT = Path(__file__).resolve().parents[3]

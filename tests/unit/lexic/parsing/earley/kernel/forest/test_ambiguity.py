@@ -31,7 +31,7 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
     grammar meant.
     """
     compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
-    product = _model_product(compiled.codegen_grammar, compiled.fold)
+    product = _model_product(compiled.codegen_grammar, compiled.product)
     rules = {r.name: r for r in compiled.grammar.rules}
     with_points = flagged = 0
     for seed in range(200):

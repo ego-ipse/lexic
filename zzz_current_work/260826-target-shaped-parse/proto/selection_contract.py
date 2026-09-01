@@ -10,10 +10,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import NamedTuple
 
+from product_types import KEEP, Keep, Selection, SelectionSpec
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrInt, IrSelf, IrStr
-
-from product_types import KEEP, Keep, Selection, SelectionSpec
 
 
 class BeginMapping(NamedTuple):
@@ -83,9 +83,7 @@ class SelectionFrame:
 
     __slots__ = ("branch", "pending", "prefix", "repeated", "seen")
 
-    def __init__(
-        self, branch: SelectionBranch, prefix: tuple[str, ...]
-    ) -> None:
+    def __init__(self, branch: SelectionBranch, prefix: tuple[str, ...]) -> None:
         self.branch = branch
         self.pending: str | None = None
         self.prefix = prefix
@@ -118,17 +116,13 @@ class SelectionMachine:
             return
         parent = self._frame()
         if parent.pending is None:
-            raise UnsupportedConstructError(
-                "nested mapping has no decoded-key route"
-            )
+            raise UnsupportedConstructError("nested mapping has no decoded-key route")
         child = parent.branch.children.get(parent.pending)
         if not isinstance(child, SelectionBranch):
             raise UnsupportedConstructError(
                 "mapping event entered a non-nested selection route"
             )
-        self.frames.append(
-            SelectionFrame(child, parent.prefix + (parent.pending,))
-        )
+        self.frames.append(SelectionFrame(child, parent.prefix + (parent.pending,)))
 
     def _key(self, key: str) -> None:
         frame = self._frame()
@@ -138,9 +132,7 @@ class SelectionMachine:
             )
         frame.repeated = key in frame.seen
         if frame.repeated:
-            self.verdicts.append(
-                f"selection input repeats decoded key {key!r}"
-            )
+            self.verdicts.append(f"selection input repeats decoded key {key!r}")
         else:
             frame.seen.add(key)
         frame.pending = key
@@ -169,9 +161,7 @@ class SelectionMachine:
         frame = self._frame()
         key = frame.pending
         if key is None:
-            raise UnsupportedConstructError(
-                "discarded value has no decoded-key route"
-            )
+            raise UnsupportedConstructError("discarded value has no decoded-key route")
         child = frame.branch.children.get(key)
         if child is not None and not frame.repeated:
             raise UnsupportedConstructError(
@@ -215,9 +205,7 @@ class SelectionMachine:
         if self.verdicts:
             raise UnsupportedConstructError(self.verdicts[0])
         return {
-            path: self.retained[path]
-            for path in self.order
-            if path in self.retained
+            path: self.retained[path] for path in self.order if path in self.retained
         }
 
 

@@ -34,7 +34,7 @@ from lexic.ir import (
     IrSequence,
     IrTuple,
 )
-from lexic.parsing import parse_first
+from lexic.parsing import ModelBinding, parse_first
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX, normalize
@@ -542,7 +542,7 @@ def test_recognition_twins_never_construct_descendants_in_either_engine(
             ),
         )
     )
-    product = _model_product(grammar, fold)
+    product = _model_product(grammar, ModelBinding(fold))
     parsing = True
     text = f"{kept_atom}{dropped_atom}!"
     expected = {"kept": {"value": kept_atom}, "dropped": None}
@@ -673,7 +673,7 @@ def test_required_field_matching_the_empty_arm_folds_to_explicit_none():
     """
     src = 'a = %s"x" t\r\nt = "" / tr / ts\r\ntr = %s"-" %s"h"\r\nts = 1*%s"."\r\n'
     cg = compile_text(src, cache_key="fold-empty-arm-field", flavour="abnf")
-    product = _model_product(cg.codegen_grammar, cg.fold)
+    product = _model_product(cg.codegen_grammar, cg.product)
     via_earley = earley_model(product.instance_grammar, "x", cg.fold, product.tables)
     via_pda = pda_model(product.pda, "x", cg.fold)
     assert via_earley == via_pda, "the two engines must build the same record"

@@ -409,7 +409,7 @@ def test_family_engages_multiple_workers_at_large_size(family: str) -> None:
     existing split differentials do."""
     compiled = _compiled(family)
     text = _document(family, "large")
-    sequential = parse_model(compiled.codegen_grammar, text, compiled.fold)
+    sequential = parse_model(compiled.codegen_grammar, text, compiled.product)
     calls: list[int] = []
 
     def recording_parse(grammar, source, fold, resolve=None):
@@ -419,7 +419,7 @@ def test_family_engages_multiple_workers_at_large_size(family: str) -> None:
     split = split_model(
         recording_parse,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         8,
     )
 
@@ -471,7 +471,7 @@ def test_sub_floor_document_declines_before_any_plan_analysis(
     declined = orchestrate.split_model(
         parse_model,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         16,
     )
     assert declined is None
@@ -502,7 +502,7 @@ def test_genuine_prefix_ambiguity_declines_and_matches_sequential_refusal() -> N
     sequential fallback must then raise the identical refusal, never a
     silently chosen model."""
     compiled = compile_text(_AMBIGUOUS_PREFIX)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     lines = ["a" * 20 + "\n"] * 300
     lines[150] = "@ab\n"
     text = "".join(lines)
@@ -510,11 +510,11 @@ def test_genuine_prefix_ambiguity_declines_and_matches_sequential_refusal() -> N
 
     attempts: list[int] = []
 
-    def counting_parse(gr, piece, model_fold, resolve=None):
+    def counting_parse(gr, piece, model_binding, resolve=None):
         attempts.append(len(piece))
-        return parse_model(gr, piece, model_fold, resolve)
+        return parse_model(gr, piece, model_binding, resolve)
 
-    assert split_model(counting_parse, grammar, Request(text, fold), 2) is None
+    assert split_model(counting_parse, grammar, Request(text, binding), 2) is None
     assert len(attempts) >= 2, "both chunks must have actually been attempted"
 
     for cores in (1, 2):

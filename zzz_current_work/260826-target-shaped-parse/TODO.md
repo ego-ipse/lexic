@@ -497,6 +497,33 @@ holds.
 
 ## 4 — migrate generated-model parsing onto the common ABI
 
+**§4 execution map (coordinator, 2026-09-01; live — updated as steps land).**
+Terra's approved sequence is SEVEN STEPS; step 3 split into TWO SLICES when
+the channel's call graph was read. Position is marked:
+
+1. ✅ Author the model product beside the fold (`model_plan`,
+   `RecordConstructor` + `matched_field`; differential 137 rules).
+2. ✅ Product-side bake (`bake_product_build`; identity over 610 clones;
+   switch proved on 107 real PDA parses). Interleaved and done: symbol op,
+   lane-bounds closure, notation + selfgrammar + (ruled) templating as
+   authored surfaces, `rules.py` split.
+3. ⏳ The channel + completions, two slices so the channel is replaced once
+   and the bake switched once, with no dual-live interval:
+   — Slice 1 ✅: `ModelBinding` through every parse entry; `fold` a derived
+     property; 30 test files adapted mechanically. (One pyright miss
+     returned; fix in flight.)
+   — Slice 2 ⏳: templating's authored product, `CloneSpec` carries
+     `RuleProduct`, `flatten_clones` bakes from it, PDA completion sites in
+     `build.py`/`execution.py` move (descent + transparent-MANY findings;
+     gtext absence row at first model build).
+4. ☐ Earley / island / delegated completion onto the same product ops.
+5. ☐ Remainder of the compile side + `trace.py` rewrite (parallel/ was
+   absorbed into slice 1).
+6. ☐ Delete the six fold symbols once nothing references them.
+7. ☐ Close the per-step opcode account; coordinator's external profile;
+   first checkpoint commit; scoped Luna mirror pass.
+
+
 - [x] **PLANNING REQUIRED BEFORE §4 — CLOSED:** strengthen the authoritative
       regular proof before the value-string consult can use it. A nullable arm
       must be last, and `(variable or atom.nullable) and FIRST(atom) overlaps
@@ -523,8 +550,15 @@ holds.
       re-plumbing onto the model product's ABI, keeping their model-shaped
       stitching semantics untouched; §9's `FragmentProduct` generalization
       stays §9. `compile/output/templating.py` moves only minimally/
-      mechanically to stay compiling — never re-expressed as a product — and
-      §10 deletes it unchanged.) Generated-model synthesis lowers directly to
+      mechanically to stay compiling and §10 deletes it. Amended 2026-09-01:
+      the standard model_plan authoring provably CANNOT cover its span fold
+      (deliberate double slot-captures, function constructors, a 9-rule clone
+      set against an 87-rule binding view), so templating authors its own
+      ~25-line product as a third authored surface — two registry symbols +
+      nine rules on the existing notation/selfgrammar machinery, explicitly
+      transitional, deleted with the module at §10. Chosen over breaking
+      one-path (opt 2) or reordering §10 ahead of §4 (opt 3, which would
+      remove a shipped capability before its §6 successor exists).) Generated-model synthesis lowers directly to
       `CaptureSpec`, `RuleProduct[GrammarModel]`, the typed constructor operand
       table, and one `ProductProgram[GrammarModel, GrammarModel]`
       specialization — the start class is synthesized at runtime and has no

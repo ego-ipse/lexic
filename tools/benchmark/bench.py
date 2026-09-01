@@ -201,7 +201,7 @@ def _lexic(
     if "lexic-pda" in wanted:
         engines["lexic-pda"] = lambda text: sequential(text, cores=1)
     if "lexic-earley" in wanted:
-        product = _model_product(bench.compiled.codegen_grammar, fold)
+        product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
         engines["lexic-earley"] = lambda text: earley_model(
             product.instance_grammar, text, fold, product.tables
         )
@@ -264,13 +264,13 @@ def _variant_engines(
 
 def _decision_cost(compiled, corpus: str) -> int | None:
     """Watched decision work (probes, gates, rollbacks) on the raw PDA; None = incapable."""
-    fold = compiled.fold
-    product = _model_product(compiled.codegen_grammar, fold)
+    binding = compiled.product
+    product = _model_product(compiled.codegen_grammar, binding)
     try:
-        pda_model(product.pda, corpus, fold)
+        pda_model(product.pda, corpus, binding.fold)
     except LexicError, PdaFail:
         return None
-    run = watch(product.pda, corpus, fold, cap=1_000_000)
+    run = watch(product.pda, corpus, binding.fold, cap=1_000_000)
     return sum(
         1 for event in run.events if str(event.kind) in ("rollback", "probe", "gate")
     )
@@ -639,7 +639,7 @@ def _mt_check(
         return {}
     declined: dict[str, str] = {}
     for name, compiled in artifacts.items():
-        request = Request(document, compiled.fold, None)
+        request = Request(document, compiled.product, None)
         split = split_model(
             parse_model,
             compiled.codegen_grammar,

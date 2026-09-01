@@ -78,8 +78,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
     for number in range(1, options.rounds + 1):
         reading, regions = _measure(text)
         observed = tuple(
-            (region.opener, region.closer, len(region.marks))
-            for region in regions
+            (region.opener, region.closer, len(region.marks)) for region in regions
         )
         if not any(region.opener == vocab_open for region in regions):
             raise AssertionError("structural discovery lost model.vocab")

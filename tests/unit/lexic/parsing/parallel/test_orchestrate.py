@@ -117,7 +117,7 @@ def test_a_routed_region_split_never_pays_for_the_bracket_sweep(
 
     monkeypatch.setattr(orchestrate, "find", counting_find)
     split = split_model(
-        parse_model, compiled.codegen_grammar, Request(text, compiled.fold), 8
+        parse_model, compiled.codegen_grammar, Request(text, compiled.product), 8
     )
 
     assert split is not None, "the routed region must carry this split"
@@ -147,7 +147,7 @@ def test_universal_gates_skip_plan_and_safety_analysis(
         orchestrate.split_model(
             parse_model,
             compiled.codegen_grammar,
-            Request(text, compiled.fold),
+            Request(text, compiled.product),
             cores,
         )
         is None
@@ -157,11 +157,11 @@ def test_universal_gates_skip_plan_and_safety_analysis(
 def test_split_equals_sequential_and_round_trips():
     """The headline: same model, exactly, and the text comes back."""
     compiled = compile_text(LEAD_RULE)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     text = _doc(1000)
-    parallel = split_model(parse_model, grammar, Request(text, fold), 4)
+    parallel = split_model(parse_model, grammar, Request(text, binding), 4)
     assert parallel is not None
-    assert parallel == parse_model(grammar, text, fold)
+    assert parallel == parse_model(grammar, text, binding)
     assert parallel.to_text() == text
     assert compiled.parse(text) == parallel
 
@@ -201,7 +201,7 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
     parallel = orchestrate.split_model(
         parse_model,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         4,
     )
 
@@ -215,11 +215,11 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
 def test_every_worker_count_gives_one_answer(cores: int):
     """Worker count moves wall-clock, never the value."""
     compiled = compile_text(LEAD_RULE)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     text = _doc(1000)
-    assert split_model(parse_model, grammar, Request(text, fold), cores) == parse_model(
-        grammar, text, fold
-    )
+    assert split_model(
+        parse_model, grammar, Request(text, binding), cores
+    ) == parse_model(grammar, text, binding)
 
 
 def test_terminated_plain_tuple_chunks_stitch_without_list_coercion():
@@ -230,7 +230,7 @@ def test_terminated_plain_tuple_chunks_stitch_without_list_coercion():
     parallel = split_model(
         parse_model,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         4,
     )
 
@@ -247,10 +247,10 @@ def test_backtrack_like_terminated_start_split_is_non_vacuous_and_equal():
     text = "".join(
         f"def alpha{i}() {{value}}\ndef beta{i}() = value;\n" for i in range(240)
     )
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     plan = split_plan(grammar)
-    sequential = parse_model(grammar, text, fold)
-    parallel = split_model(parse_model, grammar, Request(text, fold), 2)
+    sequential = parse_model(grammar, text, binding)
+    parallel = split_model(parse_model, grammar, Request(text, binding), 2)
 
     assert plan is not None and plan.sep is None
     assert parallel is not None
@@ -262,9 +262,9 @@ def test_direct_group_recurrence_stitches_below_a_wrapper_start():
     """A bracket recurrence can replace its outer model through ``doc``."""
     compiled = compile_text(DIRECT_GROUP)
     text = "(" + ",".join("a" * 20 for _ in range(1000)) + ")"
-    grammar, fold = compiled.codegen_grammar, compiled.fold
-    sequential = parse_model(grammar, text, fold)
-    parallel = split_model(parse_model, grammar, Request(text, fold), 8)
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    sequential = parse_model(grammar, text, binding)
+    parallel = split_model(parse_model, grammar, Request(text, binding), 8)
 
     assert parallel is not None
     assert parallel == sequential
@@ -275,19 +275,19 @@ def test_true_root_group_recurrence_has_no_replaceable_route():
     """A region that is itself the start model declines without a wrapper."""
     compiled = compile_text(TRUE_GROUP)
     text = "(" + ",".join("a" * 20 for _ in range(1000)) + ")"
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
 
-    assert split_model(parse_model, grammar, Request(text, fold), 8) is None
+    assert split_model(parse_model, grammar, Request(text, binding), 8) is None
     assert compiled.parse(text, cores=2).to_text() == text
 
 
 def test_a_bare_literal_lead_splits_too():
     """``more ::= "|" word`` has no lead RULE — the cut text is the literal."""
     compiled = compile_text(BARE_LEAD)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     text = "|".join(f"word{'x' * (i % 3)}" for i in range(2000)).replace("0", "")
-    assert split_model(parse_model, grammar, Request(text, fold), 4) == parse_model(
-        grammar, text, fold
+    assert split_model(parse_model, grammar, Request(text, binding), 4) == parse_model(
+        grammar, text, binding
     )
 
 
@@ -295,10 +295,10 @@ def test_separator_alternatives_split_below_a_sole_wrapper():
     """A routed repeated child stitches back into its unchanged root wrapper."""
     compiled = compile_text(ROUTED_ALTERNATIVES)
     text = "+".join(str(index % 10) * 12 for index in range(1200))
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     plan = split_plan(grammar)
-    sequential = parse_model(grammar, text, fold)
-    parallel = split_model(parse_model, grammar, Request(text, fold), 8)
+    sequential = parse_model(grammar, text, binding)
+    parallel = split_model(parse_model, grammar, Request(text, binding), 8)
 
     assert plan is not None and plan.wrappers == ("root",)
     assert plan.mark in ({"+"}, {"-"})
@@ -319,7 +319,7 @@ def test_empty_outer_arithmetic_tail_routes_to_inner_multiplication():
     parallel = split_model(
         recording_parse,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         8,
     )
 
@@ -344,12 +344,12 @@ def test_nonempty_outer_arithmetic_tail_uses_outer_separator_route():
     parallel = split_model(
         recording_parse,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         8,
     )
 
     assert parallel is not None
-    assert parallel == parse_model(compiled.codegen_grammar, text, compiled.fold)
+    assert parallel == parse_model(compiled.codegen_grammar, text, compiled.product)
     assert parallel.to_text() == text
     assert "addop" in calls
     assert "mulop" not in calls
@@ -364,11 +364,11 @@ def test_finite_arithmetic_alternatives_preserve_one_document(cores: int):
         + f"{index % 10}*{(index + 1) % 10}/{(index + 2) % 10}"
         for index in range(1200)
     )
-    sequential = parse_model(compiled.codegen_grammar, text, compiled.fold)
+    sequential = parse_model(compiled.codegen_grammar, text, compiled.product)
     parallel = split_model(
         parse_model,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         cores,
     )
 
@@ -393,12 +393,12 @@ def test_top_level_cuts_follow_byte_targets_and_clear_the_floor():
     split = split_model(
         measured_parse,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         4,
     )
     chunks = [size for size in sizes if size >= MIN_CHUNK]
 
-    assert split == parse_model(compiled.codegen_grammar, text, compiled.fold)
+    assert split == parse_model(compiled.codegen_grammar, text, compiled.product)
     assert len(chunks) == 4
     assert max(chunks) - min(chunks) < 2 * MIN_CHUNK
 
@@ -429,7 +429,7 @@ def test_byte_cuts_try_an_adjacent_safe_mark_at_the_floor():
     parallel = orchestrate.split_model(
         recording_parse,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         3,
     )
 
@@ -453,7 +453,7 @@ def test_fence_internal_newlines_decline_without_chunking_inside_the_fence():
     parallel = split_model(
         recording_parse,
         compiled.codegen_grammar,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         2,
     )
 
@@ -466,9 +466,9 @@ def test_fence_internal_newlines_decline_without_chunking_inside_the_fence():
 def test_a_grammar_without_a_separated_start_has_no_plan():
     """No plan is an answer: ``None`` tells the caller to parse sequentially."""
     compiled = compile_text(NO_SPLIT)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     assert split_plan(grammar) is None
-    assert split_model(parse_model, grammar, Request("abc", fold), 4) is None
+    assert split_model(parse_model, grammar, Request("abc", binding), 4) is None
 
 
 def test_split_model_settles_too_few_workers_before_entering_poollease(
@@ -492,18 +492,18 @@ def test_split_model_settles_too_few_workers_before_entering_poollease(
 
     monkeypatch.setattr(orchestrate.PoolLease, "__enter__", _entered_the_lease)
     compiled = compile_text(LEAD_RULE)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
-    assert split_model(parse_model, grammar, Request(_doc(), fold), 1) is None
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    assert split_model(parse_model, grammar, Request(_doc(), binding), 1) is None
 
 
 def test_a_bad_input_declines_rather_than_inventing_a_refusal():
     """A failing chunk is a verdict on the SPLIT, not on the input: the
     split declines and the caller's sequential parse is what raises."""
     compiled = compile_text(LEAD_RULE)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     bad = _doc() + ", 12:not-a-pair"
     assert split_plan(grammar) is not None, "the decline must not be 'no plan'"
-    assert split_model(parse_model, grammar, Request(bad, fold), 4) is None
+    assert split_model(parse_model, grammar, Request(bad, binding), 4) is None
     with pytest.raises(UnsupportedConstructError):
         compiled.parse(bad)
 
@@ -511,9 +511,9 @@ def test_a_bad_input_declines_rather_than_inventing_a_refusal():
 def test_too_few_separators_declines():
     """No cut points, no split — and the artefact still parses it."""
     compiled = compile_text(LEAD_RULE)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     text = "only:1"
-    assert split_model(parse_model, grammar, Request(text, fold), 8) is None
+    assert split_model(parse_model, grammar, Request(text, binding), 8) is None
     assert compiled.parse(text).to_text() == text
 
 
@@ -544,16 +544,16 @@ def test_an_ungenerateable_witness_declines_the_envelope_split_cleanly(
     than reparse without one, and the caller's sequential parse still
     answers correctly."""
     compiled = compile_text(ENVELOPE)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     text = "ua = a\nub = b\n" * 2000
 
     assert split_plan(grammar) is not None
 
     monkeypatch.setattr(orchestrate, "unit_witness", lambda *_a, **_k: None)
-    declined = split_model(parse_model, grammar, Request(text, fold), 8)
+    declined = split_model(parse_model, grammar, Request(text, binding), 8)
     assert declined is None
 
-    sequential = parse_model(grammar, text, fold)
+    sequential = parse_model(grammar, text, binding)
     assert compiled.parse(text, cores=8) == sequential
 
 
@@ -585,21 +585,21 @@ def test_the_orchestrator_engages_a_document_carrying_only_the_second_marks_evid
     through to — engaged, exact, and non-vacuous, at the real
     ``split_model`` seam rather than the plan level alone."""
     compiled = compile_text(TWO_MARK_SOURCE, cache_key="two-mark-orchestrate")
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     entries = [
         f"k{chr(97 + i % 26)}{chr(97 + (i // 26) % 26)} = v" for i in range(2600)
     ]
     text = "\n".join(entries)
     assert len(text) >= 16 * 1024
 
-    sequential = parse_model(grammar, text, fold)
+    sequential = parse_model(grammar, text, binding)
     calls: list[int] = []
 
     def recording_parse(g, source, f, resolve=None):
         calls.append(len(source))
         return parse_model(g, source, f, resolve)
 
-    split = split_model(recording_parse, grammar, Request(text, fold), 8)
+    split = split_model(recording_parse, grammar, Request(text, binding), 8)
     assert split is not None, "the newline-marked plan must have carried this"
     assert split == sequential
     assert split.to_text() == text

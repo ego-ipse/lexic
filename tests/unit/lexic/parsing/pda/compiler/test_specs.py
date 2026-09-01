@@ -79,7 +79,7 @@ def test_group_spec_holds_arms_and_default():
 
 def test_clone_spec_field_order():
     """A clone spec is ``(name, arms, default, fold, match_only)`` in order."""
-    spec = CloneSpec("r", (), None, None, False)
+    spec = CloneSpec("r", (), None, None, None, False)
     assert spec.name == "r"
     assert spec.arms == ()
     assert spec.default is None

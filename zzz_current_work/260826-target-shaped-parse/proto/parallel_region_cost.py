@@ -11,9 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import NamedTuple
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.core.scanner import Pattern, compile_source
-
 from schema_region_cost import (
     RegionProgram,
     Tables,
@@ -23,6 +20,9 @@ from schema_region_cost import (
     _recognizer,
     _source,
 )
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.pda.core.scanner import Pattern, compile_source
 
 
 class Options(argparse.Namespace):
@@ -168,9 +168,7 @@ def _capture_chunk(text: str, program: CaptureProgram, span: Span) -> Tables:
     return tables
 
 
-def _capture_chunk_stream(
-    text: str, program: CaptureProgram, span: Span
-) -> Tables:
+def _capture_chunk_stream(text: str, program: CaptureProgram, span: Span) -> Tables:
     """Stream compiled captures into indexes without a retained pair sidecar."""
     pos, end = span
     tables = Tables({}, {})
@@ -264,9 +262,7 @@ def _measure_capture(
         if pool is None:
             parts = tuple(capture(text, program, span) for span in chunks)
         else:
-            parts = tuple(
-                pool.map(lambda span: capture(text, program, span), chunks)
-            )
+            parts = tuple(pool.map(lambda span: capture(text, program, span), chunks))
         tables = _join(parts)
     finally:
         process_elapsed = time.process_time() - process_started

@@ -29,9 +29,9 @@ import threading
 from typing import NamedTuple
 
 from lexic.ir import IrAst
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import adopt, memo
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.products import ModelBinding
 from lexic.parsing.parallel.policy import available_workers
 
 Replica = tuple[IrAst, ModelBinding]

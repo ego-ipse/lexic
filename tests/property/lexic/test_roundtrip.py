@@ -69,7 +69,7 @@ def test_arithmetic_roundtrip_engine_forced(seed: int, all_grammar_specs: dict) 
     if not text:
         return
     cg = compile_from_path(_GRAMMAR_DIR / "arithmetic.gbnf")
-    product = _model_product(cg.codegen_grammar, cg.fold)
+    product = _model_product(cg.codegen_grammar, cg.product)
     inst = cast(
         GrammarModel,
         earley_model(product.instance_grammar, text, cg.fold, product.tables),

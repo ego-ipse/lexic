@@ -40,7 +40,7 @@ def pda_for(text: str):
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     compiled = compile_text(text, flavour="gbnf")
-    return compile_pda(lifted, normalize(lifted), compiled.fold.config), compiled
+    return compile_pda(lifted, normalize(lifted), compiled.product), compiled
 
 
 def arms_of(clone):

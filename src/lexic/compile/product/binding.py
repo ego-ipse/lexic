@@ -35,6 +35,11 @@ from collections.abc import Callable, Mapping, Sequence
 from threading import Lock
 from typing import NamedTuple
 
+from lexic.compile.pipeline.binding import RuleBinding
+from lexic.compile.pipeline.synthesis import fold_config, model_plan
+from lexic.ir import IrAst
+from lexic.model import GrammarModel
+from lexic.parsing import ModelBinding, ModelFold
 from lexic.parsing.caches import adopt, memo, track
 from lexic.parsing.product import ProductProgram, RuleProduct
 
@@ -213,6 +218,32 @@ class BindingRegistry[Declaration, Result]:
         confirmed against the objects themselves before it is served.
         """
         return entry.declaration is declaration and entry.source() is source
+
+
+def bind_model(
+    codegen_grammar: IrAst,
+    view: list[RuleBinding],
+    classes: dict[str, type],
+    omit: frozenset[str] = frozenset(),
+) -> ModelBinding[GrammarModel]:
+    """The generated-model product, bound with the fold its completions read.
+
+    The one place a compilation turns its binding view into what a parse entry
+    is handed, so the two artefact paths — a compile and a derived variant —
+    cannot drift about how the product and the fold are paired.
+
+    :param codegen_grammar: The post-pass grammar the view was computed on.
+    :param view: The binding view, in emission order.
+    :param classes: Generated classes by class name.
+    :param omit: Rules kept recognition-only by leaving them out.
+    :returns: The bound model product.
+    """
+    plan = model_plan(codegen_grammar, view, classes, omit=omit)
+    return ModelBinding(
+        ModelFold(fold_config(codegen_grammar, view, classes, omit=omit)),
+        rules_by_name(plan.rules, plan.codes),
+        plan.constructors,
+    )
 
 
 def rules_by_name(

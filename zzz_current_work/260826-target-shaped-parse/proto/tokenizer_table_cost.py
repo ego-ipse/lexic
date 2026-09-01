@@ -203,9 +203,7 @@ def _fixture() -> Fixture:
         / "tokenizers"
         / "qwen3.tokenizer.json"
     )
-    reference = json_tokenizer.read_from_path(
-        source, JSON_GRAMMAR, JSON_REDUCER
-    )
+    reference = json_tokenizer.read_from_path(source, JSON_GRAMMAR, JSON_REDUCER)
     vocab: list[VocabPair] = []
     for key, value in reference.encode.items():
         vocab.append(
@@ -324,9 +322,7 @@ def _builder(mode: str) -> Callable[[Fixture], IrTokenizer]:
         return _staged
     if mode == "streamed":
         return _streamed
-    raise UnsupportedConstructError(
-        f"tokenizer table prototype: unknown mode {mode!r}"
-    )
+    raise UnsupportedConstructError(f"tokenizer table prototype: unknown mode {mode!r}")
 
 
 def _measure(
@@ -372,9 +368,7 @@ def _timings(
     )
 
 
-def _memory(
-    build: Callable[[Fixture], IrTokenizer], fixture: Fixture
-) -> None:
+def _memory(build: Callable[[Fixture], IrTokenizer], fixture: Fixture) -> None:
     """Measure allocations separately from timing evidence."""
     gc.collect()
     tracemalloc.start()

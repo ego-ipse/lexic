@@ -39,7 +39,7 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
 )
-from lexic.parsing import FieldFold, parse_model
+from lexic.parsing import FieldFold, ModelBinding, parse_model
 
 _STAR = IrQuantifier(0, IrNone)
 _PLUS = IrQuantifier(1, IrNone)
@@ -167,7 +167,7 @@ _VOCAB_FIXTURE = "<think>\t0\n</think>\t1\n hi \t2\n"
 
 def test_vocab_format_parses_to_irmap() -> None:
     """The vocab format text parses straight into a real ``IrMap``."""
-    vocab = parse_model(VOCAB_GRAMMAR, _VOCAB_FIXTURE, VOCAB_FOLD)
+    vocab = parse_model(VOCAB_GRAMMAR, _VOCAB_FIXTURE, ModelBinding(VOCAB_FOLD))
     assert isinstance(vocab, IrMap)
     assert vocab.get(IrStr("<think>")) == IrChr(0)
     assert vocab.get(IrStr(" hi ")) == IrChr(2)
@@ -175,7 +175,7 @@ def test_vocab_format_parses_to_irmap() -> None:
 
 def test_vocab_format_builds_a_working_tokenizer() -> None:
     """The parsed vocab drives a longest-match tokenizer that round-trips."""
-    vocab = parse_model(VOCAB_GRAMMAR, _VOCAB_FIXTURE, VOCAB_FOLD)
+    vocab = parse_model(VOCAB_GRAMMAR, _VOCAB_FIXTURE, ModelBinding(VOCAB_FOLD))
     tok = IrTokenizer.from_vocab("fixture", vocab)
     text = "<think> hi </think>"
     assert tok.tokenize(text) == [0, 2, 1]
@@ -198,7 +198,7 @@ def _bpe_vocab() -> IrMap:
 
 def test_merges_format_parses_to_ordered_irtuple() -> None:
     """The merges format text parses into an ordered ``IrTuple`` of dyads."""
-    merges = parse_model(MERGES_GRAMMAR, _MERGES_FIXTURE, MERGES_FOLD)
+    merges = parse_model(MERGES_GRAMMAR, _MERGES_FIXTURE, ModelBinding(MERGES_FOLD))
     assert merges == IrTuple(
         IrTuple(IrStr("a"), IrStr("b")),
         IrTuple(IrStr("ab"), IrStr("c")),
@@ -207,6 +207,6 @@ def test_merges_format_parses_to_ordered_irtuple() -> None:
 
 def test_merges_format_builds_a_bpe_tokenizer() -> None:
     """The parsed merges drive the ranked-merge (BPE) segmentation."""
-    merges = parse_model(MERGES_GRAMMAR, _MERGES_FIXTURE, MERGES_FOLD)
+    merges = parse_model(MERGES_GRAMMAR, _MERGES_FIXTURE, ModelBinding(MERGES_FOLD))
     tok = IrTokenizer.from_merges("bpe", _bpe_vocab(), merges)
     assert tok.tokenize("abc") == [4]  # a+b→ab, ab+c→abc (id 4)

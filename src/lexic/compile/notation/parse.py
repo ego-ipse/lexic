@@ -66,8 +66,8 @@ from lexic.compile.foldkit import (
     absent_tail,
     first_rest,
     model_fold,
-    product_rules,
     passthrough,
+    product_rules,
     seq,
 )
 from lexic.compile.product import rules_by_name

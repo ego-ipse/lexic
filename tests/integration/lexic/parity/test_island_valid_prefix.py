@@ -24,6 +24,7 @@ from __future__ import annotations
 from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_GRAMMAR
+from lexic.parsing import ModelBinding
 from lexic.parsing.fold import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.products import parse_model
@@ -49,19 +50,19 @@ def test_the_fixture_list_rule_actually_islands():
 def test_window_cut_identifier_fails_soft_to_the_completion():
     """An identifier straddling the 256 window parses correctly end-to-end."""
     text = f"{NAME_A}, {NAME_B}"
-    assert parse_model(GRAMMAR, text, FOLD) == ["A", "B"]
+    assert parse_model(GRAMMAR, text, ModelBinding(FOLD)) == ["A", "B"]
 
 
 def test_window_cut_with_trailing_comma_and_noise():
     """Same crossing with the variant's motivating syntax (trailing comma)."""
     text = f"  {NAME_A} ,\n {NAME_B} , "
-    assert parse_model(GRAMMAR, text, FOLD) == ["A", "B"]
+    assert parse_model(GRAMMAR, text, ModelBinding(FOLD)) == ["A", "B"]
 
 
 def test_a_genuine_unknown_name_still_errors():
     """A real fold error reproduces on the Earley completion — never muted."""
     try:
-        parse_model(GRAMMAR, "zzz", FOLD)
+        parse_model(GRAMMAR, "zzz", ModelBinding(FOLD))
     except UnsupportedConstructError as exc:
         assert "zzz" in str(exc) or "parse" in str(exc)
     else:
@@ -70,13 +71,17 @@ def test_a_genuine_unknown_name_still_errors():
 
 def test_notation_variant_window_cut_call_parses_correctly():
     """The splice-path truncation reroutes; the product returns the truth."""
-    got = parse_model(NOTATION_VARIANT_GRAMMAR, WINDOW_CUT_CALL, NOTATION_VARIANT_FOLD)
+    got = parse_model(
+        NOTATION_VARIANT_GRAMMAR, WINDOW_CUT_CALL, ModelBinding(NOTATION_VARIANT_FOLD)
+    )
     assert got == load_ir(WINDOW_CUT_CALL)
 
 
 def test_notation_variant_full_self_grammar_repr_round_trips():
     """A whole self-grammar repr (many window crossings) round-trips."""
     got = parse_model(
-        NOTATION_VARIANT_GRAMMAR, repr(GBNF_GRAMMAR), NOTATION_VARIANT_FOLD
+        NOTATION_VARIANT_GRAMMAR,
+        repr(GBNF_GRAMMAR),
+        ModelBinding(NOTATION_VARIANT_FOLD),
     )
     assert got == GBNF_GRAMMAR

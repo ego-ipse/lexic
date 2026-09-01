@@ -105,9 +105,7 @@ def _witness(name: str) -> Witness:
         return _repeated_witness(ABNF_GRAMMAR, ("rulename", "wsp"))
     if name == "ebnf":
         return _repeated_witness(EBNF_GRAMMAR, ("rulename", "ws"))
-    raise UnsupportedConstructError(
-        f"bulk lexical prototype: unknown grammar {name!r}"
-    )
+    raise UnsupportedConstructError(f"bulk lexical prototype: unknown grammar {name!r}")
 
 
 def _recognizer(witness: Witness) -> Recognizer:

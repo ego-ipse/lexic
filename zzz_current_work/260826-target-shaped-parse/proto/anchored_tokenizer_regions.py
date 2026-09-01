@@ -12,32 +12,36 @@ from pathlib import Path
 from threading import Barrier
 from typing import NamedTuple
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.core.scanner import compile_source
-
 from capture_ownership_cost import _program_replica as _vocab_replica
 from parallel_merge_region_cost import (
     Chunk,
     Ranks,
-    RegionProgram as MergeProgram,
-    _capture_chunk as _capture_merge,
-    _expected as _expected_merges,
-    _program as _merge_program,
 )
+from parallel_merge_region_cost import RegionProgram as MergeProgram
+from parallel_merge_region_cost import _capture_chunk as _capture_merge
+from parallel_merge_region_cost import _expected as _expected_merges
+from parallel_merge_region_cost import _program as _merge_program
 from parallel_region_cost import (
     CaptureProgram,
     Span,
-    _capture_chunk as _capture_vocab,
-    _capture_program as _vocab_program,
-    _expected_vocab,
-    _join as _join_vocab,
 )
+from parallel_region_cost import _capture_chunk as _capture_vocab
+from parallel_region_cost import _capture_program as _vocab_program
+from parallel_region_cost import (
+    _expected_vocab,
+)
+from parallel_region_cost import _join as _join_vocab
 from schema_region_cost import Tables
 from self_locating_region_cuts import (
     CutProgram,
-    _program as _cut_program,
+)
+from self_locating_region_cuts import _program as _cut_program
+from self_locating_region_cuts import (
     _trim_ws,
 )
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.pda.core.scanner import compile_source
 
 
 class Options(argparse.Namespace):
@@ -146,9 +150,7 @@ def _merge_replica(program: MergeProgram, index: int) -> MergeProgram:
         compile_source(
             _distinct(program.capture_first.pattern, index, "capture-first")
         ),
-        compile_source(
-            _distinct(program.capture_next.pattern, index, "capture-next")
-        ),
+        compile_source(_distinct(program.capture_next.pattern, index, "capture-next")),
     )
 
 
@@ -220,15 +222,11 @@ def _measure(
         )
         vocab_futures = tuple(
             pool.submit(_capture_vocab, text, program, span)
-            for program, span in zip(
-                vocab_programs, vocab_spans, strict=True
-            )
+            for program, span in zip(vocab_programs, vocab_spans, strict=True)
         )
         merge_futures = tuple(
             pool.submit(_merge_part, text, program, span)
-            for program, span in zip(
-                merge_programs, merge_spans, strict=True
-            )
+            for program, span in zip(merge_programs, merge_spans, strict=True)
         )
         vocab = _join_vocab(_results(vocab_futures))
         ranks = _join_merges(_results(merge_futures))
@@ -266,12 +264,10 @@ def main(arguments: Sequence[str] | None = None) -> None:
     shared_vocab = _vocab_program()
     shared_merge = _merge_program()
     vocab_programs = tuple(
-        _vocab_replica(shared_vocab, index)
-        for index in range(options.region_workers)
+        _vocab_replica(shared_vocab, index) for index in range(options.region_workers)
     )
     merge_programs = tuple(
-        _merge_replica(shared_merge, index)
-        for index in range(options.region_workers)
+        _merge_replica(shared_merge, index) for index in range(options.region_workers)
     )
     expected = Product(_expected_vocab(text), _expected_merges(text))
     total_workers = options.region_workers * 2

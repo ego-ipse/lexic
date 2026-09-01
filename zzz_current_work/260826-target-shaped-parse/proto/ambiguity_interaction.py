@@ -32,6 +32,7 @@ from typing import NamedTuple
 
 import cyclic_meaning as algebra
 import island_alternate_seed as harness
+
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree

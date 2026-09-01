@@ -36,6 +36,7 @@ from lexic.ir import (
     Reducer,
 )
 from lexic.model import GrammarModel
+from lexic.parsing import ModelBinding
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
 from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.tables import PdaTables
@@ -68,7 +69,7 @@ def test_earley_model_returns_model_and_round_trips():
     """earley_model parses instance text over the instance grammar + fold,
     with pre-built run-collapsed tables supplied."""
     cg = compiled()
-    product = _model_product(cg.codegen_grammar, cg.fold)
+    product = _model_product(cg.codegen_grammar, cg.product)
     model = earley_model(product.instance_grammar, "ab", cg.fold, product.tables)
     assert isinstance(model, GrammarModel)
     assert model.to_text() == "ab"
@@ -78,7 +79,7 @@ def test_earley_model_compiles_its_own_tables_when_none_supplied():
     """earley_model's tables parameter is optional — omitting it compiles plain
     (non-collapsed) tables internally rather than requiring the caller to."""
     cg = compiled()
-    product = _model_product(cg.codegen_grammar, cg.fold)
+    product = _model_product(cg.codegen_grammar, cg.product)
     model = earley_model(product.instance_grammar, "ab", cg.fold)
     assert isinstance(model, GrammarModel)
     assert model.to_text() == "ab"
@@ -101,8 +102,8 @@ def test_parse_model_matches_earley_model_completion():
     """parse_model (PDA-first) and earley_model (the forced completion) agree
     on the same instance-text input."""
     cg = compiled()
-    got = parse_model(cg.codegen_grammar, "ab", cg.fold)
-    product = _model_product(cg.codegen_grammar, cg.fold)
+    got = parse_model(cg.codegen_grammar, "ab", cg.product)
+    product = _model_product(cg.codegen_grammar, cg.product)
     expected = earley_model(product.instance_grammar, "ab", cg.fold, product.tables)
     assert isinstance(got, GrammarModel)
     assert isinstance(expected, GrammarModel)
@@ -199,7 +200,7 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
 
     original = variant.fold.config["noise"]
     variant.fold.config["noise"] = original._replace(ctor=forbidden, fast=None)
-    product = _model_product(variant.codegen_grammar, variant.fold)
+    product = _model_product(variant.codegen_grammar, variant.product)
     assert earley_model(product.instance_grammar, "a!", variant.fold, product.tables)
     assert pda_model(product.pda, "a!", variant.fold)
 
@@ -208,8 +209,8 @@ def test_model_product_is_the_same_object_for_the_same_identity():
     """Two calls with the identical (grammar, fold) objects return the SAME
     compiled product — no recompilation."""
     cg = compiled()
-    first = _model_product(cg.codegen_grammar, cg.fold)
-    second = _model_product(cg.codegen_grammar, cg.fold)
+    first = _model_product(cg.codegen_grammar, cg.product)
+    second = _model_product(cg.codegen_grammar, cg.product)
     assert first is second
 
 
@@ -227,12 +228,12 @@ def test_reset_product_cache_forces_model_product_recompilation():
     """reset_product_cache drops the model cache — the next call for the same
     identity recompiles rather than reusing the stale product."""
     cg = compiled()
-    first = _model_product(cg.codegen_grammar, cg.fold)
+    first = _model_product(cg.codegen_grammar, cg.product)
     reset_product_cache()
-    second = _model_product(cg.codegen_grammar, cg.fold)
+    second = _model_product(cg.codegen_grammar, cg.product)
     assert first is not second
     assert first.grammar is second.grammar
-    assert first.fold is second.fold
+    assert first.binding is second.binding
 
 
 # ── pda_tables — the public predictive-tables accessor ─────────────────────
@@ -241,7 +242,7 @@ def test_reset_product_cache_forces_model_product_recompilation():
 def test_pda_tables_returns_pda_tables():
     """pda_tables returns the compiled PdaTables for a (grammar, fold) pair."""
     cg = compiled()
-    assert isinstance(pda_tables(cg.codegen_grammar, cg.fold), PdaTables)
+    assert isinstance(pda_tables(cg.codegen_grammar, cg.product), PdaTables)
 
 
 def test_pda_tables_is_the_model_products_pda():
@@ -249,8 +250,8 @@ def test_pda_tables_is_the_model_products_pda():
     _model_product's .pda field holds."""
     cg = compiled()
     assert (
-        pda_tables(cg.codegen_grammar, cg.fold)
-        is _model_product(cg.codegen_grammar, cg.fold).pda
+        pda_tables(cg.codegen_grammar, cg.product)
+        is _model_product(cg.codegen_grammar, cg.product).pda
     )
 
 
@@ -258,8 +259,8 @@ def test_pda_tables_is_the_same_object_across_calls():
     """Two calls with the identical (grammar, fold) return the SAME tables —
     no recompilation."""
     cg = compiled()
-    first = pda_tables(cg.codegen_grammar, cg.fold)
-    second = pda_tables(cg.codegen_grammar, cg.fold)
+    first = pda_tables(cg.codegen_grammar, cg.product)
+    second = pda_tables(cg.codegen_grammar, cg.product)
     assert first is second
 
 
@@ -267,9 +268,9 @@ def test_reset_product_cache_forces_pda_tables_recompilation():
     """reset_product_cache drops the model cache pda_tables reads too — a
     fresh object comes back for the same identity."""
     cg = compiled()
-    first = pda_tables(cg.codegen_grammar, cg.fold)
+    first = pda_tables(cg.codegen_grammar, cg.product)
     reset_product_cache()
-    second = pda_tables(cg.codegen_grammar, cg.fold)
+    second = pda_tables(cg.codegen_grammar, cg.product)
     assert first is not second
 
 
@@ -304,11 +305,11 @@ def test_model_product_is_distinct_per_tier():
     """The model cache keys the packing tier — per-tier products coexist and
     each replays from its own key."""
     cg = compiled()
-    small = _model_product(cg.codegen_grammar, cg.fold, 8)
-    default = _model_product(cg.codegen_grammar, cg.fold)
+    small = _model_product(cg.codegen_grammar, cg.product, 8)
+    default = _model_product(cg.codegen_grammar, cg.product)
     assert small is not default
     assert small.tables.packing.bits == 8
-    assert _model_product(cg.codegen_grammar, cg.fold, 8) is small
+    assert _model_product(cg.codegen_grammar, cg.product, 8) is small
 
 
 def test_parse_model_picks_the_tier_by_input_size(monkeypatch):
@@ -317,9 +318,9 @@ def test_parse_model_picks_the_tier_by_input_size(monkeypatch):
     cg = compiled()
     monkeypatch.setattr(tables_mod, "TIERS", (8, 28))
     reset_product_cache()
-    model = parse_model(cg.codegen_grammar, "ab", cg.fold)
+    model = parse_model(cg.codegen_grammar, "ab", cg.product)
     assert model.to_text() == "ab"
-    assert (id(cg.codegen_grammar), id(cg.fold), 8) in _MODEL_CACHE
+    assert (id(cg.codegen_grammar), id(cg.product), 8) in _MODEL_CACHE
     reset_product_cache()
 
 
@@ -478,7 +479,7 @@ def _parse_into(
 ) -> None:
     """Run ``parse_model`` and stash the result at ``results[index]`` — the
     flat, non-closure body a thread target needs."""
-    results[index] = parse_model(grammar, text, fold)
+    results[index] = parse_model(grammar, text, ModelBinding(fold))
 
 
 def test_owned_text_returns_a_distinct_but_equal_object():
@@ -524,8 +525,8 @@ def test_parse_model_parses_a_str_subclass_identically_to_the_exact_str():
     equals, and the model's ``to_text()`` round-trips to the original TEXT
     value rather than to the subclass."""
     cg = compiled()
-    subclass_model = parse_model(cg.codegen_grammar, _StrSubclass("ab"), cg.fold)
-    exact_model = parse_model(cg.codegen_grammar, "ab", cg.fold)
+    subclass_model = parse_model(cg.codegen_grammar, _StrSubclass("ab"), cg.product)
+    exact_model = parse_model(cg.codegen_grammar, "ab", cg.product)
     assert subclass_model.semantic_dump() == exact_model.semantic_dump()
     assert subclass_model.to_text() == "ab"
     assert subclass_model.to_text().__class__ is str
@@ -538,8 +539,8 @@ def test_parse_model_result_is_unaffected_by_pre_owning_the_text():
     (identity itself is pinned directly against ``_owned_text``, above)."""
     cg = compiled()
     text = "ab"
-    direct = parse_model(cg.codegen_grammar, text, cg.fold)
-    pre_owned = parse_model(cg.codegen_grammar, _owned_text(text), cg.fold)
+    direct = parse_model(cg.codegen_grammar, text, cg.product)
+    pre_owned = parse_model(cg.codegen_grammar, _owned_text(text), cg.product)
     assert direct.semantic_dump() == pre_owned.semantic_dump()
     assert direct.to_text() == pre_owned.to_text() == text
 

@@ -30,24 +30,24 @@ from __future__ import annotations
 from typing import Callable, ClassVar
 
 import lexic.compile.notation.parse as _notation
-from lexic.compile.module.rules import module_grammar
 from lexic.compile.foldkit import (
     ALT_BODY,
     DECODE_INT,
     FIRST_REST,
     first_rest,
     model_fold,
-    product_rules,
     passthrough,
+    product_rules,
     seq,
 )
+from lexic.compile.module.rules import module_grammar
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrNamedTuple,
     IrNone,
     IrSelf,
 )
-from lexic.compile.product import rules_by_name
 from lexic.parsing import FieldFold, ModelBinding, ModelBody, ModelFold, parse_model
 from lexic.parsing.product import CaptureMode, CaptureSpec
 

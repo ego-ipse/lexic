@@ -130,9 +130,7 @@ def _program(section: str) -> CutProgram:
         container = "begin-array"
         begin = _source(recognizer, "begin-array")
         end = _source(recognizer, "end-array")
-        entry = (
-            rf"(?:{begin})(?:{string})(?:{separator})(?:{string})(?:{end})"
-        )
+        entry = rf"(?:{begin})(?:{string})(?:{separator})(?:{string})(?:{end})"
     opening = _opening(container)
     closing = pair_rules(JSON_GRAMMAR)[opening][0]
     following_key = rf"(?:{separator})(?:{string})(?:{name_sep})"
@@ -156,9 +154,7 @@ def _trim_ws(text: str, start: int, end: int) -> int:
     return end
 
 
-def _cuts(
-    text: str, start: int, workers: int, program: CutProgram
-) -> tuple[Span, ...]:
+def _cuts(text: str, start: int, workers: int, program: CutProgram) -> tuple[Span, ...]:
     """Find one tail and O(workers) self-locating entry boundaries."""
     opened = program.begin.match(text, start)
     if opened is None:

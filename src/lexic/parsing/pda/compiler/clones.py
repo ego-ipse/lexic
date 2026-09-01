@@ -59,6 +59,7 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
@@ -88,6 +89,7 @@ from lexic.parsing.pda.compiler.specs import (
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
+from lexic.parsing.product import RuleProduct
 
 __all__ = [
     "compile_pda",
@@ -124,7 +126,7 @@ ITEM_KINDS: tuple[str, ...] = (LIT, CC, REF, GRP)
 # re-exposes it as its public surface (``__all__``).
 
 
-_PENDING = CloneSpec("", (), None, None, False)
+_PENDING = CloneSpec("", (), None, None, None, False)
 """In-progress placeholder installed by :meth:`PdaCompiler.ensure_rule` before
 a clone body is compiled — reserves the key so recursion resolves to it, then
 is overwritten by the finished :class:`CloneSpec`."""
@@ -332,6 +334,9 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     :ivar analysis: The grammar analysis (FIRST/hard/FOLLOW/nullability +
         loop taxonomy) the clones are cut against.
     :ivar fold_config: Rule name → its :class:`~lexic.parsing.fold.RuleFold`.
+    :ivar product_config: Rule name → its authored
+        :class:`~lexic.parsing.product.RuleProduct` — what each rule clone's
+        capture layout and build plan are baked from.
     :ivar islands: The island rule names — never cloned.
     :ivar fail_islands: The fail-island subset — references raise ``PdaFail``.
     :ivar clones: The compiled clone table, keyed by :class:`CloneKey`.
@@ -340,6 +345,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     __slots__ = (
         "analysis",
         "fold_config",
+        "product_config",
         "clones",
         "pending",
         "draining",
@@ -347,6 +353,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     analysis: GrammarAnalysis
     fold_config: Mapping[str, RuleFold]
+    product_config: Mapping[str, RuleProduct]
     clones: dict[CloneKey, CloneSpec]
     pending: list[CloneKey]
     draining: bool
@@ -355,10 +362,12 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         self,
         analysis: GrammarAnalysis,
         fold_config: Mapping[str, RuleFold] | None = None,
+        product_config: Mapping[str, RuleProduct] | None = None,
     ) -> None:
-        """Prepare the compiler for one model fold target."""
+        """Prepare the compiler for one model product target."""
         self.analysis = analysis
         self.fold_config = fold_config or {}
+        self.product_config = product_config or {}
         self.clones = {}
         self.pending = []
         self.draining = False
@@ -479,7 +488,14 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         fold = self.fold_config.get(name)
         match_only = fold is not None and fold.kind == "value_str"
         self.clones[key] = CloneSpec(
-            name, arms, default, fold, match_only, struct, follow
+            name,
+            arms,
+            default,
+            fold,
+            self.product_config.get(name),
+            match_only,
+            struct,
+            follow,
         )
 
     def compile_arms(
@@ -634,7 +650,9 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 # ── the artifact ───────────────────────────────────────────────────────────
 
 
-def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: PdaCompiler) -> None:
+def _attach_delegates(
+    tables: PdaTables, lifted: IrAst, compiler: PdaCompiler, binding: ModelBinding
+) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
     (built from ``lifted`` + the compiler's fold target; the injected
     ``(PdaCompiler, flatten_clones)`` seam keeps the delegate leaf import-free
@@ -645,7 +663,7 @@ def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: PdaCompiler) -
     tables.program.delegates = DelegateSource(
         lifted,
         name_to_rid,
-        compiler.fold_config,
+        binding,
         (PdaCompiler, flatten_clones),
     )
 
@@ -653,7 +671,7 @@ def _attach_delegates(tables: PdaTables, lifted: IrAst, compiler: PdaCompiler) -
 def compile_pda(
     lifted: IrAst,
     instance_grammar: IrAst,
-    fold_config: Mapping[str, RuleFold],
+    binding: ModelBinding,
 ) -> PdaTables:
     """Compile the predictive-parser tables for one grammar.
 
@@ -662,15 +680,17 @@ def compile_pda(
         grammar the analysis and the clones are cut against.
     :param instance_grammar: The Earley-normalised instance grammar
         (``normalize(lifted)``) — the island sub-parses run over it.
-    :param fold_config: Rule name → its :class:`~lexic.parsing.fold.RuleFold`,
-        baked into each rule clone.
+    :param binding: The bound model product — its rules are baked into each
+        clone's capture layout and build plan, its constructor table is what a
+        record completion indexes, and its fold is what the completion sites
+        still read.
     :returns: The compiled :class:`PdaTables`.
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
     analysis = GrammarAnalysis(lifted)
-    compiler = PdaCompiler(analysis, fold_config)
+    compiler = PdaCompiler(analysis, binding.fold.baked, binding.rules)
     start_key = compiler.compile_start()
-    tables = PdaTables(compiler, start_key, instance_grammar)
-    _attach_delegates(tables, lifted, compiler)
+    tables = PdaTables(compiler, start_key, instance_grammar, binding.constructors)
+    _attach_delegates(tables, lifted, compiler, binding)
     return tables

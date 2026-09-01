@@ -61,6 +61,7 @@ from itertools import product
 from typing import NamedTuple
 
 import island_alternate_seed as harness
+
 from lexic.compile import canonical_grammar
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR

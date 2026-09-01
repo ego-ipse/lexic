@@ -19,14 +19,12 @@ from composed_native_tokenizer import (
     _freeze,
     _validate,
 )
-from parallel_merge_region_cost import (
-    RegionProgram as MergeProgram,
-    _program as _merge_program,
-)
+from parallel_merge_region_cost import RegionProgram as MergeProgram
+from parallel_merge_region_cost import _program as _merge_program
 from parallel_region_cost import (
     CaptureProgram,
-    _capture_program as _vocab_program,
 )
+from parallel_region_cost import _capture_program as _vocab_program
 
 from lexic.exceptions import UnsupportedConstructError
 
