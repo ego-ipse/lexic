@@ -71,7 +71,7 @@ def test_both_engine_routes_produce_identical_entries(name: str, document: str) 
     predictive = list(parse_model(pair.spans, document, pair.span_binding))
     earley = list(
         earley_model(
-            product.instance_grammar, document, pair.span_binding.fold, product.tables
+            product.instance_grammar, document, pair.span_binding, product.tables
         )
     )
     assert predictive == earley

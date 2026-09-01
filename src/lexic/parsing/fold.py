@@ -60,7 +60,6 @@ from lexic.ir import (
     IrSelf,
     IrSeq,
     IrSequence,
-    IrSpan,
     IrTuple,
 )
 from lexic.parsing.caches import memo
@@ -70,8 +69,9 @@ from lexic.parsing.earley.kernel.tables.records import (
     RUN_STR,
     ParserTables,
 )
-from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
+from lexic.parsing.earley.lexruns import collapse_runs
 from lexic.parsing.pda.analysis.analysis import nullable_names
+from lexic.parsing.product import run_ok, slot_span, subtree_text, tree_offsets
 
 FOLD_KINDS: tuple[str, ...] = ("value_str", "sequence", "alternation")
 """The rule-kind vocabulary a :class:`RuleFold` may carry."""
@@ -254,101 +254,11 @@ class ModelBody(
         )
 
 
-def _subtree_text(node: ParseTree | IrLiteral | PayloadLeaf) -> str:
-    """All consumed chars under ``node``, in source order (iterative).
-
-    A delegated :class:`~lexic.parsing.earley.kernel.forest.forest.PayloadLeaf` contributes its
-    recorded span text (its interior was folded by the sub-run, not walked).
-    """
-    parts: list[str] = []
-    stack: list[ParseTree | IrLiteral | PayloadLeaf] = [node]
-    while stack:
-        k = stack.pop()
-        if isinstance(k, ParseTree):
-            stack.extend(reversed(k.kids))
-        elif isinstance(k, PayloadLeaf):
-            parts.append(k.text)
-        else:
-            parts.append(str(k))
-    return "".join(parts)
-
-
-type Offsets = "tuple[dict[int, int], dict[int, int]]"
+type Offsets = tuple[dict[int, int], dict[int, int]]
 """``(start by node id, consumed length by node id)`` for one parse tree."""
 
 _NO_OFFSETS: Offsets = ({}, {})
 """What a fold with no ``span`` field carries instead of paying for offsets."""
-
-
-def _leaf_len(kid: object) -> int:
-    """Characters a non-``ParseTree`` kid consumed."""
-    return len(kid.text) if isinstance(kid, PayloadLeaf) else len(str(kid))
-
-
-def _kid_size(kid: object, sizes: dict[int, int]) -> int:
-    """Characters a kid consumed, from the pre-pass for a subtree."""
-    return sizes[id(kid)] if kid.__class__ is ParseTree else _leaf_len(kid)
-
-
-def _tree_offsets(root: ParseTree) -> Offsets:
-    """Every node's start offset and size, in one pre-order pass with a cursor.
-
-    Document positions the tree route does not otherwise carry: `ParseTree` is
-    ``(symbol, kids)`` and `_subtree_text` REBUILDS a slot's text from its
-    leaves, so leaf order plus leaf lengths already ARE the positions — this
-    accumulates them once instead of re-finding a span by searching the
-    document for its text (which is ambiguous the moment a document repeats
-    itself).
-
-    Sharing: the forest interns nodes, and a shared node's first occurrence
-    wins here. That is exact for every NON-EMPTY node, because a non-empty
-    derivation is keyed by its span and so cannot be shared across positions;
-    only zero-width nodes can, and a zero-width span at another position is
-    the one case this pass cannot separate. The PDA route, which carries the
-    kernel's own offsets, has no such case — the parity gate pins the two
-    routes to each other over the corpus.
-
-    :param root: The start-rule match.
-    :returns: ``(starts, sizes)`` keyed by node id.
-    """
-    starts: dict[int, int] = {}
-    sizes: dict[int, int] = {}
-    at = 0
-    stack: list[object] = [root]
-    while stack:
-        node = stack.pop()
-        if isinstance(node, list):  # the close marker: [node]
-            inner = node[0]
-            sizes.setdefault(id(inner), at - starts[id(inner)])
-            continue
-        if isinstance(node, ParseTree):
-            starts.setdefault(id(node), at)
-            stack.append([node])
-            stack.extend(reversed(node.kids))
-            continue
-        at += _leaf_len(node)
-    return starts, sizes
-
-
-def _slot_span(
-    node: ParseTree, kids: Sequence[object], item: int, offsets: Offsets
-) -> IrSpan:
-    """Where the kid at ``item`` was consumed, from the PARENT's frame.
-
-    Computed in the parent's frame rather than read off the kid, so a shared
-    kid still reports the position it occupies HERE.
-
-    :param node: The rule node being folded.
-    :param kids: Its kids, in source order.
-    :param item: The bound slot.
-    :param offsets: The pre-pass's ``(starts, sizes)``.
-    :returns: The slot's half-open span, in document code units.
-    """
-    starts, sizes = offsets
-    at = starts[id(node)]
-    for kid in kids[:item]:
-        at += _kid_size(kid, sizes)
-    return IrSpan(at, at + _kid_size(kids[item], sizes))
 
 
 class ModelFold[M]:
@@ -456,14 +366,7 @@ class ModelFold[M]:
             terminal).
         :returns: ``True`` when collapsing the run preserves the fold's output.
         """
-        if unit_rid < 0:  # bare terminal unit — anonymous, no model structure
-            return True
-        resolved = unit_leaves(tables, unit_rid)
-        if resolved is None:
-            return False
-        leaf_rids, _has_bare = resolved
-        names = tables.decode.rule_names
-        return not any(names[rid] in self.config for rid in leaf_rids)
+        return run_ok(tables, unit_rid, self.config)
 
     def apply(self, root: ParseTree, results: dict[int, object] | None = None) -> M:
         """Fold the parse tree of a start-rule match into its model.
@@ -489,7 +392,7 @@ class ModelFold[M]:
         # not in `results` either and gets pushed twice. The forest is a DAG —
         # one node's value is one value, computed once.
         folded: set[int] = set(results)
-        offsets = _tree_offsets(root) if self.wants_spans else _NO_OFFSETS
+        offsets = tree_offsets(root) if self.wants_spans else _NO_OFFSETS
         stack: list[tuple[ParseTree, bool]] = [(root, False)]
         push = stack.append
         while stack:
@@ -517,7 +420,7 @@ class ModelFold[M]:
         if rule_fold is None:
             return  # synthetic (__rep/__opt/__grp) — parents look through it
         if rule_fold.kind == "value_str":
-            results[id(node)] = rule_fold.ctor(value=_subtree_text(node))
+            results[id(node)] = rule_fold.ctor(value=subtree_text(node))
         elif rule_fold.kind == "alternation":
             results[id(node)] = self._first_model_under(node, results)
         else:
@@ -541,7 +444,7 @@ class ModelFold[M]:
         kwargs: dict[str, object] = {}
         for item, mode, name, lo in rule_fold.fields:
             if mode == "span":
-                kwargs[name] = _slot_span(node, kids, item, offsets)
+                kwargs[name] = slot_span(node, kids, item, offsets)
                 continue
             value = self._fold_field(kids[item], mode, lo, results)
             # A model field whose sub-rule matched an EMPTY arm folds to None,
@@ -561,9 +464,9 @@ class ModelFold[M]:
         results: dict[int, object],
     ) -> object:
         if mode == "text":
-            return _subtree_text(kid)
+            return subtree_text(kid)
         if mode == "gtext":
-            text = _subtree_text(kid)
+            text = subtree_text(kid)
             return None if (not text and lo == 0) else text
         models = self._models_at(kid, results)
         if mode == "models":
@@ -607,6 +510,9 @@ class ModelFold[M]:
             if models:
                 return models[0]
         return None
+
+
+# ── product-driven ParseTree completion ──────────────────────────────
 
 
 # ── optional-nullable lift (engine-ambiguity policy) ──────────────────

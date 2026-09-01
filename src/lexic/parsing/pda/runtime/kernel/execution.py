@@ -10,7 +10,12 @@ from typing import Any, cast
 
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
-from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone, gate_take
+from lexic.parsing.pda.compiler.program.flatten import (
+    FlatArm,
+    FlatClone,
+    gate_take,
+    no_fast_construction,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_SEQ,
     BUILD_TRANSPARENT,
@@ -57,7 +62,7 @@ from lexic.parsing.pda.runtime.matchers import (
 _EMPTY_SLOT: Any = None
 
 
-class KernelExecutionMixin:
+class KernelExecutionMixin[Carry]:
     """Execution method group over state owned by ``PdaKernel``."""
 
     __slots__ = ()
@@ -67,9 +72,9 @@ class KernelExecutionMixin:
     stack: list[list[Any]]
     tables: PdaTables
     policy: IslandPolicy
-    _caches: KernelCaches
+    _caches: KernelCaches[Carry]
 
-    def _leaf_run(self, clone: FlatClone, out: list[Any]) -> None:
+    def _leaf_run(self, clone: FlatClone[Carry], out: list[Carry]) -> None:
         """A frame-less leaf clone's whole run — one of three shapes.
 
         A ``value_str`` leaf matches inline exactly as an ``OP_VSTR``
@@ -84,7 +89,7 @@ class KernelExecutionMixin:
         else:
             self.pos = self._run_leaf(clone, out, self.pos)
 
-    def _run_leaf(self, clone: FlatClone, out: list[Any], pos: int) -> int:
+    def _run_leaf(self, clone: FlatClone[Carry], out: list[Carry], pos: int) -> int:
         """Run an all-terminal ``sequence`` clone frame-lessly — match and build.
 
         The leaf licence guarantees no descent: every item is a terminal or an
@@ -153,7 +158,9 @@ class KernelExecutionMixin:
         out.append(clone.fast(fast_values(self.text, clone, (start, ends, sinks))))
         return pos
 
-    def _match_vstr(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _match_vstr(
+        self, sink: list[Carry], arm: FlatArm, i: int, pos: int
+    ) -> int:
         """Inline a terminal-only ``value_str`` reference — no frame per iteration.
 
         Runs item ``i``'s whole quantifier loop: each iteration selects the
@@ -187,7 +194,9 @@ class KernelExecutionMixin:
             count += 1
         return pos
 
-    def _match_vdisp(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _match_vdisp(
+        self, sink: list[Carry], arm: FlatArm, i: int, pos: int
+    ) -> int:
         """Inline a reference to an all-``value_str`` dispatch — no frame, no table.
 
         The lead char picks the target clone afresh each iteration (the cursor
@@ -208,7 +217,7 @@ class KernelExecutionMixin:
 
     # ── island sub-parse + splice ─────────────────────────────────────
 
-    def _island(self, name: str, sink: list[object]) -> None:
+    def _island(self, name: str, sink: list[Carry]) -> None:
         """Resolve an island reference: a windowed Earley sub-parse, spliced.
 
         The island rule parses over a doubling window from the cursor — with its
@@ -316,7 +325,10 @@ class KernelExecutionMixin:
             return  # children already funnelled to the nearest model sink
         clone = frame[F_CLONE]
         if mode == BUILD_SEQ:
-            if clone.fast is not None and frame[F_ARM].n == clone.n_items:
+            if (
+                clone.fast is not no_fast_construction
+                and frame[F_ARM].n == clone.n_items
+            ):
                 model = clone.fast(
                     fast_values(
                         self.text,
@@ -325,12 +337,20 @@ class KernelExecutionMixin:
                     )
                 )
             else:
-                model = build_sequence(self.text, frame, clone, self._caches.intern)
+                model = build_sequence(
+                    self.text,
+                    frame[F_ARM],
+                    frame[F_START],
+                    frame[F_ENDS],
+                    frame[F_SINKS],
+                    clone,
+                    self._caches.intern,
+                )
         elif mode == BUILD_VALUE_STR:
             model = build_vstr(
                 clone, self.text[frame[F_START] : self.pos], self._caches.intern
             )
         else:  # BUILD_ALT
-            model = alt_model(frame)
+            model = alt_model(frame[F_SINKS])
         if model is not None:
             frame[F_OUT].append(model)

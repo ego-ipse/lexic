@@ -19,6 +19,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
     FlatClone,
+    no_fast_construction,
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -489,7 +490,7 @@ def _mark_leaves(clone: FlatClone) -> None:
     ENTRY (through a dispatch chase, say) was not, and paid a frame per
     occurrence for a match that cannot descend.
     """
-    if clone.fast is None:
+    if clone.fast is no_fast_construction:
         return
     if clone.mode == BUILD_VALUE_STR:
         clone.leaf = _vstr_inlinable(clone)

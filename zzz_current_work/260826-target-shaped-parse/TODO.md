@@ -59,12 +59,24 @@ uses only proved constant, injective-route, and second-meaning exits. No
 planning question or user decision blocks §2. Production source began
 2026-08-31. §2 and §3 are implemented and coordinator-ACCEPTED (LEDGER
 records each exit's rulings and verification; §3's deferred bullets carry
-"To be done in §4/§6" markers in place). §4 is in progress: steps 1–2 are
-done (model product authored + differential green; product-side bake
-identical over 610 clones; switch proved safe on 107 real PDA parses), and
-the merged step-3 channel change is underway on the Terra agent. A scoped
+"To be done in §4/§6" markers in place). §4 is in progress: steps 1–3 are
+done on the predictive PDA side (model product authored + differential green;
+product-side bake identical over 610 clones; live switch proved safe on 107
+real PDA parses). Savepoint 5 stabilization has all seven §3/§4 witnesses and
+gates 10/20/30 green; gate 40's product/test findings are diagnostic and are
+not a Terra lint task. Step 4 — Earley/island/delegated product completion — is
+active. Its first internal checkpoint is implemented but coordinator-REJECTED
+pending the ledgered ownership, typing, explicit-presence, and value-once
+replay corrections; island/delegate/stitch work has not started. A scoped
 Luna unit-mirror pass is user-scheduled at the §4 checkpoint. No parse
 regression is authorized by any of this evidence.
+
+**Current user hold boundary (2026-09-01, corrected):** finish ALL production-
+source items scoped to §4 — execution migration, compile/trace migration,
+legacy fold deletion/docs cleanup, and value-string specialization — with the
+coordinator reviewing each handoff. Then update this queue and `LEDGER.md` and
+hold. Do not begin the coordinator's external performance/checkpoint work or
+Luna's tests/lint/mirror pass until the user resumes the effort.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -507,31 +519,40 @@ the channel's call graph was read. Position is marked:
    switch proved on 107 real PDA parses). Interleaved and done: symbol op,
    lane-bounds closure, notation + selfgrammar + (ruled) templating as
    authored surfaces, `rules.py` split.
-3. ⏳ The channel + completions, two slices so the channel is replaced once
+3. ✅ The predictive channel + completions, two slices so the channel is replaced once
    and the bake switched once, with no dual-live interval:
-   — Slice 1 ✅: `ModelBinding` through every parse entry; `fold` a derived
-     property; 30 test files adapted mechanically. (One pyright miss
-     returned; fix in flight.)
+   — Slice 1 ✅: `ModelBinding` through every parse entry; `fold` a transitional
+     field for the Earley half; 30 test files adapted mechanically and the
+     returned pyright miss fixed.
    — Slice 2a ✅: templating's authored product, `CloneSpec` carries
      `RuleProduct`, `flatten_clones` bakes from it. Witnesses re-aimed at
      the unified live bake (`s4_bake_identity` behavioural + five controls,
      `s4_switch_differential` against the Earley oracle + three controls);
      the empty-rule-map guard landed at `bind_model` with its own witness row.
-   — Slice 2b ⛔ BLOCKED: the PDA completion sites cannot move while the
-     authored compile-time surfaces own the validated build.
-     `proto/s4_validated_path_census.py` measures it: zero generated-model
-     clones reach `build_validated`/`_validated_fields` (all 62 unlicensed
-     clones are alternations, which build through `alt_model`), while 109
-     notation/selfgrammar clones do — completing through
-     `ExprProgram(SymbolExpr)` with no `RecordConstructor` and no capture
-     NAMES, which `_validated_fields` needs to build kwargs. Unblocking it
-     needs `RuleProduct.n_items` plus a symbol-side twin of
-     `RecordConstructor` (the §5 keyword-application trap, arriving early).
-     Two findings ride the same decision: an eighth `clone.fold` read at
-     `specialize.py:405`, and `clone.mode` DOES derive from the completion
-     type once `model_plan` authors `foldkit.ALT_PRODUCT` for alternations
-     instead of a `RecordOp` naming a class it never constructs.
-4. ☐ Earley / island / delegated completion onto the same product ops.
+   — Slice 2b ✅: `RuleProduct.n_items` plus the symbol-side construction
+     record close the validated authored surfaces; all eight runtime
+     `clone.fold` reads are gone, `clone.mode` derives from completion type,
+     TEXT/EXTENT retain ends, and all named witnesses pass.
+4. ⏳ Earley / island / delegated completion onto the same product ops. Move
+   meaning replay and model-stitch field-layout reads with it; then remove the
+   transitional `ModelBinding.fold` field. Terra owns production architecture,
+   not the diagnostic pylint findings. Honest named/generic types replace the
+   cumulative new `Any`/`object`/`type: ignore` as their owning seams move.
+   Checkpoint 1 (ordinary Earley/fallback/token + shared construction) is
+   present but NOT ACCEPTED: move the executor/span machinery out of the
+   965-line legacy `fold.py`; make absence explicit rather than overloading a
+   real `Carry == None`; remove the moved seam's erasure/call-site payload
+   cast; and activate `MeaningMemo` replay so the baseline and unchanged DAG
+   values construct once. Keep the current single-flip family enumeration
+   until §8 replaces it. Re-run the product-shaped shared-forest/effect
+   witness, then coordinator review, before island/delegate/stitch checkpoint 2.
+   Re-review correction (still checkpoint 1): classify eligible arm choices
+   before allocating `MeaningMemo` so ordinary/split-only charts carry no
+   alternate state; retain separate complete folds for sibling accepting roots;
+   cache span demand once per executor; and carry the new typed construction
+   plan through `FlatClone` and runtime readers instead of widening it back to
+   `Any`. `resolver_pair` and `nullable_quantifier_ambiguity` join the required
+   evidence before this checkpoint can be accepted.
 5. ☐ Remainder of the compile side + `trace.py` rewrite (parallel/ was
    absorbed into slice 1).
 6. ☐ Delete the six fold symbols once nothing references them.

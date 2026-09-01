@@ -19,7 +19,8 @@ lives in ``pda_tables`` beside the specs it reads.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Any, Never
 
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -32,6 +33,22 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
+from lexic.parsing.product.construction import ProductValue
+
+type BuildPlan[Carry] = tuple[tuple[int, int, int, ProductValue[Carry]], ...]
+type FastConstruction[Carry] = Callable[[list[ProductValue[Carry]]], Carry]
+
+
+def no_construction(
+    *_args: ProductValue[Never], **_kwargs: ProductValue[Never]
+) -> Never:
+    """Refuse an impossible call through a recognition-only clone."""
+    raise RuntimeError("recognition-only clone has no construction")
+
+
+def no_fast_construction[Carry](_values: list[ProductValue[Carry]]) -> Carry:
+    """Refuse an impossible positional build without a granted licence."""
+    raise RuntimeError("clone has no positional construction licence")
 
 
 def window_admits(text: str, pos: int, windows: Any, at_eof: bool = False) -> bool:
@@ -243,7 +260,7 @@ class FlatArm(IrLeaf[IrSelf, IrSelf]):
     # arrays are too many for a positional ``__init__`` signature.
 
 
-class FlatClone(IrLeaf[IrSelf, IrSelf]):
+class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     """A clone (or inline group) lowered to arm selectors + a build-mode.
 
     Groups reuse this shape with :data:`BUILD_TRANSPARENT` and no fold —
@@ -371,15 +388,15 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     struct_arm: Any  # ScanGate | None — the empty-arm gate, consulted at select
     attempt: Any  # ((chars, negated), entries) | None — the attempt order
     mode: int
-    ctor: Any  # Callable[..., object] | None — Any-typed like payloads
+    ctor: Callable[..., Carry]
     matched: str
     n_items: int
     fields: tuple[tuple[int, int, str, int], ...]
-    plan: tuple[tuple[int, int, int, Any], ...]
-    fast: Any
-    defaults: Any
+    plan: BuildPlan[Carry]
+    fast: FastConstruction[Carry]
+    defaults: Mapping[str, ProductValue[Carry]] | None
     leaf: bool
-    chartable: Any  # dict[str, object] | None — the tabled language's models
+    chartable: Any  # dict[str, Carry] | None — specialized table payload
     chartotal: bool
     runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
@@ -409,7 +426,7 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
         self.delegates = delegates
 
 
-def clear_build(clone: FlatClone) -> None:
+def clear_build[Carry](clone: FlatClone[Carry]) -> None:
     """Give a clone no build state — what a clone that builds nothing has.
 
     A transparent clone and a pass-through reach the same place: there is no
@@ -418,11 +435,11 @@ def clear_build(clone: FlatClone) -> None:
     """
     clone.fields = ()
     clone.plan = ()
-    clone.fast = None
+    clone.fast = no_fast_construction
     clone.defaults = None
 
 
-def vstr_model(clone: FlatClone, span: str) -> object:
+def vstr_model[Carry](clone: FlatClone[Carry], span: str) -> Carry:
     """A ``value_str`` clone's model over its matched ``span``.
 
     The single home of that construction expression: the per-parse intern
@@ -435,7 +452,7 @@ def vstr_model(clone: FlatClone, span: str) -> object:
     :returns: The built model.
     """
     fast = clone.fast
-    if fast is not None and (plan := clone.plan):
+    if fast is not no_fast_construction and (plan := clone.plan):
         return fast(
             [span if mode == M_VALUE else default for mode, _i, _lo, default in plan]
         )

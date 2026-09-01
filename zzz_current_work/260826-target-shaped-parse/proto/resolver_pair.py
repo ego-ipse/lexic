@@ -703,7 +703,7 @@ def prove_engine_pair_scope() -> None:
     )
     general = _observe(
         "earley",
-        lambda resolve: earley_model(grammar, text, compiled.fold, tables, resolve),
+        lambda resolve: earley_model(grammar, text, compiled.product, tables, resolve),
         compiled.fold,
     )
     assert predictive.called and general.called
@@ -777,7 +777,7 @@ def prove_third_defect_baseline() -> None:
                 compiled.fold,
             ),
         ),
-        ("earley", lambda: earley_model(grammar, text, compiled.fold, tables)),
+        ("earley", lambda: earley_model(grammar, text, compiled.product, tables)),
     )
     for name, run in routes:
         try:

@@ -26,12 +26,16 @@ codes) and :mod:`lexic.parsing.pda.core.errors` (:class:`PdaFail`) — never
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable, Hashable
+from enum import Enum
+from typing import Any
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrSpan
 from lexic.parsing.pda.compiler.program.flatten import (
+    FlatArm,
     FlatClone,
+    no_fast_construction,
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -43,8 +47,15 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_TEXT,
 )
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.product.construction import ProductValue
 
-INTERN_MISS: Any = object()
+class InternMiss(Enum):
+    """The typed miss marker for a construction intern lookup."""
+
+    TOKEN = 0
+
+
+INTERN_MISS = InternMiss.TOKEN
 """Miss sentinel for the per-parse intern memo — distinct from any built model
 (a ``dict.get`` default that no real value can equal, so a genuine ``None`` sink
 is never mistaken for a hit)."""
@@ -75,7 +86,20 @@ is never mistaken for a hit)."""
 #            only span-reading ``sequence`` clones read it back
 #   F_SINKS per-item descent sub-model lists, allocated lazily on first descent
 #            (capture frames), else ``None``
-F_ARM, F_I, F_COUNT, F_OUT, F_MODE, F_CLONE, F_START, F_ENDS, F_SINKS = range(9)
+F_ARM = 0
+F_I = 1
+F_COUNT = 2
+F_OUT = 3
+F_MODE = 4
+F_CLONE = 5
+F_START = 6
+F_ENDS = 7
+F_SINKS = 8
+
+type InternKey[Carry] = tuple[
+    Callable[..., Carry], str | tuple[Hashable, ...]
+]
+type InternMemo[Carry] = dict[InternKey[Carry], Carry]
 
 
 def finish_delegate(
@@ -106,9 +130,8 @@ def finish_delegate(
     return end, payload
 
 
-def alt_model(frame: list[Any]) -> object:
+def alt_model[Carry](sinks: list[list[Carry] | None] | None) -> Carry | None:
     """The first sub-model under an ``alternation`` frame's matched arm."""
-    sinks = frame[F_SINKS]
     if sinks:
         for sub in sinks:
             if sub:
@@ -116,9 +139,15 @@ def alt_model(frame: list[Any]) -> object:
     return None
 
 
-def build_sequence(
-    text: str, frame: list[Any], clone: FlatClone, memo: dict[Any, object]
-) -> object:
+def build_sequence[Carry](
+    text: str,
+    arm: FlatArm,
+    start: int,
+    ends: list[int],
+    sinks: list[list[Carry] | None] | None,
+    clone: FlatClone[Carry],
+    memo: InternMemo[Carry],
+) -> Carry:
     """Build a ``sequence`` clone's model from its bound field slots.
 
     The per-capture read is inlined (a text capture reads the item's span
@@ -135,7 +164,6 @@ def build_sequence(
         the bound fields nor the empty arm, or a capture mode outside the
         build vocabulary.
     """
-    arm = frame[F_ARM]
     if arm.n != clone.n_items:
         if arm.n:
             raise UnsupportedConstructError(
@@ -143,14 +171,14 @@ def build_sequence(
                 f"{clone.n_items} slots nor the empty arm"
             )
         return _intern_empty(clone.ctor, memo)  # empty alternate arm matched
-    if clone.fast is None:
-        return build_validated(text, frame, clone, memo)
-    return clone.fast(
-        fast_values(text, clone, (frame[F_START], frame[F_ENDS], frame[F_SINKS]))
-    )
+    if clone.fast is no_fast_construction:
+        return build_validated(text, start, ends, sinks, clone, memo)
+    return clone.fast(fast_values(text, clone, (start, ends, sinks)))
 
 
-def _intern_empty(ctor: Callable[..., object], memo: dict[Any, object]) -> object:
+def _intern_empty[Carry](
+    ctor: Callable[..., Carry], memo: InternMemo[Carry]
+) -> Carry:
     """Build (or reuse) the empty alternate arm's ``ctor()`` — key ``(ctor, ())``.
 
     Every zero-item match of the same rule folds to the same field-less model,
@@ -168,10 +196,12 @@ def _intern_empty(ctor: Callable[..., object], memo: dict[Any, object]) -> objec
 # A fast clone's captured span/sink data — the (start, per-item ends, per-item
 # sink lists) triple grouped so the build sites stay within the argument budget;
 # ``_run_leaf`` builds it from locals, ``_complete`` from the frame slots.
-Spans = tuple[int, "list[int]", "list[Any] | None"]
+type Spans[Carry] = tuple[int, list[int], list[list[Carry] | None] | None]
 
 
-def fast_values(text: str, clone: FlatClone, spans: Spans) -> list[Any]:
+def fast_values[Carry](
+    text: str, clone: FlatClone[Carry], spans: Spans[Carry]
+) -> list[ProductValue[Carry]]:
     """A fast clone's field values, in the record's own field order.
 
     The fast build IS ``clone.fast(fast_values(text, clone, spans))`` — one pass
@@ -198,7 +228,7 @@ def fast_values(text: str, clone: FlatClone, spans: Spans) -> list[Any]:
     :returns: One value per field of the model class.
     """
     start, ends, sinks = spans
-    values: list[Any] = []
+    values: list[ProductValue[Carry]] = []
     for mode, item, lo, default in clone.plan:
         if mode == M_MODEL:
             sub = sinks[item] if sinks else None
@@ -219,9 +249,14 @@ def fast_values(text: str, clone: FlatClone, spans: Spans) -> list[Any]:
     return values
 
 
-def build_validated(
-    text: str, frame: list[Any], clone: FlatClone, memo: dict[Any, object]
-) -> object:
+def build_validated[Carry](
+    text: str,
+    start: int,
+    ends: list[int],
+    sinks: list[list[Carry] | None] | None,
+    clone: FlatClone[Carry],
+    memo: InternMemo[Carry],
+) -> Carry:
     """Build a ``sequence`` value through the keyword constructor.
 
     The no-licence path of :func:`build_sequence` — capture extraction
@@ -239,7 +274,7 @@ def build_validated(
     :raises UnsupportedConstructError: On a capture mode outside the build
         vocabulary.
     """
-    kwargs, key_parts = _validated_fields(text, frame, clone)
+    kwargs, key_parts = _validated_fields(text, start, ends, sinks, clone)
     key = (clone.ctor, key_parts)
     hit = memo.get(key, INTERN_MISS)
     if hit is not INTERN_MISS:
@@ -249,9 +284,13 @@ def build_validated(
     return model
 
 
-def _validated_fields(
-    text: str, frame: list[Any], clone: FlatClone
-) -> tuple[dict[str, object], tuple[Any, ...]]:
+def _validated_fields[Carry](
+    text: str,
+    start: int,
+    ends: list[int],
+    sinks: list[list[Carry] | None] | None,
+    clone: FlatClone[Carry],
+) -> tuple[dict[str, ProductValue[Carry]], tuple[Hashable, ...]]:
     """A validated clone's constructor kwargs and intern key-parts, one pass.
 
     An ABSENT capture is OMITTED from the keywords rather than filled: that is
@@ -265,11 +304,8 @@ def _validated_fields(
     :raises UnsupportedConstructError: On a capture mode outside the build
         vocabulary.
     """
-    ends = frame[F_ENDS]
-    sinks = frame[F_SINKS]
-    start = frame[F_START]
-    kwargs: dict[str, object] = {}
-    key_parts: list[Any] = []
+    kwargs: dict[str, ProductValue[Carry]] = {}
+    key_parts: list[Hashable] = []
     for item, mode, name, _lo in clone.fields:
         if mode == M_TEXT:
             span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
@@ -290,15 +326,20 @@ def _validated_fields(
             kwargs[name] = sub
             key_parts.append(tuple(id(m) for m in sub))
         elif mode == M_SPAN:
-            kwargs[name] = IrSpan(start if item == 0 else ends[item - 1], ends[item])
-            key_parts.append(kwargs[name])
+            extent = IrSpan(start if item == 0 else ends[item - 1], ends[item])
+            kwargs[name] = extent
+            key_parts.append(extent)
         else:
             raise UnsupportedConstructError(f"pda: unknown capture mode {mode!r}")
     return kwargs, tuple(key_parts)
 
 
-def leaf_mismatch(
-    clone: FlatClone, out: list[Any], n: int, pos: int, memo: dict[Any, object]
+def leaf_mismatch[Carry](
+    clone: FlatClone[Carry],
+    out: list[Carry],
+    n: int,
+    pos: int,
+    memo: InternMemo[Carry],
 ) -> int:
     """A leaf arm whose item count misses the rule's arm — empty arm, or error.
 
@@ -316,7 +357,9 @@ def leaf_mismatch(
     return pos
 
 
-def build_vstr(clone: FlatClone, span: str, memo: dict[Any, object]) -> object:
+def build_vstr[Carry](
+    clone: FlatClone[Carry], span: str, memo: InternMemo[Carry]
+) -> Carry:
     """Build (or reuse) a ``value_str`` model over its matched ``span``.
 
     The single home of the value_str build both :meth:`~lexic.parsing.pda.runtime

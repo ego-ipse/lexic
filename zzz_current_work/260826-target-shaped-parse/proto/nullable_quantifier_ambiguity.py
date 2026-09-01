@@ -218,11 +218,11 @@ def prove_quantifier_scope() -> None:
                 compiled.fold,
             )
         )
-        earley = _answer(lambda: earley_model(grammar, "x", compiled.fold, tables))
+        earley = _answer(lambda: earley_model(grammar, "x", compiled.product, tables))
         raw_grammar = normalize(compiled.codegen_grammar)
         raw_tables = collapsed_fold_tables(raw_grammar, compiled.fold, tier_for(1))
         raw_earley = _answer(
-            lambda: earley_model(raw_grammar, "x", compiled.fold, raw_tables)
+            lambda: earley_model(raw_grammar, "x", compiled.product, raw_tables)
         )
         pinned = BASELINE[case.name]
         assert (public, predictive, earley, raw_earley) == pinned, (case.name, pinned)
@@ -488,7 +488,7 @@ def prove_non_semantic_parse_shape() -> None:
         grammar = normalize(parse_shape)
         tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
         current = compiled.parse(text, cores=1)
-        general = earley_model(grammar, text, compiled.fold, tables)
+        general = earley_model(grammar, text, compiled.product, tables)
         predictive_status = "matched current"
         try:
             predictive = pda_model(

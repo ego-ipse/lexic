@@ -104,12 +104,12 @@ def test_finish_delegate_declines_on_a_lexic_error_from_the_fold():
 def test_alt_model_returns_the_first_populated_sink():
     """The alternation pass-through returns the first non-empty sink's head."""
     frame = make_frame({F_SINKS: [[], ["m"], []]})
-    assert alt_model(frame) == "m"
+    assert alt_model(frame[F_SINKS]) == "m"
 
 
 def test_alt_model_none_when_no_sinks():
     """No sinks (nothing captured) yields ``None``."""
-    assert alt_model(make_frame({F_SINKS: None})) is None
+    assert alt_model(make_frame({F_SINKS: None})[F_SINKS]) is None
 
 
 # ── leaf_mismatch ────────────────────────────────────────────────────────────
@@ -284,7 +284,7 @@ def test_build_validated_unknown_mode_raises():
     )
     with pytest.raises(UnsupportedConstructError):
         build_validated(
-            "ab", make_frame({F_ENDS: [2], F_SINKS: None, F_START: 0}), clone, {}
+            "ab", 0, [2], None, clone, {}
         )
 
 
@@ -306,13 +306,22 @@ def test_build_validated_does_not_cache_a_raising_construction():
     frame = make_frame({F_ENDS: [2], F_SINKS: None, F_START: 0})
     memo: dict = {}
     with pytest.raises(FieldValidationError):
-        build_validated("ab", frame, clone, memo)
+        build_validated(
+            "ab", frame[F_START], frame[F_ENDS], frame[F_SINKS], clone, memo
+        )
     assert not memo  # nothing cached from the raising build
     state["boom"] = False
-    out = build_validated("ab", frame, clone, memo)
+    out = build_validated(
+        "ab", frame[F_START], frame[F_ENDS], frame[F_SINKS], clone, memo
+    )
     assert out == ("ok", {"head": "ab"})
     # a second identical build now hits the cache (ctor not re-invoked)
-    assert build_validated("ab", frame, clone, memo) is out
+    assert (
+        build_validated(
+            "ab", frame[F_START], frame[F_ENDS], frame[F_SINKS], clone, memo
+        )
+        is out
+    )
     assert state["n"] == 2  # one failed + one successful; the hit adds nothing
 
 
@@ -328,7 +337,9 @@ def test_build_sequence_empty_arm_builds_bare_ctor():
         ),
     )
     frame = make_frame({F_ARM: SimpleNamespace(n=0)})
-    assert build_sequence("", frame, clone, {}) == ("bare",)
+    assert build_sequence(
+        "", frame[F_ARM], 0, [], None, clone, {}
+    ) == ("bare",)
 
 
 # ── build_vstr (value_str build + intern) ────────────────────────────────────

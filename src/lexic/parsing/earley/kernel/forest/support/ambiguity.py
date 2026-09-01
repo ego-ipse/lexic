@@ -32,11 +32,15 @@ if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
 
 __all__ = [
     "AmbiguityPolicy",
+    "BuiltMeaning",
+    "MeaningBuilder",
     "MeaningMemo",
+    "MeaningPair",
     "Resolver",
     "ambiguity_points",
     "another_meaning",
     "dirty_cone",
+    "different_meaning",
     "remembered",
     "replayed",
     "same_value",
@@ -53,7 +57,7 @@ take-the-first resolver.
 """
 
 
-class AmbiguityPolicy(NamedTuple):
+class AmbiguityPolicy[Value](NamedTuple):
     """How a span that means two things is settled, and by whom.
 
     ``build`` is what makes the question answerable at all: whether two
@@ -65,7 +69,7 @@ class AmbiguityPolicy(NamedTuple):
     :ivar resolve: Settles a span that means two things; ``None`` refuses it.
     """
 
-    build: Callable[[ParseTree], object]
+    build: Callable[[ParseTree], Value]
     resolve: Resolver | None = None
 
 
@@ -148,7 +152,28 @@ def dirty_cone(kernel: Kernel, root: int, flipped: int) -> frozenset[int]:
     return frozenset(cone)
 
 
-class MeaningMemo(NamedTuple):
+class MeaningBuilder[Value, NodeValue](NamedTuple):
+    """Fresh and seeded entry points for one compositional interpretation."""
+
+    build: Callable[[ParseTree], Value]
+    replay: Callable[[ParseTree, dict[int, NodeValue]], Value]
+
+
+class BuiltMeaning[Value](NamedTuple):
+    """A derivation paired with the value already built from it."""
+
+    tree: ParseTree
+    value: Value
+
+
+class MeaningPair[Value](NamedTuple):
+    """The baseline and, when present, first different built meaning."""
+
+    first: BuiltMeaning[Value]
+    witness: BuiltMeaning[Value] | None
+
+
+class MeaningMemo[NodeValue](NamedTuple):
     """What the default derivation meant, kept so an alternate can reuse it.
 
     Values only. No builder handle, no mutation log, no engine state — an
@@ -163,35 +188,40 @@ class MeaningMemo(NamedTuple):
     """
 
     nodes: dict[int, ParseTree]
-    values: dict[int, object]
+    values: dict[int, NodeValue]
 
 
-def remembered(
-    kernel: Kernel, root: int, fold: Callable[[ParseTree, dict[int, object]], object]
-) -> tuple[object, MeaningMemo] | None:
+def remembered[Value, NodeValue](
+    kernel: Kernel,
+    root: int,
+    builder: MeaningBuilder[Value, NodeValue],
+    first: ParseTree,
+) -> tuple[BuiltMeaning[Value], MeaningMemo[NodeValue]]:
     """Build and fold the default derivation, keeping what each handle meant.
 
     :param kernel: The finished kernel.
     :param root: The packed accepting handle.
-    :param fold: Folds a tree, recording every node's value in the map it is
-        given.
-    :returns: ``(value, memo)``, or ``None`` when the fast path misses.
+    :param builder: The interpretation's fresh and seeded entry points.
+    :param first: The derivation already in hand, used on a fast-tree miss.
+    :returns: The already-built baseline and its reusable node memo.
     """
     tree = FastTree(kernel, {})
     built = tree.build(root)
     if not isinstance(built, ParseTree):
-        return None
-    values: dict[int, object] = {}
-    return fold(built, values), MeaningMemo(dict(tree.memo), values)
+        return BuiltMeaning(first, builder.build(first)), MeaningMemo({}, {})
+    values: dict[int, NodeValue] = {}
+    value = builder.replay(built, values)
+    return BuiltMeaning(first, value), MeaningMemo(dict(tree.memo), values)
 
 
-def replayed(
+def replayed[Value, NodeValue](
     kernel: Kernel,
     root: int,
     flipped: int,
-    fold: Callable[[ParseTree, dict[int, object]], object],
-    memo: MeaningMemo,
-) -> object | None:
+    choice: int,
+    builder: MeaningBuilder[Value, NodeValue],
+    memo: MeaningMemo[NodeValue],
+) -> BuiltMeaning[Value] | None:
     """One alternate derivation's value, recomputing only the dirty cone.
 
     The saving is the point: everything outside :func:`dirty_cone` keeps the
@@ -205,13 +235,14 @@ def replayed(
     :param kernel: The finished kernel.
     :param root: The packed accepting handle.
     :param flipped: The ambiguity point taking a different family.
-    :param fold: Folds a tree, seeded with the values it may reuse.
+    :param choice: The selected packed-family index at ``flipped``.
+    :param builder: The interpretation's fresh and seeded entry points.
     :param memo: What the default derivation meant.
     :returns: The alternate's value, or ``None`` when it does not build.
     """
     cone = dirty_cone(kernel, root, flipped)
     keep = {handle: node for handle, node in memo.nodes.items() if handle not in cone}
-    tree = FastTree(kernel, {flipped: 1})
+    tree = FastTree(kernel, {flipped: choice})
     tree.memo.update(keep)
     built = tree.build(root)
     if not isinstance(built, ParseTree):
@@ -221,7 +252,7 @@ def replayed(
         for node in keep.values()
         if id(node) in memo.values
     }
-    return fold(built, seeded)
+    return BuiltMeaning(built, builder.replay(built, seeded))
 
 
 def _parent_edges(kernel: Kernel, root: int) -> dict[int, list[int]]:
@@ -296,13 +327,13 @@ def same_value(one: object, other: object) -> bool:
     return bool(one == other) or (ne(one, one) and ne(other, other))
 
 
-def another_meaning(
+def different_meaning[Value, NodeValue](
     kernel: Kernel,
     handle: int,
-    build: Callable[[ParseTree], object],
+    builder: MeaningBuilder[Value, NodeValue],
     first: ParseTree,
-) -> ParseTree | None:
-    """The first other derivation of ``handle`` that builds a DIFFERENT value.
+) -> MeaningPair[Value]:
+    """Build the baseline once and find the first differently valued derivation.
 
     Flips one ambiguity point at a time rather than trying every combination: a
     fold is compositional, so if no single alternative changes the value, no
@@ -312,34 +343,64 @@ def another_meaning(
     visit — see :func:`~lexic.parsing.earley.kernel.tables.splits.leftmost_chain` —
     so the flip names the one-lap unroll and the walk terminates.
 
-    Returns the differing derivation itself rather than a truth value, because
-    a caller resolving the ambiguity needs the witness in hand, and "means two
-    things" and "nothing built" are different answers a bare predicate would
-    conflate.
+    The returned pair retains both values.  A resolver choosing either tree
+    therefore does not construct its chosen result again.
 
     :param kernel: The finished kernel.
     :param handle: The packed accepting handle.
-    :param build: Turns a derivation into the value it means.
+    :param builder: Fresh and memo-seeded product execution.
     :param first: The derivation already in hand, to compare the rest against.
-    :returns: A derivation whose value differs from ``first``'s, or ``None``
-        when every derivation means the same thing — proven, not sampled.
+    :returns: The already-built baseline and optional differing witness.
     """
-    base = build(first)
-    for alternate in _sibling_roots(kernel, handle):
-        other = FastTree(kernel, {}).build(alternate)
-        if isinstance(other, ParseTree) and not same_value(base, build(other)):
-            return other
+    siblings = _sibling_roots(kernel, handle)
     bits = kernel.tables.packing.bits
-    for key in ambiguity_points(kernel, handle):
+    choices = [
+        key
+        for key in ambiguity_points(kernel, handle)
+        if is_arm_choice(
+            kernel.st.links[key], bits, kernel.tables.code_choice
+        )
+    ]
+    if not siblings and not choices:
+        return MeaningPair(BuiltMeaning(first, builder.build(first)), None)
+
+    if choices:
+        base, memo = remembered(kernel, handle, builder, first)
+    else:
+        base = BuiltMeaning(first, builder.build(first))
+        memo = None
+    for alternate in siblings:
+        other = FastTree(kernel, {}).build(alternate)
+        if isinstance(other, ParseTree):
+            built = BuiltMeaning(other, builder.build(other))
+            if not same_value(base.value, built.value):
+                return MeaningPair(base, built)
+    if memo is None:
+        return MeaningPair(base, None)
+    for key in choices:
         bucket = kernel.st.links[key]
-        # A SPLIT has a defined answer — the first slot owns the text — so it is
-        # not an ambiguity and must not be refused or fallen back for. Only a
-        # choice between different authored ARMS is a question the grammar left
-        # open. Generated quantifier-helper arms share one choice identity.
-        if not is_arm_choice(bucket, bits, kernel.tables.code_choice):
-            continue
         for index in range(1, len(bucket)):
-            other = FastTree(kernel, {key: index}).build(handle)
-            if isinstance(other, ParseTree) and not same_value(base, build(other)):
-                return other
-    return None
+            built = replayed(kernel, handle, key, index, builder, memo)
+            if built is not None and not same_value(base.value, built.value):
+                return MeaningPair(base, built)
+    return MeaningPair(base, None)
+
+
+def another_meaning[Value](
+    kernel: Kernel,
+    handle: int,
+    build: Callable[[ParseTree], Value],
+    first: ParseTree,
+) -> ParseTree | None:
+    """Compatibility view of :func:`different_meaning` for tree consumers.
+
+    The enumeration and comparison still have one implementation.  Consumers
+    that need the chosen value use :func:`different_meaning` directly; legacy
+    tree consumers discard the values and retain only the witness tree.
+    """
+
+    def rebuild(tree: ParseTree, _values: dict[int, Value]) -> Value:
+        return build(tree)
+
+    pair = different_meaning(kernel, handle, MeaningBuilder(build, rebuild), first)
+    return None if pair.witness is None else pair.witness.tree

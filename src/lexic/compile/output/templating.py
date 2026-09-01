@@ -542,11 +542,6 @@ SPAN_SYMBOLS: dict[str, Callable[..., object]] = {
     "span_entry": _span_entry,
     "collect": _collect,
 }
-"""This surface's two transforms, by the names its rules complete through.
-
-TRANSITIONAL: it exists because the engines take a product and a surface that
-cannot say what its rules do cannot be parsed at all. It goes when this module
-goes — the span parse is a separate architecture a target schema replaces."""
 
 
 def _span_binding(view: _ShapeView) -> ModelBinding[SpanLevel]:

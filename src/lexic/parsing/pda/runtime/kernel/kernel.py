@@ -113,7 +113,7 @@ each slot later holding a sub-model list) without narrowing their type."""
 
 
 class PdaKernel[M](
-    KernelExecutionMixin, Attempting, AttemptInlineMixin, IrLeaf[IrSelf, IrSelf]
+    KernelExecutionMixin[M], Attempting[M], AttemptInlineMixin, IrLeaf[IrSelf, IrSelf]
 ):
     """One predictive parse of ``text`` over a compiled :class:`PdaProgram`.
 
@@ -156,7 +156,7 @@ class PdaKernel[M](
     pos: int
     stack: list[list[Any]]
     policy: IslandPolicy[M]
-    _caches: KernelCaches
+    _caches: KernelCaches[M]
     _routes: RouteLane | None
 
     def __init__(
@@ -183,7 +183,7 @@ class PdaKernel[M](
         self.policy = IslandPolicy(resolve=resolve, fold=fold)
         self.pos = 0
         self.stack = []
-        self._caches = KernelCaches()
+        self._caches = KernelCaches[M]()
         # `None` for every program without route continuations — which is the
         # generated-model product permanently. A frame slot would have taxed
         # every product's every frame push; this taxes one attribute.
@@ -203,7 +203,7 @@ class PdaKernel[M](
         start = self.tables.program.start
         if not isinstance(start, FlatClone):  # IslandRef opt-out
             raise PdaFail(f"start rule {start.name!r} is an island — no PDA")
-        holder: list[Any] = []
+        holder: list[M] = []
         self._enter(start, holder)
         self._drive()
         if self.pos != len(self.text):
@@ -212,7 +212,7 @@ class PdaKernel[M](
             raise PdaFail("start rule produced no model")
         return holder[0]
 
-    def prefix_run(self, clone: FlatClone, pos: int) -> tuple[int, object]:
+    def prefix_run(self, clone: FlatClone[M], pos: int) -> tuple[int, M | None]:
         """Drive a self-contained sub-run of ``clone`` from ``pos`` — the
         island-interior delegation entry seam (Task 6.2, D-a).
 
@@ -241,7 +241,7 @@ class PdaKernel[M](
         self.stack = []
         self.pos = pos
         try:
-            holder: list[object] = []
+            holder: list[M] = []
             self._enter(clone, holder)
             self._drive()
             end = self.pos
@@ -462,7 +462,9 @@ class PdaKernel[M](
             sinks[i] = sink = []
         return sink
 
-    def _chase_dispatch(self, clone: FlatClone, char: str) -> "FlatClone | None":
+    def _chase_dispatch(
+        self, clone: FlatClone[M], char: str
+    ) -> FlatClone[M] | None:
         """Chase a frame-less dispatch alternation to its concrete target clone.
 
         :param clone: A :data:`~lexic.parsing.pda.compiler.program.flatten.BUILD_DISPATCH` clone.
@@ -473,7 +475,7 @@ class PdaKernel[M](
         """
         return chase_dispatch(clone, char, self.pos)
 
-    def _enter(self, clone: FlatClone, out: list[object]) -> bool:
+    def _enter(self, clone: FlatClone[M], out: list[M]) -> bool:
         """Select ``clone``'s arm at the cursor and push its (flat) frame.
 
                 A dispatch clone (a frame-less pass-through alternation) is chased
@@ -538,7 +540,7 @@ class PdaKernel[M](
         )
         return True
 
-    def _enter_gated(self, clone: FlatClone, out: list[object]) -> bool:
+    def _enter_gated(self, clone: FlatClone[M], out: list[M]) -> bool:
         """Push the frame of a clone that selects its arm by something other
         than the lead char, or report that it does not.
 
@@ -568,8 +570,8 @@ class PdaKernel[M](
         return True
 
     def _settle(
-        self, clone: FlatClone, char: str, out: list[object]
-    ) -> "FlatClone | None":
+        self, clone: FlatClone[M], char: str, out: list[M]
+    ) -> FlatClone[M] | None:
         """Resolve dispatch chases and attempt substitutions to a fixpoint.
 
         Either step installs a *different* clone, and the clone it installs has

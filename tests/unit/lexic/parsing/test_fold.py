@@ -49,16 +49,21 @@ from lexic.parsing.fold import (
     lift_optional_nullables,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
-from lexic.parsing.product import CaptureMode, CaptureSpec, ConstructionTables
+from lexic.parsing.product import (
+    CaptureMode,
+    CaptureSpec,
+    ConstructionTables,
+    collapsed_product_tables,
+)
 from lexic.parsing.products import _model_product, earley_model
-
-_ONE = int(CaptureMode.ONE)
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import (
     malformed_synthetic_rule,
     nested_synthetic_grammar,
 )
 from tests.unit.lexic.parsing.parsing_helpers import prod
+
+_ONE = int(CaptureMode.ONE)
 
 # ── the compiled config — structure ─────────────────────────────────────
 
@@ -368,8 +373,8 @@ def test_collapsed_fold_tables_returns_plain_when_no_candidates(optional_shapes)
 
 def test_compiled_tables_are_the_collapsed_ones(arithmetic):
     """CompiledGrammar.tables is exactly the memoised collapsed tables."""
-    assert prod(arithmetic).tables is collapsed_fold_tables(
-        prod(arithmetic).instance_grammar, arithmetic.fold
+    assert prod(arithmetic).tables is collapsed_product_tables(
+        prod(arithmetic).instance_grammar, arithmetic.product.rules
     )
 
 
@@ -571,7 +576,7 @@ def test_recognition_twins_never_construct_descendants_in_either_engine(
     expected = {"kept": {"value": kept_atom}, "dropped": None}
 
     assert (
-        earley_model(product.instance_grammar, text, fold, product.tables) == expected
+        earley_model(product.instance_grammar, text, binding, product.tables) == expected
     )
     assert pda_model(product.pda, text, fold) == expected
 
@@ -697,7 +702,7 @@ def test_required_field_matching_the_empty_arm_folds_to_explicit_none():
     src = 'a = %s"x" t\r\nt = "" / tr / ts\r\ntr = %s"-" %s"h"\r\nts = 1*%s"."\r\n'
     cg = compile_text(src, cache_key="fold-empty-arm-field", flavour="abnf")
     product = _model_product(cg.codegen_grammar, cg.product)
-    via_earley = earley_model(product.instance_grammar, "x", cg.fold, product.tables)
+    via_earley = earley_model(product.instance_grammar, "x", cg.product, product.tables)
     via_pda = pda_model(product.pda, "x", cg.fold)
     assert via_earley == via_pda, "the two engines must build the same record"
     # A record IS its field tuple; `A` binds one field (`t`), read by index.

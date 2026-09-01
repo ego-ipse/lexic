@@ -34,6 +34,7 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    MeaningBuilder,
     ambiguity_points,
     dirty_cone,
     remembered,
@@ -248,6 +249,10 @@ class _CountingFold:
             results[id(node)] = (str(node.symbol), _subtree_text(node))
         return results[id(tree)]
 
+    def build(self, tree: ParseTree) -> object:
+        """Fold a tree with a fresh value memo."""
+        return self(tree, {})
+
 
 def the_replay_reuses_and_agrees(shape: Shape) -> None:
     """A replay folds only the cone and agrees with a full refold.
@@ -259,14 +264,24 @@ def the_replay_reuses_and_agrees(shape: Shape) -> None:
     root = accept_handle(kernel)
     flipped = ambiguity_points(kernel, root)[0]
 
-    first = _CountingFold()
-    remembered_pair = remembered(kernel, root, first)
-    if remembered_pair is None:
+    first_tree = FastTree(kernel, {}).build(root)
+    if not isinstance(first_tree, ParseTree):
         raise AssertionError(f"{shape.name}: the default derivation did not build")
+    first = _CountingFold()
+    remembered_pair = remembered(
+        kernel, root, MeaningBuilder(first.build, first), first_tree
+    )
     _base, memo = remembered_pair
 
     incremental = _CountingFold()
-    reused = replayed(kernel, root, flipped, incremental, memo)
+    reused = replayed(
+        kernel,
+        root,
+        flipped,
+        1,
+        MeaningBuilder(incremental.build, incremental),
+        memo,
+    )
 
     scratch = _CountingFold()
     fresh = FastTree(kernel, {flipped: 1}).build(root)
@@ -276,7 +291,7 @@ def the_replay_reuses_and_agrees(shape: Shape) -> None:
 
     _check(
         f"{shape.name}: the replay disagreed with a full refold",
-        reused == whole,
+        reused is not None and reused.value == whole,
     )
     _check(
         f"{shape.name}: the replay folded as much as a full refold",

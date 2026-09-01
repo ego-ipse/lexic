@@ -33,10 +33,12 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.build import build_vstr
+from lexic.parsing.pda.runtime.build import InternMemo, build_vstr
 
 
-def chase_dispatch(clone: FlatClone, char: str, pos: int) -> "FlatClone | None":
+def chase_dispatch[Carry](
+    clone: FlatClone[Carry], char: str, pos: int
+) -> FlatClone[Carry] | None:
     """Chase a frame-less dispatch alternation to its concrete target clone.
 
     The selection a dispatch alternation IS: a lead-char walk over selectors
@@ -67,8 +69,12 @@ def chase_dispatch(clone: FlatClone, char: str, pos: int) -> "FlatClone | None":
     return clone
 
 
-def vdisp_once(
-    text: str, intern: dict[Any, object], clone: FlatClone, sink: list[Any], pos: int
+def vdisp_once[Carry](
+    text: str,
+    intern: InternMemo[Carry],
+    clone: FlatClone[Carry],
+    sink: list[Carry],
+    pos: int,
 ) -> int:
     """One :data:`~lexic.parsing.pda.compiler.program.flatten.OP_VDISP` iteration —
     chase, then the landed clone's ordinary ``value_str`` match.
@@ -86,7 +92,7 @@ def vdisp_once(
     return vstr_once(text, intern, target, sink, pos)
 
 
-def select_arm(clone: FlatClone, char: str, pos: int) -> FlatArm:
+def select_arm[Carry](clone: FlatClone[Carry], char: str, pos: int) -> FlatArm:
     """The clone's FIRST-gated arm at lookahead ``char``, or its default.
 
     :raises PdaFail: When no arm's FIRST matches and there is no default.
@@ -238,7 +244,9 @@ def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) 
     return pos
 
 
-def run_span_once(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
+def run_span_once[Carry](
+    text: str, clone: FlatClone[Carry], sink: list[Carry], pos: int
+) -> int:
     """One iteration of a run-valued ``value_str`` clone — match, then look up.
 
     The run itself is matched by the same call the untabled path makes, so the
@@ -276,7 +284,9 @@ def loop_spec(arm: FlatArm, i: int) -> tuple[int, int, int, Any]:
     return arm.los[i], arm.his[i], arm.gate_kinds[i], arm.gate_data[i]
 
 
-def match_runtable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
+def match_runtable[Carry](
+    text: str, arm: FlatArm, i: int, sink: list[Carry], pos: int
+) -> int:
     """Run an ``OP_VSTR`` loop whose target is a span-tabled run clone."""
     clone = arm.payloads[i]
     lo, hi, gk, gate = loop_spec(arm, i)
@@ -287,7 +297,9 @@ def match_runtable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -
     return pos
 
 
-def table_miss(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
+def table_miss[Carry](
+    text: str, clone: FlatClone[Carry], sink: list[Carry], pos: int
+) -> int:
     """What a char-table lookup miss means — the untabled path's own answer.
 
     A TOTAL dispatch table IS its clone's selector union, so a miss there is the
@@ -306,8 +318,12 @@ def table_miss(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
     return vstr_once(text, {}, clone, sink, pos)
 
 
-def vstr_once(
-    text: str, intern: dict[Any, object], clone: FlatClone, sink: list[Any], pos: int
+def vstr_once[Carry](
+    text: str,
+    intern: InternMemo[Carry],
+    clone: FlatClone[Carry],
+    sink: list[Carry],
+    pos: int,
 ) -> int:
     """One ``value_str`` iteration — select, match, slice, build, append.
 

@@ -1,26 +1,28 @@
-"""Pin value-once-per-node folding over shared forest subtrees.
+"""Witness product completion once per DAG node and effects per occurrence.
 
-`proto/shared_forest_refold.py` measured the defect: the fold walk's body ran
-2, 2 and 1 times for the SAME two-slot sharing across three shapes, and a
-transparent synthetic node repeated because it stores no result — so the count
-was a traversal accident, neither per-node nor per-occurrence.
+The executor memo stores an explicit completed result for a value-bearing
+node. Replaying a tree reuses that value, including through a transparent
+node, while each parent capture occurrence still observes it. A second real
+Earley witness pins ambiguity replay: the baseline and alternate values are
+each constructed once and the already-built chosen value is retained.
 
-This runs the real `ModelFold` over the real Earley fallback and asserts the
-contract instead: each shared node's value is computed exactly once, on every
-shape, and the model the fold returns is unchanged.
-
-Uncommitted evidence, not a test. Luna owns the committed suite.
+Uncommitted implementation evidence, not a test. Luna owns the committed
+suite.
 """
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import ClassVar
 
-from lexic.compile import canonical_grammar, compile_text
+from lexic.compile import canonical_grammar
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.parsing.earley.engine import AmbiguityPolicy, EarleyParser, first_meaning
+from lexic.ir import IrRuleRef, IrSeq
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
-from lexic.parsing.earley.kernel.forest.forest import ParseTree
+from lexic.parsing.earley.kernel.forest.forest import ParseTree, PayloadLeaf
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    MeaningBuilder,
+    different_meaning,
+)
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
     accept_item,
@@ -29,195 +31,207 @@ from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import ModelFold
-from lexic.parsing.products import _model_product, earley_model
-
-
-class Shape(NamedTuple):
-    """One grammar whose single derivation shares a subtree object.
-
-    :ivar name: The shape's label.
-    :ivar grammar: GBNF source whose derivation is a DAG.
-    :ivar text: The input.
-    :ivar shared: The rule whose derivation object is reached twice.
-    """
-
-    name: str
-    grammar: str
-    text: str
-    shared: str
-
-
-SHAPES = (
-    Shape("duplicate-slot", 'root ::= a "x" a\na ::= "y"?\n', "x", "a"),
-    Shape("pending-frame", 'root ::= a b\nb ::= a "z"\na ::= "y"?\n', "z", "a"),
-    Shape(
-        "sibling-memo",
-        'root ::= b c\nb ::= a "u"\nc ::= a "w"\na ::= "y"?\n',
-        "uw",
-        "a",
-    ),
+from lexic.parsing.product import (
+    CaptureMode,
+    CaptureSpec,
+    ConstructionTables,
+    PassOp,
+    ProductExecutor,
+    RecordConstructor,
+    RecordOp,
+    ResultMemo,
+    RuleProduct,
 )
-"""Three of the plan's four §3 exit shapes, folded through the real product.
-The fourth — the transparent synthetic — is exercised by
-:func:`transparent_synthetic_folds_once` below, which needs the canonical
-route where that node is genuinely shared."""
 
 
-class _CountingFold[M](ModelFold[M]):
-    """A fold that records how often each node's body actually ran."""
-
-    __slots__ = ("counts",)
-
-    def __init__(self, bodies: object) -> None:
-        """Wrap an existing fold's authored bodies with a per-node counter."""
-        super().__init__(bodies)  # type: ignore[arg-type]
-        self.counts: dict[int, int] = {}
-
-    def _fold_node(
-        self, node: ParseTree, results: dict[int, object], offsets: object
-    ) -> None:  # type: ignore[override]
-        """Count this node's body execution, then fold it normally."""
-        self.counts[id(node)] = self.counts.get(id(node), 0) + 1
-        super()._fold_node(node, results, offsets)  # type: ignore[arg-type]
+class Value:
+    """The witness product's closed carry base."""
 
 
-def _slot_counts(root: ParseTree) -> dict[int, int]:
-    """How many kid slots reference each subtree object, by identity."""
-    counts: dict[int, int] = {}
-    seen: set[int] = set()
-    stack: list[ParseTree] = [root]
-    while stack:
-        node = stack.pop()
-        if id(node) in seen:
-            continue
-        seen.add(id(node))
-        for kid in node.kids:
-            if isinstance(kid, ParseTree):
-                counts[id(kid)] = counts.get(id(kid), 0) + 1
-                stack.append(kid)
-    return counts
+class Leaf(Value):
+    """A value whose constructor count reveals duplicate DAG execution."""
+
+    calls: ClassVar[int] = 0
+
+    def __init__(self) -> None:
+        type(self).calls += 1
 
 
-def _nodes_named(root: ParseTree, rule: str) -> set[int]:
-    """Every distinct subtree object standing for ``rule``."""
-    found: set[int] = set()
-    seen: set[int] = set()
-    stack: list[ParseTree] = [root]
-    while stack:
-        node = stack.pop()
-        if id(node) in seen:
-            continue
-        seen.add(id(node))
-        if str(node.symbol) == rule:
-            found.add(id(node))
-        stack.extend(kid for kid in node.kids if isinstance(kid, ParseTree))
-    return found
+class Root(Value):
+    """A parent recording every captured occurrence of its shared child."""
+
+    calls: ClassVar[int] = 0
+
+    def __init__(self, children: list[Value]) -> None:
+        type(self).calls += 1
+        self.children = children
 
 
-def _exercise(shape: Shape) -> None:
-    """Fold one shape through the Earley path and pin the execution counts."""
-    compiled = compile_text(shape.grammar)
-    counting: _CountingFold[object] = _CountingFold(compiled.fold.bodies)
-    product = _model_product(
-        compiled.codegen_grammar, counting, tier_for(len(shape.text))
-    )
-    model = earley_model(product.instance_grammar, shape.text, counting, product.tables)
-    reference = compiled.parse(shape.text)
-    if model != reference:
-        raise AssertionError(f"{shape.name}: the guarded fold changed the model")
-
-    # `earley_model` folds more than once — the ambiguity gate's `build` is
-    # the fold itself. Count ONE apply over the same derivation instead.
-    tree = _derivation(product, shape, counting)
-    counting.counts.clear()
-    counting.apply(tree)
-
-    slots = _slot_counts(tree)
-    shared = {
-        node for node in _nodes_named(tree, shape.shared) if slots.get(node, 0) > 1
+def shared_dag() -> None:
+    """One shared value is built once and captured once per occurrence."""
+    Leaf.calls = 0
+    Root.calls = 0
+    rules: dict[str, RuleProduct[Value]] = {
+        "leaf": RuleProduct((), RecordOp(0), 0),
+        "root": RuleProduct(
+            (CaptureSpec(int(CaptureMode.MANY), 0),), RecordOp(1), 1
+        ),
     }
-    if not shared:
-        raise AssertionError(f"{shape.name}: {shape.shared!r} is not shared here")
-    counts = sorted(counting.counts.get(node, 0) for node in shared)
-    if any(count != 1 for count in counts):
-        raise AssertionError(
-            f"{shape.name}: shared {shape.shared!r} folded {counts} times, not once each"
+    tables = ConstructionTables[Value](
+        (
+            RecordConstructor(Leaf),
+            RecordConstructor(Root, ("children",)),
         )
+    )
+    executor = ProductExecutor(rules, tables)
+
+    leaf = ParseTree(IrRuleRef("leaf"), IrSeq())
+    transparent = ParseTree(IrRuleRef("__grp_1"), IrSeq(leaf, leaf))
+    root = ParseTree(IrRuleRef("root"), IrSeq(transparent))
+    memo: ResultMemo[Value] = {}
+    first = executor.replay(root, memo)
+
+    if Leaf.calls != 1 or Root.calls != 1:
+        raise AssertionError(
+            f"shared DAG first build: leaf={Leaf.calls}, root={Root.calls}"
+        )
+    if not isinstance(first, Root):
+        raise AssertionError("shared DAG: root constructor did not run")
+    if len(first.children) != 2 or first.children[0] is not first.children[1]:
+        raise AssertionError("shared DAG: two occurrences did not retain one value")
+
+    chosen = executor.replay(root, memo)
+    if chosen is not first or Leaf.calls != 1 or Root.calls != 1:
+        raise AssertionError("shared DAG: replay constructed the chosen value again")
+
+    alternate_root = ParseTree(IrRuleRef("root"), IrSeq(transparent))
+    alternate = executor.replay(alternate_root, memo)
+    if Leaf.calls != 1 or Root.calls != 2:
+        raise AssertionError(
+            f"dirty parent replay: leaf={Leaf.calls}, root={Root.calls}"
+        )
+    if not isinstance(alternate, Root) or len(alternate.children) != 2:
+        raise AssertionError("dirty parent replay lost per-occurrence effects")
     print(
-        shape.name,
-        f"shared={len(shared)}",
-        f"slots={max(slots[node] for node in shared)}",
-        "folds=1 each",
+        "shared-dag",
+        "leaf_constructions=1",
+        "root_constructions=2 (two distinct roots)",
+        "capture_occurrences=2 per root",
+        "chosen_reconstructions=0",
         sep="\t",
     )
 
 
-def _derivation(product: object, shape: Shape, fold: ModelFold) -> ParseTree:
-    """The derivation the counting fold ran over, rebuilt for inspection."""
-    policy = AmbiguityPolicy(fold.apply, None)
-    return first_meaning(
-        EarleyParser(),
-        product.instance_grammar,  # type: ignore[attr-defined]
-        shape.text,
-        product.tables,  # type: ignore[attr-defined]
-        policy,
+class MaybeRoot(Value):
+    """A parent proving a present delegated Python ``None`` is not absence."""
+
+    def __init__(self, child: Value | None) -> None:
+        self.child = child
+
+
+def present_none() -> None:
+    """A delegated real ``None`` fills a required capture as a present value."""
+    rules: dict[str, RuleProduct[Value | None]] = {
+        "root": RuleProduct(
+            (CaptureSpec(int(CaptureMode.ONE), 0),), RecordOp(0), 1
+        )
+    }
+    tables = ConstructionTables[Value | None](
+        (RecordConstructor(MaybeRoot, ("child",)),)
     )
+    root = ParseTree(
+        IrRuleRef("root"), IrSeq(PayloadLeaf[Value | None](None, "null"))
+    )
+    built = ProductExecutor(rules, tables).build(root)
+    if not isinstance(built, MaybeRoot) or built.child is not None:
+        raise AssertionError("present None was treated as a missing completion")
+    print("presence\tpayload=None\trequired_capture=present")
 
 
-def transparent_synthetic_folds_once() -> None:
-    """The synthetic node that stored no result must not fold twice.
+class Left(Value):
+    """The first ambiguous arm's value."""
 
-    It needs the canonical route rather than the codegen one: the codegen
-    passes hoist the repetition into a rule that is no longer shared, while
-    the canonical grammar keeps ``__rep_1`` reached from two slots — which is
-    exactly the shape whose missing value-table entry made it repeat.
-    """
-    source = 'root ::= a "x" a\na ::= "y"?\n'
-    ast = normalize(canonical_grammar(source, GBNF_FLAVOUR))
-    kernel = Kernel(compile_tables(ast, tier_for(1)), "x", True).run()
+    calls: ClassVar[int] = 0
+
+    def __init__(self, text: str) -> None:
+        type(self).calls += 1
+        self.text = text
+
+
+class Right(Value):
+    """The other ambiguous arm's distinguishable value."""
+
+    calls: ClassVar[int] = 0
+
+    def __init__(self, text: str) -> None:
+        type(self).calls += 1
+        self.text = text
+
+
+def ambiguity_replay() -> None:
+    """Meaning replay constructs the default and differing witness once each."""
+    Left.calls = 0
+    Right.calls = 0
+    grammar = normalize(
+        canonical_grammar(
+            'root ::= left | right\nleft ::= "x"\nright ::= "x"\n',
+            GBNF_FLAVOUR,
+        )
+    )
+    kernel = Kernel(compile_tables(grammar, tier_for(1)), "x", True).run()
     if accept_item(kernel) < 0:
-        raise AssertionError("transparent-synthetic: no parse")
-    tree = FastTree(kernel).build(accept_handle(kernel))
-    if not isinstance(tree, ParseTree):
-        raise AssertionError("transparent-synthetic: the fast path missed")
+        raise AssertionError("ambiguity replay: no parse")
+    handle = accept_handle(kernel)
+    first = FastTree(kernel, {}).build(handle)
+    if not isinstance(first, ParseTree):
+        raise AssertionError("ambiguity replay: default tree did not build")
 
-    counting: _CountingFold[object] = _CountingFold(compile_text(source).fold.bodies)
-    counting.apply(tree)
-    slots = _slot_counts(tree)
-    parents = {node for node in _nodes_named(tree, "a") if slots.get(node, 0) > 1}
-    if not parents:
-        raise AssertionError("transparent-synthetic: its shared parent is not shared")
-    synthetic = _nodes_named(tree, "__rep_1")
-    if len(synthetic) != 1:
-        raise AssertionError(
-            f"transparent-synthetic: expected one '__rep_1', saw {len(synthetic)}"
+    rules: dict[str, RuleProduct[Value]] = {
+        "root": RuleProduct(
+            (CaptureSpec(int(CaptureMode.ONE), 0),), PassOp(0), 1
+        ),
+        "left": RuleProduct((), RecordOp(0), 1),
+        "right": RuleProduct((), RecordOp(1), 1),
+    }
+    tables = ConstructionTables[Value](
+        (
+            RecordConstructor(Left, matched_field="text"),
+            RecordConstructor(Right, matched_field="text"),
         )
-    counts = sorted(counting.counts.get(node, 0) for node in synthetic | parents)
-    if any(count != 1 for count in counts):
+    )
+    executor = ProductExecutor(rules, tables)
+    pair = different_meaning(
+        kernel,
+        handle,
+        MeaningBuilder(executor.build, executor.replay),
+        first,
+    )
+    if pair.witness is None:
+        raise AssertionError("ambiguity replay: the different value was not found")
+    if Left.calls + Right.calls != 2 or Left.calls != 1 or Right.calls != 1:
         raise AssertionError(
-            f"transparent-synthetic: '__rep_1'/'a' folded {counts} times, not once each"
+            f"ambiguity replay constructions: left={Left.calls}, right={Right.calls}"
         )
+
+    chosen = pair.first.value
+    before = Left.calls + Right.calls
+    if chosen is not pair.first.value or Left.calls + Right.calls != before:
+        raise AssertionError("ambiguity replay: choosing baseline rebuilt it")
     print(
-        "transparent-synthetic",
-        f"shared_parent_slots={max(slots[node] for node in parents)}",
-        "folds=1 each",
-        "(it stores no result; the old guard re-expanded it with its parent)",
+        "ambiguity-replay",
+        "baseline_constructions=1",
+        "witness_constructions=1",
+        "chosen_reconstructions=0",
         sep="\t",
     )
 
 
 def main() -> None:
-    """Run every shape; any repeated fold body raises."""
-    for shape in SHAPES:
-        _exercise(shape)
-    transparent_synthetic_folds_once()
-    print(
-        "s3 shared forest",
-        "PASS",
-        "value computed once per shared node on all four shapes",
-        sep="\t",
-    )
+    """Run both product-executor construction-count witnesses."""
+    shared_dag()
+    present_none()
+    ambiguity_replay()
+    print("s3 shared forest\tPASS")
 
 
 if __name__ == "__main__":

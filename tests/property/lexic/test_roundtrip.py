@@ -72,7 +72,7 @@ def test_arithmetic_roundtrip_engine_forced(seed: int, all_grammar_specs: dict) 
     product = _model_product(cg.codegen_grammar, cg.product)
     inst = cast(
         GrammarModel,
-        earley_model(product.instance_grammar, text, cg.fold, product.tables),
+        earley_model(product.instance_grammar, text, cg.product, product.tables),
     )
     assert inst.to_text() == text, (
         f"Engine-forced round-trip failed [arithmetic] seed={seed}:\n"

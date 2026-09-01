@@ -69,7 +69,7 @@ def test_earley_model_returns_model_and_round_trips():
     with pre-built run-collapsed tables supplied."""
     cg = compiled()
     product = _model_product(cg.codegen_grammar, cg.product)
-    model = earley_model(product.instance_grammar, "ab", cg.fold, product.tables)
+    model = earley_model(product.instance_grammar, "ab", cg.product, product.tables)
     assert isinstance(model, GrammarModel)
     assert model.to_text() == "ab"
 
@@ -79,7 +79,7 @@ def test_earley_model_compiles_its_own_tables_when_none_supplied():
     (non-collapsed) tables internally rather than requiring the caller to."""
     cg = compiled()
     product = _model_product(cg.codegen_grammar, cg.product)
-    model = earley_model(product.instance_grammar, "ab", cg.fold)
+    model = earley_model(product.instance_grammar, "ab", cg.product)
     assert isinstance(model, GrammarModel)
     assert model.to_text() == "ab"
 
@@ -103,7 +103,7 @@ def test_parse_model_matches_earley_model_completion():
     cg = compiled()
     got = parse_model(cg.codegen_grammar, "ab", cg.product)
     product = _model_product(cg.codegen_grammar, cg.product)
-    expected = earley_model(product.instance_grammar, "ab", cg.fold, product.tables)
+    expected = earley_model(product.instance_grammar, "ab", cg.product, product.tables)
     assert isinstance(got, GrammarModel)
     assert isinstance(expected, GrammarModel)
     assert got.semantic_dump() == expected.semantic_dump()
@@ -200,7 +200,7 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
     original = variant.fold.config["noise"]
     variant.fold.config["noise"] = original._replace(ctor=forbidden, fast=None)
     product = _model_product(variant.codegen_grammar, variant.product)
-    assert earley_model(product.instance_grammar, "a!", variant.fold, product.tables)
+    assert earley_model(product.instance_grammar, "a!", variant.product, product.tables)
     assert pda_model(product.pda, "a!", variant.fold)
 
 
@@ -556,14 +556,14 @@ def test_token_model_result_is_unaffected_by_pre_owning_the_text():
     direct = token_model(
         token_grammar.codegen_grammar,
         text,
-        token_grammar.fold,
+        token_grammar.product,
         bounds,
         resolve=lambda first, _other: first,
     )
     pre_owned = token_model(
         token_grammar.codegen_grammar,
         _owned_text(text),
-        token_grammar.fold,
+        token_grammar.product,
         bounds,
         resolve=lambda first, _other: first,
     )

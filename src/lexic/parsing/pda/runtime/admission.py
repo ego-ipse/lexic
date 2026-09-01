@@ -24,6 +24,7 @@ from lexic.parsing.pda.runtime.build import (
     F_OUT,
     F_SINKS,
     F_START,
+    InternMemo,
 )
 
 __all__ = [
@@ -100,7 +101,7 @@ def sole_admitted(entries: tuple[Any, ...], text: str, pos: int) -> Any:
     return sole
 
 
-class KernelCaches(IrLeaf[IrSelf, IrSelf]):
+class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
     """One kernel run's scratch — the memos and the stop-probe depth.
 
     :ivar deleg: Island name → its wrapped interior delegate table.
@@ -124,7 +125,7 @@ class KernelCaches(IrLeaf[IrSelf, IrSelf]):
     __slots__ = ("deleg", "intern", "probing", "uncertain")
 
     deleg: dict[str, dict[int, Delegate]]
-    intern: dict[Any, object]
+    intern: InternMemo[Carry]
     probing: int
     uncertain: bool
 

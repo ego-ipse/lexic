@@ -195,7 +195,7 @@ def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
     cg = compile_from_path(GROUND_TRUTH / grammar_file)
     p = prod(cg)
     collapsed_model = cg.parse(text)
-    plain_model = earley_model(p.instance_grammar, text, cg.fold)
+    plain_model = earley_model(p.instance_grammar, text, cg.product)
     assert isinstance(plain_model, GrammarModel)
     assert collapsed_model.dump() == plain_model.dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
@@ -681,7 +681,7 @@ def test_compiledgrammar_pda_and_earley_agree():
     p = prod(cg)
     text = "x=1\n"
     model = cg.parse(text)
-    expected = earley_model(p.instance_grammar, text, cg.fold, p.tables)
+    expected = earley_model(p.instance_grammar, text, cg.product, p.tables)
     assert isinstance(expected, GrammarModel)
     assert model.dump() == expected.dump()
     assert model.to_text() == text

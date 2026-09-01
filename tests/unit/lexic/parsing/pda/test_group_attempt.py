@@ -166,7 +166,7 @@ def _pda_verdict(cg, text: str) -> tuple[str, str]:
 def _earley_verdict(cg, text: str) -> tuple[str, str]:
     try:
         product = prod(cg)
-        model = earley_model(product.instance_grammar, text, cg.fold, product.tables)
+        model = earley_model(product.instance_grammar, text, cg.product, product.tables)
         return ("ok", model.to_text())
     except UnsupportedConstructError as exc:
         return ("refused", str(exc))

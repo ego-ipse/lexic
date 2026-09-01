@@ -431,7 +431,7 @@ def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> 
     for label, call in (
         (
             "earley",
-            lambda: earley_model(pr.instance_grammar, "#ab", cg.fold, pr.tables),
+            lambda: earley_model(pr.instance_grammar, "#ab", cg.product, pr.tables),
         ),
         ("pda", lambda: pda_model(product.pda, "#ab", cg.fold)),
     ):
@@ -467,7 +467,7 @@ def test_earley_refuses_a_cross_span_arm_choice() -> None:
     cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-earley")
     pr = prod(cg)
     with pytest.raises(UnsupportedConstructError):
-        earley_model(pr.instance_grammar, "abc", cg.fold, pr.tables)
+        earley_model(pr.instance_grammar, "abc", cg.product, pr.tables)
 
 
 def test_the_pda_refuses_a_cross_span_arm_choice_too() -> None:

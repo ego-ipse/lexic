@@ -26,17 +26,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from enum import IntEnum
-from types import MappingProxyType
 from typing import NamedTuple
 
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
 from lexic.parsing.product.construction import (
     BoundSymbol,
+    Construction,
     ConstructionTables,
+    ProductValue,
     RecordConstructor,
     SymbolConstructor,
+    record_construction,
+    symbol_construction,
 )
-from lexic.parsing.product.expressions import ExprProgram
+from lexic.parsing.product.expressions import ExprProgram, SymbolExpr
 
 __all__ = [
     "LoweredRoute",
@@ -54,7 +57,9 @@ __all__ = [
     "CaptureSpec",
     "CompletionRange",
     "ConstantOp",
+    "Construction",
     "ConstructionTables",
+    "construction_of",
     "DecodeCode",
     "DecodeOp",
     "Extent",
@@ -69,6 +74,7 @@ __all__ = [
     "OperandTables",
     "PassOp",
     "ProductOp",
+    "ProductValue",
     "ProductProgram",
     "RangeKind",
     "RecordConstructor",
@@ -440,6 +446,26 @@ class RuleProduct[Carry](NamedTuple):
     captures: tuple[CaptureSpec, ...]
     completion: RuleBody[Carry]
     n_items: int = 0
+
+
+def construction_of[Carry](
+    product: RuleProduct[Carry], tables: ConstructionTables[Carry]
+) -> Construction[Carry] | None:
+    """Resolve the construction one rule completion names, if any.
+
+    A pass-through rule constructs nothing. A symbol expression is a
+    construction only when it is the completion's sole operation; more
+    involved expression programs remain the later generic-product executor's
+    concern.
+    """
+    completion = product.completion
+    if isinstance(completion, RecordOp):
+        return record_construction(tables.constructors[completion.constructor])
+    if not isinstance(completion, ExprProgram):
+        return None
+    if len(completion.ops) == 1 and isinstance(completion.ops[0], SymbolExpr):
+        return symbol_construction(tables.symbols[completion.ops[0].symbol])
+    return None
 
 
 # ── Flat records (hot; plain ints only) ───────────────────────────────

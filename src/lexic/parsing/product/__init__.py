@@ -23,6 +23,9 @@ Four modules, one job each:
 ``regular``
     The authoritative regular-language proof — when a possessive recognizer
     may decide a region outright.
+``tree``
+    Product-driven ParseTree completion, explicit result presence, and exact
+    source-span derivation.
 
 This module is the package's one import surface. Nothing outside reaches into
 a submodule, so the package can be rearranged without a second import path
@@ -60,7 +63,9 @@ from lexic.parsing.product.records import (
     CaptureSpec,
     CompletionRange,
     ConstantOp,
+    Construction,
     ConstructionTables,
+    construction_of,
     DecodeCode,
     DecodeOp,
     Extent,
@@ -77,6 +82,7 @@ from lexic.parsing.product.records import (
     OperandTables,
     PassOp,
     ProductOp,
+    ProductValue,
     ProductProgram,
     RangeKind,
     RecordConstructor,
@@ -106,6 +112,20 @@ from lexic.parsing.product.state import (
     ProductMark,
     SequenceHandle,
 )
+from lexic.parsing.product.tree import (
+    Completed,
+    CompletionResult,
+    EMPTY_RESULT,
+    EmptyResult,
+    ProductExecutor,
+    ResultMemo,
+    collapsed_product_tables,
+    complete_product,
+    run_ok,
+    slot_span,
+    subtree_text,
+    tree_offsets,
+)
 from lexic.parsing.product.verify import verify_exact_ints, verify_program
 
 __all__ = [
@@ -125,11 +145,26 @@ __all__ = [
     "RecordConstructor",
     "SymbolConstructor",
     "BoundSymbol",
+    "Construction",
     "ConstructionTables",
+    "construction_of",
     "MeaningOp",
     "RootOp",
     "RuleCompletion",
     "ProductOp",
+    "ProductValue",
+    "Completed",
+    "CompletionResult",
+    "EmptyResult",
+    "EMPTY_RESULT",
+    "ResultMemo",
+    "ProductExecutor",
+    "complete_product",
+    "collapsed_product_tables",
+    "run_ok",
+    "subtree_text",
+    "tree_offsets",
+    "slot_span",
     # records — the reducer-expression layer
     "ExprCode",
     "ExprOp",

@@ -25,7 +25,7 @@ def test_nested_plus_is_one_native_pda_item_not_two_short_items() -> None:
     product = prod(compiled)
     via_pda = pda_model(product.pda, "ab", compiled.fold)
     via_earley = earley_model(
-        product.instance_grammar, "ab", compiled.fold, product.tables
+        product.instance_grammar, "ab", compiled.product, product.tables
     )
     assert via_pda == via_earley
     assert repr(via_pda) == "Root((Item('ab'),))"
@@ -38,7 +38,7 @@ def test_adjacent_variable_width_refs_decline_instead_of_reversing_the_split() -
     with pytest.raises(PdaFail, match="start rule 'root' is an island"):
         pda_model(product.pda, "abc", compiled.fold)
     via_earley = earley_model(
-        product.instance_grammar, "abc", compiled.fold, product.tables
+        product.instance_grammar, "abc", compiled.product, product.tables
     )
     assert compiled.parse("abc") == via_earley
     assert repr(via_earley) == "Root(Item('ab'), (Item('c'),))"
@@ -56,7 +56,7 @@ def test_bounded_nested_splits_never_disagree(quantifier: str, text: str) -> Non
     )
     product = prod(compiled)
     expected = earley_model(
-        product.instance_grammar, text, compiled.fold, product.tables
+        product.instance_grammar, text, compiled.product, product.tables
     )
     assert compiled.parse(text) == expected
     try:

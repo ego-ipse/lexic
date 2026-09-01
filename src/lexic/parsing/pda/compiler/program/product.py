@@ -39,11 +39,16 @@ may be absent, and what an omitted field falls back to all come off the record.
 
 from __future__ import annotations
 
-from types import MappingProxyType
-from typing import Any, Callable, Mapping, Sequence
+from collections.abc import Collection
+from typing import Mapping, Sequence
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.compiler.program.flatten import FlatClone, clear_build
+from lexic.parsing.pda.compiler.program.flatten import (
+    FlatClone,
+    clear_build,
+    no_construction,
+    no_fast_construction,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_SEQ,
@@ -58,75 +63,14 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_VALUE,
 )
 from lexic.parsing.product import (
-    BoundSymbol,
     CaptureMode,
+    Construction,
     ConstructionTables,
-    ExprProgram,
     PassOp,
-    RecordConstructor,
-    RecordOp,
+    ProductValue,
     RuleProduct,
-    SymbolExpr,
+    construction_of,
 )
-
-type ConstructionLicence = tuple[
-    Callable[[list[Any]], object], Mapping[str, Any], tuple[str, ...]
-]
-"""``(positional constructor, field defaults, field order)`` — what a declared
-record class says about building one of itself."""
-
-
-class Construction:
-    """What a completion needs to build its value, whichever record named it.
-
-    A plain slotted carrier rather than a union the bake branches on: a
-    declared class and a resolved surface transform answer the same questions,
-    so the bake asks them once and the clone slots that follow are identical.
-
-    :ivar call: What construction calls, by keyword.
-    :ivar names: The keyword each capture fills, in capture order.
-    :ivar optional: Capture indices the record admits being absent.
-    :ivar defaults: What an omitted field falls back to on the licensed
-        positional path, which cannot omit.
-    :ivar matched: The field the rule's OWN matched extent fills, ``""`` when
-        no field does.
-    :ivar licence: The class's positional constructor and field order when it
-        granted the validation-skip licence, else ``None``. Carried as the
-        licence ITSELF rather than as a flag beside a callable, because only a
-        declared class can answer it — a surface transform has no field order
-        to be positional over, so there is nothing to ask.
-    """
-
-    __slots__ = ("call", "defaults", "licence", "matched", "names", "optional")
-
-    def __init__(
-        self,
-        call: Callable[..., object],
-        names: tuple[str, ...],
-        optional: frozenset[int],
-        defaults: Mapping[str, object] = MappingProxyType({}),
-        matched: str = "",
-        licence: ConstructionLicence | None = None,
-    ) -> None:
-        """Bind one completion's construction data."""
-        self.call = call
-        self.names = names
-        self.optional = optional
-        self.defaults = defaults
-        self.matched = matched
-        self.licence = licence
-
-
-def _licence_of(cls: type) -> ConstructionLicence:
-    """The construction licence a declared record class answers with.
-
-    The one thing the bake asks of the class a constructor record names, and
-    it asks once, cold. Everything else about the construction — which
-    captures fill which fields, which may be absent, what an omitted one falls
-    back to — is on the record already.
-    """
-    construct: Callable[[], ConstructionLicence] = cls.fast_construct
-    return construct()
 
 
 _CAPTURE_CODES: Mapping[int, int] = {
@@ -163,55 +107,10 @@ def _capture_code(mode: int, absent: bool) -> int:
     return code
 
 
-def _record_construction(entry: RecordConstructor) -> Construction:
-    """A declared record class's construction, in the bake's own vocabulary."""
-    return Construction(
-        entry.cls,
-        entry.names,
-        frozenset(entry.optional),
-        entry.defaults,
-        entry.matched_field,
-        _licence_of(entry.cls) if entry.licensed else None,
-    )
-
-
-def _symbol_construction(entry: BoundSymbol) -> Construction:
-    """A resolved surface transform's construction.
-
-    Never licensed: the positional licence is a declared record class's to
-    grant, and a transform has no field order to grant it over. So a surface
-    completes by keyword, which is also the only way its absent-optional
-    distinction survives.
-    """
-    return Construction(
-        entry.apply, entry.names, frozenset(entry.optional), matched=entry.matched
-    )
-
-
-def _construction_of(
-    product: RuleProduct, tables: ConstructionTables
-) -> Construction | None:
-    """The construction a rule's completion names, if it names one.
-
-    A rule that passes its one child through constructs nothing — that answer
-    is ``None``, not a fallback: the clone still captures, and the empty build
-    state says truthfully that nothing here builds a value.
-
-    :param product: The rule's authored product.
-    :param tables: The program's construction operand tables.
-    :returns: The named construction, or ``None``.
-    """
-    completion = product.completion
-    if isinstance(completion, RecordOp):
-        return _record_construction(tables.constructors[completion.constructor])
-    if not isinstance(completion, ExprProgram):
-        return None
-    if len(completion.ops) == 1 and isinstance(completion.ops[0], SymbolExpr):
-        return _symbol_construction(tables.symbols[completion.ops[0].symbol])
-    return None
-
-
-def _build_mode(product: RuleProduct | None, construction: Construction | None) -> int:
+def _build_mode[Carry](
+    product: RuleProduct[Carry] | None,
+    construction: Construction[Carry] | None,
+) -> int:
     """Which shape of completion this clone runs.
 
     Read off the completion record rather than off a parallel ``kind`` string:
@@ -227,10 +126,10 @@ def _build_mode(product: RuleProduct | None, construction: Construction | None) 
     return BUILD_VALUE_STR if construction.matched else BUILD_SEQ
 
 
-def bake_product_build(
-    clone: FlatClone,
-    product: RuleProduct | None,
-    tables: ConstructionTables,
+def bake_product_build[Carry](
+    clone: FlatClone[Carry],
+    product: RuleProduct[Carry] | None,
+    tables: ConstructionTables[Carry],
 ) -> None:
     """Fill a clone's build state from its rule product, in place.
 
@@ -247,14 +146,14 @@ def bake_product_build(
     clone.chartable = None  # baked last, off the final plan, by bake_chartables
     clone.chartotal = True
     clone.runarm = None
-    construction = None if product is None else _construction_of(product, tables)
+    construction = None if product is None else construction_of(product, tables)
     clone.mode = _build_mode(product, construction)
     clone.n_items = 0 if product is None else product.n_items
     clone.needs_ends = product is not None and any(
         spec.mode in _ENDS_MODES for spec in product.captures
     )
     if product is None or construction is None:
-        clone.ctor = None
+        clone.ctor = no_construction
         clone.matched = ""
         clear_build(clone)
         return
@@ -264,7 +163,7 @@ def bake_product_build(
     licence = construction.licence
     if licence is None:
         clone.plan = ()
-        clone.fast = None
+        clone.fast = no_fast_construction
         clone.defaults = None
         return
     make, _class_defaults, order = licence
@@ -273,8 +172,8 @@ def bake_product_build(
     clone.defaults = dict(construction.defaults)
 
 
-def _capture_layout(
-    product: RuleProduct, construction: Construction
+def _capture_layout[Carry](
+    product: RuleProduct[Carry], construction: Construction[Carry]
 ) -> tuple[tuple[int, int, str, int], ...]:
     """The keyword layout — one ``(item, mode, name, lo)`` per capture.
 
@@ -294,11 +193,11 @@ def _capture_layout(
     )
 
 
-def _build_plan(
-    product: RuleProduct,
-    construction: Construction,
+def _build_plan[Carry](
+    product: RuleProduct[Carry],
+    construction: Construction[Carry],
     order: tuple[str, ...],
-) -> tuple[tuple[int, int, int, Any], ...]:
+) -> tuple[tuple[int, int, int, ProductValue[Carry]], ...]:
     """The positional plan — one ``(mode, item, lo, default)`` per class field.
 
     Three cases, and the third is the rule whose value IS what it matched: the
@@ -313,7 +212,7 @@ def _build_plan(
     filled = {name: at for at, name in enumerate(construction.names)}
     defaults = construction.defaults
     matched = construction.matched
-    plan: list[tuple[int, int, int, Any]] = []
+    plan: list[tuple[int, int, int, ProductValue[Carry]]] = []
     for name in order:
         at = filled.get(name)
         if at is None:
@@ -330,7 +229,7 @@ def _build_plan(
     return tuple(plan)
 
 
-def verify_covered(rules: Mapping[str, object], baked: Sequence[str]) -> None:
+def verify_covered(rules: Collection[str], baked: Sequence[str]) -> None:
     """Refuse a binding whose product does not name every rule its fold does.
 
     The consumer-side twin of the compile-side coverage guard, at the one cold

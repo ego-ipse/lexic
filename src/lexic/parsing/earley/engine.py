@@ -35,7 +35,10 @@ from lexic.parsing.earley.kernel.forest.forest import (
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     AmbiguityPolicy,
+    MeaningBuilder,
+    Resolver,
     another_meaning,
+    different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
@@ -160,6 +163,27 @@ def first_meaning(
     :raises UnsupportedConstructError: If ``text`` does not parse, or means two
         things and no resolver was supplied.
     """
+    kernel, handle, first = _first_derivation(d, n, text, tables)
+    if policy is None:
+        return first
+    witness = another_meaning(kernel, handle, policy.build, first)
+    if witness is None:
+        return first
+    if policy.resolve is None:
+        raise UnsupportedConstructError(
+            "parsing: ambiguous input — two derivations that mean different "
+            "things; supply a resolver to choose between them"
+        )
+    return policy.resolve(first, witness)
+
+
+def _first_derivation(
+    d: IrSelf,
+    n: IrSelf,
+    text: str,
+    tables: ParserTables | None,
+) -> tuple[Kernel, int, ParseTree]:
+    """Run Earley and return its kernel, accepting handle, and first tree."""
     if not isinstance(n, IrAst):
         raise UnsupportedConstructError(
             f"parsing: expected an IrAst grammar, got {type(n).__name__}"
@@ -189,17 +213,34 @@ def first_meaning(
         first = next(iter(stream), IrNone)
         if not isinstance(first, ParseTree):
             raise UnsupportedConstructError("parsing: no derivation")
-    if policy is None:
-        return first
-    witness = another_meaning(kernel, handle, policy.build, first)
+    return kernel, handle, first
+
+
+def first_built_meaning[Value, NodeValue](
+    d: IrSelf,
+    n: IrSelf,
+    text: str,
+    builder: MeaningBuilder[Value, NodeValue],
+    tables: ParserTables | None = None,
+    resolve: Resolver | None = None,
+) -> Value:
+    """Return the chosen value, constructing each considered meaning once."""
+    kernel, handle, first = _first_derivation(d, n, text, tables)
+    pair = different_meaning(kernel, handle, builder, first)
+    witness = pair.witness
     if witness is None:
-        return first
-    if policy.resolve is None:
+        return pair.first.value
+    if resolve is None:
         raise UnsupportedConstructError(
             "parsing: ambiguous input — two derivations that mean different "
             "things; supply a resolver to choose between them"
         )
-    return policy.resolve(first, witness)
+    chosen = resolve(pair.first.tree, witness.tree)
+    if chosen is pair.first.tree:
+        return pair.first.value
+    if chosen is witness.tree:
+        return witness.value
+    return builder.build(chosen)
 
 
 class Recognize(IrLeaf[IrSelf, IrSelf]):

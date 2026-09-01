@@ -139,7 +139,7 @@ def _close_loop(frame: list[Any], i: int, pos: int) -> int:
     return i + 1
 
 
-class Attempting:
+class Attempting[Carry]:
     """The attempt/probe methods, hosted for the kernel to inherit.
 
     Declares the kernel surface it reads (the kernel's own slots and the
@@ -152,10 +152,10 @@ class Attempting:
     text: str
     pos: int
     stack: list[list[Any]]
-    _caches: KernelCaches
+    _caches: KernelCaches[Carry]
     _routes: RouteLane | None
 
-    def _enter(self, clone: FlatClone, out: list[object]) -> bool:
+    def _enter(self, clone: FlatClone[Carry], out: list[Carry]) -> bool:
         """Provided by the kernel — push (or inline) ``clone``'s frame."""
         raise NotImplementedError
 
@@ -167,7 +167,7 @@ class Attempting:
         """Provided by the kernel — item ``i``'s lazily-allocated sink."""
         raise NotImplementedError
 
-    def _island(self, name: str, sink: list[object]) -> None:
+    def _island(self, name: str, sink: list[Carry]) -> None:
         """Provided by the kernel — the windowed Earley island splice."""
         raise NotImplementedError
 
@@ -231,7 +231,7 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        got: tuple[int, list[object]],
+        got: tuple[int, list[Carry]],
     ) -> bool:
         """Whether one successful tentative iteration may commit."""
         # The stored soft continuation over-approximates every viable stop
@@ -310,7 +310,7 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]],
+        taken: tuple[int, list[Carry]],
     ) -> int:
         """A both-viable boundary's resolution — take, stop, or fork.
 
@@ -347,7 +347,7 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]],
+        taken: tuple[int, list[Carry]],
     ) -> int | None:
         """The boundary settled by CONVERGENCE, or ``None`` to run it the long way.
 
@@ -423,7 +423,7 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]] | None,
+        taken: tuple[int, list[Carry]] | None,
     ) -> Side | None:
         """One side of the boundary as its own resumable ``(stack, pos, lane)``.
 
@@ -479,7 +479,7 @@ class Attempting:
             self.stack, self.pos = saved_stack, saved_pos
             self._routes = saved_routes
 
-    def attempt(self, clone: FlatClone, out: list[object]) -> None:
+    def attempt(self, clone: FlatClone[Carry], out: list[Carry]) -> None:
         """Try an attempt clone's entries in order — the third gate class, live.
 
         Each entry runs as a self-contained sub-run from the cursor
@@ -498,7 +498,7 @@ class Attempting:
         pos = self.pos
         char = self.text[pos : pos + 1]
         winner = -1
-        best: tuple[int, list[object]] | None = None
+        best: tuple[int, list[Carry]] | None = None
         for idx, (chars, negated, prefix, window, sub) in enumerate(entries):
             if chars is not None and (  # `admits`, read in place
                 (char == "" or char in chars) if negated else (char not in chars)
@@ -596,7 +596,9 @@ class Attempting:
             self.text = whole
         return bounded is not None and bounded[0] == end
 
-    def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:
+    def _attempt_run(
+        self, sub: FlatClone[Carry], pos: int
+    ) -> tuple[int, list[Carry]] | None:
         """One arm attempt as a self-contained sub-run — fail-soft, rolled back.
 
         Runs ON TOP of the live stack, bounded by a depth watermark (not a
@@ -617,7 +619,7 @@ class Attempting:
         saved_pos = self.pos
         floor = len(self.stack)
         self.pos = pos
-        holder: list[object] = []
+        holder: list[Carry] = []
         try:
             self._enter(sub, holder)
             self._drive(floor)
@@ -637,8 +639,8 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]] | None,
-    ) -> tuple[list[object] | None, bool]:
+        taken: tuple[int, list[Carry]] | None,
+    ) -> tuple[list[Carry] | None, bool]:
         """One side of a boundary, run to end-of-input on a copied stack.
 
         The continuation from a boundary is runnable because the live stack

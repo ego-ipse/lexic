@@ -19,7 +19,7 @@ def test_vyx_nested_escape_has_one_model_in_both_engines() -> None:
     via_earley = earley_model(
         product.instance_grammar,
         VYX_ESCAPE,
-        compiled.fold,
+        compiled.product,
         product.tables,
     )
     assert via_pda == via_earley

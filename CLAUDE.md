@@ -272,6 +272,8 @@ src/lexic/
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
     product/
       __init__.py                  The product ABI — the package's one import surface
+      construction.py              Construction records — what a completion builds its value with
+      tree.py                      Product-driven ParseTree completion, explicit result presence, and source spans
       records.py                   Immutable authored operations and the flat int-coded tables they lower to
       expressions.py               The reducer's own algebra in authored form — its own lowering table
       state.py                     Parse-local builders, deferred verdicts, constant-size transaction marks

@@ -48,6 +48,7 @@ from lexic.parsing.product import (
     RouteTable,
     RuleProduct,
     SingletonRoute,
+    SymbolConstructor,
     SymbolExpr,
     TableRoute,
     UniformRoute,
@@ -444,7 +445,9 @@ def every_operand_lane_is_bounded() -> None:
     symbolic = lower_product(
         SYMBOL_RULES,
         OPERANDS,
-        owned=LoweringOwned(symbols=("shout",), registry={"shout": _shout}),
+        owned=LoweringOwned(
+            symbols=(SymbolConstructor("shout"),), registry={"shout": _shout}
+        ),
         root=RootOp(0),
         meaning=MeaningOp(0),
     )
@@ -490,7 +493,9 @@ def the_symbol_operation_resolves_through_a_registry() -> None:
     program = lower_product(
         SYMBOL_RULES,
         OPERANDS,
-        owned=LoweringOwned(symbols=("shout",), registry=registry),
+        owned=LoweringOwned(
+            symbols=(SymbolConstructor("shout"),), registry=registry
+        ),
         root=RootOp(0),
         meaning=MeaningOp(0),
     )
@@ -501,12 +506,16 @@ def the_symbol_operation_resolves_through_a_registry() -> None:
     )
     _check(
         "the registry's transform did not reach the cold operand table",
-        program.operands.symbols == (_shout,),
+        len(program.operands.symbols) == 1
+        and program.operands.symbols[0].apply is _shout,
     )
     _check(
         "the authored table holds something other than a name",
         all(
-            isinstance(name, str) for name in LoweringOwned(symbols=("shout",)).symbols
+            isinstance(entry.symbol, str)
+            for entry in LoweringOwned(
+                symbols=(SymbolConstructor("shout"),)
+            ).symbols
         ),
     )
 
@@ -514,7 +523,9 @@ def the_symbol_operation_resolves_through_a_registry() -> None:
         lower_product(
             SYMBOL_RULES,
             OPERANDS,
-            owned=LoweringOwned(symbols=("nowhere",), registry=registry),
+            owned=LoweringOwned(
+                symbols=(SymbolConstructor("nowhere"),), registry=registry
+            ),
             root=RootOp(0),
             meaning=MeaningOp(0),
         )
@@ -527,7 +538,7 @@ def the_symbol_operation_resolves_through_a_registry() -> None:
         lower_product(
             SYMBOL_RULES,
             OPERANDS,
-            owned=LoweringOwned(symbols=("shout",)),
+            owned=LoweringOwned(symbols=(SymbolConstructor("shout"),)),
             root=RootOp(0),
             meaning=MeaningOp(0),
         )

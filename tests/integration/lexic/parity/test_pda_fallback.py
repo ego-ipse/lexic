@@ -64,7 +64,7 @@ def test_pda_fallback_returns_engine_correct_model():
     model = cg.parse(FALLBACK_INPUT)
     engine_model = cast(
         GrammarModel,
-        earley_model(p.instance_grammar, FALLBACK_INPUT, cg.fold, p.tables),
+        earley_model(p.instance_grammar, FALLBACK_INPUT, cg.product, p.tables),
     )
 
     assert model.semantic_dump() == engine_model.semantic_dump()

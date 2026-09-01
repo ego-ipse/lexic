@@ -289,7 +289,7 @@ class CompiledGrammar:
                 start: (tid, end - start) for start, end, tid in tok.boundaries(text)
             }
             return GrammarModel.ensure(
-                token_model(self.codegen_grammar, text, self.fold, bounds, resolve),
+                token_model(self.codegen_grammar, text, self.product, bounds, resolve),
                 "compile: the start rule's fold",
             )
         # Concurrent whole-document parses contend on one artefact's tables
