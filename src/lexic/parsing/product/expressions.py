@@ -31,6 +31,7 @@ __all__ = [
     "LookupExpr",
     "PipeExpr",
     "RaiseExpr",
+    "SymbolExpr",
 ]
 
 
@@ -56,6 +57,7 @@ class ExprCode(IntEnum):
     LOOKUP = 7
     RAISE = 8
     CONTRIBUTE = 9
+    SYMBOL = 10
 
 
 class ArgExpr(NamedTuple):
@@ -122,6 +124,29 @@ class ContributeExpr(NamedTuple):
     policy: int
 
 
+class SymbolExpr(NamedTuple):
+    """Apply the transform a REGISTERED name stands for.
+
+    An authored compile-time surface — the IR-constructor notation, the
+    generated-module self-grammar — completes through transforms that decode
+    escapes, build lists and assemble headers. None of that is record
+    construction, scalar decode or the algebra above, so without this the
+    surfaces have no way to say what they do.
+
+    The operand is a name, never a callable: it indexes a table of registry
+    KEYS, and lowering resolves each key through the surface's own whitelist
+    into a separate cold operand table. That is the same no-``eval`` boundary
+    the authored-fold vocabulary already resolves through — a symbol reaches a
+    parse only by being in the registry when the program is lowered.
+
+    Available only where completions are infrequent, which is what the
+    surfaces this exists for are: see :class:`~lexic.parsing.product.records.
+    OperandTables` for where that line is drawn.
+    """
+
+    symbol: int
+
+
 type ExprOp[Carry] = (
     ArgExpr
     | ArgsExpr
@@ -133,6 +158,7 @@ type ExprOp[Carry] = (
     | LookupExpr
     | RaiseExpr
     | ContributeExpr
+    | SymbolExpr
 )
 """One authored expression operation."""
 

@@ -13,7 +13,8 @@ from functools import partial
 from typing import NamedTuple
 
 from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
-from lexic.compile.pipeline.synthesis import fold_config
+from lexic.compile.pipeline.synthesis import fold_config, model_plan
+from lexic.compile.product import rules_by_name
 from lexic.compile.reduce.fold import ReduceFold
 from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
 from lexic.compile.reduction import (
@@ -40,6 +41,7 @@ from lexic.ir import (
 )
 from lexic.model import GrammarModel
 from lexic.parsing import (
+    ModelBinding,
     ModelFold,
     PdaTables,
     TokenMaskCursor,
@@ -146,7 +148,8 @@ class CompiledGrammar:
 
     :ivar grammar: The canonical grammar AST (what the user's grammar IS —
         the transpile/re-emit source; also the generated module's GRAMMAR).
-    :ivar fold: The positional ParseTree → model-instance fold.
+    :ivar product: The bound model product — the rules each contextual name
+        completes through, and the fold its completion sites still read.
     :ivar moments: Every stage this compilation passed through — the grammar
         states, the binding view, the classes. Retained rather than recomputed:
         the pipeline built each one anyway, so a caller that wants to see the
@@ -161,7 +164,7 @@ class CompiledGrammar:
     """
 
     grammar: IrAst
-    fold: ModelFold[GrammarModel]
+    product: ModelBinding[GrammarModel]
     moments: CompileMoments
     flavour: str = "gbnf"
     stem: str = "grammar"
@@ -177,7 +180,17 @@ class CompiledGrammar:
         it costs no warm-table behaviour and bounds what a run-time-derived
         grammar (a rebind, a reducer variant) can accumulate.
         """
-        track(self, self.grammar, self.codegen_grammar, self.fold)
+        track(self, self.grammar, self.codegen_grammar, self.product)
+
+    @property
+    def fold(self) -> ModelFold[GrammarModel]:
+        """The bound product's fold — what the completion sites still read.
+
+        Derived rather than stored: the binding IS the artefact's product and
+        holds the fold, so a second field would be a copy of one answer that
+        the two halves could disagree about.
+        """
+        return self.product.fold
 
     @property
     def classes(self) -> dict[str, type]:
@@ -266,7 +279,7 @@ class CompiledGrammar:
         split = split_model(
             parse_model,
             self.codegen_grammar,
-            Request(text, self.fold, resolve),
+            Request(text, self.product, resolve),
             cores,
             analysis=self.split_analysis or self.grammar,
         )
@@ -283,9 +296,9 @@ class CompiledGrammar:
         # Concurrent whole-document parses contend on one artefact's tables
         # exactly as chunk workers do, so a thread parses against its own
         # replica. Sequential callers and GIL builds get the original pair.
-        grammar, fold = thread_replica(self.codegen_grammar, self.fold)
+        grammar, binding = thread_replica(self.codegen_grammar, self.product)
         return GrammarModel.ensure(
-            parse_model(grammar, text, fold, resolve),
+            parse_model(grammar, text, binding, resolve),
             "compile: the start rule's fold",
         )
 
@@ -356,7 +369,7 @@ class CompiledGrammar:
             :meth:`parse` gives, in the same words.
         """
         self._needs_vocabulary()
-        return pda_tables(self.codegen_grammar, self.fold)
+        return pda_tables(self.codegen_grammar, self.product)
 
     def bind(
         self, tokenizer: IrTokenizer, registry: IrMap | None = None
@@ -394,7 +407,7 @@ class CompiledGrammar:
         )
         return CompiledGrammar(
             grammar=self.grammar,
-            fold=self.fold,
+            product=self.product,
             moments=CompileMoments(
                 grammar_moments, self.moments.binding, self.moments.classes
             ),
@@ -512,14 +525,21 @@ def _variant_artifact(
     content = hashlib.sha1(repr(ast).encode("utf-8")).hexdigest()[:12]
     moments = CompileMoments.of(ast, registry, f"{compiled.stem}_{tag}_{content}")
     omit = reachable_rules(moments.grammar.resolved, recognition_roots)
-    fold = ModelFold(
-        fold_config(
-            moments.grammar.resolved, moments.binding, moments.classes, omit=omit
-        )
+    plan = model_plan(
+        moments.grammar.resolved, moments.binding, moments.classes, omit=omit
+    )
+    product = ModelBinding(
+        ModelFold(
+            fold_config(
+                moments.grammar.resolved, moments.binding, moments.classes, omit=omit
+            )
+        ),
+        rules_by_name(plan.rules, plan.codes),
+        plan.constructors,
     )
     return CompiledGrammar(
         grammar=ast,
-        fold=fold,
+        product=product,
         moments=moments,
         flavour=compiled.flavour,
         stem=compiled.stem,

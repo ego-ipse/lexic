@@ -17,12 +17,14 @@ This is cold work. It runs once per bound program, never at a completion.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.product.expressions import ExprCode
 from lexic.parsing.product.records import (
     CaptureMode,
     CompletionRange,
+    OpCode,
     ProductProgram,
     RangeKind,
 )
@@ -39,6 +41,29 @@ _FUSED_KINDS = frozenset(
 )
 """EXPRESSION indexes the reducer-expression tables; the other three index the
 fused tables. A range naming anything else is refused."""
+
+_FUSED_LANES: Mapping[int, tuple[tuple[int, str], ...]] = {
+    int(OpCode.CONSTANT): ((0, "constants"),),
+    int(OpCode.FINISH_SEQUENCE): ((1, "sequences"),),
+    int(OpCode.FINISH_MAPPING): ((1, "mappings"),),
+    int(OpCode.RECORD): ((0, "constructors"),),
+}
+"""Which row field of a fused instruction indexes which operand table.
+
+An operation's fields are all lane indices, and until now only the operand's
+own row table was bounded — an instruction could name constructor 9 of a
+two-entry table and reach the engine. Open, like every other dispatch here: an
+operation joins by adding its row, and one with no row indexes no operand
+table, which is the truth for the collection begins and the pass-through."""
+
+_EXPRESSION_LANES: Mapping[int, tuple[tuple[int, str], ...]] = {
+    int(ExprCode.CONSTANT): ((0, "constants"),),
+    int(ExprCode.BUILD): ((0, "constructors"),),
+    int(ExprCode.LOOKUP): ((1, "routes"),),
+    int(ExprCode.SYMBOL): ((0, "symbols"),),
+}
+"""The same, for the reducer-expression table. ``SYMBOL`` is the one that must
+never be unbounded: its lane holds the only resolved callables in the program."""
 
 
 def verify_exact_ints(values: Iterable[object], what: str) -> None:
@@ -68,10 +93,51 @@ def verify_program[Carry, Result](program: ProductProgram[Carry, Result]) -> Non
         a plain ``int``.
     """
     _verify_table_shape(program)
+    _verify_program_lanes(program)
     for at, rule in enumerate(program.rules):
         _verify_rule_shape(program, at, rule.capture_modes, rule.capture_slots)
         completion = _completion_of(program, at, rule.completion)
         _verify_range(program, at, completion)
+
+
+def _verify_program_lanes[Carry, Result](
+    program: ProductProgram[Carry, Result],
+) -> None:
+    """Refuse the program-level operands that name a lane out of range.
+
+    The root finalizer and the meaning comparator are named once for the whole
+    program rather than by an instruction, so they are bounded here. Routes and
+    continuations pair positionally — a route classifies a key and the
+    continuation says where it goes — so an unpaired table would leave a
+    classified key with nowhere to land.
+    """
+    operands = program.operands
+    _verify_lane("the root finalizer", program.root.finalizer, len(operands.roots))
+    _verify_lane(
+        "the meaning comparator", program.meaning.comparator, len(operands.meanings)
+    )
+    if operands.continuations and len(operands.continuations) != len(operands.routes):
+        raise UnsupportedConstructError(
+            f"product program: {len(operands.routes)} routes and "
+            f"{len(operands.continuations)} continuations do not pair"
+        )
+
+
+def _verify_lane(what: str, index: int, size: int) -> None:
+    """Refuse a lane index outside the table it names.
+
+    :param what: What names the lane, for the message.
+    :param index: The index it names.
+    :param size: How many entries that table holds.
+    :raises UnsupportedConstructError: When the index is not a lowered int, is
+        negative, or is past the table's end.
+    """
+    if index.__class__ is not int:
+        raise UnsupportedConstructError(f"product program: {what} is not a lowered int")
+    if index < 0 or index >= size:
+        raise UnsupportedConstructError(
+            f"product program: {what} names entry {index} of a {size}-entry table"
+        )
 
 
 def _verify_table_shape[Carry, Result](program: ProductProgram[Carry, Result]) -> None:
@@ -151,6 +217,7 @@ def _verify_range[Carry, Result](
             f"{completion.start}"
         )
     opcodes, operands, rows = _tables_for(program, at, completion.kind)
+    lanes = _EXPRESSION_LANES if completion.kind == _EXPRESSION else _FUSED_LANES
     stop = completion.start + completion.length
     if stop > len(opcodes):
         raise UnsupportedConstructError(
@@ -159,6 +226,36 @@ def _verify_range[Carry, Result](
         )
     for index in range(completion.start, stop):
         _verify_instruction(at, index, opcodes[index], operands[index], rows)
+        _verify_operand_lanes(
+            program,
+            at,
+            index,
+            opcodes[index],
+            rows[opcodes[index]][operands[index]],
+            lanes,
+        )
+
+
+def _verify_operand_lanes[Carry, Result](
+    program: ProductProgram[Carry, Result],
+    at: int,
+    index: int,
+    opcode: int,
+    row: tuple[int, ...],
+    lanes: Mapping[int, tuple[tuple[int, str], ...]],
+) -> None:
+    """Refuse an instruction naming an entry its operand table does not have.
+
+    The row's own bounds are checked by :func:`_verify_instruction`; this
+    checks where the row POINTS. An operation with no lane row indexes no
+    operand table and is passed over.
+    """
+    for field, table in lanes.get(opcode, ()):
+        _verify_lane(
+            f"rule {at}'s instruction {index} (opcode {opcode}) into `{table}`",
+            row[field],
+            len(getattr(program.operands, table)),
+        )
 
 
 def _tables_for[Carry, Result](

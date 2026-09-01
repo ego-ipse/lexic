@@ -36,6 +36,7 @@ from lexic.compile.pipeline.binding import (
     check_supplied_class,
     field_kwargs,
 )
+from lexic.compile.pipeline.naming import VALUE_FIELD
 from lexic.ir import (
     IrAst,
     IrBind,
@@ -128,7 +129,7 @@ def _field_namespace(bind: RuleBinding, rule: IrRule) -> dict[str, object]:
         optional-field defaults).
     """
     if bind.kind == "value_str":
-        return {"__annotations__": {"value": object}}
+        return {"__annotations__": {VALUE_FIELD: object}}
     if bind.kind == "alternation":
         return {"__annotations__": {}}
     return _sequence_namespace(bind, rule)
@@ -205,7 +206,7 @@ def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor 
     if kind == "alternation" or not issubclass(cls, GrammarModel):
         return None
     make, defaults, order = cls.fast_construct()
-    names = {"value"} if kind == "value_str" else {f.name for f in fields}
+    names = {VALUE_FIELD} if kind == "value_str" else {f.name for f in fields}
     model_names = set(cls._fields)
     if not names <= model_names:
         return None
@@ -371,6 +372,11 @@ def model_plan(
     class and the field order stays the binding's, so this authors the same
     construction the fold does — the difference is the shape it is written in.
 
+    A ``value_str`` rule binds no field: its whole body is the value, so it
+    captures nothing and declares instead which class field its own matched
+    text fills. That is the one construction fact the bound fields cannot
+    carry, because there is no item to point at.
+
     :param codegen_grammar: The post-pass grammar the binding was computed on.
     :param binding: The binding view, in emission order.
     :param classes: Generated classes by class name.
@@ -397,6 +403,7 @@ def model_plan(
                 names,
                 optional,
                 _model_defaults(cls),
+                VALUE_FIELD if bound.kind == "value_str" else "",
                 _fast_ctor(cls, bound.kind, _fold_fields(bound, items)) is not None,
             )
         )

@@ -20,6 +20,7 @@ from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
 from lexic.parsing.fold import ModelFold
+from lexic.parsing.products import ModelBinding
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.plan.routed import (
     RoutedPlan,
@@ -82,7 +83,7 @@ def _merged_run(pieces: list[GrammarModel], child: int) -> tuple | None:
 def routed_split[M: IrNamedTuple](
     parse: Callable[..., Any],
     grammar: IrAst,
-    ask: tuple[str, ModelFold[M], object],
+    ask: tuple[str, ModelBinding[M], object],
     pool: WorkPool,
 ) -> M | None:
     """Split a routed interior across the pool, or ``None`` for sequential.
@@ -92,16 +93,20 @@ def routed_split[M: IrNamedTuple](
     concatenation. Anything unproven — no route, no balanced division, a piece
     that will not parse — declines to the caller's sequential parse.
     """
-    text, fold, resolve = ask
+    text, binding, resolve = ask
     plan = routed_plan(grammar)
     region = locate(text, plan) if plan is not None else None
     parts = divide(text, region, pool.workers) if region is not None else None
     if plan is None or region is None or parts is None:
         return None
-    route = interior_route(fold, str(grammar.start), plan.at, plan.rule, plan.run)
+    route = interior_route(
+        binding.fold, str(grammar.start), plan.at, plan.rule, plan.run
+    )
     if route is None:
         return None
-    parsed = _parsed(parse, grammar, (text, fold, resolve), (plan, region, parts), pool)
+    parsed = _parsed(
+        parse, grammar, (text, binding, resolve), (plan, region, parts), pool
+    )
     if parsed is None:
         return None
     shell, pieces = parsed
@@ -111,16 +116,16 @@ def routed_split[M: IrNamedTuple](
 def _parsed(
     parse: Callable[..., Any],
     grammar: IrAst,
-    ask: tuple[str, ModelFold, object],
+    ask: tuple[str, ModelBinding, object],
     work: tuple[RoutedPlan, Region, list[str]],
     pool: WorkPool,
 ) -> tuple[GrammarModel, list[GrammarModel]] | None:
     """Parse the stand-in shell and every piece, or decline."""
-    text, fold, resolve = ask
+    text, binding, resolve = ask
     plan, region, parts = work
-    views = worker_replicas(plan.rooted, fold, len(parts))
+    views = worker_replicas(plan.rooted, binding, len(parts))
     try:
-        shell = parse(grammar, _stand_in(text, region), fold, resolve)
+        shell = parse(grammar, _stand_in(text, region), binding, resolve)
         pieces = pool.map(
             lambda k: parse(views[k][0], parts[k], views[k][1], resolve),
             list(range(len(parts))),

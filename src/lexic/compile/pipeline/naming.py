@@ -30,6 +30,15 @@ from lexic.ir import (
     IrVisitor,
 )
 
+VALUE_FIELD = "value"
+"""The one field a ``value_str`` class carries — the rule's own matched text.
+
+Not derived from anything in the rule: a ``value_str`` rule's whole body IS
+the field, so there is no item to name it after. Spelled here because three
+moments have to agree on it — the class namespace, the constructor kwargs the
+binding declares, and the product that says which field the matched text fills.
+"""
+
 _ASCII_ALNUM: frozenset[str] = frozenset(
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 )

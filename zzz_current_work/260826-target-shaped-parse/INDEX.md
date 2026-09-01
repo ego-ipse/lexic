@@ -32,9 +32,10 @@ boundary remains implementation work. Four shipped ambiguity defects are
 pinned, including `ForestCtx` truncating a suspended shared zero-width handle as
 a cycle. The Round 16 closure audit returned `READY` on its fourth re-check.
 No unresolved planning or user decision prevents §2 implementation. No review
-authorizes a parsing regression. Production source began 2026-08-31: §2 is
-implemented and accepted (LEDGER.md records the ruling and verification); §3
-is in progress.
+authorizes a parsing regression. Production source began 2026-08-31: §2 and
+§3 are implemented and accepted; §4 is in progress at the merged step-3
+channel change (LEDGER.md carries every ruling and verification; TODO.md is
+the live queue).
 
 ## Start here
 

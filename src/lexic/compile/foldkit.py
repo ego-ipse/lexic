@@ -27,15 +27,25 @@ surface.
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Mapping, Self, Sequence, cast
+from typing import Callable, ClassVar, Mapping, NamedTuple, Self, Sequence, cast
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLambda, IrMap, IrNode, IrRuleRef, IrSelf, IrTuple
 from lexic.parsing import ModelBody, ModelFold, RuleFold
+from lexic.parsing.product import (
+    CaptureMode,
+    CaptureSpec,
+    ExprProgram,
+    PassOp,
+    RuleProduct,
+    SymbolExpr,
+)
 
 __all__ = [
     "ABSENT",
     "ALT",
+    "ALT_PRODUCT",
+    "AuthoredProduct",
     "ALT_BODY",
     "DECODE_INT",
     "FIRST_REST",
@@ -44,6 +54,7 @@ __all__ = [
     "absent_tail",
     "first_rest",
     "model_fold",
+    "product_rules",
     "passthrough",
     "seq",
 ]
@@ -114,6 +125,7 @@ FOLD_SYMBOLS: dict[str, Callable[..., object]] = {
     "int": int,
     "first_rest": first_rest,
     "passthrough": passthrough,
+    "absent_tail": absent_tail,
 }
 """The curated fold-ctor registry — the no-exec boundary :class:`IrNamed`
 resolves through. Every reachable name is a shared idiom callable; a surface
@@ -210,6 +222,64 @@ def seq(ctor: Callable[..., object] | IrSelf, n_items: int, fields: tuple) -> Mo
 ALT_BODY = ModelBody.of(ALT)
 """The alternation pass-through as a :class:`~lexic.parsing.fold.ModelBody` —
 the IrMap-authoring form of :data:`ALT` (its ctor is :data:`~lexic.ir.base.IrNone`)."""
+
+
+# ── authored-product construction ─────────────────────────────────────────
+
+
+class AuthoredProduct(NamedTuple):
+    """One authored surface's rules in the product vocabulary.
+
+    The half of an authored surface the engines will run. A rule that applies
+    a transform names it; the name is resolved to a callable once, by
+    lowering, through the surface's own registry — so nothing here holds a
+    callable and no surface can put one on a completion by hand.
+
+    :ivar rules: One :class:`RuleProduct` per rule, in contextual-code order.
+    :ivar symbols: The registry keys the rules name, in operand order.
+    :ivar codes: Rule name → its contextual code.
+    """
+
+    rules: tuple[RuleProduct, ...]
+    symbols: tuple[str, ...]
+    codes: dict[str, int]
+
+
+ALT_PRODUCT = RuleProduct((CaptureSpec(int(CaptureMode.ONE), 0),), PassOp(0))
+"""The alternation pass-through as a product: one child, handed on unchanged.
+
+An alternation rule matches exactly one arm, so slot 0 IS the matched arm and
+passing it through is the whole completion — the same thing :data:`ALT` says
+in the fold vocabulary."""
+
+
+def product_rules(
+    authored: Mapping[str, tuple[str, tuple[CaptureSpec, ...]]],
+) -> AuthoredProduct:
+    """Assemble one surface's authored rules into its product.
+
+    Each entry is ``(symbol, captures)``: the registry key the rule's
+    completion applies, or ``""`` for the alternation pass-through. Symbol
+    keys are pooled in first-use order, so a transform shared by several rules
+    occupies one operand row.
+
+    :param authored: Rule name → ``(symbol, captures)``, in rule order.
+    :returns: The surface's product half.
+    """
+    rules: list[RuleProduct] = []
+    symbols: list[str] = []
+    codes: dict[str, int] = {}
+    for name, (symbol, captures) in authored.items():
+        codes[name] = len(rules)
+        if not symbol:
+            rules.append(ALT_PRODUCT)
+            continue
+        if symbol not in symbols:
+            symbols.append(symbol)
+        rules.append(
+            RuleProduct(captures, ExprProgram((SymbolExpr(symbols.index(symbol)),)))
+        )
+    return AuthoredProduct(tuple(rules), tuple(symbols), codes)
 
 
 def model_fold(bodies: Mapping[str, ModelBody]) -> ModelFold:

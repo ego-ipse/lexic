@@ -56,7 +56,8 @@ from lexic.compile.pipeline.moments import (
     GrammarMoments,
     build_codegen_grammar,
 )
-from lexic.compile.pipeline.synthesis import fold_config, synthesize
+from lexic.compile.pipeline.synthesis import fold_config, model_plan, synthesize
+from lexic.compile.product import rules_by_name
 from lexic.compile.verdict import Verdict
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
@@ -78,7 +79,7 @@ from lexic.ir import (
     refs_in_order,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelFold
+from lexic.parsing import ModelBinding, ModelFold
 
 # Case-insensitive public export order.
 __all__ = [
@@ -486,10 +487,15 @@ def _assemble_core(
     unresolved = moments.grammar.relaxed
     codegen_grammar = moments.grammar.resolved
     classes = moments.classes
-    fold = ModelFold(fold_config(codegen_grammar, moments.binding, classes))
+    plan = model_plan(codegen_grammar, moments.binding, classes)
+    product = ModelBinding(
+        ModelFold(fold_config(codegen_grammar, moments.binding, classes)),
+        rules_by_name(plan.rules, plan.codes),
+        plan.constructors,
+    )
     return CompiledGrammar(
         grammar=ast,
-        fold=fold,
+        product=product,
         moments=moments,
         flavour=flavour_name,
         stem=stem,

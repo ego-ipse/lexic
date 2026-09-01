@@ -1,5 +1,359 @@
 # Ledger — target-shaped parsing
 
+## Channel sequencing: two slices; templating rides the standard product (2026-09-01)
+
+Terra's channel call-graph read found `parse_model`'s five src callers
+include `compile/output/templating.py`, colliding two standing rulings: the
+entries take a product, but templating is never re-expressed as one.
+**Coordinator ruling: Terra's option 1** — templating is generated-model
+based, its captures come from the binding view, and `span` maps to
+`CaptureMode.EXTENT`, so the STANDARD `model_plan` authoring should cover it
+with nothing bespoke; that is templating USING the pipeline's product, not
+being re-expressed as one, and honors the minimal-migration ruling's intent.
+Condition: verify it as slice 2's FIRST act (span binds → EXTENT captures,
+templating tests green); if verification fails, STOP — options 2 (second
+parse route; violates one-way) and 3 (§10 deletion moved ahead) both need
+user-visible discussion before anyone builds them.
+
+Two-slice sequencing endorsed: slice 1 replaces the CHANNEL only
+(`ModelBinding` = fold + rule map + constructor table through
+parse_model/pda_tables/_model_product/thread_replica; `CompiledGrammar.fold`
+becomes a derived property so existing readers keep working; bake untouched
+— pure plumbing the suite decides). Slice 2 switches the BAKE and moves the
+completion sites (already proved safe by the 107-document switch
+differential). Channel replaced exactly once, bake switched exactly once, no
+dual-live interval. `replicas.py` clones the binding instead of the fold —
+a retype, endorsed.
+
+
+## Both surfaces author products; split solved with zero test churn (2026-09-01)
+
+Terra superseded the coordinator's option-A ruling with a strictly better
+seam it found while executing: move the GRAMMAR RULES out
+(`compile/module/rules.py`, 366 lines — statement skeleton, item builders,
+`module_grammar()`) and leave the surface in place. `selfgrammar.py` (now
+500 lines) keeps records, transforms, fold table, `parse_module`, and the
+new product half; `MODULE_GRAMMAR` still re-exports under the same
+`__all__`, so `compile/__init__`, `verify.py`, `test_selfgrammar.py`, and
+`test_foldkit.py` are ALL untouched — zero committed-test churn, not even
+the mechanical import edit the A ruling authorized. Coordinator accepts the
+supersession: it satisfies everything A was for (headroom, honest seam, no
+private-import precedent, no API promotion) at strictly lower cost.
+
+Both surfaces now author products: notation 21 rules / 11 symbols,
+selfgrammar 63 rules / 33 symbols, lowered and verified through the real
+chain against each surface's own registry, with the two-surface differential
+asserting capture-for-bind agreement per rule and transform identity through
+`IrLambda`/`IrNamed` — and, because selfgrammar EXTENDS notation, proving
+the extension dropped or re-pointed nothing. Two hygiene moves inside:
+five anonymous lambdas became the two named helpers `_true`/`_none` (a
+symbol is a name in a registry), and `MODULE_SYMBOLS` keys by each
+transform's `__name__` so a rename cannot orphan the registry. Suite green
+at `-n 8` (5339/8/1-attributed; the parity gate now also names
+`compile/module/rules.py` for Luna). Next: the channel change proper.
+
+
+## Ruling: selfgrammar splits at the natural seam (option A) (2026-09-01)
+
+`selfgrammar.py` sits at 689/700 and cannot absorb even the two named
+helpers its product half needs; Terra authored all 42 rules, measured the
+ceiling honestly, and REVERTED to keep the tree green rather than leave it
+red while asking. **Ruling: option A** — `selfgrammar.py` keeps the grammar
+and model records; a new `module/selfrules.py` takes the transforms, fold
+table, `MODULE_FOLD`, `parse_module`, and the product half. It is the split
+the file wants on its own merits ("the grammar" vs "what its rules mean"),
+leaves both halves room for §5, and invents no private-import precedent
+(option B rejected: zero instances of cross-module private imports in src;
+option C rejected: twenty accidental API promotions).
+
+The `test_foldkit` follow-through is ruled MECHANICAL, not re-pinning: the
+five assertions survive byte-for-byte and only the module they probe moves
+with the sanctioned source split — the same class as the authorized
+parse_model call-site adaptation. Terra updates the test's import target,
+name, and docstring to match the moved module, assertions untouched, listed
+in the report. `test_test_parity` will name a ninth missing mirror
+(`selfrules`) — expected and attributed; the CLAUDE.md map gains the line.
+
+
+## Lane bounds closed; latent dangling-comparator defect caught (2026-09-01)
+
+`verify.py::_verify_lane` plus two OPEN lane tables (`_FUSED_LANES`,
+`_EXPRESSION_LANES` — an op joins by adding its row; no row means no operand
+table, true for begins/pass-through) now bound every operand-lane index, plus
+the program-level root finalizer and meaning comparator and the
+routes/continuations pairing. Closing it immediately caught a real latent
+defect: two witnesses declared `MeaningOp(0)` against an EMPTY meanings
+table — a named comparator that did not exist, silently. Fixed by supplying
+real comparators, never by loosening. Five refusal rows land in
+`s3_lowering`, one per lane class; the symbols row is the one that mattered
+most — that lane holds the only resolved callables, and an unbounded index
+into it was an arbitrary-callable-by-out-of-range-read waiting for the
+channel change. Recorded ABI consequence (also on §6's first bullet): every
+authored product must supply BOTH a root finalizer and a meaning comparator.
+Suite green at `-n 8` (5339/8/1-attributed); all six witnesses green
+including the 107-document switch differential. Next: selfgrammar's 63
+rules (beside-the-fold shape, already accepted), the two-surface
+differential, then the channel change proper.
+
+
+## Notation authors its product half; beside-table shape accepted (2026-09-01)
+
+`foldkit` gains the shared product vocabulary (`AuthoredProduct`,
+`ALT_PRODUCT`, `product_rules` with first-use symbol pooling; `absent_tail`
+joins `FOLD_SYMBOLS`), and `notation/parse.py` gains `NOTATION_SYMBOLS` (+8
+surface transforms) and `NOTATION_PRODUCT` (all 21 rules). Shape ruling: the
+product table is authored BESIDE the fold table (the `model_plan` pattern),
+guarded by `proto/s4_authored_product.py`, which asserts per-rule
+capture-for-bind agreement and that the product's named transform IS the
+fold body's callable by identity, then lowers the surface through the real
+`lower_product` and verifies. The single-table restructuring was correctly
+declined — it re-pins four committed foldkit tests, which is Luna's, not
+mechanical adaptation. The duplication is transitional and §5 deletes the
+fold half; the differential polices it meanwhile. `bake_product_build` now
+gives an expression-completing rule an empty build plan instead of refusing
+(only record completions have construction plans) — bake identity stays
+green on all 610 model clones. Suite green at `-n 8` (5339/8/1-attributed).
+
+§5 trap recorded on its bullet: `SymbolExpr` execution must apply symbols by
+KEYWORD where the authored body did — `absent_tail` distinguishes an omitted
+tail from a real `IrNone`, and positional application destroys it silently.
+Next: selfgrammar's 63 rules in the same shape, the differential extended,
+the lane-bounds verifier closure (ordered previously, still owed before the
+channel change consumes the tables), then the channel change proper.
+
+
+## Symbol op landed (five conditions); flake root-caused to the harness (2026-09-01)
+
+`SymbolExpr`/`ExprCode.SYMBOL`, `OperandTables.symbols` (resolved callables,
+cold), `LoweringOwned.symbols` (authored NAMES), and `lower_product`'s
+`registry` parameter landed under all five conditions: inert name resolved
+only inside lowering; the carve-out written on `OperandTables` in DESIGN's
+frequent-completion phrasing; `s4_bake_identity` asserts zero SYMBOL opcodes
+and empty symbol tables across all 15 grammars' model programs; four new
+refusal/acceptance witness rows; §5's accounting note already annotated.
+Coordinator reran the four witnesses (green) and confirmed the carve-out
+wording on disk.
+
+The ledgered flake tripwire fired and Terra CHASED it per instruction: both
+concurrency failures die on the harness's own non-vacuity guard ("workers
+never overlapped"), before any lexic assertion. Root cause:
+`flight.enter()` runs after `barrier.wait()`, so at workers == cores one
+deschedule empties the counted window. Reproduced deterministically by
+varying only xdist width on the 16-thread host (`-n 2/4/8` pass repeatedly;
+`-n 16` = `-n auto` fails); Terra's tree constant; nothing it added runs on
+any parse path. **Standing protocol change: full suite runs `-n 8` on this
+host** (recorded on the working-protocol bullet); the harness tightening
+(enter the flight count before the barrier) is a committed-helper contract
+change and is now a §13 Luna bullet. Full suite at `-n 8`: 5339 / 8 /
+1-attributed.
+
+Also flagged by Terra, ordered closed next: the verifier does not bound LANE
+indices (`RecordOp.constructor`, `SymbolExpr.symbol`) against their operand
+tables — pre-existing and symmetric; coordinator orders it closed for ALL
+lanes at once with witness rows, before the channel change consumes the
+tables.
+
+
+## User notice: external review incoming (2026-09-01)
+
+The user is preparing an EXTERNAL REVIEW of this effort. It is not to be read
+until the user presents it; it will be available BEFORE the test gates pass.
+Coordinator obligation: before declaring any test-passing milestone (the §4
+checkpoint's scoped Luna pass, and certainly §13), check with the user
+whether the review is ready and fold its findings in first.
+
+
+## Census confirms option A; late option C deliberately rejected (2026-09-01)
+
+Terra's `proto/s4_authored_census.py` (exit 0) hardens the fork's numbers: 84
+authored bodies across the two cold surfaces — 19 alternations needing no
+completion op, 12 passthroughs (`ArgExpr(0)`), one `DecodeOp` int, and 53
+rules over 29 DISTINCT surface transforms with only 2 expressible today.
+Option B is therefore not "~8 ops" but a small language or one op per
+builder — the census is the strongest argument against doing B inside this
+pass. Option A carries all 53 in one addition through the registry foldkit
+already documents as the surface-extension contract. The A ruling and its
+five conditions stand unchanged.
+
+Terra's late option C — keep `ModelFold` on the two authored surfaces until
+§5 and scope §4's exit claim down to `CompiledGrammar.parse` — is REJECTED
+deliberately, as asked: it blocks the six-symbol deletion ("after their
+callers move"), keeps two live completion channels through the §4 checkpoint
+(the exact coexistence the channel-replacement ruling exists to prevent), and
+buys nothing A does not deliver at the cost of one operation.
+
+## Ruling: authored-symbol expression op for the cold surfaces (option A) (2026-09-01)
+
+Terra measured before forking: notation + selfgrammar author 65 fold bodies
+(203 clones), ZERO licensed — their bake needs only the capture layout — but
+`RuleProduct.completion` has no shape for their surface-specific transforms
+(`_decode_escapes`, `_neg_int`, comma-list builders, …), which foldkit's own
+docstring blesses as "honest IrLambda citizens on their own surface". The ten
+expression ops cannot express ~8 of them.
+
+**Coordinator ruling: option A** — ONE new expression operation, "apply the
+named authored symbol", backed by the existing `IrNamed`/`FOLD_SYMBOLS`
+no-eval registry, which §4's foldkit bullet independently mandates
+preserving. This is not a constraint retreat: DESIGN's own words prohibit a
+callable "in any FREQUENTLY completed rule or the character/item loop" — the
+frequency qualifier was always there; notation/selfgrammar parsing are cold
+compile-time surfaces. Option B (~8 new ops, §5's algebra front-loaded before
+any plumbing) was rejected as sequencing; option C was already forbidden.
+
+Five conditions: (1) the operand is an inert SYMBOL NAME resolved through the
+registry at lowering/bind time — never a callable in an authored record; the
+resolved callables sit in a typed cold operand table like the finisher
+tables; (2) the carve-out is written in `records.py`'s own words, mirroring
+DESIGN's frequent-completion phrasing, so no reader finds a callable that
+contradicts the module docstring; (3) the generated-model product's lowering
+never emits the op — a witness row asserts zero symbol ops across all 610
+model clones; (4) lowering refuses a symbol absent from the registry, with
+words; (5) the op is NOT a pressure valve — when §5 lowers the shipped
+reducers, its differential accounting must name every symbol-op use and
+justify each as a genuinely surface-specific transform, never a shortcut
+past proper expression lowering (noted on §5's lowering bullet).
+
+
+## §4: switch differential green — 107 real PDA parses identical (2026-09-01)
+
+`proto/s4_switch_differential.py` (exit 0, coordinator-rerun) rebinds the
+bake product-side in proto only, then runs the REAL clone compiler, flat
+program, and `pda_model` kernel over 107 generator-produced documents across
+14 grammars (8 fixed seeds each; think.gbnf skipped — `generate` lacks an
+`IrAlphabet` cost rule, unrelated). All 101 accepted parses produce
+byte-identical models and round-trip; the 6 PDA declines are the same 6 under
+both programs and counted, so declining cannot fake agreement. `pda_model` is
+driven directly, not through `parse()`, so an Earley fallback completing
+through the fold cannot let a broken predictive build agree with itself.
+Three negative controls prove the substitution live — including gtext
+ABSENCE→"" caught on a real parse, the exact trap the matched_field/optional
+rulings exist for, plus M_VALUE removal and forced `needs_ends=False`. The
+switch is therefore proved safe end-to-end; what remains is pure plumbing
+under the pre-rulings below (door 1: the parse entries grow the plan;
+foldkit/notation/selfgrammar migrate in the same pass; Terra adapts existing
+call sites mechanically with assertions byte-preserved).
+
+## §4 step 3 unblocking rulings: foldkit joins the channel change; call-site adaptation authorized (2026-09-01)
+
+Terra's channel inventory turned up a real dependency: `flatten_clones` bakes
+from `CloneSpec.fold`, `_model_product` has no binding view, and the third
+`ModelFold` construction site is `foldkit.model_fold` — used by
+`compile/notation/parse.py` and `compile/module/selfgrammar.py` with
+hand-authored `ModelBody` tables and NO binding view. The channel switch
+therefore pulls in §4's foldkit/notation/self-grammar bullet; it is not
+reachable from the bake alone. Terra is first building
+`proto/s4_switch_differential.py` — the bake patched product-side IN PROTO
+(src untouched), real generated documents for every ground-truth grammar
+parsed through the real PDA, models asserted equal to fold-baked — so the
+channel ruling lands with the risk measured. Coordinator endorsed.
+
+Coordinator pre-rulings so the differential's green does not stall:
+
+1. **The foldkit/notation/self-grammar migration JOINS the step-3 channel
+   change** (steps 3 and 5 partially merge): notation and selfgrammar author
+   RuleProducts directly in the final vocabulary — never a fold→product
+   adapter, which is the forbidden wrapper and would falsify §4's exit.
+2. **`parse_model`/`pda_tables`/`_model_product`/`compile_pda` signature
+   changes are SANCTIONED §4 migration.** The "never change a signature
+   existing callers depend on" lesson bars gratuitous changes made to buy
+   lint lines; it does not bar the seam reshaping this phase exists to
+   perform (§4's own bullets name these functions).
+3. **Mechanical call-site adaptation of existing committed tests is
+   authorized for Terra, narrowly:** construction/call syntax only,
+   assertions preserved byte-for-byte, every adapted file listed in the
+   increment report. Genuine re-pinning of changed contracts remains
+   Luna's (§13). This keeps the ~20 `parse_model` test call sites — the
+   effort's own oracle — green through the migration instead of red until
+   §13.
+
+
+## §4: matched_field landed; channel-replacement ruling for step 3 (2026-09-01)
+
+`RecordConstructor.matched_field` (the field the occurrence's OWN matched
+text fills, distinct from a TEXT capture's child slot) landed under all four
+ruled conditions: existence/unfilled validation plus derive-compare-refuse
+cross-check in `lower.py::_check_matched_field` (which also grew a fourth
+refusal — a class that cannot answer the licence refuses with words instead
+of `AttributeError`); authored by `model_plan` from the binding view via the
+new `pipeline/naming.py::VALUE_FIELD` constant (the literal `"value"` was
+already spelled in three places — root fix, no signature change); witness
+rows for four refusals + acceptance + authoring; and `s4_bake_identity` now
+audits the REAL corpus constructors (370) so declaration and derivation agree
+on the whole corpus, not a synthetic record. All witnesses and gates green;
+suite 5339/8/1-attributed; behaviour-neutral as expected.
+
+**Sequencing ruling (coordinator): the bake switch is step 3's OPENING move,
+option 3 — replace the fold channel, never double or wrap it.** Terra's
+caller inventory shows the fold IS the end-to-end channel
+(`products.py::_model_product` memoised on `id(fold)` →
+`compile_pda(..., fold.baked)` → `CloneSpec.fold` → `flatten_clones`), with
+`parallel/replicas.py`, `delegate_compile.py`, and `trace.py` on it. Option 1
+(second channel beside the fold + second memo identity) is double-plumbing
+deleted at the next step; option 2 (hang the product off `ModelFold`) is the
+wrapper shape the §4 deletion bullet forbids. Step 3 therefore moves channel
+and completion sites in one pass: `CompiledGrammar` holds the model product,
+parsing entries take it, `CloneSpec` carries `RuleProduct`, and the memo keys
+on the product's identity.
+
+
+## User decision: scoped early Luna mirror pass at the §4 checkpoint (2026-09-01)
+
+The user approved the coordinator's recommendation: immediately after the §4
+profile and checkpoint commit — sequentially, before Terra resumes §5 — a
+scoped Luna (Sonnet) pass writes the missing unit-test mirrors
+`test_test_parity` names, restoring a fully green suite so a red gate stays
+loud for the remaining phases. Scope: assertions pin only ruled/witnessed
+contracts; no speculative coverage, differentials, or timing tests. User
+condition, recorded on both the §4 insertion and §13's mirror bullet: the
+FINAL §13 pass must move these tests wherever their source modules move in
+§5–§10 (the test tree mirrors the final source tree exactly) and complete
+the coverage the early pass deliberately left out.
+
+
+## §4 step 2 landed: product-side bake identical over 610 clones; two rulings (2026-09-01)
+
+Fresh Terra (spawned on user instruction after the stop) landed
+`pda/compiler/program/product.py::bake_product_build` — one clone's build
+state from its `RuleProduct` + `RecordConstructor`, class order and the
+positional constructor read off `cls` at one cold bake site. New module
+because `lower.py` sat at 639 lines (relocation per the standing lesson).
+Witness `proto/s4_bake_identity.py` (exit 0, coordinator-rerun): 370 rules /
+15 grammars at rule level, 610 clones / 14 grammars at clone level
+(think.gbnf is rule-level only — token terminals, no vocabulary), byte
+identity on `fast`/`defaults`/`needs_ends` and every row's item/name/default,
+negative controls failing loudly at the exact row. Step-2 opcode account:
+zero added paid-loop opcodes by identity of flat outputs, with two NAMED
+normalizations — 600 `lo` rows no reader distinguishes, and 18 mode rows.
+
+**Ruling 1 (accepted): `M_GTEXT`→`M_TEXT` on the 18 rows** whose gtext item
+cannot match nothing (`lo >= 1`). Same class as the `lo` ruling — the ABI has
+one TEXT capture and absence lives in `optional`; the `M_GTEXT` branch with
+`lo >= 1` IS the `M_TEXT` branch, proved per-row by building each side's
+value for empty and non-empty spans. Named cost when live: 2 extra int
+comparisons per build on those 18 rows. Rejected: a second text member
+(restates the quantifier `optional` carries) and baking all text as gtext
+(moves the divergence onto 21 rows and adds a truth test).
+
+**Ruling 2 (declare, don't derive): `RecordConstructor` grows ONE inert
+binding-owned field naming the class field the occurrence's own extent
+fills** (the `value_str` case). The bake's derivation — unfilled field with
+no default — is exact today but fails SILENTLY (bakes `M_CONST`) on a future
+value-field-with-default; the effort's grain is declared-never-inferred. The
+derivation survives as a lowering cross-check: derive, compare to declared,
+refuse mismatch with words. This also feeds step 3's `_build_mode`: the
+completion-record type plus the extent field should distinguish
+value_str/sequence/alternation/transparent — verify there, and stop if it
+does not. This amends the 2026-09-01 RecordConstructor ruling.
+
+Ledgered findings: `FlatClone.fields` has NO runtime reader (written, copied,
+asserted-empty by one test — its `lo` column is dead in both bakes; only
+`plan`'s reaches a reader); the `lo` trace is pinned by TOKENIZING `build.py`
+(2 binds + 3 readers), and `vstr_model`'s unpack-and-discard of `lo` is
+pinned separately as the one place a future edit could quietly start reading
+it. `test_test_parity` now names EIGHT missing mirrors (product.py joins;
+Luna's §13). No flake recurrence.
+
+
 ## NEXT SESSION — start here (written 2026-09-01, usage exhausted mid-§4)
 
 State: §2 and §3 are ACCEPTED (see their exit entries). §4 is in progress at
@@ -13,9 +367,12 @@ clone field except `lo`, which normalizes to `0 if optional else 1` under
 the three-predicate behavioural proof plus an exhaustiveness pin (rulings in
 the two entries below).
 
-Working tree: NOTHING COMMITTED; the index holds the full §2–§4 diff (9
-modified src files, 10 new across `parsing/product/` + `compile/product/`,
-CLAUDE.md map lines). One attributed suite failure only (`test_test_parity`,
+Working tree: the user created two unverified BACKUP savepoint commits
+(`08ca661e`, `0a76490f` — "WIP. Savepoint. Not verified. User commit")
+holding the full §2–§4-step-1 diff (9 modified src files, 10 new across
+`parsing/product/` + `compile/product/`, CLAUDE.md map lines); they are
+strictly backups and will be squashed later — the §14 squash accounts for
+them, and no gate treats them as reviewed checkpoints. One attributed suite failure only (`test_test_parity`,
 seven missing unit-test mirrors — Luna's at §13). One disclosed xdist flake
 (`test_concurrent_distinct_documents_match_sequential[2]`) with a
 chase-on-recurrence tripwire. All ten §2/§3 witnesses + `s4_model_plan` exit

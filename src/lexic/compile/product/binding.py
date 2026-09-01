@@ -31,12 +31,12 @@ from __future__ import annotations
 
 import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from threading import Lock
 from typing import NamedTuple
 
 from lexic.parsing.caches import adopt, memo, track
-from lexic.parsing.product import ProductProgram
+from lexic.parsing.product import ProductProgram, RuleProduct
 
 __all__ = ["BindingRegistry", "BoundProduct", "ProgramProduct"]
 
@@ -213,3 +213,20 @@ class BindingRegistry[Declaration, Result]:
         confirmed against the objects themselves before it is served.
         """
         return entry.declaration is declaration and entry.source() is source
+
+
+def rules_by_name(
+    rules: Sequence[RuleProduct], codes: Mapping[str, int]
+) -> dict[str, RuleProduct]:
+    """One authored product's rules, keyed the way a clone compiler asks.
+
+    A clone knows the rule it stands for by NAME; an authored product orders
+    its rules by contextual code. This is the one place that turns one into
+    the other, so the two authoring paths — the generated model's binding view
+    and an authored surface's own table — hand the engine the same shape.
+
+    :param rules: The authored rules, in contextual-code order.
+    :param codes: Rule name → its contextual code.
+    :returns: Rule name → its authored product.
+    """
+    return {name: rules[code] for name, code in codes.items()}

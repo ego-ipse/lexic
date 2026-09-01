@@ -259,6 +259,14 @@ class RecordConstructor(NamedTuple):
         Python ``None`` (90 of 90) — the model layer's absent-optional
         concession, deliberately not ``IrNone`` — so narrowing to that would
         encode one product's fact into an ABI other products share.
+    :ivar matched_field: The field the occurrence's OWN matched text fills,
+        ``""`` when no field does. Distinct from a TEXT capture, which takes
+        one CHILD slot's text: this is the whole extent the rule consumed, and
+        a rule whose value IS what it matched has no slot to point at.
+        Declared rather than inferred — it is derivable (a field no capture
+        fills and no default covers can only be this one), and lowering keeps
+        that derivation as a cross-check, but a record whose defaults later
+        changed would flip the inference silently.
     :ivar licensed: Whether construction may skip per-field validation — a
         flag rather than a bound constructor, so the table holds no callable.
     """
@@ -267,6 +275,7 @@ class RecordConstructor(NamedTuple):
     names: tuple[str, ...] = ()
     optional: tuple[int, ...] = ()
     defaults: Mapping[str, object] = MappingProxyType({})
+    matched_field: str = ""
     licensed: bool = False
 
 
@@ -527,6 +536,21 @@ class OperandTables[Carry, Result](NamedTuple):
     records: what an engine indexes must already be specialized, or a routed
     completion would scan a tuple of pairs. Lowering is this table's only
     writer too, for the same reason.
+
+    ``symbols`` is the fifth callable table and the one that needs its line
+    drawn precisely. The rule is, and has always been, that no target callable
+    runs in the character loop, the item loop, gate selection, or any
+    FREQUENTLY completed rule — the generated-model product completes through
+    inert binding-owned data and reaches no table here at all. An authored
+    compile-time surface is the other case: the IR-constructor notation and
+    the generated-module self-grammar complete through transforms that decode
+    escapes and assemble headers, they parse authored text rather than
+    documents, and their completions are not frequent by any measure. Those
+    are what :class:`~lexic.parsing.product.expressions.SymbolExpr` serves.
+    Two things keep it from becoming a general callback channel: the authored
+    operand is a registry KEY, so no callable appears in a program's records,
+    and lowering resolves the key through the surface's own whitelist and
+    refuses one that is not there.
     """
 
     constants: tuple[Carry, ...]
@@ -537,6 +561,7 @@ class OperandTables[Carry, Result](NamedTuple):
     roots: tuple[RootFinalizer[Carry, Result], ...]
     routes: tuple[LoweredRoute, ...]
     continuations: tuple[RouteContinuation, ...]
+    symbols: tuple[Callable[..., object], ...] = ()
 
 
 class ProductProgram[Carry, Result](NamedTuple):

@@ -18,6 +18,7 @@ from lexic.compile.product.binding import (
     BindingRegistry,
     BoundProduct,
     ProgramProduct,
+    rules_by_name,
 )
 from lexic.compile.product.lower import LoweringOwned, lower_product, lower_routes
 
@@ -26,6 +27,7 @@ __all__ = [
     "BoundProduct",
     "LoweringOwned",
     "ProgramProduct",
+    "rules_by_name",
     "lower_product",
     "lower_routes",
 ]

@@ -48,7 +48,9 @@ from lexic.parsing.product import (
     PassOp,
     ProductProgram,
     RootOp,
+    RouteContinuation,
     RuleProduct,
+    SymbolExpr,
     verify_exact_ints,
     verify_program,
 )
@@ -86,6 +88,11 @@ def _finish_sequence(values: tuple[Carry, ...]) -> Carry:
     return tuple(values)  # type: ignore[return-value]
 
 
+def _same_value(left: Carry, right: Carry) -> bool:
+    """The ambiguity gate's comparison — do two derivations mean the same?"""
+    return left == right
+
+
 def _root(carry: Carry, verdicts: tuple[SemanticVerdict, ...]) -> Carry:
     """Root finalization: the earliest verdict wins over a value."""
     if verdicts:
@@ -98,7 +105,7 @@ OPERANDS: OperandTables[Carry, Carry] = OperandTables(
     constructors=(),
     sequences=(_finish_sequence,),
     mappings=(_finish_mapping,),
-    meanings=(),
+    meanings=(_same_value,),
     roots=(_root,),
     routes=(),
     continuations=(),
@@ -328,6 +335,223 @@ def the_constructor_table_admits_only_classes() -> None:
     raise AssertionError("s3 lowering: a pre-populated constructor table passed")
 
 
+class Spelled(NamedTuple):
+    """A declared record whose own matched text fills one field."""
+
+    value: str
+    tag: str = ""
+
+    @classmethod
+    def fast_construct(
+        cls,
+    ) -> tuple[object, dict[str, object], tuple[str, ...]]:
+        """The construction licence, in the shape a record class answers with."""
+        return cls._make, dict(cls._field_defaults), cls._fields
+
+
+def _refuses(claim: str, entry: RecordConstructor) -> None:
+    """Lower a one-entry constructor table and require a refusal."""
+    try:
+        lower_product(
+            RULES,
+            OPERANDS,
+            owned=LoweringOwned(constructors=(entry,)),
+            root=RootOp(0),
+            meaning=MeaningOp(0),
+        )
+    except UnsupportedConstructError as refusal:
+        print(f"matched\trefuses {claim}\t{refusal}")
+        return
+    raise AssertionError(f"s3 lowering: {claim} passed")
+
+
+def the_matched_field_is_declared_and_cross_checked() -> None:
+    """The own-text field is stated on the record, and lowering audits it.
+
+    Declared rather than derived because the derivation's failure mode is
+    silent: a record whose defaults changed would start baking a default where
+    the matched text belongs. Lowering keeps the derivation as the guard that
+    catches exactly that.
+    """
+    accepted = lower_product(
+        RULES,
+        OPERANDS,
+        owned=LoweringOwned(
+            constructors=(
+                RecordConstructor(
+                    Spelled,
+                    defaults={"tag": ""},
+                    matched_field="value",
+                    licensed=True,
+                ),
+            )
+        ),
+        root=RootOp(0),
+        meaning=MeaningOp(0),
+    )
+    _check(
+        "the declared own-text field did not survive lowering",
+        accepted.operands.constructors[0].matched_field == "value",
+    )
+
+    _refuses(
+        "a field the class does not have",
+        RecordConstructor(Spelled, matched_field="absent"),
+    )
+    _refuses(
+        "a field a capture already fills",
+        RecordConstructor(Spelled, names=("value",), matched_field="value"),
+    )
+    _refuses(
+        "a licensed record leaving an undeclared field unfilled",
+        RecordConstructor(Spelled, defaults={"tag": ""}, licensed=True),
+    )
+    _refuses(
+        "a class that cannot say how it is built",
+        RecordConstructor(str, matched_field="value"),
+    )
+
+
+def _refuses_program(claim: str, program: ProductProgram) -> None:
+    """Verify a program and require a refusal with words."""
+    try:
+        verify_program(program)
+    except UnsupportedConstructError as refusal:
+        print(f"lanes\trefuses {claim}\t{refusal}")
+        return
+    raise AssertionError(f"s3 lowering: {claim} verified anyway")
+
+
+def every_operand_lane_is_bounded() -> None:
+    """An instruction may not name an operand entry that does not exist.
+
+    The row's own bounds were always checked; where the row POINTS was not, so
+    an instruction could name constructor 9 of a two-entry table and reach the
+    engine. One row per lane class, because the classes are reached by
+    different routes: a fused instruction, an expression instruction, the
+    program-level operands, and the route/continuation pairing.
+    """
+    good = lower_product(RULES, OPERANDS, root=RootOp(0), meaning=MeaningOp(0))
+    verify_program(good)
+
+    # A fused instruction's lane: FINISH_MAPPING names mapping finisher 0, and
+    # the table it points into is emptied underneath it.
+    _refuses_program(
+        "a fused instruction naming a missing finisher",
+        good._replace(operands=good.operands._replace(mappings=())),
+    )
+    # An expression instruction's lane: the symbol table is emptied.
+    symbolic = lower_product(
+        SYMBOL_RULES,
+        OPERANDS,
+        owned=LoweringOwned(symbols=("shout",)),
+        registry={"shout": _shout},
+        root=RootOp(0),
+        meaning=MeaningOp(0),
+    )
+    verify_program(symbolic)
+    _refuses_program(
+        "an expression instruction naming a missing symbol",
+        symbolic._replace(operands=symbolic.operands._replace(symbols=())),
+    )
+    # The program-level lanes, which no instruction names.
+    _refuses_program("a root finalizer past its table", good._replace(root=RootOp(7)))
+    _refuses_program(
+        "a meaning comparator past its table", good._replace(meaning=MeaningOp(7))
+    )
+    # The pairing lane: a continuation with no route to consume it.
+    _refuses_program(
+        "routes and continuations that do not pair",
+        good._replace(
+            operands=good.operands._replace(
+                continuations=(RouteContinuation(0, (0,), (0,)),)
+            )
+        ),
+    )
+
+
+def _shout(text: str = "") -> str:
+    """A stand-in authored transform — the kind a surface registers."""
+    return text.upper()
+
+
+SYMBOL_RULES = (RuleProduct((), ExprProgram((SymbolExpr(0),))),)
+"""One rule completing through a registered transform."""
+
+
+def the_symbol_operation_resolves_through_a_registry() -> None:
+    """A symbol is a NAME in the program and a callable only after lowering.
+
+    The authored side of the ABI never holds a callable: the operand indexes a
+    table of registry keys, and lowering is the one place a key becomes
+    something callable — through the surface's own whitelist, refusing
+    anything the whitelist does not carry.
+    """
+    registry = {"shout": _shout}
+    program = lower_product(
+        SYMBOL_RULES,
+        OPERANDS,
+        owned=LoweringOwned(symbols=("shout",)),
+        registry=registry,
+        root=RootOp(0),
+        meaning=MeaningOp(0),
+    )
+    verify_program(program)
+    _check(
+        "the symbol did not lower to its own expression code",
+        tuple(program.expression_opcodes) == (int(ExprCode.SYMBOL),),
+    )
+    _check(
+        "the registry's transform did not reach the cold operand table",
+        program.operands.symbols == (_shout,),
+    )
+    _check(
+        "the authored table holds something other than a name",
+        all(
+            isinstance(name, str) for name in LoweringOwned(symbols=("shout",)).symbols
+        ),
+    )
+
+    try:
+        lower_product(
+            SYMBOL_RULES,
+            OPERANDS,
+            owned=LoweringOwned(symbols=("nowhere",)),
+            registry=registry,
+            root=RootOp(0),
+            meaning=MeaningOp(0),
+        )
+    except UnsupportedConstructError as refusal:
+        print(f"symbols\trefuses an unregistered name\t{refusal}")
+    else:
+        raise AssertionError("s3 lowering: an unregistered symbol passed")
+
+    try:
+        lower_product(
+            SYMBOL_RULES,
+            OPERANDS,
+            owned=LoweringOwned(symbols=("shout",)),
+            root=RootOp(0),
+            meaning=MeaningOp(0),
+        )
+    except UnsupportedConstructError as refusal:
+        print(f"symbols\trefuses a name with no registry\t{refusal}")
+    else:
+        raise AssertionError("s3 lowering: a symbol without a registry passed")
+
+    try:
+        lower_product(
+            SYMBOL_RULES,
+            OPERANDS._replace(symbols=(_shout,)),
+            root=RootOp(0),
+            meaning=MeaningOp(0),
+        )
+    except UnsupportedConstructError as refusal:
+        print(f"symbols\trefuses a caller-filled table\t{refusal}")
+        return
+    raise AssertionError("s3 lowering: a caller-filled symbol table passed")
+
+
 def an_expression_program_lowers_to_its_own_table() -> None:
     """The reducer-expression layer lands in the EXPRESSION table, not fused."""
     reducer_body = ExprProgram((ArgsExpr(), JoinExpr(0), ArgExpr(0)))
@@ -416,6 +640,9 @@ def main() -> None:
     the_program_builds_a_value(program)
     an_unlowerable_operation_refuses()
     the_constructor_table_admits_only_classes()
+    the_matched_field_is_declared_and_cross_checked()
+    the_symbol_operation_resolves_through_a_registry()
+    every_operand_lane_is_bounded()
     an_expression_program_lowers_to_its_own_table()
     routes_specialize_by_cardinality()
     print("s3 lowering\tPASS\tauthored -> flat -> verified -> executed")

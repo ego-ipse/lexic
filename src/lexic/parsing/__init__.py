@@ -164,6 +164,7 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.products import (
     earley_model,
+    ModelBinding,
     parse_model,
     pda_tables,
     token_model,
@@ -309,6 +310,7 @@ __all__ = [
     "parse",
     "parse_first",
     "parse_forest",
+    "ModelBinding",
     "parse_model",
     "pda_tables",
     "CharTrieCursor",

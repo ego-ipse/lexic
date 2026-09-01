@@ -24,7 +24,7 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.fold import ModelFold
+from lexic.parsing.products import ModelBinding
 from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
@@ -77,12 +77,12 @@ class Request[M: IrNamedTuple](NamedTuple):
     only this varies per call.
 
     :ivar text: The document.
-    :ivar fold: The instance fold producing ``M``.
+    :ivar binding: The bound model product producing ``M``.
     :ivar resolve: The caller's ambiguity resolver, or ``None``.
     """
 
     text: str
-    fold: ModelFold[M]
+    binding: ModelBinding[M]
     resolve: Resolver | None = None
 
 
@@ -309,7 +309,7 @@ def _split_parse[M: IrNamedTuple](
     pool: WorkPool,
 ) -> M | None:
     """One split attempt; ``None`` means: parse sequentially instead."""
-    text, fold, resolve = ask
+    text, binding, resolve = ask
     terminated = plan.terminated
     spans, leads = cut_spans(plan, text, cuts)
     if not terminated and plan.lead_grammar is None:
@@ -318,7 +318,7 @@ def _split_parse[M: IrNamedTuple](
     # Each worker parses against its OWN equal grammar and fold copy: the
     # tables are read-only, but sharing one set of them across cores is what
     # flattens scaling at ~1.8x (refcount cache-line traffic, measured).
-    views = worker_replicas(plan.grammar, fold, len(spans))
+    views = worker_replicas(plan.grammar, binding, len(spans))
     try:
         chunks = pool.map(
             lambda k: parse(
@@ -329,7 +329,7 @@ def _split_parse[M: IrNamedTuple](
         if plan.envelope is not None:
             return _envelope_join(parse, plan, ask, (chunks, leads))
         lead_models = [
-            (parse(plan.lead_grammar, lead, fold, resolve),)
+            (parse(plan.lead_grammar, lead, binding, resolve),)
             if plan.lead_grammar is not None
             else ()
             for lead in leads
@@ -338,7 +338,7 @@ def _split_parse[M: IrNamedTuple](
         return None
     if terminated:
         return stitch_terminated(chunks)
-    return stitch_routed(chunks, lead_models, plan.wrappers, fold)
+    return stitch_routed(chunks, lead_models, plan.wrappers, binding.fold)
 
 
 RETRIES = 2
@@ -373,8 +373,8 @@ def _attempt[M: IrNamedTuple](
     pool: WorkPool,
 ) -> tuple[list, int]:
     """Parse every piece; the models, and the first failing index (``-1`` none)."""
-    text, fold, resolve = ask
-    views = worker_replicas(plan.grammar, fold, len(spans))
+    text, binding, resolve = ask
+    views = worker_replicas(plan.grammar, binding, len(spans))
     found = pool.map(
         lambda k: _piece(parse, views[k], text[spans[k][0] : spans[k][1]], resolve),
         list(range(len(spans))),
@@ -456,7 +456,7 @@ def _parse_region_parts[M: IrNamedTuple](
     pool: WorkPool,
 ) -> list[list[GrammarModel]] | None:
     """Parse every region piece concurrently against per-worker replicas."""
-    tasks, owners = region_tasks(works, ask.fold)
+    tasks, owners = region_tasks(works, ask.binding)
     try:
         parsed = pool.map(
             lambda k: parse(tasks[k][0], tasks[k][2], tasks[k][1], ask.resolve),
@@ -492,7 +492,7 @@ def _split_regions[M: IrNamedTuple](
     workers = pool.workers
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
-    routed = routed_split(parse, grammar, (ask.text, ask.fold, ask.resolve), pool)
+    routed = routed_split(parse, grammar, (ask.text, ask.binding, ask.resolve), pool)
     if routed is not None:
         return routed
     # A bracket span may cover the whole source while still sit BELOW a
@@ -505,11 +505,11 @@ def _split_regions[M: IrNamedTuple](
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
-    works = region_works(grammar, ask.fold, ask.text, divided, analysis or grammar)
+    works = region_works(grammar, ask.binding.fold, ask.text, divided, analysis or grammar)
     if works is None:
         return None
     parsed = _parse_region_parts(parse, works, ask, pool)
-    merge = MergeRequest(parse, ask.text, ask.fold, ask.resolve)
+    merge = MergeRequest(parse, ask.text, ask.binding, ask.resolve)
     stands = standins(merge, works, parsed) if parsed is not None else None
     return stitch_shell(merge, grammar, works, stands) if stands else None
 
@@ -591,7 +591,7 @@ def split_model[M: IrNamedTuple](
 
     :param parse: The model product, injected by the layer that owns it.
     :param grammar: The codegen grammar.
-    :param ask: The document, its fold, and the caller's ambiguity resolver.
+    :param ask: The document, its bound product, and the ambiguity resolver.
     :param cores: 0 = auto, 1 = sequential (so: never split), N = that many.
     :param analysis: A language-equivalent structural view for derived grammars
         whose parse model intentionally elides quoted interiors or wrappers.
@@ -601,7 +601,7 @@ def split_model[M: IrNamedTuple](
     # issue thousands of tiny SubRun parses; under the GIL every one has one
     # worker, and under AUTO a sub-2-chunk input cannot divide. Asking roles,
     # ownership and region safety for work that policy has already refused is
-    # pure serial overhead on the caller's fold path.
+    # pure serial overhead on the caller's parse path.
     workers = doc_workers(cores)
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
@@ -679,13 +679,13 @@ def _envelope_join[M: IrNamedTuple](
     """
     found = plan.envelope
     chunks, leads = parsed
-    moved = envelope_tails(chunks, found.shape, ask.fold) if found else None
+    moved = envelope_tails(chunks, found.shape, ask.binding.fold) if found else None
     if found is None or moved is None:
         return None
     tails, trimmed = moved
     witness = unit_witness(plan.grammar, found.shape.unit) or ""
     rebuilt = [
-        parse(plan.lead_grammar, tails[at] + lead + witness, ask.fold, ask.resolve)
+        parse(plan.lead_grammar, tails[at] + lead + witness, ask.binding, ask.resolve)
         for at, lead in enumerate(leads)
     ]
-    return stitch_envelope(trimmed, rebuilt, found.shape, ask.fold)
+    return stitch_envelope(trimmed, rebuilt, found.shape, ask.binding.fold)

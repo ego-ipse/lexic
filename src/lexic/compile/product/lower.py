@@ -27,7 +27,8 @@ lowered refuses by name at compile time rather than reaching an engine.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
+from types import MappingProxyType
 from typing import NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
@@ -69,6 +70,7 @@ from lexic.parsing.product import (
     RuleBody,
     RuleProduct,
     SingletonRoute,
+    SymbolExpr,
     TableRoute,
     UniformRoute,
     ValidateOp,
@@ -80,16 +82,19 @@ __all__ = ["LoweringOwned", "lower_product", "lower_routes"]
 class LoweringOwned(NamedTuple):
     """The authored tables LOWERING writes into a program, never a caller.
 
-    Both reach an engine on a hot path — ``constructors`` at every
-    ``RecordOp`` completion, ``routes`` at every routed one — and both need
-    something done to them first: a constructor must be checked to be a class,
-    a route must be specialized by cardinality. Naming them together is what
-    makes "a caller hands these in authored form and gets them back lowered"
-    one rule instead of two coincidences.
+    Each needs something done to it before an engine may index it: a
+    constructor must be checked to be a class, a route must be specialized by
+    cardinality, a symbol must be resolved through its registry. Naming them
+    together is what makes "a caller hands these in authored form and gets
+    them back lowered" one rule instead of three coincidences.
+
+    ``symbols`` is names, not callables — the authored side of the ABI never
+    holds one. Lowering resolves each through the registry it is given.
     """
 
     constructors: tuple[RecordConstructor, ...] = ()
     routes: tuple[RouteTable, ...] = ()
+    symbols: tuple[str, ...] = ()
 
 
 _OPCODES: dict[type, OpCode] = {
@@ -119,6 +124,7 @@ _EXPR_CODES: dict[type, ExprCode] = {
     LookupExpr: ExprCode.LOOKUP,
     RaiseExpr: ExprCode.RAISE,
     ContributeExpr: ExprCode.CONTRIBUTE,
+    SymbolExpr: ExprCode.SYMBOL,
 }
 """Authored expression type → its flat code. Separate from :data:`_OPCODES`
 because the two lower into physically separate tables, which is what makes a
@@ -215,7 +221,8 @@ def _constructors(
     :param entries: The declared constructors.
     :returns: The validated table.
     :raises UnsupportedConstructError: On an entry that is not a
-        :class:`RecordConstructor`, or whose ``cls`` is not a class.
+        :class:`RecordConstructor`, whose ``cls`` is not a class, or whose
+        ``matched_field`` disagrees with the class it names.
     """
     for at, entry in enumerate(entries):
         if not isinstance(entry, RecordConstructor):
@@ -229,7 +236,74 @@ def _constructors(
                 f"{type(entry.cls).__name__}, not a class; the constructor "
                 "table holds only binding-owned constructor symbols"
             )
+        _check_matched_field(at, entry)
     return tuple(entries)
+
+
+def _field_order(at: int, cls: type) -> tuple[str, ...]:
+    """The declared record class's field names, in construction order.
+
+    :raises UnsupportedConstructError: When the class cannot say how one of
+        itself is built — a constructor table entry that no bake could use.
+    """
+    construct: Callable[[], tuple[object, Mapping[str, object], tuple[str, ...]]] | None
+    construct = getattr(cls, "fast_construct", None)
+    if construct is None:
+        raise UnsupportedConstructError(
+            f"product lowering: constructor {at} names {cls.__name__}, which "
+            "does not say how one of itself is built"
+        )
+    return construct()[2]
+
+
+def _check_matched_field(at: int, entry: RecordConstructor) -> None:
+    """Cross-check the declared own-text field against the class and the record.
+
+    The field is DECLARED rather than derived, but it is also derivable — a
+    class field that no capture fills and no default covers has nothing else
+    that could construct it — so the derivation is kept here as a guard. A
+    record whose defaults later change makes the two disagree, and this says
+    so with words instead of quietly baking a default where the matched text
+    belongs.
+
+    The derivation is only tight under the validation-skip licence, which is
+    refused outright when an unfilled field has no default; an unlicensed
+    entry is constructed by name through the class's own checks, so only the
+    declaration itself is checked there.
+
+    :param at: The entry's index, for the message.
+    :param entry: The constructor record.
+    :raises UnsupportedConstructError: When the declaration names a field the
+        class does not have, one a capture already fills, or one the class's
+        own defaults contradict.
+    """
+    if not entry.matched_field and not entry.licensed:
+        return  # nothing declared and nothing baked — no class to consult
+    order = _field_order(at, entry.cls)
+    if entry.matched_field and entry.matched_field not in order:
+        raise UnsupportedConstructError(
+            f"product lowering: constructor {at} fills {entry.matched_field!r} "
+            f"with its own matched text, but {entry.cls.__name__} has no such "
+            f"field (it has {order})"
+        )
+    if entry.matched_field and entry.matched_field in entry.names:
+        raise UnsupportedConstructError(
+            f"product lowering: constructor {at} fills {entry.matched_field!r} "
+            "with its own matched text AND with a capture; a field takes one "
+            "value, from one place"
+        )
+    if not entry.licensed:
+        return
+    unfilled = tuple(
+        name for name in order if name not in entry.names and name not in entry.defaults
+    )
+    declared = (entry.matched_field,) if entry.matched_field else ()
+    if unfilled != declared:
+        raise UnsupportedConstructError(
+            f"product lowering: constructor {at} declares {declared} as filled "
+            f"by its own matched text, but {entry.cls.__name__} leaves "
+            f"{unfilled} with neither a capture nor a default"
+        )
 
 
 def lower_routes(
@@ -278,10 +352,14 @@ def lower_routes(
 def _refuse_prefilled[Carry, Result](operands: OperandTables[Carry, Result]) -> None:
     """Refuse an operand record a caller filled where lowering must write.
 
-    Two tables an engine reaches on a hot path: ``constructors`` at every
-    ``RecordOp`` completion, and ``routes`` at every routed one. Both have to
-    be lowering's output — a class it checked, a route it specialized — so a
-    caller handing either one pre-filled is refused rather than trusted.
+    Three tables lowering owns: ``constructors``, reached at every
+    ``RecordOp`` completion; ``routes``, at every routed one; and ``symbols``,
+    the only table that holds a resolved callable. Each has to be lowering's
+    own output — a class it checked, a route it specialized, a name it looked
+    up — so a caller handing one pre-filled is refused rather than trusted.
+    The symbol table is the sharpest case: filling it directly is how an
+    arbitrary callable would otherwise reach a completion without ever passing
+    a registry.
     """
     if operands.constructors:
         raise UnsupportedConstructError(
@@ -295,6 +373,40 @@ def _refuse_prefilled[Carry, Result](operands: OperandTables[Carry, Result]) -> 
             "pass authored RouteTables as `routes=` rather than filling the "
             "operand record"
         )
+    if operands.symbols:
+        raise UnsupportedConstructError(
+            "product lowering: the symbol table is written by lowering alone; "
+            "pass registry names as `symbols=` rather than filling the operand "
+            "record with callables"
+        )
+
+
+def _symbols(
+    names: Sequence[str], registry: Mapping[str, Callable[..., object]]
+) -> tuple[Callable[..., object], ...]:
+    """Resolve each authored symbol name through the surface's registry.
+
+    The no-``eval`` boundary, and the only place a name becomes a callable. A
+    name the registry does not carry refuses here — at lowering, cold — rather
+    than raising a ``KeyError`` mid-parse or, worse, resolving through
+    something wider than the whitelist.
+
+    :param names: The authored registry keys, in operand order.
+    :param registry: The surface's whitelist.
+    :returns: The resolved callables, in the same order.
+    :raises UnsupportedConstructError: On a name the registry does not carry.
+    """
+    resolved: list[Callable[..., object]] = []
+    for at, name in enumerate(names):
+        transform = registry.get(name)
+        if transform is None:
+            raise UnsupportedConstructError(
+                f"product lowering: symbol {at} names {name!r}, which is not in "
+                f"the registry (it carries {sorted(registry)}); a symbol reaches "
+                "a parse only by being registered when the program is lowered"
+            )
+        resolved.append(transform)
+    return tuple(resolved)
 
 
 def lower_product[Carry, Result](
@@ -302,6 +414,7 @@ def lower_product[Carry, Result](
     operands: OperandTables[Carry, Result],
     *,
     owned: LoweringOwned = LoweringOwned(),
+    registry: Mapping[str, Callable[..., object]] = MappingProxyType({}),
     root: RootOp,
     meaning: MeaningOp,
 ) -> ProductProgram[Carry, Result]:
@@ -310,12 +423,16 @@ def lower_product[Carry, Result](
     :param rules: One :class:`~lexic.parsing.product.records.RuleProduct` per
         contextual rule, in contextual-code order.
     :param operands: The typed operand tables the instructions index. Its
-        ``constructors`` and ``routes`` fields must be empty — lowering is
-        their only writer, so a caller cannot slip an arbitrary callable onto
-        the hot path, or an unspecialized route table into a routed
-        completion, by constructing the record itself.
+        ``constructors``, ``routes`` and ``symbols`` fields must be empty —
+        lowering is their only writer, so a caller cannot slip an arbitrary
+        callable onto a completion, or an unspecialized route table into a
+        routed one, by constructing the record itself.
     :param owned: The authored tables lowering writes — binding-owned
-        constructor classes, and route tables to specialize by cardinality.
+        constructor classes, route tables to specialize by cardinality, and
+        the registry names an authored surface's transforms are spelled as.
+    :param registry: The surface's symbol whitelist. Empty by default, which
+        is what every product without a :class:`SymbolExpr` wants: a program
+        that names a symbol without supplying a registry refuses.
     :param root: The root finalizer operation.
     :param meaning: The ambiguity-gate comparison operation.
     :returns: The program. It is NOT verified here — call
@@ -323,8 +440,8 @@ def lower_product[Carry, Result](
         so verification stays one cold gate rather than something a caller can
         skip by building a program another way.
     :raises UnsupportedConstructError: On an operation with no lowering, a
-        pre-populated constructor or route table, or a constructor that is
-        not a class.
+        pre-populated constructor, route or symbol table, a constructor that
+        is not a class, or a symbol absent from the registry.
     """
     _refuse_prefilled(operands)
     fused = _Pool(_OPCODE_COUNT)
@@ -352,6 +469,7 @@ def lower_product[Carry, Result](
         operands._replace(
             constructors=_constructors(owned.constructors),
             routes=lower_routes(owned.routes, operands.continuations),
+            symbols=_symbols(owned.symbols, registry),
         ),
         root,
         meaning,

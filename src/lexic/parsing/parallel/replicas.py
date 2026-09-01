@@ -1,13 +1,13 @@
 """Per-worker table replicas — why concurrent parses stop fighting each other.
 
-The engine memoises its compiled tables per ``(grammar, fold)`` **identity**,
+The engine memoises its compiled tables per ``(grammar, binding)`` **identity**,
 so every worker parsing one document against one artefact drives the same
 table objects. Under free threading that is the bottleneck: the tables are
 read-only, but reading them from many cores ping-pongs their reference-count
 cache lines, and measured scaling flattens at ~1.8x however many cores exist.
 
 Handing each worker an EQUAL BUT DISTINCT grammar (and its own view of the
-fold) gives it its own memo entry, hence its own tables, hence its own cache
+binding) gives it its own memo entry, hence its own tables, hence its own cache
 lines. Measured on 8 threads: 1.82x shared, 3.71x with grammar replicas, 4.21x
 with the fold shallow-copied, 5.34x once the fold's container spine is
 copied too (:func:`_replicate` — deepcopy cannot be used, and a shallow
@@ -31,10 +31,11 @@ from typing import NamedTuple
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo
 from lexic.parsing.fold import ModelFold
+from lexic.parsing.products import ModelBinding
 from lexic.parsing.parallel.policy import available_workers
 
-Replica = tuple[IrAst, ModelFold]
-"""One worker's private view: an equal grammar, and a fold copy."""
+Replica = tuple[IrAst, ModelBinding]
+"""One worker's private view: an equal grammar, and a binding copy."""
 
 _MAX_DEPTH = 6
 """How deep a fold's container graph is rebuilt. Past this the sharing costs
@@ -69,6 +70,16 @@ def _replicate(value: object, depth: int = 0) -> object:
     return value
 
 
+def _binding_copy[M](binding: ModelBinding[M]) -> ModelBinding[M]:
+    """A binding whose fold's container spine is this worker's own.
+
+    The memo keys on the BINDING's identity, so the copy has to be of the
+    binding; its fold is copied inside because that is the container graph
+    whose sharing costs the refcount traffic.
+    """
+    return binding._replace(fold=_fold_copy(binding.fold))
+
+
 def _fold_copy[M](fold: ModelFold[M]) -> ModelFold[M]:
     """A fold whose container spine is this worker's own."""
     out = copy.copy(fold)
@@ -84,34 +95,36 @@ def _fold_copy[M](fold: ModelFold[M]) -> ModelFold[M]:
     return out
 
 
-_REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelFold, list[Replica]]] = memo(
+_REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelBinding, list[Replica]]] = memo(
     {}, 0, 1
 )
-"""Replica memo — (id(grammar), id(fold)) → (grammar, fold, replicas). The
+"""Replica memo — (id(grammar), id(binding)) → (grammar, binding, replicas). The
 strong references pin both ids, so a recycled id cannot alias a live entry."""
 
 
-def worker_replicas[M](grammar: IrAst, fold: ModelFold[M], count: int) -> list[Replica]:
-    """``count`` private ``(grammar, fold)`` views, grown and reused per pair.
+def worker_replicas[M](
+    grammar: IrAst, binding: ModelBinding[M], count: int
+) -> list[Replica]:
+    """``count`` private ``(grammar, binding)`` views, grown and reused per pair.
 
     Replicas are built once per pair and kept: each carries its own compiled
     tables, so discarding them would pay the compile again on the next parse.
     Growing an existing list keeps the already-warm replicas warm.
 
     :param grammar: The codegen grammar workers parse against.
-    :param fold: The instance fold that grammar was compiled with.
+    :param binding: The bound product that grammar was compiled with.
     :param count: How many workers need a view.
     :returns: Exactly ``count`` replicas; the first is the original pair, so
         a single worker costs nothing.
     """
-    key = (id(grammar), id(fold))
+    key = (id(grammar), id(binding))
     entry = _REPLICAS.get(key)
     if entry is None:
-        entry = (grammar, fold, [(grammar, fold)])
+        entry = (grammar, binding, [(grammar, binding)])
         _REPLICAS[key] = entry
     pool = entry[2]
     while len(pool) < count:
-        replica = (IrAst(grammar.rules, grammar.start), _fold_copy(fold))
+        replica = (IrAst(grammar.rules, grammar.start), _binding_copy(binding))
         # A replica exists to get its OWN memo entries — tables, products,
         # run analyses. They live inside this pool, so they release with it.
         adopt(key[0], *replica)
@@ -131,12 +144,12 @@ class _Assigned(NamedTuple):
     :data:`_REPLICAS` states one function above; only this cache lacked it.
 
     :ivar grammar: The key grammar, pinned and identity-checked on read.
-    :ivar fold: The key fold, likewise.
+    :ivar binding: The key binding, likewise.
     :ivar replica: What this thread parses against for that pair.
     """
 
     grammar: IrAst
-    fold: ModelFold
+    binding: ModelBinding
     replica: Replica
 
 
@@ -155,7 +168,7 @@ def _resolve[M](
     mine: dict[tuple[int, int], _Assigned],
     key: tuple[int, int],
     grammar: IrAst,
-    fold: ModelFold[M],
+    binding: ModelBinding[M],
     workers: int,
 ) -> Replica:
     """Resolve a pair this thread has not cached, and prune what died.
@@ -169,14 +182,14 @@ def _resolve[M](
     """
     for stale in [at for at in mine if at not in _REPLICAS]:
         del mine[stale]
-    pool = worker_replicas(grammar, fold, workers)
+    pool = worker_replicas(grammar, binding, workers)
     replica = pool[_ASSIGNED.index % workers]
-    mine[key] = _Assigned(grammar, fold, replica)
+    mine[key] = _Assigned(grammar, binding, replica)
     return replica
 
 
-def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
-    """This thread's private view of ``(grammar, fold)`` — its own tables.
+def thread_replica[M](grammar: IrAst, binding: ModelBinding[M]) -> Replica:
+    """This thread's private view of ``(grammar, binding)`` — its own tables.
 
     The document-level twin of :func:`worker_replicas`: where a split hands each
     CHUNK a view, concurrent whole-document parses need each THREAD to have
@@ -184,21 +197,21 @@ def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
     pair back, so nothing is compiled or held that could not be used.
 
     :param grammar: The codegen grammar.
-    :param fold: The instance fold.
+    :param binding: The bound model product.
     :returns: The calling thread's replica.
     """
     workers = available_workers()
     if workers < 2:
-        return (grammar, fold)
+        return (grammar, binding)
     mine = getattr(_ASSIGNED, "cache", None)
     if mine is None:
         mine = _ASSIGNED.cache = {}
         _ASSIGNED.index = next(_TICKET)
-    key = (id(grammar), id(fold))
+    key = (id(grammar), id(binding))
     got = mine.get(key)
     # Positional, not by name: this runs once per parse and a NamedTuple's
     # attribute access goes through a descriptor, which measured 87ns dearer
     # per lookup than indexing the same tuple.
-    if got is not None and got[0] is grammar and got[1] is fold:
+    if got is not None and got[0] is grammar and got[1] is binding:
         return got[2]
-    return _resolve(mine, key, grammar, fold, workers)
+    return _resolve(mine, key, grammar, binding, workers)

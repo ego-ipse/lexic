@@ -48,6 +48,7 @@ from lexic.parsing.product.expressions import (
     LookupExpr,
     PipeExpr,
     RaiseExpr,
+    SymbolExpr,
 )
 from lexic.parsing.product.records import (
     AppendSequenceOp,
@@ -137,6 +138,7 @@ __all__ = [
     "LookupExpr",
     "RaiseExpr",
     "ContributeExpr",
+    "SymbolExpr",
     # records — lowered routes
     "LoweredRoute",
     "UniformRoute",

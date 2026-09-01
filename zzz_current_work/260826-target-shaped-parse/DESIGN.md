@@ -18,9 +18,9 @@ returned `READY` on re-check; that verdict approves the reviewed evidence, not
 source implementation or a parsing regression. Prototype 16 closes shared-
 occurrence composition, partial-operation bottom semantics, and the exact-lane
 policy after a four-pass reopening review. No semantic or planning decision
-blocks implementation. Production source began 2026-08-31 (§2 accepted, §3 in
-progress — `TODO.md` and `LEDGER.md` carry the state). This document is not
-an implementation checklist.
+blocks implementation. Production source began 2026-08-31 (§2 and §3
+accepted, §4 in progress — `TODO.md` and `LEDGER.md` carry the state). This
+document is not an implementation checklist.
 
 ## Decision
 

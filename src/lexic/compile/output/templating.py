@@ -36,7 +36,13 @@ from lexic.ir import (
     refs_in_order,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import FieldFold, ModelBody, ModelFold, parse_model
+from lexic.parsing import (
+    FieldFold,
+    ModelBinding,
+    ModelBody,
+    ModelFold,
+    parse_model,
+)
 
 __all__ = [
     "KEEP",
@@ -591,7 +597,7 @@ class Template(IrNamedTuple[SpanPair, Spec], init=False):
 def _parse_step[M](grammar: IrAst, fold: ModelFold[M], text: str, path: str) -> M:
     """One engine call, wrapped with the document path on failure."""
     try:
-        return parse_model(grammar, text, fold)
+        return parse_model(grammar, text, ModelBinding(fold))
     except LexicError as err:
         raise UnsupportedConstructError(f"template at {path}: {err}") from err
 

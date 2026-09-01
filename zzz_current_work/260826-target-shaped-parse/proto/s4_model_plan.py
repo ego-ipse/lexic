@@ -94,8 +94,7 @@ def _agree(label: str, compiled: object) -> tuple[int, int]:
                 spec.mode == int(MODE_FOR[field.mode]),
             )
             _check(
-                f"{label}/{name}.{field.name}: the plan names "
-                f"{ctor.names[at]!r}",
+                f"{label}/{name}.{field.name}: the plan names {ctor.names[at]!r}",
                 ctor.names[at] == field.name,
             )
             # The absence rule: a gtext bind over an item that can match
@@ -111,6 +110,14 @@ def _agree(label: str, compiled: object) -> tuple[int, int]:
         _check(
             f"{label}/{name}: the licence disagrees with the fold",
             ctor.licensed == (body.fast is not None),
+        )
+        # A `value_str` rule captures nothing and states instead WHICH field
+        # its own matched text fills — the one construction fact the bound
+        # fields cannot carry, since there is no item to point at.
+        _check(
+            f"{label}/{name}: matched_field is {ctor.matched_field!r} for a "
+            f"{body.kind} rule",
+            bool(ctor.matched_field) == (body.kind == "value_str"),
         )
         if body.kind != "alternation":
             _check(
@@ -130,8 +137,13 @@ def every_ground_truth_grammar_agrees() -> None:
         total_rules += rules
         total_optional += optionals
         print(f"agrees\t{stem:<16}\trules={rules}\toptional-gtext={optionals}")
-    _check("no grammar carried an optional gtext — the rule is untested", total_optional > 0)
-    print(f"total\t{len(STEMS)} grammars\trules={total_rules}\toptional={total_optional}")
+    _check(
+        "no grammar carried an optional gtext — the rule is untested",
+        total_optional > 0,
+    )
+    print(
+        f"total\t{len(STEMS)} grammars\trules={total_rules}\toptional={total_optional}"
+    )
 
 
 def the_absence_rule_is_carried() -> None:
@@ -157,7 +169,9 @@ def the_absence_rule_is_carried() -> None:
         f"{sorted(expected)}",
         optional_names == expected,
     )
-    _check("the real optional-gtext fields did not survive authoring", bool(optional_names))
+    _check(
+        "the real optional-gtext fields did not survive authoring", bool(optional_names)
+    )
     _check(
         "a required field was marked optional",
         all(ctor.names[at] in expected for at in ctor.optional),

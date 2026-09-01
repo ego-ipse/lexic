@@ -21,7 +21,9 @@ every other consumer) sees.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
@@ -46,6 +48,7 @@ from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_n
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import ProbeFork
+from lexic.parsing.product import RecordConstructor, RuleProduct
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
 
 __all__ = [
@@ -158,6 +161,37 @@ def token_model[M](
     return fold.apply(resolve(tree, witness))
 
 
+# ── the bound model product + per-identity memoisation ─────────────────────
+
+
+class ModelBinding[M](NamedTuple):
+    """One grammar's model product — what a parse entry is handed.
+
+    The product IS the binding: the rules each contextual name completes
+    through, and the constructor table a record completion indexes. It is one
+    object rather than two parameters so a caller cannot pair a grammar's
+    rules with another grammar's constructors, and so the per-identity memo
+    has a single key to hold.
+
+    ``fold`` is transitional. The completion sites still build models through
+    it, and they move in their own step; when they do, the field goes and this
+    record is the product alone. It is a FIELD rather than a parallel
+    parameter for the same reason as above — one object, one identity, one
+    memo key.
+
+    :ivar fold: The positional ParseTree → model fold the completions read.
+    :ivar rules: Rule name → its authored product. An authored compile-time
+        surface fills this from its own table; a generated model from the
+        binding view.
+    :ivar constructors: The constructor operand table a record completion
+        indexes. Empty for a surface that constructs no declared record.
+    """
+
+    fold: ModelFold[M]
+    rules: Mapping[str, RuleProduct] = {}
+    constructors: tuple[RecordConstructor, ...] = ()
+
+
 # ── compiled-product records + per-identity memoisation ────────────────────
 
 
@@ -166,7 +200,7 @@ class _ModelProduct:
     """An instance product compiled once — the model PDA + collapsed tables.
 
     :ivar grammar: The authored codegen grammar (held to pin its identity key).
-    :ivar fold: The positional fold (held to pin its identity key).
+    :ivar binding: The bound model product (held to pin its identity key).
     :ivar pda: The model PDA (immediate-PdaFail start ⇒ Earley every parse).
     :ivar instance_grammar: ``normalize(lift_optional_nullables(grammar))`` — the
         completion grammar and island sub-parse shape.
@@ -174,7 +208,7 @@ class _ModelProduct:
     """
 
     grammar: IrAst
-    fold: ModelFold
+    binding: ModelBinding
     pda: PdaTables
     instance_grammar: IrAst
     tables: ParserTables
@@ -209,7 +243,7 @@ def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
 
 
 def _model_product(
-    grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS
+    grammar: IrAst, binding: ModelBinding, bits: int = ORIGIN_BITS
 ) -> _ModelProduct:
     """The compiled instance product for ``(grammar, fold, bits)``, memoised.
 
@@ -217,18 +251,18 @@ def _model_product(
     at it). The PDA half is tier-independent but rides the key — a second
     tier for the same pair only ever compiles for a beyond-first-tier input.
     """
-    key = (id(grammar), id(fold), bits)
+    key = (id(grammar), id(binding), bits)
     cached = _MODEL_CACHE.get(key)
-    if cached is not None and cached.grammar is grammar and cached.fold is fold:
+    if cached is not None and cached.grammar is grammar and cached.binding is binding:
         return cached
     lifted = lift_optional_nullables(grammar)
     instance = normalize(lifted)
     product = _ModelProduct(
         grammar,
-        fold,
-        compile_pda(lifted, instance, fold.baked),
+        binding,
+        compile_pda(lifted, instance, binding.fold.baked),
         instance,
-        collapsed_fold_tables(instance, fold, bits),
+        collapsed_fold_tables(instance, binding.fold, bits),
     )
     _MODEL_CACHE[key] = product
     # Normalisation and the PDA compile mint objects the engine's own memos
@@ -271,13 +305,13 @@ def _refused(
 
 
 def parse_model[M](
-    grammar: IrAst, text: str, fold: ModelFold[M], resolve: Resolver | None = None
+    grammar: IrAst, text: str, binding: ModelBinding[M], resolve: Resolver | None = None
 ) -> M:
     """Parse instance ``text`` to a model — PDA-first, Earley + fold completion.
 
     Takes the **authored** codegen grammar; lifting, normalisation, PDA and
     run-collapsed table compilation are internal, memoised per ``(grammar,
-    fold)`` identity plus the packing tier the input's size picks
+    binding)`` identity plus the packing tier the input's size picks
     (:func:`~lexic.parsing.earley.kernel.tables.tier_for`). Each parse runs the model
     PDA first and, on any :class:`PdaFail`, completes on the gated Earley
     first derivation + ``fold``. A span whose derivations mean two different
@@ -286,7 +320,7 @@ def parse_model[M](
 
     :param grammar: The authored codegen grammar.
     :param text: The instance input to parse.
-    :param fold: The positional ParseTree → model fold producing ``M``.
+    :param binding: The bound model product producing ``M``.
     :param resolve: The caller's deterministic answer to an ambiguity;
         ``None`` refuses one.
     :returns: The model the start rule folds to.
@@ -294,19 +328,21 @@ def parse_model[M](
         two different models with no resolver supplied.
     """
     text = _owned_text(text)
-    product = _model_product(grammar, fold, tier_for(len(text)))
+    product = _model_product(grammar, binding, tier_for(len(text)))
     try:
-        return pda_model(product.pda, text, fold, resolve=resolve)
+        return pda_model(product.pda, text, binding.fold, resolve=resolve)
     except PdaFail as fail:
         try:
             return earley_model(
-                product.instance_grammar, text, fold, product.tables, resolve
+                product.instance_grammar, text, binding.fold, product.tables, resolve
             )
         except UnsupportedConstructError as refusal:
             raise _refused(fail, refusal) from None
 
 
-def pda_tables(grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS) -> PdaTables:
+def pda_tables(
+    grammar: IrAst, binding: ModelBinding, bits: int = ORIGIN_BITS
+) -> PdaTables:
     """The instance product's compiled PDA — the artefact's predictive half.
 
     The public reach onto what :func:`parse_model` drives: identity-memoised
@@ -316,9 +352,9 @@ def pda_tables(grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS) -> PdaT
     subclass runs over.
 
     :param grammar: The authored codegen grammar.
-    :param fold: The positional fold the product is keyed with.
+    :param binding: The bound model product the compile is keyed with.
     :param bits: The packing tier the memo key rides (the PDA half itself is
         tier-independent).
     :returns: The compiled :class:`~lexic.parsing.pda.compiler.tables.PdaTables`.
     """
-    return _model_product(grammar, fold, bits).pda
+    return _model_product(grammar, binding, bits).pda

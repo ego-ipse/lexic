@@ -28,6 +28,7 @@ from typing import Literal
 from lexic.compile.pipeline.naming import (
     RESERVED_FIELD_NAMES,
     TIER2,
+    VALUE_FIELD,
     class_name_for,
     has_ruleref,
 )
@@ -539,7 +540,7 @@ def field_kwargs(binding: RuleBinding) -> frozenset[str]:
     :returns: The constructor kwarg names for the rule's kind.
     """
     if binding.kind == "value_str":
-        return frozenset({"value"})
+        return frozenset({VALUE_FIELD})
     if binding.kind == "alternation":
         return frozenset()
     return frozenset(binding.fields)

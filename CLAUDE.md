@@ -155,6 +155,7 @@ src/lexic/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
       bind.py                      Runtime binding for generated twin-module classes
       export.py                    export_source / export_module — the importable .py twin
+      rules.py                     The module self-grammar's rules — the statement skeleton it is built from
       selfgrammar.py               The generated-module self-grammar — lexic parses its own exports
       verify.py                    Cross-check generated module text against compiled binding
     notation/
@@ -330,6 +331,7 @@ src/lexic/
           flatten.py               Flat int-coded runtime records and readers
           lower.py                 Clone-set lowering
           opcodes.py               Runtime program vocabulary
+          product.py               The product-side build bake — a clone's build state from its rule product
           specialize.py            Post-flatten specialization passes
       core/
         __init__.py                Shared PDA leaves — CharSet, the ScanGate scanner, PdaFail

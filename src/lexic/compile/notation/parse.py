@@ -37,7 +37,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextvars import ContextVar
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 import lexic.ir.action.access as _access
 import lexic.ir.action.build as _build
@@ -62,12 +62,15 @@ from lexic.compile.foldkit import (
     ABSENT,
     ALT_BODY,
     DECODE_INT,
+    FOLD_SYMBOLS,
     absent_tail,
     first_rest,
     model_fold,
+    product_rules,
     passthrough,
     seq,
 )
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IR_DEFAULT,
@@ -92,7 +95,8 @@ from lexic.ir import (
     Reducer,
     Yield,
 )
-from lexic.parsing import FieldFold, ModelBody, parse_model
+from lexic.parsing import FieldFold, ModelBinding, ModelBody, parse_model
+from lexic.parsing.product import CaptureMode, CaptureSpec
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
@@ -533,6 +537,78 @@ _BODIES: dict[str, ModelBody] = {
 NOTATION_FOLD = model_fold(_BODIES)
 
 
+# ── the same rules in the product vocabulary ──────────────────────────────
+
+NOTATION_SYMBOLS: dict[str, Callable[..., object]] = FOLD_SYMBOLS | {
+    "nv": _nv,
+    "name": _name,
+    "call_tail": _call_tail,
+    "arglist": _arglist,
+    "tuple": _tuple,
+    "tuplist": _tuplist,
+    "decode_escapes": _decode_escapes,
+    "neg_int": _neg_int,
+}
+"""This surface's transforms, by the names its rules complete through.
+
+The whitelist lowering resolves against — the shared idioms plus the eight
+transforms only this notation has. A name that is not here cannot reach a
+parse, which is the same no-``eval`` boundary :class:`IrNamed` already draws
+for the fold half."""
+
+_ONE = int(CaptureMode.ONE)
+_MANY = int(CaptureMode.MANY)
+_TEXT = int(CaptureMode.TEXT)
+
+NOTATION_RULES: dict[str, tuple[str, tuple[CaptureSpec, ...]]] = {
+    "start": ("passthrough", (CaptureSpec(_ONE, 1),)),
+    "value": ("", ()),
+    "nv": ("nv", (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1))),
+    "name": ("name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1))),
+    "ct-opt": ("", ()),
+    "call-tail": ("call_tail", (CaptureSpec(_ONE, 1),)),
+    "args-opt": ("", ()),
+    "arglist": ("arglist", (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1))),
+    "arg-tail": ("absent_tail", (CaptureSpec(_ONE, 1),)),
+    "arg-val": ("passthrough", (CaptureSpec(_ONE, 0),)),
+    "tuple": ("tuple", (CaptureSpec(_ONE, 1),)),
+    "tup-opt": ("", ()),
+    "tuplist": (
+        "tuplist",
+        (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1), CaptureSpec(_MANY, 2)),
+    ),
+    "tup-tail": ("absent_tail", (CaptureSpec(_ONE, 1),)),
+    "tup-val": ("passthrough", (CaptureSpec(_ONE, 0),)),
+    "strval": ("", ()),
+    "sq-str": ("decode_escapes", (CaptureSpec(_TEXT, 1),)),
+    "dq-str": ("decode_escapes", (CaptureSpec(_TEXT, 1),)),
+    "intval": ("", ()),
+    "pos-int": ("int", (CaptureSpec(_TEXT, 0),)),
+    "neg-int": ("neg_int", (CaptureSpec(_TEXT, 1),)),
+}
+"""Every rule of this surface, said in the vocabulary both engines will run.
+
+Each entry is the registry key the rule's completion applies and what it
+captures; ``""`` is the alternation pass-through. Authored beside the fold
+rather than derived from it: a derivation would keep the fold as the source of
+truth and make its deletion a rename. The two are held to each other rule by
+rule — same captures, same transform — by the authored-surface differential.
+
+Exposed as the authored table rather than only as the assembled product
+because the module self-grammar EXTENDS this surface, exactly as it extends
+the fold's own body table."""
+
+NOTATION_PRODUCT = product_rules(NOTATION_RULES)
+"""This surface's rules assembled — one :class:`RuleProduct` each, its symbol
+keys pooled, and the code each rule name resolves to."""
+
+NOTATION_BINDING = ModelBinding(
+    NOTATION_FOLD, rules_by_name(NOTATION_PRODUCT.rules, NOTATION_PRODUCT.codes)
+)
+"""What this surface hands a parse entry — its product, with the fold its
+completions still read."""
+
+
 # ── the entry ─────────────────────────────────────────────────────────────
 
 
@@ -560,7 +636,7 @@ def load_ir(text: str, symbols: Mapping[str, type] | None = None) -> IrSelf:
         or a supplied symbol that is not an ``IrSelf`` subclass.
     """
     if not symbols:
-        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_FOLD))
+        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_BINDING))
     for name, symbol in symbols.items():
         if not (isinstance(symbol, type) and issubclass(symbol, IrSelf)):
             raise UnsupportedConstructError(
@@ -569,7 +645,7 @@ def load_ir(text: str, symbols: Mapping[str, type] | None = None) -> IrSelf:
             )
     token = _EXTRA_SYMBOLS.set(symbols)
     try:
-        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_FOLD))
+        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_BINDING))
     finally:
         _EXTRA_SYMBOLS.reset(token)
 

@@ -57,10 +57,14 @@ relation and exact-lane policy. Shared nodes are values computed once; their
 parent-slot occurrences choose independently. Exact execution is uncapped and
 uses only proved constant, injective-route, and second-meaning exits. No
 planning question or user decision blocks §2. Production source began
-2026-08-31: §2 is implemented and coordinator-accepted (see the LEDGER §2
-entry for the Reducer.events ruling and verification), and §3 is in progress
-on the warm Terra agent. No parse regression is authorized by any of this
-evidence.
+2026-08-31. §2 and §3 are implemented and coordinator-ACCEPTED (LEDGER
+records each exit's rulings and verification; §3's deferred bullets carry
+"To be done in §4/§6" markers in place). §4 is in progress: steps 1–2 are
+done (model product authored + differential green; product-side bake
+identical over 610 clones; switch proved safe on 107 real PDA parses), and
+the merged step-3 channel change is underway on the Terra agent. A scoped
+Luna unit-mirror pass is user-scheduled at the §4 checkpoint. No parse
+regression is authorized by any of this evidence.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -112,7 +116,12 @@ design. An implementer must not resolve a marked item implicitly while coding.
       and run formatting, linting, pyright, and repository gates.
 - [ ] At EVERY phase exit from §4 on, Terra runs `uv run pytest tests/ -q -n
       auto` and `uv run pyright` and ledgers the exact failing-file set with a
-      one-line attribution each. An exit is blocked by any failure not
+      one-line attribution each. (2026-09-01: on the 16-thread witness host run
+      `-n 8`, not `-n auto` — at workers == cores the concurrency harness's
+      own non-vacuity guard fires on a deschedule (`flight.enter()` opens the
+      counted window after `barrier.wait()`), failing its overlap witness
+      before any lexic assertion; root-caused and reproduced by varying only
+      xdist width. Luna tightens the harness at §13.) An exit is blocked by any failure not
       attributable to a deliberate deletion; the attributed set may only
       shrink once §13 begins. This is visibility, not test authorship — Terra
       writes no committed tests.
@@ -419,7 +428,8 @@ the same signature object; a mismatched target can be diagnosed before parse.
       no new branch; §12's parse rows still gate whatever shape lands.)
 - [x] Keep the parsing layer a leaf: imports may reach `lexic.ir`, never
       `lexic.compile`, `lexic.grammars`, or `lexic.api`.
-- [ ] **To be done in §4** (the property becomes provable when the engines execute products). Lower operations to data. No target object or morphism is called from the
+- [ ] **To be done in §4** (the property becomes provable when the engines execute products).
+      Lower operations to data. No target object or morphism is called from the
       character matcher, item loop, gate selection, or any frequent completion.
       Scalar decode, validation, insertion, and declared record construction
       dispatch through engine-owned closed int codes. Keep collection-finish,
@@ -593,6 +603,16 @@ holds.
       final approval; do not build §5 on it merely because correctness improved.
 - [ ] After review and the §4 measurement gate, the coordinator creates the
       first checkpoint commit and resumes the same warm Terra agent.
+- [ ] **USER-APPROVED INSERTION (2026-09-01):** immediately after the §4
+      profile and checkpoint commit — sequentially, before Terra resumes §5 —
+      a scoped Luna pass writes the missing unit-test MIRRORS for the new
+      modules `test_test_parity` names, restoring a fully green suite so a
+      red gate is loud again for the rest of the effort. Assertions pin only
+      RULED contracts (witnessed refusals, rollback, normalizations); no
+      speculative coverage of surfaces §5/§6 will grow, no differentials, no
+      timing tests. This does NOT shrink §13's mandate: the final §13 pass
+      still re-homes/moves any of these tests whose source modules moved and
+      completes full coverage.
 
 Exit: `CompiledGrammar.parse` and token-segmented parsing use the common product
 ABI with existing behavior and no parsing-performance regression. There is
@@ -624,6 +644,14 @@ bugfix-related exception has the user's explicit final approval recorded first.
       generated-self-grammar reducers/folds into the typed expression ABI.
       Fuse a contextual rule to target completion operations only where the
       semantic signature proves equivalence; one rule never executes both.
+      (2026-09-01 ruling: the authored-symbol expression op exists for COLD
+      surface-specific transforms via the FOLD_SYMBOLS no-eval registry; this
+      phase's accounting must name and justify every symbol-op use — it is
+      never a shortcut past proper expression lowering, and the model/
+      reduction hot products contain zero of them. SymbolExpr execution must
+      apply symbols by KEYWORD where the authored body did: `absent_tail`
+      distinguishes an omitted optional tail from a real `IrNone` argument,
+      and positional application silently turns absence into `IrNone`.)
 - [ ] Refactor useful analysis from `src/lexic/compile/reduction.py` into the new
       owner: contribution order, `DROP`, `YIELD`, epsilon, text equivalence,
       contextual occurrence demand, and language-preserving lexical/run
@@ -709,7 +737,11 @@ the §8/§9 re-runs.
 ## 6 — implement signature composition and target-dependent products
 
 - [ ] Implement semantic-signature verification and the lower occurrence ×
-      upper schema state product in `compile/product/`.
+      upper schema state product in `compile/product/`. (ABI consequence
+      ruled 2026-09-01: every authored product MUST supply both a root
+      finalizer and a meaning comparator — the record requires both names and
+      the lane-bounds verifier now requires both entries; there is no
+      "cannot compare meanings" product.)
 - [ ] Propagate value, validation, text, extent, accumulation, and meaning demand
       backwards through reducer operations to a fixed point.
 - [ ] Generate occurrence-sensitive contextual clones when one lower rule has
@@ -1512,6 +1544,10 @@ test-authoring handoff, with no simultaneous benchmark contamination.
 - [ ] Luna reads `context.md`, `goal.md`, `DESIGN.md`, this TODO, Terra's report,
       and the full source diff before writing tests.
 - [ ] Mirror every new/moved source module under `tests/unit/lexic/`.
+      (User condition 2026-09-01: this final pass MUST also MOVE the early
+      §4-checkpoint mirror tests wherever their source modules moved in
+      §5–§10 — the test tree mirrors the final source tree exactly — and
+      complete the coverage the scoped early pass deliberately left out.)
 - [ ] Port assertions from deleted reduction/model/template tests to the new
       owners. Delete only tests whose exact public/internal symbol disappeared;
       preserve the behavior they defended.
@@ -1582,6 +1618,11 @@ test-authoring handoff, with no simultaneous benchmark contamination.
 - [ ] Add `FragmentProduct` tests for entry/exit state, associative ordered join,
       deferred validation, duplicate/failure order, root-finalize-once, every
       supported split shape, and sequential decline without submitted work.
+- [ ] Tighten `tests/.../concurrency.py`'s overlap witness: enter the flight
+      count BEFORE `barrier.wait()` (or count the barrier release itself) so
+      the non-vacuity guard survives a deschedule at workers == cores instead
+      of requiring an unloaded machine (root-caused 2026-09-01; committed-
+      helper contract change, so it is Luna's, not Terra's).
 - [ ] Retain the freethreaded fork-safety regression:
       `tests/integration/lexic/concurrency/test_fork_safety.py::test_a_retained_pool_does_not_prove_a_split_engaged`.
 - [ ] Add performance/invariant tests which prove discarded values allocate no
