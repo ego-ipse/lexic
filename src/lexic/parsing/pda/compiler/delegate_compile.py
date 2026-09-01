@@ -188,7 +188,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
                 )
         except UnsupportedConstructError:
             return {}  # an interior atom the clone compiler cannot handle
-        shells = flatten_clones(compiler.clones, self.binding.constructors)
+        shells = flatten_clones(compiler.clones, self.binding.construction)
         return {rid: shells[key] for rid, key in rid_key.items()}
 
     def reset(self) -> None:

@@ -63,6 +63,7 @@ from lexic.compile.foldkit import (
     ALT_BODY,
     DECODE_INT,
     FOLD_SYMBOLS,
+    AuthoredRule,
     absent_tail,
     first_rest,
     model_fold,
@@ -70,7 +71,7 @@ from lexic.compile.foldkit import (
     product_rules,
     seq,
 )
-from lexic.compile.product import rules_by_name
+from lexic.compile.product import bind_symbols, rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IR_DEFAULT,
@@ -96,7 +97,7 @@ from lexic.ir import (
     Yield,
 )
 from lexic.parsing import FieldFold, ModelBinding, ModelBody, parse_model
-from lexic.parsing.product import CaptureMode, CaptureSpec
+from lexic.parsing.product import CaptureMode, CaptureSpec, ConstructionTables
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
@@ -560,36 +561,45 @@ _ONE = int(CaptureMode.ONE)
 _MANY = int(CaptureMode.MANY)
 _TEXT = int(CaptureMode.TEXT)
 
-NOTATION_RULES: dict[str, tuple[str, tuple[CaptureSpec, ...]]] = {
-    "start": ("passthrough", (CaptureSpec(_ONE, 1),)),
-    "value": ("", ()),
-    "nv": ("nv", (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1))),
-    "name": ("name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1))),
-    "ct-opt": ("", ()),
-    "call-tail": ("call_tail", (CaptureSpec(_ONE, 1),)),
-    "args-opt": ("", ()),
-    "arglist": ("arglist", (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1))),
-    "arg-tail": ("absent_tail", (CaptureSpec(_ONE, 1),)),
-    "arg-val": ("passthrough", (CaptureSpec(_ONE, 0),)),
-    "tuple": ("tuple", (CaptureSpec(_ONE, 1),)),
-    "tup-opt": ("", ()),
-    "tuplist": (
+NOTATION_RULES: dict[str, AuthoredRule] = {
+    "start": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "value": AuthoredRule(""),
+    "nv": AuthoredRule(
+        "nv", (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1)), ("sym", "call"), 2
+    ),
+    "name": AuthoredRule(
+        "name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1)), ("head", "tail"), 3
+    ),
+    "ct-opt": AuthoredRule(""),
+    "call-tail": AuthoredRule("call_tail", (CaptureSpec(_ONE, 1),), ("a",), 3),
+    "args-opt": AuthoredRule(""),
+    "arglist": AuthoredRule(
+        "arglist", (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1)), ("first", "rest"), 2
+    ),
+    "arg-tail": AuthoredRule("absent_tail", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "arg-val": AuthoredRule("passthrough", (CaptureSpec(_ONE, 0),), ("v",), 1),
+    "tuple": AuthoredRule("tuple", (CaptureSpec(_ONE, 1),), ("items",), 3),
+    "tup-opt": AuthoredRule(""),
+    "tuplist": AuthoredRule(
         "tuplist",
         (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1), CaptureSpec(_MANY, 2)),
+        ("first", "one", "rest"),
+        3,
     ),
-    "tup-tail": ("absent_tail", (CaptureSpec(_ONE, 1),)),
-    "tup-val": ("passthrough", (CaptureSpec(_ONE, 0),)),
-    "strval": ("", ()),
-    "sq-str": ("decode_escapes", (CaptureSpec(_TEXT, 1),)),
-    "dq-str": ("decode_escapes", (CaptureSpec(_TEXT, 1),)),
-    "intval": ("", ()),
-    "pos-int": ("int", (CaptureSpec(_TEXT, 0),)),
-    "neg-int": ("neg_int", (CaptureSpec(_TEXT, 1),)),
+    "tup-tail": AuthoredRule("absent_tail", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "tup-val": AuthoredRule("passthrough", (CaptureSpec(_ONE, 0),), ("v",), 1),
+    "strval": AuthoredRule(""),
+    "sq-str": AuthoredRule("decode_escapes", (CaptureSpec(_TEXT, 1),), ("raw",), 4),
+    "dq-str": AuthoredRule("decode_escapes", (CaptureSpec(_TEXT, 1),), ("raw",), 4),
+    "intval": AuthoredRule(""),
+    "pos-int": AuthoredRule("decode_int", (CaptureSpec(_TEXT, 0),), ("raw",), 2),
+    "neg-int": AuthoredRule("neg_int", (CaptureSpec(_TEXT, 1),), ("raw",), 3),
 }
 """Every rule of this surface, said in the vocabulary both engines will run.
 
-Each entry is the registry key the rule's completion applies and what it
-captures; ``""`` is the alternation pass-through. Authored beside the fold
+Each entry is the registry key the rule's completion applies, what it
+captures, the keyword each capture fills, which captures may be absent, and how
+wide the arm is; ``""`` is the alternation pass-through. Authored beside the fold
 rather than derived from it: a derivation would keep the fold as the source of
 truth and make its deletion a rename. The two are held to each other rule by
 rule — same captures, same transform — by the authored-surface differential.
@@ -603,10 +613,14 @@ NOTATION_PRODUCT = product_rules(NOTATION_RULES)
 keys pooled, and the code each rule name resolves to."""
 
 NOTATION_BINDING = ModelBinding(
-    NOTATION_FOLD, rules_by_name(NOTATION_PRODUCT.rules, NOTATION_PRODUCT.codes)
+    NOTATION_FOLD,
+    rules_by_name(NOTATION_PRODUCT.rules, NOTATION_PRODUCT.codes),
+    ConstructionTables(
+        symbols=bind_symbols(NOTATION_PRODUCT.symbols, NOTATION_SYMBOLS)
+    ),
 )
-"""What this surface hands a parse entry — its product, with the fold its
-completions still read."""
+"""What this surface hands a parse entry — its product, with its transforms
+resolved through its own whitelist and the fold the gated engine still reads."""
 
 
 # ── the entry ─────────────────────────────────────────────────────────────

@@ -295,20 +295,30 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         second-success audit's composition evidence. Dispatch and leaf
         specialisation are skipped for such a clone.
     :ivar mode: The build-mode (one of the ``_BUILD_*`` constants).
-    :ivar fold: The rule's :class:`~lexic.parsing.fold.RuleFold`, or ``None``
-        (transparent).
-    :ivar fields: The fold's bound fields with int-coded modes —
-        ``(item, mode, name, lo)`` tuples (empty without a fast licence).
+    :ivar ctor: What this clone's completion calls to build its value — the
+        declared class, or the surface transform its symbol resolved to — or
+        ``None`` when the clone builds nothing. Called by KEYWORD; the
+        positional shortcut is :attr:`fast`.
+    :ivar matched: The field :attr:`ctor` fills from the clone's OWN matched
+        extent, ``""`` when no field does. What makes the ``value_str``
+        construction sayable without a field name spelled in engine code.
+    :ivar n_items: The rule's sequence-arm item count. A matched arm of a
+        different width is the rule's EMPTY alternate arm, or a compile/runtime
+        disagreement; nothing else distinguishes the two.
+    :ivar fields: The keyword capture layout with int-coded modes —
+        ``(item, mode, name, lo)`` tuples, one per capture. Empty when the
+        clone builds nothing.
     :ivar plan: The fused build's POSITIONAL plan — one ``(mode, item, lo,
         default)`` entry per field of the model class, in the record's own
         field order, so a build reads the plan straight into a values list and
         constructs the tuple. Empty without a fast licence. Building by name
         instead cost a defaults-dict copy, a supplied-key set and a read-back
         through ``map(parts.get, cls._fields)`` per model.
-    :ivar fast: The fold's :attr:`~lexic.parsing.fold.FastCtor.make` parts
-        constructor, or ``None`` (the runtime uses the validated ``ctor``).
-    :ivar defaults: The fold's :attr:`~lexic.parsing.fold.FastCtor.defaults`
-        the fused build seeds each parts dict from, or ``None``.
+    :ivar fast: The class's positional constructor when it granted the
+        validation-skip licence, else ``None`` (the runtime builds through
+        :attr:`ctor` by keyword).
+    :ivar defaults: The construction's field defaults the fused build seeds
+        each plan entry from, or ``None``.
     :ivar leaf: ``True`` for a fast-licenced ``sequence`` clone whose every arm
         is all-terminal (``OP_VSTR`` included) — the runtime runs it
         frame-lessly in :meth:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel._run_leaf`.
@@ -339,7 +349,9 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
         "struct_arm",
         "attempt",
         "mode",
-        "fold",
+        "ctor",
+        "matched",
+        "n_items",
         "fields",
         "plan",
         "fast",
@@ -359,7 +371,9 @@ class FlatClone(IrLeaf[IrSelf, IrSelf]):
     struct_arm: Any  # ScanGate | None — the empty-arm gate, consulted at select
     attempt: Any  # ((chars, negated), entries) | None — the attempt order
     mode: int
-    fold: Any  # RuleFold | None — Any-typed like payloads: hot-loop reads
+    ctor: Any  # Callable[..., object] | None — Any-typed like payloads
+    matched: str
+    n_items: int
     fields: tuple[tuple[int, int, str, int], ...]
     plan: tuple[tuple[int, int, int, Any], ...]
     fast: Any
@@ -396,12 +410,11 @@ class PdaProgram(IrLeaf[IrSelf, IrSelf]):
 
 
 def clear_build(clone: FlatClone) -> None:
-    """Give a clone no fused build state — what a clone without a licence has.
+    """Give a clone no build state — what a clone that builds nothing has.
 
-    A transparent clone, an unlicensed rule and a rule that completes some way
-    other than by constructing a declared record all reach the same place: the
-    fused build has nothing to do, so its four fields say nothing rather than
-    something empty-looking. One home for that, because two bakes write it.
+    A transparent clone and a pass-through reach the same place: there is no
+    construction, so the four fields say nothing rather than something
+    empty-looking.
     """
     clone.fields = ()
     clone.plan = ()
@@ -426,7 +439,7 @@ def vstr_model(clone: FlatClone, span: str) -> object:
         return fast(
             [span if mode == M_VALUE else default for mode, _i, _lo, default in plan]
         )
-    return clone.fold.ctor(value=span)
+    return clone.ctor(**{clone.matched: span})
 
 
 CHARTABLE_CAP = 256

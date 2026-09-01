@@ -26,6 +26,8 @@ from pathlib import Path
 
 from lexic.compile import compile_from_path
 from lexic.compile.pipeline.binding import compute_binding
+from lexic.compile.foldkit import ALT_PRODUCT
+from lexic.parsing.product import RecordOp
 from lexic.compile.pipeline.synthesis import fold_config, model_plan
 from lexic.parsing.product import CaptureMode
 
@@ -71,11 +73,29 @@ def _agree(label: str, compiled: object) -> tuple[int, int]:
     )
 
     optionals = 0
+    constructors = 0
     for name, code in plan.codes.items():
         body = folds[name]
         product = plan.rules[code]
-        ctor = plan.constructors[code]
 
+        # An alternation constructs nothing: it hands its matched arm's one
+        # model on, so it takes the shared pass-through and occupies no
+        # constructor row. The fold says the same thing with a stand-in ctor
+        # it never calls.
+        if body.kind == "alternation":
+            _check(
+                f"{label}/{name}: an alternation does not pass its child through",
+                product == ALT_PRODUCT,
+            )
+            continue
+        ctor = plan.constructors[constructors]
+        constructors += 1
+
+        _check(
+            f"{label}/{name}: arm width {product.n_items}, the fold's "
+            f"{body.n_items}",
+            product.n_items == body.n_items,
+        )
         _check(
             f"{label}/{name}: captured {len(product.captures)} of "
             f"{len(body.fields)} bound fields",
@@ -119,11 +139,15 @@ def _agree(label: str, compiled: object) -> tuple[int, int]:
             f"{body.kind} rule",
             bool(ctor.matched_field) == (body.kind == "value_str"),
         )
-        if body.kind != "alternation":
-            _check(
-                f"{label}/{name}: the plan constructs a different class",
-                ctor.cls is body.ctor.eval,
-            )
+        _check(
+            f"{label}/{name}: the plan constructs a different class",
+            ctor.cls is body.ctor.eval,
+        )
+    _check(
+        f"{label}: {constructors} constructor rows for a table of "
+        f"{len(plan.constructors)}",
+        constructors == len(plan.constructors),
+    )
     return len(plan.codes), optionals
 
 
@@ -160,7 +184,11 @@ def the_absence_rule_is_carried() -> None:
     bodies = fold_config(compiled.codegen_grammar, binding, compiled.classes)
     folds = {str(ref): body for ref, body in bodies.items()}
 
-    ctor = plan.constructors[plan.codes["number"]]
+    # The constructor table is sparse in rules — an alternation occupies no
+    # row — so a rule's constructor is the one its completion NAMES.
+    completion = plan.rules[plan.codes["number"]].completion
+    assert isinstance(completion, RecordOp)
+    ctor = plan.constructors[completion.constructor]
     fold = folds["number"]
     optional_names = {ctor.names[at] for at in ctor.optional}
     expected = {f.name for f in fold.fields if f.mode == "gtext" and f.lo == 0}

@@ -38,6 +38,7 @@ from lexic.parsing.product import (
     ArgsExpr,
     BeginMappingOp,
     BeginSequenceOp,
+    BoundSymbol,
     BuildExpr,
     CompletionRange,
     CondExpr,
@@ -70,13 +71,14 @@ from lexic.parsing.product import (
     RuleBody,
     RuleProduct,
     SingletonRoute,
+    SymbolConstructor,
     SymbolExpr,
     TableRoute,
     UniformRoute,
     ValidateOp,
 )
 
-__all__ = ["LoweringOwned", "lower_product", "lower_routes"]
+__all__ = ["LoweringOwned", "bind_symbols", "lower_product", "lower_routes"]
 
 
 class LoweringOwned(NamedTuple):
@@ -88,16 +90,17 @@ class LoweringOwned(NamedTuple):
     together is what makes "a caller hands these in authored form and gets
     them back lowered" one rule instead of three coincidences.
 
-    ``symbols`` is names, not callables — the authored side of the ABI never
-    holds one — and ``registry`` is what turns them into callables. The two
-    travel together because a name is only meaningful against the whitelist it
-    is resolved through: separating them is how a program could name a symbol
-    with no registry to check it against.
+    ``symbols`` is authored :class:`~lexic.parsing.product.SymbolConstructor`
+    records — registry keys and keyword layouts, never callables, because the
+    authored side of the ABI never holds one — and ``registry`` is what turns
+    them into callables. The two travel together because a name is only
+    meaningful against the whitelist it is resolved through: separating them is
+    how a program could name a symbol with no registry to check it against.
     """
 
     constructors: tuple[RecordConstructor, ...] = ()
     routes: tuple[RouteTable, ...] = ()
-    symbols: tuple[str, ...] = ()
+    symbols: tuple[SymbolConstructor, ...] = ()
     registry: Mapping[str, Callable[..., object]] = MappingProxyType({})
 
 
@@ -380,37 +383,71 @@ def _refuse_prefilled[Carry, Result](operands: OperandTables[Carry, Result]) -> 
     if operands.symbols:
         raise UnsupportedConstructError(
             "product lowering: the symbol table is written by lowering alone; "
-            "pass registry names as `symbols=` rather than filling the operand "
-            "record with callables"
+            "pass authored symbol constructors as `symbols=` rather than "
+            "filling the operand record with callables"
         )
 
 
-def _symbols(
-    names: Sequence[str], registry: Mapping[str, Callable[..., object]]
-) -> tuple[Callable[..., object], ...]:
-    """Resolve each authored symbol name through the surface's registry.
+def bind_symbols(
+    authored: Sequence[SymbolConstructor],
+    registry: Mapping[str, Callable[..., object]],
+) -> tuple[BoundSymbol, ...]:
+    """Resolve each authored symbol constructor through its surface's registry.
 
-    The no-``eval`` boundary, and the only place a name becomes a callable. A
-    name the registry does not carry refuses here — at lowering, cold — rather
-    than raising a ``KeyError`` mid-parse or, worse, resolving through
-    something wider than the whitelist.
+    The no-``eval`` boundary, and the only place a name becomes a callable —
+    for the flat program AND for the predictive runtime's clone bake, which
+    reach the same rows by the same index. A name the registry does not carry
+    refuses here, at lowering, cold, rather than raising a ``KeyError``
+    mid-parse or resolving through something wider than the whitelist.
 
-    :param names: The authored registry keys, in operand order.
+    The keyword layout is checked at the same moment, because a record that
+    passes registry membership and then names one keyword twice would build a
+    silently wrong value: two captures would write one keyword and the later
+    one would win.
+
+    :param authored: The authored constructors, in operand order.
     :param registry: The surface's whitelist.
-    :returns: The resolved callables, in the same order.
-    :raises UnsupportedConstructError: On a name the registry does not carry.
+    :returns: The resolved rows, in the same order.
+    :raises UnsupportedConstructError: On a name the registry does not carry,
+        a repeated keyword, or an optional index naming no capture.
     """
-    resolved: list[Callable[..., object]] = []
-    for at, name in enumerate(names):
-        transform = registry.get(name)
+    resolved: list[BoundSymbol] = []
+    for at, entry in enumerate(authored):
+        transform = registry.get(entry.symbol)
         if transform is None:
             raise UnsupportedConstructError(
-                f"product lowering: symbol {at} names {name!r}, which is not in "
-                f"the registry (it carries {sorted(registry)}); a symbol reaches "
-                "a parse only by being registered when the program is lowered"
+                f"product lowering: symbol {at} names {entry.symbol!r}, which is "
+                f"not in the registry (it carries {sorted(registry)}); a symbol "
+                "reaches a parse only by being registered when the program is "
+                "lowered"
             )
-        resolved.append(transform)
+        _check_keywords(at, entry)
+        resolved.append(
+            BoundSymbol(transform, entry.names, entry.optional, entry.matched)
+        )
     return tuple(resolved)
+
+
+def _check_keywords(at: int, entry: SymbolConstructor) -> None:
+    """Refuse a symbol constructor whose keyword layout cannot be applied.
+
+    :param at: The operand row, for the message.
+    :param entry: The authored constructor.
+    :raises UnsupportedConstructError: On a repeated keyword or an optional
+        index outside the capture range the names describe.
+    """
+    if len(set(entry.names)) != len(entry.names):
+        raise UnsupportedConstructError(
+            f"product lowering: symbol {at} ({entry.symbol!r}) fills keywords "
+            f"{list(entry.names)}, which repeats one — two captures cannot write "
+            "the same keyword, and the later would silently win"
+        )
+    outside = [index for index in entry.optional if not 0 <= index < len(entry.names)]
+    if outside:
+        raise UnsupportedConstructError(
+            f"product lowering: symbol {at} ({entry.symbol!r}) marks captures "
+            f"{outside} optional, and it fills only {len(entry.names)} keywords"
+        )
 
 
 def lower_product[Carry, Result](
@@ -456,6 +493,7 @@ def lower_product[Carry, Result](
                 tuple(int(capture.mode) for capture in rule.captures),
                 tuple(int(capture.slot) for capture in rule.captures),
                 len(completions) - 1,
+                int(rule.n_items),
             )
         )
     return ProductProgram(
@@ -470,7 +508,7 @@ def lower_product[Carry, Result](
         operands._replace(
             constructors=_constructors(owned.constructors),
             routes=lower_routes(owned.routes, operands.continuations),
-            symbols=_symbols(owned.symbols, owned.registry),
+            symbols=bind_symbols(owned.symbols, owned.registry),
         ),
         root,
         meaning,

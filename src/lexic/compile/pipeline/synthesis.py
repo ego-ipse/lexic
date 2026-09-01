@@ -31,6 +31,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import NamedTuple
 
+from lexic.compile.foldkit import ALT_PRODUCT
 from lexic.compile.pipeline.binding import (
     RuleBinding,
     check_supplied_class,
@@ -363,7 +364,9 @@ def model_plan(
     A ``value_str`` rule binds no field: its whole body is the value, so it
     captures nothing and declares instead which class field its own matched
     text fills. That is the one construction fact the bound fields cannot
-    carry, because there is no item to point at.
+    carry, because there is no item to point at. An ``alternation`` builds
+    nothing at all and takes the shared pass-through, so the constructor table
+    holds a row only for a rule that really constructs one.
 
     :param codegen_grammar: The post-pass grammar the binding was computed on.
     :param binding: The binding view, in emission order.
@@ -382,9 +385,16 @@ def model_plan(
             continue
         arms = [arm for arm in rules[bound.rule_name].body if arm]
         items = arms[0] if bound.kind == "sequence" and arms else ()
+        codes[bound.rule_name] = len(products)
+        if bound.kind == "alternation":
+            # An alternation constructs nothing — it hands its matched arm's
+            # one model on. Said with the same record every authored surface
+            # spells it with, rather than a constructor naming a class this
+            # rule never calls.
+            products.append(ALT_PRODUCT)
+            continue
         specs, names, optional = _model_captures(bound, items)
         cls = classes[bound.class_name]
-        codes[bound.rule_name] = len(products)
         constructors.append(
             RecordConstructor(
                 cls,
@@ -395,7 +405,7 @@ def model_plan(
                 _fast_ctor(cls, bound.kind, _fold_fields(bound, items)) is not None,
             )
         )
-        products.append(RuleProduct(specs, RecordOp(len(constructors) - 1)))
+        products.append(RuleProduct(specs, RecordOp(len(constructors) - 1), len(items)))
     return ModelPlan(tuple(products), tuple(constructors), codes)
 
 

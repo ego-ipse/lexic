@@ -21,12 +21,18 @@ from lexic.compile.product.binding import (
     bind_model,
     rules_by_name,
 )
-from lexic.compile.product.lower import LoweringOwned, lower_product, lower_routes
+from lexic.compile.product.lower import (
+    LoweringOwned,
+    bind_symbols,
+    lower_product,
+    lower_routes,
+)
 
 __all__ = [
     "BindingRegistry",
     "BoundProduct",
     "LoweringOwned",
+    "bind_symbols",
     "ProgramProduct",
     "bind_model",
     "rules_by_name",

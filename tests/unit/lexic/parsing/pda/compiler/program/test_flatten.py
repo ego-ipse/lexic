@@ -131,11 +131,11 @@ def test_flatarm_declares_exactly_the_parallel_per_item_arrays():
     assert set(FlatArm.__slots__) == expected
 
 
-def test_flatclone_declares_exactly_the_selector_and_fold_build_fields():
-    """FlatClone carries exactly the arm-selector + fold/build fields, no extras."""
+def test_flatclone_declares_exactly_the_selector_and_build_fields():
+    """FlatClone carries exactly the arm-selector + build fields, no extras."""
     expected = {"name", "selectors", "kwin_selectors", "pn_selectors", "default"}
     expected |= {"struct_arm", "attempt"}
-    expected |= {"mode", "fold", "fields", "plan"}
+    expected |= {"mode", "ctor", "matched", "n_items", "fields", "plan"}
     expected |= {"fast", "defaults", "leaf", "chartable", "chartotal"}
     expected |= {"runarm", "needs_ends"}
     assert set(FlatClone.__slots__) == expected

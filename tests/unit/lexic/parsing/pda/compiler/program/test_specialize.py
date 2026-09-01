@@ -539,7 +539,7 @@ def test_specialize_calls_is_blocked_by_a_needs_ends_sequence_clone():
 # ── inline group flatten (_flatten_group / BUILD_TRANSPARENT) ────────────
 
 
-def test_inline_group_flattens_transparent_with_no_fold_and_no_fast_ctor():
+def test_inline_group_flattens_transparent_with_no_ctor_and_no_fast_ctor():
     """A ref-bearing inline group (too small to be hoisted to a named rule)
     flattens to a frame-less BUILD_TRANSPARENT clone: no RuleFold, no
     fields, no fast constructor, never leaf-licenced.
@@ -551,7 +551,7 @@ def test_inline_group_flattens_transparent_with_no_fold_and_no_fast_ctor():
     assert arm.kinds == (OP_GRP,)
     group = arm.payloads[0]
     assert group.mode == BUILD_TRANSPARENT
-    assert group.fold is None
+    assert group.ctor is None
     assert group.fields == ()
     assert group.fast is None
     assert group.defaults is None

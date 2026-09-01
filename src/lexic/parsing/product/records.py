@@ -17,6 +17,9 @@ audits that with ``type(value) is int``, because ``isinstance`` would admit an
 Begin, append and finish are three record types rather than one discriminated
 record with ignored fields: their operands and their results differ, and a
 single record would state a contract none of the three keeps.
+
+The CONSTRUCTION records live in ``construction`` and are re-exported here:
+both layers name them, so a record shared by two layers belongs to neither.
 """
 
 from __future__ import annotations
@@ -27,6 +30,12 @@ from types import MappingProxyType
 from typing import NamedTuple
 
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
+from lexic.parsing.product.construction import (
+    BoundSymbol,
+    ConstructionTables,
+    RecordConstructor,
+    SymbolConstructor,
+)
 from lexic.parsing.product.expressions import ExprProgram
 
 __all__ = [
@@ -39,11 +48,13 @@ __all__ = [
     "AppendSequenceOp",
     "BeginMappingOp",
     "BeginSequenceOp",
+    "BoundSymbol",
     "CAPTURE_FOR_BIND",
     "CaptureMode",
     "CaptureSpec",
     "CompletionRange",
     "ConstantOp",
+    "ConstructionTables",
     "DecodeCode",
     "DecodeOp",
     "Extent",
@@ -70,6 +81,7 @@ __all__ = [
     "RuleCompletion",
     "RuleProduct",
     "SequenceFinisher",
+    "SymbolConstructor",
     "ValidateOp",
 ]
 
@@ -253,49 +265,6 @@ class RecordOp[Carry](NamedTuple):
     constructor: int
 
 
-class RecordConstructor(NamedTuple):
-    """A declared constructor and the spelling its captures are laid out in.
-
-    A bare class cannot build a record: construction needs which captures fill
-    which fields, which may be ABSENT, and what an absent one falls back to.
-    Those are the rule's binding, not the class, so they travel with it here.
-    Everything is binding-owned; ``cls`` is the one class object a declaration
-    named, and no factory, lambda or bound method appears anywhere in the
-    record — which is what keeps :class:`RecordOp` callable-free at a frequent
-    completion.
-
-    :ivar cls: The class to construct.
-    :ivar names: The field each capture fills, in capture order.
-    :ivar optional: Capture indices that may be absent. An absent one is
-        OMITTED so the class's default applies; passing empty text instead
-        would turn "matched nothing" into "matched the empty string".
-    :ivar defaults: What an omitted field falls back to on the licensed
-        positional path, which cannot omit. The value type stays open because
-        a declared record's defaults are the record's own. Measured, not
-        assumed: every generated-model default in the ground-truth corpus is
-        Python ``None`` (90 of 90) — the model layer's absent-optional
-        concession, deliberately not ``IrNone`` — so narrowing to that would
-        encode one product's fact into an ABI other products share.
-    :ivar matched_field: The field the occurrence's OWN matched text fills,
-        ``""`` when no field does. Distinct from a TEXT capture, which takes
-        one CHILD slot's text: this is the whole extent the rule consumed, and
-        a rule whose value IS what it matched has no slot to point at.
-        Declared rather than inferred — it is derivable (a field no capture
-        fills and no default covers can only be this one), and lowering keeps
-        that derivation as a cross-check, but a record whose defaults later
-        changed would flip the inference silently.
-    :ivar licensed: Whether construction may skip per-field validation — a
-        flag rather than a bound constructor, so the table holds no callable.
-    """
-
-    cls: type
-    names: tuple[str, ...] = ()
-    optional: tuple[int, ...] = ()
-    defaults: Mapping[str, object] = MappingProxyType({})
-    matched_field: str = ""
-    licensed: bool = False
-
-
 class MeaningOp(NamedTuple):
     """Compare two candidate meanings of one span."""
 
@@ -458,10 +427,19 @@ class RuleProduct[Carry](NamedTuple):
     reducer's own :class:`ExprProgram`. Its type decides which physical table
     the rule lowers into, so "a rule executes one or the other, never both" is
     a property of the record rather than a rule about filling two fields.
+
+    :ivar captures: What each captured occurrence hands the completion.
+    :ivar completion: The fused operation or expression program it runs.
+    :ivar n_items: How many items the rule's sequence arm has. NOT derivable
+        from ``captures`` — an item nothing binds is not a capture — and a
+        completion needs it to tell "this arm matched nothing, so the rule's
+        EMPTY alternate arm matched" from a compile/runtime disagreement.
+        Zero for a rule with no sequence arm to count.
     """
 
     captures: tuple[CaptureSpec, ...]
     completion: RuleBody[Carry]
+    n_items: int = 0
 
 
 # ── Flat records (hot; plain ints only) ───────────────────────────────
@@ -473,11 +451,15 @@ class FlatRuleProduct(NamedTuple):
     :ivar capture_modes: One :class:`CaptureMode` value per capture, as int.
     :ivar capture_slots: The matching lane index per capture.
     :ivar completion: Index into :attr:`ProductProgram.completions`.
+    :ivar n_items: The rule's sequence-arm item count, carried through from
+        :attr:`RuleProduct.n_items` so a completion can recognise the empty
+        alternate arm without reaching back to the authored layer.
     """
 
     capture_modes: tuple[int, ...]
     capture_slots: tuple[int, ...]
     completion: int
+    n_items: int = 0
 
 
 class CompletionRange(NamedTuple):
@@ -565,9 +547,12 @@ class OperandTables[Carry, Result](NamedTuple):
     documents, and their completions are not frequent by any measure. Those
     are what :class:`~lexic.parsing.product.expressions.SymbolExpr` serves.
     Two things keep it from becoming a general callback channel: the authored
-    operand is a registry KEY, so no callable appears in a program's records,
-    and lowering resolves the key through the surface's own whitelist and
-    refuses one that is not there.
+    operand is a :class:`SymbolConstructor` carrying a registry KEY, so no
+    callable appears in a program's records, and lowering resolves the key
+    through the surface's own whitelist and refuses one that is not there. The
+    resolved rows are :class:`BoundSymbol`\\ s rather than bare callables
+    because the keywords are half the contract: applying one positionally
+    would erase the absent-optional distinction its transforms depend on.
     """
 
     constants: tuple[Carry, ...]
@@ -578,7 +563,7 @@ class OperandTables[Carry, Result](NamedTuple):
     roots: tuple[RootFinalizer[Carry, Result], ...]
     routes: tuple[LoweredRoute, ...]
     continuations: tuple[RouteContinuation, ...]
-    symbols: tuple[Callable[..., object], ...] = ()
+    symbols: tuple[BoundSymbol, ...] = ()
 
 
 class ProductProgram[Carry, Result](NamedTuple):

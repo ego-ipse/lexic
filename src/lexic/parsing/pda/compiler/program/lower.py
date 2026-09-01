@@ -9,19 +9,13 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple, Sequence, cast
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     PdaProgram,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
-    BUILD_ALT,
     BUILD_DISPATCH,
-    BUILD_SEQ,
-    BUILD_TRANSPARENT,
-    BUILD_VALUE_STR,
     GATE_ATTEMPT,
     GATE_KWIN,
     GATE_PAIR,
@@ -76,7 +70,7 @@ from lexic.parsing.pda.core.scanner import (
     compile_source,
     literal_source,
 )
-from lexic.parsing.product import RecordConstructor, RuleProduct
+from lexic.parsing.product import ConstructionTables
 
 
 def _flat_windows(
@@ -84,25 +78,6 @@ def _flat_windows(
 ) -> tuple[tuple[tuple[frozenset[str], bool], ...], ...]:
     """Pre-resolve CharSet windows to the ``((chars, negated), ...)`` flat form."""
     return tuple(tuple((cs.chars, cs.negated) for cs in win) for win in windows)
-
-
-def _build_mode(fold: RuleFold | None) -> int:
-    """Map a clone's fold to its flat build-mode.
-
-    :param fold: The clone's :class:`~lexic.parsing.fold.RuleFold`, or ``None``.
-    :returns: One of the ``_BUILD_*`` constants.
-    :raises UnsupportedConstructError: On a fold kind outside the vocabulary.
-    """
-    if fold is None:
-        return BUILD_TRANSPARENT
-    kind = fold.kind
-    if kind == "value_str":
-        return BUILD_VALUE_STR
-    if kind == "alternation":
-        return BUILD_ALT
-    if kind == "sequence":
-        return BUILD_SEQ
-    raise UnsupportedConstructError(f"pda: unknown fold kind {kind!r}")
 
 
 def _flatten_gate(
@@ -192,27 +167,6 @@ def _flatten_item(spec: ItemSpec, low: Lowering) -> tuple[int, object]:
     return OP_REF, low.shells[cast(CloneKey, target)]
 
 
-def _bake_build(
-    clone: FlatClone,
-    fold: RuleFold | None,
-    product: RuleProduct | None,
-    constructors: Sequence[RecordConstructor],
-) -> None:
-    """Bake a clone's lifecycle here and its build state from the product.
-
-    The two halves are separate on purpose: the fold reference and the leaf /
-    char-table / run-arm slots are this clone's own lifecycle, while what the
-    build READS — the capture layout, the positional plan, the constructor and
-    its defaults — comes from the rule's product.
-    """
-    clone.fold = fold
-    clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
-    clone.chartable = None  # baked last, off the final plan, by bake_chartables
-    clone.chartotal = True
-    clone.runarm = None
-    bake_product_build(clone, product, constructors)
-
-
 def _flatten_selectors(
     arms: Sequence[ArmSpec], low: Lowering
 ) -> tuple[tuple[tuple[frozenset[str], bool, FlatArm], ...], object, object]:
@@ -274,8 +228,7 @@ def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
     )
     if clone.attempt is not None:
         low.groups.append((clone, group.arms))
-    clone.mode = BUILD_TRANSPARENT
-    _bake_build(clone, None, None, ())
+    bake_product_build(clone, None, ConstructionTables())
     return clone
 
 
@@ -490,7 +443,9 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     sub.struct_arm = None
     sub.attempt = None
     sub.mode = clone.mode
-    sub.fold = clone.fold
+    sub.ctor = clone.ctor
+    sub.matched = clone.matched
+    sub.n_items = clone.n_items
     sub.fields = clone.fields
     sub.plan = clone.plan
     sub.fast = clone.fast
@@ -539,7 +494,7 @@ def _attempt_entries(
 
 def flatten_clones(
     clones: dict[CloneKey, CloneSpec],
-    constructors: Sequence[RecordConstructor] = (),
+    construction: ConstructionTables = ConstructionTables(),
 ) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
@@ -571,8 +526,7 @@ def flatten_clones(
         clone.attempt = (
             (spec.attempt_follow, ()) if spec.attempt_follow is not None else None
         )
-        clone.mode = _build_mode(spec.fold)
-        _bake_build(clone, spec.fold, spec.product, constructors)
+        bake_product_build(clone, spec.product, construction)
     optimize_program(list(low.shells.values()))
     attempting = [
         (low.shells[key], spec.arms, spec.attempt_follow)
@@ -603,10 +557,10 @@ def _optimize_entries(entries: tuple[Any, ...]) -> None:
 def flatten_program(
     clones: dict[CloneKey, CloneSpec],
     start_key: CloneKey | IslandRef,
-    constructors: Sequence[RecordConstructor] = (),
+    construction: ConstructionTables = ConstructionTables(),
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`."""
-    shells = flatten_clones(clones, constructors)
+    shells = flatten_clones(clones, construction)
     start: FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )

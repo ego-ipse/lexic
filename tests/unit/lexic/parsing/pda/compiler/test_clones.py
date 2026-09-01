@@ -23,9 +23,10 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir import IrAst, IrMap
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import ModelBinding, ModelFold, lift_optional_nullables
+from lexic.parsing.fold import ModelFold, lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import (
     CC,
     GRP,

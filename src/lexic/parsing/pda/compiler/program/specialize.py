@@ -402,7 +402,10 @@ def _share_filling_tables(clones: list[FlatClone]) -> None:
     for clone in clones:
         if clone.chartable is None or clone.chartotal:
             continue
-        clone.chartable = by_ctor.setdefault(clone.fold.ctor, clone.chartable)
+        # Keyed on the constructor the clone builds through, which IS the key
+        # the fold gave: a generated model's fold ctor was the class object
+        # itself, so the intern key space is unchanged rather than equivalent.
+        clone.chartable = by_ctor.setdefault(clone.ctor, clone.chartable)
 
 
 def _specialize_vruns(arm: FlatArm) -> None:

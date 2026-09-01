@@ -96,6 +96,7 @@ def verify_program[Carry, Result](program: ProductProgram[Carry, Result]) -> Non
     _verify_program_lanes(program)
     for at, rule in enumerate(program.rules):
         _verify_rule_shape(program, at, rule.capture_modes, rule.capture_slots)
+        _verify_arm_width(at, rule.n_items)
         completion = _completion_of(program, at, rule.completion)
         _verify_range(program, at, completion)
 
@@ -158,6 +159,29 @@ def _verify_table_shape[Carry, Result](program: ProductProgram[Carry, Result]) -
     verify_exact_ints(program.expression_operands, "the expression operand table")
     verify_exact_ints(program.fused_opcodes, "the fused opcode table")
     verify_exact_ints(program.fused_operands, "the fused operand table")
+
+
+def _verify_arm_width(at: int, n_items: int) -> None:
+    """Refuse an arm width that is not a lowered, non-negative int.
+
+    Deliberately not compared against the widest capture slot: a rule that
+    passes its one child through declares no arm to count, and yet captures
+    slot 0 — so "wider than every slot" is a property of sequence completions
+    only, and this record does not say which completions those are.
+
+    :param at: The rule index, for the message.
+    :param n_items: The declared sequence-arm item count.
+    :raises UnsupportedConstructError: When the width is not a lowered int or
+        is negative.
+    """
+    if n_items.__class__ is not int:
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s arm width is not a lowered int"
+        )
+    if n_items < 0:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} declares {n_items} items"
+        )
 
 
 def _verify_rule_shape[Carry, Result](

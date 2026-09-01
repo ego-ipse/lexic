@@ -8,7 +8,7 @@ what stops concurrent parses contending on one set of refcount cache lines.
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing import parse_model
 from lexic.parsing.parallel import worker_replicas
 
 GRAMMAR = 'root ::= item+\nitem ::= "- " [a-z]+ "\\n"\n'
@@ -17,14 +17,13 @@ TEXT = "- alpha\n- beta\n- gamma\n"
 
 def _pair():
     compiled = compile_text(GRAMMAR)
-    return compiled.codegen_grammar, compiled.fold
+    return compiled.codegen_grammar, compiled.product
 
 
 def test_a_replica_is_equal_but_distinct():
     """Equal by value (so models match), distinct by identity (so the
     engine's per-identity table memo gives it its own tables)."""
-    grammar, fold = _pair()
-    binding = ModelBinding(fold)
+    grammar, binding = _pair()
     first, second = worker_replicas(grammar, binding, 2)
     assert second[0] == grammar
     assert second[0] is not grammar
@@ -33,8 +32,7 @@ def test_a_replica_is_equal_but_distinct():
 
 def test_replicas_build_the_same_models():
     """The whole point: replication changes timing, never values."""
-    grammar, fold = _pair()
-    binding = ModelBinding(fold)
+    grammar, binding = _pair()
     original = parse_model(grammar, TEXT, binding)
     for replica_grammar, replica_binding in worker_replicas(grammar, binding, 3):
         model = parse_model(replica_grammar, TEXT, replica_binding)
@@ -46,8 +44,7 @@ def test_replicas_build_the_same_models():
 def test_replicas_are_reused_and_grown():
     """Built once per pair and kept — a discarded replica would pay its
     table compilation again on the next parse."""
-    grammar, fold = _pair()
-    binding = ModelBinding(fold)
+    grammar, binding = _pair()
     two = worker_replicas(grammar, binding, 2)
     four = worker_replicas(grammar, binding, 4)
     assert four[:2] == two
@@ -57,7 +54,6 @@ def test_replicas_are_reused_and_grown():
 
 def test_exactly_the_requested_count_comes_back():
     """A caller asking for N workers gets N views, never the grown pool."""
-    grammar, fold = _pair()
-    binding = ModelBinding(fold)
+    grammar, binding = _pair()
     worker_replicas(grammar, binding, 6)
     assert len(worker_replicas(grammar, binding, 3)) == 3

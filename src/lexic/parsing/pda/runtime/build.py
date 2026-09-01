@@ -19,9 +19,9 @@ path's :exc:`~lexic.exceptions.FieldValidationError` behaviour is unchanged.
 
 A leaf w.r.t. the runtime: these functions read only the input ``text`` plus a
 frame / clone (and the memo), never the kernel cursor. Imports only
-:mod:`lexic.parsing.pda.compiler.program.flatten` (the flat records + field-mode
-codes), :mod:`lexic.parsing.fold` (:class:`RuleFold`) and
-:mod:`lexic.parsing.pda.core.errors` (:class:`PdaFail`) — never ``runtime``.
+:mod:`lexic.parsing.pda.compiler.program.flatten` (the flat records + capture-mode
+codes) and :mod:`lexic.parsing.pda.core.errors` (:class:`PdaFail`) — never
+``runtime``, and no longer the fold.
 """
 
 from __future__ import annotations
@@ -30,7 +30,6 @@ from typing import Any, Callable
 
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import IrSpan
-from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     vstr_model,
@@ -41,6 +40,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODEL,
     M_MODELS,
     M_SPAN,
+    M_TEXT,
 )
 from lexic.parsing.pda.core.errors import PdaFail
 
@@ -55,7 +55,7 @@ is never mistaken for a hit)."""
 # stack — a flat list (the ``kernel.py`` int-array explicit-stack precedent; the
 # class *cursor* is :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` itself),
 # indexed by the constants below. A *clone frame* (a non-transparent ``F_MODE``)
-# captures what its fold needs and, on completion, builds a single model; a
+# captures what its completion needs and builds a single model on pop; a
 # *transparent frame* (``BUILD_TRANSPARENT`` — an inline group or look-through
 # clone) owns no capture and funnels every model produced inside it straight to
 # ``F_OUT``.
@@ -67,7 +67,7 @@ is never mistaken for a hit)."""
 #   F_OUT   the parent sink list — where a clone frame's model appends, or a
 #            transparent frame's children funnel
 #   F_MODE  the build-mode (one of the ``BUILD_*`` constants)
-#   F_CLONE the frame's :class:`FlatClone` (its fold and baked build plan)
+#   F_CLONE the frame's :class:`FlatClone` (its constructor and build plan)
 #   F_START the cursor position where the frame began (its span start)
 #   F_ENDS  per-item end positions (``ends[i]`` written as each item finishes);
 #            item ``i``'s span is ``(start if i==0 else ends[i-1], ends[i])``.
@@ -91,7 +91,7 @@ def finish_delegate(
     :param window_text: The island window (the sub-parse's whole input).
     :param pos: The start position within ``window_text``.
     :returns: ``(end, payload)``, or ``None`` when the sub-run fails
-        (:class:`PdaFail`), its fold refuses the span (a
+        (:class:`PdaFail`), its completion refuses the span (a
         :class:`~lexic.exceptions.LexicError` — e.g. a window-truncated token
         that still completes as a valid prefix), or it reaches the window edge
         (a possibly-truncated span). Declining hands the rule back to the
@@ -121,32 +121,30 @@ def build_sequence(
 ) -> object:
     """Build a ``sequence`` clone's model from its bound field slots.
 
-    The per-field fold is inlined (``text`` / ``gtext`` read the item's span
+    The per-capture read is inlined (a text capture reads the item's span
     off the frame's ``F_ENDS``, ``model`` / ``models`` its ``F_SINKS``). A
     zero-item arm match builds ``ctor()`` (the rule's empty alternate arm);
     any other item-count mismatch is a compile/runtime disagreement. With a
-    :class:`~lexic.parsing.fold.FastCtor` licence the parts dict is seeded
-    from the clone's baked defaults and handed to the validation-skip
-    constructor; without one, :func:`build_validated` runs the rule's
-    validated constructor.
+    positional licence the values list is read straight off the clone's baked
+    plan and handed to the validation-skip constructor; without one,
+    :func:`build_validated` builds by keyword.
 
     :param memo: The per-parse intern memo — repeated identical sub-models are
         built once and shared (immutable models make sharing transparent).
     :raises UnsupportedConstructError: On an item count that matches neither
-        the bound fields nor the empty arm, or a mode outside
-        :data:`~lexic.ir.spine.bind.BIND_MODES`.
+        the bound fields nor the empty arm, or a capture mode outside the
+        build vocabulary.
     """
-    fold = clone.fold
     arm = frame[F_ARM]
-    if arm.n != fold.n_items:
+    if arm.n != clone.n_items:
         if arm.n:
             raise UnsupportedConstructError(
-                f"pda: {fold.ctor!r}: {arm.n} items match neither "
-                f"{fold.n_items} slots nor the empty arm"
+                f"pda: {clone.ctor!r}: {arm.n} items match neither "
+                f"{clone.n_items} slots nor the empty arm"
             )
-        return _intern_empty(fold.ctor, memo)  # empty alternate arm matched
+        return _intern_empty(clone.ctor, memo)  # empty alternate arm matched
     if clone.fast is None:
-        return build_validated(text, frame, fold, memo)
+        return build_validated(text, frame, clone, memo)
     return clone.fast(
         fast_values(text, clone, (frame[F_START], frame[F_ENDS], frame[F_SINKS]))
     )
@@ -222,13 +220,14 @@ def fast_values(text: str, clone: FlatClone, spans: Spans) -> list[Any]:
 
 
 def build_validated(
-    text: str, frame: list[Any], fold: RuleFold, memo: dict[Any, object]
+    text: str, frame: list[Any], clone: FlatClone, memo: dict[Any, object]
 ) -> object:
-    """Build a ``sequence`` model through the validated constructor.
+    """Build a ``sequence`` value through the keyword constructor.
 
-    The no-licence fallback of :func:`build_sequence` — field extraction
+    The no-licence path of :func:`build_sequence` — capture extraction
     (:func:`_validated_fields`) is identical, but the values pass through
-    ``fold.ctor`` (the checked constructor, per-field validation included).
+    ``clone.ctor`` BY KEYWORD: a declared class then validates per field, and
+    an authored surface's transform sees exactly the keywords its rule filled.
     Interning stays **pre-construction**: a memo hit returns the already-
     validated instance, while a miss constructs (validation runs, so an invalid
     instance raises :exc:`~lexic.exceptions.FieldValidationError` and is never
@@ -237,78 +236,83 @@ def build_validated(
 
     :param memo: The per-parse intern memo (same key scheme as
         :func:`fast_values`).
-    :raises UnsupportedConstructError: On a mode outside
-        :data:`~lexic.ir.spine.bind.BIND_MODES`.
+    :raises UnsupportedConstructError: On a capture mode outside the build
+        vocabulary.
     """
-    kwargs, key_parts = _validated_fields(text, frame, fold)
-    key = (fold.ctor, key_parts)
+    kwargs, key_parts = _validated_fields(text, frame, clone)
+    key = (clone.ctor, key_parts)
     hit = memo.get(key, INTERN_MISS)
     if hit is not INTERN_MISS:
         return hit
-    model = fold.ctor(**kwargs)
+    model = clone.ctor(**kwargs)
     memo[key] = model
     return model
 
 
 def _validated_fields(
-    text: str, frame: list[Any], fold: RuleFold
+    text: str, frame: list[Any], clone: FlatClone
 ) -> tuple[dict[str, object], tuple[Any, ...]]:
     """A validated clone's constructor kwargs and intern key-parts, one pass.
 
-    :returns: ``(kwargs, key_parts)`` — absent optionals omitted from ``kwargs``
-        (as the validated ctor expects) yet represented in ``key_parts``.
-    :raises UnsupportedConstructError: On a mode outside
-        :data:`~lexic.ir.spine.bind.BIND_MODES`.
+    An ABSENT capture is OMITTED from the keywords rather than filled: that is
+    what lets a declared class apply its own default and an authored transform
+    tell "the tail matched nothing" from "the tail matched a value". Absence is
+    :data:`M_GTEXT` for text (the mode the bake writes exactly when the record
+    admits one) and an empty sink for a sub-model.
+
+    :returns: ``(kwargs, key_parts)`` — absent captures omitted from ``kwargs``
+        yet represented in ``key_parts``.
+    :raises UnsupportedConstructError: On a capture mode outside the build
+        vocabulary.
     """
     ends = frame[F_ENDS]
     sinks = frame[F_SINKS]
     start = frame[F_START]
     kwargs: dict[str, object] = {}
     key_parts: list[Any] = []
-    for item, mode, name, lo in fold.fields:
-        if mode == "text":
+    for item, mode, name, _lo in clone.fields:
+        if mode == M_TEXT:
             span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
             kwargs[name] = span
             key_parts.append(span)
-        elif mode == "gtext":
+        elif mode == M_GTEXT:
             span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
-            if span or lo != 0:
+            if span:
                 kwargs[name] = span
-            key_parts.append(span if (span or lo != 0) else None)
-        elif mode == "model":
+            key_parts.append(span or None)
+        elif mode == M_MODEL:
             sub = sinks[item] if sinks else None
             if sub:
                 kwargs[name] = sub[0]
             key_parts.append(id(sub[0]) if sub else None)
-        elif mode == "models":
+        elif mode == M_MODELS:
             sub = (sinks[item] if sinks else None) or []
             kwargs[name] = sub
             key_parts.append(tuple(id(m) for m in sub))
-        elif mode == "span":
+        elif mode == M_SPAN:
             kwargs[name] = IrSpan(start if item == 0 else ends[item - 1], ends[item])
             key_parts.append(kwargs[name])
         else:
-            raise UnsupportedConstructError(f"pda: unknown field mode {mode!r}")
+            raise UnsupportedConstructError(f"pda: unknown capture mode {mode!r}")
     return kwargs, tuple(key_parts)
 
 
 def leaf_mismatch(
     clone: FlatClone, out: list[Any], n: int, pos: int, memo: dict[Any, object]
 ) -> int:
-    """A leaf arm whose item count misses the fold — empty arm, or error.
+    """A leaf arm whose item count misses the rule's arm — empty arm, or error.
 
     :param memo: The per-parse intern memo (the empty arm shares one instance).
     :returns: ``pos`` unchanged (the empty alternate arm consumed nothing).
     :raises UnsupportedConstructError: On a non-empty mismatch (a
         compile/runtime disagreement).
     """
-    fold = clone.fold
     if n:
         raise UnsupportedConstructError(
-            f"pda: {fold.ctor!r}: {n} items match neither "
-            f"{fold.n_items} slots nor the empty arm"
+            f"pda: {clone.ctor!r}: {n} items match neither "
+            f"{clone.n_items} slots nor the empty arm"
         )
-    out.append(_intern_empty(fold.ctor, memo))  # empty alternate arm matched
+    out.append(_intern_empty(clone.ctor, memo))  # empty alternate arm matched
     return pos
 
 
@@ -319,15 +323,17 @@ def build_vstr(clone: FlatClone, span: str, memo: dict[Any, object]) -> object:
     .runtime.PdaKernel._complete` and :meth:`~lexic.parsing.pda.runtime.kernel.kernel
     .PdaKernel._vstr_once` call: keyed ``(ctor, span)`` in the intern memo, so
     every occurrence of the same class over the same source text shares one
-    instance. Uses the clone's :class:`~lexic.parsing.fold.FastCtor` licence when
-    present, else its validated constructor.
+    instance. Uses the clone's positional licence when present, else its
+    keyword constructor.
 
     :param clone: The ``value_str`` clone (or a ``value_str``-ref target).
-    :param span: The matched source span (the model's ``value``).
+    :param span: The matched source span (the value the rule's own extent
+        fills the field :attr:`~lexic.parsing.pda.compiler.program.flatten
+        .FlatClone.matched` names).
     :param memo: The per-parse intern memo.
     :returns: The built (or reused) model.
     """
-    key = (clone.fold.ctor, span)
+    key = (clone.ctor, span)
     hit = memo.get(key, INTERN_MISS)
     if hit is not INTERN_MISS:
         return hit

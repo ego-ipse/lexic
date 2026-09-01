@@ -38,14 +38,17 @@ from lexic.parsing.product import (
     ExprProgram,
     PassOp,
     RuleProduct,
+    SymbolConstructor,
     SymbolExpr,
 )
 
 __all__ = [
     "ABSENT",
     "ALT",
+    "decode_int",
     "ALT_PRODUCT",
     "AuthoredProduct",
+    "AuthoredRule",
     "ALT_BODY",
     "DECODE_INT",
     "FIRST_REST",
@@ -92,6 +95,22 @@ a surface's strictness pass filters or rejects it (``notation``'s ``_arglist``
 refuses a bare comma anywhere but last)."""
 
 
+def decode_int(raw: object) -> int:
+    """The digit-run → ``int`` decode, under a name that takes a KEYWORD.
+
+    The builtin is positional-only. A fold body reads a positional argument
+    channel and can call it; a completion applies its transform by keyword, so
+    that an absent capture can be OMITTED rather than filled. The registry
+    carries both spellings of the one decode for exactly as long as both
+    application conventions exist — the fold half, and ``"int"`` with it, goes
+    when reducer semantics lower.
+
+    :param raw: The matched digit run.
+    :returns: Its integer value.
+    """
+    return int(cast(str, raw))
+
+
 def first_rest(first: object, rest: Sequence[object] | None = None) -> tuple:
     """Head element prepended to the repeated tail — the list collector.
 
@@ -123,6 +142,7 @@ def absent_tail(**kwargs: object) -> object:
 
 FOLD_SYMBOLS: dict[str, Callable[..., object]] = {
     "int": int,
+    "decode_int": decode_int,
     "first_rest": first_rest,
     "passthrough": passthrough,
     "absent_tail": absent_tail,
@@ -227,6 +247,33 @@ the IrMap-authoring form of :data:`ALT` (its ctor is :data:`~lexic.ir.base.IrNon
 # ── authored-product construction ─────────────────────────────────────────
 
 
+class AuthoredRule(NamedTuple):
+    """One authored surface rule, said in the product vocabulary.
+
+    Everything a completion needs and nothing it does not: which transform
+    runs, what the rule captures, which keyword each capture fills, which may
+    be absent, and how wide the arm is. The transform is a registry KEY —
+    an authored record never holds a callable.
+
+    :ivar symbol: The registry key the completion applies; ``""`` is the
+        alternation pass-through, which applies nothing.
+    :ivar captures: What each captured occurrence hands the completion.
+    :ivar names: The keyword each capture fills, in capture order.
+    :ivar n_items: How many items the rule's sequence arm has.
+    :ivar optional: Capture indices that may be absent, and are then OMITTED
+        from the keywords rather than filled with anything.
+    :ivar matched: The keyword the rule's OWN matched extent fills — the
+        ``value_str`` shape, whose value has no capture to point at.
+    """
+
+    symbol: str
+    captures: tuple[CaptureSpec, ...] = ()
+    names: tuple[str, ...] = ()
+    n_items: int = 0
+    optional: tuple[int, ...] = ()
+    matched: str = ""
+
+
 class AuthoredProduct(NamedTuple):
     """One authored surface's rules in the product vocabulary.
 
@@ -236,12 +283,12 @@ class AuthoredProduct(NamedTuple):
     callable and no surface can put one on a completion by hand.
 
     :ivar rules: One :class:`RuleProduct` per rule, in contextual-code order.
-    :ivar symbols: The registry keys the rules name, in operand order.
+    :ivar symbols: The authored constructors the rules name, in operand order.
     :ivar codes: Rule name → its contextual code.
     """
 
     rules: tuple[RuleProduct, ...]
-    symbols: tuple[str, ...]
+    symbols: tuple[SymbolConstructor, ...]
     codes: dict[str, int]
 
 
@@ -250,34 +297,39 @@ ALT_PRODUCT = RuleProduct((CaptureSpec(int(CaptureMode.ONE), 0),), PassOp(0))
 
 An alternation rule matches exactly one arm, so slot 0 IS the matched arm and
 passing it through is the whole completion — the same thing :data:`ALT` says
-in the fold vocabulary."""
+in the fold vocabulary. It declares no arm width: there is no sequence arm to
+count, and nothing that passes a child through asks how wide one is."""
 
 
-def product_rules(
-    authored: Mapping[str, tuple[str, tuple[CaptureSpec, ...]]],
-) -> AuthoredProduct:
+def product_rules(authored: Mapping[str, AuthoredRule]) -> AuthoredProduct:
     """Assemble one surface's authored rules into its product.
 
-    Each entry is ``(symbol, captures)``: the registry key the rule's
-    completion applies, or ``""`` for the alternation pass-through. Symbol
-    keys are pooled in first-use order, so a transform shared by several rules
-    occupies one operand row.
+    Symbol constructors are pooled by their whole record, so a transform
+    several rules apply through the SAME keywords occupies one operand row
+    while one applied through different keywords gets its own — which is the
+    honest granularity, because the keywords are half of what an application
+    is.
 
-    :param authored: Rule name → ``(symbol, captures)``, in rule order.
+    :param authored: Rule name → its authored rule, in rule order.
     :returns: The surface's product half.
     """
     rules: list[RuleProduct] = []
-    symbols: list[str] = []
+    symbols: list[SymbolConstructor] = []
     codes: dict[str, int] = {}
-    for name, (symbol, captures) in authored.items():
+    for name, rule in authored.items():
         codes[name] = len(rules)
-        if not symbol:
+        if not rule.symbol:
             rules.append(ALT_PRODUCT)
             continue
-        if symbol not in symbols:
-            symbols.append(symbol)
+        entry = SymbolConstructor(rule.symbol, rule.names, rule.optional, rule.matched)
+        if entry not in symbols:
+            symbols.append(entry)
         rules.append(
-            RuleProduct(captures, ExprProgram((SymbolExpr(symbols.index(symbol)),)))
+            RuleProduct(
+                rule.captures,
+                ExprProgram((SymbolExpr(symbols.index(entry)),)),
+                rule.n_items,
+            )
         )
     return AuthoredProduct(tuple(rules), tuple(symbols), codes)
 

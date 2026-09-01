@@ -38,7 +38,6 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 from lexic.parsing import ModelBinding
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.products import (
@@ -473,13 +472,13 @@ class _StrSubclass(str):
 def _parse_into(
     grammar: IrAst,
     text: str,
-    fold: ModelFold,
+    binding: ModelBinding,
     results: list[GrammarModel | None],
     index: int,
 ) -> None:
     """Run ``parse_model`` and stash the result at ``results[index]`` — the
     flat, non-closure body a thread target needs."""
-    results[index] = parse_model(grammar, text, ModelBinding(fold))
+    results[index] = parse_model(grammar, text, binding)
 
 
 def test_owned_text_returns_a_distinct_but_equal_object():
@@ -582,7 +581,8 @@ def test_parse_model_gives_the_same_result_across_two_threads_sequentially():
     results: list[GrammarModel | None] = [None, None]
     for index in range(2):
         thread = threading.Thread(
-            target=_parse_into, args=(cg.codegen_grammar, text, cg.fold, results, index)
+            target=_parse_into,
+            args=(cg.codegen_grammar, text, cg.product, results, index),
         )
         thread.start()
         thread.join()

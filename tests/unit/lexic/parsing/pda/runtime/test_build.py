@@ -15,7 +15,6 @@ from typing import cast
 import pytest
 
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
-from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
 )
@@ -120,7 +119,7 @@ def test_leaf_mismatch_empty_arm_builds_ctor_and_keeps_pos():
     """A zero-item arm builds ``ctor()`` and consumes nothing."""
     clone = cast(
         FlatClone,
-        SimpleNamespace(fold=SimpleNamespace(ctor=lambda: "empty", n_items=2)),
+        SimpleNamespace(ctor=lambda: "empty", n_items=2),
     )
     out: list = []
     assert leaf_mismatch(clone, out, 0, 5, {}) == 5
@@ -129,9 +128,7 @@ def test_leaf_mismatch_empty_arm_builds_ctor_and_keeps_pos():
 
 def test_leaf_mismatch_nonempty_raises():
     """A non-empty item-count mismatch is a compile/runtime disagreement."""
-    clone = cast(
-        FlatClone, SimpleNamespace(fold=SimpleNamespace(ctor=lambda: None, n_items=2))
-    )
+    clone = cast(FlatClone, SimpleNamespace(ctor=lambda: None, n_items=2))
     with pytest.raises(UnsupportedConstructError):
         leaf_mismatch(clone, [], 3, 0, {})
 
@@ -144,7 +141,7 @@ def test_leaf_mismatch_empty_arm_interns_one_shared_instance():
         calls["n"] += 1
         return object()
 
-    clone = cast(FlatClone, SimpleNamespace(fold=SimpleNamespace(ctor=ctor, n_items=2)))
+    clone = cast(FlatClone, SimpleNamespace(ctor=ctor, n_items=2))
     memo: dict = {}
     out: list = []
     leaf_mismatch(clone, out, 0, 0, memo)
@@ -281,13 +278,13 @@ def test_fast_build_does_not_intern_the_record_path():
 
 
 def test_build_validated_unknown_mode_raises():
-    """A field mode outside BIND_MODES is a hard error in the validated build."""
-    fold = cast(
-        RuleFold, SimpleNamespace(fields=((0, "bogus", "x", 1),), ctor=lambda **kw: kw)
+    """A capture mode outside the build vocabulary is a hard error."""
+    clone = cast(
+        FlatClone, SimpleNamespace(fields=((0, 99, "x", 1),), ctor=lambda **kw: kw)
     )
     with pytest.raises(UnsupportedConstructError):
         build_validated(
-            "ab", make_frame({F_ENDS: [2], F_SINKS: None, F_START: 0}), fold, {}
+            "ab", make_frame({F_ENDS: [2], F_SINKS: None, F_START: 0}), clone, {}
         )
 
 
@@ -303,17 +300,19 @@ def test_build_validated_does_not_cache_a_raising_construction():
             raise FieldValidationError("bad field")
         return ("ok", kwargs)
 
-    fold = cast(RuleFold, SimpleNamespace(fields=((0, "text", "head", 1),), ctor=ctor))
+    clone = cast(
+        FlatClone, SimpleNamespace(fields=((0, M_TEXT, "head", 1),), ctor=ctor)
+    )
     frame = make_frame({F_ENDS: [2], F_SINKS: None, F_START: 0})
     memo: dict = {}
     with pytest.raises(FieldValidationError):
-        build_validated("ab", frame, fold, memo)
+        build_validated("ab", frame, clone, memo)
     assert not memo  # nothing cached from the raising build
     state["boom"] = False
-    out = build_validated("ab", frame, fold, memo)
+    out = build_validated("ab", frame, clone, memo)
     assert out == ("ok", {"head": "ab"})
     # a second identical build now hits the cache (ctor not re-invoked)
-    assert build_validated("ab", frame, fold, memo) is out
+    assert build_validated("ab", frame, clone, memo) is out
     assert state["n"] == 2  # one failed + one successful; the hit adds nothing
 
 
@@ -322,7 +321,8 @@ def test_build_sequence_empty_arm_builds_bare_ctor():
     clone = cast(
         FlatClone,
         SimpleNamespace(
-            fold=SimpleNamespace(n_items=2, ctor=lambda: ("bare",)),
+            n_items=2,
+            ctor=lambda: ("bare",),
             fast=None,
             fields=(),
         ),
@@ -342,7 +342,7 @@ def test_build_vstr_interns_by_ctor_and_span():
         calls["n"] += 1
         return ("vstr", value)
 
-    clone = cast(FlatClone, SimpleNamespace(fold=SimpleNamespace(ctor=ctor), fast=None))
+    clone = cast(FlatClone, SimpleNamespace(ctor=ctor, matched="value", fast=None))
     memo: dict = {}
     a = build_vstr(clone, "true", memo)
     b = build_vstr(clone, "true", memo)
@@ -358,7 +358,8 @@ def test_build_vstr_uses_fast_ctor_when_licensed():
     clone = cast(
         FlatClone,
         SimpleNamespace(
-            fold=SimpleNamespace(ctor=lambda value: None),
+            ctor=lambda value: None,
+            matched="value",
             fast=lambda values: seen.extend(values) or "fast-built",
             plan=((M_VALUE, 0, 0, None),),
         ),
@@ -373,7 +374,8 @@ def test_build_vstr_fills_a_non_value_field_from_the_plan_default():
     clone = cast(
         FlatClone,
         SimpleNamespace(
-            fold=SimpleNamespace(ctor=lambda value: None),
+            ctor=lambda value: None,
+            matched="value",
             fast=seen.extend,
             plan=((M_VALUE, 0, 0, None), (M_CONST, 0, 0, "DEF")),
         ),
@@ -393,7 +395,8 @@ def test_build_vstr_still_interns_by_ctor_and_span():
     clone = cast(
         FlatClone,
         SimpleNamespace(
-            fold=SimpleNamespace(ctor=lambda value: None),
+            ctor=lambda value: None,
+            matched="value",
             fast=fast,
             plan=((M_VALUE, 0, 0, None),),
         ),

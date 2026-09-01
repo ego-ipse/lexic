@@ -102,7 +102,7 @@ class KernelExecutionMixin:
         """
         text = self.text
         arm = select_arm(clone, text[pos : pos + 1], pos)
-        if arm.n != clone.fold.n_items:
+        if arm.n != clone.n_items:
             return leaf_mismatch(clone, out, arm.n, pos, self._caches.intern)
         start = pos
         ends = [0] * arm.n
@@ -316,7 +316,7 @@ class KernelExecutionMixin:
             return  # children already funnelled to the nearest model sink
         clone = frame[F_CLONE]
         if mode == BUILD_SEQ:
-            if clone.fast is not None and frame[F_ARM].n == clone.fold.n_items:
+            if clone.fast is not None and frame[F_ARM].n == clone.n_items:
                 model = clone.fast(
                     fast_values(
                         self.text,

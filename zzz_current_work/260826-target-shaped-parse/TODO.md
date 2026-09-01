@@ -512,10 +512,25 @@ the channel's call graph was read. Position is marked:
    — Slice 1 ✅: `ModelBinding` through every parse entry; `fold` a derived
      property; 30 test files adapted mechanically. (One pyright miss
      returned; fix in flight.)
-   — Slice 2 ⏳: templating's authored product, `CloneSpec` carries
-     `RuleProduct`, `flatten_clones` bakes from it, PDA completion sites in
-     `build.py`/`execution.py` move (descent + transparent-MANY findings;
-     gtext absence row at first model build).
+   — Slice 2a ✅: templating's authored product, `CloneSpec` carries
+     `RuleProduct`, `flatten_clones` bakes from it. Witnesses re-aimed at
+     the unified live bake (`s4_bake_identity` behavioural + five controls,
+     `s4_switch_differential` against the Earley oracle + three controls);
+     the empty-rule-map guard landed at `bind_model` with its own witness row.
+   — Slice 2b ⛔ BLOCKED: the PDA completion sites cannot move while the
+     authored compile-time surfaces own the validated build.
+     `proto/s4_validated_path_census.py` measures it: zero generated-model
+     clones reach `build_validated`/`_validated_fields` (all 62 unlicensed
+     clones are alternations, which build through `alt_model`), while 109
+     notation/selfgrammar clones do — completing through
+     `ExprProgram(SymbolExpr)` with no `RecordConstructor` and no capture
+     NAMES, which `_validated_fields` needs to build kwargs. Unblocking it
+     needs `RuleProduct.n_items` plus a symbol-side twin of
+     `RecordConstructor` (the §5 keyword-application trap, arriving early).
+     Two findings ride the same decision: an eighth `clone.fold` read at
+     `specialize.py:405`, and `clone.mode` DOES derive from the completion
+     type once `model_plan` authors `foldkit.ALT_PRODUCT` for alternations
+     instead of a `RecordOp` naming a class it never constructs.
 4. ☐ Earley / island / delegated completion onto the same product ops.
 5. ☐ Remainder of the compile side + `trace.py` rewrite (parallel/ was
    absorbed into slice 1).
@@ -569,16 +584,25 @@ the channel's call graph was read. Position is marked:
       `PdaKernel` subclass shadowing exactly the completion surfaces §4
       rewrites. It follows the rewrite with its public surface unchanged; its
       port target is `tests/unit/lexic/parsing/test_trace.py`.
-- [ ] Update `src/lexic/compile/pipeline/synthesis.py::fold_config` and binding
+- [x] Update `src/lexic/compile/pipeline/synthesis.py::fold_config` and binding
       callers to author the model product through the new operation records.
+      (Done: `model_plan` authors `RuleProduct`/`RecordConstructor` from the
+      binding view — differential vs `fold_config` green over 137 rules — and
+      `bind_model` pairs it into every artefact path. Verified in the
+      accepted slice-1 state.)
 - [ ] Migrate `src/lexic/compile/foldkit.py::seq` and `model_fold`, plus every
       notation/generated-self-grammar caller, to the final vocabulary. Account
       explicitly for `IrNamed`, `FOLD_SYMBOLS`, `first_rest`, `absent_tail`,
       `ABSENT`, `FIRST_REST`, and `DECODE_INT`; preserve the no-`eval` notation
       symbol channel. Preserve `foldkit`'s authored-data role; do not fold it
       into runtime reduction.
-- [ ] Update `src/lexic/parsing/products.py` so PDA and Earley receive one bound
+- [x] Update `src/lexic/parsing/products.py` so PDA and Earley receive one bound
       product. Preserve the public generated-model and segmented-token products.
+      (Done in slice 1: `ModelBinding` is the one bound product through
+      `parse_model`/`pda_tables`/`_model_product`, memo keyed on its
+      identity; public products preserved, suite green at acceptance. The
+      engines read `binding.fold` transitionally until slice 2b moves the
+      completion sites.)
 - [ ] Update `pda/compiler/specs.py::CloneSpec`,
       `pda/compiler/clones.py::PdaCompiler`/`compile_pda`, and
       `pda/compiler/program/lower.py::_bake_build`/`_build_plan` to carry

@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from typing import NamedTuple
 
 from lexic.parsing.fold import ModelFold
-from lexic.parsing.product import RecordConstructor, RuleProduct
+from lexic.parsing.product import ConstructionTables, RuleProduct
 
 __all__ = ["ModelBinding"]
 
@@ -24,25 +24,24 @@ class ModelBinding[M](NamedTuple):
     """One grammar's model product — what a parse entry is handed.
 
     The product IS the binding: the rules each contextual name completes
-    through, and the constructor table a record completion indexes. It is one
-    object rather than two parameters so a caller cannot pair a grammar's
+    through, and the construction tables a completion indexes. It is one
+    object rather than three parameters so a caller cannot pair a grammar's
     rules with another grammar's constructors, and so the per-identity memo
     has a single key to hold.
 
-    ``fold`` is transitional. The completion sites still build models through
-    it, and they move in their own step; when they do, the field goes and this
-    record is the product alone. It is a FIELD rather than a parallel
-    parameter for the same reason as above — one object, one identity, one
-    memo key.
+    ``fold`` is transitional. The GATED engine's completion still builds models
+    through it — the predictive runtime no longer does — and it goes when that
+    moves. It is a FIELD rather than a parallel parameter for the same reason
+    as above: one object, one identity, one memo key.
 
-    :ivar fold: The positional ParseTree → model fold the completions read.
+    :ivar fold: The positional ParseTree → model fold the gated engine reads.
     :ivar rules: Rule name → its authored product. An authored compile-time
         surface fills this from its own table; a generated model from the
         binding view.
-    :ivar constructors: The constructor operand table a record completion
-        indexes. Empty for a surface that constructs no declared record.
+    :ivar construction: The constructor and symbol operand tables a completion
+        indexes. Empty for a surface that constructs nothing.
     """
 
     fold: ModelFold[M]
     rules: Mapping[str, RuleProduct] = {}
-    constructors: tuple[RecordConstructor, ...] = ()
+    construction: ConstructionTables = ConstructionTables()

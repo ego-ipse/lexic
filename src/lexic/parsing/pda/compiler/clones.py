@@ -68,6 +68,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
 )
 from lexic.parsing.pda.compiler.program.lower import flatten_clones
+from lexic.parsing.pda.compiler.program.product import verify_covered
 from lexic.parsing.pda.compiler.specs import (
     CC,
     GRP,
@@ -650,9 +651,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 # ── the artifact ───────────────────────────────────────────────────────────
 
 
-def _attach_delegates(
-    tables: PdaTables, lifted: IrAst, compiler: PdaCompiler, binding: ModelBinding
-) -> None:
+def _attach_delegates(tables: PdaTables, lifted: IrAst, binding: ModelBinding) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
     (built from ``lifted`` + the compiler's fold target; the injected
     ``(PdaCompiler, flatten_clones)`` seam keeps the delegate leaf import-free
@@ -681,16 +680,17 @@ def compile_pda(
     :param instance_grammar: The Earley-normalised instance grammar
         (``normalize(lifted)``) — the island sub-parses run over it.
     :param binding: The bound model product — its rules are baked into each
-        clone's capture layout and build plan, its constructor table is what a
-        record completion indexes, and its fold is what the completion sites
-        still read.
+        clone's capture layout, constructor and build plan, and its
+        construction tables are what a completion indexes.
     :returns: The compiled :class:`PdaTables`.
     :raises UnsupportedConstructError: On anything the analysis or the clone
-        compiler cannot handle (the Task-6 seam reads this as "no PDA").
+        compiler cannot handle (the Task-6 seam reads this as "no PDA"), or on
+        a binding whose product does not cover the rules its fold names.
     """
+    verify_covered(binding.rules, tuple(binding.fold.baked))
     analysis = GrammarAnalysis(lifted)
     compiler = PdaCompiler(analysis, binding.fold.baked, binding.rules)
     start_key = compiler.compile_start()
-    tables = PdaTables(compiler, start_key, instance_grammar, binding.constructors)
-    _attach_delegates(tables, lifted, compiler, binding)
+    tables = PdaTables(compiler, start_key, instance_grammar, binding.construction)
+    _attach_delegates(tables, lifted, binding)
     return tables

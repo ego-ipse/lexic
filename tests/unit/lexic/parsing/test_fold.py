@@ -15,6 +15,8 @@ from typing import cast
 import pytest
 
 from lexic.compile import compile_text, reset_cache_for_tests
+from lexic.compile.foldkit import AuthoredRule, product_rules
+from lexic.compile.product import bind_symbols, rules_by_name
 from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
@@ -47,7 +49,10 @@ from lexic.parsing.fold import (
     lift_optional_nullables,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
+from lexic.parsing.product import CaptureMode, CaptureSpec, ConstructionTables
 from lexic.parsing.products import _model_product, earley_model
+
+_ONE = int(CaptureMode.ONE)
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import (
     malformed_synthetic_rule,
@@ -542,7 +547,25 @@ def test_recognition_twins_never_construct_descendants_in_either_engine(
             ),
         )
     )
-    product = _model_product(grammar, ModelBinding(fold))
+    rules = {
+        "root": AuthoredRule(
+            "root",
+            (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1)),
+            ("kept", "dropped"),
+            2,
+        ),
+        "kept": AuthoredRule(""),
+        "dropped": AuthoredRule("forbidden", (), (), 2),
+        "word": AuthoredRule("word", (), (), 0, matched="value"),
+    }
+    authored = product_rules(rules)
+    registry = {"root": root, "forbidden": forbidden, "word": word}
+    binding = ModelBinding(
+        fold,
+        rules_by_name(authored.rules, authored.codes),
+        ConstructionTables(symbols=bind_symbols(authored.symbols, registry)),
+    )
+    product = _model_product(grammar, binding)
     parsing = True
     text = f"{kept_atom}{dropped_atom}!"
     expected = {"kept": {"value": kept_atom}, "dropped": None}

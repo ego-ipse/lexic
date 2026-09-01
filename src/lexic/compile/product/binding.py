@@ -37,11 +37,12 @@ from typing import NamedTuple
 
 from lexic.compile.pipeline.binding import RuleBinding
 from lexic.compile.pipeline.synthesis import fold_config, model_plan
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import ModelBinding, ModelFold
 from lexic.parsing.caches import adopt, memo, track
-from lexic.parsing.product import ProductProgram, RuleProduct
+from lexic.parsing.product import ConstructionTables, ProductProgram, RuleProduct
 
 __all__ = ["BindingRegistry", "BoundProduct", "ProgramProduct"]
 
@@ -239,10 +240,35 @@ def bind_model(
     :returns: The bound model product.
     """
     plan = model_plan(codegen_grammar, view, classes, omit=omit)
-    return ModelBinding(
-        ModelFold(fold_config(codegen_grammar, view, classes, omit=omit)),
-        rules_by_name(plan.rules, plan.codes),
-        plan.constructors,
+    fold = ModelFold(fold_config(codegen_grammar, view, classes, omit=omit))
+    rules = rules_by_name(plan.rules, plan.codes)
+    _check_covered(rules, fold)
+    return ModelBinding(fold, rules, ConstructionTables(plan.constructors))
+
+
+def _check_covered(rules: Mapping[str, RuleProduct], fold: ModelFold) -> None:
+    """Refuse a binding whose product and fold do not name the same rules.
+
+    The two halves are derived from ONE binding view by two functions, so they
+    agree or one of them is wrong — and the way that goes wrong is silent. A
+    rule the product does not name bakes no build state, and a clone with no
+    build state does not fail: it quietly falls back to the slow construction
+    and, where a capture reads an item's span, to the wrong one. This is the
+    cold cross-check that turns that into words.
+
+    :param rules: The product's rules, keyed by rule name.
+    :param fold: The fold built from the same view.
+    :raises UnsupportedConstructError: When either half names a rule the other
+        does not.
+    """
+    named = set(rules)
+    folded = set(fold.baked)
+    if named == folded:
+        return
+    raise UnsupportedConstructError(
+        f"compile: the model product and its fold disagree about which rules "
+        f"exist — the product alone names {sorted(named - folded)} and the "
+        f"fold alone names {sorted(folded - named)}"
     )
 
 

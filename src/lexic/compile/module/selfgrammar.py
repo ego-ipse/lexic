@@ -34,6 +34,7 @@ from lexic.compile.foldkit import (
     ALT_BODY,
     DECODE_INT,
     FIRST_REST,
+    AuthoredRule,
     first_rest,
     model_fold,
     passthrough,
@@ -41,7 +42,7 @@ from lexic.compile.foldkit import (
     seq,
 )
 from lexic.compile.module.rules import module_grammar
-from lexic.compile.product import rules_by_name
+from lexic.compile.product import bind_symbols, rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrNamedTuple,
@@ -49,7 +50,7 @@ from lexic.ir import (
     IrSelf,
 )
 from lexic.parsing import FieldFold, ModelBinding, ModelBody, ModelFold, parse_model
-from lexic.parsing.product import CaptureMode, CaptureSpec
+from lexic.parsing.product import CaptureMode, CaptureSpec, ConstructionTables
 
 __all__ = [
     "MClass",
@@ -414,84 +415,117 @@ _ONE = int(CaptureMode.ONE)
 _MANY = int(CaptureMode.MANY)
 _TEXT = int(CaptureMode.TEXT)
 
-MODULE_RULES: dict[str, tuple[str, tuple[CaptureSpec, ...]]] = (
-    _notation.NOTATION_RULES
-    | {
-        "m-module": (
-            "m_module",
-            (
-                CaptureSpec(_ONE, 0),
-                CaptureSpec(_ONE, 3),
-                CaptureSpec(_MANY, 4),
-                CaptureSpec(_ONE, 5),
-                CaptureSpec(_ONE, 7),
-            ),
+MODULE_RULES: dict[str, AuthoredRule] = _notation.NOTATION_RULES | {
+    "m-module": AuthoredRule(
+        "m_module",
+        (
+            CaptureSpec(_ONE, 0),
+            CaptureSpec(_ONE, 3),
+            CaptureSpec(_MANY, 4),
+            CaptureSpec(_ONE, 5),
+            CaptureSpec(_ONE, 7),
         ),
-        "m-nl": ("true", ()),
-        "m-docstring": ("m_docstring", (CaptureSpec(_TEXT, 1),)),
-        "m-imports": (
-            "m_imports",
-            (CaptureSpec(_ONE, 2), CaptureSpec(_ONE, 3), CaptureSpec(_ONE, 4)),
+        ("doc", "imports", "classes", "grammar", "bind"),
+        8,
+    ),
+    "m-nl": AuthoredRule("true", (), (), 1),
+    "m-docstring": AuthoredRule("m_docstring", (CaptureSpec(_TEXT, 1),), ("raw",), 3),
+    "m-imports": AuthoredRule(
+        "m_imports",
+        (CaptureSpec(_ONE, 2), CaptureSpec(_ONE, 3), CaptureSpec(_ONE, 4)),
+        ("typing_names", "compile_import", "ir_names"),
+        7,
+    ),
+    "m-typing-import": AuthoredRule(
+        "m_typing_import", (CaptureSpec(_ONE, 1),), ("names",), 4
+    ),
+    "m-compile-import": AuthoredRule("true", (), (), 1),
+    "m-ir-import": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "m-import-tail": AuthoredRule(""),
+    "m-import-paren": AuthoredRule(
+        "m_import_paren", (CaptureSpec(_MANY, 1),), ("lines",), 3
+    ),
+    "m-import-flat": AuthoredRule("passthrough", (CaptureSpec(_ONE, 0),), ("v",), 2),
+    "m-import-line": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 3),
+    "m-name-list": AuthoredRule(
+        "first_rest",
+        (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1)),
+        ("first", "rest"),
+        2,
+    ),
+    "m-more-name": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "m-name": AuthoredRule(
+        "m_name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1)), ("head", "tail"), 2
+    ),
+    "m-field-name": AuthoredRule(
+        "m_name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1)), ("head", "tail"), 2
+    ),
+    "m-int": AuthoredRule("decode_int", (CaptureSpec(_TEXT, 0),), ("raw",), 1),
+    "m-class-block": AuthoredRule(
+        "m_class",
+        (
+            CaptureSpec(_ONE, 1),
+            CaptureSpec(_ONE, 3),
+            CaptureSpec(_ONE, 5),
+            CaptureSpec(_ONE, 7),
         ),
-        "m-typing-import": ("m_typing_import", (CaptureSpec(_ONE, 1),)),
-        "m-compile-import": ("true", ()),
-        "m-ir-import": ("passthrough", (CaptureSpec(_ONE, 1),)),
-        "m-import-tail": ("", ()),
-        "m-import-paren": ("m_import_paren", (CaptureSpec(_MANY, 1),)),
-        "m-import-flat": ("passthrough", (CaptureSpec(_ONE, 0),)),
-        "m-import-line": ("passthrough", (CaptureSpec(_ONE, 1),)),
-        "m-name-list": ("first_rest", (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1))),
-        "m-more-name": ("passthrough", (CaptureSpec(_ONE, 1),)),
-        "m-name": ("m_name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1))),
-        "m-field-name": ("m_name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1))),
-        "m-int": ("int", (CaptureSpec(_TEXT, 0),)),
-        "m-class-block": (
-            "m_class",
-            (
-                CaptureSpec(_ONE, 1),
-                CaptureSpec(_ONE, 3),
-                CaptureSpec(_ONE, 5),
-                CaptureSpec(_ONE, 7),
-            ),
+        ("name", "bases", "doc", "body"),
+        8,
+    ),
+    "m-body": AuthoredRule(""),
+    "m-filled-body": AuthoredRule("m_body", (CaptureSpec(_MANY, 1),), ("lines",), 3),
+    "m-empty-body": AuthoredRule("m_body", (), (), 1),
+    "m-body-line": AuthoredRule(""),
+    "m-indented-line": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "m-line-tail": AuthoredRule(""),
+    "m-field-tail": AuthoredRule(
+        "m_field_tail",
+        (
+            CaptureSpec(_ONE, 0),
+            CaptureSpec(_ONE, 2),
+            CaptureSpec(_MANY, 3),
+            CaptureSpec(_ONE, 4),
         ),
-        "m-body": ("", ()),
-        "m-filled-body": ("m_body", (CaptureSpec(_MANY, 1),)),
-        "m-empty-body": ("m_body", ()),
-        "m-body-line": ("", ()),
-        "m-indented-line": ("passthrough", (CaptureSpec(_ONE, 1),)),
-        "m-line-tail": ("", ()),
-        "m-field-tail": (
-            "m_field_tail",
-            (
-                CaptureSpec(_ONE, 0),
-                CaptureSpec(_ONE, 2),
-                CaptureSpec(_MANY, 3),
-                CaptureSpec(_ONE, 4),
-            ),
-        ),
-        "m-default": ("true", ()),
-        "m-type-union": ("m_type_union", (CaptureSpec(_ONE, 1),)),
-        "m-type-atom": ("m_type_atom", (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1))),
-        "m-type-args": ("m_type_args", (CaptureSpec(_ONE, 1), CaptureSpec(_MANY, 2))),
-        "m-arg-tail": ("", ()),
-        "m-arg-union": ("m_type_union", (CaptureSpec(_ONE, 1),)),
-        "m-arg-sep": ("m_arg_sep", (CaptureSpec(_ONE, 1),)),
-        "m-arg-unit": ("", ()),
-        "m-str-token": ("", ()),
-        "m-dq-token": ("m_dq_token", (CaptureSpec(_TEXT, 1),)),
-        "m-sq-token": ("m_sq_token", (CaptureSpec(_TEXT, 1),)),
-        "m-grammar-tail": ("m_inline_grammar", (CaptureSpec(_ONE, 1),)),
-        "m-shape-tail": ("m_inline_shape", (CaptureSpec(_ONE, 1),)),
-        "m-inline-binds": ("m_inline_binds", (CaptureSpec(_MANY, 2),)),
-        "m-bind-entry": (
-            "m_bind_entry",
-            (CaptureSpec(_ONE, 1), CaptureSpec(_ONE, 3), CaptureSpec(_ONE, 5)),
-        ),
-        "m-grammar-stmt": ("passthrough", (CaptureSpec(_ONE, 1),)),
-        "m-bind-stmt": ("true", ()),
-        "m-gap": ("none", ()),
-    }
-)
+        ("name", "atom", "unions", "default"),
+        6,
+    ),
+    "m-default": AuthoredRule("true", (), (), 1),
+    "m-type-union": AuthoredRule("m_type_union", (CaptureSpec(_ONE, 1),), ("atom",), 2),
+    "m-type-atom": AuthoredRule(
+        "m_type_atom", (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1)), ("name", "args"), 2
+    ),
+    "m-type-args": AuthoredRule(
+        "m_type_args",
+        (CaptureSpec(_ONE, 1), CaptureSpec(_MANY, 2)),
+        ("first", "rest"),
+        4,
+    ),
+    "m-arg-tail": AuthoredRule(""),
+    "m-arg-union": AuthoredRule("m_type_union", (CaptureSpec(_ONE, 1),), ("atom",), 2),
+    "m-arg-sep": AuthoredRule("m_arg_sep", (CaptureSpec(_ONE, 1),), ("arg",), 2),
+    "m-arg-unit": AuthoredRule(""),
+    "m-str-token": AuthoredRule(""),
+    "m-dq-token": AuthoredRule("m_dq_token", (CaptureSpec(_TEXT, 1),), ("raw",), 3),
+    "m-sq-token": AuthoredRule("m_sq_token", (CaptureSpec(_TEXT, 1),), ("raw",), 3),
+    "m-grammar-tail": AuthoredRule(
+        "m_inline_grammar", (CaptureSpec(_ONE, 1),), ("value",), 3
+    ),
+    "m-shape-tail": AuthoredRule(
+        "m_inline_shape", (CaptureSpec(_ONE, 1),), ("value",), 3
+    ),
+    "m-inline-binds": AuthoredRule(
+        "m_inline_binds", (CaptureSpec(_MANY, 2),), ("entries",), 5
+    ),
+    "m-bind-entry": AuthoredRule(
+        "m_bind_entry",
+        (CaptureSpec(_ONE, 1), CaptureSpec(_ONE, 3), CaptureSpec(_ONE, 5)),
+        ("slot", "name", "value"),
+        7,
+    ),
+    "m-grammar-stmt": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 3),
+    "m-bind-stmt": AuthoredRule("true", (), (), 1),
+    "m-gap": AuthoredRule("none", (), (), 1),
+}
 """Every rule of the module self-grammar in the product vocabulary, over the
 notation's own — the same merge the fold table performs, said once more in the
 form the engines will run."""
@@ -501,7 +535,9 @@ MODULE_PRODUCT = product_rules(MODULE_RULES)
 the code each rule name resolves to."""
 
 MODULE_BINDING = ModelBinding(
-    MODULE_FOLD, rules_by_name(MODULE_PRODUCT.rules, MODULE_PRODUCT.codes)
+    MODULE_FOLD,
+    rules_by_name(MODULE_PRODUCT.rules, MODULE_PRODUCT.codes),
+    ConstructionTables(symbols=bind_symbols(MODULE_PRODUCT.symbols, MODULE_SYMBOLS)),
 )
 """What this surface hands a parse entry — its product, with the fold its
 completions still read."""

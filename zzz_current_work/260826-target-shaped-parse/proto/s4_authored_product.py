@@ -48,6 +48,7 @@ from lexic.compile.output.templating import SPAN_SYMBOLS, MapShape, spanify
 from lexic.compile.product import LoweringOwned, lower_product
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.product import (
+    SymbolConstructor,
     CAPTURE_FOR_BIND,
     CaptureMode,
     ExprProgram,
@@ -109,6 +110,34 @@ def _transform(body: Any, symbols: dict) -> Any:
     return body.ctor.eval
 
 
+KEYWORD_TWINS: dict[str, str] = {"decode_int": "int"}
+"""Registry keys whose product spelling differs from the fold's, and why.
+
+A completion applies its transform BY KEYWORD; a fold body reads a positional
+argument channel. The builtin `int` can only be called the second way, so the
+product names the one-parameter twin instead. Same decode, two application
+conventions — and the fold half, with `"int"`, goes when reducer semantics
+lower. Every entry here is checked to compute what its fold spelling computes,
+so the allowance is a proof rather than a waiver."""
+
+
+def _same_transform(where: str, entry: Any, body: Any, symbols: dict) -> None:
+    """The product's transform is the fold's, or its checked keyword twin."""
+    folded = _transform(body, symbols)
+    if symbols[entry.symbol] is folded:
+        return
+    twin = KEYWORD_TWINS.get(entry.symbol)
+    _check(
+        f"{where}: the product names {entry.symbol!r}, whose transform is not the "
+        f"one the fold body wraps and is no declared keyword twin",
+        twin is not None and symbols[twin] is folded,
+    )
+    _check(
+        f"{where}: {entry.symbol!r} and {twin!r} decode '42' differently",
+        symbols[entry.symbol](**{entry.names[0]: "42"}) == folded("42"),
+    )
+
+
 def _agree(label: str, fold: Any, product: Any, symbols: dict) -> tuple[int, int]:
     """Every rule of one surface: same captures, same transform, by identity."""
     bodies = {str(ref): body for ref, body in fold.bodies.items()}
@@ -142,11 +171,29 @@ def _agree(label: str, fold: Any, product: Any, symbols: dict) -> tuple[int, int
             f"{label}/{name}: its one operation is not a symbol",
             isinstance(operation, SymbolExpr),
         )
-        symbol = product.symbols[operation.symbol]
+        entry = product.symbols[operation.symbol]
+        _same_transform(f"{label}/{name}", entry, body, symbols)
+        # The keywords are half of what an application IS: applying the same
+        # transform under the wrong ones builds a silently different value.
         _check(
-            f"{label}/{name}: the product names {symbol!r}, whose transform is not the "
-            f"one the fold body wraps",
-            symbols[symbol] is _transform(body, symbols),
+            f"{label}/{name}: keywords {entry.names} vs the fold's "
+            f"{tuple(field.name for field in body.fields)}",
+            entry.names == tuple(field.name for field in body.fields),
+        )
+        _check(
+            f"{label}/{name}: arm width {rule.n_items} vs the fold's {body.n_items}",
+            rule.n_items == body.n_items,
+        )
+        # Absence is declared, and only a gtext bind over an item that can
+        # match nothing declares it.
+        expected = tuple(
+            at
+            for at, field in enumerate(body.fields)
+            if field.mode == "gtext" and field.lo == 0
+        )
+        _check(
+            f"{label}/{name}: optional {entry.optional} vs the fold's {expected}",
+            entry.optional == expected,
         )
 
         _check(
@@ -197,8 +244,11 @@ def _lowers(label: str, product: Any, symbols: dict) -> None:
     )
     verify_program(program)
     _check(
-        f"{label}: the authored symbol table holds something other than names",
-        all(isinstance(name, str) for name in product.symbols),
+        f"{label}: the authored symbol table holds a callable",
+        all(
+            isinstance(entry, SymbolConstructor) and isinstance(entry.symbol, str)
+            for entry in product.symbols
+        ),
     )
     _check(
         f"{label}: lowering resolved {len(program.operands.symbols)} of "
@@ -206,10 +256,12 @@ def _lowers(label: str, product: Any, symbols: dict) -> None:
         len(program.operands.symbols) == len(product.symbols),
     )
     _check(
-        f"{label}: a resolved transform is not the registry's own object",
+        f"{label}: a resolved row is not its authored record's own transform",
         all(
-            resolved is symbols[name]
-            for name, resolved in zip(product.symbols, program.operands.symbols)
+            row.apply is symbols[entry.symbol]
+            and row.names == entry.names
+            and row.optional == entry.optional
+            for entry, row in zip(product.symbols, program.operands.symbols)
         ),
     )
     print(
@@ -266,7 +318,10 @@ def one_slot_can_be_captured_twice_in_two_modes() -> None:
     program = lower_product(
         tuple(rules.values()),
         SURFACE_OPERANDS,
-        owned=LoweringOwned(symbols=tuple(SPAN_SYMBOLS), registry=SPAN_SYMBOLS),
+        owned=LoweringOwned(
+            symbols=_authored_again(pair.span_binding, SPAN_SYMBOLS),
+            registry=SPAN_SYMBOLS,
+        ),
         root=RootOp(0),
         meaning=MeaningOp(0),
     )
@@ -274,6 +329,23 @@ def one_slot_can_be_captured_twice_in_two_modes() -> None:
     print(
         f"two-mode\tmember-tm captures {len(entry.captures)} times over "
         f"{len(set(slots))} slots — TEXT and EXTENT on each, and it verifies"
+    )
+
+
+def _authored_again(
+    binding: Any, registry: dict[str, Any]
+) -> tuple[SymbolConstructor, ...]:
+    """A binding's resolved symbols back in authored form, for re-lowering.
+
+    A binding keeps the RESOLVED rows; lowering takes the authored ones. The
+    witness re-lowers a surface it already bound, so it names each callable
+    again through the same registry — which also checks the resolution went
+    where it said it did.
+    """
+    names = {id(transform): key for key, transform in registry.items()}
+    return tuple(
+        SymbolConstructor(names[id(entry.apply)], entry.names, entry.optional)
+        for entry in binding.construction.symbols
     )
 
 

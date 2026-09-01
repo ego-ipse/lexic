@@ -1,30 +1,42 @@
-"""Bake a clone's build state BOTH ways and prove the flat outputs identical.
+"""What the LIVE bake writes IS what the rule's product declares.
 
-§4 step 2 derives the predictive runtime's build state from the model product
-instead of the model fold. The step's opcode account is structural rather than
-timed: if the flat clone the product bakes is the flat clone the fold bakes,
-then the paid loop executes the same instructions on the same data and no
-timing argument is needed to say the step added nothing.
+The bake is no longer two implementations to diff: `bake_product_build` writes
+a clone's whole build state from its product, and the fold is gone from the
+runtime entirely. The question the witness has to answer changed with it, from
+"do two bakes agree" to "does the one bake say what the ABI declares".
 
-This runs that comparison over every clone of every ground-truth grammar and
-insists on exact equality of `fields`, `plan`, `fast`, `defaults` and
-`needs_ends`, with two normalizations stated and PROVED rather than waived:
+So this asserts PROPERTIES of the live bake over every rule and every clone of
+the ground-truth corpus, and asserts most of them BEHAVIOURALLY — by driving
+the real `fast_values` / `vstr_model` over synthesized frame captures and
+reading the constructed model's fields back by name. A property phrased that
+way cannot be satisfied by a bake that merely agrees with itself:
 
-* **`lo`.** The flat `lo` is read at exactly three places, all zero-tests
-  inside a text branch. The product-side bake therefore writes `0` when the
-  ABI says a capture may be absent and `1` otherwise, instead of restating a
-  quantifier nothing can consult. Proved behaviourally: every row's field
-  VALUE agrees through each side's own branch, for an empty and a non-empty
-  span alike; and the exhaustiveness of the three-site trace is pinned, so a
-  fourth reader breaks this witness rather than the parse.
-* **The text family.** The fold held `text` and `gtext` apart and then asked
-  `lo` which it meant; the ABI has one TEXT capture carrying the absence
-  question, so a required `gtext` bind bakes as `M_TEXT`. The two branches
-  compute the same value for every non-zero `lo` — which is exactly the case
-  in which they differ — and the rows are counted, not glossed.
+* **Class-field order.** The plan has one entry per class field, and the field
+  each entry fills is the field the record says fills it. Read back off the
+  built model, so a permuted plan is a wrong model rather than a wrong tuple.
+* **Absence, coded per `optional`.** A capture the record admits being absent
+  takes the class's DEFAULT when its span is empty; one it does not takes the
+  empty string. This is the gtext absence-vs-empty-string row, on the real
+  corpus, through the real build.
+* **`matched_field`.** A `value_str` rule's own matched extent fills the field
+  the record names — checked through `vstr_model`, which is the only builder
+  that ever sees an `M_VALUE` plan entry.
+* **Cleared state.** A transparent clone and a pass-through leave the four
+  fused-build fields saying nothing, and name no constructor.
+* **The build mode, and the arm width.** Read off the completion record and
+  the rule, so a transparent clone, a pass-through, a record build and a
+  value_str are four answers to one question rather than a second vocabulary.
+* **Item ends kept for TEXT or EXTENT.** Both read an item's end position back
+  off the frame, so a clone with either keeps them.
+* **No symbol reaches the model product.** Not one symbol opcode and not one
+  resolved callable, over every grammar's lowered model program.
 
-No consumer is switched here: both bakes run into fresh shells and the live
-program is untouched.
+The three `lo` zero-test predicates keep their exhaustiveness pin, tokenized
+rather than grepped, because the `0 if optional else 1` normalization is only
+sound while that list is the whole of them.
+
+Every property is proved live by a seeded defect: `the_checks_are_live` mutates
+a real constructor five ways and insists each one is caught.
 
 Uncommitted evidence, not a test. Luna owns the committed suite.
 """
@@ -34,17 +46,42 @@ from __future__ import annotations
 import io
 import tokenize
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from lexic.compile import compile_from_path
 from lexic.compile.pipeline.synthesis import ModelPlan, model_plan
 from lexic.compile.product import LoweringOwned, lower_product
+from lexic.compile.product.binding import _check_covered, rules_by_name
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
-from lexic.parsing.pda.compiler.program.lower import _bake_build
-from lexic.parsing.pda.compiler.program.opcodes import M_GTEXT, M_TEXT
+from lexic.ir import IrSpan
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, vstr_model
+from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_ALT,
+    BUILD_SEQ,
+    BUILD_TRANSPARENT,
+    BUILD_VALUE_STR,
+    M_CONST,
+    M_GTEXT,
+    M_MODEL,
+    M_MODELS,
+    M_SPAN,
+    M_TEXT,
+    M_VALUE,
+)
 from lexic.parsing.pda.compiler.program.product import bake_product_build
-from lexic.parsing.product import ExprCode, MeaningOp, OperandTables, RootOp
+from lexic.parsing.pda.runtime.build import fast_values
+from lexic.parsing.product import (
+    CaptureMode,
+    ConstructionTables,
+    ExprCode,
+    MeaningOp,
+    OperandTables,
+    PassOp,
+    RecordConstructor,
+    RecordOp,
+    RootOp,
+    RuleProduct,
+)
 
 EMPTY_OPERANDS: OperandTables = OperandTables(
     constants=(),
@@ -63,9 +100,16 @@ ROOT = Path(__file__).resolve().parents[3]
 GROUND_TRUTH = ROOT / "resources" / "ground_truth"
 BUILD_SOURCE = ROOT / "src" / "lexic" / "parsing" / "pda" / "runtime" / "build.py"
 
-TEXT_FAMILY = frozenset({M_TEXT, M_GTEXT})
-SPANS = ("", "x")
-"""An empty and a non-empty capture — the only two cases `lo` can separate."""
+TEXT_MODES = frozenset({M_TEXT, M_GTEXT})
+ITEM_MODES = frozenset({M_TEXT, M_GTEXT, M_SPAN, M_MODEL, M_MODELS})
+"""Plan modes that read one item's captured span or sink."""
+
+FILLED = "abcdefghijklmnopqrstuvwxyz" * 8
+"""Enough distinct characters that every item's synthesized span is unique."""
+
+
+class Defect(Exception):
+    """A seeded defect the property checks were supposed to catch, and did."""
 
 
 def _check(claim: str, held: bool) -> None:
@@ -74,7 +118,7 @@ def _check(claim: str, held: bool) -> None:
         raise AssertionError(f"s4 bake identity: {claim}")
 
 
-# ── the two bakes, into fresh shells ──────────────────────────────────
+# ── the live bake ─────────────────────────────────────────────────────
 
 
 def _shell() -> FlatClone:
@@ -82,159 +126,322 @@ def _shell() -> FlatClone:
     return FlatClone.__new__(FlatClone)
 
 
-def _fold_bake(fold: Any) -> FlatClone:
-    """The build state today's fold bake produces."""
+def _baked(product: RuleProduct | None, tables: ConstructionTables) -> FlatClone:
+    """One clone's build state, from the shipped bake."""
     clone = _shell()
-    _bake_build(clone, fold)
+    bake_product_build(clone, product, tables)
     return clone
 
 
-def _product_bake(plan: ModelPlan, name: str) -> FlatClone:
-    """The build state the product bake produces for the same rule."""
-    clone = _shell()
-    code = plan.codes.get(name)
-    product = None if code is None else plan.rules[code]
-    bake_product_build(clone, product, plan.constructors)
-    return clone
+def _constructor_of(
+    product: RuleProduct | None, tables: ConstructionTables
+) -> RecordConstructor | None:
+    """The constructor record a rule's completion names, if it names one."""
+    if product is None or not isinstance(product.completion, RecordOp):
+        return None
+    return tables.constructors[product.completion.constructor]
 
 
-# ── the comparison, with the two normalizations named ─────────────────
+# ── synthesized frame captures ────────────────────────────────────────
 
 
-def _same_mode(label: str, fold_mode: int, product_mode: int, fold_lo: int) -> bool:
-    """Whether two build modes say the same thing about one capture.
+def _item_count(clone: FlatClone) -> int:
+    """How many items the clone's plan and capture layout reach into."""
+    items = [row[1] for row in clone.plan if row[0] in ITEM_MODES]
+    items += [row[0] for row in clone.fields]
+    return max(items, default=-1) + 1
 
-    Equal modes trivially do. The one licensed difference is inside the text
-    family: a `gtext` bind that CANNOT be absent (`lo != 0`) is a `text` bind
-    wearing another name, and the product bakes it as one.
+
+def _captures(clone: FlatClone, filled: bool) -> tuple[str, int, list[int], list[Any]]:
+    """A frame's ``(text, start, ends, sinks)`` for one clone.
+
+    ``filled`` gives item ``i`` the one-character span ``FILLED[i]``; its
+    negation gives every item the EMPTY span, which is the only input that can
+    separate an absence-bearing capture from a required one.
     """
-    if fold_mode == product_mode:
-        return True
-    pair = {fold_mode, product_mode}
-    _check(
-        f"{label}: mode {fold_mode} vs {product_mode} is not a text-family pair",
-        pair <= TEXT_FAMILY,
-    )
-    _check(
-        f"{label}: the fold's gtext row can be ABSENT (lo=0) and the product "
-        f"baked it as plain text",
-        fold_lo != 0,
-    )
-    return True
+    n = _item_count(clone)
+    ends = [i + 1 for i in range(n)] if filled else [0] * n
+    sinks: list[Any] = [[f"<model {i}>", f"<extra {i}>"] for i in range(n)]
+    return FILLED, 0, ends, sinks
 
 
-def _field_value(mode: int, lo: int, span: str, default: object) -> object:
-    """One field's value, exactly as `fast_values` computes it.
+def _span_of(text: str, start: int, ends: list[int], item: int) -> str:
+    """Item ``item``'s captured text — the frame's own span convention."""
+    return text[(start if item == 0 else ends[item - 1]) : ends[item]]
 
-    Transcribed from the two text branches of
-    `pda/runtime/build.py::fast_values`; every other mode ignores `lo`, so a
-    row outside the text family cannot be changed by the normalization.
+
+def _declared_value(
+    name: str,
+    at: int | None,
+    product: RuleProduct,
+    constructor: RecordConstructor,
+    frame: tuple[str, int, list[int], list[Any]],
+) -> object:
+    """What the RECORD says one class field is built from.
+
+    Written from :class:`RecordConstructor`'s declared meaning rather than from
+    the bake's plan, so agreement is evidence instead of a tautology.
     """
-    if mode == M_GTEXT:
-        return span if (span or lo) else default
+    text, start, ends, sinks = frame
+    if at is None:
+        return constructor.defaults.get(name)
+    spec = product.captures[at]
+    if spec.mode == CaptureMode.ONE:
+        return sinks[spec.slot][0]
+    if spec.mode == CaptureMode.MANY:
+        return tuple(sinks[spec.slot])
+    if spec.mode == CaptureMode.EXTENT:
+        return IrSpan(start if spec.slot == 0 else ends[spec.slot - 1], ends[spec.slot])
+    span = _span_of(text, start, ends, spec.slot)
+    if not span and at in constructor.optional:
+        return constructor.defaults.get(name)  # ABSENT — never the empty string
     return span
 
 
-def _compare_fields(label: str, fold: FlatClone, product: FlatClone) -> tuple[int, int]:
-    """`fields` row by row.
+# ── the properties ────────────────────────────────────────────────────
 
-    :returns: ``(rows whose lo normalized, rows whose mode normalized)``.
-    """
+
+def _check_cleared(label: str, clone: FlatClone) -> None:
+    """A clone that builds nothing says nothing, not something empty-looking."""
+    _check(f"{label}: cleared clone kept fields {clone.fields}", clone.fields == ())
+    _check(f"{label}: cleared clone kept plan {clone.plan}", clone.plan == ())
+    _check(f"{label}: cleared clone kept fast {clone.fast!r}", clone.fast is None)
     _check(
-        f"{label}: fields {len(fold.fields)} vs {len(product.fields)}",
-        len(fold.fields) == len(product.fields),
+        f"{label}: cleared clone kept defaults {clone.defaults!r}",
+        clone.defaults is None,
     )
-    los = 0
-    modes = 0
-    for at, (left, right) in enumerate(zip(fold.fields, product.fields)):
-        f_item, f_mode, f_name, f_lo = left
-        p_item, p_mode, p_name, p_lo = right
+
+
+def _check_fields(
+    label: str, clone: FlatClone, product: RuleProduct, constructor: RecordConstructor
+) -> None:
+    """The capture layout: one row per capture, absence coded in mode and lo."""
+    _check(
+        f"{label}: {len(clone.fields)} field rows for {len(product.captures)} captures",
+        len(clone.fields) == len(product.captures),
+    )
+    for at, (item, mode, name, lo) in enumerate(clone.fields):
+        spec = product.captures[at]
+        absent = at in constructor.optional
         where = f"{label}.fields[{at}]"
-        _check(f"{where}: item {f_item} vs {p_item}", f_item == p_item)
-        _check(f"{where}: name {f_name!r} vs {p_name!r}", f_name == p_name)
-        _same_mode(where, f_mode, p_mode, f_lo)
-        los += int(f_lo != p_lo)
-        modes += int(f_mode != p_mode)
-    return los, modes
-
-
-def _compare_plan(label: str, fold: FlatClone, product: FlatClone) -> tuple[int, int]:
-    """`plan` entry by entry, each entry's built VALUE asserted equal.
-
-    :returns: ``(entries whose lo normalized, entries whose mode normalized)``.
-    """
-    _check(
-        f"{label}: plan {len(fold.plan)} vs {len(product.plan)}",
-        len(fold.plan) == len(product.plan),
-    )
-    los = 0
-    modes = 0
-    for at, (left, right) in enumerate(zip(fold.plan, product.plan)):
-        f_mode, f_item, f_lo, f_default = left
-        p_mode, p_item, p_lo, p_default = right
-        where = f"{label}.plan[{at}]"
-        _check(f"{where}: item {f_item} vs {p_item}", f_item == p_item)
+        _check(f"{where}: item {item} for capture slot {spec.slot}", item == spec.slot)
         _check(
-            f"{where}: default {f_default!r} vs {p_default!r}", f_default == p_default
+            f"{where}: name {name!r} for declared field {constructor.names[at]!r}",
+            name == constructor.names[at],
         )
-        _same_mode(where, f_mode, p_mode, f_lo)
-        _assert_same_value(where, left, right)
-        los += int(f_lo != p_lo)
-        modes += int(f_mode != p_mode)
-    return los, modes
+        _check(f"{where}: lo {lo} for optional={absent}", lo == (0 if absent else 1))
+        _check(
+            f"{where}: mode {mode} codes absence {mode == M_GTEXT} for {absent}",
+            (mode == M_GTEXT) == (absent and spec.mode == CaptureMode.TEXT),
+        )
+        _check(
+            f"{where}: mode {mode} is not a text mode for a TEXT capture",
+            (mode in TEXT_MODES) == (spec.mode == CaptureMode.TEXT),
+        )
 
 
-def _assert_same_value(where: str, left: tuple, right: tuple) -> None:
-    """The two plan entries build the same field value, empty span included."""
-    f_mode, _f_item, f_lo, f_default = left
-    p_mode, _p_item, p_lo, p_default = right
-    if f_mode not in TEXT_FAMILY:
+def _check_needs_ends(label: str, clone: FlatClone, product: RuleProduct) -> None:
+    """Item ends are kept exactly when some capture reads one."""
+    wanted = any(
+        spec.mode in (CaptureMode.TEXT, CaptureMode.EXTENT) for spec in product.captures
+    )
+    _check(
+        f"{label}: needs_ends {clone.needs_ends} for text captures {wanted}",
+        clone.needs_ends == wanted,
+    )
+
+
+def _check_plan_shape(
+    label: str, clone: FlatClone, constructor: RecordConstructor
+) -> None:
+    """One plan entry per class field, and the licence is the class's own."""
+    make, _defaults, order = constructor.cls.fast_construct()
+    _check(
+        f"{label}: plan of {len(clone.plan)} for a class of {len(order)} fields",
+        len(clone.plan) == len(order),
+    )
+    _check(f"{label}: fast {clone.fast!r} is not the class's", clone.fast == make)
+    _check(
+        f"{label}: defaults {clone.defaults!r} vs declared {dict(constructor.defaults)}",
+        clone.defaults == dict(constructor.defaults),
+    )
+
+
+def _check_built_model(
+    label: str,
+    clone: FlatClone,
+    product: RuleProduct,
+    constructor: RecordConstructor,
+    filled: bool,
+) -> None:
+    """Build through the real `fast_values` and read every field back by name."""
+    frame = _captures(clone, filled)
+    text, start, ends, sinks = frame
+    model = clone.fast(fast_values(text, clone, (start, ends, sinks)))
+    filling = {name: at for at, name in enumerate(constructor.names)}
+    for name in constructor.cls.fast_construct()[2]:
+        want = _declared_value(name, filling.get(name), product, constructor, frame)
+        got = getattr(model, name)
+        _check(
+            f"{label}[{'filled' if filled else 'empty'}].{name}: built {got!r}, "
+            f"the record declares {want!r}",
+            got == want,
+        )
+
+
+def _check_matched_field(
+    label: str, clone: FlatClone, constructor: RecordConstructor
+) -> None:
+    """A value_str rule's own extent fills the field the record names."""
+    codes = {row[0] for row in clone.plan}
+    _check(
+        f"{label}: plan carries M_VALUE {M_VALUE in codes} for matched_field "
+        f"{constructor.matched_field!r}",
+        (M_VALUE in codes) == bool(constructor.matched_field),
+    )
+    if not constructor.matched_field:
         return
-    for span in SPANS:
-        fold_value = _field_value(f_mode, f_lo, span, f_default)
-        product_value = _field_value(p_mode, p_lo, span, p_default)
+    model = vstr_model(clone, "matched")
+    for name in constructor.cls.fast_construct()[2]:
+        want = "matched" if name == constructor.matched_field else None
+        got = getattr(model, name)
         _check(
-            f"{where}: span {span!r} builds {fold_value!r} through the fold "
-            f"and {product_value!r} through the product",
-            fold_value == product_value,
+            f"{label}.{name}: value_str built {got!r}, the record declares {want!r}",
+            got == (want if want is not None else constructor.defaults.get(name)),
         )
 
 
-def _compare(label: str, fold: FlatClone, product: FlatClone) -> dict[str, int]:
-    """Every field of one clone's build state, both ways."""
+def _check_unfilled(
+    label: str, clone: FlatClone, constructor: RecordConstructor
+) -> None:
+    """A field no capture fills is a constant, and its constant is the default."""
+    filling = set(constructor.names)
+    order = constructor.cls.fast_construct()[2]
+    for at, name in enumerate(order):
+        mode, _item, _lo, default = clone.plan[at]
+        if name in filling or name == constructor.matched_field:
+            continue
+        _check(
+            f"{label}.{name}: unfilled field bakes mode {mode}, not a constant",
+            mode == M_CONST,
+        )
+        _check(
+            f"{label}.{name}: unfilled constant {default!r} vs default "
+            f"{constructor.defaults.get(name)!r}",
+            default == constructor.defaults.get(name),
+        )
+
+
+def check_clone(
+    label: str,
+    product: RuleProduct | None,
+    tables: ConstructionTables,
+    totals: dict[str, int],
+    baked_with: ConstructionTables | None = None,
+) -> None:
+    """Every property of one clone's live build state.
+
+    ``baked_with`` is what the bake is HANDED and ``tables`` is what the
+    record DECLARES; they are the same table in the sweep and differ only when
+    a control seeds a defect into one side, which is the only way a check over
+    a declaration can be shown to be watching the bake rather than itself.
+    """
+    clone = _baked(product, tables if baked_with is None else baked_with)
+    constructor = _constructor_of(product, tables)
+    totals["clones"] = totals.get("clones", 0) + 1
+    _check_mode(label, clone, product, constructor)
+    _check_arm_width(label, clone, product)
+    if product is not None:
+        _check_needs_ends(label, clone, product)
+    if product is None or constructor is None:
+        totals["no record"] = totals.get("no record", 0) + 1
+        return
     _check(
-        f"{label}: needs_ends {fold.needs_ends} vs {product.needs_ends}",
-        fold.needs_ends == product.needs_ends,
+        f"{label}: ctor {clone.ctor!r} is not the declared class",
+        clone.ctor is constructor.cls,
     )
     _check(
-        f"{label}: fast {fold.fast!r} vs {product.fast!r}", fold.fast == product.fast
+        f"{label}: matched {clone.matched!r} vs declared {constructor.matched_field!r}",
+        clone.matched == constructor.matched_field,
     )
+    _check_fields(label, clone, product, constructor)
+    if not constructor.licensed:
+        totals["unlicensed"] = totals.get("unlicensed", 0) + 1
+        _check(f"{label}: unlicensed clone kept a plan {clone.plan}", clone.plan == ())
+        _check(
+            f"{label}: unlicensed clone kept fast {clone.fast!r}", clone.fast is None
+        )
+        return
+    totals["licensed"] = totals.get("licensed", 0) + 1
+    _check_plan_shape(label, clone, constructor)
+    _check_unfilled(label, clone, constructor)
+    _check_matched_field(label, clone, constructor)
+    if constructor.matched_field:
+        return  # a value_str builds through vstr_model, never through the plan
+    _check_built_model(label, clone, product, constructor, filled=True)
+    _check_built_model(label, clone, product, constructor, filled=False)
+    absent_text = [
+        at
+        for at in constructor.optional
+        if product.captures[at].mode == CaptureMode.TEXT
+    ]
+    totals["absence_rows"] = totals.get("absence_rows", 0) + len(absent_text)
+
+
+def _check_mode(
+    label: str,
+    clone: FlatClone,
+    product: RuleProduct | None,
+    constructor: RecordConstructor | None,
+) -> None:
+    """The build mode is what the completion record says it is."""
+    if product is None:
+        wanted = BUILD_TRANSPARENT
+    elif constructor is None:
+        wanted = BUILD_ALT if isinstance(product.completion, PassOp) else BUILD_SEQ
+    else:
+        wanted = BUILD_VALUE_STR if constructor.matched_field else BUILD_SEQ
     _check(
-        f"{label}: defaults {fold.defaults!r} vs {product.defaults!r}",
-        fold.defaults == product.defaults,
+        f"{label}: mode {clone.mode} for a completion that wants {wanted}",
+        clone.mode == wanted,
     )
-    field_lo, field_mode = _compare_fields(label, fold, product)
-    plan_lo, plan_mode = _compare_plan(label, fold, product)
-    return {
-        "clones": 1,
-        "fields": len(fold.fields),
-        "plan": len(fold.plan),
-        "lo_normalized": field_lo + plan_lo,
-        "mode_normalized": field_mode + plan_mode,
-    }
+
+
+def _check_arm_width(label: str, clone: FlatClone, product: RuleProduct | None) -> None:
+    """The arm width is the rule's own, and nothing invents one."""
+    wanted = 0 if product is None else product.n_items
+    _check(
+        f"{label}: n_items {clone.n_items} for a rule declaring {wanted}",
+        clone.n_items == wanted,
+    )
 
 
 # ── the corpus sweep ──────────────────────────────────────────────────
 
 
-def _tally(into: dict[str, int], counts: dict[str, int]) -> None:
-    """Accumulate one clone's counts."""
-    for key, value in counts.items():
-        into[key] = into.get(key, 0) + value
+def _model_program(label: str, plan: ModelPlan) -> None:
+    """Lower the model product and insist no symbol reaches it."""
+    program = lower_product(
+        plan.rules,
+        EMPTY_OPERANDS,
+        owned=LoweringOwned(constructors=plan.constructors),
+        root=RootOp(0),
+        meaning=MeaningOp(0),
+    )
+    _check(
+        f"{label}: the model product lowered "
+        f"{program.expression_opcodes.count(int(ExprCode.SYMBOL))} symbol operations",
+        int(ExprCode.SYMBOL) not in program.expression_opcodes,
+    )
+    _check(
+        f"{label}: the model product carries {len(program.operands.symbols)} "
+        f"resolved symbol callables",
+        not program.operands.symbols,
+    )
 
 
 def _rule_level(label: str, compiled: Any, totals: dict[str, int]) -> None:
-    """Every RULE of one grammar, baked both ways.
+    """Every RULE of one grammar, through the live bake.
 
     Rule level rather than clone level so a grammar whose terminals name an
     encoding — and which therefore cannot compile predictive tables without a
@@ -243,46 +450,19 @@ def _rule_level(label: str, compiled: Any, totals: dict[str, int]) -> None:
     plan = model_plan(
         compiled.codegen_grammar, compiled.moments.binding, compiled.classes
     )
-    folds = compiled.fold.baked
     _check(
-        f"{label}: the plan covers {len(plan.codes)} rules, the fold {len(folds)}",
-        set(plan.codes) == set(folds),
+        f"{label}: the plan covers {len(plan.codes)} rules, the fold "
+        f"{len(compiled.fold.baked)}",
+        set(plan.codes) == set(compiled.fold.baked),
     )
-    # `matched_field` is DECLARED, and lowering keeps the derivation — a class
-    # field no capture fills and no default covers — as its cross-check. Run
-    # the real audit over the real constructors, so the two are shown to agree
-    # on the whole corpus rather than on a synthetic record.
-    program = lower_product(
-        plan.rules,
-        EMPTY_OPERANDS,
-        owned=LoweringOwned(constructors=plan.constructors),
-        root=RootOp(0),
-        meaning=MeaningOp(0),
-    )
-    # The symbol operation exists for the authored compile-time surfaces. The
-    # generated-model product completes through inert binding-owned data, and
-    # this is what says so about the real corpus rather than by intent: not one
-    # symbol op, and not one resolved callable, anywhere in it.
-    _check(
-        f"{label}: the model product lowered {program.expression_opcodes.count(int(ExprCode.SYMBOL))} "
-        f"symbol operations",
-        int(ExprCode.SYMBOL) not in program.expression_opcodes,
-    )
-    _check(
-        f"{label}: the model product carries {len(program.operands.symbols)} "
-        f"resolved symbol callables",
-        not program.operands.symbols,
-    )
+    _model_program(label, plan)
     totals["audited"] = totals.get("audited", 0) + len(plan.constructors)
-    for name, fold in folds.items():
-        _tally(
-            totals,
-            _compare(f"{label}/{name}", _fold_bake(fold), _product_bake(plan, name)),
-        )
+    for name, code in plan.codes.items():
+        check_clone(f"{label}/{name}", plan.rules[code], _tables(plan), totals)
 
 
 def _clone_level(label: str, compiled: Any, totals: dict[str, int]) -> bool:
-    """Every CLONE of one grammar, baked both ways — contextual copies included.
+    """Every CLONE of one grammar — contextual copies and inline groups included.
 
     :returns: Whether the grammar's predictive tables could be compiled.
     """
@@ -290,83 +470,181 @@ def _clone_level(label: str, compiled: Any, totals: dict[str, int]) -> bool:
         tables = compiled.pda_tables()
     except UnsupportedConstructError:
         return False
-    plan = model_plan(
-        compiled.codegen_grammar, compiled.moments.binding, compiled.classes
-    )
+    construction = compiled.product.construction
     for key, spec in tables.clones.items():
-        name = spec.name
-        _check(
-            f"{label}/{key}: clone {name!r} has a fold and no product",
-            (spec.fold is None) or (name in plan.codes),
-        )
-        _tally(
-            totals,
-            _compare(
-                f"{label}/clone {name or '<group>'}",
-                _fold_bake(spec.fold),
-                _product_bake(plan, name),
-            ),
-        )
+        where = f"{label}/clone {spec.name or '<group>'} {key}"
+        check_clone(where, spec.product, construction, totals)
+        _check_no_fold(where)
     return True
 
 
-def every_clone_bakes_the_same_build_state() -> dict[str, int]:
-    """The sweep: both bakes, every rule and every clone of the whole corpus."""
+def _check_no_fold(label: str) -> None:
+    """The clone carries no fold at all — the runtime reads its own slots."""
+    _check(
+        f"{label}: FlatClone declares a `fold` slot again",
+        "fold" not in FlatClone.__slots__,
+    )
+
+
+def _grammars() -> list[Path]:
+    """The ground-truth corpus, in a fixed order."""
+    paths = sorted(GROUND_TRUTH.glob("*.gbnf"))
+    return (
+        paths
+        + sorted(GROUND_TRUTH.glob("*.abnf"))
+        + sorted(GROUND_TRUTH.glob("*.ebnf"))
+    )
+
+
+def the_live_bake_says_what_the_product_declares() -> dict[str, int]:
+    """The sweep: every rule and every clone of the whole corpus."""
     rules: dict[str, int] = {}
     clones: dict[str, int] = {}
     tabled = 0
-    grammars = sorted(GROUND_TRUTH.glob("*.gbnf"))
-    grammars += sorted(GROUND_TRUTH.glob("*.abnf")) + sorted(
-        GROUND_TRUTH.glob("*.ebnf")
-    )
+    grammars = _grammars()
     for path in grammars:
         compiled = compile_from_path(path)
         _rule_level(path.name, compiled, rules)
         tabled += int(_clone_level(path.name, compiled, clones))
     print(
         f"rules\t{len(grammars)} grammars\trules={rules['clones']}\t"
-        f"fields={rules['fields']}\tplan={rules['plan']}\t"
+        f"licensed={rules['licensed']}\tunlicensed={rules.get('unlicensed', 0)}\t"
+        f"pass-through={rules.get('no record', 0)}\t"
         f"constructors audited={rules['audited']}"
     )
     print(
         f"clones\t{tabled} grammars\tclones={clones['clones']}\t"
-        f"fields={clones['fields']}\tplan={clones['plan']}"
+        f"licensed={clones['licensed']}\tunlicensed={clones.get('unlicensed', 0)}\t"
+        f"builds nothing={clones.get('no record', 0)}"
     )
     print(
-        f"normalized\tlo={clones['lo_normalized']}\t"
-        f"mode={clones['mode_normalized']}\t(of {clones['fields'] + clones['plan']} rows)"
+        f"absence\t{clones['absence_rows']} optional TEXT captures built empty "
+        f"and non-empty through the real fast_values"
     )
     _check(
-        "no row normalized — the lo normalization is untested by this corpus",
-        clones["lo_normalized"] > 0,
+        "no optional TEXT capture in the whole corpus — the absence row is vacuous",
+        clones.get("absence_rows", 0) > 0,
     )
     return clones
 
 
+# ── the seeded defects ────────────────────────────────────────────────
+
+
+def _has_absent_text(product: RuleProduct, constructor: RecordConstructor) -> bool:
+    """Whether the rule carries a TEXT capture the record admits being absent."""
+    return any(
+        product.captures[at].mode == CaptureMode.TEXT for at in constructor.optional
+    )
+
+
+def _is_value_str(_product: RuleProduct, constructor: RecordConstructor) -> bool:
+    """Whether the rule's own matched extent fills a class field."""
+    return bool(constructor.matched_field)
+
+
+def _tables(plan: ModelPlan) -> ConstructionTables:
+    """The model plan's construction tables — it names no symbol."""
+    return ConstructionTables(plan.constructors)
+
+
+def _corpus_row(
+    wanted: Callable[[RuleProduct, RecordConstructor], bool], described: str
+) -> tuple[str, RuleProduct, ConstructionTables]:
+    """The first licensed corpus rule matching ``wanted`` — a control's subject."""
+    for path in _grammars():
+        compiled = compile_from_path(path)
+        plan = model_plan(
+            compiled.codegen_grammar, compiled.moments.binding, compiled.classes
+        )
+        for name, code in plan.codes.items():
+            product = plan.rules[code]
+            constructor = _constructor_of(product, _tables(plan))
+            if constructor is None or not constructor.licensed:
+                continue
+            if wanted(product, constructor):
+                return f"{path.name}/{name}", product, _tables(plan)
+    raise AssertionError(f"s4 bake identity: the corpus has no {described}")
+
+
+def _seeded(
+    label: str,
+    product: RuleProduct,
+    tables: ConstructionTables,
+    at: int,
+    edit: Callable[[RecordConstructor], RecordConstructor],
+) -> None:
+    """Bake from a mutated constructor, declare from the real one, insist it refuses."""
+    mutated = ConstructionTables(
+        tuple(
+            edit(entry) if index == at else entry
+            for index, entry in enumerate(tables.constructors)
+        ),
+        tables.symbols,
+    )
+    try:
+        check_clone(label, product, tables, {}, baked_with=mutated)
+    except AssertionError, IndexError, KeyError, TypeError:
+        return
+    raise Defect(f"s4 bake identity: the seeded defect {label} went uncaught")
+
+
+def the_checks_are_live() -> None:
+    """Five seeded defects, each caught by the property it was aimed at."""
+    label, product, tables = _corpus_row(
+        _has_absent_text, "TEXT capture the record admits being absent"
+    )
+    at = product.completion.constructor
+    print(f"control\tseeding defects into {label}")
+    _seeded("absence dropped", product, tables, at, lambda c: c._replace(optional=()))
+    _seeded(
+        "names permuted",
+        product,
+        tables,
+        at,
+        lambda c: c._replace(names=c.names[::-1]),
+    )
+    _seeded("defaults dropped", product, tables, at, lambda c: c._replace(defaults={}))
+    _seeded(
+        "licence withdrawn",
+        product,
+        tables,
+        at,
+        lambda c: c._replace(licensed=False),
+    )
+    matched, vstr, vstr_tables = _corpus_row(_is_value_str, "value_str rule")
+    print(f"control\tseeding the matched-field defect into {matched}")
+    _seeded(
+        "matched_field dropped",
+        vstr,
+        vstr_tables,
+        vstr.completion.constructor,
+        lambda c: c._replace(matched_field=""),
+    )
+    print("control\tfive seeded defects, five refusals")
+
+
 # ── the exhaustiveness pin ────────────────────────────────────────────
 
-EXPECTED_LO_READS = (
-    "values.append(span if (span or lo) else default)",
-    "if span or lo != 0:",
-    "key_parts.append(span if (span or lo != 0) else None)",
-)
-"""The three predicates that consult a bound field's `lo` at run time. The
-normalization is only sound because this list is the whole of them."""
+EXPECTED_LO_READS = ("values.append(span if (span or lo) else default)",)
+"""The ONE predicate that still consults a capture's `lo` at run time.
 
-EXPECTED_LO_BINDS = (
-    "for mode, item, lo, default in clone.plan:",
-    "for item, mode, name, lo in fold.fields:",
-)
-"""The two places `lo` enters a runtime scope at all."""
+It was three. The keyword build lost the other two when it started reading
+int-coded modes: under the product's coding `M_GTEXT` means exactly "this
+capture may be absent", so `lo != 0` is false wherever that branch runs and the
+test said nothing. The remaining reader is the positional plan's, where
+`span or lo` is the same predicate written on a column the plan still carries."""
+
+EXPECTED_LO_BINDS = ("for mode, item, lo, default in clone.plan:",)
+"""The one place `lo` enters a runtime scope at all."""
 
 
 def the_lo_readers_are_exactly_three() -> None:
-    """Pin every `lo` occurrence in the runtime build, binds included.
+    """Pin every `lo` occurrence in the runtime build, the bind included.
 
     Read off the source with the tokenizer rather than a grep, so a `lo`
     inside a string or a comment cannot pad the count and a fourth genuine
-    reader cannot hide behind one. A future reader breaks this line loudly
-    instead of silently consuming a value the ABI no longer states.
+    reader cannot hide behind one.
     """
     source = BUILD_SOURCE.read_text(encoding="utf-8")
     lines = source.splitlines()
@@ -385,8 +663,8 @@ def the_lo_readers_are_exactly_three() -> None:
     _check(f"the binds moved: {binds}", tuple(binds) == EXPECTED_LO_BINDS)
     _check(f"the readers moved: {reads}", tuple(reads) == EXPECTED_LO_READS)
     print(
-        f"lo trace\t{len(EXPECTED_LO_BINDS)} binds + {len(EXPECTED_LO_READS)} "
-        f"readers, all zero-tests in a text branch"
+        f"lo trace\t{len(EXPECTED_LO_BINDS)} bind + {len(EXPECTED_LO_READS)} "
+        f"reader, a zero-test in a text branch"
     )
 
 
@@ -410,14 +688,42 @@ def the_plan_lo_has_one_other_consumer_and_it_discards_it() -> None:
     print("lo trace\tvstr_model unpacks the plan and discards lo")
 
 
+def the_binding_guard_refuses_an_uncovered_fold() -> None:
+    """A binding whose product names fewer rules than its fold is refused.
+
+    The historical shape, exactly: a bare fold wrapped into a `ModelBinding`
+    left the rules map EMPTY, every clone baked no build state, and nothing
+    said so. `bind_model` cannot produce that from one binding view — which is
+    why the guard needs a row of its own to show it is not decoration.
+    """
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    plan = model_plan(
+        compiled.codegen_grammar, compiled.moments.binding, compiled.classes
+    )
+    covered = rules_by_name(plan.rules, plan.codes)
+    _check_covered(covered, compiled.fold)  # the real pairing passes
+    for label, rules in (
+        ("an empty rules map", {}),
+        ("one rule short", dict(list(covered.items())[1:])),
+    ):
+        try:
+            _check_covered(rules, compiled.fold)
+        except UnsupportedConstructError:
+            continue
+        raise Defect(f"s4 bake identity: bind_model's guard admitted {label}")
+    print("guard\tan empty and a short rules map are both refused, with words")
+
+
 def main() -> None:
-    """Run the sweep and the pins; any disagreement raises."""
-    counts = every_clone_bakes_the_same_build_state()
+    """Run the sweep, the controls and the pins; any disagreement raises."""
+    counts = the_live_bake_says_what_the_product_declares()
+    the_checks_are_live()
+    the_binding_guard_refuses_an_uncovered_fold()
     the_lo_readers_are_exactly_three()
     the_plan_lo_has_one_other_consumer_and_it_discards_it()
     print(
-        f"s4 bake identity\tPASS\t{counts['clones']} clones bake one build state "
-        f"two ways"
+        f"s4 bake identity\tPASS\t{counts['clones']} clones bake exactly what "
+        f"their product declares"
     )
 
 

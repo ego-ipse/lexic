@@ -1,5 +1,305 @@
 # Ledger — target-shaped parsing
 
+## One-shot blast radius declared; two in-flight authorizations (2026-09-01)
+
+Terra-3 pre-declared the radius before adapting (condition 5): the 16 call
+sites are exact (7 mechanical swaps; 9 are FIXTURE AUTHORING — four
+hand-authored `ModelBody` fixtures gain registry + `SymbolConstructor` rows,
+~10–14 lines each, assertions byte-for-byte), plus a radius the ruling did
+not see: the authored surfaces' product tables widen by names/optional/
+n_items (93 rows), making them FULL checked duplicates of their fold tables.
+Coordinator authorizations: fixture declaration within the declared set is
+allowed (it is fixture data, not assertion re-pinning; Luna re-reviews at
+§13); the CHECKED duplicate stands — the two-surface differential asserts
+names/optional/n_items agree with the fold rule-by-rule for as long as the
+duplication lives, and §5 deletes the fold half; the INVERSION (derive
+ModelBody from the product) is deferred to §5 exactly as terra-3 reasoned —
+it touches committed foldkit/selfgrammar test surface for a transitional
+state. Design notes of record: `ConstructionTables(constructors, symbols)`
+threads as ONE record; `clone.matched` removes a hardcoded `value` field
+name from generic code; the `lo` pin MOVES with `_validated_fields`' dead
+test, not waived; the chartable intern key stays byte-identical by
+`IrLambda.eval` identity.
+
+
+## Ruling: slice-2b one-shot approved, five conditions (2026-09-01)
+
+Terra-3's census (`s4_validated_path_census.py`) disproved the brief's
+terrain finding (a): ZERO generated-model clones reach the validated build —
+all 62 unlicensed model clones are alternations building through `alt_model`;
+the validated path's 109 clones are the AUTHORED surfaces, sequence-kind,
+completing through `ExprProgram(SymbolExpr)` with no `RecordConstructor`.
+Slice 2b therefore needs two ABI extensions, and the coordinator APPROVED
+the one-shot: (1) `RuleProduct.n_items` (arm item count — not derivable from
+captures); (2) a symbol-side construction record — inert data only (registry
+symbol name, kwarg NAMES, optional set), callable resolved through the
+registry into the cold symbols lane, applied BY KEYWORD with absent optionals
+OMITTED (the ledgered absent_tail trap, witnessed), registry membership
+validated, zero presence asserted on the model path. With those: all EIGHT
+`clone.fold` runtime reads move (terra-3 found the eighth — specialize.py's
+chartable dedup key), `clone.fold` leaves the runtime, `_build_mode` derives
+from completion-record type + matched_field (model_plan authoring ALT_PRODUCT
+for alternations — behaviour-neutral), the latent `needs_ends`/EXTENT gap is
+fixed by construction (TEXT or EXTENT), the `compile_pda` consumer-side
+guard twin lands, and the ~16 `ModelBinding(fold)` call sites adapt ONCE
+with the blast radius pre-declared. The proportion rule's stop produced this
+decision, as designed. Tasks 1–2 (re-aimed witnesses with real negative
+controls; the `bind_model` coverage guard) are ACCEPTED — suite 5339/8/1-
+attributed, gates 0 unpiped, pyright 0/0/0, one src file touched.
+
+
+## Witnesses re-aimed, guard landed; slice 2b STOPPED on a contract conflict (2026-09-01)
+
+Tasks 1 and 2 are done and verified; task 3 stopped before any src edit on a
+premise that the corpus disproves.
+
+**Task 1 — both witnesses re-aimed, exit 0, controls live.**
+`s4_bake_identity` no longer diffs two bakes (there is only one). It asserts
+PROPERTIES of the live `bake_product_build` over 370 rules / 15 grammars and
+610 clones / 14 grammars, most of them BEHAVIOURALLY — synthesized frame
+captures driven through the real `fast_values` / `vstr_model`, with every
+class field read back BY NAME off the built model, so a permuted plan is a
+wrong model rather than a wrong tuple. The expectation is written from
+`RecordConstructor`'s declared meaning, never from the bake's own plan. Ten
+optional TEXT captures are built with an empty and a non-empty span each —
+the gtext absence row, on the real corpus. Kept from the old witness: the
+tokenized `lo` exhaustiveness pin (2 binds + 3 readers), `vstr_model`'s
+lo-discard pin, and zero symbol opcodes / zero resolved callables in every
+grammar's lowered model program. Five seeded defects (absence dropped, names
+permuted, defaults dropped, licence withdrawn, matched_field dropped) each
+refuse — the control BAKES from a mutated constructor and DECLARES from the
+real one, because seeding both sides at once is how the first attempt made
+its own control vacuous.
+
+`s4_switch_differential` drops the monkeypatch: the live PDA is compared
+against `earley_model` — the OTHER ENGINE — over the same 107 generated
+documents (14 grammars, 8 fixed seeds; think.gbnf skipped, the generator's own
+`IrAlphabet` cost-rule gap). All 101 accepted parses agree model-for-model and
+round-trip; the 6 PDA declines are counted so declining cannot fake agreement,
+and `pda_model` is driven directly so an Earley fallback cannot let a broken
+predictive build agree with itself. Three defects seeded into the live bake
+(gtext absence, value_str extent, item ends) each produce a disagreement on a
+grammar that had just passed cleanly. Two control traps found and fixed: a
+"catch" on think.gbnf was the SKIP, not a disagreement (controls now run only
+over the clean set), and deleting the M_VALUE row emptied the plan, which
+sends `vstr_model` down its validated path and builds the RIGHT model —
+retargeting the row to M_CONST is the defect that stays visible.
+
+**Task 2 — the guard, at `bind_model`.** `_check_covered` refuses a binding
+whose product and fold do not name the same rules, with words naming both
+directions. Justification for that placement over a hot-path or
+`ModelBinding`-level check: the two halves are derived from ONE binding view
+by two functions, so they agree or one is wrong, and the way it goes wrong is
+silent — a rule the product does not name bakes no build state, and a clone
+with no build state does not fail, it falls back to the slow construction and,
+where a capture reads an item span, to the wrong one. It is one set
+comparison, once per compilation, on the cold path. Because `bind_model`
+cannot produce a divergence from a single view, the guard also gets its own
+witness row (`the_binding_guard_refuses_an_uncovered_fold`): the historical
+shape — an EMPTY rules map — and a one-rule-short map are both refused, and
+the real pairing passes. The consumer-side twin (a refusal at `compile_pda`
+when the fold names rules the product does not) is NOT landed: it would fire
+today on ~16 `ModelBinding(fold)` test call sites across 6 files, which is
+slice 2b's fallout, not this task's.
+
+**Task 3 — STOPPED. The brief's premise is false on the real corpus.** The
+brief's terrain finding (a) says the bake's contract must widen to fill
+`fields` for UNLICENSED CONSTRUCTORS because the validated path needs a field
+layout. Measured by the new witness `proto/s4_validated_path_census.py` (exit
+0): across the ground-truth corpus's 610 model clones carrying a product, 62
+are unlicensed and ALL 62 are alternations — which build through `alt_model`
+and read neither ctor nor fields. **Zero generated-model clones reach
+`build_validated` / `_validated_fields`.** The clones that do are the authored
+compile-time surfaces: notation 31 of 45, selfgrammar 78 of 99 (plus
+templating), all `kind == "sequence"`, all unlicensed, and their completion is
+`ExprProgram(SymbolExpr)` with NO `RecordConstructor` at all — notation
+authors 21 rules / 0 constructors, selfgrammar 63 / 0. The census also
+tokenizes the runtime and counts the reads themselves: 15 `fold.<attr>`
+occurrences (7 ctor + 3 n_items + 1 fields in build.py, 2 n_items in
+execution.py, 1 ctor in flatten.py, 1 ctor in specialize.py), of which 4 are
+inside refusal messages.
+
+So the validated path is not the model product's; it is the authored
+surfaces'. Moving it needs two things the ABI deliberately does not have:
+
+1. **A construction record for symbol-completed rules.** `RecordConstructor`
+   requires `cls: type` and lowering refuses a non-class (the
+   laundering-channel refusal), while these surfaces' constructors are plain
+   functions. The blocker is specifically the CAPTURE NAMES —
+   `_validated_fields` builds kwargs by name and `CaptureSpec` cannot carry a
+   string (ruled). This is the same gap as the already-recorded §5 trap
+   ("SymbolExpr execution must apply symbols by KEYWORD where the authored
+   body did").
+2. **`n_items` needs a product-side home.** It is on no product record; both
+   surfaces declare it today only in fold vocabulary (`model_plan`'s
+   `len(items)`, `foldkit.seq`'s parameter). It closes four of the reads for
+   both surfaces at once and is the cheap half.
+
+Two findings alongside, both cheap and both blocked on the same decision:
+
+* **An EIGHTH `clone.fold` read the brief did not list** —
+  `specialize.py:405` uses `clone.fold.ctor` as the chartable dedup key. It is
+  compile-time, but it moves with the others or the key space splits.
+* **`clone.mode` DOES fall out from the completion type, after one alignment.**
+  Every authored surface already spells an alternation `PassOp` (`foldkit
+  .ALT_PRODUCT`); only `model_plan` authors `RecordOp` for one, naming a class
+  it never constructs. With `model_plan` authoring `ALT_PRODUCT` too,
+  `_build_mode` derives exactly: no product → TRANSPARENT, `PassOp` → ALT,
+  `RecordOp` + `matched_field` → VALUE_STR, `RecordOp` → SEQ, `ExprProgram` →
+  SEQ. Bake output is unchanged either way (both clear the build state), so
+  this is behaviour-neutral.
+* **Latent, unwitnessed:** `needs_ends` is derived from TEXT captures only, so
+  a clone with ONLY EXTENT captures keeps no item ends while
+  `_validated_fields`' span branch reads them, and `_specialize_calls` would
+  rewrite its exactly-once refs to `OP_REF1`. The corpus has zero EXTENT
+  captures; templating's `member-tm` carries TEXT and EXTENT on the same slots
+  so it is covered by accident.
+
+Recommendation (not built): land `RuleProduct.n_items` plus the symbol-side
+twin of `RecordConstructor` in one shot, then all eight reads move, `clone
+.fold` leaves the runtime entirely, and `_build_mode` moves with it. That is
+an ABI extension across two records plus the ~16 `ModelBinding(fold)` test
+sites, which is past one adaptation cycle — the proportion rule's stop.
+
+Verified state at the stop, by exit code, unpiped, one at a time: gates
+10/20/30/40 all EXIT 0; full suite at `-n 8` **5339 passed / 8 skipped / 1
+failed**, the one failure the attributed `test_test_parity` mirror gate,
+unchanged from the handover baseline; `s4_bake_identity`, `s4_model_plan`,
+`s4_authored_product`, `s4_switch_differential`, `s3_lowering` and the new
+`s4_validated_path_census` all exit 0. One src file changed —
+`compile/product/binding.py` — and no test file.
+
+
+## Slice 2a reviewed and ACCEPTED; fresh Opus on witnesses + slice 2b (2026-09-01)
+
+Coordinator read the slice-2a diff (0a76490f → tree, 337 insertions across 9
+files): `_bake_build` keeps only clone lifecycle and delegates build state to
+`bake_product_build` UNCONDITIONALLY; `_build_plan` deleted; `CloneSpec`
+grew `product`; constructors thread through `flatten_clones`/
+`flatten_program`; `product.py`'s module docstring states the `lo` and
+one-text-mode normalizations in its own words; `needs_ends` from
+`CaptureMode.TEXT` matches the old text/gtext semantics (span excluded in
+both). Accepted — the transitional `clone.fold` reads remain exactly at the
+seven enumerated runtime sites, which are slice 2b's targets.
+
+On the user's instruction a fresh Opus (`terra-3`) now owns: Task 1 —
+re-aim the two premise-expired witnesses at the unified live bake (candidate
+shapes supplied; its design call, reported, each with a negative control);
+Task 2 — the empty-rule-map cold guard at `bind_model`; Task 3 — slice 2b,
+the completion sites, with the two terrain findings (unlicensed field
+layout in int codes; product-side `n_items`/`ctor` homes), the descent and
+transparent-MANY findings, the mandatory gtext absence row, zero-tax and a
+byte-stable model opcode stream. The proportion rule and unpiped-gate
+protocol are in its brief. Prior agents `terra`, `terra-2`, `luna-stab`
+are idle/abandoned.
+
+
+## STABILIZED: gates 0, suite at target, pyright clean (2026-09-01)
+
+Sonnet stabilizer verdict, by exit code: gates 10/20/30/40 all EXIT 0
+(typecheck's cause was the stale `ModelBinding` import in `test_clones.py`;
+pylint's was EXIT 4 — one W0613 dead `compiler` parameter on
+`_attach_delegates`, removed with its one call site — while printing
+10.00/10, confirming the printed-score trap again). Full suite at `-n 8`:
+**5339 passed / 8 skipped / 1 failed** — solely the attributed
+`test_test_parity` gate, now naming ten missing mirrors. `uv run pyright src
+tests tools`: 0 errors, 0 warnings, 0 informations. A stale source-less
+`__pycache__` was removed. Two mechanical fixes total, both listed.
+
+Witnesses: `s3_lowering`, `s4_model_plan`, `s4_authored_product` exit 0.
+`s4_bake_identity` and `s4_switch_differential` exit 1 on a PREMISE
+conflict, correctly not fixed by the stabilizer: the shipped `_bake_build`
+is now `(clone, fold, product, constructors)` and bakes from the product
+UNCONDITIONALLY — slice 2a switched the bake live, and the full suite is
+green over it — so the witnesses' fold-only-vs-product-only diff has no
+fold-only side to diff anymore. They must be re-aimed by the implementer at
+what the unified bake should now prove (fold operand is now consumed only
+for the clone-lifecycle half; candidate new claim: bake output equality
+against the pre-switch savepoint, or property assertions on the live bake).
+Sequence: coordinator reviews slice 2a's diff → Opus re-aims the two
+witnesses and proceeds to slice 2b (completion sites) with the terrain
+findings.
+
+
+## Terra-2 orientation handover; slice-2b terrain findings (2026-09-01)
+
+The fresh implementer finished orientation (before the full-stop crossed)
+and is idle. Handover passed to the Sonnet stabilizer: the typecheck failure
+is one stale test import (`test_clones.py:28` importing `ModelBinding` from
+its pre-move home); and `build.py:102`'s unparenthesized `except PdaFail,
+LexicError:` is VALID PEP 758 syntax on Python 3.14 — not a defect, do not
+"fix" it. Pylint EXIT=6 remains undiagnosed for the stabilizer. The
+slice-2a substance now sits inside the user's savepoints (tree otherwise
+clean).
+
+Two slice-2b terrain findings flagged (not designed), for the coordinator's
+slice-2a review and the Opus brief: (a) `bake_product_build` fills build
+state only for LICENSED constructors and `clear_build`s otherwise, but the
+validated/unlicensed path also needs a field layout — today read from
+`fold.fields` with STRING modes where `clone.fields` carries int `M_*`
+codes — so the bake's contract must widen to fill unlicensed `fields`, and
+`_validated_fields` must read int codes; the step-2 byte-identity claim gets
+re-tested there. (b) `n_items` (arm ITEM count, not derivable from captures
+— non-binding items are not captures) and the validated/vstr `ctor` need
+product-side homes written by the bake. Both intersect the empty-rule-map
+guard one layer down: `clear_build` is the same legitimately-empty vs
+silently-degraded question.
+
+
+## Correction: stabilization retiered to Sonnet after user escalation (2026-09-01)
+
+The coordinator wrongly briefed the fresh Opus implementer to open with gate
+diagnosis and mechanical fixes — Luna-tier work by the effort's own role
+definitions ("Luna means Sonnet: tests, linting, pyright, mechanical
+verification"). Corrected on the user's escalation: the Opus agent is HELD
+at read-only orientation (its work begins at slice 2b, on green ground,
+after the coordinator's slice-2a review); a Sonnet agent now owns
+stabilization — unpiped gate diagnosis, mechanical fixes only, full suite at
+`-n 8`, witnesses, with any design-level root cause reported back rather
+than fixed. Sequencing restored: Sonnet stabilizes → coordinator reviews
+slice 2a's substance → Opus executes the completion sites. The tier lesson
+is appended to durable memory.
+
+
+## Fresh implementer spawned on user instruction (2026-09-01)
+
+The user replaced the held implementer with a fresh Opus agent. Its brief:
+Task 1 STABILIZE (diagnose the undiagnosed typecheck/pylint failures
+unpiped-by-exit-code, suite to 5339/8/1-attributed at `-n 8`, witnesses
+green, report verbatim exit codes); Task 2 the empty-rule-map guard so the
+wrapped-bare-fold defect class cannot recur; Task 3 slice 2b — the
+completion sites with the descent + transparent-MANY findings, the
+mandatory gtext absence row, byte-stable model opcode stream, switch
+differential kept green. NEW BINDING PROPORTION RULE from the user's
+intervention: fallout exceeding one adaptation cycle stops and reports the
+blast radius instead of looping; every report names the §4 bullet it serves.
+
+
+## HELD mid-slice-2a: user challenged work shape; tree is red (2026-09-01)
+
+The user interrupted Terra during gate diagnosis asking "Why are you working
+on tests and linting issues? Is this your mandate?" Terra held rather than
+resuming — correctly treating an open user question as outranking the
+coordinator's standing resume — and disclosed two things its increment
+reports had understated: the last stretch degenerated into a ~7-cycle
+regex-adapt/run-suite/fix-fallout loop (4.5 min per run) reported as
+progress, and its mechanical adaptation introduced a REAL defect (wrapping
+bare folds so rule maps came out EMPTY, which would have silently degraded
+the bake) caught only by a split test failing.
+
+Exact held state, unverified: slice 2a substance in place (`CloneSpec`
+carries `RuleProduct`; `PdaCompiler`/`compile_pda`/`flatten_*` take the
+product/binding/constructor tables; `_bake_build` delegates build state to
+`bake_product_build`; `_build_plan` deleted; `DelegateSource` carries the
+binding). `ModelBinding` moved to new `parsing/binding.py` (fold.py 697
+after a 726 ceiling break). Gates after that move: lint 0, typecheck EXIT 1,
+pylint EXIT 6 — UNDIAGNOSED; suite not rerun since (last run: 5338/8/2 — the
+attributed gate + the since-fixed source-structure ceiling). Slice 2b (the
+completion sites) untouched. Terra holds for the user's answer to its three
+options (stabilise, hand off the adaptation tail, or stop). Coordinator is
+putting the decision plus a recommendation to the user.
+
+
 ## Templating is the third authored surface (serves §4's caller-migration bullet) (2026-09-01)
 
 All four option-4 conditions met: `SPAN_SYMBOLS` states its own
