@@ -353,12 +353,15 @@ the same signature object; a mismatched target can be diagnosed before parse.
       accepted deviation 2026-08-31: `regular.py` also imports the first-set
       algebra `KWindowFirst`/`collide`/`separable`/`extend_follow` from
       `parsing/pda/analysis/gates/windows.py` — importing the repo's one
-      first-set implementation IS the no-reimplementation clause's intent.)
-- [ ] Define the typed authored operation records, flat opcodes/tables,
+      first-set implementation IS the no-reimplementation clause's intent.
+      Accepted 2026-09-01: a sixth module, `expressions.py`, carries the
+      reducer-expression layer split out of `records.py` at the 700-line
+      ceiling — one-way dependency, pure relocation.)
+- [x] Define the typed authored operation records, flat opcodes/tables,
       typed reducer-expression program, `CaptureSpec`, `RuleProduct`,
       `ProductProgram`, parse-local state, transaction marks, meaning contract,
       and fragment contract.
-- [ ] Give every contextual PDA clone, Earley completion, token completion,
+- [ ] **To be done in §4.** Give every contextual PDA clone, Earley completion, token completion,
       attempt sub-clone, island, and delegate exactly one tagged completion
       range index. Verify its non-empty bounds and operand tables before
       execution; do not store parallel expression and fused fields.
@@ -368,7 +371,8 @@ the same signature object; a mismatched target can be diagnosed before parse.
       completion dispatch compares/indexes plain ints. (Done 2026-08-31 in
       `compile/product/lower.py` + `parsing/product/verify.py`; the
       engine-side int dispatch lands with the engine integration bullets.)
-- [ ] Lower an occurrence-scoped `RouteContinuation`; refuse a nullable or
+- [ ] **To be done in §6** (mechanism landed in §3; producer refusals need the schema compiler).
+      Lower an occurrence-scoped `RouteContinuation`; refuse a nullable or
       non-single-discriminator producer. It records a descendant consumer path,
       not merely one sibling position. In PDA frames store `(consumer path,
       route)` until the first routed child successfully advances, with the lane
@@ -387,14 +391,15 @@ the same signature object; a mismatched target can be diagnosed before parse.
       speculation shape. A lane entry's validity is tied to its exact parent
       frame instance: the stale-route witnesses must cover a same-depth later
       sibling and an abandoned attempt.)
-- [ ] Lower the producer's discriminator to direct scalar decode/classification
+- [ ] **To be done in §6.** Lower the producer's discriminator to direct scalar
+      decode/classification
       at recognition-time completion. It must not call the general reducer
       expression evaluator or construct a model. Specialize the lookup by
       actual cardinality: uniform dynamic maps bypass it, singleton routes use
       direct equality, finite sets of two or more use a private dictionary
       lookup, and dense route ids index destinations without a tuple scan.
       Preserve the measured representation decision from `PROTOTYPE_3.md`.
-- [ ] Run nested mapping witnesses through PDA, ordinary Earley fallback, and
+- [ ] **To be done in §6.** Run nested mapping witnesses through PDA, ordinary Earley fallback, and
       island/delegate execution. Outer and inner occurrences route
       independently, escaped-equivalent keys agree, and rollback/abandonment
       leaves no stale route for another attempt or member. Include the
@@ -412,35 +417,35 @@ the same signature object; a mismatched target can be diagnosed before parse.
       clone-baked consult — routed consumer clones marked in their own data —
       over a global per-entry test, so unrouted programs' clone entries gain
       no new branch; §12's parse rows still gate whatever shape lands.)
-- [ ] Keep the parsing layer a leaf: imports may reach `lexic.ir`, never
+- [x] Keep the parsing layer a leaf: imports may reach `lexic.ir`, never
       `lexic.compile`, `lexic.grammars`, or `lexic.api`.
-- [ ] Lower operations to data. No target object or morphism is called from the
+- [ ] **To be done in §4** (the property becomes provable when the engines execute products). Lower operations to data. No target object or morphism is called from the
       character matcher, item loop, gate selection, or any frequent completion.
       Scalar decode, validation, insertion, and declared record construction
       dispatch through engine-owned closed int codes. Keep collection-finish,
       root-finalizer, and meaning-comparator callables in separate typed cold/
       boundary tables.
-- [ ] Keep the ABI capable of a closed cold/root constructor operation, but add
+- [x] Keep the ABI capable of a closed cold/root constructor operation, but add
       no public custom callable/factory field and no custom operation at a
       frequent completion. The arbitrary-class public surface is gated in §6.
-- [ ] Make `ParseState` parse-local and worker-local. Builders are owned by one
+- [x] Make `ParseState` parse-local and worker-local. Builders are owned by one
       occurrence handle in a dedicated typed frame lane; handles never widen
       or wrap `Carry`, and there is no global current collection.
-- [ ] Allocate `ParseState` only for products with mutable builders or deferred
+- [x] Allocate `ParseState` only for products with mutable builders or deferred
       verdicts. The generated-model product has no state allocation,
       transaction test, range-verifier call, generic instruction interpreter,
       or extra frame slot on its paid path.
-- [ ] Implement mark/commit/rollback for speculative PDA work and island
+- [x] Implement mark/commit/rollback for speculative PDA work and island
       failure with constant-size marks and mutation-proportional undo. Measure
       valid and failed speculation across large retained builders. Commit a
       child to its parent only after successful completion.
-- [ ] Make the Earley product capable of retaining immutable completed-handle
+- [x] Make the Earley product capable of retaining immutable completed-handle
       meanings for the default derivation and replaying a dirty ancestor cone
       in a fresh isolated `ParseState`. The memo contains no builder handle or
       mutation log. Ordinary/unambiguous chart execution carries neither the
       dependency index nor alternate state; only an actual arm-choice enables
       it. §8 pins the root-equivalent verdict mechanism.
-- [ ] Make the Earley product fold execute each shared forest node's VALUE
+- [x] Make the Earley product fold execute each shared forest node's VALUE
       exactly once, guarded at fold entry, with occurrence-owned effects
       (appends, map inserts, verdicts, duplicate-set entries) applied from the
       parent's slot consumption so effect counts follow occurrences. The
@@ -461,8 +466,14 @@ the same signature object; a mismatched target can be diagnosed before parse.
       transitive release of REAL engine-derived cache entries is re-exercised
       when the engines integrate.)
 
-Exit: the product ABI executes a tiny sequence/map target through actual PDA,
-Earley, and island/delegate paths; the occurrence-routing MECHANISM is proved
+Exit: the product ABI executes a tiny sequence/map target over REAL EARLEY
+RECOGNITION (a proto-side post-order product executor over the real
+chart/FastTree — real text, real tree shapes, ParseState transactions and
+duplicate policies exercised, built value asserted); the PDA and
+island/delegate end-to-end execution rides §4's model-product migration as
+its FIRST differential, per the 2026-08-31 ruling — `FlatClone` carries no
+product data and a parallel §3 completion path would cost the model-path
+branch this section forbids; the occurrence-routing MECHANISM is proved
 (lane stale cases, both fork sites, authored→lowered→verified route chain) —
 recognition-time route selection executes at §6 with the first compiled schema
 routes, per the 2026-08-31 ruling above; every physical execution table
@@ -484,9 +495,26 @@ holds.
 
 - [ ] Start from `src/lexic/parsing/fold.py`. Re-express model field capture and
       construction as the generated-model specialization of `ProductProgram`.
+      (Coordinator ruling 2026-09-01: the constructor operand table holds one
+      immutable `ModelConstructor` record per rule — `cls` + field-name order
+      + optional-capture indices + defaults + the `fast` validation-skip flag
+      — not a bare class. `CaptureSpec(mode, slot)` cannot carry
+      `FieldFold`'s `name`/`lo`, and dropping `lo` silently turns gtext
+      ABSENCE into empty string. The record is binding-owned inert data with
+      no callable — it TIGHTENS today's bound-method `FastCtor.make` table.
+      Widening CaptureSpec with strings and a parallel per-rule field table
+      were rejected. The gtext absence-vs-empty-string case is a mandatory §4
+      differential row.)
 - [ ] Delete `FOLD_KINDS`, `FieldFold`, `FastCtor`, `RuleFold`, `ModelBody`,
       and `ModelFold` after their callers move; do not preserve them as wrappers
-      or generic-looking renames. Generated-model synthesis lowers directly to
+      or generic-looking renames. (Scope ruling 2026-09-01: the caller set
+      spans 28 src files including `parallel/` — orchestrate, replicas, all
+      four stitch modules — which are IN §4 scope for the mechanical
+      re-plumbing onto the model product's ABI, keeping their model-shaped
+      stitching semantics untouched; §9's `FragmentProduct` generalization
+      stays §9. `compile/output/templating.py` moves only minimally/
+      mechanically to stay compiling — never re-expressed as a product — and
+      §10 deletes it unchanged.) Generated-model synthesis lowers directly to
       `CaptureSpec`, `RuleProduct[GrammarModel]`, the typed constructor operand
       table, and one `ProductProgram[GrammarModel, GrammarModel]`
       specialization — the start class is synthesized at runtime and has no
@@ -518,7 +546,11 @@ holds.
       `pda/runtime/build.py` and
       `pda/runtime/kernel/execution.py::_run_leaf`/`_complete` with common
       product completion. Target selection must be absent from the character
-      and item loops.
+      and item loops. (§3 executor finding, 2026-08-31: collection Begin* ops
+      run at DESCENT/clone entry — a pure post-order walk inserts into an
+      accumulator that does not exist yet — and a MANY capture must look
+      THROUGH transparent repetition nodes to reach real elements;
+      `proto/s3_earley_target.py` demonstrates both.)
 - [ ] Implement the generic eligible-value-string specialization in
       `pda/compiler/program/specialize.py`: when
       `parsing/product/regular.py` proves one `value_str` occurrence exact,

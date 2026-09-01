@@ -29,6 +29,7 @@ built. A parentless rule subclasses :class:`GrammarModel` directly.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import NamedTuple
 
 from lexic.compile.pipeline.binding import (
     RuleBinding,
@@ -49,7 +50,15 @@ from lexic.ir import (
     rule_closure,
 )
 from lexic.model import GrammarModel
+from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import FastCtor, FieldFold, ModelBody
+from lexic.parsing.product import (
+    CaptureMode,
+    CaptureSpec,
+    RecordConstructor,
+    RecordOp,
+    RuleProduct,
+)
 
 # A synthesized field's annotation is a neutral placeholder — ``object``. Only
 # field *names* drive ``_fields``; the annotation type is never read at runtime
@@ -285,3 +294,130 @@ def fold_config(
         body = _derive_body(bound, cls, items)
         dyads.append(IrTuple(IrRuleRef(bound.rule_name), body))
     return IrMap(*dyads)
+
+
+# ── the generated-model product (the §4 specialization) ───────────────
+
+
+class ModelPlan(NamedTuple):
+    """The generated-model product, authored from the binding view.
+
+    Three things a bound product needs and one record to carry them, rather
+    than a three-tuple every caller has to decode.
+
+    :ivar rules: One :class:`~lexic.parsing.product.RuleProduct` per rule, in
+        contextual-code order.
+    :ivar constructors: The constructor operand table lowering validates.
+    :ivar codes: Rule name → its contextual code, so a completion site can
+        find the rule it is completing.
+    """
+
+    rules: tuple[RuleProduct[GrammarModel], ...]
+    constructors: tuple[RecordConstructor, ...]
+    codes: dict[str, int]
+
+
+_CAPTURE_MODES: Mapping[str, CaptureMode] = {
+    "text": CaptureMode.TEXT,
+    "gtext": CaptureMode.TEXT,
+    "model": CaptureMode.ONE,
+    "models": CaptureMode.MANY,
+    "span": CaptureMode.EXTENT,
+}
+"""The bind vocabulary in the ABI's terms. ``text`` and ``gtext`` capture the
+same way — a slot's consumed text — and differ only in what an EMPTY capture
+means, which is the rule's ``optional`` set rather than a second mode."""
+
+
+def _model_captures(
+    bound: RuleBinding, items: Sequence[IrItem]
+) -> tuple[tuple[CaptureSpec, ...], tuple[str, ...], tuple[int, ...]]:
+    """One rule's captures, the field each fills, and which may be absent.
+
+    A ``gtext`` bind whose item can match nothing (``lo == 0``) is the absence
+    case: empty text there means the field was NOT THERE, so it is omitted
+    from construction and the class's default applies. Recording it as an
+    ``optional`` capture index is what carries that rule into the ABI, where
+    :class:`~lexic.parsing.product.CaptureSpec` has no room for a quantifier.
+    """
+    specs: list[CaptureSpec] = []
+    names: list[str] = []
+    optional: list[int] = []
+    for name, bind in bound.fields.items():
+        mode = _CAPTURE_MODES.get(bind.mode)
+        if mode is None:
+            raise UnsupportedConstructError(
+                f"model product: {bound.rule_name}.{name} binds through "
+                f"unknown mode {bind.mode!r}"
+            )
+        if bind.mode == "gtext" and int(items[bind.item].quantifier.lo) == 0:
+            optional.append(len(specs))
+        specs.append(CaptureSpec(int(mode), bind.item))
+        names.append(name)
+    return tuple(specs), tuple(names), tuple(optional)
+
+
+def model_plan(
+    codegen_grammar: IrAst,
+    binding: list[RuleBinding],
+    classes: dict[str, type],
+    omit: frozenset[str] = frozenset(),
+) -> ModelPlan:
+    """Author the generated-model product from the binding view.
+
+    The §4 specialization: what :func:`fold_config` expresses as a fold body,
+    expressed instead as the ABI's own records, so both engines complete
+    through one vocabulary. The class stays the binding's own synthesized
+    class and the field order stays the binding's, so this authors the same
+    construction the fold does — the difference is the shape it is written in.
+
+    :param codegen_grammar: The post-pass grammar the binding was computed on.
+    :param binding: The binding view, in emission order.
+    :param classes: Generated classes by class name.
+    :param omit: Rules kept recognition-only by leaving them out.
+    :returns: The authored plan.
+    :raises UnsupportedConstructError: On a bind mode the ABI has no capture
+        for.
+    """
+    rules = {str(rule.name): rule for rule in codegen_grammar.rules}
+    products: list[RuleProduct[GrammarModel]] = []
+    constructors: list[RecordConstructor] = []
+    codes: dict[str, int] = {}
+    for bound in binding:
+        if bound.rule_name in omit:
+            continue
+        arms = [arm for arm in rules[bound.rule_name].body if arm]
+        items = arms[0] if bound.kind == "sequence" and arms else ()
+        specs, names, optional = _model_captures(bound, items)
+        cls = classes[bound.class_name]
+        codes[bound.rule_name] = len(products)
+        constructors.append(
+            RecordConstructor(
+                cls,
+                names,
+                optional,
+                _model_defaults(cls),
+                _fast_ctor(cls, bound.kind, _fold_fields(bound, items)) is not None,
+            )
+        )
+        products.append(RuleProduct(specs, RecordOp(len(constructors) - 1)))
+    return ModelPlan(tuple(products), tuple(constructors), codes)
+
+
+def _model_defaults(cls: type) -> Mapping[str, object]:
+    """What an omitted field of ``cls`` falls back to."""
+    if not issubclass(cls, GrammarModel):
+        return {}
+    return cls.fast_construct()[1]
+
+
+def _fold_fields(bound: RuleBinding, items: Sequence[IrItem]) -> tuple[FieldFold, ...]:
+    """The rule's bound fields in the fold's spelling — the licence's input.
+
+    Reads the SAME binding the captures do, so the licence the product carries
+    is the licence the fold grants, not a second judgement about the class.
+    """
+    return tuple(
+        FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
+        for name, bind in bound.fields.items()
+    )

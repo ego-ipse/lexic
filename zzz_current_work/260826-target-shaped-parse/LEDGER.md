@@ -1,5 +1,208 @@
 # Ledger — target-shaped parsing
 
+## NEXT SESSION — start here (written 2026-09-01, usage exhausted mid-§4)
+
+State: §2 and §3 are ACCEPTED (see their exit entries). §4 is in progress at
+step 2 of Terra's approved seven-step sequence. Terra (Opus implementer) was
+stopped by the user mid-increment; its last completed work is §4 step 1
+(`model_plan` + `RecordConstructor`, differential green over 137 rules) and
+the step-2 design verification (`lo` trace). Its NEXT action, ruled and
+ready: write the product-side bake deriving flat clones from the product, and
+the both-ways bake-identity witness over the corpus — byte identity for every
+clone field except `lo`, which normalizes to `0 if optional else 1` under
+the three-predicate behavioural proof plus an exhaustiveness pin (rulings in
+the two entries below).
+
+Working tree: NOTHING COMMITTED; the index holds the full §2–§4 diff (9
+modified src files, 10 new across `parsing/product/` + `compile/product/`,
+CLAUDE.md map lines). One attributed suite failure only (`test_test_parity`,
+seven missing unit-test mirrors — Luna's at §13). One disclosed xdist flake
+(`test_concurrent_distinct_documents_match_sequential[2]`) with a
+chase-on-recurrence tripwire. All ten §2/§3 witnesses + `s4_model_plan` exit
+0. First checkpoint commit is the §4 exit, after the coordinator's external
+alternating profile.
+
+On resume: re-read this ledger top-down through the §3 EXIT entry, re-arm
+`tools/usage_watch.sh 90 60 540`, resume or respawn the Opus implementer
+(transcript name `terra`; if respawning fresh, point it at TODO §4 + the
+LEDGER rulings from "§4 opened" forward), and continue step 2.
+
+## §4 step 2 finding: the flat runtime is already product-shaped (2026-09-01)
+
+Reading before editing again paid off: `_bake_build`/`_build_plan` already
+emit a capture layout (`clone.fields` = item + int mode + name + lo), a
+construction plan in class-field order with inline defaults (`clone.plan`),
+and the fast/defaults/needs_ends data — the runtime already speaks the
+product vocabulary; only the authored layer above speaks `RuleFold`. Step 2
+therefore derives the SAME flat clone from the product instead of the fold,
+and its opcode account is structural: bake every clone both ways and assert
+`fields`/`plan`/`fast`/`defaults`/`needs_ends` identical — zero added
+paid-loop opcodes proved by identity of the flat outputs, stronger than any
+timing argument (timing rows still come at the §4 gate).
+
+Ordering ruling (coordinator-approved as Terra leaned): `_build_plan` needs
+CLASS-field order, which differs from the record's capture order. The class
+order is read OFF `cls` at bake time — a cold lowering step, one source of
+truth per sequence (class order lives on the class, capture order on the
+record) — rather than duplicated into `RecordConstructor` where the two
+sequences could drift. The record supplies which captures fill which names
+and which may be absent; the both-ways bake identity is the required witness.
+
+`lo` normalization ruling (2026-09-01): Terra traced every runtime read of a
+bound field's `lo` — exactly three sites in `build.py`, all inside `gtext`
+branches, all zero-tests; no other mode consults it. The bake therefore
+writes `lo = 0 if optional else 1`, and the ABI says what it means (this
+field may be absent) instead of restating a quantifier the runtime cannot
+use. Carrying raw `lo` forever in the record for byte identity was declined.
+The step-2 account claims byte identity for every clone field EXCEPT
+normalized `lo`, plus behavioural identity for `lo` proved by the three
+predicates over both value classes — and the witness must also pin the
+exhaustiveness of the three-site trace, so a future fourth `lo` reader
+breaks it loudly.
+
+## §4 step 1: model product authored, differential green (2026-09-01)
+
+`model_plan` (in `compile/pipeline/synthesis.py`, beside the `fold_config` it
+will replace) authors the generated-model product from the binding view.
+`proto/s4_model_plan.py` (exit 0, coordinator-rerun) differentials it against
+`fold_config` per rule over all eight ground-truth grammars — 137 rules, zero
+disagreements on item read, capture mode, field name/order, validation-skip
+licence, and class object. The gtext absence rule is proved on the real
+corpus: `json_ws`/`json_arr` carry six optional gtext binds, all recorded
+optional (Terra self-caught a contrived witness case — a bare quantified
+literal is not a gtext bind — and repointed at the real `json_ws number`
+shape). The ruled constructor record landed as `RecordConstructor` with the
+fast licence as a FLAG, removing today's bound-method-in-table; lowering
+validates `entry.cls` one level in. Nothing consumes `model_plan` yet.
+
+Condition follow-ups (accepted): `defaults` was MEASURED, not guessed —
+90/90 generated-class defaults across eleven grammars are Python `None` (the
+model layer's deliberate absent-optional concession per ir-shapes), so the
+coordinator's `Mapping[str, IrSelf]` hint was wrong; the field keeps the open
+type with the measurement and reason in its docstring. The witness gained the
+laundering-channel refusal — a well-formed `RecordConstructor` naming a
+lambda as `cls` refuses — beside the bare-callable and caller-filled rows.
+The gtext absence behavioural row is pinned as a STEP-3 exit condition (the
+first moment a completion site can build a model), not a §4-end item.
+
+Accepted deviation: `records.py` hit the 700 ceiling after trimming its own
+prose; the reducer-expression layer moved to a sixth module
+`parsing/product/expressions.py` (one-way dependency, pure relocation,
+records.py now 581) — recorded on the §3 package bullet and in CLAUDE.md's
+map. Disclosed flake: one xdist run failed
+`test_shared_artefact.py::test_concurrent_distinct_documents_match_sequential[2]`;
+it passes standalone 4/4, its file 12/12 x3, and the next full run; no
+concurrency path was touched. Recorded for provenance — if it recurs it gets
+chased, not re-run to green. Next: step 2, `RuleProduct` through the PDA
+compiler chain, where the per-step opcode account starts.
+
+## Ruling: ModelConstructor record in the constructor table (2026-09-01)
+
+Terra stopped on the first §4 step with a real spec gap: `CaptureSpec(mode,
+slot)` cannot carry `FieldFold`'s `name` (keyword construction) or `lo` (the
+gtext absence rule — `lo == 0` with empty matched text means ABSENT, kwarg
+omitted, default applied; dropping it silently turns every optional literal
+group into `""`). And `FastCtor.make` is a bound positional constructor, not
+the "class object" the §3 constructor-table wording names.
+
+**Coordinator ruling:** the constructor operand table holds one immutable
+`ModelConstructor` NamedTuple per rule — `cls` (the one binding-owned class
+object), `names` (construction order), `optional` (capture indices that may
+be absent), `defaults`, and `fast` (the validation-skip licence as a flag).
+This preserves the constraint's INTENT — no arbitrary callable at a frequent
+completion; every field is inert binding-derived data — and tightens today's
+shape, which stores a bound method in a table. Rejected: widening
+`CaptureSpec` with strings (flat per-capture arrays stay int-coded) and a
+parallel per-rule field table (`RuleFold.fields` under a new name).
+Conditions: `defaults` gets the narrowest honest value type (spell `IrSelf`
+if that is the truth; `object` only if genuinely heterogeneous, with the
+reason on the field); lowering remains the table's sole writer with its
+class-check now validating `entry.cls`; the s3 witnesses' constructor rows
+adapt; and the gtext absence-vs-empty-string case is a MANDATORY §4
+differential row, since it is the silent-model-change trap this ruling
+exists to prevent. `fold.py` stays alive beside the new records until the
+completion sites move.
+
+## §4 opened: caller inventory and scope rulings (2026-09-01)
+
+Terra's pre-edit inventory: the six §4-deleted symbols reach 28 src files and
+16 test files across five subsystems — fold, PDA compiler+runtime, Earley,
+`parallel/` (orchestrate, replicas, all four stitch modules), and the compile
+side. Coordinator scope rulings, recorded on the §4 deletion bullet:
+`parallel/` is IN §4 scope for the mechanical re-plumbing onto the model
+product's ABI (its model-shaped stitching semantics stay untouched; §9's
+FragmentProduct generalization stays §9 — otherwise §4's exit claim that
+`CompiledGrammar.parse` runs the common ABI would exclude the split path);
+`templating.py` moves only mechanically to stay compiling, is never
+re-expressed as a product, and §10 deletes it unchanged. Terra's bottom-up
+sequence (author model product beside the fold → PDA compiler chain →
+build/execution completion with the §3 descent/transparent findings → Earley/
+island → parallel + compile side + trace → delete the six symbols → opcode
+comparison) is approved, with the opcode account written per-step so any
+added paid-loop opcode is attributable to the step that introduced it.
+Flagged early by Terra, resolution deferred to arrival: `FastCtor`'s
+validation-skip licence is a bound positional constructor, not a class — it
+likely becomes a property of the rule's capture/completion plan rather than a
+constructor-table entry.
+
+## §3 EXIT ACCEPTED (2026-09-01)
+
+Coordinator exit review: all ten witnesses rerun green, pyright 0 errors on
+src+tests, full suite 5339 passed / 8 skipped / 1 failed — solely the
+attributed `test_test_parity` mirror gate (seven new modules; Luna at §13).
+
+Landed under §3: `parsing/product/` (records incl. the ExprProgram layer,
+state, verify, regular, façade); `compile/product/` (lowering with three
+ownership guarantees, bound-product lifetime on `parsing.caches`); the
+physical-table verifier with the exact-class int audit; the authoritative
+regular proof; the shared-forest value-once fix; the speculation measurement
+(flat in retained, linear in mutations); the route lane (four stale cases,
+both fork sites, uniform Side triple); the synthetic route program through
+the real lowering chain; the dirty cone + meaning memo + replay (replay 3–4
+nodes vs refold 5–6, same-answer asserted); and the Earley end-to-end target:
+real recognition over `{a:1,bb:22}`, verified flat tables executed at the real
+tree's completion sites, MANY through a transparent node, duplicates refused
+with verdict, speculative insert rolled back exactly, a genuinely shared pad
+completed once (Terra self-caught its first vacuous shared-node assertion and
+made the count load-bearing).
+
+Two §4-relevant executor findings recorded on §4's completion bullet:
+collection Begin* ops run at DESCENT, not post-order; MANY captures look
+THROUGH transparent repetition nodes. Moved, plainly: routing witnesses
+execute at §6 (PdaTables carries no route data until a schema exists); PDA and
+island/delegate end-to-end open §4 as its first differential; §3's route
+coverage is synthetic-authored. §3's remaining unticked bullets are exactly
+the §4/§6-deferred ones, annotated in place.
+
+Next: §4 — migrate generated-model parsing onto the common ABI — on the same
+warm Terra agent. §4 exits through the coordinator's external alternating
+profile and the first checkpoint commit under the recorded grant.
+
+## Ruling: §3's engine execution splits — Earley now, PDA/island at §4 (2026-08-31)
+
+The tiny-target end-to-end hit the same structural boundary as routing:
+`_complete` builds models through `clone.fold` (`RuleFold`), `FlatClone`
+carries no `RuleProduct`/`CaptureSpec`/range index, and making clones carry
+product data IS §4's opening migration. A parallel §3 completion path would
+cost the model product a new `F_MODE` branch per frame completion — the exact
+branch §3 forbids — and be scaffolding deleted at §4.
+
+**Coordinator ruling (a third option beyond Terra's two):** the PDA and
+island/delegate end-to-end execution moves to §4 as its FIRST differential —
+§4 needs a non-model product to prove the ABI is not model-shaped, so the
+tiny target opens that phase. But the EARLEY half executes NOW: Earley's
+completion seam is a post-order fold over a real `ParseTree`, so a PROTO-side
+product executor runs over real Earley recognition — real text, real
+chart/FastTree shapes (nullables, transparent synthetics, shared subtrees),
+product completions in post-order, `ParseState` transactions and mapping
+duplicate policies exercised, built value asserted — with zero src branches.
+This answers the asymmetry Terra rightly flagged (every mechanism proved,
+none engine-executed): §3 exits with real-recognition-driven product
+execution demonstrated on the Earley path, and derisks the capture layouts
+against real tree shapes the hand-driven interpreter never produced. TODO's
+§3 exit text is amended. Next: `proto/s3_earley_target.py`, then the §3 exit
+report.
+
 ## §3 increment: meaning memo and cone replay landed (2026-08-31)
 
 `MeaningMemo` + `remembered`/`replayed` land in

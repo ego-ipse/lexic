@@ -17,6 +17,9 @@ Four modules, one job each:
     verdicts, and constant-size transaction marks.
 ``verify``
     The cold gate. Every physical table passes it before the paid loop starts.
+``expressions``
+    The reducer's own algebra in authored form, its own layer because it
+    lowers into its own table.
 ``regular``
     The authoritative regular-language proof — when a possessive recognizer
     may decide a region outright.
@@ -31,8 +34,7 @@ already own character sets and possessive lowering — never ``lexic.compile``,
 
 from __future__ import annotations
 
-from lexic.parsing.product.records import (
-    AppendSequenceOp,
+from lexic.parsing.product.expressions import (
     ArgExpr,
     ArgsExpr,
     BuildExpr,
@@ -44,10 +46,14 @@ from lexic.parsing.product.records import (
     ExprProgram,
     JoinExpr,
     LookupExpr,
-    LoweredRoute,
-    OpCode,
     PipeExpr,
     RaiseExpr,
+)
+from lexic.parsing.product.records import (
+    AppendSequenceOp,
+    LoweredRoute,
+    OpCode,
+    RecordConstructor,
     RuleBody,
     SingletonRoute,
     TableRoute,
@@ -111,6 +117,7 @@ __all__ = [
     "InsertMappingOp",
     "FinishMappingOp",
     "RecordOp",
+    "RecordConstructor",
     "MeaningOp",
     "RootOp",
     "RuleCompletion",

@@ -23,26 +23,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from enum import IntEnum
+from types import MappingProxyType
 from typing import NamedTuple
 
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
+from lexic.parsing.product.expressions import ExprProgram
 
 __all__ = [
-    "ArgExpr",
-    "ArgsExpr",
-    "BuildExpr",
-    "CondExpr",
-    "ConstantExpr",
-    "ContributeExpr",
-    "ExprCode",
-    "ExprOp",
-    "ExprProgram",
-    "JoinExpr",
-    "LookupExpr",
     "LoweredRoute",
     "OpCode",
-    "PipeExpr",
-    "RaiseExpr",
     "RuleBody",
     "SingletonRoute",
     "TableRoute",
@@ -70,6 +59,7 @@ __all__ = [
     "ProductOp",
     "ProductProgram",
     "RangeKind",
+    "RecordConstructor",
     "RecordOp",
     "RootFinalizer",
     "RootOp",
@@ -246,6 +236,40 @@ class RecordOp[Carry](NamedTuple):
     constructor: int
 
 
+class RecordConstructor(NamedTuple):
+    """A declared constructor and the spelling its captures are laid out in.
+
+    A bare class cannot build a record: construction needs which captures fill
+    which fields, which may be ABSENT, and what an absent one falls back to.
+    Those are the rule's binding, not the class, so they travel with it here.
+    Everything is binding-owned; ``cls`` is the one class object a declaration
+    named, and no factory, lambda or bound method appears anywhere in the
+    record — which is what keeps :class:`RecordOp` callable-free at a frequent
+    completion.
+
+    :ivar cls: The class to construct.
+    :ivar names: The field each capture fills, in capture order.
+    :ivar optional: Capture indices that may be absent. An absent one is
+        OMITTED so the class's default applies; passing empty text instead
+        would turn "matched nothing" into "matched the empty string".
+    :ivar defaults: What an omitted field falls back to on the licensed
+        positional path, which cannot omit. The value type stays open because
+        a declared record's defaults are the record's own. Measured, not
+        assumed: every generated-model default in the ground-truth corpus is
+        Python ``None`` (90 of 90) — the model layer's absent-optional
+        concession, deliberately not ``IrNone`` — so narrowing to that would
+        encode one product's fact into an ABI other products share.
+    :ivar licensed: Whether construction may skip per-field validation — a
+        flag rather than a bound constructor, so the table holds no callable.
+    """
+
+    cls: type
+    names: tuple[str, ...] = ()
+    optional: tuple[int, ...] = ()
+    defaults: Mapping[str, object] = MappingProxyType({})
+    licensed: bool = False
+
+
 class MeaningOp(NamedTuple):
     """Compare two candidate meanings of one span."""
 
@@ -277,123 +301,6 @@ ambiguity gate and the root, none of which is an ordinary rule completion."""
 
 type ProductOp[Carry] = RuleCompletion[Carry] | RouteOp | MeaningOp | RootOp
 """Every authored operation, including the three that are not rule completions."""
-
-
-# ── The reducer-expression layer ──────────────────────────────────────
-
-
-class ExprCode(IntEnum):
-    """The typed reducer-expression vocabulary, by category.
-
-    A fused target constructs its codomain directly; the DEFAULT product
-    instead evaluates the reducer's own algebra, and this is that algebra's
-    flat form. The categories are the ones a reducer body actually uses:
-    access, build, compute, control, lookup, refusal, and contribution.
-
-    A rule runs an expression range or a fused range, never both — which is
-    why these codes index a table physically separate from :class:`OpCode`'s.
-    """
-
-    ARG = 0
-    ARGS = 1
-    CONSTANT = 2
-    JOIN = 3
-    BUILD = 4
-    PIPE = 5
-    COND = 6
-    LOOKUP = 7
-    RAISE = 8
-    CONTRIBUTE = 9
-
-
-class ArgExpr(NamedTuple):
-    """Access: one slot of the argument channel."""
-
-    slot: int
-
-
-class ArgsExpr(NamedTuple):
-    """Access: the whole argument channel."""
-
-    channel: int = 0
-
-
-class ConstantExpr[Carry](NamedTuple):
-    """Build: one typed constant from the operand table."""
-
-    constant: int
-
-
-class JoinExpr(NamedTuple):
-    """Compute: join the channel under a separator constant."""
-
-    separator: int
-
-
-class BuildExpr[Carry](NamedTuple):
-    """Build: construct through a binding-owned constructor."""
-
-    constructor: int
-
-
-class PipeExpr(NamedTuple):
-    """Control: feed one expression's value into the next."""
-
-    first: int
-    then: int
-
-
-class CondExpr(NamedTuple):
-    """Control: branch on a test expression."""
-
-    test: int
-    then_at: int
-    else_at: int
-
-
-class LookupExpr(NamedTuple):
-    """Lookup: value-keyed dispatch through a route table."""
-
-    subject: int
-    table: int
-
-
-class RaiseExpr(NamedTuple):
-    """Refusal: refuse with the words a constant carries."""
-
-    message: int
-
-
-class ContributeExpr(NamedTuple):
-    """Contribution: what this occurrence hands its parent's channel."""
-
-    policy: int
-
-
-type ExprOp[Carry] = (
-    ArgExpr
-    | ArgsExpr
-    | ConstantExpr[Carry]
-    | JoinExpr
-    | BuildExpr[Carry]
-    | PipeExpr
-    | CondExpr
-    | LookupExpr
-    | RaiseExpr
-    | ContributeExpr
-)
-"""One authored expression operation."""
-
-
-class ExprProgram[Carry](NamedTuple):
-    """One rule's reducer-expression body, as an ordered operation list.
-
-    Distinct from a bare :data:`RuleCompletion` so a rule's single body field
-    says WHICH table it lowers into by its own type — the alternative would be
-    two fields on a rule, which is a rule that could execute twice.
-    """
-
-    ops: tuple[ExprOp[Carry], ...]
 
 
 type RuleBody[Carry] = RuleCompletion[Carry] | ExprProgram[Carry]
@@ -623,7 +530,7 @@ class OperandTables[Carry, Result](NamedTuple):
     """
 
     constants: tuple[Carry, ...]
-    constructors: tuple[Callable[..., Carry], ...]
+    constructors: tuple[RecordConstructor, ...]
     sequences: tuple[SequenceFinisher[Carry], ...]
     mappings: tuple[MappingFinisher[Carry], ...]
     meanings: tuple[MeaningComparator[Carry], ...]

@@ -271,6 +271,7 @@ src/lexic/
     product/
       __init__.py                  The product ABI — the package's one import surface
       records.py                   Immutable authored operations and the flat int-coded tables they lower to
+      expressions.py               The reducer's own algebra in authored form — its own lowering table
       state.py                     Parse-local builders, deferred verdicts, constant-size transaction marks
       verify.py                    Physical-table verification — the cold gate before the paid loop
       regular.py                   The authoritative regular-language proof

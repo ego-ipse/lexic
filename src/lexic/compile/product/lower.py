@@ -27,7 +27,7 @@ lowered refuses by name at compile time rather than reaching an engine.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
@@ -61,6 +61,7 @@ from lexic.parsing.product import (
     ProductProgram,
     RaiseExpr,
     RangeKind,
+    RecordConstructor,
     RecordOp,
     RootOp,
     RouteContinuation,
@@ -87,7 +88,7 @@ class LoweringOwned(NamedTuple):
     one rule instead of two coincidences.
     """
 
-    constructors: tuple[type, ...] = ()
+    constructors: tuple[RecordConstructor, ...] = ()
     routes: tuple[RouteTable, ...] = ()
 
 
@@ -199,27 +200,36 @@ def _coded(
     return int(code), tuple(int(field) for field in operation)  # type: ignore[union-attr]
 
 
-def _constructors(entries: Sequence[object]) -> tuple[Callable[..., object], ...]:
+def _constructors(
+    entries: Sequence[RecordConstructor],
+) -> tuple[RecordConstructor, ...]:
     """Validate the constructor table lowering is the sole writer of.
 
-    ``RecordOp`` reaches this table at frequent completions, so it may hold
-    only BINDING-OWNED constructor symbols — the immutable class objects a
-    declaration named. A lambda, closure, bound method or factory here would
-    be an arbitrary target callable on the hot path, which the ABI does not
-    admit.
+    ``RecordOp`` reaches this table at frequent completions, so every entry
+    must be a :class:`RecordConstructor` whose ``cls`` is a real class — the
+    immutable class object a declaration named, carried with the field
+    spelling its captures fill. A lambda, closure, bound method or factory in
+    that slot would be an arbitrary callable on the hot path, which the ABI
+    does not admit.
 
-    :param entries: The declared constructor symbols.
+    :param entries: The declared constructors.
     :returns: The validated table.
-    :raises UnsupportedConstructError: On an entry that is not a class.
+    :raises UnsupportedConstructError: On an entry that is not a
+        :class:`RecordConstructor`, or whose ``cls`` is not a class.
     """
     for at, entry in enumerate(entries):
-        if not isinstance(entry, type):
+        if not isinstance(entry, RecordConstructor):
             raise UnsupportedConstructError(
                 f"product lowering: constructor {at} is "
-                f"{type(entry).__name__}, not a class; the constructor table "
-                "holds only binding-owned constructor symbols"
+                f"{type(entry).__name__}, not a RecordConstructor"
             )
-    return tuple(entries)  # type: ignore[arg-type]
+        if not isinstance(entry.cls, type):
+            raise UnsupportedConstructError(
+                f"product lowering: constructor {at} names "
+                f"{type(entry.cls).__name__}, not a class; the constructor "
+                "table holds only binding-owned constructor symbols"
+            )
+    return tuple(entries)
 
 
 def lower_routes(

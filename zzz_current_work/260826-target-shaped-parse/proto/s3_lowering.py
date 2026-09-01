@@ -21,6 +21,7 @@ from lexic.compile.product import LoweringOwned, lower_product, lower_routes
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
 from lexic.parsing.product import (
     AppendSequenceOp,
+    RecordConstructor,
     ArgExpr,
     ArgsExpr,
     ExprCode,
@@ -272,13 +273,15 @@ def the_constructor_table_admits_only_classes() -> None:
     classes = lower_product(
         RULES,
         OPERANDS,
-        owned=LoweringOwned(constructors=(str, tuple)),
+        owned=LoweringOwned(
+            constructors=(RecordConstructor(str), RecordConstructor(tuple))
+        ),
         root=RootOp(0),
         meaning=MeaningOp(0),
     )
     _check(
         "the validated classes did not reach the table",
-        classes.operands.constructors == (str, tuple),
+        tuple(entry.cls for entry in classes.operands.constructors) == (str, tuple),
     )
 
     try:
@@ -290,14 +293,32 @@ def the_constructor_table_admits_only_classes() -> None:
             meaning=MeaningOp(0),
         )
     except UnsupportedConstructError as refusal:
-        print(f"constructors\trefuses a callable\t{refusal}")
+        print(f"constructors\trefuses a bare callable\t{refusal}")
     else:
         raise AssertionError("s3 lowering: a lambda constructor did not refuse")
+
+    # The record shape does not launder a callable through it either: the
+    # entry may be a RecordConstructor and still name something that is not
+    # a class, which is the case the cls check exists for.
+    try:
+        lower_product(
+            RULES,
+            OPERANDS,
+            owned=LoweringOwned(
+                constructors=(RecordConstructor(lambda value: value),)  # type: ignore[arg-type]
+            ),
+            root=RootOp(0),
+            meaning=MeaningOp(0),
+        )
+    except UnsupportedConstructError as refusal:
+        print(f"constructors\trefuses a non-class cls\t{refusal}")
+    else:
+        raise AssertionError("s3 lowering: a non-class RecordConstructor passed")
 
     try:
         lower_product(
             RULES,
-            OPERANDS._replace(constructors=(str,)),
+            OPERANDS._replace(constructors=(RecordConstructor(str),)),
             root=RootOp(0),
             meaning=MeaningOp(0),
         )
