@@ -47,7 +47,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_TEXT,
 )
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.product.construction import ProductValue
+from lexic.parsing.product.abi.construction import ProductValue
+
 
 class InternMiss(Enum):
     """The typed miss marker for a construction intern lookup."""
@@ -96,9 +97,16 @@ F_START = 6
 F_ENDS = 7
 F_SINKS = 8
 
-type InternKey[Carry] = tuple[
-    Callable[..., Carry], str | tuple[Hashable, ...]
-]
+
+def close_loop(frame: list[Any], i: int, pos: int) -> int:
+    """Close the loop at the current count — the driver continues past ``i``."""
+    frame[F_COUNT] = 0
+    frame[F_I] = i + 1
+    frame[F_ENDS][i] = pos
+    return i + 1
+
+
+type InternKey[Carry] = tuple[Callable[..., Carry], str | tuple[Hashable, ...]]
 type InternMemo[Carry] = dict[InternKey[Carry], Carry]
 
 
@@ -176,9 +184,7 @@ def build_sequence[Carry](
     return clone.fast(fast_values(text, clone, (start, ends, sinks)))
 
 
-def _intern_empty[Carry](
-    ctor: Callable[..., Carry], memo: InternMemo[Carry]
-) -> Carry:
+def _intern_empty[Carry](ctor: Callable[..., Carry], memo: InternMemo[Carry]) -> Carry:
     """Build (or reuse) the empty alternate arm's ``ctor()`` — key ``(ctor, ())``.
 
     Every zero-item match of the same rule folds to the same field-less model,

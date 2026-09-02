@@ -191,7 +191,7 @@ def _lexic(
     unknown = wanted - LEXIC_ROWS
     if unknown:
         raise ValueError(f"unknown Lexic benchmark rows: {sorted(unknown)}")
-    fold = bench.fold
+    binding = bench.compiled.product
     sequential = bench.compiled.parse
     engines: dict[str, Parse] = {}
     # The production seam, like every competitor's own entry API — the
@@ -203,7 +203,7 @@ def _lexic(
     if "lexic-earley" in wanted:
         product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
         engines["lexic-earley"] = lambda text: earley_model(
-            product.instance_grammar, text, fold, product.tables
+            product.instance_grammar, text, binding, product.tables
         )
     mt_artifacts: dict[str, CompiledGrammar] = {}
     if cores is not None and "lexic-mt" in wanted:
@@ -267,10 +267,10 @@ def _decision_cost(compiled, corpus: str) -> int | None:
     binding = compiled.product
     product = _model_product(compiled.codegen_grammar, binding)
     try:
-        pda_model(product.pda, corpus, binding.fold)
+        pda_model(product.pda, corpus, binding.executor)
     except LexicError, PdaFail:
         return None
-    run = watch(product.pda, corpus, binding.fold, cap=1_000_000)
+    run = watch(product.pda, corpus, binding.executor, cap=1_000_000)
     return sum(
         1 for event in run.events if str(event.kind) in ("rollback", "probe", "gate")
     )

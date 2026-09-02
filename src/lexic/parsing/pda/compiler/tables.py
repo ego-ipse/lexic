@@ -13,6 +13,7 @@ from lexic.ir import (
     IrLeaf,
     IrSelf,
 )
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -26,7 +27,6 @@ from lexic.parsing.pda.compiler.specs import (
     IslandRef,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.product import ConstructionTables
 
 if TYPE_CHECKING:  # `clones` imports this module — the reference is mutual
     from lexic.parsing.pda.compiler.clones import PdaCompiler
@@ -74,7 +74,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         compiler: PdaCompiler,
         start_key: CloneKey | IslandRef,
         instance_grammar: IrAst,
-        construction: ConstructionTables = ConstructionTables(),
+        binding: ModelBinding = ModelBinding(),
     ) -> None:
         """Freeze the clone table, lower it to the flat program, seed the caches.
 
@@ -88,7 +88,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         follow = compiler.analysis.follow
         self.island_follow = {name: follow[name] for name in compiler.islands}
         self.instance_grammar = instance_grammar
-        self.program = flatten_program(compiler.clones, start_key, construction)
+        self.program = flatten_program(compiler.clones, start_key, binding)
         self._island_tables = {}
 
     @property

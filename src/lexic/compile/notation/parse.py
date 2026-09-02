@@ -60,18 +60,12 @@ import lexic.ir.text.spans as _spans
 import lexic.ir.text.tokenizer as _tokenizer
 from lexic.compile.foldkit import (
     ABSENT,
-    ALT_BODY,
-    DECODE_INT,
     FOLD_SYMBOLS,
     AuthoredRule,
-    absent_tail,
     first_rest,
-    model_fold,
-    passthrough,
     product_rules,
-    seq,
 )
-from lexic.compile.product import bind_symbols, rules_by_name
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IR_DEFAULT,
@@ -96,8 +90,8 @@ from lexic.ir import (
     Reducer,
     Yield,
 )
-from lexic.parsing import FieldFold, ModelBinding, ModelBody, parse_model
-from lexic.parsing.product import CaptureMode, CaptureSpec, ConstructionTables
+from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
@@ -495,49 +489,6 @@ def _neg_int(raw: str) -> int:
     return -int(raw)
 
 
-_BODIES: dict[str, ModelBody] = {
-    "start": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-    "value": ALT_BODY,
-    "nv": seq(
-        _nv, 2, (FieldFold(0, "model", "sym", 1), FieldFold(1, "model", "call", 0))
-    ),
-    "name": seq(
-        _name, 3, (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0))
-    ),
-    "ct-opt": ALT_BODY,
-    "call-tail": seq(_call_tail, 3, (FieldFold(1, "model", "a", 0),)),
-    "args-opt": ALT_BODY,
-    "arglist": seq(
-        _arglist,
-        2,
-        (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
-    ),
-    "arg-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
-    "arg-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
-    "tuple": seq(_tuple, 3, (FieldFold(1, "model", "items", 0),)),
-    "tup-opt": ALT_BODY,
-    "tuplist": seq(
-        _tuplist,
-        3,
-        (
-            FieldFold(0, "model", "first", 1),
-            FieldFold(1, "model", "one", 1),
-            FieldFold(2, "models", "rest", 0),
-        ),
-    ),
-    "tup-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
-    "tup-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
-    "strval": ALT_BODY,
-    "sq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),
-    "dq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),
-    "intval": ALT_BODY,
-    "pos-int": seq(DECODE_INT, 2, (FieldFold(0, "text", "raw", 1),)),
-    "neg-int": seq(_neg_int, 3, (FieldFold(1, "text", "raw", 1),)),
-}
-
-NOTATION_FOLD = model_fold(_BODIES)
-
-
 # ── the same rules in the product vocabulary ──────────────────────────────
 
 NOTATION_SYMBOLS: dict[str, Callable[..., object]] = FOLD_SYMBOLS | {
@@ -613,11 +564,8 @@ NOTATION_PRODUCT = product_rules(NOTATION_RULES)
 keys pooled, and the code each rule name resolves to."""
 
 NOTATION_BINDING = ModelBinding(
-    NOTATION_FOLD,
     rules_by_name(NOTATION_PRODUCT.rules, NOTATION_PRODUCT.codes),
-    ConstructionTables(
-        symbols=bind_symbols(NOTATION_PRODUCT.symbols, NOTATION_SYMBOLS)
-    ),
+    LoweringOwned(symbols=NOTATION_PRODUCT.symbols, registry=NOTATION_SYMBOLS),
 )
 """What this surface hands a parse entry — its product, with its transforms
 resolved through its own whitelist and the fold the gated engine still reads."""

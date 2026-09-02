@@ -315,7 +315,7 @@ def _split_parse[M: IrNamedTuple](
     if not terminated and plan.lead_grammar is None:
         if any(lead != plan.lead_literal for lead in leads):
             return None
-    # Each worker parses against its OWN equal grammar and fold copy: the
+    # Each worker parses against its OWN equal grammar and binding copy: the
     # tables are read-only, but sharing one set of them across cores is what
     # flattens scaling at ~1.8x (refcount cache-line traffic, measured).
     views = worker_replicas(plan.grammar, binding, len(spans))
@@ -338,7 +338,7 @@ def _split_parse[M: IrNamedTuple](
         return None
     if terminated:
         return stitch_terminated(chunks)
-    return stitch_routed(chunks, lead_models, plan.wrappers, binding.fold)
+    return stitch_routed(chunks, lead_models, plan.wrappers, binding)
 
 
 RETRIES = 2
@@ -505,9 +505,7 @@ def _split_regions[M: IrNamedTuple](
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
-    works = region_works(
-        grammar, ask.binding.fold, ask.text, divided, analysis or grammar
-    )
+    works = region_works(grammar, ask.binding, ask.text, divided, analysis or grammar)
     if works is None:
         return None
     parsed = _parse_region_parts(parse, works, ask, pool)
@@ -681,7 +679,7 @@ def _envelope_join[M: IrNamedTuple](
     """
     found = plan.envelope
     chunks, leads = parsed
-    moved = envelope_tails(chunks, found.shape, ask.binding.fold) if found else None
+    moved = envelope_tails(chunks, found.shape, ask.binding) if found else None
     if found is None or moved is None:
         return None
     tails, trimmed = moved
@@ -690,4 +688,4 @@ def _envelope_join[M: IrNamedTuple](
         parse(plan.lead_grammar, tails[at] + lead + witness, ask.binding, ask.resolve)
         for at, lead in enumerate(leads)
     ]
-    return stitch_envelope(trimmed, rebuilt, found.shape, ask.binding.fold)
+    return stitch_envelope(trimmed, rebuilt, found.shape, ask.binding)

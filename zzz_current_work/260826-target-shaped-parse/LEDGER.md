@@ -1,5 +1,124 @@
 # Ledger — target-shaped parsing
 
+## §4: trace.py bullet accepted; island/delegate/parallel migration under review (2026-09-02)
+
+Luna's green-ground pass (`reports/S4_LUNA_GREEN.md`) is accepted: pyright
+0/0/0; suite 5339/8/1 with only `test_test_parity` red; the ABI records
+moved to `parsing/product/abi/` under the six-file folder invariant;
+`_close_loop` shed to `build.py` as public `close_loop`. The user then
+applied `tools/auto_fix.sh` tree-wide; those hunks are baseline.
+
+Terra (Opus, `reports/S4_TERRA.md`) landed the island/delegate/parallel
+migration: `ModelBinding` owns one `ProductExecutor`; kernel, `pda_model`,
+`IslandPolicy`, trace, stitch, replicas, orchestrate, clone and delegate
+compilers read the bound product; `CloneSpec.fold`, `verify_covered`, and
+`_check_covered` deleted; `CompiledGrammar.fold` became `.executor`. Real
+defect fixed: an island completing to NOTHING versus to a real `None` — a new
+presence-carrying `ProductExecutor.splice` for one occurrence beside the
+document-root `build`. Coordinator re-verification: pyright 0; island/
+delegate/parallel/artifact/spec test files 457 passed with only the deleted-
+property `test_compiled_grammar_fold_field_is_positional_fold` red (Luna
+port); `s4_switch_differential` PASS. Held open on one question: the island
+seam still runs `another_meaning` over `splice` results while `products.py`
+runs the value-once `different_meaning`/`MeaningBuilder` route. Terra also
+reverted the user's formatting hunks as "auto_fix over-reach" and was ordered
+to re-apply them; formatting hunks are never reverted.
+
+Trace bullet ACCEPTED (marked in `TODO.md`): 61 trace tests unadapted,
+`proto/s4_trace_shadow.py` exit 0 with a non-vacuity floor.
+
+For Luna at §13: `test_specs.py::test_clone_spec_field_order` took a
+deleted-field contract touch; `test_init_compile.py`'s fold-property test
+needs its port to `executor`.
+
+Foldkit/notation/self-grammar bullet landed (review deferred to the deletion
+bullet): the three surfaces' fold halves had no consumer left and were
+deleted; `check_generated.py` exit 0 over 53 modules; `foldkit` 350→219
+lines; `IrNamed`, `FIRST_REST`, `DECODE_INT` deleted, the registry callables
+kept. Two coordinator rulings for the deletion bullet: (1) tests whose exact
+target symbol dies go with it under `docs/STYLE.md` §11, each listed with
+where its defended behaviour now lives — the user then ruled that ALL twelve
+go, the refusal-boundary census and the dropped-descendant monkeypatch
+included: "if something is deleted, its tests go with it"; (2) the
+supplied-class override channel
+(`fold_config` overrides, `check_supplied_class`, `field_kwargs`) is DELETED —
+no caller, no public entry, no product-side parameter; a documented door with
+nothing behind it is the forbidden sugar channel, and `RecordConstructor.cls`
+already carries a declared class. The compile README sentence is corrected
+mechanically. The user confirmed both rulings.
+
+Completion-range bullet, in progress: all fifteen `s3_*`/`s4_*` witnesses exit
+0 for the first time this round (the three empty-lane witnesses got real
+finalizer/comparator rows; the census re-aimed at the sentinel); the
+`type: ignore` in `compile/product/lower.py::_coded` is gone at the root
+(`operation: object` → `tuple[int, ...]`), leaving zero in `src`.
+`proto/s4_model_lowering.py` proves the generated-model product lowers and
+verifies over 15/15 grammars, 380 rules/380 ranges, 0 symbol ops, 0 stateful.
+Coordinator rulings: lowering lives in `ModelBinding` (authored product +
+registry in; resolved, lowered, verified program out — the four surfaces and
+the replica copy adapt); the bake reads each rule's verified range and
+`FlatClone` carries one cold `completion` int no runtime function reads,
+proved by hot-function bytecode identity at the opcode bullet.
+
+Value-string bullet STOPPED AT THE CENSUS (`proto/s4_value_string_census.py`,
+exit 0): 42 value-string clones across the 14 character-level ground-truth
+grammars; 38 already frame-less through chartable/run-arm/leaf; 7 pass
+`prove_regular` under the widest follow set; exactly ONE residual occurrence
+(c.gbnf). Under `docs/STYLE.md` §7's price arithmetic that cannot reach one
+percent, so no consult was written and `specialize.py` is unchanged. The
+regular proof remains the licence for §7's composed-region lowering. **User
+ruling: "Being used only for c is no excuse. Performance, correctness and
+completion are the only criteria."** The bullet stays open and is
+implemented as written; the gate rows (per grammar, including a real C
+witness, generated-model and token-segmented separately, structural plus
+alternating timing with a control) decide per occurrence what lands. The
+user also accepted the lowering relocation to `parsing/product/lower.py`.
+
+Opcode-comparison bullet ACCEPTED (marked in `TODO.md`): every generated-model
+paid-path function is bytecode-identical to `dffa821f`
+(`proto/s4_paid_path_opcodes.py`, coordinator-rerun, exit 0); the two
+non-identities are the relocated `close_loop` (identical body) and a
+definition-time generic scope in `product/tree.py`. `Carry` bullet: the
+output/sink half is accepted — ten sites generic across matchers, kernel,
+decisions and attempt-inline, no cast, suppression or `object`; runtime `Any`
+count 57→52; the frame's own sink table stays open on the frame-representation
+measurement (a typed local cannot reach through list invariance without a
+paid-path call or a cast). Terra was ordered to build the slotted-frame A/B
+under `proto/` and request a quiet window.
+
+Island/delegate/parallel bullet ACCEPTED (marked in `TODO.md`): Terra moved
+the island ambiguity gate onto `different_meaning` +
+`MeaningBuilder(executor.splice, executor.splice_replay)` — `another_meaning`
+was a compatibility view whose rebuild closure ignored the memo, discarding
+value-once at the call site; presence now reaches the ambiguity gate.
+Coordinator-rerun: islands + parity 494 passed, switch differential PASS,
+`ruff format --check` 616 files clean after Terra re-applied the user's
+formatting it had reverted. Terra's message delivery had lagged — five
+coordinator rulings arrived only after it went idle; delivery confirmed on
+resend.
+
+Completion-range bullet landed, pending the user's word on one design
+amendment. Terra relocated `lower_product`/`lower_routes`/`LoweringOwned`
+from `compile/product/lower.py` to `parsing/product/lower.py` (the module
+imported only `lexic.exceptions` and the parsing product package, and had no
+`src` caller); `ModelBinding(rules, owned)` now lowers, runs
+`verify_program`, reads its construction tables off the verified program's
+operand lanes, and derives the executor — no binding can exist unverified.
+`FlatClone.completion` is one cold int with one write in the bake and no
+runtime reader; paid-path bytecode identity holds after the slot;
+`s4_bake_identity` asserts 140/151 clones name an in-bounds, correctly
+tagged range of their own rule (11 group/transparent clones record −1). The
+flat-clone slot tripwire test was re-pinned to the ruled field. The
+coordinator first vetoed the relocation (DESIGN assigns product-op lowering
+to `compile/product`) then held the veto: action lowering (§5, reducer
+bodies → authored records) is compile's; operation flattening plus the
+verifier consumes parsing records only and has the PDA clone compiler as
+precedent. Recommended amendment: "compile authors, parsing flattens and
+verifies." Open defect from the same turn: `parsing/earley/normalize.py`
+now imports `pda` through the relocated `lift_optional_nullables`
+(`test_earley_never_imports_pda` red); Terra ordered to move the lift out of
+`earley/`.
+
 ## §4 TODO reconciled to Savepoint 6 source (2026-09-02)
 
 The exact current tree, rejected/NEEDS WORK source-review disposition, evidence

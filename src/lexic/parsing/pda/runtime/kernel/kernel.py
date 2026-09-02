@@ -1,12 +1,13 @@
 """Fused predictive runtime — parses text to a model, no ParseTree on the path.
 
 The runtime sibling of :class:`~lexic.parsing.earley.kernel.loop.kernel.Kernel`:
-where the Earley kernel builds an SPPF a :class:`~lexic.parsing.fold.ModelFold`
-later folds, :class:`PdaKernel` walks the flat int-coded
+where the Earley kernel builds an SPPF a
+:class:`~lexic.parsing.product.ProductExecutor` later completes,
+:class:`PdaKernel` walks the flat int-coded
 :class:`~lexic.parsing.pda.compiler.clones.PdaProgram` (``_OP_*`` op-codes,
 pre-resolved ``(chars, negated)`` membership sets, direct :class:`FlatClone`
 references — integer dispatch, no per-char method calls on the hot loop) and
-builds the model **directly during the walk** — the fold is fused into the
+builds the model **directly during the walk** — completion is fused into the
 parse, so no intermediate parse tree is allocated on the deterministic path.
 
 **Explicit frame stack.** Rule, group and loop descent runs on an explicit
@@ -18,24 +19,23 @@ arm's items in order; a terminal item runs its whole quantifier loop inline in
 group pushes a sub-frame per iteration.
 
 **Fused capture.** A *clone frame* with a build-mode (``sequence`` /
-``alternation`` / ``value_str``) captures what its fold needs and, on
-completion, builds exactly one model (:meth:`PdaKernel._complete`); a
+``alternation`` / ``value_str``) captures what its rule product declares and,
+on completion, builds exactly one model (:meth:`PdaKernel._complete`); a
 *transparent frame* funnels every model produced inside it straight to its
 ``F_OUT`` sink. Item spans derive from the contiguous cursor via the frame's
 ``F_ENDS`` slot; descent sub-models collect per bound item in a lazily
 allocated ``F_SINKS`` list, so a sub-model produced arbitrarily deep lands in
-the nearest enclosing *bound* item's sink, exactly as the fold's look-through
-``_models_at`` collects the topmost models under a kid. Per build-mode
-(mirroring :meth:`~lexic.parsing.fold.ModelFold._fold_node`): ``value_str`` →
-``ctor(value=text[a:b])`` over the clone's whole span; ``alternation`` →
-pass-through of the first model under the matched arm; ``sequence`` → per
-bound field, the item's span or its sub-model collection.
+the nearest enclosing *bound* item's sink, exactly as the tree route's
+look-through collects the topmost values under a kid. Per build-mode:
+``value_str`` → ``ctor(value=text[a:b])`` over the clone's whole span;
+``alternation`` → pass-through of the first model under the matched arm;
+``sequence`` → per bound field, the item's span or its sub-model collection.
 **Islands.** A reference to a conflicted (island) rule cannot be walked
 deterministically, so it delegates to a windowed Earley sub-parse
 (:meth:`PdaKernel._island`): the longest completion over a doubling window
-folds through the supplied fold and the sub-model splices into the current
-capture; the cursor advances past the consumed span. Without a fold (the
-island-free path) an island reference raises :class:`PdaFail`, as does a
+completes through the supplied product executor and the value splices into the
+current capture; the cursor advances past the consumed span. Without a product
+(the island-free path) an island reference raises :class:`PdaFail`, as does a
 **fail-island** reference (a semantic F1 stop-set-escape rule whose
 longest-match split would silently diverge) — the compile seam then falls back
 to the sound engine parse.
@@ -51,7 +51,6 @@ from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
@@ -104,12 +103,18 @@ from lexic.parsing.pda.runtime.matchers import (
     match_cc,
     match_lit,
 )
+from lexic.parsing.product import ProductExecutor
 
 __all__ = ["PdaFail", "PdaKernel", "pda_model"]
 
-_EMPTY_SLOT: Any = None
-"""An ``Any``-typed ``None`` — fills fresh per-item sink lists (``list[Any]``,
-each slot later holding a sub-model list) without narrowing their type."""
+_NO_SINK: list[Any] | None = None
+"""One unallocated per-item sink slot.
+
+A frame's sink TABLE is built by repeating this, so the table's own shape —
+a sink list per item, or nothing yet — is stated rather than left to
+inference. The sink list's ELEMENT type is what the frame erases, and that
+erasure belongs to the frame's representation, not to this constant.
+"""
 
 
 class PdaKernel[M](
@@ -121,9 +126,10 @@ class PdaKernel[M](
     model. Per-parse state (:attr:`pos`, :attr:`stack`) is mutable on the
     kernel; :attr:`tables` is the shared, immutable compiled artifact.
 
-    Generic in ``M``, the product the start clone folds to — the
-    :class:`~lexic.parsing.fold.ModelFold` parameter's own type parameter, so
-    a caller's model type rides through instead of decaying to ``object``.
+    Generic in ``M``, the value the start clone builds — the
+    :class:`~lexic.parsing.product.ProductExecutor` parameter's own type
+    parameter, so a caller's model type rides through instead of decaying to
+    ``object``.
     ``M`` is deliberately unbounded: :meth:`~lexic.ir.base.IrSelf
     .__init_subclass__` derives ``_bound`` from the last OWN type parameter
     only when that parameter carries one, so an unbounded ``M`` leaves the
@@ -136,8 +142,9 @@ class PdaKernel[M](
     :ivar stack: The explicit descent stack of flat frame lists (see the frame
         layout above).
     :ivar policy: The island policy this parse runs under — the full-grammar
-        fold that splices island sub-models (``None`` on the island-free path,
-        where an island reference raises :class:`PdaFail`) and whether an
+        product completion that splices island values (``None`` on the
+        island-free path, where an island reference raises :class:`PdaFail`)
+        and whether an
         island may derive its text more than one way. The SAME record is handed
         to :func:`~lexic.parsing.pda.runtime.islands.island_parse`, with the
         per-island delegates filled in at the reference.
@@ -163,7 +170,7 @@ class PdaKernel[M](
         self,
         tables: PdaTables,
         text: str,
-        fold: ModelFold[M] | None = None,
+        executor: ProductExecutor[M] | None = None,
         *,
         resolve: Resolver | None = None,
     ) -> None:
@@ -171,16 +178,17 @@ class PdaKernel[M](
 
         :param tables: The compiled predictive-parser tables.
         :param text: The input to parse.
-        :param fold: The full-grammar :class:`~lexic.parsing.fold.ModelFold`
-            for splicing island sub-models; ``None`` disables island resolution
-            (any island reference raises :class:`PdaFail`).
+        :param executor: The full-grammar
+            :class:`~lexic.parsing.product.ProductExecutor` for splicing island
+            values; ``None`` disables island resolution (any island reference
+            raises :class:`PdaFail`).
         :param resolve: The caller's deterministic answer to an island that
             derives its text two ways that mean different things; ``None``
             refuses one. Per-parse state, so it rides on the cursor.
         """
         self.tables = tables
         self.text = text
-        self.policy = IslandPolicy(resolve=resolve, fold=fold)
+        self.policy = IslandPolicy(resolve=resolve, executor=executor)
         self.pos = 0
         self.stack = []
         self._caches = KernelCaches[M]()
@@ -226,7 +234,7 @@ class PdaKernel[M](
         arbitrary clone and position instead of the start clone at ``0``.
 
         Nested islands beneath ``clone`` resolve through the usual
-        :meth:`_island` path (the shared cursor's ``fold`` / ``tables`` are
+        :meth:`_island` path (the shared cursor's ``policy`` / ``tables`` are
         untouched).
 
         :param clone: The delegable clone to run (never an island rule).
@@ -398,7 +406,7 @@ class PdaKernel[M](
             return i  # consumed inline — same item continues
         return self._descend_island(arm, i, pos, sink)
 
-    def _descend_island(self, arm: FlatArm, i: int, pos: int, sink: list[Any]) -> int:
+    def _descend_island(self, arm: FlatArm, i: int, pos: int, sink: list[M]) -> int:
         """A due ``OP_ISLAND`` splice or ``OP_FAIL`` raise — the descent's cold tail.
 
         Hosted out of :meth:`_quant_step` because it never runs: an island is
@@ -435,7 +443,7 @@ class PdaKernel[M](
             else:
                 sinks = frame[F_SINKS]
                 if sinks is None:
-                    frame[F_SINKS] = sinks = [_EMPTY_SLOT] * arm.n
+                    frame[F_SINKS] = sinks = [_NO_SINK] * arm.n
                 sink = sinks[i]
                 if sink is None:
                     sinks[i] = sink = []
@@ -446,7 +454,7 @@ class PdaKernel[M](
 
     # ── descent ────────────────────────────────────────────────────────
 
-    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[Any]:
+    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[M]:
         """The sink item ``i``'s sub-models report into (allocated lazily).
 
         A transparent frame funnels everything to its parent sink; a capture
@@ -456,15 +464,13 @@ class PdaKernel[M](
             return frame[F_OUT]
         sinks = frame[F_SINKS]
         if sinks is None:
-            frame[F_SINKS] = sinks = [_EMPTY_SLOT] * arm.n
+            frame[F_SINKS] = sinks = [_NO_SINK] * arm.n
         sink = sinks[i]
         if sink is None:
             sinks[i] = sink = []
         return sink
 
-    def _chase_dispatch(
-        self, clone: FlatClone[M], char: str
-    ) -> FlatClone[M] | None:
+    def _chase_dispatch(self, clone: FlatClone[M], char: str) -> FlatClone[M] | None:
         """Chase a frame-less dispatch alternation to its concrete target clone.
 
         :param clone: A :data:`~lexic.parsing.pda.compiler.program.flatten.BUILD_DISPATCH` clone.
@@ -620,7 +626,7 @@ class PdaKernel[M](
 def pda_model[M](
     tables: PdaTables,
     text: str,
-    fold: ModelFold[M] | None = None,
+    executor: ProductExecutor[M] | None = None,
     *,
     resolve: Resolver | None = None,
 ) -> M:
@@ -628,10 +634,10 @@ def pda_model[M](
 
     :param tables: The compiled predictive-parser tables.
     :param text: The input to parse.
-    :param fold: The full-grammar fold used by island sub-parses; ``None``
-        makes any island reference raise :class:`PdaFail`.
+    :param executor: The full-grammar product completion used by island
+        sub-parses; ``None`` makes any island reference raise :class:`PdaFail`.
     :param resolve: A deterministic ambiguity resolver for island parses.
     :returns: The start rule's model instance.
     :raises PdaFail: When the deterministic path cannot complete.
     """
-    return PdaKernel(tables, text, fold, resolve=resolve).run()
+    return PdaKernel(tables, text, executor, resolve=resolve).run()

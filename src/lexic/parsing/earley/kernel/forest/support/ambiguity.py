@@ -357,9 +357,7 @@ def different_meaning[Value, NodeValue](
     choices = [
         key
         for key in ambiguity_points(kernel, handle)
-        if is_arm_choice(
-            kernel.st.links[key], bits, kernel.tables.code_choice
-        )
+        if is_arm_choice(kernel.st.links[key], bits, kernel.tables.code_choice)
     ]
     if not siblings and not choices:
         return MeaningPair(BuiltMeaning(first, builder.build(first)), None)

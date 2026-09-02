@@ -36,9 +36,7 @@ __all__ = [
 ]
 
 
-type ProductValue[Carry] = (
-    Carry | str | list[Carry] | tuple[Carry, ...] | IrSpan | None
-)
+type ProductValue[Carry] = Carry | str | list[Carry] | tuple[Carry, ...] | IrSpan | None
 """The values a model-product capture or constructor default may carry."""
 
 
@@ -109,7 +107,7 @@ class SymbolConstructor(NamedTuple):
     compile-time surfaces whose completions are transforms rather than declared
     record classes. Everything here is INERT: ``symbol`` is a registry key, and
     lowering is what turns it into a callable — the same no-``exec`` boundary
-    :class:`~lexic.parsing.product.expressions.SymbolExpr` draws.
+    :class:`~lexic.parsing.product.abi.expressions.SymbolExpr` draws.
 
     Application is BY KEYWORD, which is load-bearing rather than stylistic: an
     absent optional capture is OMITTED from the call, so a transform whose job
@@ -162,7 +160,7 @@ class ConstructionTables[Carry](NamedTuple):
     :ivar constructors: Declared record constructors, indexed by
         :class:`RecordOp`.
     :ivar symbols: Resolved surface transforms, indexed by
-        :class:`~lexic.parsing.product.expressions.SymbolExpr`.
+        :class:`~lexic.parsing.product.abi.expressions.SymbolExpr`.
     """
 
     constructors: tuple[RecordConstructor[Carry], ...] = ()

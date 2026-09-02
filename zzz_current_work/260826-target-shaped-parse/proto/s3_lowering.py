@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.compile.product import LoweringOwned, lower_product, lower_routes
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
 from lexic.parsing.product import (
     AppendSequenceOp,
@@ -35,6 +34,7 @@ from lexic.parsing.product import (
     FinishSequenceOp,
     InsertMappingOp,
     JoinExpr,
+    LoweringOwned,
     MeaningOp,
     OpCode,
     OperandTables,
@@ -52,6 +52,8 @@ from lexic.parsing.product import (
     SymbolExpr,
     TableRoute,
     UniformRoute,
+    lower_product,
+    lower_routes,
     verify_exact_ints,
     verify_program,
 )
@@ -493,9 +495,7 @@ def the_symbol_operation_resolves_through_a_registry() -> None:
     program = lower_product(
         SYMBOL_RULES,
         OPERANDS,
-        owned=LoweringOwned(
-            symbols=(SymbolConstructor("shout"),), registry=registry
-        ),
+        owned=LoweringOwned(symbols=(SymbolConstructor("shout"),), registry=registry),
         root=RootOp(0),
         meaning=MeaningOp(0),
     )
@@ -513,9 +513,7 @@ def the_symbol_operation_resolves_through_a_registry() -> None:
         "the authored table holds something other than a name",
         all(
             isinstance(entry.symbol, str)
-            for entry in LoweringOwned(
-                symbols=(SymbolConstructor("shout"),)
-            ).symbols
+            for entry in LoweringOwned(symbols=(SymbolConstructor("shout"),)).symbols
         ),
     )
 

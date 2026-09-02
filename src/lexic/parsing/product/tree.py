@@ -25,12 +25,12 @@ from lexic.parsing.earley.kernel.tables.records import (
     ParserTables,
 )
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
-from lexic.parsing.product.construction import (
+from lexic.parsing.product.abi.construction import (
     Construction,
     ConstructionTables,
     ProductValue,
 )
-from lexic.parsing.product.records import (
+from lexic.parsing.product.abi.records import (
     CaptureMode,
     PassOp,
     RuleProduct,
@@ -86,7 +86,7 @@ class ProductExecutor[Carry]:
         self.wants_spans = _wants_spans(rules)
 
     def build(self, root: ParseTree) -> Carry:
-        """Complete a derivation with a fresh result memo."""
+        """Complete a whole derivation, where producing no value is an error."""
         return complete_product(
             root, self.rules, self.tables, wants_spans=self.wants_spans
         )
@@ -100,6 +100,37 @@ class ProductExecutor[Carry]:
             results,
             wants_spans=self.wants_spans,
         )
+
+    def splice(self, root: ParseTree) -> CompletionResult[Carry]:
+        """Complete ONE occurrence, which may legitimately produce no value.
+
+        The document-root question and the occurrence question have different
+        answers, which is why this is not :meth:`build` with a flag. A start
+        rule that completes to nothing has failed; a recognition-only
+        occurrence — a noise rule reached through an island reference — has
+        simply produced nothing for its parent to capture, and the caller
+        splices nothing rather than a value. Returning the presence explicitly
+        is what keeps that distinct from an occurrence whose value IS ``None``.
+        """
+        return _complete_tree(
+            root, self.rules, self.tables, {}, wants_spans=self.wants_spans
+        )
+
+    def splice_replay(
+        self, root: ParseTree, results: ResultMemo[Carry]
+    ) -> CompletionResult[Carry]:
+        """Complete one occurrence while reusing and extending ``results``.
+
+        The seeded half of :meth:`splice`, exactly as :meth:`replay` is the
+        seeded half of :meth:`build`. An ambiguity gate needs BOTH: it builds
+        a baseline once and then replays only what an alternate changed, so a
+        seam with no seeded entry has to rebuild the whole span per
+        alternative.
+        """
+        return _complete_tree(
+            root, self.rules, self.tables, results, wants_spans=self.wants_spans
+        )
+
 
 type Offsets = tuple[dict[int, int], dict[int, int]]
 """``(start by node id, consumed length by node id)`` for one parse tree."""
@@ -178,12 +209,39 @@ def complete_product[Carry](
     *,
     wants_spans: bool | None = None,
 ) -> Carry:
-    """Complete one ParseTree through the product's authored operations.
+    """Complete one whole ParseTree through the product's authored operations.
 
     ``results`` is both seeded and filled.  A seeded node is never constructed
     again, which is the value-replay contract used by ambiguity checking.
+
+    :raises UnsupportedConstructError: When the start rule produces no value.
+        A document root that completes to nothing has failed; an occurrence
+        that may honestly produce nothing goes through
+        :meth:`ProductExecutor.splice` instead.
     """
-    results = {} if results is None else results
+    result = _complete_tree(
+        root,
+        rules,
+        tables,
+        {} if results is None else results,
+        wants_spans=wants_spans,
+    )
+    if isinstance(result, EmptyResult):
+        raise UnsupportedConstructError(
+            f"product: start rule {root.symbol!s} completed without a value"
+        )
+    return result.value
+
+
+def _complete_tree[Carry](
+    root: ParseTree,
+    rules: Mapping[str, RuleProduct[Carry]],
+    tables: ConstructionTables[Carry],
+    results: ResultMemo[Carry],
+    *,
+    wants_spans: bool | None = None,
+) -> CompletionResult[Carry]:
+    """Walk one derivation bottom-up and return the root's completion result."""
     folded: set[int] = set(results)
     wants_spans = _wants_spans(rules) if wants_spans is None else wants_spans
     offsets = tree_offsets(root) if wants_spans else _NO_OFFSETS
@@ -203,12 +261,8 @@ def complete_product[Carry](
         _complete_node(node, rules, tables, results, offsets)
     root_result = results.get(id(root), EMPTY_RESULT)
     if isinstance(root_result, EmptyResult):
-        root_result = _first_product_under(root, results)
-    if isinstance(root_result, EmptyResult):
-        raise UnsupportedConstructError(
-            f"product: start rule {root.symbol!s} completed without a value"
-        )
-    return root_result.value
+        return _first_product_under(root, results)
+    return root_result
 
 
 def _wants_spans[Carry](rules: Mapping[str, RuleProduct[Carry]]) -> bool:

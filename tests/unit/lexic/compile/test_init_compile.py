@@ -171,9 +171,9 @@ def test_compiled_grammar_grammar_field_is_the_canonical_ast():
 
 
 def test_compiled_grammar_fold_field_is_positional_fold():
-    """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
+    """CompiledGrammar.executor is the ParseTree -> model-instance ModelFold."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert isinstance(cg.fold, ModelFold)
+    assert isinstance(cg.executor, ModelFold)
 
 
 @pytest.mark.parametrize(

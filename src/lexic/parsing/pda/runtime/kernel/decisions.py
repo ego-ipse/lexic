@@ -45,7 +45,14 @@ from lexic.parsing.pda.runtime.admission import (
     value_shape,
     values_agree,
 )
-from lexic.parsing.pda.runtime.build import F_ARM, F_COUNT, F_ENDS, F_I, F_OUT
+from lexic.parsing.pda.runtime.build import (
+    F_ARM,
+    F_COUNT,
+    F_ENDS,
+    F_I,
+    F_OUT,
+    close_loop,
+)
 
 __all__ = ["Attempting", "sole_admitted"]
 
@@ -131,14 +138,6 @@ def _composes(follow: Any, text: str, end: int) -> bool:
     return end >= len(text) or follow.has(text[end : end + 1])
 
 
-def _close_loop(frame: list[Any], i: int, pos: int) -> int:
-    """Close the loop at the current count — the driver continues past ``i``."""
-    frame[F_COUNT] = 0
-    frame[F_I] = i + 1
-    frame[F_ENDS][i] = pos
-    return i + 1
-
-
 class Attempting[Carry]:
     """The attempt/probe methods, hosted for the kernel to inherit.
 
@@ -163,7 +162,7 @@ class Attempting[Carry]:
         """Provided by the kernel — drain the frame stack down to ``floor``."""
         raise NotImplementedError
 
-    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[Any]:
+    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[Carry]:
         """Provided by the kernel — item ``i``'s lazily-allocated sink."""
         raise NotImplementedError
 
@@ -206,7 +205,7 @@ class Attempting[Carry]:
         char = self.text[pos : pos + 1]
         first = arm.gate_data[i][0]
         if not admits(char, *first):
-            return _close_loop(frame, i, pos)
+            return close_loop(frame, i, pos)
         k = arm.kinds[i]
         if k in (OP_ISLAND, OP_FAIL):  # no (end, values) to fork-probe
             if self._stop_viable(arm, i, char):
@@ -217,9 +216,9 @@ class Attempting[Carry]:
             return self._attempt_island(frame, arm, i, pos)
         got = self._attempt_run(arm.payloads[i], pos)
         if got is None or got[0] == pos:
-            return _close_loop(frame, i, pos)
+            return close_loop(frame, i, pos)
         if not self._attempt_choice(arm, i, pos, got):
-            return _close_loop(frame, i, pos)
+            return close_loop(frame, i, pos)
         end, values = got
         self._sink_for(frame, arm, i).extend(values)
         frame[F_COUNT] += 1
@@ -303,7 +302,7 @@ class Attempting[Carry]:
                 frame[F_COUNT] += 1
                 return i
         self.pos = pos
-        return _close_loop(frame, i, pos)
+        return close_loop(frame, i, pos)
 
     def _fork_verdict(
         self,

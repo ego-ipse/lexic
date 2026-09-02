@@ -52,7 +52,7 @@ def split_case(
     compiled = compile_text(source)
     grammar, binding = compiled.codegen_grammar, compiled.product
     return (
-        derive_plan(grammar, binding.fold, rule),
+        derive_plan(grammar, binding, rule),
         parse_model(grammar, text, binding),
         split_model(parse_model, grammar, Request(text, binding), cores),
     )

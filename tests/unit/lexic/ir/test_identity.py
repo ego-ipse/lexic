@@ -188,7 +188,7 @@ def test_a_compiled_folds_class_constructors_are_the_refusal_boundary() -> None:
     definition — under the field-tuple half alone this whole census was ONE
     node and the boundary read as an empty set.
     """
-    bodies = compile_from_path(GROUND_TRUTH / "json.gbnf").fold.bodies
+    bodies = compile_from_path(GROUND_TRUTH / "json.gbnf").product.fold.bodies
     refusals = census(bodies).refusals()
     assert len(refusals) > 10
     assert all(isinstance(entry.node, IrLambda) for entry in refusals)

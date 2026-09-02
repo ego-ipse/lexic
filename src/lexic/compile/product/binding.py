@@ -36,13 +36,12 @@ from threading import Lock
 from typing import NamedTuple
 
 from lexic.compile.pipeline.binding import RuleBinding
-from lexic.compile.pipeline.synthesis import fold_config, model_plan
-from lexic.exceptions import UnsupportedConstructError
+from lexic.compile.pipeline.synthesis import model_plan
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
-from lexic.parsing import ModelBinding, ModelFold
+from lexic.parsing import ModelBinding
 from lexic.parsing.caches import adopt, memo, track
-from lexic.parsing.product import ConstructionTables, ProductProgram, RuleProduct
+from lexic.parsing.product import LoweringOwned, ProductProgram, RuleProduct
 
 __all__ = ["BindingRegistry", "BoundProduct", "ProgramProduct"]
 
@@ -227,11 +226,11 @@ def bind_model(
     classes: dict[str, type],
     omit: frozenset[str] = frozenset(),
 ) -> ModelBinding[GrammarModel]:
-    """The generated-model product, bound with the fold its completions read.
+    """The generated-model product a parse entry is handed.
 
-    The one place a compilation turns its binding view into what a parse entry
-    is handed, so the two artefact paths — a compile and a derived variant —
-    cannot drift about how the product and the fold are paired.
+    The one place a compilation turns its binding view into a bound product,
+    so the two artefact paths — a compile and a derived variant — cannot
+    drift about how one is built.
 
     :param codegen_grammar: The post-pass grammar the view was computed on.
     :param view: The binding view, in emission order.
@@ -240,35 +239,9 @@ def bind_model(
     :returns: The bound model product.
     """
     plan = model_plan(codegen_grammar, view, classes, omit=omit)
-    fold = ModelFold(fold_config(codegen_grammar, view, classes, omit=omit))
-    rules = rules_by_name(plan.rules, plan.codes)
-    _check_covered(rules, fold)
-    return ModelBinding(fold, rules, ConstructionTables(plan.constructors))
-
-
-def _check_covered(rules: Mapping[str, RuleProduct], fold: ModelFold) -> None:
-    """Refuse a binding whose product and fold do not name the same rules.
-
-    The two halves are derived from ONE binding view by two functions, so they
-    agree or one of them is wrong — and the way that goes wrong is silent. A
-    rule the product does not name bakes no build state, and a clone with no
-    build state does not fail: it quietly falls back to the slow construction
-    and, where a capture reads an item's span, to the wrong one. This is the
-    cold cross-check that turns that into words.
-
-    :param rules: The product's rules, keyed by rule name.
-    :param fold: The fold built from the same view.
-    :raises UnsupportedConstructError: When either half names a rule the other
-        does not.
-    """
-    named = set(rules)
-    folded = set(fold.baked)
-    if named == folded:
-        return
-    raise UnsupportedConstructError(
-        f"compile: the model product and its fold disagree about which rules "
-        f"exist — the product alone names {sorted(named - folded)} and the "
-        f"fold alone names {sorted(folded - named)}"
+    return ModelBinding(
+        rules_by_name(plan.rules, plan.codes),
+        LoweringOwned(constructors=plan.constructors),
     )
 
 

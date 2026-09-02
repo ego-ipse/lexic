@@ -22,7 +22,7 @@ import gc
 import weakref
 from threading import Barrier, Thread
 
-from lexic.compile.product import BindingRegistry, ProgramProduct, lower_product
+from lexic.compile.product import BindingRegistry, ProgramProduct
 from lexic.parsing.caches import cached_entries, release
 from lexic.parsing.product import (
     MeaningOp,
@@ -31,6 +31,7 @@ from lexic.parsing.product import (
     ProductProgram,
     RootOp,
     RuleProduct,
+    lower_product,
 )
 
 

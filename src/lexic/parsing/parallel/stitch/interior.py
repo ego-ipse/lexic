@@ -20,7 +20,6 @@ from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
 from lexic.parsing.binding import ModelBinding
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.plan.routed import (
     RoutedPlan,
@@ -34,7 +33,7 @@ from lexic.parsing.parallel.stitch.model import field_slot, splice
 
 
 def interior_route[M: IrNamedTuple](
-    fold: ModelFold[M], container: str, at: int, rule: str, run: int
+    binding: ModelBinding[M], container: str, at: int, rule: str, run: int
 ) -> tuple[int, int] | None:
     """``(slot of the interior, slot of its run)``, or ``None``.
 
@@ -43,8 +42,8 @@ def interior_route[M: IrNamedTuple](
     :param rule: The interior's own rule.
     :param run: The repetition's item index within it.
     """
-    outer = fold.config.get(container)
-    inner = fold.config.get(rule)
+    outer = binding.rules.get(container)
+    inner = binding.rules.get(rule)
     if outer is None or inner is None:
         return None
     slot = field_slot(outer, at)
@@ -99,9 +98,7 @@ def routed_split[M: IrNamedTuple](
     parts = divide(text, region, pool.workers) if region is not None else None
     if plan is None or region is None or parts is None:
         return None
-    route = interior_route(
-        binding.fold, str(grammar.start), plan.at, plan.rule, plan.run
-    )
+    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
     if route is None:
         return None
     parsed = _parsed(

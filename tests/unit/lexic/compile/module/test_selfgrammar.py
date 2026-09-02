@@ -22,7 +22,7 @@ from lexic.compile.module.selfgrammar import MClass, MField, MModule, module_gra
 from lexic.compile.notation.parse import NOTATION_GRAMMAR
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrNone, IrNoneType
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from tests.paths import GROUND_TRUTH
 

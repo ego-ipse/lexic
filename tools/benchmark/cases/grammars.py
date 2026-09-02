@@ -34,7 +34,7 @@ from typing import NamedTuple
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.ir import IrAst
-from lexic.parsing.fold import ModelFold
+from lexic.parsing import ProductExecutor
 
 _ROOT = Path(__file__).resolve().parents[3]
 _ONLY_BENCHMARK = os.environ.get("LEXIC_BENCHMARK_GRAMMAR")
@@ -74,9 +74,9 @@ class Bench(NamedTuple):
     full: str
 
     @property
-    def fold(self) -> ModelFold:
-        """The positional fold lexic builds its model through."""
-        return self.compiled.fold
+    def executor(self) -> ProductExecutor:
+        """The product completion lexic builds its model through."""
+        return self.compiled.executor
 
 
 class Samples(NamedTuple):

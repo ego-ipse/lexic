@@ -41,7 +41,23 @@ from lexic.parsing.product import (
     verify_program,
 )
 
-_EMPTY_OPERANDS: OperandTables[str, str] = OperandTables((), (), (), (), (), (), (), ())
+
+def _finish_root(carry: str, _verdicts: tuple[object, ...]) -> str:
+    """The root finalizer this program's ``RootOp(0)`` names."""
+    return carry
+
+
+def _same_meaning(left: str, right: str) -> bool:
+    """The meaning comparator this program's ``MeaningOp(0)`` names."""
+    return left == right
+
+
+_OPERANDS: OperandTables[str, str] = OperandTables(
+    (), (), (), (), (_same_meaning,), (_finish_root,), (), ()
+)
+"""A program naming entry 0 of the root and meaning lanes must HAVE one: the
+verifier bounds every lane index, so an empty table beside a `RootOp(0)` is
+the defect it exists to catch, not a shortcut a witness may take."""
 
 
 def _program(
@@ -61,7 +77,7 @@ def _program(
         (),
         (),
         (),
-        _EMPTY_OPERANDS,
+        _OPERANDS,
         RootOp(0),
         MeaningOp(0),
     )

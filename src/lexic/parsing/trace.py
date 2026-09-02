@@ -42,12 +42,12 @@ from typing import Any, ClassVar, Self
 
 from lexic.ir import IrNamedTuple, IrSeq, IrSpan
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import F_CLONE
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+from lexic.parsing.product import ProductExecutor
 
 __all__ = [
     "SCAN",
@@ -155,7 +155,7 @@ class WatchedKernel[M](PdaKernel[M]):
         self,
         tables: PdaTables,
         text: str,
-        fold: ModelFold[M] | None = None,
+        executor: ProductExecutor[M] | None = None,
         *,
         resolve: Resolver | None = None,
     ) -> None:
@@ -168,10 +168,11 @@ class WatchedKernel[M](PdaKernel[M]):
 
         :param tables: The compiled predictive-parser tables.
         :param text: The input to parse.
-        :param fold: The full-grammar fold, for island splicing.
+        :param executor: The full-grammar product completion, for island
+            splicing.
         :param resolve: The caller's answer to an ambiguous island.
         """
-        super().__init__(tables, text, fold, resolve=resolve)
+        super().__init__(tables, text, executor, resolve=resolve)
         self.events = []
         self.cap = TRACE_CAP
         self.capped = False
@@ -234,7 +235,7 @@ class WatchedKernel[M](PdaKernel[M]):
             return False
         return True
 
-    def _enter(self, clone: FlatClone, out: list[object]) -> bool:
+    def _enter(self, clone: FlatClone[M], out: list[M]) -> bool:
         """Record the gate this entry consults, if it consults one."""
         self._flush()
         gate = _gate_of(clone)
@@ -242,7 +243,7 @@ class WatchedKernel[M](PdaKernel[M]):
             self._note(GATE, str(clone.name), gate, self._at())
         return super()._enter(clone, out)
 
-    def _run_leaf(self, clone: FlatClone, out: list[Any], pos: int) -> int:
+    def _run_leaf(self, clone: FlatClone[M], out: list[M], pos: int) -> int:
         """A leaf clone runs frame-lessly, so attribute its text to it."""
         self._flush()
         end = super()._run_leaf(clone, out, pos)
@@ -256,7 +257,7 @@ class WatchedKernel[M](PdaKernel[M]):
         self._flush(str(frame[F_CLONE].name))
         super()._complete(frame)
 
-    def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:
+    def _attempt_run(self, sub: FlatClone[M], pos: int) -> tuple[int, list[M]] | None:
         """One attempt entry, tried and rolled back by construction."""
         self._flush()
         self._note(PROBE, str(sub.name), "attempt entry", IrSpan(pos, pos))
@@ -272,8 +273,8 @@ class WatchedKernel[M](PdaKernel[M]):
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]] | None,
-    ) -> tuple[list[object] | None, bool]:
+        taken: tuple[int, list[M]] | None,
+    ) -> tuple[list[M] | None, bool]:
         """One side of a boundary, run to end-of-input on a copied stack."""
         self._flush()
         side = "stop side" if taken is None else "take side"
@@ -312,7 +313,7 @@ def _gate_of(clone: FlatClone) -> str:
 def watch[M](
     tables: PdaTables,
     text: str,
-    fold: ModelFold[M] | None = None,
+    executor: ProductExecutor[M] | None = None,
     *,
     cap: int = TRACE_CAP,
     resolve: Resolver | None = None,
@@ -326,14 +327,14 @@ def watch[M](
     :param tables: The compiled predictive-parser tables
         (:meth:`~lexic.compile.CompiledGrammar.pda_tables`).
     :param text: The input to parse.
-    :param fold: The full-grammar fold, for island splicing.
+    :param executor: The full-grammar product completion, for island splicing.
     :param cap: How many events to record before the account stops.
     :param resolve: The caller's answer to an ambiguous island.
     :returns: The stream and the run's own facts. A refusal is an event, not
         an exception: the predictive machine failing is what the compile seam
         retries on the gated engine, and it is the run most worth watching.
     """
-    kernel = WatchedKernel(tables, text, fold, resolve=resolve)
+    kernel = WatchedKernel(tables, text, executor, resolve=resolve)
     kernel.cap = cap
     derived = kernel.watched_run()
     return WatchedRun(Trace(*kernel.events), cap, kernel.capped, derived)

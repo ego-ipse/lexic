@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from lexic.compile.foldkit import AuthoredRule, model_fold, product_rules, seq
-from lexic.compile.product import bind_symbols, rules_by_name
+from lexic.compile.foldkit import AuthoredRule, product_rules
+from lexic.compile.product import rules_by_name
 from lexic.ir import (
     IrAlternation,
     IrAst,
@@ -42,8 +42,8 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
 )
-from lexic.parsing import FieldFold, ModelBinding, ModelBody, parse_model
-from lexic.parsing.product import CaptureMode, CaptureSpec, ConstructionTables
+from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 _STAR = IrQuantifier(0, IrNone)
 _PLUS = IrQuantifier(1, IrNone)
@@ -66,30 +66,23 @@ def _make_head_tail(first: object, rest: list | None = None) -> tuple:
     return (first, *(rest or ()))
 
 
-def _head_tail_fields() -> tuple[FieldFold, FieldFold]:
-    """The (head model, tail models) field pair shared by both start rules."""
-    return (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0))
-
-
 _ONE = int(CaptureMode.ONE)
 _MANY = int(CaptureMode.MANY)
 _TEXT = int(CaptureMode.TEXT)
 
 _HEAD_TAIL_CAPTURES = (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1))
-"""The same head/tail pair as :func:`_head_tail_fields`, said as captures."""
+"""The (head value, tail values) capture pair shared by both start rules."""
 
 
 def _binding(
-    bodies: dict[str, ModelBody],
     rules: dict[str, AuthoredRule],
     registry: dict[str, Callable[..., object]],
 ) -> ModelBinding:
-    """One fixture format's binding — both halves, from its own registry."""
+    """One fixture format's binding, from its own registry."""
     product = product_rules(rules)
     return ModelBinding(
-        model_fold(bodies),
         rules_by_name(product.rules, product.codes),
-        ConstructionTables(symbols=bind_symbols(product.symbols, registry)),
+        LoweringOwned(symbols=product.symbols, registry=registry),
     )
 
 
@@ -128,14 +121,6 @@ def _make_entry(token: str, num: str) -> IrTuple:
 
 
 VOCAB_BINDING = _binding(
-    {
-        "start": seq(_make_vocab, 2, _head_tail_fields()),
-        "entry": seq(
-            _make_entry,
-            4,
-            (FieldFold(0, "text", "token", 1), FieldFold(2, "text", "num", 1)),
-        ),
-    },
     {
         "start": AuthoredRule("make_vocab", _HEAD_TAIL_CAPTURES, ("first", "rest"), 2),
         "entry": AuthoredRule(
@@ -185,14 +170,6 @@ def _make_dyad(left: str, right: str) -> IrTuple:
 
 
 MERGES_BINDING = _binding(
-    {
-        "start": seq(_make_merges, 2, _head_tail_fields()),
-        "mline": seq(
-            _make_dyad,
-            4,
-            (FieldFold(0, "text", "left", 1), FieldFold(2, "text", "right", 1)),
-        ),
-    },
     {
         "start": AuthoredRule("make_merges", _HEAD_TAIL_CAPTURES, ("first", "rest"), 2),
         "mline": AuthoredRule(

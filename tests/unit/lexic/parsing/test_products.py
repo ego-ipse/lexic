@@ -137,9 +137,9 @@ def test_reduce_variant_elides_noise_models_without_changing_source_product():
     assert roots <= {str(rule.name) for rule in entry.variant.grammar.rules}
     omitted = reachable_rules(entry.variant.codegen_grammar, roots)
     assert omitted
-    assert omitted.isdisjoint(entry.variant.fold.config)
-    assert elide <= artifact.fold.config.keys()
-    assert not any(name.endswith("-sk") for name in artifact.fold.config)
+    assert omitted.isdisjoint(entry.variant.product.rules)
+    assert elide <= artifact.product.rules.keys()
+    assert not any(name.endswith("-sk") for name in artifact.product.rules)
 
 
 def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
@@ -188,7 +188,7 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
     variant = cast(Any, escape.parse).func.__self__
     omitted = reachable_rules(variant.codegen_grammar, frozenset({"drop-sk"}))
     assert omitted == {"drop-sk", "noise-sk"}
-    assert omitted.isdisjoint(variant.fold.config)
+    assert omitted.isdisjoint(variant.product.rules)
     assert escape.fold.plan.aliases == {
         "drop-sk": "drop",
         "noise-sk": "noise",
@@ -197,11 +197,11 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
     def forbidden(**_kwargs: object) -> object:
         raise AssertionError("a dropped run descendant was constructed")
 
-    original = variant.fold.config["noise"]
-    variant.fold.config["noise"] = original._replace(ctor=forbidden, fast=None)
+    original = variant.product.rules["noise"]
+    variant.product.rules["noise"] = original._replace(ctor=forbidden, fast=None)
     product = _model_product(variant.codegen_grammar, variant.product)
     assert earley_model(product.instance_grammar, "a!", variant.product, product.tables)
-    assert pda_model(product.pda, "a!", variant.fold)
+    assert pda_model(product.pda, "a!", variant.executor)
 
 
 def test_model_product_is_the_same_object_for_the_same_identity():

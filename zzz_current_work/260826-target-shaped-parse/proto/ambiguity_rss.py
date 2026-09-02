@@ -619,11 +619,13 @@ def control_row(pad: int) -> None:
     started_wall = time.perf_counter()
     started_cpu = time.process_time()
     compiled = compile_text(CONTROL)
-    tables = pda_tables(compiled.codegen_grammar, compiled.fold, tier_for(len(text)))
+    tables = pda_tables(
+        compiled.codegen_grammar, compiled.executor, tier_for(len(text))
+    )
     tracemalloc.start()
     started_product_cpu = time.process_time()
     started_product_wall = time.perf_counter()
-    result = pda_model(tables, text, compiled.fold)
+    result = pda_model(tables, text, compiled.executor)
     product_cpu = time.process_time() - started_product_cpu
     product_wall = time.perf_counter() - started_product_wall
     product_bytes, product_peak = tracemalloc.get_traced_memory()

@@ -42,9 +42,7 @@ def test_interior_route_finds_the_shells_slot_and_the_runs_slot():
     plan = routed_plan(grammar)
     assert plan is not None
 
-    route = interior_route(
-        binding.fold, str(grammar.start), plan.at, plan.rule, plan.run
-    )
+    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
 
     assert route is not None
     slot, child = route
@@ -56,10 +54,10 @@ def test_interior_route_declines_a_container_or_rule_the_fold_does_not_know():
     """A shape surprise — a rule name the fold has no configuration for —
     declines rather than guessing a slot."""
     compiled = compile_text(ROUTED_GRAMMAR)
-    fold = compiled.fold
+    binding = compiled.product
 
-    assert interior_route(fold, "no-such-rule", 0, "block", 1) is None
-    assert interior_route(fold, "start", 0, "no-such-rule", 1) is None
+    assert interior_route(binding, "no-such-rule", 0, "block", 1) is None
+    assert interior_route(binding, "start", 0, "no-such-rule", 1) is None
 
 
 def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces():
@@ -80,9 +78,7 @@ def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces
     )
     shell = parse_model(grammar, stand_in, binding)
     pieces = [parse_model(plan.rooted, part, binding) for part in parts]
-    route = interior_route(
-        binding.fold, str(grammar.start), plan.at, plan.rule, plan.run
-    )
+    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
     assert route is not None
 
     stitched = stitch_interior(shell, pieces, route)

@@ -6,7 +6,6 @@ from lexic.compile import compile_text
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import ModelBinding, parse_model
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
 from lexic.parsing.parallel.stitch.model import (
     derive_plan,
@@ -45,11 +44,11 @@ def _rebuilt_lead(
 
 
 def _moved_tails(
-    chunks: list[GrammarModel], shape: Envelope, fold: ModelFold
+    chunks: list[GrammarModel], shape: Envelope, binding: ModelBinding
 ) -> tuple[list[str], list[GrammarModel]]:
     """Non-``None`` :func:`envelope_tails`, for callers that already expect it
     to succeed over this fixture's shape."""
-    moved = envelope_tails(chunks, shape, fold)
+    moved = envelope_tails(chunks, shape, binding)
     assert moved is not None
     return moved
 
@@ -76,11 +75,11 @@ def test_a_trailing_comment_absorbed_by_a_pieces_own_tail_reparses_and_stitches(
     piece1 = parse_model(grammar, "ua = a; note\n", binding)
     piece2 = parse_model(grammar, "ub = b", binding)
 
-    texts, trimmed = _moved_tails([piece1, piece2], shape, binding.fold)
+    texts, trimmed = _moved_tails([piece1, piece2], shape, binding)
     assert texts == ["; note\n"]
 
     lead = _rebuilt_lead(grammar, binding, shape, target, texts[0])
-    stitched = stitch_envelope(trimmed, [lead], shape, binding.fold)
+    stitched = stitch_envelope(trimmed, [lead], shape, binding)
 
     assert stitched is not None
     assert stitched == parse_model(grammar, whole, binding)
@@ -96,11 +95,11 @@ def test_a_moved_bare_newline_supplies_the_next_items_required_line_ending() -> 
     piece1 = parse_model(grammar, "ua = a\n", binding)
     piece2 = parse_model(grammar, "ub = b", binding)
 
-    texts, trimmed = _moved_tails([piece1, piece2], shape, binding.fold)
+    texts, trimmed = _moved_tails([piece1, piece2], shape, binding)
     assert texts == ["\n"]
 
     lead = _rebuilt_lead(grammar, binding, shape, target, texts[0])
-    stitched = stitch_envelope(trimmed, [lead], shape, binding.fold)
+    stitched = stitch_envelope(trimmed, [lead], shape, binding)
 
     assert stitched is not None
     assert stitched == parse_model(grammar, whole, binding)
@@ -116,10 +115,10 @@ def test_a_non_final_piece_carrying_a_head_field_declines_the_envelope_stitch() 
     piece1 = parse_model(grammar, "ua = a\n", binding)
     piece2 = parse_model(grammar, "; lead\nub = b", binding)
 
-    texts, trimmed = _moved_tails([piece1, piece2], shape, binding.fold)
+    texts, trimmed = _moved_tails([piece1, piece2], shape, binding)
     lead = _rebuilt_lead(grammar, binding, shape, target, texts[0])
 
-    assert stitch_envelope(trimmed, [lead], shape, binding.fold) is None
+    assert stitch_envelope(trimmed, [lead], shape, binding) is None
 
 
 def test_direct_candidate_short_tail_arm_declines_without_index_error() -> None:
@@ -128,7 +127,7 @@ def test_direct_candidate_short_tail_arm_declines_without_index_error() -> None:
         'root ::= group\ngroup ::= "(" node more* ")"\nnode ::= [a-z]+\nmore ::= ","\n'
     )
 
-    assert derive_plan(compiled.codegen_grammar, compiled.fold, "group") is None
+    assert derive_plan(compiled.codegen_grammar, compiled.product, "group") is None
     assert compiled.parse("(alpha)").to_text() == "(alpha)"
 
 

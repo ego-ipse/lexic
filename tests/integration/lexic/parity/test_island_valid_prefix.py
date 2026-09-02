@@ -24,7 +24,7 @@ from __future__ import annotations
 from lexic.compile.notation.parse import load_ir
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_GRAMMAR
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.products import parse_model
 from tests.integration.lexic.parity.island_fixtures import (

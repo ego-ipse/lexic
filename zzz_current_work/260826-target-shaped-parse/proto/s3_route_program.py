@@ -25,13 +25,13 @@ Uncommitted evidence, not a test. Luna owns the committed suite.
 
 from __future__ import annotations
 
-from lexic.compile.product import LoweringOwned, lower_product, lower_routes
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.product import (
     CaptureMode,
     CaptureSpec,
     DecodeCode,
     DecodeOp,
+    LoweringOwned,
     MeaningOp,
     OperandTables,
     PassOp,
@@ -42,6 +42,8 @@ from lexic.parsing.product import (
     SingletonRoute,
     TableRoute,
     UniformRoute,
+    lower_product,
+    lower_routes,
     verify_program,
 )
 
@@ -73,12 +75,18 @@ CONTINUATION = RouteContinuation(STRING, (1, 1), (VALUE_MODEL, VALUE_VOCAB, VALU
 then slot 1 again (`value`). A one-element path would be the sibling case;
 this is deliberately two."""
 
+
+def _same_meaning(left: Carry, right: Carry) -> bool:
+    """The meaning comparator these programs' ``MeaningOp(0)`` names."""
+    return left == right
+
+
 OPERANDS: OperandTables[Carry, Carry] = OperandTables(
     constants=(),
     constructors=(),
     sequences=(),
     mappings=(),
-    meanings=(),
+    meanings=(_same_meaning,),
     roots=(lambda carry, verdicts: carry,),
     routes=(),
     continuations=(CONTINUATION,),

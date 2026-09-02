@@ -16,6 +16,8 @@ from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    no_construction,
+    no_fast_construction,
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -551,9 +553,9 @@ def test_inline_group_flattens_transparent_with_no_ctor_and_no_fast_ctor():
     assert arm.kinds == (OP_GRP,)
     group = arm.payloads[0]
     assert group.mode == BUILD_TRANSPARENT
-    assert group.ctor is None
+    assert group.ctor is no_construction
     assert group.fields == ()
-    assert group.fast is None
+    assert group.fast is no_fast_construction
     assert group.defaults is None
     assert group.leaf is False
     assert len(group.selectors) == 2

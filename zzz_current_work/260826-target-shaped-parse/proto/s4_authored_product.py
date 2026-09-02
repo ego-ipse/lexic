@@ -1,20 +1,19 @@
-"""Hold an authored surface's product half to its fold half, rule by rule.
+"""Hold each authored surface's product to the chain that will run it.
 
-The notation authors its rules twice for the length of the migration: once as
-the `ModelBody` table it runs today, once as the `RuleProduct` table the
-engines will run. Authored twice rather than derived, because deriving one
-from the other would keep the fold the source of truth and turn its deletion
-into a rename — which is the adapter the effort forbids.
-
-Two tables mean drift, so this is the guard. For every rule it asserts the
-product captures exactly what the fold binds — same order, same slot, same
-mode — and that the transform the product NAMES is the very callable the fold
-body wraps, by identity. A rule renamed, re-slotted or re-pointed on one side
-and not the other fails here rather than at a parse.
-
-It also lowers the result through the real `lower_product`, so the symbol
+The three compile-time surfaces author their rules once, in the product
+vocabulary. This lowers each through the real `lower_product`, so its symbol
 names resolve against the surface's own registry and the program passes the
 cold verifier — the same gate any engine-bound program passes.
+
+The rule-by-rule differential against a second, fold-shaped table is gone
+with that table. It existed to police a transitional duplication: while both
+halves were authored, drift between them was silent, and the guard made it
+loud. There is one table now, so there is nothing to drift against, and a
+guard comparing a table to itself would say nothing.
+
+What survives is the boundary the duplication was protecting. A transform is
+named, not held: an unregistered name cannot reach a parse, and a slot may be
+captured twice in two modes. Both still have their rows below.
 
 Uncommitted evidence, not a test. Luna owns the committed suite.
 """
@@ -23,20 +22,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from lexic.compile.module.selfgrammar import (
-    MODULE_FOLD,
-    MODULE_PRODUCT,
-    MODULE_SYMBOLS,
-)
-from lexic.compile.notation.parse import (
-    NOTATION_FOLD,
-    NOTATION_PRODUCT,
-    NOTATION_SYMBOLS,
-)
+from lexic.compile.module.selfgrammar import MODULE_PRODUCT, MODULE_SYMBOLS
+from lexic.compile.notation.parse import NOTATION_PRODUCT, NOTATION_SYMBOLS
 
 SURFACES = (
-    ("notation", NOTATION_FOLD, NOTATION_PRODUCT, NOTATION_SYMBOLS),
-    ("selfgrammar", MODULE_FOLD, MODULE_PRODUCT, MODULE_SYMBOLS),
+    ("notation", NOTATION_PRODUCT, NOTATION_SYMBOLS),
+    ("selfgrammar", MODULE_PRODUCT, MODULE_SYMBOLS),
 )
 """Both authored surfaces. The self-grammar EXTENDS the notation, so its rules
 include the notation's — running both is what says the extension did not drop
@@ -45,18 +36,19 @@ from pathlib import Path
 
 from lexic.compile import compile_from_path
 from lexic.compile.output.templating import SPAN_SYMBOLS, MapShape, spanify
-from lexic.compile.product import LoweringOwned, lower_product
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.product import (
-    SymbolConstructor,
     CAPTURE_FOR_BIND,
     CaptureMode,
     ExprProgram,
+    LoweringOwned,
     MeaningOp,
     OperandTables,
     PassOp,
     RootOp,
+    SymbolConstructor,
     SymbolExpr,
+    lower_product,
     verify_program,
 )
 
@@ -97,139 +89,9 @@ def _check(claim: str, held: bool) -> None:
         raise AssertionError(f"s4 authored product: {claim}")
 
 
-def _transform(body: Any, symbols: dict) -> Any:
-    """The callable a fold body completes through, whatever it is wrapped in.
-
-    An `IrLambda` carries its callable as `eval`; an `IrNamed` resolves its
-    key. Both are how a surface spells a transform today, so both have to be
-    reachable for the identity comparison to mean anything.
-    """
-    key = getattr(body.ctor, "key", None)
-    if key is not None:
-        return symbols[key]
-    return body.ctor.eval
-
-
-KEYWORD_TWINS: dict[str, str] = {"decode_int": "int"}
-"""Registry keys whose product spelling differs from the fold's, and why.
-
-A completion applies its transform BY KEYWORD; a fold body reads a positional
-argument channel. The builtin `int` can only be called the second way, so the
-product names the one-parameter twin instead. Same decode, two application
-conventions — and the fold half, with `"int"`, goes when reducer semantics
-lower. Every entry here is checked to compute what its fold spelling computes,
-so the allowance is a proof rather than a waiver."""
-
-
-def _same_transform(where: str, entry: Any, body: Any, symbols: dict) -> None:
-    """The product's transform is the fold's, or its checked keyword twin."""
-    folded = _transform(body, symbols)
-    if symbols[entry.symbol] is folded:
-        return
-    twin = KEYWORD_TWINS.get(entry.symbol)
-    _check(
-        f"{where}: the product names {entry.symbol!r}, whose transform is not the "
-        f"one the fold body wraps and is no declared keyword twin",
-        twin is not None and symbols[twin] is folded,
-    )
-    _check(
-        f"{where}: {entry.symbol!r} and {twin!r} decode '42' differently",
-        symbols[entry.symbol](**{entry.names[0]: "42"}) == folded("42"),
-    )
-
-
-def _agree(label: str, fold: Any, product: Any, symbols: dict) -> tuple[int, int]:
-    """Every rule of one surface: same captures, same transform, by identity."""
-    bodies = {str(ref): body for ref, body in fold.bodies.items()}
-    _check(
-        f"{label}: the product covers {len(product.codes)} rules, the fold "
-        f"{len(bodies)}",
-        set(product.codes) == set(bodies),
-    )
-    alternations = 0
-    captures = 0
-    for name, code in product.codes.items():
-        body = bodies[name]
-        rule = product.rules[code]
-        completion = rule.completion
-
-        if body.kind == "alternation":
-            alternations += 1
-            _check(
-                f"{label}/{name}: an alternation does not pass its arm through",
-                isinstance(completion, PassOp),
-            )
-            continue
-
-        _check(
-            f"{label}/{name}: a transforming rule completes through "
-            f"{type(completion).__name__}",
-            isinstance(completion, ExprProgram) and len(completion.ops) == 1,
-        )
-        operation = completion.ops[0]
-        _check(
-            f"{label}/{name}: its one operation is not a symbol",
-            isinstance(operation, SymbolExpr),
-        )
-        entry = product.symbols[operation.symbol]
-        _same_transform(f"{label}/{name}", entry, body, symbols)
-        # The keywords are half of what an application IS: applying the same
-        # transform under the wrong ones builds a silently different value.
-        _check(
-            f"{label}/{name}: keywords {entry.names} vs the fold's "
-            f"{tuple(field.name for field in body.fields)}",
-            entry.names == tuple(field.name for field in body.fields),
-        )
-        _check(
-            f"{label}/{name}: arm width {rule.n_items} vs the fold's {body.n_items}",
-            rule.n_items == body.n_items,
-        )
-        # Absence is declared, and only a gtext bind over an item that can
-        # match nothing declares it.
-        expected = tuple(
-            at
-            for at, field in enumerate(body.fields)
-            if field.mode == "gtext" and field.lo == 0
-        )
-        _check(
-            f"{label}/{name}: optional {entry.optional} vs the fold's {expected}",
-            entry.optional == expected,
-        )
-
-        _check(
-            f"{label}/{name}: captures {len(rule.captures)} of {len(body.fields)} "
-            f"bound fields",
-            len(rule.captures) == len(body.fields),
-        )
-        for at, field in enumerate(body.fields):
-            spec = rule.captures[at]
-            _check(
-                f"{label}/{name}.{field.name}: capture reads slot {spec.slot}, the fold "
-                f"reads item {field.item}",
-                spec.slot == field.item,
-            )
-            _check(
-                f"{label}/{name}.{field.name}: mode {spec.mode} does not match bind "
-                f"{field.mode!r}",
-                spec.mode == int(CAPTURE_FOR_BIND[field.mode]),
-            )
-            captures += 1
-    print(
-        f"{label}\trules={len(bodies)}\talternations={alternations}\t"
-        f"captures={captures}\tsymbols={len(product.symbols)}"
-    )
-    return len(bodies), captures
-
-
-def the_two_halves_say_the_same_thing() -> None:
-    """Both surfaces, every rule."""
-    for label, fold, product, symbols in SURFACES:
-        _agree(label, fold, product, symbols)
-
-
 def the_product_lowers_against_its_own_registry() -> None:
     """Both surfaces: the names resolve, the program verifies, no callable authored."""
-    for label, _fold, product, symbols in SURFACES:
+    for label, product, symbols in SURFACES:
         _lowers(label, product, symbols)
 
 
@@ -350,14 +212,13 @@ def _authored_again(
 
 
 def main() -> None:
-    """Run the differential; any disagreement raises."""
-    the_two_halves_say_the_same_thing()
+    """Run every claim; any disagreement raises."""
     the_product_lowers_against_its_own_registry()
     an_unregistered_transform_cannot_reach_a_parse()
     one_slot_can_be_captured_twice_in_two_modes()
     print(
         "s4 authored product\tPASS\t"
-        "both authored surfaces say one thing in two vocabularies"
+        "every authored surface lowers and verifies through the real chain"
     )
 
 

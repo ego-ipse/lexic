@@ -39,7 +39,7 @@ from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.islands import (
@@ -205,7 +205,9 @@ def test_island_parse_refuses_derivations_that_mean_different_things(sss_compile
     """
     tables = compile_tables(sss_compiled.codegen_grammar)
     with pytest.raises(UnsupportedConstructError, match="mean different things"):
-        island_parse(tables, "aaa", 0, "s", IslandPolicy(fold=sss_compiled.fold))
+        island_parse(
+            tables, "aaa", 0, "s", IslandPolicy(executor=sss_compiled.executor)
+        )
 
 
 def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
@@ -221,7 +223,9 @@ def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
     )
     ready = normalize(lift_optional_nullables(compiled.codegen_grammar))
     tables = compile_tables(ready)
-    tree, end = island_parse(tables, "5", 0, "number", IslandPolicy(fold=compiled.fold))
+    tree, end = island_parse(
+        tables, "5", 0, "number", IslandPolicy(executor=compiled.executor)
+    )
     assert isinstance(tree, ParseTree)
     assert end == 1
 
@@ -405,7 +409,7 @@ def test_a_decided_split_past_the_second_derivation_is_accepted(seed):
     item, end = best
     assert isinstance(
         island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
         ),
         ParseTree,
     )
@@ -424,7 +428,7 @@ def test_generated_quantifier_arms_past_the_second_derivation_are_splits():
     item, end = best
     assert isinstance(
         island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
         ),
         ParseTree,
     )
@@ -436,5 +440,5 @@ def test_authored_arm_past_the_second_derivation_still_refuses():
     item, end = best
     with pytest.raises(UnsupportedConstructError):
         island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
         )

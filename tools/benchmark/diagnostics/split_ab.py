@@ -100,16 +100,16 @@ def _call(row: Row) -> Callable[[], object]:
     """Build the production-adjacent callable for one row."""
     compiled, product, text = _case(row.case)
     if row.engine == "pda":
-        return lambda: pda_model(product.pda, text, compiled.fold)
+        return lambda: pda_model(product.pda, text, compiled.executor)
     if row.engine == "earley-gated":
         return lambda: earley_model(
-            product.instance_grammar, text, compiled.fold, product.tables
+            product.instance_grammar, text, compiled.product, product.tables
         )
     if row.engine == "earley-resolved":
         return lambda: earley_model(
             product.instance_grammar,
             text,
-            compiled.fold,
+            compiled.product,
             product.tables,
             lambda first, _other: first,
         )

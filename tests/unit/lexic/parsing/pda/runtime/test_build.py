@@ -17,6 +17,7 @@ import pytest
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
+    no_fast_construction,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     M_CONST,
@@ -50,7 +51,7 @@ from lexic.parsing.pda.runtime.build import (
 
 def make_frame(slots):
     """A 9-slot frame list with the given ``{F_slot: value}`` set (rest ``None``)."""
-    frame = [None] * 9
+    frame: list = [None] * 9
     for idx, val in slots.items():
         frame[idx] = val
     return frame
@@ -283,9 +284,7 @@ def test_build_validated_unknown_mode_raises():
         FlatClone, SimpleNamespace(fields=((0, 99, "x", 1),), ctor=lambda **kw: kw)
     )
     with pytest.raises(UnsupportedConstructError):
-        build_validated(
-            "ab", 0, [2], None, clone, {}
-        )
+        build_validated("ab", 0, [2], None, clone, {})
 
 
 def test_build_validated_does_not_cache_a_raising_construction():
@@ -337,9 +336,7 @@ def test_build_sequence_empty_arm_builds_bare_ctor():
         ),
     )
     frame = make_frame({F_ARM: SimpleNamespace(n=0)})
-    assert build_sequence(
-        "", frame[F_ARM], 0, [], None, clone, {}
-    ) == ("bare",)
+    assert build_sequence("", frame[F_ARM], 0, [], None, clone, {}) == ("bare",)
 
 
 # ── build_vstr (value_str build + intern) ────────────────────────────────────
@@ -353,7 +350,10 @@ def test_build_vstr_interns_by_ctor_and_span():
         calls["n"] += 1
         return ("vstr", value)
 
-    clone = cast(FlatClone, SimpleNamespace(ctor=ctor, matched="value", fast=None))
+    clone = cast(
+        FlatClone,
+        SimpleNamespace(ctor=ctor, matched="value", fast=no_fast_construction, plan=()),
+    )
     memo: dict = {}
     a = build_vstr(clone, "true", memo)
     b = build_vstr(clone, "true", memo)

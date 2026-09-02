@@ -83,7 +83,7 @@ def _pda(compiled: Any, text: str) -> Any:
         compiled.codegen_grammar, compiled.product, tier_for(len(text))
     )
     try:
-        return pda_model(product.pda, text, compiled.fold)
+        return pda_model(product.pda, text, compiled.executor)
     except PdaFail:
         return None
 
@@ -93,7 +93,9 @@ def _earley(compiled: Any, text: str) -> Any:
     product = _model_product(
         compiled.codegen_grammar, compiled.product, tier_for(len(text))
     )
-    return earley_model(product.instance_grammar, text, compiled.product, product.tables)
+    return earley_model(
+        product.instance_grammar, text, compiled.product, product.tables
+    )
 
 
 def _one_grammar(path: Path) -> tuple[int, int]:

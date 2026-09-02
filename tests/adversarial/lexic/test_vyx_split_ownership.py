@@ -15,7 +15,7 @@ def test_vyx_nested_escape_has_one_model_in_both_engines() -> None:
     """Repeat loopback does not turn ``\\#\\n\\#`` into an arm choice."""
     compiled = compile_from_path(GROUND_TRUTH / "vyx.gbnf")
     product = prod(compiled)
-    via_pda = pda_model(product.pda, VYX_ESCAPE, compiled.fold)
+    via_pda = pda_model(product.pda, VYX_ESCAPE, compiled.executor)
     via_earley = earley_model(
         product.instance_grammar,
         VYX_ESCAPE,

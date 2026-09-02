@@ -26,7 +26,6 @@ from __future__ import annotations
 from typing import Any, NamedTuple
 
 from lexic.compile import compile_text
-from lexic.compile.product import LoweringOwned, lower_product
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
 from lexic.parsing.earley.engine import AmbiguityPolicy, EarleyParser, first_meaning
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
@@ -40,12 +39,14 @@ from lexic.parsing.product import (
     FinishMappingOp,
     FinishSequenceOp,
     InsertMappingOp,
+    LoweringOwned,
     MeaningOp,
     OperandTables,
     ParseState,
     ProductProgram,
     RootOp,
     RuleProduct,
+    lower_product,
     verify_program,
 )
 from lexic.parsing.products import _model_product
@@ -106,12 +107,17 @@ def _as_map(entries: tuple[tuple[str, Carry], ...]) -> Carry:
     return tuple((key, str(value)) for key, value in entries)
 
 
+def _same_meaning(left: Carry, right: Carry) -> bool:
+    """The meaning comparator these programs' ``MeaningOp(0)`` names."""
+    return left == right
+
+
 OPERANDS: OperandTables[Carry, Carry] = OperandTables(
     constants=(),
     constructors=(),
     sequences=(_join,),
     mappings=(_as_map,),
-    meanings=(),
+    meanings=(_same_meaning,),
     roots=(lambda carry, verdicts: carry,),
     routes=(),
     continuations=(),
@@ -263,14 +269,14 @@ def _tree(text: str, grammar: str = GRAMMAR) -> ParseTree:
     """A REAL Earley derivation of ``text`` — genuine chart, genuine FastTree."""
     compiled = compile_text(grammar)
     product = _model_product(
-        compiled.codegen_grammar, compiled.fold, tier_for(len(text))
+        compiled.codegen_grammar, compiled.product, tier_for(len(text))
     )
     tree = first_meaning(
         EarleyParser(),
         product.instance_grammar,
         text,
         product.tables,
-        AmbiguityPolicy(compiled.fold.apply, None),
+        AmbiguityPolicy(compiled.product.executor.build, None),
     )
     if not isinstance(tree, ParseTree):
         raise AssertionError("the Earley path did not produce a derivation")

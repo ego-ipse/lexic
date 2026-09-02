@@ -49,7 +49,10 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
             continue
         if ambiguity_points(kernel, handle):
             with_points += 1
-        if another_meaning(kernel, handle, compiled.fold.apply, tree) is not None:
+        if (
+            another_meaning(kernel, handle, compiled.product.executor.build, tree)
+            is not None
+        ):
             flagged += 1
     assert with_points, "no ambiguous json input generated — the test proves nothing"
     assert not flagged, (

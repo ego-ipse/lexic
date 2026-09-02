@@ -15,7 +15,7 @@ from lexic.compile import canonical_grammar, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.program.opcodes import (
     OP_CC,
@@ -258,5 +258,5 @@ def test_vstr_multi_item_arm_takes_the_cold_span_path():
     PDA itself handles it, not a silent Earley completion."""
     text = 'root ::= "0x" [0-9a-f]+\n'
     tables, compiled = pda_for(text)
-    model = pda_model(tables, "0xffa1", compiled.fold)
+    model = pda_model(tables, "0xffa1", compiled.executor)
     assert model.to_text() == "0xffa1"

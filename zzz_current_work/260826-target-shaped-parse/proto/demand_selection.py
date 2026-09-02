@@ -472,7 +472,9 @@ def bind_selection(
         if any(str(r.name) == name for r in build.rules)
     )
     merged = {
-        str(ref): body for ref, body in compiled.fold.bodies.items() if not extents_only
+        str(ref): body
+        for ref, body in compiled.product.fold.bodies.items()
+        if not extents_only
     }
     merged.update(build.bodies)
     return BoundSelection(
@@ -511,7 +513,7 @@ def _prefer(first: ParseTree, other: ParseTree) -> ParseTree:
 
 def run_selection(bound: BoundSelection, text: str) -> Level:
     """THE one engine parse — kept models/extents are built during it."""
-    product = parse_model(bound.grammar, text, bound.fold, _prefer)
+    product = parse_model(bound.grammar, text, bound.executor, _prefer)
     out: list[Hit] = []
     _flatten(out, product)
     for hit in out:

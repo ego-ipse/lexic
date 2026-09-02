@@ -44,7 +44,7 @@ from lexic.compile.notation.parse import (
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst
 from lexic.parsing import ModelBinding
-from lexic.parsing.pda.compiler.program.flatten import FlatClone
+from lexic.parsing.pda.compiler.program.flatten import FlatClone, no_construction
 from lexic.parsing.pda.compiler.program.opcodes import BUILD_TRANSPARENT
 from lexic.parsing.product import RecordOp
 from lexic.parsing.products import pda_tables
@@ -186,39 +186,13 @@ def _clone_slots(label: str, clones: list[FlatClone]) -> None:
         where = f"{label}/{clone.name or '<group>'}"
         builds = clone.mode != BUILD_TRANSPARENT and clone.fields != ()
         _check(
-            f"{where}: builds through {clone.fields} with no ctor",
-            not builds or clone.ctor is not None,
+            f"{where}: builds through {clone.fields} with no construction",
+            not builds or clone.ctor is not no_construction,
         )
         _check(
-            f"{where}: carries ctor {clone.ctor!r} while its mode is transparent",
-            clone.mode != BUILD_TRANSPARENT or clone.ctor is None,
+            f"{where}: carries a construction while its mode is transparent",
+            clone.mode != BUILD_TRANSPARENT or clone.ctor is no_construction,
         )
-
-
-def the_authored_keywords_agree_with_the_fold() -> None:
-    """A surface's product and its fold say the same thing, rule by rule."""
-    checked = 0
-    for label, rules, binding in (
-        ("notation", NOTATION_RULES, NOTATION_BINDING),
-        ("selfgrammar", MODULE_RULES, MODULE_BINDING),
-    ):
-        baked = binding.fold.baked
-        for name, rule in rules.items():
-            if not rule.symbol:
-                continue
-            fold = baked[name]
-            _check(
-                f"{label}/{name}: keywords {rule.names} vs the fold's "
-                f"{tuple(field.name for field in fold.fields)}",
-                rule.names == tuple(field.name for field in fold.fields),
-            )
-            _check(
-                f"{label}/{name}: arm width {rule.n_items} vs the fold's "
-                f"{fold.n_items}",
-                rule.n_items == fold.n_items,
-            )
-            checked += 1
-    print(f"agree\t{checked} authored rules say the same in both halves")
 
 
 def the_runtime_mentions_no_fold() -> None:
@@ -249,7 +223,6 @@ def the_runtime_mentions_no_fold() -> None:
 def main() -> None:
     """Run the census; any disagreement with the closed blocker raises."""
     every_building_clone_reaches_a_construction()
-    the_authored_keywords_agree_with_the_fold()
     the_runtime_mentions_no_fold()
     print("s4 validated census\tPASS\tone clone vocabulary, and no fold in the runtime")
 

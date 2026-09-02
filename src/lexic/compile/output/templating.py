@@ -11,17 +11,16 @@ from collections.abc import Mapping
 from typing import Callable, ClassVar, Self, cast
 
 from lexic.compile.artifact import CompiledGrammar
-from lexic.compile.foldkit import ALT_BODY, AuthoredRule, model_fold, product_rules
+from lexic.compile.foldkit import AuthoredRule, product_rules
 from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.passes import retargeter, skip_rules
-from lexic.compile.product import bind_symbols, rules_by_name
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
     IrAst,
     IrBind,
     IrBottomUp,
-    IrLambda,
     IrMap,
     IrNamedTuple,
     IrNoneType,
@@ -37,17 +36,8 @@ from lexic.ir import (
     refs_in_order,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import (
-    FieldFold,
-    ModelBinding,
-    ModelBody,
-    parse_model,
-)
-from lexic.parsing.product import (
-    CAPTURE_FOR_BIND,
-    CaptureSpec,
-    ConstructionTables,
-)
+from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing.product import CAPTURE_FOR_BIND, CaptureSpec, LoweringOwned
 
 __all__ = [
     "KEEP",
@@ -473,8 +463,8 @@ def _entry_clone(view: _ShapeView, tm: IrBottomUp, sk: IrBottomUp) -> IrRule:
     )
 
 
-def _entry_pair(view: _ShapeView) -> tuple[ModelBody, AuthoredRule]:
-    """The entry clone, both halves — the two raw spans, text AND position.
+def _entry_rule(view: _ShapeView) -> AuthoredRule:
+    """The entry clone — the two raw spans, text AND position.
 
     Four fields over TWO slots: what the entry says and where it said it, from
     one occurrence. A capture is a (mode, slot) pair and nothing makes a slot
@@ -491,38 +481,27 @@ def _entry_pair(view: _ShapeView) -> tuple[ModelBody, AuthoredRule]:
         for mode, suffix in (("text", ""), ("span", "_at"))
         for name, bind in bound
     )
-    fields = tuple(
-        FieldFold(bind.item, mode, name, int(arm[bind.item].quantifier.lo))
-        for name, mode, bind in pairs
-    )
     captures = tuple(
         CaptureSpec(int(CAPTURE_FOR_BIND[mode]), bind.item) for _n, mode, bind in pairs
     )
     names = tuple(name for name, _m, _b in pairs)
-    return (
-        ModelBody("sequence", IrLambda(_span_entry), len(arm), fields),
-        AuthoredRule("span_entry", captures, names, len(arm)),
-    )
+    return AuthoredRule("span_entry", captures, names, len(arm))
 
 
-def _clone_pair(view: _ShapeView, name: str) -> tuple[ModelBody, AuthoredRule] | None:
-    """A reaching rule's ``-tm`` clone, both halves, from one walk.
+def _clone_rule(view: _ShapeView, name: str) -> AuthoredRule | None:
+    """A reaching rule's ``-tm`` clone.
 
-    :returns: Both, or ``None`` for a kind with nothing to build (``value_str``
-        cannot reach; a body-less clone stays transparent).
+    :returns: The rule, or ``None`` for a kind with nothing to build
+        (``value_str`` cannot reach; a body-less clone stays transparent).
     """
     kind = view.binding[name].kind
     if kind == "alternation":
-        return ALT_BODY, AuthoredRule("")
+        return AuthoredRule("")
     if kind != "sequence":
         return None
     arm = next(r.body for r in view.grammar.rules if r.name == name)[0]
     reaching = view.reaching_fields(name)
     los = {field: int(arm[bind.item].quantifier.lo) for field, bind in reaching.items()}
-    fields = tuple(
-        FieldFold(bind.item, bind.mode, field, los[field])
-        for field, bind in reaching.items()
-    )
     captures = tuple(
         CaptureSpec(int(CAPTURE_FOR_BIND[bind.mode]), bind.item)
         for bind in reaching.values()
@@ -532,10 +511,7 @@ def _clone_pair(view: _ShapeView, name: str) -> tuple[ModelBody, AuthoredRule] |
         for at, (field, bind) in enumerate(reaching.items())
         if bind.mode == "gtext" and los[field] == 0
     )
-    return (
-        ModelBody("sequence", IrLambda(_collect), len(arm), fields),
-        AuthoredRule("collect", captures, tuple(reaching), len(arm), optional),
-    )
+    return AuthoredRule("collect", captures, tuple(reaching), len(arm), optional)
 
 
 SPAN_SYMBOLS: dict[str, Callable[..., object]] = {
@@ -545,26 +521,18 @@ SPAN_SYMBOLS: dict[str, Callable[..., object]] = {
 
 
 def _span_binding(view: _ShapeView) -> ModelBinding[SpanLevel]:
-    """Both halves of the span surface, from one walk over the reaching set.
-
-    The fold and the product are authored side by side rather than one from
-    the other: a derivation would make the fold the source of truth and its
-    deletion a rename. They walk together because they die together.
-    """
+    """The span surface's product, from one walk over the reaching set."""
     entry = view.shape.entry + _SPAN
-    body, rule = _entry_pair(view)
-    bodies: dict[str, ModelBody] = {entry: body}
-    rules: dict[str, AuthoredRule] = {entry: rule}
+    rules: dict[str, AuthoredRule] = {entry: _entry_rule(view)}
     for name in view.reaching - {view.shape.entry}:
-        pair = _clone_pair(view, name)
-        if pair is None:  # a kind with nothing to build stays transparent
+        rule = _clone_rule(view, name)
+        if rule is None:  # a kind with nothing to build stays transparent
             continue
-        bodies[name + _SPAN], rules[name + _SPAN] = pair
+        rules[name + _SPAN] = rule
     product = product_rules(rules)
     return ModelBinding(
-        model_fold(bodies),
         rules_by_name(product.rules, product.codes),
-        ConstructionTables(symbols=bind_symbols(product.symbols, SPAN_SYMBOLS)),
+        LoweringOwned(symbols=product.symbols, registry=SPAN_SYMBOLS),
     )
 
 

@@ -489,10 +489,18 @@ holds.
       static name, so the static bound is `GrammarModel` exactly as
       `ModelFold[M]` spells it today; the real constraint is that the model
       product's `Result` never widens past `GrammarModel`.
-- [ ] Rewrite `parsing/trace.py` alongside this migration: it is a public
+- [x] Rewrite `parsing/trace.py` alongside this migration: it is a public
       `PdaKernel` subclass shadowing exactly the completion surfaces §4
       rewrites. It follows the rewrite with its public surface unchanged; its
       port target is `tests/unit/lexic/parsing/test_trace.py`.
+      (Accepted 2026-09-02: the watched kernel takes the bound product's
+      executor in the kernel's own position; all four overrides carry the
+      base's generic signatures; 61 trace tests pass unadapted;
+      `proto/s4_trace_shadow.py` proves every override shadows a real base
+      method with its signature, that nothing under `pda/` imports the trace,
+      and refuses seeded arity drift and carrier erasure with a ≥20-module
+      non-vacuity floor. Re-run that witness at the completion-range, `Carry`,
+      and operations-as-data bullets, which change the shadowed surfaces.)
 - [x] Update `src/lexic/compile/pipeline/synthesis.py::fold_config` and binding
       callers to author the model product through the new operation records.
       (Done: `model_plan` authors `RuleProduct`/`RecordConstructor` from the
@@ -560,13 +568,36 @@ holds.
       same rule operation/captures. The final owner is
       `parsing/product/tree.py`; explicit result presence admits a real
       `Carry == None`, and ambiguity replay reuses unchanged completed values.
-- [ ] Update island completion and delegated completion to execute those same
+- [x] Update island completion and delegated completion to execute those same
       rule operations/captures, then move parallel stitch/replica field-layout
       reads to the product construction data so the legacy fold has no
       execution or stitching consumer.
-- [ ] Compare flat programs/opcode streams for the generated-model target before
+      (Accepted 2026-09-02: `ModelBinding` owns one `ProductExecutor`;
+      kernel, `pda_model`, `IslandPolicy`, trace, stitch, replicas,
+      orchestrate, clone and delegate compilers read the bound product;
+      `CloneSpec.fold`, `verify_covered`, `_check_covered` deleted;
+      `CompiledGrammar.fold` → `.executor`; stitch layout from
+      `RuleProduct.captures` zipped with the resolved construction, refusing a
+      non-record constructor. Real defect fixed: an island completing to
+      NOTHING versus a real `None` — a presence-carrying
+      `ProductExecutor.splice`/`splice_replay` pair for one occurrence beside
+      the document-root `build`/`replay`. The island ambiguity gate now runs
+      the value-once `different_meaning` + `MeaningBuilder` route over
+      presence-carrying results. Coordinator-rerun: pyright 0; islands +
+      parity 494 passed; `s4_switch_differential` PASS over 107 documents.)
+- [x] Compare flat programs/opcode streams for the generated-model target before
       and after. Explain every added paid-loop opcode; remove any target-only
       branch from the model path.
+      (Accepted 2026-09-02 against `dffa821f`, coordinator-rerun:
+      `proto/s4_paid_path_opcodes.py` compiles both revisions from source
+      text and finds every paid-path function bytecode-identical — 6 kernel,
+      5 execution, 4 build, 5 matchers, 16 flatten. Two accounted
+      non-identities: `close_loop` moved to `build.py` with a 20-instruction
+      identical body, and `product/tree.py` gained the definition-time
+      generic-parameter scope of the split-out `_complete_tree` (16
+      instructions, built once, never per call). `s4_bake_identity` covers
+      the flat-program half. Re-run at the completion-range wiring and the
+      `Carry` frame decision, which touch the same functions.)
 - [ ] Treat the existing direct generated-model completion/frame shape as the
       zero-tax baseline. A common ABI is not permission to route it through a
       generic completion interpreter or allocate otherwise-unused product

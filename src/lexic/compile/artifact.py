@@ -41,8 +41,8 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 from lexic.parsing import (
     ModelBinding,
-    ModelFold,
     PdaTables,
+    ProductExecutor,
     TokenMaskCursor,
     parse_model,
     pda_tables,
@@ -182,14 +182,14 @@ class CompiledGrammar:
         track(self, self.grammar, self.codegen_grammar, self.product)
 
     @property
-    def fold(self) -> ModelFold[GrammarModel]:
-        """The bound product's fold — what the completion sites still read.
+    def executor(self) -> ProductExecutor[GrammarModel]:
+        """The bound product's completion — what every consumer runs through.
 
         Derived rather than stored: the binding IS the artefact's product and
-        holds the fold, so a second field would be a copy of one answer that
-        the two halves could disagree about.
+        holds the one executor, so a second field would be a copy of one
+        answer that the two halves could disagree about.
         """
-        return self.product.fold
+        return self.product.executor
 
     @property
     def classes(self) -> dict[str, type]:

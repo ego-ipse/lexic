@@ -11,7 +11,7 @@ clone key / island reference targets.
 A leaf w.r.t. the compiler — pure data definitions, imported by
 :mod:`lexic.parsing.pda.compiler.clones` (which re-exposes them as its public surface);
 imports only :class:`~lexic.parsing.pda.core.charsets.CharSet`,
-:class:`~lexic.parsing.fold.RuleFold`, and
+:class:`~lexic.parsing.product.RuleProduct`, and
 :class:`~lexic.parsing.pda.core.scanner.ScanGate`.
 """
 
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 from lexic.parsing.product import RuleProduct
@@ -242,13 +241,12 @@ class CloneSpec(NamedTuple):
     :ivar arms: The FIRST-gated arms (after arm hoisting every non-empty arm
         selects on its own FIRST).
     :ivar default: The all-nullable default arm's specs, or ``None``.
-    :ivar fold: The rule's baked :class:`~lexic.parsing.fold.RuleFold`, or
-        ``None`` for a transparent helper clone.
     :ivar product: The rule's authored :class:`~lexic.parsing.product
         .RuleProduct`, or ``None`` for a transparent helper clone — what the
         clone's capture layout and build plan are baked from.
-    :ivar match_only: ``True`` for a ``value_str`` rule — pure-terminal
-        interior, the runtime slices ``text[a:b]`` instead of building below.
+    :ivar match_only: ``True`` for a rule whose value IS its own matched text
+        — pure-terminal interior, the runtime slices ``text[a:b]`` instead of
+        building below.
     :ivar struct_arm: The empty-arm structured-noise gate (a
         :class:`~lexic.parsing.pda.core.scanner.ScanGate`), or ``None``. When set, the
         runtime consults it before the FIRST-gated selection: a take admits the
@@ -264,7 +262,6 @@ class CloneSpec(NamedTuple):
     name: str
     arms: tuple[ArmSpec, ...]
     default: tuple[ItemSpec, ...] | None
-    fold: RuleFold | None
     product: RuleProduct | None
     match_only: bool
     struct_arm: ScanGate | None = None

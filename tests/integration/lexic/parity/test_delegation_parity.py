@@ -113,7 +113,7 @@ def instance_ab(cg: CompiledGrammar, text: str) -> None:
 
     def _parse() -> object:
         try:
-            return pda_model(pda, text, cg.fold)
+            return pda_model(pda, text, cg.executor)
         except PdaFail:
             return None
 
@@ -145,7 +145,7 @@ def test_delegation_instance_parity(stem: str) -> None:
         text = generate(start, specs, rng=random.Random(0), max_depth=4) or "x"
         for flag in (True, False):
             with pytest.raises(PdaFail):
-                with_delegates(pda, flag, lambda: pda_model(pda, text, cg.fold))
+                with_delegates(pda, flag, lambda: pda_model(pda, text, cg.executor))
         return
     checked = 0
     for seed in range(40):

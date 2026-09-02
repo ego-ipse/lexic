@@ -207,7 +207,9 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
     return pos
 
 
-def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
+def match_chartable[Carry](
+    text: str, arm: FlatArm, i: int, sink: list[Carry], pos: int
+) -> int:
     """Run an ``OP_VSTR`` loop whose target carries a
     :attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone.chartable`.
 

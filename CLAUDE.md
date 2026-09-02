@@ -170,9 +170,8 @@ src/lexic/
       export.py                    export_value — a projected value as an importable, self-contained module
       reader.py                    The payload's reader — zero lexic imports, by design and by test
     product/
-      __init__.py                  The compile half of the product ABI — building a program
+      __init__.py                  The compile half of the product ABI — binding an authored declaration
       binding.py                   Bound products and their lifetime — one registry per declaration kind
-      lower.py                     Authored product operations → the flat int-coded tables
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
       binding.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
@@ -237,7 +236,7 @@ src/lexic/
     __init__.py                    public API: parse_model product + the Earley toolkit
     binding.py                     The bound model product — what a parse entry is handed
     caches.py                      Identity-memo registry — every id-keyed cache, bounded by its artefact
-    fold.py                        ParseTree → object fold — the instance-parsing bridge
+    lift.py                        The optional-nullable lift — one engine-ambiguity policy over a grammar
     products.py                    The model product entry — PDA-first with Earley completion
     trace.py                       The watched run — what the predictive kernel DID, as an ordered event stream
     earley/
@@ -272,10 +271,13 @@ src/lexic/
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
     product/
       __init__.py                  The product ABI — the package's one import surface
-      construction.py              Construction records — what a completion builds its value with
+      abi/                         The product ABI records — authored and flat layers, and the construction records both name
+        __init__.py                the group's package marker
+        construction.py            Construction records — what a completion builds its value with
+        expressions.py             The reducer's own algebra in authored form — its own lowering table
+        records.py                 Immutable authored operations and the flat int-coded tables they lower to
+      lower.py                     Authored product operations → the flat int-coded tables
       tree.py                      Product-driven ParseTree completion, explicit result presence, and source spans
-      records.py                   Immutable authored operations and the flat int-coded tables they lower to
-      expressions.py               The reducer's own algebra in authored form — its own lowering table
       state.py                     Parse-local builders, deferred verdicts, constant-size transaction marks
       verify.py                    Physical-table verification — the cold gate before the paid loop
       regular.py                   The authoritative regular-language proof

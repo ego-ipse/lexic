@@ -20,8 +20,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.product.expressions import ExprCode
-from lexic.parsing.product.records import (
+from lexic.parsing.product.abi.expressions import ExprCode
+from lexic.parsing.product.abi.records import (
     CaptureMode,
     CompletionRange,
     OpCode,

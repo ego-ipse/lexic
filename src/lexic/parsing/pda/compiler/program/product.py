@@ -39,8 +39,7 @@ may be absent, and what an omitted field falls back to all come off the record.
 
 from __future__ import annotations
 
-from collections.abc import Collection
-from typing import Mapping, Sequence
+from typing import Mapping
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.compiler.program.flatten import (
@@ -71,7 +70,6 @@ from lexic.parsing.product import (
     RuleProduct,
     construction_of,
 )
-
 
 _CAPTURE_CODES: Mapping[int, int] = {
     int(CaptureMode.ONE): M_MODEL,
@@ -130,6 +128,7 @@ def bake_product_build[Carry](
     clone: FlatClone[Carry],
     product: RuleProduct[Carry] | None,
     tables: ConstructionTables[Carry],
+    completion: int = -1,
 ) -> None:
     """Fill a clone's build state from its rule product, in place.
 
@@ -141,7 +140,13 @@ def bake_product_build[Carry](
     :param clone: The clone shell to fill.
     :param product: Its rule's product, or ``None`` for a transparent clone.
     :param tables: The program's construction operand tables.
+    :param completion: The verified completion range this build state was
+        derived from, or ``-1`` for a clone whose rule has none. Recorded as
+        PROVENANCE: no runtime function reads it, and it exists so a clone can
+        be checked against the range the verifier bounded rather than against
+        a second derivation of the same answer.
     """
+    clone.completion = completion
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
     clone.chartable = None  # baked last, off the final plan, by bake_chartables
     clone.chartotal = True
@@ -227,25 +232,3 @@ def _build_plan[Carry](
         code = _capture_code(spec.mode, absent)
         plan.append((code, spec.slot, 0 if absent else 1, defaults.get(name)))
     return tuple(plan)
-
-
-def verify_covered(rules: Collection[str], baked: Sequence[str]) -> None:
-    """Refuse a binding whose product does not name every rule its fold does.
-
-    The consumer-side twin of the compile-side coverage guard, at the one cold
-    place a binding's two halves meet. A rule the product does not name bakes
-    no build state, and a clone with no build state does not fail — it builds
-    nothing where a model belongs.
-
-    :param rules: The product's rules, keyed by rule name.
-    :param baked: The rule names the binding's fold carries.
-    :raises UnsupportedConstructError: When the fold names a rule the product
-        does not.
-    """
-    missing = sorted(set(baked) - set(rules))
-    if missing:
-        raise UnsupportedConstructError(
-            f"pda: the model product names no rule for {missing}, and the "
-            "binding's fold does — a clone with no product bakes no build "
-            "state and would complete to nothing"
-        )

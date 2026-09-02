@@ -7,7 +7,7 @@ rule runs an expression range or a fused range, and the two lower into
 physically separate instruction tables, which is what makes "never both" a
 property of the program rather than a convention.
 
-Imports nothing from :mod:`~lexic.parsing.product.records` — every expression
+Imports nothing from :mod:`~lexic.parsing.product.abi.records` — every expression
 record's fields are lane indices, so the layer stands alone and ``records``
 depends on it rather than the reverse.
 """
@@ -140,7 +140,7 @@ class SymbolExpr(NamedTuple):
     parse only by being in the registry when the program is lowered.
 
     Available only where completions are infrequent, which is what the
-    surfaces this exists for are: see :class:`~lexic.parsing.product.records.
+    surfaces this exists for are: see :class:`~lexic.parsing.product.abi.records.
     OperandTables` for where that line is drawn.
     """
 

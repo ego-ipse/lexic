@@ -11,7 +11,7 @@ is what stops it happening.
 
 **One instruction per rule completion.** A rule's completion is one authored
 operation, so it lowers to one ``(opcode, operand)`` pair and a
-:class:`~lexic.parsing.product.records.CompletionRange` of length one. The
+:class:`~lexic.parsing.product.abi.records.CompletionRange` of length one. The
 granularity is right because a collection's begin, insert and finish belong to
 *different* rules — the container's and the entry's — not to one rule's script.
 
@@ -193,11 +193,17 @@ class _Pool:
 
 
 def _coded(
-    operation: object, table: dict[type, ExprCode] | dict[type, OpCode], what: str
+    operation: tuple[int, ...],
+    table: dict[type, ExprCode] | dict[type, OpCode],
+    what: str,
 ) -> tuple[int, tuple[int, ...]]:
     """One authored operation as its code and its exact-int row.
 
-    :param operation: The authored record.
+    Every authored operation IS its int row: each is a ``NamedTuple`` whose
+    fields are indices into the typed operand tables, which is what lets the
+    row be read off the record itself rather than spelled per operation.
+
+    :param operation: The authored record — its own fields, in order.
     :param table: The type→code table it must appear in.
     :param what: Which layer is lowering, for the message.
     :returns: ``(code, row)`` — the row is the record's own fields, each
@@ -210,7 +216,7 @@ def _coded(
             f"product lowering: {type(operation).__name__} has no {what} code; "
             "an operation reaches an engine only by being lowered"
         )
-    return int(code), tuple(int(field) for field in operation)  # type: ignore[union-attr]
+    return int(code), tuple(int(field) for field in operation)
 
 
 def _constructors(
@@ -460,7 +466,7 @@ def lower_product[Carry, Result](
 ) -> ProductProgram[Carry, Result]:
     """Lower authored rules into one immutable, executable program.
 
-    :param rules: One :class:`~lexic.parsing.product.records.RuleProduct` per
+    :param rules: One :class:`~lexic.parsing.product.abi.records.RuleProduct` per
         contextual rule, in contextual-code order.
     :param operands: The typed operand tables the instructions index. Its
         ``constructors``, ``routes`` and ``symbols`` fields must be empty —

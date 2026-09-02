@@ -14,13 +14,12 @@ from __future__ import annotations
 from typing import Any
 
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.runtime.build import F_COUNT, F_ENDS, F_I
+from lexic.parsing.pda.runtime.build import F_COUNT, F_ENDS, F_I, close_loop
 from lexic.parsing.pda.runtime.kernel.decisions import (
     _ADMITS_HARD,
     _ASCEND,
     _DEAD,
     _arm_rest_scan,
-    _close_loop,
     _composes,
     _item_admits,
 )
@@ -100,7 +99,7 @@ def test_close_loop_resets_count_advances_i_and_records_the_end():
     frame: list[Any] = [None] * 9
     frame[F_COUNT] = 5
     frame[F_ENDS] = [None, None, None]
-    result = _close_loop(frame, 1, 42)
+    result = close_loop(frame, 1, 42)
     assert result == 2
     assert frame[F_COUNT] == 0
     assert frame[F_I] == 2

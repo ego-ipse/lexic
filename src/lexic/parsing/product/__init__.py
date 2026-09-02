@@ -2,7 +2,7 @@
 
 ``ModelFold``'s ``value_str``/``sequence``/``alternation`` vocabulary made the
 generated model the engine's privileged construction shape. This package is
-the generalisation: a :class:`~lexic.parsing.product.records.ProductProgram`
+the generalisation: a :class:`~lexic.parsing.product.abi.records.ProductProgram`
 says what each contextual rule captures and how it completes, and building a
 generated model becomes one specialisation of that rather than the thing every
 other target has to be expressed in terms of.
@@ -37,7 +37,7 @@ already own character sets and possessive lowering — never ``lexic.compile``,
 
 from __future__ import annotations
 
-from lexic.parsing.product.expressions import (
+from lexic.parsing.product.abi.expressions import (
     ArgExpr,
     ArgsExpr,
     BuildExpr,
@@ -53,7 +53,7 @@ from lexic.parsing.product.expressions import (
     RaiseExpr,
     SymbolExpr,
 )
-from lexic.parsing.product.records import (
+from lexic.parsing.product.abi.records import (
     CAPTURE_FOR_BIND,
     AppendSequenceOp,
     BeginMappingOp,
@@ -65,7 +65,6 @@ from lexic.parsing.product.records import (
     ConstantOp,
     Construction,
     ConstructionTables,
-    construction_of,
     DecodeCode,
     DecodeOp,
     Extent,
@@ -82,8 +81,8 @@ from lexic.parsing.product.records import (
     OperandTables,
     PassOp,
     ProductOp,
-    ProductValue,
     ProductProgram,
+    ProductValue,
     RangeKind,
     RecordConstructor,
     RecordOp,
@@ -101,6 +100,13 @@ from lexic.parsing.product.records import (
     TableRoute,
     UniformRoute,
     ValidateOp,
+    construction_of,
+)
+from lexic.parsing.product.lower import (
+    LoweringOwned,
+    bind_symbols,
+    lower_product,
+    lower_routes,
 )
 from lexic.parsing.product.regular import RegularProof, prove_regular
 from lexic.parsing.product.state import (
@@ -113,9 +119,9 @@ from lexic.parsing.product.state import (
     SequenceHandle,
 )
 from lexic.parsing.product.tree import (
+    EMPTY_RESULT,
     Completed,
     CompletionResult,
-    EMPTY_RESULT,
     EmptyResult,
     ProductExecutor,
     ResultMemo,
@@ -215,6 +221,10 @@ __all__ = [
     "MAPPING_INSERT",
     "MAPPING_REPLACE",
     # verify
+    "LoweringOwned",
+    "bind_symbols",
+    "lower_product",
+    "lower_routes",
     "verify_program",
     "verify_exact_ints",
     # regular

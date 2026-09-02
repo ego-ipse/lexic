@@ -13,7 +13,7 @@ from typing import Callable
 
 from lexic.compile.foldkit import AuthoredRule, product_rules
 from lexic.compile.notation import parse as notation
-from lexic.compile.product import bind_symbols, rules_by_name
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
@@ -32,7 +32,7 @@ from lexic.ir import (
 )
 from lexic.parsing import ModelBinding
 from lexic.parsing.fold import FieldFold, ModelFold, RuleFold
-from lexic.parsing.product import CaptureMode, CaptureSpec, ConstructionTables
+from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 STAR = IrQuantifier(0, IrNone)
 OPT = IrQuantifier(0, 1)
@@ -172,9 +172,8 @@ MINI_SYMBOLS: dict[str, Callable[..., object]] = {
 
 _MINI_PRODUCT = product_rules(MINI_RULES)
 BINDING = ModelBinding(
-    FOLD,
     rules_by_name(_MINI_PRODUCT.rules, _MINI_PRODUCT.codes),
-    ConstructionTables(symbols=bind_symbols(_MINI_PRODUCT.symbols, MINI_SYMBOLS)),
+    LoweringOwned(symbols=_MINI_PRODUCT.symbols, registry=MINI_SYMBOLS),
 )
 
 
@@ -184,8 +183,8 @@ BINDING = ModelBinding(
 # makes the windowed best completion back off BELOW the window edge (the
 # unclosed call after the cut refuses, so a bare-name prefix wins) — the
 # splice-path (`island_value`) variant of the truncation, where a truncated
-# ``IrChr`` folds as the unknown symbol ``IrCh``. Built from the PUBLIC
-# notation surface: NOTATION_GRAMMAR + NOTATION_FOLD.baked.
+# ``IrChr`` completes as the unknown symbol ``IrCh``. Built from the PUBLIC
+# notation surface: NOTATION_GRAMMAR + NOTATION_RULES.
 
 
 def arg_rest_value(v: object) -> object:
@@ -196,7 +195,7 @@ def arg_rest_value(v: object) -> object:
 def notation_variant() -> tuple[IrAst, ModelBinding]:
     """The notation grammar with ``arglist`` widened to the UNGATEABLE
     trailing-comma island shape (``value arg-rest* comma?`` — loop and
-    optional share FIRST=','), plus its matching fold — the splice-path
+    optional share FIRST=','), plus its matching product — the splice-path
     repro fixture. The STOCK notation now uses the gateable arg-tail shape,
     so this fixture authors its own ``arg-rest`` rule to stay the island
     repro the engine tests need."""
@@ -225,14 +224,6 @@ def notation_variant() -> tuple[IrAst, ModelBinding]:
             continue
         rules.append(rule)
     grammar = IrAst(IrSeq(*rules), notation.NOTATION_GRAMMAR.start)
-    baked = dict(notation.NOTATION_FOLD.baked)
-    arglist = baked["arglist"]
-    baked.pop("arg-tail", None)
-    baked.pop("arg-val", None)
-    baked["arglist"] = RuleFold(arglist.kind, arglist.ctor, 3, arglist.fields, None)
-    baked["arg-rest"] = RuleFold(
-        "sequence", arg_rest_value, 2, (FieldFold(1, "model", "v", 1),)
-    )
     rules = dict(notation.NOTATION_RULES)
     rules.pop("arg-tail", None)
     rules.pop("arg-val", None)
@@ -243,9 +234,8 @@ def notation_variant() -> tuple[IrAst, ModelBinding]:
     product = product_rules(rules)
     registry = notation.NOTATION_SYMBOLS | {"arg_rest_value": arg_rest_value}
     return grammar, ModelBinding(
-        ModelFold.from_config(baked),
         rules_by_name(product.rules, product.codes),
-        ConstructionTables(symbols=bind_symbols(product.symbols, registry)),
+        LoweringOwned(symbols=product.symbols, registry=registry),
     )
 
 

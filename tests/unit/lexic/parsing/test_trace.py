@@ -39,7 +39,7 @@ def forking() -> CompiledGrammar:
 
 def watched(compiled: CompiledGrammar, text: str, cap: int = TRACE_CAP) -> WatchedRun:
     """Watch a parse of ``text`` under ``compiled``."""
-    return watch(compiled.pda_tables(), text, compiled.fold, cap=cap)
+    return watch(compiled.pda_tables(), text, compiled.executor, cap=cap)
 
 
 # ── the stream ────────────────────────────────────────────────────────

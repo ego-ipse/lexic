@@ -29,7 +29,7 @@ from enum import IntEnum
 from typing import NamedTuple
 
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
-from lexic.parsing.product.construction import (
+from lexic.parsing.product.abi.construction import (
     BoundSymbol,
     Construction,
     ConstructionTables,
@@ -39,7 +39,7 @@ from lexic.parsing.product.construction import (
     record_construction,
     symbol_construction,
 )
-from lexic.parsing.product.expressions import ExprProgram, SymbolExpr
+from lexic.parsing.product.abi.expressions import ExprProgram, SymbolExpr
 
 __all__ = [
     "LoweredRoute",
@@ -571,7 +571,7 @@ class OperandTables[Carry, Result](NamedTuple):
     the generated-module self-grammar complete through transforms that decode
     escapes and assemble headers, they parse authored text rather than
     documents, and their completions are not frequent by any measure. Those
-    are what :class:`~lexic.parsing.product.expressions.SymbolExpr` serves.
+    are what :class:`~lexic.parsing.product.abi.expressions.SymbolExpr` serves.
     Two things keep it from becoming a general callback channel: the authored
     operand is a :class:`SymbolConstructor` carrying a registry KEY, so no
     callable appears in a program's records, and lowering resolves the key

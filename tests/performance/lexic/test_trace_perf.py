@@ -47,7 +47,7 @@ def compiled_fixture():
     """The JSON grammar, compiled and warm (tables and memos already built)."""
     grammar = compile_from_path(GROUND_TRUTH / "json.gbnf")
     parse_model(grammar.codegen_grammar, DOCUMENT, grammar.product)
-    watch(grammar.pda_tables(), DOCUMENT, grammar.fold)
+    watch(grammar.pda_tables(), DOCUMENT, grammar.executor)
     return grammar
 
 
@@ -61,7 +61,9 @@ def unwatched(compiled) -> float:
 
 def watched(compiled) -> float:
     """One watched parse, timed."""
-    _, seconds = timed(lambda: watch(compiled.pda_tables(), DOCUMENT, compiled.fold))
+    _, seconds = timed(
+        lambda: watch(compiled.pda_tables(), DOCUMENT, compiled.executor)
+    )
     return seconds
 
 

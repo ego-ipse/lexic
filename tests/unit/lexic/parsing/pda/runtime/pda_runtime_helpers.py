@@ -8,7 +8,7 @@ from lexic.compile import CompiledGrammar, canonical_grammar, compile_from_path
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import flavour_for_extension
 from lexic.model import GrammarModel
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.products import _model_product

@@ -29,7 +29,7 @@ from lexic.parsing.earley.kernel.tables.records import (
     ParserTables,
 )
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from tests.unit.lexic.parsing.earley.kernel.loop.test_kernel import (
     undefined_ref_grammar,
 )

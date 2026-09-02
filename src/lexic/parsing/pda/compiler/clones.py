@@ -21,9 +21,9 @@ reference carries an :class:`IslandRef` (a ``fail`` one raises
 (P2), :class:`PeekGate` (P3 char-set) or :class:`ScanGate` (P3 structured
 noise-skip / P5 probe, folding-aware via :mod:`~lexic.parsing.pda.core.scanner`).
 Arm selection is FIRST-gated :class:`ArmSpec` plus at most one nullable default.
-Every rule clone bakes its :class:`~lexic.parsing.fold.RuleFold`; a
-``value_str`` clone is :attr:`~CloneSpec.match_only` (the runtime slices
-``text[a:b]`` instead of building below).
+Every rule clone carries its :class:`~lexic.parsing.product.RuleProduct`; a
+clone whose value IS its own matched text is :attr:`~CloneSpec.match_only`
+(the runtime slices ``text[a:b]`` instead of building below).
 
 **Open dispatch.** Per-atom compilation routes through the module-level
 :data:`_ATOM_SPEC` :class:`~lexic.ir.action.mapping.IrTypeMap` (the ``analysis.py``
@@ -60,7 +60,6 @@ from lexic.ir import (
     IrTypeMap,
 )
 from lexic.parsing.binding import ModelBinding
-from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
@@ -68,7 +67,6 @@ from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
 )
 from lexic.parsing.pda.compiler.program.lower import flatten_clones
-from lexic.parsing.pda.compiler.program.product import verify_covered
 from lexic.parsing.pda.compiler.specs import (
     CC,
     GRP,
@@ -90,7 +88,7 @@ from lexic.parsing.pda.compiler.specs import (
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
-from lexic.parsing.product import RuleProduct
+from lexic.parsing.product import ConstructionTables, RuleProduct, construction_of
 
 __all__ = [
     "compile_pda",
@@ -127,7 +125,7 @@ ITEM_KINDS: tuple[str, ...] = (LIT, CC, REF, GRP)
 # re-exposes it as its public surface (``__all__``).
 
 
-_PENDING = CloneSpec("", (), None, None, None, False)
+_PENDING = CloneSpec("", (), None, None, False)
 """In-progress placeholder installed by :meth:`PdaCompiler.ensure_rule` before
 a clone body is compiled — reserves the key so recursion resolves to it, then
 is overwritten by the finished :class:`CloneSpec`."""
@@ -334,10 +332,11 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     :ivar analysis: The grammar analysis (FIRST/hard/FOLLOW/nullability +
         loop taxonomy) the clones are cut against.
-    :ivar fold_config: Rule name → its :class:`~lexic.parsing.fold.RuleFold`.
     :ivar product_config: Rule name → its authored
         :class:`~lexic.parsing.product.RuleProduct` — what each rule clone's
         capture layout and build plan are baked from.
+    :ivar construction: The construction operand tables a completion indexes;
+        read here only to ask whether a rule's value IS its own matched text.
     :ivar islands: The island rule names — never cloned.
     :ivar fail_islands: The fail-island subset — references raise ``PdaFail``.
     :ivar clones: The compiled clone table, keyed by :class:`CloneKey`.
@@ -345,7 +344,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = (
         "analysis",
-        "fold_config",
+        "construction",
         "product_config",
         "clones",
         "pending",
@@ -353,8 +352,8 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     )
 
     analysis: GrammarAnalysis
-    fold_config: Mapping[str, RuleFold]
     product_config: Mapping[str, RuleProduct]
+    construction: ConstructionTables
     clones: dict[CloneKey, CloneSpec]
     pending: list[CloneKey]
     draining: bool
@@ -362,13 +361,15 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     def __init__(
         self,
         analysis: GrammarAnalysis,
-        fold_config: Mapping[str, RuleFold] | None = None,
         product_config: Mapping[str, RuleProduct] | None = None,
+        construction: ConstructionTables | None = None,
     ) -> None:
         """Prepare the compiler for one model product target."""
         self.analysis = analysis
-        self.fold_config = fold_config or {}
         self.product_config = product_config or {}
+        self.construction = (
+            ConstructionTables() if construction is None else construction
+        )
         self.clones = {}
         self.pending = []
         self.draining = False
@@ -486,18 +487,23 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         name = key.name
         rule = self.analysis.rules[name]
         arms, default, struct, follow = self._clone_shape(name, rule, key.tail)
-        fold = self.fold_config.get(name)
-        match_only = fold is not None and fold.kind == "value_str"
+        product = self.product_config.get(name)
         self.clones[key] = CloneSpec(
             name,
             arms,
             default,
-            fold,
-            self.product_config.get(name),
-            match_only,
+            product,
+            self._matches_own_text(product),
             struct,
             follow,
         )
+
+    def _matches_own_text(self, product: RuleProduct | None) -> bool:
+        """Whether this rule's value IS its matched text — so it needs no interior."""
+        if product is None:
+            return False
+        construction = construction_of(product, self.construction)
+        return construction is not None and bool(construction.matched)
 
     def compile_arms(
         self,
@@ -653,7 +659,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
 def _attach_delegates(tables: PdaTables, lifted: IrAst, binding: ModelBinding) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
-    (built from ``lifted`` + the compiler's fold target; the injected
+    (built from ``lifted`` + the compiler's bound product; the injected
     ``(PdaCompiler, flatten_clones)`` seam keeps the delegate leaf import-free
     of this module)."""
     name_to_rid = {
@@ -684,13 +690,11 @@ def compile_pda(
         construction tables are what a completion indexes.
     :returns: The compiled :class:`PdaTables`.
     :raises UnsupportedConstructError: On anything the analysis or the clone
-        compiler cannot handle (the Task-6 seam reads this as "no PDA"), or on
-        a binding whose product does not cover the rules its fold names.
+        compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
-    verify_covered(binding.rules, tuple(binding.fold.baked))
     analysis = GrammarAnalysis(lifted)
-    compiler = PdaCompiler(analysis, binding.fold.baked, binding.rules)
+    compiler = PdaCompiler(analysis, binding.rules, binding.construction)
     start_key = compiler.compile_start()
-    tables = PdaTables(compiler, start_key, instance_grammar, binding.construction)
+    tables = PdaTables(compiler, start_key, instance_grammar, binding)
     _attach_delegates(tables, lifted, binding)
     return tables

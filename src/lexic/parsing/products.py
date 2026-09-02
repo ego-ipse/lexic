@@ -43,15 +43,14 @@ from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import TokenKernel
-from lexic.parsing.fold import lift_optional_nullables
-from lexic.parsing.product import (
-    ProductExecutor,
-    collapsed_product_tables,
-)
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
+from lexic.parsing.product import (
+    collapsed_product_tables,
+)
 
 __all__ = [
     "parse_model",
@@ -108,7 +107,7 @@ def earley_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
     """
-    executor = ProductExecutor(binding.rules, binding.construction)
+    executor = binding.executor
     return first_built_meaning(
         EarleyParser(),
         grammar,
@@ -158,7 +157,7 @@ def token_model[M](
     tree = FastTree(kernel, {}).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")
-    executor = ProductExecutor(binding.rules, binding.construction)
+    executor = binding.executor
     pair = different_meaning(
         kernel,
         handle,
@@ -235,7 +234,7 @@ def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
 def _model_product(
     grammar: IrAst, binding: ModelBinding, bits: int = ORIGIN_BITS
 ) -> _ModelProduct:
-    """The compiled instance product for ``(grammar, fold, bits)``, memoised.
+    """The compiled instance product for ``(grammar, binding, bits)``, memoised.
 
     Keyed by identity plus the packing tier ``bits`` (the Earley tables pack
     at it). The PDA half is tier-independent but rides the key — a second
@@ -320,7 +319,7 @@ def parse_model[M](
     text = _owned_text(text)
     product = _model_product(grammar, binding, tier_for(len(text)))
     try:
-        return pda_model(product.pda, text, binding.fold, resolve=resolve)
+        return pda_model(product.pda, text, binding.executor, resolve=resolve)
     except PdaFail as fail:
         try:
             return earley_model(

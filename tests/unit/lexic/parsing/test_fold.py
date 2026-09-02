@@ -16,7 +16,7 @@ import pytest
 
 from lexic.compile import compile_text, reset_cache_for_tests
 from lexic.compile.foldkit import AuthoredRule, product_rules
-from lexic.compile.product import bind_symbols, rules_by_name
+from lexic.compile.product import rules_by_name
 from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
@@ -52,7 +52,7 @@ from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.product import (
     CaptureMode,
     CaptureSpec,
-    ConstructionTables,
+    LoweringOwned,
     collapsed_product_tables,
 )
 from lexic.parsing.products import _model_product, earley_model
@@ -79,7 +79,7 @@ def test_instance_grammar_is_normalized(arithmetic):
 def test_config_carries_modes_and_lo_for_field_bearing_items(arithmetic):
     """Each field-bearing item folds under the expected mode and original
     (pre-lift) quantifier lo — the successor of the wrapper-rule registry."""
-    config = arithmetic.fold.config
+    config = arithmetic.product.rules
     by_name = {
         rule: {f.name: (f.mode, f.lo) for f in rf.fields} for rule, rf in config.items()
     }
@@ -96,7 +96,7 @@ def test_unquantified_literals_stay_inline_no_field(arithmetic):
     root-item ::= expr "=" ws term "\\n" — items 1 ('=') and 4 ('\\n') are
     unquantified literals: absent from the fields, present in n_items.
     """
-    root_item = arithmetic.fold.config["root-item"]
+    root_item = arithmetic.product.rules["root-item"]
     bound_slots = {f.item for f in root_item.fields}
     assert 1 not in bound_slots
     assert 4 not in bound_slots
@@ -349,7 +349,7 @@ def test_collapsed_fold_tables_collapses_a_run_on_arithmetic(arithmetic):
     """
     plain = compile_tables(prod(arithmetic).instance_grammar)
     collapsed = collapsed_fold_tables(
-        prod(arithmetic).instance_grammar, arithmetic.fold
+        prod(arithmetic).instance_grammar, arithmetic.product.fold
     )
     assert collapsed is not plain
     assert any(length == 0 for length in collapsed.terms.lens)
@@ -357,8 +357,12 @@ def test_collapsed_fold_tables_collapses_a_run_on_arithmetic(arithmetic):
 
 def test_collapsed_fold_tables_memoises_per_fold_and_grammar(arithmetic):
     """The same (fold, grammar) pair returns the identical tables object."""
-    first = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
-    second = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
+    first = collapsed_fold_tables(
+        prod(arithmetic).instance_grammar, arithmetic.product.fold
+    )
+    second = collapsed_fold_tables(
+        prod(arithmetic).instance_grammar, arithmetic.product.fold
+    )
     assert first is second
 
 
@@ -366,7 +370,7 @@ def test_collapsed_fold_tables_returns_plain_when_no_candidates(optional_shapes)
     """A grammar with no star/plus run candidates gets back the plain tables."""
     plain = compile_tables(prod(optional_shapes).instance_grammar)
     collapsed = collapsed_fold_tables(
-        prod(optional_shapes).instance_grammar, optional_shapes.fold
+        prod(optional_shapes).instance_grammar, optional_shapes.product.fold
     )
     assert collapsed is plain
 
@@ -394,8 +398,10 @@ def test_collapsed_fold_tables_memo_keys_on_identity_not_equality():
 def test_collapsed_fold_tables_distinct_fold_objects_do_not_share_cache(arithmetic):
     """A fold object with an identical config is still a distinct object —
     collapsed_fold_tables must recompute, not alias, for it."""
-    duplicate_fold = ModelFold.from_config(dict(arithmetic.fold.config))
-    first = collapsed_fold_tables(prod(arithmetic).instance_grammar, arithmetic.fold)
+    duplicate_fold = ModelFold.from_config(dict(arithmetic.product.rules))
+    first = collapsed_fold_tables(
+        prod(arithmetic).instance_grammar, arithmetic.product.fold
+    )
     second = collapsed_fold_tables(prod(arithmetic).instance_grammar, duplicate_fold)
     assert first is not second
 
@@ -467,7 +473,7 @@ def test_ambiguous_input_folds_deterministically(arithmetic):
     """parse_first under collapsed tables equals the plain-tables fold output."""
     text = "ab1+cd2*34/x9-z=result0\n"
     collapsed_model = arithmetic.parse(text)
-    plain_model = arithmetic.fold.apply(
+    plain_model = arithmetic.product.executor.build(
         parse_first(prod(arithmetic).instance_grammar, text)
     )
     assert collapsed_model.dump() == plain_model.dump()
@@ -527,31 +533,6 @@ def test_recognition_twins_never_construct_descendants_in_either_engine(
     omitted = reachable_rules(grammar, roots)
     assert omitted == {"dropped-sk", "word-sk"}
     assert aliases == {"dropped-sk": "dropped", "word-sk": "word"}
-    fold = ModelFold(
-        IrMap(
-            IrTuple(
-                IrRuleRef("root"),
-                ModelBody(
-                    "sequence",
-                    IrLambda(root),
-                    2,
-                    (
-                        FieldFold(0, "model", "kept", 1),
-                        FieldFold(1, "model", "dropped", 1),
-                    ),
-                ),
-            ),
-            IrTuple(IrRuleRef("kept"), ModelBody("alternation", IrNone, 0, ())),
-            IrTuple(
-                IrRuleRef("dropped"),
-                ModelBody("sequence", IrLambda(forbidden), 2, ()),
-            ),
-            IrTuple(
-                IrRuleRef("word"),
-                ModelBody("value_str", IrLambda(word), 0, ()),
-            ),
-        )
-    )
     rules = {
         "root": AuthoredRule(
             "root",
@@ -566,9 +547,8 @@ def test_recognition_twins_never_construct_descendants_in_either_engine(
     authored = product_rules(rules)
     registry = {"root": root, "forbidden": forbidden, "word": word}
     binding = ModelBinding(
-        fold,
         rules_by_name(authored.rules, authored.codes),
-        ConstructionTables(symbols=bind_symbols(authored.symbols, registry)),
+        LoweringOwned(symbols=authored.symbols, registry=registry),
     )
     product = _model_product(grammar, binding)
     parsing = True
@@ -576,9 +556,10 @@ def test_recognition_twins_never_construct_descendants_in_either_engine(
     expected = {"kept": {"value": kept_atom}, "dropped": None}
 
     assert (
-        earley_model(product.instance_grammar, text, binding, product.tables) == expected
+        earley_model(product.instance_grammar, text, binding, product.tables)
+        == expected
     )
-    assert pda_model(product.pda, text, fold) == expected
+    assert pda_model(product.pda, text, binding.executor) == expected
 
 
 # ── ModelBody / ModelFold — the IR-native body-table ─────────────────────
@@ -703,7 +684,7 @@ def test_required_field_matching_the_empty_arm_folds_to_explicit_none():
     cg = compile_text(src, cache_key="fold-empty-arm-field", flavour="abnf")
     product = _model_product(cg.codegen_grammar, cg.product)
     via_earley = earley_model(product.instance_grammar, "x", cg.product, product.tables)
-    via_pda = pda_model(product.pda, "x", cg.fold)
+    via_pda = pda_model(product.pda, "x", cg.executor)
     assert via_earley == via_pda, "the two engines must build the same record"
     # A record IS its field tuple; `A` binds one field (`t`), read by index.
     assert via_earley[0] is None

@@ -73,9 +73,7 @@ def shared_dag() -> None:
     Root.calls = 0
     rules: dict[str, RuleProduct[Value]] = {
         "leaf": RuleProduct((), RecordOp(0), 0),
-        "root": RuleProduct(
-            (CaptureSpec(int(CaptureMode.MANY), 0),), RecordOp(1), 1
-        ),
+        "root": RuleProduct((CaptureSpec(int(CaptureMode.MANY), 0),), RecordOp(1), 1),
     }
     tables = ConstructionTables[Value](
         (
@@ -132,16 +130,12 @@ class MaybeRoot(Value):
 def present_none() -> None:
     """A delegated real ``None`` fills a required capture as a present value."""
     rules: dict[str, RuleProduct[Value | None]] = {
-        "root": RuleProduct(
-            (CaptureSpec(int(CaptureMode.ONE), 0),), RecordOp(0), 1
-        )
+        "root": RuleProduct((CaptureSpec(int(CaptureMode.ONE), 0),), RecordOp(0), 1)
     }
     tables = ConstructionTables[Value | None](
         (RecordConstructor(MaybeRoot, ("child",)),)
     )
-    root = ParseTree(
-        IrRuleRef("root"), IrSeq(PayloadLeaf[Value | None](None, "null"))
-    )
+    root = ParseTree(IrRuleRef("root"), IrSeq(PayloadLeaf[Value | None](None, "null")))
     built = ProductExecutor(rules, tables).build(root)
     if not isinstance(built, MaybeRoot) or built.child is not None:
         raise AssertionError("present None was treated as a missing completion")
@@ -187,9 +181,7 @@ def ambiguity_replay() -> None:
         raise AssertionError("ambiguity replay: default tree did not build")
 
     rules: dict[str, RuleProduct[Value]] = {
-        "root": RuleProduct(
-            (CaptureSpec(int(CaptureMode.ONE), 0),), PassOp(0), 1
-        ),
+        "root": RuleProduct((CaptureSpec(int(CaptureMode.ONE), 0),), PassOp(0), 1),
         "left": RuleProduct((), RecordOp(0), 1),
         "right": RuleProduct((), RecordOp(1), 1),
     }

@@ -50,8 +50,7 @@ from typing import Any, Callable
 
 from lexic.compile import compile_from_path
 from lexic.compile.pipeline.synthesis import ModelPlan, model_plan
-from lexic.compile.product import LoweringOwned, lower_product
-from lexic.compile.product.binding import _check_covered, rules_by_name
+from lexic.compile.product.binding import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrSpan
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, vstr_model
@@ -74,13 +73,16 @@ from lexic.parsing.product import (
     CaptureMode,
     ConstructionTables,
     ExprCode,
+    LoweringOwned,
     MeaningOp,
     OperandTables,
     PassOp,
+    RangeKind,
     RecordConstructor,
     RecordOp,
     RootOp,
     RuleProduct,
+    lower_product,
 )
 
 EMPTY_OPERANDS: OperandTables = OperandTables(
@@ -452,8 +454,8 @@ def _rule_level(label: str, compiled: Any, totals: dict[str, int]) -> None:
     )
     _check(
         f"{label}: the plan covers {len(plan.codes)} rules, the fold "
-        f"{len(compiled.fold.baked)}",
-        set(plan.codes) == set(compiled.fold.baked),
+        f"{len(compiled.product.rules)}",
+        set(plan.codes) == set(compiled.product.rules),
     )
     _model_program(label, plan)
     totals["audited"] = totals.get("audited", 0) + len(plan.constructors)
@@ -688,38 +690,84 @@ def the_plan_lo_has_one_other_consumer_and_it_discards_it() -> None:
     print("lo trace\tvstr_model unpacks the plan and discards lo")
 
 
-def the_binding_guard_refuses_an_uncovered_fold() -> None:
-    """A binding whose product names fewer rules than its fold is refused.
+_KINDS = frozenset(int(kind) for kind in RangeKind)
+"""Every tag a completion range may legally carry."""
 
-    The historical shape, exactly: a bare fold wrapped into a `ModelBinding`
-    left the rules map EMPTY, every clone baked no build state, and nothing
-    said so. `bind_model` cannot produce that from one binding view — which is
-    why the guard needs a row of its own to show it is not decoration.
+
+def every_clone_names_a_verified_range_of_its_rules_kind() -> int:
+    """A clone's recorded completion range is the one the verifier bounded.
+
+    The bake writes each clone's build state FROM its rule's verified range,
+    and records the index it read. This checks the recording against the
+    binding's own program: in bounds, non-empty, tagged, and the same kind the
+    rule's own flat record names. A clone whose rule has no product records
+    ``-1`` and is expected to build nothing.
     """
-    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
-    plan = model_plan(
-        compiled.codegen_grammar, compiled.moments.binding, compiled.classes
-    )
-    covered = rules_by_name(plan.rules, plan.codes)
-    _check_covered(covered, compiled.fold)  # the real pairing passes
-    for label, rules in (
-        ("an empty rules map", {}),
-        ("one rule short", dict(list(covered.items())[1:])),
-    ):
+    checked = clones = 0
+    for path in _grammars():
+        compiled = compile_from_path(path)
+        binding = compiled.product
+        program = binding.program
         try:
-            _check_covered(rules, compiled.fold)
+            tables = compiled.pda_tables()
         except UnsupportedConstructError:
+            continue  # a token-terminal grammar compiles no predictive program
+        for clone in _live_clones(tables):
+            clones += 1
+            at = clone.completion
+            if at < 0:
+                _check(
+                    f"{path.name}/{clone.name or '<group>'}: no range, yet it builds",
+                    clone.mode == BUILD_TRANSPARENT or clone.name not in binding.codes,
+                )
+                continue
+            _check(
+                f"{path.name}/{clone.name}: range {at} is out of bounds",
+                0 <= at < len(program.completions),
+            )
+            found = program.completions[at]
+            _check(
+                f"{path.name}/{clone.name}: range {found} is empty or untagged",
+                found.length > 0 and found.kind in _KINDS,
+            )
+            code = binding.codes[clone.name]
+            _check(
+                f"{path.name}/{clone.name}: recorded range {at} is not its rule's "
+                f"{program.rules[code].completion}",
+                at == program.rules[code].completion,
+            )
+            checked += 1
+    print(
+        f"ranges\t{checked} of {clones} clones name a verified in-bounds range "
+        "of their own rule's kind"
+    )
+    return checked
+
+
+def _live_clones(tables: Any) -> list[FlatClone]:
+    """Every flat clone the program reaches from its entry."""
+    seen: dict[int, FlatClone] = {}
+    stack = [tables.program.start]
+    while stack:
+        clone = stack.pop()
+        if not isinstance(clone, FlatClone) or id(clone) in seen:
             continue
-        raise Defect(f"s4 bake identity: bind_model's guard admitted {label}")
-    print("guard\tan empty and a short rules map are both refused, with words")
+        seen[id(clone)] = clone
+        arms = [arm for _c, _n, arm in clone.selectors]
+        if clone.default is not None:
+            arms.append(clone.default)
+        for arm in arms:
+            if hasattr(arm, "payloads"):
+                stack.extend(arm.payloads)
+    return list(seen.values())
 
 
 def main() -> None:
     """Run the sweep, the controls and the pins; any disagreement raises."""
     counts = the_live_bake_says_what_the_product_declares()
     the_checks_are_live()
-    the_binding_guard_refuses_an_uncovered_fold()
     the_lo_readers_are_exactly_three()
+    every_clone_names_a_verified_range_of_its_rules_kind()
     the_plan_lo_has_one_other_consumer_and_it_discards_it()
     print(
         f"s4 bake identity\tPASS\t{counts['clones']} clones bake exactly what "

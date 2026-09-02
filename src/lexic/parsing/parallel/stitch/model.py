@@ -17,11 +17,12 @@ from lexic.ir import (
     IrTuple,
 )
 from lexic.model import GrammarModel
+from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import adopt, memo
-from lexic.parsing.fold import ModelFold, RuleFold
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.discovery.shapes import literal_char, unbounded
 from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.product import ConstructionTables, RuleProduct, construction_of
 
 
 class RegionPlan(NamedTuple):
@@ -52,18 +53,21 @@ class RegionWork(NamedTuple):
     plan: RegionPlan
 
 
-def model_type(config: RuleFold | None) -> type[GrammarModel] | None:
-    """The generated model class a fold config constructs, when explicit."""
-    ctor = config.ctor if config is not None else None
-    if isinstance(ctor, type) and issubclass(ctor, GrammarModel):
-        return ctor
+def model_type(
+    product: RuleProduct | None, tables: ConstructionTables
+) -> type[GrammarModel] | None:
+    """The generated class this rule constructs, or ``None`` — refused, not assumed."""
+    construction = None if product is None else construction_of(product, tables)
+    call = None if construction is None else construction.call
+    if isinstance(call, type) and issubclass(call, GrammarModel):
+        return call
     return None
 
 
-def field_slot(config: RuleFold, item: int) -> int | None:
-    """The item-ordered model-child slot bound from grammar item ``item``."""
-    fields = sorted(config.fields, key=lambda field: field.item)
-    return next((slot for slot, field in enumerate(fields) if field.item == item), None)
+def field_slot(product: RuleProduct, item: int) -> int | None:
+    """The model-child slot from grammar item ``item`` — its rank among the captures."""
+    ordered = sorted(spec.slot for spec in product.captures)
+    return next((rank for rank, slot in enumerate(ordered) if slot == item), None)
 
 
 def _single_arm(rule: IrRule) -> tuple[IrItem, ...] | None:
@@ -128,26 +132,26 @@ def _direct_candidate(
 
 
 class _PlanInput(NamedTuple):
-    """Inputs already derived before model-fold binding begins."""
+    """Inputs already derived before model-product binding begins."""
 
     root: IrAst
-    fold: ModelFold
+    binding: ModelBinding
     rule_name: str
     outer_arm: tuple[IrItem, ...]
     candidate: tuple[int, str, str, str, str]
 
 
 def _boundary_slots(
-    arm: tuple[IrItem, ...], before: int, after: int, config: RuleFold
+    arm: tuple[IrItem, ...], before: int, after: int, product: RuleProduct
 ) -> tuple[int | None, int | None]:
     """Model slots for the wrapper refs immediately around a recurrence."""
     begin = (
-        field_slot(config, before)
+        field_slot(product, before)
         if before >= 0 and _ref_at(arm, before) is not None
         else None
     )
     end = (
-        field_slot(config, after)
+        field_slot(product, after)
         if after < len(arm) and _ref_at(arm, after) is not None
         else None
     )
@@ -192,47 +196,43 @@ def _boundary_charsets(
 def _configured_plan(source: _PlanInput) -> RegionPlan | None:
     """Bind a derived recurrence to exact generated model slots/classes."""
     items_at, items_name, tail_name, head_name, separator = source.candidate
-    configs = (
-        source.fold.config.get(source.rule_name),
-        source.fold.config.get(items_name),
-        source.fold.config.get(tail_name),
-    )
-    if any(config is None for config in configs):
+    rules = source.binding.rules
+    outer_pr = rules.get(source.rule_name)
+    items_pr = rules.get(items_name)
+    tail_pr = rules.get(tail_name)
+    if outer_pr is None or items_pr is None or tail_pr is None:
         return None
-    outer_cfg, items_cfg, tail_cfg = cast(tuple[RuleFold, RuleFold, RuleFold], configs)
-    slots = (
-        field_slot(outer_cfg, items_at),
-        field_slot(items_cfg, 0),
-        field_slot(items_cfg, 1),
-        field_slot(tail_cfg, 1),
-    )
-    kinds = (model_type(outer_cfg), model_type(items_cfg), model_type(tail_cfg))
-    if any(slot is None for slot in slots) or any(kind is None for kind in kinds):
+    tables = source.binding.construction
+    outer_type = model_type(outer_pr, tables)
+    items_type = model_type(items_pr, tables)
+    tail_type = model_type(tail_pr, tables)
+    at = field_slot(outer_pr, items_at)
+    head = field_slot(items_pr, 0)
+    rest = field_slot(items_pr, 1)
+    tail = field_slot(tail_pr, 1)
+    if outer_type is None or items_type is None or tail_type is None:
         return None
-    begin, end = _boundary_slots(
-        source.outer_arm, items_at - 1, items_at + 1, outer_cfg
-    )
+    if at is None or head is None or rest is None or tail is None:
+        return None
+    begin, end = _boundary_slots(source.outer_arm, items_at - 1, items_at + 1, outer_pr)
     boundary = _boundary_charsets(
-        source.root,
-        source.outer_arm,
-        items_at - 1,
-        items_at + 1,
+        source.root, source.outer_arm, items_at - 1, items_at + 1
     )
     return RegionPlan(
         root=source.root,
         head_rule=head_name,
         separator=separator,
-        outer_type=cast(type[GrammarModel], kinds[0]),
-        items_type=cast(type[GrammarModel], kinds[1]),
-        tail_type=cast(type[GrammarModel], kinds[2]),
+        outer_type=outer_type,
+        items_type=items_type,
+        tail_type=tail_type,
         outer_begin=begin,
         outer_skip=boundary[0],
-        outer_items=cast(int, slots[0]),
+        outer_items=at,
         outer_end=end,
         outer_trail=boundary[1],
-        items_head=cast(int, slots[1]),
-        items_rest=cast(int, slots[2]),
-        tail_head=cast(int, slots[3]),
+        items_head=head,
+        items_rest=rest,
+        tail_head=tail,
     )
 
 
@@ -240,7 +240,7 @@ class _DirectInput(NamedTuple):
     """Inputs for binding a recurrence held directly by its bracket rule."""
 
     root: IrAst
-    fold: ModelFold
+    binding: ModelBinding
     rule_name: str
     outer_arm: tuple[IrItem, ...]
     candidate: tuple[int, str, str, str]
@@ -257,38 +257,37 @@ class _DirectBinding(NamedTuple):
 
 
 def _direct_binding(
-    outer_cfg: RuleFold, tail_cfg: RuleFold, head_at: int
+    outer_pr: RuleProduct,
+    tail_pr: RuleProduct,
+    head_at: int,
+    tables: ConstructionTables,
 ) -> _DirectBinding | None:
     """Bind direct model classes and slots, all-or-nothing."""
-    kinds = model_type(outer_cfg), model_type(tail_cfg)
-    slots = (
-        field_slot(outer_cfg, head_at),
-        field_slot(outer_cfg, head_at + 1),
-        field_slot(tail_cfg, 1),
-    )
-    if any(kind is None for kind in kinds) or any(slot is None for slot in slots):
+    outer_type = model_type(outer_pr, tables)
+    tail_type = model_type(tail_pr, tables)
+    head = field_slot(outer_pr, head_at)
+    rest = field_slot(outer_pr, head_at + 1)
+    tail = field_slot(tail_pr, 1)
+    if outer_type is None or tail_type is None:
         return None
-    outer_type, tail_type = cast(tuple[type[GrammarModel], ...], kinds)
-    head_slot, rest_slot, tail_head = cast(tuple[int, ...], slots)
-    return _DirectBinding(outer_type, tail_type, head_slot, rest_slot, tail_head)
+    if head is None or rest is None or tail is None:
+        return None
+    return _DirectBinding(outer_type, tail_type, head, rest, tail)
 
 
 def _direct_plan(source: _DirectInput) -> RegionPlan | None:
     """Bind a bracket rule that carries ``head tail*`` on itself."""
     head_at, tail_name, head_name, separator = source.candidate
-    outer_cfg = source.fold.config.get(source.rule_name)
-    tail_cfg = source.fold.config.get(tail_name)
-    if outer_cfg is None or tail_cfg is None:
+    outer_pr = source.binding.rules.get(source.rule_name)
+    tail_pr = source.binding.rules.get(tail_name)
+    if outer_pr is None or tail_pr is None:
         return None
-    bound = _direct_binding(outer_cfg, tail_cfg, head_at)
+    bound = _direct_binding(outer_pr, tail_pr, head_at, source.binding.construction)
     if bound is None:
         return None
-    begin, end = _boundary_slots(source.outer_arm, head_at - 1, head_at + 2, outer_cfg)
+    begin, end = _boundary_slots(source.outer_arm, head_at - 1, head_at + 2, outer_pr)
     boundary = _boundary_charsets(
-        source.root,
-        source.outer_arm,
-        head_at - 1,
-        head_at + 2,
+        source.root, source.outer_arm, head_at - 1, head_at + 2
     )
     return RegionPlan(
         root=source.root,
@@ -309,9 +308,9 @@ def _direct_plan(source: _DirectInput) -> RegionPlan | None:
 
 
 _REGION_PLANS: dict[
-    tuple[int, int, str], tuple[IrAst, ModelFold, RegionPlan | None]
+    tuple[int, int, str], tuple[IrAst, ModelBinding, RegionPlan | None]
 ] = memo({}, 0, 1)
-"""Per-product region plans. Strong grammar/fold references pin identity.
+"""Per-product region plans. Strong grammar/binding references pin identity.
 
 The rooted grammar owns compiled parser tables and worker replicas. Rebuilding
 it per document made every split a cold compile and discarded every supposedly
@@ -319,14 +318,16 @@ warm replica, dwarfing the parse at benchmark scale.
 """
 
 
-def derive_plan(grammar: IrAst, fold: ModelFold, rule_name: str) -> RegionPlan | None:
+def derive_plan(
+    grammar: IrAst, binding: ModelBinding, rule_name: str
+) -> RegionPlan | None:
     """Derive the unique repeated-items child of one bracket rule.
 
     Brackets and whitespace may be referenced wrapper rules or inline grammar
     items. Only the items/tail recurrence is essential. Exact three-reference
     wrappers additionally expose their boundary fields for source restoration.
     """
-    key = (id(grammar), id(fold), rule_name)
+    key = (id(grammar), id(binding), rule_name)
     entry = _REGION_PLANS.get(key)
     if entry is None:
         rules = {str(rule.name): rule for rule in grammar.rules}
@@ -355,7 +356,7 @@ def derive_plan(grammar: IrAst, fold: ModelFold, rule_name: str) -> RegionPlan |
             plan = _configured_plan(
                 _PlanInput(
                     root,
-                    fold,
+                    binding,
                     rule_name,
                     outer_arm,
                     candidates[0],
@@ -363,11 +364,11 @@ def derive_plan(grammar: IrAst, fold: ModelFold, rule_name: str) -> RegionPlan |
             )
         elif outer_arm is not None and len(direct) == 1:
             plan = _direct_plan(
-                _DirectInput(root, fold, rule_name, outer_arm, direct[0])
+                _DirectInput(root, binding, rule_name, outer_arm, direct[0])
             )
         else:
             plan = None
-        entry = (grammar, fold, plan)
+        entry = (grammar, binding, plan)
         _REGION_PLANS[key] = entry
         adopt(id(grammar), root)  # the witness memo keys on the rooted grammar
     return entry[2]
@@ -518,13 +519,13 @@ def _stitch_separated(
 
 
 def _wrapper_route[M: IrNamedTuple](
-    wrappers: tuple[str, ...], fold: ModelFold[M]
+    wrappers: tuple[str, ...], binding: ModelBinding[M]
 ) -> tuple[tuple[int, None], ...] | None:
     """Model-child route corresponding to a plan's sole-ref wrappers."""
     route: list[tuple[int, None]] = []
     for name in wrappers:
-        config = fold.config.get(name)
-        slot = field_slot(config, 0) if config is not None else None
+        product = binding.rules.get(name)
+        slot = field_slot(product, 0) if product is not None else None
         if slot is None:
             return None
         route.append((slot, None))
@@ -557,10 +558,10 @@ def stitch_routed[M: IrNamedTuple](
     chunks: list[M],
     lead_models: list[tuple],
     wrappers: tuple[str, ...],
-    fold: ModelFold[M],
+    binding: ModelBinding[M],
 ) -> M | None:
     """Merge a separated container and rebuild its sole-ref start wrappers."""
-    route = _wrapper_route(wrappers, fold)
+    route = _wrapper_route(wrappers, binding)
     if route is None or any(not isinstance(chunk, GrammarModel) for chunk in chunks):
         return None
     roots = cast(list[GrammarModel], chunks)
@@ -619,7 +620,7 @@ def _emptied(value: IrSelf) -> IrSelf:
 
 
 def envelope_tails[M: IrNamedTuple](
-    chunks: list[M], shape, fold: ModelFold[M]
+    chunks: list[M], shape, binding: ModelBinding[M]
 ) -> tuple[list[str], list[M]] | None:
     """Move each non-final piece's trailing noise out of it, as text.
 
@@ -632,10 +633,10 @@ def envelope_tails[M: IrNamedTuple](
     :returns: ``(trailing text per non-final piece, pieces with tails emptied)``,
         or ``None`` when the container has no readable field map.
     """
-    config = fold.config.get(shape.container)
-    if config is None:
+    product = binding.rules.get(shape.container)
+    if product is None:
         return None
-    tail = [field_slot(config, at) for at in shape.tail]
+    tail = [field_slot(product, at) for at in shape.tail]
     if None in tail:
         return None
     slots = cast(list[int], tail)
@@ -654,7 +655,7 @@ def envelope_tails[M: IrNamedTuple](
 
 
 def stitch_envelope[M: IrNamedTuple](
-    chunks: list[M], leads: list, shape, fold: ModelFold[M]
+    chunks: list[M], leads: list, shape, binding: ModelBinding[M]
 ) -> M | None:
     """Rebuild an envelope container from its pieces; ``None`` = shape surprise.
 
@@ -663,13 +664,13 @@ def stitch_envelope[M: IrNamedTuple](
     handed back. A lead reparsed with a witness unit already IS an item model,
     so the join swaps the witness for the unit the next piece really parsed.
     """
-    config = fold.config.get(shape.container)
-    if config is None or len(chunks) != len(leads) + 1:
+    product = binding.rules.get(shape.container)
+    if product is None or len(chunks) != len(leads) + 1:
         return None
-    core = field_slot(config, shape.core)
-    rest = field_slot(config, shape.core + 1)
-    head = [field_slot(config, at) for at in shape.head]
-    tail = [field_slot(config, at) for at in shape.tail]
+    core = field_slot(product, shape.core)
+    rest = field_slot(product, shape.core + 1)
+    head = [field_slot(product, at) for at in shape.head]
+    tail = [field_slot(product, at) for at in shape.tail]
     if core is None or rest is None or None in head or None in tail:
         return None
     kids = [list(chunk.children()) for chunk in chunks]

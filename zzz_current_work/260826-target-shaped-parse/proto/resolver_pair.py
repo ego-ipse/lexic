@@ -690,21 +690,21 @@ def prove_engine_pair_scope() -> None:
     compiled = compile_text(PUBLIC_ISLAND)
     text = "(xy)z"
     grammar = normalize(lift_optional_nullables(compiled.codegen_grammar))
-    tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
+    tables = collapsed_fold_tables(grammar, compiled.executor, tier_for(len(text)))
     predictive = _observe(
         "pda",
         lambda resolve: pda_model(
-            pda_tables(compiled.codegen_grammar, compiled.fold),
+            pda_tables(compiled.codegen_grammar, compiled.executor),
             text,
-            compiled.fold,
+            compiled.executor,
             resolve=resolve,
         ),
-        compiled.fold,
+        compiled.executor,
     )
     general = _observe(
         "earley",
         lambda resolve: earley_model(grammar, text, compiled.product, tables, resolve),
-        compiled.fold,
+        compiled.executor,
     )
     assert predictive.called and general.called
     assert predictive.first_symbol != general.first_symbol
@@ -766,15 +766,15 @@ def prove_third_defect_baseline() -> None:
     compiled = compile_text(PUBLIC_ISLAND)
     text = "(xy)z"
     grammar = normalize(lift_optional_nullables(compiled.codegen_grammar))
-    tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
+    tables = collapsed_fold_tables(grammar, compiled.executor, tier_for(len(text)))
     messages: dict[str, str] = {}
     routes = (
         (
             "pda",
             lambda: pda_model(
-                pda_tables(compiled.codegen_grammar, compiled.fold),
+                pda_tables(compiled.codegen_grammar, compiled.executor),
                 text,
-                compiled.fold,
+                compiled.executor,
             ),
         ),
         ("earley", lambda: earley_model(grammar, text, compiled.product, tables)),
@@ -935,9 +935,9 @@ def prove_pda_has_no_document_tree() -> None:
     text = "(xy)z"
     model, cost = _timed(
         lambda: pda_model(
-            pda_tables(compiled.codegen_grammar, compiled.fold),
+            pda_tables(compiled.codegen_grammar, compiled.executor),
             text,
-            compiled.fold,
+            compiled.executor,
             resolve=lambda first, other: first,
         )
     )

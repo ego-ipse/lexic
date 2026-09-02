@@ -40,7 +40,7 @@ from lexic.ir import (
 )
 from lexic.parsing import derivations
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from tests.reduce_helpers import reduce_text as earley_reduce
 from tests.unit.lexic.conftest import (

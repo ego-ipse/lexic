@@ -33,7 +33,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
-from lexic.parsing.product.construction import ProductValue
+from lexic.parsing.product.abi.construction import ProductValue
 
 type BuildPlan[Carry] = tuple[tuple[int, int, int, ProductValue[Carry]], ...]
 type FastConstruction[Carry] = Callable[[list[ProductValue[Carry]]], Carry]
@@ -378,6 +378,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "chartotal",
         "runarm",
         "needs_ends",
+        "completion",
     )
 
     name: str
@@ -400,6 +401,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     chartotal: bool
     runarm: Any  # FlatArm | None — the run whose SPAN keys the table
     needs_ends: bool
+    completion: int  # provenance: the verified completion range this bake read
 
 
 class PdaProgram(IrLeaf[IrSelf, IrSelf]):

@@ -1,146 +1,138 @@
-"""Census the two authored surfaces' completions against the product ABI.
+"""Census the authored surfaces' completions, and the channel they resolve through.
 
-The merged step-3 pass requires `notation/parse.py` and `module/selfgrammar.py`
-to author `RuleProduct`s in the final vocabulary. Whether that is one new ABI
-concept or eight depends on a number nobody has counted: how many of their
-completions the existing operation vocabulary can already express.
+The three compile-time surfaces — the IR-constructor notation, the generated
+self-grammar, and templating's span product — author their rules in the
+product vocabulary and nothing else. This witness holds that to its two
+load-bearing claims.
 
-This counts it. Every authored body is classified by what its constructor IS —
-a pass-through, a registry symbol on the no-`eval` channel, an alternation, or
-a surface-specific Python transform — and mapped to the operation that would
-carry it. What comes out is the exact size of the remaining gap, per surface
-and per distinct transform, rather than an impression of it.
+**Every transform is reachable by name.** An authored record holds a registry
+KEY, never a callable, and lowering resolves that key through the surface's own
+whitelist. So the census walks every authored rule, collects the symbol each
+one names, and proves the name resolves — which is what makes the no-``eval``
+boundary a property of the data rather than a convention. A key that resolved
+to nothing would be a completion that cannot run, discovered at parse time.
 
-One measured fact frames the whole census: NEITHER surface grants a single
-`FastCtor`, so today's bake writes empty `fields`/`plan`/`fast`/`defaults` for
-every one of their clones and reads only their capture layout. Their products
-need captures; the completions are the entire open question.
+**The shared idioms are accounted for by name.** `passthrough`, `first_rest`,
+`decode_int`, `absent_tail` and its `ABSENT` sentinel are the vocabulary the
+surfaces share; this prints who names each one, so a deletion that orphans an
+idiom, or an idiom that quietly lost its last caller, is visible rather than
+inferred.
 
-Uncommitted evidence, not a test. Luna owns the committed suite.
+Run: `uv run python zzz_current_work/260826-target-shaped-parse/proto/s4_authored_census.py`
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
 
-from lexic.compile.foldkit import FOLD_SYMBOLS, IrNamed, absent_tail, passthrough
-from lexic.compile.module.selfgrammar import MODULE_FOLD
-from lexic.compile.notation.parse import NOTATION_FOLD
-from lexic.ir import IrLambda, IrNone
+import lexic.compile.module.selfgrammar as selfgrammar
+import lexic.compile.notation.parse as notation
+from lexic.compile.foldkit import ABSENT, FOLD_SYMBOLS, AuthoredRule
 
-EXPRESSIBLE = {
-    "alternation": "the rule kind — no completion operation at all",
-    "passthrough": "ArgExpr(0) — one channel slot, unchanged",
-    "int": "DecodeOp(text, DecodeCode.INTEGER) — an engine-owned decoder",
-    "first_rest": "no operation today — head-plus-tail list construction",
-}
-"""What the shared vocabulary maps onto, and where it stops. `first_rest` is
-listed to be counted, not because it is covered."""
+SHARED = ("passthrough", "first_rest", "decode_int", "absent_tail")
+"""The shared idiom keys this effort's foldkit bullet must account for."""
+
+
+class Defect(AssertionError):
+    """A claim this witness makes that the surfaces do not support."""
 
 
 def _check(claim: str, held: bool) -> None:
-    """Refuse the witness the moment one claim stops holding."""
+    """Print one claim's verdict, and raise when it does not hold."""
+    print(f"  {'ok ' if held else 'BAD'}\t{claim}")
     if not held:
-        raise AssertionError(f"s4 authored census: {claim}")
+        raise Defect(f"s4 authored census: {claim}")
 
 
-def _constructor(body: Any) -> tuple[str, str]:
-    """One body's constructor as ``(category, name)``.
-
-    Four categories, and the split is the finding: an alternation needs no
-    operation, a pass-through and a registry symbol are already expressible or
-    nearly so, and a surface-specific Python transform is the gap.
-    """
-    ctor = body.ctor
-    if ctor is IrNone:
-        return "alternation", "-"
-    if isinstance(ctor, IrNamed):
-        return "symbol", str(ctor.key)
-    if isinstance(ctor, IrLambda):
-        target = ctor.eval
-        name = getattr(target, "__name__", type(target).__name__)
-        if target is passthrough:
-            return "passthrough", name
-        if target is absent_tail:
-            return "shared-idiom", name
-        if name == "<lambda>":
-            return "surface-python", f"<lambda {getattr(target, '__qualname__', '')}>"
-        return "surface-python", name
-    return "ir-body", type(ctor).__name__
-
-
-def _census(label: str, fold: Any) -> tuple[Counter, dict[str, int]]:
-    """Classify every authored body of one surface."""
-    categories: Counter = Counter()
-    transforms: dict[str, int] = {}
-    licensed = sum(1 for rule in fold.baked.values() if rule.fast is not None)
-    captures = sum(len(rule.fields) for rule in fold.baked.values())
-    _check(
-        f"{label}: {licensed} rules are licensed — the bake would need their "
-        f"constructors after all",
-        licensed == 0,
-    )
-    for _ref, body in fold.bodies.items():
-        category, name = _constructor(body)
-        categories[category] += 1
-        if category in ("surface-python", "symbol", "shared-idiom"):
-            transforms[name] = transforms.get(name, 0) + 1
+def _census(
+    label: str,
+    rules: dict[str, AuthoredRule],
+    registry: dict[str, object],
+) -> Counter:
+    """One surface's symbol usage, proved resolvable against its registry."""
+    named = Counter(rule.symbol for rule in rules.values() if rule.symbol)
+    passthroughs = sum(1 for rule in rules.values() if not rule.symbol)
+    unresolved = sorted(key for key in named if key not in registry)
     print(
-        f"{label}\trules={sum(categories.values())}\tlicensed={licensed}\t"
-        f"captures={captures}"
-    )
-    for category, count in sorted(categories.items()):
-        print(f"  {category:<16}\t{count}")
-    return categories, transforms
-
-
-def the_authored_surfaces_need_only_captures_from_a_product() -> None:
-    """Neither surface grants a licence, so the bake reads no constructor."""
-    notation, notation_transforms = _census("notation", NOTATION_FOLD)
-    module, module_transforms = _census("selfgrammar", MODULE_FOLD)
-
-    distinct = sorted(set(notation_transforms) | set(module_transforms))
-    covered = [name for name in distinct if name in EXPRESSIBLE]
-    uncovered = [name for name in distinct if name not in EXPRESSIBLE]
-    print(
-        f"\ntransforms\tdistinct={len(distinct)}\texpressible-today={len(covered)}"
-        f"\tgap={len(uncovered)}"
-    )
-    for name in uncovered:
-        seen = notation_transforms.get(name, 0) + module_transforms.get(name, 0)
-        print(f"  gap  {name:<28}\t{seen} rule(s)")
-    for name in covered:
-        print(f"  ok   {name:<28}\t{EXPRESSIBLE[name]}")
-
-    total = sum(notation.values()) + sum(module.values())
-    passthroughs = notation["passthrough"] + module["passthrough"]
-    alternations = notation["alternation"] + module["alternation"]
-    print(
-        f"\nsummary\tbodies={total}\tneeding-no-operation={alternations}"
-        f"\tneeding-ArgExpr={passthroughs}"
-        f"\tneeding-a-transform={total - alternations - passthroughs}"
+        f"\n{label}\t{len(rules)} rules, {passthroughs} alternation pass-throughs, "
+        f"{len(named)} distinct transforms over {sum(named.values())} rules"
     )
     _check(
-        "every authored body is already expressible — there is no gap to rule on",
-        bool(uncovered),
+        f"{label}: every named transform resolves in its own registry",
+        not unresolved,
+    )
+    return named
+
+
+def the_authored_surfaces_name_only_resolvable_transforms() -> Counter:
+    """Both parse surfaces' rules name transforms their registry carries."""
+    total = Counter()
+    total += _census("notation", notation.NOTATION_RULES, notation.NOTATION_SYMBOLS)
+    total += _census("module", selfgrammar.MODULE_RULES, selfgrammar.MODULE_SYMBOLS)
+    return total
+
+
+def no_authored_record_holds_a_callable() -> None:
+    """A rule's transform is a string key — the boundary, as data."""
+    for label, rules in (
+        ("notation", notation.NOTATION_RULES),
+        ("module", selfgrammar.MODULE_RULES),
+    ):
+        holders = sorted(
+            name for name, rule in rules.items() if not isinstance(rule.symbol, str)
+        )
+        _check(f"{label}: no authored rule holds a callable", not holders)
+
+
+def the_shared_idioms_are_accounted_for(named: Counter) -> None:
+    """Each shared idiom is in the registry, and its callers are named."""
+    print()
+    for key in SHARED:
+        users = named.get(key, 0)
+        print(f"idiom\t{key}: registered={key in FOLD_SYMBOLS} named-by={users} rules")
+        _check(f"the shared idiom {key!r} is registered", key in FOLD_SYMBOLS)
+    _check(
+        "the ABSENT sentinel is a distinct object the surfaces can test against",
+        ABSENT is not None and ABSENT is not False,
     )
 
 
 def the_symbol_channel_is_the_registry_the_effort_must_preserve() -> None:
-    """`FOLD_SYMBOLS` is the no-`eval` channel §4 requires kept intact."""
+    """`FOLD_SYMBOLS` is the no-`eval` channel this effort requires kept intact."""
     print(f"\nsymbols\tFOLD_SYMBOLS names {sorted(FOLD_SYMBOLS)}")
+    _check("the shared registry is non-empty", bool(FOLD_SYMBOLS))
     _check(
-        "the registry is empty — the no-eval channel has nothing to preserve",
-        bool(FOLD_SYMBOLS),
+        "every registered symbol is callable",
+        all(callable(value) for value in FOLD_SYMBOLS.values()),
+    )
+    _check(
+        "the module registry extends the notation one rather than replacing it",
+        set(notation.NOTATION_SYMBOLS) <= set(selfgrammar.MODULE_SYMBOLS),
+    )
+
+
+def the_seeded_controls_are_caught() -> None:
+    """An unresolvable key is refused — so the census is not decoration."""
+    seeded = dict(notation.NOTATION_RULES)
+    seeded["--seeded"] = AuthoredRule("no_such_transform")
+    try:
+        _census("control", seeded, notation.NOTATION_SYMBOLS)
+    except Defect:
+        print("control\tan unresolvable transform key is refused")
+        return
+    raise Defect(
+        "s4 authored census: an unresolvable key passed, so the census says nothing"
     )
 
 
 def main() -> None:
-    """Run the census; any broken claim raises."""
-    the_authored_surfaces_need_only_captures_from_a_product()
+    """Run the census, its claims and its control; any disagreement raises."""
+    named = the_authored_surfaces_name_only_resolvable_transforms()
+    no_authored_record_holds_a_callable()
+    the_shared_idioms_are_accounted_for(named)
     the_symbol_channel_is_the_registry_the_effort_must_preserve()
-    print("\ns4 authored census\tPASS\tthe gap is counted, not estimated")
+    the_seeded_controls_are_caught()
+    print("\ns4 authored census: OK")
 
 
 if __name__ == "__main__":

@@ -58,8 +58,7 @@ from lexic.parsing.pda.runtime.matchers import (
     vdisp_once,
     vstr_once,
 )
-
-_EMPTY_SLOT: Any = None
+from lexic.parsing.product import Completed
 
 
 class KernelExecutionMixin[Carry]:
@@ -131,7 +130,7 @@ class KernelExecutionMixin[Carry]:
                 pos += len(lit)
             elif k == OP_VSTR or k >= OP_VRUN:
                 if sinks is None:
-                    sinks = [_EMPTY_SLOT] * arm.n
+                    sinks = [None] * arm.n
                 sinks[i] = sub = []
                 # A tabled reference is exactly one iteration by its op-code, so
                 # it calls the matcher straight instead of the loop driver.
@@ -158,9 +157,7 @@ class KernelExecutionMixin[Carry]:
         out.append(clone.fast(fast_values(self.text, clone, (start, ends, sinks))))
         return pos
 
-    def _match_vstr(
-        self, sink: list[Carry], arm: FlatArm, i: int, pos: int
-    ) -> int:
+    def _match_vstr(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
         """Inline a terminal-only ``value_str`` reference — no frame per iteration.
 
         Runs item ``i``'s whole quantifier loop: each iteration selects the
@@ -194,9 +191,7 @@ class KernelExecutionMixin[Carry]:
             count += 1
         return pos
 
-    def _match_vdisp(
-        self, sink: list[Carry], arm: FlatArm, i: int, pos: int
-    ) -> int:
+    def _match_vdisp(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
         """Inline a reference to an all-``value_str`` dispatch — no frame, no table.
 
         The lead char picks the target clone afresh each iteration (the cursor
@@ -222,26 +217,33 @@ class KernelExecutionMixin[Carry]:
 
         The island rule parses over a doubling window from the cursor — with its
         conflict-free interior rules delegated to their PDA clones
-        (:meth:`_delegates`) — and the longest completion folds through the
-        policy's fold, its sub-model appending to ``sink``. The cursor advances
-        past the consumed island span.
+        (:meth:`_delegates`) — and the longest completion completes through the
+        policy's product executor, its value appending to ``sink``. The cursor
+        advances past the consumed island span.
+
+        Presence is the product's answer, not a truth test on the value. A
+        recognition-only island — a noise rule reached through an island
+        reference — completes to nothing and splices nothing, while an island
+        whose value IS ``None`` splices that ``None``. The fold could not tell
+        those apart; the completion result can, which is why the splice reads
+        it rather than the value.
 
         :param name: The island rule name.
-        :param sink: The enclosing sink the sub-model splices into.
-        :raises PdaFail: With no fold to splice (island-free path), when the
+        :param sink: The enclosing sink the value splices into.
+        :raises PdaFail: With no product to splice (island-free path), when the
             island rule completes over no window from the cursor, or when the
-            fold refuses the completion (a window-truncated mis-parse — see
+            product refuses the completion (a window-truncated mis-parse — see
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
-        fold = self.policy.fold
-        if fold is None:
+        executor = self.policy.executor
+        if executor is None:
             raise PdaFail(
-                f"island {name!r} at {self.pos}: no fold for splice", self.pos
+                f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
         tree, end = self._island_subparse(name)
-        model = island_value(lambda: fold.apply(tree), name, self.pos)
-        if model is not None:
-            sink.append(model)
+        result = island_value(lambda: executor.splice(tree), name, self.pos)
+        if isinstance(result, Completed):
+            sink.append(result.value)
         self.pos += end
 
     def _island_subparse(self, name: str) -> tuple[Any, int]:
@@ -304,7 +306,7 @@ class KernelExecutionMixin[Carry]:
         sub = cast(Any, type(self))(
             self.tables,
             window_text,
-            self.policy.fold,
+            self.policy.executor,
             resolve=self.policy.resolve,
         )
         return finish_delegate(sub, clone, window_text, pos)

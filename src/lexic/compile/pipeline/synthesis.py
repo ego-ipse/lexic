@@ -34,8 +34,6 @@ from typing import NamedTuple
 from lexic.compile.foldkit import ALT_PRODUCT
 from lexic.compile.pipeline.binding import (
     RuleBinding,
-    check_supplied_class,
-    field_kwargs,
 )
 from lexic.compile.pipeline.naming import VALUE_FIELD
 from lexic.exceptions import UnsupportedConstructError
@@ -53,7 +51,6 @@ from lexic.ir import (
     rule_closure,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import FastCtor, FieldFold, ModelBody
 from lexic.parsing.product import (
     CAPTURE_FOR_BIND,
     CaptureSpec,
@@ -189,114 +186,6 @@ def synthesize(
     return classes
 
 
-def _fast_ctor(cls: type, kind: str, fields: tuple[FieldFold, ...]) -> FastCtor | None:
-    """Grant a rule's :class:`~lexic.parsing.fold.FastCtor` licence, or refuse.
-
-    The class-level half comes from :meth:`GrammarModel.fast_construct`
-    (trivially granted on the record spine); the fold-level half checks
-    that every field the fold can leave unset (a ``gtext`` or ``model``
-    bind whose item can match nothing, ``lo == 0``) has a default to fall
-    back on, and that the fold's field names cover every non-defaulted
-    model field.
-
-    :param cls: The rule's generated model class.
-    :param kind: The rule's fold kind.
-    :param fields: The rule's bound fields.
-    :returns: The licence, or ``None`` (validated construction only).
-    """
-    if kind == "alternation" or not issubclass(cls, GrammarModel):
-        return None
-    make, defaults, order = cls.fast_construct()
-    names = {VALUE_FIELD} if kind == "value_str" else {f.name for f in fields}
-    model_names = set(cls._fields)
-    if not names <= model_names:
-        return None
-    if any(n not in names and n not in defaults for n in model_names):
-        return None
-    for field in fields:
-        skippable = field.mode in ("gtext", "model") and field.lo == 0
-        if skippable and field.name not in defaults:
-            return None
-    return FastCtor(make, defaults, order)
-
-
-def _derive_body(bound: RuleBinding, cls: type, items: Sequence[IrItem]) -> ModelBody:
-    """Derive a rule's :class:`~lexic.parsing.fold.ModelBody` from a supplied class.
-
-    The supplied-class sugar of the open binding table (settled 7): the class
-    is the fold constructor, and the body's structural metadata comes from the
-    binding view + the codegen grammar's sequence arm.
-
-    :param bound: The rule's binding view.
-    :param cls: The supplied constructor class.
-    :param items: The rule's single non-empty sequence arm (empty otherwise).
-    :returns: The rule's fold body.
-    """
-    fields = tuple(
-        FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
-        for name, bind in bound.fields.items()
-    )
-    if bound.kind == "alternation":
-        return ModelBody("alternation", IrNone, len(items), fields, None)
-    return ModelBody(
-        bound.kind,
-        IrLambda(cls),
-        len(items),
-        fields,
-        _fast_ctor(cls, bound.kind, fields),
-    )
-
-
-def fold_config(
-    codegen_grammar: IrAst,
-    binding: list[RuleBinding],
-    classes: dict[str, type],
-    overrides: Mapping[str, ModelBody | type] | None = None,
-    omit: frozenset[str] = frozenset(),
-) -> IrMap:
-    """Build the fold's IR body-table from the binding view — the open table.
-
-    Per rule the compile seam accepts EITHER a full authored
-    :class:`~lexic.parsing.fold.ModelBody` (the primitive — used verbatim) OR a
-    class serving as the fold constructor (the sugar — :func:`_derive_body`
-    builds the body from the binding view). With no ``overrides`` entry a rule
-    falls back to its synthesized class (also a supplied class). ``kind`` /
-    ``n_items`` / ``FieldFold``\\ s all come from the codegen grammar's single
-    non-empty sequence arm (``lo`` from the bound item's quantifier, consumed by
-    the ``gtext`` absence rule).
-
-    :param codegen_grammar: The post-pass grammar the binding was computed on.
-    :param binding: The binding view, in emission order.
-    :param classes: Generated classes by class name.
-    :param overrides: Per-rule fold-body override — a
-        :class:`~lexic.parsing.fold.ModelBody` (primitive) or a constructor
-        class (sugar); ``None`` uses the synthesized classes throughout.
-    :param omit: Rules kept recognition-only by leaving them out of the table.
-    :returns: An :class:`~lexic.ir.action.mapping.IrMap` from each rule's
-        :class:`~lexic.ir.grammar.nodes.IrRuleRef` to its
-        :class:`~lexic.parsing.fold.ModelBody`.
-    """
-    overrides = overrides or {}
-    rules = {str(rule.name): rule for rule in codegen_grammar.rules}
-    dyads: list[IrTuple] = []
-    for bound in binding:
-        if bound.rule_name in omit:
-            continue
-        override = overrides.get(bound.rule_name)
-        if isinstance(override, ModelBody):
-            dyads.append(IrTuple(IrRuleRef(bound.rule_name), override))
-            continue
-        arms = [arm for arm in rules[bound.rule_name].body if arm]
-        items = arms[0] if bound.kind == "sequence" and arms else ()
-        if override is not None:  # a supplied class (sugar) — enforce the contract
-            check_supplied_class(override, field_kwargs(bound))
-            cls = override
-        else:  # the trusted synthesized class
-            cls = classes[bound.class_name]
-        body = _derive_body(bound, cls, items)
-        dyads.append(IrTuple(IrRuleRef(bound.rule_name), body))
-    return IrMap(*dyads)
-
 
 # ── the generated-model product (the §4 specialization) ───────────────
 
@@ -355,7 +244,7 @@ def model_plan(
 ) -> ModelPlan:
     """Author the generated-model product from the binding view.
 
-    The §4 specialization: what :func:`fold_config` expresses as a fold body,
+    The generated-model specialization: what the binding view says a rule
     expressed instead as the ABI's own records, so both engines complete
     through one vocabulary. The class stays the binding's own synthesized
     class and the field order stays the binding's, so this authors the same
@@ -402,7 +291,7 @@ def model_plan(
                 optional,
                 _model_defaults(cls),
                 VALUE_FIELD if bound.kind == "value_str" else "",
-                _fast_ctor(cls, bound.kind, _fold_fields(bound, items)) is not None,
+                _fast_licence(cls, bound.kind, names, optional),
             )
         )
         products.append(RuleProduct(specs, RecordOp(len(constructors) - 1), len(items)))
@@ -416,13 +305,34 @@ def _model_defaults(cls: type) -> Mapping[str, object]:
     return cls.fast_construct()[1]
 
 
-def _fold_fields(bound: RuleBinding, items: Sequence[IrItem]) -> tuple[FieldFold, ...]:
-    """The rule's bound fields in the fold's spelling — the licence's input.
+def _fast_licence(
+    cls: type, kind: str, names: tuple[str, ...], optional: tuple[int, ...]
+) -> bool:
+    """Whether this rule may build through the class's positional constructor.
 
-    Reads the SAME binding the captures do, so the licence the product carries
-    is the licence the fold grants, not a second judgement about the class.
+    The class-level half comes from :meth:`GrammarModel.fast_construct`
+    (trivially granted on the record spine). The rule-level half asks whether
+    skipping validation could ever hide a missing field: every field the
+    completion can leave unset — one the record marks optional, or one the
+    captures never name at all — must have a default to fall back on.
+
+    Said in the product's own vocabulary rather than the fold's, so the
+    licence the constructor carries is derived from the captures that
+    constructor is built from, not from a second description of them.
+
+    :param cls: The rule's generated model class.
+    :param kind: The rule's binding kind.
+    :param names: The keyword each capture fills, in capture order.
+    :param optional: Capture indices the record admits being absent.
+    :returns: Whether the validation-skip licence is granted.
     """
-    return tuple(
-        FieldFold(bind.item, bind.mode, name, int(items[bind.item].quantifier.lo))
-        for name, bind in bound.fields.items()
-    )
+    if kind == "alternation" or not issubclass(cls, GrammarModel):
+        return False
+    filled = {VALUE_FIELD} if kind == "value_str" else set(names)
+    model_names = set(cls._fields)
+    if not filled <= model_names:
+        return False
+    defaults = _model_defaults(cls)
+    if any(name not in filled and name not in defaults for name in model_names):
+        return False
+    return all(names[at] in defaults for at in optional)

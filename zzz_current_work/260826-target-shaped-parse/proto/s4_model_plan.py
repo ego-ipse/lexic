@@ -1,217 +1,247 @@
-"""Prove the authored model product agrees with the fold it replaces.
+"""The ported validation-skip licence grants exactly what the deleted one did.
 
-§4 migrates generated-model parsing onto the common ABI. Before any consumer
-switches, the new authoring has to say the SAME thing the old one does — same
-rules, same field order, same capture per bind mode, same validation-skip
-licence, same class. This is that differential, run over every ground-truth
-grammar rather than a chosen one.
+`model_plan` used to compute a rule's validation-skip licence by calling the
+FOLD's `_fast_ctor` over reconstructed `FieldFold`s. The fold is deleted, so
+the predicate was ported to `_fast_licence`, which asks the same question from
+the captures and the optional set the constructor is actually built from.
 
-Two properties matter and neither is provable by reading the code:
+A ported predicate is a claim, and the claim is not "it looks equivalent" —
+it is that the licence SET is identical, rule by rule, over the whole
+ground-truth corpus. So this runs the STARTING COMMIT's own `_fast_ctor` and
+`_fold_fields`, taken by `git show` rather than transcribed, against the live
+`_fast_licence`, and compares.
 
-* **Agreement.** For every rule, `model_plan`'s captures and constructor
-  correspond exactly to `fold_config`'s `ModelBody` — item order, field names,
-  modes, and licence.
-* **Absence is carried.** A `gtext` bind whose item can match nothing is
-  recorded as an OPTIONAL capture. `CaptureSpec` has no room for a
-  quantifier, so if that did not survive authoring, every optional literal
-  group would start arriving as `""` instead of absent — a wrong model, not a
-  crash.
+Only the two record types the old code named (`FastCtor`, `FieldFold`) are
+re-declared here, because they were deleted with the fold; both were plain
+NamedTuples and the old ALGORITHM is executed verbatim from the commit. That
+is what keeps this a control rather than a comparison of my new code with my
+own paraphrase of the old.
 
-Uncommitted evidence, not a test. Luna owns the committed suite.
+Run: `uv run python zzz_current_work/260826-target-shaped-parse/proto/s4_model_plan.py`
 """
 
 from __future__ import annotations
 
+import ast
+import subprocess
 from pathlib import Path
+from typing import Any, Callable, Mapping, NamedTuple, Sequence
 
 from lexic.compile import compile_from_path
-from lexic.compile.pipeline.binding import compute_binding
-from lexic.compile.foldkit import ALT_PRODUCT
-from lexic.parsing.product import RecordOp
-from lexic.compile.pipeline.synthesis import fold_config, model_plan
-from lexic.parsing.product import CaptureMode
+from lexic.compile.pipeline.naming import VALUE_FIELD
+from lexic.compile.pipeline.synthesis import _fast_licence, _model_captures
+from lexic.model import GrammarModel
 
-GROUND_TRUTH = Path(__file__).resolve().parents[3] / "resources" / "ground_truth"
-STEMS = (
-    "json.gbnf",
-    "arithmetic.gbnf",
-    "list.gbnf",
-    "chess.gbnf",
-    "c.gbnf",
-    "markdown.gbnf",
-    "json_ws.gbnf",
-    "json_arr.gbnf",
-)
+BASE = "dffa821f"
+"""The starting commit whose licence this port must reproduce exactly."""
 
-MODE_FOR = {
-    "text": CaptureMode.TEXT,
-    "gtext": CaptureMode.TEXT,
-    "model": CaptureMode.ONE,
-    "models": CaptureMode.MANY,
-    "span": CaptureMode.EXTENT,
-}
+SOURCE = "src/lexic/compile/pipeline/synthesis.py"
+"""Where the deleted predicate lived at that commit."""
+
+REPO = Path(__file__).resolve().parents[3]
+GROUND_TRUTH = REPO / "resources" / "ground_truth"
 
 
-def _check(claim: str, held: bool) -> None:
-    """Refuse the witness the moment one claim stops holding."""
-    if not held:
-        raise AssertionError(f"s4 model plan: {claim}")
+class Defect(AssertionError):
+    """A claim this witness makes that the two predicates do not support."""
 
 
-def _agree(label: str, compiled: object) -> tuple[int, int]:
-    """Compare the authored plan against the fold for one compiled grammar."""
-    grammar = compiled.codegen_grammar  # type: ignore[attr-defined]
-    classes = compiled.classes  # type: ignore[attr-defined]
-    binding = compute_binding(grammar)
-    bodies = fold_config(grammar, binding, classes)
-    plan = model_plan(grammar, binding, classes)
+class FastCtor(NamedTuple):
+    """The deleted licence record, re-declared so the old code can run."""
 
-    folds = {str(ref): body for ref, body in bodies.items()}
-    _check(
-        f"{label}: the plan covers {len(plan.codes)} rules, the fold {len(folds)}",
-        set(plan.codes) == set(folds),
-    )
-
-    optionals = 0
-    constructors = 0
-    for name, code in plan.codes.items():
-        body = folds[name]
-        product = plan.rules[code]
-
-        # An alternation constructs nothing: it hands its matched arm's one
-        # model on, so it takes the shared pass-through and occupies no
-        # constructor row. The fold says the same thing with a stand-in ctor
-        # it never calls.
-        if body.kind == "alternation":
-            _check(
-                f"{label}/{name}: an alternation does not pass its child through",
-                product == ALT_PRODUCT,
-            )
-            continue
-        ctor = plan.constructors[constructors]
-        constructors += 1
-
-        _check(
-            f"{label}/{name}: arm width {product.n_items}, the fold's "
-            f"{body.n_items}",
-            product.n_items == body.n_items,
-        )
-        _check(
-            f"{label}/{name}: captured {len(product.captures)} of "
-            f"{len(body.fields)} bound fields",
-            len(product.captures) == len(body.fields),
-        )
-        for at, field in enumerate(body.fields):
-            spec = product.captures[at]
-            _check(
-                f"{label}/{name}.{field.name}: capture reads item "
-                f"{spec.slot}, the fold reads {field.item}",
-                spec.slot == field.item,
-            )
-            _check(
-                f"{label}/{name}.{field.name}: mode {spec.mode} does not "
-                f"match bind {field.mode!r}",
-                spec.mode == int(MODE_FOR[field.mode]),
-            )
-            _check(
-                f"{label}/{name}.{field.name}: the plan names {ctor.names[at]!r}",
-                ctor.names[at] == field.name,
-            )
-            # The absence rule: a gtext bind over an item that can match
-            # nothing must be optional, and nothing else may be.
-            expected = field.mode == "gtext" and field.lo == 0
-            _check(
-                f"{label}/{name}.{field.name}: optional is "
-                f"{at in ctor.optional}, expected {expected}",
-                (at in ctor.optional) == expected,
-            )
-            optionals += int(expected)
-
-        _check(
-            f"{label}/{name}: the licence disagrees with the fold",
-            ctor.licensed == (body.fast is not None),
-        )
-        # A `value_str` rule captures nothing and states instead WHICH field
-        # its own matched text fills — the one construction fact the bound
-        # fields cannot carry, since there is no item to point at.
-        _check(
-            f"{label}/{name}: matched_field is {ctor.matched_field!r} for a "
-            f"{body.kind} rule",
-            bool(ctor.matched_field) == (body.kind == "value_str"),
-        )
-        _check(
-            f"{label}/{name}: the plan constructs a different class",
-            ctor.cls is body.ctor.eval,
-        )
-    _check(
-        f"{label}: {constructors} constructor rows for a table of "
-        f"{len(plan.constructors)}",
-        constructors == len(plan.constructors),
-    )
-    return len(plan.codes), optionals
+    make: Callable[[list[object]], object]
+    defaults: Mapping[str, object]
+    fields: tuple[str, ...] = ()
 
 
-def every_ground_truth_grammar_agrees() -> None:
-    """The differential, over the whole corpus rather than a chosen grammar."""
-    total_rules = 0
-    total_optional = 0
-    for stem in STEMS:
-        compiled = compile_from_path(GROUND_TRUTH / stem)
-        rules, optionals = _agree(stem, compiled)
-        total_rules += rules
-        total_optional += optionals
-        print(f"agrees\t{stem:<16}\trules={rules}\toptional-gtext={optionals}")
-    _check(
-        "no grammar carried an optional gtext — the rule is untested",
-        total_optional > 0,
-    )
-    print(
-        f"total\t{len(STEMS)} grammars\trules={total_rules}\toptional={total_optional}"
-    )
+class FieldFold(NamedTuple):
+    """The deleted bound-field record, re-declared so the old code can run."""
+
+    item: int
+    mode: str
+    name: str
+    lo: int
 
 
-def the_absence_rule_is_carried() -> None:
-    """A real optional-gtext field is recorded optional; a required one is not.
+def _old_predicates() -> tuple[Callable[..., Any], Callable[..., Any]]:
+    """`_fast_ctor` and `_fold_fields` as the starting commit defined them.
 
-    `json_ws.gbnf`'s `number` binds `dot` and `ee` through gtext over items
-    that can match nothing — the actual shape the absence rule exists for.
-    Using it rather than a contrived grammar means the case under test is one
-    the corpus really contains.
+    Parsed out of the commit's own source text and executed here, so the
+    comparison runs the real deleted logic rather than a paraphrase of it.
     """
-    compiled = compile_from_path(GROUND_TRUTH / "json_ws.gbnf")
-    binding = compute_binding(compiled.codegen_grammar)
-    plan = model_plan(compiled.codegen_grammar, binding, compiled.classes)
-    bodies = fold_config(compiled.codegen_grammar, binding, compiled.classes)
-    folds = {str(ref): body for ref, body in bodies.items()}
+    done = subprocess.run(
+        ["git", "show", f"{BASE}:{SOURCE}"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode != 0:
+        raise Defect(f"s4 model plan: cannot read {SOURCE} at {BASE}")
+    tree = ast.parse(done.stdout)
+    wanted = {"_fast_ctor", "_fold_fields"}
+    found = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+    if len(found) != 2:
+        raise Defect(
+            f"s4 model plan: {BASE} defines {sorted(f.name for f in found)}, "
+            f"not both of {sorted(wanted)} — the control is not reading the "
+            "predicate it claims to"
+        )
+    namespace: dict[str, Any] = {
+        "FastCtor": FastCtor,
+        "FieldFold": FieldFold,
+        "GrammarModel": GrammarModel,
+        "VALUE_FIELD": VALUE_FIELD,
+        "Sequence": Sequence,
+    }
+    exec(  # noqa: S102 - the starting commit's own two functions, by design
+        compile(ast.Module(body=found, type_ignores=[]), SOURCE, "exec"), namespace
+    )
+    return namespace["_fast_ctor"], namespace["_fold_fields"]
 
-    # The constructor table is sparse in rules — an alternation occupies no
-    # row — so a rule's constructor is the one its completion NAMES.
-    completion = plan.rules[plan.codes["number"]].completion
-    assert isinstance(completion, RecordOp)
-    ctor = plan.constructors[completion.constructor]
-    fold = folds["number"]
-    optional_names = {ctor.names[at] for at in ctor.optional}
-    expected = {f.name for f in fold.fields if f.mode == "gtext" and f.lo == 0}
-    _check(
-        f"optional set {sorted(optional_names)} does not match the fold's "
-        f"{sorted(expected)}",
-        optional_names == expected,
+
+def _grammars() -> list[Path]:
+    """Every ground-truth fixture, in a stable order."""
+    found = sorted(
+        path
+        for suffix in ("*.gbnf", "*.abnf", "*.ebnf")
+        for path in GROUND_TRUTH.glob(suffix)
     )
-    _check(
-        "the real optional-gtext fields did not survive authoring", bool(optional_names)
-    )
-    _check(
-        "a required field was marked optional",
-        all(ctor.names[at] in expected for at in ctor.optional),
-    )
-    print(f"absence\tjson_ws number: optional {sorted(optional_names)} carried")
+    if len(found) < 8:
+        raise Defect(f"s4 model plan: only {len(found)} fixtures — not the corpus")
+    return found
+
+
+def the_ported_licence_is_the_deleted_one(
+    old_fast_ctor: Callable[..., Any], old_fold_fields: Callable[..., Any]
+) -> tuple[int, int]:
+    """Both predicates grant the same licence on every rule of every grammar."""
+    rules = granted = 0
+    for path in _grammars():
+        compiled = compile_from_path(path)
+        by_name = {str(r.name): r for r in compiled.codegen_grammar.rules}
+        for bound in compiled.moments.binding:
+            if bound.kind == "alternation":
+                continue
+            arms = [arm for arm in by_name[bound.rule_name].body if arm]
+            items = arms[0] if bound.kind == "sequence" and arms else ()
+            cls = compiled.classes[bound.class_name]
+            _specs, names, optional = _model_captures(bound, items)
+            new = _fast_licence(cls, bound.kind, names, optional)
+            old = old_fast_ctor(cls, bound.kind, old_fold_fields(bound, items)) is not None
+            if new != old:
+                raise Defect(
+                    f"s4 model plan: {path.name}/{bound.rule_name}: the port "
+                    f"grants {new} where {BASE} granted {old}"
+                )
+            rules += 1
+            granted += new
+    return rules, granted
+
+
+def both_refuse_the_same_way(
+    old_fast_ctor: Callable[..., Any], old_fold_fields: Callable[..., Any]
+) -> int:
+    """The two predicates also agree where the licence must be REFUSED.
+
+    The corpus grants uniformly, so the rule-by-rule sweep above only exercises
+    the granting path. This drives the refusing branches deliberately: a field
+    the completion may leave unset with no default to fall back on is the exact
+    case the licence exists to catch, and skipping validation there would build
+    a model with a hole in it.
+    """
+    checked = 0
+    for path in _grammars():
+        compiled = compile_from_path(path)
+        by_name = {str(r.name): r for r in compiled.codegen_grammar.rules}
+        for bound in compiled.moments.binding:
+            if bound.kind != "sequence":
+                continue
+            arms = [arm for arm in by_name[bound.rule_name].body if arm]
+            if not arms:
+                continue
+            items = arms[0]
+            cls = compiled.classes[bound.class_name]
+            _specs, names, optional = _model_captures(bound, items)
+            defaults = cls.fast_construct()[1]
+            # Only a gtext/model bind can be absent at all, so only those may be
+            # made absent-admitting: forcing it on a text bind would put the two
+            # predicates in a state the pipeline never builds, and the
+            # disagreement would be the probe's, not the port's.
+            without = tuple(
+                name
+                for name, bind in bound.fields.items()
+                if name in names
+                and name not in defaults
+                and bind.mode in ("gtext", "model")
+            )
+            if not without or len(names) != len(set(names)):
+                continue
+            at = names.index(without[0])
+            new = _fast_licence(cls, bound.kind, names, tuple(sorted({*optional, at})))
+            fields = tuple(
+                field._replace(lo=0) if field.name == without[0] else field
+                for field in old_fold_fields(bound, items)
+            )
+            old = old_fast_ctor(cls, bound.kind, fields) is not None
+            if new != old:
+                raise Defect(
+                    f"s4 model plan: {path.name}/{bound.rule_name}: on a "
+                    f"defaultless optional the port says {new}, {BASE} says {old}"
+                )
+            checked += 1
+    if checked < 10:
+        raise Defect(
+            f"s4 model plan: only {checked} refusal cases reached — the "
+            "refusing branch is not being exercised"
+        )
+    return checked
+
+
+def the_control_is_live(
+    old_fast_ctor: Callable[..., Any], old_fold_fields: Callable[..., Any]
+) -> None:
+    """A seeded divergence is caught — so agreement is not vacuous.
+
+    The seed withdraws the class-level half from the OLD predicate only. If the
+    comparison could not see one side change, it would agree with anything.
+    """
+    compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
+    by_name = {str(r.name): r for r in compiled.codegen_grammar.rules}
+    for bound in compiled.moments.binding:
+        if bound.kind == "alternation":
+            continue
+        arms = [arm for arm in by_name[bound.rule_name].body if arm]
+        items = arms[0] if bound.kind == "sequence" and arms else ()
+        cls = compiled.classes[bound.class_name]
+        _specs, names, optional = _model_captures(bound, items)
+        if not _fast_licence(cls, bound.kind, names, optional):
+            continue
+        # the same call with the kind forced to the one branch that refuses
+        seeded = old_fast_ctor(cls, "alternation", old_fold_fields(bound, items))
+        if seeded is None:
+            print("control\ta seeded refusal diverges from the live grant")
+            return
+    raise Defect("s4 model plan: the seeded divergence was not observable")
 
 
 def main() -> None:
-    """Run the differential; any disagreement raises."""
-    every_ground_truth_grammar_agrees()
-    the_absence_rule_is_carried()
-    print("s4 model plan\tPASS\tauthored product agrees with the fold it replaces")
+    """Run the licence differential and its control; any divergence raises."""
+    old_fast_ctor, old_fold_fields = _old_predicates()
+    rules, granted = the_ported_licence_is_the_deleted_one(
+        old_fast_ctor, old_fold_fields
+    )
+    print(
+        f"licence\t{rules} rules across the corpus, {granted} granted — "
+        f"identical to {BASE} rule by rule"
+    )
+    refusals = both_refuse_the_same_way(old_fast_ctor, old_fold_fields)
+    print(
+        f"refusal\t{refusals} defaultless-optional cases — both predicates "
+        "agree on the branch the licence exists to catch"
+    )
+    the_control_is_live(old_fast_ctor, old_fold_fields)
+    print("\ns4 model plan\tPASS\tthe ported licence IS the deleted one")
 
 
 if __name__ == "__main__":

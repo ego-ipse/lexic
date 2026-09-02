@@ -7,31 +7,32 @@ never copies a fourth variant.
 
 Two tiers live here:
 
-- **the pass-throughs** — :data:`ALT` (the alternation identity fold) and
-  :func:`passthrough` (a single-field sequence's identity ctor);
-- **the shared idioms** — the first+rest list collector (:func:`first_rest`,
-  as the IR body :data:`FIRST_REST`), the int decode (the builtin ``int``, as
-  :data:`DECODE_INT`), and the absent-default tail (:func:`absent_tail` + its
-  :data:`ABSENT` sentinel).
+- **the shared idioms** — the identity ctor (:func:`passthrough`), the
+  first+rest list collector (:func:`first_rest`), the int decode
+  (:func:`decode_int`), and the absent-default tail (:func:`absent_tail` with
+  its :data:`ABSENT` sentinel), pooled in :data:`FOLD_SYMBOLS`;
+- **the authored-product vocabulary** — :class:`AuthoredRule`,
+  :class:`AuthoredProduct`, :data:`ALT_PRODUCT` and :func:`product_rules`,
+  which say what a surface's rules capture and which transform completes them.
 
-The first two return non-IR values (``int``, ``tuple``) that no action-algebra
-node can honestly build, so each is a :class:`IrNamed` leaf — a
-registry-resolved symbol (the ``notation`` SYMBOLS whitelist precedent), the IR
-form of a non-algebraic ctor read via the argument channel. The absent-default
-tail stays a KEYWORD ctor (reused via :class:`~lexic.ir.base.IrLambda`): a
-channel body cannot express it, since its absence fill (``IrNone``) is a
-legitimate argument value in the notation. Surface-specific transforms that are
-NOT shared stay honest :class:`~lexic.ir.base.IrLambda` citizens on their own
-surface.
+An authored record never holds a callable. A rule names its transform by
+registry KEY, and lowering resolves that key through the surface's own
+whitelist — the no-``eval`` boundary, drawn once, on the product side.
+Everything a completion applies is therefore reachable by name from
+:data:`FOLD_SYMBOLS` or a surface's extension of it, and a key that is not
+there refuses with words rather than being called.
+
+Transforms are applied BY KEYWORD, which is load-bearing rather than
+incidental: :func:`absent_tail` distinguishes an omitted optional from a real
+value, and only omission — not a filled placeholder — can express that.
+Surface-specific transforms that are not shared stay on their own surface and
+join that surface's registry.
 """
 
 from __future__ import annotations
 
-from typing import Callable, ClassVar, Mapping, NamedTuple, Self, Sequence, cast
+from typing import Callable, Mapping, NamedTuple, Sequence, cast
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.ir import IrLambda, IrMap, IrNode, IrRuleRef, IrSelf, IrTuple
-from lexic.parsing import ModelBody, ModelFold, RuleFold
 from lexic.parsing.product import (
     CaptureMode,
     CaptureSpec,
@@ -44,35 +45,19 @@ from lexic.parsing.product import (
 
 __all__ = [
     "ABSENT",
-    "ALT",
-    "decode_int",
     "ALT_PRODUCT",
     "AuthoredProduct",
     "AuthoredRule",
-    "ALT_BODY",
-    "DECODE_INT",
-    "FIRST_REST",
     "FOLD_SYMBOLS",
-    "IrNamed",
     "absent_tail",
+    "decode_int",
     "first_rest",
-    "model_fold",
-    "product_rules",
     "passthrough",
-    "seq",
+    "product_rules",
 ]
 
 
-# ── pass-throughs ─────────────────────────────────────────────────────────
-
-
-def _none() -> None:
-    """The unused alternation ctor slot (``kind == "alternation"`` ignores it)."""
-    return None
-
-
-ALT = RuleFold("alternation", _none, 0, ())
-"""The shared alternation pass-through — the matched arm's model IS the result."""
+# ── the shared idioms ─────────────────────────────────────────────────────
 
 
 def passthrough(v: object) -> object:
@@ -82,9 +67,6 @@ def passthrough(v: object) -> object:
     :returns: ``v`` unchanged.
     """
     return v
-
-
-# ── the shared idioms (non-IR-valued ctors) ───────────────────────────────
 
 
 ABSENT: object = object()
@@ -141,107 +123,18 @@ def absent_tail(**kwargs: object) -> object:
 
 
 FOLD_SYMBOLS: dict[str, Callable[..., object]] = {
-    "int": int,
     "decode_int": decode_int,
     "first_rest": first_rest,
     "passthrough": passthrough,
     "absent_tail": absent_tail,
 }
-"""The curated fold-ctor registry — the no-exec boundary :class:`IrNamed`
-resolves through. Every reachable name is a shared idiom callable; a surface
-adds a symbol here to make it manifest-expressible."""
-
-
-class IrNamed(IrNode[IrSelf, IrSelf]):
-    """Named-callable fold-ctor leaf — the node IS its :data:`FOLD_SYMBOLS` key.
-
-    The IR form of a non-algebraic ctor: on eval it resolves the key through
-    :data:`FOLD_SYMBOLS` (the no-exec boundary) and applies the callable to the
-    argument channel — ``FOLD_SYMBOLS[key](*nc)``. Reprable by name (unlike
-    :class:`~lexic.ir.base.IrLambda`, which wraps an opaque closure), so an
-    authored fold that uses only the shared vocabulary stays manifest-shaped.
-
-    :param key: The registry key naming the shared ctor.
-    """
-
-    __slots__ = ("key",)
-    _bound: ClassVar[type] = IrSelf
-    key: str
-
-    def __new__(cls, key: str, /) -> Self:
-        """Wrap the registry key as an immutable leaf.
-
-        :param key: The :data:`FOLD_SYMBOLS` key.
-        :returns: The new :class:`IrNamed` leaf.
-        """
-        obj = object.__new__(cls)
-        object.__setattr__(obj, "key", key)
-        return obj
-
-    def __repr__(self) -> str:
-        """Codegen repr — ``IrNamed('<key>')``."""
-        return f"IrNamed({self.key!r})"
-
-    def __eq__(self, other: object) -> bool:
-        """Structural equality over the registry key."""
-        return isinstance(other, IrNamed) and other.key == self.key
-
-    def __hash__(self) -> int:
-        """Hash the registry key."""
-        return hash((IrNamed, self.key))
-
-    def eval(self, _d: IrSelf, _n: IrSelf, nc: Sequence[IrSelf], /) -> IrSelf:
-        """Resolve the key and apply its callable to the argument channel.
-
-        The result is an opaque fold value (``int`` / ``tuple`` / the
-        :data:`ABSENT` marker) the fold consumes positionally — cast to the
-        ``IrSelf`` the eval protocol declares, exactly as ``load_ir`` casts its
-        parse product at the fold boundary.
-
-        :param _d: Dispatcher (unused — the callable owns its work).
-        :param _n: Node (unused — arguments arrive on the channel).
-        :param nc: The argument channel, in ``fields`` order.
-        :returns: ``FOLD_SYMBOLS[key](*nc)``.
-        :raises UnsupportedConstructError: When the key is not registered.
-        """
-        fn = FOLD_SYMBOLS.get(self.key)
-        if fn is None:
-            raise UnsupportedConstructError(
-                f"foldkit: unknown fold symbol {self.key!r}"
-            )
-        return cast(IrSelf, fn(*nc))
-
-
-FIRST_REST = IrNamed("first_rest")
-"""The first+rest list collector as an IR body — see :func:`first_rest`."""
-
-DECODE_INT = IrNamed("int")
-"""The digit-run → int decode as an IR body — the builtin ``int``."""
+"""The curated transform registry — the no-``eval`` boundary an authored
+product's symbol keys resolve through. Every reachable name is a shared idiom
+callable; a surface adds a symbol here, or extends this table with its own, to
+make a transform nameable from a record that holds no callable."""
 
 
 # ── authored-fold construction ────────────────────────────────────────────
-
-
-def seq(ctor: Callable[..., object] | IrSelf, n_items: int, fields: tuple) -> ModelBody:
-    """A ``sequence``-kind :class:`~lexic.parsing.fold.ModelBody`.
-
-    A plain callable is wrapped in :class:`~lexic.ir.base.IrLambda` (the
-    surface-specific escape hatch); an :class:`IrSelf` (a shared idiom body) is
-    carried as-is so :meth:`~lexic.parsing.fold.ModelBody.bake` maps kwargs onto
-    its argument channel.
-
-    :param ctor: The rule's model constructor — a callable or a shared IR body.
-    :param n_items: Kid-slot count of the single sequence arm.
-    :param fields: The bound fields, in item order.
-    :returns: The sequence body.
-    """
-    body = ctor if isinstance(ctor, IrSelf) else IrLambda(ctor)
-    return ModelBody("sequence", body, n_items, fields)
-
-
-ALT_BODY = ModelBody.of(ALT)
-"""The alternation pass-through as a :class:`~lexic.parsing.fold.ModelBody` —
-the IrMap-authoring form of :data:`ALT` (its ctor is :data:`~lexic.ir.base.IrNone`)."""
 
 
 # ── authored-product construction ─────────────────────────────────────────
@@ -332,18 +225,3 @@ def product_rules(authored: Mapping[str, AuthoredRule]) -> AuthoredProduct:
             )
         )
     return AuthoredProduct(tuple(rules), tuple(symbols), codes)
-
-
-def model_fold(bodies: Mapping[str, ModelBody]) -> ModelFold:
-    """Build a :class:`~lexic.parsing.fold.ModelFold` from a name → body table.
-
-    The single home for the "dict of :class:`~lexic.parsing.fold.ModelBody` →
-    fold" construction — assembles the IR body-table (an
-    :class:`~lexic.ir.action.mapping.IrMap`) the fold bakes on construction.
-
-    :param bodies: Rule name → its :class:`~lexic.parsing.fold.ModelBody`.
-    :returns: The configured fold.
-    """
-    return ModelFold(
-        IrMap(*(IrTuple(IrRuleRef(name), body) for name, body in bodies.items()))
-    )

@@ -30,7 +30,7 @@ from lexic.ir import (
     IrRuleRef,
     IrSequence,
 )
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, kwindow, nullable_names
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import SG_PROBE, SG_SCAN

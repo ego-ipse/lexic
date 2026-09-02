@@ -22,7 +22,7 @@ from lexic.parsing.pda.runtime.matchers import vdisp_once, vstr_once
 __all__ = ["AttemptInlineMixin"]
 
 
-class AttemptInlineMixin:
+class AttemptInlineMixin[Carry]:
     """Attempt-aware inline loops inherited by the PDA kernel."""
 
     __slots__ = ()
@@ -31,7 +31,7 @@ class AttemptInlineMixin:
     pos: int
     _caches: KernelCaches
 
-    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[Any]:
+    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[Carry]:
         """Provided by the kernel — item ``i``'s lazily allocated sink."""
         raise NotImplementedError
 
@@ -40,7 +40,7 @@ class AttemptInlineMixin:
         arm: FlatArm,
         i: int,
         pos: int,
-        got: tuple[int, list[object]],
+        got: tuple[int, list[Carry]],
     ) -> bool:
         """Provided by ``Attempting`` — audit one tentative iteration."""
         raise NotImplementedError
@@ -61,7 +61,7 @@ class AttemptInlineMixin:
         lo, hi = arm.los[i], arm.his[i]
         first = arm.gate_data[i][0]
         count = frame[F_COUNT]
-        sink: list[Any] | None = None
+        sink: list[Carry] | None = None
         frame[F_I] = i
         while count < lo:
             end, values = self._inline_once(arm, i, pos)
@@ -193,16 +193,16 @@ class AttemptInlineMixin:
 
     def attempt_inline(
         self, arm: FlatArm, i: int, pos: int
-    ) -> tuple[int, list[object]] | None:
+    ) -> tuple[int, list[Carry]] | None:
         """Try one frame-less value-string iteration, fail-soft."""
         try:
             return self._inline_once(arm, i, pos)
         except PdaFail, LexicError:
             return None
 
-    def _inline_once(self, arm: FlatArm, i: int, pos: int) -> tuple[int, list[object]]:
+    def _inline_once(self, arm: FlatArm, i: int, pos: int) -> tuple[int, list[Carry]]:
         """One attempt-aware match, raising on a mandatory mismatch."""
-        holder: list[object] = []
+        holder: list[Carry] = []
         end = (
             vstr_once(
                 self.text,

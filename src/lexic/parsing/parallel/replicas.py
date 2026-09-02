@@ -23,7 +23,6 @@ the ~6.5x of fully separate artefacts is what this buys.
 
 from __future__ import annotations
 
-import copy
 import itertools
 import threading
 from typing import NamedTuple
@@ -31,68 +30,29 @@ from typing import NamedTuple
 from lexic.ir import IrAst
 from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import adopt, memo
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.parallel.policy import available_workers
 
 Replica = tuple[IrAst, ModelBinding]
 """One worker's private view: an equal grammar, and a binding copy."""
 
-_MAX_DEPTH = 6
-"""How deep a fold's container graph is rebuilt. Past this the sharing costs
-less than the walk; measured, the win is all in the first few levels."""
-
-
-def _replicate(value: object, depth: int = 0) -> object:
-    """A private copy of ``value``'s plain containers; everything else shared.
-
-    ``copy.deepcopy`` cannot be used — a fold holds ``IrLambda`` bodies that
-    refuse reconstruction — and a shallow copy leaves every table shared,
-    which is most of what workers contend on. Rebuilding the plain
-    ``dict``/``list``/``tuple`` spine is the part that CAN be copied, and
-    measured it moved 8-thread scaling from 4.21x to 5.34x.
-
-    Exact types only, so IR nodes (tuple SUBCLASSES) and synthesized model
-    classes stay shared: copying those would change what a model IS, and
-    model equality across workers is the contract the whole split rests on.
-    """
-    if depth > _MAX_DEPTH:
-        return value
-    kind = type(value)
-    if kind is dict:
-        assert isinstance(value, dict)
-        return {k: _replicate(v, depth + 1) for k, v in value.items()}
-    if kind is list:
-        assert isinstance(value, list)
-        return [_replicate(v, depth + 1) for v in value]
-    if kind is tuple:
-        assert isinstance(value, tuple)
-        return tuple(_replicate(v, depth + 1) for v in value)
-    return value
-
 
 def _binding_copy[M](binding: ModelBinding[M]) -> ModelBinding[M]:
-    """A binding whose fold's container spine is this worker's own.
+    """A binding whose rule map is this worker's own.
 
     The memo keys on the BINDING's identity, so the copy has to be of the
-    binding; its fold is copied inside because that is the container graph
-    whose sharing costs the refcount traffic.
+    binding; the rule map is rebuilt inside because it is the container every
+    completion reads, and therefore the one whose sharing costs the refcount
+    traffic — the same container graph, and the same measured 8-thread
+    scaling move from 4.21x to 5.34x, that copying the fold's config bought.
+
+    What it holds is deliberately NOT copied. The rule products and the
+    construction tables are immutable records, and a worker rebuilding them
+    would change what a model is built from; model equality across workers is
+    the contract the whole split rests on. Constructing the binding over the
+    private map is also what gives each worker its own executor, without a
+    second place deciding that.
     """
-    return binding._replace(fold=_fold_copy(binding.fold))
-
-
-def _fold_copy[M](fold: ModelFold[M]) -> ModelFold[M]:
-    """A fold whose container spine is this worker's own."""
-    out = copy.copy(fold)
-    names = [
-        slot for cls in type(fold).__mro__ for slot in getattr(cls, "__slots__", ())
-    ]
-    names += list(vars(out)) if hasattr(out, "__dict__") else []
-    for name in names:
-        try:
-            setattr(out, name, _replicate(getattr(out, name)))
-        except AttributeError, TypeError:
-            continue  # read-only or absent: sharing it is always correct
-    return out
+    return ModelBinding(dict(binding.rules), binding.owned)
 
 
 _REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelBinding, list[Replica]]] = memo(

@@ -31,26 +31,20 @@ from typing import Callable, ClassVar
 
 import lexic.compile.notation.parse as _notation
 from lexic.compile.foldkit import (
-    ALT_BODY,
-    DECODE_INT,
-    FIRST_REST,
     AuthoredRule,
     first_rest,
-    model_fold,
-    passthrough,
     product_rules,
-    seq,
 )
 from lexic.compile.module.rules import module_grammar
-from lexic.compile.product import bind_symbols, rules_by_name
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrNamedTuple,
     IrNone,
     IrSelf,
 )
-from lexic.parsing import FieldFold, ModelBinding, ModelBody, ModelFold, parse_model
-from lexic.parsing.product import CaptureMode, CaptureSpec, ConstructionTables
+from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 __all__ = [
     "MClass",
@@ -233,134 +227,7 @@ def _none() -> None:
     return None
 
 
-def _fold_config() -> dict[str, ModelBody]:
-    """The module fold table (merged over the notation's own body table)."""
-    cfg = {str(ref): body for ref, body in _notation.NOTATION_FOLD.bodies.items()}
-    cfg.update(
-        {
-            "m-module": seq(
-                _m_module,
-                8,
-                (
-                    FieldFold(0, "model", "doc", 1),
-                    FieldFold(3, "model", "imports", 1),
-                    FieldFold(4, "models", "classes", 0),
-                    FieldFold(5, "model", "grammar", 1),
-                    FieldFold(7, "model", "bind", 0),
-                ),
-            ),
-            "m-nl": seq(_true, 1, ()),
-            "m-docstring": seq(_m_docstring, 3, (FieldFold(1, "text", "raw", 0),)),
-            "m-imports": seq(
-                _m_imports,
-                7,
-                (
-                    FieldFold(2, "model", "typing_names", 0),
-                    FieldFold(3, "model", "compile_import", 0),
-                    FieldFold(4, "model", "ir_names", 1),
-                ),
-            ),
-            "m-typing-import": seq(
-                _m_typing_import, 4, (FieldFold(1, "model", "names", 1),)
-            ),
-            "m-compile-import": seq(_true, 1, ()),
-            "m-ir-import": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-            "m-import-tail": ALT_BODY,
-            "m-import-paren": seq(
-                _m_import_paren, 3, (FieldFold(1, "models", "lines", 0),)
-            ),
-            "m-import-flat": seq(passthrough, 2, (FieldFold(0, "model", "v", 1),)),
-            "m-import-line": seq(passthrough, 3, (FieldFold(1, "model", "v", 1),)),
-            "m-name-list": seq(
-                FIRST_REST,
-                2,
-                (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
-            ),
-            "m-more-name": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-            "m-name": seq(
-                _m_name,
-                2,
-                (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
-            ),
-            "m-field-name": seq(
-                _m_name,
-                2,
-                (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
-            ),
-            "m-int": seq(DECODE_INT, 1, (FieldFold(0, "text", "raw", 1),)),
-            "m-class-block": seq(
-                _m_class,
-                8,
-                (
-                    FieldFold(1, "model", "name", 1),
-                    FieldFold(3, "model", "bases", 1),
-                    FieldFold(5, "model", "doc", 1),
-                    FieldFold(7, "model", "body", 1),
-                ),
-            ),
-            "m-body": ALT_BODY,
-            "m-filled-body": seq(_m_body, 3, (FieldFold(1, "models", "lines", 0),)),
-            "m-empty-body": seq(_m_body, 1, ()),
-            "m-body-line": ALT_BODY,
-            "m-indented-line": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-            "m-line-tail": ALT_BODY,
-            "m-field-tail": seq(
-                _m_field_tail,
-                6,
-                (
-                    FieldFold(0, "model", "name", 1),
-                    FieldFold(2, "model", "atom", 1),
-                    FieldFold(3, "models", "unions", 0),
-                    FieldFold(4, "model", "default", 0),
-                ),
-            ),
-            "m-default": seq(_true, 1, ()),
-            "m-type-union": seq(_m_type_union, 2, (FieldFold(1, "model", "atom", 1),)),
-            "m-type-atom": seq(
-                _m_type_atom,
-                2,
-                (FieldFold(0, "model", "name", 1), FieldFold(1, "model", "args", 0)),
-            ),
-            "m-type-args": seq(
-                _m_type_args,
-                4,
-                (FieldFold(1, "model", "first", 1), FieldFold(2, "models", "rest", 0)),
-            ),
-            "m-arg-tail": ALT_BODY,
-            "m-arg-union": seq(_m_type_union, 2, (FieldFold(1, "model", "atom", 1),)),
-            "m-arg-sep": seq(_m_arg_sep, 2, (FieldFold(1, "model", "arg", 1),)),
-            "m-arg-unit": ALT_BODY,
-            "m-str-token": ALT_BODY,
-            "m-dq-token": seq(_m_dq_token, 3, (FieldFold(1, "text", "raw", 0),)),
-            "m-sq-token": seq(_m_sq_token, 3, (FieldFold(1, "text", "raw", 0),)),
-            "m-grammar-tail": seq(
-                _m_inline_grammar, 3, (FieldFold(1, "model", "value", 1),)
-            ),
-            "m-shape-tail": seq(
-                _m_inline_shape, 3, (FieldFold(1, "model", "value", 1),)
-            ),
-            "m-inline-binds": seq(
-                _m_inline_binds, 5, (FieldFold(2, "models", "entries", 0),)
-            ),
-            "m-bind-entry": seq(
-                _m_bind_entry,
-                7,
-                (
-                    FieldFold(1, "model", "slot", 1),
-                    FieldFold(3, "model", "name", 1),
-                    FieldFold(5, "model", "value", 1),
-                ),
-            ),
-            "m-grammar-stmt": seq(passthrough, 3, (FieldFold(1, "model", "v", 1),)),
-            "m-bind-stmt": seq(_true, 1, ()),
-            "m-gap": seq(_none, 1, ()),
-        }
-    )
-    return cfg
-
-
 MODULE_GRAMMAR = module_grammar()
-MODULE_FOLD: ModelFold = model_fold(_fold_config())
 
 
 def parse_module(text: str) -> MModule:
@@ -535,9 +402,8 @@ MODULE_PRODUCT = product_rules(MODULE_RULES)
 the code each rule name resolves to."""
 
 MODULE_BINDING = ModelBinding(
-    MODULE_FOLD,
     rules_by_name(MODULE_PRODUCT.rules, MODULE_PRODUCT.codes),
-    ConstructionTables(symbols=bind_symbols(MODULE_PRODUCT.symbols, MODULE_SYMBOLS)),
+    LoweringOwned(symbols=MODULE_PRODUCT.symbols, registry=MODULE_SYMBOLS),
 )
 """What this surface hands a parse entry — its product, with the fold its
 completions still read."""

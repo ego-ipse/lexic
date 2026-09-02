@@ -173,13 +173,13 @@ def _family_scope(compiled_text: str, *, lift: bool) -> FamilyScope:
         else compiled.codegen_grammar
     )
     grammar = normalize(source)
-    tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(1))
+    tables = collapsed_fold_tables(grammar, compiled.executor, tier_for(1))
     kernel = Kernel(tables, "x", True).run()
     root = accept_handle(kernel)
     baseline_tree = FastTree(kernel, {}).build(root)
     if not isinstance(baseline_tree, ParseTree):
         raise UnsupportedConstructError("nullable quantifier: no baseline tree")
-    baseline = compiled.fold.apply(baseline_tree)
+    baseline = compiled.product.executor.build(baseline_tree)
     points = complete_ambiguity_points(kernel, root)
     differing = 0
     non_arm = 0
@@ -191,7 +191,7 @@ def _family_scope(compiled_text: str, *, lift: bool) -> FamilyScope:
             alternate_tree = FastTree(kernel, {key: family}).build(root)
             if not isinstance(alternate_tree, ParseTree):
                 continue
-            alternate = compiled.fold.apply(alternate_tree)
+            alternate = compiled.product.executor.build(alternate_tree)
             if not same_value(baseline, alternate):
                 changed = True
         if not changed:
@@ -207,20 +207,20 @@ def prove_quantifier_scope() -> None:
     for case in CASES:
         compiled = compile_text(case.grammar)
         grammar = normalize(lift_optional_nullables(compiled.codegen_grammar))
-        tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(1))
+        tables = collapsed_fold_tables(grammar, compiled.executor, tier_for(1))
         raw_scope = _family_scope(case.grammar, lift=False)
         effective_scope = _family_scope(case.grammar, lift=True)
         public = _answer(lambda: compiled.parse("x", cores=1))
         predictive = _answer(
             lambda: pda_model(
-                pda_tables(compiled.codegen_grammar, compiled.fold),
+                pda_tables(compiled.codegen_grammar, compiled.executor),
                 "x",
-                compiled.fold,
+                compiled.executor,
             )
         )
         earley = _answer(lambda: earley_model(grammar, "x", compiled.product, tables))
         raw_grammar = normalize(compiled.codegen_grammar)
-        raw_tables = collapsed_fold_tables(raw_grammar, compiled.fold, tier_for(1))
+        raw_tables = collapsed_fold_tables(raw_grammar, compiled.executor, tier_for(1))
         raw_earley = _answer(
             lambda: earley_model(raw_grammar, "x", compiled.product, raw_tables)
         )
@@ -255,7 +255,7 @@ def prove_leo_readout() -> None:
     """The standalone ambiguity readout changes after lazy Leo expansion."""
     compiled = compile_text(LEO_GRAMMAR)
     grammar = normalize(lift_optional_nullables(compiled.codegen_grammar))
-    tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(4_096))
+    tables = collapsed_fold_tables(grammar, compiled.executor, tier_for(4_096))
     text = "version=3;size=7;"
     kernel = Kernel(tables, text, True).run()
     root = accept_handle(kernel)
@@ -415,13 +415,13 @@ def _exposure(path: Path, text: str, *, lift: bool) -> tuple[int, int, int, int]
         else compiled.codegen_grammar
     )
     grammar = normalize(source)
-    tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
+    tables = collapsed_fold_tables(grammar, compiled.executor, tier_for(len(text)))
     kernel = Kernel(tables, text, True).run()
     root = accept_handle(kernel)
     baseline_tree = FastTree(kernel, {}).build(root)
     if not isinstance(baseline_tree, ParseTree):
         raise UnsupportedConstructError(f"corpus exposure: {path.name} did not parse")
-    baseline = compiled.fold.apply(baseline_tree)
+    baseline = compiled.product.executor.build(baseline_tree)
     points = complete_ambiguity_points(kernel, root)
     bits = kernel.tables.packing.bits
     arms = sum(
@@ -437,7 +437,7 @@ def _exposure(path: Path, text: str, *, lift: bool) -> tuple[int, int, int, int]
             alternate = FastTree(kernel, {key: family}).build(root)
             if not isinstance(alternate, ParseTree):
                 continue
-            if not same_value(baseline, compiled.fold.apply(alternate)):
+            if not same_value(baseline, compiled.product.executor.build(alternate)):
                 changed += 1
         differing_points += 1 if changed else 0
         differing_families += changed
@@ -486,18 +486,18 @@ def prove_non_semantic_parse_shape() -> None:
         parse_shape = compiled.moments.grammar.armed
         lifted = lift_optional_nullables(compiled.codegen_grammar)
         grammar = normalize(parse_shape)
-        tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
+        tables = collapsed_fold_tables(grammar, compiled.executor, tier_for(len(text)))
         current = compiled.parse(text, cores=1)
         general = earley_model(grammar, text, compiled.product, tables)
         predictive_status = "matched current"
         try:
             predictive = pda_model(
-                pda_tables(parse_shape, compiled.fold), text, compiled.fold
+                pda_tables(parse_shape, compiled.executor), text, compiled.executor
             )
             assert same_value(current, predictive), name
         except PdaFail:
             predictive_status = "declined to gated completion"
-        gated = parse_model(parse_shape, text, compiled.fold)
+        gated = parse_model(parse_shape, text, compiled.executor)
         scope = _exposure(root / name, text, lift=False)
         assert same_value(current, general), name
         assert same_value(current, gated), name
@@ -558,7 +558,7 @@ def prove_island_placement() -> None:
     """
     for case in CASES:
         compiled = compile_text(case.grammar)
-        tables = pda_tables(compiled.codegen_grammar, compiled.fold)
+        tables = pda_tables(compiled.codegen_grammar, compiled.executor)
         islands = sorted(str(name) for name in getattr(tables, "islands", ()))
         print(
             "island-placement",
@@ -584,7 +584,7 @@ def prove_leo_expansion_cost() -> None:
     grammar = normalize(lift_optional_nullables(compiled.codegen_grammar))
     for repeats in (1, 16, 128, 512):
         text = "[" + ", ".join('{"a": 1}' for _ in range(repeats)) + "]"
-        tables = collapsed_fold_tables(grammar, compiled.fold, tier_for(len(text)))
+        tables = collapsed_fold_tables(grammar, compiled.executor, tier_for(len(text)))
         kernel = Kernel(tables, text, True).run()
         print(
             "leo-expansion-cost",
@@ -646,7 +646,7 @@ def prove_baseline_timing() -> None:
         islands = sorted(
             str(name)
             for name in getattr(
-                pda_tables(affected.codegen_grammar, affected.fold), "islands", ()
+                pda_tables(affected.codegen_grammar, affected.executor), "islands", ()
             )
         )
         print(
