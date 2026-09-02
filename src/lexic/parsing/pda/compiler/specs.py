@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.product import RegularProof
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 from lexic.parsing.product import RuleProduct
 
@@ -257,6 +258,12 @@ class CloneSpec(NamedTuple):
         (nullable arms last), FIRSTs may overlap, and the runtime tries arms
         with rollback instead of selecting one; the follow set is the
         cross-span composition evidence its second-success audit reads.
+    :ivar consult: The authoritative regular proof for a :attr:`match_only`
+        rule whose whole extent one recognizer can decide, else ``None``.
+        Proved against the rule's OWN continuation rather than a widest
+        follow, because a consult that could run past its terminator would
+        answer a different question than the per-character program it
+        replaces.
     """
 
     name: str
@@ -266,3 +273,4 @@ class CloneSpec(NamedTuple):
     match_only: bool
     struct_arm: ScanGate | None = None
     attempt_follow: CharSet | None = None
+    consult: RegularProof | None = None

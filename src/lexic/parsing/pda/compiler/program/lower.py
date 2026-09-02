@@ -41,6 +41,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
+from lexic.parsing.pda.compiler.eligibility import extent_pattern
 from lexic.parsing.pda.compiler.program.product import bake_product_build
 from lexic.parsing.pda.compiler.program.specialize import (
     convert_dispatch,
@@ -503,6 +504,20 @@ def _range_of(binding: ModelBinding, name: str) -> int:
     return -1 if code < 0 else binding.program.rules[code].completion
 
 
+def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pattern]:
+    """Each proved clone's own extent pattern, keyed by the shell it belongs to.
+
+    A clone is a rule compiled for ONE continuation and the proof was taken
+    against that continuation, so the pattern rides the shell rather than the
+    rule name — two clones of one rule can differ on whether it holds at all.
+    """
+    return {
+        id(low.shells[key]): extent_pattern(spec.consult)
+        for key, spec in clones.items()
+        if spec.consult is not None
+    }
+
+
 def flatten_clones(
     clones: dict[CloneKey, CloneSpec],
     binding: ModelBinding = ModelBinding(),
@@ -540,7 +555,7 @@ def flatten_clones(
         bake_product_build(
             clone, spec.product, binding.construction, _range_of(binding, spec.name)
         )
-    optimize_program(list(low.shells.values()))
+    optimize_program(list(low.shells.values()), _consults(clones, low))
     attempting = [
         (low.shells[key], spec.arms, spec.attempt_follow)
         for key, spec in clones.items()

@@ -298,9 +298,9 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
 
     ``nc`` may carry pre-built :class:`~lexic.parsing.earley.kernel.tables.ParserTables` as a
     second element — the instance path passes run-collapsed tables (built with
-    the fold-config licence in :mod:`lexic.parsing.fold`) so lexical runs step
+    the rule-keyed licence in :mod:`lexic.parsing.product`) so lexical runs step
     in one scan and land as a single multi-char leaf. A collapsed run is
-    text-preserving, so :class:`~lexic.parsing.fold.ModelFold` reads it
+    text-preserving, so :class:`~lexic.parsing.product.ProductExecutor` reads it
     identically to the per-char expansion. On a fast-path miss (ambiguity), the
     collapsed run terminals cannot shape the enumeration the same way, so the
     fold-back re-parses over plain tables and takes the stream's first —

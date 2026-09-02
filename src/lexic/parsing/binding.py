@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from lexic.exceptions import SemanticVerdict
+from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.product import (
     ConstructionTables,
     LoweringOwned,
@@ -33,14 +35,9 @@ from lexic.parsing.product import (
 __all__ = ["ModelBinding"]
 
 
-def _identity_root[M](carry: M, _verdicts: tuple[object, ...]) -> M:
+def _identity_root[M](carry: M, _verdicts: tuple[SemanticVerdict, ...]) -> M:
     """The default root finalizer — the start rule's value, unchanged."""
     return carry
-
-
-def _same_meaning[M](left: M, right: M) -> bool:
-    """The default meaning comparator — whether two derivations mean one value."""
-    return left == right
 
 
 class ModelBinding[M]:
@@ -101,8 +98,11 @@ class ModelBinding[M]:
         self.rules = {} if rules is None else rules
         self.owned = owned
         self.codes = {name: at for at, name in enumerate(self.rules)}
+        # The meaning row is the engine's own value law, not `==`: every
+        # ambiguity gate compares with `same_value`, so a program declaring
+        # anything else would name a law it does not live under.
         operands: OperandTables[M, M] = OperandTables(
-            (), (), (), (), (_same_meaning,), (_identity_root,), (), ()
+            (), (), (), (), (same_value,), (_identity_root,), (), ()
         )
         self.program = lower_product(
             list(self.rules.values()),

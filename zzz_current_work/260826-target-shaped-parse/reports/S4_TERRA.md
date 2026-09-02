@@ -640,7 +640,7 @@ behind a red gate.
 - **All 18 witnesses exit 0**, including `s4_model_lowering`, which now
   reports what the binding does for real rather than as a probe.
 
-## Bullet — the value-string specialization: STOPPED AT THE CENSUS
+## Bullet — the value-string specialization (census RETRACTED; see below)
 
 > Implement the generic eligible-value-string specialization in
 > `pda/compiler/program/specialize.py`: when `parsing/product/regular.py`
@@ -697,25 +697,52 @@ occurrence against the widest possible follow set, so it accepts strictly more
 than a real consult could: a consult proves against the occurrence's own
 continuation, which can only be narrower. The true residual is at most 1.
 
-### The price arithmetic, and the stop
+### RETRACTED — the census above is WRONG, and so was the stop
 
-§7 prices a removed Python call at roughly 40-50 ns against rows running
-1800-3000 ns per character, and states that a population under about one call
-per character cannot reach one percent however often it hits. A residual of
-one occurrence across fourteen grammars is not near that threshold; it is
-three orders of magnitude below it. No arrangement of the consult can make one
-occurrence worth one percent of a parse.
+**Everything above this line is retained as the record of a mistake, not as
+evidence. Do not act on it.** The stop it recommended was unsound, and the
+user's ruling to implement the bullet regardless was right.
 
-So the bullet stops at the census, exactly as the brief prescribes. Nothing in
-`specialize.py` changed, `prove_regular` gained no caller in `src`, and the
-gate rows the bullet would have needed were not run, because there is nothing
-to gate.
+**The error.** The census proved each occurrence against the WIDEST possible
+continuation, and I recorded that as "the generous reading" giving "an UPPER
+bound". That is backwards. A wider follow set makes the regular proof
+STRICTER: its boundary obligation is that a repetition or nullable atom cannot
+steal from what follows, so the more characters the continuation admits, the
+more ways there are to steal and the more often the proof declines. Proving
+against everything is the hardest possible test, not the easiest — so the
+census reported a floor and called it a ceiling.
 
-What this does NOT say: the regular proof is not wasted. It remains the
-licence the §6 composed-region lowering is built on, where the population is
-a repeated region rather than a single terminal occurrence, and where the
-~105x objective actually lives. This census is about ONE bullet's mechanism on
-ONE corpus, and it should not be read as a verdict on the proof itself.
+**The second error.** It counted clones in the FLATTENED program, after
+inlining and leaf-marking had already absorbed most of them, rather than the
+clone specs where eligibility is actually decided.
+
+**The real population**, measured by `proto/s4_consult_eligibility.py` with
+the eligibility compiled into the clone compiler and each clone proved against
+its OWN hard continuation:
+
+| grammar | match-only clones | carrying a proof |
+|---|---:|---:|
+| json.gbnf / json.abnf / json.ebnf | 39 each | **39 each** |
+| vyx.gbnf | 48 | **46** |
+| c.gbnf | 14 | **13** |
+| chess.gbnf | 6 | 2 |
+| markdown.gbnf | 6 | **6** |
+| japanese.gbnf | 4 | **4** |
+| arithmetic.gbnf / .ebnf | 4 each | 3 each |
+| arithmetic.abnf | 2 | **2** |
+| list.gbnf | 1 | **1** |
+| json_arr.gbnf | 6 | 0 |
+| json_ws.gbnf | 7 | 0 |
+| **TOTAL** | **219** | **197** |
+
+197 of 219, not 1 of 42. The price arithmetic that closed the bullet was
+applied to a number that was wrong by two orders of magnitude, so it decides
+nothing. The bullet is live and is being built.
+
+The lesson worth keeping: I asserted a bound's DIRECTION without checking it
+against the proof's own obligations, and the assertion read as careful because
+it named the right concept. A bound stated in the wrong direction is worse
+than no bound, because it ends an investigation instead of opening one.
 
 ## Bullet — `Carry` through frames, outputs and sinks (SINK HALF DONE)
 
@@ -820,6 +847,119 @@ Two entries are not identical and both are explained rather than argued:
 
 No paid-loop opcode was added, so none needs removing.
 
+## Bullet — delete the six fold symbols
+
+> Delete `FOLD_KINDS`, `FieldFold`, `FastCtor`, `RuleFold`, `ModelBody`, and
+> `ModelFold` after their callers move; do not preserve them as wrappers or
+> generic-looking renames.
+
+**`rg 'FOLD_KINDS|FieldFold|FastCtor|RuleFold|ModelBody|ModelFold' src/` is
+empty.** `parsing/fold.py` no longer exists.
+
+### Where the lift went, and why not beside `normalize`
+
+The ruling said beside `normalize`. That is not possible and the tree says so
+out loud: `lift_optional_nullables` consumes `nullable_names` from
+`pda/analysis`, and `test_earley_never_imports_pda` enforces by static grep
+that the Earley package never imports the predictive one. Moving the lift into
+`earley/normalize.py` turned that invariant RED, which is how it was caught.
+
+Reverted, and taken to the second of the two homes the coordinator offered: a
+parsing-level leaf, `parsing/lift.py`, whose docstring states the constraint
+in its own words. `CLAUDE.md`'s map line moved with it. Twenty-one importers
+repointed.
+
+Worth noting the old module reached `pda/analysis` too — the breach existed
+transitively before, hidden because `tokenscan.py` imported `parsing.fold` and
+the grep saw no "pda" in that line. The move made it literal, and the
+invariant fired. That is the invariant doing its job on a pre-existing shape,
+not a regression I introduced.
+
+### The supplied-class channel, deleted (coordinator ruling, user-confirmed)
+
+`fold_config`'s `overrides` branch, `_derive_body`, `_fast_ctor`,
+`check_supplied_class` and `field_kwargs` are gone. Named plainly because it
+is a coordinator ruling the user can reverse: a documented door with nothing
+behind it, no caller and no public entry, and `RecordConstructor.cls` already
+IS "the one class object a declaration named".
+
+### The one thing that was NOT a straight deletion
+
+`model_plan` computed its validation-skip licence by calling the fold's
+`_fast_ctor` over reconstructed `FieldFold`s. Deleting that would have
+silently dropped the licence, so the predicate is ported to `_fast_licence`,
+which asks the same question — can any field the completion leaves unset lack
+a default — from the captures and optional set the constructor is built from.
+
+**A ported predicate is a claim, so it is proved rather than argued.**
+`proto/s4_model_plan.py` is re-aimed at exactly that: it runs the STARTING
+COMMIT's own `_fast_ctor` and `_fold_fields`, parsed out of `git show` and
+executed rather than transcribed, against the live `_fast_licence`.
+
+| Row | Result |
+|---|---|
+| licence set, rule by rule, whole corpus | **327 rules, identical to `dffa821f`** |
+| the refusing branch, driven deliberately | **176 defaultless-optional cases, both agree** |
+| control | a seeded refusal diverges from the live grant |
+
+Only the two deleted record types are re-declared; the ALGORITHM is the
+commit's. The refusal row exists because the corpus grants uniformly, so the
+sweep alone would only have exercised the granting path.
+
+One honest correction on the way: the refusal probe's first version forced a
+capture optional on a TEXT bind, which the old predicate never treated as
+skippable, and it reported a divergence. That was the probe in a state the
+pipeline never builds, not a defect in the port — the probe now mutates only
+`gtext`/`model` binds, which are the ones that can be absent at all.
+
+### The twelve deleted-target tests
+
+Ruled by the user: if something is deleted, its tests go with it.
+
+| Deleted test | Its deleted target | Where the behaviour lives now |
+|---|---|---|
+| `test_fold.py` — 3 config-structure tests | `RuleFold.fields` / `.kind` | `s4_bake_identity`'s per-row capture assertions |
+| `test_fold.py` — 4 `ModelFold` construction/validation tests | `ModelFold.__init__`, `FOLD_KINDS` | `verify_program`, run at every bind |
+| `test_fold.py` — 12 `apply` behaviour tests | `ModelFold.apply` | `ProductExecutor.build`, covered by the parity suite and the 107-document switch differential |
+| `test_fold.py` — 6 `collapsed_fold_tables` tests | `collapsed_fold_tables` | `collapsed_product_tables`, already the live path |
+| `test_fold.py` — 7 `run_ok` tests | `ModelFold.run_ok` | `product/tree.py::run_ok`, keyed on rule names |
+| `test_fold.py` — 9 `ModelBody`/bake tests | `ModelBody`, `.bake`, `.of`, `from_config` | gone with the symbol — the product has no IR body table |
+| `test_fold.py` — 2 empty-arm / opaque-ctor tests | `ModelFold` | `s4_bake_identity`'s empty-arm and gtext-absence rows |
+| `test_foldkit.py` — 3 `ALT`/`ALT_BODY` tests | `ALT`, `ALT_BODY` | `ALT_PRODUCT`, asserted by `s4_authored_product` |
+| `test_foldkit.py` — 4 `IrNamed` tests | `IrNamed`, `FIRST_REST`, `DECODE_INT` | `s4_authored_census`: every named transform resolves, no record holds a callable |
+| `test_foldkit.py` — 3 `seq`/`model_fold` tests | `seq`, `model_fold` | `product_rules`, asserted by `s4_authored_product` |
+| `test_binding.py` — 3 override tests + 2 supplied-class tests | `fold_config(overrides=)`, `check_supplied_class`, `field_kwargs` | gone with the channel (ruling above) |
+| `test_init_compile.py::test_compiled_grammar_fold_field_is_positional_fold` | `CompiledGrammar.fold` | `CompiledGrammar.executor` |
+| `test_identity.py::test_a_compiled_folds_class_constructors_are_the_refusal_boundary` | `ModelFold.bodies` | gone with the symbol — no product counterpart; the boundary is still pinned by the two `IrLambda` tests above it |
+| `test_products.py` — the dropped-descendant monkeypatch | `RuleFold._replace(ctor=...)` | the surrounding test survives; only the constructor-swap assertion went |
+
+**Four tests were PORTED, not deleted.** `lift_optional_nullables` survives, so
+its four tests moved to `tests/unit/lexic/parsing/test_lift.py` with their
+assertions byte-for-byte. `test_foldkit.py` keeps its surviving-idiom tests and
+gained two that say what the boundary now is: a surface reaches an idiom
+through its registry, and each registry extends the shared one.
+
+### Verification
+
+- `uv run pyright src` — **exit 0**.
+- `uv run ruff check src tests` — passed; `ruff format --check` over `src`,
+  `tests`, `tools`, `proto` — **exit 0**.
+- Layering, doc-drift and source-structure invariants — **28 passed**,
+  including the earley/pda invariant that caught the lift placement.
+- `uv run pytest tests/ -q -n 8` — **2 failed, 5275 passed, 8 skipped**.
+- All **18** witnesses exit 0.
+
+The two failures:
+
+1. `test_test_parity` — **12 missing mirrors, unchanged from this round's
+   start.** `parsing/lift.py` has its mirror; `compile/product/lower.py`
+   simply became `parsing/product/lower.py` in the list. No new gap.
+2. `test_readme_render` — the `tests-badge` block is stale because this
+   round's deletions changed the test count. **The README is outside my write
+   allowlist**, and re-rendering is `uv run python -m tools.render_readme`.
+   Flagged rather than run; it should be re-rendered once the test set is
+   final, since the value-string and `Carry` bullets will move the count again.
+
 ## Restart point
 
 Six bullets have a verdict. Done: island/delegate/parallel; `trace.py`;
@@ -830,43 +970,64 @@ bullet (carried witness defects and the `type: ignore` cleared, feasibility
 proven) and the `Carry` bullet (every sink and output boundary generic; the
 frame's sink table is the reserved question).
 
+Seven bullets have a verdict now. Done: island/delegate/parallel; `trace.py`;
+foldkit with the notation and self-grammar authoring; the completion-range
+bullet under shape 2; the six-symbol deletion; and the paid-path opcode
+comparison. The value-string census was superseded by a user ruling and that
+bullet is now scoped rather than closed. Half done: the `Carry` bullet — every
+sink and output boundary is generic, the frame's sink table is the reserved
+question.
+
 State: all eighteen `s3_*`/`s4_*` witnesses exit 0. `src` has zero
 `type: ignore`, no file over 700 lines, and no cast or suppression in any line
-this round added. The suite is 5314 passed with 11 attributed failures.
+this round added. `rg` for the six fold symbols in `src` is empty.
 
-`tools/run_checks.sh` — **exit 1**, attributed per file:
+`uv run pytest tests/ -q -n 8` — **2 failed, 5275 passed, 8 skipped**:
+`test_test_parity`'s 12 mirrors (unchanged from this round's start) and
+`test_readme_render`'s stale tests badge, which needs
+`uv run python -m tools.render_readme` and is outside my allowlist.
 
-- `10_sanity.sh` — OK.
-- `20_lint.sh` — OK. `561 files already formatted`. This gate FAILED at the
-  start of the round on four pre-existing `ruff format` findings; three were
-  in files this round edited, so `auto_fix` landed there, and the fourth
-  (`tests/unit/lexic/parsing/test_fold.py`) was reformatted when this round
-  removed its dead fold fixture.
-- `30_typecheck.sh` — **fails, 16 errors in exactly two files**, both the
-  reserved contract disposition: `tests/unit/lexic/compile/test_foldkit.py`
-  (15, every one a deleted foldkit symbol) and
-  `tests/unit/lexic/ir/test_identity.py` (1, the deleted binding field).
-  `src` and `tools` are clean.
-- `40_pylint.sh` — not reached; `run_checks.sh` uses `set -e`.
+### `tools/run_checks.sh` — exit 14, and the attribution matters
 
-The gate is therefore one decision away from green, and that decision is
-ruling 1 below.
+- `10_sanity.sh` — **OK**.
+- `20_lint.sh` — **OK**. This gate FAILED at the start of the round on four
+  pre-existing `ruff format` findings; all four are now formatted.
+- `30_typecheck.sh` — **OK**. It failed for most of this round on the
+  deleted-target tests; those are gone.
+- `40_pylint.sh` — **fails, and this is the first time it has ever run.**
 
-**Three rulings are open, and all remaining work is parked on them.**
+That last point is the finding. Because `run_checks.sh` uses `set -e` and
+`20_lint.sh` failed at `dffa821f`, **pylint was never reached at the starting
+commit** and its findings were invisible. Measured directly on both trees
+rather than inferred:
 
-1. The twelve deleted-target tests (foldkit section). Ten die with
-   `parsing/fold.py`; two need a decision because their subject has no product
-   counterpart.
-2. The supplied-class sugar channel: port it to the product-side authoring, or
-   delete it with the fold config.
-3. Where the product lowering lives, and what the paid path may carry — the
-   fork at the end of the completion-range section. My recommendation is that
-   the binding takes the authored product plus its registry and lowers there.
+| tree | pylint findings |
+|---|---|
+| `dffa821f` (stashed) | **52** |
+| working tree | **47** |
 
-The six-symbol deletion is designed and parked on rulings 1 and 2. The
-completion-range bullet's remaining half is parked on ruling 3. The `Carry`
-bullet's remaining half needs a timing window and a frame ruling.
+So this round did not introduce the pylint surface — it *revealed* it, by
+fixing the two gates that were hiding it, and reduced it by five on the way.
+The same shape as the ledger's recorded "printed 10.00/10 while failing" trap:
+a gate that stops early does not report what it never ran.
 
-Not started: operations-as-data, which is partly downstream of ruling 3, and
-the zero-tax baseline bullet, whose evidence is now largely gathered by the
-opcode comparison above.
+One finding WAS mine and is fixed at the root rather than suppressed: pylint
+reported `lexic.parsing.product -> lexic.parsing.product.lower` as a cyclic
+import, because the relocated module reached back through its own package
+façade. It now imports from the ABI modules directly, with the reason written
+on the import. `pylint --enable=cyclic-import` over `src/lexic` is 10.00/10.
+
+The residue is 47 pre-existing findings — `too-few-public-methods`,
+`redefined-outer-name` on the `Carry` parameter, `too-many-arguments`,
+`duplicate-code` — none of which this round is assigned. They are Luna's, and
+they are now visible for the first time.
+
+### What remains
+
+- **Value-string**: the user ruled the census scopes rather than closes it.
+  Implement the consult per occurrence against its own continuation charset,
+  with the gate rows, the extent differential, and per-row fallback.
+- **`Carry`**: the frame half needs the slotted-frame A/B built under `proto/`
+  and a quiet machine; announce "window start" before the first timed run.
+- **Operations-as-data** and the **zero-tax baseline**, whose evidence is
+  largely gathered by the opcode comparison above.

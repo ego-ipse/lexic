@@ -88,7 +88,8 @@ from lexic.parsing.pda.compiler.specs import (
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
-from lexic.parsing.product import ConstructionTables, RuleProduct, construction_of
+from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
+from lexic.parsing.product import ConstructionTables, RuleProduct
 
 __all__ = [
     "compile_pda",
@@ -488,22 +489,17 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         rule = self.analysis.rules[name]
         arms, default, struct, follow = self._clone_shape(name, rule, key.tail)
         product = self.product_config.get(name)
+        match_only = matches_own_text(product, self.construction)
         self.clones[key] = CloneSpec(
             name,
             arms,
             default,
             product,
-            self._matches_own_text(product),
+            match_only,
             struct,
             follow,
+            extent_consult(self.analysis.rules, name, match_only, key.tail),
         )
-
-    def _matches_own_text(self, product: RuleProduct | None) -> bool:
-        """Whether this rule's value IS its matched text — so it needs no interior."""
-        if product is None:
-            return False
-        construction = construction_of(product, self.construction)
-        return construction is not None and bool(construction.matched)
 
     def compile_arms(
         self,

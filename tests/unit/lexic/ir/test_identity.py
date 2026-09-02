@@ -6,7 +6,7 @@ import pathlib
 
 import pytest
 
-from lexic.compile import compile_from_path, parse_grammar
+from lexic.compile import parse_grammar
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import (
     IrAction,
@@ -178,20 +178,6 @@ def test_a_class_is_not_a_refusal() -> None:
 def test_a_parsed_grammar_has_no_refusals(json_ast: IrAst) -> None:
     """A grammar AST is spellable end to end — the boundary is elsewhere."""
     assert len(census(json_ast).refusals()) == 0
-
-
-def test_a_compiled_folds_class_constructors_are_the_refusal_boundary() -> None:
-    """Where the boundary really is, on a real artefact.
-
-    A compiled grammar's fold files one ``IrLambda(<class>)`` per built rule,
-    and those tables are reachable only through the map half of the child
-    definition — under the field-tuple half alone this whole census was ONE
-    node and the boundary read as an empty set.
-    """
-    bodies = compile_from_path(GROUND_TRUTH / "json.gbnf").product.fold.bodies
-    refusals = census(bodies).refusals()
-    assert len(refusals) > 10
-    assert all(isinstance(entry.node, IrLambda) for entry in refusals)
 
 
 def test_a_flavours_reducer_censuses_its_whole_anatomy() -> None:

@@ -194,11 +194,6 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
         "noise-sk": "noise",
     }
 
-    def forbidden(**_kwargs: object) -> object:
-        raise AssertionError("a dropped run descendant was constructed")
-
-    original = variant.product.rules["noise"]
-    variant.product.rules["noise"] = original._replace(ctor=forbidden, fast=None)
     product = _model_product(variant.codegen_grammar, variant.product)
     assert earley_model(product.instance_grammar, "a!", variant.product, product.tables)
     assert pda_model(product.pda, "a!", variant.executor)

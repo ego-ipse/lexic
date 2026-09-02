@@ -29,10 +29,7 @@ class_name, parent_class_names, kind, fields)` per rule, parents first.
 `classify_rule` derives `kind` fresh (`value_str` / `alternation` /
 `sequence`); `bind_fields` names fields through the three-tier cascade
 (rule-ref name → pattern library → positional) with the defaults-last
-partition and trailing-`_` reserved-name mangling. The module also owns the
-open supplied-class contract (`field_kwargs` / `check_supplied_class`) —
-a caller may supply its own class for a rule, checked against the binding's
-field-name kwargs.
+partition and trailing-`_` reserved-name mangling.
 
 ## `synthesis.py` — runtime class synthesis
 

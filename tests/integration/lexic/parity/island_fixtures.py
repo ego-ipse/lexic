@@ -31,7 +31,6 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing import ModelBinding
-from lexic.parsing.fold import FieldFold, ModelFold, RuleFold
 from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 STAR = IrQuantifier(0, IrNone)
@@ -119,26 +118,6 @@ def unwrap_rest(v: object) -> object:
     """The ``rest`` rule's fold: pass its single child through unchanged."""
     return v
 
-
-ALT = RuleFold("alternation", lambda: None, 0, ())
-FOLD = ModelFold.from_config(
-    {
-        "start": RuleFold("sequence", start, 2, (FieldFold(1, "model", "v", 1),)),
-        "list": RuleFold(
-            "sequence",
-            make_list,
-            3,
-            (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
-        ),
-        "rest": RuleFold("sequence", unwrap_rest, 2, (FieldFold(1, "model", "v", 1),)),
-        "value": RuleFold(
-            "sequence",
-            name,
-            3,
-            (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
-        ),
-    }
-)
 
 _ONE = int(CaptureMode.ONE)
 _MANY = int(CaptureMode.MANY)

@@ -246,25 +246,49 @@ def match_chartable[Carry](
     return pos
 
 
+def consult_extent[Carry](
+    text: str, clone: FlatClone[Carry], runarm: FlatArm, pos: int
+) -> int:
+    """The end of a proved clone's whole extent, decided by its recognizer.
+
+    The authoritative half of :func:`~lexic.parsing.product.regular
+    .prove_regular`: the possessive pattern consumes exactly what the rule's own
+    program would, so one C-level match stands in for the arm selection, every
+    descent under it, and every per-character loop inside those. A miss is the
+    refusal the selection would have raised, in the same words at the same
+    position.
+
+    :raises PdaFail: When the recognizer refuses at ``pos``.
+    """
+    matched = runarm.payloads[0].match(text, pos)
+    if matched is None:
+        raise PdaFail(
+            f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
+        )
+    return matched.end()
+
+
 def run_span_once[Carry](
     text: str, clone: FlatClone[Carry], sink: list[Carry], pos: int
 ) -> int:
-    """One iteration of a run-valued ``value_str`` clone — match, then look up.
+    """One iteration of a whole-extent ``value_str`` clone — match, then look up.
 
-    The run itself is matched by the same call the untabled path makes, so the
-    span is identical; what the table answers is the SELECTION (there is one
-    always-selected arm) and the BUILD, keyed by that span. Fills as spans
-    arrive, capped — a corpus whose spans never repeat pays one dict miss per
-    occurrence and keeps the saved calls.
+    The extent itself is matched by the same call the untabled path makes — or,
+    for a proved clone, by the one pattern that stands for the whole program —
+    so the span is identical; what the table answers is the SELECTION (there is
+    one always-selected answer) and the BUILD, keyed by that span. Fills as
+    spans arrive, capped — a corpus whose spans never repeat pays one dict miss
+    per occurrence and keeps the saved calls.
 
-    :returns: The position after the run.
+    :returns: The position after the extent.
     """
     runarm = clone.runarm
-    end = (
-        match_cc(text, runarm, 0, pos)
-        if runarm.kinds[0] == OP_CC
-        else match_lit(text, runarm, 0, pos)
-    )
+    if runarm.kinds[0] == OP_CC:
+        end = match_cc(text, runarm, 0, pos)
+    elif runarm.kinds[0] == OP_LIT:
+        end = match_lit(text, runarm, 0, pos)
+    else:
+        end = consult_extent(text, clone, runarm, pos)
     span = text[pos:end]
     table = clone.chartable
     model = table.get(span)

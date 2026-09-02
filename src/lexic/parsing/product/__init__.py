@@ -1,11 +1,10 @@
 """The product ABI — one compiled program both engines execute.
 
-``ModelFold``'s ``value_str``/``sequence``/``alternation`` vocabulary made the
-generated model the engine's privileged construction shape. This package is
-the generalisation: a :class:`~lexic.parsing.product.abi.records.ProductProgram`
-says what each contextual rule captures and how it completes, and building a
-generated model becomes one specialisation of that rather than the thing every
-other target has to be expressed in terms of.
+A :class:`~lexic.parsing.product.abi.records.ProductProgram` says what each
+contextual rule captures and how it completes, and building a generated model
+is one specialisation of that rather than the shape every other target has to
+be expressed in terms of. The engine has no privileged construction
+vocabulary: what a rule builds is data the program carries.
 
 Four modules, one job each:
 

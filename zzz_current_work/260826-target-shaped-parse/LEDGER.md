@@ -1,5 +1,63 @@
 # Ledger — target-shaped parsing
 
+## Coordinator full-diff review of the §4 tree against `dffa821f` (2026-09-02)
+
+The user challenged the coordinator's review basis: bullets after the first
+had been accepted on reruns, greps and witnesses, not on a hunk-by-hunk read,
+and the value-string census conclusion was relayed twice without opening the
+flat programs. The complete `src/` diff (50 files, +809/−1738) was then read
+in full. Findings:
+
+- Correct and verified: the fold-channel replacement end to end; the
+  presence-carrying `splice`/`splice_replay` pair beside `build`/`replay`;
+  `ModelBinding(rules, owned)` lowering and verifying in its constructor;
+  `_fast_licence` equivalent to `_fast_ctor` for synthesized classes (a
+  `model` bind with `lo == 0` always carries a `None` default, so the old
+  skippable check could never refuse there; the witness proves it on the
+  corpus); `field_slot` over captures ranks identically to the old
+  fields-by-item rank for sequence rules; the replica copy
+  `ModelBinding(dict(rules), owned)` re-lowers per worker, giving physically
+  distinct tables (better than the old shallow spine copy); `FlatClone
+  .completion` written once, never read at runtime; `lift.py` a verbatim
+  move (its nested `lift_item` closure predates the round and dies at §8).
+- Returned: `parsing/binding.py::_identity_root` annotates
+  `tuple[object, ...]`; `_same_meaning` declares `==` where the engine's law
+  is `same_value`; `islands.py::_differs` is dead.
+- Value-string, from the flat programs: 42 live value-string clones, 38 leaf;
+  frame-entered: c `relationoperator` (OP_REF1 to the hoisted six-literal
+  group; proved regular), c `multilinecomment`, chess `pawn` ×2 (unproved).
+  `relationoperator` cannot inline because `"<="`/`"<"` share a lead
+  character and `_vstr_inlinable` refuses windowed clones. Terra's consult
+  was wired into `vstr_once`, which a frame-entered clone never reaches — so
+  its "zero clones served" control was measuring the wrong seam. Ruling: the
+  consult is a build mode sharing `_enter`'s existing `BUILD_DISPATCH`
+  comparison (ordered code range), distinguished inside the chase; zero tax
+  proved by bytecode identity; gated on C with JSON/vyx controls.
+
+Terra's consult landed on a better seam than the entry path: a proved clone
+gets a synthetic one-item `OP_CONSULT` runarm carrying the compiled pattern
+plus a fill-on-first-sight span table, so `vstr_once` routes it through the
+chartable/runarm pair it already tests and `_inline_value_strs` makes every
+reference to it frame-less; the only runtime edit is one branch on
+`run_span_once`'s `OP_LIT` arm (bytecode witness not yet rerun). Corrected
+population: 197/219 clones prove; after declining tabled, gated/attempted and
+single-matcher clones, 17 consult clones in four grammars (c: identifier,
+singlelinecomment, relationoperator; chess: castle; list: item; vyx: six);
+every JSON formulation, both arithmetic formulations, json_ws, json_arr,
+markdown and japanese take none and are clean controls. **Soundness gap
+found by Terra and NOT cleared:** `prove_regular::_rule_is_deterministic`
+applies the ordered-arm obligation to rule arms only; inline group arms are
+lowered to an ordered possessive alternation unchecked, so `("a" | "ab")+`
+earns a proof it must not (the observed case fell back to Earley silently;
+a wrong model is not excluded). Coordinator ruling: extend the obligation to
+every inline group's arms recursively, with two sound cases — first-disjoint
+at one character, or all-literal arms with no earlier arm a proper prefix of
+a later one (which keeps `("<=" | "<" | …)` and rejects `("a" | "ab")`); a
+must-decline witness row and a constructed wrong-model case; then the extent
+differential over all 17 clones, then the window. Two `test_specialize.py`
+contract changes (a grouped value-string clone is now frame-less; an
+attempt-gated one now earns a span table) are Luna's. Nothing timed yet.
+
 ## §4: trace.py bullet accepted; island/delegate/parallel migration under review (2026-09-02)
 
 Luna's green-ground pass (`reports/S4_LUNA_GREEN.md`) is accepted: pyright
@@ -73,6 +131,33 @@ implemented as written; the gate rows (per grammar, including a real C
 witness, generated-model and token-segmented separately, structural plus
 alternating timing with a control) decide per occurrence what lands. The
 user also accepted the lowering relocation to `parsing/product/lower.py`.
+**Census CORRECTED by Terra:** proving against the widest continuation makes
+the regular proof STRICTER (more ways for a boundary to steal), so the
+"upper bound" claim was backwards, and the census counted clones after
+specialization had absorbed most of them. Against each clone's own hard
+continuation, at the clone-spec layer where eligibility is decided:
+**197 of 219 match-only contextual clones carry a proof**
+(`proto/s4_consult_eligibility.py`; JSON formulations 39/39, vyx 46/48,
+c 13/14, markdown 6/6, japanese 4/4, json_arr and json_ws 0). The stop
+recommendation was unsound; the user's ruling stands on its own criteria.
+
+Six-symbol deletion bullet landed, under review: the fold module is gone, the
+six symbols and `fold_config`/`_derive_body`/`_fast_ctor`/
+`check_supplied_class` deleted, the validation-skip licence ported to
+`_fast_licence` and PROVED identical to the starting commit's predicate on
+327 rules plus 176 driven refusals (`s4_model_plan` rerun here); the lift
+lives in a new parsing-level leaf `parsing/lift.py` (its old module reached
+the PDA analysis transitively, hidden from the grep; `earley/` cannot host
+it); the twelve deleted-target tests are gone and the lift's four moved to
+`tests/unit/lexic/parsing/test_lift.py`. Pylint runs for the first time now
+that lint and typecheck pass: 52 findings at the starting commit, 47 now, all
+pre-existing and Luna's; one cyclic import from the relocation was root-fixed.
+Four returns before closure: `field_kwargs` still present with no caller;
+stale `lexic.parsing.fold`/`ModelFold` docstring references in `engine.py`,
+`forest.py`, `product/__init__.py`; two NEW tests Terra wrote into
+`test_foldkit.py` must leave the committed file (Terra writes no tests);
+`pda/compiler/clones.py` at 724 lines. `test_readme_render` (test-count
+badge) is the coordinator's re-render at the hold.
 
 Opcode-comparison bullet ACCEPTED (marked in `TODO.md`): every generated-model
 paid-path function is bytecode-identical to `dffa821f`

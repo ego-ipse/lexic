@@ -50,7 +50,6 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.model import GrammarModel
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.specs import IslandRef
 from lexic.parsing.products import earley_model
 from tests.paths import GRAMMARS, GROUND_TRUTH
@@ -168,12 +167,6 @@ def test_compiled_grammar_grammar_field_is_the_canonical_ast():
     assert isinstance(cg.codegen_grammar, IrAst)
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     assert cg.grammar == canonical_grammar(text, GBNF_FLAVOUR)
-
-
-def test_compiled_grammar_fold_field_is_positional_fold():
-    """CompiledGrammar.executor is the ParseTree -> model-instance ModelFold."""
-    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert isinstance(cg.executor, ModelFold)
 
 
 @pytest.mark.parametrize(

@@ -329,6 +329,7 @@ src/lexic/
         __init__.py                The PDA clone compiler — an IrAst into flat int-coded tables
         clones.py                  Clone compiler — the predictive-parser artifact beside `ParserTables`
         delegate_compile.py        Island-interior delegate compile — the per-island clone selector
+        eligibility.py             What the clone compiler ASKS about a rule — match-only, and its extent proof
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
         program/

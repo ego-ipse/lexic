@@ -110,8 +110,9 @@ class PayloadLeaf[Carry](IrLeaf[IrSelf, IrSelf]):
     scanned character occupies. It therefore decodes as a normal terminal-like
     family child (:class:`ChildDerivs` / :meth:`~lexic.parsing.earley.kernel.loop.kernel
     .Kernel._child` / :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree`), and the
-    :class:`~lexic.parsing.fold.ModelFold` passes its :attr:`payload` straight
-    through as an already-folded child (mirroring the PDA-side island splice).
+    :class:`~lexic.parsing.product.ProductExecutor` passes its :attr:`payload`
+    straight through as an already-completed child (mirroring the PDA-side
+    island splice).
     Not a :class:`ParseTree` and
     not an :class:`~lexic.ir.grammar.nodes.IrLiteral`, so every kid-walk that
     discriminates on those two leaves it alone.

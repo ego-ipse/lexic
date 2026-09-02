@@ -32,38 +32,48 @@ from types import MappingProxyType
 from typing import NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.product import (
-    AppendSequenceOp,
+
+# Imported from the ABI modules rather than through the package façade: this
+# module IS part of that package, and reaching back through its ``__init__``
+# would make the package and one of its own members import each other.
+from lexic.parsing.product.abi.construction import (
+    BoundSymbol,
+    RecordConstructor,
+    SymbolConstructor,
+)
+from lexic.parsing.product.abi.expressions import (
     ArgExpr,
     ArgsExpr,
-    BeginMappingOp,
-    BeginSequenceOp,
-    BoundSymbol,
     BuildExpr,
-    CompletionRange,
     CondExpr,
     ConstantExpr,
-    ConstantOp,
     ContributeExpr,
-    DecodeOp,
     ExprCode,
     ExprProgram,
+    JoinExpr,
+    LookupExpr,
+    PipeExpr,
+    RaiseExpr,
+    SymbolExpr,
+)
+from lexic.parsing.product.abi.records import (
+    AppendSequenceOp,
+    BeginMappingOp,
+    BeginSequenceOp,
+    CompletionRange,
+    ConstantOp,
+    DecodeOp,
     FinishMappingOp,
     FinishSequenceOp,
     FlatRuleProduct,
     InsertMappingOp,
-    JoinExpr,
-    LookupExpr,
     LoweredRoute,
     MeaningOp,
     OpCode,
     OperandTables,
     PassOp,
-    PipeExpr,
     ProductProgram,
-    RaiseExpr,
     RangeKind,
-    RecordConstructor,
     RecordOp,
     RootOp,
     RouteContinuation,
@@ -71,8 +81,6 @@ from lexic.parsing.product import (
     RuleBody,
     RuleProduct,
     SingletonRoute,
-    SymbolConstructor,
-    SymbolExpr,
     TableRoute,
     UniformRoute,
     ValidateOp,

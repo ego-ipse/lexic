@@ -35,7 +35,6 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     MeaningBuilder,
     Resolver,
     different_meaning,
-    same_value,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     decode_item,
@@ -331,24 +330,3 @@ def _one_derivation(
     return got
 
 
-def _differs(
-    apply: Callable[[ParseTree], object], one: ParseTree, other: ParseTree
-) -> bool:
-    """Do two derivations of one span build different values?
-
-    Compares the VALUES, not their spelling: two dicts of the same content in
-    different key orders are one value and two reprs, and refusing a document
-    over that refuses it for a difference no consumer can observe.
-
-    Takes the fold's ``apply`` rather than the fold, so the question it answers
-    is exactly "what do these two build" — a fold that had no ``apply`` used to
-    answer "no difference" to everything, which is a refusal that never fires.
-
-    A fold that refuses either tree answers nothing about ambiguity — that is a
-    fold failure, and the caller's own completion will report it — so it counts
-    as "no observable difference" here rather than masquerading as one.
-    """
-    try:
-        return not same_value(apply(one), apply(other))
-    except LexicError:
-        return False

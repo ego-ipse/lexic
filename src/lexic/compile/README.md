@@ -122,12 +122,12 @@ parent_class_names, kind, fields)` per rule, parents before subclasses.
 - **`sequence`** — concrete; fields come from the single sequence arm, each an
   `IrBind(item, mode, semantic)` (`mode ∈ text/gtext/model/models`).
 
-Binding is **open**: a rule's fold body may be *synthesized* (the default) or
-*supplied*. A supplied class is sugar — a `ModelBody` derived from the binding
-view — and must accept the binding's field-name kwargs (`field_kwargs` /
-`check_supplied_class`, raising `UnsupportedConstructError` on violation). The
-`_fold_config` `overrides` channel takes either a full authored `ModelBody`
-(total control — what the notation uses) or such a supplied class.
+A rule's construction is authored, not supplied: `model_plan` derives one
+`RecordConstructor` per constructing rule from the binding view, naming the
+generated class, the keyword each capture fills, which may be absent, and
+whether validation may be skipped. There is one channel — an authored surface
+writes its own `AuthoredRule` table, and the generated model writes its own
+from the view.
 
 Field naming is a three-tier cascade (rule-ref name → pattern library →
 positional), and reserved names mangle with a trailing `_`: field names in

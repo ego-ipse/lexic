@@ -41,13 +41,8 @@ from lexic.ir import (
     IrAst,
     IrBind,
     IrItem,
-    IrLambda,
-    IrMap,
-    IrNone,
     IrRule,
-    IrRuleRef,
     IrSequence,
-    IrTuple,
     rule_closure,
 )
 from lexic.model import GrammarModel
@@ -184,7 +179,6 @@ def synthesize(
         ns = _class_namespace(bind, rule, module, shapes[bind.rule_name])
         classes[bind.class_name] = type(bind.class_name, bases, ns)
     return classes
-
 
 
 # ── the generated-model product (the §4 specialization) ───────────────

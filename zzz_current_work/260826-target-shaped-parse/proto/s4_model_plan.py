@@ -80,7 +80,9 @@ def _old_predicates() -> tuple[Callable[..., Any], Callable[..., Any]]:
         raise Defect(f"s4 model plan: cannot read {SOURCE} at {BASE}")
     tree = ast.parse(done.stdout)
     wanted = {"_fast_ctor", "_fold_fields"}
-    found = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+    found = [
+        n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted
+    ]
     if len(found) != 2:
         raise Defect(
             f"s4 model plan: {BASE} defines {sorted(f.name for f in found)}, "
@@ -94,9 +96,13 @@ def _old_predicates() -> tuple[Callable[..., Any], Callable[..., Any]]:
         "VALUE_FIELD": VALUE_FIELD,
         "Sequence": Sequence,
     }
-    exec(  # noqa: S102 - the starting commit's own two functions, by design
-        compile(ast.Module(body=found, type_ignores=[]), SOURCE, "exec"), namespace
-    )
+    # The two functions are executed from the commit's own text rather than
+    # transcribed, which is the whole point: a re-typed predicate would only
+    # prove the port agrees with my reading of it. This is witness code under
+    # `proto/`, never `src`, and the repository's no-`exec` rule is about the
+    # shipped engine.
+    runner = compile(ast.Module(body=found, type_ignores=[]), SOURCE, "exec")
+    exec(runner, namespace)
     return namespace["_fast_ctor"], namespace["_fold_fields"]
 
 
@@ -128,7 +134,10 @@ def the_ported_licence_is_the_deleted_one(
             cls = compiled.classes[bound.class_name]
             _specs, names, optional = _model_captures(bound, items)
             new = _fast_licence(cls, bound.kind, names, optional)
-            old = old_fast_ctor(cls, bound.kind, old_fold_fields(bound, items)) is not None
+            old = (
+                old_fast_ctor(cls, bound.kind, old_fold_fields(bound, items))
+                is not None
+            )
             if new != old:
                 raise Defect(
                     f"s4 model plan: {path.name}/{bound.rule_name}: the port "

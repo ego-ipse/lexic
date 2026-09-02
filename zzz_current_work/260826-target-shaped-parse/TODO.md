@@ -466,9 +466,21 @@ holds.
       Widening CaptureSpec with strings and a parallel per-rule field table
       were rejected. The gtext absence-vs-empty-string case is a mandatory §4
       differential row.)
-- [ ] Delete `FOLD_KINDS`, `FieldFold`, `FastCtor`, `RuleFold`, `ModelBody`,
+- [x] Delete `FOLD_KINDS`, `FieldFold`, `FastCtor`, `RuleFold`, `ModelBody`,
       and `ModelFold` after their callers move; do not preserve them as wrappers
-      or generic-looking renames. (Scope ruling 2026-09-01: the caller set
+      or generic-looking renames.
+      (Accepted 2026-09-02: `parsing/fold.py` deleted; the six symbols,
+      `fold_config`, `_derive_body`, `_fast_ctor` and the unreachable
+      supplied-class channel (`check_supplied_class`, `field_kwargs`) gone,
+      user-confirmed; the validation-skip licence ported to `_fast_licence`
+      and proved identical to the starting commit's predicate on 327 rules
+      plus 176 driven refusals (`proto/s4_model_plan.py`);
+      `lift_optional_nullables` lives in `parsing/lift.py` (a leaf — it
+      consumes the PDA nullability fixpoint, so `earley/` cannot host it);
+      twelve deleted-target tests deleted per the user's ruling, four lift
+      tests moved byte-for-byte to `tests/unit/lexic/parsing/test_lift.py`.
+      Two stale docstring cross-references to the old module remain in
+      `pda/analysis/predicates.py:63,267` — mechanical, with the next edit.) (Scope ruling 2026-09-01: the caller set
       spans 28 src files including `parallel/` — orchestrate, replicas, all
       four stitch modules — which are IN §4 scope for the mechanical
       re-plumbing onto the model product's ABI, keeping their model-shaped
@@ -507,12 +519,19 @@ holds.
       binding view — differential vs `fold_config` green over 137 rules — and
       `bind_model` pairs it into every artefact path. The source and its
       differential were accepted before Savepoint 6.)
-- [ ] Migrate `src/lexic/compile/foldkit.py::seq` and `model_fold`, plus every
+- [x] Migrate `src/lexic/compile/foldkit.py::seq` and `model_fold`, plus every
       notation/generated-self-grammar caller, to the final vocabulary. Account
       explicitly for `IrNamed`, `FOLD_SYMBOLS`, `first_rest`, `absent_tail`,
       `ABSENT`, `FIRST_REST`, and `DECODE_INT`; preserve the no-`eval` notation
       symbol channel. Preserve `foldkit`'s authored-data role; do not fold it
       into runtime reduction.
+      (Accepted 2026-09-02: the three surfaces' fold halves had no consumer
+      and were deleted; kept as registry callables `FOLD_SYMBOLS`,
+      `passthrough`, `first_rest`, `absent_tail`, `ABSENT`, `decode_int`;
+      deleted `IrNamed`, `FIRST_REST`, `DECODE_INT`, `seq`, `model_fold`,
+      `ALT`, `ALT_BODY`; `foldkit` 350→219 lines; `check_generated.py` clean
+      over 53 modules; the no-`eval` boundary moved to the product side where
+      a record holds a key and cannot hold a callable.)
 - [x] Update `src/lexic/parsing/products.py` so PDA and Earley receive one bound
       product. Preserve the public generated-model and segmented-token products.
       (Done: `ModelBinding` is the one bound product through
@@ -529,10 +548,25 @@ holds.
       `ConstructionTables`. Preserve the existing specialized model opcodes
       where their opcode stream is already optimal; the next bullet owns
       `PdaProgram` completion-range/operand-table execution.
-- [ ] Give every contextual PDA clone, Earley completion, token completion,
+- [x] Give every contextual PDA clone, Earley completion, token completion,
       attempt sub-clone, island, and delegate exactly one tagged completion
       range index. Verify its non-empty bounds and operand tables before
       execution; do not store parallel expression and fused fields.
+      (Accepted 2026-09-02, user-confirmed: `ModelBinding(rules, owned)`
+      lowers through `lower_product`, runs `verify_program`, reads its
+      construction tables off the verified program's operand lanes and
+      derives the one executor — no binding can exist unverified. Product-op
+      lowering relocated to `parsing/product/lower.py` (it consumed parsing
+      records only; the PDA clone compiler is its precedent); design
+      ownership amended: compile authors and lowers reducer ACTIONS at §5,
+      parsing flattens product OPERATIONS and verifies — §11 carries the
+      prose. `FlatClone.completion` is one cold int, one write in the bake,
+      no runtime reader; paid-path bytecode identical after the slot;
+      `s4_bake_identity` asserts 140/151 clones name an in-bounds range of
+      their own rule's kind, 11 group/transparent clones record −1; delegate
+      shells and the Earley/token/island paths resolve theirs through the
+      binding's program. The flat-clone slot tripwire test was re-pinned to
+      the ruled field, flagged for Luna.)
 - [x] Replace model-only completion in
       `pda/runtime/build.py` and
       `pda/runtime/kernel/execution.py::_run_leaf`/`_complete` with common
