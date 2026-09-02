@@ -1,5 +1,183 @@
 # Ledger — target-shaped parsing
 
+## NEXT SESSION — start here (written 2026-09-02, end of day)
+
+**Where the tree is.** Branch `targeter`, HEAD `fa3b9ccf` (Savepoint 9).
+Eighteen files modified and uncommitted on top of it: eleven under `src/`
+(`compile/README.md`, `parsing/parallel/replicas.py`, `parsing/product/
+{__init__,lower,regular}.py`, `pda/compiler/{clones,specs,tables}.py`,
+`pda/compiler/program/{lower,specialize}.py`, `pda/runtime/islands.py`) and
+seven under this effort's directory. Those `src/` hunks are the fresh
+Terra's work after Savepoint 9: the recursive group obligation in
+`regular.py`, the three red-gate repairs, and Reviewer 1's six fixes
+(`_island` named in the witness; isort on three files; `ModelBinding` no
+longer a default argument at three sites — the parameter is required;
+`consult_arm`'s dead first decline deleted; `replicas.py` docstring no longer
+carries the deeper copy's 4.21x→5.34x figure; `bind_symbols` → private
+`_bind_symbols`). Last verification on that tree, by Terra: pyright 0; suite
+4 failed / 5264 passed at `-n 8` (two Luna contract rows, the README badge,
+the thirteen missing mirrors); `check_generated.py` exit 0 over 53 modules;
+all 23 `s3_*`/`s4_*` witnesses exit 0; `run_checks.sh` exit 14 with only the
+pylint gate red and every finding attributed; `git diff --check` clean.
+Nothing has been run by the coordinator since except
+`proto/s4_operations_as_data.py` (exit 0).
+
+**Agents.** None alive. `terra-s4b` (Opus) died at the session limit
+mid-Reviewer-2 and could not be resumed after an API error; its transcript is
+`~/.claude/projects/-home-mika-projects-lexic/67caff10-…/subagents/
+agent-aterra-s4b-53df002ec8867670.jsonl` (3.3 MB), Reviewer 1 is
+`agent-a563e06bf4a7e1b29.jsonl`, Reviewer 2 is `agent-a0a2b3067a5eb8f0f.jsonl`.
+The user has not yet approved a fresh Terra; ask before spawning.
+
+**§4 bullets.** Closed this round and standing: island/delegate/parallel
+migration, trace, foldkit/notation/self-grammar, deletion, completion-range
+(NOW REOPENED, see below), product completion, `same_value`, operations-as-
+data, zero-tax (on window 1's numbers), and the `Carry` frame half (list
+frame stays, decided). Still open: value-string (proof fix landed, but
+Reviewer 2's findings 1 and 2 stand against it; GC-on acceptance rows never
+run; user keep/drop decision pending), completion-range (reopened), the
+verification bullets, then Luna's full-coverage pass, then the hold.
+
+**Reviewer 2's four findings, recovered verbatim into `reports/S4_TERRA.md`
+("Reviewer 2 — the contracts"), none fixed.** Fix order for the next Terra:
+1. Finding 3, the reopened bullet: `ModelBinding.__init__` lowers and
+   verifies a `ProductProgram`, then builds `ProductExecutor(self.rules,
+   self.construction)` from the AUTHORED rules; `_complete_node` runs the
+   authored `RuleProduct.completion` through `construction_of`;
+   `program.completions` is read only by `verify.py`; `FlatClone.completion`
+   is read by nothing. Root fix: the executor completes from the verified
+   program's completion ranges and operand lanes; the authored operations
+   become lowering input only; the replica copy then copies verified tables
+   instead of re-lowering. Proof: a witness that the executed completion for
+   every rule is the program's own range (no second representation), the
+   switch differential, the paid-path bytecode witness.
+2. Finding 1: `prove_regular` proves every closure member against the region
+   follow (`regular.py` ~108); a referenced rule's continuation is the
+   referencing arm's remainder. Root fix: thread each reference's own
+   continuation through the closure walk (or, minimally, decline closures
+   larger than one rule — but that is the retreat, not the fix). Witness
+   row: `root ::= word "z"; word ::= a b; a ::= ("px" | "p"); b ::= "x"`
+   must decline (it proves today and the possessive pattern returns None on
+   "px"); the ref-free twin `a ::= "p" "x"?` likewise.
+3. Finding 2: the clone's proof tail comes from `hard_cont_at`, which skips
+   nullable followers, so obligation 3 is vacuous. Root fix: `extent_consult`
+   unions the skipped nullable followers' FIRST into the tail (the analysis
+   already knows them), and the eligibility docstring's claim is made true.
+   Witness row: `root ::= word gap "z"; word ::= "x" [a-b]+ "q"?; gap ::=
+   "q"*` — the proof must now ask the question and decline or pass on the
+   merits; both engines currently agree greedily, so this is a proof fix, not
+   a model fix.
+4. Finding 4: `_settle_two_meanings` refuses an island span whose two
+   derivations are `EmptyResult` and `Completed(None)` — add it to the "FOR
+   LUNA" created-contracts list, with a pinning test.
+Also from Reviewer 2's minor list, for §11: `compile/notation/parse.py:571`
+and `compile/module/selfgrammar.py:406` still describe a fold the binding no
+longer carries. From Reviewer 1, for §11: `parsing/README.md:14,43,51,80,94,
+201,205,208,280,300`, `parsing/product/README.md:3`,
+`pda/compiler/README.md:36`, `docs/STYLE.md:40`.
+
+**Then, in order:** rerun soundness, extent differential, switch
+differential, bytecode witness, census; the GC-ON `s4_consult_gate.py` rows
+as the acceptance row (window 1 ran with the collector off and is provenance
+only), announced as a quiet window; the user's keep/drop decision on the
+consult (window 1: list −51.05%, c −3.95%, chess +0.89%, vyx −0.70%, token
+−0.29%, floor 1.51%; tax +9 instructions on 3 vyx literal run arms =
+0.006% of vyx; the fold-in is proved impossible from the branch bodies);
+the verification bullets; Terra stops; Luna's full-coverage pass (the "FOR
+LUNA" section of `reports/S4_TERRA.md` is the handover: thirteen mirrors,
+twelve deleted-target ports, seven changed contracts with suggested pins,
+the created contracts, harness non-vacuity, README badge); then the hold for
+the user's other-model review. Do not profile or commit before the hold.
+
+**Standing rulings to carry:** zero added instructions on any pre-existing
+paid branch (the consult's +9 on OP_LIT is disclosed, not waved through);
+the list frame stays; group-only case 2 is a recorded conservative
+asymmetry revisited at §7; measurements with the collector off are
+provenance; ask before every subagent spawn; never commit.
+
+## User rulings: fresh Terra; full test coverage before the hold (2026-09-02)
+
+The user stopped the first Terra (transcript deleted on the user's order)
+after it reported the consult on disk with an uncleared soundness gap, and
+committed the tree as Savepoints 8 and 9 (`fa3b9ccf`). A coordinator
+restart note in `reports/S4_TERRA.md` records the consult's exact state and
+the binding proof-fix ruling; a fresh Opus Terra (`terra-s4b`) resumes from
+it. User ruling: **full test coverage before the hold** — after Terra's
+source and its two reviewers, a Luna pass mirrors every new or moved
+module, ports surviving deleted-target assertions, re-pins every changed
+contract listed for Luna, tightens the concurrency harness, and re-renders
+the README badge; exit is a green suite at `-n 8`. The 2026-09-01
+post-commit scoped mirror insertion is superseded (both recorded in
+`TODO.md`). The user has signalled a likely reset of `src` after §4; the
+§4 evidence is being completed regardless.
+
+Fresh Terra: the proof's inline-group obligation is enforced recursively
+(`regular.py`), with case 1 first-disjoint, case 2 ordered literals for
+groups only (a rule body is proved against the region follow, not its call
+site — conservative asymmetry recorded, revisited at §7), and a third
+obligation Terra added: a later arm that is a proper prefix of an earlier one
+requires the longer arm's next character not to begin the continuation.
+`proto/s4_consult_soundness.py` declines the four unsound shapes, keeps the
+relation group, carries two constructed wrong-extent rows and a live
+control; `proto/s4_extent_differential.py`: 138 documents, 266 occurrences,
+three ways, no position decided two ways. Coordinator rulings: (1) the
+consult's runtime shape — +8 instructions per iteration on the OP_LIT run
+arm — is REJECTED; the consult must ride an existing run-arm branch as DATA
+with `run_span_once` bytecode-identical, or stop with both branch bodies for
+a user decision; (2) the frame A/B must be the structural protocol — a real
+slotted-frame tree timed cross-process against the list-frame tree with a
+byte-identical control — not a priced population model. Operations-as-data
+witness (`proto/s4_operations_as_data.py`) reported: 29 functions, 698
+clones, 868 arms, no morphism reachable from any frequent path.
+
+Fold-in impossible, proved by the branch bodies: `match_lit` is a
+`startswith` loop gated per iteration by the item's stop-set and `match_cc`
+a membership loop; neither carries a pattern as data, and compiling the
+three literal run arms as consults would consume past their stop-sets. The
+on-disk shape stays: OP_CC run arms (35 clones) bytecode-identical, OP_LIT
+run arms (3 clones, all vyx) +9 instructions per iteration.
+
+**Window 1 (quiet machine, 7 rounds, process_time, alternating min, GC OFF —
+provenance only; a GC-ON rerun is ordered as the acceptance row):** consult
+gate — control floor 1.51% over the ten grammars the consult cannot reach;
+list.gbnf −51.05%, c.gbnf −3.95% (outside the floor, wins); chess +0.89%,
+vyx −0.70% (inside the floor); token-segmented row −0.29%. OP_LIT tax priced
+at +9.8 ns per call, 1086 calls per vyx round of 0.173 s = 0.006% of that
+grammar. Frame A/B (lifecycle pricing, not the two-tree structural protocol;
+a bound sufficient only for a no-change decision): list 0.091117 s vs
+slotted 0.091105 s over 200,000 lifecycles, −0.1 ns per frame, predicted
+whole-parse effect −0.00% everywhere. Coordinator decision: the list frame
+stays; `_NO_SINK` is the one recorded `Any` on that path; the `Carry` frame
+half closes as a typing change with no measured cost, not landed at §4
+because it is a paid-path representation change across six modules that
+CLAUDE.md marks deliberate. **Open user decision:** keep the consult with
+its +9-instruction tax on three vyx clones (0.006% of vyx, −51% list,
+−4% c), or drop the consult.
+
+**Terra lost.** The session limit stopped `terra-s4b` mid-Reviewer-2, an API
+error stopped its resume, and it is no longer reachable. Reviewer 1's seven
+findings were recorded and handled (six fixed, the stale-`fold` doc lines
+reassigned to §11). Reviewer 2's report was never written by Terra; the
+coordinator recovered it verbatim from the reviewer's transcript and
+appended it to `reports/S4_TERRA.md`. Its findings, none fixed yet:
+(1) `prove_regular` proves every closure member against the REGION follow,
+so a rule reached by reference gets the wrong continuation and the new group
+obligation grants a shortcut it must not (`root ::= word "z"; word ::= a b;
+a ::= ("px" | "p"); b ::= "x"` proves and consumes wrongly) — latent, since
+every consult clone today is a one-rule closure, but the function is public
+and `matched` would make a ref-bearing rule `match_only`; (2) the tail the
+clone supplies comes from `hard_cont_at`, which skips nullable followers, so
+obligation 3 is vacuous against `word ::= "x" [a-b]+ "q"?; gap ::= "q"*` —
+no wrong model today because both engines resolve the split the same greedy
+way, but the proof does not establish it; (3) **the verified program is not
+the executed one** — the completion-range bullet is REOPENED in `TODO.md`;
+(4) `_settle_two_meanings` now refuses an island span whose derivations are
+`EmptyResult` and `Completed(None)`, a created contract no test names —
+Luna's list. The reviewer fuzzed the group obligation against a brute-force
+derivation oracle (726 proofs, 557 ordered-literal grants, exhaustive to
+length 6) with zero defects, reproduced the census, and confirmed the two
+`test_specialize` re-pins. The GC-on gate rows were never run.
+
 ## Coordinator full-diff review of the §4 tree against `dffa821f` (2026-09-02)
 
 The user challenged the coordinator's review basis: bullets after the first

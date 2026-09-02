@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, NamedTuple, Sequence, cast
 
 from lexic.parsing.binding import ModelBinding
+from lexic.parsing.pda.compiler.eligibility import extent_pattern
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
@@ -41,7 +42,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
-from lexic.parsing.pda.compiler.eligibility import extent_pattern
 from lexic.parsing.pda.compiler.program.product import bake_product_build
 from lexic.parsing.pda.compiler.program.specialize import (
     convert_dispatch,
@@ -520,7 +520,7 @@ def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pat
 
 def flatten_clones(
     clones: dict[CloneKey, CloneSpec],
-    binding: ModelBinding = ModelBinding(),
+    binding: ModelBinding,
 ) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
@@ -585,7 +585,7 @@ def _optimize_entries(entries: tuple[Any, ...]) -> None:
 def flatten_program(
     clones: dict[CloneKey, CloneSpec],
     start_key: CloneKey | IslandRef,
-    binding: ModelBinding = ModelBinding(),
+    binding: ModelBinding,
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`."""
     shells = flatten_clones(clones, binding)

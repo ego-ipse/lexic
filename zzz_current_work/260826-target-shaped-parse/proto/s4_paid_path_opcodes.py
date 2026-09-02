@@ -49,6 +49,14 @@ PAID = {
         "_match_vstr",
         "_match_vdisp",
         "_complete",
+        # The island seam is the predictive engine's COLD escape, but it is
+        # reached from the item loop and this round changed its splice, so it
+        # is named here rather than left outside the search. A review found it
+        # missing; a table that omits what a round edited cannot falsify a
+        # zero-tax claim.
+        "_island",
+        "_island_subparse",
+        "_delegate_run",
     ),
     "src/lexic/parsing/pda/runtime/build.py": (
         "close_loop",
@@ -62,6 +70,8 @@ PAID = {
         "vstr_once",
         "match_chartable",
         "select_arm",
+        "run_span_once",
+        "consult_extent",
     ),
     "src/lexic/parsing/pda/compiler/program/flatten.py": (),
     "src/lexic/parsing/product/tree.py": (),

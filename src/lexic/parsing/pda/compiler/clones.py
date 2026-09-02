@@ -63,6 +63,7 @@ from lexic.parsing.binding import ModelBinding
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
+from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
 from lexic.parsing.pda.compiler.program.flatten import (
     PdaProgram,
 )
@@ -88,7 +89,6 @@ from lexic.parsing.pda.compiler.specs import (
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
-from lexic.parsing.pda.compiler.eligibility import extent_consult, matches_own_text
 from lexic.parsing.product import ConstructionTables, RuleProduct
 
 __all__ = [

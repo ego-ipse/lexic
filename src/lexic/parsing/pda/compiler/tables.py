@@ -74,7 +74,7 @@ class PdaTables(IrLeaf[IrSelf, IrSelf]):
         compiler: PdaCompiler,
         start_key: CloneKey | IslandRef,
         instance_grammar: IrAst,
-        binding: ModelBinding = ModelBinding(),
+        binding: ModelBinding,
     ) -> None:
         """Freeze the clone table, lower it to the flat program, seed the caches.
 

@@ -42,8 +42,9 @@ def _binding_copy[M](binding: ModelBinding[M]) -> ModelBinding[M]:
     The memo keys on the BINDING's identity, so the copy has to be of the
     binding; the rule map is rebuilt inside because it is the container every
     completion reads, and therefore the one whose sharing costs the refcount
-    traffic — the same container graph, and the same measured 8-thread
-    scaling move from 4.21x to 5.34x, that copying the fold's config bought.
+    traffic that held eight threads below the throughput of one. The copy is
+    ONE level and its predecessor was six, so the scaling figure measured on
+    that deeper copy is not carried onto this one.
 
     What it holds is deliberately NOT copied. The rule products and the
     construction tables are immutable records, and a worker rebuilding them

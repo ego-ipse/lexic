@@ -20,9 +20,8 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.product import RegularProof
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
-from lexic.parsing.product import RuleProduct
+from lexic.parsing.product import RegularProof, RuleProduct
 
 LIT, CC, REF, GRP = "lit", "cc", "ref", "grp"
 """The :attr:`ItemSpec.kind` tags: literal, char class, rule reference, group.

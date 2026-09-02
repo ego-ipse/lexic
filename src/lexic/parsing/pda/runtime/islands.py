@@ -328,5 +328,3 @@ def _one_derivation(
     if not isinstance(got, ParseTree):
         raise PdaFail(f"island {name!r}: no derivation")
     return got
-
-

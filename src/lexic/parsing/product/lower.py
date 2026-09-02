@@ -86,7 +86,7 @@ from lexic.parsing.product.abi.records import (
     ValidateOp,
 )
 
-__all__ = ["LoweringOwned", "bind_symbols", "lower_product", "lower_routes"]
+__all__ = ["LoweringOwned", "lower_product", "lower_routes"]
 
 
 class LoweringOwned(NamedTuple):
@@ -402,7 +402,7 @@ def _refuse_prefilled[Carry, Result](operands: OperandTables[Carry, Result]) -> 
         )
 
 
-def bind_symbols(
+def _bind_symbols(
     authored: Sequence[SymbolConstructor],
     registry: Mapping[str, Callable[..., object]],
 ) -> tuple[BoundSymbol, ...]:
@@ -522,7 +522,7 @@ def lower_product[Carry, Result](
         operands._replace(
             constructors=_constructors(owned.constructors),
             routes=lower_routes(owned.routes, operands.continuations),
-            symbols=bind_symbols(owned.symbols, owned.registry),
+            symbols=_bind_symbols(owned.symbols, owned.registry),
         ),
         root,
         meaning,

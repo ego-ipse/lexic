@@ -567,6 +567,22 @@ holds.
       shells and the Earley/token/island paths resolve theirs through the
       binding's program. The flat-clone slot tripwire test was re-pinned to
       the ruled field, flagged for Luna.)
+      **REOPENED 2026-09-02 by Terra's Reviewer 2 (recovered in
+      `reports/S4_TERRA.md`, "Reviewer 2 — the contracts", finding 3): the
+      verified program is not the executed one.** `ModelBinding.__init__`
+      lowers and verifies a `ProductProgram`, then derives the executor from
+      the AUTHORED rules; every completion runs `_complete_node` over the
+      authored `RuleProduct.completion` and `construction_of`, and
+      `program.completions` is read by `verify.py` alone. The verifier bounds
+      ranges no execution path indexes, and `RuleProduct.completion` beside
+      `ProductProgram.completions` is the parallel storage this bullet's last
+      clause forbids; the coordinator's "no binding can exist unverified" was
+      true only of an artefact nothing runs. Second-order: every worker
+      replica re-lowers and re-verifies that unexecuted artefact. Fix at the
+      root: the executor completes from the verified program's completion
+      ranges and operand lanes (the authored operations become input only),
+      or the bullet is honestly re-scoped by the user. Not marked done again
+      until the executed representation is the verified one.
 - [x] Replace model-only completion in
       `pda/runtime/build.py` and
       `pda/runtime/kernel/execution.py::_run_leaf`/`_complete` with common
@@ -581,12 +597,23 @@ holds.
       `list[Any]`/call-site widening without adding `Any`, `object`, a cast,
       suppression, hot-path branch, slot, allocation, compatibility wrapper,
       or unmeasured frame-representation change.
-- [ ] Lower operations to data. No target object or morphism is called from the
+- [x] Lower operations to data. No target object or morphism is called from the
       character matcher, item loop, gate selection, or any frequent completion.
       Scalar decode, validation, insertion, and declared record construction
       dispatch through engine-owned closed int codes. Keep collection-finish,
       root-finalizer, and meaning-comparator callables in separate typed cold/
       boundary tables.
+      (Accepted 2026-09-02, coordinator-rerun `proto/s4_operations_as_data.py`
+      exit 0: over the 29 functions of the character matcher, item loop, gate
+      selection and completion, every global loaded is engine-owned; of the
+      22 flat-record fields read, only `ctor` and `fast` hold a callable, and
+      over 698 corpus clones / 868 arms each is the rule's own declared
+      `GrammarModel` class or its bound positional constructor; every mode,
+      gate and arm kind is a closed int; the root finalizer and meaning
+      comparator are int indices into typed lanes read only at the root and
+      the ambiguity gate, the latter the engine's `same_value`; a seeded
+      decoder-as-ctor control is caught by name. No source change was
+      needed.)
 - [ ] Implement the generic eligible-value-string specialization in
       `pda/compiler/program/specialize.py`: when
       `parsing/product/regular.py` proves one `value_str` occurrence exact,
@@ -642,9 +669,30 @@ holds.
 - [ ] Run `uv run python tools/check_generated.py` at this exit. §4 changes the
       authored fold vocabulary and its notation/generated-self-grammar users;
       the generated-twin gate cannot wait until §7.
-- [ ] At the completed §4 source tree, update `TODO.md` and `LEDGER.md`, record
-      the exact restart point and evidence, and hold. Do not begin the external
-      profile, commit, or Luna work below until the user resumes the effort.
+- [ ] **USER RULING (2026-09-02): full test coverage BEFORE the hold.** After
+      Terra's source bullets, verification bullets and its two fresh reviewers,
+      and before the hold, a Luna pass brings the test tree to full coverage of
+      the §4 tree: a unit-test mirror for every new or moved source module
+      (`abi/records`, `abi/construction`, `abi/expressions`, `product/lower`,
+      `product/tree`, `product/state`, `product/verify`, `product/regular`,
+      `parsing/binding`, `parsing/lift`, `pda/compiler/eligibility`,
+      `pda/compiler/program/product`, `compile/product/binding`,
+      `compile/module/rules`, and any others `test_test_parity` names); the
+      ports of every deleted-target assertion whose behaviour survives in a
+      product surface; the re-pins of every contract this round changed and
+      listed for Luna (the flat-clone slot tripwire, the deleted-property
+      artefact test, the two `test_specialize` value-string contracts, the
+      clone-spec field order); the harness non-vacuity tightening; the README
+      test-count re-render. Assertions pin ruled and witnessed contracts; no
+      timing tests; property tests through `guarded.sh`. Exit: the full suite
+      green at `-n 8`, `tools/run_checks.sh` exit 0 or every remaining
+      finding attributed by file, pyright 0. Luna runs only after Terra has
+      stopped; Terra does not resume during Luna's pass.
+- [ ] At the completed and fully tested §4 tree, update `TODO.md` and
+      `LEDGER.md`, record the exact restart point and evidence, and hold. The
+      hold brings in a different model to review the completed §4 source. Do
+      not begin the external profile or commit until the user resumes the
+      effort.
 - [ ] After the user resumes, externally profile the generated-model product
       with alternating baseline/new processes and a byte-identical control row
       under `docs/STYLE.md`. Instrumentation remains outside `src`.
@@ -660,16 +708,18 @@ holds.
       final approval; do not build §5 on it merely because correctness improved.
 - [ ] After review and the §4 measurement gate, the coordinator creates the
       first authorized §4 commit and resumes the same warm Terra agent.
-- [ ] **USER-APPROVED INSERTION (2026-09-01):** immediately after the §4
-      profile and commit — sequentially, before Terra resumes §5 —
-      a scoped Luna pass writes the missing unit-test MIRRORS for the new
-      modules `test_test_parity` names, restoring a fully green suite so a
-      red gate is loud again for the rest of the effort. Assertions pin only
-      RULED contracts (witnessed refusals, rollback, normalizations); no
-      speculative coverage of surfaces §5/§6 will grow, no differentials, no
-      timing tests. This does NOT shrink §13's mandate: the final §13 pass
-      still re-homes/moves any of these tests whose source modules moved and
-      completes full coverage.
+- [x] **USER-APPROVED INSERTION (2026-09-01) — SUPERSEDED 2026-09-02:** the
+      scoped post-commit mirror pass is replaced by the full-coverage Luna
+      pass before the hold, above. §13's mandate to re-home tests whose
+      source modules move in §5–§10 is unchanged.
+- [ ] **§5 ENTRY BLOCKER — APPLY `humanotes.md`:** after §4's external review,
+      performance gate, required corrections, and checkpoint commit, and
+      before any §5 source work, rewrite §5 onward around stable numbered,
+      chronological implementation units. Split oversized bullets before the
+      four-unit review/test/commit cadence is applied; define the recurring
+      green-commit gates and the major-section external-review gates explicitly.
+      No §5 implementation begins until this planning pass is complete and the
+      affected design documents agree with the revised queue.
 
 Exit: `CompiledGrammar.parse` and token-segmented parsing use the common product
 ABI with existing behavior and no parsing-performance regression. There is

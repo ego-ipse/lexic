@@ -103,7 +103,6 @@ from lexic.parsing.product.abi.records import (
 )
 from lexic.parsing.product.lower import (
     LoweringOwned,
-    bind_symbols,
     lower_product,
     lower_routes,
 )
@@ -221,7 +220,6 @@ __all__ = [
     "MAPPING_REPLACE",
     # verify
     "LoweringOwned",
-    "bind_symbols",
     "lower_product",
     "lower_routes",
     "verify_program",

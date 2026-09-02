@@ -159,8 +159,9 @@ every touched module, the full suite, `uv run pyright src tests tools`,
 `uv run python tools/check_generated.py`, every `s3_*` and `s4_*` witness,
 and `tools/run_checks.sh` with its exit code and per-file attribution.
 Search for forbidden constructs, restore cache or bytecode changes, run
-`git diff --check`, write the restart point, and stop. The hold that follows
-brings in a different model to review the completed §4 source; the
-reconciliation of `reports/WIP_EXTERNAL_REVIEW.md`, external profiling,
-commits, and Luna's work belong to that review and to the user's resumption,
-not to this round.
+`git diff --check`, write the restart point, and stop. A Luna pass then
+brings the test tree to full coverage of the §4 tree before the hold; you do
+not run during it. The hold brings in a different model to review the
+completed §4 source; the reconciliation of `reports/WIP_EXTERNAL_REVIEW.md`,
+external profiling, and commits belong to that review and to the user's
+resumption, not to this round.

@@ -32,9 +32,9 @@ grammar text
                         └─ build_codegen_grammar ─► THE codegen grammar
                               ├─ compute_binding ──► list[RuleBinding]
                               ├─ synthesize ───────► dict[str, type]   (type() build, NO file)
-                              └─ ModelFold(fold config) ─► the instance fold
-   ⇒ CompiledGrammar(classes, grammar, codegen_grammar, fold)
-        .parse(text) = parse_model(codegen_grammar, text, fold)       [engine product]
+                              └─ bind_model ───────► the bound product (lowered + verified)
+   ⇒ CompiledGrammar(classes, grammar, codegen_grammar, product)
+        .parse(text) = parse_model(codegen_grammar, text, product)    [engine product]
 ```
 
 ## 1. Public API (`__init__.py`)

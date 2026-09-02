@@ -13,6 +13,7 @@ shared across every parse.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from lexic.exceptions import LexicError
@@ -50,12 +51,14 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.core.scanner import Pattern
 
-NO_CONSULTS: Mapping[int, Pattern] = {}
+NO_CONSULTS: Mapping[int, Pattern] = MappingProxyType({})
 """What :func:`optimize_program` reads when no clone was proved regular.
 
 Keyed by ``id`` of the shell, which is how the lowering names a clone it has
 built but not yet placed — the shells outlive the call, so the identities are
-stable for exactly as long as the mapping is read."""
+stable for exactly as long as the mapping is read. A proxy rather than a bare
+``{}`` because it is a shared default: an empty dict handed to every caller is
+one object away from being filled by one of them."""
 
 
 def clone_arms(clone: FlatClone) -> list[FlatArm]:
@@ -295,11 +298,10 @@ def runarm_for(clone: FlatClone) -> "FlatArm | None":
 def _pattern_arm(pattern: Pattern) -> FlatArm:
     """One compiled pattern as the arm that matches a clone's whole extent.
 
-    A :class:`FlatArm` because that is what :attr:`FlatClone.runarm` IS, and
-    reusing the slot is what keeps the consult off every hot path that does not
-    take it: the runtime reaches it through the ``chartable``/``runarm`` pair it
-    already tests, and tells it from a quantified run by the item kind it
-    already reads.
+    A :class:`FlatArm` because that is what :attr:`FlatClone.runarm` IS: the
+    runtime reaches it through the ``chartable``/``runarm`` pair it already
+    tests, and tells it from a quantified run by the item kind it already
+    reads — so the consult stays off every path that does not take it.
     """
     arm = FlatArm.__new__(FlatArm)
     arm.n = 1
@@ -316,27 +318,24 @@ def consult_arm(clone: FlatClone, pattern: Pattern) -> "FlatArm | None":
     """The proved whole-extent matcher a ``value_str`` clone earns, or ``None``.
 
     The third way to answer "what did this rule match" in one step, beside
-    :func:`chartable_for`'s lookup and :func:`runarm_for`'s single run. Here the
+    :func:`chartable_for`'s lookup and :func:`runarm_for`'s single run. The
     authoritative proof (:func:`~lexic.parsing.product.regular.prove_regular`,
     taken against this clone's own continuation) says a possessive recognizer
-    consumes exactly what the rule's own program would — so the whole subtree,
-    inline groups and descents included, collapses to one C-level match and the
-    span keys the model exactly as a run's does.
+    consumes exactly what the rule's own program would, so the whole subtree
+    collapses to one C-level match and the span keys the model as a run's does.
 
-    Declined in three cases, each because the clone is already answered better
-    or cannot be answered here at all:
-
-    * a clone with a table — a dict lookup beats any pattern;
-    * a gated or attempted selection — the decision is not the recognizer's to
-      make, and an attempt must stay able to roll one back;
-    * a program that is ALREADY one matcher call (one item per arm, no descent)
-      — a pattern would replace a call with a call and buy nothing.
+    Declined where the decision is not the recognizer's to make — a gated or
+    attempted selection, since an attempt must stay able to roll one back — and
+    where the program is ALREADY one matcher call, since a pattern would then
+    replace a call with a call. That second decline keeps a consult off a
+    TABLED clone too, both table licences being strict cases of it; no separate
+    table test exists because there is no table yet.
 
     :param clone: The candidate clone (post-specialisation, tables not yet baked).
     :param pattern: The proof's own compiled pattern for this rule.
     :returns: The synthetic run arm, or ``None`` when the licence does not hold.
     """
-    if clone.mode != BUILD_VALUE_STR or clone.chartable is not None:
+    if clone.mode != BUILD_VALUE_STR:
         return None
     if clone.attempt is not None or clone.struct_arm is not None:
         return None

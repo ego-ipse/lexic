@@ -179,10 +179,12 @@ def a_discarded_fork_leaves_the_original_untouched() -> None:
 
 def the_probe_fork_site_carries_the_lane() -> None:
     """The wired half: `_probe` saves, forks, and restores the lane."""
-    source = (
-        __import__("pathlib")
-        .Path("src/lexic/parsing/pda/runtime/kernel/decisions.py")
-        .read_text(encoding="utf-8")
+    # Resolved from THIS file, not from the working directory: a witness that
+    # only passes when it is run from the repository root reports a defect the
+    # moment a sweep runs it from anywhere else.
+    root = __import__("pathlib").Path(__file__).resolve().parents[3]
+    source = (root / "src/lexic/parsing/pda/runtime/kernel/decisions.py").read_text(
+        encoding="utf-8"
     )
     _check(
         "the probe fork does not fork the lane",
