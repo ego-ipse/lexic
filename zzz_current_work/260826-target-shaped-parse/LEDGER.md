@@ -1,6 +1,48 @@
 # Ledger — target-shaped parsing
 
-## §4 checkpoint-1 re-review — two source blockers remain (2026-09-01)
+## §4 TODO reconciled to Savepoint 6 source (2026-09-02)
+
+The exact current tree, rejected/NEEDS WORK source-review disposition, evidence
+limits, and restart point are consolidated in
+[`HANDOVER.md`](HANDOVER.md). `TODO.md` remains the execution queue; this
+ledger remains history and evidence only.
+
+`TODO.md` is the execution queue. Its §4 bullets were audited against
+`b6471f48`; work formerly left as “To be done in §4/§6” under §3 was moved to
+the section that owns it. No deferred placeholder remains. The orchestrator
+prompt now requires every subagent to write a durable report and forbids
+checkpoint/milestone/slice vocabularies as work units outside a TODO bullet's
+own subordinate implementation steps.
+
+Eight §4 bullets are closed in the current source: the regular-proof planning
+prerequisite; generated-model `RuleProduct`/`RecordConstructor` authoring and
+binding; the one bound-product parse channel; `CloneSpec`/`PdaCompiler` product
+carriage and lowering; typed flat product construction operands; ordinary PDA
+completion baked from the product; and ordinary Earley/token completion through
+`ProductExecutor` with explicit result presence and value-once ambiguity replay.
+
+The production-source bullets still open are the six-symbol legacy-fold
+deletion and every remaining caller; `trace.py`; `foldkit` plus notation and
+generated-self-grammar authoring; one tagged completion range on every execution
+path; typed `Carry` through PDA frames/outputs/sinks; data-only completion
+dispatch; the generic regular-proof-backed value-string specialization; and
+island/delegate plus parallel stitch/replica migration. The opcode comparison
+and zero-tax source review also remain open. Static evidence is decisive:
+`binding.fold`, `RuleFold`, and `ModelFold` still occur in PDA compile,
+island/delegate, trace, parallel, notation, and stitch code; the runtime stack
+still uses `list[Any]`; and `specialize.py` does not consult
+`parsing/product/regular.py`.
+
+No verification run certifies the final Savepoint 6 edits, so the §4 test,
+generated-twin, performance, measurement, commit, and Luna bullets remain open.
+No subagent is running. The user-directed hold remains after every §4
+production-source bullet is implemented and reviewed, before external
+performance, commit, or Luna work.
+
+## Historical source review before final Savepoint 6 edits (2026-09-01)
+
+This entry records the state at that review only; the current status is the
+TODO reconciliation above.
 
 Terra completed the first correction round: final `product/tree.py` ownership,
 explicit `Completed[Carry] | EmptyResult`, typed `PayloadLeaf[Carry]`, generic
@@ -28,25 +70,19 @@ caches span demand once instead of scanning every rule again per replay.
 
 Required re-review evidence adds `resolver_pair.py` and
 `nullable_quantifier_ambiguity.py` to the existing shared-forest, dirty-cone,
-switch-differential, focused Pyright, and behavior rows. Checkpoint 2 remains
-unauthorized.
+switch-differential, focused Pyright, and behavior rows. In this historical
+state the island/delegate/stitch TODO bullet had not started.
 
-## User hold boundary — all §4 source items first (2026-09-01)
+## User hold boundary — all §4 source bullets first (2026-09-01)
 
-The user's correction is explicit: the hold is NOT after the current Step-4
-increment. Continue until every production-source item scoped to §4 is in and
-coordinator-reviewed — Earley/island/delegate/stitch completion, compile-side
-and `trace.py` migration, the six-symbol fold deletion and documentation
-cleanup, and value-string specialization. Record the exact tree/evidence/
-restart point, then stop before the external performance/checkpoint work and
-before Luna starts tests, lint, or the scoped unit-mirror pass. The warm source
-role to resume until that boundary is `terra_s4_step4`; after the hold, the
-next work is the coordinator's §4 performance/review checkpoint followed by
-the already-scheduled sequential Luna pass.
+The user's correction is explicit: continue until every production-source
+checkbox under TODO §4 is implemented and coordinator-reviewed. Record the
+exact tree, evidence, and restart point, then hold before external performance,
+commit, or Luna work. Status and sequencing follow those bullets directly.
 
-## §4 Step-4 checkpoint 1 reviewed — correction set, not accepted (2026-09-01)
+## Historical §4 source review — correction set (2026-09-01)
 
-Terra's first internal checkpoint moved ordinary Earley/fallback/token model
+Terra's first source handoff moved ordinary Earley/fallback/token model
 completion to `ModelBinding.rules + construction`, factored shared construction
 resolution, and re-sourced run-collapse licensing from product rule keys. Its
 focused evidence was 87 unit passes for fold/products, 35 fallback/span/
@@ -55,44 +91,44 @@ passes, syntax compile 0, and focused Pyright 0. The agent then hit its usage
 limit at 22:33 WEST before island/delegate/stitch work or the larger run could
 start; its state is preserved in the shared tree.
 
-Coordinator source review does NOT accept this checkpoint yet. Four corrections
-belong to the same Step-4 source increment:
+Coordinator source review did not accept that handoff yet. Four corrections
+belonged to the affected TODO bullets:
 
 1. The product executor and its span helpers must live in their final product
    owner, not add 268 net lines to the legacy `parsing/fold.py` (now 965 lines)
-   that Step 6 deletes. Transitional `ModelFold` may call the shared helper;
+   that §4's deletion bullet removes. Transitional `ModelFold` may call the shared helper;
    duplicate executors/caches are not retained.
 2. The moved seams must remove their cumulative `Any`/`object` erasure and the
    new `cast(M, PayloadLeaf.payload)`. In particular `_build_plan`, coverage,
    the result memo, and delegated payload typing need honest named/generic
    shapes; the dynamic class-side licence is narrowed once at its boundary,
    not at completion call sites.
-3. Meaning memo/replay activates in Step 4. The default meaning is constructed
+3. Meaning memo/replay activates in §4. The default meaning is constructed
    once and alternates reuse unchanged node values; ordinary `another_meaning`
    currently rebuilds the first value and `earley_model` builds the chosen tree
-   again. Step 8 still owns replacing the single-flip family relation and its
+   again. §8 still owns replacing the single-flip family relation and its
    claim, not this value-once integration.
 4. Absence cannot be represented by Python `None` in a common `Carry` result
    memo because the scheduled Python-JSON product carries a real `None` value.
    The generated-model empty-arm result stays behavior-identical, but presence
    must be represented explicitly rather than by a value the ABI admits.
 
-The unadapted `proto/s3_shared_forest.py` is not waived: Step 4 needs a
+The unadapted `proto/s3_shared_forest.py` is not waived: §4 needs a
 product-executor value-once/effect-per-occurrence witness without adding
 `object`, a suppression, or a cast. No lint work is assigned to Terra. After
-these corrections the coordinator re-reviews checkpoint 1 before authorizing
-checkpoint 2 (island/delegate/stitch/replicas).
+these corrections the coordinator reviews the affected bullets again before
+island/delegate/stitch/replica work proceeds.
 
-## §4 Step 4 opened — execution consumers move; fold declaration stays (2026-09-01)
+## Historical §4 call graph — execution consumers (2026-09-01)
 
 Terra's pre-edit call graph confirms the predictive completion itself is
-product-baked. The remaining Step-4 consumers of `ModelFold`/`RuleFold` are:
+product-baked. The remaining §4 consumers of `ModelFold`/`RuleFold` are:
 Earley default/fallback/token completion, ambiguity `remembered`/`replayed`,
 island settlement and splice, delegated kernels, run-collapse key licensing,
 and parallel stitch layout. `compile_pda` also still reads the fold for coverage
 and one `kind` decision even though clone construction no longer does.
 
-Coordinator ruling: Step 4 moves ALL of those execution/stitch/compiler reads
+Coordinator ruling: §4 moves ALL of those execution/stitch/compiler reads
 to `ModelBinding.rules + construction`, using one shared typed construction
 derivation and one product-driven ParseTree executor. Stitch layout comes from
 `RecordConstructor.names` zipped with `RuleProduct.captures`; a non-record
@@ -100,14 +136,13 @@ constructor refuses rather than being assumed. Span/offset handling,
 Begin-at-descent, MANY-through-transparent, value-once/effect-per-occurrence,
 and generated-model stitching semantics remain unchanged.
 
-`ModelBinding.fold` itself stays transitional through this increment. Step 5
-owns `fold_config`, notation/selfgrammar/templating fold tables, artifact fold
-authoring and `trace.py`; Step 6 owns the six-symbol deletion. Pulling those
-forward would collapse the reviewed sequence. The Step-4 exit instead requires
-zero execution, stitch, or `compile_pda` consumer of the field. Terra works in
-two internal checkpoints: shared construction + Earley/product/replay first,
-then island/delegate/stitch/replicas after coordinator review. Type-shape fixes
-are limited to seams this increment owns; pylint drives no source change.
+`ModelBinding.fold` itself was transitional in this historical state. The
+current §4 TODO places `fold_config`, notation/selfgrammar/templating fold
+tables, artifact fold authoring, `trace.py`, and the six-symbol deletion in
+their owning bullets. Those bullets require zero execution, stitch, or
+`compile_pda` consumer of the field. Shared construction plus Earley/product/
+replay precedes island/delegate/stitch/replica work only as subordinate
+implementation order inside those bullets. Pylint drives no source change.
 
 ## Savepoint 5 stabilized; §4 resumes at Earley product completion (2026-09-01)
 

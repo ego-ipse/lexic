@@ -21,6 +21,13 @@ The orchestrator owns scope, sequencing, review, measurements, commits, and
 the final handoff. Delegate bounded implementation and verification work, then
 guide the assigned agent while it works.
 
+Every subagent writes a durable report under this effort's `reports/`
+directory before handing work back. The report records the TODO bullet worked,
+the exact files changed or inspected, decisions and defects, verification and
+measurement evidence, and the remaining restart point. Chat summaries do not
+replace the report. The orchestrator reviews the report and the underlying
+repository evidence before updating `TODO.md` or `LEDGER.md`.
+
 For Anthropic agents, translate the established role names as follows:
 
 - **Terra means Opus:** architecture, production implementation, difficult
@@ -47,8 +54,23 @@ contaminate it.
 
 ## Execution discipline
 
-- Follow the active plan's current gates and grants. Do not infer authority to
-  commit, push, accept a regression, or widen scope.
+- The checkbox bullets in `TODO.md` are the only work units. There are no
+  checkpoints, milestones, slices, phases-within-a-phase, or parallel status
+  vocabularies. Such labels may appear only as subordinate implementation
+  substeps inside the TODO bullet they serve; they never create a separate
+  gate, queue, status, hold boundary, or grant.
+- Keep the queue literal. When work is deferred, move its bullet to the section
+  that will execute it and remove the placeholder from the former section.
+  When a bullet is done, mark that bullet closed. When new work is required,
+  add a bullet to the owning section. When an existing bullet's contract
+  changes, update that bullet in place. `LEDGER.md` records evidence and
+  history; it does not define work that is absent from `TODO.md`.
+- Report status against the TODO bullets themselves. Do not replace them with
+  an orchestration summary, rename them into invented units, or declare a
+  singular blocker without reconciling every affected bullet against the
+  repository.
+- Follow the constraints and grants stated in the active TODO bullets. Do not
+  infer authority to commit, push, accept a regression, or widen scope.
 - Parsing performance may not regress unless the regression is a bug fix and
   the user explicitly approves it after measurement.
 - Keep instrumentation outside `src/`, under `tools/` or this effort's
@@ -83,7 +105,7 @@ and resume protocol. Record material decisions, measurements, corrections, and
 the exact restart point in the active documents so a later session can resume
 without reconstructing state from chat.
 
-At every phase boundary, report:
+For every completed or handed-off TODO bullet, report:
 
 - what is proved or implemented;
 - what remains and whether it is planning, implementation, measurement, or

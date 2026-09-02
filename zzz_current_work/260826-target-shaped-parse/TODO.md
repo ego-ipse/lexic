@@ -43,7 +43,7 @@ and real-pool round. `PROTOTYPE_13.md` is the authoritative correction: it
 removes arbitrary cyclic caps, scopes quantified-nullable semantic families
 and Leo-complete readout, limits the control to an external fused-product
 protocol, and records the gates still open below. Resolver scope was a separate
-question at that checkpoint; the later complete-document ruling closes
+question at that point; the later complete-document ruling closes
 it below. `PROTOTYPE_14.md` and `P14_ADVERSARIAL.md`, as corrected
 by the coordinator rerun, close the investigable cyclic and tokenizer gates,
 pin the third shipped ambiguity defect, and separate the parser's recognition
@@ -58,25 +58,18 @@ parent-slot occurrences choose independently. Exact execution is uncapped and
 uses only proved constant, injective-route, and second-meaning exits. No
 planning question or user decision blocks §2. Production source began
 2026-08-31. §2 and §3 are implemented and coordinator-ACCEPTED (LEDGER
-records each exit's rulings and verification; §3's deferred bullets carry
-"To be done in §4/§6" markers in place). §4 is in progress: steps 1–3 are
-done on the predictive PDA side (model product authored + differential green;
-product-side bake identical over 610 clones; live switch proved safe on 107
-real PDA parses). Savepoint 5 stabilization has all seven §3/§4 witnesses and
-gates 10/20/30 green; gate 40's product/test findings are diagnostic and are
-not a Terra lint task. Step 4 — Earley/island/delegated product completion — is
-active. Its first internal checkpoint is implemented but coordinator-REJECTED
-pending the ledgered ownership, typing, explicit-presence, and value-once
-replay corrections; island/delegate/stitch work has not started. A scoped
-Luna unit-mirror pass is user-scheduled at the §4 checkpoint. No parse
-regression is authorized by any of this evidence.
+records each exit's rulings and verification). Obligations deferred from §3
+are listed only under the later section that owns their execution. §4 is in
+progress; its checkbox bullets below are the execution queue, and their marks
+are reconciled to Savepoint 6 source. Verification and performance bullets
+remain open because their evidence predates the final Savepoint 6 edits. Terra
+owns production architecture, not lint work. No parse regression is authorized
+by existing evidence.
 
-**Current user hold boundary (2026-09-01, corrected):** finish ALL production-
-source items scoped to §4 — execution migration, compile/trace migration,
-legacy fold deletion/docs cleanup, and value-string specialization — with the
-coordinator reviewing each handoff. Then update this queue and `LEDGER.md` and
-hold. Do not begin the coordinator's external performance/checkpoint work or
-Luna's tests/lint/mirror pass until the user resumes the effort.
+**Current user hold boundary (2026-09-01, corrected):** finish and review every
+production-source checkbox bullet in §4, update this queue and `LEDGER.md`, and
+hold. Do not begin the external performance or commit bullets, or Luna's tests/
+lint/mirror bullet, until the user resumes the effort.
 
 **Finding 10 (REVIEW_7):** the reducer-free extraction capability stays. It
 is one grammar-demand selection morphism — `select_raw(entry, spec)` — with
@@ -113,17 +106,18 @@ design. An implementer must not resolve a marked item implicitly while coding.
 - [ ] Terra owns the complete source implementation and source cleanup.
 - [ ] The coordinator guides Terra, reviews every phase, and is the only agent
       allowed to commit or push.
-- [ ] The coordinator makes checkpoint commits on branch `targeter` after the
-      §4, §5, §7, §9, and §11 exit gates. A checkpoint preserves reviewed
+- [ ] The coordinator makes reviewed commits on branch `targeter` after the
+      §4, §5, §7, §9, and §11 exit gates. Each commit preserves reviewed
       progress; it does not claim the full repository done-gate is green. The
       completed series is squashed into `main` after Luna's final gates.
-- [ ] At every checkpoint Terra writes its report and updates `LEDGER.md`, then
+- [ ] Before every planned source commit Terra writes its report and updates
+      `LEDGER.md`, then
       remains warm for the adjacent increment. Continue that same agent through
       follow-up work; do not replace it merely because a phase ended.
 - [ ] Run `tools/usage_watch.sh 90 60 540` during agent-heavy stretches and
       follow the repository hold/resume protocol at its thresholds.
-- [ ] The coordinator profiles the generated-model product at the §4
-      checkpoint and the complete source tree externally after §11.
+- [ ] The coordinator profiles the generated-model product after the §4 source
+      bullets and the complete source tree externally after §11.
 - [ ] Only after the complete-source §12 profile does Luna create/port tests
       and run formatting, linting, pyright, and repository gates.
 - [ ] At EVERY phase exit from §4 on, Terra runs `uv run pytest tests/ -q -n
@@ -190,7 +184,7 @@ design. An implementer must not resolve a marked item implicitly while coding.
       metrics. The user will supply the next review; do not send another agent.
 - [ ] Active grant, recorded verbatim from the user for this effort: “Grants
       remain applicable. Commit meaningfully (orchestrator only).” The user's
-      2026-08-27 ruling also licenses checkpoint commits without the full done
+      2026-08-27 ruling also licenses intermediate commits without the full done
       gate. The coordinator alone commits; final integration still waits for
       profiling, Luna's gates, and coordinator review.
 
@@ -382,71 +376,14 @@ the same signature object; a mismatched target can be diagnosed before parse.
       typed reducer-expression program, `CaptureSpec`, `RuleProduct`,
       `ProductProgram`, parse-local state, transaction marks, meaning contract,
       and fragment contract.
-- [ ] **To be done in §4.** Give every contextual PDA clone, Earley completion, token completion,
-      attempt sub-clone, island, and delegate exactly one tagged completion
-      range index. Verify its non-empty bounds and operand tables before
-      execution; do not store parallel expression and fused fields.
 - [x] Convert every authored enum to an exact `int` during lowering. Assert the
       flattened rule, expression, and capture tables contain no `IntEnum`
       instances using `type(value) is int`, never `isinstance`; frequent
       completion dispatch compares/indexes plain ints. (Done 2026-08-31 in
       `compile/product/lower.py` + `parsing/product/verify.py`; the
       engine-side int dispatch lands with the engine integration bullets.)
-- [ ] **To be done in §6** (mechanism landed in §3; producer refusals need the schema compiler).
-      Lower an occurrence-scoped `RouteContinuation`; refuse a nullable or
-      non-single-discriminator producer. It records a descendant consumer path,
-      not merely one sibling position. In PDA frames store `(consumer path,
-      route)` until the first routed child successfully advances, with the lane
-      under rollback; route-specialized intervening clones bake every deeper
-      child. In Earley, route producer completion through a sparse `(waiting
-      contextual code, route) -> successor contextual code` chain. The existing
-      packed successor codes carry route and occurrence identity; do not widen
-      every item or touch ordinary `_advance_all`. The later forest fold cannot
-      perform routing.
-      (Coordinator ruling 2026-08-31: the PDA lane is CURSOR-SIDE — one
-      `PdaKernel` slot, `None` for every non-routing program, indexed by frame
-      depth so it IS the parent frame's lane semantically, copied beside the
-      stack at the two fork sites. Widening the uniform 9-slot frame literal
-      would tax the generated-model paid path, which this section forbids;
-      "under rollback" is satisfied by the kernel's own copy-discard
-      speculation shape. A lane entry's validity is tied to its exact parent
-      frame instance: the stale-route witnesses must cover a same-depth later
-      sibling and an abandoned attempt.)
-- [ ] **To be done in §6.** Lower the producer's discriminator to direct scalar
-      decode/classification
-      at recognition-time completion. It must not call the general reducer
-      expression evaluator or construct a model. Specialize the lookup by
-      actual cardinality: uniform dynamic maps bypass it, singleton routes use
-      direct equality, finite sets of two or more use a private dictionary
-      lookup, and dense route ids index destinations without a tuple scan.
-      Preserve the measured representation decision from `PROTOTYPE_3.md`.
-- [ ] **To be done in §6.** Run nested mapping witnesses through PDA, ordinary Earley fallback, and
-      island/delegate execution. Outer and inner occurrences route
-      independently, escaped-equivalent keys agree, and rollback/abandonment
-      leaves no stale route for another attempt or member. Include the
-      non-sibling `member ::= string tail; tail ::= separator value` shape and
-      assert the route reaches the descendant value in all three execution
-      paths.
-      (Coordinator ruling 2026-08-31: EXECUTES AT §6, not §3. `PdaTables`
-      carries no route data and cannot until a `TargetSchema` declares a
-      discriminator — wiring `_enter`/the Earley successor table now would
-      guard a branch that cannot fire, on the model product's paid path.
-      §3 proves the mechanism: the lane with four stale cases, both fork
-      sites, and the authored→lowered→verified route chain with cardinality
-      specialization. This bullet's witnesses run at §6 against the first
-      compiled schema routes, under the same wording. §6 obligation: prefer a
-      clone-baked consult — routed consumer clones marked in their own data —
-      over a global per-entry test, so unrouted programs' clone entries gain
-      no new branch; §12's parse rows still gate whatever shape lands.)
 - [x] Keep the parsing layer a leaf: imports may reach `lexic.ir`, never
       `lexic.compile`, `lexic.grammars`, or `lexic.api`.
-- [ ] **To be done in §4** (the property becomes provable when the engines execute products).
-      Lower operations to data. No target object or morphism is called from the
-      character matcher, item loop, gate selection, or any frequent completion.
-      Scalar decode, validation, insertion, and declared record construction
-      dispatch through engine-owned closed int codes. Keep collection-finish,
-      root-finalizer, and meaning-comparator callables in separate typed cold/
-      boundary tables.
 - [x] Keep the ABI capable of a closed cold/root constructor operation, but add
       no public custom callable/factory field and no custom operation at a
       frequent completion. The arbitrary-class public surface is gated in §6.
@@ -498,7 +435,7 @@ product data and a parallel §3 completion path would cost the model-path
 branch this section forbids; the occurrence-routing MECHANISM is proved
 (lane stale cases, both fork sites, authored→lowered→verified route chain) —
 recognition-time route selection executes at §6 with the first compiled schema
-routes, per the 2026-08-31 ruling above; every physical execution table
+routes, per §6's routing bullets; every physical execution table
 verifies one exact-int
 completion range; rollback, fresh-alternate isolation, and cache release pass;
 side-effecting completion is exactly-once per shared forest node with
@@ -509,67 +446,18 @@ holds.
 
 ## 4 — migrate generated-model parsing onto the common ABI
 
-**§4 execution map (coordinator, 2026-09-01; live — updated as steps land).**
-Terra's approved sequence is SEVEN STEPS; step 3 split into TWO SLICES when
-the channel's call graph was read. Position is marked:
-
-1. ✅ Author the model product beside the fold (`model_plan`,
-   `RecordConstructor` + `matched_field`; differential 137 rules).
-2. ✅ Product-side bake (`bake_product_build`; identity over 610 clones;
-   switch proved on 107 real PDA parses). Interleaved and done: symbol op,
-   lane-bounds closure, notation + selfgrammar + (ruled) templating as
-   authored surfaces, `rules.py` split.
-3. ✅ The predictive channel + completions, two slices so the channel is replaced once
-   and the bake switched once, with no dual-live interval:
-   — Slice 1 ✅: `ModelBinding` through every parse entry; `fold` a transitional
-     field for the Earley half; 30 test files adapted mechanically and the
-     returned pyright miss fixed.
-   — Slice 2a ✅: templating's authored product, `CloneSpec` carries
-     `RuleProduct`, `flatten_clones` bakes from it. Witnesses re-aimed at
-     the unified live bake (`s4_bake_identity` behavioural + five controls,
-     `s4_switch_differential` against the Earley oracle + three controls);
-     the empty-rule-map guard landed at `bind_model` with its own witness row.
-   — Slice 2b ✅: `RuleProduct.n_items` plus the symbol-side construction
-     record close the validated authored surfaces; all eight runtime
-     `clone.fold` reads are gone, `clone.mode` derives from completion type,
-     TEXT/EXTENT retain ends, and all named witnesses pass.
-4. ⏳ Earley / island / delegated completion onto the same product ops. Move
-   meaning replay and model-stitch field-layout reads with it; then remove the
-   transitional `ModelBinding.fold` field. Terra owns production architecture,
-   not the diagnostic pylint findings. Honest named/generic types replace the
-   cumulative new `Any`/`object`/`type: ignore` as their owning seams move.
-   Checkpoint 1 (ordinary Earley/fallback/token + shared construction) is
-   present but NOT ACCEPTED: move the executor/span machinery out of the
-   965-line legacy `fold.py`; make absence explicit rather than overloading a
-   real `Carry == None`; remove the moved seam's erasure/call-site payload
-   cast; and activate `MeaningMemo` replay so the baseline and unchanged DAG
-   values construct once. Keep the current single-flip family enumeration
-   until §8 replaces it. Re-run the product-shaped shared-forest/effect
-   witness, then coordinator review, before island/delegate/stitch checkpoint 2.
-   Re-review correction (still checkpoint 1): classify eligible arm choices
-   before allocating `MeaningMemo` so ordinary/split-only charts carry no
-   alternate state; retain separate complete folds for sibling accepting roots;
-   cache span demand once per executor; and carry the new typed construction
-   plan through `FlatClone` and runtime readers instead of widening it back to
-   `Any`. `resolver_pair` and `nullable_quantifier_ambiguity` join the required
-   evidence before this checkpoint can be accepted.
-5. ☐ Remainder of the compile side + `trace.py` rewrite (parallel/ was
-   absorbed into slice 1).
-6. ☐ Delete the six fold symbols once nothing references them.
-7. ☐ Close the per-step opcode account; coordinator's external profile;
-   first checkpoint commit; scoped Luna mirror pass.
-
-
 - [x] **PLANNING REQUIRED BEFORE §4 — CLOSED:** strengthen the authoritative
       regular proof before the value-string consult can use it. A nullable arm
       must be last, and `(variable or atom.nullable) and FIRST(atom) overlaps
       FOLLOW(atom)` declines. `proto/regular_region_lowering.py --mode identity`
       executes the `{1,1}` nullable-reference and early-nullable-arm witnesses.
 
-- [ ] Start from `src/lexic/parsing/fold.py`. Re-express model field capture and
-      construction as the generated-model specialization of `ProductProgram`.
+- [x] Start from `src/lexic/parsing/fold.py`. Re-express generated-model field
+      capture and construction as authored `RuleProduct` records plus typed
+      construction tables; the open tagged-range/data-operation bullets below
+      complete their integration into `ProductProgram`.
       (Coordinator ruling 2026-09-01: the constructor operand table holds one
-      immutable `ModelConstructor` record per rule — `cls` + field-name order
+      immutable `RecordConstructor` record per rule — `cls` + field-name order
       + optional-capture indices + defaults + the `fast` validation-skip flag
       — not a bare class. `CaptureSpec(mode, slot)` cannot carry
       `FieldFold`'s `name`/`lo`, and dropping `lo` silently turns gtext
@@ -609,8 +497,8 @@ the channel's call graph was read. Position is marked:
       callers to author the model product through the new operation records.
       (Done: `model_plan` authors `RuleProduct`/`RecordConstructor` from the
       binding view — differential vs `fold_config` green over 137 rules — and
-      `bind_model` pairs it into every artefact path. Verified in the
-      accepted slice-1 state.)
+      `bind_model` pairs it into every artefact path. The source and its
+      differential were accepted before Savepoint 6.)
 - [ ] Migrate `src/lexic/compile/foldkit.py::seq` and `model_fold`, plus every
       notation/generated-self-grammar caller, to the final vocabulary. Account
       explicitly for `IrNamed`, `FOLD_SYMBOLS`, `first_rest`, `absent_tail`,
@@ -619,19 +507,25 @@ the channel's call graph was read. Position is marked:
       into runtime reduction.
 - [x] Update `src/lexic/parsing/products.py` so PDA and Earley receive one bound
       product. Preserve the public generated-model and segmented-token products.
-      (Done in slice 1: `ModelBinding` is the one bound product through
+      (Done: `ModelBinding` is the one bound product through
       `parse_model`/`pda_tables`/`_model_product`, memo keyed on its
       identity; public products preserved, suite green at acceptance. The
-      engines read `binding.fold` transitionally until slice 2b moves the
-      completion sites.)
-- [ ] Update `pda/compiler/specs.py::CloneSpec`,
+      remaining legacy `binding.fold` consumers belong to the open migration
+      and deletion bullets.)
+- [x] Update `pda/compiler/specs.py::CloneSpec`,
       `pda/compiler/clones.py::PdaCompiler`/`compile_pda`, and
       `pda/compiler/program/lower.py::_bake_build`/`_build_plan` to carry
       `RuleProduct` capture/completion data.
-- [ ] Update `pda/compiler/program/flatten.py::FlatClone`/`PdaProgram` with
-      separate typed product operand tables. Preserve the existing specialized
-      model opcodes where their opcode stream is already optimal.
-- [ ] Replace model-only completion in
+- [x] Update `pda/compiler/program/flatten.py::FlatClone` with generic typed
+      product construction fields and bake them from separate typed
+      `ConstructionTables`. Preserve the existing specialized model opcodes
+      where their opcode stream is already optimal; the next bullet owns
+      `PdaProgram` completion-range/operand-table execution.
+- [ ] Give every contextual PDA clone, Earley completion, token completion,
+      attempt sub-clone, island, and delegate exactly one tagged completion
+      range index. Verify its non-empty bounds and operand tables before
+      execution; do not store parallel expression and fused fields.
+- [x] Replace model-only completion in
       `pda/runtime/build.py` and
       `pda/runtime/kernel/execution.py::_run_leaf`/`_complete` with common
       product completion. Target selection must be absent from the character
@@ -640,6 +534,17 @@ the channel's call graph was read. Position is marked:
       accumulator that does not exist yet — and a MANY capture must look
       THROUGH transparent repetition nodes to reach real elements;
       `proto/s3_earley_target.py` demonstrates both.)
+- [ ] Carry `Carry` without erasure through the PDA runtime frame, output, and
+      sink path now owned by common product completion. Remove the current
+      `list[Any]`/call-site widening without adding `Any`, `object`, a cast,
+      suppression, hot-path branch, slot, allocation, compatibility wrapper,
+      or unmeasured frame-representation change.
+- [ ] Lower operations to data. No target object or morphism is called from the
+      character matcher, item loop, gate selection, or any frequent completion.
+      Scalar decode, validation, insertion, and declared record construction
+      dispatch through engine-owned closed int codes. Keep collection-finish,
+      root-finalizer, and meaning-comparator callables in separate typed cold/
+      boundary tables.
 - [ ] Implement the generic eligible-value-string specialization in
       `pda/compiler/program/specialize.py`: when
       `parsing/product/regular.py` proves one `value_str` occurrence exact,
@@ -651,8 +556,14 @@ the channel's call graph was read. Position is marked:
       regression for later target speed. The controlled mechanism row is in
       `PROTOTYPE_7.md` §4. The proof must enforce nullable-arm-last and
       nullable-atom continuation ownership, not only variable repetition.
-- [ ] Update `earley_model`, `ModelFold.apply`'s replacement, island completion,
-      and delegated completion to execute the same rule operation/captures.
+- [x] Update `earley_model` and `ModelFold.apply`'s replacement to execute the
+      same rule operation/captures. The final owner is
+      `parsing/product/tree.py`; explicit result presence admits a real
+      `Carry == None`, and ambiguity replay reuses unchanged completed values.
+- [ ] Update island completion and delegated completion to execute those same
+      rule operations/captures, then move parallel stitch/replica field-layout
+      reads to the product construction data so the legacy fold has no
+      execution or stitching consumer.
 - [ ] Compare flat programs/opcode streams for the generated-model target before
       and after. Explain every added paid-loop opcode; remove any target-only
       branch from the model path.
@@ -666,10 +577,12 @@ the channel's call graph was read. Position is marked:
 - [ ] Run `uv run python tools/check_generated.py` at this exit. §4 changes the
       authored fold vocabulary and its notation/generated-self-grammar users;
       the generated-twin gate cannot wait until §7.
-- [ ] Pause Terra at the completed §4 tree. The coordinator profiles the
-      generated-model product with alternating baseline/new processes and a
-      byte-identical control row under `docs/STYLE.md`. Instrumentation remains
-      outside `src`.
+- [ ] At the completed §4 source tree, update `TODO.md` and `LEDGER.md`, record
+      the exact restart point and evidence, and hold. Do not begin the external
+      profile, commit, or Luna work below until the user resumes the effort.
+- [ ] After the user resumes, externally profile the generated-model product
+      with alternating baseline/new processes and a byte-identical control row
+      under `docs/STYLE.md`. Instrumentation remains outside `src`.
 - [ ] Gate generated-model and token-segmented parsing row by row across PDA,
       Earley fallback, islands/delegates, ambiguity, and eligible MT shapes.
       Compare structural opcode/capture streams as well as alternating timing.
@@ -681,9 +594,9 @@ the channel's call graph was read. Position is marked:
       remeasure. A bugfix-related regression still requires the user's explicit
       final approval; do not build §5 on it merely because correctness improved.
 - [ ] After review and the §4 measurement gate, the coordinator creates the
-      first checkpoint commit and resumes the same warm Terra agent.
+      first authorized §4 commit and resumes the same warm Terra agent.
 - [ ] **USER-APPROVED INSERTION (2026-09-01):** immediately after the §4
-      profile and checkpoint commit — sequentially, before Terra resumes §5 —
+      profile and commit — sequentially, before Terra resumes §5 —
       a scoped Luna pass writes the missing unit-test MIRRORS for the new
       modules `test_test_parity` names, restoring a fully green suite so a
       red gate is loud again for the rest of the effort. Assertions pin only
@@ -695,7 +608,7 @@ the channel's call graph was read. Position is marked:
 
 Exit: `CompiledGrammar.parse` and token-segmented parsing use the common product
 ABI with existing behavior and no parsing-performance regression. There is
-still only one generated-model route, and the §4 checkpoint is recorded. Any
+still only one generated-model route, and the §4 commit is recorded. Any
 bugfix-related exception has the user's explicit final approval recorded first.
 
 ## 5 — compile reducer semantics directly into products
@@ -802,8 +715,8 @@ bugfix-related exception has the user's explicit final approval recorded first.
       current route on the same codomain, or if any generated-model parsing row
       regresses outside its control floor. The 3x threshold is an architectural
       early-warning bound, not permission to land a slower final product.
-- [ ] After coordinator review of the differential report, create the §5
-      checkpoint commit and resume the same warm Terra agent.
+- [ ] After coordinator review of the differential report, create the
+      authorized §5 commit and resume the same warm Terra agent.
 
 Exit: default reduction constructs its `IrSelf` during parsing with exact
 current parity and no `GrammarModel` or `ReduceFold` on the executed route.
@@ -835,6 +748,44 @@ the §8/§9 re-runs.
       test), the sparse Earley routed-successor table lands, and §3's moved
       nested-mapping/non-sibling/stale-route witnesses run through real
       PDA / Earley fallback / island-delegate parses here.
+- [ ] Lower an occurrence-scoped `RouteContinuation`; refuse a nullable or
+      non-single-discriminator producer. It records a descendant consumer path,
+      not merely one sibling position. In PDA frames store `(consumer path,
+      route)` until the first routed child successfully advances, with the lane
+      under rollback; route-specialized intervening clones bake every deeper
+      child. In Earley, route producer completion through a sparse `(waiting
+      contextual code, route) -> successor contextual code` chain. The existing
+      packed successor codes carry route and occurrence identity; do not widen
+      every item or touch ordinary `_advance_all`. The later forest fold cannot
+      perform routing.
+      (Coordinator ruling 2026-08-31: the PDA lane is CURSOR-SIDE — one
+      `PdaKernel` slot, `None` for every non-routing program, indexed by frame
+      depth so it IS the parent frame's lane semantically, copied beside the
+      stack at the two fork sites. Widening the uniform 9-slot frame literal
+      would tax the generated-model paid path, which this section forbids;
+      "under rollback" is satisfied by the kernel's own copy-discard
+      speculation shape. A lane entry's validity is tied to its exact parent
+      frame instance: the stale-route witnesses must cover a same-depth later
+      sibling and an abandoned attempt.)
+- [ ] Lower the producer's discriminator to direct scalar decode/classification
+      at recognition-time completion. It must not call the general reducer
+      expression evaluator or construct a model. Specialize the lookup by
+      actual cardinality: uniform dynamic maps bypass it, singleton routes use
+      direct equality, finite sets of two or more use a private dictionary
+      lookup, and dense route ids index destinations without a tuple scan.
+      Preserve the measured representation decision from `PROTOTYPE_3.md`.
+- [ ] Run nested mapping witnesses through PDA, ordinary Earley fallback, and
+      island/delegate execution. Outer and inner occurrences route
+      independently, escaped-equivalent keys agree, and rollback/abandonment
+      leaves no stale route for another attempt or member. Include the
+      non-sibling `member ::= string tail; tail ::= separator value` shape and
+      assert the route reaches the descendant value in all three execution
+      paths.
+      (Coordinator ruling 2026-08-31: this executes when `PdaTables` carries a
+      compiled `TargetSchema` discriminator. Prefer a clone-baked consult —
+      routed consumer clones marked in their own data — over a global per-entry
+      test, so unrouted programs' clone entries gain no new branch; §12's parse
+      rows still gate whatever shape lands.)
 - [ ] Implement poisoned schema states. A semantic mismatch records its ordered
       verdict, routes the remaining value/document through generic lower-syntax
       recovery, and defers raising until syntax succeeds.
@@ -1030,8 +981,8 @@ costs. No target is a post-reduction mapper.
       omits driver, frame, transaction, merge-region, and remaining-document
       work, so it does not prove the complete `<1.000 s` envelope; the §7 timed
       exit decides that gate (`reports/PROTOTYPE_7.md` §§2–4).
-- [ ] Run the payload/notation/generated-twin fixpoint gate before this
-      checkpoint: the three-index `IrTokenizer` rework touches the payload
+- [ ] Run the payload/notation/generated-twin fixpoint gate before this section
+      exits: the three-index `IrTokenizer` rework touches the payload
       codec, the zero-import reader, notation, and the twin modules — run
       `uv run python tools/check_generated.py` plus a notation/payload
       round-trip over the new representation and record the result.
@@ -1042,8 +993,8 @@ costs. No target is a post-reduction mapper.
       <1.000 s envelope by more than 3x, the effort halts here with the old
       path still present in the tree, and the miss is attributed before any
       §8+ work opens. §12 remains the complete matrix.
-- [ ] After coordinator review of sequential target parity, create the §7
-      checkpoint commit and resume the same warm Terra agent.
+- [ ] After coordinator review of sequential target parity, create the
+      authorized §7 commit and resume the same warm Terra agent.
 
 Exit: Qwen, GPT-2, SmolLM2, Gemma, and the small fixture can reach a ready
 `IrTokenizer` without generated JSON models, JSON `IrMap`, or `tokenizer_of`,
@@ -1429,7 +1380,7 @@ target fragment. `IrTokenizer` happens to satisfy that bound; recursive Python
       effort's `proto/` at this exit — the last fresh-input comparison before
       §10 deletes the oracle — and record command and result in `reports/`.
 - [ ] After coordinator review of sequential/parallel parity and fragment laws,
-      create the §9 checkpoint commit and resume the same warm Terra agent.
+      create the authorized §9 commit and resume the same warm Terra agent.
 
 Exit: every supported split shape returns the same target/refusal as sequential
 execution; unsupported shapes execute exactly one sequential direct product.
@@ -1512,7 +1463,7 @@ exists.
 - [ ] Review getting-started examples and public exports for one canonical path
       per task. Do not add a sugar API beside `into=`.
 - [ ] After coordinator review of cleanup, documentation, examples, and package
-      maps, create the §11 checkpoint commit. Terra's source work is then
+      maps, create the authorized §11 commit. Terra's source work is then
       complete and the coordinator begins §12 profiling.
 
 Exit: a reader starting from README/wiki sees the final architecture and can
@@ -1624,7 +1575,7 @@ test-authoring handoff, with no simultaneous benchmark contamination.
       and the full source diff before writing tests.
 - [ ] Mirror every new/moved source module under `tests/unit/lexic/`.
       (User condition 2026-09-01: this final pass MUST also MOVE the early
-      §4-checkpoint mirror tests wherever their source modules moved in
+      §4 mirror tests wherever their source modules moved in
       §5–§10 — the test tree mirrors the final source tree exactly — and
       complete the coverage the scoped early pass deliberately left out.)
 - [ ] Port assertions from deleted reduction/model/template tests to the new
@@ -1741,7 +1692,7 @@ done-gate pass on the complete cleaned/documented source.
 - [ ] Verify every deletion in §10 and every acceptance item in `goal.md`.
 - [ ] Verify Terra's performance report and Luna's test/lint report correspond
       to the exact tree being committed.
-- [ ] Squash the reviewed checkpoint series into `main` after all gates. The
+- [ ] Squash the reviewed commit series into `main` after all gates. The
       coordinator alone performs integration; add no `Co-Authored-By`.
 - [ ] Push the squashed result under the active user grant and report the final
       commit, measurements, and gates.
