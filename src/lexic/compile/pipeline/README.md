@@ -24,7 +24,7 @@ with no wrapper rules and no name protocol.
 
 ## `binding.py` — the binding view
 
-`compute_binding(codegen_grammar)` returns one `RuleBinding(rule_name,
+`compute_binding(codegen_grammar)` returns one `RuleMap(rule_name,
 class_name, parent_class_names, kind, fields)` per rule, parents first.
 `classify_rule` derives `kind` fresh (`value_str` / `alternation` /
 `sequence`); `bind_fields` names fields through the three-tier cascade

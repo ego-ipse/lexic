@@ -25,17 +25,9 @@ from lexic.parsing.earley.kernel.tables.records import (
     ParserTables,
 )
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
-from lexic.parsing.product.abi.construction import (
-    Construction,
-    ConstructionTables,
-    ProductValue,
-)
-from lexic.parsing.product.abi.records import (
-    CaptureMode,
-    PassOp,
-    RuleProduct,
-    construction_of,
-)
+from lexic.parsing.product.abi.construction import Construction, ProductValue
+from lexic.parsing.product.abi.records import CaptureMode
+from lexic.parsing.product.routines import RuleRoutine
 
 __all__ = [
     "Completed",
@@ -71,34 +63,29 @@ type ResultMemo[Carry] = dict[int, CompletionResult[Carry]]
 
 
 class ProductExecutor[Carry]:
-    """One bound product's fresh and memo-seeded ParseTree entry points."""
+    """One bound product's fresh and memo-seeded ParseTree entry points.
 
-    __slots__ = ("rules", "tables", "wants_spans")
+    It completes through :class:`~lexic.parsing.product.routines.RuleRoutine`\\
+    s, which are the verified program read back — so the derivation runs the
+    ranges the verifier bounded rather than a second reading of the authored
+    records beside them.
+    """
 
-    def __init__(
-        self,
-        rules: Mapping[str, RuleProduct[Carry]],
-        tables: ConstructionTables[Carry],
-    ) -> None:
-        """:param rules: Authored rule products; :param tables: their operands."""
-        self.rules = rules
-        self.tables = tables
-        self.wants_spans = _wants_spans(rules)
+    __slots__ = ("routines", "wants_spans")
+
+    def __init__(self, routines: Mapping[str, RuleRoutine[Carry]]) -> None:
+        """:param routines: Rule name → its verified completion routine."""
+        self.routines = routines
+        self.wants_spans = _wants_spans(routines)
 
     def build(self, root: ParseTree) -> Carry:
         """Complete a whole derivation, where producing no value is an error."""
-        return complete_product(
-            root, self.rules, self.tables, wants_spans=self.wants_spans
-        )
+        return complete_product(root, self.routines, wants_spans=self.wants_spans)
 
     def replay(self, root: ParseTree, results: ResultMemo[Carry]) -> Carry:
         """Complete a derivation while reusing and extending ``results``."""
         return complete_product(
-            root,
-            self.rules,
-            self.tables,
-            results,
-            wants_spans=self.wants_spans,
+            root, self.routines, results, wants_spans=self.wants_spans
         )
 
     def splice(self, root: ParseTree) -> CompletionResult[Carry]:
@@ -112,9 +99,7 @@ class ProductExecutor[Carry]:
         splices nothing rather than a value. Returning the presence explicitly
         is what keeps that distinct from an occurrence whose value IS ``None``.
         """
-        return _complete_tree(
-            root, self.rules, self.tables, {}, wants_spans=self.wants_spans
-        )
+        return _complete_tree(root, self.routines, {}, wants_spans=self.wants_spans)
 
     def splice_replay(
         self, root: ParseTree, results: ResultMemo[Carry]
@@ -128,7 +113,7 @@ class ProductExecutor[Carry]:
         alternative.
         """
         return _complete_tree(
-            root, self.rules, self.tables, results, wants_spans=self.wants_spans
+            root, self.routines, results, wants_spans=self.wants_spans
         )
 
 
@@ -203,13 +188,12 @@ def slot_span[Carry](
 
 def complete_product[Carry](
     root: ParseTree,
-    rules: Mapping[str, RuleProduct[Carry]],
-    tables: ConstructionTables[Carry],
+    routines: Mapping[str, RuleRoutine[Carry]],
     results: ResultMemo[Carry] | None = None,
     *,
     wants_spans: bool | None = None,
 ) -> Carry:
-    """Complete one whole ParseTree through the product's authored operations.
+    """Complete one whole ParseTree through the program's verified completions.
 
     ``results`` is both seeded and filled.  A seeded node is never constructed
     again, which is the value-replay contract used by ambiguity checking.
@@ -220,11 +204,7 @@ def complete_product[Carry](
         :meth:`ProductExecutor.splice` instead.
     """
     result = _complete_tree(
-        root,
-        rules,
-        tables,
-        {} if results is None else results,
-        wants_spans=wants_spans,
+        root, routines, {} if results is None else results, wants_spans=wants_spans
     )
     if isinstance(result, EmptyResult):
         raise UnsupportedConstructError(
@@ -235,15 +215,14 @@ def complete_product[Carry](
 
 def _complete_tree[Carry](
     root: ParseTree,
-    rules: Mapping[str, RuleProduct[Carry]],
-    tables: ConstructionTables[Carry],
+    routines: Mapping[str, RuleRoutine[Carry]],
     results: ResultMemo[Carry],
     *,
     wants_spans: bool | None = None,
 ) -> CompletionResult[Carry]:
     """Walk one derivation bottom-up and return the root's completion result."""
     folded: set[int] = set(results)
-    wants_spans = _wants_spans(rules) if wants_spans is None else wants_spans
+    wants_spans = _wants_spans(routines) if wants_spans is None else wants_spans
     offsets = tree_offsets(root) if wants_spans else _NO_OFFSETS
     stack: list[tuple[ParseTree, bool]] = [(root, False)]
     while stack:
@@ -258,37 +237,36 @@ def _complete_tree[Carry](
         if node_id in folded:
             continue
         folded.add(node_id)
-        _complete_node(node, rules, tables, results, offsets)
+        _complete_node(node, routines, results, offsets)
     root_result = results.get(id(root), EMPTY_RESULT)
     if isinstance(root_result, EmptyResult):
         return _first_product_under(root, results)
     return root_result
 
 
-def _wants_spans[Carry](rules: Mapping[str, RuleProduct[Carry]]) -> bool:
-    """Return whether any product capture requests an extent."""
+def _wants_spans[Carry](routines: Mapping[str, RuleRoutine[Carry]]) -> bool:
+    """Return whether any verified capture requests an extent."""
     return any(
-        spec.mode == CaptureMode.EXTENT
-        for product in rules.values()
-        for spec in product.captures
+        mode == CaptureMode.EXTENT
+        for routine in routines.values()
+        for mode in routine.modes
     )
 
 
 def _complete_node[Carry](
     node: ParseTree,
-    rules: Mapping[str, RuleProduct[Carry]],
-    tables: ConstructionTables[Carry],
+    routines: Mapping[str, RuleRoutine[Carry]],
     results: ResultMemo[Carry],
     offsets: Offsets,
 ) -> None:
-    """Complete one authored rule; transparent nodes write no memo entry."""
-    product = rules.get(str(node.symbol))
-    if product is None:
+    """Complete one bound rule; transparent nodes write no memo entry."""
+    routine = routines.get(str(node.symbol))
+    if routine is None:
         return
-    if isinstance(product.completion, PassOp):
-        results[id(node)] = _passed_value(node, product, product.completion, results)
+    if routine.source >= 0:
+        results[id(node)] = _passed_value(node, routine, results)
         return
-    construction = construction_of(product, tables)
+    construction = routine.construction
     if construction is None:
         raise UnsupportedConstructError(
             f"product: rule {node.symbol!s} has no construction"
@@ -299,69 +277,63 @@ def _complete_node[Carry](
         )
         return
     results[id(node)] = Completed(
-        _complete_record(node, product, construction, results, offsets)
+        _complete_record(node, routine, construction, results, offsets)
     )
 
 
 def _passed_value[Carry](
     node: ParseTree,
-    product: RuleProduct[Carry],
-    completion: PassOp,
+    routine: RuleRoutine[Carry],
     results: ResultMemo[Carry],
 ) -> CompletionResult[Carry]:
     """Return the explicitly present or empty pass-through result."""
-    source = completion.source
-    if source >= len(product.captures):
+    source = routine.source
+    if source >= len(routine.modes):
         raise UnsupportedConstructError(
             f"product: {node.symbol!s}: pass source {source} has no capture"
         )
-    spec = product.captures[source]
-    if spec.mode != CaptureMode.ONE:
+    if routine.modes[source] != CaptureMode.ONE:
         raise UnsupportedConstructError(
             f"product: {node.symbol!s}: pass source {source} is not one value"
         )
     if not node.kids:
         return EMPTY_RESULT
-    if spec.slot >= len(node.kids):
+    slot = routine.slots[source]
+    if slot >= len(node.kids):
         raise UnsupportedConstructError(
-            f"product: {node.symbol!s}: pass item {spec.slot} is out of range"
+            f"product: {node.symbol!s}: pass item {slot} is out of range"
         )
-    models = _product_models_at(node.kids[spec.slot], results)
+    models = _product_models_at(node.kids[slot], results)
     return Completed(models[0]) if models else EMPTY_RESULT
 
 
 def _complete_record[Carry](
     node: ParseTree,
-    product: RuleProduct[Carry],
+    routine: RuleRoutine[Carry],
     construction: Construction[Carry],
     results: ResultMemo[Carry],
     offsets: Offsets,
 ) -> Carry:
     """Capture one sequence node and invoke its resolved construction."""
     kids = node.kids
-    if len(kids) != product.n_items:
+    if len(kids) != routine.n_items:
         if kids:
             raise UnsupportedConstructError(
                 f"product: {node.symbol!s}: {len(kids)} kids do not match "
-                f"{product.n_items} items (nor the empty arm)"
+                f"{routine.n_items} items (nor the empty arm)"
             )
         return construction.call()
-    if len(product.captures) != len(construction.names):
+    if len(routine.modes) != len(construction.names):
         raise UnsupportedConstructError(
-            f"product: {node.symbol!s}: {len(product.captures)} captures do not "
+            f"product: {node.symbol!s}: {len(routine.modes)} captures do not "
             f"match {len(construction.names)} construction names"
         )
     kwargs: dict[str, ProductValue[Carry]] = {}
-    for at, (spec, name) in enumerate(
-        zip(product.captures, construction.names, strict=True)
+    for at, (slot, mode, name) in enumerate(
+        zip(routine.slots, routine.modes, construction.names, strict=True)
     ):
         present, value = _captured(
-            node,
-            spec.slot,
-            spec.mode,
-            at in construction.optional,
-            results,
-            offsets,
+            node, slot, mode, at in construction.optional, results, offsets
         )
         if present:
             kwargs[name] = value
@@ -446,24 +418,24 @@ def run_ok(tables: ParserTables, unit_rid: int, rules: Collection[str]) -> bool:
 
 _COLLAPSED: dict[
     tuple[int, int, int],
-    tuple[Mapping[str, RuleProduct], IrAst, ParserTables],
+    tuple[Mapping[str, RuleRoutine], IrAst, ParserTables],
 ] = memo({}, 0, 1)
 
 
 def collapsed_product_tables(
     grammar: IrAst,
-    rules: Mapping[str, RuleProduct],
+    routines: Mapping[str, RuleRoutine],
     bits: int = ORIGIN_BITS,
 ) -> ParserTables:
     """Return product-safe run-collapsed Earley tables, identity memoised."""
-    key = (id(rules), id(grammar), bits)
+    key = (id(routines), id(grammar), bits)
     entry = _COLLAPSED.get(key)
-    if entry is not None and entry[0] is rules and entry[1] is grammar:
+    if entry is not None and entry[0] is routines and entry[1] is grammar:
         return entry[2]
     tables = collapse_runs(
         grammar,
-        lambda plain, unit_rid: RUN_STR if run_ok(plain, unit_rid, rules) else None,
+        lambda plain, unit_rid: RUN_STR if run_ok(plain, unit_rid, routines) else None,
         bits,
     )
-    _COLLAPSED[key] = (rules, grammar, tables)
+    _COLLAPSED[key] = (routines, grammar, tables)
     return tables

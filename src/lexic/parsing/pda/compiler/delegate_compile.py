@@ -17,7 +17,7 @@ from typing import Any, Callable, Mapping
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrItem, IrLeaf, IrNoneType, IrRuleRef, IrSelf
-from lexic.parsing.binding import ModelBinding
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 
 _DELEGATE_MIN_ATOMS = 4
@@ -129,7 +129,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
 
     lifted: IrAst
     name_to_rid: Mapping[str, int]
-    binding: ModelBinding
+    binding: ModelExecutable
     seams: tuple[Callable[..., Any], Callable[..., Any]]
     _cache: dict[str, dict[int, object]]
 
@@ -137,7 +137,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         self,
         lifted: IrAst,
         name_to_rid: Mapping[str, int],
-        binding: ModelBinding,
+        binding: ModelExecutable,
         seams: tuple[Callable[..., Any], Callable[..., Any]],
     ) -> None:
         """Bind one grammar's delegate-compile ingredients + the injected seams."""
@@ -177,9 +177,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         if not delegable:
             return {}
         compiler_factory, flatten_clones = self.seams
-        compiler: Any = compiler_factory(
-            analysis, self.binding.rules, self.binding.construction
-        )
+        compiler: Any = compiler_factory(analysis, self.binding.routines)
         rid_key: dict[int, object] = {}
         try:
             for rname in delegable:
@@ -188,7 +186,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
                 )
         except UnsupportedConstructError:
             return {}  # an interior atom the clone compiler cannot handle
-        shells = flatten_clones(compiler.clones, self.binding)
+        shells = flatten_clones(compiler.clones)
         return {rid: shells[key] for rid, key in rid_key.items()}
 
     def reset(self) -> None:

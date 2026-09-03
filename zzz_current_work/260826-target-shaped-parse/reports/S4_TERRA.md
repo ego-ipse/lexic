@@ -2113,3 +2113,896 @@ gate rows not run, the consult keep/drop decision with the user, and the
 full-coverage Luna pass before the hold. A fresh Terra starts by re-reading
 `prompts/TERRA_S4.md`, this report's "FOR LUNA" and "Reviewer 2" sections,
 and the ledger block, and fixes finding 3 first.
+
+## Reviewer 2, finding 3 — the verified program IS the executed one (2026-09-03)
+
+Terra `terra-s4c`. The bullet this reopens is §4's "give every … completion
+exactly one tagged completion range index … do not store parallel expression
+and fused fields".
+
+### What the tree actually held
+
+Three representations of one rule's completion, and the runtime read the
+unverified one:
+
+- authored — `RuleProduct.completion`, a `PassOp`/`RecordOp`/`ExprProgram`,
+  held on `ModelBinding.rules` and executed by `ProductExecutor` through
+  `construction_of(product, tables)` (`product/tree.py:291` at Savepoint 10);
+- verified — `ProductProgram.completions`, bounded by `verify.py:222-227` and
+  read by nothing else;
+- baked — `FlatClone`'s build state, derived by `bake_product_build` from the
+  AUTHORED record, with the verified range recorded beside it as provenance.
+
+The reviewer's sentence is exact: the verifier bounded ranges no execution path
+indexed. `binding.construction` compounded it — a `ConstructionTables` handed
+around beside a rules map, so a caller could pair one grammar's captures with
+another's constructors and nothing would notice.
+
+### The fix, at the root
+
+**One new module, `src/lexic/parsing/product/routines.py` (139 lines).** It
+reads the verified program back into the form a completion runs:
+`RuleRoutine(completion, modes, slots, n_items, source, construction)`, one per
+rule, resolved once at bind. `completion` is the rule's own index into
+`program.completions`; `modes`/`slots`/`n_items` are copied off the verified
+`FlatRuleProduct`; `source` is the capture a `PASS` instruction forwards, `-1`
+otherwise; `construction` is resolved from the operand lane the range's own
+instruction names. A fused range holding more than one instruction refuses by
+name rather than being silently truncated.
+
+**`ModelBinding` keeps no authored record at all** (`parsing/binding.py`). Its
+slots are now exactly `program`, `codes`, `routines`, `executor`; `rules`,
+`owned` and `construction` are gone. The authored rules are consumed in the
+constructor and dropped, which is what makes "the program the verifier passed
+is the program that runs" a property of the object rather than a claim about
+it.
+
+**Every consumer takes the one record.** `ProductExecutor(routines)`;
+`complete_product`/`_complete_tree`/`_complete_node`/`_passed_value`/
+`_complete_record`/`_wants_spans`/`collapsed_product_tables`;
+`bake_product_build(clone, routine)`; `matches_own_text(routine)`;
+`PdaCompiler(analysis, routines)`; `DelegateSource._compile`;
+`stitch/model.py`'s `model_type`/`field_slot`/`_direct_binding` and their five
+call sites; `stitch/interior.py`; `products.py`'s collapsed-table call. Each of
+those took a `(RuleProduct, ConstructionTables)` PAIR and now takes one record,
+so the mismatch that pair admitted no longer has a shape to occur in.
+
+**`construction_of` is deleted at its root** (`product/abi/records.py`), with
+its `record_construction`/`symbol_construction`/`SymbolExpr` imports and its
+`__all__` entries in both that module and the package façade.
+
+**Three signatures lost a parameter they no longer read**: `flatten_clones`,
+`flatten_program` and `PdaTables.__init__` each took the binding only to reach
+its authored rules. `_range_of` in `program/lower.py` is deleted — the routine
+carries the verified range it was baked from, so the clone's `completion` and
+its build state are one reading rather than two derivations.
+
+**The replica copies verified tables.** `_binding_copy` is deleted;
+`ModelBinding.replica()` shares the same `program` and `codes` objects and
+rebuilds only the routine container and the executor over it. Every worker
+previously re-lowered and re-verified a whole program to reach an artefact
+equal to the one it was handed.
+
+### Files changed
+
+`src/`: `parsing/product/routines.py` (new), `parsing/product/__init__.py`,
+`parsing/product/abi/records.py`, `parsing/product/tree.py`,
+`parsing/binding.py`, `parsing/products.py`, `parsing/parallel/replicas.py`,
+`parsing/parallel/stitch/model.py`, `parsing/parallel/stitch/interior.py`,
+`parsing/pda/compiler/eligibility.py`, `parsing/pda/compiler/clones.py`,
+`parsing/pda/compiler/specs.py`, `parsing/pda/compiler/tables.py`,
+`parsing/pda/compiler/delegate_compile.py`,
+`parsing/pda/compiler/program/product.py`,
+`parsing/pda/compiler/program/lower.py`. `CLAUDE.md`'s package map gains the
+one new module, mechanically.
+
+### The witness — `proto/s4_verified_completion.py`, exit 0
+
+```
+one-representation	17 bindings	rules=454	clones=754	every field read off the verified program
+static	104 parsing modules	RuleProduct confined to 4 files	construction_of gone
+replica	same verified program, own routine container of 39 rules, nothing re-lowered
+control	three seeded routines and one seeded module, four refusals
+```
+
+The dynamic half compares, per rule of every ground-truth grammar and both
+authored surfaces, the routine's five int/tuple fields against the program's
+own `FlatRuleProduct`, and its construction against the operand lane its
+instruction names — reading the physical tables a second time rather than
+asking `rule_routines` to agree with itself. It also asserts the executor's
+container IS the binding's, and that each predictive clone was baked from the
+binding's own routine OBJECT, by identity.
+
+The static half parses all 104 modules under `parsing/` and finds `RuleProduct`
+named in exactly four (`product/abi/records.py` defines it,
+`product/lower.py` consumes it, `product/__init__.py` re-exports it,
+`binding.py` takes it as a constructor parameter) and `construction_of` in
+none, and pins `ModelBinding.__slots__`.
+
+Controls: three mutated routines (range moved by one, slots permuted, arm width
+invented) and one synthetic module written the way the finding described, each
+of which the reader must see.
+
+### The paid path
+
+**The bytecode witness had a hole, and it hid exactly this file.**
+`proto/s4_paid_path_opcodes.py` built one side of its comparison keyed by
+QUALIFIED name and the other keyed by the last segment, so for the two modules
+compared function-by-function (`flatten.py`, `product/tree.py`) every class body
+and every PEP 695 generic function fell out of `wanted` and was never compared.
+`product/tree.py` reported "23 functions, all identical" while `complete_product`
+had gone 148 → 33 instructions. Fixed: keys are normalised by dropping
+`<generic parameters of …>` PREFIX segments, a named function neither revision
+defines now refuses instead of reporting nothing, and the module reports 51
+functions for `tree.py` and 24 for `flatten.py`. The explicitly-named modules —
+`kernel.py`, `execution.py`, `build.py`, `matchers.py` — were always compared
+correctly, because a bare name matched the short key.
+
+Against `dffa821f`, four rows the old comparator hid, all definition-time and
+all already ruled: `FlatClone` +4 (the completion slot), `ProductExecutor` +12
+with `splice`/`splice_replay` (the presence-carrying pair), `_complete_tree` new
+at 122 with `complete_product` −115 (the split), and the 16-instruction generic
+scope already named.
+
+Against `7d60f575` — this sitting's own delta, the zero-tax question:
+
+| module | functions | changed |
+|---|---|---|
+| `pda/runtime/kernel/kernel.py` | 18 | 0 |
+| `pda/runtime/kernel/execution.py` | 13 | 0 |
+| `pda/runtime/kernel/decisions.py` | 29 | 0 |
+| `pda/runtime/build.py` | 27 | 0 |
+| `pda/runtime/matchers.py` | 23 | 0 |
+| `pda/runtime/admission.py` | 31 | 0 |
+| `pda/runtime/islands.py` | 14 | 0 |
+| `pda/compiler/program/flatten.py` | 24 | 0 |
+| `product/tree.py` | 51 | 11, all shrinking |
+| `parsing/binding.py` | 8 | 4, all cold |
+
+`product/tree.py`'s eleven: `_complete_node` 93→88, `_passed_value` 101→100,
+`_complete_record` 124→123, `_complete_tree` 123→122, `complete_product` 35→33,
+`_wants_spans.<genexpr>` 29→28, and the five `ProductExecutor` methods 12→10,
+11→9, 13→9, 12→10, 11→9. Net −12 on the completion path; nothing grew. The
+binding's four: `ModelBinding` body 56→54, its `__annotate__` 16→12,
+`__init__` 99→116, and a new 30-instruction `replica` — all cold, once per
+binding, and `__init__` is where three import-time lowerings were removed.
+
+### Verification
+
+- `uv run pyright src tests tools` — **exit 0**.
+- `uv run ruff check src/`, `ruff format --check src/`, `isort --check-only src/` — clean.
+- `uv run python tools/check_generated.py` — **exit 0**, 53 modules.
+- `uv run pytest tests/ -q -n 8` — **4 failed, 5264 passed, 8 skipped**, which
+  is the carried baseline exactly: the two Luna `test_specialize` contract rows,
+  the README badge, and `test_test_parity`.
+- Every `s3_*`/`s4_*` witness exit 0 except the two timed harnesses, which are
+  not run outside a granted window.
+
+### Tests adapted — mechanical, assertions preserved
+
+Four files, construction and attribute syntax only:
+`tests/unit/lexic/parsing/test_products.py` (four `product.rules` →
+`product.routines`, same key-set assertions),
+`tests/integration/lexic/tokens/test_token_additivity.py` (two, same),
+`tests/unit/lexic/parsing/pda/compiler/test_specs.py`
+(`spec.product` → `spec.routine`, and its docstring's field list). The last one
+is a contract Luna already holds (`test_clone_spec_field_order`); it is named
+again in the FOR LUNA list below with the field rename folded in.
+
+Witnesses re-aimed, all exit 0 and all numbers unchanged: `s3_shared_forest`
+(now binds through `ModelBinding`, which is the only door to an executor;
+`Left`/`Right` gained the `fast_construct` lowering cross-checks
+`matched_field` against), `s4_authored_product` (reads the routine's layout and
+verifies the binding's own program rather than re-lowering a second one),
+`s4_bake_identity` (bakes from routines lowered and verified in the witness,
+declares from the authored plan — 370 rules, 610 clones, 140/151 ranges, five
+seeded defects still refused, now either by a property or by the real
+lowering), `s4_consult_eligibility`, `s4_extent_differential`,
+`s4_model_lowering` (reads the authored tier from `model_plan`, where it is
+written), `s4_validated_path_census` (populations read off the verified
+program's own range kinds: 45/99/610, 548 record completions, 144 symbol).
+
+## Reviewer 2, findings 1 and 2 — the proof asks the question that is there
+
+### Finding 1 — a referenced rule got the region's follow
+
+`prove_regular` proved every member of the closure against the REGION's
+follow (`regular.py:108-111`). That is right for the entry rule and wrong for
+every rule reached by an `IrRuleRef`, whose continuation is the remainder of
+the referencing arm composed with whatever follows that arm.
+
+The fix threads it. `prove_regular` now walks the closure from the entry rule
+(`_closure_holds`) and, for each arm, descends every reference and every inline
+group with ITS own continuation (`_references_hold`) — the arm remainder
+extended by the enclosing tail, and, where the item repeats, another instance
+of itself first, which is the same composition `_group_holds` already computed
+for groups. The walk is memoised on `(rule, continuation)`, because a rule
+reached from two sites owes its obligations under each. A coverage guard
+declines when the reference walk and `build_recognizer`'s own closure do not
+name the same rules, so a region whose possessive lowering covers a rule no
+obligation was asked of cannot slip through.
+
+The wrong question does not fail safe in one direction, so this is a
+correctness fix rather than a tightening: it can withhold a proof a rule has
+earned and it can grant one on text that cannot be there. The module docstring
+says so now, and obligation 2's asymmetry note is restated — the ordered-literal
+shortcut stays group-only because a group is entered from the one arm that
+contains it while a rule is entered from every reference to it, not because a
+rule is proved against the region's follow, which is no longer true. **The
+group-only ruling itself is untouched and still revisited at §7.**
+
+### Finding 2 — the clone's tail skipped its nullable followers
+
+`key.tail` comes from `hard_cont_at`, the next MANDATORY item's first set, so
+every nullable follower between the reference and that item was invisible and
+obligation 3 was never asked whether the rule's own trailing optional could
+take one. `extent_consult` now proves against `tail ∪ analysis.follow[name]` —
+the rule's soft FOLLOW, which is every character that can follow a reference to
+it anywhere, nullable followers and repeat loopbacks included. A wider
+continuation makes the proof strictly stricter, and the soft FOLLOW is
+order-independent, so it cannot depend on which reference site the clone
+compiler drained first. The docstring's direction argument is rewritten to say
+what is now true rather than deleted.
+
+### Witness rows — `proto/s4_consult_soundness.py`, exit 0
+
+```
+declines	(a|ab)+ repeated
+declines	(a|ab) before c
+declines	(ab|a) before bc
+declines	relation group, = may follow
+proves  	relation group
+proves  	(ab|a)+ longest first
+declines	referenced group, own continuation	pattern=-1, grammar=2 ('px')
+declines	referenced optional, own continuation	pattern=-1, grammar=2 ('px')
+follower	word: tail=['z'], soft FOLLOW=['q', 'z'] — proves on the tail alone, declines on the real continuation
+wrong   	(a|ab) before c	pattern=1 chars, grammar=2 ('ab')
+wrong   	(ab|a) before bc	pattern=2 chars, grammar=1 ('a')
+silent  	(a|ab) before bc|c	pattern=1 chars, grammar=refuses as ambiguous
+control 	obligation off ⇒ all 4 unsound shapes prove again
+control 	threading off ⇒ all 2 referenced shapes prove again
+```
+
+Both of the reviewer's finding-1 rows are there and both are MEASURED, not just
+asserted: `root ::= word "z"; word ::= a b; a ::= ("px" | "p"); b ::= "x"` and
+its `a ::= "p" "x"?` twin now decline, and the pattern the old proof licensed
+returns no match at all on `pxz`, a document the grammar derives as
+`word = "px"`. A consult on that proof would have refused a valid document.
+
+Finding 2's row drives the real compiler: `root ::= word gap "z";
+word ::= "x" [a-b]+ "q"?; gap ::= "q"*` compiles a `match_only` clone of `word`
+with `tail = ['z']`, its soft FOLLOW is `['q', 'z']`, the clone now carries no
+consult, and `extent_consult` under the old question still returns a proof —
+so the change is what declines, not something else.
+
+The two controls restore the two defects rather than removing the checks. The
+reference control re-runs the walk with the region's follow handed to every
+reference, keeping the coverage guard and the memo intact, and both referenced
+shapes prove again; deleting the walk instead would have left the closure
+half-visited and declined for an unrelated reason.
+
+### What the corpus cost
+
+The consult census moves and the installed consults do not.
+
+| | before | after |
+|---|---|---|
+| match-only clones | 219 | 219 |
+| carrying a proof | 197 | 164 |
+| grammars installing a consult | 4 | 4 |
+| consult clones installed | 17 | 17 |
+| occurrences in the differential | 266 | 266 |
+
+The 33 clones that lost a proof never installed a consult: `consult_arm`'s
+install licence is narrower than the proof, and it refuses a gated, attempted
+or table-bearing clone anyway. `list.gbnf/item`, `c.gbnf`'s three,
+`chess.gbnf/castle` and `vyx.gbnf`'s eight are all still installed, so the
+measured window-1 rows are taken on the same population. `s4_extent_differential`
+is unchanged at 4 grammars, 17 clones, 266 occurrences, 138 documents, no
+position decided two ways. `s4_value_string_census` is unchanged at
+151/42/39/6/0.
+
+## Reviewer 2, finding 4 and the §11 inventory
+
+Finding 4 — `_settle_two_meanings` refusing an island span whose two
+derivations are `EmptyResult` and `Completed(None)` — is added to the FOR LUNA
+created-contracts list below, with a suggested pin. It is a real behaviour
+change and no test names it.
+
+The two stale-fold lines the reviewer listed as minor described the
+`ModelBinding` this round has just changed materially, so leaving them would
+have shipped a false statement about a surface I edited. Both are corrected in
+place: `compile/notation/parse.py`'s and `compile/module/selfgrammar.py`'s
+binding docstrings now say "its verified program, with its transforms resolved
+… at lowering" rather than naming a fold. **For §11, the rest of the inventory
+stands and has grown** — those two modules carry nine further prose references
+to the fold (`notation/parse.py:186,349,407,449,509,553,554,560`,
+`module/selfgrammar.py:57,397`) that are about the authored table's history
+rather than about a live field, plus `pda/analysis/predicates.py:63,267`
+pointing at `lexic.parsing.fold.lift_optional_nullables`, which is now
+`lexic.parsing.lift`. Reviewer 1's list is unchanged:
+`parsing/README.md:14,43,51,80,94,201,205,208,280,300`,
+`parsing/product/README.md:3`, `pda/compiler/README.md:36`, `docs/STYLE.md:40`.
+`parsing/README.md` also needs the layout drift this round adds:
+`product/routines.py` is new and `PdaTables`/`flatten_program` no longer take a
+binding.
+
+## FOR LUNA — the superseding list (2026-09-03)
+
+This replaces the earlier "FOR LUNA — the complete list, in one place" section,
+which is stale by one round. Everything below is against the tree
+`terra-s4c` leaves. The deleted-target table earlier in this report — twelve
+tests, each with the symbol that died and where its behaviour lives now — is
+unchanged and is still the authority for that half.
+
+### 1. Modules with no unit-test mirror — fourteen
+
+`test_test_parity` names all fourteen; the list is the earlier thirteen plus
+one this round adds.
+
+| module | mirror to create |
+|---|---|
+| `compile/module/rules.py` | `tests/unit/lexic/compile/module/test_rules.py` |
+| `compile/product/binding.py` | `tests/unit/lexic/compile/product/test_binding.py` |
+| `parsing/binding.py` | `tests/unit/lexic/parsing/test_binding.py` |
+| `parsing/pda/compiler/eligibility.py` | `…/pda/compiler/test_eligibility.py` |
+| `parsing/pda/compiler/program/product.py` | `…/program/test_product.py` |
+| `parsing/product/abi/construction.py` | `…/product/abi/test_construction.py` |
+| `parsing/product/abi/expressions.py` | `…/product/abi/test_expressions.py` |
+| `parsing/product/abi/records.py` | `…/product/abi/test_records.py` |
+| `parsing/product/lower.py` | `tests/unit/lexic/parsing/product/test_lower.py` |
+| `parsing/product/regular.py` | `…/product/test_regular.py` |
+| **`parsing/product/routines.py`** | **`…/product/test_routines.py`** |
+| `parsing/product/state.py` | `…/product/test_state.py` |
+| `parsing/product/tree.py` | `…/product/test_tree.py` |
+| `parsing/product/verify.py` | `…/product/test_verify.py` |
+
+Two are MOVES and their old mirrors are the starting material:
+`parsing/product/lower.py` came from `compile/product/`, and `parsing/lift.py`
+already has `tests/unit/lexic/parsing/test_lift.py` with its four assertions
+carried byte-for-byte.
+
+### 2. Contracts this round CHANGED — each with the pin I suggest
+
+1. `test_specialize.py::test_a_value_str_clone_that_can_descend_is_not_frame_less`
+   — its grammar `pair ::= ("a" | "bb")+` has first-disjoint group arms, so the
+   rule earns a sound consult and the clone is frame-less. Pin
+   `pair.runarm is not None`, `kinds[0] == OP_CONSULT`, `pair.leaf is True`.
+   **Add the companion the soundness turns on:** `pair ::= ("a" | "ab")+`, whose
+   arms are NOT first-disjoint, must have `runarm is None` and `leaf is False`.
+   The pair is the contract; either alone is half of it.
+2. `test_specialize.py::test_an_attempt_gated_value_str_gets_the_attempt_aware_inline_opcode`
+   — keep the `OP_AVSTR` assertion verbatim; change `target.chartable is None`
+   to `target.chartable == {}`.
+3. `test_specs.py::test_clone_spec_field_order` — **updated this round.** The
+   field is now `routine`, not `product`, and it holds a `RuleRoutine`. Pin the
+   order `(name, arms, default, routine, match_only, struct_arm,
+   attempt_follow, consult)`, with `struct_arm`, `attempt_follow` and `consult`
+   defaulting to `None`. The construction syntax is already adapted; the pin is
+   what Luna owns.
+4. `test_flatten.py::test_flatclone_declares_exactly_the_selector_and_build_fields`
+   — already re-pinned to expect `completion`, the ruled slot. Listed so it is
+   not "fixed" back.
+5. `test_init_compile.py::test_compiled_grammar_fold_field_is_positional_fold`
+   — deleted with `CompiledGrammar.fold`. Port: assert
+   `cg.executor is cg.product.executor` and that it is a `ProductExecutor`.
+6. `test_readme_render.py` — the tests badge is stale because the round changed
+   the test count. `uv run python -m tools.render_readme`, once the test set is
+   final.
+7. `test_shared_artefact.py::test_concurrent_parses_of_one_document_agree…` —
+   the harness's own non-vacuity guard fires before any lexic assertion under
+   load. Root cause on record: `flight.enter()` after `barrier.wait()`.
+8. **`ModelBinding`'s public shape — new this round.** `.rules`, `.owned` and
+   `.construction` are gone; the slots are `program`, `codes`, `routines`,
+   `executor`. Any test reading the authored map now reads `.routines`, whose
+   key set is identical. Four committed test files were adapted mechanically
+   (`test_products.py`, `test_token_additivity.py`, `test_specs.py`).
+9. **`flatten_clones`, `flatten_program` and `PdaTables.__init__` no longer
+   take a binding** — new this round. Nothing in `tests/` constructed them
+   directly, so no adaptation was needed, but a new test must not add the
+   parameter back.
+
+### 3. Contracts this round CREATED that nothing pins yet
+
+**`test_routines.py`** — the new module, and the round's sharpest contract.
+`rule_routines(program)` returns one routine per rule in contextual-code order;
+each names the program's own completion range index and copies the verified
+capture modes, slots and arm width; a `PASS` instruction becomes `source` with
+no construction and every other instruction leaves `source == -1`; a `RECORD`
+instruction resolves the constructor lane its row names; a lone `SYMBOL`
+expression resolves the symbol lane, and a longer expression program names no
+construction; a fused range of length other than one raises
+`UnsupportedConstructError` rather than reading its first instruction. Every
+row is witnessed in `proto/s4_verified_completion.py`.
+
+**`test_binding.py`** — `ModelBinding` retains no authored rules; `routines`
+and `codes` have the same key set; `executor.routines is binding.routines`;
+`replica()` shares `program` and `codes` by identity, rebuilds `routines` as an
+equal but distinct mapping, and gives the copy its own executor over the copy's
+own container. The replica row is the one that matters: it is what says a
+worker pays no lowering.
+
+**`test_regular.py`** — the six group rows, all witnessed in
+`proto/s4_consult_soundness.py`: an inline group's arms owe what a rule's arms
+owe (`("a" | "ab")+` declines); ordered literal arms whose munch is forced
+prove (`("<=" | "<" | …)` with a follow that excludes `=`); the same group
+declines when `=` can follow; `("ab" | "a")` before a continuation that can
+begin with `b` declines; the flipped order `("ab" | "a")+` proves; and the five
+pre-existing rows keep their answers. **Plus the two continuation rows added
+this round:** `root ::= word "z"; word ::= a b; a ::= ("px" | "p"); b ::= "x"`
+proved on `word` against `z` must DECLINE, and so must its `a ::= "p" "x"?`
+twin — the referenced rule is followed by `b`, never by the region's `z`.
+
+**`test_eligibility.py`** — `matches_own_text` with and without a `matched`
+field, and `None` for a transparent clone; `extent_consult` declining when
+`match_only` is false; and, new this round, `extent_consult` proving against
+`tail ∪ follow` rather than the tail alone, on
+`root ::= word gap "z"; word ::= "x" [a-b]+ "q"?; gap ::= "q"*` — the clone's
+tail is `{z}`, the rule's soft FOLLOW is `{q, z}`, the consult declines, and it
+would not have on the tail alone. `extent_pattern` returns the proof's own
+entry rather than the closure's.
+
+**The consult licence, in `test_specialize.py`** — `consult_arm` declines a
+clone with a table, a gated or attempted clone, and a clone whose program is
+already one matcher call; `bake_consults` runs before `bake_chartables` and its
+arm survives the later baking; `NO_CONSULTS` is read-only.
+
+**`consult_extent`, in `test_matchers.py`** — a miss raises `PdaFail` with the
+same words and at the same position the arm selection would have.
+
+**The completion range** — `s4_bake_identity`'s row is the model: every clone
+names an in-bounds, correctly tagged range of its own rule, and a group or
+transparent clone records `-1`.
+
+**The island ambiguity refusal — Reviewer 2's finding 4, and it belongs here.**
+`_settle_two_meanings` (`pda/runtime/islands.py:236-241`) compares
+`CompletionResult` values through `same_value`, whose first line returns
+`False` when the operands' types differ. `EmptyResult` and `Completed(None)`
+are different types, so an island span with one recognition-only derivation and
+one `None`-valued derivation is now an `UnsupportedConstructError` refusal,
+where the deleted `fold.apply` returned `None` from both and settled it as one
+meaning. Suggested pin, in `tests/unit/lexic/parsing/pda/runtime/test_islands.py`:
+build one island span with two derivations, one completing to `EMPTY_RESULT`
+and one to `Completed(None)`, and assert the refusal by exception type and by
+the word "ambiguous" in its message — then assert the twin case,
+`Completed(None)` against `Completed(None)`, settles as ONE meaning. Both
+halves are needed: the first pins the new refusal, the second pins that a real
+`None` is still a value and not an absence. This is the one behaviour change in
+the island bullet a round-trip corpus cannot observe.
+
+### 4. Harness and rendering
+
+- `test_shared_artefact.py`'s non-vacuity guard, per item 7 above.
+- The README test-count badge, re-rendered once the test set is final.
+
+## The §4 exit verification, and where the gates stand (2026-09-03)
+
+Every command unpiped, one at a time, nothing else running. No timed harness
+was run — the two window harnesses are validated in `--plan` mode only and wait
+on a granted window.
+
+| gate | command | result |
+|---|---|---|
+| typecheck | `uv run pyright src tests tools` | **exit 0** |
+| suite | `uv run pytest tests/ -q -n 8` | **4 failed, 5264 passed, 8 skipped** |
+| generated twins | `uv run python tools/check_generated.py` | **exit 0**, 53 modules |
+| done-gate | `tools/run_checks.sh` | **exit 14** — sanity OK, lint OK, typecheck OK, pylint red |
+| whitespace | `git diff --check` | **exit 0** |
+
+The four failures, attributed by file, are the carried baseline exactly:
+
+- `test_specialize.py::test_a_value_str_clone_that_can_descend_is_not_frame_less`
+  and `::test_an_attempt_gated_value_str_gets_the_attempt_aware_inline_opcode` —
+  the two contracts the consult changed, listed for Luna with their pins.
+- `test_readme_render.py::test_readme_render_is_current` — the tests badge,
+  re-rendered once the test set is final.
+- `test_test_parity.py::test_every_source_module_has_a_mirrored_unit_test_file`
+  — now fourteen missing mirrors, this round adding
+  `parsing/product/routines.py`.
+
+**The pylint gate went DOWN by one, measured rather than assumed.** The
+starting tree was extracted with `git archive 7d60f575` into a scratch
+directory and run through the same `pylint --rcfile`:
+
+| tree | findings |
+|---|---|
+| `7d60f575` | 49 |
+| working tree | 48 |
+
+The difference is one `redefined-outer-name`. Every remaining category is
+identical in count — 28 `W0621`, 6 `R0917`, 6 `R0913`, 3 `R0903`, 2 `R0914`,
+1 each of `W2301`, `R0801`, `E1136` — so this round introduced no pylint
+finding and removed one. The residue is Luna's, as recorded.
+
+### Forbidden constructs in added source lines
+
+349 added `src/` lines. No `-> object`, no `cast(`, no `type: ignore`, no
+`noqa`, no `pylint: disable`, no private cross-module import, no added
+default-argument state, and nothing indented past four levels. The one `Any`
+the search reports sits on a line I shortened rather than wrote:
+`delegate_compile.py`'s `compiler: Any = compiler_factory(...)`, which is the
+injected-seam annotation present at `7d60f575:180` and is what keeps that leaf
+from importing the clone compiler.
+
+Both files near the length limit SHRANK: `pda/compiler/clones.py` 696 → 694 and
+`parallel/stitch/model.py` 700 → 694, in both cases because a two-table
+parameter pair became one record.
+
+### Window harness readiness
+
+`proto/s4_consult_gate.py --plan` exit 0 on this tree — every compile, every
+document build and every population count, stopping before the first timed
+statement. It reports the same populations window 1 measured (`c` 6, `chess` 2,
+`list` 1, `vyx` 8, ten grammars at 0, plus the token-segmented `think` row) and
+resolves both micro subjects (`ws` for `OP_CC`, `indent` for `OP_LIT`). The
+proof fixes moved no installed consult, so the acceptance rows are comparable
+to window 1's provenance rows.
+
+## Restart point (2026-09-03, terra-s4c)
+
+**All four of Reviewer 2's findings are closed**, each at its root, each with a
+witness carrying a live control, and each written up above.
+
+1. The verified program is the executed one. One `RuleRoutine` per rule, read
+   off the program; no authored record survives on any engine path; the replica
+   copies rather than re-lowers.
+2. `prove_regular` threads each reference's own continuation through the
+   closure, with a coverage guard.
+3. `extent_consult` proves against the clone's tail unioned with the rule's
+   soft FOLLOW, so a skipped nullable follower is part of the question.
+4. The island `EmptyResult`-versus-`Completed(None)` refusal is in the FOR LUNA
+   created-contracts list with a two-sided pin; the two stale binding docstrings
+   are corrected and the rest of the fold-prose inventory is handed to §11.
+
+**One instrument was repaired and it matters more than it looks.** The
+paid-path bytecode witness compared one side by qualified name and the other by
+short name, so every class body and every PEP 695 generic function in an
+unnamed module was skipped. `product/tree.py` had been reporting "all
+identical" through a 115-instruction change. The explicitly-named runtime
+modules were never affected. Any future zero-tax claim should be read against
+the repaired comparator, not against the earlier "23 functions, all identical"
+rows.
+
+**This sitting's own paid-path delta, against `7d60f575`:** zero changed
+functions in `kernel.py`, `execution.py`, `decisions.py`, `build.py`,
+`matchers.py`, `admission.py`, `islands.py` and `flatten.py`; eleven functions
+in `product/tree.py`, all shrinking, −12 net; and two cold additions on
+`ModelBinding`.
+
+**What is open, in order.**
+
+- **The GC-ON acceptance rows.** `proto/s4_consult_gate.py` and its `--micro`
+  run, on a granted quiet window, with the collector enabled and the GC state
+  recorded on every row. Window 1 is provenance only. Requested; not run.
+- **The user's keep/drop decision on the consult**, which the acceptance rows
+  are what it waits for. Window 1: `list` −51.05%, `c` −3.95%, `chess` +0.89%,
+  `vyx` −0.70%, token −0.29%, control floor 1.51%; the tax is +9 instructions
+  on three `vyx` literal run arms, 0.006% of that grammar, and the fold-in is
+  proved impossible from the branch bodies.
+- **One ruling for the coordinator, raised and not taken.** The group-only
+  ordered-literal shortcut's stated JUSTIFICATION was "a rule is proved against
+  the region's follow rather than against its own call site". That is no longer
+  true, so the docstring now gives a different reason — a group is entered from
+  the one arm containing it, a rule from every reference to it. The ruling
+  itself is untouched and still revisited at §7. Whether the shortcut should
+  now be extended to rule bodies is a decision, not an implementation.
+- **The §4 verification bullets in `TODO.md`.** Their evidence is complete and
+  is the table above; `TODO.md` is outside this round's write allowlist, so the
+  boxes are not ticked here.
+- **Luna's full-coverage pass**, whose handover is the superseding FOR LUNA
+  section above: fourteen mirrors, nine changed contracts with pins, seven
+  created contracts including the island refusal, the harness non-vacuity fix,
+  and the README badge.
+- **§11's prose pass**, whose fold-reference inventory has grown and is listed.
+
+Nothing has been committed. `pyproject.toml` is untouched. The `.ruff_cache`
+entry `auto_fix.sh` rewrote has been restored.
+
+## THE ACCEPTANCE WINDOW — the GC-ON rows (2026-09-03)
+
+Granted by the coordinator for exactly two runs, in order, one at a time, with
+the user keeping the machine quiet. `tools/run_checks.sh` had exited **14**
+before the window and no source changed after it. Both runs exit 0.
+
+### The harness could not take the row it was asked for
+
+`proto/s4_consult_gate.py` hard-coded `gc.disable()` around all three of its
+timed regions — the whole-document arm, the token-segmented row, and the micro
+bodies — so a collector-on measurement was not reachable from any flag. That is
+why window 1 is provenance and this window was ordered.
+
+The switch now defaults to the ACCEPTANCE protocol: `COLLECTOR_OFF = False`,
+with `--gc-off` reproducing window 1's protocol so the two are directly
+comparable, and the state printed on every row rather than once at the bottom.
+A collector that never runs is not the interpreter the change ships under, so
+the row that never runs it can only be provenance for one that does.
+`--plan` was run first and reports populations identical to window 1's.
+
+### The gate — 7 rounds, `process_time`, alternating, minimum, collector ON
+
+| grammar | consults | with | without | delta | ns/char | gc |
+|---|---:|---:|---:|---:|---:|---|
+| c.gbnf | 6 | 0.022073 | 0.022751 | **−2.98%** | 1207 | ON |
+| chess.gbnf | 2 | 0.025091 | 0.024917 | +0.70% | 1291 | ON |
+| list.gbnf | 1 | 0.002444 | 0.005018 | **−51.30%** | 127 | ON |
+| vyx.gbnf | 8 | 0.176423 | 0.176714 | −0.16% | 10256 | ON |
+| arithmetic.gbnf | 0 | 0.033813 | 0.033475 | +1.01% | 1872 | ON |
+| japanese.gbnf | 0 | 0.015956 | 0.015950 | +0.03% | 810 | ON |
+| json.gbnf | 0 | 0.056557 | 0.056308 | +0.44% | 2926 | ON |
+| json_arr.gbnf | 0 | 0.037617 | 0.037720 | −0.27% | 1893 | ON |
+| json_ws.gbnf | 0 | 0.037927 | 0.038087 | −0.42% | 1987 | ON |
+| markdown.gbnf | 0 | 0.034074 | 0.033788 | +0.85% | 1706 | ON |
+| arithmetic.abnf | 0 | 0.019481 | 0.019553 | −0.37% | 995 | ON |
+| json.abnf | 0 | 0.057182 | 0.057632 | −0.78% | 2958 | ON |
+| arithmetic.ebnf | 0 | 0.035012 | 0.033993 | **+3.00%** | 1939 | ON |
+| json.ebnf | 0 | 0.056990 | 0.057316 | −0.57% | 2948 | ON |
+
+**Control floor 3.00%**, read off the ten rows the consult cannot reach. The
+token-segmented row: `think`, 4015 chars, with 0.075928 s against without
+0.075987 s, **−0.08%**, collector ON.
+
+### What the acceptance protocol says that window 1 did not
+
+| row | window 1 (gc OFF, provenance) | window 2 (gc ON, acceptance) |
+|---|---:|---:|
+| control floor | 1.51% | **3.00%** |
+| list.gbnf | −51.05% (outside) | **−51.30% (outside)** |
+| c.gbnf | −3.95% (outside) | **−2.98% (INSIDE)** |
+| chess.gbnf | +0.89% (inside) | +0.70% (inside) |
+| vyx.gbnf | −0.70% (inside) | −0.16% (inside) |
+| token-segmented | −0.29% | −0.08% |
+
+The floor doubles, which is the collector's own variance and is exactly what a
+control row exists to read. **`c.gbnf` does not survive it.** On the acceptance
+protocol the consult has one demonstrable win — `list.gbnf`, at half the parse
+time — and nothing else that can be told from noise. No row regresses: the
+largest positive on any consult-carrying grammar is `chess` at +0.70%, well
+inside the floor.
+
+The floor is set by `arithmetic.ebnf` at +3.00%, whose two arms are
+byte-identical runtime code. It is genuine noise, and it was not re-rolled for
+a narrower one.
+
+### The `run_span_once` tax, priced twice
+
+| reading | OP_CC (`ws`) | OP_LIT (`indent`) | gc |
+|---|---|---|---|
+| gate run | +0.5 ns/call, +0.06% | +6.7 ns/call, +0.68% | ON |
+| `--micro` run | +0.5 ns/call, +0.06% | +13.6 ns/call, +1.38% | ON |
+| window 1 | 0, bytecode-identical | +9.8 ns/call | OFF |
+
+`OP_CC`'s 35 clones read the same on both runs and the branch is
+bytecode-identical there, so the character-class run arm pays nothing. The
+`OP_LIT` figure is a BAND of roughly 7 to 14 ns per call across two readings,
+not a point; window 1's +9.8 sits inside it. Priced against vyx on window 1's
+carried count of 1086 `OP_LIT` calls per round of 0.176 s, that is **0.004% to
+0.008%** of the one grammar carrying a taxed clone — two orders of magnitude
+under the control floor either way.
+
+### What the decision now rests on
+
+Stated without a recommendation, because it is the user's:
+
+- **Buys:** `list.gbnf` at −51.30%, outside a 3.00% floor. Nothing else on this
+  protocol is distinguishable from noise, `c.gbnf` included.
+- **Costs:** +7 to 14 ns per iteration on three `vyx` literal run arms (0.004%
+  to 0.008% of that grammar), and the proof machinery in
+  `parsing/product/regular.py` and `pda/compiler/eligibility.py` with its two
+  witnesses.
+- **Unchanged:** no parse regression anywhere, and the token-segmented row is
+  −0.08%.
+- The fold-in remains proved impossible from the two branch bodies, printed
+  earlier in this report, so the tax cannot be removed by reordering.
+
+## The consumerless-surface pass (2026-09-03)
+
+User ruling: remove what has no consumer AND will have no consumer; keep, for
+now, anything a coming section of the plan actually consumes. Taken after the
+window, on the tree the acceptance rows were measured on; every record here is
+cold, so no row moves.
+
+Each name was decided by reading `TODO.md` §5–§9 and `DESIGN.md` for the record
+the later section says it builds on, and by grepping for a real reader rather
+than for an external caller of a re-export. **Those are not the same question,
+and four of the listed names turned out to be live.**
+
+### Deleted — no reader, and no section names them
+
+| name | where it lived | why it goes |
+|---|---|---|
+| `ConstructionTables` | `product/abi/construction.py` | Coordinator-ruled. It paired a constructor lane with a symbol lane so a bake could index both; the routine now carries the resolved construction, so nothing reads the pair. §5 lowers authored actions and the routine is the read-back. |
+| `Extent` | `product/abi/records.py` | Defined and re-exported, read nowhere. Extent capture is spelled `IrSpan` today, and the only extent record a later section names is `RawSelection[CertifiedExtent]` at `TODO.md:975` — a different name that does not exist yet. Nothing would have indexed this one. |
+
+Both went with their re-exports in the same edit: `abi/construction.py`'s and
+`abi/records.py`'s `__all__`, and `parsing/product/__init__.py`'s import list
+and `__all__`. `ConstructionTables`'s one proto reader,
+`proto/s4_bake_identity.py`, now passes the constructor lane as the tuple it
+always was — five signatures and the seeded-defect control, all reworded in the
+same edit; the witness reports the same 370 rules, 610 clones, 327 licensed and
+140/151 ranges. Neither name had a test, a README line or a docstring reference
+anywhere in `src/`.
+
+### Kept — a later section names it as the record it builds on
+
+| name | owning section | the evidence |
+|---|---|---|
+| `RouteOp` | **§6** | `TODO.md:876` — "Compile schema `RouteOp` data into the occurrence-scoped continuation mechanism proven at §3". `DESIGN.md:473` defines what it maps. It is also a member of the `ProductOp` union today. |
+| `FragmentProduct` | **§9** | `TODO.md:1481` — "Compile one `FragmentProduct[Carry]` per licensed target/split shape with: lower-rule entry, upper-schema entry, initial continuation, allowed exits, ordered verdict…", which is this record's field list exactly. `TODO.md:1783` adds its tests at §13. |
+| `DecodeCode` | **§5** | `DESIGN.md:435` — scalar decode is an engine-owned closed operation "selected by plain integer codes", and `DecodeOp.decoder` is the operand that indexes this enum. §5 is where reducer actions lower. |
+| `BoundProduct`, `ProgramProduct`, `BindingRegistry` (`compile/product/binding.py`) | **§6** | `TODO.md:797` — "preserving `BoundProduct[Result]` without a cast or heterogeneous result bag"; `:807` — "each producing one typed `BoundProduct`"; `:812` — `CompiledGrammar.reduce` selects one. `BindingRegistry` is the "distinct private compiler/artifact binding registry" of `TODO.md:794`, and `ProgramProduct` is its `BoundProduct` implementation. The module also holds `bind_model` and `rules_by_name`, both live today. |
+| `ParseState`, `ProductMark`, `SequenceHandle`, `MappingHandle`, `SEQUENCE_APPEND`, `MAPPING_INSERT`, `MAPPING_REPLACE` (`product/state.py`) | **§5–§8** | `DESIGN.md:310-325` — "Sequence and mapping handles occupy separate typed frame lanes and index occurrence-owned builder arrays in `ParseState[Carry]`", and "Every speculative PDA boundary records a constant-size `ProductMark`… Sequence appends and successful decoded-key inserts write reversible `(kind, slot)` mutations". The three codes ARE those mutation kinds. `TODO.md:275-280` specified them and marks them done. The whole module is unconsumed by `src/` today by design: `lower.py`'s `_STATEFUL_OPCODES` derives that the generated-model product allocates none. |
+
+### Not consumerless — the audit conflated two questions
+
+These four were on the list, and each has a live reader. **No action; reported
+so they are not deleted on a second pass.**
+
+| name | its reader |
+|---|---|
+| `AuthoredProduct` | The return type of `foldkit.product_rules`, which the notation, self-grammar and templating surfaces all call (`notation/parse.py:562`, `module/selfgrammar.py:400`, `output/templating.py:532`). |
+| `ReduceDerivation` | The return type of `derive_reduction`, called at `compile/artifact.py:550` and `:568`. `TODO.md:1531` deletes it at §10, with `FoldPlan`, `RunSpec` and `SubRun`. |
+| `lower_routes` | Called by `lower_product` at `product/lower.py:524`. Only the package re-export has no external caller. |
+| `subtree_text`, `tree_offsets`, `slot_span` | All three are called inside `product/tree.py` — by `_complete_node`/`_captured`, `_complete_tree`, and `_captured` respectively. Again, only the re-export is external-callerless. |
+
+For the last two rows the honest question is whether the package façade should
+re-export a symbol used only inside the package, which is a different decision
+from deletion and is not the one the user ruled on. Flagged, not taken.
+
+### Verification after the deletions
+
+- `uv run pyright src tests tools` — **exit 0**.
+- `uv run ruff check src/lexic/parsing/product/ --select F` — clean; no import
+  left dangling in either module.
+- `proto/s4_paid_path_opcodes.py` — **exit 0**, byte-for-byte the same rows as
+  before the pass. Both records are cold, and neither appeared in any paid-path
+  function.
+- Every `s3_*`/`s4_*` witness — **exit 0**, excluding the two timed harnesses.
+
+## FOR LUNA — addendum: every test file this round edited (2026-09-03)
+
+Coordinator ruling: mechanical call-site adaptations to removed parameters and
+renamed fields are accepted from Terra; assertions are never changed by Terra;
+every edited file is listed here for Luna to review. Four files, and nothing
+else in `tests/` was touched.
+
+| file | what changed | assertion touched? |
+|---|---|---|
+| `tests/unit/lexic/parsing/test_products.py` | Four reads of `product.rules` became `product.routines`, in `test_reduce_variant_elides_noise_models_without_changing_source_product` (three) and `test_conditional_run_subparse_never_constructs_a_dropped_descendant` (one). The key set is identical, so `omitted.isdisjoint(…)`, `elide <= …keys()` and the `-sk` suffix check all ask the same question of the same names. | No |
+| `tests/integration/lexic/tokens/test_token_additivity.py` | Two `sorted(x.product.rules)` became `sorted(x.product.routines)` in `test_classes_and_fold_are_unmoved_by_a_bound_tokenizer`, which is parametrised over thirteen grammars. Same comparison, same key set. | No |
+| `tests/unit/lexic/parsing/pda/compiler/test_specs.py` | `spec.product` → `spec.routine` in `test_clone_spec_field_order`, and the docstring's field list with it. **This is a contract Luna owns** — item 3 of the changed-contracts list above — and the pin itself is Luna's to write; only the attribute name was adapted so the file imports and runs. | The attribute NAME, because the field was renamed. The assertion's shape (`is None`) is unchanged. |
+| — | No test read `ConstructionTables`, `Extent`, `binding.owned`, `binding.construction`, `construction_of`, `flatten_clones`, `flatten_program` or `PdaTables(...)` directly, so the deletions and the dropped parameters needed no adaptation anywhere. | — |
+
+**Two names Luna must NOT pin** when authoring the new `abi/` mirrors:
+`ConstructionTables` and `Extent` are deleted, with their re-exports. A
+`test_construction.py` or `test_records.py` that names either is pinning a
+record this round removed on the user's ruling.
+
+## Restart point — final (2026-09-03, terra-s4c)
+
+Supersedes the restart point earlier in this file.
+
+**Done this sitting, in order:** Reviewer 2's four findings, the GC-on
+acceptance window, and the consumerless-surface pass. Each has its own section
+above with commands, exit codes and raw numbers.
+
+**The tree's state, every gate by exit code:**
+
+| gate | result |
+|---|---|
+| `uv run pyright src tests tools` | **0** |
+| `uv run pytest tests/ -q -n 8` | **4 failed, 5264 passed, 8 skipped** |
+| `uv run python tools/check_generated.py` | **0**, 53 modules |
+| `tools/run_checks.sh` | **14** — sanity, lint, typecheck OK; pylint red at 48 findings, one BELOW the 49 measured on `7d60f575` |
+| `git diff --check` | **0** |
+| every `s3_*`/`s4_*` witness | **0** |
+
+The four failures are the carried baseline, attributed by file: the two Luna
+`test_specialize` contract rows, the README badge, and `test_test_parity` at
+fourteen missing mirrors.
+
+**The one decision waiting on the user, with the acceptance numbers.** Keep the
+value-string consult, or drop it. On the GC-ON protocol it buys `list.gbnf`
+−51.30% against a 3.00% control floor and nothing else outside that floor —
+`c.gbnf`'s window-1 win does not survive the collector. It costs three `vyx`
+literal run arms 7 to 14 ns per iteration (0.004%–0.008% of that grammar), the
+proof machinery in `parsing/product/regular.py` and
+`pda/compiler/eligibility.py`, and two witnesses. No row regresses; the
+token-segmented row is −0.08%. The fold-in is proved impossible from the branch
+bodies.
+
+**One ruling raised and not taken.** The ordered-literal shortcut's stated
+justification changed when finding 1 threaded the continuation. The docstring
+now gives the true reason and the group-only ruling stands, marked for §7.
+Whether to extend it to rule bodies is the coordinator's call.
+
+**What is open, in order:**
+
+1. The user's keep/drop decision on the consult.
+2. The §4 verification bullets in `TODO.md` — evidence complete and tabulated
+   here; the file is outside this round's write allowlist, so the boxes are not
+   ticked.
+3. **Luna's full-coverage pass.** Its handover is the superseding FOR LUNA
+   section plus this addendum: fourteen mirrors, nine changed contracts with
+   pins, seven created contracts including the island
+   `EmptyResult`-versus-`Completed(None)` refusal, the four adapted test files,
+   the two deleted names not to pin, the harness non-vacuity fix, and the
+   README badge.
+4. §11's prose pass, whose fold-reference inventory is listed above and has
+   grown by this round's module additions.
+5. The hold, and the other-model review of the completed §4 source.
+
+Nothing has been committed. `pyproject.toml` is untouched. No git history was
+altered. The `.ruff_cache` entry `auto_fix.sh` rewrote was restored and the
+tree carries no cache or bytecode change.
+
+**Terra stops here. Luna runs next.**
+
+## The value-string bullet CLOSES — user decision: KEEP (2026-09-03)
+
+This is the closing evidence for §4's value-string bullet, and it supersedes
+every "open user decision" line earlier in this report — including the one in
+the restart point above, whose item 1 is now settled.
+
+**The user's decision, relayed by the coordinator: KEEP the consult.** It stays
+with its disclosed `OP_LIT` tax. Nothing in `src/` changes on that decision; the
+consult is on disk, proved, differentialled and gated.
+
+### What the decision was taken on
+
+The acceptance rows — window 2, collector ENABLED, which is the protocol a
+shipped change actually runs under. Window 1's collector-off rows are
+provenance and are not the basis for anything here.
+
+| row | delta | against a 3.00% control floor |
+|---|---:|---|
+| list.gbnf | **−51.30%** | outside — the win |
+| c.gbnf | −2.98% | inside — not distinguishable from noise |
+| chess.gbnf | +0.70% | inside |
+| vyx.gbnf | −0.16% | inside |
+| token-segmented (`think`, 4015 chars) | −0.08% | no regression |
+
+Control floor 3.00%, read off the ten grammars the consult cannot reach, and
+set by `arithmetic.ebnf`, whose two arms are byte-identical runtime code. It
+was not re-rolled for a narrower one.
+
+The disclosed cost, priced twice in the same window: `OP_CC`'s 35 clones are
+bytecode-identical and read +0.5 ns per call on both runs, which is nothing;
+`OP_LIT`'s three clones read +6.7 ns and +13.6 ns per call across the two runs,
+a band rather than a point, with window 1's +9.8 ns inside it. Against vyx, on
+window 1's carried count of 1086 `OP_LIT` calls per 0.176 s round, that is
+**0.004% to 0.008%** of the one grammar carrying a taxed clone — two orders of
+magnitude below the floor. The fold-in remains proved impossible from the two
+branch bodies printed earlier in this report, so the tax cannot be reordered
+away.
+
+### What KEEP retains, and where it lives
+
+- `parsing/product/regular.py` — the authoritative proof, now with each
+  reference's own continuation threaded through the closure (finding 1) and the
+  group obligation from the previous sitting.
+- `pda/compiler/eligibility.py` — `extent_consult`, proving against the clone's
+  hard tail unioned with the rule's soft FOLLOW (finding 2), and
+  `extent_pattern`.
+- `pda/compiler/program/specialize.py` — `consult_arm`, `bake_consults`, the
+  install licence.
+- `pda/runtime/matchers.py` — `consult_extent` and `run_span_once`'s third
+  branch, the taxed one.
+- The witnesses: `proto/s4_consult_soundness.py` (four group shapes, two
+  continuation shapes, two live controls), `proto/s4_consult_eligibility.py`
+  (164 of 219 match-only clones proving),
+  `proto/s4_extent_differential.py` (17 clones, 266 occurrences, 138 documents,
+  three ways, no position decided two ways), `proto/s4_value_string_census.py`,
+  and `proto/s4_consult_gate.py` with its collector switch.
+
+### The population the decision applies to
+
+Unchanged by this sitting's two proof fixes, which is why window 2's rows are
+the right basis: **4 grammars, 17 clones, 266 occurrences.** `c.gbnf` keeps its
+six, `vyx.gbnf` its eight, `chess.gbnf` its two, `list.gbnf` its one. The 33
+clones that lost a proof to findings 1 and 2 were all clones the install licence
+refuses anyway, so no installed consult was added or removed.
+
+### For the coordinator
+
+`TODO.md` §4's value-string bullet can now be marked, with this section as its
+evidence. It is outside this round's write allowlist, so I have not ticked it.

@@ -35,7 +35,7 @@ or re-point one of them."""
 from pathlib import Path
 
 from lexic.compile import compile_from_path
-from lexic.compile.output.templating import SPAN_SYMBOLS, MapShape, spanify
+from lexic.compile.output.templating import MapShape, spanify
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.product import (
     CAPTURE_FOR_BIND,
@@ -162,52 +162,30 @@ def one_slot_can_be_captured_twice_in_two_modes() -> None:
     """
     compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
     pair = spanify(compiled, MapShape("object", "member", "string", "value"))
-    rules = pair.span_binding.rules
-    entry = next(rule for name, rule in rules.items() if name.endswith("member-tm"))
+    routines = pair.span_binding.routines
+    entry = next(rule for name, rule in routines.items() if name.endswith("member-tm"))
 
-    slots = [spec.slot for spec in entry.captures]
+    slots = list(entry.slots)
     repeated = sorted({slot for slot in slots if slots.count(slot) > 1})
     _check(
-        f"the entry clone captures {len(entry.captures)} times over "
+        f"the entry clone captures {len(slots)} times over "
         f"{len(set(slots))} slots — the two-mode shape is gone",
-        len(entry.captures) == 4 and len(set(slots)) == 2 and len(repeated) == 2,
+        len(slots) == 4 and len(set(slots)) == 2 and len(repeated) == 2,
     )
     both = sorted({int(CaptureMode.TEXT), int(CaptureMode.EXTENT)})
     for slot in repeated:
-        modes = sorted({spec.mode for spec in entry.captures if spec.slot == slot})
+        modes = sorted(
+            {mode for at, mode in enumerate(entry.modes) if slots[at] == slot}
+        )
         _check(f"slot {slot} is captured twice under modes {modes}", modes == both)
 
-    program = lower_product(
-        tuple(rules.values()),
-        SURFACE_OPERANDS,
-        owned=LoweringOwned(
-            symbols=_authored_again(pair.span_binding, SPAN_SYMBOLS),
-            registry=SPAN_SYMBOLS,
-        ),
-        root=RootOp(0),
-        meaning=MeaningOp(0),
-    )
-    verify_program(program)
+    # The layout above is the VERIFIED program's own, not the authored records
+    # beside it — a binding cannot exist without having passed this gate, and
+    # running it again here says so rather than re-lowering a second artefact.
+    verify_program(pair.span_binding.program)
     print(
-        f"two-mode\tmember-tm captures {len(entry.captures)} times over "
+        f"two-mode\tmember-tm captures {len(slots)} times over "
         f"{len(set(slots))} slots — TEXT and EXTENT on each, and it verifies"
-    )
-
-
-def _authored_again(
-    binding: Any, registry: dict[str, Any]
-) -> tuple[SymbolConstructor, ...]:
-    """A binding's resolved symbols back in authored form, for re-lowering.
-
-    A binding keeps the RESOLVED rows; lowering takes the authored ones. The
-    witness re-lowers a surface it already bound, so it names each callable
-    again through the same registry — which also checks the resolution went
-    where it said it did.
-    """
-    names = {id(transform): key for key, transform in registry.items()}
-    return tuple(
-        SymbolConstructor(names[id(entry.apply)], entry.names, entry.optional)
-        for entry in binding.construction.symbols
     )
 
 

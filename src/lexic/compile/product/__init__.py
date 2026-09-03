@@ -19,18 +19,18 @@ arrives as its own module rather than by growing this one.
 
 from __future__ import annotations
 
-from lexic.compile.product.binding import (
-    BindingRegistry,
-    BoundProduct,
+from lexic.compile.product.registry import (
+    ProductRegistry,
     ProgramProduct,
-    bind_model,
+    RegisteredProduct,
+    register_model,
     rules_by_name,
 )
 
 __all__ = [
-    "BindingRegistry",
-    "BoundProduct",
+    "ProductRegistry",
+    "RegisteredProduct",
     "ProgramProduct",
-    "bind_model",
+    "register_model",
     "rules_by_name",
 ]

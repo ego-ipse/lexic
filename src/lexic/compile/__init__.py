@@ -21,7 +21,7 @@ from lexic.compile.artifact import (
     reset_reduction_cache,
     segmentation_tokenizer,
 )
-from lexic.compile.module.bind import bind_module
+from lexic.compile.module.attach import attach_module
 from lexic.compile.module.export import export_module, export_source
 from lexic.compile.module.selfgrammar import parse_module
 from lexic.compile.module.verify import verify_module
@@ -49,15 +49,15 @@ from lexic.compile.output.transpile import (
     transpile,
 )
 from lexic.compile.payload.export import export_value
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.moments import (
     GRAMMAR_MOMENTS,
     CompileMoments,
     GrammarMoments,
     build_codegen_grammar,
 )
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.compile.pipeline.synthesis import synthesize
-from lexic.compile.product import bind_model
+from lexic.compile.product import register_model
 from lexic.compile.verdict import Verdict
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
@@ -85,7 +85,7 @@ __all__ = [
     "Directives",
     "Draw",
     "Vocabulary",
-    "bind_module",
+    "attach_module",
     "build_codegen_grammar",
     "CompileMoments",
     "canonical_grammar",
@@ -116,7 +116,7 @@ __all__ = [
     "Row",
     "Rows",
     "reset_cache_for_tests",
-    "RuleBinding",
+    "RuleMap",
     "SpanEntry",
     "SpanLevel",
     "SpanPair",
@@ -486,7 +486,7 @@ def _assemble_core(
     unresolved = moments.grammar.relaxed
     codegen_grammar = moments.grammar.resolved
     classes = moments.classes
-    product = bind_model(codegen_grammar, moments.binding, classes)
+    product = register_model(codegen_grammar, moments.binding, classes)
     return CompiledGrammar(
         grammar=ast,
         product=product,

@@ -94,7 +94,7 @@ _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
 imports (``GrammarModel``, ``ClassVar``/``Literal`` from ``typing`` when
 used) plus the IR constructor names that appear in the emitted notation. A
 generated class of the same name would shadow them in that source; lowercase
-(``bind_module``) and UPPERCASE (``GRAMMAR``) bindings can never collide
+(``attach_module``) and UPPERCASE (``GRAMMAR``) bindings can never collide
 with a PascalCase class name. Drift-pinned against a real export by
 ``test_reserved_class_names_cover_the_export_header``."""
 RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(

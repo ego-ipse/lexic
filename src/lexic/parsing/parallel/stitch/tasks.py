@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from lexic.ir import IrAst
-from lexic.parsing.binding import ModelBinding
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import Region, piece_marks
 from lexic.parsing.parallel.replicas import worker_replicas
 from lexic.parsing.parallel.stitch.model import RegionWork, derive_plan
@@ -12,7 +12,7 @@ from lexic.parsing.parallel.stitch.safety import owner_excludes
 
 def region_works[M](
     grammar: IrAst,
-    binding: ModelBinding[M],
+    binding: ModelExecutable[M],
     text: str,
     divided: list[tuple[Region, list[str]]],
     analysis: IrAst,
@@ -36,8 +36,8 @@ def region_works[M](
 
 
 def region_tasks[M](
-    works: list[RegionWork], binding: ModelBinding[M]
-) -> tuple[list[tuple[IrAst, ModelBinding, str]], list[int]]:
+    works: list[RegionWork], binding: ModelExecutable[M]
+) -> tuple[list[tuple[IrAst, ModelExecutable, str]], list[int]]:
     """Flatten pieces with one distinct parse view and owner per task.
 
     :param works: Chosen regions with their piece texts and model plans.
@@ -54,7 +54,7 @@ def region_tasks[M](
         for work in works
     }
     used: dict[str, int] = {}
-    tasks: list[tuple[IrAst, ModelBinding, str]] = []
+    tasks: list[tuple[IrAst, ModelExecutable, str]] = []
     owners: list[int] = []
     for owner, work in enumerate(works):
         for part in work.parts:

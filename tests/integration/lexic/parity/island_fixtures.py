@@ -30,7 +30,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing import ModelBinding
+from lexic.parsing import ModelExecutable
 from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 STAR = IrQuantifier(0, IrNone)
@@ -150,7 +150,7 @@ MINI_SYMBOLS: dict[str, Callable[..., object]] = {
 }
 
 _MINI_PRODUCT = product_rules(MINI_RULES)
-BINDING = ModelBinding(
+BINDING = ModelExecutable(
     rules_by_name(_MINI_PRODUCT.rules, _MINI_PRODUCT.codes),
     LoweringOwned(symbols=_MINI_PRODUCT.symbols, registry=MINI_SYMBOLS),
 )
@@ -171,7 +171,7 @@ def arg_rest_value(v: object) -> object:
     return v
 
 
-def notation_variant() -> tuple[IrAst, ModelBinding]:
+def notation_variant() -> tuple[IrAst, ModelExecutable]:
     """The notation grammar with ``arglist`` widened to the UNGATEABLE
     trailing-comma island shape (``value arg-rest* comma?`` — loop and
     optional share FIRST=','), plus its matching product — the splice-path
@@ -212,7 +212,7 @@ def notation_variant() -> tuple[IrAst, ModelBinding]:
     )
     product = product_rules(rules)
     registry = notation.NOTATION_SYMBOLS | {"arg_rest_value": arg_rest_value}
-    return grammar, ModelBinding(
+    return grammar, ModelExecutable(
         rules_by_name(product.rules, product.codes),
         LoweringOwned(symbols=product.symbols, registry=registry),
     )

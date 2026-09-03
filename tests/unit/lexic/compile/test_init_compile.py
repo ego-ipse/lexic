@@ -15,7 +15,7 @@ from lexic.compile import (
     Directives,
     Vocabulary,
     _scan_directives,
-    bind_module,
+    attach_module,
     canonical_grammar,
     compile_ast,
     compile_from_path,
@@ -51,6 +51,7 @@ from lexic.ir import (
 )
 from lexic.model import GrammarModel
 from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.product.tree import ProductExecutor
 from lexic.parsing.products import earley_model
 from tests.paths import GRAMMARS, GROUND_TRUTH
 from tests.reduce_helpers import reduce_text
@@ -167,6 +168,15 @@ def test_compiled_grammar_grammar_field_is_the_canonical_ast():
     assert isinstance(cg.codegen_grammar, IrAst)
     text = (GROUND_TRUTH / "arithmetic.gbnf").read_text(encoding="utf-8")
     assert cg.grammar == canonical_grammar(text, GBNF_FLAVOUR)
+
+
+def test_compiled_grammar_executor_field_is_the_products_executor():
+    """Port of the deleted ``CompiledGrammar.fold`` field pin: ``.fold`` is
+    gone, replaced by ``.executor``, which is exactly ``cg.product.executor``
+    — one completion, read off the bound product, never a second copy."""
+    cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
+    assert cg.executor is cg.product.executor
+    assert isinstance(cg.executor, ProductExecutor)
 
 
 @pytest.mark.parametrize(
@@ -767,7 +777,7 @@ def test_parse_instance_accepts_a_flavour_instance():
     assert inst.to_text() == "x42"
 
 
-# ── bind_module ──────────────────────────────────────────────────────────
+# ── attach_module ──────────────────────────────────────────────────────────
 
 BIND_MODULE_TEXT = 'root ::= "a" mid "b"\nmid ::= "x" | "y"\n'
 
@@ -792,7 +802,7 @@ def test_bind_module_binds_a_hand_built_namespace_successfully():
     before_root_child_attrs = getattr(HandRoot, "_child_attrs")
     before_mid_child_attrs = getattr(HandMid, "_child_attrs")
 
-    bind_module(cg.grammar, {"Root": HandRoot, "Mid": HandMid})
+    attach_module(cg.grammar, {"Root": HandRoot, "Mid": HandMid})
 
     assert HandRoot.__grammar__ == cg.classes["Root"].__grammar__
     assert HandMid.__grammar__ == cg.classes["Mid"].__grammar__
@@ -809,7 +819,7 @@ def test_bind_module_raises_when_a_class_is_missing_from_the_namespace():
     """A namespace missing a rule's class names the rule and the class."""
     cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-missing")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": HandRoot})
+        attach_module(cg.grammar, {"Root": HandRoot})
     message = str(exc_info.value)
     assert "mid" in message
     assert "Mid" in message
@@ -820,7 +830,7 @@ def test_bind_module_raises_when_the_namespace_class_is_not_a_grammar_model():
     rejected the same way as a missing entry."""
     cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-not-a-model")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": HandRoot, "Mid": object})
+        attach_module(cg.grammar, {"Root": HandRoot, "Mid": object})
     assert "Mid" in str(exc_info.value)
 
 
@@ -833,7 +843,7 @@ def test_bind_module_raises_on_a_field_shape_mismatch():
 
     cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-mismatch")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": HandRoot, "Mid": _WrongFieldMid})
+        attach_module(cg.grammar, {"Root": HandRoot, "Mid": _WrongFieldMid})
     message = str(exc_info.value)
     assert "('wrong_field',)" in message
     assert "('value',)" in message

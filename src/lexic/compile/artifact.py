@@ -13,7 +13,7 @@ from functools import partial
 from typing import NamedTuple
 
 from lexic.compile.pipeline.moments import CompileMoments, GrammarMoments
-from lexic.compile.product import bind_model
+from lexic.compile.product import register_model
 from lexic.compile.reduce.fold import ReduceFold
 from lexic.compile.reduce.variant import elide_subtrees, reachable_rules
 from lexic.compile.reduction import (
@@ -40,7 +40,7 @@ from lexic.ir import (
 )
 from lexic.model import GrammarModel
 from lexic.parsing import (
-    ModelBinding,
+    ModelExecutable,
     PdaTables,
     ProductExecutor,
     TokenMaskCursor,
@@ -163,7 +163,7 @@ class CompiledGrammar:
     """
 
     grammar: IrAst
-    product: ModelBinding[GrammarModel]
+    product: ModelExecutable[GrammarModel]
     moments: CompileMoments
     flavour: str = "gbnf"
     stem: str = "grammar"
@@ -524,7 +524,7 @@ def _variant_artifact(
     content = hashlib.sha1(repr(ast).encode("utf-8")).hexdigest()[:12]
     moments = CompileMoments.of(ast, registry, f"{compiled.stem}_{tag}_{content}")
     omit = reachable_rules(moments.grammar.resolved, recognition_roots)
-    product = bind_model(
+    product = register_model(
         moments.grammar.resolved, moments.binding, moments.classes, omit
     )
     return CompiledGrammar(

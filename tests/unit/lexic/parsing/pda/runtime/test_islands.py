@@ -48,6 +48,7 @@ from lexic.parsing.pda.runtime.islands import (
     island_run,
     island_value,
 )
+from lexic.parsing.product.tree import EMPTY_RESULT, Completed, ProductExecutor
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
 
@@ -356,6 +357,69 @@ def test_generated_quantifier_arms_past_the_second_derivation_are_splits():
         ),
         ParseTree,
     )
+
+
+class _CountingExecutor(ProductExecutor):
+    """A real ProductExecutor whose splice/splice_replay return fixed
+    results in order, instead of completing through a routine table.
+
+    ``different_meaning`` calls ``replay`` for both the baseline (via
+    ``remembered``) and each alternate sibling, so a two-derivation span
+    drives exactly two calls — the fixture controls both answers directly
+    rather than depending on what a real grammar happens to build.
+    """
+
+    __slots__ = ("_at", "_results")
+
+    def __init__(self, results):
+        super().__init__({})
+        self._results = list(results)
+        self._at = 0
+
+    def _next(self):
+        value = self._results[min(self._at, len(self._results) - 1)]
+        self._at += 1
+        return value
+
+    def splice(self, root):
+        del root
+        return self._next()
+
+    def splice_replay(self, root, results):
+        del root, results
+        return self._next()
+
+
+def test_an_empty_derivation_against_a_real_none_value_refuses_as_ambiguous(
+    sss_grammar: IrAst,
+):
+    """EmptyResult and Completed(None) are DIFFERENT types under same_value's
+    first check, so a two-derivation span where one means "produced nothing"
+    and the other means "produced a real None" refuses — the one behaviour
+    change a round-trip corpus cannot observe, because to_text() reproduces
+    the input for either derivation."""
+    tables = compile_tables(sss_grammar)
+    kern, best = island_run(tables, "aaa")
+    assert best is not None
+    item, end = best
+    executor = _CountingExecutor([EMPTY_RESULT, Completed(None)])
+    with pytest.raises(UnsupportedConstructError, match="mean different things"):
+        island_derivation(kern, item, end, "s", policy=IslandPolicy(executor=executor))
+
+
+def test_two_derivations_both_meaning_none_settle_as_one_meaning(sss_grammar: IrAst):
+    """The twin case: a real None built twice is still ONE value, not two —
+    a present Python None is not an absence, and same_value must not refuse
+    two derivations that agree on it."""
+    tables = compile_tables(sss_grammar)
+    kern, best = island_run(tables, "aaa")
+    assert best is not None
+    item, end = best
+    executor = _CountingExecutor([Completed(None), Completed(None)])
+    tree = island_derivation(
+        kern, item, end, "s", policy=IslandPolicy(executor=executor)
+    )
+    assert isinstance(tree, ParseTree)
 
 
 def test_authored_arm_past_the_second_derivation_still_refuses():

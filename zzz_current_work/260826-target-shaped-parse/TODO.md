@@ -583,6 +583,26 @@ holds.
       ranges and operand lanes (the authored operations become input only),
       or the bullet is honestly re-scoped by the user. Not marked done again
       until the executed representation is the verified one.
+      **CLOSED AGAIN 2026-09-03 (terra-s4c, coordinator-rerun witness):**
+      `ModelBinding` keeps no authored rules — it lowers, verifies, and reads
+      the verified program back into one `RuleRoutine` per rule
+      (`parsing/product/routines.py`); the executor, the clone bake,
+      `matches_own_text`, the clone and delegate compilers, both stitch
+      modules and `collapsed_product_tables` take that record;
+      `construction_of`, `ModelBinding.rules/.owned/.construction` and
+      `_binding_copy` are deleted; `replica()` shares the verified program
+      and rebuilds only the routine container. `proto/s4_verified_completion.py`
+      exit 0: 17 bindings, 454 rules, 754 clones, every routine field read
+      off the program's own flat product and every construction off the
+      operand lane its instruction names; `RuleProduct` confined to four
+      files; four seeded controls refuse. Paid path against `7d60f575`: zero
+      changed functions in kernel/execution/build/matchers/flatten/decisions/
+      admission/islands; `product/tree.py` −12 instructions net. The
+      bytecode witness itself was repaired: it had keyed one side by
+      qualified name and skipped every class body and PEP 695 function, so
+      earlier `tree.py`/`flatten.py` "all identical" rows were vacuous; the
+      four rows it now exposes against `dffa821f` are definition-time and
+      already ruled.
 - [x] Replace model-only completion in
       `pda/runtime/build.py` and
       `pda/runtime/kernel/execution.py::_run_leaf`/`_complete` with common
@@ -592,11 +612,19 @@ holds.
       accumulator that does not exist yet — and a MANY capture must look
       THROUGH transparent repetition nodes to reach real elements;
       `proto/s3_earley_target.py` demonstrates both.)
-- [ ] Carry `Carry` without erasure through the PDA runtime frame, output, and
+- [x] Carry `Carry` without erasure through the PDA runtime frame, output, and
       sink path now owned by common product completion. Remove the current
       `list[Any]`/call-site widening without adding `Any`, `object`, a cast,
       suppression, hot-path branch, slot, allocation, compatibility wrapper,
       or unmeasured frame-representation change.
+      (Closed 2026-09-03 BY RULING, with a recorded residue: the output and
+      sink path carry `Carry` through the routine-driven executor; the frame
+      half was measured — list frame vs slotted `Frame[M]`, 200,000
+      lifecycles, −0.1 ns per frame, predicted whole-parse −0.00% — free and
+      not faster, so under the baseline bullet below the list frame STAYS and
+      the `_NO_SINK` `list[Any]` sink table remains the one recorded `Any`
+      on that path. Revisited only when a typing change lands on its own
+      merits (§8 touches the frame); never re-argued on performance.)
 - [x] Lower operations to data. No target object or morphism is called from the
       character matcher, item loop, gate selection, or any frequent completion.
       Scalar decode, validation, insertion, and declared record construction
@@ -614,7 +642,7 @@ holds.
       the ambiguity gate, the latter the engine's `same_value`; a seeded
       decoder-as-ctor control is caught by name. No source change was
       needed.)
-- [ ] Implement the generic eligible-value-string specialization in
+- [x] Implement the generic eligible-value-string specialization in
       `pda/compiler/program/specialize.py`: when
       `parsing/product/regular.py` proves one `value_str` occurrence exact,
       compile one recognizer consult returning its extent instead of the
@@ -625,6 +653,24 @@ holds.
       regression for later target speed. The controlled mechanism row is in
       `PROTOTYPE_7.md` §4. The proof must enforce nullable-arm-last and
       nullable-atom continuation ownership, not only variable repetition.
+      (Closed 2026-09-03, USER DECISION KEEP on window 2's collector-on rows:
+      list −51.30% outside a 3.00% control floor; c −2.98%, chess +0.70%,
+      vyx −0.16%, token-segmented −0.08%, all inside it; no regression on
+      any row. The consult is a synthetic `OP_CONSULT` run arm on a proved
+      clone; OP_CC run arms bytecode-identical, OP_LIT run arms +9
+      instructions per iteration on three vyx clones — a fold-in is
+      impossible from the branch bodies — priced at 7–14 ns per call,
+      0.004–0.008% of vyx. Proof (`regular.py`): group obligations applied
+      recursively; case 1 first-disjoint, case 2 ordered literals for groups
+      only (recorded asymmetry, §7), a third proper-prefix obligation; each
+      reference proved under its own continuation; the clone's tail unioned
+      with the soft FOLLOW. 164/219 match-only clones prove, 17 install in
+      c/chess/list/vyx; the extent differential over 138 documents and 266
+      occurrences finds no position decided two ways; Reviewer 2's brute-
+      force oracle fuzz found zero defects in the group obligation.
+      Witnesses: `s4_consult_soundness`, `s4_consult_eligibility`,
+      `s4_extent_differential`, `s4_consult_gate` — coordinator reran the
+      first two.)
 - [x] Update `earley_model` and `ModelFold.apply`'s replacement to execute the
       same rule operation/captures. The final owner is
       `parsing/product/tree.py`; explicit result presence admits a real
@@ -659,16 +705,31 @@ holds.
       instructions, built once, never per call). `s4_bake_identity` covers
       the flat-program half. Re-run at the completion-range wiring and the
       `Carry` frame decision, which touch the same functions.)
-- [ ] Treat the existing direct generated-model completion/frame shape as the
+- [x] Treat the existing direct generated-model completion/frame shape as the
       zero-tax baseline. A common ABI is not permission to route it through a
       generic completion interpreter or allocate otherwise-unused product
       state; only a measured faster simplification may change that shape.
-- [ ] Run the existing generated-model, PDA, Earley, island, token, round-trip,
+      (Held 2026-09-03: the paid-path bytecode witness — repaired this round
+      to see class bodies and PEP 695 functions — shows zero changed
+      functions in kernel/execution/build/matchers/flatten/decisions/
+      admission/islands against `7d60f575`, and against `dffa821f` only the
+      ruled definition-time rows plus the disclosed consult branch; the
+      frame shape is unchanged by measurement; `s4_operations_as_data`
+      shows no interpreter on the paid path.)
+- [x] Run the existing generated-model, PDA, Earley, island, token, round-trip,
       and ambiguity tests relevant to changed files. Terra does not add the new
       committed tests or run lint; Luna does that after profiling.
-- [ ] Run `uv run python tools/check_generated.py` at this exit. §4 changes the
+      (Done 2026-09-03: full suite `-n 8` 4 failed / 5264 passed / 8
+      skipped on the final Terra tree, every failure attributed — two
+      `test_specialize` contract rows, the README badge, `test_test_parity`
+      with fourteen missing mirrors — all Luna's; pyright 0; `run_checks.sh`
+      exit 14 with only pylint red at 48 findings, one fewer than
+      `7d60f575`; `git diff --check` 0.)
+- [x] Run `uv run python tools/check_generated.py` at this exit. §4 changes the
       authored fold vocabulary and its notation/generated-self-grammar users;
       the generated-twin gate cannot wait until §7.
+      (Done 2026-09-03: exit 0 over 53 modules, rerun after the deletion
+      pass.)
 - [ ] **USER RULING (2026-09-02): full test coverage BEFORE the hold.** After
       Terra's source bullets, verification bullets and its two fresh reviewers,
       and before the hold, a Luna pass brings the test tree to full coverage of
@@ -683,16 +744,34 @@ holds.
       listed for Luna (the flat-clone slot tripwire, the deleted-property
       artefact test, the two `test_specialize` value-string contracts, the
       clone-spec field order); the harness non-vacuity tightening; the README
-      test-count re-render. Assertions pin ruled and witnessed contracts; no
-      timing tests; property tests through `guarded.sh`. Exit: the full suite
+      test-count re-render; **and (user, 2026-09-03) diff-driven coverage of
+      every EXISTING module whose code changed since `dffa821f`** — each
+      changed hunk's behaviour pinned in the module's mirror by a test that
+      would fail if it were reverted, with a per-module covered/not-covered
+      row in Luna's report. Tests TEST, they do not merely pass:
+      expectations derived independently, adversarial inputs, tree defects
+      kept as strict xfails and reported, never softened. Assertions pin
+      ruled and witnessed contracts; no timing tests; property tests through
+      `guarded.sh`. Exit: the full suite
       green at `-n 8`, `tools/run_checks.sh` exit 0 or every remaining
       finding attributed by file, pyright 0. Luna runs only after Terra has
       stopped; Terra does not resume during Luna's pass.
-- [ ] At the completed and fully tested §4 tree, update `TODO.md` and
-      `LEDGER.md`, record the exact restart point and evidence, and hold. The
-      hold brings in a different model to review the completed §4 source. Do
-      not begin the external profile or commit until the user resumes the
-      effort.
+- [ ] At the completed and fully tested §4 tree, the coordinator (1) reruns
+      every gate by exit code — suite at `-n 8`, pyright, `check_generated`,
+      `run_checks.sh`, `git diff --check`; (2) reads Luna's tests against the
+      tests-that-TEST standard and returns any rubber stamp; (3) confirms the
+      binding→executable/registry/rulemap/attach rename landed whole (drift
+      and layering tests, old-name grep empty outside `ir/spine`, CLAUDE.md
+      map); (4) writes the wiki `log.md` entry and the mechanical page
+      updates for §4's added and renamed surfaces (prose stays §11); (5)
+      ticks the coverage bullet, updates `TODO.md` and `LEDGER.md`, records
+      the restart point and evidence; (6) **COMMIT (user-added 2026-09-03):**
+      with `tools/run_checks.sh` at exit 0 the §4 tree is committed as the
+      §4 savepoint — a green gate is the precondition, not a hope; the
+      commit is the user's unless a grant for the coordinator to run it is
+      recorded here; then hold. The hold brings in a different model to
+      review the committed §4 source. Do not begin the external profile
+      until the user resumes the effort.
 - [ ] After the user resumes, externally profile the generated-model product
       with alternating baseline/new processes and a byte-identical control row
       under `docs/STYLE.md`. Instrumentation remains outside `src`.
@@ -1530,6 +1609,30 @@ This phase is mandatory. “Unused but retained” is failure.
 - [ ] Delete committed target/model stitch duplication. Never adopt an
       untracked `parallel/stitch/carrier.py`; the user already deleted the
       rejected file, so do not reconstruct it.
+- [ ] **Orphan census over the WHOLE repository (user-ordered 2026-09-03,
+      last bullet of the clean-up).** Every public name defined anywhere
+      under `src/` — class, function, constant, `__all__` entry, package
+      re-export — is checked for a real READER: a call, construction,
+      annotation or dispatch-table entry in `src/`, `tests/`, `tools/`,
+      `getting_started/` or `generated/`, counting a reader inside the
+      defining module but NOT counting a bare re-export in a package façade
+      or an `__all__` line. The census is a script under this effort's
+      `proto/` (the §4 audit's scan that excluded same-file readers
+      mis-flagged four live names — the corrected question is the one
+      above). **It runs twice, and to a fixpoint (user-ordered):** once at
+      §10 ENTRY, before the fallback and legacy deletions above, so a name
+      whose only reader is a legacy about to go is on record as an orphan-
+      in-waiting; and again AFTER those deletions, repeated until a run
+      deletes nothing, because removing a name orphans the names only it
+      read. Both tables go in `reports/`, the second annotated with what the
+      first predicted.
+      Every name with no reader is deleted under the user's standing rule —
+      "remove what has no and will have no consumer" — together with its
+      re-exports, docs lines, proto rows and tests in one edit; a name kept
+      because a later section names it as the record it builds on is listed
+      with that section beside it. A façade re-export whose only readers are
+      inside its own package is a separate row: the export is dropped and
+      the name stays. Exit: the census table has zero unattributed rows.
 - [ ] Remove every fallback, decline-to-old-route branch, old/new mode switch,
       compatibility adapter, deprecated alias, unused import, and dead cache.
 - [ ] Port shared `foldkit` callers to the final vocabulary, then delete old

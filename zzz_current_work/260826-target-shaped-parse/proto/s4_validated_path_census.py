@@ -43,10 +43,10 @@ from lexic.compile.notation.parse import (
 )
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst
-from lexic.parsing import ModelBinding
+from lexic.parsing import ModelExecutable
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, no_construction
 from lexic.parsing.pda.compiler.program.opcodes import BUILD_TRANSPARENT
-from lexic.parsing.product import RecordOp
+from lexic.parsing.product import OpCode, ProductProgram, RangeKind, RuleRoutine
 from lexic.parsing.products import pda_tables
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -70,7 +70,21 @@ def _check(claim: str, held: bool) -> None:
         raise AssertionError(f"s4 validated census: {claim}")
 
 
-def _surface(label: str, grammar: IrAst, binding: ModelBinding) -> tuple[int, int]:
+def _builds_a_record(program: ProductProgram, routine: RuleRoutine) -> bool:
+    """Whether one routine's VERIFIED completion instruction builds a record.
+
+    Read off the program rather than off an authored record beside it: the
+    range says which table it indexes, and the instruction in it says what the
+    completion does. A symbol transform lands in the expression table, so the
+    two populations separate on the range's own kind.
+    """
+    found = program.completions[routine.completion]
+    if found.kind == int(RangeKind.EXPRESSION):
+        return False
+    return program.fused_opcodes[found.start] == int(OpCode.RECORD)
+
+
+def _surface(label: str, grammar: IrAst, binding: ModelExecutable) -> tuple[int, int]:
     """One authored surface's clones, and how many complete without a record.
 
     :returns: ``(clones carrying a product, clones completing through a
@@ -80,14 +94,14 @@ def _surface(label: str, grammar: IrAst, binding: ModelBinding) -> tuple[int, in
     carried = 0
     symbolic = 0
     for spec in tables.clones.values():
-        if spec.product is None:
+        if spec.routine is None:
             continue
         carried += 1
-        symbolic += int(not isinstance(spec.product.completion, RecordOp))
+        symbolic += int(not _builds_a_record(binding.program, spec.routine))
     print(
         f"{label:<14}\tclones={carried:<5}\tsymbol completions={symbolic:<5}\t"
-        f"records={len(binding.construction.constructors)}\t"
-        f"symbols={len(binding.construction.symbols)}"
+        f"records={len(binding.program.operands.constructors)}\t"
+        f"symbols={len(binding.program.operands.symbols)}"
     )
     return carried, symbolic
 
@@ -109,13 +123,13 @@ def _generated() -> tuple[int, int, int]:
             continue
         _check(
             f"{path.name}: the model product names a symbol",
-            not compiled.product.construction.symbols,
+            not compiled.product.program.operands.symbols,
         )
         for spec in tables.clones.values():
-            if spec.product is None:
+            if spec.routine is None:
                 continue
             carried += 1
-            if isinstance(spec.product.completion, RecordOp):
+            if _builds_a_record(compiled.product.program, spec.routine):
                 records += 1
             else:
                 nothing += 1

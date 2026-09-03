@@ -193,19 +193,19 @@ Retention is a tuple of references to values the pipeline computed anyway — a 
 ### `compute_binding(codegen_grammar)` — `compile/__init__.py`
 
 ```python
-compute_binding(ast: IrAst) -> list[RuleBinding]
+compute_binding(ast: IrAst) -> list[RuleMap]
 ```
 
-Implemented in `compile/pipeline/binding.py`, imported from `lexic.compile`.
+Implemented in `compile/pipeline/rulemap.py`, imported from `lexic.compile`.
 
-The open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleBinding(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, parents before subclasses — `RuleBinding` is exported beside it, since the returned list cannot be typed without it. See [[field-naming]].
+The open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleMap(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, parents before subclasses — `RuleMap` is exported beside it, since the returned list cannot be typed without it. See [[field-naming]].
 
 ---
 
 ### `synthesize(codegen_grammar, binding, stem)` — `compile/__init__.py`
 
 ```python
-synthesize(codegen_grammar: IrAst, binding: list[RuleBinding], stem: str) -> dict[str, type]
+synthesize(codegen_grammar: IrAst, binding: list[RuleMap], stem: str) -> dict[str, type]
 ```
 
 Implemented in `compile/pipeline/synthesis.py`, imported from `lexic.compile`.
@@ -290,7 +290,7 @@ Returns the engine's compiled `PdaTables` for `(codegen_grammar, fold)` — the 
 
 Returns the grammar's structural anchor characters as a `frozenset[str]` — the characters no *opaque interior* can emit: no co-finite class (`[^"]`-style string interiors, comment bodies, token terminals) covers them and no derived run charset contains them. Every occurrence of such a character in valid input is structural, so a local scan cannot be fooled — the property a parallel splitter needs to cut text without left context. Multi-site anchors are legitimate; WHICH site an occurrence belongs to is the orchestrator's question, answered over `lexic.parsing.parallel.anchor_sites(grammar)` (anchor → defining rules). Site membership is counted over the PDA's polarity-aware `CharSet`s — exact, no poison approximation. The analysis lives in `lexic.parsing.parallel` (with role derivation, the self-locating window scan, and the worker-count policy), memoised per grammar identity; the artefact passes its codegen grammar. An empty set means no provable split point — an answer (process sequentially), not an error.
 
-On explicit request `export_module(compiled, path, *, stem=None, inline_tables=False)` writes an importable twin module (`export_source` is the string-taker it wraps) — see [[generated-modules]]. `bind_module(grammar, namespace)` is the twin modules' module-end binder.
+On explicit request `export_module(compiled, path, *, stem=None, inline_tables=False)` writes an importable twin module (`export_source` is the string-taker it wraps) — see [[generated-modules]]. `attach_module(grammar, namespace)` is the twin modules' module-end binder.
 
 `.parse(text)` is the only method callers need. It runs `parse_model(self.codegen_grammar, text, self.fold)` — the engine's instance product (PDA-first, Earley completion inside the engine, memoised per `(grammar, fold)` identity). If the start rule does not fold to a `GrammarModel`, `.parse` raises `UnsupportedConstructError`.
 

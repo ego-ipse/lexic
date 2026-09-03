@@ -11,7 +11,7 @@ clone key / island reference targets.
 A leaf w.r.t. the compiler — pure data definitions, imported by
 :mod:`lexic.parsing.pda.compiler.clones` (which re-exposes them as its public surface);
 imports only :class:`~lexic.parsing.pda.core.charsets.CharSet`,
-:class:`~lexic.parsing.product.RuleProduct`, and
+:class:`~lexic.parsing.product.RuleRoutine`, and
 :class:`~lexic.parsing.pda.core.scanner.ScanGate`.
 """
 
@@ -21,7 +21,7 @@ from typing import NamedTuple
 
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
-from lexic.parsing.product import RegularProof, RuleProduct
+from lexic.parsing.product import RegularProof, RuleRoutine
 
 LIT, CC, REF, GRP = "lit", "cc", "ref", "grp"
 """The :attr:`ItemSpec.kind` tags: literal, char class, rule reference, group.
@@ -241,8 +241,8 @@ class CloneSpec(NamedTuple):
     :ivar arms: The FIRST-gated arms (after arm hoisting every non-empty arm
         selects on its own FIRST).
     :ivar default: The all-nullable default arm's specs, or ``None``.
-    :ivar product: The rule's authored :class:`~lexic.parsing.product
-        .RuleProduct`, or ``None`` for a transparent helper clone — what the
+    :ivar routine: The rule's verified :class:`~lexic.parsing.product
+        .RuleRoutine`, or ``None`` for a transparent helper clone — what the
         clone's capture layout and build plan are baked from.
     :ivar match_only: ``True`` for a rule whose value IS its own matched text
         — pure-terminal interior, the runtime slices ``text[a:b]`` instead of
@@ -268,7 +268,7 @@ class CloneSpec(NamedTuple):
     name: str
     arms: tuple[ArmSpec, ...]
     default: tuple[ItemSpec, ...] | None
-    product: RuleProduct | None
+    routine: RuleRoutine | None
     match_only: bool
     struct_arm: ScanGate | None = None
     attempt_follow: CharSet | None = None

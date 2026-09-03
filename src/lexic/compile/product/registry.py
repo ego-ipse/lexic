@@ -35,18 +35,18 @@ from collections.abc import Callable, Mapping, Sequence
 from threading import Lock
 from typing import NamedTuple
 
-from lexic.compile.pipeline.binding import RuleBinding
+from lexic.compile.pipeline.rulemap import RuleMap
 from lexic.compile.pipeline.synthesis import model_plan
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
-from lexic.parsing import ModelBinding
+from lexic.parsing import ModelExecutable
 from lexic.parsing.caches import adopt, memo, track
 from lexic.parsing.product import LoweringOwned, ProductProgram, RuleProduct
 
-__all__ = ["BindingRegistry", "BoundProduct", "ProgramProduct"]
+__all__ = ["ProductRegistry", "RegisteredProduct", "ProgramProduct"]
 
 
-class BoundProduct[Result](ABC):
+class RegisteredProduct[Result](ABC):
     """A result-typed runner whose carrier type stays hidden.
 
     The public seam is exact in ``Result`` while ``Carry`` — the internal
@@ -78,7 +78,7 @@ type ProductExecutor[Carry, Result] = Callable[
 """How a bound program is executed. Supplied at binding, never by a caller."""
 
 
-class ProgramProduct[Carry, Result](BoundProduct[Result]):
+class ProgramProduct[Carry, Result](RegisteredProduct[Result]):
     """One verified program plus the executor that runs it.
 
     Deliberately holds no source artefact, no grammar and no reducer — only
@@ -129,16 +129,16 @@ class _Entry[Declaration, Result](NamedTuple):
 
     declaration: Declaration
     source: weakref.ReferenceType[object]
-    bound: BoundProduct[Result]
+    bound: RegisteredProduct[Result]
 
 
 type BindingFactory[Declaration, Result] = Callable[
-    [Declaration, object], BoundProduct[Result]
+    [Declaration, object], RegisteredProduct[Result]
 ]
 """Builds one bound product from a declaration and its source artefact."""
 
 
-class BindingRegistry[Declaration, Result]:
+class ProductRegistry[Declaration, Result]:
     """The one homogeneous owner of one declaration kind's bindings.
 
     Homogeneous on purpose: a registry holding several declaration kinds would
@@ -171,7 +171,7 @@ class BindingRegistry[Declaration, Result]:
         declaration: Declaration,
         source: object,
         factory: BindingFactory[Declaration, Result],
-    ) -> BoundProduct[Result]:
+    ) -> RegisteredProduct[Result]:
         """The bound product for one declaration over one source artefact.
 
         :param declaration: The inert declaration being bound.
@@ -192,7 +192,7 @@ class BindingRegistry[Declaration, Result]:
         declaration: Declaration,
         source: object,
         factory: BindingFactory[Declaration, Result],
-    ) -> BoundProduct[Result]:
+    ) -> RegisteredProduct[Result]:
         """Bind under the lock, re-checking so a race compiles once."""
         with self._lock:
             found = self._entries.get(key)
@@ -220,12 +220,12 @@ class BindingRegistry[Declaration, Result]:
         return entry.declaration is declaration and entry.source() is source
 
 
-def bind_model(
+def register_model(
     codegen_grammar: IrAst,
-    view: list[RuleBinding],
+    view: list[RuleMap],
     classes: dict[str, type],
     omit: frozenset[str] = frozenset(),
-) -> ModelBinding[GrammarModel]:
+) -> ModelExecutable[GrammarModel]:
     """The generated-model product a parse entry is handed.
 
     The one place a compilation turns its binding view into a bound product,
@@ -239,7 +239,7 @@ def bind_model(
     :returns: The bound model product.
     """
     plan = model_plan(codegen_grammar, view, classes, omit=omit)
-    return ModelBinding(
+    return ModelExecutable(
         rules_by_name(plan.rules, plan.codes),
         LoweringOwned(constructors=plan.constructors),
     )

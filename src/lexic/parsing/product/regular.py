@@ -21,15 +21,25 @@ Three obligations, and a region declines unless all three hold:
    commitment nobody checked. A group earns one further way to discharge it —
    ordered literal arms whose munch is forced (:func:`_ordered_literals`),
    which is what ``("<=" | "<")`` has and ``("a" | "ab")`` does not. That way
-   is offered to a GROUP and not to a rule body, because a rule is proved
-   against the region's follow rather than against its own call site, so the
-   munch obligation would be asked of text that need not be there; the
+   is offered to a GROUP and not to a rule body: a group is entered from the
+   one arm that contains it, while a rule is entered from every reference to
+   it, and the shortcut has not been shown to survive that composition. The
    asymmetry withholds a shortcut and never grants one.
 3. **Boundaries that do not steal.** Wherever the recognizer must decide
    "another repetition, or the continuation" — a variable item, or a nullable
    atom even at ``{1,1}`` — the atom's leading characters must not overlap
    what follows it. A possessive match that can consume its successor's first
    character does not merely mis-order the two: it takes it.
+
+**Every obligation is asked under the continuation that is really there.** The
+region's follow belongs to the region's ENTRY rule; a rule reached through a
+reference is followed by the remainder of the referencing arm, composed with
+whatever follows that arm — and, where the reference repeats, by another
+instance of itself first. So the closure is walked from the entry rule with
+each reference's own continuation threaded through it, rather than every
+member being asked the entry rule's question. Asking the wrong question does
+not fail safe in one direction: it can withhold a proof a rule has earned, and
+it can grant one on text that cannot be there.
 
 The first-set algebra is :class:`~lexic.parsing.pda.analysis.gates.windows.
 KWindowFirst` and its ``collide``/``separable``/``extend_follow``, not a
@@ -49,6 +59,7 @@ from lexic.ir import (
     IrNoneType,
     IrQuantifier,
     IrRule,
+    IrRuleRef,
     IrSelf,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
@@ -105,10 +116,73 @@ def prove_regular(
         return None
     first = KWindowFirst(rules, _WINDOW)
     tail = extend_follow({((), END)}, follow, _WINDOW)
-    for name in recognizer.index:
-        if not _rule_is_deterministic(first, rules[name], tail):
-            return None
+    proved: set[tuple[str, frozenset[Pref]]] = set()
+    if not _closure_holds(first, rules, root, tail, proved):
+        return None
+    if {name for name, _tail in proved} != set(recognizer.index):
+        # The walk follows references; the recognizer follows its own closure.
+        # They agree today, and a region where they did not would be one whose
+        # possessive lowering covers a rule no obligation was asked of.
+        return None
     return RegularProof(root, recognizer, recognizer.index[root])
+
+
+def _closure_holds(
+    first: KWindowFirst,
+    rules: Mapping[str, IrRule],
+    name: str,
+    tail: set[Pref],
+    proved: set[tuple[str, frozenset[Pref]]],
+) -> bool:
+    """Whether ``name`` and everything it reaches hold under THIS continuation.
+
+    Memoised on ``(rule, continuation)`` rather than on the rule alone: one
+    rule reached from two sites owes its obligations under each site's own
+    continuation, and a rule reached twice under the same one owes them once.
+    The closure is acyclic — ``build_recognizer`` refused it otherwise — so the
+    walk terminates on the grammar and the memo is an economy, not a guard.
+    """
+    key = (name, frozenset(tail))
+    if key in proved:
+        return True
+    proved.add(key)
+    rule = rules.get(name)
+    if rule is None:
+        return False
+    if not _rule_is_deterministic(first, rule, tail):
+        return False
+    return all(
+        _references_hold(first, rules, _items(arm), tail, proved) for arm in rule.body
+    )
+
+
+def _references_hold(
+    first: KWindowFirst,
+    rules: Mapping[str, IrRule],
+    items: Sequence[IrItem],
+    tail: set[Pref],
+    proved: set[tuple[str, frozenset[Pref]]],
+) -> bool:
+    """Whether every rule this arm reaches holds under ITS own continuation.
+
+    An inline group is descended rather than resolved: its arms sit under the
+    group's own continuation, so a reference inside one is followed by the rest
+    of that inner arm and then by whatever follows the group.
+    """
+    for at, item in enumerate(items):
+        after = extend_follow(
+            first.arm_prefixes(items[at + 1 :], _WINDOW), tail, _WINDOW
+        )
+        here = _repeat_tail(first, item, after)
+        atom = item.atom
+        if isinstance(atom, IrRuleRef):
+            if not _closure_holds(first, rules, str(atom), here, proved):
+                return False
+        elif isinstance(atom, IrAlternation) and not all(
+            _references_hold(first, rules, _items(arm), here, proved) for arm in atom
+        ):
+            return False
+    return True
 
 
 def _items(arm: Sequence[IrSelf]) -> list[IrItem]:

@@ -22,9 +22,9 @@ from lexic.ir import (
     IrRuleRef,
 )
 from lexic.model import GrammarModel
-from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
@@ -82,7 +82,7 @@ class Request[M: IrNamedTuple](NamedTuple):
     """
 
     text: str
-    binding: ModelBinding[M]
+    binding: ModelExecutable[M]
     resolve: Resolver | None = None
 
 

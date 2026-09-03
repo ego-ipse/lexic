@@ -237,7 +237,7 @@ def _release_tables(
 _SHARED_TABLES = SharedTables()
 
 
-class BindingRegistry:
+class ProductRegistry:
     """The one homogeneous private registry for the record declaration kind."""
 
     __slots__ = ("_build_count", "_entries", "_lock")
@@ -295,7 +295,7 @@ class BindingRegistry:
         _SHARED_TABLES.release(grammar)
 
 
-_RECORD_BINDINGS = BindingRegistry()
+_RECORD_BINDINGS = ProductRegistry()
 
 
 class RunReport(NamedTuple):

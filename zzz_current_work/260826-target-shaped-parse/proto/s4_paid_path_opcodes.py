@@ -131,22 +131,62 @@ def _functions(source: str, path: str) -> dict[str, int]:
     return found
 
 
+GENERIC_SCOPE = "<generic parameters of "
+"""How the compiler names the scope a PEP 695 generic function's body sits in.
+
+The scope is real (its own 16-instruction code object, built once at
+definition), but it is not part of the function's PATH: leaving it in the
+qualified name made ``_complete_tree`` look like a member of something, so an
+unnamed module's comparison matched nothing for it and every generic function
+in that module was skipped in silence. Which is exactly the set a round like
+this one edits."""
+
+
+def _normalized(found: dict[str, int]) -> dict[str, int]:
+    """Counts re-keyed so a generic function keys the way it is written.
+
+    Only the PREFIX segments are dropped; the scope's own code object keeps its
+    name so it is still reported rather than merged into the function it wraps.
+    """
+    out: dict[str, int] = {}
+    for name, count in found.items():
+        parts = name.split(".")
+        kept = [part for part in parts[:-1] if not part.startswith(GENERIC_SCOPE)]
+        out[".".join([*kept, parts[-1]])] = count
+    return out
+
+
+def _wanted(named: tuple[str, ...], keys: set[str], path: str) -> list[str]:
+    """The keys to report: those a caller named, or every one there is.
+
+    A named function that neither revision has is a table naming something that
+    does not exist, which is how a zero-tax claim quietly stops covering what it
+    says it covers. It refuses rather than reporting nothing.
+    """
+    if not named:
+        return sorted(keys)
+    chosen = [key for key in sorted(keys) if key.rsplit(".", 1)[-1] in named]
+    missing = set(named) - {key.rsplit(".", 1)[-1] for key in chosen}
+    if missing:
+        raise Defect(
+            f"s4 paid-path opcodes: {path} names {sorted(missing)}, which "
+            "neither revision defines"
+        )
+    return chosen
+
+
 def _compare(path: str, named: tuple[str, ...]) -> list[tuple[str, int, int]]:
     """Per-function ``(name, before, after)`` for the functions worth naming."""
     before_text = _source(BASE, path)
     after_text = _source(None, path)
     if before_text is None or after_text is None:
         raise Defect(f"s4 paid-path opcodes: {path} is missing from one revision")
-    before, after = _functions(before_text, path), _functions(after_text, path)
-    wanted = set(named) if named else set(before) | set(after)
-    rows = []
-    for name in sorted(wanted):
-        left = {k.rsplit(".", 1)[-1]: v for k, v in before.items()}
-        right = {k.rsplit(".", 1)[-1]: v for k, v in after.items()}
-        if name not in left and name not in right:
-            continue
-        rows.append((name, left.get(name, -1), right.get(name, -1)))
-    return rows
+    left = _normalized(_functions(before_text, path))
+    right = _normalized(_functions(after_text, path))
+    return [
+        (name, left.get(name, -1), right.get(name, -1))
+        for name in _wanted(named, set(left) | set(right), path)
+    ]
 
 
 def _relocated_size(path: str, name: str) -> int:
@@ -157,11 +197,7 @@ def _relocated_size(path: str, name: str) -> int:
     source = _source(BASE, origin[0])
     if source is None:
         return -1
-    by_name = {
-        key.rsplit(".", 1)[-1]: value
-        for key, value in _functions(source, origin[0]).items()
-    }
-    return by_name.get(origin[1], -1)
+    return _normalized(_functions(source, origin[0])).get(origin[1], -1)
 
 
 def main() -> None:

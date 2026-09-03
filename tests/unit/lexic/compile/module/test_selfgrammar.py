@@ -1,10 +1,10 @@
 """Tests for compile/selfgrammar.py — the generated-module self-grammar.
 
-``module_grammar()`` is the statement skeleton merged with the notation
-rules; ``parse_module(text)`` folds an exported twin module to an
-:class:`MModule`; ``verify_module(compiled, text)`` cross-checks that model
-against the SAME binding-view functions the exporter rendered from (L2) —
-so a mismatch means the FILE drifted, not the renderer.
+``parse_module(text)`` folds an exported twin module to an :class:`MModule`;
+``verify_module(compiled, text)`` cross-checks that model against the SAME
+binding-view functions the exporter rendered from (L2) — so a mismatch means
+the FILE drifted, not the renderer. ``module_grammar()``'s own shape pins
+moved to ``test_rules.py`` when the function moved to ``compile/module/rules.py``.
 """
 
 from __future__ import annotations
@@ -18,79 +18,13 @@ from lexic.compile import (
     parse_module,
     verify_module,
 )
-from lexic.compile.module.selfgrammar import MClass, MField, MModule, module_grammar
-from lexic.compile.notation.parse import NOTATION_GRAMMAR
+from lexic.compile.module.selfgrammar import MClass, MField, MModule
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrNone, IrNoneType
-from lexic.parsing.lift import lift_optional_nullables
-from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from tests.paths import GROUND_TRUTH
 
 LIST_GRAMMAR = GROUND_TRUTH / "list.gbnf"
 JSON_WS_GRAMMAR = GROUND_TRUTH / "json_ws.gbnf"
-
-# ── module_grammar() shape pins ─────────────────────────────────────────
-
-
-def test_module_grammar_starts_at_m_module():
-    """The merged grammar's start rule is the statement-skeleton root."""
-    assert module_grammar().start == "m-module"
-
-
-def test_module_grammar_merges_m_rules_with_notation_rules_minus_start():
-    """The rule set is the m-prefixed statement rules plus every notation
-    rule EXCEPT notation's own "start" (the module skeleton supplies its own
-    top-level rule instead), plus the module's own ``ws-inl`` (space/tab-only
-    trailing whitespace the swapped notation token rules point at)."""
-    grammar = module_grammar()
-    names = [str(rule.name) for rule in grammar.rules]
-    m_names = {n for n in names if n.startswith("m-")}
-    non_m_names = {n for n in names if not n.startswith("m-")}
-    notation_names = {
-        str(rule.name) for rule in NOTATION_GRAMMAR.rules if str(rule.name) != "start"
-    }
-    assert non_m_names == notation_names | {"ws-inl"}
-    assert "start" not in names
-    assert m_names  # the statement skeleton contributed rules too
-
-
-def test_module_grammar_island_set_is_the_lone_m_imports_island():
-    """Complete-β pin (the value-final-newline fix): the six notation token
-    rules' trailing ``ws`` is rewritten to newline-free ``ws-inl`` and the
-    two grammar statements own an explicit ``m-nl``, so ``name`` and ``ws``
-    de-island (FOLLOW(name) is now identifier-free). Only the benign
-    once-per-file ``m-imports`` island remains."""
-    analysis = GrammarAnalysis(lift_optional_nullables(module_grammar()))
-    assert sorted(analysis.islands) == ["m-imports"]
-    assert not analysis.fail_islands
-
-
-def test_module_grammar_has_no_duplicate_rule_names():
-    """m-rule names and notation rule names never collide (concatenation,
-    not merge-by-name)."""
-    grammar = module_grammar()
-    names = [str(rule.name) for rule in grammar.rules]
-    assert len(names) == len(set(names))
-
-
-def test_m_gap_is_non_semantic():
-    """m-gap (blank-line runs) is structural noise, not semantic content."""
-    grammar = module_grammar()
-    gap = next(r for r in grammar.rules if str(r.name) == "m-gap")
-    assert gap.semantic is False
-
-
-def test_ws_inl_is_non_semantic_and_newline_free():
-    """ws-inl (the swapped token rules' trailing whitespace) is structural
-    noise over space/tab only — never a newline, so a value-final token
-    stops at the newline its statement owns."""
-    grammar = module_grammar()
-    ws_inl = next(r for r in grammar.rules if str(r.name) == "ws-inl")
-    assert ws_inl.semantic is False
-    members = ws_inl.body[0][0].atom.members()
-    assert ord("\n") not in members
-    assert ord(" ") in members and ord("\t") in members
-
 
 # ── parse_module on a real export (bind-mode) ───────────────────────────
 
@@ -142,7 +76,7 @@ def test_parse_module_bind_mode_has_no_inline_tables():
 
 
 def test_parse_module_on_an_inline_tables_export():
-    """An inline_tables export has no bind_module call and no bind-only
+    """An inline_tables export has no attach_module call and no bind-only
     typing import; ClassVar/IrBind names appear instead."""
     compiled = compile_from_path(LIST_GRAMMAR)
     module = parse_module(export_source(compiled, inline_tables=True))
@@ -328,12 +262,12 @@ def test_tamper_swapped_base_class_refuses(tamper_fixture):
 def test_tamper_inline_tables_in_a_bind_mode_module_refuses():
     """A bind-mode module whose class carries inline __grammar__/__binds__
     (i.e. claims table-inline shape while GRAMMAR still ends in
-    bind_module) refuses on the inline-mismatch check."""
+    attach_module) refuses on the inline-mismatch check."""
     compiled = compile_from_path(LIST_GRAMMAR)
     bind_source = export_source(compiled)
     inline_source = export_source(compiled, inline_tables=True)
     # Splice the inline Root class body into the bind-mode module, keeping
-    # the bind-mode module's own trailing GRAMMAR + bind_module() tail —
+    # the bind-mode module's own trailing GRAMMAR + attach_module() tail —
     # an internally-inconsistent module (inline class, but still bind-mode).
     inline_root_start = inline_source.index("class Root(GrammarModel):")
     inline_root_end = inline_source.index("class Item(GrammarModel):")

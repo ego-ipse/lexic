@@ -1,12 +1,12 @@
-"""The product bake — a clone's build state from its rule product.
+"""The product bake — a clone's build state from its rule routine.
 
 The flat runtime is already product-shaped:
 :attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone.fields` IS a
 capture layout and :attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone
 .plan` IS a class-ordered construction plan. This module fills them, and
-everything else a completion reads, from the ABI's own records — one
-:class:`~lexic.parsing.product.RuleProduct` and the construction record its
-completion names.
+everything else a completion reads, from one
+:class:`~lexic.parsing.product.RuleRoutine` — the verified program's own
+statement of what that rule captures and completes with.
 
 Two construction records reach a completion, and the bake's whole job is that
 the runtime cannot tell them apart. A
@@ -64,11 +64,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.product import (
     CaptureMode,
     Construction,
-    ConstructionTables,
-    PassOp,
     ProductValue,
-    RuleProduct,
-    construction_of,
+    RuleRoutine,
 )
 
 _CAPTURE_CODES: Mapping[int, int] = {
@@ -105,66 +102,59 @@ def _capture_code(mode: int, absent: bool) -> int:
     return code
 
 
-def _build_mode[Carry](
-    product: RuleProduct[Carry] | None,
-    construction: Construction[Carry] | None,
-) -> int:
+def _build_mode[Carry](routine: RuleRoutine[Carry] | None) -> int:
     """Which shape of completion this clone runs.
 
-    Read off the completion record rather than off a parallel ``kind`` string:
-    a transparent clone has no product at all, a pass-through names no
-    construction, and a construction that fills a field from the rule's own
-    extent is the ``value_str`` shape. Everything else builds from its
-    captured items.
+    Read off the verified completion instruction rather than off a parallel
+    ``kind`` string: a transparent clone has no routine at all, a pass-through
+    names the capture it forwards and no construction, and a construction that
+    fills a field from the rule's own extent is the ``value_str`` shape.
+    Everything else builds from its captured items.
     """
-    if product is None:
+    if routine is None:
         return BUILD_TRANSPARENT
-    if construction is None:
-        return BUILD_ALT if isinstance(product.completion, PassOp) else BUILD_SEQ
-    return BUILD_VALUE_STR if construction.matched else BUILD_SEQ
+    if routine.construction is None:
+        return BUILD_ALT if routine.source >= 0 else BUILD_SEQ
+    return BUILD_VALUE_STR if routine.construction.matched else BUILD_SEQ
 
 
 def bake_product_build[Carry](
-    clone: FlatClone[Carry],
-    product: RuleProduct[Carry] | None,
-    tables: ConstructionTables[Carry],
-    completion: int = -1,
+    clone: FlatClone[Carry], routine: RuleRoutine[Carry] | None
 ) -> None:
-    """Fill a clone's build state from its rule product, in place.
+    """Fill a clone's build state from its rule's verified routine, in place.
 
     Writes everything a completion site reads and nothing else: the build mode,
     what construction calls, the arm width it recognises its empty alternate
     arm by, the keyword capture layout, and — only where a class granted the
     positional licence — the class-ordered plan it builds through instead.
 
+    The routine IS the verified program's statement about that rule, so the
+    range recorded on the clone and the state baked beside it are one reading
+    rather than two derivations that could disagree.
+
     :param clone: The clone shell to fill.
-    :param product: Its rule's product, or ``None`` for a transparent clone.
-    :param tables: The program's construction operand tables.
-    :param completion: The verified completion range this build state was
-        derived from, or ``-1`` for a clone whose rule has none. Recorded as
-        PROVENANCE: no runtime function reads it, and it exists so a clone can
-        be checked against the range the verifier bounded rather than against
-        a second derivation of the same answer.
+    :param routine: Its rule's verified routine, or ``None`` for a transparent
+        clone, which names no completion range and records ``-1``.
     """
-    clone.completion = completion
+    clone.completion = -1 if routine is None else routine.completion
     clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
     clone.chartable = None  # baked last, off the final plan, by bake_chartables
     clone.chartotal = True
     clone.runarm = None
-    construction = None if product is None else construction_of(product, tables)
-    clone.mode = _build_mode(product, construction)
-    clone.n_items = 0 if product is None else product.n_items
-    clone.needs_ends = product is not None and any(
-        spec.mode in _ENDS_MODES for spec in product.captures
+    clone.mode = _build_mode(routine)
+    clone.n_items = 0 if routine is None else routine.n_items
+    clone.needs_ends = routine is not None and any(
+        mode in _ENDS_MODES for mode in routine.modes
     )
-    if product is None or construction is None:
+    construction = None if routine is None else routine.construction
+    if routine is None or construction is None:
         clone.ctor = no_construction
         clone.matched = ""
         clear_build(clone)
         return
     clone.ctor = construction.call
     clone.matched = construction.matched
-    clone.fields = _capture_layout(product, construction)
+    clone.fields = _capture_layout(routine, construction)
     licence = construction.licence
     if licence is None:
         clone.plan = ()
@@ -172,13 +162,13 @@ def bake_product_build[Carry](
         clone.defaults = None
         return
     make, _class_defaults, order = licence
-    clone.plan = _build_plan(product, construction, order)
+    clone.plan = _build_plan(routine, construction, order)
     clone.fast = make
     clone.defaults = dict(construction.defaults)
 
 
 def _capture_layout[Carry](
-    product: RuleProduct[Carry], construction: Construction[Carry]
+    routine: RuleRoutine[Carry], construction: Construction[Carry]
 ) -> tuple[tuple[int, int, str, int], ...]:
     """The keyword layout — one ``(item, mode, name, lo)`` per capture.
 
@@ -189,17 +179,17 @@ def _capture_layout[Carry](
     """
     return tuple(
         (
-            spec.slot,
-            _capture_code(spec.mode, at in construction.optional),
+            slot,
+            _capture_code(mode, at in construction.optional),
             construction.names[at],
             0 if at in construction.optional else 1,
         )
-        for at, spec in enumerate(product.captures)
+        for at, (slot, mode) in enumerate(zip(routine.slots, routine.modes))
     )
 
 
 def _build_plan[Carry](
-    product: RuleProduct[Carry],
+    routine: RuleRoutine[Carry],
     construction: Construction[Carry],
     order: tuple[str, ...],
 ) -> tuple[tuple[int, int, int, ProductValue[Carry]], ...]:
@@ -209,7 +199,7 @@ def _build_plan[Carry](
     record names the field its own extent fills, so nothing here has to infer
     it from what the other two cases left over.
 
-    :param product: The rule's authored product.
+    :param routine: The rule's verified routine.
     :param construction: Its construction data.
     :param order: The class's field names, in construction order.
     :returns: One plan entry per field of the class.
@@ -227,8 +217,7 @@ def _build_plan[Carry](
                 else (M_CONST, 0, 0, defaults.get(name))
             )
             continue
-        spec = product.captures[at]
         absent = at in construction.optional
-        code = _capture_code(spec.mode, absent)
-        plan.append((code, spec.slot, 0 if absent else 1, defaults.get(name)))
+        code = _capture_code(routine.modes[at], absent)
+        plan.append((code, routine.slots[at], 0 if absent else 1, defaults.get(name)))
     return tuple(plan)

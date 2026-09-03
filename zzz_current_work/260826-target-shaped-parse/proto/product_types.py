@@ -583,7 +583,7 @@ def verify_source(grammar: SourceGrammar, reducer: ReducerBinding) -> None:
         )
 
 
-class BoundProduct[Result](ABC):
+class RegisteredProduct[Result](ABC):
     """Result-only public runner; its concrete carrier stays hidden."""
 
     @abstractmethod
@@ -596,7 +596,7 @@ type ProductExecutor[Carry, Result] = Callable[
 ]
 
 
-class TypedBoundProduct[Carry, Result](BoundProduct[Result]):
+class TypedBoundProduct[Carry, Result](RegisteredProduct[Result]):
     """Concrete bound runner which retains the carrier type internally."""
 
     __slots__ = ("executor", "program")
@@ -619,7 +619,7 @@ class ReductionMorphism[Result](Protocol):
 
     def _bind(
         self, grammar: SourceGrammar, reducer: ReducerBinding
-    ) -> BoundProduct[Result]:
+    ) -> RegisteredProduct[Result]:
         """Enter a private compiler-owned binding registry."""
         ...
 
@@ -630,7 +630,7 @@ class BoundEntry[Declaration, Result](NamedTuple):
     declaration: Declaration
     grammar: weakref.ReferenceType[SourceGrammar]
     reducer: Reducer
-    bound: BoundProduct[Result]
+    bound: RegisteredProduct[Result]
 
 
 def _release_bound[Declaration, Result](
@@ -645,11 +645,11 @@ def _release_bound[Declaration, Result](
 
 
 type BindingFactory[Declaration, Result] = Callable[
-    [Declaration, SourceGrammar, ReducerBinding], BoundProduct[Result]
+    [Declaration, SourceGrammar, ReducerBinding], RegisteredProduct[Result]
 ]
 
 
-class BindingRegistry[Declaration, Result]:
+class ProductRegistry[Declaration, Result]:
     """Private compiler/artifact owner of mutable binding state."""
 
     __slots__ = ("_build_count", "_entries", "_lock")
@@ -670,7 +670,7 @@ class BindingRegistry[Declaration, Result]:
         grammar: SourceGrammar,
         reducer: ReducerBinding,
         factory: BindingFactory[Declaration, Result],
-    ) -> BoundProduct[Result]:
+    ) -> RegisteredProduct[Result]:
         """Bind once while keeping all mutation outside the declaration."""
         key = (id(declaration), id(grammar), id(reducer.reducer))
         cached = self._entries.get(key)
@@ -712,7 +712,7 @@ class ReductionRunner:
     def _bound_reduction(
         self,
         reducer: ReducerBinding,
-    ) -> BoundProduct[IrSelf]: ...
+    ) -> RegisteredProduct[IrSelf]: ...
 
     @overload
     def _bound_reduction[Result](
@@ -720,14 +720,14 @@ class ReductionRunner:
         reducer: ReducerBinding,
         *,
         into: ReductionMorphism[Result],
-    ) -> BoundProduct[Result]: ...
+    ) -> RegisteredProduct[Result]: ...
 
     def _bound_reduction[Result](
         self,
         reducer: ReducerBinding,
         *,
         into: ReductionMorphism[Result] | None = None,
-    ) -> BoundProduct[IrSelf] | BoundProduct[Result]:
+    ) -> RegisteredProduct[IrSelf] | RegisteredProduct[Result]:
         """Internal seam: bind once for direct or pooled execution."""
         if into is None:
             return reducer.default._bind(self.compiled, reducer)
@@ -777,7 +777,7 @@ type SelectionSpec = Mapping[str, Keep | SelectionSpec]
 type Selection = dict[tuple[str, ...], IrSelf]
 
 
-class SelectionBound(BoundProduct[Selection]):
+class SelectionBound(RegisteredProduct[Selection]):
     """Prototype bound selection; production lowering builds its product."""
 
     __slots__ = ("paths",)
@@ -812,7 +812,7 @@ class SelectionMorphism(NamedTuple):
 
     def _bind(
         self, grammar: SourceGrammar, reducer: ReducerBinding
-    ) -> BoundProduct[Selection]:
+    ) -> RegisteredProduct[Selection]:
         """Enter the private selection binding owner."""
         return _SELECTION_BINDINGS.bind(self, grammar, reducer, _build_selection)
 
@@ -821,7 +821,7 @@ def _build_selection(
     declaration: SelectionMorphism,
     grammar: SourceGrammar,
     reducer: ReducerBinding,
-) -> BoundProduct[Selection]:
+) -> RegisteredProduct[Selection]:
     """Require mapping events, then build one selection product."""
     verify_source(grammar, reducer)
     if "mapping" not in reducer.events:
@@ -831,7 +831,7 @@ def _build_selection(
     return SelectionBound(declaration.paths)
 
 
-_SELECTION_BINDINGS = BindingRegistry[SelectionMorphism, Selection]()
+_SELECTION_BINDINGS = ProductRegistry[SelectionMorphism, Selection]()
 
 
 def select(spec: SelectionSpec) -> ReductionMorphism[Selection]:
@@ -967,7 +967,7 @@ class DefaultIrMorphism(NamedTuple):
 
     def _bind(
         self, grammar: SourceGrammar, reducer: ReducerBinding
-    ) -> BoundProduct[IrSelf]:
+    ) -> RegisteredProduct[IrSelf]:
         """Enter the private default-product binding owner."""
         return _IR_BINDINGS.bind(self, grammar, reducer, _build_ir)
 
@@ -976,7 +976,7 @@ def _build_ir(
     declaration: DefaultIrMorphism,
     grammar: SourceGrammar,
     reducer: ReducerBinding,
-) -> BoundProduct[IrSelf]:
+) -> RegisteredProduct[IrSelf]:
     """Verify immutable declaration data and build the typed runner."""
     verify_source(grammar, reducer)
     missing = declaration.requirement.events - reducer.events
@@ -988,7 +988,7 @@ def _build_ir(
     return TypedBoundProduct(ir_program(grammar, reducer), execute_ir)
 
 
-_IR_BINDINGS = BindingRegistry[DefaultIrMorphism, IrSelf]()
+_IR_BINDINGS = ProductRegistry[DefaultIrMorphism, IrSelf]()
 DEFAULT_IR = DefaultIrMorphism(SignatureRequirement(frozenset()))
 
 
@@ -1064,7 +1064,7 @@ class TokenizerMorphism(NamedTuple):
 
     def _bind(
         self, grammar: SourceGrammar, reducer: ReducerBinding
-    ) -> BoundProduct[IrTokenizer]:
+    ) -> RegisteredProduct[IrTokenizer]:
         """Enter the private tokenizer binding owner."""
         return _TOKENIZER_BINDINGS.bind(self, grammar, reducer, _build_tokenizer)
 
@@ -1073,7 +1073,7 @@ def _build_tokenizer(
     declaration: TokenizerMorphism,
     grammar: SourceGrammar,
     reducer: ReducerBinding,
-) -> BoundProduct[IrTokenizer]:
+) -> RegisteredProduct[IrTokenizer]:
     """Verify immutable declaration data and build the typed runner."""
     verify_source(grammar, reducer)
     missing = declaration.requirement.events - reducer.events
@@ -1085,7 +1085,7 @@ def _build_tokenizer(
     return TypedBoundProduct(tokenizer_program(grammar, reducer), execute_tokenizer)
 
 
-_TOKENIZER_BINDINGS = BindingRegistry[TokenizerMorphism, IrTokenizer]()
+_TOKENIZER_BINDINGS = ProductRegistry[TokenizerMorphism, IrTokenizer]()
 TOKENIZER = TokenizerMorphism(SignatureRequirement(frozenset({"mapping"})))
 
 
@@ -1199,7 +1199,7 @@ def prove_public_surface() -> None:
     assert set(selected) == {("version",), ("model", "type")}
 
     bound = compiled._bound_reduction(reducer, into=fields)
-    assert_type(bound, BoundProduct[dict[tuple[str, ...], IrSelf]])
+    assert_type(bound, RegisteredProduct[dict[tuple[str, ...], IrSelf]])
     assert bound is compiled._bound_reduction(reducer, into=fields)
     assert bound.run("other", AUTO)[("version",)] == IrStr("other")
 

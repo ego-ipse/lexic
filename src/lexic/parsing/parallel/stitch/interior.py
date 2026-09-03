@@ -19,7 +19,7 @@ from typing import Any, cast
 from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
-from lexic.parsing.binding import ModelBinding
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.plan.routed import (
     RoutedPlan,
@@ -33,7 +33,7 @@ from lexic.parsing.parallel.stitch.model import field_slot, splice
 
 
 def interior_route[M: IrNamedTuple](
-    binding: ModelBinding[M], container: str, at: int, rule: str, run: int
+    binding: ModelExecutable[M], container: str, at: int, rule: str, run: int
 ) -> tuple[int, int] | None:
     """``(slot of the interior, slot of its run)``, or ``None``.
 
@@ -42,8 +42,8 @@ def interior_route[M: IrNamedTuple](
     :param rule: The interior's own rule.
     :param run: The repetition's item index within it.
     """
-    outer = binding.rules.get(container)
-    inner = binding.rules.get(rule)
+    outer = binding.routines.get(container)
+    inner = binding.routines.get(rule)
     if outer is None or inner is None:
         return None
     slot = field_slot(outer, at)
@@ -82,7 +82,7 @@ def _merged_run(pieces: list[GrammarModel], child: int) -> tuple | None:
 def routed_split[M: IrNamedTuple](
     parse: Callable[..., Any],
     grammar: IrAst,
-    ask: tuple[str, ModelBinding[M], object],
+    ask: tuple[str, ModelExecutable[M], object],
     pool: WorkPool,
 ) -> M | None:
     """Split a routed interior across the pool, or ``None`` for sequential.
@@ -113,7 +113,7 @@ def routed_split[M: IrNamedTuple](
 def _parsed(
     parse: Callable[..., Any],
     grammar: IrAst,
-    ask: tuple[str, ModelBinding, object],
+    ask: tuple[str, ModelExecutable, object],
     work: tuple[RoutedPlan, Region, list[str]],
     pool: WorkPool,
 ) -> tuple[GrammarModel, list[GrammarModel]] | None:

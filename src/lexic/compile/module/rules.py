@@ -131,7 +131,8 @@ _MODULE_RULES = [
         ),
     ),
     _rule(
-        "m-compile-import", IrSequence(_lit("from lexic.compile import bind_module\n"))
+        "m-compile-import",
+        IrSequence(_lit("from lexic.compile import attach_module\n")),
     ),
     _rule(
         "m-ir-import",
@@ -313,7 +314,7 @@ _MODULE_RULES = [
         "m-grammar-stmt",
         IrSequence(_lit("GRAMMAR: IrAst = "), _ref("value"), _ref("m-nl")),
     ),
-    _rule("m-bind-stmt", IrSequence(_lit("bind_module(GRAMMAR, globals())\n"))),
+    _rule("m-bind-stmt", IrSequence(_lit("attach_module(GRAMMAR, globals())\n"))),
 ]
 
 # ── the notation token rules whose trailing ``ws`` must NOT cross a newline ─

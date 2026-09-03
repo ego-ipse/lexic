@@ -21,7 +21,7 @@ reference carries an :class:`IslandRef` (a ``fail`` one raises
 (P2), :class:`PeekGate` (P3 char-set) or :class:`ScanGate` (P3 structured
 noise-skip / P5 probe, folding-aware via :mod:`~lexic.parsing.pda.core.scanner`).
 Arm selection is FIRST-gated :class:`ArmSpec` plus at most one nullable default.
-Every rule clone carries its :class:`~lexic.parsing.product.RuleProduct`; a
+Every rule clone carries its :class:`~lexic.parsing.product.RuleRoutine`; a
 clone whose value IS its own matched text is :attr:`~CloneSpec.match_only`
 (the runtime slices ``text[a:b]`` instead of building below).
 
@@ -59,7 +59,7 @@ from lexic.ir import (
     IrSelf,
     IrTypeMap,
 )
-from lexic.parsing.binding import ModelBinding
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.windows import KWindowFirst, windows_of
 from lexic.parsing.pda.compiler.delegate_compile import DelegateSource
@@ -89,7 +89,7 @@ from lexic.parsing.pda.compiler.specs import (
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
-from lexic.parsing.product import ConstructionTables, RuleProduct
+from lexic.parsing.product import RuleRoutine
 
 __all__ = [
     "compile_pda",
@@ -333,11 +333,10 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     :ivar analysis: The grammar analysis (FIRST/hard/FOLLOW/nullability +
         loop taxonomy) the clones are cut against.
-    :ivar product_config: Rule name → its authored
-        :class:`~lexic.parsing.product.RuleProduct` — what each rule clone's
-        capture layout and build plan are baked from.
-    :ivar construction: The construction operand tables a completion indexes;
-        read here only to ask whether a rule's value IS its own matched text.
+    :ivar routines: Rule name → its verified
+        :class:`~lexic.parsing.product.RuleRoutine` — what each rule clone's
+        capture layout and build plan are baked from, and what says whether a
+        rule's value IS its own matched text.
     :ivar islands: The island rule names — never cloned.
     :ivar fail_islands: The fail-island subset — references raise ``PdaFail``.
     :ivar clones: The compiled clone table, keyed by :class:`CloneKey`.
@@ -345,16 +344,14 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = (
         "analysis",
-        "construction",
-        "product_config",
+        "routines",
         "clones",
         "pending",
         "draining",
     )
 
     analysis: GrammarAnalysis
-    product_config: Mapping[str, RuleProduct]
-    construction: ConstructionTables
+    routines: Mapping[str, RuleRoutine]
     clones: dict[CloneKey, CloneSpec]
     pending: list[CloneKey]
     draining: bool
@@ -362,15 +359,11 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
     def __init__(
         self,
         analysis: GrammarAnalysis,
-        product_config: Mapping[str, RuleProduct] | None = None,
-        construction: ConstructionTables | None = None,
+        routines: Mapping[str, RuleRoutine] | None = None,
     ) -> None:
         """Prepare the compiler for one model product target."""
         self.analysis = analysis
-        self.product_config = product_config or {}
-        self.construction = (
-            ConstructionTables() if construction is None else construction
-        )
+        self.routines = {} if routines is None else routines
         self.clones = {}
         self.pending = []
         self.draining = False
@@ -488,17 +481,23 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         name = key.name
         rule = self.analysis.rules[name]
         arms, default, struct, follow = self._clone_shape(name, rule, key.tail)
-        product = self.product_config.get(name)
-        match_only = matches_own_text(product, self.construction)
+        routine = self.routines.get(name)
+        match_only = matches_own_text(routine)
         self.clones[key] = CloneSpec(
             name,
             arms,
             default,
-            product,
+            routine,
             match_only,
             struct,
             follow,
-            extent_consult(self.analysis.rules, name, match_only, key.tail),
+            extent_consult(
+                self.analysis.rules,
+                name,
+                match_only,
+                key.tail,
+                self.analysis.follow[name],
+            ),
         )
 
     def compile_arms(
@@ -653,7 +652,9 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
 # ── the artifact ───────────────────────────────────────────────────────────
 
 
-def _attach_delegates(tables: PdaTables, lifted: IrAst, binding: ModelBinding) -> None:
+def _attach_delegates(
+    tables: PdaTables, lifted: IrAst, binding: ModelExecutable
+) -> None:
     """Attach the island-interior :class:`DelegateSource` to ``tables.program``
     (built from ``lifted`` + the compiler's bound product; the injected
     ``(PdaCompiler, flatten_clones)`` seam keeps the delegate leaf import-free
@@ -672,7 +673,7 @@ def _attach_delegates(tables: PdaTables, lifted: IrAst, binding: ModelBinding) -
 def compile_pda(
     lifted: IrAst,
     instance_grammar: IrAst,
-    binding: ModelBinding,
+    binding: ModelExecutable,
 ) -> PdaTables:
     """Compile the predictive-parser tables for one grammar.
 
@@ -681,16 +682,15 @@ def compile_pda(
         grammar the analysis and the clones are cut against.
     :param instance_grammar: The Earley-normalised instance grammar
         (``normalize(lifted)``) — the island sub-parses run over it.
-    :param binding: The bound model product — its rules are baked into each
-        clone's capture layout, constructor and build plan, and its
-        construction tables are what a completion indexes.
+    :param binding: The bound model product — its verified routines are baked
+        into each clone's capture layout, constructor and build plan.
     :returns: The compiled :class:`PdaTables`.
     :raises UnsupportedConstructError: On anything the analysis or the clone
         compiler cannot handle (the Task-6 seam reads this as "no PDA").
     """
     analysis = GrammarAnalysis(lifted)
-    compiler = PdaCompiler(analysis, binding.rules, binding.construction)
+    compiler = PdaCompiler(analysis, binding.routines)
     start_key = compiler.compile_start()
-    tables = PdaTables(compiler, start_key, instance_grammar, binding)
+    tables = PdaTables(compiler, start_key, instance_grammar)
     _attach_delegates(tables, lifted, binding)
     return tables

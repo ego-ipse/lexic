@@ -42,7 +42,7 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
 )
-from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 _STAR = IrQuantifier(0, IrNone)
@@ -77,10 +77,10 @@ _HEAD_TAIL_CAPTURES = (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1))
 def _binding(
     rules: dict[str, AuthoredRule],
     registry: dict[str, Callable[..., object]],
-) -> ModelBinding:
+) -> ModelExecutable:
     """One fixture format's binding, from its own registry."""
     product = product_rules(rules)
-    return ModelBinding(
+    return ModelExecutable(
         rules_by_name(product.rules, product.codes),
         LoweringOwned(symbols=product.symbols, registry=registry),
     )

@@ -16,9 +16,9 @@ from lexic.exceptions import LexicError
 from lexic.generate import generate
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
-from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import shell
 from lexic.parsing.parallel.stitch.model import (
     RegionPlan,
@@ -37,7 +37,7 @@ class MergeRequest[M](NamedTuple):
 
     parse: ModelProduct
     text: str
-    binding: ModelBinding[M]
+    binding: ModelExecutable[M]
     resolve: Resolver | None
 
     def run(self, grammar: IrAst, text: str) -> Any:

@@ -90,7 +90,7 @@ from lexic.ir import (
     Reducer,
     Yield,
 )
-from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
@@ -563,12 +563,12 @@ NOTATION_PRODUCT = product_rules(NOTATION_RULES)
 """This surface's rules assembled — one :class:`RuleProduct` each, its symbol
 keys pooled, and the code each rule name resolves to."""
 
-NOTATION_BINDING = ModelBinding(
+NOTATION_BINDING = ModelExecutable(
     rules_by_name(NOTATION_PRODUCT.rules, NOTATION_PRODUCT.codes),
     LoweringOwned(symbols=NOTATION_PRODUCT.symbols, registry=NOTATION_SYMBOLS),
 )
-"""What this surface hands a parse entry — its product, with its transforms
-resolved through its own whitelist and the fold the gated engine still reads."""
+"""What this surface hands a parse entry — its verified program, with its
+transforms resolved through its own whitelist at lowering."""
 
 
 # ── the entry ─────────────────────────────────────────────────────────────

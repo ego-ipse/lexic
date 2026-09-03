@@ -31,12 +31,12 @@ from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.product import (
     CaptureMode,
     CaptureSpec,
-    ConstructionTables,
+    LoweringOwned,
     PassOp,
-    ProductExecutor,
     RecordConstructor,
     RecordOp,
     ResultMemo,
@@ -75,13 +75,13 @@ def shared_dag() -> None:
         "leaf": RuleProduct((), RecordOp(0), 0),
         "root": RuleProduct((CaptureSpec(int(CaptureMode.MANY), 0),), RecordOp(1), 1),
     }
-    tables = ConstructionTables[Value](
-        (
+    owned = LoweringOwned(
+        constructors=(
             RecordConstructor(Leaf),
             RecordConstructor(Root, ("children",)),
         )
     )
-    executor = ProductExecutor(rules, tables)
+    executor = ModelExecutable[Value](rules, owned).executor
 
     leaf = ParseTree(IrRuleRef("leaf"), IrSeq())
     transparent = ParseTree(IrRuleRef("__grp_1"), IrSeq(leaf, leaf))
@@ -132,11 +132,9 @@ def present_none() -> None:
     rules: dict[str, RuleProduct[Value | None]] = {
         "root": RuleProduct((CaptureSpec(int(CaptureMode.ONE), 0),), RecordOp(0), 1)
     }
-    tables = ConstructionTables[Value | None](
-        (RecordConstructor(MaybeRoot, ("child",)),)
-    )
+    owned = LoweringOwned(constructors=(RecordConstructor(MaybeRoot, ("child",)),))
     root = ParseTree(IrRuleRef("root"), IrSeq(PayloadLeaf[Value | None](None, "null")))
-    built = ProductExecutor(rules, tables).build(root)
+    built = ModelExecutable[Value | None](rules, owned).executor.build(root)
     if not isinstance(built, MaybeRoot) or built.child is not None:
         raise AssertionError("present None was treated as a missing completion")
     print("presence\tpayload=None\trequired_capture=present")
@@ -151,6 +149,11 @@ class Left(Value):
         type(self).calls += 1
         self.text = text
 
+    @classmethod
+    def fast_construct(cls) -> tuple[object, dict[str, object], tuple[str, ...]]:
+        """The field order lowering cross-checks ``matched_field`` against."""
+        return cls, {}, ("text",)
+
 
 class Right(Value):
     """The other ambiguous arm's distinguishable value."""
@@ -160,6 +163,11 @@ class Right(Value):
     def __init__(self, text: str) -> None:
         type(self).calls += 1
         self.text = text
+
+    @classmethod
+    def fast_construct(cls) -> tuple[object, dict[str, object], tuple[str, ...]]:
+        """The field order lowering cross-checks ``matched_field`` against."""
+        return cls, {}, ("text",)
 
 
 def ambiguity_replay() -> None:
@@ -185,13 +193,13 @@ def ambiguity_replay() -> None:
         "left": RuleProduct((), RecordOp(0), 1),
         "right": RuleProduct((), RecordOp(1), 1),
     }
-    tables = ConstructionTables[Value](
-        (
+    owned = LoweringOwned(
+        constructors=(
             RecordConstructor(Left, matched_field="text"),
             RecordConstructor(Right, matched_field="text"),
         )
     )
-    executor = ProductExecutor(rules, tables)
+    executor = ModelExecutable[Value](rules, owned).executor
     pair = different_meaning(
         kernel,
         handle,

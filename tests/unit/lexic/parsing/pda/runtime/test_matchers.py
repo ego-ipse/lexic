@@ -17,8 +17,10 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
+from lexic.parsing.pda.compiler.program.flatten import arm_expected
 from lexic.parsing.pda.compiler.program.opcodes import (
     OP_CC,
+    OP_CONSULT,
     OP_LIT,
     OP_VSTR,
 )
@@ -26,6 +28,7 @@ from lexic.parsing.pda.compiler.program.specialize import all_clones
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
 from lexic.parsing.pda.runtime.matchers import (
+    consult_extent,
     match_arm,
     match_cc,
     match_chartable,
@@ -247,6 +250,46 @@ def test_a_tabled_clone_shares_one_model_across_memos() -> None:
     vstr_once("7", {}, arm.payloads[i], one_parse, 0)
     vstr_once("7", {}, arm.payloads[i], another_parse, 0)
     assert one_parse[0] is another_parse[0]
+
+
+def _consult_clone(tables):
+    """``chunk``, the sole referenced clone of ``root ::= chunk+ "!"``.
+
+    ``all_clones`` only follows ``OP_GRP`` payloads, never an ``OP_VSTR``/
+    ``OP_V1`` reference, so a consult-bearing clone reached only through a
+    value_str reference has to come from the arm's own payload directly.
+    """
+    clone = start_arm(tables).payloads[0]
+    assert clone.runarm is not None and clone.runarm.kinds[0] == OP_CONSULT, (
+        "no consult installed on 'chunk' — the test would pass vacuously "
+        "on a shape that stopped existing"
+    )
+    return clone
+
+
+def test_consult_extent_matches_the_proved_recognizers_own_end():
+    """The extent IS the possessive pattern's own match end — one C-level
+    match stands in for the whole per-character program it replaces."""
+    tables, _ = pda_for('root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n')
+    clone = _consult_clone(tables)
+    runarm = clone.runarm
+    pattern = runarm.payloads[0]
+    matched = pattern.match("ab;!", 0)
+    assert matched is not None
+    assert consult_extent("ab;!", clone, runarm, 0) == matched.end()
+
+
+def test_consult_extent_refuses_with_the_arm_selections_own_words_and_position():
+    """A miss is the refusal arm selection would have raised, unchanged —
+    same words, same position, same rule name, same expected set."""
+    tables, _ = pda_for('root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n')
+    clone = _consult_clone(tables)
+    runarm = clone.runarm
+    with pytest.raises(PdaFail) as caught:
+        consult_extent("!!!", clone, runarm, 0)
+    assert caught.value.pos == 0
+    assert caught.value.rule == clone.name
+    assert (caught.value.expected, caught.value.negated) == arm_expected(clone)
 
 
 def test_vstr_multi_item_arm_takes_the_cold_span_path():

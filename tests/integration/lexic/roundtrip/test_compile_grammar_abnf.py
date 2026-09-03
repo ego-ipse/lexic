@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from lexic.compile import canonical_grammar
-from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.moments import build_codegen_grammar
+from lexic.compile.pipeline.rulemap import compute_binding
 from lexic.grammars.abnf import ABNF_FLAVOUR
 from lexic.ir import IrCharClass, IrItem
 from tests.integration.lexic.roundtrip.abnf_fixtures import NON_SEMANTIC_DIRECTIVE_ABNF
@@ -12,7 +12,7 @@ from tests.paths import GROUND_TRUTH
 
 
 def binding(text: str):
-    """(canonical ast, {rule_name: RuleBinding}) for an ABNF grammar string."""
+    """(canonical ast, {rule_name: RuleMap}) for an ABNF grammar string."""
     ast = canonical_grammar(text, ABNF_FLAVOUR)
     bound = compute_binding(build_codegen_grammar(ast))
     return ast, {b.rule_name: b for b in bound}

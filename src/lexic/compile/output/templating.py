@@ -12,8 +12,8 @@ from typing import Callable, ClassVar, Self, cast
 
 from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.foldkit import AuthoredRule, product_rules
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.passes import retargeter, skip_rules
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.compile.product import rules_by_name
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import (
@@ -36,7 +36,7 @@ from lexic.ir import (
     refs_in_order,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.product import CAPTURE_FOR_BIND, CaptureSpec, LoweringOwned
 
 __all__ = [
@@ -169,7 +169,7 @@ class SpanLevel(IrSeq[SpanEntry]):
 
 class SpanPair(
     IrNamedTuple[
-        IrAst, IrAst, ModelBinding[SpanLevel], IrAst, ModelBinding[GrammarModel]
+        IrAst, IrAst, ModelExecutable[SpanLevel], IrAst, ModelExecutable[GrammarModel]
     ]
 ):
     """The retained span-mode artifacts one :func:`spanify` call produces.
@@ -185,9 +185,9 @@ class SpanPair(
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     spans: IrAst
     sections: IrAst
-    span_binding: ModelBinding[SpanLevel]
+    span_binding: ModelExecutable[SpanLevel]
     values: IrAst
-    value_binding: ModelBinding[GrammarModel]
+    value_binding: ModelExecutable[GrammarModel]
 
 
 def _reaching(grammar: IrAst, entry: str) -> frozenset[str]:
@@ -251,19 +251,19 @@ def _flatten_into(out: list[SpanEntry], value: object) -> None:
     )
 
 
-class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleBinding]", frozenset]):
+class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleMap]", frozenset]):
     """The resolved shape over one compiled grammar — validation's product.
 
     :ivar grammar: The codegen grammar.
     :ivar shape: The user's declaration.
-    :ivar binding: Rule name → its :class:`RuleBinding`.
+    :ivar binding: Rule name → its :class:`RuleMap`.
     :ivar reaching: The entry-reaching rule names (entry included).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     grammar: IrAst
     shape: MapShape
-    binding: dict[str, RuleBinding]
+    binding: dict[str, RuleMap]
     reaching: frozenset
 
     def entry_arm(self) -> IrSequence:
@@ -291,9 +291,7 @@ class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleBinding]", frozens
         return out
 
 
-def _section_for(
-    grammar: IrAst, entry: str, bound: RuleBinding, value_field: str
-) -> str:
+def _section_for(grammar: IrAst, entry: str, bound: RuleMap, value_field: str) -> str:
     """The rule a mapping level is — derived, not declared.
 
     A level is the rule the VALUE can reach that reaches the entry back: that
@@ -354,7 +352,7 @@ def _hops_to(grammar: IrAst, target: str) -> dict[str, int]:
     return seen
 
 
-def _value_ref(grammar: IrAst, entry: str, bound: RuleBinding, value_field: str) -> str:
+def _value_ref(grammar: IrAst, entry: str, bound: RuleMap, value_field: str) -> str:
     """The rule name the entry's value field is bound to."""
     body = next(r.body for r in grammar.rules if str(r.name) == entry)
     refs: list[str] = []
@@ -520,7 +518,7 @@ SPAN_SYMBOLS: dict[str, Callable[..., object]] = {
 }
 
 
-def _span_binding(view: _ShapeView) -> ModelBinding[SpanLevel]:
+def _span_binding(view: _ShapeView) -> ModelExecutable[SpanLevel]:
     """The span surface's product, from one walk over the reaching set."""
     entry = view.shape.entry + _SPAN
     rules: dict[str, AuthoredRule] = {entry: _entry_rule(view)}
@@ -530,7 +528,7 @@ def _span_binding(view: _ShapeView) -> ModelBinding[SpanLevel]:
             continue
         rules[name + _SPAN] = rule
     product = product_rules(rules)
-    return ModelBinding(
+    return ModelExecutable(
         rules_by_name(product.rules, product.codes),
         LoweringOwned(symbols=product.symbols, registry=SPAN_SYMBOLS),
     )
@@ -617,7 +615,9 @@ class Template(IrNamedTuple[SpanPair, Spec], init=False):
         return IrMap(*kept)
 
 
-def _parse_step[M](grammar: IrAst, binding: ModelBinding[M], text: str, path: str) -> M:
+def _parse_step[M](
+    grammar: IrAst, binding: ModelExecutable[M], text: str, path: str
+) -> M:
     """One engine call, wrapped with the document path on failure."""
     try:
         return parse_model(grammar, text, binding)

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple, Sequence, cast
 
-from lexic.parsing.binding import ModelBinding
 from lexic.parsing.pda.compiler.eligibility import extent_pattern
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
@@ -72,7 +71,6 @@ from lexic.parsing.pda.core.scanner import (
     compile_source,
     literal_source,
 )
-from lexic.parsing.product import ConstructionTables
 
 
 def _flat_windows(
@@ -230,7 +228,7 @@ def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
     )
     if clone.attempt is not None:
         low.groups.append((clone, group.arms))
-    bake_product_build(clone, None, ConstructionTables())
+    bake_product_build(clone, None)
     return clone
 
 
@@ -494,16 +492,6 @@ def _attempt_entries(
     return tuple(entries)
 
 
-def _range_of(binding: ModelBinding, name: str) -> int:
-    """The verified completion range one rule names, or ``-1`` when it has none.
-
-    Read through the binding's own rule codes rather than recomputed, so a
-    clone's recorded range is by construction the one the verifier bounded.
-    """
-    code = binding.codes.get(name, -1)
-    return -1 if code < 0 else binding.program.rules[code].completion
-
-
 def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pattern]:
     """Each proved clone's own extent pattern, keyed by the shell it belongs to.
 
@@ -518,10 +506,7 @@ def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pat
     }
 
 
-def flatten_clones(
-    clones: dict[CloneKey, CloneSpec],
-    binding: ModelBinding,
-) -> dict[CloneKey, FlatClone]:
+def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
     Two passes: create an empty shell per clone key, then fill each (refs
@@ -552,9 +537,7 @@ def flatten_clones(
         clone.attempt = (
             (spec.attempt_follow, ()) if spec.attempt_follow is not None else None
         )
-        bake_product_build(
-            clone, spec.product, binding.construction, _range_of(binding, spec.name)
-        )
+        bake_product_build(clone, spec.routine)
     optimize_program(list(low.shells.values()), _consults(clones, low))
     attempting = [
         (low.shells[key], spec.arms, spec.attempt_follow)
@@ -583,12 +566,10 @@ def _optimize_entries(entries: tuple[Any, ...]) -> None:
 
 
 def flatten_program(
-    clones: dict[CloneKey, CloneSpec],
-    start_key: CloneKey | IslandRef,
-    binding: ModelBinding,
+    clones: dict[CloneKey, CloneSpec], start_key: CloneKey | IslandRef
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`."""
-    shells = flatten_clones(clones, binding)
+    shells = flatten_clones(clones)
     start: FlatClone | IslandRef = (
         shells[start_key] if isinstance(start_key, CloneKey) else start_key
     )

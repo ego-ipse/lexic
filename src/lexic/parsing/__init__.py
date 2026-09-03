@@ -110,7 +110,6 @@ is the user surface.
 from __future__ import annotations
 
 from lexic.ir import IrAst, IrInt, IrSelf, IrSeq, IrStr, IrTuple
-from lexic.parsing.binding import ModelBinding
 from lexic.parsing.earley.engine import (
     ENUMERATE,
     IS_AMBIGUOUS,
@@ -150,6 +149,7 @@ from lexic.parsing.earley.tokenscan import (
     TokenMaskCursor,
     TokenTermCursor,
 )
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.parallel.pool import reset_pools
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
@@ -299,7 +299,7 @@ __all__ = [
     "parse",
     "parse_first",
     "parse_forest",
-    "ModelBinding",
+    "ModelExecutable",
     "ProductExecutor",
     "parse_model",
     "pda_tables",

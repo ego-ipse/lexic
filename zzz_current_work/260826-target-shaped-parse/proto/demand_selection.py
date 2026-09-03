@@ -16,8 +16,8 @@ from lexic.compile import (
     compile_text,
 )
 from lexic.compile.foldkit import ALT_BODY, model_fold, seq
-from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.passes import retargeter, skip_rules
+from lexic.compile.pipeline.rulemap import compute_binding
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR
 from lexic.ir import (

@@ -1,7 +1,7 @@
 """Runtime class synthesis — codegen grammar + binding view → classes + fold.
 
 Instead of emitting Python source, writing a file and importing it, each
-:class:`~lexic.compile.binding.RuleBinding` becomes a class built directly with
+:class:`~lexic.compile.binding.RuleMap` becomes a class built directly with
 ``type(name, bases, ns)``. CPython computes the winning metaclass
 (:class:`~lexic.ir.spine.meta.IrMeta`) from the bases and delegates, so a bare
 ``type(...)`` call yields a proper :class:`~lexic.model.GrammarModel` record —
@@ -32,10 +32,10 @@ from collections.abc import Mapping, Sequence
 from typing import NamedTuple
 
 from lexic.compile.foldkit import ALT_PRODUCT
-from lexic.compile.pipeline.binding import (
-    RuleBinding,
-)
 from lexic.compile.pipeline.naming import VALUE_FIELD
+from lexic.compile.pipeline.rulemap import (
+    RuleMap,
+)
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAst,
@@ -59,7 +59,7 @@ from lexic.parsing.product import (
 # (``__binds__`` is the metadata channel), so every field annotates as ``object``.
 
 
-def _binds_table(bind: RuleBinding) -> dict[int, tuple[str, IrBind]]:
+def _binds_table(bind: RuleMap) -> dict[int, tuple[str, IrBind]]:
     """The class's ``__binds__``: item slot → ``(field name, IrBind)``.
 
     :param bind: The rule's binding view (``fields`` is name → :class:`IrBind`,
@@ -91,7 +91,7 @@ def _is_optional_field(bind: IrBind, item: IrItem, empty_arm: bool) -> bool:
     return empty_arm or (bind.mode != "models" and item.quantifier.lo == 0)
 
 
-def _sequence_namespace(bind: RuleBinding, rule: IrRule) -> dict[str, object]:
+def _sequence_namespace(bind: RuleMap, rule: IrRule) -> dict[str, object]:
     """Field annotations + optional-field ``None`` defaults for a sequence class.
 
     :param bind: The rule's binding view.
@@ -110,7 +110,7 @@ def _sequence_namespace(bind: RuleBinding, rule: IrRule) -> dict[str, object]:
     return ns
 
 
-def _field_namespace(bind: RuleBinding, rule: IrRule) -> dict[str, object]:
+def _field_namespace(bind: RuleMap, rule: IrRule) -> dict[str, object]:
     """The kind-specific field namespace: annotations + defaults.
 
     ``value_str`` gets a single implicit ``value`` field; ``alternation`` is a
@@ -129,7 +129,7 @@ def _field_namespace(bind: RuleBinding, rule: IrRule) -> dict[str, object]:
 
 
 def _class_namespace(
-    bind: RuleBinding, rule: IrRule, module: str, shape: int
+    bind: RuleMap, rule: IrRule, module: str, shape: int
 ) -> dict[str, object]:
     """The full ``ns`` for ``type(class_name, bases, ns)``.
 
@@ -149,11 +149,11 @@ def _class_namespace(
 
 
 def synthesize(
-    codegen_grammar: IrAst, binding: list[RuleBinding], identity: str
+    codegen_grammar: IrAst, binding: list[RuleMap], identity: str
 ) -> dict[str, type]:
     """Build the model classes for a codegen grammar directly, no source emit.
 
-    Each :class:`RuleBinding` becomes a :class:`GrammarModel` subclass via
+    Each :class:`RuleMap` becomes a :class:`GrammarModel` subclass via
     ``type(name, bases, ns)`` — multiple-inheritance bases in binding order
     (parents-first), the class's ``__grammar__`` rule, and its ``__binds__``
     table written directly. No file is written and no module is imported.
@@ -203,7 +203,7 @@ class ModelPlan(NamedTuple):
 
 
 def _model_captures(
-    bound: RuleBinding, items: Sequence[IrItem]
+    bound: RuleMap, items: Sequence[IrItem]
 ) -> tuple[tuple[CaptureSpec, ...], tuple[str, ...], tuple[int, ...]]:
     """One rule's captures, the field each fills, and which may be absent.
 
@@ -232,7 +232,7 @@ def _model_captures(
 
 def model_plan(
     codegen_grammar: IrAst,
-    binding: list[RuleBinding],
+    binding: list[RuleMap],
     classes: dict[str, type],
     omit: frozenset[str] = frozenset(),
 ) -> ModelPlan:

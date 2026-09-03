@@ -2,8 +2,9 @@
 
 ## NEXT SESSION — start here (written 2026-09-02, end of day)
 
-**Where the tree is.** Branch `targeter`, HEAD `fa3b9ccf` (Savepoint 9).
-Eighteen files modified and uncommitted on top of it: eleven under `src/`
+**Where the tree is.** Branch `targeter`, HEAD `7d60f575` (Savepoint 10,
+user commit at the end of 2026-09-02, working tree clean). It contains, on
+top of Savepoint 9 `fa3b9ccf`, eighteen files: eleven under `src/`
 (`compile/README.md`, `parsing/parallel/replicas.py`, `parsing/product/
 {__init__,lower,regular}.py`, `pda/compiler/{clones,specs,tables}.py`,
 `pda/compiler/program/{lower,specialize}.py`, `pda/runtime/islands.py`) and
@@ -27,7 +28,89 @@ mid-Reviewer-2 and could not be resumed after an API error; its transcript is
 `~/.claude/projects/-home-mika-projects-lexic/67caff10-…/subagents/
 agent-aterra-s4b-53df002ec8867670.jsonl` (3.3 MB), Reviewer 1 is
 `agent-a563e06bf4a7e1b29.jsonl`, Reviewer 2 is `agent-a0a2b3067a5eb8f0f.jsonl`.
-The user has not yet approved a fresh Terra; ask before spawning.
+**User grant (2026-09-02, closing):** "Subagents are go for takeoff
+tomorrow" — the fresh Opus Terra and, after it stops, the Luna full-coverage
+pass are approved for the next session without a further ask. Commits
+remain the user's. **2026-09-03:** `terra-s4c` (Opus, fresh) spawned on
+that grant with brief `prompts/TERRA_S4C.md`; finding 3 first.
+**Finding 3 closed at the root (2026-09-03):** the binding reads the
+verified program back into `RuleRoutine`s (`product/routines.py`) and the
+authored rules leave the binding; witness `s4_verified_completion.py` exit
+0 on the coordinator's rerun; replica shares the program. The bytecode
+witness had a hole (short-name vs qualified-name keys skipped class bodies
+and PEP 695 functions in `tree.py`/`flatten.py`); repaired, four
+definition-time rows surfaced, all already ruled. Terra made 16 mechanical
+test call-site adaptations for the removed binding parameters; accepted as
+signature-only edits, listed for Luna's review.
+**Findings 1, 2, 4 closed (2026-09-03):** `prove_regular` threads each
+reference's own continuation through the closure (memoised on rule and
+continuation, with a coverage guard against the recognizer's closure);
+`extent_consult` proves against the hard tail unioned with the rule's soft
+FOLLOW. Proving clones 197 → 164; installed consults unchanged (4 grammars,
+17 clones, 266 occurrences), so window 1's population still exists; both
+reviewer rows decline and are measured as real wrong-extent cases.
+Coordinator reran `s4_consult_soundness` and `s4_consult_eligibility`, exit
+0. The group-only shortcut's docstring reason is restated (a group is
+entered from one arm, a rule from every reference); the ruling stands for
+§7. Finding 4 is on the Luna created-contracts list. Coordinator audit of
+consumerless exported surface (`ConstructionTables`, `AuthoredProduct`,
+`ReduceDerivation`, `lower_routes`, three `tree.py` helpers, all of
+`compile/product/binding.py`, four `abi/records.py` records, the `state.py`
+handles and insert codes) is with the user for a deletion ruling. **User
+ruling:** delete what has no consumer and will have none; keep what a
+coming section consumes, with the owning section written beside it. Terra
+does it after the GC-on window, each deletion with its re-exports, proto
+rows, README lines and tests in one edit.
+
+**Window 2 — the GC-ON acceptance rows (2026-09-03, quiet machine, 7
+rounds, process_time, alternating min).** The harness had hard-coded
+`gc.disable()`; collector-on is now its default and `--gc-off` reproduces
+window 1. Control floor 3.00% (set by `arithmetic.ebnf`, byte-identical
+arms — genuine collector variance, not re-rolled). Rows: list −51.30%
+(outside the floor, the one win); c −2.98% (inside the floor under this
+protocol; window 1's −3.95% is provenance); chess +0.70%; vyx −0.16%;
+token-segmented `think` −0.08%; every no-consult control inside the floor.
+Micro rows, collector on: OP_CC +0.5 ns/call (+0.06%); OP_LIT +6.7 to
++13.6 ns/call across the two runs, i.e. 0.004–0.008% of vyx on 1086 calls
+per 0.176 s round. **User decision, framed on these rows:** keep the
+consult (one grammar −51%, nothing else distinguishable from noise, a tax
+two orders below the floor on three vyx clones, plus the proof machinery
+and its witnesses), or drop it. **User: KEEP (2026-09-03).** The consult
+stays with its disclosed OP_LIT tax; the value-string bullet closes on
+window 2's rows once the deletion pass and its reruns are in.
+
+**Terra s4c stopped (2026-09-03).** Deletion pass: `ConstructionTables` and
+`Extent` deleted with re-exports; `RouteOp` (§6), `FragmentProduct` (§9),
+`DecodeCode` (§5), `compile/product/binding.py` (§6) and `product/state.py`
+(§5–§8) kept with owners written; four of the coordinator's audit rows
+(`AuthoredProduct`, `ReduceDerivation`, `lower_routes`, the three `tree.py`
+helpers) were live — the scan had excluded same-file readers; the corrected
+question is now the §10 orphan-census bullet, which the user ordered run
+before and after the fallback deletions to a fixpoint. Final gates: pyright
+0; suite 4/5264/8 all Luna's; `check_generated` 0/53; `run_checks` 14
+(pylint 48, one below `7d60f575`); every witness 0. Coordinator ticked the
+`Carry` (by ruling, `list[Any]` sink residue recorded), value-string (KEEP),
+baseline-shape and two verification bullets with evidence. `luna-s4`
+(Sonnet, brief `prompts/LUNA_S4.md`) spawned for the full-coverage pass;
+the hold follows its green suite. **User ruling for Luna:** tests that
+TEST, not tests that pass — expectations derived independently, adversarial
+inputs, at least one would-fail test per mirror, failing tests kept as
+strict xfails with the defect reported, never softened; the report carries
+a "defect it would catch" column per file. **Scope extension (user):**
+Luna's mandate had covered new/moved modules and Terra's listed contracts,
+not existing modules whose code changed; it now covers every file changed
+since `dffa821f` diff-by-diff, each hunk's behaviour pinned by a would-fail
+test, with a per-module covered/not-covered row. **User-ordered rename
+(2026-09-03), done by Luna under a scoped src exception:** the word
+"binding" was on five modules; `ir/spine/bind.py`/`IrBind` stay;
+`parsing/binding.py` → `executable.py` (`ModelBinding` →
+`ModelExecutable`); `compile/product/binding.py` → `registry.py`
+(`BindingRegistry` → `ProductRegistry`, `BoundProduct` →
+`RegisteredProduct`, `bind_model` → `register_model`);
+`compile/pipeline/binding.py` → `rulemap.py` (`RuleBinding` → `RuleMap`);
+`compile/module/bind.py` → `attach.py` (`bind_module` → `attach_module`,
+which changes the twin-module self-grammar statement and regenerates the
+twins). Luna also corrected: committed tests never cite effort history.
 
 **§4 bullets.** Closed this round and standing: island/delegate/parallel
 migration, trace, foldkit/notation/self-grammar, deletion, completion-range

@@ -98,8 +98,8 @@ def test_classes_and_fold_are_unmoved_by_a_bound_tokenizer(stem: str) -> None:
     """The synthesized classes and the fold table are identical across all three."""
     bare, with_a, with_b = _three_ways(stem)
     assert sorted(bare.classes) == sorted(with_a.classes) == sorted(with_b.classes)
-    assert sorted(bare.product.rules) == sorted(with_a.product.rules)
-    assert sorted(bare.product.rules) == sorted(with_b.product.rules)
+    assert sorted(bare.product.routines) == sorted(with_a.product.routines)
+    assert sorted(bare.product.routines) == sorted(with_b.product.routines)
     for name, cls in bare.classes.items():
         assert cls.__binds__ == with_a.classes[name].__binds__
         assert cls.__binds__ == with_b.classes[name].__binds__

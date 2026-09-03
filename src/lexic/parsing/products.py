@@ -25,7 +25,6 @@ from dataclasses import dataclass
 
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
-from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import adopt, memo
 from lexic.parsing.earley.engine import EarleyParser, first_built_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
@@ -43,6 +42,7 @@ from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import TokenKernel
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
@@ -84,7 +84,7 @@ def _owned_text(text: str) -> str:
 def earley_model[M](
     grammar: IrAst,
     text: str,
-    binding: ModelBinding[M],
+    binding: ModelExecutable[M],
     tables: ParserTables | None = None,
     resolve: Resolver | None = None,
 ) -> M:
@@ -121,7 +121,7 @@ def earley_model[M](
 def token_model[M](
     grammar: IrAst,
     text: str,
-    binding: ModelBinding[M],
+    binding: ModelExecutable[M],
     bounds: dict[int, tuple[int, int]],
     resolve: Resolver | None = None,
 ) -> M:
@@ -197,7 +197,7 @@ class _ModelProduct:
     """
 
     grammar: IrAst
-    binding: ModelBinding
+    binding: ModelExecutable
     pda: PdaTables
     instance_grammar: IrAst
     tables: ParserTables
@@ -232,7 +232,7 @@ def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
 
 
 def _model_product(
-    grammar: IrAst, binding: ModelBinding, bits: int = ORIGIN_BITS
+    grammar: IrAst, binding: ModelExecutable, bits: int = ORIGIN_BITS
 ) -> _ModelProduct:
     """The compiled instance product for ``(grammar, binding, bits)``, memoised.
 
@@ -251,7 +251,7 @@ def _model_product(
         binding,
         compile_pda(lifted, instance, binding),
         instance,
-        collapsed_product_tables(instance, binding.rules, bits),
+        collapsed_product_tables(instance, binding.routines, bits),
     )
     _MODEL_CACHE[key] = product
     # Normalisation and the PDA compile mint objects the engine's own memos
@@ -294,7 +294,10 @@ def _refused(
 
 
 def parse_model[M](
-    grammar: IrAst, text: str, binding: ModelBinding[M], resolve: Resolver | None = None
+    grammar: IrAst,
+    text: str,
+    binding: ModelExecutable[M],
+    resolve: Resolver | None = None,
 ) -> M:
     """Parse instance ``text`` to a model — PDA-first, Earley + fold completion.
 
@@ -330,7 +333,7 @@ def parse_model[M](
 
 
 def pda_tables(
-    grammar: IrAst, binding: ModelBinding, bits: int = ORIGIN_BITS
+    grammar: IrAst, binding: ModelExecutable, bits: int = ORIGIN_BITS
 ) -> PdaTables:
     """The instance product's compiled PDA — the artefact's predictive half.
 

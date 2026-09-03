@@ -50,7 +50,7 @@ from typing import Any, Callable
 
 from lexic.compile import compile_from_path
 from lexic.compile.pipeline.synthesis import ModelPlan, model_plan
-from lexic.compile.product.binding import rules_by_name
+from lexic.compile.product.registry import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrSpan
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, vstr_model
@@ -71,7 +71,6 @@ from lexic.parsing.pda.compiler.program.product import bake_product_build
 from lexic.parsing.pda.runtime.build import fast_values
 from lexic.parsing.product import (
     CaptureMode,
-    ConstructionTables,
     ExprCode,
     LoweringOwned,
     MeaningOp,
@@ -82,7 +81,10 @@ from lexic.parsing.product import (
     RecordOp,
     RootOp,
     RuleProduct,
+    RuleRoutine,
     lower_product,
+    rule_routines,
+    verify_program,
 )
 
 EMPTY_OPERANDS: OperandTables = OperandTables(
@@ -97,6 +99,16 @@ EMPTY_OPERANDS: OperandTables = OperandTables(
 )
 """The model product builds records and nothing else, so every operand table
 but the constructors lowering fills is empty."""
+
+VERIFIABLE_OPERANDS: OperandTables = EMPTY_OPERANDS._replace(
+    meanings=(lambda left, right: left == right,),
+    roots=(lambda carry, _verdicts: carry,),
+)
+"""The same, plus the two lanes a program names once for the whole of itself.
+
+The cold verifier bounds the root finalizer and the meaning comparator, so a
+program with neither cannot be verified — and this witness hands the bake only
+what the verifier passed."""
 
 ROOT = Path(__file__).resolve().parents[3]
 GROUND_TRUTH = ROOT / "resources" / "ground_truth"
@@ -128,20 +140,41 @@ def _shell() -> FlatClone:
     return FlatClone.__new__(FlatClone)
 
 
-def _baked(product: RuleProduct | None, tables: ConstructionTables) -> FlatClone:
+def _baked(routine: RuleRoutine | None) -> FlatClone:
     """One clone's build state, from the shipped bake."""
     clone = _shell()
-    bake_product_build(clone, product, tables)
+    bake_product_build(clone, routine)
     return clone
 
 
+def _routines(
+    rules: tuple[RuleProduct, ...], constructors: tuple[RecordConstructor, ...]
+) -> tuple:
+    """The VERIFIED routines a bake is handed, lowered from authored rules.
+
+    The bake no longer reads an authored record, so the witness lowers and
+    verifies exactly as a binding does and hands the bake what the verifier
+    passed. The authored rules stay on the DECLARATION side, which is what
+    keeps every comparison below evidence rather than a tautology.
+    """
+    program = lower_product(
+        rules,
+        VERIFIABLE_OPERANDS,
+        owned=LoweringOwned(constructors=constructors),
+        root=RootOp(0),
+        meaning=MeaningOp(0),
+    )
+    verify_program(program)
+    return rule_routines(program)
+
+
 def _constructor_of(
-    product: RuleProduct | None, tables: ConstructionTables
+    product: RuleProduct | None, constructors: tuple[RecordConstructor, ...]
 ) -> RecordConstructor | None:
     """The constructor record a rule's completion names, if it names one."""
     if product is None or not isinstance(product.completion, RecordOp):
         return None
-    return tables.constructors[product.completion.constructor]
+    return constructors[product.completion.constructor]
 
 
 # ── synthesized frame captures ────────────────────────────────────────
@@ -336,20 +369,21 @@ def _check_unfilled(
 
 def check_clone(
     label: str,
+    routine: RuleRoutine | None,
     product: RuleProduct | None,
-    tables: ConstructionTables,
+    constructors: tuple[RecordConstructor, ...],
     totals: dict[str, int],
-    baked_with: ConstructionTables | None = None,
 ) -> None:
     """Every property of one clone's live build state.
 
-    ``baked_with`` is what the bake is HANDED and ``tables`` is what the
-    record DECLARES; they are the same table in the sweep and differ only when
-    a control seeds a defect into one side, which is the only way a check over
-    a declaration can be shown to be watching the bake rather than itself.
+    ``routine`` is what the bake is HANDED — the verified program's own
+    statement — and ``product``/``constructors`` are what the authored record
+    DECLARES. They agree in the sweep and differ only when a control seeds a
+    defect into the lowered side, which is the only way a check over a
+    declaration can be shown to be watching the bake rather than itself.
     """
-    clone = _baked(product, tables if baked_with is None else baked_with)
-    constructor = _constructor_of(product, tables)
+    clone = _baked(routine)
+    constructor = _constructor_of(product, constructors)
     totals["clones"] = totals.get("clones", 0) + 1
     _check_mode(label, clone, product, constructor)
     _check_arm_width(label, clone, product)
@@ -453,14 +487,17 @@ def _rule_level(label: str, compiled: Any, totals: dict[str, int]) -> None:
         compiled.codegen_grammar, compiled.moments.binding, compiled.classes
     )
     _check(
-        f"{label}: the plan covers {len(plan.codes)} rules, the fold "
-        f"{len(compiled.product.rules)}",
-        set(plan.codes) == set(compiled.product.rules),
+        f"{label}: the plan covers {len(plan.codes)} rules, the binding "
+        f"{len(compiled.product.routines)}",
+        set(plan.codes) == set(compiled.product.routines),
     )
     _model_program(label, plan)
     totals["audited"] = totals.get("audited", 0) + len(plan.constructors)
+    routines = _routines(plan.rules, _tables(plan))
     for name, code in plan.codes.items():
-        check_clone(f"{label}/{name}", plan.rules[code], _tables(plan), totals)
+        check_clone(
+            f"{label}/{name}", routines[code], plan.rules[code], _tables(plan), totals
+        )
 
 
 def _clone_level(label: str, compiled: Any, totals: dict[str, int]) -> bool:
@@ -472,10 +509,13 @@ def _clone_level(label: str, compiled: Any, totals: dict[str, int]) -> bool:
         tables = compiled.pda_tables()
     except UnsupportedConstructError:
         return False
-    construction = compiled.product.construction
+    plan = model_plan(
+        compiled.codegen_grammar, compiled.moments.binding, compiled.classes
+    )
+    declared = rules_by_name(plan.rules, plan.codes)
     for key, spec in tables.clones.items():
         where = f"{label}/clone {spec.name or '<group>'} {key}"
-        check_clone(where, spec.product, construction, totals)
+        check_clone(where, spec.routine, declared.get(spec.name), _tables(plan), totals)
         _check_no_fold(where)
     return True
 
@@ -545,14 +585,14 @@ def _is_value_str(_product: RuleProduct, constructor: RecordConstructor) -> bool
     return bool(constructor.matched_field)
 
 
-def _tables(plan: ModelPlan) -> ConstructionTables:
-    """The model plan's construction tables — it names no symbol."""
-    return ConstructionTables(plan.constructors)
+def _tables(plan: ModelPlan) -> tuple[RecordConstructor, ...]:
+    """The model plan's constructor lane — it names no symbol."""
+    return plan.constructors
 
 
 def _corpus_row(
     wanted: Callable[[RuleProduct, RecordConstructor], bool], described: str
-) -> tuple[str, RuleProduct, ConstructionTables]:
+) -> tuple[str, RuleProduct, tuple[RecordConstructor, ...]]:
     """The first licensed corpus rule matching ``wanted`` — a control's subject."""
     for path in _grammars():
         compiled = compile_from_path(path)
@@ -572,21 +612,24 @@ def _corpus_row(
 def _seeded(
     label: str,
     product: RuleProduct,
-    tables: ConstructionTables,
+    constructors: tuple[RecordConstructor, ...],
     at: int,
     edit: Callable[[RecordConstructor], RecordConstructor],
 ) -> None:
-    """Bake from a mutated constructor, declare from the real one, insist it refuses."""
-    mutated = ConstructionTables(
-        tuple(
-            edit(entry) if index == at else entry
-            for index, entry in enumerate(tables.constructors)
-        ),
-        tables.symbols,
+    """Lower from a mutated constructor, declare from the real one, insist it refuses.
+
+    Two refusals count, and both are the point: the defect is either caught by
+    a property below, or refused by the real lowering before a routine exists
+    at all. What may not happen is a bake that quietly agrees with a record it
+    was not built from.
+    """
+    mutated = tuple(
+        edit(entry) if index == at else entry
+        for index, entry in enumerate(constructors)
     )
     try:
-        check_clone(label, product, tables, {}, baked_with=mutated)
-    except AssertionError, IndexError, KeyError, TypeError:
+        check_clone(label, _routines((product,), mutated)[0], product, constructors, {})
+    except AssertionError, IndexError, KeyError, TypeError, UnsupportedConstructError:
         return
     raise Defect(f"s4 bake identity: the seeded defect {label} went uncaught")
 

@@ -22,6 +22,7 @@ from lexic.parsing.pda.compiler.specs import (
     StopGate,
 )
 from lexic.parsing.pda.core.charsets import CharSet
+from lexic.parsing.product import RuleRoutine
 
 
 def test_clone_key_is_name_then_tail():
@@ -78,13 +79,28 @@ def test_group_spec_holds_arms_and_default():
 
 
 def test_clone_spec_field_order():
-    """A clone spec is ``(name, arms, default, product, match_only)`` in order."""
+    """A clone spec is ``(name, arms, default, routine, match_only, struct_arm,
+    attempt_follow, consult)`` in order, with the last three trailing fields
+    defaulting to ``None``; a silent reorder or a rename of ``routine``
+    fails this."""
     spec = CloneSpec("r", (), None, None, False)
-    assert spec.name == "r"
-    assert spec.arms == ()
-    assert spec.default is None
-    assert spec.product is None
-    assert spec.match_only is False
+    assert (spec.name, spec.arms, spec.default, spec.routine, spec.match_only) == (
+        "r",
+        (),
+        None,
+        None,
+        False,
+    )
+    assert (spec.struct_arm, spec.attempt_follow, spec.consult) == (None, None, None)
+    assert tuple(spec) == ("r", (), None, None, False, None, None, None)
+
+
+def test_clone_spec_carries_a_real_routine_object_positionally():
+    """A non-default ``routine`` lands in the fourth slot, not silently dropped."""
+    routine = RuleRoutine(0, (), (), 0, 0, None)
+    spec = CloneSpec("r", (), None, routine, True)
+    assert spec.routine is routine
+    assert tuple(spec)[3] is routine
 
 
 def test_clones_re_exports_the_spec_types():

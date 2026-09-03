@@ -27,7 +27,6 @@ __all__ = [
     "BoundSymbol",
     "Construction",
     "ConstructionLicence",
-    "ConstructionTables",
     "ProductValue",
     "RecordConstructor",
     "SymbolConstructor",
@@ -147,24 +146,6 @@ class BoundSymbol[Carry](NamedTuple):
     names: tuple[str, ...] = ()
     optional: tuple[int, ...] = ()
     matched: str = ""
-
-
-class ConstructionTables[Carry](NamedTuple):
-    """The two operand tables a completion's construction is read from.
-
-    One record rather than two parameters because they travel together the
-    whole way — from a binding, through the clone compiler, into the bake — and
-    a caller pairing one grammar's constructors with another's symbols would
-    have no way of noticing.
-
-    :ivar constructors: Declared record constructors, indexed by
-        :class:`RecordOp`.
-    :ivar symbols: Resolved surface transforms, indexed by
-        :class:`~lexic.parsing.product.abi.expressions.SymbolExpr`.
-    """
-
-    constructors: tuple[RecordConstructor[Carry], ...] = ()
-    symbols: tuple[BoundSymbol[Carry], ...] = ()
 
 
 class Construction[Carry]:

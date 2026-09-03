@@ -25,6 +25,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from lexic.compile import compile_from_path
+from lexic.compile.pipeline.synthesis import model_plan
 from lexic.exceptions import LexicError
 from lexic.model import GrammarModel
 from lexic.parsing.product import (
@@ -74,15 +75,20 @@ def _grammars() -> list[Path]:
 def _lowered(path: Path) -> tuple[str, int, int, bool, str]:
     """Lower and verify one grammar's model product; never raise for a decline."""
     compiled = compile_from_path(path)
-    binding = compiled.product
-    ordered = [binding.rules[name] for name in binding.rules]
+    # The AUTHORED rules, from the plan a binding is built out of: a binding
+    # keeps only what the verifier passed, so the authored tier is read where
+    # it is written rather than off the artefact.
+    plan = model_plan(
+        compiled.codegen_grammar, compiled.moments.binding, compiled.classes
+    )
+    ordered = list(plan.rules)
     # Lowering is the SOLE writer of the constructor, route and symbol lanes:
     # each needs checking or resolving before an engine may index it, so they
     # are handed in authored form and come back lowered.
     operands: OperandTables[GrammarModel, GrammarModel] = OperandTables(
         (), (), (), (), (_same_meaning,), (_finish_root,), (), ()
     )
-    owned = LoweringOwned(constructors=tuple(binding.construction.constructors))
+    owned = LoweringOwned(constructors=plan.constructors)
     try:
         program = lower_product(
             ordered, operands, owned=owned, root=RootOp(0), meaning=MeaningOp(0)

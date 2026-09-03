@@ -30,9 +30,9 @@ grammar text
             └─ canonicalize ────────► canonical IrAst                 [ir/canonical.py]
                   = canonical_grammar()   (start bound, noise flagged semantic=False)
                         └─ build_codegen_grammar ─► THE codegen grammar
-                              ├─ compute_binding ──► list[RuleBinding]
+                              ├─ compute_binding ──► list[RuleMap]
                               ├─ synthesize ───────► dict[str, type]   (type() build, NO file)
-                              └─ bind_model ───────► the bound product (lowered + verified)
+                              └─ register_model ───────► the bound product (lowered + verified)
    ⇒ CompiledGrammar(classes, grammar, codegen_grammar, product)
         .parse(text) = parse_model(codegen_grammar, text, product)    [engine product]
 ```
@@ -91,7 +91,7 @@ compile/
   pipeline/      grammar → classes (see its README)
     passes.py      build_codegen_grammar — hoist_groups → hoist_arms →
                    relax_non_semantic
-    binding.py     compute_binding → list[RuleBinding]; kind classification;
+    binding.py     compute_binding → list[RuleMap]; kind classification;
                    field naming; the open supplied-class contract (§5)
     synthesis.py   synthesize(codegen_grammar, binding, stem) → dict[str, type]
   notation/      the IR-constructor notation (see its README)
@@ -111,7 +111,7 @@ Nothing reaches past that surface.
 
 ## 4. The binding view and the open table (`binding.py`)
 
-`compute_binding` returns one `RuleBinding(rule_name, class_name,
+`compute_binding` returns one `RuleMap(rule_name, class_name,
 parent_class_names, kind, fields)` per rule, parents before subclasses.
 `classify_rule` derives the `kind` fresh from the codegen grammar:
 
@@ -168,7 +168,7 @@ their conformance twins.
 `export_source(compiled)` renders a compiled grammar as an **importable twin
 module** in the record-spine syntax (`GrammarModel` subclasses with typed
 defaults-last fields; `GRAMMAR` in the notation via `emit_ir`; a module-end
-`bind_module` call, or inline `__grammar__`/`__binds__` ClassVars under
+`attach_module` call, or inline `__grammar__`/`__binds__` ClassVars under
 `inline_tables=True`). It reprs only pure grammar-AST records — **never** a
 `Reducer` or a flavour's noise map. Formatting is `lexic.ir.layout` — no
 `ruff`, no subprocess — and a fresh export is an isort + ruff-format

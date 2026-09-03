@@ -1,7 +1,7 @@
 """Binding view — the codegen grammar's per-rule class/kind/parent/field map.
 
 ``compute_binding(ast)`` reads the codegen grammar (canonical AST after the
-:mod:`lexic.compile.passes` rewrites) and produces one :class:`RuleBinding`
+:mod:`lexic.compile.passes` rewrites) and produces one :class:`RuleMap`
 per rule, in emission order (parents before subclasses via
 :class:`~lexic.ir.grammar.transform.order.RuleOrder`'s parent-edge policy). This is the
 open-table successor of ``derive_specs``'s classify/parents/naming jobs:
@@ -71,7 +71,7 @@ _UNIT = IrQuantifier(1, 1)
 
 
 @dataclass(frozen=True)
-class RuleBinding:
+class RuleMap:
     """One rule's codegen identity: class, kind, parents, bound fields.
 
     ``fields`` maps each generated field name to its :class:`IrBind`, in
@@ -474,13 +474,13 @@ def _bind_rule(
     rule: IrRule,
     parent_rules: dict[str, tuple[str, ...]],
     non_semantic: frozenset[str],
-) -> RuleBinding:
+) -> RuleMap:
     """Build one rule's binding."""
     kind = classify_rule(rule)
     arms = non_empty_arms(rule.body)
     fields = bind_fields(arms[0], non_semantic) if kind == "sequence" else {}
     parents = parent_rules.get(str(rule.name), ())
-    return RuleBinding(
+    return RuleMap(
         rule_name=str(rule.name),
         class_name=class_name_for(str(rule.name)),
         parent_class_names=tuple(class_name_for(p) for p in parents),
@@ -489,7 +489,7 @@ def _bind_rule(
     )
 
 
-def compute_binding(ast: IrAst) -> list[RuleBinding]:
+def compute_binding(ast: IrAst) -> list[RuleMap]:
     """Compute the binding view of a codegen grammar.
 
     Expects the post-pass grammar (groups hoisted, arms hoisted, non-semantic
@@ -498,7 +498,7 @@ def compute_binding(ast: IrAst) -> list[RuleBinding]:
     after its inheritance parent.
 
     :param ast: The codegen grammar.
-    :returns: One :class:`RuleBinding` per rule, parents before subclasses.
+    :returns: One :class:`RuleMap` per rule, parents before subclasses.
     """
     rules = list(ast.rules)
     parent_rules = _parent_rules(rules)

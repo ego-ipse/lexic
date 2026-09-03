@@ -24,8 +24,8 @@ grammar text
                     └─► build_codegen_grammar(ast)  THE codegen grammar
                           (lexic.compile.pipeline.passes: hoist_groups → hoist_arms →
                            relax_non_semantic)
-                          ├─► compute_binding(ast)            list[RuleBinding]
-                          │     (lexic.compile.pipeline.binding — class/kind/parent/field
+                          ├─► compute_binding(ast)            list[RuleMap]
+                          │     (lexic.compile.pipeline.rulemap — class/kind/parent/field
                           │      names, open IrDispatch tables)
                           ├─► synthesize(ast, binding, stem)
                           │     (lexic.compile.pipeline.synthesis — type() build,
@@ -104,7 +104,7 @@ See `src/lexic/parsing/__init__.py`'s module docstring for the full engine modul
 
 ## IR is passed by action table, not closed subclass
 
-A pass is an `IrTypeMap` of `IrAction`s — not a closed subclass of `IrDispatch`. Flavours, transformers and emitters all extend the system by **constructing an instance** with a different `actions` table. New IR types don't require touching the dispatcher: just add an entry to the table. `compile/pipeline/binding.py` and `compile/pipeline/passes.py` pioneered this discipline for classify/naming/mode logic; `generate.py`, the notation emit half (`notation.py`'s `_EMIT_STEP` — tier-keyed, so a new node type needs no emitter change) and the PDA analysis all carry the same open `IrDispatch`/`IrTypeMap` treatment with raising defaults. See [[ir-shapes]]'s open-set note.
+A pass is an `IrTypeMap` of `IrAction`s — not a closed subclass of `IrDispatch`. Flavours, transformers and emitters all extend the system by **constructing an instance** with a different `actions` table. New IR types don't require touching the dispatcher: just add an entry to the table. `compile/pipeline/rulemap.py` and `compile/pipeline/passes.py` pioneered this discipline for classify/naming/mode logic; `generate.py`, the notation emit half (`notation.py`'s `_EMIT_STEP` — tier-keyed, so a new node type needs no emitter change) and the PDA analysis all carry the same open `IrDispatch`/`IrTypeMap` treatment with raising defaults. See [[ir-shapes]]'s open-set note.
 
 ## `IrLiteral` dual role
 
@@ -179,7 +179,7 @@ src/lexic/
              canonical, bind, order, layout, meta, escapes
   grammars/  __init__ (registry), gbnf, abnf, json
   parsing/   __init__ (products + toolkit), products, fold, earley/, pda/
-  compile/   __init__ (entries + bind_module), artifact, passes, binding,
+  compile/   __init__ (entries + attach_module), artifact, passes, binding,
              synthesis, export, notation, loader
 ```
 

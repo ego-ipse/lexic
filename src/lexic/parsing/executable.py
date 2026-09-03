@@ -20,7 +20,6 @@ from collections.abc import Mapping
 from lexic.exceptions import SemanticVerdict
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.product import (
-    ConstructionTables,
     LoweringOwned,
     MeaningOp,
     OperandTables,
@@ -28,11 +27,13 @@ from lexic.parsing.product import (
     ProductProgram,
     RootOp,
     RuleProduct,
+    RuleRoutine,
     lower_product,
+    rule_routines,
     verify_program,
 )
 
-__all__ = ["ModelBinding"]
+__all__ = ["ModelExecutable"]
 
 
 def _identity_root[M](carry: M, _verdicts: tuple[SemanticVerdict, ...]) -> M:
@@ -40,43 +41,35 @@ def _identity_root[M](carry: M, _verdicts: tuple[SemanticVerdict, ...]) -> M:
     return carry
 
 
-class ModelBinding[M]:
+class ModelExecutable[M]:
     """One grammar's model product — what a parse entry is handed.
 
-    The product IS the binding: the rules each contextual name completes
-    through, the verified program they lower to, the construction tables a
-    completion indexes, and the one executor that runs them over a derivation.
-    One object rather than four parameters, so a caller cannot pair a
-    grammar's rules with another grammar's constructors and the per-identity
-    memo has a single key to hold.
+    The product IS the binding: the verified program its rules lowered to, the
+    routine each contextual name completes through, and the one executor that
+    runs them over a derivation. One object rather than several parameters, so
+    a caller cannot pair a grammar's captures with another grammar's
+    constructors and the per-identity memo has a single key to hold.
 
-    Everything but :attr:`rules` is DERIVED here, once. The construction
-    tables are read back off the verified program's own operand lanes rather
-    than resolved a second time, so what a completion indexes is exactly what
-    the verifier bounded. The executor is derived here too because it scans
-    every rule for span demand once, and an island splice reaches for it per
-    island reference.
+    The authored rules are LOWERING INPUT and nothing else: they are consumed
+    in the constructor and not retained. Everything downstream — completion,
+    the clone bake, stitch layout — reads :attr:`routines`, which is the
+    verified program read back. That is what makes "the program the verifier
+    passed is the program that runs" a property of the object rather than a
+    claim about it; holding the authored records too would leave a second
+    representation for an engine to reach for.
 
-    :ivar rules: Rule name → its authored product, in contextual-code order.
-    :ivar owned: The authored tables this binding lowered from, retained so a
-        worker replica can rebuild an EQUAL binding with physically distinct
-        tables rather than sharing this one's.
     :ivar program: The lowered, verified program. Every rule in it names one
         tagged, non-empty, in-bounds completion range.
     :ivar codes: Rule name → its index in :attr:`program`.
-    :ivar construction: The constructor and symbol operand tables a completion
-        indexes — the program's own lanes.
-    :ivar executor: The one completion over :attr:`rules` and
-        :attr:`construction`.
+    :ivar routines: Rule name → its verified completion routine.
+    :ivar executor: The one completion over :attr:`routines`.
     """
 
-    __slots__ = ("rules", "owned", "program", "codes", "construction", "executor")
+    __slots__ = ("program", "codes", "routines", "executor")
 
-    rules: Mapping[str, RuleProduct]
-    owned: LoweringOwned
     program: ProductProgram[M, M]
     codes: Mapping[str, int]
-    construction: ConstructionTables
+    routines: Mapping[str, RuleRoutine[M]]
     executor: ProductExecutor[M]
 
     def __init__(
@@ -95,9 +88,8 @@ class ModelBinding[M]:
         :raises UnsupportedConstructError: When the rules do not lower, or the
             program they lower to does not verify.
         """
-        self.rules = {} if rules is None else rules
-        self.owned = owned
-        self.codes = {name: at for at, name in enumerate(self.rules)}
+        authored = {} if rules is None else rules
+        self.codes = {name: at for at, name in enumerate(authored)}
         # The meaning row is the engine's own value law, not `==`: every
         # ambiguity gate compares with `same_value`, so a program declaring
         # anything else would name a law it does not live under.
@@ -105,14 +97,36 @@ class ModelBinding[M]:
             (), (), (), (), (same_value,), (_identity_root,), (), ()
         )
         self.program = lower_product(
-            list(self.rules.values()),
+            list(authored.values()),
             operands,
             owned=owned,
             root=RootOp(0),
             meaning=MeaningOp(0),
         )
         verify_program(self.program)
-        self.construction = ConstructionTables(
-            self.program.operands.constructors, self.program.operands.symbols
-        )
-        self.executor = ProductExecutor(self.rules, self.construction)
+        resolved = rule_routines(self.program)
+        self.routines = {name: resolved[code] for name, code in self.codes.items()}
+        self.executor = ProductExecutor(self.routines)
+
+    def replica(self) -> ModelExecutable[M]:
+        """An equal binding whose routine map is a worker's own.
+
+        The memo keys on the BINDING's identity, so a worker that wants its own
+        compiled tables needs its own binding; the routine map is rebuilt
+        because it is the container every completion reads, and therefore the
+        one whose sharing costs the reference-count traffic that held eight
+        threads below the throughput of one.
+
+        Nothing is lowered or verified again. The program is immutable and
+        already passed the cold gate, so re-deriving it per worker would pay a
+        whole lowering pass to reach the artefact this one is holding — and a
+        worker rebuilding the constructors would change what a model is built
+        from, when model equality across workers is the contract the split
+        rests on.
+        """
+        copy = object.__new__(type(self))
+        copy.program = self.program
+        copy.codes = self.codes
+        copy.routines = dict(self.routines)
+        copy.executor = ProductExecutor(copy.routines)
+        return copy

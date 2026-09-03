@@ -23,9 +23,9 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir import IrAst
-from lexic.parsing.binding import ModelBinding
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import (
     CC,
@@ -172,6 +172,26 @@ def test_clone_count_matches_pinned(stem: str):
     """The compiled clone count matches the pinned, coordinator-verified value."""
     pda = pda_for(GROUND_TRUTH / stem)
     assert len(pda.clones) == PINNED_CLONE_COUNTS[stem]
+
+
+@pytest.mark.parametrize("stem", ALL_STEMS)
+def test_every_named_clones_completion_is_an_in_bounds_range_of_its_own_rule(
+    stem: str,
+):
+    """Every named clone's routine names an in-bounds range of the SAME
+    grammar's own verified program — the range a clone was baked from is
+    one the program's own table actually declares, not a stale or
+    cross-grammar index."""
+    pda = pda_for(GROUND_TRUTH / stem)
+    compiled = compile_from_path(GROUND_TRUTH / stem)
+    completions = compiled.product.program.completions
+    checked = 0
+    for spec in pda.clones.values():
+        if spec.routine is None:
+            continue
+        assert 0 <= spec.routine.completion < len(completions), spec.name
+        checked += 1
+    assert checked  # every named clone in the corpus has SOME routine
 
 
 @pytest.mark.parametrize("stem", ALL_STEMS)
@@ -418,7 +438,7 @@ def test_long_ref_chain_compiles_at_constant_stack_depth():
     lifted = lift_optional_nullables(
         build_codegen_grammar(canonical_grammar(grammar, GBNF_FLAVOUR))
     )
-    pda = compile_pda(lifted, normalize(lifted), ModelBinding())
+    pda = compile_pda(lifted, normalize(lifted), ModelExecutable())
     assert isinstance(pda.start_key, CloneKey)
     assert all(spec.name for spec in pda.clones.values())  # no _PENDING left
 

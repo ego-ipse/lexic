@@ -153,7 +153,7 @@ src/lexic/
       variant.py                   Recognition-only twins for dropped reduction subtrees
     module/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
-      bind.py                      Runtime binding for generated twin-module classes
+      attach.py                    Runtime binding for generated twin-module classes
       export.py                    export_source / export_module — the importable .py twin
       rules.py                     The module self-grammar's rules — the statement skeleton it is built from
       selfgrammar.py               The generated-module self-grammar — lexic parses its own exports
@@ -171,10 +171,10 @@ src/lexic/
       reader.py                    The payload's reader — zero lexic imports, by design and by test
     product/
       __init__.py                  The compile half of the product ABI — binding an authored declaration
-      binding.py                   Bound products and their lifetime — one registry per declaration kind
+      registry.py                  Bound products and their lifetime — one registry per declaration kind
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
-      binding.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
+      rulemap.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
       moments.py                    The compile moments — one retaining product the whole pipeline runs through
       naming.py                    What a generated class and its fields are CALLED — spelling, and nothing else
       passes.py                    Grammar→grammar codegen passes — hoist groups, hoist arms, relax noise
@@ -234,7 +234,7 @@ src/lexic/
         escapes.py                 EscapeCodec — flavour-side canonical spelling
   parsing/
     __init__.py                    public API: parse_model product + the Earley toolkit
-    binding.py                     The bound model product — what a parse entry is handed
+    executable.py                  The bound model product — what a parse entry is handed
     caches.py                      Identity-memo registry — every id-keyed cache, bounded by its artefact
     lift.py                        The optional-nullable lift — one engine-ambiguity policy over a grammar
     products.py                    The model product entry — PDA-first with Earley completion
@@ -277,6 +277,7 @@ src/lexic/
         expressions.py             The reducer's own algebra in authored form — its own lowering table
         records.py                 Immutable authored operations and the flat int-coded tables they lower to
       lower.py                     Authored product operations → the flat int-coded tables
+      routines.py                  The verified program read back — one executable completion per rule
       tree.py                      Product-driven ParseTree completion, explicit result presence, and source spans
       state.py                     Parse-local builders, deferred verdicts, constant-size transaction marks
       verify.py                    Physical-table verification — the cold gate before the paid loop

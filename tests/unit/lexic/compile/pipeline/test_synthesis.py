@@ -11,8 +11,8 @@ subclasses.
 from __future__ import annotations
 
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.moments import build_codegen_grammar
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import (
@@ -28,9 +28,7 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 
 
-def synth(
-    text: str, stem: str = "m"
-) -> tuple[dict[str, type], IrAst, list[RuleBinding]]:
+def synth(text: str, stem: str = "m") -> tuple[dict[str, type], IrAst, list[RuleMap]]:
     """Run the front half then synthesize: canonical -> codegen grammar -> binding -> classes.
 
     :param text: GBNF grammar source.
@@ -44,7 +42,7 @@ def synth(
     return classes, codegen_grammar, binding
 
 
-def by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
+def by_name(binding: list[RuleMap]) -> dict[str, RuleMap]:
     """Index a binding view by rule name."""
     return {b.rule_name: b for b in binding}
 

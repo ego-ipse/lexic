@@ -43,7 +43,7 @@ from lexic.ir import (
     IrNone,
     IrSelf,
 )
-from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 __all__ = [
@@ -401,9 +401,9 @@ MODULE_PRODUCT = product_rules(MODULE_RULES)
 """The assembled product: one ``RuleProduct`` per rule, symbol keys pooled, and
 the code each rule name resolves to."""
 
-MODULE_BINDING = ModelBinding(
+MODULE_BINDING = ModelExecutable(
     rules_by_name(MODULE_PRODUCT.rules, MODULE_PRODUCT.codes),
     LoweringOwned(symbols=MODULE_PRODUCT.symbols, registry=MODULE_SYMBOLS),
 )
-"""What this surface hands a parse entry — its product, with the fold its
-completions still read."""
+"""What this surface hands a parse entry — its verified program, with the
+symbol transforms its completions run resolved at lowering."""

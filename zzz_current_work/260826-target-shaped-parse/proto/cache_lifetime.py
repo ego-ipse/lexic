@@ -16,7 +16,7 @@ from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER
 from lexic.ir.reduction import Reducer
 
 
-class BoundProduct[Result]:
+class RegisteredProduct[Result]:
     """Result-only runner retained by one cache entry."""
 
     __slots__ = ("result",)
@@ -50,7 +50,7 @@ class BoundEntry[Result](NamedTuple):
     declaration: MorphismDeclaration[Result]
     grammar: weakref.ReferenceType[CompiledGrammar]
     reducer: Reducer
-    bound: BoundProduct[Result]
+    bound: RegisteredProduct[Result]
 
 
 class CallableFactory[Result]:
@@ -58,7 +58,7 @@ class CallableFactory[Result]:
 
     def __call__(
         self, grammar: CompiledGrammar, reducer: Reducer
-    ) -> BoundProduct[Result]:
+    ) -> RegisteredProduct[Result]:
         """Build one bound product which does not retain ``grammar``."""
         raise NotImplementedError
 
@@ -94,7 +94,7 @@ class ArtifactBindings[Result]:
         declaration: MorphismDeclaration[Result],
         grammar: CompiledGrammar,
         reducer: Reducer,
-    ) -> BoundProduct[Result]:
+    ) -> RegisteredProduct[Result]:
         """Read lock-free when warm; serialize and double-check cold binding."""
         key = CacheKey(id(declaration), id(grammar), id(reducer))
         cached = self._entries.get(key)
@@ -131,11 +131,11 @@ class IntFactory(CallableFactory[int]):
     def __init__(self) -> None:
         self.builds = 0
 
-    def __call__(self, grammar: CompiledGrammar, reducer: Reducer) -> BoundProduct[int]:
+    def __call__(self, grammar: CompiledGrammar, reducer: Reducer) -> RegisteredProduct[int]:
         """Build one source-independent result runner."""
         del reducer
         self.builds += 1
-        return BoundProduct(len(grammar.grammar.rules))
+        return RegisteredProduct(len(grammar.grammar.rules))
 
 
 def _concurrent_bind(
@@ -143,7 +143,7 @@ def _concurrent_bind(
     declaration: MorphismDeclaration[int],
     bindings: ArtifactBindings[int],
     grammar: CompiledGrammar,
-) -> BoundProduct[int]:
+) -> RegisteredProduct[int]:
     """Reach one cold cache key concurrently."""
     barrier.wait()
     return bindings.bind(declaration, grammar, JSON_REDUCER)

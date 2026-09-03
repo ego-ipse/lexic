@@ -259,13 +259,13 @@ IrBind(item: int, mode: str, semantic: bool = True)
 
 Sharing, on the tree route: the forest interns nodes, and the first occurrence wins in the offset pass. That is exact for every NON-EMPTY node — a non-empty derivation is chart-keyed by its span, so it cannot be shared across positions — and only zero-width nodes can collide, which is the one case that route cannot separate.
 
-`codegen/binding.py`'s `compute_binding(codegen_grammar)` produces these (one `RuleBinding` per rule, `fields: dict[str, IrBind]`); `codegen/model_emitter.py` renders them into `Annotated[<type>, IrBind(...)]` field metadata; `parsing/fold.py`'s `ModelFold` bakes its IR body-table (`IrMap[IrRuleRef, ModelBody]`) to the same plain-data `FieldFold` shape (`(item, mode, name, lo)`), built by `compile.py` — the fold never imports `IrBind`/codegen directly, only the `BIND_MODES` vocabulary.
+`codegen/binding.py`'s `compute_binding(codegen_grammar)` produces these (one `RuleMap` per rule, `fields: dict[str, IrBind]`); `codegen/model_emitter.py` renders them into `Annotated[<type>, IrBind(...)]` field metadata; `parsing/fold.py`'s `ModelFold` bakes its IR body-table (`IrMap[IrRuleRef, ModelBody]`) to the same plain-data `FieldFold` shape (`(item, mode, name, lo)`), built by `compile.py` — the fold never imports `IrBind`/codegen directly, only the `BIND_MODES` vocabulary.
 
 ## `kind` semantics
 
-There is no `RuleSpec.kind` field anymore. `codegen/binding.py`'s `classify_rule(rule)` derives a rule's kind fresh from the codegen grammar (`RuleKind = Literal["sequence", "alternation", "value_str"]`), carried on `RuleBinding.kind`:
+There is no `RuleSpec.kind` field anymore. `codegen/binding.py`'s `classify_rule(rule)` derives a rule's kind fresh from the codegen grammar (`RuleKind = Literal["sequence", "alternation", "value_str"]`), carried on `RuleMap.kind`:
 
-| `kind` | Body shape | `RuleBinding.fields` | Generated class |
+| `kind` | Body shape | `RuleMap.fields` | Generated class |
 |---|---|---|---|
 | `"value_str"` | no `IrRuleRef` anywhere in the body | empty (implicit `value` field, no `IrBind`) | concrete; `value: <pattern type>` |
 | `"alternation"` | more than one non-empty arm remains after `hoist_arms` | empty | abstract (ABC); each arm's target rule is a subclass |

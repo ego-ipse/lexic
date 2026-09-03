@@ -22,7 +22,7 @@ import gc
 import weakref
 from threading import Barrier, Thread
 
-from lexic.compile.product import BindingRegistry, ProgramProduct
+from lexic.compile.product import ProductRegistry, ProgramProduct
 from lexic.parsing.caches import cached_entries, release
 from lexic.parsing.product import (
     MeaningOp,
@@ -53,7 +53,7 @@ class _Declaration:
         self.paths = paths
 
 
-REGISTRY: BindingRegistry[_Declaration, str] = BindingRegistry()
+REGISTRY: ProductRegistry[_Declaration, str] = ProductRegistry()
 """One registry for this witness's one declaration kind — a module-level
 singleton, as the class requires."""
 

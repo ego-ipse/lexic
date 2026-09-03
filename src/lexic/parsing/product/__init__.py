@@ -22,6 +22,9 @@ Four modules, one job each:
 ``regular``
     The authoritative regular-language proof — when a possessive recognizer
     may decide a region outright.
+``routines``
+    The verified program read back — one executable completion per rule, and
+    the only form any engine completes through.
 ``tree``
     Product-driven ParseTree completion, explicit result presence, and exact
     source-span derivation.
@@ -63,10 +66,8 @@ from lexic.parsing.product.abi.records import (
     CompletionRange,
     ConstantOp,
     Construction,
-    ConstructionTables,
     DecodeCode,
     DecodeOp,
-    Extent,
     FinishMappingOp,
     FinishSequenceOp,
     FlatRuleProduct,
@@ -99,7 +100,6 @@ from lexic.parsing.product.abi.records import (
     TableRoute,
     UniformRoute,
     ValidateOp,
-    construction_of,
 )
 from lexic.parsing.product.lower import (
     LoweringOwned,
@@ -107,6 +107,7 @@ from lexic.parsing.product.lower import (
     lower_routes,
 )
 from lexic.parsing.product.regular import RegularProof, prove_regular
+from lexic.parsing.product.routines import RuleRoutine, rule_routines
 from lexic.parsing.product.state import (
     MAPPING_INSERT,
     MAPPING_REPLACE,
@@ -150,8 +151,6 @@ __all__ = [
     "SymbolConstructor",
     "BoundSymbol",
     "Construction",
-    "ConstructionTables",
-    "construction_of",
     "MeaningOp",
     "RootOp",
     "RuleCompletion",
@@ -197,8 +196,9 @@ __all__ = [
     "DecodeCode",
     "OpCode",
     "RangeKind",
-    "Extent",
     "RuleProduct",
+    "RuleRoutine",
+    "rule_routines",
     "FlatRuleProduct",
     "CompletionRange",
     "RouteTable",

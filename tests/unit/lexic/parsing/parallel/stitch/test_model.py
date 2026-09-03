@@ -5,7 +5,7 @@ from __future__ import annotations
 from lexic.compile import compile_text
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
-from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
 from lexic.parsing.parallel.stitch.model import (
     derive_plan,
@@ -19,7 +19,7 @@ from tests.unit.lexic.parsing.parallel.stitch.support import (
 )
 
 
-def _envelope_case(cache_key: str) -> tuple[IrAst, ModelBinding, Envelope, IrAst]:
+def _envelope_case(cache_key: str) -> tuple[IrAst, ModelExecutable, Envelope, IrAst]:
     """The compiled fixture, its envelope shape, and the reparse target."""
     compiled = compile_text(ENVELOPE_SOURCE, cache_key=cache_key)
     grammar, binding = compiled.codegen_grammar, compiled.product
@@ -31,7 +31,7 @@ def _envelope_case(cache_key: str) -> tuple[IrAst, ModelBinding, Envelope, IrAst
 
 def _rebuilt_lead(
     grammar: IrAst,
-    binding: ModelBinding,
+    binding: ModelExecutable,
     shape: Envelope,
     target: IrAst,
     tail_text: str,
@@ -44,7 +44,7 @@ def _rebuilt_lead(
 
 
 def _moved_tails(
-    chunks: list[GrammarModel], shape: Envelope, binding: ModelBinding
+    chunks: list[GrammarModel], shape: Envelope, binding: ModelExecutable
 ) -> tuple[list[str], list[GrammarModel]]:
     """Non-``None`` :func:`envelope_tails`, for callers that already expect it
     to succeed over this fixture's shape."""

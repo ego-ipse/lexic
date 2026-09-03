@@ -36,7 +36,7 @@ from lexic.ir import (
     Reducer,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelBinding
+from lexic.parsing import ModelExecutable
 from lexic.parsing.earley.kernel.tables import atoms as tables_mod
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
@@ -137,9 +137,9 @@ def test_reduce_variant_elides_noise_models_without_changing_source_product():
     assert roots <= {str(rule.name) for rule in entry.variant.grammar.rules}
     omitted = reachable_rules(entry.variant.codegen_grammar, roots)
     assert omitted
-    assert omitted.isdisjoint(entry.variant.product.rules)
-    assert elide <= artifact.product.rules.keys()
-    assert not any(name.endswith("-sk") for name in artifact.product.rules)
+    assert omitted.isdisjoint(entry.variant.product.routines)
+    assert elide <= artifact.product.routines.keys()
+    assert not any(name.endswith("-sk") for name in artifact.product.routines)
 
 
 def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
@@ -188,7 +188,7 @@ def test_conditional_run_subparse_never_constructs_a_dropped_descendant():
     variant = cast(Any, escape.parse).func.__self__
     omitted = reachable_rules(variant.codegen_grammar, frozenset({"drop-sk"}))
     assert omitted == {"drop-sk", "noise-sk"}
-    assert omitted.isdisjoint(variant.product.rules)
+    assert omitted.isdisjoint(variant.product.routines)
     assert escape.fold.plan.aliases == {
         "drop-sk": "drop",
         "noise-sk": "noise",
@@ -467,7 +467,7 @@ class _StrSubclass(str):
 def _parse_into(
     grammar: IrAst,
     text: str,
-    binding: ModelBinding,
+    binding: ModelExecutable,
     results: list[GrammarModel | None],
     index: int,
 ) -> None:

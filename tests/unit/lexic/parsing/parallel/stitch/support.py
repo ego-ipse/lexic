@@ -7,7 +7,7 @@ from typing import NamedTuple
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.ir import IrAst
 from lexic.model import GrammarModel
-from lexic.parsing import ModelBinding, parse_model
+from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
@@ -23,7 +23,7 @@ class RecordingParse(NamedTuple):
         self,
         grammar: IrAst,
         source: str,
-        binding: ModelBinding,
+        binding: ModelExecutable,
         resolve: Resolver | None = None,
     ) -> GrammarModel:
         """Record one call, then invoke the ordinary model product."""

@@ -8,17 +8,16 @@ cache lines, and measured scaling flattens at ~1.8x however many cores exist.
 
 Handing each worker an EQUAL BUT DISTINCT grammar (and its own view of the
 binding) gives it its own memo entry, hence its own tables, hence its own cache
-lines. Measured on 8 threads: 1.82x shared, 3.71x with grammar replicas, 4.21x
-with the fold shallow-copied, 5.34x once the fold's container spine is
-copied too (:func:`_replicate` — deepcopy cannot be used, and a shallow
-copy leaves every table shared).
+lines. Measured on 8 threads: 1.82x shared, 3.71x with grammar replicas alone.
+The binding copy adds its own private completion container on top of that;
+:meth:`~lexic.parsing.executable.ModelExecutable.replica` is where the depth of that
+copy is decided, and the figures measured on a deeper one are not carried here.
 
-The models stay identical because the replica is equal by value and the fold
-copy holds the SAME synthesized classes — which is also the ceiling here.
-The classes are shared by necessity (two workers building two different
-classes for one rule would break model equality, the thing the split exists
-to preserve), so their own refcount traffic remains, and ~4.2x rather than
-the ~6.5x of fully separate artefacts is what this buys.
+The models stay identical because the replica is equal by value and holds the
+SAME synthesized classes — which is also the ceiling here. The classes are
+shared by necessity (two workers building two different classes for one rule
+would break model equality, the thing the split exists to preserve), so their
+own refcount traffic remains.
 """
 
 from __future__ import annotations
@@ -28,35 +27,15 @@ import threading
 from typing import NamedTuple
 
 from lexic.ir import IrAst
-from lexic.parsing.binding import ModelBinding
 from lexic.parsing.caches import adopt, memo
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.policy import available_workers
 
-Replica = tuple[IrAst, ModelBinding]
+Replica = tuple[IrAst, ModelExecutable]
 """One worker's private view: an equal grammar, and a binding copy."""
 
 
-def _binding_copy[M](binding: ModelBinding[M]) -> ModelBinding[M]:
-    """A binding whose rule map is this worker's own.
-
-    The memo keys on the BINDING's identity, so the copy has to be of the
-    binding; the rule map is rebuilt inside because it is the container every
-    completion reads, and therefore the one whose sharing costs the refcount
-    traffic that held eight threads below the throughput of one. The copy is
-    ONE level and its predecessor was six, so the scaling figure measured on
-    that deeper copy is not carried onto this one.
-
-    What it holds is deliberately NOT copied. The rule products and the
-    construction tables are immutable records, and a worker rebuilding them
-    would change what a model is built from; model equality across workers is
-    the contract the whole split rests on. Constructing the binding over the
-    private map is also what gives each worker its own executor, without a
-    second place deciding that.
-    """
-    return ModelBinding(dict(binding.rules), binding.owned)
-
-
-_REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelBinding, list[Replica]]] = memo(
+_REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelExecutable, list[Replica]]] = memo(
     {}, 0, 1
 )
 """Replica memo — (id(grammar), id(binding)) → (grammar, binding, replicas). The
@@ -64,7 +43,7 @@ strong references pin both ids, so a recycled id cannot alias a live entry."""
 
 
 def worker_replicas[M](
-    grammar: IrAst, binding: ModelBinding[M], count: int
+    grammar: IrAst, binding: ModelExecutable[M], count: int
 ) -> list[Replica]:
     """``count`` private ``(grammar, binding)`` views, grown and reused per pair.
 
@@ -85,7 +64,7 @@ def worker_replicas[M](
         _REPLICAS[key] = entry
     pool = entry[2]
     while len(pool) < count:
-        replica = (IrAst(grammar.rules, grammar.start), _binding_copy(binding))
+        replica = (IrAst(grammar.rules, grammar.start), binding.replica())
         # A replica exists to get its OWN memo entries — tables, products,
         # run analyses. They live inside this pool, so they release with it.
         adopt(key[0], *replica)
@@ -110,7 +89,7 @@ class _Assigned(NamedTuple):
     """
 
     grammar: IrAst
-    binding: ModelBinding
+    binding: ModelExecutable
     replica: Replica
 
 
@@ -129,7 +108,7 @@ def _resolve[M](
     mine: dict[tuple[int, int], _Assigned],
     key: tuple[int, int],
     grammar: IrAst,
-    binding: ModelBinding[M],
+    binding: ModelExecutable[M],
     workers: int,
 ) -> Replica:
     """Resolve a pair this thread has not cached, and prune what died.
@@ -149,7 +128,7 @@ def _resolve[M](
     return replica
 
 
-def thread_replica[M](grammar: IrAst, binding: ModelBinding[M]) -> Replica:
+def thread_replica[M](grammar: IrAst, binding: ModelExecutable[M]) -> Replica:
     """This thread's private view of ``(grammar, binding)`` — its own tables.
 
     The document-level twin of :func:`worker_replicas`: where a split hands each

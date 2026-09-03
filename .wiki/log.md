@@ -226,7 +226,7 @@ all five fields.
 `lexic.compile` altogether — the only route was a deep import of
 `compile.payload`, which the layering rule forbids. The seam was audited
 once and the family fixed: `export_value`, `compile_ast`,
-`build_codegen_grammar`, `compute_binding`, `synthesize` and `RuleBinding`
+`build_codegen_grammar`, `compute_binding`, `synthesize` and `RuleMap`
 joined `lexic.compile.__all__`. Everything still reachable-but-unlisted is
 either a stdlib import, or a symbol whose own package already exports it
 (`lexic.ir`'s `canonicalize`/`concretize`/the spine types, `lexic.parsing`'s
@@ -749,7 +749,7 @@ Landed on top of Task 0 below:
   Ruff/subprocess deleted from the compile path.
 - **Exported twin modules** ([[generated-modules]]): `export_module`/
   `export_source` (explicit-path-only writes, `inline_tables` option),
-  `bind_module` (import-time table attachment), `CompiledGrammar` moved
+  `attach_module` (import-time table attachment), `CompiledGrammar` moved
   to `compile/artifact.py` (+ `flavour`/`stem`), reserved class names
   trimmed to the real header. `tools/check_generated.py` is the corpus
   tool-clean gate (pyright/pylint default configs).
@@ -888,7 +888,7 @@ even after leaf-first rebuild). Fix: `codegen/binding.py` computes each
 rule's inlined-schema depth over the ref topology (`_schema_depths` —
 cycle edges add nothing, they stay def-refs; `ir/order.refs_in_order` is the
 new public edge extractor) and flags every 64th class along a chain
-(`_SCHEMA_JOINT_STRIDE`, `RuleBinding.schema_joint`, emitted as
+(`_SCHEMA_JOINT_STRIDE`, `RuleMap.schema_joint`, emitted as
 `__schema_joint__` ClassVar). `GrammarModel.__get_pydantic_core_schema__`
 (base.py) returns, for a *completed* joint, a shallow
 validate-through-the-class schema (`model_validate` + a `_joint_dump`
@@ -1048,7 +1048,7 @@ hand-authored-grammar helpers (`rule_of`/`item_of`/`analysis_of`) moved to
 ## 2026-07-13 — Vyx-parse Tasks 1–2: L1 multi-membership codegen + L2 root arm-choice packing
 
 Fixed both lexic bugs pinned by the probe. **L1 (multiple inheritance):**
-`RuleBinding.parent_class_name: str` → `parent_class_names: tuple[str, ...]`;
+`RuleMap.parent_class_name: str` → `parent_class_names: tuple[str, ...]`;
 `codegen/binding.py::_parent_rules` now returns every owning alternation of a
 unit-ref arm, ordered most-derived first (`_order_bases` over the transitive
 parent closure so a base that is itself an arm of another base precedes it —
@@ -1270,10 +1270,10 @@ Task 7 closes the IR-native codegen effort: the code has been IR-native since Ta
 
 - **Fixture fix + headline parity test.** `resources/ground_truth/json.abnf` was missing the `; @non-semantic ws` directive its `json.gbnf` sibling carried (the GBNF file even says in its header comment "both files must lower to the same neutral IR") — added. `tests/integration/test_cross_flavour.py` gained `test_json_gbnf_and_abnf_compile_to_identical_generated_source`: compiles both fixtures through the public `compile_text` entry point and asserts the generated module **source** is byte-identical modulo the one docstring line naming the (content-hashed, therefore necessarily distinct) stem. This is the user-visible form of `canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf)) == JSON_GRAMMAR`.
 - **`getting_started/`:** all five examples (`ex01`–`ex05`) already ran clean end-to-end against the current API (ported in earlier tasks) — no source changes needed. `getting_started/README.md` still described `MetaGrammarParser`, `model.__grammar__` as a `RuleSpec`, and a `compiled.specs` field that no longer exists — updated to `parse_grammar`/`compiled.grammar`/`__grammar__` as an `IrRule`.
-- **CLAUDE.md rewrite** (surgical, structure/voice kept): §Before-you-touch-anything gained a "RuleSpec cutover complete" bullet; §Current-state rewritten (three cutovers now: primitive-node V2, Lark→Earley, RuleSpec→IR-native); §Project-layout rewritten module-by-module against actual disk contents (`ir/bind.py`, `ir/canonical.py`, `ir/order.py`, `ir/meta.py`, `ir/mapping.py`, `codegen/binding.py`, `codegen/passes.py`, `parsing/fold.py` added; `derive.py`/`spec.py`/`emit.py`/`naming.py`/`topo.py`/`utils/`/`ir/regex_portable.py` — the last pre-dating this effort entirely — removed); pipeline diagram redrawn to the Target-pipeline shape verified against `compile.py`; §Layering-rules updated (`lexic.codegen` no longer imports `lexic.grammars` — codegen is IR-native, needs no flavour adapters); §IR-types fixed the known drift (records are `IrNamedTuple`, not `IrComposite` frozen dataclasses — verified against `ir/nodes.py`/`ir/base.py`/`ir/meta.py`) and gained an `IrCachingTuple` mention; new §`kind`-semantics subsection (now `RuleBinding.kind` via `classify_rule`, not `RuleSpec.kind`); §Field-naming re-pointed to `codegen/binding.py`'s `_HINT`/`_TIER2` tables; §GrammarModel rewritten against the actual `base.py` (`__grammar__: IrRule` + per-field `IrBind` metadata, no `to_ir_rule()`); §Directives fixed (`canonical_grammar`, not `compile_grammar`/`derive_specs`); §Import-paths — every listed import verified by actually importing it.
+- **CLAUDE.md rewrite** (surgical, structure/voice kept): §Before-you-touch-anything gained a "RuleSpec cutover complete" bullet; §Current-state rewritten (three cutovers now: primitive-node V2, Lark→Earley, RuleSpec→IR-native); §Project-layout rewritten module-by-module against actual disk contents (`ir/bind.py`, `ir/canonical.py`, `ir/order.py`, `ir/meta.py`, `ir/mapping.py`, `codegen/binding.py`, `codegen/passes.py`, `parsing/fold.py` added; `derive.py`/`spec.py`/`emit.py`/`naming.py`/`topo.py`/`utils/`/`ir/regex_portable.py` — the last pre-dating this effort entirely — removed); pipeline diagram redrawn to the Target-pipeline shape verified against `compile.py`; §Layering-rules updated (`lexic.codegen` no longer imports `lexic.grammars` — codegen is IR-native, needs no flavour adapters); §IR-types fixed the known drift (records are `IrNamedTuple`, not `IrComposite` frozen dataclasses — verified against `ir/nodes.py`/`ir/base.py`/`ir/meta.py`) and gained an `IrCachingTuple` mention; new §`kind`-semantics subsection (now `RuleMap.kind` via `classify_rule`, not `RuleSpec.kind`); §Field-naming re-pointed to `codegen/binding.py`'s `_HINT`/`_TIER2` tables; §GrammarModel rewritten against the actual `base.py` (`__grammar__: IrRule` + per-field `IrBind` metadata, no `to_ir_rule()`); §Directives fixed (`canonical_grammar`, not `compile_grammar`/`derive_specs`); §Import-paths — every listed import verified by actually importing it.
 - **README.md:** pipeline diagram redrawn (canonicalize → codegen-grammar passes → binding/codegen/fold, replacing the `derive_specs`/`ModelFold` shape); "action-driven" paragraph's example list (`derive` → `canonicalization`); test-grammar count (seven → eight `.gbnf` + two `.abnf` siblings); Project-status closing line gained the RuleSpec→IR-native cutover mention.
 - **Wiki:**
-  - `.wiki/lexic/ir-shapes.md` — full rewrite: `IrComposite` → `IrNamedTuple`/`IrCachingTuple` throughout; `IrGroup` removed (never existed post-cutover — an inline group is an `IrAlternation` used as an atom); `IrNot` re-homed to `ir/operators.py`, correctly shown as a variadic-tuple wrapper not a record; new sections for `IrBind`/`BIND_MODES`, `kind` semantics (now on `RuleBinding`), canonicalization (`ir/canonical.py`'s rewrite list + the headline fixpoint), and `codegen/passes.py`'s hoist/relax passes (successors of the retired `ir/derive.py` jobs); dispatch section corrected (`IrDispatch` is an `IrCachingTuple`, no `_resolve_cache` memo — `ir/mapping.py`'s `IrTypeMap.resolve` is a live MRO walk every time); dead `RuleSpec` section removed.
+  - `.wiki/lexic/ir-shapes.md` — full rewrite: `IrComposite` → `IrNamedTuple`/`IrCachingTuple` throughout; `IrGroup` removed (never existed post-cutover — an inline group is an `IrAlternation` used as an atom); `IrNot` re-homed to `ir/operators.py`, correctly shown as a variadic-tuple wrapper not a record; new sections for `IrBind`/`BIND_MODES`, `kind` semantics (now on `RuleMap`), canonicalization (`ir/canonical.py`'s rewrite list + the headline fixpoint), and `codegen/passes.py`'s hoist/relax passes (successors of the retired `ir/derive.py` jobs); dispatch section corrected (`IrDispatch` is an `IrCachingTuple`, no `_resolve_cache` memo — `ir/mapping.py`'s `IrTypeMap.resolve` is a live MRO walk every time); dead `RuleSpec` section removed.
   - `.wiki/lexic/architecture.md` — full rewrite: pipeline diagram redrawn to match `compile.py` exactly; new "positional fold replaces the wrapper-rule bridge" section explaining `kids[i] ↔ items[i]`; layering table/exceptions updated (`lexic.codegen ✗ lexic.grammars`); module ownership + file tree updated to current disk contents; explicit note that `ir/derive.py`/`spec.py`/`emit.py`/`naming.py`/`topo.py`/`parsing/models.py`/`utils/` are gone outright.
   - `.wiki/lexic/new-codegen.md` **renamed to `.wiki/lexic/codegen.md`** and fully rewritten: it described the Tasks-8–14 `new_codegen/` scaffold built against `NewRuleSpec` during the May cutover; the page now documents the current IR-native `lexic.codegen` (`passes.py`'s three grammar→grammar rewrites, `binding.py`'s open-table binding view, `model_emitter.py`'s `Annotated`/`IrBind` field emission, `aliases.py` unchanged in spirit). `.wiki/index.md` re-pointed.
   - `.wiki/lexic/field-naming.md` — full rewrite: source moved from `ir/naming.py`+`ir/derive.py` to `codegen/binding.py`; `_ATOM_HINT`/`_FIELD_BASE` closed dicts → `_HINT`/`_TIER2` open `IrDispatch` tables; `CHARCLASS_NAMES` corrected to 8 entries keyed by canonical (post-`canonicalize`) pattern forms, not the pre-canonical mixed-case spellings; added the fold-mode (`mode_for`/`BIND_MODES`) sibling-table note.
@@ -1393,7 +1393,7 @@ Tasks 4/5 consume them, Task 6 deletes derive):
   composition `build_codegen_grammar = relax(arm_hoist(hoist(ast)))`.
 - `src/lexic/codegen/binding.py` — the open-table successor of derive's
   classify/parents/naming: `compute_binding(codegen_grammar) ->
-  list[RuleBinding(rule_name, class_name, parent_class_name, kind, fields)]`
+  list[RuleMap(rule_name, class_name, parent_class_name, kind, fields)]`
   with `fields: dict[str, IrBind]`. Naming cascade and fold-mode derivation are
   `IrDispatch`/`IrTypeMap` tables (raising defaults — `IrNot` deliberately
   unregistered, canonicalize rewrite 4 removes it); `class_name_for` absorbs

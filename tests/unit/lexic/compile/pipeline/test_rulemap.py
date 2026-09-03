@@ -1,7 +1,7 @@
-"""Tests for compile/binding.py — the per-rule binding view.
+"""Tests for compile/pipeline/rulemap.py — the per-rule binding view.
 
-The actual test bodies live in :mod:`tests.unit.lexic.compile.pipeline.binding_cases`, bound here to
-:mod:`lexic.compile.pipeline.binding`.
+The actual test bodies live in :mod:`tests.unit.lexic.compile.pipeline.rulemap_cases`, bound here to
+:mod:`lexic.compile.pipeline.rulemap`.
 """
 
 from __future__ import annotations
@@ -16,11 +16,11 @@ from lexic.compile import (
     compute_binding,
     export_source,
 )
-from lexic.compile.pipeline import binding
+from lexic.compile.pipeline import rulemap
 from tests.paths import GBNF_GRAMMARS, GROUND_TRUTH
-from tests.unit.lexic.compile.pipeline.binding_cases import make_binding_tests
+from tests.unit.lexic.compile.pipeline.rulemap_cases import make_binding_tests
 
-globals().update(make_binding_tests(binding))
+globals().update(make_binding_tests(rulemap))
 
 
 # ── the declaration-order rule, over every generated class ────────────────
@@ -61,7 +61,7 @@ def test_declaration_order_is_required_first_on_every_generated_class(
 ) -> None:
     """``bind_fields``' documented order, over every rule of every grammar.
 
-    Two hand-built arms pin the rule in ``binding_cases``; this pins it on the
+    Two hand-built arms pin the rule in ``rulemap_cases``; this pins it on the
     whole corpus, and against the item slots the binding view reports rather
     than against the order the same function produced.
     """
