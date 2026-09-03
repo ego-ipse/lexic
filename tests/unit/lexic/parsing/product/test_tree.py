@@ -309,7 +309,7 @@ def test_replay_never_rebuilds_a_result_already_present_in_the_seed():
     executor = ProductExecutor(routines)
     result = executor.replay(node, dict(seeded))
     assert result == "seeded"
-    assert calls == []  # the tracked constructor was never called
+    assert not calls  # the tracked constructor was never called
 
 
 def test_a_fresh_build_of_the_same_node_does_call_the_constructor():

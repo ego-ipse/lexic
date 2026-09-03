@@ -1,6 +1,6 @@
 # Index — target-shaped parsing
 
-**Current state (2026-08-31):** `PROTOTYPE_15.md` closes the island-continuation
+**Current state (2026-09-03):** `PROTOTYPE_15.md` closes the island-continuation
 certificate and `PROTOTYPE_16.md` closes its shared-occurrence boundary and the
 exact-lane policy. One immutable row per contextual occurrence — keyed by
 consuming clone, channel slot, requested root and bound product — settles a
@@ -34,7 +34,9 @@ a cycle. The Round 16 closure audit returned `READY` on its fourth re-check.
 No unresolved planning or user decision prevents §2 implementation. No review
 authorizes a parsing regression. Production source began 2026-08-31: §2 and
 §3 are implemented and accepted; §4 is in progress at the merged step-3
-channel change (LEDGER.md carries every ruling and verification; TODO.md is
+channel change. `REVIEW_17.md` is the active pre-lint checkpoint: it preserves
+the sound migration but requires source-contract and benchmark-gate corrections
+before §4 can pass (LEDGER.md carries every ruling and verification; TODO.md is
 the live queue).
 
 ## Start here
@@ -64,6 +66,9 @@ before source work.
 
 The current packet is:
 
+- [`reports/REVIEW_17.md`](reports/REVIEW_17.md) — active §4 NO-GO review;
+  identifies the remaining source blockers and specifies the serial,
+  same-document, control-calibrated replacement performance gate;
 - [`PROMPT_16.md`](prompts/PROMPT_16.md) — closes shared-occurrence ambiguity
   against an occurrence-unrolled oracle and determines the exact-lane cost
   policy;
@@ -168,6 +173,7 @@ newer reports do not explicitly supersede them.
 | [`PROTOTYPE_16.md`](reports/PROTOTYPE_16.md) | Closes shared-occurrence composition, bottom semantics, the family-aware route certificate, and the uncapped exact-lane policy. |
 | [`P16_ADVERSARIAL.md`](reports/P16_ADVERSARIAL.md) | Records the Round 16 findings, corrections, reruns, and four-pass reopening review. |
 | [`REVIEW_16.md`](reports/REVIEW_16.md) | Gives the final fold-readiness verdict for the corrected Round 16 packet. |
+| [`REVIEW_17.md`](reports/REVIEW_17.md) | Active §4 pre-lint review: source-contract blockers and the replacement benchmark/ratchet contract. |
 
 ## Prototype inventory
 

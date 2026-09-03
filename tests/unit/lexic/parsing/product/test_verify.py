@@ -8,7 +8,7 @@ just its own row), and a value that is not an exact ``int`` — including an
 ``IntEnum`` member passes ``isinstance(x, int)``, so that would be the wrong
 test). Each test below starts from a program ``lower_product`` actually
 produced (so the baseline is real, not hand-typed) and mutates exactly one
-physical fact via ``_replace``, then asserts the refusal names it.
+physical fact via ``replaced``, then asserts the refusal names it.
 """
 
 from __future__ import annotations
@@ -22,31 +22,21 @@ from lexic.parsing.product.abi.records import (
     CaptureMode,
     CaptureSpec,
     MeaningOp,
-    OperandTables,
+    OpCode,
     PassOp,
+    ProductProgram,
     RecordConstructor,
-    RecordOp,
     RootOp,
     RuleProduct,
 )
-from lexic.parsing.product.lower import lower_product
+from lexic.parsing.product.lower import LoweringOwned, lower_product
 from lexic.parsing.product.verify import verify_exact_ints, verify_program
-
-
-def _identity_root(carry, _verdicts):
-    return carry
-
-
-def _always_equal(left, right):
-    return left == right
-
-
-class _Pair(tuple):
-    """A minimal declared record: two positional fields, no validation skip."""
-
-    @classmethod
-    def fast_construct(cls):
-        return (cls, {}, ("a", "b"))
+from tests.unit.lexic.parsing.product_test_helpers import (
+    Pair,
+    operands,
+    replaced,
+    two_text_capture_rule,
+)
 
 
 def _baseline():
@@ -55,32 +45,11 @@ def _baseline():
         RuleProduct(
             captures=(CaptureSpec(int(CaptureMode.ONE), 0),), completion=PassOp(0)
         ),
-        RuleProduct(
-            captures=(
-                CaptureSpec(int(CaptureMode.TEXT), 0),
-                CaptureSpec(int(CaptureMode.TEXT), 1),
-            ),
-            completion=RecordOp(0),
-            n_items=2,
-        ),
+        two_text_capture_rule(),
     ]
-    operands = OperandTables(
-        constants=(),
-        constructors=(),
-        sequences=(),
-        mappings=(),
-        meanings=(_always_equal,),
-        roots=(_identity_root,),
-        routes=(),
-        continuations=(),
-    )
-    from lexic.parsing.product.lower import LoweringOwned
-
-    owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=_Pair, names=("a", "b")),)
-    )
+    owned = LoweringOwned(constructors=(RecordConstructor(cls=Pair, names=("a", "b")),))
     program = lower_product(
-        rules, operands, owned=owned, root=RootOp(0), meaning=MeaningOp(0)
+        rules, operands(), owned=owned, root=RootOp(0), meaning=MeaningOp(0)
     )
     verify_program(program)  # the baseline itself must be clean
     return program
@@ -130,8 +99,8 @@ def test_a_real_lowered_program_verifies_clean():
 def test_refuses_a_completion_index_past_the_table():
     """A rule naming a completion range outside the declared table."""
     program = _baseline()
-    bad_rule = program.rules[0]._replace(completion=len(program.completions))
-    mutated = program._replace(rules=(bad_rule, *program.rules[1:]))
+    bad_rule = replaced(program.rules[0], completion=len(program.completions))
+    mutated = replaced(program, rules=(bad_rule, *program.rules[1:]))
     with pytest.raises(UnsupportedConstructError, match="names completion range"):
         verify_program(mutated)
 
@@ -140,8 +109,8 @@ def test_refuses_an_empty_completion_range():
     """A completion range of length 0 would complete without completing."""
     program = _baseline()
     ranges = list(program.completions)
-    ranges[0] = ranges[0]._replace(length=0)
-    mutated = program._replace(completions=tuple(ranges))
+    ranges[0] = replaced(ranges[0], length=0)
+    mutated = replaced(program, completions=tuple(ranges))
     with pytest.raises(UnsupportedConstructError, match="empty"):
         verify_program(mutated)
 
@@ -150,9 +119,9 @@ def test_refuses_a_completion_range_that_runs_off_its_table():
     """A range whose start+length exceeds the physical instruction table."""
     program = _baseline()
     ranges = list(program.completions)
-    over = ranges[0]._replace(length=ranges[0].length + 1000)
+    over = replaced(ranges[0], length=ranges[0].length + 1000)
     ranges[0] = over
-    mutated = program._replace(completions=tuple(ranges))
+    mutated = replaced(program, completions=tuple(ranges))
     with pytest.raises(UnsupportedConstructError, match="past its"):
         verify_program(mutated)
 
@@ -161,8 +130,8 @@ def test_refuses_a_negative_range_start():
     """A negative start index is refused outright."""
     program = _baseline()
     ranges = list(program.completions)
-    ranges[0] = ranges[0]._replace(start=-1)
-    mutated = program._replace(completions=tuple(ranges))
+    ranges[0] = replaced(ranges[0], start=-1)
+    mutated = replaced(program, completions=tuple(ranges))
     with pytest.raises(UnsupportedConstructError, match="starts at"):
         verify_program(mutated)
 
@@ -171,8 +140,8 @@ def test_refuses_an_unknown_range_kind():
     """A range kind naming neither the expression nor the fused tables."""
     program = _baseline()
     ranges = list(program.completions)
-    ranges[0] = ranges[0]._replace(kind=99)
-    mutated = program._replace(completions=tuple(ranges))
+    ranges[0] = replaced(ranges[0], kind=99)
+    mutated = replaced(program, completions=tuple(ranges))
     with pytest.raises(UnsupportedConstructError, match="unknown kind"):
         verify_program(mutated)
 
@@ -183,7 +152,7 @@ def test_refuses_an_unknown_range_kind():
 def test_refuses_mismatched_fused_opcode_and_operand_table_lengths():
     """The fused opcode and operand tables must be the same length."""
     program = _baseline()
-    mutated = program._replace(fused_operands=(*program.fused_operands, 0))
+    mutated = replaced(program, fused_operands=(*program.fused_operands, 0))
     with pytest.raises(UnsupportedConstructError, match="differ in length"):
         verify_program(mutated)
 
@@ -191,7 +160,7 @@ def test_refuses_mismatched_fused_opcode_and_operand_table_lengths():
 def test_refuses_mismatched_expression_opcode_and_operand_table_lengths():
     """The same shape check, for the physically separate expression tables."""
     program = _baseline()
-    mutated = program._replace(expression_operands=(*program.expression_operands, 0))
+    mutated = replaced(program, expression_operands=(*program.expression_operands, 0))
     with pytest.raises(UnsupportedConstructError, match="differ in length"):
         verify_program(mutated)
 
@@ -201,7 +170,7 @@ def test_refuses_an_unknown_opcode_in_the_fused_table():
     program = _baseline()
     opcodes = list(program.fused_opcodes)
     opcodes[0] = 999
-    mutated = program._replace(fused_opcodes=tuple(opcodes))
+    mutated = replaced(program, fused_opcodes=tuple(opcodes))
     with pytest.raises(UnsupportedConstructError, match="unknown opcode"):
         verify_program(mutated)
 
@@ -209,9 +178,9 @@ def test_refuses_an_unknown_opcode_in_the_fused_table():
 def test_refuses_an_operand_past_its_own_opcodes_row_table():
     """An operand index beyond the rows its own opcode actually declared."""
     program = _baseline()
-    operands = list(program.fused_operands)
-    operands[0] = operands[0] + 1000
-    mutated = program._replace(fused_operands=tuple(operands))
+    fused_operands = list(program.fused_operands)
+    fused_operands[0] = fused_operands[0] + 1000
+    mutated = replaced(program, fused_operands=tuple(fused_operands))
     with pytest.raises(UnsupportedConstructError, match="past the"):
         verify_program(mutated)
 
@@ -228,25 +197,19 @@ def test_refuses_a_record_instruction_naming_an_out_of_range_constructor():
     the defect this module's docstring calls out by name.
     """
     program = _baseline()
-    row = program.fused_operand_rows[int(_record_opcode())]
+    row = program.fused_operand_rows[int(OpCode.RECORD)]
     bad_row = tuple((999,) if entry == row[0] else entry for entry in row)
     rows = list(program.fused_operand_rows)
-    rows[int(_record_opcode())] = bad_row
-    mutated = program._replace(fused_operand_rows=tuple(rows))
+    rows[int(OpCode.RECORD)] = bad_row
+    mutated = replaced(program, fused_operand_rows=tuple(rows))
     with pytest.raises(UnsupportedConstructError, match="into `constructors`"):
         verify_program(mutated)
-
-
-def _record_opcode():
-    from lexic.parsing.product.abi.records import OpCode
-
-    return OpCode.RECORD
 
 
 def test_refuses_a_program_level_root_finalizer_out_of_range():
     """The root finalizer is named once for the whole program, bounded too."""
     program = _baseline()
-    mutated = program._replace(root=RootOp(len(program.operands.roots)))
+    mutated = replaced(program, root=RootOp(len(program.operands.roots)))
     with pytest.raises(UnsupportedConstructError, match="root finalizer"):
         verify_program(mutated)
 
@@ -254,7 +217,7 @@ def test_refuses_a_program_level_root_finalizer_out_of_range():
 def test_refuses_a_program_level_meaning_comparator_out_of_range():
     """The ambiguity-gate comparator is bounded the same way."""
     program = _baseline()
-    mutated = program._replace(meaning=MeaningOp(len(program.operands.meanings)))
+    mutated = replaced(program, meaning=MeaningOp(len(program.operands.meanings)))
     with pytest.raises(UnsupportedConstructError, match="meaning comparator"):
         verify_program(mutated)
 
@@ -262,8 +225,8 @@ def test_refuses_a_program_level_meaning_comparator_out_of_range():
 def test_refuses_continuations_that_do_not_pair_with_routes():
     """Continuations are positional against routes — an unpaired count is refused."""
     program = _baseline()
-    operands = program.operands._replace(continuations=(object(),))
-    mutated = program._replace(operands=operands)
+    mutated_operands = replaced(program.operands, continuations=(object(),))
+    mutated = replaced(program, operands=mutated_operands)
     with pytest.raises(UnsupportedConstructError, match="do not pair"):
         verify_program(mutated)
 
@@ -274,8 +237,8 @@ def test_refuses_continuations_that_do_not_pair_with_routes():
 def test_refuses_a_rule_whose_capture_modes_and_slots_disagree_in_length():
     """One mode per slot — mismatched lengths are a malformed capture layout."""
     program = _baseline()
-    bad_rule = program.rules[0]._replace(capture_slots=(0, 1))
-    mutated = program._replace(rules=(bad_rule, *program.rules[1:]))
+    bad_rule = replaced(program.rules[0], capture_slots=(0, 1))
+    mutated = replaced(program, rules=(bad_rule, *program.rules[1:]))
     with pytest.raises(UnsupportedConstructError, match="capture modes"):
         verify_program(mutated)
 
@@ -283,8 +246,8 @@ def test_refuses_a_rule_whose_capture_modes_and_slots_disagree_in_length():
 def test_refuses_an_unknown_capture_mode():
     """A capture mode outside the five lowered CaptureMode values."""
     program = _baseline()
-    bad_rule = program.rules[0]._replace(capture_modes=(99,))
-    mutated = program._replace(rules=(bad_rule, *program.rules[1:]))
+    bad_rule = replaced(program.rules[0], capture_modes=(99,))
+    mutated = replaced(program, rules=(bad_rule, *program.rules[1:]))
     with pytest.raises(UnsupportedConstructError, match="unknown modes"):
         verify_program(mutated)
 
@@ -292,8 +255,8 @@ def test_refuses_an_unknown_capture_mode():
 def test_refuses_a_negative_capture_slot():
     """A negative slot indexes nothing in any frame lane."""
     program = _baseline()
-    bad_rule = program.rules[0]._replace(capture_slots=(-1,))
-    mutated = program._replace(rules=(bad_rule, *program.rules[1:]))
+    bad_rule = replaced(program.rules[0], capture_slots=(-1,))
+    mutated = replaced(program, rules=(bad_rule, *program.rules[1:]))
     with pytest.raises(UnsupportedConstructError, match="negative slots"):
         verify_program(mutated)
 
@@ -301,7 +264,38 @@ def test_refuses_a_negative_capture_slot():
 def test_refuses_a_negative_arm_width():
     """n_items is a declared count — negative is not a lowered fact."""
     program = _baseline()
-    bad_rule = program.rules[1]._replace(n_items=-1)
-    mutated = program._replace(rules=(program.rules[0], bad_rule))
+    bad_rule = replaced(program.rules[1], n_items=-1)
+    mutated = replaced(program, rules=(program.rules[0], bad_rule))
     with pytest.raises(UnsupportedConstructError, match="declares -1 items"):
         verify_program(mutated)
+
+
+# ── replaced(): the shared _replace stand-in itself ──────────────────────
+
+
+def test_replaced_rebuilds_a_record_equal_to_one_hand_built():
+    """Overriding one field gives the SAME record a real ``_replace`` would."""
+    program = _baseline()
+    rebuilt = replaced(program, stateful=not program.stateful)
+    by_hand = ProductProgram(
+        program.rules,
+        program.completions,
+        program.expression_opcodes,
+        program.expression_operands,
+        program.expression_operand_rows,
+        program.fused_opcodes,
+        program.fused_operands,
+        program.fused_operand_rows,
+        program.operands,
+        program.root,
+        program.meaning,
+        not program.stateful,
+    )
+    assert rebuilt == by_hand
+
+
+def test_replaced_refuses_an_unknown_field_name():
+    """A typo'd override name is refused, not silently ignored."""
+    program = _baseline()
+    with pytest.raises(ValueError, match="bogus_field"):
+        replaced(program, bogus_field=1)

@@ -22,6 +22,7 @@ from collections.abc import Callable
 from operator import ne
 from typing import TYPE_CHECKING, NamedTuple
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.readout import accept_items
@@ -33,12 +34,15 @@ if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
 __all__ = [
     "AmbiguityPolicy",
     "BuiltMeaning",
+    "Flip",
     "MeaningBuilder",
     "MeaningMemo",
     "MeaningPair",
+    "MeaningPolicy",
     "Resolver",
     "ambiguity_points",
     "another_meaning",
+    "chosen_meaning",
     "dirty_cone",
     "different_meaning",
     "remembered",
@@ -173,6 +177,33 @@ class MeaningPair[Value](NamedTuple):
     witness: BuiltMeaning[Value] | None
 
 
+class MeaningPolicy[Value, NodeValue](NamedTuple):
+    """The interpretation, and how a span that means two things is settled.
+
+    The value-retaining twin of :class:`AmbiguityPolicy`, and the reason the
+    two travel as one: every consumer that asks the meaning question also has
+    to answer it, and passing the builder and the resolver separately let one
+    route settle with a build the other route already had.
+
+    :ivar builder: The interpretation's fresh and seeded entry points.
+    :ivar resolve: Settles a span that means two things; ``None`` refuses it.
+    """
+
+    builder: MeaningBuilder[Value, NodeValue]
+    resolve: Resolver | None = None
+
+
+class Flip(NamedTuple):
+    """One ambiguity point taking a family other than its default.
+
+    :ivar point: The packed handle whose family choice changes.
+    :ivar family: The packed-family index selected at ``point``.
+    """
+
+    point: int
+    family: int
+
+
 class MeaningMemo[NodeValue](NamedTuple):
     """What the default derivation meant, kept so an alternate can reuse it.
 
@@ -217,8 +248,7 @@ def remembered[Value, NodeValue](
 def replayed[Value, NodeValue](
     kernel: Kernel,
     root: int,
-    flipped: int,
-    choice: int,
+    flip: Flip,
     builder: MeaningBuilder[Value, NodeValue],
     memo: MeaningMemo[NodeValue],
 ) -> BuiltMeaning[Value] | None:
@@ -234,15 +264,14 @@ def replayed[Value, NodeValue](
 
     :param kernel: The finished kernel.
     :param root: The packed accepting handle.
-    :param flipped: The ambiguity point taking a different family.
-    :param choice: The selected packed-family index at ``flipped``.
+    :param flip: The ambiguity point, and the family it takes instead.
     :param builder: The interpretation's fresh and seeded entry points.
     :param memo: What the default derivation meant.
     :returns: The alternate's value, or ``None`` when it does not build.
     """
-    cone = dirty_cone(kernel, root, flipped)
+    cone = dirty_cone(kernel, root, flip.point)
     keep = {handle: node for handle, node in memo.nodes.items() if handle not in cone}
-    tree = FastTree(kernel, {flipped: choice})
+    tree = FastTree(kernel, {flip.point: flip.family})
     tree.memo.update(keep)
     built = tree.build(root)
     if not isinstance(built, ParseTree):
@@ -353,35 +382,91 @@ def different_meaning[Value, NodeValue](
     :returns: The already-built baseline and optional differing witness.
     """
     siblings = _sibling_roots(kernel, handle)
+    choices = _arm_choices(kernel, handle)
+    if not choices:
+        base = BuiltMeaning(first, builder.build(first))
+        return MeaningPair(base, _sibling_witness(kernel, siblings, base, builder))
+    base, memo = remembered(kernel, handle, builder, first)
+    witness = _sibling_witness(kernel, siblings, base, builder)
+    if witness is not None:
+        return MeaningPair(base, witness)
+    for flip in _flips(kernel, choices):
+        built = replayed(kernel, handle, flip, builder, memo)
+        if built is not None and not same_value(base.value, built.value):
+            return MeaningPair(base, built)
+    return MeaningPair(base, None)
+
+
+def _arm_choices(kernel: Kernel, handle: int) -> list[int]:
+    """The ambiguity points under ``handle`` that are genuine arm choices.
+
+    A SPLIT — one production carved two ways — has a defined answer and is
+    never a candidate; only a choice between arms can mean two things.
+    """
     bits = kernel.tables.packing.bits
-    choices = [
+    return [
         key
         for key in ambiguity_points(kernel, handle)
         if is_arm_choice(kernel.st.links[key], bits, kernel.tables.code_choice)
     ]
-    if not siblings and not choices:
-        return MeaningPair(BuiltMeaning(first, builder.build(first)), None)
 
-    if choices:
-        base, memo = remembered(kernel, handle, builder, first)
-    else:
-        base = BuiltMeaning(first, builder.build(first))
-        memo = None
+
+def _flips(kernel: Kernel, choices: list[int]) -> list[Flip]:
+    """Every non-default family at every arm choice, one point at a time."""
+    return [
+        Flip(key, index)
+        for key in choices
+        for index in range(1, len(kernel.st.links[key]))
+    ]
+
+
+def _sibling_witness[Value, NodeValue](
+    kernel: Kernel,
+    siblings: list[int],
+    base: BuiltMeaning[Value],
+    builder: MeaningBuilder[Value, NodeValue],
+) -> BuiltMeaning[Value] | None:
+    """The first sibling root that means something other than ``base``."""
     for alternate in siblings:
         other = FastTree(kernel, {}).build(alternate)
-        if isinstance(other, ParseTree):
-            built = BuiltMeaning(other, builder.build(other))
-            if not same_value(base.value, built.value):
-                return MeaningPair(base, built)
-    if memo is None:
-        return MeaningPair(base, None)
-    for key in choices:
-        bucket = kernel.st.links[key]
-        for index in range(1, len(bucket)):
-            built = replayed(kernel, handle, key, index, builder, memo)
-            if built is not None and not same_value(base.value, built.value):
-                return MeaningPair(base, built)
-    return MeaningPair(base, None)
+        if not isinstance(other, ParseTree):
+            continue
+        built = BuiltMeaning(other, builder.build(other))
+        if not same_value(base.value, built.value):
+            return built
+    return None
+
+
+def chosen_meaning[Value, NodeValue](
+    pair: MeaningPair[Value], policy: MeaningPolicy[Value, NodeValue]
+) -> Value:
+    """The value a possibly-ambiguous pair settles to, built at most once.
+
+    Shared by every consumer of :func:`different_meaning` that wants the
+    VALUE, so the refusal and the resolver contract cannot differ between the
+    routes. A resolver returning either derivation it was offered gets the
+    value already built from it; only one returning a third tree pays a build.
+
+    :param pair: What :func:`different_meaning` found for the span.
+    :param policy: The interpretation, and the caller's resolver.
+    :returns: The chosen meaning's value.
+    :raises UnsupportedConstructError: When the span means two things and the
+        policy carries no resolver.
+    """
+    witness = pair.witness
+    if witness is None:
+        return pair.first.value
+    if policy.resolve is None:
+        raise UnsupportedConstructError(
+            "parsing: ambiguous input — two derivations that mean different "
+            "things; supply a resolver to choose between them"
+        )
+    chosen = policy.resolve(pair.first.tree, witness.tree)
+    if chosen is pair.first.tree:
+        return pair.first.value
+    if chosen is witness.tree:
+        return witness.value
+    return policy.builder.build(chosen)
 
 
 def another_meaning[Value](

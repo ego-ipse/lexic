@@ -162,6 +162,6 @@ Search for forbidden constructs, restore cache or bytecode changes, run
 `git diff --check`, write the restart point, and stop. A Luna pass then
 brings the test tree to full coverage of the §4 tree before the hold; you do
 not run during it. The hold brings in a different model to review the
-completed §4 source; the reconciliation of `reports/WIP_EXTERNAL_REVIEW.md`,
+completed §4 source; the reconciliation of `reports/REVIEW_17.md`,
 external profiling, and commits belong to that review and to the user's
 resumption, not to this round.

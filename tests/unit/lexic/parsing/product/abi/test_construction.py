@@ -28,8 +28,8 @@ from lexic.parsing.product.abi.construction import (
 def test_record_constructor_defaults():
     """A bare RecordConstructor names only its class; everything else defaults."""
     entry = RecordConstructor(cls=tuple)
-    assert entry.names == ()
-    assert entry.optional == ()
+    assert not entry.names
+    assert not entry.optional
     assert entry.defaults == MappingProxyType({})
     assert entry.matched_field == ""
     assert entry.licensed is False
@@ -46,8 +46,8 @@ def test_symbol_constructor_defaults():
 def test_bound_symbol_defaults():
     """A bare BoundSymbol names only its resolved callable."""
     entry = BoundSymbol(apply=str)
-    assert entry.names == ()
-    assert entry.optional == ()
+    assert not entry.names
+    assert not entry.optional
     assert entry.matched == ""
 
 
@@ -107,7 +107,7 @@ def test_record_construction_optional_becomes_a_frozenset():
     entry = RecordConstructor(cls=tuple, names=("x", "y"), optional=(1, 0, 1))
     resolved = record_construction(entry)
     assert resolved.optional == frozenset({0, 1})
-    assert type(resolved.optional) is frozenset
+    assert resolved.optional.__class__ is frozenset
 
 
 # ── symbol_construction: never a licence ────────────────────────────────

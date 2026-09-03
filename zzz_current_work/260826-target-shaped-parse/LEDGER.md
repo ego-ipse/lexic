@@ -110,7 +110,122 @@ test, with a per-module covered/not-covered row. **User-ordered rename
 `compile/pipeline/binding.py` → `rulemap.py` (`RuleBinding` → `RuleMap`);
 `compile/module/bind.py` → `attach.py` (`bind_module` → `attach_module`,
 which changes the twin-module self-grammar statement and regenerates the
-twins). Luna also corrected: committed tests never cite effort history.
+twins). Luna also corrected: committed tests never cite effort history,
+and no `cast` in tests (about fifteen sites it added, the registry mirror's
+fake-typed-by-cast program the worst, all ordered replaced by real values).
+**Pre-hold requirements added by the user (2026-09-03):** the §4 tree is
+committed on a green `run_checks.sh` (step 6); every example and benchmark
+runs, delegated (step 7); the remote PR #22 is green on all four workflows
+(step 8). Remote state at the time: examples green; tests red only on the
+README badge; checks red on pylint findings in Luna's new tests plus one
+src R0801 duplicate (`earley/engine.py:229-242` vs `products.py:166-179`,
+the witness/resolve block — coordinator ruling pending); performance
+regression's same-run A/B fails in its compare step within 20 s, cause
+unknown. The coordinator spawned `vega-ci` (Opus) for the A/B diagnosis
+and the example/benchmark runs while Luna was still working; the user
+killed it — **agents run one at a time; Vega is spawned only after Luna
+stops.** **Luna stopped (2026-09-03):** suite 5516/8/0 at `-n 8`, pyright
+0, `check_generated` 0/53, README badge rendered, pylint zero findings in
+every file Luna touched (45 test files + `product_test_helpers.py`); the
+PEP 695 NamedTuple `_replace` gap is routed through one `replaced()`
+helper rebuilding from `__annotations__`; the registry test keys on a
+frozen dataclass `Source` and produces the stale-weakref race through the
+public path. Design gap recorded in the §6 bullet: `ProductRegistry`
+weak-keys sources, no IR/artefact type is weak-referenceable, and
+`register_model` never enters it. The user committed Savepoint 11
+(`c9c72fc6`) mid-pass. `vega-ci` (Opus) spawned after Luna stopped: A/B
+diagnosis, examples, benchmarks, the 48 src pylint findings tabulated for
+ruling. **A/B root cause (Vega):** the same-run A/B holds HEAD's harness
+constant and swaps only `lexic` (base = the PR base sha `0faa7289`), and
+the harness imports internals the PR renamed — `lexic.parsing.
+ProductExecutor` (base has `ModelFold`), `CompiledGrammar.product`
+(base `.fold`), `CompiledGrammar.executor`, `binding.executor` — so the
+base arm fails at import. Not a regression. Coordinator ruling: the
+harness broke its own invariant by driving lexic through internals; the
+root fix is every exact-row worker on the PUBLIC surface that exists in
+both trees; Vega investigates row by row and does it if every row can be
+expressed there, else stops for the user. `tools/run_examples.sh` exit 0
+over ex01–ex17.
+**Vega's corrections (2026-09-03, `reports/S4_VEGA_CI.md`):** (1) the 48
+pylint findings are ALL this effort's — the PR base tree is 10.00/10 with
+zero findings under the same config; "pre-existing" only ever meant
+"before Savepoint 10". 46 in src (28 W0621 `Carry` shadowing a
+module-level `Carry` in flatten/build/construction/tree; 6 R0913 + 6 R0917
+on the same six sites; 3 R0903; 2 R0914; 1 W2301), 1 E1136 in
+`tests/.../test_decisions.py:106`, and the R0801 duplicate between
+`earley/engine.py` and `products.py`, which this effort created when
+`different_meaning` replaced `another_meaning` and grew the shared tail
+from 5 to 13 lines — owner `forest/support/ambiguity.py` (beneath both,
+already imported by both). (2) `products.py:183-184` carries a comment
+banner twice. (3) Benchmarks: full report, parallel diagnostic and split
+A/B all exit 0; Vega fixed one tools bug at the root (`split_ab.py`'s repo
+root `parents[2]`→`parents[3]` after its move into `diagnostics/`, which
+had hidden the vyx case). (4) The pre-commit ratchet
+(`tools.benchmark.regression`, hook `lexic-benchmark-regression`) exits 1
+on HEAD on a multithreaded row AND exits 1 on the base tree on a different
+MT row on this host, whose thread scaling degrades past four threads —
+not evidence of a regression here; settling it needs the recording
+machine or the CI runner, and it gates the COMMIT. All src findings go to
+Terra before the commit.
+**Vega's harness migration (2026-09-03):** the genuinely internal reaches
+are gone (dead `Bench.executor`, `_model_product`, `pda_model`, `PdaFail`,
+`LexicError`, `.product`/`.executor` reads; `_decision_cost` now drives
+`watch(compiled.pda_tables(), corpus, cap=…)` and `run.derived`; the report
+row sets and directive legends verified identical across the twelve
+grammars). 36 of 72 A/B rows (`lexic-pda`, `lexic-lex`, `lexic-lex-ns`)
+cross the tree boundary through `CompiledGrammar.parse`. The other 36
+(`lexic-earley`, `lexic-mt`, `lexic-mt-lex-ns`) are blocked on ONE PUBLIC
+name: the compiled grammar's build object is `CompiledGrammar.fold` on
+base and `.product` here, every model-product entry takes it positionally,
+and base is immutable — not a harness sin, a public field rename. User
+decision pending: keep `fold` as the public field (72 rows green,
+permanently, at the price of a legacy name) or drop the three blocked row
+types for this PR and restore them post-merge (36 rows green; the effort's
+own §0-baseline engine rows cover the rest). Coordinator recommends the
+latter. `split_ab.py` deliberately left on internals (a diagnostic; moving
+its pda row would change the measured noun). `terra-s4d` (Opus, fresh,
+brief `prompts/TERRA_S4D.md`) spawned after Vega stopped, for the lint
+debt. Vega's addendum (§6f): the 36 crossing rows A/B'd against the PR
+base at 7 rounds — zero regressions, worst row `csv/lexic-pda` +1.02%
+inside a ±1.9% identical-tree floor, twelve rows more than 20% faster
+(`mixedends/lexic-lex` −76.45%, `announced/lexic-lex` −68.06%); taken
+while Terra S4D may have been active, so informational — the remote
+re-measures.
+**Terra S4D rulings (2026-09-03):** the 28 W0621 are a pylint 4.0.5 /
+astroid 4.0.4 scope defect — a PEP 695 `type X[Carry]` statement's
+parameter is hoisted into module scope by the linter but not at runtime
+(probe: `'Carry' in vars(module)` is False) — so the root fix is
+structural, not a rename: generic `type` aliases live in modules without
+generic free functions (`abi/records.py` is the precedent). Allowed:
+`construction.py` classmethods (killing its R0903), the intern vocabulary
+and flatten's `BuildPlan`/`FastConstruction` into `construction.py` (two
+longhand spellings become the alias), and a new `product/results.py` for
+the completion-presence vocabulary (`Completed`, `EmptyResult`,
+`EMPTY_RESULT`, `CompletionResult`, `ResultMemo`) with its CLAUDE.md line
+and a mirror made by MOVING the existing tests; import-time rows removed
+from the wholesale-compared modules are disclosed non-defects with every
+body row byte-identical. The three paid-path R0913 sites (`build_sequence`,
+`build_validated`, `_captured`): never a per-call allocation — first
+derivability (an argument that is a function of another travels as the
+other), then per-parse packing (one object built once per parse), then a
+measured window under the structural protocol; a cost outside the floor,
+or no path to five arguments, stops for the user's call between the lint
+gate and the zero-tax rule.
+**User ruling on the A/B (2026-09-03): dropping rows is REJECTED WITH
+PREJUDICE. The gate must work, all 72 rows.** Coordinator's resolution,
+no shim and no legacy name: the harness's "held constant" invariant is
+restated as "row DEFINITIONS held constant by name; worker code runs from
+each tree against its own lexic". HEAD's `compare.py` stays the
+orchestrator and comparator; the base arm's exact-row workers are launched
+from the base checkout (`../base`, which the workflow already has) with
+base's own `tools/benchmark` on the path, HEAD's from HEAD; the row-name
+sets are asserted equal before any comparison; the README of
+`tools/benchmark` states the invariant and why (a public rename between
+trees is exactly what a cross-version A/B must survive). The user ran
+`git restore tools/`, discarding Vega's half-migration ("start from
+scratch"); the warm Vega implements the per-tree design on the clean
+`tools/` from `prompts/VEGA_S4B.md` after Terra S4D stops (one agent on
+the tree), re-applying only the `split_ab.py` repository-root fix.
 
 **§4 bullets.** Closed this round and standing: island/delegate/parallel
 migration, trace, foldkit/notation/self-grammar, deletion, completion-range

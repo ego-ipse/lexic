@@ -253,7 +253,7 @@ def test_table_route_probes_a_dict_rather_than_scanning():
 def test_operand_tables_symbols_defaults_to_empty():
     """OperandTables.symbols is the one optional field — every other is required."""
     tables = OperandTables((), (), (), (), (), (), (), ())
-    assert tables.symbols == ()
+    assert not tables.symbols
 
 
 def test_operand_tables_field_order():
@@ -270,7 +270,7 @@ def test_operand_tables_field_order():
         continuations=(continuation,),
         symbols=(),
     )
-    assert tables._fields == (
+    assert tuple(type(tables).__annotations__) == (
         "constants",
         "constructors",
         "sequences",
@@ -292,7 +292,7 @@ def test_product_program_field_order():
     no type error, which is exactly why this pins the tuple rather than only
     the keyword access.
     """
-    assert ProductProgram._fields == (
+    assert tuple(ProductProgram.__annotations__) == (
         "rules",
         "completions",
         "expression_opcodes",

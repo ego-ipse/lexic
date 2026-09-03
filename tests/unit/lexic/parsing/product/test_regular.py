@@ -14,14 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-import lexic.parsing.product.regular as regular
 from lexic.compile import canonical_grammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
-from lexic.ir import IrRule
+from lexic.ir import IrAlternation, IrRule, IrRuleRef
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import build_recognizer
-from lexic.parsing.product.regular import prove_regular
+from lexic.parsing.product.regular import _closure_holds, _items, prove_regular
 
 RELATION = (
     "root ::= expr op expr\n"
@@ -171,7 +170,9 @@ def test_neutralising_the_group_obligation_revives_every_unsound_shape(monkeypat
     """With ``_group_holds`` stubbed to always succeed, the unsound shapes
     that this module's own machinery declines would ALL prove again — proof
     that the obligation, not something else, is what makes them decline."""
-    monkeypatch.setattr(regular, "_group_holds", lambda *_args: True)
+    monkeypatch.setattr(
+        "lexic.parsing.product.regular._group_holds", lambda *_args: True
+    )
     cases = [
         ('root ::= pair "c"\npair ::= ("a" | "ab")+\n', "pair", "c"),
         ('root ::= word "c"\nword ::= ("a" | "ab")\n', "word", "c"),
@@ -192,21 +193,18 @@ def test_neutralising_the_reference_walk_revives_both_referenced_shapes(monkeypa
     # Restore the exact old behaviour: thread the REGION tail to every
     # reference instead of each reference's own remainder.
     def _old_question(first, rules, items, tail, proved):
-        from lexic.ir import IrAlternation, IrRuleRef
-
         for item in items:
             atom = item.atom
             if isinstance(atom, IrRuleRef):
-                if not regular._closure_holds(first, rules, str(atom), tail, proved):
+                if not _closure_holds(first, rules, str(atom), tail, proved):
                     return False
             elif isinstance(atom, IrAlternation) and not all(
-                _old_question(first, rules, regular._items(arm), tail, proved)
-                for arm in atom
+                _old_question(first, rules, _items(arm), tail, proved) for arm in atom
             ):
                 return False
         return True
 
-    monkeypatch.setattr(regular, "_references_hold", _old_question)
+    monkeypatch.setattr("lexic.parsing.product.regular._references_hold", _old_question)
     for source in (
         'root ::= word "z"\nword ::= a b\na ::= ("px" | "p")\nb ::= "x"\n',
         'root ::= word "z"\nword ::= a b\na ::= "p" "x"?\nb ::= "x"\n',

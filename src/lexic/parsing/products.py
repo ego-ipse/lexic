@@ -29,8 +29,8 @@ from lexic.parsing.caches import adopt, memo
 from lexic.parsing.earley.engine import EarleyParser, first_built_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
-    MeaningBuilder,
     Resolver,
+    chosen_meaning,
     different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
@@ -107,14 +107,8 @@ def earley_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
     """
-    executor = binding.executor
     return first_built_meaning(
-        EarleyParser(),
-        grammar,
-        text,
-        MeaningBuilder(executor.build, executor.replay),
-        tables,
-        resolve,
+        EarleyParser(), grammar, text, binding.meaning_policy(resolve), tables
     )
 
 
@@ -157,30 +151,12 @@ def token_model[M](
     tree = FastTree(kernel, {}).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")
-    executor = binding.executor
-    pair = different_meaning(
-        kernel,
-        handle,
-        MeaningBuilder(executor.build, executor.replay),
-        tree,
+    policy = binding.meaning_policy(resolve)
+    return chosen_meaning(
+        different_meaning(kernel, handle, policy.builder, tree), policy
     )
-    witness = pair.witness
-    if witness is None:
-        return pair.first.value
-    if resolve is None:
-        raise UnsupportedConstructError(
-            "parsing: ambiguous input — two derivations that mean different "
-            "things; supply a resolver to choose between them"
-        )
-    chosen = resolve(pair.first.tree, witness.tree)
-    if chosen is pair.first.tree:
-        return pair.first.value
-    if chosen is witness.tree:
-        return witness.value
-    return executor.build(chosen)
 
 
-# ── compiled-product records + per-identity memoisation ────────────────────
 # ── compiled-product records + per-identity memoisation ────────────────────
 
 

@@ -34,6 +34,7 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    Flip,
     MeaningBuilder,
     ambiguity_points,
     dirty_cone,
@@ -277,8 +278,7 @@ def the_replay_reuses_and_agrees(shape: Shape) -> None:
     reused = replayed(
         kernel,
         root,
-        flipped,
-        1,
+        Flip(flipped, 1),
         MeaningBuilder(incremental.build, incremental),
         memo,
     )

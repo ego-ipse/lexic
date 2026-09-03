@@ -17,53 +17,29 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.product.abi.construction import RecordConstructor, SymbolConstructor
 from lexic.parsing.product.abi.expressions import ArgExpr, ExprProgram
 from lexic.parsing.product.abi.records import (
-    CaptureMode,
-    CaptureSpec,
-    LoweredRoute,
+    BeginSequenceOp,
     MeaningOp,
     OpCode,
-    OperandTables,
     PassOp,
     RangeKind,
     RecordOp,
     RootOp,
+    RouteContinuation,
     RouteTable,
     RuleProduct,
     UniformRoute,
 )
 from lexic.parsing.product.lower import LoweringOwned, lower_product, lower_routes
-
-_ROOTS = (lambda carry, _verdicts: carry,)
-_MEANINGS = (lambda left, right: left == right,)
-
-
-class _Pair(tuple):
-    """A minimal declared record class with two fields, no defaults."""
-
-    @classmethod
-    def fast_construct(cls):
-        return (cls, {}, ("a", "b"))
-
-
-def _operands(
-    constructors: tuple[RecordConstructor, ...] = (),
-    routes: tuple[LoweredRoute, ...] = (),
-) -> OperandTables:
-    return OperandTables(
-        constants=(),
-        constructors=constructors,
-        sequences=(),
-        mappings=(),
-        meanings=_MEANINGS,
-        roots=_ROOTS,
-        routes=routes,
-        continuations=(),
-    )
+from tests.unit.lexic.parsing.product_test_helpers import (
+    Pair,
+    operands,
+    two_text_capture_rule,
+)
 
 
 def _lower(rules, owned=LoweringOwned()):
     return lower_product(
-        rules, _operands(), owned=owned, root=RootOp(0), meaning=MeaningOp(0)
+        rules, operands(), owned=owned, root=RootOp(0), meaning=MeaningOp(0)
     )
 
 
@@ -136,26 +112,12 @@ def test_a_pass_only_program_is_not_stateful():
 
 def test_a_record_only_program_is_not_stateful():
     """RECORD alone builds directly from captures — still no builder needed."""
-    owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=_Pair, names=("a", "b")),)
-    )
-    rules = [
-        RuleProduct(
-            captures=(
-                CaptureSpec(int(CaptureMode.TEXT), 0),
-                CaptureSpec(int(CaptureMode.TEXT), 1),
-            ),
-            completion=RecordOp(0),
-            n_items=2,
-        )
-    ]
-    assert _lower(rules, owned).stateful is False
+    owned = LoweringOwned(constructors=(RecordConstructor(cls=Pair, names=("a", "b")),))
+    assert _lower([two_text_capture_rule()], owned).stateful is False
 
 
 def test_a_program_with_a_sequence_opcode_is_stateful():
     """Any collection-builder opcode anywhere makes the WHOLE program stateful."""
-    from lexic.parsing.product.abi.records import BeginSequenceOp
-
     program = _lower([RuleProduct(captures=(), completion=BeginSequenceOp(0))])
     assert program.stateful is True
 
@@ -165,29 +127,27 @@ def test_a_program_with_a_sequence_opcode_is_stateful():
 
 def test_lower_routes_zero_known_keys_becomes_uniform():
     """A vocabulary table with no known keys bypasses classification entirely."""
-    (route,) = lower_routes([RouteTable(known=(), extension=7)])
-    assert route.route_of("anything") == 7
+    routes = lower_routes([RouteTable(known=(), extension=7)])
+    assert routes[0].route_of("anything") == 7
 
 
 def test_lower_routes_one_known_key_becomes_singleton():
     """Exactly one known key specializes to a single equality test."""
-    (route,) = lower_routes([RouteTable(known=(("type", 1),), extension=0)])
-    assert route.route_of("type") == 1
-    assert route.route_of("other") == 0
+    routes = lower_routes([RouteTable(known=(("type", 1),), extension=0)])
+    assert routes[0].route_of("type") == 1
+    assert routes[0].route_of("other") == 0
 
 
 def test_lower_routes_two_or_more_known_keys_becomes_a_table():
     """Two or more known keys specialize to one dictionary probe."""
-    (route,) = lower_routes([RouteTable(known=(("a", 1), ("b", 2)), extension=0)])
-    assert route.route_of("a") == 1
-    assert route.route_of("b") == 2
-    assert route.route_of("c") == 0
+    routes = lower_routes([RouteTable(known=(("a", 1), ("b", 2)), extension=0)])
+    assert routes[0].route_of("a") == 1
+    assert routes[0].route_of("b") == 2
+    assert routes[0].route_of("c") == 0
 
 
 def test_lower_routes_refuses_a_continuation_count_mismatch():
     """Continuations, when supplied, must pair one-to-one with the tables."""
-    from lexic.parsing.product.abi.records import RouteContinuation
-
     with pytest.raises(UnsupportedConstructError, match="do not pair"):
         lower_routes(
             [RouteTable(known=(), extension=0), RouteTable(known=(), extension=0)],
@@ -203,15 +163,22 @@ def test_refuses_a_constructor_entry_that_is_not_a_record_constructor():
     with pytest.raises(UnsupportedConstructError, match="written by lowering alone"):
         lower_product(
             [RuleProduct(captures=(), completion=PassOp(0))],
-            _operands(constructors=(RecordConstructor(cls=_Pair),)),
+            operands(constructors=(RecordConstructor(cls=Pair),)),
             root=RootOp(0),
             meaning=MeaningOp(0),
         )
 
 
 def test_refuses_a_constructor_whose_cls_is_not_a_class():
-    """A RecordConstructor naming a non-class object cannot build anything."""
-    entry = RecordConstructor._make(["not-a-class", (), (), {}, "", False])
+    """A RecordConstructor naming a non-class object cannot build anything.
+
+    The runtime defensive check this pins exists precisely because a caller
+    can violate the static ``type[Carry]`` contract (e.g. building
+    ``RecordConstructor`` from untyped data); expressing that requires the
+    real tuple constructor a NamedTuple is built on, not a value dishonestly
+    typed through the keyword one.
+    """
+    entry = tuple.__new__(RecordConstructor, ("not-a-class", (), (), {}, "", False))
     owned = LoweringOwned(constructors=(entry,))
     with pytest.raises(UnsupportedConstructError, match="not a class"):
         _lower([RuleProduct(captures=(), completion=RecordOp(0))], owned)
@@ -220,7 +187,7 @@ def test_refuses_a_constructor_whose_cls_is_not_a_class():
 def test_refuses_a_matched_field_the_class_does_not_have():
     """A declared own-text field the class's own fast_construct never names."""
     owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=_Pair, matched_field="c"),)
+        constructors=(RecordConstructor(cls=Pair, matched_field="c"),)
     )
     with pytest.raises(UnsupportedConstructError, match="has no such"):
         _lower([RuleProduct(captures=(), completion=RecordOp(0))], owned)
@@ -229,7 +196,7 @@ def test_refuses_a_matched_field_the_class_does_not_have():
 def test_refuses_a_matched_field_that_is_also_a_capture():
     """A field cannot be filled from BOTH the rule's own text and a capture."""
     owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=_Pair, names=("a",), matched_field="a"),)
+        constructors=(RecordConstructor(cls=Pair, names=("a",), matched_field="a"),)
     )
     with pytest.raises(UnsupportedConstructError, match="AND with a capture"):
         _lower([RuleProduct(captures=(), completion=RecordOp(0))], owned)
@@ -238,7 +205,7 @@ def test_refuses_a_matched_field_that_is_also_a_capture():
 def test_refuses_a_licensed_constructor_leaving_a_field_uncovered():
     """A licensed entry whose class has a field no capture or default reaches."""
     owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=_Pair, names=("a",), licensed=True),)
+        constructors=(RecordConstructor(cls=Pair, names=("a",), licensed=True),)
     )
     with pytest.raises(
         UnsupportedConstructError, match="neither a capture nor a default"
@@ -293,7 +260,7 @@ def test_refuses_a_prefilled_route_or_symbol_table():
     with pytest.raises(UnsupportedConstructError, match="written by lowering alone"):
         lower_product(
             [RuleProduct(captures=(), completion=PassOp(0))],
-            _operands(routes=(UniformRoute(extension=0),)),
+            operands(routes=(UniformRoute(extension=0),)),
             root=RootOp(0),
             meaning=MeaningOp(0),
         )

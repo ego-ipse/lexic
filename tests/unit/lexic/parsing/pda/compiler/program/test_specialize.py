@@ -159,24 +159,24 @@ def _bare_arm(n: int) -> FlatArm:
     return arm
 
 
-def _bare_clone(
-    mode=BUILD_VALUE_STR,
-    attempt=None,
-    struct_arm=None,
-    kwin_selectors=None,
-    pn_selectors=None,
-    selectors=(),
-    default=None,
-) -> FlatClone:
+_BARE_CLONE_DEFAULTS = {
+    "mode": BUILD_VALUE_STR,
+    "attempt": None,
+    "struct_arm": None,
+    "kwin_selectors": None,
+    "pn_selectors": None,
+    "selectors": (),
+    "default": None,
+}
+"""What ``_bare_clone`` sets on every field ``consult_arm``'s licence reads,
+before a caller's own overrides are applied."""
+
+
+def _bare_clone(**overrides) -> FlatClone:
     """A minimal FlatClone carrying only what consult_arm's licence reads."""
     clone = FlatClone.__new__(FlatClone)
-    clone.mode = mode
-    clone.attempt = attempt
-    clone.struct_arm = struct_arm
-    clone.kwin_selectors = kwin_selectors
-    clone.pn_selectors = pn_selectors
-    clone.selectors = selectors
-    clone.default = default
+    for name, value in {**_BARE_CLONE_DEFAULTS, **overrides}.items():
+        setattr(clone, name, value)
     return clone
 
 

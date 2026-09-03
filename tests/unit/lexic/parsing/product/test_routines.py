@@ -21,43 +21,23 @@ from lexic.parsing.product.abi.records import (
     CaptureSpec,
     ConstantOp,
     MeaningOp,
-    OperandTables,
     PassOp,
-    RecordOp,
     RootOp,
     RuleProduct,
 )
 from lexic.parsing.product.lower import LoweringOwned, lower_product
 from lexic.parsing.product.routines import rule_routines
-
-_ROOTS = (lambda carry, _verdicts: carry,)
-_MEANINGS = (lambda left, right: left == right,)
-
-
-class _Pair(tuple):
-    """A minimal declared record class with two fields."""
-
-    @classmethod
-    def fast_construct(cls):
-        return (cls, {}, ("a", "b"))
-
-
-def _operands() -> OperandTables:
-    return OperandTables(
-        constants=(),
-        constructors=(),
-        sequences=(),
-        mappings=(),
-        meanings=_MEANINGS,
-        roots=_ROOTS,
-        routes=(),
-        continuations=(),
-    )
+from tests.unit.lexic.parsing.product_test_helpers import (
+    Pair,
+    operands,
+    replaced,
+    two_text_capture_rule,
+)
 
 
 def _lower(rules, owned=LoweringOwned()):
     return lower_product(
-        rules, _operands(), owned=owned, root=RootOp(0), meaning=MeaningOp(0)
+        rules, operands(), owned=owned, root=RootOp(0), meaning=MeaningOp(0)
     )
 
 
@@ -104,8 +84,8 @@ def test_a_non_pass_non_record_fused_instruction_leaves_source_negative_one():
         [RuleProduct(captures=(), completion=ConstantOp(0))],
         owned=LoweringOwned(),
     )
-    program = program._replace(
-        operands=program.operands._replace(constants=(object(),))
+    program = replaced(
+        program, operands=replaced(program.operands, constants=(object(),))
     )
     (routine,) = rule_routines(program)
     assert routine.source == -1
@@ -114,18 +94,8 @@ def test_a_non_pass_non_record_fused_instruction_leaves_source_negative_one():
 
 def test_a_record_instruction_leaves_source_negative_one():
     """RECORD builds a record, not a pass-through — source is unused here."""
-    owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=_Pair, names=("a", "b")),)
-    )
-    rule = RuleProduct(
-        captures=(
-            CaptureSpec(int(CaptureMode.TEXT), 0),
-            CaptureSpec(int(CaptureMode.TEXT), 1),
-        ),
-        completion=RecordOp(0),
-        n_items=2,
-    )
-    program = _lower([rule], owned)
+    owned = LoweringOwned(constructors=(RecordConstructor(cls=Pair, names=("a", "b")),))
+    program = _lower([two_text_capture_rule()], owned)
     (routine,) = rule_routines(program)
     assert routine.source == -1
 
@@ -136,20 +106,12 @@ def test_a_record_instruction_leaves_source_negative_one():
 def test_record_resolves_the_constructor_lane_its_row_names():
     """The routine's construction is record_construction of the NAMED entry."""
     owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=_Pair, names=("a", "b"), matched_field=""),)
+        constructors=(RecordConstructor(cls=Pair, names=("a", "b"), matched_field=""),)
     )
-    rule = RuleProduct(
-        captures=(
-            CaptureSpec(int(CaptureMode.TEXT), 0),
-            CaptureSpec(int(CaptureMode.TEXT), 1),
-        ),
-        completion=RecordOp(0),
-        n_items=2,
-    )
-    program = _lower([rule], owned)
+    program = _lower([two_text_capture_rule()], owned)
     (routine,) = rule_routines(program)
     assert routine.construction is not None
-    assert routine.construction.call is _Pair
+    assert routine.construction.call is Pair
     assert routine.construction.names == ("a", "b")
 
 
@@ -210,9 +172,9 @@ def test_a_fused_range_of_more_than_one_instruction_refuses():
     # Two rules, two length-1 ranges over two distinct fused instructions
     # (distinct sources so the pool did not dedup them into one row).
     assert program.rules[0].completion != program.rules[1].completion
-    widened = program.completions[0]._replace(length=2)
+    widened = replaced(program.completions[0], length=2)
     mutated_completions = (widened, *program.completions[1:])
-    mutated = program._replace(completions=mutated_completions)
+    mutated = replaced(program, completions=mutated_completions)
     with pytest.raises(UnsupportedConstructError, match="not one rule completion"):
         rule_routines(mutated)
 

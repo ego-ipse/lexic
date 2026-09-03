@@ -730,7 +730,7 @@ holds.
       the generated-twin gate cannot wait until §7.
       (Done 2026-09-03: exit 0 over 53 modules, rerun after the deletion
       pass.)
-- [ ] **USER RULING (2026-09-02): full test coverage BEFORE the hold.** After
+- [x] **USER RULING (2026-09-02): full test coverage BEFORE the hold.** After
       Terra's source bullets, verification bullets and its two fresh reviewers,
       and before the hold, a Luna pass brings the test tree to full coverage of
       the §4 tree: a unit-test mirror for every new or moved source module
@@ -752,7 +752,13 @@ holds.
       expectations derived independently, adversarial inputs, tree defects
       kept as strict xfails and reported, never softened. Assertions pin
       ruled and witnessed contracts; no timing tests; property tests through
-      `guarded.sh`. Exit: the full suite
+      `guarded.sh`.
+      (Done 2026-09-03, Luna, `reports/S4_LUNA_COVERAGE.md`: 14 mirrors, 12
+      deleted-target rows, 9 re-pins, 8 created contracts, the harness
+      second barrier with a regression test, the badge, the 54-file diff
+      sweep; suite 5516/8/0 at `-n 8`, pyright 0, `check_generated` 0/53,
+      pylint zero findings in every touched file; the 48 pre-existing src
+      findings are the coordinator's ruling before the commit.) Exit: the full suite
       green at `-n 8`, `tools/run_checks.sh` exit 0 or every remaining
       finding attributed by file, pyright 0. Luna runs only after Terra has
       stopped; Terra does not resume during Luna's pass.
@@ -768,8 +774,17 @@ holds.
       the restart point and evidence; (6) **COMMIT (user-added 2026-09-03):**
       with `tools/run_checks.sh` at exit 0 the §4 tree is committed as the
       §4 savepoint — a green gate is the precondition, not a hope; the
-      commit is the user's unless a grant for the coordinator to run it is
-      recorded here; then hold. The hold brings in a different model to
+      **USER GRANT (2026-09-03): the coordinator commits the §4 savepoint
+      and pushes it to the PR branch to check the remote** — on a full diff
+      read, gates by unpiped exit code, explicit staging, no co-author
+      line; the grant covers this one savepoint, not later commits; (7) **(user, 2026-09-03) every example and benchmark
+      runs** — `tools/run_examples.sh` exit 0 and every `tools/benchmark`
+      entry point runs to completion on the §4 tree, delegated to a
+      subagent, results by exit code in `reports/`; (8) **the remote is
+      green** — all four workflows on the branch's PR (checks, tests,
+      examples, performance regression's same-run A/B) pass on the pushed
+      §4 savepoint; a red remote row is a §4 defect, never a hold with a
+      caveat; then hold. The hold brings in a different model to
       review the committed §4 source. Do not begin the external profile
       until the user resumes the effort.
 - [ ] After the user resumes, externally profile the generated-model product
@@ -854,7 +869,17 @@ bugfix-related exception has the user's explicit final approval recorded first.
       factories, executors, and entries in a distinct private compiler/artifact
       binding registries. The declaration's private `_bind` enters the one
       homogeneous registry for its kind, preserving `BoundProduct[Result]`
-      without a cast or heterogeneous result bag. Bound entries use weak source
+      (now `RegisteredProduct`, in `compile/product/registry.py` with
+      `ProductRegistry` and `register_model`) without a cast or
+      heterogeneous result bag. **Design gap found at §4 (2026-09-03):** the
+      registry keys on weak source references, but no IR-spine or artefact
+      type in the repository is weak-referenceable (`__slots__` without
+      `__weakref__`, repo-wide by design), and `register_model` never enters
+      the registry — so no real declaration can be registered today. Resolve
+      here: either the declaration type the registry keys on is made
+      weak-referenceable on purpose, or the registry stops weak-keying; the
+      §4 test pins the mechanism with a plain frozen record as the source.
+      Bound entries use weak source
       references, lock-free warm lookup, double-checked serialized cold build,
       and no source retention by the result-only bound program; eviction must
       only cause equivalent recompilation. Adopt derived product/PDA/Earley/

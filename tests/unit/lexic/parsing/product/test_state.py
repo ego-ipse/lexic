@@ -128,7 +128,7 @@ def test_first_duplicate_policy_keeps_the_first_value_silently():
     state.insert_mapping(handle, "a", 1, _VERDICT)
     state.insert_mapping(handle, "a", 2, _VERDICT)
     assert state.finish_mapping(handle) == (("a", 1),)
-    assert state.verdicts == ()
+    assert not state.verdicts
 
 
 def test_last_duplicate_policy_overwrites_in_place_keeping_position():
@@ -139,7 +139,7 @@ def test_last_duplicate_policy_overwrites_in_place_keeping_position():
     state.insert_mapping(handle, "b", 9, _VERDICT)
     state.insert_mapping(handle, "a", 2, _VERDICT)
     assert state.finish_mapping(handle) == (("a", 2), ("b", 9))
-    assert state.verdicts == ()
+    assert not state.verdicts
 
 
 def test_last_duplicate_rollback_restores_an_entry_overwritten_from_before_the_mark():

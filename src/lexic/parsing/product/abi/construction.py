@@ -19,8 +19,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
-from typing import NamedTuple, Protocol, cast
+from typing import NamedTuple
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrSpan
 
 __all__ = [
@@ -45,15 +46,6 @@ type ConstructionLicence[Carry] = tuple[
     tuple[str, ...],
 ]
 """A record's positional constructor, defaults, and field order."""
-
-
-class _LicensedRecord[Carry](Protocol):
-    """The cold class-side protocol behind a granted construction licence."""
-
-    @classmethod
-    def fast_construct(cls) -> ConstructionLicence[Carry]:
-        """Return the class's positional construction licence."""
-        ...
 
 
 class RecordConstructor[Carry](NamedTuple):
@@ -148,39 +140,45 @@ class BoundSymbol[Carry](NamedTuple):
     matched: str = ""
 
 
-class Construction[Carry]:
+class Construction[Carry](NamedTuple):
     """Resolved construction data shared by both model completion engines.
 
     The authored records keep class objects and symbol keys inert. This is the
     one resolved view both the PDA bake and ParseTree completion consume, so
     capture names, absence, matched-text ownership, and the positional licence
     cannot drift between engines.
+
+    :ivar call: What a completion invokes to build its value.
+    :ivar names: The keyword each capture fills, in capture order.
+    :ivar optional: Capture indices that may be absent.
+    :ivar defaults: What an omitted field falls back to on the licensed
+        positional path, which cannot omit.
+    :ivar matched: The keyword the rule's OWN matched extent fills.
+    :ivar licence: The positional validation-skip licence, or ``None``.
     """
 
-    __slots__ = ("call", "defaults", "licence", "matched", "names", "optional")
-
-    def __init__(
-        self,
-        call: Callable[..., Carry],
-        names: tuple[str, ...],
-        optional: frozenset[int],
-        defaults: Mapping[str, ProductValue[Carry]] = MappingProxyType({}),
-        matched: str = "",
-        licence: ConstructionLicence[Carry] | None = None,
-    ) -> None:
-        """Bind one completion's resolved construction data."""
-        self.call = call
-        self.names = names
-        self.optional = optional
-        self.defaults = defaults
-        self.matched = matched
-        self.licence = licence
+    call: Callable[..., Carry]
+    names: tuple[str, ...]
+    optional: frozenset[int]
+    defaults: Mapping[str, ProductValue[Carry]] = MappingProxyType({})
+    matched: str = ""
+    licence: ConstructionLicence[Carry] | None = None
 
 
 def _licence_of[Carry](cls: type[Carry]) -> ConstructionLicence[Carry]:
-    """Read the cold class-side licence after the authored flag grants it."""
-    licensed = cast(_LicensedRecord[Carry], cls)
-    return licensed.fast_construct()
+    """Read the cold class-side licence after the authored flag grants it.
+
+    :raises UnsupportedConstructError: When a class the binding flagged as
+        licensed cannot say how one of itself is built.
+    """
+    grant: Callable[[], ConstructionLicence[Carry]] | None
+    grant = getattr(cls, "fast_construct", None)
+    if grant is None:
+        raise UnsupportedConstructError(
+            f"product: {cls.__name__} was granted the construction licence but "
+            "does not say how one of itself is built"
+        )
+    return grant()
 
 
 def record_construction[Carry](entry: RecordConstructor[Carry]) -> Construction[Carry]:

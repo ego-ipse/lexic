@@ -35,9 +35,9 @@ from lexic.parsing.earley.kernel.forest.forest import (
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     AmbiguityPolicy,
-    MeaningBuilder,
-    Resolver,
+    MeaningPolicy,
     another_meaning,
+    chosen_meaning,
     different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
@@ -220,27 +220,29 @@ def first_built_meaning[Value, NodeValue](
     d: IrSelf,
     n: IrSelf,
     text: str,
-    builder: MeaningBuilder[Value, NodeValue],
+    policy: MeaningPolicy[Value, NodeValue],
     tables: ParserTables | None = None,
-    resolve: Resolver | None = None,
 ) -> Value:
-    """Return the chosen value, constructing each considered meaning once."""
+    """Return the chosen value, constructing each considered meaning once.
+
+    The value-route twin of :func:`first_meaning`: same derivation, same
+    question, and the answer is the VALUE rather than the tree that carried
+    it.
+
+    :param d: The dispatcher seam the forest readers thread.
+    :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
+    :param text: The input string.
+    :param policy: The interpretation, and the resolver that settles a span
+        meaning two things.
+    :param tables: Optional pre-built (run-collapsed) tables for ``n``.
+    :returns: The chosen meaning's value.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or means two
+        things and the policy carries no resolver.
+    """
     kernel, handle, first = _first_derivation(d, n, text, tables)
-    pair = different_meaning(kernel, handle, builder, first)
-    witness = pair.witness
-    if witness is None:
-        return pair.first.value
-    if resolve is None:
-        raise UnsupportedConstructError(
-            "parsing: ambiguous input — two derivations that mean different "
-            "things; supply a resolver to choose between them"
-        )
-    chosen = resolve(pair.first.tree, witness.tree)
-    if chosen is pair.first.tree:
-        return pair.first.value
-    if chosen is witness.tree:
-        return witness.value
-    return builder.build(chosen)
+    return chosen_meaning(
+        different_meaning(kernel, handle, policy.builder, first), policy
+    )
 
 
 class Recognize(IrLeaf[IrSelf, IrSelf]):

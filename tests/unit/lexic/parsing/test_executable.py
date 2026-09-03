@@ -10,8 +10,6 @@ over it, so a worker pays no lowering.
 
 from __future__ import annotations
 
-from typing import NamedTuple
-
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
@@ -27,6 +25,7 @@ from lexic.parsing.product import (
     RuleProduct,
 )
 from lexic.parsing.product.tree import ProductExecutor
+from tests.unit.lexic.parsing.product_test_helpers import Pair, two_text_capture_rule
 
 _RULES = {
     "a": RuleProduct(
@@ -94,32 +93,12 @@ def test_construction_verifies_and_refuses_a_bad_rule():
 
 def test_a_declared_constructor_resolves_through_the_bound_routine():
     """A real RECORD rule's routine carries the resolved construction."""
-
-    class _Pair(NamedTuple):
-        a: object = None
-        b: object = None
-
-        @classmethod
-        def fast_construct(cls):
-            return (cls, {}, ("a", "b"))
-
-    rules = {
-        "root": RuleProduct(
-            captures=(
-                CaptureSpec(int(CaptureMode.TEXT), 0),
-                CaptureSpec(int(CaptureMode.TEXT), 1),
-            ),
-            completion=RecordOp(0),
-            n_items=2,
-        )
-    }
-    owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=_Pair, names=("a", "b")),)
-    )
+    rules = {"root": two_text_capture_rule()}
+    owned = LoweringOwned(constructors=(RecordConstructor(cls=Pair, names=("a", "b")),))
     binding = ModelExecutable(rules, owned)
     construction = binding.routines["root"].construction
     assert construction is not None
-    assert construction.call is _Pair
+    assert construction.call is Pair
 
 
 # ── replica() ──────────────────────────────────────────────────────────

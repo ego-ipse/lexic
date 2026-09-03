@@ -18,8 +18,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from lexic.exceptions import SemanticVerdict
-from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
+from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    MeaningBuilder,
+    MeaningPolicy,
+    Resolver,
+    same_value,
+)
 from lexic.parsing.product import (
+    CompletionResult,
     LoweringOwned,
     MeaningOp,
     OperandTables,
@@ -107,6 +113,22 @@ class ModelExecutable[M]:
         resolved = rule_routines(self.program)
         self.routines = {name: resolved[code] for name, code in self.codes.items()}
         self.executor = ProductExecutor(self.routines)
+
+    def meaning_policy(
+        self, resolve: Resolver | None
+    ) -> MeaningPolicy[M, CompletionResult[M]]:
+        """This product's whole-document interpretation, and how to settle it.
+
+        What a span MEANS is the bound product's own business, so every parse
+        entry asking the ambiguity question asks it through the same pair of
+        entry points instead of assembling its own from the executor.
+
+        :param resolve: The caller's deterministic answer to an ambiguity;
+            ``None`` refuses one.
+        """
+        return MeaningPolicy(
+            MeaningBuilder(self.executor.build, self.executor.replay), resolve
+        )
 
     def replica(self) -> ModelExecutable[M]:
         """An equal binding whose routine map is a worker's own.
