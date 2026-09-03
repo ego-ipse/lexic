@@ -33,14 +33,7 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import (
-    F_ARM,
-    F_CLONE,
-    F_ENDS,
-    F_MODE,
-    F_OUT,
-    F_SINKS,
-    F_START,
-    alt_model,
+    Frame,
     build_sequence,
     build_vstr,
     fast_values,
@@ -68,7 +61,7 @@ class KernelExecutionMixin[Carry]:
 
     text: str
     pos: int
-    stack: list[list[Any]]
+    stack: list[Frame[Carry]]
     tables: PdaTables
     policy: IslandPolicy
     _caches: KernelCaches[Carry]
@@ -109,7 +102,7 @@ class KernelExecutionMixin[Carry]:
         if arm.n != clone.n_items:
             return leaf_mismatch(clone, out, arm.n, pos, self._caches.intern)
         start = pos
-        ends = [0] * arm.n
+        ends = [start] * (arm.n + 1)
         sinks: list[Any] | None = None
         for i in range(arm.n):
             k = arm.kinds[i]
@@ -153,8 +146,8 @@ class KernelExecutionMixin[Carry]:
                     if k == OP_LIT
                     else match_cc(text, arm, i, pos)
                 )
-            ends[i] = pos
-        out.append(clone.fast(fast_values(self.text, clone, (start, ends, sinks))))
+            ends[i + 1] = pos
+        out.append(clone.fast(fast_values(self.text, clone, (ends, sinks))))
         return pos
 
     def _match_vstr(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
@@ -313,46 +306,35 @@ class KernelExecutionMixin[Carry]:
 
     # ── frame completion → fused model build ──────────────────────────
 
-    def _complete(self, frame: list[Any]) -> None:
+    def _complete(self, frame: Frame[Carry]) -> None:
         """Pop a finished frame; build and report its model — the fused fold.
 
         A ``value_str`` frame slices its whole span, an ``alternation`` passes
         the first sub-model through, and a ``sequence`` binds each field to its
         item span or sub-model collection; a transparent frame builds nothing
-        (its children already funnelled to ``F_OUT``).
+        (its children already funnelled to ``out``).
         """
         self.stack.pop()
-        mode = frame[F_MODE]
+        mode = frame.clone.mode
         if mode == BUILD_TRANSPARENT:
             return  # children already funnelled to the nearest model sink
-        clone = frame[F_CLONE]
+        clone = frame.clone
         if mode == BUILD_SEQ:
-            if (
-                clone.fast is not no_fast_construction
-                and frame[F_ARM].n == clone.n_items
-            ):
+            if clone.fast is not no_fast_construction and frame.arm.n == clone.n_items:
                 model = clone.fast(
                     fast_values(
                         self.text,
                         clone,
-                        (frame[F_START], frame[F_ENDS], frame[F_SINKS]),
+                        (frame.ends, frame.sinks),
                     )
                 )
             else:
-                model = build_sequence(
-                    self.text,
-                    frame[F_ARM],
-                    frame[F_START],
-                    frame[F_ENDS],
-                    frame[F_SINKS],
-                    clone,
-                    self._caches.intern,
-                )
+                model = build_sequence(self.text, frame, clone, self._caches.intern)
         elif mode == BUILD_VALUE_STR:
             model = build_vstr(
-                clone, self.text[frame[F_START] : self.pos], self._caches.intern
+                clone, self.text[frame.ends[0] : self.pos], self._caches.intern
             )
         else:  # BUILD_ALT
-            model = alt_model(frame[F_SINKS])
+            model = frame.alt_model()
         if model is not None:
-            frame[F_OUT].append(model)
+            frame.out.append(model)

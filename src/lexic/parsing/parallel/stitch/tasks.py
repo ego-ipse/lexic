@@ -6,7 +6,7 @@ from lexic.ir import IrAst
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import Region, piece_marks
 from lexic.parsing.parallel.replicas import worker_replicas
-from lexic.parsing.parallel.stitch.model import RegionWork, derive_plan
+from lexic.parsing.parallel.stitch.plan import RegionWork, derive_plan
 from lexic.parsing.parallel.stitch.safety import owner_excludes
 
 

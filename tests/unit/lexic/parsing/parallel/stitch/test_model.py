@@ -7,11 +7,7 @@ from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
-from lexic.parsing.parallel.stitch.model import (
-    derive_plan,
-    envelope_tails,
-    stitch_envelope,
-)
+from lexic.parsing.parallel.stitch.model import envelope_tails, stitch_envelope
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import ENVELOPE_SOURCE
 from tests.unit.lexic.parsing.parallel.stitch.support import (
     assert_outer_split,
@@ -119,16 +115,6 @@ def test_a_non_final_piece_carrying_a_head_field_declines_the_envelope_stitch() 
     lead = _rebuilt_lead(grammar, binding, shape, target, texts[0])
 
     assert stitch_envelope(trimmed, [lead], shape, binding) is None
-
-
-def test_direct_candidate_short_tail_arm_declines_without_index_error() -> None:
-    """A malformed direct tail is a safe decline, not an indexing fallback."""
-    compiled = compile_text(
-        'root ::= group\ngroup ::= "(" node more* ")"\nnode ::= [a-z]+\nmore ::= ","\n'
-    )
-
-    assert derive_plan(compiled.codegen_grammar, compiled.product, "group") is None
-    assert compiled.parse("(alpha)").to_text() == "(alpha)"
 
 
 def test_direct_trailing_boundary_whitespace_round_trips_after_split() -> None:

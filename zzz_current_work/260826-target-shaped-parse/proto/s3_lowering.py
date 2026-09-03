@@ -26,6 +26,7 @@ from lexic.parsing.product import (
     BeginSequenceOp,
     CaptureMode,
     CaptureSpec,
+    ConstructionLicence,
     DecodeCode,
     DecodeOp,
     ExprCode,
@@ -43,6 +44,7 @@ from lexic.parsing.product import (
     ProductProgram,
     RangeKind,
     RecordConstructor,
+    RecordOp,
     RootOp,
     RouteContinuation,
     RouteTable,
@@ -353,14 +355,24 @@ class Spelled(NamedTuple):
 
 
 def _refuses(claim: str, entry: RecordConstructor) -> None:
-    """Lower a one-entry constructor table and require a refusal."""
+    """Lower a one-entry constructor table and require the gate to refuse it.
+
+    The RELATIONS between an entry and the rule naming it are the verifier's,
+    which is the gate that sees both sides; lowering checks only what one
+    entry alone can be wrong about.
+    """
+    captures = tuple(
+        CaptureSpec(CaptureMode.TEXT, at) for at in range(len(entry.names))
+    )
     try:
-        lower_product(
-            RULES,
-            OPERANDS,
-            owned=LoweringOwned(constructors=(entry,)),
-            root=RootOp(0),
-            meaning=MeaningOp(0),
+        verify_program(
+            lower_product(
+                (RuleProduct(captures, RecordOp(0)),),
+                OPERANDS,
+                owned=LoweringOwned(constructors=(entry,)),
+                root=RootOp(0),
+                meaning=MeaningOp(0),
+            )
         )
     except UnsupportedConstructError as refusal:
         print(f"matched\trefuses {claim}\t{refusal}")
@@ -385,7 +397,7 @@ def the_matched_field_is_declared_and_cross_checked() -> None:
                     Spelled,
                     defaults={"tag": ""},
                     matched_field="value",
-                    licensed=True,
+                    licence=ConstructionLicence(Spelled, {"tag": ""}, ("value", "tag")),
                 ),
             )
         ),
@@ -398,8 +410,12 @@ def the_matched_field_is_declared_and_cross_checked() -> None:
     )
 
     _refuses(
-        "a field the class does not have",
-        RecordConstructor(Spelled, matched_field="absent"),
+        "a field the licence does not order",
+        RecordConstructor(
+            Spelled,
+            matched_field="absent",
+            licence=ConstructionLicence(Spelled, {"tag": ""}, ("value", "tag")),
+        ),
     )
     _refuses(
         "a field a capture already fills",
@@ -407,11 +423,11 @@ def the_matched_field_is_declared_and_cross_checked() -> None:
     )
     _refuses(
         "a licensed record leaving an undeclared field unfilled",
-        RecordConstructor(Spelled, defaults={"tag": ""}, licensed=True),
-    )
-    _refuses(
-        "a class that cannot say how it is built",
-        RecordConstructor(str, matched_field="value"),
+        RecordConstructor(
+            Spelled,
+            defaults={"tag": ""},
+            licence=ConstructionLicence(Spelled, {"tag": ""}, ("value", "tag")),
+        ),
     )
 
 
@@ -561,7 +577,10 @@ def the_symbol_operation_resolves_through_a_registry() -> None:
 def an_expression_program_lowers_to_its_own_table() -> None:
     """The reducer-expression layer lands in the EXPRESSION table, not fused."""
     reducer_body = ExprProgram((ArgsExpr(), JoinExpr(0), ArgExpr(0)))
-    rules = (RuleProduct((), reducer_body), RuleProduct((), PassOp(0)))
+    rules = (
+        RuleProduct((), reducer_body),
+        RuleProduct((CaptureSpec(CaptureMode.ONE, 0),), PassOp(0)),
+    )
     program = lower_product(rules, OPERANDS, root=RootOp(0), meaning=MeaningOp(0))
     verify_program(program)
 

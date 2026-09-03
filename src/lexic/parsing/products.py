@@ -26,9 +26,10 @@ from dataclasses import dataclass
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo
-from lexic.parsing.earley.engine import EarleyParser, first_built_meaning
+from lexic.parsing.earley.engine import first_built_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    MeaningBuilder,
     Resolver,
     chosen_meaning,
     different_meaning,
@@ -107,8 +108,13 @@ def earley_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
     """
+    executor = binding.executor
     return first_built_meaning(
-        EarleyParser(), grammar, text, binding.meaning_policy(resolve), tables
+        grammar,
+        text,
+        MeaningBuilder(executor.build, executor.replay),
+        tables,
+        resolve,
     )
 
 
@@ -151,9 +157,10 @@ def token_model[M](
     tree = FastTree(kernel, {}).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")
-    policy = binding.meaning_policy(resolve)
+    executor = binding.executor
+    builder = MeaningBuilder(executor.build, executor.replay)
     return chosen_meaning(
-        different_meaning(kernel, handle, policy.builder, tree), policy
+        different_meaning(kernel, handle, builder, tree), builder, resolve
     )
 
 

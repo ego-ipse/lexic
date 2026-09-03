@@ -625,6 +625,9 @@ holds.
       the `_NO_SINK` `list[Any]` sink table remains the one recorded `Any`
       on that path. Revisited only when a typing change lands on its own
       merits (§8 touches the frame); never re-argued on performance.)
+      (PULLED FORWARD 2026-09-03 by Ruling 2/A3: the slotted typed `Frame[M]`
+      landed with §4, the six frame-indexing modules read slot attributes,
+      and the `_NO_SINK` `list[Any]` residue is gone with the type.)
 - [x] Lower operations to data. No target object or morphism is called from the
       character matcher, item loop, gate selection, or any frequent completion.
       Scalar decode, validation, insertion, and declared record construction

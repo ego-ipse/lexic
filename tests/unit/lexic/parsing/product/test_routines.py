@@ -30,7 +30,6 @@ from lexic.parsing.product.routines import rule_routines
 from tests.unit.lexic.parsing.product_test_helpers import (
     Pair,
     operands,
-    replaced,
     two_text_capture_rule,
 )
 
@@ -66,30 +65,34 @@ def test_routine_copies_the_verified_capture_layout_and_arm_width():
     program = _lower([rule])
     (routine,) = rule_routines(program)
     flat = program.rules[0]
+    modes = tuple(capture.mode for capture in routine.captures)
+    slots = tuple(capture.slot for capture in routine.captures)
     assert (
-        routine.modes
-        == flat.capture_modes
-        == (int(CaptureMode.MANY), int(CaptureMode.EXTENT))
+        modes == flat.capture_modes == (int(CaptureMode.MANY), int(CaptureMode.EXTENT))
     )
-    assert routine.slots == flat.capture_slots == (0, 1)
+    assert slots == flat.capture_slots == (0, 1)
     assert routine.n_items == flat.n_items == 2
 
 
 # ── every non-pass fused instruction leaves source == -1 ────────────────
 
 
-def test_a_non_pass_non_record_fused_instruction_leaves_source_negative_one():
-    """CONSTANT is neither PASS nor RECORD — no source, no construction."""
+def test_a_non_pass_non_record_fused_instruction_is_refused_at_binding():
+    """CONSTANT is neither PASS nor RECORD, so this binding cannot execute it.
+
+    It used to resolve to ``source == -1, construction is None`` and fail on
+    the first completion that reached it. A routine that cannot run is not a
+    routine, so the binding that proposes to execute it refuses instead.
+    """
     program = _lower(
         [RuleProduct(captures=(), completion=ConstantOp(0))],
         owned=LoweringOwned(),
     )
-    program = replaced(
-        program, operands=replaced(program.operands, constants=(object(),))
+    program = program._replace(
+        operands=program.operands._replace(constants=(object(),))
     )
-    (routine,) = rule_routines(program)
-    assert routine.source == -1
-    assert routine.construction is None
+    with pytest.raises(UnsupportedConstructError, match="no executor"):
+        rule_routines(program)
 
 
 def test_a_record_instruction_leaves_source_negative_one():
@@ -132,12 +135,13 @@ def test_a_lone_symbol_expression_resolves_the_symbol_lane():
     assert routine.source == -1
 
 
-def test_a_longer_expression_program_names_no_construction():
+def test_a_longer_expression_program_is_refused_at_binding():
     """A SYMBOL expression that is NOT the whole body is not a construction here.
 
     This is the boundary the module draws deliberately: a longer expression
     program is the later generic executor's concern, and reading only the
-    first instruction of a multi-op program would silently drop the rest.
+    first instruction of a multi-op program would silently drop the rest. It
+    is refused here rather than bound as a routine with nothing to run.
     """
     owned = LoweringOwned(
         symbols=(SymbolConstructor(symbol="tag", names=("value",)),),
@@ -145,17 +149,16 @@ def test_a_longer_expression_program_names_no_construction():
     )
     rule = RuleProduct(captures=(), completion=ExprProgram((ArgExpr(0), SymbolExpr(0))))
     program = _lower([rule], owned)
-    (routine,) = rule_routines(program)
-    assert routine.construction is None
-    assert routine.source == -1
+    with pytest.raises(UnsupportedConstructError, match="no executor"):
+        rule_routines(program)
 
 
-def test_a_non_symbol_lone_expression_names_no_construction():
-    """A one-instruction expression program that is not SYMBOL builds nothing here."""
+def test_a_non_symbol_lone_expression_is_refused_at_binding():
+    """A one-instruction expression that is not SYMBOL has no executor here."""
     rule = RuleProduct(captures=(), completion=ExprProgram((ArgExpr(0),)))
     program = _lower([rule])
-    (routine,) = rule_routines(program)
-    assert routine.construction is None
+    with pytest.raises(UnsupportedConstructError, match="no executor"):
+        rule_routines(program)
 
 
 # ── a fused range of more than one instruction refuses by name ──────────
@@ -172,9 +175,9 @@ def test_a_fused_range_of_more_than_one_instruction_refuses():
     # Two rules, two length-1 ranges over two distinct fused instructions
     # (distinct sources so the pool did not dedup them into one row).
     assert program.rules[0].completion != program.rules[1].completion
-    widened = replaced(program.completions[0], length=2)
+    widened = program.completions[0]._replace(length=2)
     mutated_completions = (widened, *program.completions[1:])
-    mutated = replaced(program, completions=mutated_completions)
+    mutated = program._replace(completions=mutated_completions)
     with pytest.raises(UnsupportedConstructError, match="not one rule completion"):
         rule_routines(mutated)
 

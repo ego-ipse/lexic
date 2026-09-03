@@ -165,7 +165,7 @@ def one_slot_can_be_captured_twice_in_two_modes() -> None:
     routines = pair.span_binding.routines
     entry = next(rule for name, rule in routines.items() if name.endswith("member-tm"))
 
-    slots = list(entry.slots)
+    slots = [capture.slot for capture in entry.captures]
     repeated = sorted({slot for slot in slots if slots.count(slot) > 1})
     _check(
         f"the entry clone captures {len(slots)} times over "
@@ -175,7 +175,7 @@ def one_slot_can_be_captured_twice_in_two_modes() -> None:
     both = sorted({int(CaptureMode.TEXT), int(CaptureMode.EXTENT)})
     for slot in repeated:
         modes = sorted(
-            {mode for at, mode in enumerate(entry.modes) if slots[at] == slot}
+            {mode for at, mode in enumerate(tuple(capture.mode for capture in entry.captures)) if slots[at] == slot}
         )
         _check(f"slot {slot} is captured twice under modes {modes}", modes == both)
 

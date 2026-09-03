@@ -25,7 +25,7 @@ from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import SYNTHETIC_PREFIX
 from lexic.parsing.product.abi.construction import Construction
 from lexic.parsing.product.abi.records import CaptureMode
-from lexic.parsing.product.routines import RuleRoutine
+from lexic.parsing.product.routines import CaptureRoutine, RuleRoutine
 from lexic.parsing.product.tree import (
     EMPTY_RESULT,
     Completed,
@@ -50,11 +50,23 @@ def _leaf(rule: str, *kids) -> ParseTree:
 
 
 def _pass(source: int) -> RuleRoutine:
-    return RuleRoutine(0, (int(CaptureMode.ONE),), (0,), 1, source, None)
+    return RuleRoutine(
+        0, (CaptureRoutine(0, int(CaptureMode.ONE), False, ""),), 1, source, None
+    )
 
 
 def _record(modes, slots, construction: Construction, n_items: int) -> RuleRoutine:
-    return RuleRoutine(0, tuple(modes), tuple(slots), n_items, -1, construction)
+    names = construction.names
+    captures = tuple(
+        CaptureRoutine(
+            slot,
+            mode,
+            at in construction.optional,
+            names[at] if at < len(names) else "",
+        )
+        for at, (slot, mode) in enumerate(zip(slots, modes, strict=True))
+    )
+    return RuleRoutine(0, captures, n_items, -1, construction)
 
 
 # ── subtree_text / tree_offsets / slot_span — pure text/position readers ──

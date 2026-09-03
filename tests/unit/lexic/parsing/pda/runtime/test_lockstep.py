@@ -17,7 +17,7 @@ they are pinned here directly rather than only through a parse:
 
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import Any
 
 from lexic.compile import compile_text
 from lexic.parsing.pda.runtime.admission import (
@@ -26,27 +26,22 @@ from lexic.parsing.pda.runtime.admission import (
     value_shape,
     values_agree,
 )
-from lexic.parsing.pda.runtime.build import F_ARM, F_COUNT, F_I, F_OUT
-
-
-class ArmStub(NamedTuple):
-    """Minimal arm — the bounds :func:`control_signature`'s count key consults."""
-
-    los: tuple[int, ...]
-    his: tuple[int, ...]
-    n: int
+from lexic.parsing.pda.runtime.build import Frame
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 
 def frames(
     los: tuple[int, ...], his: tuple[int, ...], i: int, counts: tuple[int, int]
-) -> tuple[list[Any], list[Any]]:
-    """Two frame stubs over ONE shared arm — the signature keys arm by identity,
-    so a fresh arm per frame would separate them for the wrong reason."""
-    arm = ArmStub(los, his, len(los))
-    made: list[list[Any]] = []
+) -> tuple[Frame[Any], Frame[Any]]:
+    """Two frame stubs over ONE shared arm and clone — the signature keys both
+    by identity, so a fresh one per frame would separate them for the wrong
+    reason."""
+    arm = flat_arm(len(los), los=los, his=his)
+    clone = flat_clone()
+    made: list[Frame[Any]] = []
     for count in counts:
-        frame: list[Any] = [None] * 9
-        frame[F_ARM], frame[F_I], frame[F_COUNT], frame[F_OUT] = arm, i, count, []
+        frame: Frame[Any] = Frame(arm, [], clone, 0)
+        frame.i, frame.count = i, count
         made.append(frame)
     return made[0], made[1]
 
@@ -77,7 +72,7 @@ def test_a_count_below_the_mandatory_floor_is_kept():
 def test_the_signature_ignores_the_values_built_so_far():
     """Values are the thing being MEASURED — folding them in defeats convergence."""
     stop, take = frames((0,), (-1,), 0, (1, 1))
-    stop[F_OUT], take[F_OUT] = ["left"], ["right"]
+    stop.out, take.out = ["left"], ["right"]
     assert control_signature([stop], 7) == control_signature([take], 7)
 
 
@@ -94,14 +89,14 @@ def test_divergent_pending_values_do_not_agree():
     failure the budget escape cannot protect against.
     """
     stop, take = frames((0,), (-1,), 0, (1, 1))
-    stop[F_OUT], take[F_OUT] = ["a"], ["b"]
+    stop.out, take.out = ["a"], ["b"]
     assert not values_agree(pending_values([stop]), pending_values([take]))
 
 
 def test_identical_pending_values_agree():
     """The common case — one production carved two ways to the same value."""
     stop, take = frames((0,), (-1,), 0, (1, 1))
-    stop[F_OUT], take[F_OUT] = ["same"], ["same"]
+    stop.out, take.out = ["same"], ["same"]
     assert values_agree(pending_values([stop]), pending_values([take]))
 
 
@@ -128,10 +123,10 @@ def test_the_watermark_compares_only_what_was_built_after_it():
     re-walked at every convergence.
     """
     stop, take = frames((0,), (-1,), 0, (1, 1))
-    stop[F_OUT], take[F_OUT] = ["shared"], ["shared"]
+    stop.out, take.out = ["shared"], ["shared"]
     mark = value_shape([stop])
-    stop[F_OUT].append("left")
-    take[F_OUT].append("right")
+    stop.out.append("left")
+    take.out.append("right")
     assert pending_values([stop], mark) == (("left",), ())
     assert not values_agree(pending_values([stop], mark), pending_values([take], mark))
 
@@ -143,16 +138,16 @@ def test_a_container_that_shrank_is_compared_whole():
     trusting a stale mark could skip a real difference.
     """
     (frame,) = frames((0,), (-1,), 0, (1, 1))[:1]
-    frame[F_OUT] = ["a", "b", "c"]
+    frame.out = ["a", "b", "c"]
     mark = value_shape([frame])
-    frame[F_OUT] = ["z"]
+    frame.out = ["z"]
     assert pending_values([frame], mark) == (("z",), ())
 
 
 def test_frames_deeper_than_the_watermark_are_compared_in_full():
     """A frame pushed after the boundary has no watermark and no shared prefix."""
     outer, inner = frames((0,), (-1,), 0, (1, 1))
-    outer[F_OUT] = ["before"]
+    outer.out = ["before"]
     mark = value_shape([outer])
-    inner[F_OUT] = ["after"]
+    inner.out = ["after"]
     assert pending_values([outer, inner], mark) == ((), (), ("after",), ())

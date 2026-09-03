@@ -66,6 +66,7 @@ from lexic.parsing.product.abi.records import (
     CompletionRange,
     ConstantOp,
     Construction,
+    ConstructionLicence,
     DecodeCode,
     DecodeOp,
     FinishMappingOp,
@@ -107,7 +108,11 @@ from lexic.parsing.product.lower import (
     lower_routes,
 )
 from lexic.parsing.product.regular import RegularProof, prove_regular
-from lexic.parsing.product.routines import RuleRoutine, rule_routines
+from lexic.parsing.product.routines import (
+    CaptureRoutine,
+    RuleRoutine,
+    rule_routines,
+)
 from lexic.parsing.product.state import (
     MAPPING_INSERT,
     MAPPING_REPLACE,
@@ -151,6 +156,7 @@ __all__ = [
     "SymbolConstructor",
     "BoundSymbol",
     "Construction",
+    "ConstructionLicence",
     "MeaningOp",
     "RootOp",
     "RuleCompletion",
@@ -192,6 +198,7 @@ __all__ = [
     # records — vocabularies and layout
     "CAPTURE_FOR_BIND",
     "CaptureMode",
+    "CaptureRoutine",
     "CaptureSpec",
     "DecodeCode",
     "OpCode",

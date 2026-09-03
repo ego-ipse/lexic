@@ -46,12 +46,7 @@ from lexic.parsing.pda.runtime.admission import (
     values_agree,
 )
 from lexic.parsing.pda.runtime.build import (
-    F_ARM,
-    F_COUNT,
-    F_ENDS,
-    F_I,
-    F_OUT,
-    close_loop,
+    Frame,
 )
 
 __all__ = ["Attempting", "sole_admitted"]
@@ -150,7 +145,7 @@ class Attempting[Carry]:
 
     text: str
     pos: int
-    stack: list[list[Any]]
+    stack: list[Frame[Carry]]
     _caches: KernelCaches[Carry]
     _routes: RouteLane | None
 
@@ -162,7 +157,7 @@ class Attempting[Carry]:
         """Provided by the kernel — drain the frame stack down to ``floor``."""
         raise NotImplementedError
 
-    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[Carry]:
+    def _sink_for(self, frame: Frame[Carry], arm: FlatArm, i: int) -> list[Carry]:
         """Provided by the kernel — item ``i``'s lazily-allocated sink."""
         raise NotImplementedError
 
@@ -171,7 +166,7 @@ class Attempting[Carry]:
         raise NotImplementedError
 
     def attempt_iteration(
-        self, frame: list[Any], arm: FlatArm, i: int, pos: int
+        self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
     ) -> int:
         """One ATTEMPTED optional loop iteration — failure closes the loop.
 
@@ -205,7 +200,7 @@ class Attempting[Carry]:
         char = self.text[pos : pos + 1]
         first = arm.gate_data[i][0]
         if not admits(char, *first):
-            return close_loop(frame, i, pos)
+            return frame.close_loop(i, pos)
         k = arm.kinds[i]
         if k in (OP_ISLAND, OP_FAIL):  # no (end, values) to fork-probe
             if self._stop_viable(arm, i, char):
@@ -216,12 +211,12 @@ class Attempting[Carry]:
             return self._attempt_island(frame, arm, i, pos)
         got = self._attempt_run(arm.payloads[i], pos)
         if got is None or got[0] == pos:
-            return close_loop(frame, i, pos)
+            return frame.close_loop(i, pos)
         if not self._attempt_choice(arm, i, pos, got):
-            return close_loop(frame, i, pos)
+            return frame.close_loop(i, pos)
         end, values = got
         self._sink_for(frame, arm, i).extend(values)
-        frame[F_COUNT] += 1
+        frame.count += 1
         self.pos = end
         return i
 
@@ -275,7 +270,7 @@ class Attempting[Carry]:
         verdict, opt = _arm_rest_scan(arm, i, char)
         if verdict == _ASCEND:
             for frame in self.stack[-2::-1]:
-                verdict, o = _arm_rest_scan(frame[F_ARM], frame[F_I], char)
+                verdict, o = _arm_rest_scan(frame.arm, frame.i, char)
                 opt = opt or o
                 if verdict != _ASCEND:
                     break
@@ -290,7 +285,9 @@ class Attempting[Carry]:
         the island branch's trigger (:meth:`_beyond_class` in truth form)."""
         return self._beyond_class(arm, i, char) in (_ADMITS, _ADMITS_HARD)
 
-    def _attempt_island(self, frame: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _attempt_island(
+        self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
+    ) -> int:
         """An attempted ISLAND / fail-island iteration — failure closes the loop."""
         if arm.kinds[i] == OP_ISLAND:
             sink = self._sink_for(frame, arm, i)
@@ -299,10 +296,10 @@ class Attempting[Carry]:
             except PdaFail:
                 pass
             else:
-                frame[F_COUNT] += 1
+                frame.count += 1
                 return i
         self.pos = pos
-        return close_loop(frame, i, pos)
+        return frame.close_loop(i, pos)
 
     def _fork_verdict(
         self,
@@ -435,12 +432,12 @@ class Attempting[Carry]:
         routes = None if self._routes is None else self._routes.forked(forked)
         top = forked[-1]
         if taken is None:
-            top[F_COUNT] = 0
-            top[F_I] = i + 1
-            top[F_ENDS][i] = pos
+            top.count = 0
+            top.i = i + 1
+            top.ends[i + 1] = pos
             return forked, pos, routes
-        top[F_COUNT] += 1
-        top[F_I] = i
+        top.count += 1
+        top.i = i
         saved = self.stack
         self.stack = forked
         try:
@@ -667,16 +664,16 @@ class Attempting[Carry]:
         saved_routes = self._routes
         if saved_routes is not None:
             self._routes = saved_routes.forked(forked)
-        root_out = forked[0][F_OUT]
+        root_out = forked[0].out
         top = forked[-1]
         if taken is None:
-            top[F_COUNT] = 0
-            top[F_I] = i + 1
-            top[F_ENDS][i] = pos
+            top.count = 0
+            top.i = i + 1
+            top.ends[i + 1] = pos
             start = pos
         else:
-            top[F_COUNT] += 1
-            top[F_I] = i
+            top.count += 1
+            top.i = i
             start = taken[0]
         self.stack = forked
         self.pos = start

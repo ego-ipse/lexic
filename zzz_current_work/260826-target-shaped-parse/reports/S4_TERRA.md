@@ -3006,3 +3006,145 @@ refuses anyway, so no installed consult was added or removed.
 
 `TODO.md` §4's value-string bullet can now be marked, with this section as its
 evidence. It is outside this round's write allowlist, so I have not ticked it.
+
+## Review 17, items 1–7 (2026-09-03, terra-s4e)
+
+`tools/run_checks.sh` exits **8**, red on one finding only: `R0902` on
+`Frame`, which is with the user. Everything else is green — suite 5533 passed
+/ 8 skipped at `-n 8`, pyright 0 over `src tests tools`, `check_generated` 0
+over 53 modules, every `s3_*`/`s4_*` witness exit 0, `git diff --check` 0.
+
+| # | Item | Closed by | Evidence |
+|---|---|---|---|
+| 1 | Immutability after verification | Every attribute bound once through `object.__setattr__`; `__setattr__`/`__delattr__` refuse with `FieldValidationError`; `codes`/`routines` are `MappingProxyType` over dicts that stay `__init__` locals; the executor COPIES what it is handed into a private `_routines` and publishes a read-only `routines` property; `replica()` shares the views by identity and builds its own executor | `test_executable.py` pins refusal on all four slots, the absence of a write path, and the replica's distinct container; bytecode shows one moved row, `ProductExecutor.__init__` +2, the copy |
+| 2 | The verifier rejects malformed completions | `verify_program` checks PASS source existence and single-value mode, RECORD names-vs-captures, optional-index range, matched-text ownership and licensed field order; `rule_routines` refuses an operation with no executor instead of `source == -1, construction is None`; lowering's `_check_matched_field`/`_field_order` deleted so each relation has one owner | seven new/ported refusal tests in `test_verify.py`; three `test_routines.py` rows re-pinned from "leaves -1" to "refuses"; the invalid PASS at `test_executable.py:30-35` is a refusal row |
+| 3 | Ambiguity settlement without new allocations | `MeaningPolicy`, `meaning_policy()`, `Flip` and `_flips()` deleted; `chosen_meaning` takes the builder and the resolver; `_flipped_witness` is nested and lazy again; `replayed` takes a `MeaningRun` built once per span and only after an arm choice exists; `first_built_meaning` sheds the dispatcher seam and with it a per-parse `EarleyParser()` | an unambiguous parse now allocates strictly less than before the cleanup |
+| 4 | The four `object` boundaries | `LoweringOwned` generic in `Carry` so `registry` is `Callable[..., Carry]`; `verify_exact_ints` takes `Iterable[int]`, the declaration whose physical truth it checks; `_field_order` deleted; `_model_defaults` returns `Mapping[str, ProductValue[GrammarModel]]` | the generic caught a real erasure the `object` hid: templating's span registry holds two transforms with different returns, now the named `SpanCarry`, narrowed once through the published `span_level` |
+| 5 | Structural typing | `ConstructionLicence` is a `NamedTuple`; `RecordConstructor.licence` replaces `licensed: bool`; holding the licence IS the grant, and the declarer builds it from the class's own `fast_construct`; no `getattr`, no `Protocol`, no `cast`; `record_construction`/`symbol_construction` → `Construction.of_record`/`of_symbol`; `product_test_helpers.replaced` and its tests deleted | `test_construction.py` re-pinned to the structural grant |
+| 5 | Ruling 1, the W0621 | `tools/pylint_lexic.py` gains a Module transform giving the module a `globals` view without its `type`-statement parameters | all 28 gone with no source change; `tests/unit/tools/test_pylint_lexic.py` pins both directions |
+| 6 | Ruling 2, A3 | Slotted typed `Frame[Carry]`; six modules on slot attributes; `_NO_SINK` gone; `frames_copy` a slot copy; `close_loop`/`alt_model` are frame methods; `build_sequence`/`build_validated` take the frame/span carrier; `_captured` takes a `CaptureRoutine` built cold, which REPLACED `RuleRoutine.modes`/`.slots` rather than joining them | CLAUDE.md and `docs/STYLE.md` §7 amended; the §8 TODO bullet marked pulled forward |
+| 7 | Remaining cold lint | `stitch/model.py` shed its plan-derivation half into `stitch/plan.py` (694 → 351 + 394), which is what made room for the R0914 record; the re-export duplication R0801 closed by pointing every importer at the real home | CLAUDE.md layout line added; `test_plan.py` mirror created by moving the plan test out of `test_model.py` and pinning four more derivation contracts |
+
+### The paid path got smaller
+
+Against Savepoint 11, every changed row and its one cause:
+
+| entry | delta | cause |
+|---|---|---|
+| `PdaKernel._enter` | 156 → 147 | slot writes beat a nine-element list literal |
+| `PdaKernel._quant_step` | 191 → 183 | slot reads beat subscripts |
+| `PdaKernel._match_span` | 116 → 112 | the same |
+| `PdaKernel._sink_for` | 42 → 38 | the same |
+| `KernelExecutionMixin._complete` | 123 → 101 | the same, plus `build_sequence` taking the frame |
+| `_complete_record` | 124 → 73 | the per-slot `zip`/`enumerate`/`in` is gone |
+| `_passed_value` | 101 → 56 | the two checks the verifier now owns are gone |
+| `build_sequence` | 59 → 67 | reads the frame, packs the span triple once |
+| `_captured` | 120 → 128 | unpacks the resolved capture record |
+| `Frame.close_loop` | new, 17 | replaces the 20-instruction free function |
+| `ProductExecutor.__init__` | 12 → 14 | item 1's private copy |
+| `ProductExecutor.routines` | new, 6 | item 1's read-only view, cold |
+
+The two large shrinks are item 2 paying for itself: because the cold gate
+proves what the completion loop used to re-check, the loop stopped checking.
+
+### Two checker defects, both corrected in the plugin rather than the code
+
+Both were reported as fixed and were not. Each is now pinned by a probe test
+that also asserts the transform does NOT fire where it should not.
+
+- **PEP 695 `type`-statement scope.** astroid binds a `type` alias's
+  parameters in the module's `locals`, and `Module.globals` IS that same
+  object. `redefined-outer-name` reads `globals`; name resolution reads
+  `locals`. Removing the binding cleared the 28 W0621 and produced 32
+  `undefined-variable` errors inside the alias bodies, so the transform
+  scrubs a `globals` view and leaves `locals` alone.
+- **Generic `NamedTuple` members.** pylint 4.0.8 does not resolve `_replace`
+  on a PEP 695 generic named tuple reached through a generic function's
+  return; astroid supplies those members through an inference TIP that does
+  not fire on that path. Minimal repro: `class Two[T, U](NamedTuple)` plus
+  `def make[T, U](x: T, y: U) -> Two[T, U]`, then `make(1, "a")._replace(a=2)`.
+  The transform binds the members on the class, which is what let
+  `replaced()` be deleted as ordered.
+
+### The one finding left, and why I did not touch it
+
+`R0902`, 9 of 7, on `Frame`. The lane set is Ruling 2's own specification, so
+reshaping a hot record to satisfy a count is the user's call. The options:
+drop `mode`, an exact copy of `clone.mode` that never diverges, for 8 lanes;
+and additionally fold `start` into `ends` by allocating `arm.n + 1` ends with
+`ends[0]` as the start, for 7 lanes and one fewer branch at every span read.
+
+### Tests edited, every assertion preserved or re-pinned to a changed contract
+
+`test_executable.py`, `test_routines.py`, `test_verify.py`, `test_lower.py`,
+`test_construction.py`, `test_tree.py`, `test_product.py`, `test_specs.py`,
+`test_eligibility.py`, `test_admission.py`, `test_build.py`, `test_lockstep.py`,
+`test_decisions.py`, `test_model.py`, `test_templating_spans.py`,
+`product_test_helpers.py` (the reflective helper deleted). New:
+`tests/unit/tools/test_pylint_lexic.py`,
+`tests/unit/lexic/parsing/parallel/stitch/test_plan.py`,
+`tests/unit/lexic/parsing/pda/runtime/flat_support.py` — which builds REAL
+`FlatArm`/`FlatClone` records rather than look-alikes, so a frame test proves
+the runtime's own record fits and not merely that the test compiles.
+
+Ten prototypes needed adaptation. Three were real catches: `s3_route_program`
+and `s3_lowering` each carried a malformed PASS row with no captures that the
+new gate correctly refuses, and `s4_verified_completion`'s allowlist still
+named `binding.py`, the pre-rename module.
+
+### The third bytecode change — the R0902 reduction (ruled, both parts)
+
+`Frame` fell from nine lanes to seven. `mode` was an exact copy of
+`clone.mode` that never diverged, so it goes and its three readers go through
+the clone; the admission signature drops it entirely, because `id(frame.clone)`
+already implies it. `start` became `ends[0]`, with `arm.n + 1` boundaries, so
+item ``i``'s span is `(ends[i], ends[i + 1])` and the `if item == 0` test left
+every reader.
+
+| entry | delta | cause |
+|---|---|---|
+| `PdaKernel._enter` | 156 → 147 | one fewer lane to seed |
+| `PdaKernel._quant_step` | 191 → 185 | one fewer slot write per item |
+| `PdaKernel._match_span` | 116 → 113 | the same |
+| `PdaKernel._sink_for` | 42 → 39 | `mode` read through the clone |
+| `KernelExecutionMixin._complete` | 123 → 102 | one fewer lane, span pair not triple |
+| `KernelExecutionMixin._run_leaf` | 266 → 270 | seeds `arm.n + 1` ends |
+| `fast_values` | 169 → 149 | the first-item branch is gone from three arms |
+| `build_sequence` | 59 → 65 | packs the span pair |
+| `Frame.close_loop` | new, 19 | writes `ends[i + 1]` |
+
+Nine of the paid path's fourteen changed rows are now smaller than at
+`dffa821f`, and the two largest, `_complete_record` at −51 and `_passed_value`
+at −45, are the verifier paying for itself. Every row above is measured by the
+corrected gate in the review's item 7, not here.
+
+`tools/run_checks.sh` exits **0**. Suite 5533 passed / 8 skipped at `-n 8`;
+pyright 0 over `src tests tools`; `check_generated` 0 over 53 modules; every
+`s3_*`/`s4_*` witness exit 0; `git diff --check` 0; pylint 10.00/10.
+
+### The exception the executable raises on rebinding
+
+`UnsupportedConstructError`, not `FieldValidationError`. The vocabulary
+(`.wiki/lexic/error-vocabulary.md`) offers two concrete classes under
+`LexicError`, and only one of them can mean this.
+
+- `FieldValidationError` is wrong, as the coordinator caught: the wiki scopes
+  it to "IR-intrinsic per-field checked construction in `GrammarModel.__new__`"
+  with a field-path-first message. A `ModelExecutable` is not a model and its
+  attributes are not model fields, so the class would have named the wrong
+  failure.
+- `UnsupportedConstructError` is right by its own stated division of labour:
+  its docstring says it means "a construct cannot run here — a grammar shape,
+  a **binding mismatch**, a **defective compiled artefact**". Rebinding a
+  verified executable's attribute is an attempt to produce exactly that
+  artefact, so the class already covers it and the vocabulary needs no new
+  entry. The message keeps the module's `parsing: …` form.
+- `TargetRefusalError` is excluded by the same docstring: it is for a document
+  that parsed and whose meaning the target refused, which is not this.
+
+One alternative was considered and not taken: a class doubly typed
+`LexicError, AttributeError`, mirroring `IrKeyError(UnsupportedConstructError,
+KeyError)`. `IrKeyError` exists because `Mapping.get` needs to catch
+`KeyError`; no protocol needs to catch an `AttributeError` here, so the double
+typing would buy nothing and would add a public name to the vocabulary. If a
+later caller does need the language-native behaviour, that is the shape to add.

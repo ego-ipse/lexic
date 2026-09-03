@@ -34,7 +34,7 @@ from typing import NamedTuple
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.ir import IrAst
-from lexic.parsing import ProductExecutor
+from tools.benchmark.cases.directives import DIRECTIVES, validate_directives
 
 _ROOT = Path(__file__).resolve().parents[3]
 _ONLY_BENCHMARK = os.environ.get("LEXIC_BENCHMARK_GRAMMAR")
@@ -60,7 +60,10 @@ class Bench(NamedTuple):
     :ivar rejects: Inputs the grammar must NOT accept. Checking both directions
         is the point: a translation that accepts everything passes an
         accept-only check, and one that refuses everything passes the other.
-    :ivar compiled: lexic's own artefact, carrying the fold it parses with.
+    :ivar compiled: lexic's own artefact, carrying the product it parses with.
+    :ivar lexical: The case's declared `@lexical` rule names — what the variant
+        rows compile with, fixed by the case rather than by engine eligibility.
+    :ivar non_semantic: The case's declared `@non-semantic` rule names.
     """
 
     name: str
@@ -72,11 +75,8 @@ class Bench(NamedTuple):
     source: str
     flavour: str
     full: str
-
-    @property
-    def executor(self) -> ProductExecutor:
-        """The product completion lexic builds its model through."""
-        return self.compiled.executor
+    lexical: tuple[str, ...]
+    non_semantic: tuple[str, ...]
 
 
 class Samples(NamedTuple):
@@ -88,6 +88,16 @@ class Samples(NamedTuple):
 
     corpus: str
     full: str
+
+
+def declared_marks(bench: Bench) -> tuple[frozenset[str], frozenset[str]]:
+    """One case's declared directive sets, for lexic and competitors alike.
+
+    Every seat that claims to face "the grammar's own directives" must face the
+    SAME ones lexic's variant rows compile with, or the two are not comparable.
+    There is one declaration and this is the only way to read it.
+    """
+    return frozenset(bench.lexical), frozenset(bench.non_semantic)
 
 
 def _bench(
@@ -106,6 +116,8 @@ def _bench(
         return None
     flavour = "abnf" if name.endswith("abnf-meta") else "gbnf"
     compiled = compile_text(source, cache_key=f"bench-{name}", flavour=flavour)
+    lexical, non_semantic = DIRECTIVES[name]
+    validate_directives(name, compiled.grammar, lexical, non_semantic)
     return Bench(
         name,
         compiled.grammar,
@@ -116,6 +128,8 @@ def _bench(
         source,
         flavour,
         samples.full,
+        lexical,
+        non_semantic,
     )
 
 

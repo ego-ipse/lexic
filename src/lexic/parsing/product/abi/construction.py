@@ -21,7 +21,6 @@ from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import NamedTuple
 
-from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrSpan
 
 __all__ = [
@@ -31,8 +30,6 @@ __all__ = [
     "ProductValue",
     "RecordConstructor",
     "SymbolConstructor",
-    "record_construction",
-    "symbol_construction",
 ]
 
 
@@ -40,12 +37,23 @@ type ProductValue[Carry] = Carry | str | list[Carry] | tuple[Carry, ...] | IrSpa
 """The values a model-product capture or constructor default may carry."""
 
 
-type ConstructionLicence[Carry] = tuple[
-    Callable[[list[ProductValue[Carry]]], Carry],
-    Mapping[str, ProductValue[Carry]],
-    tuple[str, ...],
-]
-"""A record's positional constructor, defaults, and field order."""
+class ConstructionLicence[Carry](NamedTuple):
+    """A record's positional constructor, its defaults, and its field order.
+
+    Holding the licence IS the grant. A declaration that carries one may be
+    built positionally; a declaration that carries ``None`` may not, and the
+    type checker tells the two apart at every read — where a boolean flag beside
+    a class meant asking the class, at run time, whether it had meant it.
+
+    :ivar construct: Builds one record from values in :attr:`order`.
+    :ivar defaults: What an omitted field falls back to on the positional
+        path, which cannot omit.
+    :ivar order: The class's field names, in construction order.
+    """
+
+    construct: Callable[[list[ProductValue[Carry]]], Carry]
+    defaults: Mapping[str, ProductValue[Carry]]
+    order: tuple[str, ...]
 
 
 class RecordConstructor[Carry](NamedTuple):
@@ -79,8 +87,10 @@ class RecordConstructor[Carry](NamedTuple):
         fills and no default covers can only be this one), and lowering keeps
         that derivation as a cross-check, but a record whose defaults later
         changed would flip the inference silently.
-    :ivar licensed: Whether construction may skip per-field validation — a
-        flag rather than a bound constructor, so the table holds no callable.
+    :ivar licence: The positional construction licence the declarer read off
+        the class, or ``None`` when this rule builds by name through the
+        class's own checks. Carried rather than looked up: the declarer is the
+        one place that knows the class, so nothing downstream asks it again.
     """
 
     cls: type[Carry]
@@ -88,7 +98,7 @@ class RecordConstructor[Carry](NamedTuple):
     optional: tuple[int, ...] = ()
     defaults: Mapping[str, ProductValue[Carry]] = MappingProxyType({})
     matched_field: str = ""
-    licensed: bool = False
+    licence: ConstructionLicence[Carry] | None = None
 
 
 class SymbolConstructor(NamedTuple):
@@ -164,37 +174,21 @@ class Construction[Carry](NamedTuple):
     matched: str = ""
     licence: ConstructionLicence[Carry] | None = None
 
-
-def _licence_of[Carry](cls: type[Carry]) -> ConstructionLicence[Carry]:
-    """Read the cold class-side licence after the authored flag grants it.
-
-    :raises UnsupportedConstructError: When a class the binding flagged as
-        licensed cannot say how one of itself is built.
-    """
-    grant: Callable[[], ConstructionLicence[Carry]] | None
-    grant = getattr(cls, "fast_construct", None)
-    if grant is None:
-        raise UnsupportedConstructError(
-            f"product: {cls.__name__} was granted the construction licence but "
-            "does not say how one of itself is built"
+    @classmethod
+    def of_record(cls, entry: RecordConstructor[Carry]) -> Construction[Carry]:
+        """Resolve a declared record constructor into the shared view."""
+        return cls(
+            entry.cls,
+            entry.names,
+            frozenset(entry.optional),
+            MappingProxyType(dict(entry.defaults)),
+            entry.matched_field,
+            entry.licence,
         )
-    return grant()
 
-
-def record_construction[Carry](entry: RecordConstructor[Carry]) -> Construction[Carry]:
-    """Resolve a declared record constructor into the shared view."""
-    return Construction(
-        entry.cls,
-        entry.names,
-        frozenset(entry.optional),
-        entry.defaults,
-        entry.matched_field,
-        _licence_of(entry.cls) if entry.licensed else None,
-    )
-
-
-def symbol_construction[Carry](entry: BoundSymbol[Carry]) -> Construction[Carry]:
-    """Resolve an authored surface transform into the shared view."""
-    return Construction(
-        entry.apply, entry.names, frozenset(entry.optional), matched=entry.matched
-    )
+    @classmethod
+    def of_symbol(cls, entry: BoundSymbol[Carry]) -> Construction[Carry]:
+        """Resolve an authored surface transform into the shared view."""
+        return cls(
+            entry.apply, entry.names, frozenset(entry.optional), matched=entry.matched
+        )

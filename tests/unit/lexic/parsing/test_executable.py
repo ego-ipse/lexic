@@ -2,13 +2,19 @@
 
 ``ModelExecutable`` retains no authored rules — its slots are exactly
 ``program``/``codes``/``routines``/``executor`` — and every downstream
-consumer reads ``routines``, the verified program read back. ``replica()``
-shares the verified ``program`` and ``codes`` by identity and rebuilds only
-the routine container (equal, but a distinct object) with its own executor
-over it, so a worker pays no lowering.
+consumer reads ``routines``, the verified program read back.
+
+Verification is a claim about an object, so the object cannot change after it
+is made: the executable refuses every rebinding, and ``codes``/``routines`` are
+read-only views over containers no caller holds. ``replica()`` shares the
+verified ``program`` and both read-only views by identity — nothing can write
+through them — and its executor makes its own private physical copy, which is
+the container a worker must not share.
 """
 
 from __future__ import annotations
+
+from types import MappingProxyType
 
 import pytest
 
@@ -31,7 +37,9 @@ _RULES = {
     "a": RuleProduct(
         captures=(CaptureSpec(int(CaptureMode.ONE), 0),), completion=PassOp(0)
     ),
-    "b": RuleProduct(captures=(), completion=PassOp(0)),
+    "b": RuleProduct(
+        captures=(CaptureSpec(int(CaptureMode.ONE), 1),), completion=PassOp(0)
+    ),
 }
 
 
@@ -63,11 +71,54 @@ def test_codes_and_routines_share_exactly_the_same_key_set():
     assert binding.codes == {"a": 0, "b": 1}
 
 
-def test_the_executor_completes_through_the_bindings_own_routine_container():
-    """executor.routines IS binding.routines — one container, one reader."""
+def test_the_executor_completes_through_its_own_private_routine_copy():
+    """The executor's container is EQUAL and private — not the published view.
+
+    The defect this catches: handing the executor the very mapping a caller can
+    reach would let the parser be re-aimed after verification, which is what
+    the published read-only view exists to prevent.
+    """
     binding = ModelExecutable(_RULES)
     assert isinstance(binding.executor, ProductExecutor)
-    assert binding.executor.routines is binding.routines
+    assert binding.executor.routines == binding.routines
+    assert binding.executor.routines is not binding.routines
+    assert not isinstance(binding.executor.routines, dict)
+
+
+def test_a_bound_executable_refuses_every_rebinding():
+    """Verification is a claim about the object, so the object cannot change."""
+    binding = ModelExecutable(_RULES)
+    for name in ("program", "codes", "routines", "executor"):
+        with pytest.raises(UnsupportedConstructError):
+            setattr(binding, name, {})
+        with pytest.raises(UnsupportedConstructError):
+            delattr(binding, name)
+
+
+def test_the_published_projections_cannot_be_written_through():
+    """codes and routines are read-only VIEWS; the parser cannot be re-aimed.
+
+    Pinned as the absence of a write path rather than as a caught exception:
+    a write attempt is only expressible by first lying about the type, and the
+    view is what makes the lie necessary.
+    """
+    binding = ModelExecutable(_RULES)
+    assert isinstance(binding.routines, MappingProxyType)
+    assert isinstance(binding.codes, MappingProxyType)
+    assert not hasattr(binding.routines, "__setitem__")
+    assert not hasattr(binding.codes, "__setitem__")
+    assert binding.executor.routines.keys() == {"a", "b"}
+
+
+def test_an_invalid_pass_is_refused_at_binding_not_at_the_first_parse():
+    """A PASS whose source names no capture cannot forward anything.
+
+    It bound successfully before, and `_passed_value` discovered it while
+    completing a real parse. The cold gate owns that answer now.
+    """
+    bad = {"a": RuleProduct(captures=(), completion=PassOp(0))}
+    with pytest.raises(UnsupportedConstructError, match="passes capture 0"):
+        ModelExecutable(bad)
 
 
 def test_the_meaning_comparator_is_the_engines_own_same_value_law():
@@ -112,19 +163,17 @@ def test_replica_shares_the_verified_program_and_codes_by_identity():
     assert replica.codes is binding.codes
 
 
-def test_replica_rebuilds_an_equal_but_distinct_routine_container():
-    """The routine map is EQUAL by value but a DIFFERENT object — the one
-    thing a worker must not share, since it is what every completion reads."""
+def test_replica_shares_the_read_only_view_because_nothing_can_write_it():
+    """The published views are immutable, so a worker needs no copy of them."""
     binding = ModelExecutable(_RULES)
     replica = binding.replica()
-    assert replica.routines == binding.routines
-    assert replica.routines is not binding.routines
+    assert replica.routines is binding.routines
 
 
-def test_replica_gets_its_own_executor_over_its_own_container():
-    """A replica's executor is distinct and reads the REPLICA's own routines."""
+def test_replica_gets_its_own_executor_over_its_own_private_container():
+    """A replica's executor holds its OWN physical copy — the shared-refcount fix."""
     binding = ModelExecutable(_RULES)
     replica = binding.replica()
     assert replica.executor is not binding.executor
-    assert replica.executor.routines is replica.routines
-    assert replica.executor.routines is not binding.routines
+    assert replica.executor.routines == binding.executor.routines
+    assert replica.executor.routines is not binding.executor.routines

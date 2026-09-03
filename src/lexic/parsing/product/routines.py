@@ -24,11 +24,7 @@ from __future__ import annotations
 from typing import NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.product.abi.construction import (
-    Construction,
-    record_construction,
-    symbol_construction,
-)
+from lexic.parsing.product.abi.construction import Construction
 from lexic.parsing.product.abi.expressions import ExprCode
 from lexic.parsing.product.abi.records import (
     CompletionRange,
@@ -38,12 +34,32 @@ from lexic.parsing.product.abi.records import (
     RangeKind,
 )
 
-__all__ = ["RuleRoutine", "rule_routines"]
+__all__ = ["CaptureRoutine", "RuleRoutine", "rule_routines"]
 
 _EXPRESSION = int(RangeKind.EXPRESSION)
 _PASS = int(OpCode.PASS)
 _RECORD = int(OpCode.RECORD)
 _SYMBOL = int(ExprCode.SYMBOL)
+
+
+class CaptureRoutine(NamedTuple):
+    """One capture, resolved: where it reads, how, and which keyword it fills.
+
+    Built once at binding from the rule's verified capture layout and the
+    construction that names it, so a completion reads one record per capture
+    instead of zipping three tuples and testing a membership per slot.
+
+    :ivar slot: The child item this capture reads.
+    :ivar mode: Its lowered
+        :class:`~lexic.parsing.product.abi.records.CaptureMode`.
+    :ivar optional: Whether an absent value is omitted rather than filled.
+    :ivar name: The keyword it fills, ``""`` when the completion names none.
+    """
+
+    slot: int
+    mode: int
+    optional: bool
+    name: str
 
 
 class RuleRoutine[Carry](NamedTuple):
@@ -53,9 +69,8 @@ class RuleRoutine[Carry](NamedTuple):
         :attr:`~lexic.parsing.product.abi.records.ProductProgram.completions` —
         the range the verifier bounded, carried so a baked clone records what
         it was derived from rather than a second derivation of the answer.
-    :ivar modes: One lowered
-        :class:`~lexic.parsing.product.abi.records.CaptureMode` per capture.
-    :ivar slots: The matching lane index per capture.
+    :ivar captures: One resolved :class:`CaptureRoutine` per declared capture,
+        in capture order.
     :ivar n_items: The rule's sequence-arm item count.
     :ivar source: The capture a pass-through completion forwards, or ``-1``
         when this rule's instruction is not a pass-through.
@@ -64,8 +79,7 @@ class RuleRoutine[Carry](NamedTuple):
     """
 
     completion: int
-    modes: tuple[int, ...]
-    slots: tuple[int, ...]
+    captures: tuple[CaptureRoutine, ...]
     n_items: int
     source: int
     construction: Construction[Carry] | None
@@ -79,9 +93,11 @@ def rule_routines[Carry, Result](
     :param program: The lowered program, already through
         :func:`~lexic.parsing.product.verify.verify_program`.
     :returns: One routine per rule, in contextual-code order.
-    :raises UnsupportedConstructError: When a fused range holds more than the
-        one instruction a rule completion lowers to — reading only its first
-        would silently drop the rest.
+    :raises UnsupportedConstructError: When a range holds more than the one
+        instruction a rule completion lowers to — reading only its first would
+        silently drop the rest — or names an operation this binding has no
+        executor for. Refusing here is what keeps ``source == -1`` with no
+        construction from reaching a parse as a routine that cannot run.
     """
     return tuple(_routine_of(program, rule) for rule in program.rules)
 
@@ -97,11 +113,28 @@ def _routine_of[Carry, Result](
         source, construction = _fused_construction(program, completion)
     return RuleRoutine(
         rule.completion,
-        rule.capture_modes,
-        rule.capture_slots,
+        _captures_of(rule, construction),
         rule.n_items,
         source,
         construction,
+    )
+
+
+def _captures_of[Carry](
+    rule: FlatRuleProduct, construction: Construction[Carry] | None
+) -> tuple[CaptureRoutine, ...]:
+    """Resolve the rule's verified capture layout against its construction.
+
+    A pass-through names no keywords, so its captures carry an empty name and
+    only their slot and mode are read.
+    """
+    names = () if construction is None else construction.names
+    optional = frozenset() if construction is None else construction.optional
+    return tuple(
+        CaptureRoutine(slot, mode, at in optional, names[at] if at < len(names) else "")
+        for at, (slot, mode) in enumerate(
+            zip(rule.capture_slots, rule.capture_modes, strict=True)
+        )
     )
 
 
@@ -119,8 +152,11 @@ def _fused_construction[Carry, Result](
     if opcode == _PASS:
         return row[0], None
     if opcode == _RECORD:
-        return -1, record_construction(program.operands.constructors[row[0]])
-    return -1, None
+        return -1, Construction.of_record(program.operands.constructors[row[0]])
+    raise UnsupportedConstructError(
+        f"product program: a completion through opcode {opcode} has no "
+        "executor in this binding; it cannot be bound as one that runs"
+    )
 
 
 def _expression_construction[Carry, Result](
@@ -129,14 +165,21 @@ def _expression_construction[Carry, Result](
     """The construction one expression range names, when it is a lone symbol.
 
     A symbol expression is a construction only as a completion's SOLE
-    operation; a longer program is the later generic-product executor's
-    concern and names none here.
+    operation; a longer program belongs to the generic-product executor that
+    does not exist yet, so binding one as executable is refused rather than
+    carried as a routine with nothing to run.
     """
     if completion.length != 1:
-        return -1, None
+        raise UnsupportedConstructError(
+            f"product program: an expression completion of {completion.length} "
+            "instructions has no executor in this binding"
+        )
     opcode = program.expression_opcodes[completion.start]
     if opcode != _SYMBOL:
-        return -1, None
+        raise UnsupportedConstructError(
+            f"product program: a completion through expression opcode {opcode} "
+            "has no executor in this binding"
+        )
     rows = program.expression_operand_rows[opcode]
     row = rows[program.expression_operands[completion.start]]
-    return -1, symbol_construction(program.operands.symbols[row[0]])
+    return -1, Construction.of_symbol(program.operands.symbols[row[0]])

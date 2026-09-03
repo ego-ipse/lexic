@@ -61,49 +61,82 @@ INTERN_MISS = InternMiss.TOKEN
 (a ``dict.get`` default that no real value can equal, so a genuine ``None`` sink
 is never mistaken for a hit)."""
 
-# ── frame layout ───────────────────────────────────────────────────────────
-#
-# A frame is one in-progress arm execution on the kernel's explicit descent
-# stack — a flat list (the ``kernel.py`` int-array explicit-stack precedent; the
-# class *cursor* is :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel` itself),
-# indexed by the constants below. A *clone frame* (a non-transparent ``F_MODE``)
-# captures what its completion needs and builds a single model on pop; a
-# *transparent frame* (``BUILD_TRANSPARENT`` — an inline group or look-through
-# clone) owns no capture and funnels every model produced inside it straight to
-# ``F_OUT``.
-#
-#   F_ARM   the selected arm's flat item arrays (:class:`FlatArm`)
-#   F_I     the current item index
-#   F_COUNT iterations completed for the current item (resumes a descending
-#            loop across sub-frame pushes)
-#   F_OUT   the parent sink list — where a clone frame's model appends, or a
-#            transparent frame's children funnel
-#   F_MODE  the build-mode (one of the ``BUILD_*`` constants)
-#   F_CLONE the frame's :class:`FlatClone` (its constructor and build plan)
-#   F_START the cursor position where the frame began (its span start)
-#   F_ENDS  per-item end positions (``ends[i]`` written as each item finishes);
-#            item ``i``'s span is ``(start if i==0 else ends[i-1], ends[i])``.
-#            Allocated for every frame so the driver's write stays branch-free;
-#            only span-reading ``sequence`` clones read it back
-#   F_SINKS per-item descent sub-model lists, allocated lazily on first descent
-#            (capture frames), else ``None``
-F_ARM = 0
-F_I = 1
-F_COUNT = 2
-F_OUT = 3
-F_MODE = 4
-F_CLONE = 5
-F_START = 6
-F_ENDS = 7
-F_SINKS = 8
+# ── the frame ──────────────────────────────────────────────────────────────
 
 
-def close_loop(frame: list[Any], i: int, pos: int) -> int:
-    """Close the loop at the current count — the driver continues past ``i``."""
-    frame[F_COUNT] = 0
-    frame[F_I] = i + 1
-    frame[F_ENDS][i] = pos
-    return i + 1
+class Frame[Carry]:
+    """One in-progress arm execution on the kernel's explicit descent stack.
+
+    A *clone frame* (a non-transparent :attr:`mode`) captures what its
+    completion needs and builds a single model on pop; a *transparent frame*
+    (``BUILD_TRANSPARENT`` — an inline group or look-through clone) owns no
+    capture and funnels every model produced inside it straight to :attr:`out`.
+
+    Slotted and typed rather than a flat list: the lanes have different types
+    and the driver reads them by name, so a nine-wide list erased every one of
+    them and made the sink lane in particular unnameable. The slots cost what
+    the list indices cost — one descriptor read — and the layout is now stated
+    where it is used rather than by a comment beside nine constants.
+
+    :ivar arm: The selected arm's flat item arrays.
+    :ivar i: The current item index.
+    :ivar count: Iterations completed for the current item, which is what
+        resumes a descending loop across sub-frame pushes.
+    :ivar out: The parent sink list — where a clone frame's model appends, or
+        a transparent frame's children funnel.
+    :ivar clone: The frame's clone (its constructor, build plan and mode).
+    :ivar ends: Item boundaries, ``arm.n + 1`` of them: ``ends[0]`` is where
+        the frame began and ``ends[i + 1]`` is where item ``i`` finished, so
+        item ``i``'s span is ``(ends[i], ends[i + 1])`` with no first-item
+        special case anywhere that reads one. Allocated for every frame so the
+        driver's write stays branch-free; only span-reading ``sequence`` clones
+        read it back.
+    :ivar sinks: Per-item descent sub-model lists, allocated lazily on first
+        descent (capture frames), else ``None``.
+    """
+
+    __slots__ = ("arm", "i", "count", "out", "clone", "ends", "sinks")
+
+    arm: FlatArm
+    i: int
+    count: int
+    out: list[Carry]
+    clone: FlatClone[Carry]
+    ends: list[int]
+    sinks: list[list[Carry] | None] | None
+
+    def __init__(
+        self, arm: FlatArm, out: list[Carry], clone: FlatClone[Carry], start: int
+    ) -> None:
+        """Begin one execution of ``arm`` at ``start``, funnelling into ``out``."""
+        self.arm = arm
+        self.i = 0
+        self.count = 0
+        self.out = out
+        self.clone = clone
+        self.ends = [start] * (arm.n + 1)
+        self.sinks = None
+
+    def close_loop(self, i: int, pos: int) -> int:
+        """Close item ``i``'s loop at the current count, and advance past it.
+
+        The frame's own bookkeeping, so the driver states the decision and the
+        frame states what the decision does to it.
+
+        :returns: The next item index.
+        """
+        self.count = 0
+        self.i = i + 1
+        self.ends[i + 1] = pos
+        return i + 1
+
+    def alt_model(self) -> Carry | None:
+        """The first sub-model under an ``alternation`` frame's matched arm."""
+        if self.sinks:
+            for sub in self.sinks:
+                if sub:
+                    return sub[0]
+        return None
 
 
 type InternKey[Carry] = tuple[Callable[..., Carry], str | tuple[Hashable, ...]]
@@ -138,28 +171,16 @@ def finish_delegate(
     return end, payload
 
 
-def alt_model[Carry](sinks: list[list[Carry] | None] | None) -> Carry | None:
-    """The first sub-model under an ``alternation`` frame's matched arm."""
-    if sinks:
-        for sub in sinks:
-            if sub:
-                return sub[0]
-    return None
-
-
 def build_sequence[Carry](
     text: str,
-    arm: FlatArm,
-    start: int,
-    ends: list[int],
-    sinks: list[list[Carry] | None] | None,
+    frame: Frame[Carry],
     clone: FlatClone[Carry],
     memo: InternMemo[Carry],
 ) -> Carry:
     """Build a ``sequence`` clone's model from its bound field slots.
 
     The per-capture read is inlined (a text capture reads the item's span
-    off the frame's ``F_ENDS``, ``model`` / ``models`` its ``F_SINKS``). A
+    off the frame's ``ends``, ``model`` / ``models`` its ``sinks``). A
     zero-item arm match builds ``ctor()`` (the rule's empty alternate arm);
     any other item-count mismatch is a compile/runtime disagreement. With a
     positional licence the values list is read straight off the clone's baked
@@ -172,16 +193,17 @@ def build_sequence[Carry](
         the bound fields nor the empty arm, or a capture mode outside the
         build vocabulary.
     """
-    if arm.n != clone.n_items:
-        if arm.n:
+    if frame.arm.n != clone.n_items:
+        if frame.arm.n:
             raise UnsupportedConstructError(
-                f"pda: {clone.ctor!r}: {arm.n} items match neither "
+                f"pda: {clone.ctor!r}: {frame.arm.n} items match neither "
                 f"{clone.n_items} slots nor the empty arm"
             )
         return _intern_empty(clone.ctor, memo)  # empty alternate arm matched
+    spans = (frame.ends, frame.sinks)
     if clone.fast is no_fast_construction:
-        return build_validated(text, start, ends, sinks, clone, memo)
-    return clone.fast(fast_values(text, clone, (start, ends, sinks)))
+        return build_validated(text, spans, clone, memo)
+    return clone.fast(fast_values(text, clone, spans))
 
 
 def _intern_empty[Carry](ctor: Callable[..., Carry], memo: InternMemo[Carry]) -> Carry:
@@ -199,10 +221,11 @@ def _intern_empty[Carry](ctor: Callable[..., Carry], memo: InternMemo[Carry]) ->
     return model
 
 
-# A fast clone's captured span/sink data — the (start, per-item ends, per-item
-# sink lists) triple grouped so the build sites stay within the argument budget;
+# A fast clone's captured span/sink data — the (item boundaries, per-item sink
+# lists) pair grouped so the build sites stay within the argument budget;
 # ``_run_leaf`` builds it from locals, ``_complete`` from the frame slots.
-type Spans[Carry] = tuple[int, list[int], list[list[Carry] | None] | None]
+# ``ends[0]`` is the span start, so no reader tests for the first item.
+type Spans[Carry] = tuple[list[int], list[list[Carry] | None] | None]
 
 
 def fast_values[Carry](
@@ -230,10 +253,10 @@ def fast_values[Carry](
 
     :param text: The whole input.
     :param clone: The clone (fast licence granted).
-    :param spans: The captured ``(start, ends, sinks)`` triple.
+    :param spans: The captured ``(ends, sinks)`` pair.
     :returns: One value per field of the model class.
     """
-    start, ends, sinks = spans
+    ends, sinks = spans
     values: list[ProductValue[Carry]] = []
     for mode, item, lo, default in clone.plan:
         if mode == M_MODEL:
@@ -243,23 +266,21 @@ def fast_values[Carry](
             sub = (sinks[item] if sinks else None) or ()
             values.append(tuple(sub))
         elif mode == M_GTEXT:
-            span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
+            span = text[ends[item] : ends[item + 1]]
             values.append(span if (span or lo) else default)
         elif mode == M_SPAN:
             # The offsets the kernel already has — kept, not recomputed.
-            values.append(IrSpan(start if item == 0 else ends[item - 1], ends[item]))
+            values.append(IrSpan(ends[item], ends[item + 1]))
         elif mode == M_CONST:
             values.append(default)
         else:  # M_TEXT
-            values.append(text[(start if item == 0 else ends[item - 1]) : ends[item]])
+            values.append(text[ends[item] : ends[item + 1]])
     return values
 
 
 def build_validated[Carry](
     text: str,
-    start: int,
-    ends: list[int],
-    sinks: list[list[Carry] | None] | None,
+    spans: Spans[Carry],
     clone: FlatClone[Carry],
     memo: InternMemo[Carry],
 ) -> Carry:
@@ -280,7 +301,7 @@ def build_validated[Carry](
     :raises UnsupportedConstructError: On a capture mode outside the build
         vocabulary.
     """
-    kwargs, key_parts = _validated_fields(text, start, ends, sinks, clone)
+    kwargs, key_parts = _validated_fields(text, spans, clone)
     key = (clone.ctor, key_parts)
     hit = memo.get(key, INTERN_MISS)
     if hit is not INTERN_MISS:
@@ -291,11 +312,7 @@ def build_validated[Carry](
 
 
 def _validated_fields[Carry](
-    text: str,
-    start: int,
-    ends: list[int],
-    sinks: list[list[Carry] | None] | None,
-    clone: FlatClone[Carry],
+    text: str, spans: Spans[Carry], clone: FlatClone[Carry]
 ) -> tuple[dict[str, ProductValue[Carry]], tuple[Hashable, ...]]:
     """A validated clone's constructor kwargs and intern key-parts, one pass.
 
@@ -310,15 +327,16 @@ def _validated_fields[Carry](
     :raises UnsupportedConstructError: On a capture mode outside the build
         vocabulary.
     """
+    ends, sinks = spans
     kwargs: dict[str, ProductValue[Carry]] = {}
     key_parts: list[Hashable] = []
     for item, mode, name, _lo in clone.fields:
         if mode == M_TEXT:
-            span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
+            span = text[ends[item] : ends[item + 1]]
             kwargs[name] = span
             key_parts.append(span)
         elif mode == M_GTEXT:
-            span = text[(start if item == 0 else ends[item - 1]) : ends[item]]
+            span = text[ends[item] : ends[item + 1]]
             if span:
                 kwargs[name] = span
             key_parts.append(span or None)
@@ -332,7 +350,7 @@ def _validated_fields[Carry](
             kwargs[name] = sub
             key_parts.append(tuple(id(m) for m in sub))
         elif mode == M_SPAN:
-            extent = IrSpan(start if item == 0 else ends[item - 1], ends[item])
+            extent = IrSpan(ends[item], ends[item + 1])
             kwargs[name] = extent
             key_parts.append(extent)
         else:

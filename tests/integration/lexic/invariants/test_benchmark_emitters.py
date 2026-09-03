@@ -34,7 +34,7 @@ from tools.benchmark.bench import (
     unfaithful,
 )
 from tools.benchmark.cases.grammars import BENCHES, Bench
-from tools.benchmark.cases.variants import variant_marks
+from tools.benchmark.cases.grammars import declared_marks
 from tools.benchmark.emitters.charsets import of_points
 from tools.benchmark.emitters.emit import lexical_layer, peg_grammar
 from tools.benchmark.emitters.structured import antlr_grammar
@@ -271,7 +271,7 @@ def test_each_timed_benchmark_sample_is_preconditioned_by_its_own_engine(
 def test_peg_and_antlr_can_translate_the_directive_matched_variant() -> None:
     """The new seats receive the same authored marks as Lark's ``-lex`` rows."""
     bench = next(candidate for candidate in BENCHES if candidate.name == "json")
-    marks = variant_marks(bench.ast)
+    marks = declared_marks(bench)
 
     assert peg_grammar(bench.ast, marks) != peg_grammar(bench.ast)
     assert antlr_grammar(bench.ast, "MarkedJson", marks) != antlr_grammar(

@@ -16,16 +16,11 @@ owned would make the other import it back.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import MappingProxyType
 
-from lexic.exceptions import SemanticVerdict
-from lexic.parsing.earley.kernel.forest.support.ambiguity import (
-    MeaningBuilder,
-    MeaningPolicy,
-    Resolver,
-    same_value,
-)
+from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
+from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.product import (
-    CompletionResult,
     LoweringOwned,
     MeaningOp,
     OperandTables,
@@ -64,10 +59,17 @@ class ModelExecutable[M]:
     claim about it; holding the authored records too would leave a second
     representation for an engine to reach for.
 
+    Verification is a claim about an OBJECT, so the object cannot change after
+    it is made. Every attribute here is bound once and the projections are
+    read-only views over containers no caller holds; the executor keeps its own
+    plain dict as a private physical copy, so the hot reader pays a dict lookup
+    and the public surface still cannot be edited into disagreeing with the
+    program the verifier passed.
+
     :ivar program: The lowered, verified program. Every rule in it names one
         tagged, non-empty, in-bounds completion range.
-    :ivar codes: Rule name → its index in :attr:`program`.
-    :ivar routines: Rule name → its verified completion routine.
+    :ivar codes: Rule name → its index in :attr:`program`, read-only.
+    :ivar routines: Rule name → its verified completion routine, read-only.
     :ivar executor: The one completion over :attr:`routines`.
     """
 
@@ -81,7 +83,7 @@ class ModelExecutable[M]:
     def __init__(
         self,
         rules: Mapping[str, RuleProduct] | None = None,
-        owned: LoweringOwned = LoweringOwned(),
+        owned: LoweringOwned[M] = LoweringOwned(),
     ) -> None:
         """Lower one surface's authored rules, and verify them before any use.
 
@@ -95,49 +97,61 @@ class ModelExecutable[M]:
             program they lower to does not verify.
         """
         authored = {} if rules is None else rules
-        self.codes = {name: at for at, name in enumerate(authored)}
+        codes = {name: at for at, name in enumerate(authored)}
+        object.__setattr__(self, "codes", MappingProxyType(codes))
         # The meaning row is the engine's own value law, not `==`: every
         # ambiguity gate compares with `same_value`, so a program declaring
         # anything else would name a law it does not live under.
         operands: OperandTables[M, M] = OperandTables(
             (), (), (), (), (same_value,), (_identity_root,), (), ()
         )
-        self.program = lower_product(
+        program = lower_product(
             list(authored.values()),
             operands,
             owned=owned,
             root=RootOp(0),
             meaning=MeaningOp(0),
         )
-        verify_program(self.program)
-        resolved = rule_routines(self.program)
-        self.routines = {name: resolved[code] for name, code in self.codes.items()}
-        self.executor = ProductExecutor(self.routines)
+        verify_program(program)
+        resolved = rule_routines(program)
+        routines = {name: resolved[code] for name, code in codes.items()}
+        object.__setattr__(self, "program", program)
+        object.__setattr__(self, "routines", MappingProxyType(routines))
+        object.__setattr__(self, "executor", ProductExecutor(routines))
 
-    def meaning_policy(
-        self, resolve: Resolver | None
-    ) -> MeaningPolicy[M, CompletionResult[M]]:
-        """This product's whole-document interpretation, and how to settle it.
+    def __setattr__(self, name: str, value: object) -> None:
+        """Refuse every rebinding — a verified executable is bound once.
 
-        What a span MEANS is the bound product's own business, so every parse
-        entry asking the ambiguity question asks it through the same pair of
-        entry points instead of assembling its own from the executor.
-
-        :param resolve: The caller's deterministic answer to an ambiguity;
-            ``None`` refuses one.
+        :raises UnsupportedConstructError: Always. Rebinding one of these is
+            an attempt to produce the defective compiled artefact that class
+            names, not a field failing its own check.
         """
-        return MeaningPolicy(
-            MeaningBuilder(self.executor.build, self.executor.replay), resolve
+        del value
+        raise UnsupportedConstructError(
+            f"parsing: {type(self).__name__}.{name} cannot be reassigned; a "
+            "verified executable is what the verifier passed"
+        )
+
+    def __delattr__(self, name: str) -> None:
+        """Refuse every deletion, for the same reason as :meth:`__setattr__`.
+
+        :raises UnsupportedConstructError: Always.
+        """
+        raise UnsupportedConstructError(
+            f"parsing: {type(self).__name__}.{name} cannot be deleted; a "
+            "verified executable is what the verifier passed"
         )
 
     def replica(self) -> ModelExecutable[M]:
         """An equal binding whose routine map is a worker's own.
 
         The memo keys on the BINDING's identity, so a worker that wants its own
-        compiled tables needs its own binding; the routine map is rebuilt
-        because it is the container every completion reads, and therefore the
-        one whose sharing costs the reference-count traffic that held eight
-        threads below the throughput of one.
+        compiled tables needs its own binding; the routine map is rebuilt —
+        inside the executor, which copies what it is handed — because it is the
+        container every completion reads, and therefore the one whose sharing
+        costs the reference-count traffic that held eight threads below the
+        throughput of one. The read-only projections are shared by identity
+        instead: nothing can write through them, so nothing has to be copied.
 
         Nothing is lowered or verified again. The program is immutable and
         already passed the cold gate, so re-deriving it per worker would pay a
@@ -147,8 +161,8 @@ class ModelExecutable[M]:
         rests on.
         """
         copy = object.__new__(type(self))
-        copy.program = self.program
-        copy.codes = self.codes
-        copy.routines = dict(self.routines)
-        copy.executor = ProductExecutor(copy.routines)
+        object.__setattr__(copy, "program", self.program)
+        object.__setattr__(copy, "codes", self.codes)
+        object.__setattr__(copy, "routines", self.routines)
+        object.__setattr__(copy, "executor", ProductExecutor(self.routines))
         return copy

@@ -9,7 +9,7 @@ from typing import NamedTuple
 
 from tools.benchmark.bench import _JSON_SPECIALISTS, ENGINE, PRODUCT, Parse, _medians
 from tools.benchmark.cases.grammars import Bench
-from tools.benchmark.cases.variants import variant_marks
+from tools.benchmark.cases.grammars import declared_marks
 
 _WARM_CONVERGED = 150
 """Warmup parses below which a JIT row has historically landed in its slow
@@ -193,7 +193,7 @@ def _seat_check(bench: Bench, samples: dict[str, list[float]]) -> None:
     """
     if "lexic-lex" not in samples or "lexic-lex-ns" not in samples:
         return
-    _, ns_marks = variant_marks(bench.ast)
+    _, ns_marks = declared_marks(bench)
     if ns_marks:
         return
     lex = _medians({"lex": samples["lexic-lex"]})["lex"]

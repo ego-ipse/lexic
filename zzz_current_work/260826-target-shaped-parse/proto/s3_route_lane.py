@@ -23,17 +23,18 @@ Uncommitted evidence, not a test. Luna owns the committed suite.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 from lexic.parsing.pda.runtime.admission import NO_ROUTE, RouteLane, frames_copy
-from lexic.parsing.pda.runtime.build import F_ENDS, F_OUT, F_SINKS
+from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 
 
-def _frame(label: str) -> list[Any]:
-    """A frame shaped like the kernel's — nine slots, aliasable lists."""
+def _frame(label: str) -> Frame[Any]:
+    """A frame shaped like the kernel's — named lanes, aliasable lists."""
     out: list[Any] = []
-    return [label, 0, 0, out, 0, None, 0, [0, 0], None]
+    return Frame(SimpleNamespace(n=2, label=label), out, SimpleNamespace(mode=0), 0)
 
 
 def _check(claim: str, held: bool) -> None:
@@ -123,7 +124,7 @@ def a_fork_rebinds_to_the_copied_frames() -> None:
     stack = [_frame("root"), _frame("child")]
     # Alias the child's sink into the root's, the topology `frames_copy` exists
     # to preserve — the lane must survive the same operation.
-    stack[1][F_OUT] = stack[0][F_OUT]
+    stack[1].out = stack[0].out
 
     lane = RouteLane()
     lane.publish(0, stack[0], (1,), 9)
@@ -132,7 +133,7 @@ def a_fork_rebinds_to_the_copied_frames() -> None:
 
     _check(
         "the fork did not preserve the aliasing topology",
-        copies[1][F_OUT] is copies[0][F_OUT],
+        copies[1].out is copies[0].out,
     )
     _check(
         "the forked lane still names the ORIGINAL frame",
@@ -142,10 +143,8 @@ def a_fork_rebinds_to_the_copied_frames() -> None:
     _check("the forked lane lost its path", forked.path_at(0, copies[0]) == (1,))
     _check("forking mutated the original lane", lane.route_at(0, stack[0]) == 9)
     _check("the forked frames are distinct objects", copies[0] is not stack[0])
-    _check(
-        "the per-frame lists were duplicated", copies[0][F_ENDS] is not stack[0][F_ENDS]
-    )
-    _check("an unset sink stayed unset", copies[0][F_SINKS] is None)
+    _check("the per-frame lists were duplicated", copies[0].ends is not stack[0].ends)
+    _check("an unset sink stayed unset", copies[0].sinks is None)
     print("fork\tlane rebinds to the copied frames; the original is untouched")
 
 

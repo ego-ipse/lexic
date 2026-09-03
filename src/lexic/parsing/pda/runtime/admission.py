@@ -15,15 +15,7 @@ from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.pda.runtime.build import (
-    F_ARM,
-    F_CLONE,
-    F_COUNT,
-    F_ENDS,
-    F_I,
-    F_MODE,
-    F_OUT,
-    F_SINKS,
-    F_START,
+    Frame,
     InternMemo,
 )
 
@@ -137,26 +129,25 @@ class KernelCaches[Carry](IrLeaf[IrSelf, IrSelf]):
         self.uncertain = False
 
 
-def frames_copy(stack: list[list[Any]]) -> list[list[Any]]:
+def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
     """A structural copy of the frame stack, aliasing topology preserved.
 
-    Frames alias each other: a frame's ``F_OUT`` IS the run holder, a parent's
+    Frames alias each other: a frame's ``out`` IS the run holder, a parent's
     per-item sink list, or (through a transparent frame) an ancestor's — so a
     plain per-frame copy would break the funnels. Every list is duplicated
     once via an identity map and every reference re-resolved through it;
     model objects inside sinks are immutable and stay shared.
     """
     remap: dict[int, list[Any]] = {}
-    copies: list[list[Any]] = []
+    copies: list[Frame[Carry]] = []
     for frame in stack:
-        new = list(frame)
-        new[F_ENDS] = _dup(frame[F_ENDS], remap)
-        new[F_OUT] = _dup(frame[F_OUT], remap)
-        sinks = frame[F_SINKS]
+        new = Frame(frame.arm, _dup(frame.out, remap), frame.clone, 0)
+        new.i = frame.i
+        new.count = frame.count
+        new.ends = _dup(frame.ends, remap)
+        sinks = frame.sinks
         if sinks is not None:
-            new[F_SINKS] = [
-                slot if slot is None else _dup(slot, remap) for slot in sinks
-            ]
+            new.sinks = [slot if slot is None else _dup(slot, remap) for slot in sinks]
         copies.append(new)
     return copies
 
@@ -173,7 +164,7 @@ class _Published(NamedTuple):
     :ivar route: The dense route id the consumer enters on.
     """
 
-    frame: list[Any]
+    frame: Frame
     path: tuple[int, ...]
     route: int
 
@@ -207,12 +198,12 @@ class RouteLane:
         self._table: dict[int, _Published] = {} if table is None else table
 
     def publish(
-        self, depth: int, frame: list[Any], path: tuple[int, ...], route: int
+        self, depth: int, frame: Frame, path: tuple[int, ...], route: int
     ) -> None:
         """Record the route ``frame`` just classified, for its descendant."""
         self._table[depth] = _Published(frame, path, route)
 
-    def route_at(self, depth: int, frame: list[Any]) -> int:
+    def route_at(self, depth: int, frame: Frame) -> int:
         """The route waiting in ``frame``, or :data:`NO_ROUTE`.
 
         :param depth: Where the publishing frame sits.
@@ -225,7 +216,7 @@ class RouteLane:
             return NO_ROUTE
         return found.route
 
-    def path_at(self, depth: int, frame: list[Any]) -> tuple[int, ...]:
+    def path_at(self, depth: int, frame: Frame) -> tuple[int, ...]:
         """The consumer path waiting in ``frame``, empty when none is."""
         found = self._table.get(depth)
         if found is None or found.frame is not frame:
@@ -246,7 +237,7 @@ class RouteLane:
         for at in [key for key in self._table if key > depth]:
             del self._table[at]
 
-    def forked(self, copies: list[list[Any]]) -> RouteLane:
+    def forked(self, copies: list[Frame]) -> RouteLane:
         """This lane rebound to a forked stack's frames.
 
         :param copies: The forked stack, positionally matching the original —
@@ -272,7 +263,7 @@ def _dup(lst: list[Any], remap: dict[int, list[Any]]) -> list[Any]:
     return got
 
 
-def control_signature(stack: list[list[Any]], pos: int) -> tuple[Any, ...]:
+def control_signature(stack: list[Frame], pos: int) -> tuple[Any, ...]:
     """What a probe side must SHARE with the other to have a common future.
 
     The stack IS the continuation, so two sides at the same position with the
@@ -280,7 +271,7 @@ def control_signature(stack: list[list[Any]], pos: int) -> tuple[Any, ...]:
     additional values — which is what lets a boundary be settled without
     running either side to end-of-input.
 
-    Deliberately excludes every value container (``F_OUT`` / ``F_SINKS``): the
+    Deliberately excludes every value container (``out`` / ``sinks``): the
     two sides differing THERE is the fact being measured, and folding it into
     the signature would mean the sides never converge. Arm and clone enter by
     identity — the flat program is immutable and shared across every parse, so
@@ -296,12 +287,11 @@ def control_signature(stack: list[list[Any]], pos: int) -> tuple[Any, ...]:
         len(stack),
         tuple(
             (
-                id(frame[F_ARM]),
-                frame[F_I],
+                id(frame.arm),
+                frame.i,
                 _count_key(frame),
-                frame[F_MODE],
-                id(frame[F_CLONE]),
-                frame[F_START],
+                id(frame.clone),
+                frame.ends[0],
             )
             for frame in stack
         ),
@@ -313,7 +303,7 @@ _COUNT_FREE = -1
 anything — past its mandatory floor with no ceiling to hit."""
 
 
-def _count_key(frame: list[Any]) -> int:
+def _count_key(frame: Frame) -> int:
     """A frame's iteration count, or :data:`_COUNT_FREE` when it cannot matter.
 
     A count constrains the future only while it can still decide something: it
@@ -322,17 +312,17 @@ def _count_key(frame: list[Any]) -> int:
     the exact number is not part of the state — and collapsing it is what lets
     a side that took one more iteration converge with one that did not.
     """
-    arm = frame[F_ARM]
-    i = frame[F_I]
+    arm = frame.arm
+    i = frame.i
     if i >= arm.n:
         return _COUNT_FREE
-    count = frame[F_COUNT]
+    count = frame.count
     if arm.his[i] >= 0 or count < arm.los[i]:
         return count
     return _COUNT_FREE
 
 
-def value_shape(stack: list[list[Any]]) -> tuple[Any, ...]:
+def value_shape(stack: list[Frame]) -> tuple[Any, ...]:
     """Every value container's length — the watermark taken AT the boundary.
 
     Both sides of a boundary are copies of one live stack, so everything
@@ -344,18 +334,16 @@ def value_shape(stack: list[list[Any]]) -> tuple[Any, ...]:
     """
     return tuple(
         (
-            len(frame[F_OUT]),
+            len(frame.out),
             ()
-            if frame[F_SINKS] is None
-            else tuple(0 if slot is None else len(slot) for slot in frame[F_SINKS]),
+            if frame.sinks is None
+            else tuple(0 if slot is None else len(slot) for slot in frame.sinks),
         )
         for frame in stack
     )
 
 
-def pending_values(
-    stack: list[list[Any]], shape: tuple[Any, ...] = ()
-) -> tuple[Any, ...]:
+def pending_values(stack: list[Frame], shape: tuple[Any, ...] = ()) -> tuple[Any, ...]:
     """Every value a probe side has built SINCE ``shape`` was taken.
 
     Containers grow by append, so the watermark's prefix is common to both
@@ -368,14 +356,14 @@ def pending_values(
     Frames deeper than ``shape`` did not exist at the boundary and are compared
     in full.
 
-    Aliased containers (a frame's ``F_OUT`` IS a parent's sink slot) are read
+    Aliased containers (a frame's ``out`` IS a parent's sink slot) are read
     twice; harmless for an equality test, and cheaper than resolving identity.
     """
     out: list[Any] = []
     for depth, frame in enumerate(stack):
         was_out, was_sinks = shape[depth] if depth < len(shape) else (0, ())
-        out.append(_since(frame[F_OUT], was_out))
-        sinks = frame[F_SINKS]
+        out.append(_since(frame.out, was_out))
+        sinks = frame.sinks
         if sinks is None:
             out.append(())
             continue

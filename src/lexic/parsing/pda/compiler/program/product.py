@@ -144,7 +144,7 @@ def bake_product_build[Carry](
     clone.mode = _build_mode(routine)
     clone.n_items = 0 if routine is None else routine.n_items
     clone.needs_ends = routine is not None and any(
-        mode in _ENDS_MODES for mode in routine.modes
+        capture.mode in _ENDS_MODES for capture in routine.captures
     )
     construction = None if routine is None else routine.construction
     if routine is None or construction is None:
@@ -184,7 +184,9 @@ def _capture_layout[Carry](
             construction.names[at],
             0 if at in construction.optional else 1,
         )
-        for at, (slot, mode) in enumerate(zip(routine.slots, routine.modes))
+        for at, (slot, mode) in enumerate(
+            (capture.slot, capture.mode) for capture in routine.captures
+        )
     )
 
 
@@ -218,6 +220,8 @@ def _build_plan[Carry](
             )
             continue
         absent = at in construction.optional
-        code = _capture_code(routine.modes[at], absent)
-        plan.append((code, routine.slots[at], 0 if absent else 1, defaults.get(name)))
+        code = _capture_code(routine.captures[at].mode, absent)
+        plan.append(
+            (code, routine.captures[at].slot, 0 if absent else 1, defaults.get(name))
+        )
     return tuple(plan)

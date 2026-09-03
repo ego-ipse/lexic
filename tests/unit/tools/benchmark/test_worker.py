@@ -51,8 +51,9 @@ def test_worker_samples_only_the_exact_build_it_was_given(
     def parse(_text: str) -> object:
         return object()
 
-    bench = SimpleNamespace(name="json", full="full")
-    monkeypatch.setattr(worker, "BENCHES", (bench,))
+    bench = cast(
+        Bench, SimpleNamespace(name="json", full="full", lexical=(), non_semantic=())
+    )
     monkeypatch.setattr(
         worker,
         "one_engine",
@@ -69,7 +70,7 @@ def test_worker_samples_only_the_exact_build_it_was_given(
 
     monkeypatch.setattr(worker, "_interleaved", timed)
 
-    result = worker.execute("json", "lexic-pda", 3, 8, False)
+    result = worker.report_payload(bench, "lexic-pda", 3, 8, False)
 
     assert result["samples"] == [1.0, 1.1, 0.9]
 
@@ -85,7 +86,8 @@ def test_parent_launches_a_fresh_worker_for_the_exact_pair(
         environment = kwargs["env"]
         assert isinstance(environment, dict)
         assert environment["LEXIC_BENCHMARK_GRAMMAR"] == "vyx"
-        assert environment["PYTHONPATH"].split(":", 1)[0] == "base/src"
+        assert environment["PYTHONPATH"].split(":", 2)[:2] == ["base/src", "base"]
+        assert kwargs["cwd"] == "base"
         payload = {
             "samples": [1.2],
             "mt_reason": None,
@@ -97,9 +99,8 @@ def test_parent_launches_a_fresh_worker_for_the_exact_pair(
 
     monkeypatch.setattr(isolation.subprocess, "run", run)
 
-    result = isolation.run_row(
-        RowRequest("vyx", "lexic-mt", 7, 8, False),
-        source_root=Path("base/src"),
+    result = isolation.run_report_row(
+        RowRequest("vyx", "lexic-mt", 7, 8, False), Path("base")
     )
 
     assert result.samples == [1.2]
@@ -108,3 +109,34 @@ def test_parent_launches_a_fresh_worker_for_the_exact_pair(
     assert command[command.index("--engine") + 1] == "lexic-mt"
     assert command[command.index("--rounds") + 1] == "7"
     assert command[command.index("--cores") + 1] == "8"
+
+
+def test_a_job_runs_from_its_own_checkout_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each revision's worker imports ITS tools and ITS src, not the parent's."""
+    seen: dict[str, object] = {}
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.update(kwargs)
+        seen["command"] = command
+        payload = {"refusal": "not measured here"}
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    monkeypatch.setattr(isolation.subprocess, "run", run)
+
+    isolation.run_job(
+        isolation.Job(
+            "vyx/lexic-pda/base",
+            RowRequest("vyx", "lexic-pda", 5, None, False),
+            Path("/tmp/other-tree"),
+        )
+    )
+
+    environment = seen["env"]
+    assert isinstance(environment, dict)
+    assert seen["cwd"] == "/tmp/other-tree"
+    assert environment["PYTHONPATH"].split(":", 2)[:2] == [
+        "/tmp/other-tree/src",
+        "/tmp/other-tree",
+    ]

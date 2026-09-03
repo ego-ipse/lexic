@@ -45,10 +45,12 @@ __all__ = [
     "MapShape",
     "Spec",
     "SpanEntry",
+    "SpanCarry",
     "SpanLevel",
     "SpanPair",
     "Template",
     "skip_rules",
+    "span_level",
     "spanify",
     "template",
 ]
@@ -167,9 +169,19 @@ class SpanLevel(IrSeq[SpanEntry]):
     """One parsed section level — the span fold's product, in document order."""
 
 
+type SpanCarry = SpanEntry | SpanLevel
+"""What a span-product rule completes to — the level, or one of its entries.
+
+The product's START rule builds a level; the entry rule beneath it builds an
+entry. Naming the union is what lets the executable say honestly what its
+completions produce, with the root's narrower claim made once, where it is
+read.
+"""
+
+
 class SpanPair(
     IrNamedTuple[
-        IrAst, IrAst, ModelExecutable[SpanLevel], IrAst, ModelExecutable[GrammarModel]
+        IrAst, IrAst, ModelExecutable[SpanCarry], IrAst, ModelExecutable[GrammarModel]
     ]
 ):
     """The retained span-mode artifacts one :func:`spanify` call produces.
@@ -185,7 +197,7 @@ class SpanPair(
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     spans: IrAst
     sections: IrAst
-    span_binding: ModelExecutable[SpanLevel]
+    span_binding: ModelExecutable[SpanCarry]
     values: IrAst
     value_binding: ModelExecutable[GrammarModel]
 
@@ -512,13 +524,13 @@ def _clone_rule(view: _ShapeView, name: str) -> AuthoredRule | None:
     return AuthoredRule("collect", captures, tuple(reaching), len(arm), optional)
 
 
-SPAN_SYMBOLS: dict[str, Callable[..., object]] = {
+SPAN_SYMBOLS: dict[str, Callable[..., SpanCarry]] = {
     "span_entry": _span_entry,
     "collect": _collect,
 }
 
 
-def _span_binding(view: _ShapeView) -> ModelExecutable[SpanLevel]:
+def _span_binding(view: _ShapeView) -> ModelExecutable[SpanCarry]:
     """The span surface's product, from one walk over the reaching set."""
     entry = view.shape.entry + _SPAN
     rules: dict[str, AuthoredRule] = {entry: _entry_rule(view)}
@@ -607,8 +619,8 @@ class Template(IrNamedTuple[SpanPair, Spec], init=False):
 
     def run(self, text: str) -> IrMap[IrTuple, GrammarModel]:
         """Extract kept paths as a flat path-to-model map."""
-        entries = _parse_step(
-            self.span.spans, self.span.span_binding, text, "<document>"
+        entries = span_level(
+            _parse_step(self.span.spans, self.span.span_binding, text, "<document>")
         )
         kept: list[IrTuple] = []
         _collect_kept(self.span, self.spec, entries, (), kept)
@@ -623,6 +635,19 @@ def _parse_step[M](
         return parse_model(grammar, text, binding)
     except LexicError as err:
         raise UnsupportedConstructError(f"template at {path}: {err}") from err
+
+
+def span_level(built: SpanCarry) -> SpanLevel:
+    """Narrow one span parse to the level its start rule builds.
+
+    :raises UnsupportedConstructError: When the span product completed to an
+        entry rather than the level a section parse is defined to produce.
+    """
+    if isinstance(built, SpanLevel):
+        return built
+    raise UnsupportedConstructError(
+        "template: the span product completed to an entry, not a section level"
+    )
 
 
 def _collect_kept(
@@ -651,7 +676,7 @@ def _collect_kept(
             out.append(IrTuple(IrTuple(*path), model))
             continue
         sub = _parse_step(pair.sections, pair.span_binding, span, where)
-        _collect_kept(pair, want, sub, path, out)
+        _collect_kept(pair, want, span_level(sub), path, out)
 
 
 def template(

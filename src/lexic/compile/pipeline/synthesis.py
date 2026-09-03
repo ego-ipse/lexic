@@ -29,6 +29,7 @@ built. A parentless rule subclasses :class:`GrammarModel` directly.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import NamedTuple
 
 from lexic.compile.foldkit import ALT_PRODUCT
@@ -49,6 +50,8 @@ from lexic.model import GrammarModel
 from lexic.parsing.product import (
     CAPTURE_FOR_BIND,
     CaptureSpec,
+    ConstructionLicence,
+    ProductValue,
     RecordConstructor,
     RecordOp,
     RuleProduct,
@@ -292,16 +295,24 @@ def model_plan(
     return ModelPlan(tuple(products), tuple(constructors), codes)
 
 
-def _model_defaults(cls: type) -> Mapping[str, object]:
-    """What an omitted field of ``cls`` falls back to."""
+def _model_defaults(cls: type) -> Mapping[str, ProductValue[GrammarModel]]:
+    """What an omitted field of ``cls`` falls back to, frozen at declaration."""
     if not issubclass(cls, GrammarModel):
-        return {}
-    return cls.fast_construct()[1]
+        return MappingProxyType({})
+    return MappingProxyType(dict(cls.fast_construct()[1]))
+
+
+def _declared_licence(
+    cls: type[GrammarModel], defaults: Mapping[str, ProductValue[GrammarModel]]
+) -> ConstructionLicence[GrammarModel]:
+    """The class's own construction contract, as the record a rule carries."""
+    construct, _defaults, order = cls.fast_construct()
+    return ConstructionLicence(construct, defaults, order)
 
 
 def _fast_licence(
     cls: type, kind: str, names: tuple[str, ...], optional: tuple[int, ...]
-) -> bool:
+) -> ConstructionLicence[GrammarModel] | None:
     """Whether this rule may build through the class's positional constructor.
 
     The class-level half comes from :meth:`GrammarModel.fast_construct`
@@ -318,15 +329,17 @@ def _fast_licence(
     :param kind: The rule's binding kind.
     :param names: The keyword each capture fills, in capture order.
     :param optional: Capture indices the record admits being absent.
-    :returns: Whether the validation-skip licence is granted.
+    :returns: The licence, or ``None`` when this rule builds by name.
     """
     if kind == "alternation" or not issubclass(cls, GrammarModel):
-        return False
+        return None
     filled = {VALUE_FIELD} if kind == "value_str" else set(names)
     model_names = set(cls._fields)
     if not filled <= model_names:
-        return False
+        return None
     defaults = _model_defaults(cls)
     if any(name not in filled and name not in defaults for name in model_names):
-        return False
-    return all(names[at] in defaults for at in optional)
+        return None
+    if not all(names[at] in defaults for at in optional):
+        return None
+    return _declared_licence(cls, defaults)

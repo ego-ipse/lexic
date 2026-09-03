@@ -60,26 +60,3 @@ def two_text_capture_rule() -> RuleProduct:
         completion=RecordOp(0),
         n_items=2,
     )
-
-
-def replaced(record, **fields):
-    """A NamedTuple rebuilt with the named fields overridden, positionally.
-
-    ``record._replace(**fields)`` is what this expresses; the rebuild goes
-    through ``type(record).__annotations__`` (a class attribute, not an
-    inherited method) because astroid does not resolve ``NamedTuple``'s
-    inherited ``_replace``/``_make``/``_fields`` on a PEP 695 generic class
-    (``class Foo[T](NamedTuple)``) — a real pylint/astroid gap, not a defect:
-    pyright and the runtime both resolve the real methods cleanly. This
-    helper reaches the same rebuilt record through a class attribute pylint
-    already understands.
-
-    :raises ValueError: When a keyword names no real field of ``record``.
-    """
-    names = type(record).__annotations__
-    unknown = sorted(set(fields) - set(names))
-    if unknown:
-        raise ValueError(f"{type(record).__name__} has no field(s) {unknown}")
-    return type(record)(
-        *(fields.get(name, value) for name, value in zip(names, record))
-    )

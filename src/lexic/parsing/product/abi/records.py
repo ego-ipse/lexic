@@ -32,6 +32,7 @@ from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
 from lexic.parsing.product.abi.construction import (
     BoundSymbol,
     Construction,
+    ConstructionLicence,
     ProductValue,
     RecordConstructor,
     SymbolConstructor,
@@ -55,6 +56,7 @@ __all__ = [
     "CompletionRange",
     "ConstantOp",
     "Construction",
+    "ConstructionLicence",
     "DecodeCode",
     "DecodeOp",
     "FinishMappingOp",

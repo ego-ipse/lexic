@@ -29,17 +29,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.build import (
-    F_ARM,
-    F_CLONE,
-    F_COUNT,
-    F_ENDS,
-    F_I,
-    F_MODE,
-    F_OUT,
-    F_SINKS,
-    F_START,
     INTERN_MISS,
-    alt_model,
+    Frame,
     build_sequence,
     build_validated,
     build_vstr,
@@ -47,20 +38,37 @@ from lexic.parsing.pda.runtime.build import (
     finish_delegate,
     leaf_mismatch,
 )
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 
 def make_frame(slots):
-    """A 9-slot frame list with the given ``{F_slot: value}`` set (rest ``None``)."""
-    frame: list = [None] * 9
-    for idx, val in slots.items():
-        frame[idx] = val
+    """A frame with the named slots set, the rest at their fresh defaults."""
+    arm = slots.get("arm", flat_arm(0))
+    clone = slots.get("clone", flat_clone())
+    frame = Frame(arm, slots.get("out", []), clone, slots.get("start", 0))
+    for name, value in slots.items():
+        setattr(frame, name, value)
     return frame
 
 
-def test_frame_layout_is_nine_distinct_slots():
-    """The frame-slot constants index a 9-wide list, all distinct."""
-    slots = [F_ARM, F_I, F_COUNT, F_OUT, F_MODE, F_CLONE, F_START, F_ENDS, F_SINKS]
-    assert sorted(slots) == list(range(9))
+def test_a_fresh_frame_starts_at_item_zero_with_its_span_start_seeded():
+    """The frame begins its arm, and ``ends[0]`` IS where it began.
+
+    One boundary per item plus the start, so every span read is
+    ``(ends[i], ends[i + 1])`` and no reader tests for the first item.
+    """
+    frame = Frame(flat_arm(3), [], flat_clone(7), 4)
+    assert (frame.i, frame.count) == (0, 0)
+    assert frame.ends == [4, 4, 4, 4]
+    assert frame.sinks is None
+    assert frame.clone.mode == 7
+
+
+def test_a_frame_admits_no_attribute_outside_its_slots():
+    """The layout is closed — a typo'd lane is an error, not a silent write."""
+    frame = Frame(flat_arm(0), [], flat_clone(), 0)
+    with pytest.raises(AttributeError):
+        setattr(frame, "sink", [])
 
 
 # ── finish_delegate ──────────────────────────────────────────────────────────
@@ -99,18 +107,18 @@ def test_finish_delegate_declines_on_a_lexic_error_from_the_fold():
     assert finish_delegate(sub, cast(FlatClone, object()), "abc", 0) is None
 
 
-# ── alt_model ────────────────────────────────────────────────────────────────
+# ── Frame.alt_model ────────────────────────────────────────────────────────────────
 
 
 def test_alt_model_returns_the_first_populated_sink():
     """The alternation pass-through returns the first non-empty sink's head."""
-    frame = make_frame({F_SINKS: [[], ["m"], []]})
-    assert alt_model(frame[F_SINKS]) == "m"
+    frame = make_frame({"sinks": [[], ["m"], []]})
+    assert frame.alt_model() == "m"
 
 
 def test_alt_model_none_when_no_sinks():
     """No sinks (nothing captured) yields ``None``."""
-    assert alt_model(make_frame({F_SINKS: None})[F_SINKS]) is None
+    assert make_frame({"sinks": None}).alt_model() is None
 
 
 # ── leaf_mismatch ────────────────────────────────────────────────────────────
@@ -189,7 +197,7 @@ def test_fast_build_fills_text_and_model_slots():
     fields = ((0, M_TEXT, "head", 1), (1, M_MODEL, "kid", 1))
     seen = []
     clone = seq_clone(fields, fast=lambda values: seen.extend(values) or "built")
-    out = clone.fast(fast_values("abXY", clone, (0, [2, 2], [None, ["submodel"]])))
+    out = clone.fast(fast_values("abXY", clone, ([0, 2, 2], [None, ["submodel"]])))
     assert out == "built"
     assert seen == ["ab", "submodel"]
 
@@ -199,7 +207,7 @@ def test_fast_build_models_slot_defaults_to_an_empty_tuple():
     fields = ((0, M_MODELS, "kids", 0),)
     seen = []
     clone = seq_clone(fields, fast=seen.extend)
-    clone.fast(fast_values("", clone, (0, [0], None)))
+    clone.fast(fast_values("", clone, ([0, 0], None)))
     assert seen == [()]
 
 
@@ -209,7 +217,7 @@ def test_fast_build_models_slot_coerces_the_live_sink_list():
     seen = []
     clone = seq_clone(fields, fast=seen.extend)
     sink = ["a", "b"]
-    clone.fast(fast_values("", clone, (0, [0], [sink])))
+    clone.fast(fast_values("", clone, ([0, 0], [sink])))
     sink.append("c")
     assert seen == [("a", "b")]
 
@@ -220,7 +228,7 @@ def test_fast_build_gtext_falls_back_to_the_default_on_an_empty_span():
     seen = []
     clone = seq_clone(fields, fast=seen.extend, defaults={"opt": "DEF"})
     clone.fast(
-        fast_values("x", clone, (0, [0], None))
+        fast_values("x", clone, ([0, 0], None))
     )  # span (0,0) empty, lo 0 -> default
     assert seen == ["DEF"]
 
@@ -230,7 +238,7 @@ def test_fast_build_gtext_keeps_an_empty_span_a_required_field_asked_for():
     fields = ((0, M_GTEXT, "req", 1),)
     seen = []
     clone = seq_clone(fields, fast=seen.extend, defaults={"req": "DEF"})
-    clone.fast(fast_values("x", clone, (0, [0], None)))
+    clone.fast(fast_values("x", clone, ([0, 0], None)))
     assert seen == [""]
 
 
@@ -239,7 +247,7 @@ def test_fast_build_model_slot_falls_back_to_the_default_on_an_empty_sink():
     fields = ((0, M_MODEL, "kid", 0),)
     seen = []
     clone = seq_clone(fields, fast=seen.extend, defaults={"kid": None})
-    clone.fast(fast_values("", clone, (0, [0], None)))
+    clone.fast(fast_values("", clone, ([0, 0], None)))
     assert seen == [None]
 
 
@@ -251,7 +259,7 @@ def test_fast_build_const_slot_is_the_plan_default():
         fast=seen.extend,
         plan=((M_TEXT, 0, 1, None), (M_CONST, 0, 0, "fixed")),
     )
-    clone.fast(fast_values("ab", clone, (0, [2], None)))
+    clone.fast(fast_values("ab", clone, ([0, 2], None)))
     assert seen == ["ab", "fixed"]
 
 
@@ -271,8 +279,8 @@ def test_fast_build_does_not_intern_the_record_path():
         return list(values)
 
     clone = seq_clone(fields, fast=fast)
-    a = clone.fast(fast_values("ab", clone, (0, [2], None)))
-    b = clone.fast(fast_values("ab", clone, (0, [2], None)))
+    a = clone.fast(fast_values("ab", clone, ([0, 2], None)))
+    b = clone.fast(fast_values("ab", clone, ([0, 2], None)))
     assert a == b
     assert a is not b
     assert calls["n"] == 2
@@ -284,7 +292,7 @@ def test_build_validated_unknown_mode_raises():
         FlatClone, SimpleNamespace(fields=((0, 99, "x", 1),), ctor=lambda **kw: kw)
     )
     with pytest.raises(UnsupportedConstructError):
-        build_validated("ab", 0, [2], None, clone, {})
+        build_validated("ab", ([0, 2], None), clone, {})
 
 
 def test_build_validated_does_not_cache_a_raising_construction():
@@ -302,25 +310,16 @@ def test_build_validated_does_not_cache_a_raising_construction():
     clone = cast(
         FlatClone, SimpleNamespace(fields=((0, M_TEXT, "head", 1),), ctor=ctor)
     )
-    frame = make_frame({F_ENDS: [2], F_SINKS: None, F_START: 0})
+    frame = make_frame({"ends": [0, 2], "sinks": None})
     memo: dict = {}
     with pytest.raises(FieldValidationError):
-        build_validated(
-            "ab", frame[F_START], frame[F_ENDS], frame[F_SINKS], clone, memo
-        )
+        build_validated("ab", (frame.ends, frame.sinks), clone, memo)
     assert not memo  # nothing cached from the raising build
     state["boom"] = False
-    out = build_validated(
-        "ab", frame[F_START], frame[F_ENDS], frame[F_SINKS], clone, memo
-    )
+    out = build_validated("ab", (frame.ends, frame.sinks), clone, memo)
     assert out == ("ok", {"head": "ab"})
     # a second identical build now hits the cache (ctor not re-invoked)
-    assert (
-        build_validated(
-            "ab", frame[F_START], frame[F_ENDS], frame[F_SINKS], clone, memo
-        )
-        is out
-    )
+    assert build_validated("ab", (frame.ends, frame.sinks), clone, memo) is out
     assert state["n"] == 2  # one failed + one successful; the hit adds nothing
 
 
@@ -335,8 +334,8 @@ def test_build_sequence_empty_arm_builds_bare_ctor():
             fields=(),
         ),
     )
-    frame = make_frame({F_ARM: SimpleNamespace(n=0)})
-    assert build_sequence("", frame[F_ARM], 0, [], None, clone, {}) == ("bare",)
+    frame = make_frame({"arm": flat_arm(0)})
+    assert build_sequence("", frame, clone, {}) == ("bare",)
 
 
 # ── build_vstr (value_str build + intern) ────────────────────────────────────

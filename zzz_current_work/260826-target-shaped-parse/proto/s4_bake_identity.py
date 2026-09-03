@@ -187,22 +187,23 @@ def _item_count(clone: FlatClone) -> int:
     return max(items, default=-1) + 1
 
 
-def _captures(clone: FlatClone, filled: bool) -> tuple[str, int, list[int], list[Any]]:
-    """A frame's ``(text, start, ends, sinks)`` for one clone.
+def _captures(clone: FlatClone, filled: bool) -> tuple[str, list[int], list[Any]]:
+    """A frame's ``(text, ends, sinks)`` for one clone.
 
-    ``filled`` gives item ``i`` the one-character span ``FILLED[i]``; its
-    negation gives every item the EMPTY span, which is the only input that can
-    separate an absence-bearing capture from a required one.
+    ``ends[0]`` is the span start and ``ends[i + 1]`` is item ``i``'s end, the
+    frame's own layout. ``filled`` gives item ``i`` the one-character span
+    ``FILLED[i]``; its negation gives every item the EMPTY span, which is the
+    only input that can separate an absence-bearing capture from a required one.
     """
     n = _item_count(clone)
-    ends = [i + 1 for i in range(n)] if filled else [0] * n
+    ends = [0] + ([i + 1 for i in range(n)] if filled else [0] * n)
     sinks: list[Any] = [[f"<model {i}>", f"<extra {i}>"] for i in range(n)]
-    return FILLED, 0, ends, sinks
+    return FILLED, ends, sinks
 
 
-def _span_of(text: str, start: int, ends: list[int], item: int) -> str:
+def _span_of(text: str, ends: list[int], item: int) -> str:
     """Item ``item``'s captured text — the frame's own span convention."""
-    return text[(start if item == 0 else ends[item - 1]) : ends[item]]
+    return text[ends[item] : ends[item + 1]]
 
 
 def _declared_value(
@@ -210,14 +211,14 @@ def _declared_value(
     at: int | None,
     product: RuleProduct,
     constructor: RecordConstructor,
-    frame: tuple[str, int, list[int], list[Any]],
+    frame: tuple[str, list[int], list[Any]],
 ) -> object:
     """What the RECORD says one class field is built from.
 
     Written from :class:`RecordConstructor`'s declared meaning rather than from
     the bake's plan, so agreement is evidence instead of a tautology.
     """
-    text, start, ends, sinks = frame
+    text, ends, sinks = frame
     if at is None:
         return constructor.defaults.get(name)
     spec = product.captures[at]
@@ -227,7 +228,7 @@ def _declared_value(
         return tuple(sinks[spec.slot])
     if spec.mode == CaptureMode.EXTENT:
         return IrSpan(start if spec.slot == 0 else ends[spec.slot - 1], ends[spec.slot])
-    span = _span_of(text, start, ends, spec.slot)
+    span = _span_of(text, ends, spec.slot)
     if not span and at in constructor.optional:
         return constructor.defaults.get(name)  # ABSENT — never the empty string
     return span
@@ -311,8 +312,8 @@ def _check_built_model(
 ) -> None:
     """Build through the real `fast_values` and read every field back by name."""
     frame = _captures(clone, filled)
-    text, start, ends, sinks = frame
-    model = clone.fast(fast_values(text, clone, (start, ends, sinks)))
+    text, ends, sinks = frame
+    model = clone.fast(fast_values(text, clone, (ends, sinks)))
     filling = {name: at for at, name in enumerate(constructor.names)}
     for name in constructor.cls.fast_construct()[2]:
         want = _declared_value(name, filling.get(name), product, constructor, frame)
@@ -401,7 +402,7 @@ def check_clone(
         clone.matched == constructor.matched_field,
     )
     _check_fields(label, clone, product, constructor)
-    if not constructor.licensed:
+    if constructor.licence is None:
         totals["unlicensed"] = totals.get("unlicensed", 0) + 1
         _check(f"{label}: unlicensed clone kept a plan {clone.plan}", clone.plan == ())
         _check(
@@ -602,7 +603,7 @@ def _corpus_row(
         for name, code in plan.codes.items():
             product = plan.rules[code]
             constructor = _constructor_of(product, _tables(plan))
-            if constructor is None or not constructor.licensed:
+            if constructor is None or constructor.licence is None:
                 continue
             if wanted(product, constructor):
                 return f"{path.name}/{name}", product, _tables(plan)
@@ -655,7 +656,7 @@ def the_checks_are_live() -> None:
         product,
         tables,
         at,
-        lambda c: c._replace(licensed=False),
+        lambda c: c._replace(licence=None),
     )
     matched, vstr, vstr_tables = _corpus_row(_is_value_str, "value_str rule")
     print(f"control\tseeding the matched-field defect into {matched}")

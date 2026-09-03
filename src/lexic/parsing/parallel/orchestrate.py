@@ -51,12 +51,12 @@ from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
 from lexic.parsing.parallel.stitch.interior import routed_split
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
 from lexic.parsing.parallel.stitch.model import (
-    RegionWork,
     envelope_tails,
     stitch_envelope,
     stitch_routed,
     stitch_terminated,
 )
+from lexic.parsing.parallel.stitch.plan import RegionWork
 from lexic.parsing.parallel.stitch.safety import (
     bounds_units,
     mark_interiors,

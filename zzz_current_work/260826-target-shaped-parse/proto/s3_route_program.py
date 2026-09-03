@@ -57,10 +57,10 @@ RULES: tuple[RuleProduct[Carry], ...] = (
     RuleProduct((CaptureSpec(CaptureMode.ONE, 0),), PassOp(0)),
     RuleProduct((CaptureSpec(CaptureMode.TEXT, 0),), DecodeOp(0, DecodeCode.TEXT)),
     RuleProduct((CaptureSpec(CaptureMode.ONE, 0),), PassOp(0)),
-    RuleProduct((), PassOp(0)),
+    RuleProduct((CaptureSpec(CaptureMode.ONE, 0),), PassOp(0)),
     RuleProduct((CaptureSpec(CaptureMode.TEXT, 0),), DecodeOp(0, DecodeCode.TEXT)),
     RuleProduct((CaptureSpec(CaptureMode.TEXT, 0),), DecodeOp(0, DecodeCode.TEXT)),
-    RuleProduct((CaptureSpec(CaptureMode.SKIP, 0),), PassOp(0)),
+    RuleProduct((CaptureSpec(CaptureMode.ONE, 0),), PassOp(0)),
 )
 """Seven contextual rules. The last three are the routed value clones — one
 per destination — which is what "deeper children are baked into the contextual

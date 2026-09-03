@@ -34,8 +34,8 @@ from lexic.grammars import GBNF_FLAVOUR
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
-    Flip,
     MeaningBuilder,
+    MeaningRun,
     ambiguity_points,
     dirty_cone,
     remembered,
@@ -270,16 +270,15 @@ def the_replay_reuses_and_agrees(shape: Shape) -> None:
         raise AssertionError(f"{shape.name}: the default derivation did not build")
     first = _CountingFold()
     remembered_pair = remembered(
-        kernel, root, MeaningBuilder(first.build, first), first_tree
+        MeaningRun(kernel, root, MeaningBuilder(first.build, first)), first_tree
     )
     _base, memo = remembered_pair
 
     incremental = _CountingFold()
     reused = replayed(
-        kernel,
-        root,
-        Flip(flipped, 1),
-        MeaningBuilder(incremental.build, incremental),
+        MeaningRun(kernel, root, MeaningBuilder(incremental.build, incremental)),
+        flipped,
+        1,
         memo,
     )
 

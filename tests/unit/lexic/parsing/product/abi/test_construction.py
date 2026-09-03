@@ -2,9 +2,9 @@
 
 The load-bearing distinction this module draws is that only a LICENSED
 :class:`RecordConstructor` may resolve a positional construction licence, and
-:class:`SymbolConstructor` never does. Both resolution functions
-(:func:`record_construction`, :func:`symbol_construction`) are tested against
-that distinction directly, including the case where a class COULD answer
+:class:`SymbolConstructor` never does. Both resolution constructors
+(:meth:`Construction.of_record`, :meth:`Construction.of_symbol`) are tested
+against that distinction directly, including the case where a class COULD answer
 ``fast_construct`` but the record does not ask for it — the case a stray
 ``if hasattr(cls, "fast_construct")`` would get silently wrong.
 """
@@ -16,10 +16,10 @@ from typing import NamedTuple
 
 from lexic.parsing.product.abi.construction import (
     BoundSymbol,
+    Construction,
+    ConstructionLicence,
     RecordConstructor,
     SymbolConstructor,
-    record_construction,
-    symbol_construction,
 )
 
 # ── defaults ─────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ def test_record_constructor_defaults():
     assert not entry.optional
     assert entry.defaults == MappingProxyType({})
     assert entry.matched_field == ""
-    assert entry.licensed is False
+    assert entry.licence is None
 
 
 def test_symbol_constructor_defaults():
@@ -51,19 +51,18 @@ def test_bound_symbol_defaults():
     assert entry.matched == ""
 
 
-# ── record_construction: the licence gate ───────────────────────────────
+# ── Construction.of_record: the licence gate ───────────────────────────────
 
 
 class _Licensable(NamedTuple):
-    """A stand-in declared record: a real class with a real ``fast_construct``."""
+    """A stand-in declared record — a real class a declaration can name."""
 
     a: int
     b: int = 9
 
-    @classmethod
-    def fast_construct(cls):
-        """Return this record's positional construction licence."""
-        return (cls, {"b": 9}, ("a", "b"))
+
+_LICENCE = ConstructionLicence(_Licensable._make, {"b": 9}, ("a", "b"))
+"""The licence a declarer would read off ``_Licensable`` and carry."""
 
 
 def test_record_construction_resolves_the_declared_fields():
@@ -75,7 +74,7 @@ def test_record_construction_resolves_the_declared_fields():
         defaults=MappingProxyType({"b": 9}),
         matched_field="b",
     )
-    resolved = record_construction(entry)
+    resolved = Construction.of_record(entry)
     assert resolved.call is _Licensable
     assert resolved.names == ("a",)
     assert resolved.optional == frozenset({0})
@@ -83,40 +82,42 @@ def test_record_construction_resolves_the_declared_fields():
     assert resolved.matched == "b"
 
 
-def test_record_construction_grants_no_licence_when_not_asked():
-    """A class that COULD answer fast_construct is not consulted unless licensed=True.
+def test_record_construction_grants_no_licence_when_none_is_declared():
+    """A class that COULD be built positionally is not granted it by being able to.
 
-    The tell-tale defect this catches: resolving the licence off ``hasattr``
-    instead of off the authored flag would silently grant every eligible class
-    a fast path the declaration never asked for.
+    The tell-tale defect this catches: recovering the licence from the class
+    (``hasattr``, ``getattr``) would silently grant every eligible class a fast
+    path the declaration never carried.
     """
-    entry = RecordConstructor(cls=_Licensable, names=("a", "b"), licensed=False)
-    resolved = record_construction(entry)
+    entry = RecordConstructor(cls=_Licensable, names=("a", "b"))
+    resolved = Construction.of_record(entry)
     assert resolved.licence is None
 
 
-def test_record_construction_grants_the_licence_when_asked():
-    """licensed=True resolves the licence by calling the class's own method."""
-    entry = RecordConstructor(cls=_Licensable, names=("a", "b"), licensed=True)
-    resolved = record_construction(entry)
-    assert resolved.licence == (_Licensable, {"b": 9}, ("a", "b"))
+def test_record_construction_carries_the_declared_licence_unchanged():
+    """A declared licence reaches the resolved view as the record it is."""
+    entry = RecordConstructor(cls=_Licensable, names=("a", "b"), licence=_LICENCE)
+    resolved = Construction.of_record(entry)
+    assert resolved.licence is not None
+    assert resolved.licence is _LICENCE
+    assert resolved.licence.order == ("a", "b")
 
 
 def test_record_construction_optional_becomes_a_frozenset():
     """``optional`` is converted to a frozenset — order-independent membership."""
     entry = RecordConstructor(cls=tuple, names=("x", "y"), optional=(1, 0, 1))
-    resolved = record_construction(entry)
+    resolved = Construction.of_record(entry)
     assert resolved.optional == frozenset({0, 1})
     assert resolved.optional.__class__ is frozenset
 
 
-# ── symbol_construction: never a licence ────────────────────────────────
+# ── Construction.of_symbol: never a licence ────────────────────────────────
 
 
 def test_symbol_construction_resolves_the_declared_fields():
     """The resolved view carries the bound symbol's callable, names and matched."""
     entry = BoundSymbol(apply=str, names=("value",), optional=(0,), matched="tail")
-    resolved = symbol_construction(entry)
+    resolved = Construction.of_symbol(entry)
     assert resolved.call is str
     assert resolved.names == ("value",)
     assert resolved.optional == frozenset({0})
@@ -131,12 +132,12 @@ def test_symbol_construction_never_grants_a_licence():
     nothing to resolve here even in principle.
     """
     entry = BoundSymbol(apply=str, names=("a",))
-    resolved = symbol_construction(entry)
+    resolved = Construction.of_symbol(entry)
     assert resolved.licence is None
 
 
 def test_symbol_construction_defaults_to_empty_defaults_mapping():
-    """symbol_construction never fills the defaults mapping — only records do."""
+    """Construction.of_symbol never fills the defaults mapping — only records do."""
     entry = BoundSymbol(apply=str)
-    resolved = symbol_construction(entry)
+    resolved = Construction.of_symbol(entry)
     assert resolved.defaults == MappingProxyType({})

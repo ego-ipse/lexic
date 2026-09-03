@@ -1,4 +1,19 @@
-"""Parent-side protocol for isolated benchmark worker processes."""
+"""Parent-side protocol for isolated benchmark worker processes.
+
+**A job names a CHECKOUT ROOT, not a source directory.** Each revision's own
+worker runs from that revision's tree, with its own ``tools`` and ``src`` first
+on the path. This is what lets a cross-version A/B survive a public rename: the
+row definition is held constant by NAME, and each arm's code is its own. Running
+a historical revision with its historical benchmark measures that baseline; it
+is not support for that revision's API in current Lexic.
+
+**One process owns the machine for its complete lifecycle** — start, build,
+validate, warm, time, close, exit — before the next one starts. There is no
+preparation cohort. A worker that is merely "not yet timed" still compiles
+grammars, runs fidelity parses and holds artefacts and pools, and doing that
+beside a timed parse contaminates cache, allocator and thermal state. There is
+no exemption for untimed benchmark work.
+"""
 
 from __future__ import annotations
 
@@ -6,21 +21,10 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Sequence
-from contextlib import ExitStack
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple
 
-
-class IsolatedRow(NamedTuple):
-    """One exact row's samples and reporting metadata."""
-
-    samples: list[float]
-    refusal: str | None
-    mt_reason: str | None
-    warmed: tuple[int, bool] | None
-    cold_us_per_char: float | None
-    charstream_share: float
+from tools.benchmark.measurement.contract import RowResult, read_result
 
 
 class RowRequest(NamedTuple):
@@ -34,15 +38,17 @@ class RowRequest(NamedTuple):
 
 
 class Job(NamedTuple):
-    """A uniquely labelled exact-row request, optionally against another tree."""
+    """A uniquely labelled exact-row request against one checkout.
+
+    :ivar label: The unique name this job's result is filed under.
+    :ivar request: What to measure.
+    :ivar root: The checkout root the worker runs from. Its ``tools`` and
+        ``src`` are what the worker imports.
+    """
 
     label: str
     request: RowRequest
-    source_root: Path | None = None
-
-
-_PREPARE_WIDTH = min(os.cpu_count() or 1, 16)
-"""Maximum untimed row preparations allowed to overlap."""
+    root: Path
 
 
 def _command(request: RowRequest) -> list[str]:
@@ -65,67 +71,75 @@ def _command(request: RowRequest) -> list[str]:
     return command
 
 
-def _environment(request: RowRequest, source_root: Path | None) -> dict[str, str]:
-    """Restrict worker grammar construction and optionally select a source tree."""
+def _environment(request: RowRequest, root: Path) -> dict[str, str]:
+    """Put this checkout's own ``tools`` and ``src`` first on the path.
+
+    The root itself carries the ``tools`` package; ``root/src`` carries
+    ``lexic``. Nothing of the parent's tree may precede them, or the worker
+    would measure one revision's engine through another's harness.
+    """
     environment = dict(os.environ)
     environment["LEXIC_BENCHMARK_GRAMMAR"] = request.grammar
-    if source_root is not None:
-        inherited = environment.get("PYTHONPATH")
-        environment["PYTHONPATH"] = str(source_root) + (
-            os.pathsep + inherited if inherited else ""
-        )
+    environment["PYTHONPATH"] = os.pathsep.join(
+        (str(root / "src"), str(root), environment.get("PYTHONPATH", ""))
+    ).rstrip(os.pathsep)
     return environment
 
 
-def _decode(output: str, request: RowRequest) -> dict[str, Any]:
+def _decode(output: str, job: Job) -> dict[str, Any]:
     """Decode the final JSON line written by a worker."""
     lines = [line for line in output.splitlines() if line.strip()]
     if not lines:
-        raise RuntimeError(
-            f"isolated benchmark worker returned nothing for "
-            f"{request.grammar}/{request.engine}"
-        )
+        raise RuntimeError(f"benchmark worker returned nothing for {job.label}")
     decoded = json.loads(lines[-1])
     if not isinstance(decoded, dict):
-        raise RuntimeError(
-            f"isolated benchmark worker returned invalid JSON: {decoded!r}"
-        )
-    return cast(dict[str, Any], decoded)
+        raise RuntimeError(f"benchmark worker wrote invalid JSON: {decoded!r}")
+    return decoded
 
 
-def _payload(
-    request: RowRequest,
-    *,
-    noise: bool = False,
-    source_root: Path | None = None,
-) -> dict[str, Any]:
-    """Execute one grammar worker and decode its final JSON line."""
-    command = _command(request)
-    if noise:
-        command.append("--noise")
+def run_job(job: Job) -> RowResult:
+    """Run one worker to completion, alone, and decode its whole answer.
+
+    The process starts, does everything it was asked, and exits before this
+    function returns. No other benchmark process is running meanwhile.
+    """
     completed = subprocess.run(
-        command,
+        _command(job.request),
         capture_output=True,
         text=True,
         check=False,
-        env=_environment(request, source_root),
+        cwd=str(job.root),
+        env=_environment(job.request, job.root),
     )
     if completed.returncode:
         detail = completed.stderr.strip() or completed.stdout.strip()
-        raise RuntimeError(
-            f"isolated benchmark worker failed for "
-            f"{request.grammar}/{request.engine}: {detail}"
-        )
-    return _decode(completed.stdout, request)
+        raise RuntimeError(f"benchmark worker failed for {job.label}: {detail}")
+    return read_result(_decode(completed.stdout, job))
 
 
-def _row(payload: dict[str, Any]) -> IsolatedRow:
-    """Decode one row payload into the stable parent-side representation."""
+class ReportRow(NamedTuple):
+    """One row's presentation payload — the cross-engine report's cell.
+
+    The report and the acceptance gate ask different questions, so they carry
+    different payloads. This one is for reading: many per-character samples, the
+    warm-up account, and why a seat refused. It is never a gate.
+    """
+
+    samples: list[float]
+    refusal: str | None
+    mt_reason: str | None
+    warmed: tuple[int, bool] | None
+    cold_us_per_char: float | None
+    charstream_share: float
+
+
+def _report_row(payload: dict[str, Any]) -> ReportRow:
+    """Decode one row's presentation payload."""
     refusal = payload.get("refusal")
     if refusal is not None:
-        return IsolatedRow([], str(refusal), None, None, None, 0.0)
+        return ReportRow([], str(refusal), None, None, None, 0.0)
     warmed = payload.get("warmed")
-    return IsolatedRow(
+    return ReportRow(
         [float(value) for value in payload["samples"]],
         None,
         str(payload["mt_reason"]) if payload.get("mt_reason") else None,
@@ -137,61 +151,93 @@ def _row(payload: dict[str, Any]) -> IsolatedRow:
     )
 
 
-def _prepared(jobs: Sequence[Job]) -> dict[str, IsolatedRow]:
-    """Prepare one bounded cohort concurrently, then time it serially."""
-    with ExitStack() as owned:
-        processes: list[tuple[Job, subprocess.Popen[str]]] = []
-        for job in jobs:
-            process = owned.enter_context(
-                subprocess.Popen(
-                    [*_command(job.request), "--wait"],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    env=_environment(job.request, job.source_root),
-                )
-            )
-            processes.append((job, process))
-        for job, process in processes:
-            ready = process.stdout.readline() if process.stdout is not None else ""
-            if ready.strip() != '{"ready":true}':
-                _output, error = process.communicate()
-                detail = error.strip() or ready.strip()
-                raise RuntimeError(
-                    f"benchmark worker failed preparing {job.label}: {detail}"
-                )
-        measured: dict[str, IsolatedRow] = {}
-        for job, process in processes:
-            output, error = process.communicate("run\n")
-            if process.returncode:
-                detail = error.strip() or output.strip()
-                raise RuntimeError(
-                    f"benchmark worker failed timing {job.label}: {detail}"
-                )
-            measured[job.label] = _row(_decode(output, job.request))
-        return measured
+def run_report_row(
+    request: RowRequest, root: Path, *, noise: bool = False
+) -> ReportRow:
+    """Measure one presentation row in a fresh process that owns the machine."""
+    command = [*_command(request), "--report"]
+    if noise:
+        command.append("--noise")
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(root),
+        env=_environment(request, root),
+    )
+    if completed.returncode:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise RuntimeError(
+            f"benchmark worker failed for {request.grammar}/{request.engine}: {detail}"
+        )
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    if not lines:
+        raise RuntimeError(
+            f"benchmark worker returned nothing for {request.grammar}/{request.engine}"
+        )
+    return _report_row(json.loads(lines[-1]))
 
 
-def run_jobs(jobs: Sequence[Job]) -> dict[str, IsolatedRow]:
-    """Run exact rows with parallel preparation and uncontended measurement."""
+def noise_floor(request: RowRequest, root: Path) -> float:
+    """The report's same-engine control, in its own fresh process."""
+    command = [*_command(request), "--report", "--noise"]
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(root),
+        env=_environment(request, root),
+    )
+    if completed.returncode:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise RuntimeError(f"benchmark noise floor failed: {detail}")
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    return float(json.loads(lines[-1])["noise_floor"])
+
+
+def _path_environment(root: Path) -> dict[str, str]:
+    """This checkout's own ``tools`` and ``src`` first, with no row selected."""
+    environment = dict(os.environ)
+    environment.pop("LEXIC_BENCHMARK_GRAMMAR", None)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        (str(root / "src"), str(root), environment.get("PYTHONPATH", ""))
+    ).rstrip(os.pathsep)
+    return environment
+
+
+def run_roster(root: Path) -> tuple[tuple[str, str], ...]:
+    """Ask one checkout which rows it can measure, in its own process.
+
+    :param root: The checkout root to interrogate.
+    :returns: Its ``(grammar, row)`` pairs.
+    :raises RuntimeError: If that tree cannot report a roster at all.
+    """
+    completed = subprocess.run(
+        [sys.executable, "-m", "tools.benchmark.execution.roster"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(root),
+        env=_path_environment(root),
+    )
+    if completed.returncode:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise RuntimeError(f"benchmark roster failed for {root}: {detail}")
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    payload = json.loads(lines[-1])
+    return tuple((str(row[0]), str(row[1])) for row in payload["rows"])
+
+
+def run_jobs(jobs: tuple[Job, ...]) -> dict[str, RowResult]:
+    """Run every job strictly one at a time, in the order given.
+
+    The order is the caller's, because alternation is a measurement decision:
+    which arm goes first must flip between pairs, and the control's order must
+    flip independently of the candidate's.
+    """
     labels = [job.label for job in jobs]
     if len(set(labels)) != len(labels):
         raise ValueError("benchmark job labels must be unique")
-    measured: dict[str, IsolatedRow] = {}
-    for start in range(0, len(jobs), _PREPARE_WIDTH):
-        measured.update(_prepared(jobs[start : start + _PREPARE_WIDTH]))
-    return measured
-
-
-def run_row(request: RowRequest, *, source_root: Path | None = None) -> IsolatedRow:
-    """Measure one exact row in a fresh interpreter process."""
-    return _row(_payload(request, source_root=source_root))
-
-
-def noise_floor(
-    request: RowRequest,
-) -> float:
-    """Measure the report's same-engine control in its own fresh process."""
-    payload = _payload(request, noise=True)
-    return float(payload["noise_floor"])
+    return {job.label: run_job(job) for job in jobs}

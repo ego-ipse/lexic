@@ -22,9 +22,9 @@ group pushes a sub-frame per iteration.
 ``alternation`` / ``value_str``) captures what its rule product declares and,
 on completion, builds exactly one model (:meth:`PdaKernel._complete`); a
 *transparent frame* funnels every model produced inside it straight to its
-``F_OUT`` sink. Item spans derive from the contiguous cursor via the frame's
-``F_ENDS`` slot; descent sub-models collect per bound item in a lazily
-allocated ``F_SINKS`` list, so a sub-model produced arbitrarily deep lands in
+``out`` sink. Item spans derive from the contiguous cursor via the frame's
+``ends`` slot; descent sub-models collect per bound item in a lazily
+allocated ``sinks`` list, so a sub-model produced arbitrarily deep lands in
 the nearest enclosing *bound* item's sink, exactly as the tree route's
 look-through collects the topmost values under a kid. Per build-mode:
 ``value_str`` → ``ctor(value=text[a:b])`` over the clone's whole span;
@@ -46,8 +46,6 @@ user-facing diagnostics. It never surfaces to the caller.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
@@ -83,15 +81,7 @@ from lexic.parsing.pda.runtime.admission import (
     RouteLane,
     sole_admitted,
 )
-from lexic.parsing.pda.runtime.build import (
-    F_ARM,
-    F_COUNT,
-    F_ENDS,
-    F_I,
-    F_MODE,
-    F_OUT,
-    F_SINKS,
-)
+from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.islands import (
     IslandPolicy,
 )
@@ -107,14 +97,14 @@ from lexic.parsing.product import ProductExecutor
 
 __all__ = ["PdaFail", "PdaKernel", "pda_model"]
 
-_NO_SINK: list[Any] | None = None
-"""One unallocated per-item sink slot.
 
-A frame's sink TABLE is built by repeating this, so the table's own shape —
-a sink list per item, or nothing yet — is stated rather than left to
-inference. The sink list's ELEMENT type is what the frame erases, and that
-erasure belongs to the frame's representation, not to this constant.
-"""
+def _fresh_sinks[Carry](n: int, _of: list[Carry]) -> list[list[Carry] | None]:
+    """One unallocated sink slot per item — the table's shape, stated once.
+
+    :param _of: A sink whose element type the fresh table inherits, so the
+        model type is carried by a value rather than erased to ``Any``.
+    """
+    return [None] * n
 
 
 class PdaKernel[M](
@@ -161,7 +151,7 @@ class PdaKernel[M](
     tables: PdaTables
     text: str
     pos: int
-    stack: list[list[Any]]
+    stack: list[Frame[M]]
     policy: IslandPolicy[M]
     _caches: KernelCaches[M]
     _routes: RouteLane | None
@@ -269,7 +259,7 @@ class PdaKernel[M](
         converged; measured, that put every boundary back on the slow path.
         It folds into the OUTER loop's own condition, so the hot path gains no
         branch — and a
-        frame boundary is exactly where ``self.pos`` and ``frame[F_I]`` are
+        frame boundary is exactly where ``self.pos`` and ``frame.i`` are
         both current, which is what makes the pause resumable at all. Used by
         the lockstep boundary verdict, which advances two candidate
         continuations in step instead of running each to end-of-input.
@@ -289,10 +279,10 @@ class PdaKernel[M](
         text = self.text
         while len(stack) > floor and not 0 <= limit <= self.pos:
             frame = stack[-1]
-            arm = frame[F_ARM]
+            arm = frame.arm
             kinds = arm.kinds
             n = arm.n
-            i = frame[F_I]
+            i = frame.i
             pos = self.pos
             while i < n:
                 k = kinds[i]
@@ -312,7 +302,7 @@ class PdaKernel[M](
                         raise PdaFail(f"expected {lit!r} at {pos}", pos)
                     pos += len(lit)
                 elif k == OP_REF1:
-                    frame[F_I] = i + 1
+                    frame.i = i + 1
                     self.pos = pos
                     if self._enter(arm.payloads[i], self._sink_for(frame, arm, i)):
                         break  # pushed — the sub-frame drives next
@@ -335,14 +325,14 @@ class PdaKernel[M](
                         break  # pushed — the sub-frame drives next
                     pos = self.pos
                     continue
-                frame[F_ENDS][i] = pos
+                frame.ends[i + 1] = pos
                 i += 1
             else:  # items exhausted without a descent — the frame completes
-                frame[F_I] = i
+                frame.i = i
                 self.pos = pos
                 self._complete(frame)
 
-    def _quant_step(self, frame: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _quant_step(self, frame: Frame[M], arm: FlatArm, i: int, pos: int) -> int:
         """One step of a quantified atom's loop — descend, splice, or close.
 
         Consults the mandatory count then the loop gate; a due iteration
@@ -355,7 +345,7 @@ class PdaKernel[M](
         :raises PdaFail: On a fail-island reference, an island reference with
             no fold, or a mandatory iteration with no viable arm.
         """
-        count = frame[F_COUNT]
+        count = frame.count
         if count < arm.los[i]:
             need = True
         else:
@@ -364,7 +354,7 @@ class PdaKernel[M](
             need = False
             if hi < 0 or count < hi:
                 if gk == GATE_ATTEMPT:
-                    frame[F_I] = i
+                    frame.i = i
                     self.pos = pos
                     return self.attempt_iteration(frame, arm, i, pos)
                 if gk == GATE_STOP:
@@ -379,13 +369,13 @@ class PdaKernel[M](
                 else:
                     need = gate_take(self.text, pos, gk, arm.gate_data[i])
         if not need:
-            frame[F_COUNT] = 0
-            frame[F_I] = i + 1
-            frame[F_ENDS][i] = pos
+            frame.count = 0
+            frame.i = i + 1
+            frame.ends[i + 1] = pos
             self.pos = pos
             return i + 1
-        frame[F_COUNT] = count + 1
-        frame[F_I] = i
+        frame.count = count + 1
+        frame.i = i
         self.pos = pos
         k = arm.kinds[i]
         # The REPEAT descent's sink, read in place — `_sink_for` is the driver's
@@ -393,7 +383,7 @@ class PdaKernel[M](
         # is a list index once the frame's sink array exists. A frame whose
         # array is still absent (its first descent, or a transparent frame,
         # which never grows one) takes the call and its full protocol.
-        sinks = frame[F_SINKS]
+        sinks = frame.sinks
         if sinks is None:
             sink = self._sink_for(frame, arm, i)
         else:
@@ -426,7 +416,7 @@ class PdaKernel[M](
 
     # ── terminal matching (whole quantifier loop, inline, no per-char call) ─
 
-    def _match_span(self, frame: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _match_span(self, frame: Frame[M], arm: FlatArm, i: int, pos: int) -> int:
         """Match a span-producing item — a ``value_str`` ref or a quantified
         literal / char class — routing to its matcher (the cold-ish tail of the
         driver's op dispatch; the exactly-once terminals stay inline)."""
@@ -438,12 +428,13 @@ class PdaKernel[M](
         if k == OP_VSTR or k >= OP_VRUN:
             # A tabled reference's specialisation is the LEAF walk's; reached
             # through a frame, it runs the ordinary loop (one iteration of it).
-            if frame[F_MODE] == BUILD_TRANSPARENT:  # `_sink_for`, read in place
-                sink = frame[F_OUT]
+            if frame.clone.mode == BUILD_TRANSPARENT:  # `_sink_for`, read in place
+                sink = frame.out
             else:
-                sinks = frame[F_SINKS]
+                sinks = frame.sinks
                 if sinks is None:
-                    frame[F_SINKS] = sinks = [_NO_SINK] * arm.n
+                    sinks = _fresh_sinks(arm.n, frame.out)
+                    frame.sinks = sinks
                 sink = sinks[i]
                 if sink is None:
                     sinks[i] = sink = []
@@ -454,17 +445,18 @@ class PdaKernel[M](
 
     # ── descent ────────────────────────────────────────────────────────
 
-    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[M]:
+    def _sink_for(self, frame: Frame[M], arm: FlatArm, i: int) -> list[M]:
         """The sink item ``i``'s sub-models report into (allocated lazily).
 
         A transparent frame funnels everything to its parent sink; a capture
         frame collects per item in :attr:`_Frame.sinks`.
         """
-        if frame[F_MODE] == BUILD_TRANSPARENT:
-            return frame[F_OUT]
-        sinks = frame[F_SINKS]
+        if frame.clone.mode == BUILD_TRANSPARENT:
+            return frame.out
+        sinks = frame.sinks
         if sinks is None:
-            frame[F_SINKS] = sinks = [_NO_SINK] * arm.n
+            sinks = _fresh_sinks(arm.n, frame.out)
+            frame.sinks = sinks
         sink = sinks[i]
         if sink is None:
             sinks[i] = sink = []
@@ -538,12 +530,7 @@ class PdaKernel[M](
             arm = clone.default
             if arm is None:
                 raise PdaFail(f"no arm at {self.pos}", self.pos)
-        # frame layout: arm, i, count, out, mode, clone, start, ends, sinks
-        # ``ends`` is per-frame so the driver's per-item span write stays
-        # unconditional (only span-reading sequence clones ever read it back).
-        self.stack.append(
-            [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
-        )
+        self.stack.append(Frame(arm, out, clone, self.pos))
         return True
 
     def _enter_gated(self, clone: FlatClone[M], out: list[M]) -> bool:
@@ -561,18 +548,14 @@ class PdaKernel[M](
         """
         if clone.kwin_selectors is not None or clone.pn_selectors is not None:
             gated = select_gated(self.text, self.pos, clone)
-            self.stack.append(
-                [gated, 0, 0, out, clone.mode, clone, self.pos, [0] * gated.n, None]
-            )
+            self.stack.append(Frame(gated, out, clone, self.pos))
             return True
         if scan_gate_take(self.text, self.pos, clone.struct_arm):
             return False  # the gate takes — the lead char selects as usual
         arm = clone.default
         if arm is None:
             raise PdaFail(f"no arm at {self.pos}", self.pos)
-        self.stack.append(
-            [arm, 0, 0, out, clone.mode, clone, self.pos, [0] * arm.n, None]
-        )
+        self.stack.append(Frame(arm, out, clone, self.pos))
         return True
 
     def _settle(

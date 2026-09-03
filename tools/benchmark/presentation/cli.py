@@ -12,19 +12,16 @@ from pathlib import Path
 from lexic.parsing.parallel import AUTO, available_workers
 from tools.benchmark.bench import (
     DEFAULT_ROUNDS,
-    LEXIC_ROWS,
     MT_ROWS,
     SUMMARY,
     _candidates,
 )
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.execution.isolation import (
-    IsolatedRow,
-    Job,
+    ReportRow,
     RowRequest,
     noise_floor,
-    run_jobs,
-    run_row,
+    run_report_row,
 )
 from tools.benchmark.presentation.reporting import (
     Block,
@@ -124,22 +121,21 @@ def _row_names(bench: Bench, cores: int | None) -> list[str]:
 
 def _isolated_bench(
     bench: Bench, cores: int | None, full: bool, rounds: int
-) -> tuple[Block, dict[str, IsolatedRow]]:
-    """Prepare exact Lexic workers together; time every row in isolation."""
+) -> tuple[Block, dict[str, ReportRow]]:
+    """Time every row in its own process, one process at a time.
+
+    No cohort and no overlap: a worker that is merely "not yet timed" still
+    compiles grammars, runs fidelity parses and holds artefacts, and doing that
+    beside a timed parse contaminates cache, allocator and thermal state.
+    """
     names = _row_names(bench, cores)
-    lexic = [name for name in names if name in LEXIC_ROWS]
-    jobs = [
-        Job(name, RowRequest(bench.name, name, rounds, cores, full)) for name in lexic
-    ]
-    results = run_jobs(jobs)
-    competitors = [name for name in names if name not in lexic]
-    random.Random(f"lexic-bench:{bench.name}").shuffle(competitors)
-    results.update(
-        {
-            name: run_row(RowRequest(bench.name, name, rounds, cores, full))
-            for name in competitors
-        }
-    )
+    root = Path.cwd()
+    order = list(names)
+    random.Random(f"lexic-bench:{bench.name}").shuffle(order)
+    results = {
+        name: run_report_row(RowRequest(bench.name, name, rounds, cores, full), root)
+        for name in order
+    }
     samples = {
         name: result.samples for name, result in results.items() if result.samples
     }
@@ -159,7 +155,7 @@ def _isolated_bench(
     }
     anchor = next((name for name in names if name in samples), None)
     floor = (
-        noise_floor(RowRequest(bench.name, anchor, rounds, cores, full))
+        noise_floor(RowRequest(bench.name, anchor, rounds, cores, full), root)
         if anchor
         else 0.0
     )

@@ -85,7 +85,7 @@ def _case(name: str):
         compiled = compile_text(NESTED_PLUS, cache_key="split-ab-nested")
         text = NESTED_TEXT
     elif name == "vyx":
-        root = Path(__file__).resolve().parents[2]
+        root = Path(__file__).resolve().parents[3]
         compiled = compile_from_path(root / "resources/ground_truth/vyx.gbnf")
         text = VYX_TEXT
     elif name == "control":

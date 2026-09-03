@@ -50,17 +50,6 @@ from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.build import (
-    F_ARM,
-    F_CLONE,
-    F_COUNT,
-    F_ENDS,
-    F_I,
-    F_MODE,
-    F_OUT,
-    F_SINKS,
-    F_START,
-)
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.products import _model_product, reset_product_cache
 
@@ -165,7 +154,7 @@ class _CountingStack(list):
         """Count one frame and the number of items it will step through."""
         self.pushed += 1
         if isinstance(frame, list):
-            arm = frame[F_ARM]
+            arm = frame[_L_ARM]
             if isinstance(arm, FlatArm):
                 self.width += arm.n
         super().append(frame)
@@ -254,6 +243,15 @@ def _parse_seconds(
     return best
 
 
+_L_ARM, _L_I, _L_COUNT, _L_ENDS = 0, 1, 2, 7
+"""The list arm's own indices.
+
+The production frame is a slotted record now, so the shape this arm measures
+against exists only here — which is the point of an A/B, and why the indices
+are declared beside it rather than imported from a module that dropped them.
+"""
+
+
 def _list_lifecycle(steps: int, ends: list[int]) -> int:
     """One frame's whole life as the kernel lives it today, on a list.
 
@@ -264,20 +262,20 @@ def _list_lifecycle(steps: int, ends: list[int]) -> int:
     frame = [None, 0, 0, None, 3, None, 0, ends, None]
     total = 0
     for step in range(steps):
-        total += 1 if frame[F_ARM] is None else 0
-        i = frame[F_I]
-        frame[F_COUNT] = frame[F_COUNT] + 1
-        frame[F_I] = i + 1
-        frame[F_ENDS][step % len(ends)] = step
+        total += 1 if frame[_L_ARM] is None else 0
+        i = frame[_L_I]
+        frame[_L_COUNT] = frame[_L_COUNT] + 1
+        frame[_L_I] = i + 1
+        frame[_L_ENDS][step % len(ends)] = step
     return (
         total
-        + frame[F_I]
-        + frame[F_COUNT]
-        + frame[F_MODE]
-        + frame[F_START]
-        + (0 if frame[F_OUT] is None else 1)
-        + (0 if frame[F_CLONE] is None else 1)
-        + (0 if frame[F_SINKS] is None else 1)
+        + frame[_L_I]
+        + frame[_L_COUNT]
+        + frame[4]
+        + frame[6]
+        + (0 if frame[3] is None else 1)
+        + (0 if frame[5] is None else 1)
+        + (0 if frame[8] is None else 1)
     )
 
 

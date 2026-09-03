@@ -97,7 +97,7 @@ def test_clone_spec_field_order():
 
 def test_clone_spec_carries_a_real_routine_object_positionally():
     """A non-default ``routine`` lands in the fourth slot, not silently dropped."""
-    routine = RuleRoutine(0, (), (), 0, 0, None)
+    routine = RuleRoutine(0, (), 0, 0, None)
     spec = CloneSpec("r", (), None, routine, True)
     assert spec.routine is routine
     assert tuple(spec)[3] is routine

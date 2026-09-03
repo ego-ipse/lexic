@@ -13,6 +13,7 @@ delegated :class:`PayloadLeaf` carry a real ``None`` without disappearing.
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
+from types import MappingProxyType
 from typing import NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
@@ -27,7 +28,7 @@ from lexic.parsing.earley.kernel.tables.records import (
 from lexic.parsing.earley.lexruns import collapse_runs, unit_leaves
 from lexic.parsing.product.abi.construction import Construction, ProductValue
 from lexic.parsing.product.abi.records import CaptureMode
-from lexic.parsing.product.routines import RuleRoutine
+from lexic.parsing.product.routines import CaptureRoutine, RuleRoutine
 
 __all__ = [
     "Completed",
@@ -69,23 +70,39 @@ class ProductExecutor[Carry]:
     s, which are the verified program read back — so the derivation runs the
     ranges the verifier bounded rather than a second reading of the authored
     records beside them.
+
+    The routine map is COPIED and private. It is the container every completion
+    reads, so it stays a plain dict for the lookup cost; copying is what makes
+    that dict unreachable from any caller, so the read-only view a binding
+    publishes cannot be worked around through the executor, and a worker's
+    executor owns its own container rather than sharing one owner's refcount.
     """
 
-    __slots__ = ("routines", "wants_spans")
+    __slots__ = ("_routines", "wants_spans")
 
     def __init__(self, routines: Mapping[str, RuleRoutine[Carry]]) -> None:
         """:param routines: Rule name → its verified completion routine."""
-        self.routines = routines
-        self.wants_spans = _wants_spans(routines)
+        self._routines = dict(routines)
+        self.wants_spans = _wants_spans(self._routines)
+
+    @property
+    def routines(self) -> Mapping[str, RuleRoutine[Carry]]:
+        """A read-only view of what this executor completes through.
+
+        The container itself stays private because it is the hot reader's, and
+        a caller holding it could re-aim the parse after verification. Reading
+        WHAT it holds is not that, so the question is answerable without one.
+        """
+        return MappingProxyType(self._routines)
 
     def build(self, root: ParseTree) -> Carry:
         """Complete a whole derivation, where producing no value is an error."""
-        return complete_product(root, self.routines, wants_spans=self.wants_spans)
+        return complete_product(root, self._routines, wants_spans=self.wants_spans)
 
     def replay(self, root: ParseTree, results: ResultMemo[Carry]) -> Carry:
         """Complete a derivation while reusing and extending ``results``."""
         return complete_product(
-            root, self.routines, results, wants_spans=self.wants_spans
+            root, self._routines, results, wants_spans=self.wants_spans
         )
 
     def splice(self, root: ParseTree) -> CompletionResult[Carry]:
@@ -99,7 +116,7 @@ class ProductExecutor[Carry]:
         splices nothing rather than a value. Returning the presence explicitly
         is what keeps that distinct from an occurrence whose value IS ``None``.
         """
-        return _complete_tree(root, self.routines, {}, wants_spans=self.wants_spans)
+        return _complete_tree(root, self._routines, {}, wants_spans=self.wants_spans)
 
     def splice_replay(
         self, root: ParseTree, results: ResultMemo[Carry]
@@ -113,7 +130,7 @@ class ProductExecutor[Carry]:
         alternative.
         """
         return _complete_tree(
-            root, self.routines, results, wants_spans=self.wants_spans
+            root, self._routines, results, wants_spans=self.wants_spans
         )
 
 
@@ -247,9 +264,9 @@ def _complete_tree[Carry](
 def _wants_spans[Carry](routines: Mapping[str, RuleRoutine[Carry]]) -> bool:
     """Return whether any verified capture requests an extent."""
     return any(
-        mode == CaptureMode.EXTENT
+        capture.mode == CaptureMode.EXTENT
         for routine in routines.values()
-        for mode in routine.modes
+        for capture in routine.captures
     )
 
 
@@ -286,19 +303,15 @@ def _passed_value[Carry](
     routine: RuleRoutine[Carry],
     results: ResultMemo[Carry],
 ) -> CompletionResult[Carry]:
-    """Return the explicitly present or empty pass-through result."""
-    source = routine.source
-    if source >= len(routine.modes):
-        raise UnsupportedConstructError(
-            f"product: {node.symbol!s}: pass source {source} has no capture"
-        )
-    if routine.modes[source] != CaptureMode.ONE:
-        raise UnsupportedConstructError(
-            f"product: {node.symbol!s}: pass source {source} is not one value"
-        )
+    """Return the explicitly present or empty pass-through result.
+
+    That the source names one single-value capture is the binding's answer
+    (:func:`~lexic.parsing.product.verify.verify_program`), so this asks only
+    what depends on the DERIVATION: whether the node has that child at all.
+    """
     if not node.kids:
         return EMPTY_RESULT
-    slot = routine.slots[source]
+    slot = routine.captures[routine.source].slot
     if slot >= len(node.kids):
         raise UnsupportedConstructError(
             f"product: {node.symbol!s}: pass item {slot} is out of range"
@@ -323,48 +336,39 @@ def _complete_record[Carry](
                 f"{routine.n_items} items (nor the empty arm)"
             )
         return construction.call()
-    if len(routine.modes) != len(construction.names):
-        raise UnsupportedConstructError(
-            f"product: {node.symbol!s}: {len(routine.modes)} captures do not "
-            f"match {len(construction.names)} construction names"
-        )
     kwargs: dict[str, ProductValue[Carry]] = {}
-    for at, (slot, mode, name) in enumerate(
-        zip(routine.slots, routine.modes, construction.names, strict=True)
-    ):
-        present, value = _captured(
-            node, slot, mode, at in construction.optional, results, offsets
-        )
+    for capture in routine.captures:
+        present, value = _captured(node, capture, results, offsets)
         if present:
-            kwargs[name] = value
+            kwargs[capture.name] = value
     return construction.call(**kwargs)
 
 
 def _captured[Carry](
     node: ParseTree,
-    item: int,
-    mode: int,
-    optional: bool,
+    capture: CaptureRoutine,
     results: ResultMemo[Carry],
     offsets: Offsets,
 ) -> tuple[bool, ProductValue[Carry]]:
     """Read one capture, looking through transparent normalisation nodes."""
     kids = node.kids
+    item = capture.slot
     if item >= len(kids):
         raise UnsupportedConstructError(
             f"product: {node.symbol!s}: capture item {item} is out of range"
         )
     kid = kids[item]
+    mode = capture.mode
     if mode == CaptureMode.TEXT:
         text = subtree_text(kid)
-        return (not optional or bool(text), text)
+        return (not capture.optional or bool(text), text)
     if mode == CaptureMode.EXTENT:
         return True, slot_span(node, kids, item, offsets)
     models = _product_models_at(kid, results)
     if mode == CaptureMode.MANY:
         return True, models
     if mode == CaptureMode.ONE:
-        return (bool(models) or not optional, models[0] if models else None)
+        return (bool(models) or not capture.optional, models[0] if models else None)
     raise UnsupportedConstructError(
         f"product: {node.symbol!s}: capture mode {mode} builds no model field"
     )

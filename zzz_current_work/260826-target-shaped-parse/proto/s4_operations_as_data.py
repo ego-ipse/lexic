@@ -103,7 +103,7 @@ PAID: dict[str, tuple[tuple[str, str], ...]] = {
         ("lexic.parsing.pda.runtime.build", "build_validated"),
         ("lexic.parsing.pda.runtime.build", "_validated_fields"),
         ("lexic.parsing.pda.runtime.build", "build_vstr"),
-        ("lexic.parsing.pda.runtime.build", "alt_model"),
+        ("lexic.parsing.pda.runtime.build", "Frame.alt_model"),
         ("lexic.parsing.pda.runtime.build", "_intern_empty"),
         ("lexic.parsing.pda.compiler.program.flatten", "vstr_model"),
         (

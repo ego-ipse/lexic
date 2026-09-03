@@ -89,7 +89,7 @@ from lexic.parsing.product.abi.records import (
 __all__ = ["LoweringOwned", "lower_product", "lower_routes"]
 
 
-class LoweringOwned(NamedTuple):
+class LoweringOwned[Carry](NamedTuple):
     """The authored tables LOWERING writes into a program, never a caller.
 
     Each needs something done to it before an engine may index it: a
@@ -106,10 +106,10 @@ class LoweringOwned(NamedTuple):
     how a program could name a symbol with no registry to check it against.
     """
 
-    constructors: tuple[RecordConstructor, ...] = ()
+    constructors: tuple[RecordConstructor[Carry], ...] = ()
     routes: tuple[RouteTable, ...] = ()
     symbols: tuple[SymbolConstructor, ...] = ()
-    registry: Mapping[str, Callable[..., object]] = MappingProxyType({})
+    registry: Mapping[str, Callable[..., Carry]] = MappingProxyType({})
 
 
 _OPCODES: dict[type, OpCode] = {
@@ -241,9 +241,13 @@ def _constructors(
 
     :param entries: The declared constructors.
     :returns: The validated table.
+    The RELATIONS between an entry and the rule that names it — capture count,
+    optional range, matched-text ownership, licensed field order — belong to
+    :func:`~lexic.parsing.product.verify.verify_program`, which sees both
+    sides. This sees one entry and checks what one entry can be wrong about.
+
     :raises UnsupportedConstructError: On an entry that is not a
-        :class:`RecordConstructor`, whose ``cls`` is not a class, or whose
-        ``matched_field`` disagrees with the class it names.
+        :class:`RecordConstructor`, or whose ``cls`` is not a class.
     """
     for at, entry in enumerate(entries):
         if not isinstance(entry, RecordConstructor):
@@ -257,74 +261,7 @@ def _constructors(
                 f"{type(entry.cls).__name__}, not a class; the constructor "
                 "table holds only binding-owned constructor symbols"
             )
-        _check_matched_field(at, entry)
     return tuple(entries)
-
-
-def _field_order(at: int, cls: type) -> tuple[str, ...]:
-    """The declared record class's field names, in construction order.
-
-    :raises UnsupportedConstructError: When the class cannot say how one of
-        itself is built — a constructor table entry that no bake could use.
-    """
-    construct: Callable[[], tuple[object, Mapping[str, object], tuple[str, ...]]] | None
-    construct = getattr(cls, "fast_construct", None)
-    if construct is None:
-        raise UnsupportedConstructError(
-            f"product lowering: constructor {at} names {cls.__name__}, which "
-            "does not say how one of itself is built"
-        )
-    return construct()[2]
-
-
-def _check_matched_field(at: int, entry: RecordConstructor) -> None:
-    """Cross-check the declared own-text field against the class and the record.
-
-    The field is DECLARED rather than derived, but it is also derivable — a
-    class field that no capture fills and no default covers has nothing else
-    that could construct it — so the derivation is kept here as a guard. A
-    record whose defaults later change makes the two disagree, and this says
-    so with words instead of quietly baking a default where the matched text
-    belongs.
-
-    The derivation is only tight under the validation-skip licence, which is
-    refused outright when an unfilled field has no default; an unlicensed
-    entry is constructed by name through the class's own checks, so only the
-    declaration itself is checked there.
-
-    :param at: The entry's index, for the message.
-    :param entry: The constructor record.
-    :raises UnsupportedConstructError: When the declaration names a field the
-        class does not have, one a capture already fills, or one the class's
-        own defaults contradict.
-    """
-    if not entry.matched_field and not entry.licensed:
-        return  # nothing declared and nothing baked — no class to consult
-    order = _field_order(at, entry.cls)
-    if entry.matched_field and entry.matched_field not in order:
-        raise UnsupportedConstructError(
-            f"product lowering: constructor {at} fills {entry.matched_field!r} "
-            f"with its own matched text, but {entry.cls.__name__} has no such "
-            f"field (it has {order})"
-        )
-    if entry.matched_field and entry.matched_field in entry.names:
-        raise UnsupportedConstructError(
-            f"product lowering: constructor {at} fills {entry.matched_field!r} "
-            "with its own matched text AND with a capture; a field takes one "
-            "value, from one place"
-        )
-    if not entry.licensed:
-        return
-    unfilled = tuple(
-        name for name in order if name not in entry.names and name not in entry.defaults
-    )
-    declared = (entry.matched_field,) if entry.matched_field else ()
-    if unfilled != declared:
-        raise UnsupportedConstructError(
-            f"product lowering: constructor {at} declares {declared} as filled "
-            f"by its own matched text, but {entry.cls.__name__} leaves "
-            f"{unfilled} with neither a capture nor a default"
-        )
 
 
 def lower_routes(
@@ -468,7 +405,7 @@ def lower_product[Carry, Result](
     rules: Sequence[RuleProduct[Carry]],
     operands: OperandTables[Carry, Result],
     *,
-    owned: LoweringOwned = LoweringOwned(),
+    owned: LoweringOwned[Carry] = LoweringOwned(),
     root: RootOp,
     meaning: MeaningOp,
 ) -> ProductProgram[Carry, Result]:

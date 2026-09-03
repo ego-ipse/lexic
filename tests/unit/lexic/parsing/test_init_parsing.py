@@ -45,12 +45,10 @@ from lexic.parsing import (
     parse_forest,
     parse_model,
     pda_tables,
-)
-from lexic.parsing import products as products_direct
-from lexic.parsing import (
     recognize,
     to_chart,
 )
+from lexic.parsing import products as products_direct
 from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
 from lexic.parsing.earley.kernel.forest.chart import Chart as ChartDirect
 from lexic.parsing.earley.kernel.forest.chart import EarleyItem as EarleyItemDirect

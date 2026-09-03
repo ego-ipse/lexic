@@ -9,14 +9,12 @@ ordinary continuation classification and fork audit.
 
 from __future__ import annotations
 
-from typing import Any
-
 from lexic.exceptions import LexicError
 from lexic.parsing.pda.compiler.program.flatten import FlatArm
 from lexic.parsing.pda.compiler.program.opcodes import OP_AVDISP, OP_AVSTR
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.admission import KernelCaches, admits
-from lexic.parsing.pda.runtime.build import F_COUNT, F_I
+from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.matchers import vdisp_once, vstr_once
 
 __all__ = ["AttemptInlineMixin"]
@@ -31,7 +29,7 @@ class AttemptInlineMixin[Carry]:
     pos: int
     _caches: KernelCaches
 
-    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[Carry]:
+    def _sink_for(self, frame: Frame[Carry], arm: FlatArm, i: int) -> list[Carry]:
         """Provided by the kernel — item ``i``'s lazily allocated sink."""
         raise NotImplementedError
 
@@ -46,7 +44,7 @@ class AttemptInlineMixin[Carry]:
         raise NotImplementedError
 
     def attempt_inline_loop(
-        self, frame: list[Any], arm: FlatArm, i: int, pos: int
+        self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
     ) -> int:
         """Run one attempt-aware value-string item's entire quantified loop."""
         target = arm.payloads[i]
@@ -60,9 +58,9 @@ class AttemptInlineMixin[Carry]:
             return self._attempt_vdisp_loop(frame, arm, i, pos)
         lo, hi = arm.los[i], arm.his[i]
         first = arm.gate_data[i][0]
-        count = frame[F_COUNT]
+        count = frame.count
         sink: list[Carry] | None = None
-        frame[F_I] = i
+        frame.i = i
         while count < lo:
             end, values = self._inline_once(arm, i, pos)
             if sink is None:
@@ -77,7 +75,7 @@ class AttemptInlineMixin[Carry]:
             got = self.attempt_inline(arm, i, pos)
             if got is None or got[0] == pos:
                 break
-            frame[F_COUNT] = count
+            frame.count = count
             self.pos = pos
             if not self._attempt_choice(arm, i, pos, got):
                 break
@@ -86,19 +84,19 @@ class AttemptInlineMixin[Carry]:
             sink.extend(got[1])
             pos = got[0]
             count += 1
-        frame[F_COUNT] = 0
+        frame.count = 0
         self.pos = pos
         return pos
 
     def _attempt_vdisp_loop(
-        self, frame: list[Any], arm: FlatArm, i: int, pos: int
+        self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
     ) -> int:
         """Attempt-aware loop over an inlinable dispatch chase."""
         sink = self._sink_for(frame, arm, i)
         lo, hi = arm.los[i], arm.his[i]
         first, soft = arm.gate_data[i]
-        count = frame[F_COUNT]
-        frame[F_I] = i
+        count = frame.count
+        frame.i = i
         while count < lo:
             pos = vdisp_once(self.text, self._caches.intern, arm.payloads[i], sink, pos)
             count += 1
@@ -122,19 +120,19 @@ class AttemptInlineMixin[Carry]:
             got = self.attempt_inline(arm, i, pos)
             if got is None or got[0] == pos:
                 break
-            frame[F_COUNT] = count
+            frame.count = count
             self.pos = pos
             if not self._attempt_choice(arm, i, pos, got):
                 break
             sink.extend(got[1])
             pos = got[0]
             count += 1
-        frame[F_COUNT] = 0
+        frame.count = 0
         self.pos = pos
         return pos
 
     def _attempt_tabled_loop(
-        self, frame: list[Any], arm: FlatArm, i: int, pos: int
+        self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
     ) -> int:
         """Attempt-aware loop over a one-character model table.
 
@@ -147,8 +145,8 @@ class AttemptInlineMixin[Carry]:
         append = sink.append
         bounds = arm.los[i], arm.his[i]
         gates = arm.gate_data[i]
-        count = frame[F_COUNT]
-        frame[F_I] = i
+        count = frame.count
+        frame.i = i
         while count < bounds[0]:
             char = self.text[pos : pos + 1]
             model = get(char)
@@ -180,14 +178,14 @@ class AttemptInlineMixin[Carry]:
             got = self.attempt_inline(arm, i, pos)
             if got is None or got[0] == pos:
                 break
-            frame[F_COUNT] = count
+            frame.count = count
             self.pos = pos
             if not self._attempt_choice(arm, i, pos, got):
                 break
             sink.extend(got[1])
             pos = got[0]
             count += 1
-        frame[F_COUNT] = 0
+        frame.count = 0
         self.pos = pos
         return pos
 

@@ -31,6 +31,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_VALUE,
 )
 from lexic.parsing.pda.compiler.program.product import bake_product_build
+from lexic.parsing.product import CaptureRoutine, ConstructionLicence
 from lexic.parsing.product.abi.construction import Construction
 from lexic.parsing.product.abi.records import CaptureMode
 from lexic.parsing.product.routines import RuleRoutine
@@ -44,7 +45,13 @@ def _clone() -> FlatClone:
 
 def _routine(modes, slots, n_items, source, construction) -> RuleRoutine:
     """A minimal RuleRoutine carrying only what bake_product_build reads."""
-    return RuleRoutine(7, tuple(modes), tuple(slots), n_items, source, construction)
+    names = () if construction is None else construction.names
+    optional = frozenset() if construction is None else construction.optional
+    captures = tuple(
+        CaptureRoutine(slot, mode, at in optional, names[at] if at < len(names) else "")
+        for at, (slot, mode) in enumerate(zip(slots, modes, strict=True))
+    )
+    return RuleRoutine(7, captures, n_items, source, construction)
 
 
 # ── transparent: no routine at all ────────────────────────────────────────
@@ -117,7 +124,7 @@ def test_a_licensed_construction_bakes_the_positional_plan():
     """A licence grants the class-ordered positional plan."""
     clone = _clone()
     make, _defaults, order = Pair.fast_construct()
-    licence = (make, {"b": "default-b"}, order)
+    licence = ConstructionLicence(make, {"b": "default-b"}, order)
     construction = Construction(
         Pair,
         ("a",),
@@ -136,7 +143,7 @@ def test_a_licensed_matched_field_gets_the_m_value_plan_entry():
     """The field the rule's own extent fills is M_VALUE, not M_CONST."""
     clone = _clone()
     make, _defaults, order = Pair.fast_construct()
-    licence = (make, {}, order)
+    licence = ConstructionLicence(make, {}, order)
     construction = Construction(Pair, ("a",), frozenset(), matched="b", licence=licence)
     routine = _routine((int(CaptureMode.TEXT),), (0,), 1, -1, construction)
     bake_product_build(clone, routine)

@@ -32,7 +32,7 @@ def _rules(source: str) -> dict:
 
 def _matched_routine(field: str) -> RuleRoutine:
     construction = Construction(lambda **kw: kw, (), frozenset(), matched=field)
-    return RuleRoutine(0, (), (), 0, -1, construction)
+    return RuleRoutine(0, (), 0, -1, construction)
 
 
 # ── matches_own_text ──────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ def test_matches_own_text_is_false_without_a_matched_field():
 
 def test_matches_own_text_is_false_when_construction_itself_is_none():
     """A pass-through routine (construction=None) is not a value_str shape."""
-    routine = RuleRoutine(0, (), (), 0, 0, None)
+    routine = RuleRoutine(0, (), 0, 0, None)
     assert matches_own_text(routine) is False
 
 

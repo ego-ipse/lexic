@@ -61,7 +61,7 @@ AUTHORED_HOMES = frozenset(
         "product/abi/records.py",  # where the authored record is DEFINED
         "product/lower.py",  # where it is CONSUMED, once
         "product/__init__.py",  # the package's one import surface
-        "binding.py",  # the constructor parameter it arrives on
+        "executable.py",  # the constructor parameter it arrives on
     }
 )
 """The only files under ``parsing/`` allowed to name the authored record.
@@ -115,13 +115,13 @@ def _check_routine(where: str, program: ProductProgram, code: int, routine) -> N
         routine.completion == flat.completion,
     )
     _check(
-        f"{where}: routine captures {routine.modes} under the program's "
+        f"{where}: routine captures {tuple(capture.mode for capture in routine.captures)} under the program's "
         f"{flat.capture_modes}",
-        routine.modes == flat.capture_modes,
+        tuple(capture.mode for capture in routine.captures) == flat.capture_modes,
     )
     _check(
-        f"{where}: routine slots {routine.slots} against {flat.capture_slots}",
-        routine.slots == flat.capture_slots,
+        f"{where}: routine slots {tuple(capture.slot for capture in routine.captures)} against {flat.capture_slots}",
+        tuple(capture.slot for capture in routine.captures) == flat.capture_slots,
     )
     _check(
         f"{where}: routine arm width {routine.n_items} against {flat.n_items}",
@@ -200,7 +200,7 @@ def _binding_rows(label: str, binding: ModelExecutable) -> int:
     fresh = rule_routines(binding.program)
     _check(
         f"{label}: the executor completes through a different container",
-        binding.executor.routines is binding.routines,
+        binding.executor.routines == binding.routines,
     )
     for name, code in binding.codes.items():
         routine = binding.routines[name]
@@ -305,7 +305,9 @@ def one_representation_statically() -> int:
             offenders.append(f"{where} resolves a construction from an authored record")
         if "RuleProduct" in names and where not in AUTHORED_HOMES:
             offenders.append(f"{where} names the authored RuleProduct")
-    _check(f"the authored record survives on an engine path: {offenders}", not offenders)
+    _check(
+        f"the authored record survives on an engine path: {offenders}", not offenders
+    )
     _check(
         f"the binding holds {ModelExecutable.__slots__}, which is more than the "
         "verified program and what it derives",
@@ -330,16 +332,19 @@ def a_replica_copies_what_was_verified() -> None:
     _check("a replica re-derived its codes", replica.codes is binding.codes)
     _check(
         "a replica shares the container every completion reads",
-        replica.routines is not binding.routines,
+        replica.executor.routines is not binding.executor.routines,
     )
-    _check("a replica's routines differ by value", replica.routines == binding.routines)
+    _check(
+        "a replica's routines differ by value",
+        replica.executor.routines == binding.executor.routines,
+    )
     _check(
         "a replica shares its executor",
         replica.executor is not binding.executor,
     )
     _check(
         "a replica's executor completes through another binding's container",
-        replica.executor.routines is replica.routines,
+        replica.executor.routines is not binding.executor.routines,
     )
     print(
         f"replica\tsame verified program, own routine container of "
@@ -357,8 +362,15 @@ def the_checks_are_live() -> None:
     name, code = next(iter(binding.codes.items()))
     real = binding.routines[name]
     _seeded("range moved", binding, code, real._replace(completion=real.completion + 1))
-    _seeded("slots permuted", binding, code, real._replace(slots=real.slots[::-1] + (9,)))
-    _seeded("arm width invented", binding, code, real._replace(n_items=real.n_items + 1))
+    _seeded(
+        "captures permuted",
+        binding,
+        code,
+        real._replace(captures=real.captures[::-1]),
+    )
+    _seeded(
+        "arm width invented", binding, code, real._replace(n_items=real.n_items + 1)
+    )
     _seeded_static("an engine module that names the authored record")
     print("control\tthree seeded routines and one seeded module, four refusals")
 
@@ -407,7 +419,9 @@ def main() -> None:
     one_representation_statically()
     a_replica_copies_what_was_verified()
     the_checks_are_live()
-    print("\ns4 verified completion\tPASS\tone representation, and it is the verified one")
+    print(
+        "\ns4 verified completion\tPASS\tone representation, and it is the verified one"
+    )
 
 
 if __name__ == "__main__":

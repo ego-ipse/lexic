@@ -29,7 +29,8 @@ from lexic.parsing.parallel.plan.routed import (
 )
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.replicas import worker_replicas
-from lexic.parsing.parallel.stitch.model import field_slot, splice
+from lexic.parsing.parallel.stitch.model import splice
+from lexic.parsing.parallel.stitch.plan import field_slot
 
 
 def interior_route[M: IrNamedTuple](

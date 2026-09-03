@@ -178,42 +178,10 @@ def test_refuses_a_constructor_whose_cls_is_not_a_class():
     real tuple constructor a NamedTuple is built on, not a value dishonestly
     typed through the keyword one.
     """
-    entry = tuple.__new__(RecordConstructor, ("not-a-class", (), (), {}, "", False))
+    entry = tuple.__new__(RecordConstructor, ("not-a-class", (), (), {}, "", None))
     owned = LoweringOwned(constructors=(entry,))
     with pytest.raises(UnsupportedConstructError, match="not a class"):
         _lower([RuleProduct(captures=(), completion=RecordOp(0))], owned)
-
-
-def test_refuses_a_matched_field_the_class_does_not_have():
-    """A declared own-text field the class's own fast_construct never names."""
-    owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=Pair, matched_field="c"),)
-    )
-    with pytest.raises(UnsupportedConstructError, match="has no such"):
-        _lower([RuleProduct(captures=(), completion=RecordOp(0))], owned)
-
-
-def test_refuses_a_matched_field_that_is_also_a_capture():
-    """A field cannot be filled from BOTH the rule's own text and a capture."""
-    owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=Pair, names=("a",), matched_field="a"),)
-    )
-    with pytest.raises(UnsupportedConstructError, match="AND with a capture"):
-        _lower([RuleProduct(captures=(), completion=RecordOp(0))], owned)
-
-
-def test_refuses_a_licensed_constructor_leaving_a_field_uncovered():
-    """A licensed entry whose class has a field no capture or default reaches."""
-    owned = LoweringOwned(
-        constructors=(RecordConstructor(cls=Pair, names=("a",), licensed=True),)
-    )
-    with pytest.raises(
-        UnsupportedConstructError, match="neither a capture nor a default"
-    ):
-        _lower([RuleProduct(captures=(), completion=RecordOp(0))], owned)
-
-
-# ── symbol resolution: the no-eval boundary ──────────────────────────────
 
 
 def test_refuses_a_symbol_not_in_the_registry():

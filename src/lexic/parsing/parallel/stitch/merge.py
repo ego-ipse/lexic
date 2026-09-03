@@ -21,13 +21,12 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.discovery.regions import shell
 from lexic.parsing.parallel.stitch.model import (
-    RegionPlan,
-    RegionWork,
     head_rest,
     region_items,
     sole_route,
     splice,
 )
+from lexic.parsing.parallel.stitch.plan import RegionPlan, RegionWork
 
 ModelProduct = Callable[..., Any]
 

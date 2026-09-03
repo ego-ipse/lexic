@@ -38,14 +38,14 @@ complete without instrumenting it.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import ClassVar, Self
 
 from lexic.ir import IrNamedTuple, IrSeq, IrSpan
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.build import F_CLONE
+from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 from lexic.parsing.product import ProductExecutor
 
@@ -189,7 +189,7 @@ class WatchedKernel[M](PdaKernel[M]):
 
     def _here(self) -> str:
         """The rule whose frame is executing, or ``""`` at the top."""
-        return str(self.stack[-1][F_CLONE].name) if self.stack else ""
+        return str(self.stack[-1].clone.name) if self.stack else ""
 
     def _flush(self, rule: str = "") -> None:
         """Emit the text consumed since the last event as one scan.
@@ -252,9 +252,9 @@ class WatchedKernel[M](PdaKernel[M]):
         self.pos = saved
         return end
 
-    def _complete(self, frame: list[Any]) -> None:
+    def _complete(self, frame: Frame[M]) -> None:
         """A frame finishing is the last chance to attribute its own text."""
-        self._flush(str(frame[F_CLONE].name))
+        self._flush(str(frame.clone.name))
         super()._complete(frame)
 
     def _attempt_run(self, sub: FlatClone[M], pos: int) -> tuple[int, list[M]] | None:

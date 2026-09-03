@@ -133,7 +133,7 @@ def the_ported_licence_is_the_deleted_one(
             items = arms[0] if bound.kind == "sequence" and arms else ()
             cls = compiled.classes[bound.class_name]
             _specs, names, optional = _model_captures(bound, items)
-            new = _fast_licence(cls, bound.kind, names, optional)
+            new = _fast_licence(cls, bound.kind, names, optional) is not None
             old = (
                 old_fast_ctor(cls, bound.kind, old_fold_fields(bound, items))
                 is not None
@@ -187,7 +187,10 @@ def both_refuse_the_same_way(
             if not without or len(names) != len(set(names)):
                 continue
             at = names.index(without[0])
-            new = _fast_licence(cls, bound.kind, names, tuple(sorted({*optional, at})))
+            new = (
+                _fast_licence(cls, bound.kind, names, tuple(sorted({*optional, at})))
+                is not None
+            )
             fields = tuple(
                 field._replace(lo=0) if field.name == without[0] else field
                 for field in old_fold_fields(bound, items)

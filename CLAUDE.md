@@ -115,8 +115,10 @@ Two conventions worth knowing before you go looking:
 - A flavour is **data, not methods**: `IrFlavour` is an `IrEmitter` carrying its
   own self-grammar and reducer as ClassVars. It defines zero parsing methods.
 - `parsing/` and `compile/` hot paths **deliberately** use plain `None`, bare
-  tuple aliases and mutable cursors. Strictness is `ir/`'s contract, not
-  theirs — don't "clean up" the engine into records.
+  tuple aliases and mutable cursors for their LANES. Strictness is `ir/`'s
+  contract, not theirs — don't "clean up" the engine into records. The PDA
+  frame is the stated exception: it is a typed slotted `Frame[M]`, read and
+  written by name, because its nine lanes have nine different types.
 
 ## Project layout
 
@@ -308,6 +310,7 @@ src/lexic/
         interior.py                Routed-interior split — concatenate the pieces' runs, splice once
         merge.py                   Shallow boundary reconstruction and delegated-region shell attachment
         model.py                   Type-aware shell routes and immutable replacement
+        plan.py                    One bracket rule's region plan — the recurrence, its classes and its slots
         safety.py                  Per-owner proof that a cut separator cannot belong to the repeated item
         tasks.py                   Region pieces flattened onto distinct worker model views
     pda/

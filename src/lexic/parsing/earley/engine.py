@@ -35,7 +35,8 @@ from lexic.parsing.earley.kernel.forest.forest import (
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
     AmbiguityPolicy,
-    MeaningPolicy,
+    MeaningBuilder,
+    Resolver,
     another_meaning,
     chosen_meaning,
     different_meaning,
@@ -217,31 +218,32 @@ def _first_derivation(
 
 
 def first_built_meaning[Value, NodeValue](
-    d: IrSelf,
     n: IrSelf,
     text: str,
-    policy: MeaningPolicy[Value, NodeValue],
+    builder: MeaningBuilder[Value, NodeValue],
     tables: ParserTables | None = None,
+    resolve: Resolver | None = None,
 ) -> Value:
     """Return the chosen value, constructing each considered meaning once.
 
     The value-route twin of :func:`first_meaning`: same derivation, same
     question, and the answer is the VALUE rather than the tree that carried
-    it.
+    it. The dispatcher seam is not a parameter because this route has exactly
+    one — the shared :data:`EARLEY_PARSER` the forest readers are threaded
+    with either way.
 
-    :param d: The dispatcher seam the forest readers thread.
     :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
     :param text: The input string.
-    :param policy: The interpretation, and the resolver that settles a span
-        meaning two things.
+    :param builder: The interpretation's fresh and seeded entry points.
     :param tables: Optional pre-built (run-collapsed) tables for ``n``.
+    :param resolve: The caller's resolver, or ``None`` to refuse an ambiguity.
     :returns: The chosen meaning's value.
     :raises UnsupportedConstructError: If ``text`` does not parse, or means two
-        things and the policy carries no resolver.
+        things and no resolver was supplied.
     """
-    kernel, handle, first = _first_derivation(d, n, text, tables)
+    kernel, handle, first = _first_derivation(EARLEY_PARSER, n, text, tables)
     return chosen_meaning(
-        different_meaning(kernel, handle, policy.builder, first), policy
+        different_meaning(kernel, handle, builder, first), builder, resolve
     )
 
 
@@ -377,6 +379,7 @@ class EarleyParser(IrDispatch):
     """
 
 
+EARLEY_PARSER = EarleyParser()
 RECOGNIZE = Recognize()
 PARSE = Parse()
 PARSE_FIRST = ParseFirst()

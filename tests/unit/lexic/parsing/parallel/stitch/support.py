@@ -11,7 +11,7 @@ from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
-from lexic.parsing.parallel.stitch.model import RegionPlan, derive_plan
+from lexic.parsing.parallel.stitch.plan import RegionPlan, derive_plan
 
 
 class RecordingParse(NamedTuple):
