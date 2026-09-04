@@ -24,7 +24,7 @@ from tools.benchmark.bench import (
     declined_reason,
     observe,
     one_engine,
-    result_text,
+    result_identity,
 )
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.measurement.contract import (
@@ -106,12 +106,13 @@ def _payload(
     try:
         contract = _contract(bench, engine, built.document, cores, full)
         engaged, effective = _engagement(engine, built, cores)
-        text = result_text(built)
+        result = result_identity(built)
         timing = observe(built, rounds)
         observation = Observation(
             timing.wall,
             timing.cpu,
-            digest(text),
+            digest(result.text),
+            digest(result.shape),
             "accepted",
             engaged,
             effective,

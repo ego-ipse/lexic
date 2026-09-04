@@ -15,7 +15,7 @@ parse one document across many threads on free-threaded Python.
 ![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.9x_on_16_threads-2a78d6)
 <!-- lexic:end mt-badge -->
 <!-- lexic:begin tests-badge -->
-![Tests](https://img.shields.io/badge/tests-5.5k%2B-brightgreen)
+![Tests](https://img.shields.io/badge/tests-5.6k%2B-brightgreen)
 <!-- lexic:end tests-badge -->
 ![Status](https://img.shields.io/badge/status-pre--1.0-orange)
 ![License: LGPL](https://img.shields.io/badge/license-LGPL-blue)
@@ -86,9 +86,10 @@ Three things the table means, stated plainly:
   *tool+runtime* comparison: that column is Java, every other column is
   Python.
 - **`lexic-mt` is the fastest Python row on ten of the twelve grammars**;
-  on the two shortest documents (`announced`, `mixedends`) the
-  directive-pruned sequential row wins, because a sixteen-way split does not
-  pay below a few kilobytes. Sequential `lexic-pda` outruns `lark-lalr` on
+  on `announced` and `mixedends` the directive-pruned sequential row beats
+  the plain sixteen-worker row, because there the directives buy more
+  (4.9x and 6.4x) than a split of the plain grammar can reach on this
+  machine — the pruned MT row, in the artifact, beats both. Sequential `lexic-pda` outruns `lark-lalr` on
   every grammar lark-lalr accepts while being the only Python engine that
   parses all twelve — building a typed, byte-recoverable model, which no
   other row pays for. The one sequential loss: parsimonious edges the

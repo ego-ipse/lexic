@@ -3148,3 +3148,459 @@ KeyError)`. `IrKeyError` exists because `Mapping.get` needs to catch
 `KeyError`; no protocol needs to catch an `AttributeError` here, so the double
 typing would buy nothing and would add a public name to the vocabulary. If a
 later caller does need the language-native behaviour, that is the shape to add.
+
+---
+
+# 2026-09-04 — Review 18 corrections (terra-r18)
+
+Specification: `reports/REVIEW_18.md`, corrections 1–6 and 8 in its order.
+Correction 7 (the matrix) runs only in a coordinator-granted window;
+correction 9 (the MT-vs-sequential overhead on cheap grammars, recorded in the
+ledger) is not in this brief and is not started.
+
+## 1 — Replica ownership per real worker (High)
+
+**Root.** Ownership was expressed twice and correctly neither time: a global
+per-artefact LIST grown by `len()`-then-append with no lock, indexed by a
+POOL-LOCAL slot number. Both halves are now one thing: a replica is claimed by
+a THREAD, once, under a lock, and the claim is read back out of that thread's
+own thread-local afterwards.
+
+- `worker_replicas(grammar, binding, count)` is deleted — a count-based pool of
+  views cannot express per-worker ownership, and its index was the defect.
+- `worker_replica(grammar, binding)` is the claim: thread-local hit on the hot
+  path (dict get + two identity checks, as before), `_claim` under `_MINTING`
+  on a miss. N concurrent first-touches therefore mint exactly N.
+- `_reclaim` returns nothing to a free list: an exited thread's replica is
+  DROPPED and its memo entries released (`caches.release`). Re-issuing it would
+  hand a live worker tables a dead thread allocated, which is the foreign-object
+  cost the module exists to remove; dropping also bounds the registry by live
+  workers instead of by every pool the process ever started.
+- `thread_replica` keeps the document-level policy guard (GIL builds and
+  sequential callers get the original pair) and delegates to `worker_replica`.
+- `replica_count(grammar, binding)` is the ownership probe's meter, mirroring
+  `caches.cached_entries()`.
+- Nothing was added to the paid parse loop: `worker_parse` no longer calls
+  `worker_replicas` (a shared dict lookup, a list slice and a list allocation
+  per chunk parse) and no longer takes the pool at all.
+
+**Evidence** (`tests/unit/lexic/parsing/parallel/test_replicas.py`, 13 tests):
+
+- `test_concurrent_first_touches_allocate_exactly_one_replica_each` — 16
+  threads, barrier-synchronised, none exiting before all have claimed: 16
+  distinct replicas, 16 distinct grammars, 16 distinct bindings, count 16.
+- `test_two_overlapping_pools_never_share_a_replica` — two live `WorkPool(2)`
+  leases driven concurrently, four worker threads all inside `worker_parse` at
+  the same time: four distinct view identities, none of them the original
+  grammar, count 4.
+- `test_no_worker_is_handed_the_original_pair`,
+  `test_an_exited_workers_replica_is_dropped_rather_than_reissued`,
+  `test_a_live_workers_replica_survives_another_threads_claim`,
+  `test_a_thread_keeps_the_replica_it_claimed`,
+  `test_one_thread_claims_one_replica_per_pair`, plus the ported value tests
+  (`equal_but_distinct`, `build_the_same_models`) and the two `thread_replica`
+  policy branches, each pinned by monkeypatching `available_workers`.
+
+## 2 — `worker_parse` exact types (High)
+
+`worker_parse(parse, grammar, text, binding, resolve) -> M`. The three `Any`s
+are gone at the root rather than renamed:
+
+- the parse callable is `ModelParse`, a Protocol in
+  `src/lexic/parsing/executable.py` whose `__call__` is generic in `M`, so the
+  model type survives being passed down through a layer that must not import
+  the product. It replaces TWO copies of `ModelProduct = Callable[..., Any]`
+  (`parallel/orchestrate.py`, `parallel/stitch/merge.py`).
+- the request payload is gone: `worker_parse` took the whole `Request` while
+  its own docstring warned that the request's document is NOT the text to parse
+  — a parameter one branch consults and another must ignore. It now takes the
+  `ModelExecutable[M]` and the `Resolver | None` it actually reads.
+- the return is `M`.
+
+Collateral, all in the same direction: `MergeRequest.run` returns `M` instead of
+`Any`; `stitch/interior.py` loses `Callable[..., Any]` and its `object`-typed
+resolver; `_piece` returns `M | None`; `_envelope_join` gained the guard clause
+that its `IrAst | None` lead grammar always needed.
+
+**Evidence.** `test_worker_parse_hands_the_product_this_threads_view` asserts
+replica selection (the view is this thread's, and is not the original pair),
+forwarding (grammar, text, binding and resolver identity) and result identity
+(what the product returned is what came back).
+`test_worker_parse_builds_the_model_the_sequential_parse_would` runs the real
+product through it. `uv run pyright src/lexic tests/ tools/` → 0 errors.
+
+## 3 — Comparator semantic parity (High)
+
+**Root.** The comparator reduced a completed job to a duration and compared
+nothing else, and the one product field it did carry was a digest of
+`to_text()` — which on a round-tripping parse IS the input document. Measured
+on the real worker: for `json/lexic-pda`, `result_digest` and
+`document_digest` are the same sixteen characters (`b8cf2bebd7e25b63`).
+
+- `measurement/contract.py` gains `shape(product)`: a deterministic structural
+  rendering — class name, `(`, each field in order, `)` — with leaves rendered
+  as `type:repr`. Iterative over an explicit stack, because the depth is the
+  grammar's and a recursive walk would refuse a document the parser accepted.
+- `Observation` gains `shape_digest` beside `result_digest`; the text digest
+  stays and is now documented as what it is, the fidelity check. `PROTOCOL`
+  3 → 4, so an uncorrected arm cannot be compared with a corrected one.
+- `bench.py`'s `result_text` becomes `result_identity`, returning both digests
+  from ONE parse; the worker writes both.
+- `compare.py` gains `Arm` (label, contract, observation) and `comparable`,
+  which refuses a pair differing on any of `SEMANTIC` = verdict, engaged,
+  effective_cores, result_digest, shape_digest, naming the field and both
+  arms' values. `_pair` calls it beside `agree` — before either duration is
+  returned, so a disagreeing pair cannot reach the estimator.
+
+**Evidence.** `tests/unit/tools/benchmark/test_compare.py`: one parametrised
+case per `SEMANTIC` field refuses; identical observations pass; a pair with the
+SAME text digest and a different shape digest refuses; and the refusal happens
+inside `sample`, not in a report afterwards.
+`tests/unit/tools/benchmark/test_contract.py` (new, mirrors the module): two
+grammars that both accept `ab` and both emit `ab` — `root ::= "ab"` versus
+`root ::= x y` — render differently, which is exactly what the text digest
+cannot see; same document twice renders identically; two documents of one
+grammar differ; field ORDER carries; and a 10,000-deep product renders without
+recursing. End to end, `python -m tools.benchmark.execution.worker --grammar
+json --engine lexic-pda` now writes protocol 4 with both digests, and the
+`lexic-mt` row still reports `engaged: true`, `effective_cores: 4`.
+
+## 4 — Alternation across adaptive growth (High)
+
+`sample()` took a local pair count and started at index zero, so all ten
+one-pair growth rounds scheduled head first and never swapped the control. It
+now takes the ABSOLUTE index of its first pair; `grow` passes
+`len(pairing.candidate)`. Both schedules are continuous over the whole
+adaptive run.
+
+**Evidence.** `test_alternation_holds_across_every_growth_round` and
+`test_the_controls_own_schedule_also_survives_growth` drive a real `grow` to
+the fifteen-pair bound and assert the COMPLETE order of all thirty candidate
+processes and all thirty control processes, not a prefix: head first on even
+pairs only (eight of fifteen), control swapped on pairs 2, 5, 8, 11, 14. Under
+the old scheduling pairs five to fourteen were all "head first, control
+unswapped", so the test fails against it.
+
+## 5 — The obsolete ambiguity route, deleted (High)
+
+Deleted, with no alias and no wrapper: `another_meaning` and `AmbiguityPolicy`
+(`earley/kernel/forest/support/ambiguity.py`, and their `__all__` entries),
+`_one_meaning` (`earley/engine.py`), and `first_meaning`'s `policy` parameter,
+which was the only consumer of the policy carrier. `first_meaning` survives as
+what it now is: the tree route's deterministic first. The value route
+(`different_meaning` into `chosen_meaning`) is the one settlement path.
+
+Assertions were ported, not dropped. The two `another_meaning` unit tests
+became four on the authoritative path: no witness when the build is
+grouping-insensitive (plus `chosen_meaning` returning that value), a witness
+with a differing VALUE when the build sees shape, the default refusal without
+a resolver, and a resolver settling either way. The json split-vs-arm
+integration test now asks `different_meaning(...).witness`.
+
+Prose that named the deleted symbols was corrected rather than left: the
+islands runtime comment, two `test_pda_parity` docstrings, and
+`.wiki/lexic/decisions.md`'s resolver paragraph (which also had the module
+path and the wrong function for the model-path gate).
+
+## 8 — Reconcile the record (source documentation)
+
+- `src/lexic/parsing/README.md`: `parse_model(grammar, text, binding)` and
+  `ModelExecutable` throughout; §8 rewritten from "the instance fold
+  (`fold.py`)" to "the product program (`product/`, `executable.py`)" —
+  authored ops, lowered once, verified cold at binding, read back as one
+  routine per rule for both engines, immutable after verification; §12 now
+  describes the typed slotted `Frame` and `needs_ends` instead of flat list
+  frames; §3's package layout rewritten to the tree that exists (product/,
+  parallel/, earley/kernel/{loop,forest,tables}/, pda/analysis/gates/,
+  pda/compiler/program/), and the stale `fold.collapsed_fold_tables`,
+  `codegen/`, `parse_bench.py`/`pipeline_bench.py` references corrected.
+- `src/lexic/compile/README.md`: the real `CompiledGrammar` fields, `product`
+  rather than `fold`, `rulemap.py`/`naming.py`/`moments.py` in the layout, and
+  the layering paragraph no longer names the deleted `lexic.parsing.earley.reduce`.
+- `src/lexic/parsing/pda/compiler/README.md` and
+  `src/lexic/parsing/product/README.md`: last `RuleFold` / `ModelFold`
+  references removed.
+- `.wiki/lexic/parallel-parsing.md`, `.wiki/lexic/public-api.md`,
+  `.wiki/lexic/decisions.md` updated, with one `.wiki/log.md` entry covering
+  all three. `zzz_current_work/` untouched — the coordinator reconciles
+  TODO/LEDGER after the matrix.
+
+## 6 — Gates, in the brief's order
+
+| Gate | Result |
+|---|---|
+| Focused tests for 1–5 (`test_replicas`, `tests/unit/tools/benchmark`, `forest/`) | 207 passed, exit 0 |
+| `pytest tests/unit/lexic/parsing tests/integration/lexic/parity tests/integration/lexic/roundtrip tests/unit/tools -q -n 8` | 2824 passed in 76s, exit 0 |
+| `pyright src tests tools` | 0 errors, 0 warnings, exit 0 |
+| `tools/run_checks.sh` | exit 0 (format, lint, pyright 0, pylint 10.00/10) |
+| `proto/s3_*` and `s4_*` witnesses | 26/26 exit 0 |
+| Full suite `pytest tests/ -q -n 8` | 5591 passed, 8 skipped, exit 0 |
+| `tools/run_examples.sh` | exit 0 |
+| `tools/check_generated.py` | exit 0, 53 modules, CLEAN |
+
+Two gates needed a fix before they passed, both recorded rather than worked
+around:
+
+1. `test_specialize.py`'s two tabling tests failed at first. Not a flake — a
+   real behaviour change I had introduced. Those tests parse through
+   `CompiledGrammar.parse` and then read a memo side effect on
+   `art.pda_tables()`, which only holds if the document thread parses against
+   the ORIGINAL pair. The old code gave it to whichever thread drew ticket 0
+   and aliased every eighth thread onto it; my first version gave every thread
+   a mint. The correction is the review's own sentence: the original pair is a
+   view like any other and it belongs to the thread that owns the DOCUMENT, so
+   `thread_replica` takes it when no live thread holds it and `worker_replica`
+   never does. That also means a single-threaded program compiles no second
+   set of tables. Three tests pin it, including that a worker does not take the
+   original even when it is free.
+2. `proto/s3_earley_target.py` imported `AmbiguityPolicy`, deleted by
+   correction 5. Its call is now `first_meaning(EarleyParser(), grammar, text,
+   tables)`; the witness wanted a real Earley derivation and the policy was
+   incidental to that. This is the only file under `zzz_current_work/` I
+   edited, and it is a witness, not the plan record.
+
+Four pylint findings were solved by shape, with no suppression:
+
+- `ModelParse` as a `Protocol` drew both `unnecessary-ellipsis` (pyright wants
+  a stub body, pylint objects to one after a docstring) and
+  `too-few-public-methods`. It is now a PEP 695 generic type alias,
+  `type ModelParse[M] = Callable[[IrAst, str, ModelExecutable[M], Resolver |
+  None], M]`, which is the better shape anyway: each use site fixes `M` and
+  threads it, which is exactly what the split layer needs.
+- `_Recorder` in the replica tests gained `views()`, the second method the
+  overlapping-pools test wanted to write by hand.
+- `type(item) is _Token` in the shape walker became `isinstance(item, _Token)`
+  — correct because `_Token` is a subclass, so a plain `str` child still reads
+  as a leaf.
+
+### Bytecode witness against `e5506f0e`
+
+Per-function opcode counts, both revisions compiled from source text (neither
+imported), over the paid path and every module this work touched.
+
+**Changed paid-path rows: NONE.** These modules are byte-identical function by
+function: `pda/runtime/kernel/{kernel,execution,decisions,attempt_inline}.py`,
+`pda/runtime/{build,matchers,admission,islands}.py`,
+`pda/compiler/program/flatten.py`, `product/{tree,routines,state}.py`,
+`products.py`, `earley/kernel/loop/kernel.py`,
+`earley/kernel/forest/fasttree.py`, and `parallel/stitch/merge.py`.
+
+The 61 changed rows are all in the six modules this work rewrote, and the
+functions that survive the rewrite got SMALLER: `worker_parse` 27 → 12,
+`thread_replica` 71 → 15, `_resolve` 54 → 47, `first_meaning` 38 → 8. The rest
+are the deleted names (`worker_replicas`, `_Assigned`, `another_meaning`,
+`AmbiguityPolicy`, `_one_meaning`) going to zero and the new ones appearing.
+`islands.py` changed only a comment and shows no row, which is the check
+working.
+
+## 9 — The MT blocker: where a cheap grammar's split time went
+
+### (a) The phase table
+
+One instrumented MT parse per grammar, wrapped from a driver outside `src`
+(`/tmp/terra_phases.py`, `/tmp/terra_cuts.py`, `/tmp/terra_scale.py`), on the
+documents the mt rows parse. Milliseconds, cores=16, the `lex-ns` artefact —
+the row the blocker names.
+
+| phase | mixedends | announced | backtrack | lexruns |
+|---|---|---|---|---|
+| whole MT parse | 4.098 | 1.619 | 2.505 | 1.683 |
+| cut selection (`cut_offsets`) | **2.374** | 0.189 | 0.464 | 0.267 |
+| window scan (inside it) | 0.512 | 0.455 | 0.268 | 0.225 |
+| chunk phase wall (`pool.map`) | 1.176 | 0.799 | 1.741 | 1.159 |
+| slowest single chunk | 0.584 | 0.596 | 0.760 | 0.668 |
+| stitch | 0.201 | 0.059 | 0.120 | 0.238 |
+| the sequential `lex-ns` parse | 2.517 | 1.542 | 3.145 | 3.161 |
+
+Four facts came out of it, and two hypotheses died:
+
+1. **Cut selection, not parsing, was the cost.** On mixedends it took 2.37 ms
+   while the entire sequential parse takes 2.52 ms, and the actual parallel
+   parse inside it is 0.58 ms.
+2. **The scan was not the per-character Python loop it was assumed to be.**
+   `Scanner.window` already sweeps with `str.find`. The premise check
+   (`/tmp/terra_scan.py`) showed no grammar here has opaque regions and none
+   takes the quadratic `walk` path, so the "make it C-speed" hypothesis was
+   wrong. The cost was AFTER the sweep.
+3. **`matched()` sorted the mark set on every occurrence.** 3920 sorts of a
+   frozenset for one mixedends document — 1.377 ms of the 2.374, and the
+   largest single component on all four grammars.
+4. **Chunk parses carry no fixed cost.** The same chunks parsed one at a time
+   cost 1.03x the whole document, so nothing is duplicated per chunk; and
+   parsed concurrently they reach 6.14x at 8 threads and 4.82x at 16 (the SMT
+   loss is real and is the ledger's recorded fact, not a new one).
+
+### (b) What was removed, at the root
+
+- **`matched()` no longer sorts per occurrence.** Ordering is a property of the
+  mark SET, so `spellings(marks)` settles it where the set is and `matched`
+  takes the ordered tuple. The three call sites are one loop and two per-cut
+  calls.
+- **A one-character mark set selects by membership.** `clustered`'s own
+  contract says a one-character mark cannot overlap, so every width is 1 and
+  the run thinning is the identity; `scan_marks` now says that out loud with a
+  `text[at] in plan.mark` test instead of building a width table it discards.
+  Pinned by a test asserting the two paths give the same list.
+- **`Scanner.window` has a no-pairs case.** A grammar whose roles hold no
+  opener and no closer has no depth to count, so the role tags, their merge
+  sort and the depth walk are vacuous; the window IS its merged occurrence
+  list. All four grammars are in that case.
+- **The scan window count is the SCAN's floor, not the parse's** (`MIN_SCAN`
+  in `policy.py`, 4x `MIN_CHUNK`). Measured: a window costs 1.5–21 ns/char and
+  a pool task ~15 µs to hand out, so sixteen windows over a 34 KB document
+  spent 0.24 ms dispatching 0.05–0.7 ms of work, and three of four grammars
+  scanned faster on one thread than on sixteen. **The document-split floor is
+  untouched and no row is suppressed** — this removes dispatch work from the
+  serial phase, it does not reduce the number of parse chunks.
+
+Cut selection after, same instrument: mixedends 2.282 → **0.871** ms,
+announced 1.100 → **0.406**, backtrack 0.679 → **0.315**, lexruns 0.601 →
+**0.221**.
+
+### (c) The ladder, before and after
+
+Base is `e5506f0e` archived to `/tmp/base_r18` and driven by its own tree; each
+tree runs the five rows of one grammar in rotating order and reports each row's
+minimum over 15 rounds; the two trees alternate, three passes each, and the
+figure is the minimum of the three. µs/char at cores=16, lower is faster.
+
+| grammar | row | base | head | change |
+|---|---|---|---|---|
+| mixedends | pda | 0.4571 | 0.4582 | +0.2% |
+| | lex | 0.0719 | 0.0716 | −0.4% |
+| | lex-ns | 0.0719 | 0.0716 | −0.4% |
+| | mt | 0.1277 | 0.1331 | +4.2% |
+| | **mt-lex-ns** | **0.0893** | **0.0488** | **−45%** |
+| announced | pda | 0.1663 | 0.1700 | +2.2% |
+| | lex | 0.0353 | 0.0354 | +0.3% |
+| | lex-ns | 0.0349 | 0.0350 | +0.3% |
+| | mt | 0.0561 | 0.0456 | −19% |
+| | **mt-lex-ns** | **0.0306** | **0.0220** | **−28%** |
+| backtrack | pda | 0.1862 | 0.1870 | +0.4% |
+| | lex | 0.0900 | 0.0899 | −0.1% |
+| | lex-ns | 0.0893 | 0.0894 | +0.1% |
+| | mt | 0.0655 | 0.0536 | −18% |
+| | **mt-lex-ns** | **0.0470** | **0.0368** | **−22%** |
+| lexruns | pda | 0.1370 | 0.1389 | +1.4% |
+| | lex | 0.0938 | 0.0935 | −0.3% |
+| | lex-ns | 0.0918 | 0.0924 | +0.7% |
+| | mt | 0.0546 | 0.0462 | −15% |
+| | **mt-lex-ns** | **0.0467** | **0.0395** | **−15%** |
+
+The three sequential rows are the control: the change cannot reach them, and
+they read within ±2.2% across the two trees. Every MT movement is 15–45%,
+outside that band.
+
+**Target 1 — every MT row materially faster than the sequential row of the
+same directives.** Met on all four, both directive sets:
+
+| grammar | mt ÷ pda | mt-lex-ns ÷ lex-ns (base → head) |
+|---|---|---|
+| mixedends | 0.29 (3.4x) | 1.24 LOSS → **0.68 (1.47x win)** |
+| announced | 0.27 (3.7x) | 0.88 → **0.63 (1.59x)** |
+| backtrack | 0.29 (3.5x) | 0.53 → **0.41 (2.43x)** |
+| lexruns | 0.33 (3.0x) | 0.51 → **0.43 (2.34x)** |
+
+**Target 2 — the plain MT row not losing to the pruned sequential rows.** Met
+on backtrack (0.0536 vs 0.0894) and lexruns (0.0462 vs 0.0924). Not met on
+mixedends and announced, and the two have different answers:
+
+- **mixedends is a measured ceiling, not a defect.** The directives buy 6.4x
+  (pda 0.4582 ÷ lex-ns 0.0716). The split's own ceiling on this machine,
+  measured on the real chunks with the orchestration removed, is 6.14x at 8
+  threads and 4.82x at 16. A split that cost nothing at all would still land at
+  0.0746 against the pruned row's 0.0716. Sixteen workers cannot out-run a
+  directive set worth more than the machine's parallel ceiling; the honest
+  statement is the ratio, and it is hardware, not planning work.
+- **announced is not at its ceiling and I did not close it.** The directives
+  buy 4.86x and the plain MT row reaches 3.73x. The residue is chunk
+  imbalance (slowest chunk 1.38x the mean) and concurrency inflation (mean
+  chunk 1.5x its share of the sequential parse), not serial planning. Naming
+  it rather than leaving it: this is the next lever on that row.
+
+### Gates after correction 9
+
+`pyright` 0 errors; `tools/run_checks.sh` exit 0 (pylint 10.00/10); the four
+focused suites 2829 passed; 26/26 witnesses exit 0; full suite 5596 passed, 8
+skipped, exit 0 — the first run had one failure, `test_readme_render_is_current`,
+because the suite grew past the README's tests badge; re-rendered with
+`tools.render_readme` (that one badge line) and re-run clean.
+`run_examples.sh` exit 0 and `check_generated.py` exit 0, 53 modules CLEAN.
+
+Bytecode against `e5506f0e`: **still no changed paid-path row.** The 13 new
+rows are all in split planning — `plan/cuts.py`, `discovery/scan.py`,
+`plan/split.py`, `policy.py` — which runs once per document, not per push or
+per character.
+
+### One thing the coordinator must not miss
+
+`README.md` says, from the committed artifact, that "on the two shortest
+documents (`announced`, `mixedends`) the directive-pruned sequential row wins,
+because a sixteen-way split does not pay below a few kilobytes". After this
+correction the pruned MT row wins on both, and the stated REASON was wrong even
+before: what did not pay was the cut selection, not the split. The sentence
+must be re-rendered from the corrected artifact when the matrix runs.
+
+## 10 — The swept suppressions: sixty findings closed
+
+The user removed every inline suppression that carried no justification. That
+left ten pyright errors and sixty pylint findings. Three instruments, in this
+order of preference: shape, then the repository's own pylint plugin where a
+category is a checker defect against a stated convention, then a justified
+disable where neither is honest.
+
+### By shape (ten pyright errors)
+
+- Three dynamic-attribute cases in `test_meta.py` became `setattr(x, "other",
+  "nope")` and `getattr(b, "extra")`. The declared attribute does not exist,
+  which is the point; going through the dynamic form leaves the refusal to the
+  runtime instead of asking the checker to allow a name it correctly rejects.
+- The read-only NamedTuple field in `test_scalars.py` likewise.
+- The abstract instantiation now calls through a binding declared `type[Base]`
+  — what a caller holding a class object knows — so the `TypeError` is still
+  the runtime's.
+- `test_trampoline.py`'s two cogen fixtures declared their child `IrSelf` and
+  then called `iter` on it. A parent never reads a child as an IR node; it
+  calls `iter` and forwards the commands. The child is now typed by that
+  contract through a local `Cogen` alias.
+
+### At the plugin (53 findings)
+
+52 `too-few-public-methods` on test fixtures plus one on the PDA execution
+mixin. `tools/pylint_lexic.py` now extends the design checker's OWN exempt
+predicate — the one that already skips an Enum, a named tuple, a TypedDict and
+a dataclass — with two shapes that belong in that set for the same reason:
+
+- a class defined inside a function is a fixture, built to be exercised by the
+  call that owns it and unreachable from anywhere else;
+- a mixin is an implementation seam (the parsing README's own words), a group
+  of one owner's methods shed into a second file.
+
+Four probes in `tests/unit/tools/test_pylint_lexic.py` pin it in both
+directions: the fixture and the mixin are silent, a module-level class with no
+public interface is still reported, and a class merely NAMED like a mixin still
+counts. A checker registered for this would never have run — pylint drops a
+checker with no messages of its own — so the exemption is where the decision
+actually lives.
+
+### Justified disables kept (7 sites)
+
+| site | check | why the checker is wrong there |
+|---|---|---|
+| `pool.py` ×2, in `WorkPool.map` | `broad-exception-caught` | The exception is stored, not swallowed; the earliest input's failure is re-raised, so a process-control exception must be caught or it escapes a half-drained phase. |
+| `test_meta.py` ×2 | `protected-access` | `Borg._states` is not an implementation detail to these tests, it IS the subject: one dict per class, shared, dying with the class. |
+| `test_control.py` | `broad-exception-caught` | The catch-all is the test. `_Return` derives from `BaseException` so a user's handler cannot eat a control signal, and asserting that means writing the handler that would have eaten it. |
+| `test_nodes.py` (module) | `too-many-lines` | The user's 2026-07-04 ruling, plus a fact: the mirror gate pins one test file per source module, so splitting would trade a real invariant for a line count. |
+| `execution.py` (module) | `duplicate-code` | The terminal loop is shared with `kernel.py` on purpose — both engines run it per character, and folding it into a callee puts a Python call on the paid path to save seven lines. The message names a module PAIR at the end of a run, so it has no site to answer at. |
+| `pylint_lexic.py` ×2 | `protected-access` | Correcting checker internals is what the file is; the two astroid privates it imports are the same access by another door, and the only public seam is the pyproject option, which is harness. |
+
+Every one states what the code does and why the message cannot be true there.
+Where a reason did not fit inside the line limit it sits immediately above the
+pragma, at the same site.
+
+### Gates
+
+pyright over src, tests and tools 0 errors; `ruff format --check` and `ruff
+check` clean; `tools/run_checks.sh` exit 0 with pylint 10.00/10; the affected
+suites (`tests/unit/tools`, `tests/unit/lexic/ir`,
+`tests/unit/lexic/parsing/parallel`) 1314 passed.

@@ -9,7 +9,7 @@ Neither path reparses a delegated subtree merely to discover where it belongs.
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from typing import Any, NamedTuple, cast
 
 from lexic.exceptions import LexicError
@@ -18,7 +18,7 @@ from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import shell
 from lexic.parsing.parallel.stitch.model import (
     head_rest,
@@ -28,18 +28,16 @@ from lexic.parsing.parallel.stitch.model import (
 )
 from lexic.parsing.parallel.stitch.plan import RegionPlan, RegionWork
 
-ModelProduct = Callable[..., Any]
-
 
 class MergeRequest[M](NamedTuple):
     """The parse service and per-document inputs shared by every stitch step."""
 
-    parse: ModelProduct
+    parse: ModelParse[M]
     text: str
     binding: ModelExecutable[M]
     resolve: Resolver | None
 
-    def run(self, grammar: IrAst, text: str) -> Any:
+    def run(self, grammar: IrAst, text: str) -> M:
         """Parse one full, piece, boundary, or shell document."""
         return self.parse(grammar, text, self.binding, self.resolve)
 

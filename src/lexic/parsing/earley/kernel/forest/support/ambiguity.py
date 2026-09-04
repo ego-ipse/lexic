@@ -32,7 +32,6 @@ if TYPE_CHECKING:  # `kernel` is what hands us a finished parse to read
     from lexic.parsing.earley.kernel.loop.kernel import Kernel
 
 __all__ = [
-    "AmbiguityPolicy",
     "BuiltMeaning",
     "MeaningBuilder",
     "MeaningMemo",
@@ -40,7 +39,6 @@ __all__ = [
     "MeaningRun",
     "Resolver",
     "ambiguity_points",
-    "another_meaning",
     "chosen_meaning",
     "dirty_cone",
     "different_meaning",
@@ -58,22 +56,6 @@ requirement is that it is deterministic, so both engines given the same pair
 answer the same way. ``lambda first, other: first`` is the degenerate
 take-the-first resolver.
 """
-
-
-class AmbiguityPolicy[Value](NamedTuple):
-    """How a span that means two things is settled, and by whom.
-
-    ``build`` is what makes the question answerable at all: whether two
-    derivations are a real ambiguity is a question about the VALUES they
-    build. ``resolve`` is the caller's explicit opt-out from the default
-    refusal.
-
-    :ivar build: Turns a derivation into the value it means.
-    :ivar resolve: Settles a span that means two things; ``None`` refuses it.
-    """
-
-    build: Callable[[ParseTree], Value]
-    resolve: Resolver | None = None
 
 
 def ambiguity_points(kernel: Kernel, root: int) -> list[int]:
@@ -462,23 +444,3 @@ def chosen_meaning[Value, NodeValue](
     if chosen is witness.tree:
         return witness.value
     return builder.build(chosen)
-
-
-def another_meaning[Value](
-    kernel: Kernel,
-    handle: int,
-    build: Callable[[ParseTree], Value],
-    first: ParseTree,
-) -> ParseTree | None:
-    """Compatibility view of :func:`different_meaning` for tree consumers.
-
-    The enumeration and comparison still have one implementation.  Consumers
-    that need the chosen value use :func:`different_meaning` directly; legacy
-    tree consumers discard the values and retain only the witness tree.
-    """
-
-    def rebuild(tree: ParseTree, _values: dict[int, Value]) -> Value:
-        return build(tree)
-
-    pair = different_meaning(kernel, handle, MeaningBuilder(build, rebuild), first)
-    return None if pair.witness is None else pair.witness.tree

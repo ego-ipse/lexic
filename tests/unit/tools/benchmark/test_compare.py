@@ -45,9 +45,18 @@ CONTRACT = RowContract(
 """A well-formed contract for one sequential row."""
 
 
+OBSERVED = Observation(1.0, 1.0, "text", "shape", "accepted", None, 1)
+"""A well-formed observation of one accepted sequential row."""
+
+
 def _result(cpu: float) -> RowResult:
     """One worker's whole answer at a given CPU reading."""
-    return RowResult(CONTRACT, (Observation(cpu, cpu, "d", "accepted", None, 1),), None)
+    return RowResult(CONTRACT, (OBSERVED._replace(wall=cpu, cpu=cpu),), None)
+
+
+def _arm(label: str, **fields: object) -> compare.Arm:
+    """One arm's answer, differing from the well-formed one as asked."""
+    return compare.Arm(label, CONTRACT, OBSERVED._replace(**fields))
 
 
 def _pairing(candidate: list[float], control: list[float]) -> compare.Pairing:
@@ -71,7 +80,7 @@ def test_pairs_alternate_which_tree_runs_first(
         return _result(1.0 if job.root == BASE else 1.1)
 
     monkeypatch.setattr(compare, "run_job", run)
-    compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 2)
+    compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 2, 0)
 
     candidate = [root for root, label in seen if label.endswith(("/base", "/head"))]
     assert candidate == [HEAD, BASE, BASE, HEAD]
@@ -88,7 +97,7 @@ def test_control_order_flips_on_its_own_schedule(
         return _result(1.0)
 
     monkeypatch.setattr(compare, "run_job", run)
-    compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 3)
+    compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 3, 0)
 
     controls = [name for name in seen if name.startswith("control")]
     assert controls[:2] == ["control-a", "control-b"]
@@ -183,7 +192,7 @@ def test_an_unresolved_row_earns_more_pairs_up_to_the_bound(
     asked: list[int] = []
 
     def sample(
-        _arms: compare.Arms, _grammar: str, _row: str, pairs: int
+        _arms: compare.Arms, _grammar: str, _row: str, pairs: int, _first: int
     ) -> compare.Pairing:
         asked.append(pairs)
         return _pairing([-0.1, 0.1] * pairs, [0.0] * (2 * pairs))
@@ -198,7 +207,7 @@ def test_an_unresolved_row_earns_more_pairs_up_to_the_bound(
 
 def test_a_threaded_row_is_judged_on_wall_and_a_sequential_one_on_cpu() -> None:
     """A split's result is latency; a sequential row's is work done."""
-    observation = Observation(2.0, 9.0, "digest", "accepted", True, 4)
+    observation = Observation(2.0, 9.0, "text", "shape", "accepted", True, 4)
 
     assert compare.primary_reading(observation, "lexic-mt") == 2.0
     assert compare.primary_reading(observation, "lexic-pda") == 9.0
@@ -245,7 +254,7 @@ def test_a_slower_verdict_must_survive_the_whole_pair_budget(
     asked: list[int] = []
 
     def sample(
-        _arms: compare.Arms, _grammar: str, _row: str, pairs: int
+        _arms: compare.Arms, _grammar: str, _row: str, pairs: int, _first: int
     ) -> compare.Pairing:
         asked.append(pairs)
         return _pairing([0.1] * pairs, [0.0] * pairs)
@@ -265,7 +274,7 @@ def test_a_row_that_tips_on_noise_is_not_banked_as_slower(
     calls = {"n": 0}
 
     def sample(
-        _arms: compare.Arms, _grammar: str, _row: str, pairs: int
+        _arms: compare.Arms, _grammar: str, _row: str, pairs: int, _first: int
     ) -> compare.Pairing:
         calls["n"] += pairs
         if calls["n"] <= compare.MIN_PAIRS:
@@ -278,3 +287,133 @@ def test_a_row_that_tips_on_noise_is_not_banked_as_slower(
     )
 
     assert verdict.status != "slower"
+
+
+SEMANTIC_CASES = (
+    ("verdict", "parsing: input does not derive from 'root'"),
+    ("engaged", True),
+    ("effective_cores", 8),
+    ("result_digest", "other-text"),
+    ("shape_digest", "other-shape"),
+)
+"""One differing field per case — each on its own makes the pair meaningless."""
+
+
+@pytest.mark.parametrize("field,value", SEMANTIC_CASES)
+def test_arms_that_did_not_produce_the_same_result_refuse(
+    field: str, value: object
+) -> None:
+    """A pair is a timing sample only when both arms did the same work."""
+    base = _arm("json/lexic-mt/base")
+    head = _arm("json/lexic-mt/head", **{field: value})
+
+    with pytest.raises(ValueError, match=field):
+        compare.comparable(base, head, "json/lexic-mt")
+
+
+def test_the_refusal_names_the_two_arms_and_both_values() -> None:
+    """The refusal is diagnosable without re-running the pair."""
+    base = _arm("json/lexic-mt/base", engaged=True, effective_cores=8)
+    head = _arm("json/lexic-mt/head", engaged=False, effective_cores=1)
+
+    with pytest.raises(ValueError) as caught:
+        compare.comparable(base, head, "json/lexic-mt")
+
+    detail = str(caught.value)
+    assert "engaged" in detail and "effective_cores" in detail
+    assert "json/lexic-mt/base" in detail and "json/lexic-mt/head" in detail
+
+
+def test_two_arms_that_built_the_same_product_compare() -> None:
+    """Identical observations proceed to timing."""
+    assert (
+        compare.comparable(
+            _arm("json/lexic-pda/base"), _arm("json/lexic-pda/head"), "json/lexic-pda"
+        )
+        is None
+    )
+
+
+def test_a_different_tree_with_the_same_text_refuses() -> None:
+    """The text digest is the input on a round trip; the shape is the product."""
+    base = _arm("json/lexic-pda/base")
+    head = _arm("json/lexic-pda/head", shape_digest="a different tree")
+
+    assert base.observation.result_digest == head.observation.result_digest
+    with pytest.raises(ValueError, match="shape_digest"):
+        compare.comparable(base, head, "json/lexic-pda")
+
+
+def test_a_disagreeing_pair_never_reaches_the_estimator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal happens in the pair, not in a report after the verdict."""
+
+    def run(job: Job) -> RowResult:
+        if job.label.endswith("/head"):
+            return RowResult(
+                CONTRACT, (OBSERVED._replace(shape_digest="elsewhere"),), None
+            )
+        return _result(1.0)
+
+    monkeypatch.setattr(compare, "run_job", run)
+
+    with pytest.raises(ValueError, match="shape_digest"):
+        compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 1, 0)
+
+
+def _ordering(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every process an adaptive run started, in order, by which arm it was."""
+    seen: list[str] = []
+
+    def run(job: Job) -> RowResult:
+        seen.append(job.label.rsplit("/", 1)[1])
+        return _result(1.0 if job.root == BASE else 1.1)
+
+    monkeypatch.setattr(compare, "run_job", run)
+    verdict, pairing = compare.grow(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda")
+    assert len(pairing.candidate) == compare.MAX_PAIRS
+    assert verdict.pairs == compare.MAX_PAIRS
+    return seen
+
+
+def test_alternation_holds_across_every_growth_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Growth one pair at a time must not put head first thirteen times.
+
+    The later pairs are the decisive ones, so a schedule that restarts at index
+    zero on each growth call gives one arm the first slot for the whole tail of
+    the run. Both schedules are asserted in full, over every pair the budget
+    allows.
+    """
+    seen = _ordering(monkeypatch)
+
+    candidate = [side for side in seen if side in ("base", "head")]
+    expected = [
+        side
+        for index in range(compare.MAX_PAIRS)
+        for side in (("head", "base") if index % 2 == 0 else ("base", "head"))
+    ]
+    assert candidate == expected
+    assert candidate.count("head") == compare.MAX_PAIRS
+    assert [pair for pair in zip(*[iter(candidate)] * 2)].count(("head", "base")) == 8
+
+
+def test_the_controls_own_schedule_also_survives_growth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control flips on its own cycle, so an artefact cannot cancel out."""
+    seen = _ordering(monkeypatch)
+
+    controls = [side for side in seen if side.startswith("control")]
+    expected = [
+        side
+        for index in range(compare.MAX_PAIRS)
+        for side in (
+            ("control-b", "control-a") if index % 3 == 2 else ("control-a", "control-b")
+        )
+    ]
+    assert controls == expected
+    # Pair eight is a growth round, and its own cycle says it is swapped.
+    assert controls[16:18] == ["control-b", "control-a"]

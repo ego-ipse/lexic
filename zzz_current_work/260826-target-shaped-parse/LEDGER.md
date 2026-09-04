@@ -98,6 +98,95 @@ in §3, awaiting its §6 consumer — not moved to `proto/`, not queued for
 §10. `cores=AUTO` stays the logical count (ruled earlier). Decided; not
 to be reopened.
 
+## Review 18 (2026-09-04, `reports/REVIEW_18.md`) — NO GO, eight corrections, no user decision
+
+On the delta `dd27f393..e5506f0e`. Five High: (1) replica ownership is not
+per worker — `_REPLICAS` is a global per-artefact cache grown unsynchronised
+(16 concurrent requests for 17 replicas grew it to 23–32) and pool-local
+slot numbers collide across two live pools (both pools' slot 0 took the
+same replica); (2) the comparator times pairs without checking verdict,
+engagement, effective cores or result digest, and the digest is
+`to_text()` (the input), not a structural digest; (3) adaptive growth
+restarts the order each `sample()` call, so at fifteen pairs HEAD runs
+first thirteen times; (4) `worker_parse` carries three `Any`s and no direct
+test; (5) `another_meaning()`/`_one_meaning()`/`AmbiguityPolicy` are dead
+compatibility surface. Two Medium: the TODO records the gate ahead of the
+evidence (the "full matrix" left nine unresolved rows; the fix report
+covered five grammars; the remote performance runs were cancelled or
+incomplete); `src/lexic/parsing/README.md` and the compiler README still
+teach `ModelFold`/`RuleFold`/flat-list frames. Correction order 1–8 as the
+review states; the matrix (7) runs alone on a clean machine after 1–6.
+**User blocker (2026-09-04 evening), correction 9:** on the fresh artifact
+the MT row with the SAME directives loses to or barely beats the sequential
+row on the cheap grammars — mt-lex-ns vs lex-ns µs/char: mixedends 0.099 vs
+0.070 (1.43x, MT loses), announced 0.036 vs 0.041 (0.87x), backtrack 0.058
+vs 0.098 (0.59x), lexruns 0.051 vs 0.099 (0.51x); against plain-directive
+pda MT wins everywhere (0.3–0.5x), so it is fixed overhead a cheap parse
+cannot amortise. Rules: no floor change, no row suppression; instrument
+the phases outside src, name what dominates, remove it at the root, or
+decline structurally. Sent to terra-r18 as correction 9, after 1–2.
+**terra-r18 progress (2026-09-04 night):** 1 — a replica is claimed by a
+THREAD once under one lock (`_MINTING`) and read from its thread-local on
+every parse; `worker_replicas(count)` deleted for `worker_replica`;
+exited threads' replicas dropped, not reissued; the per-chunk lookup gone
+from the paid path; both review diagnostics are regressions (16
+barrier-synchronised first-touches → exactly 16 replicas; two live
+`WorkPool(2)` leases → four distinct views, none the original). 2 —
+`worker_parse(parse, grammar, text, binding, resolve) -> M` with `ModelParse`
+a generic Protocol in `executable.py`, replacing two `Callable[..., Any]`
+copies; `MergeRequest.run -> M`; interior.py's `object` resolver gone. 3 —
+proven: `result_digest == document_digest` (`b8cf2bebd7e25b63`) on
+json/lexic-pda, i.e. the digest was the input; now a structural `shape()`
+digest beside the text one, protocol 3→4, `comparable` refuses a pair
+differing on verdict/engagement/cores/text/shape naming the field. 4 —
+`sample` takes the absolute pair index; a regression drives `grow` to the
+bound and asserts all thirty candidate and thirty control orders. 5 —
+`another_meaning`, `AmbiguityPolicy`, `_one_meaning`, the policy parameter
+deleted; four tests on the authoritative path. 8 — parsing, compile, PDA
+compiler and product READMEs describe the surviving route; wiki updated.
+Note: the base arm must be re-materialised with `measurement/copy.py`
+before the matrix (protocol 4). Correction 9 next, then the gates.
+Gates on 1–6+8 (before 9): focused 207, four suites 2824, full suite
+5591/8, pyright 0, run_checks 0, 26/26 witnesses, examples 0, twins 0,
+zero paid-path bytecode rows changed; the document thread keeps the
+original pair (two `test_specialize` tests caught the first version);
+`proto/s3_earley_target.py` ported off `AmbiguityPolicy`; `ModelParse` is
+a PEP 695 generic alias. Correction 9 started 2026-09-04 ~20:40 after the
+messages reached the agent in one batch. **User grant:** after 9 and the
+rerun gates, the coordinator commits through the hook and pushes, as
+before.
+**Correction 9 DONE.** The brief's premise (the character sweep) was
+wrong: the scan already uses `str.find`; what dominated was cut
+SELECTION — `matched()` sorted the plan's mark set on every occurrence
+(3,920 sorts on one mixedends document, 1.377 of 2.374 ms, on a document
+whose whole pruned parse is 2.52 ms). Four root removals: `spellings(marks)`
+orders the mark set once and `matched` takes the tuple; a one-character
+mark set selects by membership; a grammar with no opener/closer roles gets
+its merged occurrence list with no depth walk; scan windows answer to the
+scan's own floor (a window costs 1.5–21 ns/char, a pool task ~15 µs to
+hand out — sixteen windows over 34 KB spent 0.24 ms dispatching 0.05–0.7
+ms of work). Document-split floor untouched; no row suppressed; chunk
+count unchanged. Cut selection ms: mixedends 2.282→0.871, announced
+1.100→0.406, backtrack 0.679→0.315, lexruns 0.601→0.221. Ladder at 16
+workers (base `e5506f0e` vs head, µs/char): mt-lex-ns mixedends
+0.0893→0.0488, announced 0.0306→0.0220, backtrack 0.0470→0.0368, lexruns
+0.0467→0.0395; plain mt mixedends 0.1277→0.1331, announced 0.0561→0.0456,
+backtrack 0.0655→0.0536, lexruns 0.0546→0.0462; sequential rows within
+2.2 % across trees. Target 1 met on all four, both directive sets
+(mixedends mt-lex-ns 1.24x losing → 1.47x winning; announced 1.14→1.59x;
+backtrack 1.90→2.43x; lexruns 1.97→2.34x); plain mt beats pda 3.0–3.7x.
+Target 2 met on backtrack and lexruns; NOT on mixedends — a measured
+ceiling: directives buy 6.4x, the split's own ceiling on the real chunks
+with all orchestration removed is 6.14x at eight threads and 4.82x at
+sixteen, so a free split would still read 0.0746 vs the pruned 0.0716;
+NOT on announced — not at its ceiling (directives 4.86x, plain MT 3.73x),
+residue in chunk imbalance and concurrency inflation, named, not closed.
+README prose ("a sixteen-way split does not pay below a few kilobytes")
+is wrong and re-renders after the matrix. Gates rerun: pyright 0,
+run_checks 0, focused 2829, 26/26 witnesses, full suite 5596/8, examples
+0, twins 0, zero paid-path bytecode rows changed (13 new rows, all in
+once-per-document split planning).
+
 ## NEXT SESSION — start here (written 2026-09-04 evening; supersedes the block below)
 
 **Tree.** `targeter` at `829ce0ee`, pushed; two commits on Savepoint 13:

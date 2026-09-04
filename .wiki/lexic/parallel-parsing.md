@@ -104,13 +104,19 @@ product's executor (`Replica`, `ModelExecutable.replica()`), hence its own memo
 entry, hence its own objects. Measured on 8 threads when this landed: 1.82×
 shared, 3.71× with grammar replicas, 4.21× with the executor shallow-copied,
 5.34× once its container spine is copied too. A replica only pays when the
-thread that PARSES against it is the thread that compiled it: every chunk parse
-in a split goes through `worker_parse`, which takes the replica bound to the
-worker's own thread (`WorkPool` numbers its threads; slot 0 is the original
-pair, reserved for the submitting thread), never the one at the task's index —
-choosing by task let the pool reshuffle the pairing every document, and 44 % of
-cut-route and 74 % of region-route chunk parses ran against another thread's
-replica at 12–23 % of a chunk's CPU. Synthesized model classes
+thread that PARSES against it is the thread that compiled it, so a replica is
+OWNED by a thread: every chunk parse in a split goes through `worker_parse`,
+which asks `worker_replica` for the view this thread claimed, never for the one
+at the task's index — choosing by task let the pool reshuffle the pairing every
+document, and 44 % of cut-route and 74 % of region-route chunk parses ran
+against another thread's replica at 12–23 % of a chunk's CPU. The claim is the
+one synchronised step (`_MINTING`, cold): a length read and an append let N
+threads first-touching a pair mint against one stale population, and a
+pool-LOCAL worker number cannot be an identity at all, because two live pools
+number their own threads from zero. The submitting thread keeps the original
+pair, which is therefore never issued to a worker; an exited thread's replica
+is dropped and its tables released rather than re-issued, since re-issuing hands
+a live worker objects a dead thread allocated. `replica_count` is the meter. Synthesized model classes
 stay shared by necessity — two workers building two different classes for one
 rule would break model equality, which is the thing the split exists to
 preserve.

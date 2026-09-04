@@ -9,8 +9,7 @@ parse, so worker count never changes what an input means.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 from lexic.exceptions import LexicError
 from lexic.ir import (
@@ -24,7 +23,7 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
@@ -84,11 +83,6 @@ class Request[M: IrNamedTuple](NamedTuple):
     text: str
     binding: ModelExecutable[M]
     resolve: Resolver | None = None
-
-
-ModelProduct = Callable[..., Any]
-"""The model product, injected: this module splits products, never imports
-them — that direction is what lets a product's own entry call into it."""
 
 
 def _unit_ref(item: IrItem) -> str | None:
@@ -302,7 +296,7 @@ def split_plan(grammar: IrAst) -> SplitPlan | None:
 
 
 def _split_parse[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
     cuts: list[int],
@@ -318,7 +312,11 @@ def _split_parse[M: IrNamedTuple](
     try:
         chunks = pool.map(
             lambda k: worker_parse(
-                parse, plan.grammar, text[spans[k][0] : spans[k][1]], ask, pool
+                parse,
+                plan.grammar,
+                text[spans[k][0] : spans[k][1]],
+                binding,
+                resolve,
             ),
             list(range(len(spans))),
         )
@@ -346,9 +344,9 @@ character that merely LOOKS like a unit opening without letting a document of
 near-misses out-cost the sequential parse it is racing."""
 
 
-def _piece(
-    parse: ModelProduct, grammar: IrAst, text: str, ask: Request, pool: WorkPool
-) -> IrNamedTuple | None:
+def _piece[M: IrNamedTuple](
+    parse: ModelParse[M], grammar: IrAst, text: str, ask: Request[M]
+) -> M | None:
     """One piece's model, or ``None`` when it refuses.
 
     A refusal here is a verdict on the CUT, never on the input: the piece was
@@ -356,13 +354,13 @@ def _piece(
     and the caller's sequential parse is what raises.
     """
     try:
-        return worker_parse(parse, grammar, text, ask, pool)
+        return worker_parse(parse, grammar, text, ask.binding, ask.resolve)
     except LexicError:
         return None
 
 
 def _attempt[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
     spans: list,
@@ -371,9 +369,7 @@ def _attempt[M: IrNamedTuple](
     """Parse every piece; the models, and the first failing index (``-1`` none)."""
     text = ask.text
     found = pool.map(
-        lambda k: _piece(
-            parse, plan.grammar, text[spans[k][0] : spans[k][1]], ask, pool
-        ),
+        lambda k: _piece(parse, plan.grammar, text[spans[k][0] : spans[k][1]], ask),
         list(range(len(spans))),
     )
     return found, next((k for k, one in enumerate(found) if one is None), -1)
@@ -405,7 +401,7 @@ def _reselect(
 
 
 def _speculate[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
     proposed: tuple[list[int], list[int]],
@@ -447,7 +443,7 @@ def _speculate[M: IrNamedTuple](
 
 
 def _parse_region_parts[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     works: list[RegionWork],
     ask: Request[M],
     pool: WorkPool,
@@ -456,7 +452,9 @@ def _parse_region_parts[M: IrNamedTuple](
     tasks, owners = region_tasks(works)
     try:
         parsed = pool.map(
-            lambda k: worker_parse(parse, tasks[k][0], tasks[k][1], ask, pool),
+            lambda k: worker_parse(
+                parse, tasks[k][0], tasks[k][1], ask.binding, ask.resolve
+            ),
             list(range(len(tasks))),
         )
     except LexicError:
@@ -470,7 +468,7 @@ def _parse_region_parts[M: IrNamedTuple](
 
 
 def _split_regions[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     grammar: IrAst,
     ask: Request[M],
     analysis: IrAst | None,
@@ -569,7 +567,7 @@ def _safe_plans(plans: tuple[SplitPlan, ...], view: IrAst) -> tuple[SplitPlan, .
 
 
 def split_model[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     grammar: IrAst,
     ask: Request[M],
     cores: int = AUTO,
@@ -663,7 +661,7 @@ def _envelope_split_plan(grammar: IrAst) -> tuple[SplitPlan, ...]:
 
 
 def _envelope_join[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
     parsed: tuple[list, list[str]],
@@ -675,14 +673,18 @@ def _envelope_join[M: IrNamedTuple](
     witness unit the stitch swaps for the next piece's real head.
     """
     found = plan.envelope
+    repeated = plan.lead_grammar
     chunks, leads = parsed
     moved = envelope_tails(chunks, found.shape, ask.binding) if found else None
-    if found is None or moved is None:
+    # An envelope plan carries the repeated item as its lead grammar; without
+    # one there is nothing to reparse the separators under, so this declines
+    # exactly as any other unsupported shape does.
+    if found is None or moved is None or repeated is None:
         return None
     tails, trimmed = moved
     witness = unit_witness(plan.grammar, found.shape.unit) or ""
     rebuilt = [
-        parse(plan.lead_grammar, tails[at] + lead + witness, ask.binding, ask.resolve)
+        parse(repeated, tails[at] + lead + witness, ask.binding, ask.resolve)
         for at, lead in enumerate(leads)
     ]
     return stitch_envelope(trimmed, rebuilt, found.shape, ask.binding)

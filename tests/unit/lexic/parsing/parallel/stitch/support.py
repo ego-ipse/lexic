@@ -19,13 +19,13 @@ class RecordingParse(NamedTuple):
 
     calls: list[tuple[str, int]]
 
-    def __call__(
+    def __call__[M](
         self,
         grammar: IrAst,
         source: str,
-        binding: ModelExecutable,
+        binding: ModelExecutable[M],
         resolve: Resolver | None = None,
-    ) -> GrammarModel:
+    ) -> M:
         """Record one call, then invoke the ordinary model product."""
         self.calls.append((str(grammar.start), len(source)))
         return parse_model(grammar, source, binding, resolve)

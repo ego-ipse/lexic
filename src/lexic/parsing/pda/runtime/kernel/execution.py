@@ -1,7 +1,11 @@
 """Leaf execution, island delegation, and completion for the PDA kernel."""
 
-# A mixin is an implementation seam, and shares the hot terminal loop shape.
-# pylint: disable=duplicate-code,too-few-public-methods
+# The terminal loop this file shares with kernel.py is duplicated ON PURPOSE:
+# both engines run it per character, and folding it into one callee would put
+# a Python call on the paid path to save seven lines. `duplicate-code` cannot
+# be answered at the site — it is reported for a pair of modules at the end of
+# a run — so the withdrawal is stated here, for that pair and nothing else.
+# pylint: disable=duplicate-code
 
 from __future__ import annotations
 

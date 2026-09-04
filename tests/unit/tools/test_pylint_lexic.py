@@ -97,7 +97,7 @@ def test_the_alias_parameter_really_is_absent_from_the_module_namespace(tmp_path
     module = tmp_path / "runtime_scope.py"
     module.write_text(_ALIAS_PARAM, encoding="utf-8")
     namespace: dict[str, object] = {}
-    exec(compile(module.read_text(), str(module), "exec"), namespace)  # noqa: S102
+    exec(compile(module.read_text(), str(module), "exec"), namespace)
     assert "Alias" in namespace
     assert "Carry" not in namespace
 
@@ -182,3 +182,89 @@ def test_the_members_are_not_granted_to_a_class_that_is_not_a_named_tuple(
     introduce: a real missing member would stop being reported.
     """
     assert "E1101" in _lint(_NOT_A_NAMEDTUPLE, tmp_path, "not_nt", "E1101")
+
+
+_FIXTURE_CLASS = '''"""A metaclass exercised through a class built inside the test."""
+
+
+class Meta(type):
+    """The metaclass under test."""
+
+    def __call__(cls, *args, **kwargs):
+        """Build an instance."""
+        return super().__call__(*args, **kwargs)
+
+
+def test_the_metaclass():
+    """Exercise it through a local fixture."""
+
+    class C(metaclass=Meta):
+        """One attribute, no public methods — whatever the assertion needs."""
+
+        def __init__(self, value=None):
+            self.value = value
+
+    assert C("a").value == "a"
+'''
+
+_METHOD_GROUP = '''"""A mixin: one owner's methods, shed into a second file."""
+
+
+class ExecutionMixin:
+    """Method group over state the owner holds."""
+
+    __slots__ = ()
+
+    def _run(self) -> int:
+        """Do the private work."""
+        return 1
+'''
+
+_THIN_ABSTRACTION = '''"""A module-level class with a thin public interface."""
+
+
+class Holder:
+    """Holds a value and publishes nothing."""
+
+    def __init__(self, value: int) -> None:
+        """Bind the value."""
+        self.value = value
+'''
+
+
+def test_a_fixture_class_is_not_an_abstraction_with_a_thin_interface(tmp_path: Path):
+    """A class built inside a function is exercised, not depended on.
+
+    Counting its public methods measures the assertion that owns it, which is
+    why the checker's own exempt set — Enum, named tuple, TypedDict, dataclass
+    — is the right place for it rather than a disable at every fixture.
+    """
+    assert "R0903" not in _lint(_FIXTURE_CLASS, tmp_path, "fixture_class", "R0903")
+
+
+def test_a_mixin_publishes_nothing_by_design(tmp_path: Path):
+    """A mixin's interface is its owner's; its own instances are never built."""
+    assert "R0903" not in _lint(_METHOD_GROUP, tmp_path, "method_group", "R0903")
+
+
+def test_a_genuine_thin_abstraction_is_still_reported(tmp_path: Path):
+    """The exemption must not blind the checker to the finding it exists for.
+
+    This is the defect a blanket suppression would introduce: a module-level
+    class with no public interface is exactly what the message is about, and it
+    still arrives.
+    """
+    assert "R0903" in _lint(_THIN_ABSTRACTION, tmp_path, "thin_abstraction", "R0903")
+
+
+def test_a_class_named_like_a_mixin_but_defined_nowhere_special_still_counts(
+    tmp_path: Path,
+):
+    """The two rules are read separately, and neither is a name-only licence.
+
+    A module-level class whose name merely CONTAINS "mixin" is not a method
+    group: the convention is the suffix, and this one keeps its finding.
+    """
+    source = _THIN_ABSTRACTION.replace("class Holder:", "class MixinHolder:")
+
+    assert "R0903" in _lint(source, tmp_path, "mixin_holder", "R0903")

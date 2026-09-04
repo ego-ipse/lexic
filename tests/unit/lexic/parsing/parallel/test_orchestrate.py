@@ -170,9 +170,12 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
     """The split phases share one pool lifetime and executor.
 
     The seam is the LEASE: a split borrows one pool for all of its phases and
-    returns it, so intercepting the lease is intercepting every phase."""
+    returns it, so intercepting the lease is intercepting every phase. The
+    document clears the SCAN floor as well as the chunk floor, so both phases
+    are mapped work: below it the scan is one sweep and never reaches a pool.
+    """
     compiled = compile_text(LEAD_RULE)
-    text = _doc(1000)
+    text = _doc(2000)
     created = 0
     map_calls = 0
 

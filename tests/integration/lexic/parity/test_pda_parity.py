@@ -398,8 +398,8 @@ def test_the_pda_refuses_an_arm_choice_rather_than_answering_it() -> None:
     It is not: measured, `FastTree.build` returns a tree for a completion whose
     arms mean different things, so the gate never ran and the PDA answered
     `Forced('#ab')` for an input it had itself classified as needing an island.
-    The reduce path never relied on the fast path as an oracle — `_one_meaning`
-    asks separately — and this is the model path asking too.
+    The value route never relied on the fast path as an oracle —
+    `different_meaning` asks separately — and this is the model path asking too.
     """
     cg = compile_text(_ARM_AMBIGUOUS, cache_key="parity-arm-pda")
     with pytest.raises((UnsupportedConstructError, PdaFail)):
@@ -411,10 +411,10 @@ def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> 
 
     This is vyx's divergence in four lines, without vyx's tokenizer. Before the
     fix the two paths disagreed in silence — Earley folded `Plain('#ab')` and
-    the PDA folded `Forced('#ab')` — because `earley_model` goes through
+    the PDA folded `Forced('#ab')` — because `earley_model` went through
     `parse_first` (deterministic under ambiguity by design) while only the
-    reduce path asked `_one_meaning`. Two engines each picking "the first"
-    derivation are not picking the same one.
+    value route asked whether the span meant two things. Two engines each
+    picking "the first" derivation are not picking the same one.
 
     A split has a defined answer and is not covered here; `is_arm_choice`
     separates the two, and this input is on the refusing side of it.

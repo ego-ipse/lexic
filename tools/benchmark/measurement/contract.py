@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any, NamedTuple
 
-PROTOCOL = 3
+PROTOCOL = 4
 """The wire protocol's version.
 
 Bumped whenever a contract field or an observation field changes meaning. Two
@@ -36,6 +36,45 @@ possible, so both are measured.
 def digest(text: str) -> str:
     """A short stable content digest for a grammar, document or result."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+class _Token(str):
+    """Rendered punctuation, told apart from a value that happens to be text."""
+
+
+def _pushed(item: tuple) -> list[object]:
+    """One record's children and separators, in the order a stack pops them."""
+    order: list[object] = [_Token(")")]
+    for at in range(len(item) - 1, -1, -1):
+        order.append(item[at])
+        if at:
+            order.append(_Token(","))
+    return order
+
+
+def shape(product: object) -> str:
+    """A deterministic rendering of what a row BUILT — its structure.
+
+    Class names and field values in reading order. A digest of the rendered
+    TEXT cannot stand in for this: a round-tripping parse emits its own input,
+    so that digest answers "did the document survive" and never "is this the
+    same product" — two different trees over one document render identically.
+
+    Iterative because the depth is the grammar's: a recursive walk would refuse
+    a deeply nested document the parser itself accepted.
+    """
+    out: list[str] = []
+    stack: list[object] = [product]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, _Token):
+            out.append(str(item))
+        elif isinstance(item, tuple):
+            out.append(f"{type(item).__name__}(")
+            stack.extend(_pushed(item))
+        else:
+            out.append(f"{type(item).__name__}:{item!r}")
+    return "".join(out)
 
 
 class RowContract(NamedTuple):
@@ -131,8 +170,11 @@ class Observation(NamedTuple):
     :ivar wall: Seconds on ``perf_counter`` — the latency quantity.
     :ivar cpu: Seconds on ``process_time`` — the work quantity. For a threaded
         row this is aggregate process CPU across workers.
-    :ivar result_digest: Digest of the parse product's text, so two arms are
-        known to have built the same thing.
+    :ivar result_digest: Digest of the product's TEXT — the fidelity check.
+        On a round trip this is the input, so it proves the document survived
+        and nothing more.
+    :ivar shape_digest: Digest of :func:`shape` — the structural check. This
+        is the one that says two arms built the same product.
     :ivar verdict: ``accepted``, or the engine's refusal words verbatim.
     :ivar engaged: Whether a threaded row actually split; ``None`` if the row
         is sequential and the question does not apply.
@@ -142,6 +184,7 @@ class Observation(NamedTuple):
     wall: float
     cpu: float
     result_digest: str
+    shape_digest: str
     verdict: str
     engaged: bool | None
     effective_cores: int
@@ -158,6 +201,7 @@ def read_observation(payload: dict[str, Any]) -> Observation:
         float(payload["wall"]),
         float(payload["cpu"]),
         str(payload["result_digest"]),
+        str(payload["shape_digest"]),
         str(payload["verdict"]),
         None if engaged is None else bool(engaged),
         int(payload["effective_cores"]),

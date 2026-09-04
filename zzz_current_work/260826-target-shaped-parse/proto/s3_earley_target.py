@@ -27,7 +27,7 @@ from typing import Any, NamedTuple
 
 from lexic.compile import compile_text
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
-from lexic.parsing.earley.engine import AmbiguityPolicy, EarleyParser, first_meaning
+from lexic.parsing.earley.engine import EarleyParser, first_meaning
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
 from lexic.parsing.product import (
@@ -272,11 +272,7 @@ def _tree(text: str, grammar: str = GRAMMAR) -> ParseTree:
         compiled.codegen_grammar, compiled.product, tier_for(len(text))
     )
     tree = first_meaning(
-        EarleyParser(),
-        product.instance_grammar,
-        text,
-        product.tables,
-        AmbiguityPolicy(compiled.product.executor.build, None),
+        EarleyParser(), product.instance_grammar, text, product.tables
     )
     if not isinstance(tree, ParseTree):
         raise AssertionError("the Earley path did not produce a derivation")

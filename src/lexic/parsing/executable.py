@@ -15,11 +15,12 @@ owned would make the other import it back.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 
 from lexic.exceptions import SemanticVerdict, UnsupportedConstructError
-from lexic.parsing.earley.kernel.forest.support.ambiguity import same_value
+from lexic.ir import IrAst
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver, same_value
 from lexic.parsing.product import (
     LoweringOwned,
     MeaningOp,
@@ -34,7 +35,18 @@ from lexic.parsing.product import (
     verify_program,
 )
 
-__all__ = ["ModelExecutable"]
+__all__ = ["ModelExecutable", "ModelParse"]
+
+
+type ModelParse[M] = Callable[[IrAst, str, ModelExecutable[M], Resolver | None], M]
+"""A model parse entry, as the callers that INJECT one see it.
+
+One product parses every grammar, and it is the ``binding`` handed in that says
+which model comes back — so the alias is generic in that model. Declaring it
+here is what lets a caller pass the product down through a layer that must not
+import it (the split orchestrator) without the model type being erased on the
+way through.
+"""
 
 
 def _identity_root[M](carry: M, _verdicts: tuple[SemanticVerdict, ...]) -> M:

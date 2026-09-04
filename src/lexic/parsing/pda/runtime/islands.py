@@ -206,9 +206,9 @@ def island_parse(
     # ...and the fast path SUCCEEDING is not proof of unambiguity either, which
     # is what this used to assume. Measured: `FastTree` builds a tree for a
     # completion whose arms mean different things, so trusting it here answered
-    # an ambiguous input instead of refusing it. The model path does not rely on
-    # the fast path as an oracle — `_one_meaning` asks this question separately —
-    # and the model path must ask it too.
+    # an ambiguous input instead of refusing it. The value route does not rely
+    # on the fast path as an oracle — `different_meaning` asks this question
+    # separately — and the model path must ask it too.
     return _settle_two_meanings(kern, handle, tree, name, policy), end
 
 

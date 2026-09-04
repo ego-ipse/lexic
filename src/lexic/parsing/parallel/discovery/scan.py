@@ -51,18 +51,18 @@ class Window(NamedTuple):
     marks: tuple[tuple[int, int, int], ...]
 
 
-def _occurrences(text: str, spelling: str, lo: int, hi: int) -> set[int]:
-    """Every offset in ``[lo, hi)`` where ``spelling`` STARTS.
+def _occurrences(text: str, spelling: str, lo: int, hi: int) -> list[int]:
+    """Every offset in ``[lo, hi)`` where ``spelling`` STARTS, ascending.
 
     The search runs past the window end by the spelling's own width so that a
     mark beginning at the last offset is still found whole, and belongs to the
     window it starts in rather than to neither.
     """
     end = hi + len(spelling) - 1
-    out: set[int] = set()
+    out: list[int] = []
     at = text.find(spelling, lo, end)
     while at != -1 and at < hi:
-        out.add(at)
+        out.append(at)
         at = text.find(spelling, at + 1, end)
     return out
 
@@ -104,6 +104,8 @@ class Scanner:
         :param hi: Window end (exclusive).
         :returns: The window's relative-depth product.
         """
+        if not self.openers and not self.closers:
+            return self._flat(text, lo, hi)
         found: list[tuple[int, int]] = []
         for char in self.openers:
             found += [(at, 1) for at in _occurrences(text, char, lo, hi)]
@@ -111,7 +113,7 @@ class Scanner:
             found += [(at, -1) for at in _occurrences(text, char, lo, hi)]
         seen: set[int] = set()
         for mark in self.separators:
-            seen |= _occurrences(text, mark, lo, hi)
+            seen.update(_occurrences(text, mark, lo, hi))
         found += [(at, 0) for at in seen]
         found.sort()
         depth = 0
@@ -129,6 +131,19 @@ class Scanner:
                 marks.append((at, depth, segment))
                 segment = depth
         return Window(lo, depth, floor, segment, tuple(marks))
+
+    def _flat(self, text: str, lo: int, hi: int) -> Window:
+        """The window of a grammar with no bracket pair — every mark at depth 0.
+
+        No opener and no closer means there is no depth to count, so the role
+        tags, their merge sort and the depth walk are all vacuous. What remains
+        is the merged occurrence list, which one spelling already delivers
+        ascending and without duplicates. Derived from the grammar's roles, not
+        from the document.
+        """
+        found = [_occurrences(text, mark, lo, hi) for mark in self.separators]
+        merged = found[0] if len(found) == 1 else sorted(set().union(*found))
+        return Window(lo, 0, 0, 0, tuple((at, 0, 0) for at in merged))
 
     def walk(self, text: str) -> Window:
         """Scan the whole document unit by unit, skipping opaque regions.

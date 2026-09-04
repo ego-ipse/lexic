@@ -145,13 +145,26 @@ def decide(row: str, pairing: Pairing, clock: str) -> Verdict:
     return verdict
 
 
-def require(result: RowResult, label: str) -> tuple[RowContract, Observation]:
-    """One arm's contract and observation, or a refusal that stops the run."""
+class Arm(NamedTuple):
+    """One process's whole answer, under the label that names which arm it is.
+
+    :ivar label: ``grammar/row/side`` — the job that produced it.
+    :ivar contract: What that process measured.
+    :ivar observation: What it observed measuring it.
+    """
+
+    label: str
+    contract: RowContract
+    observation: Observation
+
+
+def require(result: RowResult, label: str) -> Arm:
+    """One arm's answer, or a refusal that stops the run."""
     if result.refusal is not None:
         raise ValueError(f"{label}: row refused: {result.refusal}")
     if result.contract is None or not result.observations:
         raise ValueError(f"{label}: row produced no observation")
-    return result.contract, result.observations[0]
+    return Arm(label, result.contract, result.observations[0])
 
 
 def agree(base: RowContract, head: RowContract, row: str) -> None:
@@ -166,6 +179,34 @@ def agree(base: RowContract, head: RowContract, row: str) -> None:
     raise ValueError(f"{row}: base and head row contracts differ — {detail}")
 
 
+SEMANTIC = ("verdict", "engaged", "effective_cores", "result_digest", "shape_digest")
+"""What two arms must have DONE identically for their durations to compare.
+
+A pair disagreeing on any of these is not a slow arm and a fast arm; it is two
+different workloads. One refused while the other parsed, one split while the
+other declined, one occupied more workers, one emitted different characters, or
+one built a different tree — each of those makes the ratio meaningless, so the
+pair is refused before its duration can reach the estimator.
+"""
+
+
+def comparable(one: Arm, other: Arm, row: str) -> None:
+    """Refuse two arms that did not produce the same result, by field."""
+    fields = tuple(
+        field
+        for field in SEMANTIC
+        if getattr(one.observation, field) != getattr(other.observation, field)
+    )
+    if not fields:
+        return
+    detail = ", ".join(
+        f"{field}: {one.label}={getattr(one.observation, field)!r} "
+        f"{other.label}={getattr(other.observation, field)!r}"
+        for field in fields
+    )
+    raise ValueError(f"{row}: the two arms did not produce the same result — {detail}")
+
+
 def _job(root: Path, grammar: str, row: str, cores: int, side: str) -> Job:
     """One exact-row job against one checkout."""
     return Job(
@@ -178,12 +219,15 @@ def _job(root: Path, grammar: str, row: str, cores: int, side: str) -> Job:
 def _pair(first: Job, second: Job, row: str) -> tuple[float, float]:
     """Run one ordered pair to completion and return both primary readings."""
     results = (run_job(first), run_job(second))
-    contracts = tuple(
+    arms = tuple(
         require(result, job.label)
         for result, job in zip(results, (first, second), strict=True)
     )
-    agree(contracts[0][0], contracts[1][0], row)
-    return primary_reading(contracts[0][1], row), primary_reading(contracts[1][1], row)
+    agree(arms[0].contract, arms[1].contract, row)
+    comparable(arms[0], arms[1], row)
+    return primary_reading(arms[0].observation, row), primary_reading(
+        arms[1].observation, row
+    )
 
 
 class Arms(NamedTuple):
@@ -206,7 +250,7 @@ def _ratio(numerator: Job, denominator: Job, numerator_first: bool, row: str) ->
     return math.log(readings[numerator.label] / readings[denominator.label])
 
 
-def sample(arms: Arms, grammar: str, row: str, pairs: int) -> Pairing:
+def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairing:
     """Collect ``pairs`` candidate and control ratios for one row.
 
     Each pair is two complete process lifecycles, one after the other. The
@@ -214,10 +258,18 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int) -> Pairing:
     processes are the same code, so what flips there is which one is on top of
     the ratio — on its own schedule, so slot drift averages out instead of
     cancelling identically in both and hiding itself.
+
+    ``first`` is the pair's ABSOLUTE index in the row's whole sequence, which
+    is what makes both schedules continuous across adaptive growth. Restarting
+    at zero each call put head first on all ten one-pair growth rounds — thirteen
+    of fifteen pairs — and left the control at its unswapped position throughout.
+
+    :param pairs: How many pairs this call collects.
+    :param first: The absolute index of the first of them.
     """
     candidate: list[float] = []
     control: list[float] = []
-    for index in range(pairs):
+    for index in range(first, first + pairs):
         head_job = _job(arms.head, grammar, row, arms.cores, "head")
         base_job = _job(arms.base, grammar, row, arms.cores, "base")
         candidate.append(_ratio(head_job, base_job, index % 2 == 0, row))
@@ -261,10 +313,10 @@ def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
     """Sample a row until it settles inside the envelope, or the bound runs out."""
     clock = "wall" if row in MT_ROWS else "cpu"
     label = f"{grammar}/{row}"
-    pairing = sample(arms, grammar, row, MIN_PAIRS)
+    pairing = sample(arms, grammar, row, MIN_PAIRS, 0)
     verdict = decide(label, pairing, clock)
     while verdict.status in GROWS and len(pairing.candidate) < MAX_PAIRS:
-        extra = sample(arms, grammar, row, 1)
+        extra = sample(arms, grammar, row, 1, len(pairing.candidate))
         pairing = Pairing(
             pairing.candidate + extra.candidate, pairing.control + extra.control
         )

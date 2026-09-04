@@ -13,13 +13,13 @@ replaced by the concatenation.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, cast
+from typing import cast
 
 from lexic.exceptions import LexicError
 from lexic.ir import IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
-from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.plan.routed import (
     RoutedPlan,
@@ -81,9 +81,9 @@ def _merged_run(pieces: list[GrammarModel], child: int) -> tuple | None:
 
 
 def routed_split[M: IrNamedTuple](
-    parse: Callable[..., Any],
+    parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelExecutable[M], object],
+    ask: tuple[str, ModelExecutable[M], Resolver | None],
     pool: WorkPool,
 ) -> M | None:
     """Split a routed interior across the pool, or ``None`` for sequential.
@@ -111,10 +111,10 @@ def routed_split[M: IrNamedTuple](
     return cast(M, stitch_interior(shell, pieces, route))
 
 
-def _parsed(
-    parse: Callable[..., Any],
+def _parsed[M: IrNamedTuple](
+    parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelExecutable, object],
+    ask: tuple[str, ModelExecutable[M], Resolver | None],
     work: tuple[RoutedPlan, Region, list[str]],
     pool: WorkPool,
 ) -> tuple[GrammarModel, list[GrammarModel]] | None:
@@ -124,15 +124,15 @@ def _parsed(
     try:
         shell = parse(grammar, _stand_in(text, region), binding, resolve)
         pieces = pool.map(
-            lambda k: worker_parse(parse, plan.rooted, parts[k], ask, pool),
+            lambda k: worker_parse(parse, plan.rooted, parts[k], binding, resolve),
             list(range(len(parts))),
         )
     except LexicError:
         return None
-    whole = isinstance(shell, GrammarModel) and all(
-        isinstance(piece, GrammarModel) for piece in pieces
-    )
-    return (shell, pieces) if whole else None
+    models = [piece for piece in pieces if isinstance(piece, GrammarModel)]
+    if not isinstance(shell, GrammarModel) or len(models) != len(pieces):
+        return None
+    return shell, models
 
 
 def _stand_in(text: str, region: Region) -> str:

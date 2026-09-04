@@ -27,22 +27,28 @@ two instances of any class that never defined `__eq__` different from each
 other. A type that declined to define equality has declined to answer, and
 "cannot tell" reads as no observable difference, hence no refusal.
 
-**It lives in `parsing/earley/kernel/forest/ambiguity.py`** so the island
+**It lives in `parsing/earley/kernel/forest/support/ambiguity.py`** so the island
 sub-parse, the reduce path and the Earley model completion decide it once and
 the same way. The reduce path used to count derivations, and the cost was the
 whole EBNF fallback: that self-grammar has adjacent nullable `ws` slots, so
 every whitespace-carrying EBNF file derived at least two ways, reduced to
 exactly one value, and was refused. The model completion used to not ask at
 all — it took the first derivation, and the PDA took a different "first", so
-an ambiguous arm choice was answered two ways in silence; `first_meaning`
-(`earley/engine.py`) now asks on that path too.
+an ambiguous arm choice was answered two ways in silence; `first_built_meaning`
+(`earley/engine.py`) now asks on that path too, where the values it compares
+are built.
 
-**The opt-out is a resolver, not a flag.** `another_meaning` returns the
-differing derivation itself — the witness — so a caller opting out of the
-default refusal supplies a deterministic `Resolver` that is handed both
-derivations and picks; how it picks is the caller's concern. The same
-`AmbiguityPolicy` / `Resolver` vocabulary reaches wherever a derivation is
-chosen: `parse_model`, the PDA's `IslandPolicy`, and the Earley completion.
+**The opt-out is a resolver, not a flag.** `different_meaning` returns a
+`MeaningPair` carrying the baseline and, when the span means two things, the
+differing derivation itself — the witness — with both values already built.
+`chosen_meaning` is the one place that settles such a pair: it refuses by
+default, and a caller opting out supplies a deterministic `Resolver` that is
+handed both derivations and picks; how it picks is the caller's concern. That
+`Resolver` reaches wherever a derivation is chosen: `parse_model`, the PDA's
+`IslandPolicy`, and the Earley completion. There is no policy record beside it
+— a build and a resolver bundled as one carrier was a second route to the same
+decision, and the tree route asks nothing (`first_meaning` returns the
+deterministic first, and only the value route can answer what a span MEANS).
 
 **A flipped point is consumed at its first visit.** A unit cycle's same-span
 completions make the chart CYCLIC (`a ::= b | "x"` / `b ::= a | "y"`), and a

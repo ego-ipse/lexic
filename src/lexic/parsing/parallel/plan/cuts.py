@@ -13,8 +13,8 @@ from collections.abc import Iterator
 
 from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
 from lexic.parsing.parallel.plan.envelope import admits
-from lexic.parsing.parallel.plan.split import SplitPlan, matched
-from lexic.parsing.parallel.policy import MIN_CHUNK, worker_count
+from lexic.parsing.parallel.plan.split import SplitPlan, matched, spellings
+from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN, worker_count
 from lexic.parsing.parallel.pool import WorkPool
 
 
@@ -25,15 +25,21 @@ def scan_windows(
 
     A scanner carrying opaque regions walks instead: a window cannot know
     whether it begins inside one, and only the previous mark can say.
+
+    How many windows is the SCAN's question, not the parse's: a window costs
+    what a sweep of its own bytes costs, so :data:`~...policy.MIN_SCAN` bounds
+    the count. Handing one worker per parse chunk put more time into dispatch
+    than into scanning on every document a cheap grammar sees.
     """
     if scanner.opaque:
         return [scanner.walk(text)]
-    if workers < 2:
+    windows = min(workers, max(1, len(text) // MIN_SCAN))
+    if windows < 2:
         return [scanner.window(text, 0, len(text))]
-    step = len(text) // workers
+    step = len(text) // windows
     bounds = [
-        (k * step, (k + 1) * step if k < workers - 1 else len(text))
-        for k in range(workers)
+        (k * step, (k + 1) * step if k < windows - 1 else len(text))
+        for k in range(windows)
     ]
     return pool.map(lambda span: scanner.window(text, span[0], span[1]), bounds)
 
@@ -53,11 +59,24 @@ def scan_marks(
     window IS the sequential scan. A spelling that overlaps itself is thinned
     to one boundary per run, after the rebase, so the answer does not depend
     on where the windows fell.
+
+    The scanner reports every mark of the GRAMMAR; this plan keeps its own.
+    Where every spelling is one character that selection is a membership test
+    and nothing else: a one-character mark cannot overlap itself, so every
+    width is 1 and :func:`~...discovery.scan.clustered` is the identity —
+    which is that function's own stated contract, not a shortcut past it.
     """
     scanned = windows or scan_windows(plan.scanner, text, workers, pool)
     at_depth = plan.scanner.offsets(scanned, depth=0)
-    widths = {at: len(hit) for at in at_depth if (hit := matched(text, at, plan.mark))}
+    if all(len(mark) == 1 for mark in plan.mark):
+        return [at for at in at_depth if text[at] in plan.mark]
+    widths = _widths(text, at_depth, spellings(plan.mark))
     return clustered(sorted(widths), widths, plan.trailing)
+
+
+def _widths(text: str, at_depth: list[int], ordered: tuple[str, ...]) -> dict[int, int]:
+    """Each kept mark's matched spelling width, in document order."""
+    return {at: len(hit) for at in at_depth if (hit := matched(text, at, ordered))}
 
 
 def sole_mark(plan: SplitPlan) -> str:
@@ -148,7 +167,7 @@ def after_mark(plan: SplitPlan, text: str, mark: int) -> int:
         return plan.envelope.resumes(text, mark)
     if plan.opening:
         return mark  # the mark BEGINS the next unit, so the piece starts on it
-    after = mark + len(matched(text, mark, plan.mark))
+    after = mark + len(matched(text, mark, spellings(plan.mark)))
     while after < len(text) and text[after] in plan.skip:
         after += 1
     return after
@@ -206,7 +225,7 @@ def cut_spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[s
         # An envelope piece KEEPS the mark: a separator that begins before one
         # (a comment closed by it) would otherwise straddle the cut, and the
         # piece's own tail is what absorbs the run before the join takes it.
-        kept = cut + len(matched(text, cut, plan.mark))
+        kept = cut + len(matched(text, cut, spellings(plan.mark)))
         owned = kept if plan.envelope is not None else cut
         spans.append((prev, after if terminated else owned))
         leads.append("" if terminated else text[owned:after])

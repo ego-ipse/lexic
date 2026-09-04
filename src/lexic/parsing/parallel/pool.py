@@ -70,8 +70,10 @@ class WorkPool:
                     index = futures.pop(future)
                     try:
                         results[index] = future.result()
+                    # Stored, never swallowed: the earliest input's failure is
+                    # re-raised below, so a process-control exception must be
+                    # caught here or it escapes a half-drained phase.
                     except BaseException as error:  # pylint: disable=broad-exception-caught
-                        # Drain the phase even for process-control exceptions.
                         failures[index] = error
                 if failures:
                     failed_at = min(failures)
@@ -84,8 +86,10 @@ class WorkPool:
                             continue
                         try:
                             results[index] = future.result()
+                        # Stored for the same reason, and this drain runs while
+                        # a failure is already pending: the earliest input's
+                        # own exception is what the next line raises.
                         except BaseException as error:  # pylint: disable=broad-exception-caught
-                            # Preserve the earliest input's original failure.
                             failures[index] = error
                     raise failures[min(failures)]
         except BaseException:

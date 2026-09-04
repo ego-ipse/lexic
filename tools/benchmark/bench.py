@@ -58,6 +58,7 @@ from lexic.parsing.products import _model_product, earley_model, parse_model
 from tools.benchmark.cases.grammars import Bench, declared_marks
 from tools.benchmark.emitters.directives import NO_MARKS
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
+from tools.benchmark.measurement.contract import shape
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -617,20 +618,31 @@ def observe(build: EngineBuild, rounds: int) -> Pass:
     return Pass(walls[len(walls) // 2], cpus[len(cpus) // 2])
 
 
-def result_text(build: EngineBuild) -> str:
-    """What this row BUILT, as text, so two arms can be proved to agree.
+class Result(NamedTuple):
+    """What one row BUILT, digested both ways.
+
+    :ivar text: The product rendered back to text — the fidelity check.
+    :ivar shape: Its structure — the check that says two arms built the same
+        product, which the text cannot answer for a round trip.
+    """
+
+    text: str
+    shape: str
+
+
+def result_identity(build: EngineBuild) -> Result:
+    """Parse once, and answer both questions a timing pair must pass.
 
     A lexic row round-trips its model; every other product answers for itself
-    through ``repr``. The digest of this is what travels in the observation —
-    a timing pair whose two arms built different things is not a comparison.
+    through ``repr``. Both digests travel in the observation — a timing pair
+    whose two arms built different things is not a comparison.
     """
     parse = build.parse
     if parse is None:
         raise ValueError("cannot read a refused benchmark row's result")
     product = parse(build.document)
-    if isinstance(product, GrammarModel):
-        return product.to_text()
-    return repr(product)
+    rendered = product.to_text() if isinstance(product, GrammarModel) else repr(product)
+    return Result(rendered, shape(product))
 
 
 def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:

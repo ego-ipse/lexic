@@ -1,10 +1,10 @@
 # `parsing/product` — the engine-neutral product ABI
 
-One compiled program, executed by both engines. `ModelFold`'s
-`value_str`/`sequence`/`alternation` vocabulary made the generated model the
-engine's privileged construction shape; a `ProductProgram` replaces it with a
-neutral one, so building a generated model becomes a *specialisation* rather
-than the thing every other target has to be expressed in terms of.
+One compiled program, executed by both engines. A
+`value_str`/`sequence`/`alternation` fold vocabulary would make the generated
+model the engine's privileged construction shape; a `ProductProgram` is neutral
+instead, so building a generated model is a *specialisation* rather than the
+thing every other target has to be expressed in terms of.
 
 ## The two layers, and why they are separate
 

@@ -54,14 +54,17 @@ grammar text
 `parse_module` / `verify_module` in `lexic.compile.module.selfgrammar` —
 all re-exported at the package root.
 
-`CompiledGrammar(classes, grammar, codegen_grammar, fold)` — `.parse(text)`
-runs the engine's sole `parse_model` product and `.reduce(text, reducer)` parses a
-reducer-derived pruned variant. The model route is
-PDA-first (with Earley completion inside the engine) and returns the start rule's
-`GrammarModel`, or raises `UnsupportedConstructError` if the start rule does
-not fold to one. `grammar` is the canonical AST (the transpile/re-emit
-source); `codegen_grammar` is the post-pass grammar the fold binds against and
-the engine memoises its compilation on.
+`CompiledGrammar(grammar, product, moments, …)` — `.parse(text)` runs the
+engine's sole `parse_model` product and `.reduce(text, reducer)` parses a
+reducer-derived pruned variant. The model route is PDA-first (with Earley
+completion inside the engine) and returns the start rule's `GrammarModel`, or
+raises `UnsupportedConstructError` if the start rule builds none. `grammar` is
+the canonical AST (the transpile/re-emit source); `product` is the
+`ModelExecutable[GrammarModel]` — the verified product program both engines
+run; `moments` retains every stage the compilation passed through, and
+`.classes` and `.codegen_grammar` read out of it. The codegen grammar is the
+post-pass grammar the product binds against and the engine memoises its
+compilation on.
 
 ## 2. The design: passes in, classes out, no codegen module
 
@@ -91,8 +94,10 @@ compile/
   pipeline/      grammar → classes (see its README)
     passes.py      build_codegen_grammar — hoist_groups → hoist_arms →
                    relax_non_semantic
-    binding.py     compute_binding → list[RuleMap]; kind classification;
-                   field naming; the open supplied-class contract (§5)
+    rulemap.py     compute_binding → list[RuleMap]; kind classification;
+                   the open supplied-class contract (§5)
+    naming.py      what a class and its fields are CALLED — spelling only
+    moments.py     the compile moments — one retaining product per compilation
     synthesis.py   synthesize(codegen_grammar, binding, stem) → dict[str, type]
   notation/      the IR-constructor notation (see its README)
     parse.py       load_ir — text → real IR objects (§4)
@@ -104,9 +109,8 @@ compile/
 ```
 
 Layering: the package reads/writes `lexic.ir`, imports `lexic.grammars` (to
-resolve flavours) and the engine — `lexic.parsing` (root: `parse_model`,
-the fold toolkit) plus the one licensed submodule
-`lexic.parsing.earley.reduce` (the `DROP`/`KEEP_REDUCED`/`YIELD` sentinels).
+resolve flavours) and the engine's package root — `lexic.parsing`
+(`parse_model`, `ModelExecutable`, the split entry, the Earley toolkit).
 Nothing reaches past that surface.
 
 ## 4. The binding view and the open table (`binding.py`)
