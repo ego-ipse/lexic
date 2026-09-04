@@ -765,7 +765,16 @@ holds.
       green at `-n 8`, `tools/run_checks.sh` exit 0 or every remaining
       finding attributed by file, pyright 0. Luna runs only after Terra has
       stopped; Terra does not resume during Luna's pass.
-- [ ] At the completed and fully tested §4 tree, the coordinator (1) reruns
+- [x] **(2026-09-04)** (1)–(7) done: gates rerun by exit code
+      (`run_checks.sh` 0, suite 5559/8, pyright 0, `check_generated` 0,
+      26/26 witnesses, `run_examples.sh` 0, every benchmark entry point run);
+      the rename confirmed by the drift and layering tests; the wiki `log.md`
+      entry and mechanical page updates written; TODO/LEDGER updated;
+      committed and pushed as `8ee288de` (source, wiki, README text) and
+      `829ce0ee` (fresh benchmark artifact, twelve grammars, 16 workers) on
+      the user's order; (8) checks/tests/examples green on the remote for
+      `8ee288de`, the performance run pending on both commits — its verdict
+      is the last item before the hold. At the completed and fully tested §4 tree, the coordinator (1) reruns
       every gate by exit code — suite at `-n 8`, pyright, `check_generated`,
       `run_checks.sh`, `git diff --check`; (2) reads Luna's tests against the
       tests-that-TEST standard and returns any rubber stamp; (3) confirms the
@@ -790,20 +799,35 @@ holds.
       caveat; then hold. The hold brings in a different model to
       review the committed §4 source. Do not begin the external profile
       until the user resumes the effort.
-- [ ] After the user resumes, externally profile the generated-model product
+- [x] **(2026-09-04)** Done as the corrected benchmark protocol
+      (`tools/benchmark`, Review 17 item 6): per-tree workers from their own
+      checkout roots, one fresh process per lifecycle, base/head order
+      flipped per pair, a byte-identical control in the same run, GC on,
+      both clocks. Instrumentation outside `src`. After the user resumes, externally profile the generated-model product
       with alternating baseline/new processes and a byte-identical control row
       under `docs/STYLE.md`. Instrumentation remains outside `src`.
-- [ ] Gate generated-model and token-segmented parsing row by row across PDA,
+- [x] **(2026-09-04)** The 72-row gate (twelve grammars × pda / lex /
+      lex-ns / earley / mt / mt-lex-ns) is that gate; it found the Savepoint
+      13 regression (eleven rows on the runner), attributed to the frame's
+      per-push boundary allocation, fixed, and re-measured at or below
+      Savepoint 12 on every row. Structural comparison is the paid-path
+      bytecode census per change (`reports/S4_TERRA.md`, `PERF_FIX_2.md`),
+      not a per-parse opcode stream. Gate generated-model and token-segmented parsing row by row across PDA,
       Earley fallback, islands/delegates, ambiguity, and eligible MT shapes.
       Compare structural opcode/capture streams as well as alternating timing.
       A slower delta outside the byte-identical control envelope fails; an
       ambiguous row is rerun with enough samples to resolve it and does not pass
       by assumption.
-- [ ] Record opcode comparison and dynamic measurements in this effort's
+- [x] **(2026-09-04)** Recorded: `reports/S4_VEGA_CI.md` §7–§8 (the
+      protocol, the 72-row tables, the health finding), `reports/PERF_FIX_2.md`
+      (the census, the fix, its measurement, the worker-binding fix), the
+      bytecode tables in `reports/S4_TERRA.md`. Record opcode comparison and dynamic measurements in this effort's
       `reports/`. Any parse regression closes the gate: reshape the ABI and
       remeasure. A bugfix-related regression still requires the user's explicit
       final approval; do not build §5 on it merely because correctness improved.
-- [ ] After review and the §4 measurement gate, the coordinator creates the
+- [x] **(2026-09-04)** Committed `8ee288de` and `829ce0ee` on the user's
+      order before the hold's review; no warm Terra survives — the next
+      implementer is spawned fresh from a brief. After review and the §4 measurement gate, the coordinator creates the
       first authorized §4 commit and resumes the same warm Terra agent.
 - [x] **USER-APPROVED INSERTION (2026-09-01) — SUPERSEDED 2026-09-02:** the
       scoped post-commit mirror pass is replaced by the full-coverage Luna

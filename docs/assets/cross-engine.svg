@@ -29,6 +29,16 @@ circle{stroke:#1a1a19}
 <text x="576.0" y="26.0" font-size="12">vyx</text>
 <circle cx="620.6" cy="22" r="5" class="c6"/>
 <text x="629.6" y="26.0" font-size="12">markdown</text>
+<circle cx="710.2" cy="22" r="5" class="c7"/>
+<text x="719.2" y="26.0" font-size="12">nested</text>
+<circle cx="785.4" cy="22" r="5" class="c8"/>
+<text x="794.4" y="26.0" font-size="12">lexruns</text>
+<circle cx="867.8" cy="22" r="5" class="c9"/>
+<text x="876.8" y="26.0" font-size="12">backtrack</text>
+<circle cx="964.6" cy="22" r="5" class="c10"/>
+<text x="973.6" y="26.0" font-size="12">mixedends</text>
+<circle cx="1061.4" cy="22" r="5" class="c11"/>
+<text x="1070.4" y="26.0" font-size="12">announced</text>
 <line x1="201.6" y1="48.0" x2="201.6" y2="380.0" class="gl" stroke-width="1"/>
 <text x="191.1" y="396.0" font-size="12" class="m">0.1</text>
 <line x1="373.0" y1="48.0" x2="373.0" y2="380.0" class="gl" stroke-width="1"/>
@@ -39,87 +49,137 @@ circle{stroke:#1a1a19}
 <text x="705.3" y="396.0" font-size="12" class="m">100</text>
 <text x="606.0" y="412.0" font-size="12" class="m">µs/char — log scale, lower is faster</text>
 <text x="8.0" y="76.0" font-size="13">ANTLR (Java)</text>
-<circle cx="220.8" cy="72.0" r="5" class="c0"/>
-<circle cx="116.6" cy="72.0" r="5" class="c1"/>
-<circle cx="290.3" cy="72.0" r="5" class="c2"/>
-<circle cx="303.5" cy="72.0" r="5" class="c3"/>
-<circle cx="294.7" cy="72.0" r="5" class="c4"/>
-<circle cx="260.1" cy="72.0" r="5" class="c5"/>
-<circle cx="195.4" cy="72.0" r="5" class="c6"/>
+<circle cx="255.4" cy="72.0" r="5" class="c0"/>
+<circle cx="110.4" cy="72.0" r="5" class="c1"/>
+<circle cx="293.5" cy="72.0" r="5" class="c2"/>
+<circle cx="289.6" cy="72.0" r="5" class="c3"/>
+<circle cx="306.9" cy="72.0" r="5" class="c4"/>
+<circle cx="214.4" cy="72.0" r="5" class="c5"/>
+<circle cx="252.6" cy="72.0" r="5" class="c6"/>
+<circle cx="270.5" cy="72.0" r="5" class="c7"/>
+<circle cx="212.2" cy="72.0" r="5" class="c8"/>
+<circle cx="230.8" cy="72.0" r="5" class="c9"/>
+<circle cx="233.6" cy="72.0" r="5" class="c10"/>
+<circle cx="50.3" cy="72.0" r="5" class="c11"/>
 <text x="8.0" y="108.0" font-size="13" class="b">lexic-mt (16 workers)</text>
-<circle cx="332.7" cy="104.0" r="5" class="c0"/>
-<circle cx="259.3" cy="104.0" r="5" class="c1"/>
-<circle cx="281.8" cy="104.0" r="5" class="c2"/>
-<circle cx="327.7" cy="104.0" r="5" class="c3"/>
+<circle cx="335.7" cy="104.0" r="5" class="c0"/>
+<circle cx="235.6" cy="104.0" r="5" class="c1"/>
+<circle cx="274.2" cy="104.0" r="5" class="c2"/>
+<circle cx="326.1" cy="104.0" r="5" class="c3"/>
 <circle cx="319.0" cy="104.0" r="5" class="c4"/>
-<circle cx="326.4" cy="104.0" r="5" class="c5"/>
-<circle cx="263.9" cy="104.0" r="5" class="c6"/>
+<circle cx="313.7" cy="104.0" r="5" class="c5"/>
+<circle cx="259.9" cy="104.0" r="5" class="c6"/>
+<circle cx="311.4" cy="104.0" r="5" class="c7"/>
+<circle cx="154.7" cy="104.0" r="5" class="c8"/>
+<circle cx="196.4" cy="104.0" r="5" class="c9"/>
+<circle cx="232.5" cy="104.0" r="5" class="c10"/>
+<circle cx="171.9" cy="104.0" r="5" class="c11"/>
 <text x="8.0" y="140.0" font-size="13" class="b">lexic-lex-ns</text>
-<circle cx="417.1" cy="136.0" r="5" class="c0"/>
-<circle cx="308.8" cy="136.0" r="5" class="c1"/>
-<circle cx="375.2" cy="136.0" r="5" class="c2"/>
-<circle cx="432.4" cy="136.0" r="5" class="c3"/>
-<circle cx="418.6" cy="136.0" r="5" class="c4"/>
-<circle cx="434.4" cy="136.0" r="5" class="c5"/>
-<circle cx="346.7" cy="136.0" r="5" class="c6"/>
+<circle cx="418.7" cy="136.0" r="5" class="c0"/>
+<circle cx="305.0" cy="136.0" r="5" class="c1"/>
+<circle cx="352.1" cy="136.0" r="5" class="c2"/>
+<circle cx="428.2" cy="136.0" r="5" class="c3"/>
+<circle cx="418.3" cy="136.0" r="5" class="c4"/>
+<circle cx="434.9" cy="136.0" r="5" class="c5"/>
+<circle cx="344.4" cy="136.0" r="5" class="c6"/>
+<circle cx="385.2" cy="136.0" r="5" class="c7"/>
+<circle cx="201.0" cy="136.0" r="5" class="c8"/>
+<circle cx="200.1" cy="136.0" r="5" class="c9"/>
+<circle cx="174.6" cy="136.0" r="5" class="c10"/>
+<circle cx="135.2" cy="136.0" r="5" class="c11"/>
 <text x="8.0" y="172.0" font-size="13" class="b">lexic-pda</text>
-<circle cx="431.8" cy="168.0" r="5" class="c0"/>
-<circle cx="333.2" cy="168.0" r="5" class="c1"/>
-<circle cx="389.9" cy="168.0" r="5" class="c2"/>
-<circle cx="444.5" cy="168.0" r="5" class="c3"/>
-<circle cx="435.0" cy="168.0" r="5" class="c4"/>
-<circle cx="448.5" cy="168.0" r="5" class="c5"/>
-<circle cx="366.2" cy="168.0" r="5" class="c6"/>
+<circle cx="425.3" cy="168.0" r="5" class="c0"/>
+<circle cx="327.7" cy="168.0" r="5" class="c1"/>
+<circle cx="386.9" cy="168.0" r="5" class="c2"/>
+<circle cx="443.6" cy="168.0" r="5" class="c3"/>
+<circle cx="434.9" cy="168.0" r="5" class="c4"/>
+<circle cx="445.9" cy="168.0" r="5" class="c5"/>
+<circle cx="367.7" cy="168.0" r="5" class="c6"/>
+<circle cx="385.0" cy="168.0" r="5" class="c7"/>
+<circle cx="224.1" cy="168.0" r="5" class="c8"/>
+<circle cx="251.6" cy="168.0" r="5" class="c9"/>
+<circle cx="317.4" cy="168.0" r="5" class="c10"/>
+<circle cx="248.0" cy="168.0" r="5" class="c11"/>
 <text x="8.0" y="204.0" font-size="13">parsimonious</text>
-<circle cx="439.8" cy="200.0" r="5" class="c0"/>
-<circle cx="369.6" cy="200.0" r="5" class="c1"/>
-<circle cx="418.4" cy="200.0" r="5" class="c2"/>
+<circle cx="440.9" cy="200.0" r="5" class="c0"/>
+<circle cx="367.9" cy="200.0" r="5" class="c1"/>
+<circle cx="418.8" cy="200.0" r="5" class="c2"/>
 <text x="800.0" y="204.5" font-size="13" class="c3 b">×</text>
-<circle cx="470.3" cy="200.0" r="5" class="c4"/>
-<circle cx="438.5" cy="200.0" r="5" class="c5"/>
+<circle cx="472.0" cy="200.0" r="5" class="c4"/>
+<circle cx="441.1" cy="200.0" r="5" class="c5"/>
 <text x="816.0" y="204.5" font-size="13" class="c6 b">×</text>
+<circle cx="464.8" cy="200.0" r="5" class="c7"/>
+<circle cx="355.3" cy="200.0" r="5" class="c8"/>
+<circle cx="355.9" cy="200.0" r="5" class="c9"/>
+<circle cx="384.1" cy="200.0" r="5" class="c10"/>
+<circle cx="354.2" cy="200.0" r="5" class="c11"/>
 <text x="800.0" y="42.0" font-size="11" class="m">refuses</text>
 <text x="8.0" y="236.0" font-size="13">lark (LALR)</text>
-<circle cx="449.9" cy="232.0" r="5" class="c0"/>
-<circle cx="355.7" cy="232.0" r="5" class="c1"/>
-<circle cx="468.2" cy="232.0" r="5" class="c2"/>
+<circle cx="449.6" cy="232.0" r="5" class="c0"/>
+<circle cx="353.8" cy="232.0" r="5" class="c1"/>
+<circle cx="469.0" cy="232.0" r="5" class="c2"/>
 <text x="800.0" y="236.5" font-size="13" class="c3 b">×</text>
 <text x="816.0" y="236.5" font-size="13" class="c4 b">×</text>
 <text x="832.0" y="236.5" font-size="13" class="c5 b">×</text>
-<circle cx="464.3" cy="232.0" r="5" class="c6"/>
+<circle cx="465.7" cy="232.0" r="5" class="c6"/>
+<circle cx="449.6" cy="232.0" r="5" class="c7"/>
+<circle cx="444.9" cy="232.0" r="5" class="c8"/>
+<circle cx="444.2" cy="232.0" r="5" class="c9"/>
+<circle cx="454.9" cy="232.0" r="5" class="c10"/>
+<circle cx="280.4" cy="232.0" r="5" class="c11"/>
 <text x="800.0" y="42.0" font-size="11" class="m">refuses</text>
-<text x="8.0" y="268.0" font-size="13">ANTLR (Python)</text>
-<circle cx="534.4" cy="264.0" r="5" class="c0"/>
-<circle cx="443.1" cy="264.0" r="5" class="c1"/>
-<circle cx="546.7" cy="264.0" r="5" class="c2"/>
-<circle cx="559.5" cy="264.0" r="5" class="c3"/>
-<circle cx="571.5" cy="264.0" r="5" class="c4"/>
-<circle cx="552.0" cy="264.0" r="5" class="c5"/>
-<circle cx="534.2" cy="264.0" r="5" class="c6"/>
-<text x="8.0" y="300.0" font-size="13">pyparsing</text>
-<circle cx="608.1" cy="296.0" r="5" class="c0"/>
-<circle cx="477.4" cy="296.0" r="5" class="c1"/>
-<circle cx="555.3" cy="296.0" r="5" class="c2"/>
-<text x="800.0" y="300.5" font-size="13" class="c3 b">×</text>
-<circle cx="644.0" cy="296.0" r="5" class="c4"/>
-<circle cx="583.5" cy="296.0" r="5" class="c5"/>
-<circle cx="712.6" cy="296.0" r="5" class="c6"/>
+<text x="8.0" y="268.0" font-size="13">pyparsing</text>
+<circle cx="631.3" cy="264.0" r="5" class="c0"/>
+<circle cx="474.7" cy="264.0" r="5" class="c1"/>
+<circle cx="547.5" cy="264.0" r="5" class="c2"/>
+<text x="800.0" y="268.5" font-size="13" class="c3 b">×</text>
+<circle cx="672.4" cy="264.0" r="5" class="c4"/>
+<circle cx="624.7" cy="264.0" r="5" class="c5"/>
+<circle cx="715.1" cy="264.0" r="5" class="c6"/>
+<text x="816.0" y="268.5" font-size="13" class="c7 b">×</text>
+<circle cx="447.0" cy="264.0" r="5" class="c8"/>
+<circle cx="473.9" cy="264.0" r="5" class="c9"/>
+<circle cx="482.5" cy="264.0" r="5" class="c10"/>
+<circle cx="447.9" cy="264.0" r="5" class="c11"/>
 <text x="800.0" y="42.0" font-size="11" class="m">refuses</text>
+<text x="8.0" y="300.0" font-size="13">ANTLR (Python)</text>
+<circle cx="531.7" cy="296.0" r="5" class="c0"/>
+<circle cx="441.3" cy="296.0" r="5" class="c1"/>
+<circle cx="545.4" cy="296.0" r="5" class="c2"/>
+<circle cx="561.2" cy="296.0" r="5" class="c3"/>
+<circle cx="572.9" cy="296.0" r="5" class="c4"/>
+<circle cx="552.4" cy="296.0" r="5" class="c5"/>
+<circle cx="534.7" cy="296.0" r="5" class="c6"/>
+<circle cx="562.9" cy="296.0" r="5" class="c7"/>
+<circle cx="508.0" cy="296.0" r="5" class="c8"/>
+<circle cx="516.1" cy="296.0" r="5" class="c9"/>
+<circle cx="522.5" cy="296.0" r="5" class="c10"/>
+<circle cx="397.1" cy="296.0" r="5" class="c11"/>
 <text x="8.0" y="332.0" font-size="13" class="b">lexic-earley</text>
-<circle cx="688.0" cy="328.0" r="5" class="c0"/>
-<circle cx="581.5" cy="328.0" r="5" class="c1"/>
-<circle cx="642.3" cy="328.0" r="5" class="c2"/>
-<circle cx="689.2" cy="328.0" r="5" class="c3"/>
-<circle cx="686.4" cy="328.0" r="5" class="c4"/>
-<circle cx="669.6" cy="328.0" r="5" class="c5"/>
-<circle cx="645.7" cy="328.0" r="5" class="c6"/>
+<circle cx="670.9" cy="328.0" r="5" class="c0"/>
+<circle cx="554.3" cy="328.0" r="5" class="c1"/>
+<circle cx="624.4" cy="328.0" r="5" class="c2"/>
+<circle cx="681.0" cy="328.0" r="5" class="c3"/>
+<circle cx="681.4" cy="328.0" r="5" class="c4"/>
+<circle cx="661.6" cy="328.0" r="5" class="c5"/>
+<circle cx="643.8" cy="328.0" r="5" class="c6"/>
+<circle cx="619.3" cy="328.0" r="5" class="c7"/>
+<circle cx="523.9" cy="328.0" r="5" class="c8"/>
+<circle cx="513.8" cy="328.0" r="5" class="c9"/>
+<circle cx="563.0" cy="328.0" r="5" class="c10"/>
+<circle cx="474.3" cy="328.0" r="5" class="c11"/>
 <text x="8.0" y="364.0" font-size="13">lark (Earley)</text>
-<circle cx="668.3" cy="360.0" r="5" class="c0"/>
-<circle cx="572.2" cy="360.0" r="5" class="c1"/>
-<circle cx="647.4" cy="360.0" r="5" class="c2"/>
-<circle cx="767.6" cy="360.0" r="5" class="c3"/>
-<circle cx="741.0" cy="360.0" r="5" class="c4"/>
-<circle cx="718.8" cy="360.0" r="5" class="c5"/>
-<circle cx="715.2" cy="360.0" r="5" class="c6"/>
-<text x="8.0" y="426.0" font-size="11" class="m">measured 2026-08-25; 9 further seats (directive-matched competitor variants, format specialists) stay in the artifact</text>
+<circle cx="657.8" cy="360.0" r="5" class="c0"/>
+<circle cx="562.0" cy="360.0" r="5" class="c1"/>
+<circle cx="658.2" cy="360.0" r="5" class="c2"/>
+<circle cx="772.3" cy="360.0" r="5" class="c3"/>
+<circle cx="743.6" cy="360.0" r="5" class="c4"/>
+<circle cx="739.4" cy="360.0" r="5" class="c5"/>
+<circle cx="725.3" cy="360.0" r="5" class="c6"/>
+<circle cx="649.8" cy="360.0" r="5" class="c7"/>
+<circle cx="563.3" cy="360.0" r="5" class="c8"/>
+<circle cx="542.9" cy="360.0" r="5" class="c9"/>
+<circle cx="578.7" cy="360.0" r="5" class="c10"/>
+<circle cx="503.9" cy="360.0" r="5" class="c11"/>
+<text x="8.0" y="426.0" font-size="11" class="m">measured 2026-09-04; 9 further seats (directive-matched competitor variants, format specialists) stay in the artifact</text>
 </svg>

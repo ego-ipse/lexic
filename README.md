@@ -12,7 +12,7 @@ parse one document across many threads on free-threaded Python.
 ![Python 3.14+](https://img.shields.io/badge/python-3.14+-3776AB?logo=python&logoColor=white)
 ![Zero runtime dependencies](https://img.shields.io/badge/runtime%20deps-zero-brightgreen)
 <!-- lexic:begin mt-badge -->
-![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.2x_on_16_threads-2a78d6)
+![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.9x_on_16_threads-2a78d6)
 <!-- lexic:end mt-badge -->
 <!-- lexic:begin tests-badge -->
 ![Tests](https://img.shields.io/badge/tests-5.5k%2B-brightgreen)
@@ -63,15 +63,20 @@ what lexic accepts *and refuse what lexic refuses*):
 <!-- lexic:begin cross-bench -->
 | grammar | **lexic-mt (16 workers)** | **lexic-lex-ns** | **lexic-pda** | **lexic-earley** | lark (LALR) | lark (Earley) | parsimonious | pyparsing | ANTLR (Python) | *ANTLR (Java)* |
 |---|---|---|---|---|---|---|---|---|---|---|
-| arithmetic | **0.58** | **1.81** | **2.20** | **68.8** | 2.81 | 52.9 | 2.45 | 23.5 | 8.74 | *0.13* |
-| csv | **0.22** | **0.42** | **0.59** | **16.5** | 0.79 | 14.5 | 0.96 | 4.07 | 2.56 | *0.03* |
-| json | **0.29** | **1.03** | **1.25** | **37.2** | 3.59 | 39.9 | 1.84 | 11.6 | 10.3 | *0.33* |
-| gbnf-meta | **0.54** | **2.22** | **2.61** | **69.9** | refuses | 200.6 | refuses | refuses | 12.2 | *0.39* |
-| abnf-meta | **0.48** | **1.85** | **2.30** | **67.4** | refuses | 140.3 | 3.69 | 38.1 | 14.4 | *0.35* |
-| vyx | **0.53** | **2.28** | **2.76** | **53.8** | refuses | 104.1 | 2.41 | 16.9 | 11.1 | *0.22* |
-| markdown | **0.23** | **0.70** | **0.91** | **39.0** | 3.41 | 99.2 | refuses | 95.8 | 8.72 | *0.09* |
+| arithmetic | **0.61** | **1.85** | **2.02** | **54.7** | 2.80 | 45.9 | 2.49 | 32.1 | 8.43 | *0.21* |
+| csv | **0.16** | **0.40** | **0.54** | **11.4** | 0.77 | 12.7 | 0.93 | 3.92 | 2.50 | *0.03* |
+| json | **0.27** | **0.76** | **1.20** | **29.3** | 3.63 | 46.1 | 1.85 | 10.4 | 10.1 | *0.34* |
+| gbnf-meta | **0.53** | **2.10** | **2.58** | **62.7** | refuses | 213.6 | refuses | refuses | 12.5 | *0.33* |
+| abnf-meta | **0.48** | **1.84** | **2.30** | **63.0** | refuses | 145.3 | 3.78 | 55.8 | 14.7 | *0.41* |
+| vyx | **0.45** | **2.30** | **2.66** | **48.3** | refuses | 137.3 | 2.50 | 29.4 | 11.1 | *0.12* |
+| markdown | **0.22** | **0.68** | **0.93** | **38.0** | 3.47 | 113.6 | refuses | 99.1 | 8.77 | *0.20* |
+| nested | **0.44** | **1.18** | **1.17** | **27.3** | 2.80 | 41.2 | 3.43 | refuses | 12.8 | *0.25* |
+| lexruns | **0.05** | **0.10** | **0.14** | **7.60** | 2.63 | 12.9 | 0.79 | 2.70 | 6.14 | *0.12* |
+| backtrack | **0.09** | **0.10** | **0.20** | **6.63** | 2.60 | 9.81 | 0.79 | 3.88 | 6.84 | *0.15* |
+| mixedends | **0.15** | **0.07** | **0.47** | **12.8** | 3.01 | 15.9 | 1.16 | 4.36 | 7.45 | *0.15* |
+| announced | **0.07** | **0.04** | **0.19** | **3.90** | 0.29 | 5.81 | 0.78 | 2.74 | 1.38 | *0.01* |
 
-µs/char, lower is faster; medians of isolated rounds; measured 2026-08-25; 9 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
+µs/char, lower is faster; medians of isolated rounds; measured 2026-09-04; 9 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
 <!-- lexic:end cross-bench -->
 
 Three things the table means, stated plainly:
@@ -80,13 +85,15 @@ Three things the table means, stated plainly:
   order of magnitude.** That is the honest result — and it is a
   *tool+runtime* comparison: that column is Java, every other column is
   Python.
-- **`lexic-mt` is the fastest Python row on every grammar**, and sequential
-  `lexic-pda` outruns `lark-lalr` on every grammar lark-lalr accepts while
-  being the only Python engine that parses all seven — building a typed,
-  byte-recoverable model, which no other row pays for. The one sequential
-  loss: parsimonious edges the unmarked row on `vyx` (2.41 vs 2.76) while
-  the directive-pruned rows stay ahead. A refusal is a genuine grammar
-  conflict, printed as a result.
+- **`lexic-mt` is the fastest Python row on ten of the twelve grammars**;
+  on the two shortest documents (`announced`, `mixedends`) the
+  directive-pruned sequential row wins, because a sixteen-way split does not
+  pay below a few kilobytes. Sequential `lexic-pda` outruns `lark-lalr` on
+  every grammar lark-lalr accepts while being the only Python engine that
+  parses all twelve — building a typed, byte-recoverable model, which no
+  other row pays for. The one sequential loss: parsimonious edges the
+  unmarked row on `vyx` (2.50 vs 2.66) while the directive-pruned rows stay
+  ahead. A refusal is a genuine grammar conflict, printed as a result.
 - **The engines do not build the same thing.** Lexic returns a typed model
   the source is byte-recoverable from; the others return generic trees.
 
@@ -110,13 +117,18 @@ noise fails the build rather than a fixed percentage):
 <!-- lexic:begin lexic-bench -->
 | grammar | pda | `@lexical` | `@lexical` `@non-semantic` | 16-worker | speedup | earley |
 |---|---|---|---|---|---|---|
-| abnf-meta | 2.30 | 2.13 | 1.85 | 0.48 | **4.7×** | 67.4 |
-| arithmetic | 2.20 | 1.78 | 1.81 | 0.58 | **3.8×** | 68.8 |
-| csv | 0.59 | 0.43 | 0.42 | 0.22 | **2.7×** | 16.5 |
-| gbnf-meta | 2.61 | 2.19 | 2.22 | 0.54 | **4.8×** | 69.9 |
-| json | 1.25 | 0.98 | 1.03 | 0.29 | **4.3×** | 37.2 |
-| markdown | 0.91 | 0.72 | 0.70 | 0.23 | **4.0×** | 39.0 |
-| vyx | 2.76 | 2.30 | 2.28 | 0.53 | **5.2×** | 53.8 |
+| abnf-meta | 2.30 | 2.10 | 1.84 | 0.48 | **4.7×** | 63.0 |
+| announced | 0.19 | 0.04 | 0.04 | 0.07 | **2.8×** | 3.90 |
+| arithmetic | 2.02 | 1.82 | 1.85 | 0.61 | **3.3×** | 54.7 |
+| backtrack | 0.20 | 0.10 | 0.10 | 0.09 | **2.1×** | 6.63 |
+| csv | 0.54 | 0.40 | 0.40 | 0.16 | **3.4×** | 11.4 |
+| gbnf-meta | 2.58 | 2.10 | 2.10 | 0.53 | **4.8×** | 62.7 |
+| json | 1.20 | 0.74 | 0.76 | 0.27 | **4.5×** | 29.3 |
+| lexruns | 0.14 | 0.10 | 0.10 | 0.05 | **2.5×** | 7.60 |
+| markdown | 0.93 | 0.67 | 0.68 | 0.22 | **4.3×** | 38.0 |
+| mixedends | 0.47 | 0.07 | 0.07 | 0.15 | **3.1×** | 12.8 |
+| nested | 1.17 | 1.18 | 1.18 | 0.44 | **2.7×** | 27.3 |
+| vyx | 2.66 | 2.28 | 2.30 | 0.45 | **5.9×** | 48.3 |
 <!-- lexic:end lexic-bench -->
 
 Run it yourself: `uv run python -m tools.benchmark.bench --rounds 3 --cores 16`,

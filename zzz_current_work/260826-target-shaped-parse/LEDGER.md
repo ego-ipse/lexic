@@ -98,7 +98,23 @@ in §3, awaiting its §6 consumer — not moved to `proto/`, not queued for
 §10. `cores=AUTO` stays the logical count (ruled earlier). Decided; not
 to be reopened.
 
-## NEXT SESSION — start here (written 2026-09-04 ~01:15)
+## NEXT SESSION — start here (written 2026-09-04 evening; supersedes the block below)
+
+**Tree.** `targeter` at `829ce0ee`, pushed; two commits on Savepoint 13:
+`8ee288de` (the frame `needs_ends` fix, replicas bound by thread, the wiki's
+mechanical §4 updates, README text, the renderer on one artifact) and
+`829ce0ee` (fresh benchmark artifact 2026-09-04, twelve grammars, 16
+workers, README numbers and prose). Local gates all green at both.
+**Remote:** `8ee288de` green on checks/tests/examples, performance run
+pending; `829ce0ee` all four pending. Read them first. **Left before the
+hold:** the performance verdict; then the hold — a different model reviews
+the committed §4 source and `reports/S4_VEGA_CI.md` §7–§8 + `PERF_FIX_2.md`
+against Review 17; then `humanotes.md` on the plan before §5. **Rulings
+settled today:** no minimum effect size in the gate; no growth for
+faster/ok rows; `RouteLane` stays; `cores=AUTO` stays logical. No agent
+survives; spawn fresh from briefs.
+
+## (superseded) NEXT SESSION — start here (written 2026-09-04 ~01:15)
 
 **Tree.** Branch `targeter`, HEAD `dd27f393` (Savepoint 13, user commit,
 pushed to `origin/targeter`; working tree clean). It contains Savepoint 12
