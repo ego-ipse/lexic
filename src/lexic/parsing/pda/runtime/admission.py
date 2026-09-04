@@ -144,7 +144,8 @@ def frames_copy[Carry](stack: list[Frame[Carry]]) -> list[Frame[Carry]]:
         new = Frame(frame.arm, _dup(frame.out, remap), frame.clone, 0)
         new.i = frame.i
         new.count = frame.count
-        new.ends = _dup(frame.ends, remap)
+        if frame.ends is not None:
+            new.ends = _dup(frame.ends, remap)
         sinks = frame.sinks
         if sinks is not None:
             new.sinks = [slot if slot is None else _dup(slot, remap) for slot in sinks]
@@ -291,7 +292,7 @@ def control_signature(stack: list[Frame], pos: int) -> tuple[Any, ...]:
                 frame.i,
                 _count_key(frame),
                 id(frame.clone),
-                frame.ends[0],
+                frame.span_start(),
             )
             for frame in stack
         ),

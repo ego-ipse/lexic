@@ -311,15 +311,18 @@ def test_build_validated_does_not_cache_a_raising_construction():
         FlatClone, SimpleNamespace(fields=((0, M_TEXT, "head", 1),), ctor=ctor)
     )
     frame = make_frame({"ends": [0, 2], "sinks": None})
+    ends = frame.ends
+    assert ends is not None  # this clone keeps boundaries
+    spans = (ends, frame.sinks)
     memo: dict = {}
     with pytest.raises(FieldValidationError):
-        build_validated("ab", (frame.ends, frame.sinks), clone, memo)
+        build_validated("ab", spans, clone, memo)
     assert not memo  # nothing cached from the raising build
     state["boom"] = False
-    out = build_validated("ab", (frame.ends, frame.sinks), clone, memo)
+    out = build_validated("ab", spans, clone, memo)
     assert out == ("ok", {"head": "ab"})
     # a second identical build now hits the cache (ctor not re-invoked)
-    assert build_validated("ab", (frame.ends, frame.sinks), clone, memo) is out
+    assert build_validated("ab", spans, clone, memo) is out
     assert state["n"] == 2  # one failed + one successful; the hit adds nothing
 
 

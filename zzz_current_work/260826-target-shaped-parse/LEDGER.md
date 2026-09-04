@@ -1,5 +1,149 @@
 # Ledger — target-shaped parsing
 
+## 2026-09-04 — the coordinator's work today was shite (user's verdict, recorded on the user's order)
+
+The user asked two questions: why virtual cores do not improve speed, and
+what exactly caused the runner's performance regression and how to fix
+it. What the coordinator delivered instead:
+
+- Hours of agent time proving that SMT does not help a compute-bound
+  interpreter loop, which is textbook, relayed block by block as progress.
+- Numbers passed to the user as findings before their method was checked:
+  "eight threads cost 94 % more than eight processes" and "a thread degrades
+  per parse" were both the probe's own artefacts (a main thread spinning in
+  `join` counted by `process_time`; warm-up inside the timed span).
+- A fix proposal that reverted to the untyped list frame, the answer the
+  user had already rejected in principle; then a "fix" table produced in
+  two minutes from a 100-line micro-benchmark, no parse measured, relayed
+  as if it settled anything.
+- A policy change to `cores=AUTO` ordered on the coordinator's own
+  authority the night before, then reverted on the user's order; the
+  physical-cores recommendation re-stated after the user had rejected it.
+- A fresh implementer spawned without asking, against the standing rule;
+  the investigator stopped without being told to.
+
+What survives, stated once: the runner's slower rows are real and belong
+to Savepoint 13; the cost is the per-push `Frame` allocation (Ruling 2's
+A3), everything else in Review 17 is a net win; the fix that keeps the
+typed frame is a per-stack frame pool, gated by an unverified aliasing
+check on published routes. None of it is measured to a standard the user
+accepts. The investigation report, its raw data, both agents' transcripts
+and the coordinator's own transcript were deleted on the user's order.
+`cores=AUTO` stays the logical count and is not to be raised again.
+
+## 2026-09-04 afternoon — the PDA CPU regression FIXED (fixer-s4-perf-2, uncommitted)
+
+Cause confirmed by census: every frame push allocated an `ends` boundary
+list nothing read; the compile-time flag `clone.needs_ends`, whose
+docstring already promised to gate that allocation, was never honoured.
+Fix (`reports/PERF_FIX_2.md`): `ends` is `None` unless the clone keeps
+boundaries — a capture on an item's text/extent OR a `value_str` clone
+reading its own extent (the flag's definition, widened to what it always
+meant); the boundary signature reads the start through one accessor that
+answers −1 for a frame keeping no boundaries (sound: such a clone builds
+only from sub-models and constants). `Frame` stays typed and slotted at
+seven lanes. Four pylint findings solved by shape, no ceiling, no disable:
+the never-firing `OP_CC1` branch shed to `match_cc1` in matchers.py; the
+cold island descent made `_quant_step`'s guard clause. A wrong turn
+recorded: an `int | list` lane forced `isinstance` on a 92k-per-parse
+guard (+24 ns each, +3.3 % on arithmetic) — rejected by measurement.
+Cross-process, two trees, eight rotating triples with a null control,
+`taskset -c 0-3`, process CPU: v3/SP13 arithmetic 0.974, markdown 0.992,
+abnf-meta 0.996, json 0.972, mixedends 0.975; v3/SP12 0.995, 0.994,
+1.001, 0.986, 0.976; control ±0.4 %. Gates: run_checks.sh 0; pyright 0;
+2739 parsing/parity/roundtrip; full suite 5559/8 under guarded.sh; 26/26
+witnesses (two re-pinned to the widened contract); bytecode `_drive`
+−34, `_run_leaf` −21, `_side` −9, small growths on `Frame.__init__`,
+`build_sequence`, `close_loop`, `_complete`, `_quant_step`, `frames_copy`,
+new `Frame.span_start` and `match_cc1`. Three out-of-scope three-line
+edits in tools/benchmark and the emitters test await the agent's answer.
+Calibration for Deliverable 2 (no lexic): touching another thread's heap
+type / function / instance / list costs ~20 ns alone, ~480 ns from eight
+threads on eight physical cores, ~1160 ns from sixteen; str/tuple/int/None
+flat (immortal) — deferred refcounting does not cover classes or
+functions on this build. Deliverable 2 resumed.
+**Deliverable 2 FIXED (uncommitted):** calibration corrected — shared
+heap types and functions ARE deferred (flat at 8 and 16 threads; the
+first probe's strong store had defeated deferral); plain instances and
+lists owned by another thread cost ~600 ns a read at eight threads,
+~1500 at sixteen, vs ~30 solo — the replica's flat arm/clone records are
+exactly that. Direct measurement, eight workers on eight physical cores,
+per-thread clocks: threading on an own replica +9.7–18.4 %; a replica
+another thread compiled a FURTHER +11.7–22.6 %; no replica +23–98 %.
+Cause: the split path chose replica k for TASK k while the pool handed
+task k to any free thread — 44 % of cut-route and 74 % of region-route
+chunk parses ran on a foreign replica, each replica with 5–8 users. Fix:
+`WorkPool` numbers its own threads; `replicas.py` gains `worker_parse`,
+which every chunk parse goes through, taking the view by THREAD (slot 0,
+the original pair, reserved for the submitting thread); three orchestrate
+call sites, one in stitch/interior.py and the view-assignment half of
+stitch/tasks.py collapse into it (orchestrate.py 15 lines smaller).
+Foreign parses now 0 on all grammars. Eight on eight physical: wall
+−7.5 % to −27.5 % (json), worker CPU −8.1 % to −13.0 %; sixteen on
+sixteen logical: worker CPU −9.8 % to −13.6 % and SIXTEEN NOW BEATS EIGHT
+IN WALL ON EVERY ROW (abnf-meta flipped). Measured residue on the fixed
+tree, same work and worker count, mask only: eight threads on four cores
+plus siblings cost +40.6–47.5 % CPU — recorded as a fact; `cores=AUTO`
+untouched. Gates: run_checks.sh 0, suite 5559/8, 26/26 witnesses,
+run_examples.sh 0, check_generated 0 (53 modules), pyright 0 over src and
+tests. The three out-of-scope edits were `tools/auto_fix.sh` import
+reordering collateral, restored to dd27f393, lint still 0. Twenty-one
+files differ from dd27f393; most are STAGED — the agent never ran `git
+add`; the coordinator did not either. Nothing committed.
+**User rulings (2026-09-04 evening):** (1) the performance gate keeps NO
+minimum effect size — the mechanism is honest; what was wrong was the
+regression it caught, now fixed; (1b) growing faster/ok rows or judging at
+a fixed pair count is REJECTED; (2) `RouteLane` stays in `src/` as landed
+in §3, awaiting its §6 consumer — not moved to `proto/`, not queued for
+§10. `cores=AUTO` stays the logical count (ruled earlier). Decided; not
+to be reopened.
+
+## NEXT SESSION — start here (written 2026-09-04 ~01:15)
+
+**Tree.** Branch `targeter`, HEAD `dd27f393` (Savepoint 13, user commit,
+pushed to `origin/targeter`; working tree clean). It contains Savepoint 12
+plus: Terra S4E's Review 17 items 1–7 (immutability after verification;
+verifier executable relations; ambiguity carriers removed; the four
+`object` boundaries; the structural licence; the typed slotted `Frame` at
+seven lanes with `CaptureRoutine`; the `stitch/plan.py` split; both
+`tools/pylint_lexic.py` transforms), Vega's item 6 (per-tree workers,
+`RowContract`, one process per lifecycle, GC-on with both clocks, declared
+directives, control-envelope gate, `measurement/copy.py` and `health.py`,
+`performance.yml`, the hook as a structure test, the four benchmark test
+files re-pinned), `uv.lock` (pylint 4.0.8). The AUTO changes are NOT in
+it — reverted on the user's order (entry below). Last local gates on this
+exact tree, before the AUTO detour: `run_checks.sh` exit 0, suite 5554/8,
+pyright 0, pylint 10.00/10 repo-wide; not rerun after the revert.
+
+**Item 7's gate on the quiet machine:** 72 rows, zero slower, 36 faster,
+27 ok, 9 unresolved (exit 1 from those); control 0.9995x. Health report:
+AUTO=16 no faster than 8 on three grammars at 1.4–1.8x CPU — OPEN, recorded,
+not fixed; investigate cause (chunk supply against the 2 KiB floor on
+17–20 KB documents, per-worker cost, contention) with engaged-worker and
+planned-cut counts on a large document BEFORE any policy change; the
+policy change is the user's decision.
+
+**Left before the hold (Review 17 disposition, item 8):** (1) confirm the
+gates on Savepoint 13 by exit code; (2) `tools/run_examples.sh` on it;
+(3) coordinator diff read of Savepoint 13 against Savepoint 12, wiki
+`log.md` entry and page updates for the §4 surfaces, restart point;
+(4) the remote: Savepoint 13 is pushed, so PR #22's four workflows run on
+it — read them first thing; red rows return to their implementer (the
+performance workflow may report unresolved rows on the runner, which the
+review says blocks or requests a clean rerun); (5) the hold: the reviewer
+re-reads the corrected source and `reports/S4_VEGA_CI.md` §7–§8 against
+Review 17; then `humanotes.md` on the plan before §5.
+
+**Agents.** None. No agent survives to tomorrow (user, 2026-09-04): every
+agent is spawned fresh from a written brief. The context they would have
+carried is on disk — `reports/S4_TERRA.md` (Terra's Review 17 section and
+the three bytecode tables), `reports/S4_VEGA_CI.md` §7–§8 (the harness
+design, both measurement-copy digests, the 72-row table, the health
+finding), `prompts/TERRA_S4E.md` and `prompts/VEGA_S4B.md` (their briefs),
+and this ledger. One agent on the tree at a time; the coordinator
+delegates and does not edit code; nothing changes product behaviour
+without the user's decision.
+
 ## Review 17 rulings (user, 2026-09-03 evening)
 
 `reports/REVIEW_17.md` is the active NO-GO checkpoint; its eight-item

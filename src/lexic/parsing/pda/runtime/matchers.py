@@ -108,6 +108,23 @@ def select_arm[Carry](clone: FlatClone[Carry], char: str, pos: int) -> FlatArm:
     return default
 
 
+def match_cc1(text: str, payload: tuple[frozenset[str], bool], pos: int) -> int:
+    """Match one exactly-once char class, returning the position after it.
+
+    The ``OP_CC1`` body, kept out of the driver's inner loop: the mismatch test
+    is the only place the class's polarity is read, and no bench grammar emits
+    the op-code at all, so the driver need not carry the test or its locals.
+
+    :param payload: The item's ``(chars, negated)`` pair.
+    :raises PdaFail: On a mismatch, end of input included.
+    """
+    chars, negated = payload
+    char = text[pos : pos + 1]
+    if (char == "" or char in chars) if negated else char not in chars:
+        raise PdaFail(f"char class miss at {pos}", pos)
+    return pos + 1
+
+
 def match_lit(text: str, arm: FlatArm, i: int, pos: int) -> int:
     """Match a literal item's whole quantifier loop, returning the new pos.
 

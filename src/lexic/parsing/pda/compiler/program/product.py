@@ -143,8 +143,9 @@ def bake_product_build[Carry](
     clone.runarm = None
     clone.mode = _build_mode(routine)
     clone.n_items = 0 if routine is None else routine.n_items
-    clone.needs_ends = routine is not None and any(
-        capture.mode in _ENDS_MODES for capture in routine.captures
+    clone.needs_ends = clone.mode == BUILD_VALUE_STR or (
+        routine is not None
+        and any(capture.mode in _ENDS_MODES for capture in routine.captures)
     )
     construction = None if routine is None else routine.construction
     if routine is None or construction is None:

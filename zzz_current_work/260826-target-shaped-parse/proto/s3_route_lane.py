@@ -34,7 +34,14 @@ from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 def _frame(label: str) -> Frame[Any]:
     """A frame shaped like the kernel's — named lanes, aliasable lists."""
     out: list[Any] = []
-    return Frame(SimpleNamespace(n=2, label=label), out, SimpleNamespace(mode=0), 0)
+    return Frame(
+        SimpleNamespace(n=2, label=label),
+        out,
+        # Boundaries kept, so the copy has per-frame lists to duplicate — the
+        # shape this witness is about.
+        SimpleNamespace(mode=0, needs_ends=True),
+        0,
+    )
 
 
 def _check(claim: str, held: bool) -> None:

@@ -37,6 +37,7 @@ from lexic.parsing.parallel.pool import ParsePool, reset_pools
 from lexic.parsing.parallel.replicas import (
     Replica,
     thread_replica,
+    worker_parse,
     worker_replicas,
 )
 from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
@@ -62,6 +63,7 @@ __all__ = [
     "roles",
     "split_plan",
     "thread_replica",
+    "worker_parse",
     "worker_count",
     "worker_replicas",
 ]

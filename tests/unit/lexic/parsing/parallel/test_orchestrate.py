@@ -191,6 +191,10 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
             map_calls += 1
             return [work(item) for item in items]
 
+        def slot(self):
+            """The one slot this synchronous stand-in ever runs work on."""
+            return 0
+
         def __enter__(self):
             return self
 

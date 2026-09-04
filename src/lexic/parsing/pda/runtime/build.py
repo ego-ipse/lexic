@@ -26,7 +26,7 @@ codes) and :mod:`lexic.parsing.pda.core.errors` (:class:`PdaFail`) — never
 
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Sequence
 from enum import Enum
 from typing import Any
 
@@ -88,9 +88,9 @@ class Frame[Carry]:
     :ivar ends: Item boundaries, ``arm.n + 1`` of them: ``ends[0]`` is where
         the frame began and ``ends[i + 1]`` is where item ``i`` finished, so
         item ``i``'s span is ``(ends[i], ends[i + 1])`` with no first-item
-        special case anywhere that reads one. Allocated for every frame so the
-        driver's write stays branch-free; only span-reading ``sequence`` clones
-        read it back.
+        special case anywhere that reads one. ``None`` for a clone whose build
+        reads no position at all (``needs_ends`` false), which on the benchmark
+        grammars is EVERY frame: those filled a list nothing read.
     :ivar sinks: Per-item descent sub-model lists, allocated lazily on first
         descent (capture frames), else ``None``.
     """
@@ -102,7 +102,7 @@ class Frame[Carry]:
     count: int
     out: list[Carry]
     clone: FlatClone[Carry]
-    ends: list[int]
+    ends: list[int] | None
     sinks: list[list[Carry] | None] | None
 
     def __init__(
@@ -114,8 +114,19 @@ class Frame[Carry]:
         self.count = 0
         self.out = out
         self.clone = clone
-        self.ends = [start] * (arm.n + 1)
+        self.ends = [start] * (arm.n + 1) if clone.needs_ends else None
         self.sinks = None
+
+    def span_start(self) -> int:
+        """Where the frame began, or ``-1`` when it keeps no boundaries.
+
+        The sentinel is not a fallback but the honest answer: a frame whose
+        build reads no position never asks (every clone that reads one keeps
+        boundaries), and a caller comparing control states wants exactly
+        "this frame's start cannot reach any value".
+        """
+        ends = self.ends
+        return -1 if ends is None else ends[0]
 
     def close_loop(self, i: int, pos: int) -> int:
         """Close item ``i``'s loop at the current count, and advance past it.
@@ -127,7 +138,9 @@ class Frame[Carry]:
         """
         self.count = 0
         self.i = i + 1
-        self.ends[i + 1] = pos
+        ends = self.ends
+        if ends is not None:
+            ends[i + 1] = pos
         return i + 1
 
     def alt_model(self) -> Carry | None:
@@ -200,7 +213,7 @@ def build_sequence[Carry](
                 f"{clone.n_items} slots nor the empty arm"
             )
         return _intern_empty(clone.ctor, memo)  # empty alternate arm matched
-    spans = (frame.ends, frame.sinks)
+    spans = (frame.ends or (), frame.sinks)
     if clone.fast is no_fast_construction:
         return build_validated(text, spans, clone, memo)
     return clone.fast(fast_values(text, clone, spans))
@@ -224,8 +237,10 @@ def _intern_empty[Carry](ctor: Callable[..., Carry], memo: InternMemo[Carry]) ->
 # A fast clone's captured span/sink data — the (item boundaries, per-item sink
 # lists) pair grouped so the build sites stay within the argument budget;
 # ``_run_leaf`` builds it from locals, ``_complete`` from the frame slots.
-# ``ends[0]`` is the span start, so no reader tests for the first item.
-type Spans[Carry] = tuple[list[int], list[list[Carry] | None] | None]
+# ``ends[0]`` is the span start, so no reader tests for the first item. A clone
+# whose build reads no position keeps no boundaries at all and passes ``()``:
+# its plan carries no span mode, so nothing indexes it.
+type Spans[Carry] = tuple[Sequence[int], list[list[Carry] | None] | None]
 
 
 def fast_values[Carry](

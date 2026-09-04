@@ -28,7 +28,7 @@ from lexic.parsing.parallel.plan.routed import (
     routed_plan,
 )
 from lexic.parsing.parallel.pool import WorkPool
-from lexic.parsing.parallel.replicas import worker_replicas
+from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.stitch.model import splice
 from lexic.parsing.parallel.stitch.plan import field_slot
 
@@ -121,11 +121,10 @@ def _parsed(
     """Parse the stand-in shell and every piece, or decline."""
     text, binding, resolve = ask
     plan, region, parts = work
-    views = worker_replicas(plan.rooted, binding, len(parts))
     try:
         shell = parse(grammar, _stand_in(text, region), binding, resolve)
         pieces = pool.map(
-            lambda k: parse(views[k][0], parts[k], views[k][1], resolve),
+            lambda k: worker_parse(parse, plan.rooted, parts[k], ask, pool),
             list(range(len(parts))),
         )
     except LexicError:

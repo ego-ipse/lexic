@@ -2,13 +2,11 @@
 
 The README never carries a hand-typed measurement. Every figure inside its
 ``<!-- lexic:begin NAME -->`` / ``<!-- lexic:end NAME -->`` markers, and every
-SVG under ``docs/assets/``, is rendered by this tool from two committed
-artifacts — ``tools/benchmark/lexic_baseline.json`` (the pre-commit ratchet's
-fresh-process Lexic rows, updated whenever a performance change is accepted)
-and ``tools/benchmark/competitors_baseline.json`` (the dated cross-engine
-medians, refreshed deliberately by rerunning the full bench). The test count
-is what pytest collects, parametrized cases included. Nothing here runs a
-benchmark.
+SVG under ``docs/assets/``, is rendered by this tool from one committed
+artifact — ``tools/benchmark/competitors_baseline.json``, the dated medians of
+every seat, Lexic's own rows included, refreshed deliberately by rerunning the
+full bench with ``--json``. The test count is what pytest collects,
+parametrized cases included. Nothing here runs a benchmark.
 
 Each chart is ONE theme-adaptive SVG: a ``<style>`` block carries the
 light-mode palette and a ``prefers-color-scheme: dark`` override, so a plain
@@ -35,7 +33,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 ASSETS = ROOT / "docs" / "assets"
-LEXIC_BASELINE = ROOT / "tools" / "benchmark" / "lexic_baseline.json"
 COMPETITORS = ROOT / "tools" / "benchmark" / "competitors_baseline.json"
 
 Cell = float | str
@@ -104,7 +101,7 @@ def tests_badge() -> str:
 
 
 def mt_badge() -> str:
-    """The parallel-parse badge — the ladder's top speedup, from the ratchet."""
+    """The parallel-parse badge — the ladder's top speedup, from the artifact."""
     top = max(speedup for _, speedup in mt_speedups())
     return (
         f"![Parallel parsing](https://img.shields.io/badge/"
@@ -113,8 +110,8 @@ def mt_badge() -> str:
 
 
 def lexic_values() -> dict[str, dict[str, float]]:
-    """The ratchet's per-grammar row medians."""
-    return json.loads(LEXIC_BASELINE.read_text(encoding="utf-8"))["values"]
+    """The artifact's per-grammar medians — the Lexic seats read from the same run."""
+    return json.loads(COMPETITORS.read_text(encoding="utf-8"))["values"]
 
 
 DISPLAY_SEATS = (
@@ -182,7 +179,7 @@ def mt_speedups() -> list[tuple[str, float]]:
 
 
 def lexic_table() -> str:
-    """The always-current Lexic table, straight from the ratchet baseline."""
+    """The Lexic ladder, straight from the artifact's Lexic seats."""
     head = (
         "| grammar | pda | `@lexical` | `@lexical` `@non-semantic` |"
         " 16-worker | speedup | earley |\n|---|---|---|---|---|---|---|"

@@ -44,6 +44,7 @@ from lexic.parsing.pda.runtime.islands import IslandPolicy, island_parse, island
 from lexic.parsing.pda.runtime.matchers import (
     loop_spec,
     match_cc,
+    match_cc1,
     match_chartable,
     match_lit,
     run_span_once,
@@ -102,20 +103,12 @@ class KernelExecutionMixin[Carry]:
         if arm.n != clone.n_items:
             return leaf_mismatch(clone, out, arm.n, pos, self._caches.intern)
         start = pos
-        ends = [start] * (arm.n + 1)
+        ends = [start] * (arm.n + 1) if clone.needs_ends else None
         sinks: list[Any] | None = None
         for i in range(arm.n):
             k = arm.kinds[i]
             if k == OP_CC1:
-                payload = arm.payloads[i]
-                char = text[pos : pos + 1]
-                if (
-                    (char == "" or char in payload[0])
-                    if payload[1]
-                    else (char not in payload[0])
-                ):
-                    raise PdaFail(f"char class miss at {pos}", pos)
-                pos += 1
+                pos = match_cc1(text, arm.payloads[i], pos)
             elif k == OP_LIT1:
                 lit = arm.payloads[i]
                 if not text.startswith(lit, pos):
@@ -146,8 +139,9 @@ class KernelExecutionMixin[Carry]:
                     if k == OP_LIT
                     else match_cc(text, arm, i, pos)
                 )
-            ends[i + 1] = pos
-        out.append(clone.fast(fast_values(self.text, clone, (ends, sinks))))
+            if ends is not None:
+                ends[i + 1] = pos
+        out.append(clone.fast(fast_values(self.text, clone, (ends or (), sinks))))
         return pos
 
     def _match_vstr(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
@@ -325,14 +319,14 @@ class KernelExecutionMixin[Carry]:
                     fast_values(
                         self.text,
                         clone,
-                        (frame.ends, frame.sinks),
+                        (frame.ends or (), frame.sinks),
                     )
                 )
             else:
                 model = build_sequence(self.text, frame, clone, self._caches.intern)
         elif mode == BUILD_VALUE_STR:
             model = build_vstr(
-                clone, self.text[frame.ends[0] : self.pos], self._caches.intern
+                clone, self.text[frame.span_start() : self.pos], self._caches.intern
             )
         else:  # BUILD_ALT
             model = frame.alt_model()

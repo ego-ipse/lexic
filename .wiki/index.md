@@ -14,6 +14,7 @@
 | Old `Atom` shape vs new `IrItem` shape — fields, type aliases? | [[lexic/ir-shapes]] |
 | How do I add a new grammar flavour? | [[lexic/flavour-system]] |
 | Which compile function should I call? What does CompiledGrammar contain? | [[lexic/public-api]] |
+| What program does a parse run? `ModelExecutable`, the product ABI, `register_model`? | [[lexic/public-api]], [[lexic/architecture]] |
 | How do exported twin modules work (export_module / attach_module / layout / emit_ir)? | [[lexic/generated-modules]] |
 | How do I write a PARSED VALUE to an importable module? What are the three targets? | [[lexic/generated-modules]], [[lexic/public-api]] |
 | Why was design choice X made? | [[lexic/decisions]] |

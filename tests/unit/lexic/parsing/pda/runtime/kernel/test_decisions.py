@@ -105,4 +105,6 @@ def test_close_loop_resets_count_advances_i_and_records_the_end():
     assert result == 2
     assert frame.count == 0
     assert frame.i == 2
-    assert frame.ends[2] == 42
+    ends = frame.ends
+    assert ends is not None  # this clone keeps boundaries
+    assert ends[2] == 42

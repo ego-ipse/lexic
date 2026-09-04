@@ -1875,3 +1875,26 @@ nine such dangling references were removed.
 2026-08-25: Added [[lexic/transpilation]] — the user-facing transpilation story (both planes, the RULES vocabulary, the run-time contract gates), extracted from the README so the front page can link instead of inline it.
 
 2026-08-25: [[lexic/parallel-parsing]] corrected — shared synthesized classes do NOT set the free-threaded ceiling (heap types carry deferred refcounts; measured equal to per-worker classes). New section: the document is copied per thread at the product entries; the copy idiom and why every obvious idiom is a no-op; orchestrate's slices already clear.
+
+2026-09-04: The product ABI replaces the instance fold — mechanical page
+updates for the delta from `main`. [[lexic/architecture]] and
+[[lexic/public-api]] now describe `CompiledGrammar.product`
+(`ModelExecutable`, verified cold at binding, immutable after), the
+`parsing/product/` and `compile/product/` packages (`register_model`,
+`ProductRegistry`, `RuleRoutine`, `CaptureRoutine`, `verify_program`,
+`complete_product`), the `pipeline/binding.py → rulemap.py` and
+`module/bind.py → attach.py` renames, `parsing/lift.py` and
+`stitch/plan.py`, and the changed signatures (`parse_model(grammar, text,
+binding)`, `pda_tables(grammar, binding)`, `watch(tables, text, executor)`).
+[[lexic/ir-shapes]] points span capture and `compute_binding` at their
+current homes. [[lexic/decisions]] records the 2026-09-04 decision and the §4
+rulings (typed slotted `Frame` with boundaries only under `needs_ends`;
+replicas bound to the worker's THREAD via `worker_parse`; `cores=AUTO` the
+logical count; the control-envelope performance gate with no minimum effect
+size; `RouteLane` retained until §6) and marks the 2026-07-06 `ModelFold`
+decision superseded. [[lexic/parallel-parsing]] corrects the replica
+mechanism (per-object reference-count ownership, paid on one CPU with no
+concurrency) and states the thread binding with its measured effect. The
+README renders from one artifact now — `lexic_baseline.json` (the deleted
+ratchet's file) is gone and `tools/render_readme.py` reads the Lexic seats
+from `competitors_baseline.json`.

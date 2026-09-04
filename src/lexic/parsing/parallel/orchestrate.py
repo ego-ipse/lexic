@@ -46,7 +46,7 @@ from lexic.parsing.parallel.plan.speculation import speculative_openings
 from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
-from lexic.parsing.parallel.replicas import worker_replicas
+from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
 from lexic.parsing.parallel.stitch.interior import routed_split
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
@@ -315,14 +315,10 @@ def _split_parse[M: IrNamedTuple](
     if not terminated and plan.lead_grammar is None:
         if any(lead != plan.lead_literal for lead in leads):
             return None
-    # Each worker parses against its OWN equal grammar and binding copy: the
-    # tables are read-only, but sharing one set of them across cores is what
-    # flattens scaling at ~1.8x (refcount cache-line traffic, measured).
-    views = worker_replicas(plan.grammar, binding, len(spans))
     try:
         chunks = pool.map(
-            lambda k: parse(
-                views[k][0], text[spans[k][0] : spans[k][1]], views[k][1], resolve
+            lambda k: worker_parse(
+                parse, plan.grammar, text[spans[k][0] : spans[k][1]], ask, pool
             ),
             list(range(len(spans))),
         )
@@ -351,7 +347,7 @@ near-misses out-cost the sequential parse it is racing."""
 
 
 def _piece(
-    parse: ModelProduct, view: tuple, text: str, resolve: Resolver | None
+    parse: ModelProduct, grammar: IrAst, text: str, ask: Request, pool: WorkPool
 ) -> IrNamedTuple | None:
     """One piece's model, or ``None`` when it refuses.
 
@@ -360,7 +356,7 @@ def _piece(
     and the caller's sequential parse is what raises.
     """
     try:
-        return parse(view[0], text, view[1], resolve)
+        return worker_parse(parse, grammar, text, ask, pool)
     except LexicError:
         return None
 
@@ -373,10 +369,11 @@ def _attempt[M: IrNamedTuple](
     pool: WorkPool,
 ) -> tuple[list, int]:
     """Parse every piece; the models, and the first failing index (``-1`` none)."""
-    text, binding, resolve = ask
-    views = worker_replicas(plan.grammar, binding, len(spans))
+    text = ask.text
     found = pool.map(
-        lambda k: _piece(parse, views[k], text[spans[k][0] : spans[k][1]], resolve),
+        lambda k: _piece(
+            parse, plan.grammar, text[spans[k][0] : spans[k][1]], ask, pool
+        ),
         list(range(len(spans))),
     )
     return found, next((k for k, one in enumerate(found) if one is None), -1)
@@ -456,10 +453,10 @@ def _parse_region_parts[M: IrNamedTuple](
     pool: WorkPool,
 ) -> list[list[GrammarModel]] | None:
     """Parse every region piece concurrently against per-worker replicas."""
-    tasks, owners = region_tasks(works, ask.binding)
+    tasks, owners = region_tasks(works)
     try:
         parsed = pool.map(
-            lambda k: parse(tasks[k][0], tasks[k][2], tasks[k][1], ask.resolve),
+            lambda k: worker_parse(parse, tasks[k][0], tasks[k][1], ask, pool),
             list(range(len(tasks))),
         )
     except LexicError:

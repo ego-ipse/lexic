@@ -92,15 +92,25 @@ grammar are not always the shapes the analysis meets.
 
 ## Replicas: why concurrent parses stop fighting
 
-The engine memoises compiled tables per `(grammar, fold)` **identity**. Under
-free threading that is the bottleneck — the tables are read-only, but reading
-them from many cores ping-pongs their refcount cache lines, and scaling flattens
-around 1.8× however many cores exist.
+The engine memoises compiled tables per `(grammar, product)` **identity**. Under
+free threading that is the bottleneck — the tables are read-only, but an object
+one thread allocated costs every OTHER thread an atomic reference count per
+read (biased reference counting: ownership is per object, and the cost is paid
+on a single CPU with no concurrency at all, not only as cross-core cache-line
+traffic), and scaling flattens around 1.8× however many cores exist.
 
-Each worker gets an **equal but distinct** grammar and its own view of the fold,
-hence its own memo entry, hence its own cache lines. Measured on 8 threads:
-1.82× shared, 3.71× with grammar replicas, 4.21× with the fold shallow-copied,
-5.34× once the fold's container spine is copied too. Synthesized model classes
+Each worker gets an **equal but distinct** grammar and its own replica of the
+product's executor (`Replica`, `ModelExecutable.replica()`), hence its own memo
+entry, hence its own objects. Measured on 8 threads when this landed: 1.82×
+shared, 3.71× with grammar replicas, 4.21× with the executor shallow-copied,
+5.34× once its container spine is copied too. A replica only pays when the
+thread that PARSES against it is the thread that compiled it: every chunk parse
+in a split goes through `worker_parse`, which takes the replica bound to the
+worker's own thread (`WorkPool` numbers its threads; slot 0 is the original
+pair, reserved for the submitting thread), never the one at the task's index —
+choosing by task let the pool reshuffle the pairing every document, and 44 % of
+cut-route and 74 % of region-route chunk parses ran against another thread's
+replica at 12–23 % of a chunk's CPU. Synthesized model classes
 stay shared by necessity — two workers building two different classes for one
 rule would break model equality, which is the thing the split exists to
 preserve.

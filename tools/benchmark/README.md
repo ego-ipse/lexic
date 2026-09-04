@@ -56,5 +56,6 @@ the pair bound is reported unresolved rather than forced into a median.
 cannot reserve a quiet machine, so it proves the rows are still the rows and
 times nothing.
 
-`lexic_baseline.json` is fingerprinted trend data for the rendered README. It is
-neither a cross-machine gate nor an approval channel.
+`competitors_baseline.json` is the one committed artifact the README renders
+from — every seat's dated medians from a full `bench --json` run, Lexic's own
+rows included. It is neither a cross-machine gate nor an approval channel.

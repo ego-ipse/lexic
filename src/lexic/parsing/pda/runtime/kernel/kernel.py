@@ -91,6 +91,7 @@ from lexic.parsing.pda.runtime.kernel.execution import KernelExecutionMixin
 from lexic.parsing.pda.runtime.matchers import (
     chase_dispatch,
     match_cc,
+    match_cc1,
     match_lit,
 )
 from lexic.parsing.product import ProductExecutor
@@ -283,19 +284,12 @@ class PdaKernel[M](
             kinds = arm.kinds
             n = arm.n
             i = frame.i
+            ends = frame.ends
             pos = self.pos
             while i < n:
                 k = kinds[i]
                 if k == OP_CC1:
-                    payload = arm.payloads[i]
-                    char = text[pos : pos + 1]
-                    if (
-                        (char == "" or char in payload[0])
-                        if payload[1]
-                        else (char not in payload[0])
-                    ):
-                        raise PdaFail(f"char class miss at {pos}", pos)
-                    pos += 1
+                    pos = match_cc1(text, arm.payloads[i], pos)
                 elif k == OP_LIT1:
                     lit = arm.payloads[i]
                     if not text.startswith(lit, pos):
@@ -325,7 +319,8 @@ class PdaKernel[M](
                         break  # pushed — the sub-frame drives next
                     pos = self.pos
                     continue
-                frame.ends[i + 1] = pos
+                if ends is not None:
+                    ends[i + 1] = pos
                 i += 1
             else:  # items exhausted without a descent — the frame completes
                 frame.i = i
@@ -371,7 +366,8 @@ class PdaKernel[M](
         if not need:
             frame.count = 0
             frame.i = i + 1
-            frame.ends[i + 1] = pos
+            if frame.ends is not None:
+                frame.ends[i + 1] = pos
             self.pos = pos
             return i + 1
         frame.count = count + 1
@@ -390,11 +386,11 @@ class PdaKernel[M](
             sink = sinks[i]
             if sink is None:
                 sinks[i] = sink = []
-        if k <= OP_GRP:  # OP_REF / OP_GRP — a clone entry
-            if self._enter(arm.payloads[i], sink):
-                return -1
-            return i  # consumed inline — same item continues
-        return self._descend_island(arm, i, pos, sink)
+        if k > OP_GRP:  # OP_ISLAND / OP_FAIL — the cold descent, taken first
+            return self._descend_island(arm, i, pos, sink)
+        # A clone entry: a push means the sub-frame drives next; an inline
+        # consumption leaves the same item to continue.
+        return -1 if self._enter(arm.payloads[i], sink) else i
 
     def _descend_island(self, arm: FlatArm, i: int, pos: int, sink: list[M]) -> int:
         """A due ``OP_ISLAND`` splice or ``OP_FAIL`` raise — the descent's cold tail.

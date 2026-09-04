@@ -277,12 +277,17 @@ def _check_fields(
 
 
 def _check_needs_ends(label: str, clone: FlatClone, product: RuleProduct) -> None:
-    """Item ends are kept exactly when some capture reads one."""
-    wanted = any(
+    """Item ends are kept exactly when the build reads a position.
+
+    Two ways a build reads one: a capture bound to an item's text or extent,
+    and a ``value_str`` clone, whose model IS its own matched extent and whose
+    completion therefore slices from the frame's first boundary.
+    """
+    wanted = clone.mode == BUILD_VALUE_STR or any(
         spec.mode in (CaptureMode.TEXT, CaptureMode.EXTENT) for spec in product.captures
     )
     _check(
-        f"{label}: needs_ends {clone.needs_ends} for text captures {wanted}",
+        f"{label}: needs_ends {clone.needs_ends} for position reads {wanted}",
         clone.needs_ends == wanted,
     )
 

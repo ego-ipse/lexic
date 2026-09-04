@@ -31,8 +31,10 @@ grammar text
                           │     (lexic.compile.pipeline.synthesis — type() build,
                           │      __grammar__/__binds__, NO file) → dict[str, type]
                           ├─► flavour_singleton.apply(node)   → grammar text
-                          └─► IR body-table → parsing/fold.py's
-                                ModelFold (bakes to dict[str, RuleFold]), over
+                          └─► register_model(codegen_grammar, view, classes)
+                                (lexic.compile.product.registry) → ModelExecutable
+                                (lexic.parsing.executable — the product program,
+                                lowered once and verified cold at binding), over
                                 codegen_grammar = normalize(lift_optional_nullables(ast))
 ```
 
@@ -44,11 +46,11 @@ Entry points in the `compile/` package:
 - `compile_from_path(path, *, flavour=None)` — path-in (flavour inferred from extension).
 - `canonical_grammar(text, flavour, *, non_semantic_rules=None, start=None)` — the public front half: text → canonical, semantic-flagged `IrAst`. `generate.py` and transpilers (`getting_started/ex04`) build on this directly, without generating classes.
 
-`compile_text` / `compile_from_path` return `CompiledGrammar(classes, grammar, codegen_grammar, fold, flavour, stem)` (`compile/artifact.py`). `grammar: IrAst` is the **canonical** grammar (what the user's grammar IS — also the exported module's `GRAMMAR`); `codegen_grammar: IrAst` is the post-pass grammar the fold binds against and `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity); `fold: ModelFold` folds positionally over that grammar; `flavour`/`stem` carry the export identity. `compile_from_path` uses `path.stem` as the stem; `compile_text` uses `anon_<sha1-of-text>`. One-line entries: `parse_instance(text, grammar, *, flavour)` / `parse_instance_from_path(text, path)` — `parse` itself is the ENGINE's name (`lexic.parsing.parse`), never reused. On explicit request `export_module(compiled, path, *, inline_tables=False)` writes an importable twin module — see [[generated-modules]]. See [[public-api]] for the full `CompiledGrammar` contract.
+`compile_text` / `compile_from_path` return `CompiledGrammar(grammar, product, moments, flavour, stem, tokens, split_analysis)` (`compile/artifact.py`). `grammar: IrAst` is the **canonical** grammar (what the user's grammar IS — also the exported module's `GRAMMAR`); `codegen_grammar` (a read of `moments`) is the post-pass grammar the product binds against and `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity); `product: ModelExecutable[GrammarModel]` is the bound product program both engines execute (immutable after verification; `.executor` is its `ProductExecutor`); `classes` is a read of `moments`; `flavour`/`stem` carry the export identity. `compile_from_path` uses `path.stem` as the stem; `compile_text` uses `anon_<sha1-of-text>`. One-line entries: `parse_instance(text, grammar, *, flavour)` / `parse_instance_from_path(text, path)` — `parse` itself is the ENGINE's name (`lexic.parsing.parse`), never reused. On explicit request `export_module(compiled, path, *, inline_tables=False)` writes an importable twin module — see [[generated-modules]]. See [[public-api]] for the full `CompiledGrammar` contract.
 
 ## The positional fold replaces the wrapper-rule bridge
 
-Before the 2026-07-04 cutover, instance parsing reconstituted `list[RuleSpec]` into a *second*, synthetic `IrAst` with `--f<idx>` wrapper rules carrying field names as grammar symbols, then a wrapper-rule fold (the *old* `ModelFold`, `parsing/models.py`) walked that wrapper tree. That whole bridge is gone. `normalize()` (`parsing/normalize.py`) replaces each grammar item **in place** when desugaring to classical Earley-shaped rules, so an original item is always exactly one symbol slot in the normalized arm: for a rule's `ParseTree` node, `kids[i] ↔ items[i]`. Field extraction is therefore **positional indexing** against the *real* codegen grammar — `parsing/fold.py`'s `ModelFold` (2026-07-06; the name is reclaimed for the one authored fold type, distinct from that retired wrapper-rule fold), whose authored form is an **IR body-table** (`IrMap[IrRuleRef, ModelBody]`) that bakes on construction to the plain-data `RuleFold`/`FieldFold` records built by the compile package from the binding view + generated classes. No wrapper rules, no field-name-as-grammar-symbol protocol.
+Before the 2026-07-04 cutover, instance parsing reconstituted `list[RuleSpec]` into a *second*, synthetic `IrAst` with `--f<idx>` wrapper rules carrying field names as grammar symbols, then a wrapper-rule fold (the *old* `ModelFold`, `parsing/models.py`) walked that wrapper tree. That whole bridge is gone. `normalize()` (`parsing/normalize.py`) replaces each grammar item **in place** when desugaring to classical Earley-shaped rules, so an original item is always exactly one symbol slot in the normalized arm: for a rule's `ParseTree` node, `kids[i] ↔ items[i]`. Field extraction is therefore **positional indexing** against the *real* codegen grammar — the product program's per-rule captures (`parsing/product/`: `RuleProduct` → verified `RuleRoutine` with one `CaptureRoutine(slot, mode, optional, name)` per bound slot), authored by the compile package from the binding view + generated classes (`compile/product/registry.py`'s `register_model`) and lowered once to flat tables (`parsing/product/lower.py`) that `verify_program` checks cold at binding. (`ModelFold`/`ModelBody`/`RuleFold` — the 2026-07-06 IR body-table — are deleted; see [[decisions]].) No wrapper rules, no field-name-as-grammar-symbol protocol.
 
 ## The IR substrate
 
@@ -98,9 +100,9 @@ Three named subclasses configure the dispatcher's default:
 `src/lexic/parsing/` is a single native Earley engine (SPPF-based, Scott 2008) that both paths share — there is no Lark anywhere, and no separate meta-grammar-parser layer:
 
 - **Grammar parsing:** `flavour.grammar` (an `IrAst` authored directly, not derived from any string grammar) is compiled into an artefact; `flavour.reducer` derives a pruned variant whose model is thin-folded to recover the `IrAst` of the grammar being compiled.
-- **Instance parsing:** the codegen grammar (the *same* `IrAst` shape, post `build_codegen_grammar`) is normalized (`lift_optional_nullables` then `normalize`) and parsed by the same engine; `parsing/fold.py`'s `ModelFold` (the name reclaimed 2026-07-06 for the one authored fold type — the wrapper-rule `ModelFold` that died with `parsing/models.py` is unrelated) folds a `ParseTree` into record-spine model instances (`IrNamedTuple`) by positional indexing, not by a wrapper-rule name protocol.
+- **Instance parsing:** the codegen grammar (the *same* `IrAst` shape, post `build_codegen_grammar`) is normalized (`lift_optional_nullables` then `normalize`) and parsed by the same engine; the bound product (`ModelExecutable`, `parsing/executable.py`) completes each rule through its verified routine — the PDA bakes the routine into its clones (`pda/compiler/program/product.py`), the tree route runs it over the `ParseTree` (`parsing/product/tree.py`'s `complete_product`) — building record-spine model instances (`IrNamedTuple`) by positional indexing, not by a wrapper-rule name protocol.
 
-See `src/lexic/parsing/__init__.py`'s module docstring for the full engine module map (`kernel/tables`, `kernel/loop`, `kernel/forest`, `engine`, `normalize`, `fold`) and public API (`parse_model`, `recognize`, `parse`, `parse_first`, `parse_forest`, `derivations`, `is_ambiguous`).
+See `src/lexic/parsing/__init__.py`'s module docstring for the full engine module map (`kernel/tables`, `kernel/loop`, `kernel/forest`, `engine`, `normalize`, `lift`, `product/`, `executable`) and public API (`parse_model`, `earley_model`, `token_model`, `pda_tables`, `recognize`, `parse`, `parse_first`, `parse_forest`, `derivations`, `is_ambiguous`).
 
 ## IR is passed by action table, not closed subclass
 
@@ -156,7 +158,7 @@ lexic runtime  ↗  lexic.compile, lexic.parsing    (runtime NEVER imports the e
 **The two deliberate exceptions:**
 
 1. `model.py` imports `get_flavour` from `lexic.grammars` to drive `to_grammar()` (`get_flavour(flavour).apply(self.__grammar__)` — `__grammar__` is already an `IrRule`, no intermediate conversion). The GBNF singleton is `lexic.grammars.gbnf.GBNF_FLAVOUR`.
-2. The `lexic.compile` package is the single runtime seam onto the engine (`lexic.parsing` — `parse_model`; `lexic.parsing.fold`; `lexic.parsing.normalize.normalize`; `lexic.parsing.earley.reduce.Reducer`). Only `compile/__init__.py` is importable from outside the package; the passes / binding / synthesis / notation / loader / export / artifact submodules live inside it. All public, all explicit.
+2. The `lexic.compile` package is the single runtime seam onto the engine (`lexic.parsing` — `parse_model`; `lexic.parsing.executable`; `lexic.parsing.product`; `lexic.parsing.normalize.normalize`). Only `compile/__init__.py` is importable from outside the package; the pipeline (passes / rulemap / synthesis / moments / naming), product (registry), module (export / attach / selfgrammar / verify / rules), notation, output and artifact submodules live inside it. All public, all explicit.
 
 No `TYPE_CHECKING` dodges. No lazy intra-function imports of the engine. `tests/integration/lexic/invariants/test_layering_invariants.py` enforces all of the above by static grep, including that only the `lexic.compile` package may import `lexic.parsing`, that only `compile/__init__.py` is reachable from outside the package, and that `src/` stays free of any schema-validation framework.
 
@@ -166,8 +168,8 @@ No `TYPE_CHECKING` dodges. No lazy intra-function imports of the engine. `tests/
 |---|---|
 | `lexic.ir` | IR substrate: nodes, action algebra, dispatcher + presets, mapping, canonicalization, rule ordering, field binding marker (`IrBind`), escapes, flavour ABC, and the layout algebra (`layout.py` — width-aware doc combinators; see [[generated-modules]]). |
 | `lexic.grammars` | Flavour singletons. Each flavour module (`gbnf.py`, `abnf.py`) bundles an `EscapeCodec` instance, emit `actions`, a self-grammar `IrAst`, and a parse `Reducer` in one file. `json.py` is a third, flavour-neutral module: the JSON grammar authored directly as `IrAst` (RFC 8259), not parsed from any source text — the canonical target both front-ends reduce to. |
-| `lexic.parsing` | The engine (grammar-agnostic): the Earley core (`earley/` — `kernel/` split into `tables` (the compiled grammar), `loop` (what fills the chart) and `forest` (what the filled chart means), plus normalize), the predictive PDA (`pda/` — analysis, model compiler, fused runtime), the `parse_model` product entry (PDA-first with Earley completion), and the instance fold (`fold.py` — a generic positional fold, no compile knowledge). |
-| `lexic.compile` | The compilation subsystem: grammar→grammar passes (`passes.py`), the binding view (`binding.py`), runtime class synthesis (`synthesis.py` — `type()`, no file write), the artefact (`artifact.py` — `CompiledGrammar`), the importable-twin exporter (`export.py` — see [[generated-modules]]), the IR-constructor notation (`notation.py` — `load_ir` parse half + `emit_ir` emit half), the flavour loader (`loader.py`). |
+| `lexic.parsing` | The engine (grammar-agnostic): the Earley core (`earley/` — `kernel/` split into `tables` (the compiled grammar), `loop` (what fills the chart) and `forest` (what the filled chart means), plus normalize), the predictive PDA (`pda/` — analysis, model compiler, fused runtime), the `parse_model` product entry (PDA-first with Earley completion; `earley_model` / `token_model` beside it), the product ABI (`product/` — authored operations, their flat int-coded lowering, cold verification, one executable routine per rule for both engines, the tree-route completion, the regular-language proof), the bound product (`executable.py` — `ModelExecutable`, `ProductExecutor`), the optional-nullable lift (`lift.py`), and the parallel layer (`parallel/`). |
+| `lexic.compile` | The compilation subsystem: grammar→grammar passes (`pipeline/passes.py`), the binding view (`pipeline/rulemap.py` — `compute_binding`, `RuleMap`), runtime class synthesis (`pipeline/synthesis.py` — `type()`, no file write), the compile moments (`pipeline/moments.py`), the product binding (`product/registry.py` — `register_model`, `ProductRegistry`; the compile half of the product ABI), the artefact (`artifact.py` — `CompiledGrammar`), the importable-twin exporter and its binder (`module/export.py`, `module/attach.py` — see [[generated-modules]]), the IR-constructor notation (`notation/` — `load_ir` parse half + `emit_ir` emit half, the flavour loader), reduction (`reduction.py`, `reduce/`), and the output surfaces (`output/` — presentation, templating, transpile). |
 | `lexic` (root) | Runtime: `GrammarModel` (`model.py`), `generate`; re-exports `compile_text`/`compile_from_path`/`parse_grammar`/`parse_instance`/`parse_instance_from_path`. |
 
 ## File tree (abbreviated — see CLAUDE.md §Project layout for the full map)
@@ -178,9 +180,13 @@ src/lexic/
   ir/        base, nodes, operators, action, mapping, walk, flavour,
              canonical, bind, order, layout, meta, escapes
   grammars/  __init__ (registry), gbnf, abnf, json
-  parsing/   __init__ (products + toolkit), products, fold, earley/, pda/
-  compile/   __init__ (entries + attach_module), artifact, passes, binding,
-             synthesis, export, notation, loader
+  parsing/   __init__ (products + toolkit), products, executable, lift, caches,
+             trace, product/ (abi/, lower, verify, routines, tree, state, regular),
+             earley/, pda/, parallel/
+  compile/   __init__ (entries + attach_module), artifact, foldkit, reduction,
+             verdict, pipeline/ (passes, rulemap, synthesis, moments, naming),
+             product/ (registry), module/ (export, attach, selfgrammar, verify,
+             rules), notation/, output/, payload/, reduce/
 ```
 
 `src/lexic/parsing/` (Lark: `meta_parser.py`, `lark_builder.py`, `transformer/`) is **gone outright** — no `parsing_legacy`/`parsing_old` shim. `lark` is not a runtime dependency and `src/` never imports it. It survives as a dev dependency, one competitor among several in `tools/benchmark/` — where its grammar, like every other engine's, is derived mechanically from the one `IrAst` lexic compiles, so a row compares one question rather than several.

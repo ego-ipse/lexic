@@ -432,9 +432,7 @@ class Attempting[Carry]:
         routes = None if self._routes is None else self._routes.forked(forked)
         top = forked[-1]
         if taken is None:
-            top.count = 0
-            top.i = i + 1
-            top.ends[i + 1] = pos
+            top.close_loop(i, pos)
             return forked, pos, routes
         top.count += 1
         top.i = i
@@ -667,9 +665,7 @@ class Attempting[Carry]:
         root_out = forked[0].out
         top = forked[-1]
         if taken is None:
-            top.count = 0
-            top.i = i + 1
-            top.ends[i + 1] = pos
+            top.close_loop(i, pos)
             start = pos
         else:
             top.count += 1

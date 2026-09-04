@@ -24,12 +24,14 @@ from __future__ import annotations
 
 import itertools
 import threading
-from typing import NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.policy import available_workers
+from lexic.parsing.parallel.pool import WorkPool
 
 Replica = tuple[IrAst, ModelExecutable]
 """One worker's private view: an equal grammar, and a binding copy."""
@@ -126,6 +128,41 @@ def _resolve[M](
     replica = pool[_ASSIGNED.index % workers]
     mine[key] = _Assigned(grammar, binding, replica)
     return replica
+
+
+def worker_parse[M](
+    parse: Callable[..., Any],
+    grammar: IrAst,
+    text: str,
+    ask: tuple[str, ModelExecutable[M], Any],
+    pool: WorkPool,
+) -> Any:
+    """Parse ``text`` against the CALLING worker thread's own view of ``grammar``.
+
+    **Call it from inside the work, never from the submitting thread.** The
+    view belongs to the thread, not to the task: a replica's tables are
+    compiled by whichever thread first parses against it, and under free
+    threading every later read of those objects from a different thread is an
+    atomic reference count instead of a local one. Indexing the pool by task
+    number put 44% (cut route) to 74% (region route) of chunk parses on a
+    replica some other thread had compiled, and such a parse costs 12 to 23%
+    more CPU than one against its own.
+
+    :param parse: The model product, injected by the caller.
+    :param grammar: The grammar this chunk is parsed against.
+    :param text: This worker's chunk — NOT ``ask``'s document.
+    :param ask: The split request, ``(document, binding, resolver)``; only the
+        binding and the resolver are read here.
+    :param pool: The pool running this work — it numbers its own threads.
+    """
+    _document, binding, resolve = ask
+    # Skipping slot 0 is the same rule once more: that slot is the ORIGINAL
+    # pair, which the submitting thread parses against itself (a stand-in
+    # shell, a lead, a sequential fallback), so one worker in every pool would
+    # otherwise be reading objects that thread allocated.
+    pairs = worker_replicas(grammar, binding, pool.workers + 1)
+    view_grammar, view_binding = pairs[pool.slot() + 1]
+    return parse(view_grammar, text, view_binding, resolve)
 
 
 def thread_replica[M](grammar: IrAst, binding: ModelExecutable[M]) -> Replica:

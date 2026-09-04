@@ -75,7 +75,9 @@ def test_frames_copy_mutations_never_reach_the_originals():
     holder: list[IrSelf] = []
     frame = _frame(holder, [3, 7], None)
     copies = frames_copy([frame])
-    copies[0].ends[0] = 99
+    copied_ends = copies[0].ends
+    assert copied_ends is not None
+    copied_ends[0] = 99
     copies[0].out.append(IrStr("probe"))
     assert frame.ends == [3, 7]
     assert not holder

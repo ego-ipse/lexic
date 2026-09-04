@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from threading import Lock
+from itertools import count
+from threading import Lock, local
 from types import TracebackType
 from typing import Self, cast
 
@@ -28,6 +29,29 @@ class WorkPool:
         """Resolve the worker ceiling and create the lazy executor."""
         self.workers = doc_workers(cores)
         self._pool = ThreadPoolExecutor(max_workers=self.workers)
+        self._slots = local()
+        self._taken = count()
+        self._slot_lock = Lock()
+
+    def slot(self) -> int:
+        """The calling WORKER thread's own index in ``range(self.workers)``.
+
+        Numbered by the pool because the pool owns the threads, and stable for
+        the thread's whole life — which is what lets a per-worker artefact stay
+        with one thread across documents. Indexing such an artefact by the task
+        instead moves a worker onto a different one almost every document, and
+        under free threading a read of an object another thread allocated is an
+        atomic reference count rather than a local one.
+
+        The executor never runs more than ``workers`` threads, so the modulo is
+        a bound and not a wrap: two live workers cannot share a slot.
+        """
+        mine = getattr(self._slots, "at", None)
+        if mine is None:
+            with self._slot_lock:
+                mine = next(self._taken) % self.workers
+            self._slots.at = mine
+        return mine
 
     def map[T, M](self, work: Callable[[T], M], items: Sequence[T]) -> list[M]:
         """Keep a bounded ready queue, return in order, and isolate failure."""

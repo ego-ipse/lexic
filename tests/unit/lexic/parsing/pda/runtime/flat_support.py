@@ -30,6 +30,11 @@ def flat_clone[Carry](
 ) -> FlatClone[Carry]:
     """A real :class:`FlatClone` in ``mode``, with only the lanes named filled.
 
+    ``needs_ends`` defaults to ``True`` because a frame reads it at
+    construction: a clone that binds a field to an item span keeps boundaries,
+    so a test that says nothing about spans gets the shape that has them. Pass
+    ``needs_ends=False`` for the boundary-free clone.
+
     :param mode: The clone's build mode.
     :param of: A sink whose model type the clone carries, so the caller's frame
         and its clone agree without either being asserted into place.
@@ -38,6 +43,7 @@ def flat_clone[Carry](
     del of
     clone: FlatClone[Carry] = FlatClone()
     clone.mode = mode
+    clone.needs_ends = True
     for name, value in lanes.items():
         setattr(clone, name, value)
     return clone

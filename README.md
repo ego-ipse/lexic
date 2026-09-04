@@ -12,7 +12,7 @@ parse one document across many threads on free-threaded Python.
 ![Python 3.14+](https://img.shields.io/badge/python-3.14+-3776AB?logo=python&logoColor=white)
 ![Zero runtime dependencies](https://img.shields.io/badge/runtime%20deps-zero-brightgreen)
 <!-- lexic:begin mt-badge -->
-![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.8x_on_16_threads-2a78d6)
+![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.2x_on_16_threads-2a78d6)
 <!-- lexic:end mt-badge -->
 <!-- lexic:begin tests-badge -->
 ![Tests](https://img.shields.io/badge/tests-5.5k%2B-brightgreen)
@@ -101,32 +101,29 @@ refusals included. Wall-clock speedup at 16 workers, per bench grammar:
 ![Wall-clock speedup at 16 workers per grammar, up to about 6x](docs/assets/mt-speedup.svg)
 
 The full Lexic ladder — directive-pruned rows (`@lexical`, `@non-semantic`)
-and the 16-worker row beside the plain engines (µs/char, from the committed
-regression baseline; a pre-commit ratchet confirms any >5% move in fresh
-processes before it can land):
+and the 16-worker row beside the plain engines (µs/char, from the same
+committed artifact as the table above; CI judges every change against its
+base as paired log ratios inside a byte-identical control's noise envelope,
+one fresh process per parse, so a slowdown the machine can distinguish from
+noise fails the build rather than a fixed percentage):
 
 <!-- lexic:begin lexic-bench -->
 | grammar | pda | `@lexical` | `@lexical` `@non-semantic` | 16-worker | speedup | earley |
 |---|---|---|---|---|---|---|
-| abnf-meta | 2.29 | 2.19 | 1.84 | 0.49 | **4.7×** | 69.3 |
-| announced | 0.19 | 0.13 | 0.13 | 0.07 | **2.6×** | 4.82 |
-| arithmetic | 2.10 | 1.92 | 1.86 | 0.59 | **3.6×** | 69.9 |
-| backtrack | 0.26 | 0.19 | 0.18 | 0.08 | **3.1×** | 7.94 |
-| csv | 0.56 | 0.42 | 0.42 | 0.17 | **3.3×** | 14.7 |
-| gbnf-meta | 2.62 | 2.28 | 2.31 | 0.51 | **5.2×** | 70.5 |
-| json | 1.24 | 1.04 | 1.05 | 0.30 | **4.1×** | 37.5 |
-| lexruns | 0.20 | 0.18 | 0.18 | 0.07 | **3.0×** | 8.08 |
-| markdown | 0.96 | 0.73 | 0.74 | 0.22 | **4.4×** | 40.3 |
-| mixedends | 0.52 | 0.30 | 0.31 | 0.17 | **3.0×** | 15.9 |
-| nested | 1.28 | 1.27 | 1.27 | 0.46 | **2.8×** | 34.4 |
-| vyx | 2.73 | 2.39 | 2.41 | 0.47 | **5.8×** | 55.6 |
+| abnf-meta | 2.30 | 2.13 | 1.85 | 0.48 | **4.7×** | 67.4 |
+| arithmetic | 2.20 | 1.78 | 1.81 | 0.58 | **3.8×** | 68.8 |
+| csv | 0.59 | 0.43 | 0.42 | 0.22 | **2.7×** | 16.5 |
+| gbnf-meta | 2.61 | 2.19 | 2.22 | 0.54 | **4.8×** | 69.9 |
+| json | 1.25 | 0.98 | 1.03 | 0.29 | **4.3×** | 37.2 |
+| markdown | 0.91 | 0.72 | 0.70 | 0.23 | **4.0×** | 39.0 |
+| vyx | 2.76 | 2.30 | 2.28 | 0.53 | **5.2×** | 53.8 |
 <!-- lexic:end lexic-bench -->
 
-Run it yourself: `uv run python -m tools.benchmark.bench --rounds 3`, or
-`--only json vyx` for a subset. The ANTLR Java row needs a JDK. Every number
+Run it yourself: `uv run python -m tools.benchmark.bench --rounds 3 --cores 16`,
+or `--only json vyx` for a subset. The ANTLR Java row needs a JDK. Every number
 above is rendered by `uv run python -m tools.render_readme` from
-`tools/benchmark/*.json`; a suite invariant fails if this README drifts from
-those artifacts.
+`tools/benchmark/competitors_baseline.json`; a suite invariant fails if this
+README drifts from that artifact.
 
 ## Quickstart
 
@@ -194,7 +191,7 @@ flowchart LR
     R -->|canonicalize| C["canonical IrAst"]
     C -->|codegen passes| G["codegen grammar"]
     G -->|"type() synthesis"| M["model classes"]
-    G -->|binding view| F["instance fold"]
+    G -->|binding view| F["product program<br>(verified at binding)"]
     M --> CG["CompiledGrammar"]
     F --> CG
     CG -->|".parse(text)"| I["typed model"]
@@ -206,8 +203,9 @@ flowchart LR
 One canonical `IrAst` in the middle is what makes grammars portable: two
 notations describing the same language converge on the same tree, and every
 flavour is an emitter *from* that tree. The same engine parses grammar text
-(each flavour's self-grammar is data) and instances (a positional fold over
-the real codegen grammar).
+(each flavour's self-grammar is data) and instances: one product program per
+grammar, lowered once and verified before any parse, that both engines execute
+against the real codegen grammar.
 
 ## Getting started
 
@@ -224,7 +222,7 @@ run any of them as `uv run python -m getting_started.<name>`:
 | 06 | [`token_grammar`](getting_started/ex06_token_grammar.py) | Token grammars: parse token-granular, round-trip, next-token mask. |
 | 07 | [`constrained_generation`](getting_started/ex07_constrained_generation.py) | A generation loop: mask → pick → `push` until `accepts()`. |
 | 08 | [`twin_module`](getting_started/ex08_twin_module.py) | Export an importable twin; lexic parses its own export back. |
-| 09 | [`json_reducer`](getting_started/ex09_json_reducer.py) | `CompiledGrammar.reduce`: fold a document to IR values. |
+| 09 | [`json_reducer`](getting_started/ex09_json_reducer.py) | `CompiledGrammar.reduce`: reduce a document to IR values. |
 | 10 | [`templating`](getting_started/ex10_templating.py) | Extract selected paths; skip the rest as raw spans. |
 | 11 | [`hf_tokenizer`](getting_started/ex11_hf_tokenizer.py) | Read an HF `tokenizer.json` with lexic's own JSON grammar. |
 | 12 | [`real_think_flow`](getting_started/ex12_real_think_flow.py) | `<think>` constrained decoding against a real 151k vocabulary. |
@@ -256,7 +254,7 @@ spell (EBNF has no negation) are refused explicitly, never approximated.
   that is pure data — completeness, membership and fidelity gated on every
   run. → [.wiki/lexic/transpilation.md](.wiki/lexic/transpilation.md)
 - **Reduce** — `compiled.reduce(text, reducer)` derives a pruned variant,
-  parses only what the reading needs, and folds the result to IR values. A
+  parses only what the reading needs, and reduces the result to IR values. A
   reducer is a *reading*; one compiled grammar can carry several.
 - **Template** — `template(compiled, shape, spec)` parses one pass, models
   only the paths you keep, captures the rest as raw spans.

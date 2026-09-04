@@ -345,7 +345,17 @@ fold-refusal reroute stays as the last line of defence.
 
 ---
 
-## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3)
+## 2026-09-04 — The product ABI replaces the instance fold; §4 rulings
+
+**Decision:** `ModelFold`/`ModelBody`/`RuleFold` (`parsing/fold.py`) are deleted. What a parse runs is a **product program** (`parsing/product/`): authored per-rule operations (`RuleProduct`), lowered once to flat int-coded tables, verified cold at binding (`verify_program` checks the PASS/RECORD/optional/matched-text/field-order relations), and read back as one `RuleRoutine` per rule for BOTH engines — the PDA bakes it into clones, the tree route runs it over the `ParseTree`. Binding (`compile/product/registry.py`'s `register_model` → `ModelExecutable`, memoised in a `ProductRegistry`) is the one moment an authored program becomes executable; the executable is **immutable after verification** (rebinding raises `UnsupportedConstructError`, the defective-artefact error, not the model-field one). A class's fast construction is a structural `ConstructionLicence`, never reflection. Rulings recorded with it: the PDA frame is a typed slotted `Frame` (seven lanes; slot reads beat list subscripts) whose boundary list exists only when the clone's build reads a position (`needs_ends`, which covers `value_str` clones — a value-string model IS its extent); a split parse's worker takes the table replica bound to its THREAD, never to the task's index (`worker_parse`); `cores=AUTO` stays the logical CPU count; the performance gate is paired log ratios against a byte-identical control envelope with NO minimum effect size and no growth for faster/ok rows; the PDA route lane (`RouteLane`, `admission.py`) stays in `src/` unconsumed until its §6 consumer.
+
+**Why:** one program both engines execute removes the privileged model-construction vocabulary the fold was, makes every target a specialisation of the same data, and lets a defect be refused cold with words instead of carried as `source == -1`.
+
+**Impact:** `CompiledGrammar.fold` → `CompiledGrammar.product`; `parse_model(grammar, text, binding)`, `pda_tables(grammar, binding)`, `watch(tables, text, executor)`; new packages `parsing/product/`, `compile/product/`; `pipeline/binding.py` → `pipeline/rulemap.py`, `module/bind.py` → `module/attach.py`; `parsing/lift.py` split out; `stitch/plan.py` split out of `stitch/model.py`. The 2026-07-06 decision below is superseded.
+
+---
+
+## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3) — SUPERSEDED 2026-09-04
 
 **Decision:** The instance fold's authored form is now **one IR-native type**, `ModelFold` (`parsing/fold.py`), whose `bodies` is a per-rule `IrMap[IrRuleRef, ModelBody]` — the *same shape* the grammar-text `Reducer` carries its `reductions` in (a per-rule `IrMap` to `IrSelf` bodies). A `ModelBody(kind, ctor, n_items, fields, fast)` (an `IrNamedTuple`, `_child_attrs=()`) carries the model constructor as an `IrLambda` (`IrNone` for an `alternation`, which has none) plus structural metadata. On construction `ModelFold` **bakes** every body (`ModelBody.bake()`) to the flat-runtime `config: dict[str, RuleFold]` (`.baked`) — the record the PDA clone compiler and the engine-fallback `apply` consume **byte-for-byte unchanged**. `RuleFold`/`FieldFold`/`FastCtor` survive as that lowered/baked representation; `ModelBody.of(rf)` is the inverse lift and `ModelFold.from_config(dict)` the direct-from-baked (lowered) constructor.
 
