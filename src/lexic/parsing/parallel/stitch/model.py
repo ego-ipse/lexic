@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, TypeIs, cast
 
 from lexic.exceptions import LexicError
-from lexic.ir import IrNamedTuple, IrSelf, IrTuple
+from lexic.ir import Bound, IrNamedTuple, IrSelf, IrTuple
 from lexic.model import GrammarModel
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.stitch.plan import RegionPlan, field_slot
@@ -83,10 +83,25 @@ def _nested(
     return value if len(route) == 1 else splice(child, route[1:], value)
 
 
-def splice(
-    root: GrammarModel, route: tuple[ModelStep, ...], value: GrammarModel
-) -> GrammarModel | None:
+def is_run(child: Bound) -> TypeIs[tuple[IrSelf, ...]]:
+    """Whether one bound value is a repetition's RUN — exactly a plain tuple.
+
+    Not ``isinstance``: every record and every :class:`IrTuple` is a tuple
+    subclass and none of them is a run, so the test is on the class itself.
+    Public because the stitch asks it from three places, and a fourth spelling
+    of it would be a fourth chance to get the subclass case wrong.
+    """
+    return child.__class__ is tuple
+
+
+def splice[M: GrammarModel](
+    root: M, route: tuple[ModelStep, ...], value: GrammarModel
+) -> M | None:
     """Replace the model at ``route``, immutably rebuilding its ancestors.
+
+    Generic in the root because the rebuild IS the root's own type: a model
+    rebuilds to its own class, so a caller holding a start-rule model gets one
+    back rather than the protocol's base.
 
     :param root: The current shell model.
     :param route: A route returned by :func:`sole_route`.
@@ -96,14 +111,14 @@ def splice(
     if not route:
         return None
     slot, repeated = route[0]
-    children = cast(list[Any], list(root.children()))
+    children: list[Bound] = list(root.children())
     if slot >= len(children):
         return None
     child = children[slot]
     if repeated is None:
         replacement = _nested(child, route, value)
     else:
-        if child.__class__ is not tuple or repeated >= len(child):
+        if not is_run(child) or repeated >= len(child):
             return None
         parts = list(child)
         replacement = _nested(parts[repeated], route, value)

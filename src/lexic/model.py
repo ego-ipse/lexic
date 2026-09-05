@@ -32,6 +32,7 @@ from typing import Any, Callable, ClassVar, Self, Sequence, cast
 from lexic.exceptions import FieldValidationError, UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir import (
+    Bound,
     IrAction,
     IrAddress,
     IrAlphabet,
@@ -462,8 +463,12 @@ class GrammarModel(IrNamedTuple):
     def children(self) -> Sequence[IrSelf]:
         """Bound-field values in item order — the model's walk/viz payload.
 
-        Follows the binds table's item order (not field declaration order);
-        an unset optional field contributes its ``None`` as-is.
+        Follows the binds table's item order (not field declaration order).
+        Two of these are not IR nodes and the walker protocol's ``IrSelf`` is
+        one simplification wide of them: a repetition binds the plain tuple of
+        its run, and an unset optional field contributes its ``None`` as-is.
+        :data:`~lexic.ir.spine.records.Bound` is the exact shape, and
+        :meth:`rebuild` takes it.
 
         :returns: The bound values, item order.
         """
@@ -475,7 +480,7 @@ class GrammarModel(IrNamedTuple):
             ),
         )
 
-    def rebuild(self, new_children: Sequence[IrSelf]) -> Self:
+    def rebuild(self, new_children: Sequence[Bound]) -> Self:
         """Splice replacements into the bound fields; keep everything else.
 
         The inverse of :meth:`children`: ``new_children`` supplies one value

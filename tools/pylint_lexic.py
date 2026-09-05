@@ -53,6 +53,7 @@ from astroid.brain.brain_namedtuple_enum import (
 )
 from astroid.typing import TransformFn
 from pylint.checkers import design_analysis
+from pylint.lint import PyLinter
 
 _FIELD_BASES = frozenset({"lexic.ir.base.IrNamedTuple", "lexic.ir.base.IrCachingTuple"})
 
@@ -162,10 +163,10 @@ def _bind_namedtuple_members(node: nodes.ClassDef) -> None:
 def _is_fixture_class(node: nodes.ClassDef) -> bool:
     """True for a class defined inside a function body.
 
-    Such a class is built to be exercised, not to be depended on: it lives and
-    dies inside one call, nothing can import it, and its members are whatever
-    the call needs to make its point. A node with no parent is not one — it has
-    no enclosing call to belong to.
+    A property of the definition, not of a name: a class whose enclosing scope
+    is a call lives and dies inside that call, nothing can import it, and its
+    members are whatever the call needs to make its point. A node with no
+    parent is not one — it has no enclosing call to belong to.
     """
     parent = node.parent
     return parent is not None and isinstance(
@@ -173,15 +174,46 @@ def _is_fixture_class(node: nodes.ClassDef) -> bool:
     )
 
 
-def _is_method_group(node: nodes.ClassDef) -> bool:
-    """True for a mixin — a class that exists to be inherited from.
+def _declares_unowned_state(node: nodes.ClassDef) -> bool:
+    """Whether the class annotates instance attributes it never assigns.
 
-    The convention this reads is the repository's own, stated in
-    ``parsing/README.md``: a mixin is an implementation seam, a group of one
-    owner's methods shed into a second file. It publishes nothing on purpose,
-    and its own instances are never built.
+    A bare ``text: str`` in a class body binds nothing. A class full of them,
+    with no ``__init__`` to fill them, is declaring what its OWNER holds.
     """
-    return node.name.endswith("Mixin")
+    return any(
+        isinstance(child, nodes.AnnAssign) and child.value is None
+        for child in node.body
+    )
+
+
+def _holds_no_state(node: nodes.ClassDef) -> bool:
+    """Whether the class declares ``__slots__ = ()`` — no instance dict, no slot."""
+    for child in node.body:
+        if not isinstance(child, nodes.Assign):
+            continue
+        named = any(
+            isinstance(target, nodes.AssignName) and target.name == "__slots__"
+            for target in child.targets
+        )
+        if named:
+            return isinstance(child.value, nodes.Tuple) and not child.value.elts
+    return False
+
+
+def _is_method_group(node: nodes.ClassDef) -> bool:
+    """True for a mixin — a group of one owner's methods, shed into a file.
+
+    Three structural facts, no name: it has no ``__init__``, it declares
+    ``__slots__ = ()`` so it holds nothing, and it annotates instance
+    attributes it never assigns — state that belongs to whatever class
+    inherits it. Such a class is never instantiated and publishes nothing on
+    its own; its interface is its owner's.
+    """
+    return (
+        "__init__" not in node.locals
+        and _holds_no_state(node)
+        and _declares_unowned_state(node)
+    )
 
 
 type Exempt = Callable[[nodes.ClassDef], bool]
@@ -198,9 +230,10 @@ def _counts_no_interface(exempt: Exempt, node: nodes.ClassDef) -> bool:
 
     - a class defined inside a function is a fixture, built to be exercised by
       the call that owns it and unreachable from anywhere else;
-    - a mixin is an implementation seam (``parsing/README.md``), a group of one
-      owner's methods shed into a second file. Its interface is the owner's and
-      its instances are never built.
+    - a class with no ``__init__``, ``__slots__ = ()`` and annotations it never
+      assigns is a method group: it holds nothing, it is never instantiated,
+      and both its state and its interface belong to the class that inherits
+      it (``parsing/README.md`` calls this an implementation seam).
 
     Everything else the checker decides for itself, which is what keeps a
     genuine thin abstraction reported.
@@ -208,13 +241,34 @@ def _counts_no_interface(exempt: Exempt, node: nodes.ClassDef) -> bool:
     return exempt(node) or _is_fixture_class(node) or _is_method_group(node)
 
 
-def register(_linter: object) -> None:
+def register(_linter: PyLinter) -> None:
     """pylint entry point — install every transform and the exemption."""
-    # The exempt predicate is private to the design checker, and correcting
-    # checker internals is what this file IS — the two astroid privates it
-    # imports above are the same access through another door. pylint offers no
-    # public seam for extending that set except the pyproject option, which is
-    # the repository's harness and not a plugin's to edit.
+    # WHICH predicate: `design_analysis._is_exempt_from_public_methods`, the
+    # one `MisdesignChecker.leave_classdef` consults to decide whether counting
+    # a class's public methods measures anything at all. It already answers NO
+    # for an Enum, a named tuple, a TypedDict and a dataclass.
+    #
+    # WHY it is wrong here: two of this repository's shapes are not
+    # abstractions with a thin public interface either, and the predicate has
+    # no way to know. A class defined inside a function is a fixture the call
+    # owns; a class with no `__init__`, empty `__slots__` and annotations it
+    # never assigns is a method group whose state and interface both belong to
+    # the class that inherits it. Neither is a design decision the message can
+    # comment on, and neither can be answered at its own site: the fixtures
+    # number in the dozens and the mixin's finding is about a shape, not a line.
+    #
+    # WHAT the probes prove (tests/unit/tools/test_pylint_lexic.py): the
+    # fixture and the method group are silent; a module-level class with one
+    # constructor and no public method is still reported; a class NAMED like a
+    # mixin but holding its own state is still reported; and a method group
+    # that gains an `__init__` rejoins the count. The exemption is a property,
+    # never a name.
+    #
+    # The access itself is private, and correcting checker internals is what
+    # this file IS — the two astroid privates it imports above are the same
+    # access through another door. pylint offers no public seam for extending
+    # that set except the pyproject option, which is the repository's harness
+    # and not a plugin's to edit.
     exempt = design_analysis._is_exempt_from_public_methods  # pylint: disable=protected-access
     design_analysis._is_exempt_from_public_methods = partial(  # pylint: disable=protected-access
         _counts_no_interface, exempt

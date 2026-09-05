@@ -13,7 +13,7 @@ from collections.abc import Iterator
 
 from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
 from lexic.parsing.parallel.plan.envelope import admits
-from lexic.parsing.parallel.plan.split import SplitPlan, matched, spellings
+from lexic.parsing.parallel.plan.split import SplitPlan, matched
 from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN, worker_count
 from lexic.parsing.parallel.pool import WorkPool
 
@@ -70,7 +70,7 @@ def scan_marks(
     at_depth = plan.scanner.offsets(scanned, depth=0)
     if all(len(mark) == 1 for mark in plan.mark):
         return [at for at in at_depth if text[at] in plan.mark]
-    widths = _widths(text, at_depth, spellings(plan.mark))
+    widths = _widths(text, at_depth, plan.ordered)
     return clustered(sorted(widths), widths, plan.trailing)
 
 
@@ -167,7 +167,7 @@ def after_mark(plan: SplitPlan, text: str, mark: int) -> int:
         return plan.envelope.resumes(text, mark)
     if plan.opening:
         return mark  # the mark BEGINS the next unit, so the piece starts on it
-    after = mark + len(matched(text, mark, spellings(plan.mark)))
+    after = mark + len(matched(text, mark, plan.ordered))
     while after < len(text) and text[after] in plan.skip:
         after += 1
     return after
@@ -225,7 +225,7 @@ def cut_spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[s
         # An envelope piece KEEPS the mark: a separator that begins before one
         # (a comment closed by it) would otherwise straddle the cut, and the
         # piece's own tail is what absorbs the run before the join takes it.
-        kept = cut + len(matched(text, cut, spellings(plan.mark)))
+        kept = cut + len(matched(text, cut, plan.ordered))
         owned = kept if plan.envelope is not None else cut
         spans.append((prev, after if terminated else owned))
         leads.append("" if terminated else text[owned:after])

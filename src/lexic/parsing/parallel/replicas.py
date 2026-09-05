@@ -109,12 +109,28 @@ every parse would put the lookup itself on the contended path this module
 exists to clear, and it measured the difference between 4.1x and 5.6x."""
 
 
-def _mint[M](owner: int, grammar: IrAst, binding: ModelExecutable[M]) -> Replica[M]:
-    """An equal-but-distinct view of the pair, adopted under the key grammar."""
-    replica = (IrAst(grammar.rules, grammar.start), binding.replica())
-    # A replica exists to get its OWN memo entries — tables, products, run
+def _mint[M](
+    owner: int, grammar: IrAst, binding: ModelExecutable[M], document: bool
+) -> Replica[M]:
+    """A view of the pair whose compiled tables are this thread's own.
+
+    The BINDING is always copied, and copying it is what makes the view
+    private: the instance product is memoised per ``(grammar, binding)``
+    identity and mints everything it holds — the lifted grammar, the
+    normalised instance, the PDA tables, the collapsed Earley tables — so a
+    private binding is a private parse.
+
+    The GRAMMAR is copied for a chunk worker, which also reaches memos keyed
+    on the grammar alone, and kept for a document thread, which does not: the
+    split plan, the roles, the anchors and every other analysis are memoised
+    on it, and replicating it would re-derive all of them per thread to
+    privatise nothing that thread parses through.
+    """
+    view = grammar if document else IrAst(grammar.rules, grammar.start)
+    replica = (view, binding.replica())
+    # A minted half exists to get its OWN memo entries — tables, products, run
     # analyses. They live under this entry, so they release with it.
-    adopt(owner, *replica)
+    adopt(owner, *(part for part in replica if part is not grammar))
     return replica
 
 
@@ -126,9 +142,9 @@ def _reclaim(entry: _Issued) -> None:
     not re-issued either — its tables were allocated BY the dead thread, and a
     read of another thread's object is exactly the atomic reference count this
     module exists to avoid, so the next worker mints its own and the dead one's
-    tables are released rather than kept warm for nobody. The original pair is
-    the exception the registry is KEYED by: it outlives every claim, so its
-    entries are the artefact's own to release.
+    tables are released rather than kept warm for nobody. What the registry is
+    KEYED by is the exception: those two objects outlive every claim, so their
+    entries are the artefact's own to release and never a dead claim's.
     """
     alive = [held for held in entry.held if held.owner.is_alive()]
     if len(alive) == len(entry.held):
@@ -136,8 +152,9 @@ def _reclaim(entry: _Issued) -> None:
     gone = tuple(
         id(part)
         for held in entry.held
-        if not held.owner.is_alive() and held.replica[0] is not entry.grammar
+        if not held.owner.is_alive()
         for part in held.replica
+        if part is not entry.grammar and part is not entry.binding
     )
     entry.held[:] = alive
     release(gone)
@@ -165,11 +182,11 @@ def _claim[M](
             entry = _Issued(grammar, binding, [])
             _REPLICAS[key] = entry
         _reclaim(entry)
-        spare = not any(held.replica[0] is grammar for held in entry.held)
+        spare = not any(held.replica[1] is binding for held in entry.held)
         replica = (
             (grammar, binding)
             if document and spare
-            else _mint(key[0], grammar, binding)
+            else _mint(key[0], grammar, binding, document)
         )
         entry.held.append(_Held(threading.current_thread(), replica))
     return replica
@@ -232,22 +249,32 @@ def worker_replica[M](grammar: IrAst, binding: ModelExecutable[M]) -> Replica[M]
     return _view(grammar, binding, False)
 
 
-def thread_replica[M](grammar: IrAst, binding: ModelExecutable[M]) -> Replica[M]:
-    """A whole-document parse's view of the pair, replicated when it pays.
+def document_view[M](grammar: IrAst, binding: ModelExecutable[M]) -> ModelExecutable[M]:
+    """A whole-document parse's own EXECUTABLE view of the pair.
 
-    Concurrent whole-document parses contend on one artefact's tables exactly
-    as chunk workers do, so a second such thread parses against its own. The
-    FIRST keeps the original pair — it is the submitting thread's, and a
-    program parsing on one thread must not compile a second set of tables to
-    say so. GIL builds and sequential callers get it without claiming anything.
+    Claimed before any split work and held for the whole of it. A split's
+    driver thread does not only hand chunks out: it parses the separator
+    leads, the routed stand-in shell, the region boundaries, and the
+    sequential fallback, and it stitches through this product afterwards. All
+    of that must run on a view no other whole-document caller can be handed.
 
-    :param grammar: The codegen grammar.
+    The executable half ONLY, because that is the half that privatises a
+    parse — see :func:`_mint`. The grammar stays the artefact's, so the split
+    plan and every analysis keyed on it are still derived once for the
+    process rather than once per thread.
+
+    The FIRST document thread keeps the original product: it is the submitting
+    thread's, and a program parsing on one thread must not compile a second
+    set of tables to say so. GIL builds and sequential callers get it without
+    claiming anything.
+
+    :param grammar: The codegen grammar, which is also the plan's identity.
     :param binding: The bound model product.
-    :returns: The calling thread's view.
+    :returns: The calling thread's executable view of it.
     """
     if available_workers() < 2:
-        return (grammar, binding)
-    return _view(grammar, binding, True)
+        return binding
+    return _view(grammar, binding, True)[1]
 
 
 def worker_parse[M](

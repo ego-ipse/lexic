@@ -36,8 +36,8 @@ from lexic.parsing.parallel.policy import (
 from lexic.parsing.parallel.pool import ParsePool, reset_pools
 from lexic.parsing.parallel.replicas import (
     Replica,
+    document_view,
     replica_count,
-    thread_replica,
     worker_parse,
     worker_replica,
 )
@@ -60,11 +60,11 @@ __all__ = [
     "anchors",
     "available_workers",
     "doc_workers",
+    "document_view",
     "replica_count",
     "split_model",
     "roles",
     "split_plan",
-    "thread_replica",
     "worker_parse",
     "worker_count",
     "worker_replica",

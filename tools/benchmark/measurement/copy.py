@@ -40,6 +40,7 @@ PROTOCOL_MODULES = (
     "measurement/contract.py",
     "measurement/copy.py",
     "measurement/health.py",
+    "measurement/occupancy.py",
     "presentation/cli.py",
     "presentation/reporting.py",
 )

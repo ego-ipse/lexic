@@ -28,8 +28,8 @@ from lexic.parsing import parse_model
 from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
-from tools.benchmark import bench as benchmark
 from tools.benchmark.bench import _lexic, _mt_check
+from tools.benchmark.measurement import occupancy
 from tools.benchmark.cases.grammars import BENCHES
 
 FORMULATIONS = ("native", "json.gbnf", "json.abnf", "json.ebnf")
@@ -297,7 +297,9 @@ def test_benchmark_mt_status_covers_base_and_lex_ns_rows(
         probed.append(grammar)
         return None if grammar is declined else object()
 
-    monkeypatch.setattr(benchmark, "split_model", recording_split)
+    # The split entry is patched where the occupancy probe reaches it: the
+    # status check asks the real seam, and this is that seam.
+    monkeypatch.setattr(occupancy, "split_model", recording_split)
     notes = _mt_check(artifacts, bench.full, 4)
 
     assert len(probed) == 2

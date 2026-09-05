@@ -219,3 +219,27 @@ def test_the_widest_spelling_at_an_offset_is_the_one_that_matches() -> None:
     assert matched("a\n\nb", 1, ordered) == "\n\n"
     assert matched("a\nb", 1, ordered) == "\n"
     assert matched("ab", 1, ordered) == ""
+
+
+def test_a_plan_carries_its_marks_in_match_order_already_settled() -> None:
+    """Order is a property of the mark SET, so the plan is what holds it.
+
+    Deriving it where a mark is READ sorted once per candidate examined and
+    once per cut accepted, on the same immutable set, every document.
+    """
+    plan = _plan(LINES, "cuts-lines")
+
+    assert plan.ordered == spellings(plan.mark)
+    assert plan.ordered == ("\n",)
+
+
+def test_the_ordering_a_plan_carries_is_the_one_matching_uses() -> None:
+    """A wider spelling at an offset still wins, through the plan's tuple."""
+    plan = _plan(LINES, "cuts-lines")
+    wide = plan._replace(
+        mark=frozenset({"\n", "\n\n"}), ordered=spellings(frozenset({"\n", "\n\n"}))
+    )
+    text = "a\n\nb\n"
+
+    assert after_mark(wide, text, 1) == 3
+    assert after_mark(plan, text, 1) == 2

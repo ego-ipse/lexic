@@ -74,3 +74,17 @@ prototyping or changing source.
 
 If the final parser already constructs the product at recognition completion,
 or no distinct serial stage remains, close this as structurally obsolete.
+
+## Benchmark host — the GitHub Actions runner beside the desktop (user, 2026-09-04)
+
+Measure the Actions runner against the local desktop as a benchmark target. It
+is free, quiet, and already runs the 72-row protocol on every push; its
+CPU-clock envelopes read about 1 % where the desktop, under a browser, reads
+27–60 % on threaded wall rows. Known about it: 4 vCPUs; CPython 3.14.7
+free-threaded built with Clang 22 (the desktop's 3.14.3t / Clang 21 agreed
+with it row for row on the PDA rows).
+
+Shape when taken up: a host fingerprint (cores, interpreter build, CPU model)
+in the row contract; a runner-labelled measurement rendered beside the local
+numbers in the committed artifact; never two hosts inside one pair. No gate
+depends on it.

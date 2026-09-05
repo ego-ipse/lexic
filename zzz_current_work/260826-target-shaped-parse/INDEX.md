@@ -33,11 +33,13 @@ pinned, including `ForestCtx` truncating a suspended shared zero-width handle as
 a cycle. The Round 16 closure audit returned `READY` on its fourth re-check.
 No unresolved planning or user decision prevents §2 implementation. No review
 authorizes a parsing regression. Production source began 2026-08-31: §2 and
-§3 are implemented and accepted; §4 is in progress at the merged step-3
-channel change. `REVIEW_17.md` is the active pre-lint checkpoint: it preserves
-the sound migration but requires source-contract and benchmark-gate corrections
-before §4 can pass (LEDGER.md carries every ruling and verification; TODO.md is
-the live queue).
+§3 are implemented and accepted; §4 is in progress. `REVIEW_19.md` is the
+active checkpoint (NO GO): Review 17's source-contract and benchmark-gate
+corrections and Review 18's replica, comparator and cleanup corrections are
+implemented; Review 19's four High and three Medium items are implemented on
+the tree and await the reviewer's reconsideration, the corrected matrix on
+the remote, and one reconciliation of the record (LEDGER.md carries every
+ruling and verification; TODO.md is the live queue).
 
 ## Start here
 
@@ -66,9 +68,17 @@ before source work.
 
 The current packet is:
 
-- [`reports/REVIEW_17.md`](reports/REVIEW_17.md) — active §4 NO-GO review;
-  identifies the remaining source blockers and specifies the serial,
-  same-document, control-calibrated replacement performance gate;
+- [`reports/REVIEW_19.md`](reports/REVIEW_19.md) — active §4 NO-GO review;
+  the document-thread view, observed worker occupancy, field names in the
+  structural digest, the code-constraint cleanup, the once-per-plan
+  spellings, and the `proto/` instruments; all implemented, awaiting
+  reconsideration;
+- [`reports/REVIEW_18.md`](reports/REVIEW_18.md) — §4 gate revalidation
+  (NO GO, corrected): replica ownership per thread, comparator semantic
+  parity, continuous alternation, the obsolete ambiguity route deleted;
+- [`reports/REVIEW_17.md`](reports/REVIEW_17.md) — §4 pre-lint review
+  (NO GO, corrected); identified the source blockers and specified the
+  serial, same-document, control-calibrated replacement performance gate;
 - [`PROMPT_16.md`](prompts/PROMPT_16.md) — closes shared-occurrence ambiguity
   against an occurrence-unrolled oracle and determines the exact-lane cost
   policy;
@@ -173,7 +183,10 @@ newer reports do not explicitly supersede them.
 | [`PROTOTYPE_16.md`](reports/PROTOTYPE_16.md) | Closes shared-occurrence composition, bottom semantics, the family-aware route certificate, and the uncapped exact-lane policy. |
 | [`P16_ADVERSARIAL.md`](reports/P16_ADVERSARIAL.md) | Records the Round 16 findings, corrections, reruns, and four-pass reopening review. |
 | [`REVIEW_16.md`](reports/REVIEW_16.md) | Gives the final fold-readiness verdict for the corrected Round 16 packet. |
-| [`REVIEW_17.md`](reports/REVIEW_17.md) | Active §4 pre-lint review: source-contract blockers and the replacement benchmark/ratchet contract. |
+| [`REVIEW_17.md`](reports/REVIEW_17.md) | §4 pre-lint review (corrected): source-contract blockers and the replacement benchmark/ratchet contract. |
+| [`REVIEW_18.md`](reports/REVIEW_18.md) | §4 gate revalidation (corrected): replica ownership, comparator parity, alternation, obsolete ambiguity route. |
+| [`REVIEW_19.md`](reports/REVIEW_19.md) | Active §4 correction-gate audit: document-thread view, observed occupancy, digest field names, code constraints, spellings, `proto/` instruments. |
+| [`PERF_FIX_2.md`](reports/PERF_FIX_2.md) | The frame `needs_ends` fix and the replica-by-thread fix, with their cross-process measurements. |
 
 ## Prototype inventory
 

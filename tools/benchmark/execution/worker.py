@@ -13,7 +13,6 @@ import argparse
 import gc
 import json
 from collections.abc import Sequence
-from typing import Any
 
 from tools.benchmark.bench import (
     MT_ROWS,
@@ -21,15 +20,16 @@ from tools.benchmark.bench import (
     EngineBuild,
     _interleaved,
     _noise_floor,
-    declined_reason,
     observe,
     one_engine,
     result_identity,
 )
+from tools.benchmark.measurement.occupancy import declined_reason
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.measurement.contract import (
     CLOCKS,
     PROTOCOL,
+    Json,
     Observation,
     RowContract,
     digest,
@@ -88,17 +88,19 @@ def _engagement(
     """Whether a threaded row actually split, and the workers it occupied.
 
     A sequential row is not asked: ``None`` says the question does not apply,
-    which is different from "asked, and the answer was no".
+    which is different from "asked, and the answer was no". Both answers come
+    from one untimed attempt, outside every measured span — the request is not
+    an observation, and a row that echoes it certifies nothing.
     """
     if engine not in MT_ROWS or cores is None or built.artifact is None:
         return None, 1
-    why = declined_reason(built.artifact, built.document, cores)
-    return why is None, cores if why is None else 1
+    seen = declined_reason(built.artifact, built.document, cores)
+    return seen.declined is None, seen.workers
 
 
 def _payload(
     bench: Bench, engine: str, rounds: int, cores: int | None, full: bool
-) -> dict[str, Any]:
+) -> dict[str, Json]:
     """Build, validate, warm, time and close one row; return its wire form."""
     built = one_engine(bench, engine, cores, full)
     if built.parse is None:
@@ -127,7 +129,7 @@ def _payload(
 
 def report_payload(
     bench: Bench, engine: str, rounds: int, cores: int | None, full: bool
-) -> dict[str, Any]:
+) -> dict[str, Json]:
     """The cross-engine REPORT's payload for one row — reading, not a gate.
 
     The report wants many per-character samples and the warm-up account; the
@@ -157,7 +159,7 @@ def report_payload(
 
 def _noise_payload(
     bench: Bench, engine: str, rounds: int, cores: int | None, full: bool
-) -> dict[str, Any]:
+) -> dict[str, Json]:
     """Measure the same-engine control for one exact row."""
     built = one_engine(bench, engine, cores, full)
     if built.parse is None:

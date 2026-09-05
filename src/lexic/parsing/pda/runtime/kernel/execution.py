@@ -1,10 +1,16 @@
 """Leaf execution, island delegation, and completion for the PDA kernel."""
 
-# The terminal loop this file shares with kernel.py is duplicated ON PURPOSE:
-# both engines run it per character, and folding it into one callee would put
-# a Python call on the paid path to save seven lines. `duplicate-code` cannot
-# be answered at the site — it is reported for a pair of modules at the end of
-# a run — so the withdrawal is stated here, for that pair and nothing else.
+# The terminal loop this file shares with kernel.py is duplicated ON PURPOSE,
+# and the alternative was built and measured rather than argued: one
+# `match_terminal(text, kind, payload, pos)` called from both item loops costs
+# a Python call per terminal ITEM, which read +1.0 % to +1.4 % of process CPU
+# on four of the five PDA rows (markdown 1.0144, mixedends 1.0139, abnf-meta
+# 1.0103, json 1.0103, arithmetic 1.0059) against a byte-identical control's
+# ±0.7 % floor — separate trees, one process per point, `taskset -c 0-3`,
+# sixteen rotating triples (proto/s4_tree_rows.py). Seven duplicated
+# lines are the cheaper of the two. `duplicate-code` cannot be answered at the
+# site — it is reported for a pair of modules at the end of a run — so the
+# withdrawal is stated here, for that pair and nothing else.
 # pylint: disable=duplicate-code
 
 from __future__ import annotations

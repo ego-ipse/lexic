@@ -3604,3 +3604,203 @@ pyright over src, tests and tools 0 errors; `ruff format --check` and `ruff
 check` clean; `tools/run_checks.sh` exit 0 with pylint 10.00/10; the affected
 suites (`tests/unit/tools`, `tests/unit/lexic/ir`,
 `tests/unit/lexic/parsing/parallel`) 1314 passed.
+
+---
+
+# 2026-09-04 — Review 19 corrections (terra-r18)
+
+Items 1, 2, 3, the erased-type and `exec` half of 4, 5 and 6. The seven
+justified disables and the plugin's exempt predicate are with the user and
+untouched.
+
+## 1 — The document thread's executable view (High)
+
+**Root.** `CompiledGrammar.parse` handed `split_model` the artefact's own
+product and claimed a view only on the sequential fallback, so a successful
+split never claimed at all — while the driver parses the separator leads, the
+routed stand-in shell and the region boundaries itself, and stitches through
+that product afterwards. A second whole-document caller could be handed the
+same pair.
+
+What decided the shape: `_model_product` is memoised on `(id(grammar),
+id(binding), bits)` and MINTS everything it holds — the lifted grammar, the
+normalised instance, the PDA tables, the collapsed Earley tables. A private
+binding is therefore already a private parse. The grammar copy buys privacy
+only for memos keyed on the grammar alone, and those are exactly the ones a
+document thread must not privatise: the split plan, the roles, the anchors.
+Replicating the grammar per document thread would re-derive every analysis to
+privatise nothing that thread parses through.
+
+- `document_view(grammar, binding) -> ModelExecutable` claims the executable
+  half; `thread_replica` is deleted (it had one caller).
+- `parse` claims it FIRST and uses it on all three routes.
+- `_mint` copies the grammar only for a worker; `_reclaim` releases a dead
+  claim's minted halves and never either key object, which the previous guard
+  got wrong for a document claim.
+
+**Evidence.** `test_two_overlapping_public_parses_never_share_a_product` drives
+two threads through the public entry on a separated grammar at four cores, with
+a recorder that holds each driver at its first parse until both have arrived,
+so the attempts provably overlap; each driver used exactly one product and the
+two sets are disjoint. Restoring the old shape fails it on that assertion and
+restoring the fix passes — checked, not assumed.
+`test_a_driver_parses_its_leads_on_its_own_product` pins the single-thread
+route with driver-thread parsing. It also passes on the old code; the first
+test is the regression.
+
+## 2 — Effective occupancy is observed (High)
+
+`effective_cores` echoed the request. It is now `effective_workers`, observed:
+the untimed attempt that already answers "did it engage" drives the split
+through a counting stand-in for the model product, records every thread that
+ran a piece, and reports the distinct workers minus the driver. That callable
+is the seam because every piece of concurrent work in every route reaches the
+engine through it. `declined_reason` returns an `Occupancy`. All of it is in
+`tools/benchmark`, outside `src` and outside every timed span; the request
+stays in `RowContract.cores`.
+
+`PROTOCOL` is 5 — the field's meaning changed, which is what that number is
+for. The base arm must be re-materialised with `measurement/copy.py`.
+
+**Evidence.** A 16 KiB document requested at sixteen workers, where the 2 KiB
+floor leaves room for at most eight, reports above one, at or below that
+ceiling, and strictly below the request. Plus a declining split reporting one
+worker with its reason, and the worker probe carrying the attempt's answer.
+
+## 3 — The structural digest carries field names (High)
+
+`shape` renders declared field names for typed records and leaves plain tuples
+positional, reading `_fields` off the type rather than through any engine API —
+that module is copied into the base arm and must not depend on that revision's
+internals. The review's own witness is now a test: two records both named
+`Root`, fields `(left, right)` against `(first, second)`, both holding `(1, 2)`,
+compare equal as values and render differently. Also pinned: a plain tuple
+grows no invented names, a generated model renders the names its grammar bound,
+and the 10,000-deep case still renders iteratively.
+
+## 4 — Erased types and the builtin `exec` (the part in scope)
+
+- **`Any` is gone from the benchmark wire and from `parallel/stitch/merge.py`.**
+  The wire is now a recursive `type Json` alias with one reader per shape
+  (`_text`, `_number`, `_flag`, `_names`, `_mapping`), each refusing a
+  malformed payload by name instead of coercing it — the wire is the one place
+  a benchmark cannot assume its own vocabulary, because the process on the
+  other side is a different revision of the harness. In `merge.py` the two
+  `cast(list[Any], ...)` calls became a named `Bound` alias for what a bound
+  field actually holds, with one cast left at `rebuild`'s signature and a
+  comment saying it is that method's gap, not this module's widening.
+- **The `object` annotations.** Removed where a real type existed: the
+  trampoline's command tuple is now the public `Command` in
+  `support/trampoline.py`, so the test mirrors the source of truth instead of
+  restating it; the shape-walker test fixtures carry a `_Value` union; the
+  replica recorder's list is `list[IrNamedTuple]` with a bounded parameter; the
+  plugin's `register` takes `PyLinter`. Two remain, deliberately:
+  `shape(product: object)` and its stack, where the domain is genuinely any
+  product any engine returned (a lexic model, a lark tree, an ANTLR tree, a
+  string). `object` there is the STRICTEST annotation — it promises nothing and
+  permits only `type`, `isinstance` and `repr`, which is all the walker does —
+  and it mirrors `bench.Parse`, which was already `Callable[[str], object]`.
+  Say the word if you want those two changed anyway.
+- **`exec` is gone.** The runtime-scope test now writes its fixture and imports
+  it through `importlib.util`, which is both the honest seam and the exact
+  machinery the transform models.
+
+## 5 — Separator spellings settled once (Medium)
+
+`SplitPlan` carries `ordered`, the match-ordered spellings, beside `mark`. The
+order is a property of the SET and the plan owns the set, so it is settled once
+per grammar at the four construction sites; `after_mark`, `cut_spans` and the
+occurrence filter read it. Nothing sorts per candidate or per accepted cut.
+Two tests: the plan's tuple is `spellings(plan.mark)`, and matching through it
+still takes the wider spelling at an offset.
+
+## 6 — The instruments, reconstructed under `proto/`
+
+`/tmp` is not this effort's place for a prototype. Three instruments now live
+in `zzz_current_work/260826-target-shaped-parse/proto/`, each documenting its
+command and stating that it must run alone, none touching `src`, none carrying
+a suppression:
+
+- `s4_mt_phases.py` — the phase table and the cut-selection breakdown.
+- `s4_mt_ceiling.py` — chunk linearity against this machine's ceiling.
+- `s4_mt_ladder.py` — the five-row ladder by interleaved minimum, runnable
+  from either tree.
+
+### Rerun alone, this machine, window announced and closed
+
+Cut selection, after the correction-9 work and item 5 (milliseconds, the
+`lex-ns` artefact at sixteen workers):
+
+| grammar | cut selection | window scan | rebase | this plan's marks | balanced search |
+|---|---|---|---|---|---|
+| mixedends | 0.835 | 0.302 | 0.148 | 0.176 | 0.208 |
+| announced | 0.472 | 0.177 | 0.087 | 0.106 | 0.102 |
+| backtrack | 0.283 | 0.141 | 0.034 | 0.040 | 0.068 |
+| lexruns | 0.221 | 0.098 | 0.019 | 0.019 | 0.085 |
+
+Chunk linearity and ceiling (`s4_mt_ceiling`, eight workers): chunks parsed one
+at a time cost 0.98x to 1.13x the whole document, so there is no per-chunk
+cost; parsed together they reach 6.02x on mixedends/plain, 5.48x on
+backtrack/plain, 3.77x on announced/plain.
+
+The ladder, base `e5506f0e` against the corrected tree, each tree running the
+instrument from its own checkout, three alternating passes of fifteen rounds,
+each row's minimum across passes, µs/char at sixteen workers:
+
+| grammar | row | base | head |
+|---|---|---|---|
+| mixedends | pda / lex / lex-ns | 0.4429 / 0.0719 / 0.0716 | 0.4451 / 0.0716 / 0.0717 |
+| | mt | 0.1291 | **0.1069** |
+| | mt-lex-ns | 0.0887 | **0.0475** |
+| announced | pda / lex / lex-ns | 0.1665 / 0.0355 / 0.0354 | 0.1662 / 0.0355 / 0.0351 |
+| | mt | 0.0528 | **0.0427** |
+| | mt-lex-ns | 0.0302 | **0.0232** |
+| backtrack | pda / lex / lex-ns | 0.1859 / 0.0898 / 0.0895 | 0.1858 / 0.0901 / 0.0891 |
+| | mt | 0.0629 | **0.0519** |
+| | mt-lex-ns | 0.0459 | **0.0341** |
+| lexruns | pda / lex / lex-ns | 0.1400 / 0.0939 / 0.0913 | 0.1383 / 0.0935 / 0.0896 |
+| | mt | 0.0515 | **0.0455** |
+| | mt-lex-ns | 0.0457 | **0.0387** |
+
+The three sequential rows are the control the change cannot reach: they read
+within 2 % across the two trees. Every MT row improved by 12 % to 46 %.
+
+Against the same-directive sequential row, head: mt-lex-ns wins 1.51x on
+mixedends, 1.51x on announced, 2.61x on backtrack, 2.32x on lexruns; mt wins
+3.2x to 4.2x over pda everywhere. The plain MT row still loses to the PRUNED
+sequential row on mixedends and announced, and mixedends remains the measured
+ceiling case: the directives buy 6.2x there and the machine's own ceiling for
+that grammar is 6.02x, so a split costing nothing would still not close it.
+
+## Gates after Review 19's corrections
+
+| Gate | Result |
+|---|---|
+| Focused: parallel, artifact, tools, forest suites | 590 passed |
+| `pyright src tests tools` | 0 errors |
+| `tools/run_checks.sh` | exit 0, pylint 10.00/10 |
+| `proto/s3_*` and `s4_*` witnesses | 26/26 exit 0 |
+| Full suite `-n 8` | 5611 passed, 8 skipped, exit 0 |
+| `tools/run_examples.sh` | exit 0 |
+| `tools/check_generated.py` | exit 0, 53 modules CLEAN |
+
+Three gate failures were found and fixed at the root rather than worked around:
+
+1. `tools/benchmark/bench.py` crossed the repository's 700-line source
+   invariant when the occupancy probe landed in it. The probe is not the
+   benchmark's engine-building concern, so it moved to
+   `measurement/occupancy.py` — and that module is registered in
+   `copy.py`'s `PROTOCOL_MODULES`, without which the base arm would run the
+   corrected comparator against an uncorrected observation.
+2. `duplicate-code` between the artefact regression and the orchestrator's
+   tests: the separated grammar I added restated `LEAD_RULE`. Both now import
+   it from `tests/split_helpers.py`, which already exists for exactly this
+   reason — one copy of the split shapes two suites need.
+3. `test_benchmark_mt_status_covers_base_and_lex_ns_rows` patched
+   `bench.split_model`, which moved with the probe. It now patches the seam
+   where the probe reaches it; every assertion is unchanged.
+
+Bytecode against `e5506f0e`: **no changed paid-path row.** The rows outside it
+are the six modules Review 18 rewrote plus, now, `compile/artifact.py`,
+`plan/split.py` and `plan/cuts.py` — the document entry and split planning,
+which run once per document rather than per push or per character.

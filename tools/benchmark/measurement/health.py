@@ -74,7 +74,7 @@ def _read(root: Path, grammar: str, cores: int) -> Reading:
         observation.wall,
         observation.cpu,
         observation.engaged,
-        observation.effective_cores,
+        observation.effective_workers,
         result.contract.document_bytes,
     )
 

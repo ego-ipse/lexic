@@ -21,11 +21,22 @@ from tools.benchmark.measurement.contract import (
 )
 
 
+type _Value = int | str | tuple
+"""What these fixtures hold: a leaf, or a nested record (records are tuples)."""
+
+
 class _Node(NamedTuple):
     """A two-field record, for reading the rendering by eye."""
 
-    left: object
-    right: object
+    left: _Value
+    right: _Value
+
+
+class _Renamed(NamedTuple):
+    """The same shape and the same values under different field names."""
+
+    first: _Value
+    second: _Value
 
 
 def _model(source: str, text: str):
@@ -47,6 +58,15 @@ def test_two_trees_over_one_document_render_differently() -> None:
     assert shape(flat) != shape(nested)
 
 
+def test_a_generated_model_renders_the_fields_the_grammar_named() -> None:
+    """The names in the rendering are the model's own bound field names."""
+    model = _model('root ::= head tail\nhead ::= "a"\ntail ::= "b"', "ab")
+
+    rendered = shape(model)
+
+    assert "head=" in rendered and "tail=" in rendered
+
+
 def test_the_same_document_twice_renders_identically() -> None:
     """Deterministic, or every pair would refuse itself."""
     source = 'root ::= item+\nitem ::= "- " [a-z]+ "\\n"\n'
@@ -65,21 +85,43 @@ def test_two_documents_of_one_grammar_render_differently() -> None:
 
 def test_the_rendering_names_each_class_and_reads_in_field_order() -> None:
     """Order carries meaning: two swapped fields are two different products."""
-    assert shape(_Node("a", "b")) == "_Node(str:'a',str:'b')"
+    assert shape(_Node("a", "b")) == "_Node(left=str:'a',right=str:'b')"
     assert shape(_Node("b", "a")) != shape(_Node("a", "b"))
-    assert shape(_Node(_Node(1, 2), ())) == "_Node(_Node(int:1,int:2),tuple())"
+    assert (
+        shape(_Node(_Node(1, 2), ()))
+        == "_Node(left=_Node(left=int:1,right=int:2),right=tuple())"
+    )
+
+
+def test_renaming_a_field_changes_the_product_and_the_rendering() -> None:
+    """Field naming is part of the typed model, so it is part of its identity.
+
+    Two records with one class name, one shape and one pair of values, differing
+    only in what their fields are CALLED, are two different products — and a
+    rendering blind to names accepted the pair as equal.
+    """
+    _Renamed.__name__ = _Node.__name__
+
+    assert _Node(1, 2) == _Renamed(1, 2)
+    assert shape(_Node(1, 2)) != shape(_Renamed(1, 2))
+
+
+def test_a_plain_tuple_carries_no_field_names() -> None:
+    """A tuple has positions, not fields, and must not grow invented ones."""
+    assert shape((1, 2)) == "tuple(int:1,int:2)"
+    assert shape(((1,), 2)) == "tuple(tuple(int:1),int:2)"
 
 
 def test_a_deeply_nested_product_renders_rather_than_recursing() -> None:
     """Depth is the grammar's, so the walk cannot be the interpreter's stack."""
-    deep: object = ()
+    deep: _Value = ()
     for _level in range(10_000):
         deep = _Node(deep, ())
 
     rendered = shape(deep)
 
     assert rendered.count("_Node(") == 10_000
-    assert rendered.endswith("tuple()" + ",tuple())" * 10_000)
+    assert rendered.endswith("tuple()" + ",right=tuple())" * 10_000)
 
 
 def test_an_observation_survives_the_wire_with_both_digests() -> None:

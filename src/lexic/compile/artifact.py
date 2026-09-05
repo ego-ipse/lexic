@@ -55,7 +55,7 @@ from lexic.parsing.parallel import (
     anchors,
     reset_pools,
     split_model,
-    thread_replica,
+    document_view,
 )
 from lexic.parsing.parallel.orchestrate import Request
 
@@ -270,6 +270,16 @@ class CompiledGrammar:
         """
         tok = self.tokens.tokenizer
         self._needs_vocabulary()
+        # This thread's executable view, claimed BEFORE any split attempt and
+        # used for every route below. A split's driver does not only hand
+        # chunks out — it parses the separator leads, the stand-in shells and
+        # the region boundaries itself while the workers run, and stitches
+        # through this product afterwards — so claiming it only on the
+        # sequential fallback would leave all of that on the pair a concurrent
+        # whole-document caller can be handed. The GRAMMAR stays the
+        # artefact's: it is the split plan's identity and every analysis is
+        # memoised on it, so replicating it would re-derive them per thread.
+        product = document_view(self.codegen_grammar, self.product)
         # Splitting is asked FIRST and of the grammar alone: whether the
         # input is split has nothing to do with which route reads it. A
         # segmented grammar simply never yields a plan (its terminals are
@@ -278,7 +288,7 @@ class CompiledGrammar:
         split = split_model(
             parse_model,
             self.codegen_grammar,
-            Request(text, self.product, resolve),
+            Request(text, product, resolve),
             cores,
             analysis=self.split_analysis or self.grammar,
         )
@@ -289,15 +299,11 @@ class CompiledGrammar:
                 start: (tid, end - start) for start, end, tid in tok.boundaries(text)
             }
             return GrammarModel.ensure(
-                token_model(self.codegen_grammar, text, self.product, bounds, resolve),
+                token_model(self.codegen_grammar, text, product, bounds, resolve),
                 "compile: the start rule's fold",
             )
-        # Concurrent whole-document parses contend on one artefact's tables
-        # exactly as chunk workers do, so a thread parses against its own
-        # replica. Sequential callers and GIL builds get the original pair.
-        grammar, binding = thread_replica(self.codegen_grammar, self.product)
         return GrammarModel.ensure(
-            parse_model(grammar, text, binding, resolve),
+            parse_model(self.codegen_grammar, text, product, resolve),
             "compile: the start rule's fold",
         )
 

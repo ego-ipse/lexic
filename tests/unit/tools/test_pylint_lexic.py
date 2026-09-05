@@ -11,6 +11,7 @@ below it can observe the correction.
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -93,13 +94,21 @@ def test_a_type_alias_parameter_is_not_a_module_level_name(tmp_path: Path):
 
 
 def test_the_alias_parameter_really_is_absent_from_the_module_namespace(tmp_path: Path):
-    """The runtime fact the transform is aligned to, asserted directly."""
+    """The runtime fact the transform is aligned to, asserted directly.
+
+    Imported rather than executed: the interpreter's own module machinery is
+    what binds a module's namespace, so importing the file is both the honest
+    seam and the exact thing the transform models.
+    """
     module = tmp_path / "runtime_scope.py"
     module.write_text(_ALIAS_PARAM, encoding="utf-8")
-    namespace: dict[str, object] = {}
-    exec(compile(module.read_text(), str(module), "exec"), namespace)
-    assert "Alias" in namespace
-    assert "Carry" not in namespace
+    spec = importlib.util.spec_from_file_location("runtime_scope", module)
+    assert spec is not None and spec.loader is not None
+    loaded = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(loaded)
+
+    assert "Alias" in vars(loaded)
+    assert "Carry" not in vars(loaded)
 
 
 def test_a_real_module_level_name_is_still_reported_as_shadowed(tmp_path: Path):
@@ -215,9 +224,42 @@ class ExecutionMixin:
 
     __slots__ = ()
 
+    text: str
+    pos: int
+
     def _run(self) -> int:
         """Do the private work."""
-        return 1
+        return len(self.text) - self.pos
+'''
+
+_NAMED_LIKE_A_MIXIN = '''"""A class named like a mixin that holds its own state."""
+
+
+class HolderMixin:
+    """Holds a value of its own — a name is not a licence."""
+
+    def __init__(self, value: int) -> None:
+        """Bind the value."""
+        self.value = value
+'''
+
+_GROUP_THAT_GAINED_STATE = '''"""A method group that grew a constructor."""
+
+
+class ExecutionMixin:
+    """No longer a method group: it owns what it reads."""
+
+    __slots__ = ("text",)
+
+    text: str
+
+    def __init__(self, text: str) -> None:
+        """Bind the text it used to expect from an owner."""
+        self.text = text
+
+    def _run(self) -> int:
+        """Do the private work."""
+        return len(self.text)
 '''
 
 _THIN_ABSTRACTION = '''"""A module-level class with a thin public interface."""
@@ -242,8 +284,13 @@ def test_a_fixture_class_is_not_an_abstraction_with_a_thin_interface(tmp_path: P
     assert "R0903" not in _lint(_FIXTURE_CLASS, tmp_path, "fixture_class", "R0903")
 
 
-def test_a_mixin_publishes_nothing_by_design(tmp_path: Path):
-    """A mixin's interface is its owner's; its own instances are never built."""
+def test_a_method_group_publishes_nothing_by_design(tmp_path: Path):
+    """A method group's interface is its owner's, and it is never built.
+
+    Recognised by what it IS: no constructor, ``__slots__ = ()``, and instance
+    attributes annotated but never assigned — state that belongs to whatever
+    class inherits it.
+    """
     assert "R0903" not in _lint(_METHOD_GROUP, tmp_path, "method_group", "R0903")
 
 
@@ -257,14 +304,25 @@ def test_a_genuine_thin_abstraction_is_still_reported(tmp_path: Path):
     assert "R0903" in _lint(_THIN_ABSTRACTION, tmp_path, "thin_abstraction", "R0903")
 
 
-def test_a_class_named_like_a_mixin_but_defined_nowhere_special_still_counts(
+def test_a_class_named_like_a_mixin_but_holding_its_own_state_still_counts(
     tmp_path: Path,
 ):
-    """The two rules are read separately, and neither is a name-only licence.
+    """The exemption is a property, never a name.
 
-    A module-level class whose name merely CONTAINS "mixin" is not a method
-    group: the convention is the suffix, and this one keeps its finding.
+    This class is called ``HolderMixin`` and is not a method group: it takes
+    its value in a constructor and owns it, so counting its public interface
+    means exactly what the message says it means.
     """
-    source = _THIN_ABSTRACTION.replace("class Holder:", "class MixinHolder:")
+    assert "R0903" in _lint(_NAMED_LIKE_A_MIXIN, tmp_path, "named_mixin", "R0903")
 
-    assert "R0903" in _lint(source, tmp_path, "mixin_holder", "R0903")
+
+def test_a_method_group_that_gains_a_constructor_rejoins_the_count(
+    tmp_path: Path,
+):
+    """The moment it owns state, it stops being its owner's method group.
+
+    The predicate reads three facts — no constructor, no slots of its own, and
+    annotations it never assigns. This class breaks all three by binding what
+    it used to expect from an owner, and the finding returns with it.
+    """
+    assert "R0903" in _lint(_GROUP_THAT_GAINED_STATE, tmp_path, "group_state", "R0903")

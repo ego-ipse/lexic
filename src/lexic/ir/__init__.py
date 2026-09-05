@@ -197,6 +197,7 @@ if TYPE_CHECKING:
         Singleton,
     )
     from lexic.ir.spine.records import (
+        Bound,
         Field,
         IrCachingTuple,
         IrNamedTuple,
@@ -269,6 +270,7 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
+    "Bound",
     "AcceptingState",
     "Borg",
     "CANDIDATE_CAP",
@@ -584,6 +586,7 @@ _HOMES = {
     "IrTokenizer": "lexic.ir.text.tokenizer",
     "IrTransformer": "lexic.ir.action.walk",
     "IrTuple": "lexic.ir.spine.records",
+    "Bound": "lexic.ir.spine.records",
     "IrTypeMap": "lexic.ir.action.mapping",
     "IrUnicode": "lexic.ir.text.codec.encodings",
     "IrUnicodeForm": "lexic.ir.text.pipeline",

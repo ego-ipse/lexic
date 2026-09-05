@@ -31,6 +31,17 @@ from lexic.ir.spine.spine import IrNode, IrSelf
 _MISSING: Any = object()
 
 
+type Bound = IrSelf | tuple[IrSelf, ...] | None
+"""What ONE child of a record can be — what :meth:`IrTuple.rebuild` accepts.
+
+An IR record's children are all :class:`IrSelf`, and for those this says
+nothing new. A generated model's are not: a repetition binds the plain tuple
+of its run, and an unset optional binds ``None``. Since a rebuild takes back
+exactly what ``children()`` handed out, the wider of the two is what it must
+accept, and it is declared here so every implementer says the same thing.
+"""
+
+
 class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
     """``IrSelf + tuple`` primitive tier — a **heterogeneous** node IS its children.
 
@@ -87,10 +98,11 @@ class IrTuple[*Ts](tuple[*Ts], IrNode[IrSelf, IrSelf]):
         """
         return cast(Sequence[IrSelf], self)
 
-    def rebuild(self, new_children: Sequence[IrSelf]) -> Self:
+    def rebuild(self, new_children: Sequence[Bound]) -> Self:
         """Reconstruct with replacement children.
 
-        :param new_children: Replacement elements (each an ``IrSelf``).
+        :param new_children: Replacement elements — whatever
+            :meth:`children` returned, spliced or not.
         :returns: New instance of the same concrete type containing ``new_children``.
         """
         # cast to *Ts: runtime elements satisfy it; *Ts cannot carry the bound
@@ -289,10 +301,11 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
             tuple(self[i] for i, name in enumerate(self._fields) if name in attrs),
         )
 
-    def rebuild(self, new_children: Sequence[IrSelf]) -> Self:
+    def rebuild(self, new_children: Sequence[Bound]) -> Self:
         """Splice ``new_children`` into the child positions; keep scalar payload.
 
-        :param new_children: Replacements for the ``_child_attrs`` fields, in order.
+        :param new_children: Replacements for the ``_child_attrs`` fields, in
+            order — whatever :meth:`children` returned, spliced or not.
         :returns: A new instance with children replaced and payload preserved.
         """
         repl = list(new_children)

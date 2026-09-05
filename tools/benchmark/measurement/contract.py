@@ -14,9 +14,60 @@ failure a benchmark cannot see from its own numbers.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, NamedTuple
+from collections.abc import Mapping, Sequence
+from typing import NamedTuple
 
-PROTOCOL = 4
+type Json = str | int | float | bool | None | Sequence[Json] | Mapping[str, Json]
+"""One decoded JSON value — what a worker writes and a reader must prove.
+
+The wire is the one place a benchmark cannot assume its own vocabulary: the
+process on the other side is a DIFFERENT revision of this harness. So the
+payload arrives as what JSON actually offers, and every field is claimed by a
+reader below that says which shape it must have and refuses anything else.
+"""
+
+
+def _text(payload: Mapping[str, Json], field: str) -> str:
+    """One string field, or a refusal naming it."""
+    value = payload[field]
+    if not isinstance(value, str):
+        raise ValueError(f"benchmark wire: {field} is not a string: {value!r}")
+    return value
+
+
+def _number(payload: Mapping[str, Json], field: str) -> float:
+    """One numeric field, or a refusal naming it."""
+    value = payload[field]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"benchmark wire: {field} is not a number: {value!r}")
+    return value
+
+
+def _flag(payload: Mapping[str, Json], field: str) -> bool:
+    """One boolean field, or a refusal naming it."""
+    value = payload[field]
+    if not isinstance(value, bool):
+        raise ValueError(f"benchmark wire: {field} is not a boolean: {value!r}")
+    return value
+
+
+def _names(payload: Mapping[str, Json], field: str) -> tuple[str, ...]:
+    """One list-of-strings field, or a refusal naming it."""
+    value = payload[field]
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise ValueError(f"benchmark wire: {field} is not a list: {value!r}")
+    return tuple(str(name) for name in value)
+
+
+def _mapping(payload: Mapping[str, Json], field: str) -> Mapping[str, Json]:
+    """One nested object, or a refusal naming it."""
+    value = payload[field]
+    if not isinstance(value, Mapping):
+        raise ValueError(f"benchmark wire: {field} is not an object: {value!r}")
+    return value
+
+
+PROTOCOL = 5
 """The wire protocol's version.
 
 Bumped whenever a contract field or an observation field changes meaning. Two
@@ -42,11 +93,32 @@ class _Token(str):
     """Rendered punctuation, told apart from a value that happens to be text."""
 
 
+def _labels(item: tuple) -> tuple[str, ...]:
+    """The record's declared field names, or empty for a plain tuple.
+
+    Field naming is part of the typed model product: a revision can rename a
+    field while keeping the class name, the values and the round-trip text, and
+    a rendering blind to names would call the two products the same. Read off
+    the type rather than through any engine API, because this module is copied
+    into the base arm and must not depend on that revision's internals.
+    """
+    fields = getattr(type(item), "_fields", ())
+    named = isinstance(fields, tuple) and len(fields) == len(item)
+    return tuple(str(name) for name in fields) if named else ()
+
+
 def _pushed(item: tuple) -> list[object]:
-    """One record's children and separators, in the order a stack pops them."""
+    """One record's labelled children and separators, as a stack pops them.
+
+    ``object`` for the same reason :func:`shape` takes one, and it is the same
+    stack: a child is whatever the product held.
+    """
+    labels = _labels(item)
     order: list[object] = [_Token(")")]
     for at in range(len(item) - 1, -1, -1):
         order.append(item[at])
+        if labels:
+            order.append(_Token(f"{labels[at]}="))
         if at:
             order.append(_Token(","))
     return order
@@ -55,10 +127,23 @@ def _pushed(item: tuple) -> list[object]:
 def shape(product: object) -> str:
     """A deterministic rendering of what a row BUILT — its structure.
 
-    Class names and field values in reading order. A digest of the rendered
-    TEXT cannot stand in for this: a round-tripping parse emits its own input,
-    so that digest answers "did the document survive" and never "is this the
-    same product" — two different trees over one document render identically.
+    ``object`` is the honest domain, not a shrug, and no narrower type exists
+    here. The walker reads whatever the SEAT it is measuring returned: a lexic
+    ``GrammarModel``, a lark ``Tree`` or ``Token``, an ANTLR context, a
+    parsimonious node, a plain string. Naming that union would mean importing
+    four third-party vocabularies into a module that has no dependencies by
+    design — it is copied into the base arm, where those packages need not be
+    installed and where an older revision of them may not match — and a
+    Protocol would name no members, since everything this walker does (``type``,
+    ``repr``, ``isinstance`` against ``tuple``, reading ``_fields``) is defined
+    on ``object`` itself. ``object`` promises nothing and permits nothing else,
+    which is exactly the contract here.
+
+    Class names, declared field names and values, in reading order. A digest
+    of the rendered TEXT cannot stand in for this: a round-tripping parse emits
+    its own input, so that digest answers "did the document survive" and never
+    "is this the same product" — two different trees over one document render
+    identically.
 
     Iterative because the depth is the grammar's: a recursive walk would refuse
     a deeply nested document the parser itself accepted.
@@ -120,7 +205,7 @@ class RowContract(NamedTuple):
             if getattr(self, field) != getattr(other, field)
         )
 
-    def wire(self) -> dict[str, Any]:
+    def wire(self) -> dict[str, Json]:
         """The JSON-safe form written by a worker."""
         return {
             field: list(value) if isinstance(value, tuple) else value
@@ -128,14 +213,14 @@ class RowContract(NamedTuple):
         }
 
 
-def read_contract(payload: dict[str, Any]) -> RowContract:
+def read_contract(payload: Mapping[str, Json]) -> RowContract:
     """Rebuild a contract from one worker's JSON, refusing a foreign protocol.
 
     :param payload: The ``contract`` object a worker wrote.
     :returns: The typed contract.
     :raises ValueError: If the protocol differs from this comparator's.
     """
-    seen = int(payload["protocol"])
+    seen = int(_number(payload, "protocol"))
     if seen != PROTOCOL:
         raise ValueError(
             f"benchmark protocol mismatch: worker wrote {seen}, comparator "
@@ -144,18 +229,18 @@ def read_contract(payload: dict[str, Any]) -> RowContract:
         )
     return RowContract(
         seen,
-        str(payload["row"]),
-        str(payload["grammar"]),
-        str(payload["grammar_digest"]),
-        tuple(str(name) for name in payload["lexical"]),
-        tuple(str(name) for name in payload["non_semantic"]),
-        str(payload["document_digest"]),
-        int(payload["document_bytes"]),
-        str(payload["scale"]),
-        str(payload["product"]),
-        int(payload["cores"]),
-        bool(payload["gc_enabled"]),
-        tuple(str(name) for name in payload["clocks"]),
+        _text(payload, "row"),
+        _text(payload, "grammar"),
+        _text(payload, "grammar_digest"),
+        _names(payload, "lexical"),
+        _names(payload, "non_semantic"),
+        _text(payload, "document_digest"),
+        int(_number(payload, "document_bytes")),
+        _text(payload, "scale"),
+        _text(payload, "product"),
+        int(_number(payload, "cores")),
+        _flag(payload, "gc_enabled"),
+        _names(payload, "clocks"),
     )
 
 
@@ -178,7 +263,11 @@ class Observation(NamedTuple):
     :ivar verdict: ``accepted``, or the engine's refusal words verbatim.
     :ivar engaged: Whether a threaded row actually split; ``None`` if the row
         is sequential and the question does not apply.
-    :ivar effective_cores: Workers the split actually occupied.
+    :ivar effective_workers: Worker threads the split was OBSERVED to occupy on
+        an untimed attempt, never the count requested. The policy clamps useful
+        workers by document size and cut count and cut selection can clamp them
+        again, so the request answers a different question and two arms echoing
+        it can occupy different machines and still compare.
     """
 
     wall: float
@@ -187,24 +276,24 @@ class Observation(NamedTuple):
     shape_digest: str
     verdict: str
     engaged: bool | None
-    effective_cores: int
+    effective_workers: int
 
-    def wire(self) -> dict[str, Any]:
+    def wire(self) -> dict[str, Json]:
         """The JSON-safe form written by a worker."""
         return dict(zip(Observation.__annotations__, self, strict=True))
 
 
-def read_observation(payload: dict[str, Any]) -> Observation:
+def read_observation(payload: Mapping[str, Json]) -> Observation:
     """Rebuild one observation from a worker's JSON."""
     engaged = payload["engaged"]
     return Observation(
-        float(payload["wall"]),
-        float(payload["cpu"]),
-        str(payload["result_digest"]),
-        str(payload["shape_digest"]),
-        str(payload["verdict"]),
-        None if engaged is None else bool(engaged),
-        int(payload["effective_cores"]),
+        _number(payload, "wall"),
+        _number(payload, "cpu"),
+        _text(payload, "result_digest"),
+        _text(payload, "shape_digest"),
+        _text(payload, "verdict"),
+        None if engaged is None else _flag(payload, "engaged"),
+        int(_number(payload, "effective_workers")),
     )
 
 
@@ -221,13 +310,23 @@ class RowResult(NamedTuple):
     refusal: str | None
 
 
-def read_result(payload: dict[str, Any]) -> RowResult:
+def read_result(payload: Mapping[str, Json]) -> RowResult:
     """Rebuild a whole row result from one worker's final JSON line."""
     refusal = payload.get("refusal")
     if refusal is not None:
         return RowResult(None, (), str(refusal))
+    seen = payload["observations"]
+    if isinstance(seen, str) or not isinstance(seen, Sequence):
+        raise ValueError(f"benchmark wire: observations is not a list: {seen!r}")
     return RowResult(
-        read_contract(payload["contract"]),
-        tuple(read_observation(entry) for entry in payload["observations"]),
+        read_contract(_mapping(payload, "contract")),
+        tuple(read_observation(_as_object(entry)) for entry in seen),
         None,
     )
+
+
+def _as_object(value: Json) -> Mapping[str, Json]:
+    """One list element that must itself be an object."""
+    if not isinstance(value, Mapping):
+        raise ValueError(f"benchmark wire: expected an object, got {value!r}")
+    return value

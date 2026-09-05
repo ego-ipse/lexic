@@ -21,10 +21,11 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
-from tools.benchmark.measurement.contract import RowResult, read_result
+from tools.benchmark.measurement.contract import Json, RowResult, read_result
 
 
 class RowRequest(NamedTuple):
@@ -86,7 +87,7 @@ def _environment(request: RowRequest, root: Path) -> dict[str, str]:
     return environment
 
 
-def _decode(output: str, job: Job) -> dict[str, Any]:
+def _decode(output: str, job: Job) -> Mapping[str, Json]:
     """Decode the final JSON line written by a worker."""
     lines = [line for line in output.splitlines() if line.strip()]
     if not lines:
@@ -133,21 +134,37 @@ class ReportRow(NamedTuple):
     charstream_share: float
 
 
-def _report_row(payload: dict[str, Any]) -> ReportRow:
+def _numbers(value: Json) -> list[float]:
+    """A JSON list of numbers, or a refusal — the report's sample vector."""
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise RuntimeError(f"benchmark worker wrote no sample list: {value!r}")
+    return [float(str(entry)) for entry in value]
+
+
+def _warmed(value: Json) -> tuple[int, bool] | None:
+    """The warm-up account a report row may carry, or ``None``."""
+    if value is None:
+        return None
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise RuntimeError(f"benchmark worker wrote no warm-up pair: {value!r}")
+    count, hit = value
+    return int(str(count)), bool(hit)
+
+
+def _report_row(payload: Mapping[str, Json]) -> ReportRow:
     """Decode one row's presentation payload."""
     refusal = payload.get("refusal")
     if refusal is not None:
         return ReportRow([], str(refusal), None, None, None, 0.0)
-    warmed = payload.get("warmed")
+    cold = payload.get("cold_us_per_char")
+    reason = payload.get("mt_reason")
     return ReportRow(
-        [float(value) for value in payload["samples"]],
+        _numbers(payload["samples"]),
         None,
-        str(payload["mt_reason"]) if payload.get("mt_reason") else None,
-        (int(warmed[0]), bool(warmed[1])) if warmed is not None else None,
-        float(payload["cold_us_per_char"])
-        if payload.get("cold_us_per_char") is not None
-        else None,
-        float(payload["charstream_share"]),
+        str(reason) if reason else None,
+        _warmed(payload.get("warmed")),
+        float(str(cold)) if cold is not None else None,
+        float(str(payload["charstream_share"])),
     )
 
 
@@ -227,7 +244,8 @@ def run_roster(root: Path) -> tuple[tuple[str, str], ...]:
         raise RuntimeError(f"benchmark roster failed for {root}: {detail}")
     lines = [line for line in completed.stdout.splitlines() if line.strip()]
     payload = json.loads(lines[-1])
-    return tuple((str(row[0]), str(row[1])) for row in payload["rows"])
+    rows = payload["rows"]
+    return tuple((str(grammar), str(row)) for grammar, row in rows)
 
 
 def run_jobs(jobs: tuple[Job, ...]) -> dict[str, RowResult]:

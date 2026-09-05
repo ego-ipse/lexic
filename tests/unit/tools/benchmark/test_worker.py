@@ -10,7 +10,9 @@ from typing import cast
 
 import pytest
 
+from lexic.compile import compile_text
 from tools.benchmark import bench as benchmark
+from tools.benchmark.measurement import occupancy
 from tools.benchmark.bench import EngineBuild
 from tools.benchmark.cases.grammars import Bench
 from tools.benchmark.execution import isolation, worker
@@ -140,3 +142,59 @@ def test_a_job_runs_from_its_own_checkout_root(
         "/tmp/other-tree/src",
         "/tmp/other-tree",
     ]
+
+
+_LINES = 'root ::= line+\nline ::= [a-z0-9]* nl\nnl ::= "\\n"\n'
+"""A terminated repetition whose split engages on any document long enough."""
+
+
+def _lines(size: int) -> str:
+    """A LINES document of at least ``size`` characters."""
+    out: list[str] = []
+    while sum(map(len, out)) < size:
+        out.append(f"line{len(out)}\n")
+    return "".join(out)
+
+
+def test_effective_workers_is_observed_not_the_number_requested() -> None:
+    """A request is not an occupancy, and the observation must say so.
+
+    The policy clamps useful workers by document size — 2 KiB each — and cut
+    selection can clamp them again, so a document asked for sixteen workers
+    that only has room for eight occupies eight. Echoing the request would let
+    two arms divide the same document differently and still compare.
+    """
+    compiled = compile_text(_LINES, cache_key="worker-occupancy")
+    document = _lines(16 * 1024)
+
+    seen = occupancy.declined_reason(compiled, document, 16)
+
+    assert seen.declined is None, "the fixture must engage for this to mean anything"
+    assert 1 < seen.workers <= len(document) // (2 * 1024)
+    assert seen.workers < 16
+
+
+def test_a_declined_split_reports_one_worker_and_says_why() -> None:
+    """The row that did not thread reports the parse that actually ran."""
+    compiled = compile_text(_LINES, cache_key="worker-occupancy-declined")
+
+    seen = occupancy.declined_reason(compiled, _lines(64), 16)
+
+    assert seen.declined is not None
+    assert seen.workers == 1
+
+
+def test_the_engagement_probe_reports_what_the_attempt_did(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The worker's observation carries the attempt's answer, not its request."""
+    compiled = compile_text(_LINES, cache_key="worker-occupancy-probe")
+    document = _lines(16 * 1024)
+    built = EngineBuild(
+        lambda text: compiled.parse(text, cores=1), document, None, compiled
+    )
+
+    engaged, workers = worker._engagement("lexic-mt", built, 16)
+
+    assert engaged is True
+    assert 1 < workers < 16

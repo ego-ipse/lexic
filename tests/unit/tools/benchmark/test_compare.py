@@ -164,6 +164,44 @@ def test_a_row_inside_the_envelope_is_called_ok() -> None:
     assert verdict.status == "ok"
 
 
+def _interval_of(low: float, high: float, envelope: float) -> compare.Verdict:
+    """One row decided from a stated interval and a stated noise envelope.
+
+    The candidate pairs are chosen to reproduce the interval exactly, so a row
+    observed in a real run can be asked here as the number it was.
+    """
+    middle = (math.log(low) + math.log(high)) / 2
+    spread = (math.log(high) - math.log(low)) / 2
+    # Five pairs whose mean is `middle` and whose 95% half-width is `spread`.
+    error = spread / compare.CONFIDENCE_Z
+    deviation = error * math.sqrt(5) * math.sqrt(4) / 2
+    candidate = [middle - deviation, middle + deviation, middle, middle, middle]
+    edge = math.log(envelope)
+    control = [edge / compare.CONFIDENCE_Z * math.sqrt(5) * x for x in (-1, 1, 0, 0, 0)]
+    return compare.decide("row", _pairing(candidate, control), "cpu")
+
+
+def test_an_interval_wholly_below_the_envelope_is_not_unresolved() -> None:
+    """A row that cannot be slower has answered the gate's question.
+
+    Observed on the remote run: abnf-meta/lexic-pda read 0.9947 with an
+    interval of 0.9911 to 0.9983 against a 1.0055 envelope, and was called
+    unresolved — blocking the gate for being possibly faster than the noise.
+    """
+    verdict = _interval_of(0.9911, 0.9983, 1.0055)
+
+    assert verdict.high <= verdict.envelope
+    assert verdict.status == "ok"
+
+
+def test_a_clear_win_wider_than_the_envelope_is_still_not_unresolved() -> None:
+    """The same edge, a long way from it: announced/lexic-mt, 0.9119."""
+    verdict = _interval_of(0.8584, 0.9687, 1.0985)
+
+    assert verdict.status in {"ok", "faster"}
+    assert verdict.status != "unresolved"
+
+
 def test_an_interval_overlapping_the_envelope_is_unresolved() -> None:
     """Straddling the boundary earns more pairs; it does not pick a side."""
     verdict = compare.decide(
@@ -292,7 +330,7 @@ def test_a_row_that_tips_on_noise_is_not_banked_as_slower(
 SEMANTIC_CASES = (
     ("verdict", "parsing: input does not derive from 'root'"),
     ("engaged", True),
-    ("effective_cores", 8),
+    ("effective_workers", 8),
     ("result_digest", "other-text"),
     ("shape_digest", "other-shape"),
 )
@@ -313,14 +351,14 @@ def test_arms_that_did_not_produce_the_same_result_refuse(
 
 def test_the_refusal_names_the_two_arms_and_both_values() -> None:
     """The refusal is diagnosable without re-running the pair."""
-    base = _arm("json/lexic-mt/base", engaged=True, effective_cores=8)
-    head = _arm("json/lexic-mt/head", engaged=False, effective_cores=1)
+    base = _arm("json/lexic-mt/base", engaged=True, effective_workers=8)
+    head = _arm("json/lexic-mt/head", engaged=False, effective_workers=1)
 
     with pytest.raises(ValueError) as caught:
         compare.comparable(base, head, "json/lexic-mt")
 
     detail = str(caught.value)
-    assert "engaged" in detail and "effective_cores" in detail
+    assert "engaged" in detail and "effective_workers" in detail
     assert "json/lexic-mt/base" in detail and "json/lexic-mt/head" in detail
 
 

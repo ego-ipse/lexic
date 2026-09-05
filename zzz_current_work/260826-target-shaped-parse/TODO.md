@@ -806,13 +806,18 @@ holds.
       both clocks. Instrumentation outside `src`. After the user resumes, externally profile the generated-model product
       with alternating baseline/new processes and a byte-identical control row
       under `docs/STYLE.md`. Instrumentation remains outside `src`.
-- [x] **(2026-09-04)** The 72-row gate (twelve grammars × pda / lex /
-      lex-ns / earley / mt / mt-lex-ns) is that gate; it found the Savepoint
-      13 regression (eleven rows on the runner), attributed to the frame's
-      per-push boundary allocation, fixed, and re-measured at or below
-      Savepoint 12 on every row. Structural comparison is the paid-path
-      bytecode census per change (`reports/S4_TERRA.md`, `PERF_FIX_2.md`),
-      not a per-parse opcode stream. Gate generated-model and token-segmented parsing row by row across PDA,
+- [ ] **(2026-09-05) OPEN — Review 19 keeps this gate open.** The 72-row
+      gate (twelve grammars × pda / lex / lex-ns / earley / mt / mt-lex-ns)
+      is that gate; it found the Savepoint 13 regression (eleven rows on the
+      runner), attributed to the frame's per-push boundary allocation, fixed,
+      and re-measured at or below Savepoint 12 on five rows locally
+      (protocol 3). The protocol-5 matrix has not run: the remote
+      performance workflow on the pushed commit is that run (alone, on a
+      clean runner); the last remote run, on `81e61f9d`, read 59 faster /
+      7 ok / 1 slower / 5 unresolved, the slower row not reproducible
+      locally. Structural comparison is the paid-path bytecode census per
+      change (`reports/S4_TERRA.md`, `PERF_FIX_2.md`), not a per-parse
+      opcode stream. Gate generated-model and token-segmented parsing row by row across PDA,
       Earley fallback, islands/delegates, ambiguity, and eligible MT shapes.
       Compare structural opcode/capture streams as well as alternating timing.
       A slower delta outside the byte-identical control envelope fails; an

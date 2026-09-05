@@ -123,7 +123,18 @@ def _envelope(control: Sequence[float]) -> float:
 
 
 def decide(row: str, pairing: Pairing, clock: str) -> Verdict:
-    """Judge one row's candidate interval against its control envelope."""
+    """Judge one row's candidate interval against its control envelope.
+
+    The gate is about SLOWDOWNS, so the only edge that can leave a row
+    undecided is the envelope's upper one. An interval whose top is inside the
+    envelope has already answered the gate's question — it cannot be slower —
+    and it passes: as ``faster`` when the whole interval sits below the
+    envelope's lower edge, as ``ok`` otherwise. Demanding ``low >= -envelope``
+    for ``ok`` as well made a row that is clearly not slower read
+    ``unresolved`` merely for being possibly FASTER than the machine's own
+    noise, which then blocked the gate and earned it more pairs it could not
+    spend.
+    """
     mean, low, high = _interval(pairing.candidate)
     envelope = _envelope(pairing.control)
     verdict = Verdict(
@@ -140,7 +151,7 @@ def decide(row: str, pairing: Pairing, clock: str) -> Verdict:
         return verdict._replace(status="slower")
     if high < -envelope:
         return verdict._replace(status="faster")
-    if high <= envelope and low >= -envelope:
+    if high <= envelope:
         return verdict._replace(status="ok")
     return verdict
 
@@ -179,7 +190,13 @@ def agree(base: RowContract, head: RowContract, row: str) -> None:
     raise ValueError(f"{row}: base and head row contracts differ — {detail}")
 
 
-SEMANTIC = ("verdict", "engaged", "effective_cores", "result_digest", "shape_digest")
+SEMANTIC = (
+    "verdict",
+    "engaged",
+    "effective_workers",
+    "result_digest",
+    "shape_digest",
+)
 """What two arms must have DONE identically for their durations to compare.
 
 A pair disagreeing on any of these is not a slow arm and a fast arm; it is two

@@ -26,18 +26,12 @@ from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
 from lexic.parsing.parallel.pool import WorkPool
+from tests.split_helpers import LEAD_RULE
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
     CONTINUATION_SOURCE,
     TWO_MARK_SOURCE,
 )
 
-LEAD_RULE = (
-    "root ::= pair tail*\n"
-    "tail ::= comma pair\n"
-    'comma ::= "," ws\n'
-    'pair ::= [a-z]+ ":" [0-9]+\n'
-    'ws ::= " "*\n'
-)
 BARE_LEAD = 'root ::= word more*\nmore ::= "|" word\nword ::= [a-z]+\n'
 NO_SPLIT = 'root ::= "a" [b-z]+\n'
 TERMINATED = 'root ::= line+\nline ::= [a-z]+ "\\n"\n'

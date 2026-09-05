@@ -16,7 +16,7 @@ import pytest
 
 import lexic.parsing.parallel.pool as pool_module
 from lexic.compile import compile_text, reset_cache_for_tests
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import TargetRefusalError, UnsupportedConstructError
 from lexic.parsing.parallel import ParsePool
 from lexic.parsing.parallel import policy as policy_module
 from lexic.parsing.parallel.pool import RETAINED, PoolLease, WorkPool
@@ -68,7 +68,7 @@ class _PhaseState:
         elif item == "fail":
             assert self.events["running_started"].wait(5)
             self.events["failure_raised"].set()
-            raise ValueError("phase failure")
+            raise UnsupportedConstructError("phase failure")
         elif item == "queued":
             self.events["queued_started"].set()
             self.events["release_queued"].wait(5)
@@ -199,7 +199,7 @@ def test_failed_phase_cancels_pending_and_waits_running_siblings(
                     state.work,
                     ["fail", "running", "queued", "canceled"],
                 )
-            except ValueError as error:
+            except UnsupportedConstructError as error:
                 state.errors.append(error)
 
         thread = Thread(target=failed_phase)
@@ -267,21 +267,94 @@ def test_a_failing_document_raises_its_own_exception():
 
 
 def test_failure_reports_the_lowest_input_index_for_both_pool_facades():
-    """A later fast failure cannot mask an earlier input's exception."""
+    """A later fast failure cannot mask an earlier input's refusal.
+
+    Stated over the engine's own verdicts, which is the family a phase drains
+    on: a chunk that will not parse is an answer about that chunk, and the
+    caller wants the earliest input's answer rather than the quickest.
+    """
 
     def work(item: int) -> int:
         if item == 0:
             sleep(0.05)
-            raise ValueError("first input")
-        raise KeyError("later input")
+            raise UnsupportedConstructError("first input")
+        raise TargetRefusalError("later input")
 
     with WorkPool(2) as pool:
-        with pytest.raises(ValueError, match="first input"):
+        with pytest.raises(UnsupportedConstructError, match="first input"):
             pool.map(work, [0, 1])
 
     with ParsePool(work, cores=2) as pool:
-        with pytest.raises(ValueError, match="first input"):
+        with pytest.raises(UnsupportedConstructError, match="first input"):
             pool.map([0, 1])
+
+
+def test_a_bug_in_an_item_is_not_ranked_against_the_others():
+    """Only a verdict about an item waits for the phase; a bug does not.
+
+    A ``TypeError`` from a worker is not an answer about that chunk, so there
+    is nothing to rank it against — it reaches the caller as raised, rather
+    than being held while the rest of the phase finishes producing verdicts.
+    """
+
+    def work(item: int) -> int:
+        if item == 0:
+            sleep(0.05)
+            raise UnsupportedConstructError("a refusal, later in time")
+        raise TypeError("a bug, first in time")
+
+    with WorkPool(2) as pool:
+        with pytest.raises(TypeError, match="a bug"):
+            pool.map(work, [0, 1])
+
+
+def test_an_interrupt_in_an_item_reaches_the_caller() -> None:
+    """A phase must not swallow the interrupt that stops the program.
+
+    ``KeyboardInterrupt`` is not an ``Exception`` and not a verdict: catching
+    it to drain would delay the one signal a user sends when they want the
+    work to stop now.
+    """
+    started = Event()
+
+    def work(item: int) -> int:
+        if item == 0:
+            raise KeyboardInterrupt
+        started.set()
+        sleep(0.05)
+        return item
+
+    with WorkPool(2) as pool:
+        with pytest.raises(KeyboardInterrupt):
+            pool.map(work, [0, 1, 2, 3])
+
+
+def test_a_refusal_still_drains_the_phase_before_it_is_raised() -> None:
+    """The earliest refusal is raised only after its siblings have finished.
+
+    The drain is what makes "earliest INPUT" answerable at all: a phase that
+    raised on the first refusal to arrive would report whichever chunk lost
+    the race, and the split would then move the wrong cut.
+    """
+    finished: list[int] = []
+    lock = Lock()
+
+    def work(item: int) -> int:
+        if item == 0:
+            sleep(0.05)
+            raise UnsupportedConstructError("earliest input")
+        if item == 1:
+            raise UnsupportedConstructError("later input, first to raise")
+        sleep(0.02)
+        with lock:
+            finished.append(item)
+        return item
+
+    with WorkPool(4) as pool:
+        with pytest.raises(UnsupportedConstructError, match="earliest input"):
+            pool.map(work, [0, 1, 2, 3])
+
+    assert finished, "the phase raised before its siblings could finish"
 
 
 def test_explicit_cores_is_the_worker_count():

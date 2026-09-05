@@ -35,6 +35,11 @@ class SplitPlan(NamedTuple):
         characters where the boundary is a blank line or a doubled anchor; a
         whole SET where the unit's arms close differently and every one of
         their closing characters bounds a unit.
+    :ivar ordered: The same spellings in match order — :func:`spellings` of
+        :attr:`mark`. The order is a property of the SET and the plan is what
+        owns the set, so it is settled here, once per grammar. Deriving it
+        where a mark is READ put one sort on every candidate a document
+        offers and every cut it accepts.
     :ivar owner: The repeated unit that must exclude the mark; empty for a
         terminated plan whose mark belongs to the unit itself.
     :ivar wrappers: Single-reference rules between the grammar start and the
@@ -66,6 +71,7 @@ class SplitPlan(NamedTuple):
     grammar: IrAst
     scanner: Scanner
     mark: frozenset[str]
+    ordered: tuple[str, ...]
     owner: str
     wrappers: tuple[str, ...]
     sep: Separator | None

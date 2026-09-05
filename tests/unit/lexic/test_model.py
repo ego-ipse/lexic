@@ -422,6 +422,34 @@ def test_rebuild_of_children_is_identity_shaped():
     assert inst.rebuild(inst.children()) == inst
 
 
+def test_a_repetition_binds_a_run_and_rebuild_takes_it_back():
+    """The two shapes ``children()`` yields that are not IR nodes, round-tripped.
+
+    A repetition binds the plain TUPLE of its run and an unset optional binds
+    ``None`` — neither is an ``IrSelf``, and ``rebuild`` has to accept exactly
+    what ``children`` handed out or the stitch cannot put a spliced run back.
+    """
+    compiled = compile_text('root ::= item+\nitem ::= [a-z]+ "\\n"\n')
+    model = compiled.parse("ab\ncd\n")
+    run = model.children()[0]
+
+    assert run.__class__ is tuple, "the fixture must bind a run, not a node"
+    assert model.rebuild(model.children()) == model
+    reversed_run = model.rebuild([tuple(reversed(run))])
+    assert type(reversed_run) is type(model)
+    assert reversed_run.to_text() == "cd\nab\n"
+
+
+def test_an_unset_optional_binds_none_and_rebuild_takes_it_back():
+    """The other non-node shape: ``None`` survives a rebuild unchanged."""
+    compiled = compile_text('root ::= head tail?\nhead ::= "a"\ntail ::= "b"\n')
+    model = compiled.parse("a")
+
+    assert model.children()[1] is None
+    assert model.rebuild(model.children()) == model
+    assert model.rebuild(model.children()).to_text() == "a"
+
+
 # ── dispatch admission (settled 13): models reach IrTuple catch-alls ─────────
 
 

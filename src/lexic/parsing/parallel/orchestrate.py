@@ -42,7 +42,7 @@ from lexic.parsing.parallel.plan.envelope import (
     unit_witness,
 )
 from lexic.parsing.parallel.plan.speculation import speculative_openings
-from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip
+from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip, spellings
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
 from lexic.parsing.parallel.replicas import worker_parse
@@ -161,6 +161,7 @@ def _plan_for(
         grammar,
         Scanner(roles(grammar)),
         frozenset({sep.mark}),
+        spellings(frozenset({sep.mark})),
         unit,
         wrappers,
         sep,
@@ -199,6 +200,7 @@ def _terminated_plans(
             grammar,
             Scanner(derived, mark_interiors(grammar, unit, record.mark)),
             record.mark,
+            spellings(record.mark),
             unit,
             (),
             None,
@@ -245,6 +247,7 @@ def _speculative_plans(
             grammar,
             Scanner(proposals),
             openings,
+            spellings(openings),
             unit,
             (),
             None,
@@ -648,6 +651,7 @@ def _envelope_split_plan(grammar: IrAst) -> tuple[SplitPlan, ...]:
             grammar,
             Scanner(derived),
             frozenset({found.mark}),
+            spellings(frozenset({found.mark})),
             found.shape.unit,
             (),
             None,

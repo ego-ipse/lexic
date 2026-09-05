@@ -113,8 +113,13 @@ against another thread's replica at 12–23 % of a chunk's CPU. The claim is the
 one synchronised step (`_MINTING`, cold): a length read and an append let N
 threads first-touching a pair mint against one stale population, and a
 pool-LOCAL worker number cannot be an identity at all, because two live pools
-number their own threads from zero. The submitting thread keeps the original
-pair, which is therefore never issued to a worker; an exited thread's replica
+number their own threads from zero. The submitting thread claims its own
+EXECUTABLE view (`document_view`) before any split work and keeps it for the
+whole attempt — it parses the leads, the stand-in shells and the sequential
+fallback itself, and stitches through that product — while the grammar stays
+the artefact's, since the plan and every analysis are memoised on it. The
+first document thread keeps the original product, which is therefore never
+issued to a worker; an exited thread's replica
 is dropped and its tables released rather than re-issued, since re-issuing hands
 a live worker objects a dead thread allocated. `replica_count` is the meter. Synthesized model classes
 stay shared by necessity — two workers building two different classes for one

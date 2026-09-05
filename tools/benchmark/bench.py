@@ -52,13 +52,12 @@ from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar, Directives, compile_text
 from lexic.model import GrammarModel
-from lexic.parsing.parallel import split_model
-from lexic.parsing.parallel.orchestrate import Request
-from lexic.parsing.products import _model_product, earley_model, parse_model
+from lexic.parsing.products import _model_product, earley_model
 from tools.benchmark.cases.grammars import Bench, declared_marks
 from tools.benchmark.emitters.directives import NO_MARKS
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
 from tools.benchmark.measurement.contract import shape
+from tools.benchmark.measurement.occupancy import declined_reason
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -656,37 +655,17 @@ def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
     return abs(first - second) / max(first, second, 1e-9) * 100
 
 
-def declined_reason(compiled: CompiledGrammar, document: str, cores: int) -> str | None:
-    """Why this artifact's split did not engage on this document, or None.
-
-    Asked of the split entry directly, not inferred from timings: a split that
-    declines falls back to the sequential parse, so the mt cell alone cannot
-    distinguish "threading bought nothing" from "nothing threaded".
-    """
-    request = Request(document, compiled.product, None)
-    split = split_model(
-        parse_model,
-        compiled.codegen_grammar,
-        request,
-        cores,
-        analysis=compiled.split_analysis or compiled.grammar,
-    )
-    if split is None:
-        return "the unified split seam found no eligible work"
-    return None
-
-
 def _mt_check(
     artifacts: dict[str, CompiledGrammar], document: str, cores: int | None
 ) -> dict[str, str]:
     """Why each exact mt artifact did not thread; absent rows engaged."""
     if cores is None:
         return {}
-    reasons = {
-        name: declined_reason(compiled, document, cores)
+    seen = {
+        name: declined_reason(compiled, document, cores).declined
         for name, compiled in artifacts.items()
     }
-    return {name: why for name, why in reasons.items() if why is not None}
+    return {name: why for name, why in seen.items() if why is not None}
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -21,6 +21,7 @@ Grammar input notes:
 from __future__ import annotations
 
 import gc
+import threading
 
 import pytest
 
@@ -39,9 +40,10 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
-from lexic.parsing import PdaTables
+from lexic.parsing import PdaTables, parse_model
 from lexic.parsing.caches import _CLAIMED, _MEMOS, cached_entries, reset_caches
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import LEAD_RULE, lead_rule_document
 from tests.unit.lexic.compile.compile_helpers import roundtrip
 
 
@@ -408,3 +410,110 @@ def test_eviction_is_safe_a_live_artefact_recomputes_cold_but_exact() -> None:
     assert cold.to_text() == warm.to_text() == _DRAIN_TEXT
     assert cold.dump() == warm.dump()
     reset_cache_for_tests()
+
+
+# ── the document thread's executable view ─────────────────────────────────
+
+
+class _WhoParsed:
+    """Records the thread and the product every model parse ran through."""
+
+    def __init__(self, drivers: dict[int, str]) -> None:
+        """Hold the driver threads by ident, and the meeting they wait at."""
+        self.drivers = drivers
+        self.calls: list[tuple[str, int]] = []
+        self.met: set[int] = set()
+        self.overlap = threading.Barrier(2)
+        self.lock = threading.Lock()
+
+    def __call__(self, grammar, text, binding, resolve=None):
+        """Record one parse, hold the drivers together, then parse for real."""
+        who = threading.get_ident()
+        with self.lock:
+            self.calls.append((self.drivers.get(who, "worker"), id(binding)))
+            first = who in self.drivers and who not in self.met
+            self.met.add(who)
+        if first:
+            # Both drivers are now inside their split attempt at once, which is
+            # the interval the claim has to hold across.
+            self.overlap.wait(timeout=30)
+        return parse_model(grammar, text, binding, resolve)
+
+    def products(self, driver: str) -> set[int]:
+        """Every product identity that driver's own calls ran through."""
+        return {product for name, product in self.calls if name == driver}
+
+
+def test_two_overlapping_public_parses_never_share_a_product(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two whole-document parses in flight must not meet on one product.
+
+    The driver of a split parses the separator leads itself while its workers
+    run, and stitches through the same product afterwards. A view claimed only
+    on the sequential fallback would leave every one of those operations on the
+    pair the OTHER caller can be handed, which is what this pins: the two
+    drivers overlap by construction — neither proceeds past its first parse
+    until both have arrived — and their products are still disjoint.
+    """
+    compiled = compile_text(LEAD_RULE, cache_key="artifact-overlap")
+    text = lead_rule_document(1200)
+    idents: dict[int, str] = {}
+    parsed: dict[str, GrammarModel] = {}
+    watcher = _WhoParsed(idents)
+    monkeypatch.setattr(artifact_module, "parse_model", watcher)
+    ready = threading.Barrier(3)
+
+    def drive(name: str) -> None:
+        """Register this thread, wait for the other, then parse the document."""
+        idents[threading.get_ident()] = name
+        ready.wait(timeout=30)
+        parsed[name] = compiled.parse(text, cores=4)
+
+    drivers = [
+        threading.Thread(target=drive, args=("first",)),
+        threading.Thread(target=drive, args=("second",)),
+    ]
+    for driver in drivers:
+        driver.start()
+    ready.wait(timeout=30)
+    for driver in drivers:
+        driver.join(timeout=60)
+
+    assert len(watcher.products("first")) == 1
+    assert len(watcher.products("second")) == 1
+    assert watcher.products("first").isdisjoint(watcher.products("second"))
+    assert parsed["first"].to_text() == parsed["second"].to_text() == text
+
+
+def test_a_driver_parses_its_leads_on_its_own_product(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route with driver-thread parsing, on one thread, stated exactly.
+
+    A separated split hands the chunks out and re-parses every cut's lead
+    itself. Those lead parses are the ones a fallback-only claim left on the
+    shared pair: here they must run on the driver's own product, and no worker
+    may touch it.
+    """
+    compiled = compile_text(LEAD_RULE, cache_key="artifact-lead-view")
+    text = lead_rule_document(1200)
+    seen: list[tuple[int, int]] = []
+    lock = threading.Lock()
+
+    def watched(grammar, source, binding, resolve=None):
+        """Record which thread parsed through which product."""
+        with lock:
+            seen.append((threading.get_ident(), id(binding)))
+        return parse_model(grammar, source, binding, resolve)
+
+    monkeypatch.setattr(artifact_module, "parse_model", watched)
+    model = compiled.parse(text, cores=4)
+
+    driver = threading.get_ident()
+    mine = {product for thread, product in seen if thread == driver}
+    theirs = {product for thread, product in seen if thread != driver}
+    assert model.to_text() == text
+    assert len(seen) > len(mine), "the split never reached a worker thread"
+    assert len(mine) == 1, "the driver parsed through more than one product"
+    assert mine.isdisjoint(theirs)

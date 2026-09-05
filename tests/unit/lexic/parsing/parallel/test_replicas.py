@@ -16,15 +16,15 @@ import threading
 import pytest
 
 from lexic.compile import compile_text
-from lexic.ir import IrAst
+from lexic.ir import IrAst, IrNamedTuple
 from lexic.parsing import parse_model
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel import (
     Replica,
+    document_view,
     replica_count,
-    thread_replica,
     worker_parse,
     worker_replica,
 )
@@ -60,10 +60,10 @@ class _Recorder:
     def __init__(self) -> None:
         """Start with no calls recorded."""
         self.calls: list[tuple[IrAst, str, ModelExecutable, Resolver | None]] = []
-        self.returned: list[object] = []
+        self.returned: list[IrNamedTuple] = []
         self.lock = threading.Lock()
 
-    def __call__[M](
+    def __call__[M: IrNamedTuple](
         self,
         grammar: IrAst,
         text: str,
@@ -187,7 +187,7 @@ def _pool_views(
     """Run one worker_parse per pool worker, all four threads live at once."""
     grammar, binding = ask
 
-    def work(index: int) -> object:
+    def work(index: int) -> IrNamedTuple:
         arrived.wait(timeout=30)
         return worker_parse(parse, grammar, f"- item{'ab'[index]}\n", binding, None)
 
@@ -284,17 +284,16 @@ def test_the_first_document_thread_keeps_the_original_pair(
 ) -> None:
     """The submitting thread's own objects are the view it already has.
 
-    Compiling a second set of tables to hand the only thread in a
-    single-threaded program a copy of what it already owns is pure cost.
+    Compiling a second product to hand the only thread in a single-threaded
+    program a copy of what it already owns is pure cost.
     """
     monkeypatch.setattr(replica_module, "available_workers", lambda: 4)
     grammar, binding = _pair("document-thread")
 
-    view = thread_replica(grammar, binding)
+    view = document_view(grammar, binding)
 
-    assert view[0] is grammar
-    assert view[1] is binding
-    assert thread_replica(grammar, binding) is view
+    assert view is binding
+    assert document_view(grammar, binding) is view
 
 
 def test_a_second_document_thread_gets_a_view_of_its_own(
@@ -303,13 +302,36 @@ def test_a_second_document_thread_gets_a_view_of_its_own(
     """Two whole-document parses in flight contend exactly as chunk workers do."""
     monkeypatch.setattr(replica_module, "available_workers", lambda: 4)
     grammar, binding = _pair("second-document-thread")
-    mine = thread_replica(grammar, binding)
+    mine = document_view(grammar, binding)
 
-    theirs = _in_thread(lambda: thread_replica(grammar, binding))
+    theirs = _in_thread(lambda: document_view(grammar, binding))
 
-    assert mine[0] is grammar
-    assert theirs[0] is not grammar
-    assert theirs[1] is not binding
+    assert mine is binding
+    assert theirs is not binding
+    assert replica_count(grammar, binding) == 2
+
+
+def test_a_document_view_is_an_executable_and_a_worker_view_is_a_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The executable half is what privatises a parse; the grammar is shared.
+
+    A product is memoised per ``(grammar, binding)`` identity and mints
+    everything it holds, so a private binding IS a private set of tables. The
+    split plan, the roles and every other analysis are memoised on the GRAMMAR,
+    and a document thread keeps the artefact's — which is why its view is an
+    executable and only a worker's carries a grammar of its own.
+    """
+    monkeypatch.setattr(replica_module, "available_workers", lambda: 4)
+    grammar, binding = _pair("document-grammar-shared")
+    document_view(grammar, binding)
+
+    theirs = _in_thread(lambda: document_view(grammar, binding))
+    worker = _in_thread(lambda: worker_replica(grammar, binding))
+
+    assert theirs is not binding
+    assert worker[0] is not grammar
+    assert worker[1] is not binding
 
 
 def test_a_worker_never_takes_the_original_even_when_it_is_free(
@@ -327,18 +349,18 @@ def test_a_worker_never_takes_the_original_even_when_it_is_free(
     view = worker_replica(grammar, binding)
 
     assert view[0] is not grammar
-    assert thread_replica(grammar, binding) is view
+    assert view[1] is not binding
+    assert document_view(grammar, binding) is view[1]
 
 
 def test_a_document_thread_replicates_nothing_where_it_cannot_pay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sequential callers and GIL builds get the original pair back."""
+    """Sequential callers and GIL builds get the original product back."""
     monkeypatch.setattr(replica_module, "available_workers", lambda: 1)
     grammar, binding = _pair("gil-build")
 
-    view = thread_replica(grammar, binding)
+    view = document_view(grammar, binding)
 
-    assert view[0] is grammar
-    assert view[1] is binding
+    assert view is binding
     assert replica_count(grammar, binding) == 0

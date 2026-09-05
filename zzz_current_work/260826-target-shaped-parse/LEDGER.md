@@ -186,8 +186,119 @@ is wrong and re-renders after the matrix. Gates rerun: pyright 0,
 run_checks 0, focused 2829, 26/26 witnesses, full suite 5596/8, examples
 0, twins 0, zero paid-path bytecode rows changed (13 new rows, all in
 once-per-document split planning).
+**Suppression sweep (user, 2026-09-04 ~21:35):** the user removed every
+inline disable/ignore lacking a justification; the rule (STYLE §6, standing
+for months): fix the root cause; a suppression only when duly justified on
+the line. Sixty pylint findings and ten pyright errors followed: 53 closed
+at `tools/pylint_lexic.py` by extending the design checker's own exempt
+predicate (function-local fixture classes; mixins) with four probes both
+ways; ten pyright errors by shape (`setattr`/`getattr` for deliberate
+dynamic-attribute tests, `type[Base]` for the abstract call, a `Cogen`
+alias in the trampoline fixtures); seven disables kept with their reason
+on the line (`WorkPool.map` ×2 broad-exception-caught — stores and
+re-raises to drain a phase; `test_meta.py` ×2 protected-access — the
+subject; `test_control.py` broad-exception-caught — the catch-all IS the
+test; `test_nodes.py` too-many-lines — the mirror gate pins one test file
+per module; `execution.py` duplicate-code — the terminal loop shared by
+both engines; `pylint_lexic.py` ×2 protected-access — checker internals).
+Gates: pyright 0, run_checks 0 (10.00/10), 1314 focused, full suite
+5600/8. **Committed `81e61f9d` through the hook and pushed** (Review 18
+corrections 1–6, 8, 9 + the sweep). Left: 7 (the matrix, window pending),
+the remote verdict, TODO/ledger reconciliation, Review 18 reconsidered.
 
-## NEXT SESSION — start here (written 2026-09-04 evening; supersedes the block below)
+## Review 19 (2026-09-04 night, `reports/REVIEW_19.md`) — NO GO, four High, three Medium
+
+On `e5506f0e..81e61f9d`. Review 18's direction is confirmed implemented;
+kept. High: (1) split drivers never claim the document thread's view —
+`CompiledGrammar.parse` calls `split_model` with the ORIGINAL product and
+claims `thread_replica` only on the sequential fallback, so leads, stand-in
+shells, boundary rebuilds and stitching run on the original pair while a
+concurrent sequential caller can be handed it; fix: claim the document
+view before any split attempt, keep every driver-thread operation on it,
+public-entry regression with two overlapping parses; (2) `effective_cores`
+echoes the request — populate real occupancy from an untimed observation
+outside src, regression where the request exceeds the size/cut ceiling;
+(3) the structural digest omits record field names (`Root(left,right)` and
+`Root(first,second)` digest equal) — include declared fields for typed
+records; (4) the correction scope carries `# pylint: disable` (ten), an
+`exec(compile(...))` in the plugin's test, `Any` in benchmark wire modules
+and `stitch/merge.py`, new `object` annotations, and the plugin's
+function-local/`*Mixin` exemption, which the reviewer calls a broad
+suppression. Medium: `spellings()` still sorts per candidate in
+`after_mark` and per accepted cut in `cut_spans` — settle once per plan or
+per cut-selection call; the phase instruments lived in `/tmp` (forbidden;
+`proto/` is the place) so the diagnosis is unreproducible — reconstruct
+minimal instruments under `proto/` or narrow the report; TODO/INDEX/LEDGER
+disagree (INDEX still names Review 17; TODO marks the gate complete; two
+restart blocks). Order 1–9 as stated; matrix alone; all four remote green
+before reconciliation; humanotes before §5. **Conflict for the user:**
+item 4's "no suppression of any sort" contradicts the user's standing
+rule (STYLE §6 with the user's explicit permission: a suppression duly
+justified on the line is allowed; the user swept the unjustified ones
+tonight). The seven justified disables and the plugin exemption await the
+user's ruling; everything else is dispatched.
+**Progress:** R19 items 1–3, 5, 6 closed by terra-r18 — `document_view(grammar,
+binding)` claims the executable half before any split attempt (the
+instance product is memoised on the binding, so a private binding is a
+private parse; the grammar stays the artefact's so plan/roles/anchors are
+not re-derived), public-entry overlap regression proven to bite;
+`effective_workers` observed through a counting stand-in on the untimed
+attempt, ceiling regression; structural digest renders declared record
+fields; protocol 5; `Any` gone from the wire (`Json` alias with refusing
+readers) and merge.py; `exec` gone from the plugin test; `SplitPlan.ordered`
+settles spellings once; instruments rebuilt under `proto/` (`s4_mt_phases`,
+`s4_mt_ceiling`, `s4_mt_ladder`) and rerun alone — ladder vs `e5506f0e`:
+mt-lex-ns wins its directive set 1.51x/1.51x/2.61x/2.32x, plain mt
+3.2–4.2x over pda, controls within 2 %; mixedends split ceiling 6.0x vs
+directives 6.2x. **User rulings on item 4 (2026-09-04 night):** pool.py —
+catch the CORRECT exceptions, not `BaseException`; execution.py — build the
+common terminal-loop interface and MEASURE it cross-process, land if within
+the control band, else keep the disable with the number as justification;
+pylint_lexic.py — a real structural solution or a fully written
+justification, no handwave; `shape(product: object)` — the benchmark must
+be correct: type the closed product domain or a small Protocol, else
+justify; NEW defect: the three casts in `stitch/merge.py` (242, 494, 497)
+are a latent review item — fix the `rebuild` signature on the spine to
+take what `children()` returns, carry route and result typed.
+**Remote performance run on `81e61f9d` (run 33921150243), 4-vCPU runner,
+protocol 4:** 59 faster, 7 ok, 1 slower, 5 unresolved, exit 1. The slower
+row is arithmetic/lexic-lex-ns 1.0157 (CI 1.0055–1.0261, envelope 1.0037,
+15 pairs) and nested/lexic-lex-ns 1.0134 (CI 1.0048–1.0221, envelope
+1.0086) sits just short of it — the sequential directive rows cost ~1.5 %
+more CPU with no paid-path bytecode change; the changed thing is the
+sequential path now parsing on a thread-claimed replica instead of the
+original pair. Sent to terra-r18 to measure and fix at the root. Two of
+the five unresolved rows are FALSE POSITIVES of the verdict logic:
+abnf-meta/lexic-pda 0.9947 (CI 0.9911–0.9983) and announced/lexic-mt
+0.9119 (CI 0.8584–0.9687) lie wholly below 1.0 yet read unresolved because
+`ok` also demands `low ≥ −envelope`; ruling passed on: an interval with
+`high ≤ envelope` can never be slower and passes; unresolved only when it
+straddles the upper edge. The other three (nested/pda 0.9854–1.0496,
+arithmetic/lex 0.9726–1.0368, nested/lex-ns) genuinely straddle.
+**Item-4 rulings and remote items closed (terra-r18, 2026-09-05 ~01:05):**
+`WorkPool.map` catches `LexicError` only (a chunk's refusal drains the
+phase; a bug/interrupt/MemoryError reaches the caller at once), both
+disables gone, four tests. The shared terminal loop (`match_terminal`)
+was built and measured — markdown 1.0144, mixedends 1.0139, abnf-meta
+1.0103, json 1.0103, arithmetic 1.0059 vs a ±0.7 % control over sixteen
+triples (two eight-triple blocks had disagreed) — reverted; the
+`duplicate-code` disable carries the numbers, protocol and instrument
+(`proto/s4_tree_rows.py`). Plugin: the `*Mixin` name test replaced by
+three structural facts (no `__init__`, `__slots__ = ()`, annotations never
+assigned), six probes, full justification on the predicate patch. Shape
+walker: `object` kept with the reason (five vocabularies; naming them
+imports four third-party packages into a module copied into the base arm;
+a Protocol would name no members). `Bound` declared once on the spine,
+`rebuild` takes what `children()` returns, all merge/stitch casts gone,
+`splice`/`stitch_interior` generic in the root type, `is_run` a shared
+`TypeIs`; widening `children()`'s RETURN would cost nineteen narrowings in
+the strict tier — left documented, for the user. The remote's sequential
+regression does NOT reproduce: preamble ~6 µs of 55 ms; original vs view
+vs replica 1.0000/1.0024/1.0014; cross-tree `e5506f0e` vs `81e61f9d` on
+the two rows 0.9977 and 0.9961 within a ±1.3 % control — the runner's.
+Verdict logic: `ok` no longer demands `low ≥ −envelope`; unresolved only
+straddles the upper edge; both remote rows are fixtures. Gates were cut
+mid-run by the user; the coordinator reruns them and commits.
 
 **Tree.** `targeter` at `829ce0ee`, pushed; two commits on Savepoint 13:
 `8ee288de` (the frame `needs_ends` fix, replicas bound by thread, the wiki's

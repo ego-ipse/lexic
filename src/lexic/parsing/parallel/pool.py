@@ -19,6 +19,7 @@ from threading import Lock, local
 from types import TracebackType
 from typing import Self, cast
 
+from lexic.exceptions import LexicError
 from lexic.parsing.parallel.policy import AUTO, doc_workers
 
 
@@ -54,10 +55,26 @@ class WorkPool:
         return mine
 
     def map[T, M](self, work: Callable[[T], M], items: Sequence[T]) -> list[M]:
-        """Keep a bounded ready queue, return in order, and isolate failure."""
+        """Keep a bounded ready queue, return in order, and isolate failure.
+
+        A phase DRAINS on the engine's own verdicts and on nothing else. A
+        chunk that will not parse is an answer about that chunk — the caller
+        wants the EARLIEST input's answer, so later ones are collected rather
+        than raced — and :class:`~lexic.exceptions.LexicError` is the family
+        every such answer belongs to. Everything else travels as Python
+        intends: a bug, an interrupt, an exhausted machine reaches the caller
+        at once, cancelling what has not started, because none of them is a
+        verdict about an item and waiting for the rest to finish would only
+        delay the news.
+
+        :param work: The per-item callable.
+        :param items: The work items, in the order results are wanted.
+        :returns: One result per item, in input order.
+        :raises LexicError: The earliest failing item's own refusal.
+        """
         results: list[M | None] = [None] * len(items)
         futures: dict[Future[M], int] = {}
-        failures: dict[int, BaseException] = {}
+        failures: dict[int, LexicError] = {}
         next_item = 0
         try:
             while next_item < len(items) or futures:
@@ -70,11 +87,8 @@ class WorkPool:
                     index = futures.pop(future)
                     try:
                         results[index] = future.result()
-                    # Stored, never swallowed: the earliest input's failure is
-                    # re-raised below, so a process-control exception must be
-                    # caught here or it escapes a half-drained phase.
-                    except BaseException as error:  # pylint: disable=broad-exception-caught
-                        failures[index] = error
+                    except LexicError as refusal:
+                        failures[index] = refusal
                 if failures:
                     failed_at = min(failures)
                     for future, index in futures.items():
@@ -86,13 +100,13 @@ class WorkPool:
                             continue
                         try:
                             results[index] = future.result()
-                        # Stored for the same reason, and this drain runs while
-                        # a failure is already pending: the earliest input's
-                        # own exception is what the next line raises.
-                        except BaseException as error:  # pylint: disable=broad-exception-caught
-                            failures[index] = error
+                        except LexicError as refusal:
+                            failures[index] = refusal
                     raise failures[min(failures)]
         except BaseException:
+            # Cleanup, not a catch: whatever is leaving — an item's refusal, a
+            # bug, an interrupt — leaves through here with the unstarted work
+            # cancelled behind it.
             for future in futures:
                 future.cancel()
             wait(futures)
@@ -144,7 +158,9 @@ class ParsePool[T, M]:
 
         :param items: The work items, in the order results are wanted.
         :returns: One result per item, in input order.
-        :raises Exception: The first failing item's own exception — a pool
+        :raises LexicError: The EARLIEST failing item's own refusal; the phase
+            drains first, so a later item's refusal cannot win the race.
+        :raises Exception: Anything else a work item raises, at once — a pool
             changes WHEN work runs, never what a failure means.
         """
         return self._pool.map(self._work, items)
