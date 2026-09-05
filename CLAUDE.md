@@ -118,7 +118,7 @@ Two conventions worth knowing before you go looking:
   tuple aliases and mutable cursors for their LANES. Strictness is `ir/`'s
   contract, not theirs — don't "clean up" the engine into records. The PDA
   frame is the stated exception: it is a typed slotted `Frame[M]`, read and
-  written by name, because its nine lanes have nine different types.
+  written by name, because its seven lanes have seven different types.
 
 ## Project layout
 

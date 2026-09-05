@@ -1900,3 +1900,38 @@ ratchet's file) is gone and `tools/render_readme.py` reads the Lexic seats
 from `competitors_baseline.json`.
 
 2026-09-04: Replica ownership corrected in source and in [[lexic/parallel-parsing]] — a replica is claimed by a THREAD under one cold lock and read back from that thread's own thread-local, replacing a global per-artefact list grown by length-then-append and indexed by a pool-LOCAL worker number (two live pools issued the same numbers; sixteen concurrent first-touches minted twenty-three to thirty-two replicas for seventeen requests). `worker_replicas(grammar, binding, count)` is gone; `worker_replica`, `thread_replica` (the policy-guarded document twin) and `replica_count` (the ownership meter) are the surface, updated in [[lexic/public-api]]. An exited thread's replica is dropped and its memo entries released rather than re-issued. [[lexic/decisions]] restates the ambiguity opt-out: `another_meaning` and `AmbiguityPolicy` are deleted, `different_meaning` into `chosen_meaning` is the one settlement route, and `first_meaning` is the tree route's deterministic first with no gate — only the value route can answer what a span MEANS. `src/lexic/parsing/README.md` now describes `ModelExecutable` and the product program instead of `ModelFold`/`fold.py`, the typed slotted `Frame` instead of flat-list frames, and the real package layout; the compile, PDA-compiler and product READMEs lost their last `RuleFold`/`ModelFold` references.
+
+2026-09-05: Replica ownership and the pool's failure contract corrected in
+[[lexic/parallel-parsing]] and [[lexic/public-api]] — the pages still taught
+single-owner adoption, which is the model that produced a memo leak. Three
+things are now written down. **Two claimants, never one.** A whole-document
+thread claims its own executable view with `document_view` in
+`CompiledGrammar.parse`, before a split is attempted at all, and every
+driver-thread operation runs on it — separator leads, routed stand-in shells,
+region boundaries, the sequential fallback, and the stitch; its GRAMMAR stays
+the artefact's, because that is the split plan's identity and every analysis is
+memoised on it. A chunk worker claims by THREAD with `worker_replica` and
+always mints, grammar included, since it also reaches grammar-keyed memos. The
+first document thread keeps the original pair, so a single-threaded program
+compiles no second set of tables; where `available_workers()` is 1 nothing is
+claimed at all. `thread_replica` is gone — `document_view` is the name, and it
+returns the executable half only. **Adoption is under BOTH key identities.**
+The model product is memoised per `(grammar, binding)` and mints the whole
+derived chain — lifted grammar, normalised instance, PDA tables, Earley tables
+— so the chain is adopted under each key: owned by the grammar alone it
+outlives every private binding and one leaks per thread that comes and goes;
+owned by the binding alone the mirror leaks, because `CompiledGrammar.bind`
+returns a fresh codegen grammar over the SAME product. `release` now also
+clears released identities out of every other owner's record, or the survivor
+accumulates a dead id per released child and a recycled address later reads as
+still owned. **A refusal and a bug leave a pool by different doors.** A
+`LexicError` drains the phase — cancel past the failure, wait, collect — and
+the earliest input's verdict wins, leaving the pool usable; anything else
+cancels queued work and reaches the caller without waiting on running siblings
+(one may be blocked on that caller), retires the pool, and makes `close()`
+cancel rather than wait. Reuse of a failed pool raises `RuntimeError`,
+deliberately NOT a `LexicError`, so a caller's sequential-fallback `except`
+cannot read a broken pool as an unparseable chunk; a lease whose phase raised
+closes its pool instead of returning it. Also corrected on the public-api page:
+`ParsePool`'s default is `cores=AUTO`, not `None`, and `WorkPool`/`PoolLease`
+are deliberately not re-exported from `lexic.parsing.parallel`.
