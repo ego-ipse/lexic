@@ -5,17 +5,21 @@ tool generates source, which is then compiled or imported. That build is part of
 using ANTLR — as `Lark(...)` construction is part of using Lark — so it happens
 once per grammar and never inside a timed round.
 
-Generated code lands in a temporary directory that lives as long as the process,
-because the import machinery needs the files to stay put.
+Generated code lands in a directory that lives as long as the process, because
+the import machinery needs the files to stay put — and is removed when the
+process ends, because nothing needs them afterwards.
 """
 
 from __future__ import annotations
 
+import atexit
 import importlib
+import os
+import shutil
 import subprocess
 import sys
-import tempfile
 from collections.abc import Callable
+from functools import cache
 from pathlib import Path
 
 from antlr4 import CommonTokenStream, InputStream
@@ -24,8 +28,32 @@ from lexic.ir import IrAst
 from tools.benchmark.emitters.directives import NO_MARKS, Marks
 from tools.benchmark.emitters.structured import antlr_grammar
 
-BUILD_ROOT = Path(tempfile.mkdtemp(prefix="lexic-antlr-"))
-"""Where generated parsers live. Kept for the process, not per call."""
+BUILD_ROOT = Path(__file__).resolve().parents[3] / "tmp" / "antlr"
+"""Where generated parsers live — a repo-local, gitignored build root.
+
+Deliberately not the system temp directory. This module is importable, so a
+build root minted at import scatters a directory per import outside the
+repository, where nothing that cleans the tree can see it; a named path under
+the repo is inspectable while a run is live and swept with the checkout.
+"""
+
+
+@cache
+def _build_dir() -> Path:
+    """This process's own build directory, made on first use and swept at exit.
+
+    Per PROCESS, because the A/B arms of a comparison run side by side over the
+    same grammar names: one shared directory would have them generating onto
+    each other's sources, and either one's exit would delete modules the other
+    still has imported. Created lazily, so importing this module builds nothing.
+
+    :returns: The directory generated sources land in, guaranteed to exist.
+    """
+    mine = BUILD_ROOT / f"pid{os.getpid()}"
+    mine.mkdir(parents=True, exist_ok=True)
+    atexit.register(shutil.rmtree, mine, ignore_errors=True)
+    return mine
+
 
 TOOL_VERSION = "4.13.2"
 """The ANTLR tool version, PINNED.
@@ -94,7 +122,7 @@ def generate(ast: IrAst, name: str, language: str, marks: Marks = NO_MARKS) -> P
     :raises RuntimeError: When the ANTLR tool itself refuses the grammar — a
         capability result, reported rather than worked around.
     """
-    target = BUILD_ROOT / language / name
+    target = _build_dir() / language / name
     target.mkdir(parents=True, exist_ok=True)
     source = target / f"{name}.g4"
     source.write_text(antlr_grammar(ast, name, marks), encoding="utf-8")
