@@ -314,6 +314,28 @@ settled today:** no minimum effect size in the gate; no growth for
 faster/ok rows; `RouteLane` stays; `cores=AUTO` stays logical. No agent
 survives; spawn fresh from briefs.
 
+## NEXT SESSION — start here (written 2026-09-05 ~01:25; the ONE authoritative restart block)
+
+**Tree.** `targeter` at `115ba510` (Review 19 corrections, the item-4
+rulings, the remote run's two items; committed `--no-verify` on the user's
+order at day's end and pushed). Local gates were NOT rerun on this exact
+tree — last known: pyright 0 over src/tests/tools, the parallel/pda/ir/
+model/tools/parity suites green, no paid-path bytecode row changed; the
+previous full run before the item-4 rulings was 5611/8 with run_checks 0.
+**First thing next session:** `tools/run_checks.sh` and `uv run pytest
+tests/ -q -n 8` by exit code on HEAD; then read the four remote workflows
+on `115ba510` — the performance run IS Review 19 item 7 (the user declined
+a local matrix: "not wasting time measuring before a GO review").
+**Then:** Review 19 reconsidered by the reviewer; on GO, one reconciliation
+(TODO ticks, this block, commit references, README numbers from a fresh
+bench in a granted window), then `humanotes.md` before §5. **Open
+rulings:** none blocking; widening `children()`'s return type (nineteen
+strict-tier narrowings) left documented. **Settled:** justified inline
+disables allowed (STYLE §6 with permission), unjustified removed; no
+minimum effect size; no growth for faster/ok rows; `RouteLane` stays;
+`cores=AUTO` logical; the 2 KiB floor. No agent survives; spawn fresh from
+`prompts/TERRA_R18.md` + `reports/REVIEW_19.md`.
+
 ## (superseded) NEXT SESSION — start here (written 2026-09-04 ~01:15)
 
 **Tree.** Branch `targeter`, HEAD `dd27f393` (Savepoint 13, user commit,
