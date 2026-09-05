@@ -42,6 +42,7 @@ from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
 from lexic.parsing import PdaTables, parse_model
 from lexic.parsing.caches import _CLAIMED, _MEMOS, cached_entries, reset_caches
+from lexic.parsing.parallel import available_workers
 from tests.paths import GROUND_TRUTH
 from tests.split_helpers import LEAD_RULE, lead_rule_document
 from tests.unit.lexic.compile.compile_helpers import roundtrip
@@ -444,6 +445,16 @@ class _WhoParsed:
         return {product for name, product in self.calls if name == driver}
 
 
+@pytest.mark.skipif(
+    available_workers() == 1,
+    reason=(
+        "the claim is about free-threaded OWNERSHIP. Where one worker is all "
+        "the build offers, document_view deliberately hands every thread the "
+        "original pair rather than compiling a product no thread can use in "
+        "parallel — so the two drivers meet on one product by design, and "
+        "there is no disjointness here to disprove."
+    ),
+)
 def test_two_overlapping_public_parses_never_share_a_product(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

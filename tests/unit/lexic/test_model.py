@@ -433,7 +433,12 @@ def test_a_repetition_binds_a_run_and_rebuild_takes_it_back():
     model = compiled.parse("ab\ncd\n")
     run = model.children()[0]
 
-    assert run.__class__ is tuple, "the fixture must bind a run, not a node"
+    # ``isinstance`` narrows the ``IrSelf`` that ``children()`` declares so the
+    # reversal below type-checks; the class identity is the claim the fixture
+    # rests on, since an IR node satisfies ``isinstance`` too.
+    assert isinstance(run, tuple) and run.__class__ is tuple, (
+        "the fixture must bind a plain run tuple, not a node"
+    )
     assert model.rebuild(model.children()) == model
     reversed_run = model.rebuild([tuple(reversed(run))])
     assert type(reversed_run) is type(model)

@@ -3804,3 +3804,44 @@ Bytecode against `e5506f0e`: **no changed paid-path row.** The rows outside it
 are the six modules Review 18 rewrote plus, now, `compile/artifact.py`,
 `plan/split.py` and `plan/cuts.py` — the document entry and split planning,
 which run once per document rather than per push or per character.
+
+## 2026-09-05 — the four remote failures on `115ba510`
+
+`115ba510` was pushed without a local gate run and the remote went red on
+three workflows. Four defects, each closed at its root.
+
+| # | Defect | Root cause | Fix | Evidence |
+|---|---|---|---|---|
+| 1 | `pyright` 3 errors, `tests/unit/lexic/test_model.py:438` (workflow `checks`) | The rebuild round-trip test takes `model.children()[0]`, which the spine declares `IrSelf`, then calls `reversed()` on it and hands `[tuple(...)]` to `rebuild`. Widening `rebuild`'s PARAMETER to `Bound` left the RETURN gap, and this is the site that fell in it. | Narrowed at the test's own site: the fixture assertion is now `isinstance(run, tuple) and run.__class__ is tuple` — one assert, both facts, and the `isinstance` half is what the checker reads. `children()`'s return type is untouched (nineteen strict-tier narrowings, the user's open ruling). | `pyright tests/unit/lexic/test_model.py` 3 errors → 0; the class-identity claim the fixture rests on is kept, not weakened to `isinstance` alone. |
+| 2 | `test_two_overlapping_public_parses_never_share_a_product` fails on the GIL leg (workflow `tests`, `PYTHON_GIL=1`) | `document_view` returns the ORIGINAL binding when `available_workers() < 2` — by design, since compiling a second product for a build that cannot run two threads is pure cost. Both drivers therefore observe one product and the disjointness assertion is false. | `pytest.mark.skipif(available_workers() == 1, ...)` with the reason stated: the claim is about free-threaded ownership, and where one worker is all the build offers there is no disjointness to disprove. The siblings in `tests/unit/lexic/parsing/parallel/` monkeypatch `available_workers` to 4 and were verified green on the GIL leg rather than guarded blindly. | Reproduced on `PYTHON_GIL=1` before the fix (`AssertionError: assert False`, one shared product id). After: GIL subset 381 passed, 1 skipped; free-threaded 382 passed — the test still RUNS where it means something. Full GIL leg through `tools/run_tests.sh`: A 5631 passed / 10 skipped, B 31 passed, C 7 passed, exit 0. |
+| 3 | `src/lexic/model.py` at 703 lines against the 700-line invariant (workflow `tests`) | The checked-construction block grew inside the module that also owns the spine, the dump and the addressed emission. | A coherent cold piece moved out, no prose compressed: `src/lexic/model_fields.py` owns what a field's own grammar ITEM decides — `UNIT`, the `FieldCheck` carrier, `uncovered_char`, `check_charclass`, `check_literal`, `check_token`, `value_str_literals`. The three checks that read the model SPINE (`_check_model`/`_check_ref`/`_check_group`) and the dispatch table stay in `model.py`, because a sub-model is what that module defines — moving them would have made `model_fields` import `GrammarModel` and closed an import cycle. | `model.py` 703 → 597; `model_fields.py` 140. New mirror test `tests/unit/lexic/test_model_fields.py`, 28 tests derived independently (interval edges at `/` and `:`, an astral code point, both quantifier endpoints, `bytes` for a token field, an empty alternate arm, duplicate literal arms). CLAUDE.md's project map gained the module; the doc-drift and folder-size gates pass (`src/lexic/` is at 6 files, the ceiling). |
+| 4 | The base arm dies at import (workflow `performance regression`) | `measurement/occupancy.py` imported `ModelExecutable` from `lexic.parsing`, a name the merge base `0faa7289` does not have, and `measurement/copy.py` carries that module into the base checkout. A second, latent instance of the same class: `copy.py`'s `RENAMED_IN` listed only `bench.py` as naming the build object, while `occupancy.py` and `diagnostics/split_ab.py` had started naming it too — so those two would have reached the base arm asking for `compiled.product` on a revision that calls it `compiled.fold`. | The probe no longer writes the type down. `type ModelProduct[M, B] = Callable[[IrAst, str, B, Resolver \| None], M]` is declared in the benchmark, `_WatchedParse[M, B]` is a NamedTuple pairing this revision's parse entry with the thread record, and both parameters are SOLVED from the call site — `M` from the request, `B` from the entry. `_rewrite` now runs over `PROTOCOL_MODULES` instead of a hand-kept subset. New `SHARED_VOCABULARY` in `copy.py` declares every `lexic` name a protocol module may import, and `tests/unit/tools/benchmark/test_copy.py` gates it both ways. | Reproduced: base tree archived to `/tmp`, `measurement/copy.py --rename fold`, roster → `ImportError: cannot import name 'ModelExecutable'`, exit 1. After: copy exit 0, base roster exit 0, head roster exit 0, **72 rows identical**; and `declined_reason` RUN in the base arm on the real `json` bench → `Occupancy(declined=None, workers=2)`, exit 0, so the rename reaches it at runtime too, not only at import. 24 tests, including the extractor reading back the exact `lexic.parsing.ModelExecutable` shape that broke the arm. |
+
+### Gates on the fixed tree
+
+| Gate | Result |
+|---|---|
+| Focused: model, model_fields, model_emission, surface freeze, artifact, benchmark tools, invariants | 353 passed, exit 0 |
+| `uv run pytest tests/ -q -n 8` | 5671 passed, 8 skipped, exit 0 |
+| GIL leg, defect 2's subset (`PYTHON_GIL=1`) | 381 passed, 1 skipped, exit 0 |
+| Full GIL leg, `tools/run_tests.sh` with `LEXIC_REQUIRE_GIL=1` | A 5631 / B 31 / C 7, exit 0 |
+| `pyright src tests getting_started tools ext` | 0 errors |
+| `tools/run_checks.sh` | exit 0, pylint 10.00/10 |
+| `proto/s3_*` and `s4_*` witnesses | 26/26 exit 0 |
+| `tools/run_examples.sh` | exit 0 |
+| `tools/check_generated.py` | exit 0, 53 modules CLEAN |
+
+Bytecode against `115ba510`: **every paid-path module byte-for-byte
+identical** — kernel.py 6/6, execution.py 8/8, build.py 4/4, matchers.py 7/7,
+flatten.py 24/24, product/tree.py 52/52, model_emission.py 5/5. `model.py`
+shows only the seven removals the move made. The one row the instrument still
+prints as growth, `model.py::__annotate__ +4`, is an artefact of its own name
+keying: thirty code objects share that qualified name at the base and
+twenty-six do in the tree, so the reported number is whichever the walk visited
+last. No function under it changed.
+
+One incidental note, recorded because it is the second time it has happened:
+`tools/auto_fix.sh` reorders imports in files outside the change (twelve of
+them here), and it unquoted `model.py`'s `type Emitted` alias. The twelve were
+restored; the alias was restored too, so the committed change set is exactly
+the four fixes. The lint gate accepts either spelling.

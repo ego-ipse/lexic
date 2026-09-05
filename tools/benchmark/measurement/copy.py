@@ -59,16 +59,53 @@ and speed, which let one label denote two workloads. The rest are earlier
 locations of files this layout moved.
 """
 
+SHARED_VOCABULARY = frozenset(
+    {
+        "lexic.compile.CompiledGrammar",
+        "lexic.compile.Directives",
+        "lexic.compile.compile_from_path",
+        "lexic.compile.compile_text",
+        "lexic.exceptions.LexicError",
+        "lexic.exceptions.UnsupportedConstructError",
+        "lexic.grammars.ABNF_FLAVOUR",
+        "lexic.grammars.GBNF_FLAVOUR",
+        "lexic.ir.IrAst",
+        "lexic.ir.inline_refs",
+        "lexic.model.GrammarModel",
+        "lexic.parsing.earley.kernel.forest.support.ambiguity.Resolver",
+        "lexic.parsing.parallel.AUTO",
+        "lexic.parsing.parallel.available_workers",
+        "lexic.parsing.parallel.orchestrate.Request",
+        "lexic.parsing.parallel.split_model",
+        "lexic.parsing.pda.core.errors.PdaFail",
+        "lexic.parsing.pda.runtime.kernel.kernel.pda_model",
+        "lexic.parsing.products._model_product",
+        "lexic.parsing.products.earley_model",
+        "lexic.parsing.products.parse_model",
+    }
+)
+"""Every ``lexic`` name a protocol module may import, as an exact dotted path.
+
+A protocol module is imported inside a FOREIGN revision's checkout, so a name
+that postdates the comparison base kills that whole arm at import — one
+traceback, no rows, and a performance run that measured nothing. This list is
+not a convenience: it is the point at which adding an import means checking the
+other arm has it, and a gate reads it so the check cannot be skipped.
+"""
+
 BUILD_OBJECT = "product"
 """What current Lexic calls the compiled grammar's model-build object."""
 
-RENAMED_IN = ("bench.py",)
-"""The only files naming the build object, so the only ones needing the map."""
-
 
 def _rewrite(root: Path, name: str) -> None:
-    """Point one copy's benchmark at the build-object name ITS Lexic uses."""
-    for module in RENAMED_IN:
+    """Point one copy's benchmark at the build-object name ITS Lexic uses.
+
+    Every protocol module is rewritten, not a listed subset: a module that
+    starts naming the build object would otherwise reach the other arm still
+    naming this one's, and the list that was supposed to say so is exactly the
+    thing nobody updates.
+    """
+    for module in PROTOCOL_MODULES:
         path = root / "tools" / "benchmark" / module
         source = path.read_text(encoding="utf-8")
         path.write_text(

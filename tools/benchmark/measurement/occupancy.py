@@ -9,20 +9,33 @@ can divide one document differently and still compare.
 Every measurement here runs on an untimed attempt, outside every measured span,
 and nothing in it reaches into `src`: the split is driven through its public
 entry with a stand-in for the product it would have used.
+
+This module is one of the protocol files copied into the OTHER arm's checkout,
+so every name it imports from `lexic` has to be one both revisions have. The
+compiled grammar's build object is the name that moves, and the stand-in never
+writes it down: it is generic in whatever the parse entry it wraps accepts.
 """
 
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar
 from lexic.ir import IrAst
-from lexic.parsing import ModelExecutable
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.products import parse_model
+
+type ModelProduct[M, B] = Callable[[IrAst, str, B, Resolver | None], M]
+"""A revision's model parse entry, as this benchmark uses one.
+
+``B`` is the compiled grammar's build object, and the point of the parameter is
+that nothing here writes it down: the probe is handed the entry, reads ``B``
+off it, and passes back exactly what it was given.
+"""
 
 
 class Occupancy(NamedTuple):
@@ -37,31 +50,18 @@ class Occupancy(NamedTuple):
     workers: int
 
 
-class _CountingParse:
-    """The model product, recording which threads it was driven from.
-
-    Wraps the product the split is handed rather than the pool, because every
-    piece of concurrent work in every route — cut chunks, region pieces,
-    routed interiors — reaches the engine through this one callable. The
-    driver's own thread is excluded by the caller, which knows its own ident.
-    """
+class _Threads:
+    """Which threads ran a piece of one split — the observation itself."""
 
     def __init__(self) -> None:
         """Start with no threads seen."""
-        self.threads: set[int] = set()
+        self.seen: set[int] = set()
         self.lock = threading.Lock()
 
-    def __call__[M](
-        self,
-        grammar: IrAst,
-        text: str,
-        binding: ModelExecutable[M],
-        resolve: Resolver | None = None,
-    ) -> M:
-        """Record the calling thread, then parse as the product does."""
+    def mark(self) -> None:
+        """Record the calling thread as having run a piece."""
         with self.lock:
-            self.threads.add(threading.get_ident())
-        return parse_model(grammar, text, binding, resolve)
+            self.seen.add(threading.get_ident())
 
     def workers_besides(self, driver: int) -> int:
         """How many threads other than ``driver`` ran a piece of the split.
@@ -70,7 +70,38 @@ class _CountingParse:
         reporting zero workers for a parse that happened would be a third
         wrong answer beside the request and the ceiling.
         """
-        return len(self.threads - {driver}) or 1
+        return len(self.seen - {driver}) or 1
+
+
+class _WatchedParse[M, B](NamedTuple):
+    """The model product, marking the thread every piece was driven from.
+
+    Wraps the product the split is handed rather than the pool, because every
+    piece of concurrent work in every route — cut chunks, region pieces,
+    routed interiors — reaches the engine through this one callable. The
+    driver's own thread is excluded by the reader, which knows its own ident.
+
+    The entry is supplied rather than reached for, which is what lets ``B`` —
+    the build object this revision hands a parse — be read off the argument
+    instead of spelled.
+
+    :ivar parse: This revision's model parse entry.
+    :ivar threads: The record every call marks.
+    """
+
+    parse: ModelProduct[M, B]
+    threads: _Threads
+
+    def __call__(
+        self,
+        grammar: IrAst,
+        text: str,
+        build: B,
+        resolve: Resolver | None = None,
+    ) -> M:
+        """Record the calling thread, then parse as the product does."""
+        self.threads.mark()
+        return self.parse(grammar, text, build, resolve)
 
 
 def declined_reason(compiled: CompiledGrammar, document: str, cores: int) -> Occupancy:
@@ -86,15 +117,14 @@ def declined_reason(compiled: CompiledGrammar, document: str, cores: int) -> Occ
 
     This attempt is untimed and runs outside every measured span.
     """
-    counted = _CountingParse()
-    request = Request(document, compiled.product, None)
+    threads = _Threads()
     split = split_model(
-        counted,
+        _WatchedParse(parse_model, threads),
         compiled.codegen_grammar,
-        request,
+        Request(document, compiled.product, None),
         cores,
         analysis=compiled.split_analysis or compiled.grammar,
     )
     if split is None:
         return Occupancy("the unified split seam found no eligible work", 1)
-    return Occupancy(None, counted.workers_besides(threading.get_ident()))
+    return Occupancy(None, threads.workers_besides(threading.get_ident()))

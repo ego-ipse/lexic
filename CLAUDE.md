@@ -133,6 +133,7 @@ src/lexic/
   generate.py                      random string generator — walks a canonical grammar's rules directly
   model.py                         GrammarModel on IrNamedTuple — models ARE IrSelf; to_text/to_grammar/dump
   model_emission.py                Stack records and extent reservation for addressed model emission
+  model_fields.py                  Per-field construction checks a field's own grammar ITEM decides
   api/
     __init__.py                    Readers for third-party formats — applications of lexic, shipped with it
     json_tokenizer.py              tokenizer.json → IrTokenizer; the json formulation is a parameter
