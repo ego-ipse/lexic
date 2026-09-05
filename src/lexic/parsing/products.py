@@ -239,7 +239,16 @@ def _model_product(
     _MODEL_CACHE[key] = product
     # Normalisation and the PDA compile mint objects the engine's own memos
     # key on; they exist only inside this product, so they release with it.
+    #
+    # Under BOTH key identities, because either one retires this entry and
+    # neither outlives the other in general. A grammar outlives many private
+    # bindings — a document thread's view, a worker's replica — so owning
+    # these by the grammar alone left a whole derived chain behind for every
+    # thread that came and went. A rebind is the mirror case: a fresh codegen
+    # grammar over a SHARED product, where owning them by the binding alone
+    # leaves the chain pinned to a product that never dies.
     adopt(id(grammar), lifted, instance, product.pda, product.tables)
+    adopt(id(binding), lifted, instance, product.pda, product.tables)
     return product
 
 

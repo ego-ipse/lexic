@@ -77,6 +77,7 @@ SHARED_VOCABULARY = frozenset(
         "lexic.parsing.parallel.available_workers",
         "lexic.parsing.parallel.orchestrate.Request",
         "lexic.parsing.parallel.split_model",
+        "lexic.parsing.parallel.worker_count",
         "lexic.parsing.pda.core.errors.PdaFail",
         "lexic.parsing.pda.runtime.kernel.kernel.pda_model",
         "lexic.parsing.products._model_product",

@@ -193,7 +193,7 @@ def agree(base: RowContract, head: RowContract, row: str) -> None:
 SEMANTIC = (
     "verdict",
     "engaged",
-    "effective_workers",
+    "split_digest",
     "result_digest",
     "shape_digest",
 )
@@ -201,9 +201,16 @@ SEMANTIC = (
 
 A pair disagreeing on any of these is not a slow arm and a fast arm; it is two
 different workloads. One refused while the other parsed, one split while the
-other declined, one occupied more workers, one emitted different characters, or
-one built a different tree — each of those makes the ratio meaningless, so the
-pair is refused before its duration can reach the estimator.
+other declined, one carved the document differently, one emitted different
+characters, or one built a different tree — each of those makes the ratio
+meaningless, so the pair is refused before its duration can reach the estimator.
+
+``effective_workers`` is deliberately NOT here. How many threads picked the
+pieces up is the executor's answer, not the workload's: thirty identical
+attempts on one artefact occupied eight workers twenty-eight times and seven
+twice, so a same-tree control pair would have been refused for being scheduled.
+The carving those threads shared is what identifies the work, and that is
+``split_digest``; the occupancy travels beside it as evidence to read.
 """
 
 
@@ -270,11 +277,17 @@ def _ratio(numerator: Job, denominator: Job, numerator_first: bool, row: str) ->
 def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairing:
     """Collect ``pairs`` candidate and control ratios for one row.
 
-    Each pair is two complete process lifecycles, one after the other. The
-    candidate flips which arm runs first on every pair. The control's two
-    processes are the same code, so what flips there is which one is on top of
-    the ratio — on its own schedule, so slot drift averages out instead of
-    cancelling identically in both and hiding itself.
+    Each pair is two complete process lifecycles, one after the other. Both
+    schedules reverse exactly ONE thing — which process runs first — while the
+    ratio's numerator stays the same arm throughout. Reversing both together is
+    reversing neither: exchanging the two control jobs AND keeping the numerator
+    on whichever ran first made every control divide the first process reading
+    by the second, so a permanent slot penalty entered the envelope as noise
+    instead of cancelling. A 10% first-slot cost then read as a 1.10 envelope
+    and swallowed a true 3% head regression whole.
+
+    The control keeps its own period so an ordering artefact does not cancel
+    identically in both arms and hide itself.
 
     ``first`` is the pair's ABSOLUTE index in the row's whole sequence, which
     is what makes both schedules continuous across adaptive growth. Restarting
@@ -292,12 +305,7 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
         candidate.append(_ratio(head_job, base_job, index % 2 == 0, row))
         left = _job(arms.head, grammar, row, arms.cores, "control-a")
         right = _job(arms.head, grammar, row, arms.cores, "control-b")
-        swapped = index % 3 == 2
-        control.append(
-            _ratio(right, left, True, row)
-            if swapped
-            else _ratio(left, right, True, row)
-        )
+        control.append(_ratio(left, right, index % 3 != 2, row))
     return Pairing(tuple(candidate), tuple(control))
 
 

@@ -3845,3 +3845,150 @@ One incidental note, recorded because it is the second time it has happened:
 them here), and it unquoted `model.py`'s `type Emitted` alias. The twelve were
 restored; the alias was restored too, so the committed change set is exactly
 the four fixes. The lint gate accepts either spelling.
+
+## 2026-09-05 — Review 20 corrections on `55f07331`
+
+Four findings, each reproduced with the review's own witness before it was
+touched, each closed at the root, each carrying a regression that fails on the
+pre-fix source.
+
+| # | Finding | Root cause | Fix | Evidence |
+|---|---|---|---|---|
+| 1 | High — retired document replicas leave their derived caches behind | `_model_product` adopted its lifted grammar, instance, PDA and tables under `id(grammar)` while the entry it fills is keyed on `(grammar, binding, bits)`. One grammar outlives many private bindings, so a document thread's whole derived chain could only retire when the artefact died. `_mint` had the same shape one layer down, and it was worse: a chunk worker's replica was adopted under the shared grammar but keyed to the DOCUMENT's binding, so when that binding retired the replica was orphaned — reachable from nothing that ever dies. | Both sites adopt under BOTH key identities. Neither key outlives the other in general: a grammar outlives its private bindings, and a rebind is the mirror case — a fresh codegen grammar over a SHARED product, where owning by the binding alone pins the chain to a product that never dies (this is what `test_artefact_churn_off_the_main_thread_returns_memos_to_the_floor` caught when the first attempt owned by the binding only). Double adoption is safe because `release` now also clears released identities from every other owner's record. | The review's witness reproduced exactly: `11, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48` over twelve joined threads with `replica_count` 2. After: `11, 15, 15, 15, …, 15` — a plateau, the residue being the one view no later claim has reclaimed. The SPLIT path was leaking far harder and the `cores=1` witness could not see it: `87, 151, 215, …, 791`, +64 per document thread; after, `87, 91, 91, …, 91`. The adoption bookkeeping itself also plateaus (`19, 20, 21, … 30` → constant 19). Four regressions: the plateau, the split-path bound, a live sibling view still parsing across the churn, and the grammar-owned shared analysis (plan, roles, anchors) surviving untouched. |
+| 2 | High — the control's reversal reverses labels, not the ratio | Both control branches passed `numerator_first=True` while the swapped branch also exchanged the two jobs, so every control divided the first process reading by the second. The reversal cancelled itself, and a permanent slot cost entered the envelope as a fact about the code. | One line: `_ratio(left, right, index % 3 != 2, row)`. The numerator is held on `control-a` throughout while the execution order reverses — the candidate's own shape. The absolute-index schedule and the control's independent period are untouched, and so is the execution order the existing tests pin, which is exactly why they never saw this. | Witness reproduced verbatim — candidate `+.693, −.693, …`, control `+.693` six times. After: control `+, +, −, +, +, −`. The review's second synthetic machine (10% permanent first-slot penalty, true 3% head cost, 15 pairs) returned `ok` with a 1.1000 envelope before; after it returns `unresolved` with a 1.0820 envelope — the penalty is no longer the envelope, and the real regression is no longer waved through. Five new tests assert the returned SIGNS, plus a control row proving an even machine still reads `ok` with an all-zero control. |
+| 3 | High — observed occupancy is not workload identity | One attempt's unique-thread count is the executor's answer, not the workload's, and it was a mandatory equality field. | The two roles are separated at the source. `_Attempt` now records the pieces the split carved as well as the threads that took them, and `Occupancy` carries `plan` — a digest of the sorted piece lengths and the admission ceiling `worker_count(size, pieces − 1, cores)`, all derived, all observed outside `src` and outside timing. `Observation` gains `split_digest`; `SEMANTIC` compares that instead of `effective_workers`, which stays on the wire as evidence. Wire `PROTOCOL` 5 → 6. No retry-until-equal and no barrier: the attempt executed is the one that was already run. | The review's witness reproduced on the third run: `workers=8` 28 attempts, `workers=7` 2. Under the same run the derived plan was ONE digest across all 30. After the fix, three consecutive runs of 30: plans `{8e924448e654bde1}` every time while occupancy read `{8: 30}`, `{7: 2, 8: 28}`, `{7: 2, 8: 28}`. A genuinely different carving of the same document (`cores=2`) digests differently. Regressions: plan stability across 12 attempts, a different carving refusing, and the same-tree control pair — differing only in observed occupancy — comparing. |
+| 4 | Medium — an unexpected failure still waits for running siblings | The outer `except BaseException` called `wait(futures)` before re-raising, and `close()`/`shutdown()` blocked on top of that, so a bug stayed hidden behind unrelated running work and could deadlock a caller whose blocked item needed the error to be released. | A refusal and a bug now leave by different doors. `except LexicError` cancels queued work and re-raises with the drain intact — the earliest-input rule is untouched. `except BaseException` marks the pool failed, cancels queued work and re-raises WITHOUT waiting; `close()` then does `shutdown(wait=False, cancel_futures=True)` on a failed pool, so `WorkPool.__exit__`, `ParsePool.__exit__` and `PoolLease.__exit__` all unwind at once. No thread is killed — the running work finishes on its own. Reuse of a failed pool raises `RuntimeError`, deliberately not a `LexicError`: a caller catches that family to fall back to a sequential parse, and a broken pool must not read as a chunk that would not parse. The drain moved to a flat `_drained` helper (`map` shed 49 instructions). | The review's witness: before, "error reported while the sibling is still blocked: **False**"; after, **True**, with the `TypeError` in hand. Both context managers and the lease were separately witnessed — all three `False` → `True`. Six event-based regressions, including the refusal path still draining its siblings and the pool staying usable after one. |
+
+### Gates on the corrected tree
+
+| Gate | Result |
+|---|---|
+| Focused: parallel, caches, artifact, concurrency, benchmark tools | 539 passed, exit 0 |
+| `uv run pytest tests/ -q -n 8` | 5690 passed, 8 skipped, exit 0 |
+| GIL leg, `LEXIC_REQUIRE_GIL=1 tools/run_tests.sh` | A 5650 / 10 skipped, B 31, C 7, exit 0 |
+| `pyright src tests getting_started tools ext` | 0 errors |
+| `tools/run_checks.sh` | exit 0, pylint 10.00/10 |
+| `proto/s3_*` and `s4_*` witnesses | 26/26 exit 0 |
+| `tools/run_examples.sh` | exit 0 |
+| `tools/check_generated.py` | exit 0, 53 modules CLEAN |
+
+Bytecode against `55f07331`: **every paid-path module byte-for-byte
+identical** — kernel.py 6/6, execution.py 8/8, build.py 4/4, matchers.py 7/7,
+flatten.py 24/24, product/tree.py 52/52. The four modules this round edited
+were added to the comparison rather than left outside it, and none sits on the
+per-character loop: `_model_product` +11 (once per grammar/binding/tier),
+`release` +18 (a finalizer), `_mint` +40 (once per thread per pair), and
+pool.py, where `WorkPool.map` SHRANK by 49 as the drain moved to `_drained`
+while `close` and `__init__` grew by ten between them, once per pool.
+
+Two things found while proving the above, both recorded because neither was in
+the review. The split path leaked an order of magnitude harder than the
+`cores=1` witness could show, and the fix that closed it also had to survive
+the rebind path, where the product is SHARED and the codegen grammar is fresh —
+the first formulation, owning the chain by the binding alone, passed every
+focused suite and was caught by the concurrency lane's own churn test. And the
+shared-vocabulary gate added last round did its job unprompted: adding
+`worker_count` to the occupancy probe failed `test_copy` until the name was
+declared, which is the check that keeps the base arm importable.
+
+## 2026-09-05 — finding 5: markdown/lexic-pda on the remote gate
+
+**Verdict: (b), a real cost — and the estimator was right.** The machinery was
+tested first, as instructed, and it came back clean on every count; the work
+census then found the cost, machine-independently, in three functions. Half of
+it is now removed at the root; the other half is a standing user ruling and is
+reported rather than reverted.
+
+Window: one, announced. Merge-base `0faa7289` and this working tree archived to
+`/tmp/perf/{base,head}`, corrected protocol installed in the base
+(`copy.py --rename fold`), everything under `taskset -c 0-3`, process CPU, one
+process at a time. Instruments under `proto/`: `s5_estimator.py`,
+`s5_orientation.py`, `s5_slot.py`, `s5_census.py`.
+
+### The machinery, tested first
+
+| Test | Result |
+|---|---|
+| (i) Null control AS candidate — head vs head, byte-identical, 15 pairs × 12 | **0/12 `slower`.** 7 `ok`, 5 `unresolved`. No false positive at this row's cost. Candidate grand mean `+0.0023`, control `−0.0025` — no directional bias either way. |
+| The odd-pair-count hypothesis | Measured, then discarded. `MIN_PAIRS` 5 and `MAX_PAIRS` 15 are both odd, so the candidate's order alternation is unbalanced by one pair and leaves `slot/N` behind. Real, but the first-slot cost on this host is `1.0018x`, so the predicted residual is `+0.00012` against an observed `+0.0039` — it explains none of it. |
+| (ii) Is the envelope matched to the row? | Yes, by construction: `sample` builds its control jobs with the SAME grammar and row on the head tree, so the control times the row it certifies. The amendment's premise does not hold for this harness. |
+| Would finding 2's orientation bug explain it? | No, and the measurement says so in the opposite direction. On one recorded 15-pair run, the corrected control gave envelope `1.0120x` and the pre-correction `first/second` orientation gave `1.0209x` — the old orientation ADDS the slot mean to the envelope through `max(abs(low), abs(high))`, so it is more permissive, not less. The runner's `1.0083x` envelope is not a too-loose control's doing. |
+| (iii) Does it reproduce, and does it converge? | It does not reproduce. `markdown/lexic-pda`, base vs head: 15 pairs × 8 at the protocol's `ROUNDS=5` → grand mean `0.9984x`; 15 pairs × 5 at `ROUNDS=50` → `0.9989x`. Pooled 195 pairs: `0.9986x`, 95% CI `[0.9959, 1.0013]`. A true `+1.47%` sits about eleven standard errors outside that. |
+| Is the noise in the span or the process? | The process. Raising the timed span tenfold (`ROUNDS` 5 → 50, 6.8 ms → 68 ms) moved the per-pair spread only from `0.0216` to `0.0165`, which is what `ROUNDS`' own docstring already claims: the honest lever is a quieter machine, not a longer inner loop. |
+
+So the estimator does not manufacture this verdict, the envelope is measured on
+the right work, and the row does not read slow on this host.
+
+### The work census, which settles it
+
+A call census is the same number on every machine. Profiling five parses of the
+exact row on each tree:
+
+| | merge-base `0faa7289` | head | delta |
+|---|---|---|---|
+| total calls, 5 parses | 212,741 | 224,441 | **+11,700 (+5.50%)** |
+| calls per character | 5.825 | 6.146 | +0.32 |
+
+Every other function's count is identical — `gate_take` 16,165 both,
+`window_admits` 9,105 both, `_enter` 7,875 both, `_quant_step` 7,270 both,
+`_from_values` 6,530 both, `fast_values` 6,475 both, `_complete` 5,840 both.
+The whole difference is three functions:
+
+- `build.py::Frame.__init__` **+5,840** (one per completion),
+- `kernel.py::_fresh_sinks` **+5,535**,
+- `build.py::Frame.span_start` **+305**.
+
+That is executed work the branch added on the plain PDA route since main, and
+it explains the pattern the row shows: the lex/lex-ns rows fold fewer models,
+the mt rows are judged on wall, and the earley rows do not run this loop — the
+plain PDA row on the heaviest structured grammars is where per-completion work
+lands. The cost's SIZE is machine-dependent (invisible here, ~1.5% on a 4-vCPU
+runner); its existence is not.
+
+### What was fixed, and what was not
+
+`_fresh_sinks` was a one-line function — `return [None] * n` — called 1,107
+times per parse, existing only to carry a type parameter through a value so the
+checker would not erase it. Inlined at both call sites with the type stated on
+a local instead. Census after: **+11,700 → +6,165 (+5.50% → +2.90%)**. Measured
+on this host against the same tree without the inlining, 15 pairs × 4 at
+`ROUNDS=50`: **`0.9948x`, CI `[0.9905, 0.9992]`**, 4/4 `ok` — a real 0.5% win,
+and the calibration that matters: this machine CAN resolve 0.5% over 60 pairs,
+which is why its failure to see 1.47% over 195 is evidence rather than silence.
+
+The remaining +2.90% is `Frame.__init__` per completion. That is the typed
+slotted frame, and reverting it to an untyped list is the answer the user has
+already rejected in principle; the ledger names the candidate fix (a per-stack
+frame pool) and records its aliasing check on published routes as unverified.
+It is a design change carrying a soundness proof, not a correction-round edit,
+so it is reported here and left for a ruling.
+
+**One deliberate deviation:** the paid-path bytecode witness is no longer
+silent. `PdaKernel._match_span` and `PdaKernel._sink_for` each grew by two
+instructions — a `BUILD_LIST` and a multiply replacing a `CALL` — which is what
+removing 1,107 Python calls per parse costs in instruction count. Every other
+paid-path function is byte-for-byte identical. The gate says "none may move";
+this one moved because finding 5 asked for a real cost to be fixed at the root,
+and the measurement above is the justification.
+
+### One test corrected
+
+`test_a_refusal_still_waits_for_its_siblings_and_reports_the_earliest` was flaky
+at about one run in six, and it was my test that was wrong, not the code: it
+asserted that items past the first failure FINISH, while the drain deliberately
+cancels them. Re-stated over events — item 1 refuses first in time, item 0 does
+not begin refusing until it has — so the phase can only raise item 0's verdict
+by having waited. Stable 8/8, and it passes on the pre-fix source too, which is
+correct: it guards the half of the pool's behaviour that must not move.
+
+### Gates after finding 5
+
+| Gate | Result |
+|---|---|
+| Focused: pda, parallel, caches, artifact, benchmark tools, concurrency, parity | 1872 passed, exit 0 |
+| `uv run pytest tests/ -q -n 8` | 5690 passed, 8 skipped, exit 0 |
+| GIL leg, `LEXIC_REQUIRE_GIL=1 tools/run_tests.sh` | A 5650 / 10 skipped, B 31, C 7, exit 0 |
+| `tools/run_checks.sh` (pyright + pylint + lint + sanity) | exit 0, pylint 10.00/10 |
+| `proto/s3_*` and `s4_*` witnesses | 26/26 exit 0 |
+| `tools/run_examples.sh` | exit 0 |
+| `tools/check_generated.py` | exit 0, 53 modules CLEAN |

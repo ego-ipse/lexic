@@ -20,7 +20,6 @@ from tools.benchmark.measurement.contract import (
     shape,
 )
 
-
 type _Value = int | str | tuple
 """What these fixtures hold: a leaf, or a nested record (records are tuples)."""
 
@@ -126,7 +125,7 @@ def test_a_deeply_nested_product_renders_rather_than_recursing() -> None:
 
 def test_an_observation_survives_the_wire_with_both_digests() -> None:
     """Both digests travel, or the comparator cannot ask for either."""
-    observation = Observation(1.5, 2.5, "text", "shape", "accepted", True, 8)
+    observation = Observation(1.5, 2.5, "text", "shape", "accepted", True, "plan", 8)
 
     assert read_observation(observation.wire()) == observation
 
@@ -158,7 +157,7 @@ def test_a_contract_names_every_field_that_differs() -> None:
 
 def test_an_observation_missing_a_digest_is_not_read_as_empty() -> None:
     """An older harness's payload refuses rather than comparing as blank."""
-    wire = Observation(1.0, 1.0, "text", "shape", "accepted", None, 1).wire()
+    wire = Observation(1.0, 1.0, "text", "shape", "accepted", None, "plan", 1).wire()
     del wire["shape_digest"]
 
     with pytest.raises(KeyError):

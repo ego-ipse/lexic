@@ -23,6 +23,38 @@ from lexic.exceptions import LexicError
 from lexic.parsing.parallel.policy import AUTO, doc_workers
 
 
+def _drained[M](
+    futures: dict[Future[M], int],
+    results: list[M | None],
+    failures: dict[int, LexicError],
+) -> LexicError:
+    """Finish the phase a refusal ended, and return the EARLIEST one's verdict.
+
+    Only reached for a domain refusal, and the wait is the point of it: without
+    draining, "earliest input" would report whichever chunk lost the race and
+    the split would move the wrong cut. Work past the first failure is
+    cancelled first, since its answer cannot change the outcome.
+
+    :param futures: The still-pending futures and their input indices.
+    :param results: The result slots, filled for whatever finished.
+    :param failures: The refusals collected so far, by input index.
+    :returns: The refusal belonging to the earliest failing input.
+    """
+    failed_at = min(failures)
+    for future, index in futures.items():
+        if index > failed_at:
+            future.cancel()
+    wait(futures)
+    for future, index in futures.items():
+        if future.cancelled():
+            continue
+        try:
+            results[index] = future.result()
+        except LexicError as refusal:
+            failures[index] = refusal
+    return failures[min(failures)]
+
+
 class WorkPool:
     """One executor reused by differently typed phases of a split parse."""
 
@@ -33,6 +65,7 @@ class WorkPool:
         self._slots = local()
         self._taken = count()
         self._slot_lock = Lock()
+        self._failed = False
 
     def slot(self) -> int:
         """The calling WORKER thread's own index in ``range(self.workers)``.
@@ -61,17 +94,27 @@ class WorkPool:
         chunk that will not parse is an answer about that chunk — the caller
         wants the EARLIEST input's answer, so later ones are collected rather
         than raced — and :class:`~lexic.exceptions.LexicError` is the family
-        every such answer belongs to. Everything else travels as Python
-        intends: a bug, an interrupt, an exhausted machine reaches the caller
-        at once, cancelling what has not started, because none of them is a
-        verdict about an item and waiting for the rest to finish would only
-        delay the news.
+        every such answer belongs to.
+
+        Everything else leaves AT ONCE, and "at once" is meant literally: the
+        queued work is cancelled, the pool is marked unusable, and the error
+        reaches the caller without waiting on siblings that are still running.
+        A bug is not a verdict about an item, so nothing about it is learned by
+        waiting — and a caller whose blocked item needs the error to release it
+        deadlocks against a phase that waits first.
 
         :param work: The per-item callable.
         :param items: The work items, in the order results are wanted.
         :returns: One result per item, in input order.
         :raises LexicError: The earliest failing item's own refusal.
+        :raises RuntimeError: If the pool already failed and is unusable.
         """
+        if self._failed:
+            # Not a LexicError: a caller catches that family to fall back to a
+            # sequential parse, and reusing a broken pool must not read as a
+            # chunk that would not parse. RuntimeError is what the executor
+            # underneath raises for the same misuse, for the same reason.
+            raise RuntimeError("this pool failed and cannot take further work")
         results: list[M | None] = [None] * len(items)
         futures: dict[Future[M], int] = {}
         failures: dict[int, LexicError] = {}
@@ -90,32 +133,34 @@ class WorkPool:
                     except LexicError as refusal:
                         failures[index] = refusal
                 if failures:
-                    failed_at = min(failures)
-                    for future, index in futures.items():
-                        if index > failed_at:
-                            future.cancel()
-                    wait(futures)
-                    for future, index in futures.items():
-                        if future.cancelled():
-                            continue
-                        try:
-                            results[index] = future.result()
-                        except LexicError as refusal:
-                            failures[index] = refusal
-                    raise failures[min(failures)]
-        except BaseException:
-            # Cleanup, not a catch: whatever is leaving — an item's refusal, a
-            # bug, an interrupt — leaves through here with the unstarted work
-            # cancelled behind it.
+                    raise _drained(futures, results, failures)
+        except LexicError:
+            # A refusal has already drained its phase, so nothing is running
+            # and the pool is still whole: cancel what never started and let
+            # the verdict go up.
             for future in futures:
                 future.cancel()
-            wait(futures)
+            raise
+        except BaseException:
+            # Cleanup, not a catch. The queued work is cancelled and the pool
+            # is retired, but the running siblings are NOT waited on — they are
+            # unrelated to the error, and one of them may be waiting on the
+            # caller that is waiting on this.
+            self._failed = True
+            for future in futures:
+                future.cancel()
             raise
         return cast(list[M], results)
 
     def close(self) -> None:
-        """Shut the executor down after every submitted phase completes."""
-        self._pool.shutdown()
+        """Shut the executor down after every submitted phase completes.
+
+        A pool that failed does not wait: whatever is still running there is
+        unrelated to the error that retired it, and blocking a caller's unwind
+        on it is the deadlock this exists to avoid. The threads are left to
+        finish on their own — nothing here kills one.
+        """
+        self._pool.shutdown(wait=not self._failed, cancel_futures=self._failed)
 
     def __enter__(self) -> Self:
         """Return this pool for a bounded multi-phase lifetime."""
@@ -161,7 +206,8 @@ class ParsePool[T, M]:
         :raises LexicError: The EARLIEST failing item's own refusal; the phase
             drains first, so a later item's refusal cannot win the race.
         :raises Exception: Anything else a work item raises, at once — a pool
-            changes WHEN work runs, never what a failure means.
+            changes WHEN work runs, never what a failure means, and never how
+            long the news takes to arrive.
         """
         return self._pool.map(self._work, items)
 

@@ -12,11 +12,35 @@ import pytest
 
 from lexic.compile import compile_text
 from tools.benchmark import bench as benchmark
-from tools.benchmark.measurement import occupancy
+from tools.benchmark import compare
 from tools.benchmark.bench import EngineBuild
 from tools.benchmark.cases.grammars import Bench
 from tools.benchmark.execution import isolation, worker
 from tools.benchmark.execution.isolation import RowRequest
+from tools.benchmark.measurement import occupancy
+from tools.benchmark.measurement.contract import (
+    CLOCKS,
+    PROTOCOL,
+    Observation,
+    RowContract,
+)
+
+CONTRACT = RowContract(
+    PROTOCOL,
+    "lexic-mt",
+    "json",
+    "abc123",
+    (),
+    (),
+    "def456",
+    2403,
+    "full",
+    "typed model",
+    8,
+    True,
+    CLOCKS,
+)
+"""A well-formed contract for one threaded row."""
 
 
 def test_one_engine_requests_only_the_exact_lexic_variant(
@@ -194,7 +218,85 @@ def test_the_engagement_probe_reports_what_the_attempt_did(
         lambda text: compiled.parse(text, cores=1), document, None, compiled
     )
 
-    engaged, workers = worker._engagement("lexic-mt", built, 16)
+    seen = worker._engagement("lexic-mt", built, 16)
 
+    assert seen is not None
+    engaged, split, workers = worker._split_fields(seen)
     assert engaged is True
+    assert split != ""
     assert 1 < workers < 16
+
+
+def test_the_split_plan_is_stable_where_the_thread_count_is_not() -> None:
+    """The identity field must survive the executor's own choices.
+
+    A single attempt's unique-thread count is scheduling: thirty serial
+    attempts against one artefact occupied eight workers twenty-eight times
+    and seven twice. The carving those threads shared does not move, so it is
+    the carving that says two arms did the same work.
+    """
+    compiled = compile_text(_LINES, cache_key="worker-plan-stability")
+    document = _lines(16 * 1024)
+
+    seen = [occupancy.declined_reason(compiled, document, 8) for _ in range(12)]
+
+    assert all(one.declined is None for one in seen), "the fixture must engage"
+    assert len({one.plan for one in seen}) == 1, "the derived plan moved"
+    assert all(one.workers >= 1 for one in seen)
+
+
+def test_a_different_carving_of_the_same_document_reports_a_different_plan() -> None:
+    """A changed split plan must still be detectable, or the field says nothing.
+
+    Fewer admitted workers is a different division of the same characters —
+    exactly the difference the comparator exists to refuse — so it must not
+    digest equal to the eight-way carving of the same text.
+    """
+    compiled = compile_text(_LINES, cache_key="worker-plan-differs")
+    document = _lines(16 * 1024)
+
+    wide = occupancy.declined_reason(compiled, document, 8)
+    narrow = occupancy.declined_reason(compiled, document, 2)
+
+    assert wide.declined is None and narrow.declined is None
+    assert wide.plan != narrow.plan
+
+
+def test_the_scheduler_alone_cannot_refuse_a_pair(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two arms differing only in observed occupancy still compare.
+
+    This is the same-tree control pair the comparator would have rejected: it
+    ran identical code on an identical document and was scheduled differently.
+    """
+    compiled = compile_text(_LINES, cache_key="worker-scheduling-only")
+    document = _lines(16 * 1024)
+    built = EngineBuild(
+        lambda text: compiled.parse(text, cores=1), document, None, compiled
+    )
+    engaged, split, workers = worker._split_fields(
+        worker._engagement("lexic-mt", built, 8)
+    )
+    observed = Observation(
+        1.0, 1.0, "text", "shape", "accepted", engaged, split, workers
+    )
+    scheduled = observed._replace(effective_workers=workers - 1)
+
+    assert (
+        compare.comparable(
+            compare.Arm("json/lexic-mt/base", CONTRACT, observed),
+            compare.Arm("json/lexic-mt/head", CONTRACT, scheduled),
+            "json/lexic-mt",
+        )
+        is None
+    )
+
+    with pytest.raises(ValueError, match="split_digest"):
+        compare.comparable(
+            compare.Arm("json/lexic-mt/base", CONTRACT, observed),
+            compare.Arm(
+                "json/lexic-mt/head", CONTRACT, observed._replace(split_digest="other")
+            ),
+            "json/lexic-mt",
+        )

@@ -382,6 +382,122 @@ def test_the_adoption_chain_drains_every_registered_memo_on_release() -> None:
     reset_cache_for_tests()
 
 
+def _churn_round(compiled: CompiledGrammar, rounds: int, cores: int = 0) -> list[int]:
+    """Parse on ``rounds`` short-lived threads; entries after each one joins."""
+    counts: list[int] = []
+    for _ in range(rounds):
+        thread = threading.Thread(
+            target=compiled.parse, args=(_DRAIN_TEXT,), kwargs={"cores": cores}
+        )
+        thread.start()
+        thread.join(timeout=60)
+        counts.append(cached_entries())
+    return counts
+
+
+def test_document_thread_churn_plateaus_instead_of_growing() -> None:
+    """A retired document view takes its DERIVED caches with it.
+
+    The private binding is what privatises a parse — it mints its own lifted
+    grammar, instance, Earley tables and PDA — so those belong to it and not
+    to the grammar every thread shares. Owned by the grammar they could only
+    retire when the artefact died, and a long-lived artefact then grew by a
+    whole derived chain for every document thread that came and went.
+
+    The plateau is not zero growth: a view is reclaimed by the NEXT claim, so
+    the most recently exited thread's chain is still resident. What must not
+    happen is a count that keeps climbing.
+    """
+    reset_cache_for_tests()
+    compiled = _fresh_artifact(_DRAIN_GRAMMAR, "thread-churn")
+    compiled.parse(_DRAIN_TEXT, cores=1)
+
+    counts = _churn_round(compiled, 12, cores=1)
+
+    assert len(set(counts[1:])) == 1, f"entries still climbing: {counts}"
+    reset_cache_for_tests()
+
+
+def test_a_split_documents_worker_replicas_retire_with_the_document() -> None:
+    """The same leak one layer down: the pieces' replicas, not just the view.
+
+    A split mints a replica per chunk worker, keyed on the DOCUMENT's private
+    binding. When that binding retired they were orphaned — reachable from
+    nothing that ever dies — and the count grew by a whole set of chunk tables
+    per document thread rather than by the one un-reclaimed view.
+
+    Bounded rather than exact: the pool's threads outlive a document, so what
+    is still resident depends on which of them the last round happened to use.
+    The claim survives that — eleven further rounds must not cost what the
+    first one did.
+    """
+    reset_cache_for_tests()
+    compiled = _fresh_artifact(_DRAIN_GRAMMAR, "split-churn")
+    compiled.parse(_DRAIN_TEXT, cores=4)
+
+    counts = _churn_round(compiled, 12, cores=4)
+    one_round = counts[1] - counts[0]
+    rest = counts[-1] - counts[1]
+
+    assert rest <= one_round, f"eleven rounds cost more than the first: {counts}"
+    reset_cache_for_tests()
+
+
+def test_a_live_sibling_view_still_parses_after_another_retires() -> None:
+    """Retiring one thread's view must not evict a live thread's own.
+
+    The whole risk of releasing on thread exit is over-releasing: the memos
+    are shared, and a sweep that took a sibling's entries would leave a
+    running parse recompiling — or, worse, reading a product built for
+    another binding. The sibling here holds its view across the churn.
+    """
+    reset_cache_for_tests()
+    compiled = _fresh_artifact(_DRAIN_GRAMMAR, "sibling-view")
+    parsed: list[str] = []
+    holding = threading.Event()
+    release_it = threading.Event()
+
+    def sibling() -> None:
+        """Claim a view, wait out the churn, then parse through it again."""
+        parsed.append(compiled.parse(_DRAIN_TEXT).to_text())
+        holding.set()
+        release_it.wait(timeout=60)
+        parsed.append(compiled.parse(_DRAIN_TEXT).to_text())
+
+    held = threading.Thread(target=sibling)
+    held.start()
+    assert holding.wait(timeout=60)
+    _churn_round(compiled, 6)
+    release_it.set()
+    held.join(timeout=60)
+
+    assert parsed == [_DRAIN_TEXT, _DRAIN_TEXT]
+    assert compiled.parse(_DRAIN_TEXT).to_text() == _DRAIN_TEXT
+    reset_cache_for_tests()
+
+
+def test_the_shared_analysis_survives_a_retired_document_view() -> None:
+    """Plan, roles and anchors are the GRAMMAR's, and must outlive a thread.
+
+    They are memoised on the grammar precisely so a document thread does not
+    re-derive them, which is why the document view keeps the artefact's
+    grammar in the first place. A retirement that reached them would undo the
+    reason the view copies only the executable half.
+    """
+    reset_cache_for_tests()
+    compiled = _fresh_artifact(_DRAIN_GRAMMAR, "shared-analysis")
+    _churn_round(compiled, 1)  # warm it: the split derives this analysis lazily
+    anchors = compiled.anchors()
+    grammar_owned = _owned_count(compiled.codegen_grammar)
+    assert grammar_owned > 0, "the fixture must populate grammar-keyed memos"
+
+    _churn_round(compiled, 6)
+
+    assert _owned_count(compiled.codegen_grammar) == grammar_owned
+    assert compiled.anchors() is anchors
+    reset_cache_for_tests()
+
+
 def test_reset_cache_for_tests_empties_every_registered_memo() -> None:
     """The public test seam reaches ``reset_caches`` -- the isolation every
     other test in this module (and file) implicitly relies on."""

@@ -99,15 +99,6 @@ from lexic.parsing.product import ProductExecutor
 __all__ = ["PdaFail", "PdaKernel", "pda_model"]
 
 
-def _fresh_sinks[Carry](n: int, _of: list[Carry]) -> list[list[Carry] | None]:
-    """One unallocated sink slot per item — the table's shape, stated once.
-
-    :param _of: A sink whose element type the fresh table inherits, so the
-        model type is carried by a value rather than erased to ``Any``.
-    """
-    return [None] * n
-
-
 class PdaKernel[M](
     KernelExecutionMixin[M], Attempting[M], AttemptInlineMixin, IrLeaf[IrSelf, IrSelf]
 ):
@@ -429,8 +420,8 @@ class PdaKernel[M](
             else:
                 sinks = frame.sinks
                 if sinks is None:
-                    sinks = _fresh_sinks(arm.n, frame.out)
-                    frame.sinks = sinks
+                    fresh: list[list[M] | None] = [None] * arm.n
+                    frame.sinks = sinks = fresh
                 sink = sinks[i]
                 if sink is None:
                     sinks[i] = sink = []
@@ -451,8 +442,8 @@ class PdaKernel[M](
             return frame.out
         sinks = frame.sinks
         if sinks is None:
-            sinks = _fresh_sinks(arm.n, frame.out)
-            frame.sinks = sinks
+            fresh: list[list[M] | None] = [None] * arm.n
+            frame.sinks = sinks = fresh
         sink = sinks[i]
         if sink is None:
             sinks[i] = sink = []

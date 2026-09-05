@@ -110,7 +110,7 @@ exists to clear, and it measured the difference between 4.1x and 5.6x."""
 
 
 def _mint[M](
-    owner: int, grammar: IrAst, binding: ModelExecutable[M], document: bool
+    key: tuple[int, int], grammar: IrAst, binding: ModelExecutable[M], document: bool
 ) -> Replica[M]:
     """A view of the pair whose compiled tables are this thread's own.
 
@@ -129,8 +129,14 @@ def _mint[M](
     view = grammar if document else IrAst(grammar.rules, grammar.start)
     replica = (view, binding.replica())
     # A minted half exists to get its OWN memo entries — tables, products, run
-    # analyses. They live under this entry, so they release with it.
-    adopt(owner, *(part for part in replica if part is not grammar))
+    # analyses. They live under this entry, so they release with it — under
+    # BOTH key identities, because either one retires the entry and neither
+    # outlives the other in general. Owned by the grammar alone, a worker's
+    # replica outlived the document binding it was minted for and could then
+    # be released by nothing short of the artefact.
+    minted = tuple(part for part in replica if part is not grammar)
+    adopt(key[0], *minted)
+    adopt(key[1], *minted)
     return replica
 
 
@@ -186,7 +192,7 @@ def _claim[M](
         replica = (
             (grammar, binding)
             if document and spare
-            else _mint(key[0], grammar, binding, document)
+            else _mint(key, grammar, binding, document)
         )
         entry.held.append(_Held(threading.current_thread(), replica))
     return replica

@@ -67,7 +67,7 @@ def _mapping(payload: Mapping[str, Json], field: str) -> Mapping[str, Json]:
     return value
 
 
-PROTOCOL = 5
+PROTOCOL = 6
 """The wire protocol's version.
 
 Bumped whenever a contract field or an observation field changes meaning. Two
@@ -263,11 +263,16 @@ class Observation(NamedTuple):
     :ivar verdict: ``accepted``, or the engine's refusal words verbatim.
     :ivar engaged: Whether a threaded row actually split; ``None`` if the row
         is sequential and the question does not apply.
+    :ivar split_digest: Digest of the DERIVED split work — the pieces the plan
+        carved and the workers that carving admits — observed on an untimed
+        attempt, never the count requested. This is the field that says two
+        arms divided the document the same way.
     :ivar effective_workers: Worker threads the split was OBSERVED to occupy on
-        an untimed attempt, never the count requested. The policy clamps useful
-        workers by document size and cut count and cut selection can clamp them
-        again, so the request answers a different question and two arms echoing
-        it can occupy different machines and still compare.
+        that same attempt. Evidence, not identity: which threads pick the
+        pieces up is the executor's business, and thirty identical attempts
+        read eight workers twenty-eight times and seven twice. Reported so a
+        surprising row can be read, never compared — a pair of byte-identical
+        trees must not be refused because one of them was scheduled.
     """
 
     wall: float
@@ -276,6 +281,7 @@ class Observation(NamedTuple):
     shape_digest: str
     verdict: str
     engaged: bool | None
+    split_digest: str
     effective_workers: int
 
     def wire(self) -> dict[str, Json]:
@@ -293,6 +299,7 @@ def read_observation(payload: Mapping[str, Json]) -> Observation:
         _text(payload, "shape_digest"),
         _text(payload, "verdict"),
         None if engaged is None else _flag(payload, "engaged"),
+        _text(payload, "split_digest"),
         int(_number(payload, "effective_workers")),
     )
 

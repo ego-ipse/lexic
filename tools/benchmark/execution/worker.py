@@ -24,7 +24,6 @@ from tools.benchmark.bench import (
     one_engine,
     result_identity,
 )
-from tools.benchmark.measurement.occupancy import declined_reason
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.measurement.contract import (
     CLOCKS,
@@ -34,6 +33,7 @@ from tools.benchmark.measurement.contract import (
     RowContract,
     digest,
 )
+from tools.benchmark.measurement.occupancy import Occupancy, declined_reason
 
 _VARIANT_ROWS = frozenset({"lexic-lex", "lexic-lex-ns", "lexic-mt-lex-ns"})
 """Rows compiled with the case's declared `@lexical` set."""
@@ -82,20 +82,24 @@ def _contract(
     )
 
 
-def _engagement(
-    engine: str, built: EngineBuild, cores: int | None
-) -> tuple[bool | None, int]:
-    """Whether a threaded row actually split, and the workers it occupied.
+def _engagement(engine: str, built: EngineBuild, cores: int | None) -> Occupancy | None:
+    """What one untimed split attempt did, or ``None`` if the row is sequential.
 
-    A sequential row is not asked: ``None`` says the question does not apply,
-    which is different from "asked, and the answer was no". Both answers come
-    from one untimed attempt, outside every measured span — the request is not
-    an observation, and a row that echoes it certifies nothing.
+    A sequential row is not asked at all, which is a different answer from
+    "asked, and it declined". Everything here comes from that one attempt,
+    outside every measured span — the request is not an observation, and a row
+    that echoes it certifies nothing.
     """
     if engine not in MT_ROWS or cores is None or built.artifact is None:
-        return None, 1
-    seen = declined_reason(built.artifact, built.document, cores)
-    return seen.declined is None, seen.workers
+        return None
+    return declined_reason(built.artifact, built.document, cores)
+
+
+def _split_fields(seen: Occupancy | None) -> tuple[bool | None, str, int]:
+    """One attempt's ``(engaged, split digest, workers)`` for the observation."""
+    if seen is None:
+        return None, "", 1
+    return seen.declined is None, seen.plan, seen.workers
 
 
 def _payload(
@@ -107,7 +111,7 @@ def _payload(
         return {"refusal": built.refusal}
     try:
         contract = _contract(bench, engine, built.document, cores, full)
-        engaged, effective = _engagement(engine, built, cores)
+        engaged, split, effective = _split_fields(_engagement(engine, built, cores))
         result = result_identity(built)
         timing = observe(built, rounds)
         observation = Observation(
@@ -117,6 +121,7 @@ def _payload(
             digest(result.shape),
             "accepted",
             engaged,
+            split,
             effective,
         )
         return {
@@ -142,7 +147,7 @@ def report_payload(
     parse = built.parse
     try:
         samples = _interleaved({engine: parse}, {engine: built.document}, rounds)
-        engaged, _cores = _engagement(engine, built, cores)
+        engaged, _split, _cores = _split_fields(_engagement(engine, built, cores))
         warmed = getattr(parse, "warmed", None)
         return {
             "samples": samples[engine],

@@ -45,7 +45,7 @@ CONTRACT = RowContract(
 """A well-formed contract for one sequential row."""
 
 
-OBSERVED = Observation(1.0, 1.0, "text", "shape", "accepted", None, 1)
+OBSERVED = Observation(1.0, 1.0, "text", "shape", "accepted", None, "plan", 1)
 """A well-formed observation of one accepted sequential row."""
 
 
@@ -102,6 +102,120 @@ def test_control_order_flips_on_its_own_schedule(
     controls = [name for name in seen if name.startswith("control")]
     assert controls[:2] == ["control-a", "control-b"]
     assert controls[4:] == ["control-b", "control-a"]
+
+
+def _slot_reading(first: Job, second: Job, row: str) -> tuple[float, float]:
+    """A machine whose FIRST process always reads twice the second's.
+
+    Slot-dependent and nothing else: the two jobs are byte-identical code, so
+    every non-zero control ratio this produces is the slot, and its sign says
+    which way the pair was run.
+    """
+    return (2.0, 1.0)
+
+
+def test_a_slot_penalty_reverses_in_the_control_instead_of_accumulating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control must reverse the RATIO, not just the labels.
+
+    Reversing which jobs are passed AND keeping the numerator on whichever ran
+    first reverses nothing: every control then divides the first process
+    reading by the second, and a permanent slot cost is a constant the control
+    reports as a fact about the code. The signs are the only place this shows,
+    which is why the existing order assertions passed throughout.
+    """
+    monkeypatch.setattr(compare, "_pair", _slot_reading)
+
+    pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 6, 0)
+
+    up = math.log(2.0)
+    assert list(pairing.control) == [up, up, -up, up, up, -up]
+    assert min(pairing.control) < 0 < max(pairing.control)
+
+
+def test_the_candidate_holds_its_arm_while_reversing_execution_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Head stays the numerator; only which process runs first alternates.
+
+    The control's shape is the candidate's, and this is the half that was
+    already right — pinned here so a later edit cannot "fix" the control by
+    breaking this one into agreement with it.
+    """
+    monkeypatch.setattr(compare, "_pair", _slot_reading)
+
+    pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 4, 0)
+
+    up = math.log(2.0)
+    assert list(pairing.candidate) == [up, -up, up, -up]
+
+
+def test_the_control_reversal_survives_an_offset_growth_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A growth round starting at an absolute index keeps its own phase.
+
+    Index 2 is the swapped position, so a call that begins there must open
+    with the reversed ratio rather than restarting the cycle.
+    """
+    monkeypatch.setattr(compare, "_pair", _slot_reading)
+
+    pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 2, 2)
+
+    up = math.log(2.0)
+    assert list(pairing.control) == [-up, up]
+
+
+def _cost_under_a_slot_penalty(slot: float, head_cost: float):
+    """A reading function: head costs ``head_cost``, the first process ``slot``."""
+
+    def reading(first: Job, second: Job, row: str) -> tuple[float, float]:
+        """Both readings, with the first process paying the slot penalty."""
+        return (_tree_cost(first, head_cost) * slot, _tree_cost(second, head_cost))
+
+    return reading
+
+
+def _tree_cost(job: Job, head_cost: float) -> float:
+    """What this job's tree costs, ignoring which slot it ran in."""
+    return 1.0 if job.label.endswith("/base") else head_cost
+
+
+def test_a_true_regression_is_not_swallowed_by_a_permanent_slot_penalty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The review's synthetic machine: 10% first-slot cost, 3% head cost.
+
+    With the control divided first-over-second the envelope was exactly the
+    slot penalty, 1.10, and a real 3% regression passed as ``ok``. Reversed,
+    the penalty no longer stands as a fact about the code, and the row is no
+    longer waved through.
+    """
+    monkeypatch.setattr(compare, "_pair", _cost_under_a_slot_penalty(1.10, 1.03))
+
+    pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 15, 0)
+    verdict = compare.decide("json/lexic-pda", pairing, "cpu")
+
+    assert verdict.status != "ok", "a real regression passed inside the envelope"
+    assert verdict.envelope < 1.10, "the envelope is still the slot penalty itself"
+
+
+def test_a_machine_with_no_slot_penalty_still_calls_an_equal_pair_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control row: reversal must not manufacture an envelope of its own.
+
+    Same-cost arms on an even machine have to keep reading ``ok``, or the
+    correction has traded a false pass for a false alarm.
+    """
+    monkeypatch.setattr(compare, "_pair", _cost_under_a_slot_penalty(1.0, 1.0))
+
+    pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 15, 0)
+    verdict = compare.decide("json/lexic-pda", pairing, "cpu")
+
+    assert verdict.status == "ok"
+    assert all(value == 0.0 for value in pairing.control)
 
 
 def test_the_two_arms_must_have_measured_the_same_row() -> None:
@@ -245,7 +359,7 @@ def test_an_unresolved_row_earns_more_pairs_up_to_the_bound(
 
 def test_a_threaded_row_is_judged_on_wall_and_a_sequential_one_on_cpu() -> None:
     """A split's result is latency; a sequential row's is work done."""
-    observation = Observation(2.0, 9.0, "text", "shape", "accepted", True, 4)
+    observation = Observation(2.0, 9.0, "text", "shape", "accepted", True, "plan", 4)
 
     assert compare.primary_reading(observation, "lexic-mt") == 2.0
     assert compare.primary_reading(observation, "lexic-pda") == 9.0
@@ -330,7 +444,7 @@ def test_a_row_that_tips_on_noise_is_not_banked_as_slower(
 SEMANTIC_CASES = (
     ("verdict", "parsing: input does not derive from 'root'"),
     ("engaged", True),
-    ("effective_workers", 8),
+    ("split_digest", "carved-elsewhere"),
     ("result_digest", "other-text"),
     ("shape_digest", "other-shape"),
 )
@@ -351,14 +465,14 @@ def test_arms_that_did_not_produce_the_same_result_refuse(
 
 def test_the_refusal_names_the_two_arms_and_both_values() -> None:
     """The refusal is diagnosable without re-running the pair."""
-    base = _arm("json/lexic-mt/base", engaged=True, effective_workers=8)
-    head = _arm("json/lexic-mt/head", engaged=False, effective_workers=1)
+    base = _arm("json/lexic-mt/base", engaged=True, split_digest="eight-pieces")
+    head = _arm("json/lexic-mt/head", engaged=False, split_digest="one-piece")
 
     with pytest.raises(ValueError) as caught:
         compare.comparable(base, head, "json/lexic-mt")
 
     detail = str(caught.value)
-    assert "engaged" in detail and "effective_workers" in detail
+    assert "engaged" in detail and "split_digest" in detail
     assert "json/lexic-mt/base" in detail and "json/lexic-mt/head" in detail
 
 

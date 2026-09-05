@@ -146,6 +146,13 @@ def release(identities: tuple[int, ...]) -> None:
     """
     dropped = _expand(identities)
     _CLAIMED.difference_update(dropped)
+    # An identity can be adopted by more than one owner — a replica's binding
+    # is minted under its grammar AND released on its own when the thread that
+    # held it exits. Releasing it must clear the record the OTHER owner still
+    # keeps, or that owner accumulates one dead id per released child for as
+    # long as it lives, and a recycled address later reads as still owned.
+    for owned in tuple(_ADOPTED.copy().values()):
+        owned.difference_update(dropped)
     for entry in _MEMOS:
         for key in tuple(entry.entries.copy()):
             if _owned(key, entry.ids, dropped):
