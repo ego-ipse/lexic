@@ -59,9 +59,13 @@ def _arm(label: str, **fields: object) -> compare.Arm:
     return compare.Arm(label, CONTRACT, OBSERVED._replace(**fields))
 
 
-def _pairing(candidate: list[float], control: list[float]) -> compare.Pairing:
-    """A row's paired log ratios."""
-    return compare.Pairing(tuple(candidate), tuple(control))
+def _pairing(
+    candidate: list[float], control: list[float], slots: list[float] | None = None
+) -> compare.Pairing:
+    """A row's paired log ratios; the slot readings default to the control's."""
+    return compare.Pairing(
+        tuple(candidate), tuple(control), tuple(control if slots is None else slots)
+    )
 
 
 def _verdict(row: str, status: str) -> compare.Verdict:
@@ -89,7 +93,14 @@ def test_pairs_alternate_which_tree_runs_first(
 def test_control_order_flips_on_its_own_schedule(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An ordering artefact must not cancel identically in both arms."""
+    """An ordering artefact must not cancel identically in both arms.
+
+    The control runs the candidate's period in the OPPOSITE PHASE: whenever the
+    candidate runs head first, the control runs control-b first. That is what
+    keeps the artefact from cancelling the same way in both arms — the reason
+    the control was given a schedule of its own — while leaving it balanced, so
+    it no longer accumulates into the envelope.
+    """
     seen: list[str] = []
 
     def run(job: Job) -> RowResult:
@@ -97,11 +108,18 @@ def test_control_order_flips_on_its_own_schedule(
         return _result(1.0)
 
     monkeypatch.setattr(compare, "run_job", run)
-    compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 3, 0)
+    compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 4, 0)
 
     controls = [name for name in seen if name.startswith("control")]
-    assert controls[:2] == ["control-a", "control-b"]
-    assert controls[4:] == ["control-b", "control-a"]
+    heads = [name for name in seen if name in {"head", "base"}]
+    assert controls[:2] == ["control-b", "control-a"]
+    assert controls[2:4] == ["control-a", "control-b"]
+    # Opposite phase, stated as the relation rather than as two literals: the
+    # candidate leads with head exactly when the control leads with control-b.
+    for pair in range(4):
+        head_first = heads[2 * pair] == "head"
+        control_a_first = controls[2 * pair] == "control-a"
+        assert head_first is not control_a_first
 
 
 def _slot_reading(first: Job, second: Job, row: str) -> tuple[float, float]:
@@ -124,14 +142,23 @@ def test_a_slot_penalty_reverses_in_the_control_instead_of_accumulating(
     reading by the second, and a permanent slot cost is a constant the control
     reports as a fact about the code. The signs are the only place this shows,
     which is why the existing order assertions passed throughout.
+
+    Balance is the second half. On a period of three the schedule was 10
+    forward to 5 reversed at fifteen pairs, so a slot cost left a third of
+    itself in the control's mean and WIDENED the envelope. Alternating leaves
+    the same cost summing to zero, so it is carried by the spread alone.
     """
     monkeypatch.setattr(compare, "_pair", _slot_reading)
 
     pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda", 6, 0)
 
     up = math.log(2.0)
-    assert list(pairing.control) == [up, up, -up, up, up, -up]
+    assert list(pairing.control) == [-up, up, -up, up, -up, up]
     assert min(pairing.control) < 0 < max(pairing.control)
+    assert sum(pairing.control) == pytest.approx(0.0)
+    # The artefact is REPORTED rather than only cancelled: oriented by which
+    # process ran first, a constant 2x first-slot penalty reads as a constant.
+    assert list(pairing.slots) == [up] * 6
 
 
 def test_the_candidate_holds_its_arm_while_reversing_execution_order(
@@ -555,7 +582,7 @@ def test_alternation_holds_across_every_growth_round(
 def test_the_controls_own_schedule_also_survives_growth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The control flips on its own cycle, so an artefact cannot cancel out."""
+    """The control keeps its opposite phase across a growth round's offset."""
     seen = _ordering(monkeypatch)
 
     controls = [side for side in seen if side.startswith("control")]
@@ -563,9 +590,9 @@ def test_the_controls_own_schedule_also_survives_growth(
         side
         for index in range(compare.MAX_PAIRS)
         for side in (
-            ("control-b", "control-a") if index % 3 == 2 else ("control-a", "control-b")
+            ("control-a", "control-b") if index % 2 == 1 else ("control-b", "control-a")
         )
     ]
     assert controls == expected
-    # Pair eight is a growth round, and its own cycle says it is swapped.
+    # Pair eight is a growth round, and its phase says control-b leads there.
     assert controls[16:18] == ["control-b", "control-a"]

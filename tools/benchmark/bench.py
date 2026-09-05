@@ -547,8 +547,8 @@ def _prime(parse: Parse, corpus: str) -> None:
     """Bring one engine to steady state before any round counts.
 
     A JIT-compiled engine's first parses are not the engine — the Java row's
-    first is ~20x its settled cost. `warm` parses until the median stops moving;
-    an engine without one gets the single pass it always got.
+    first is ~20x its settled cost. `warm` parses a budget that clears the JIT's
+    last step down; an engine without one gets the single pass it always got.
     """
     warm = getattr(parse, "warm", None)
     if warm is None:

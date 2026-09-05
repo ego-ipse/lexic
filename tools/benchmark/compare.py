@@ -28,8 +28,8 @@ from pathlib import Path
 from statistics import median
 from typing import NamedTuple
 
-from tools.benchmark.measurement.contract import Observation, RowContract, RowResult
 from tools.benchmark.execution.isolation import Job, RowRequest, run_job, run_roster
+from tools.benchmark.measurement.contract import Observation, RowContract, RowResult
 
 MIN_PAIRS = 5
 MAX_PAIRS = 15
@@ -57,10 +57,20 @@ MT_ROWS = frozenset({"lexic-mt", "lexic-mt-lex-ns"})
 
 
 class Pairing(NamedTuple):
-    """One row's paired candidate and control log ratios."""
+    """One row's paired candidate and control log ratios.
+
+    :ivar candidate: log(head/base), one per pair.
+    :ivar control: log(control-a/control-b), one per pair.
+    :ivar slots: log(first/second) for the same control pairs — the ORDERING
+        artefact, oriented by which process actually ran first. The control's
+        two processes are byte-identical, so this is the first slot's own cost
+        and nothing else; it is reported rather than left to widen the envelope
+        silently.
+    """
 
     candidate: tuple[float, ...]
     control: tuple[float, ...]
+    slots: tuple[float, ...]
 
 
 class Verdict(NamedTuple):
@@ -286,8 +296,17 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
     instead of cancelling. A 10% first-slot cost then read as a 1.10 envelope
     and swallowed a true 3% head regression whole.
 
-    The control keeps its own period so an ordering artefact does not cancel
-    identically in both arms and hide itself.
+    The control runs the candidate's period in the OPPOSITE PHASE, which is
+    what keeps an ordering artefact visible without letting it accumulate.
+    Giving the control a different period (`index % 3 != 2`) made its schedule
+    10 forward to 5 reversed at fifteen pairs, so a first-slot cost δ left
+    δ·(10−5)/15 = δ/3 in the control's mean instead of cancelling; measured at
+    +0.39 % on this host (CI 0.9969–1.0109), that inflated the envelope rather
+    than showing as a signal — a more permissive gate, never a false alarm.
+    Opposite phase leaves −δ/15, twenty times smaller and converging to zero as
+    pairs grow, while still separating the arms: whenever the candidate runs
+    head first, the control runs control-b first, so an artefact cannot cancel
+    in the same direction in both and hide.
 
     ``first`` is the pair's ABSOLUTE index in the row's whole sequence, which
     is what makes both schedules continuous across adaptive growth. Restarting
@@ -299,14 +318,20 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
     """
     candidate: list[float] = []
     control: list[float] = []
+    slots: list[float] = []
     for index in range(first, first + pairs):
         head_job = _job(arms.head, grammar, row, arms.cores, "head")
         base_job = _job(arms.base, grammar, row, arms.cores, "base")
         candidate.append(_ratio(head_job, base_job, index % 2 == 0, row))
         left = _job(arms.head, grammar, row, arms.cores, "control-a")
         right = _job(arms.head, grammar, row, arms.cores, "control-b")
-        control.append(_ratio(left, right, index % 3 != 2, row))
-    return Pairing(tuple(candidate), tuple(control))
+        a_first = index % 2 == 1
+        reading = _ratio(left, right, a_first, row)
+        control.append(reading)
+        # `_ratio` always divides control-a by control-b; flipping the sign when
+        # control-b ran first turns the same reading into first-over-second.
+        slots.append(reading if a_first else -reading)
+    return Pairing(tuple(candidate), tuple(control), tuple(slots))
 
 
 def rosters(base: Path, head: Path) -> tuple[tuple[str, str], ...]:
@@ -343,7 +368,9 @@ def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
     while verdict.status in GROWS and len(pairing.candidate) < MAX_PAIRS:
         extra = sample(arms, grammar, row, 1, len(pairing.candidate))
         pairing = Pairing(
-            pairing.candidate + extra.candidate, pairing.control + extra.control
+            pairing.candidate + extra.candidate,
+            pairing.control + extra.control,
+            pairing.slots + extra.slots,
         )
         verdict = decide(label, pairing, clock)
     return verdict, pairing
@@ -362,6 +389,26 @@ def _report(verdicts: Sequence[Verdict]) -> None:
             f"{verdict.low:7.4f}  {verdict.high:7.4f}  {verdict.envelope:7.4f}  "
             f"{verdict.pairs:5}  {verdict.status}"
         )
+
+
+def _report_control(samples: dict[str, Pairing]) -> None:
+    """Print what the byte-identical arm measured, and the slot inside it.
+
+    Two different statements. The control median says how far apart two
+    identical trees read overall; the slot artefact says how much of that is
+    merely running first, which the schedule now balances out of the mean
+    rather than leaving to widen the envelope.
+
+    :param samples: Every judged row's pairings.
+    """
+    control = median(
+        [value for pairing in samples.values() for value in pairing.control] or [0.0]
+    )
+    slot = median(
+        [value for pairing in samples.values() for value in pairing.slots] or [0.0]
+    )
+    print(f"\ncontrol median log ratio: {math.exp(control):.4f}x")
+    print(f"first-slot artefact: {math.exp(slot):.4f}x (control pairs, first/second)")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -402,6 +449,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         row: {
                             "candidate": list(p.candidate),
                             "control": list(p.control),
+                            "slots": list(p.slots),
                         }
                         for row, p in samples.items()
                     },
@@ -412,10 +460,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     slower = [verdict for verdict in verdicts if verdict.status == "slower"]
     unresolved = [verdict for verdict in verdicts if verdict.status == "unresolved"]
-    control = median(
-        [value for pairing in samples.values() for value in pairing.control] or [0.0]
-    )
-    print(f"\ncontrol median log ratio: {math.exp(control):.4f}x")
+    _report_control(samples)
     if slower:
         print(f"\n{len(slower)} row(s) slower than this machine's noise envelope:")
         for verdict in slower:

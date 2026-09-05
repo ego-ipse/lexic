@@ -14,13 +14,15 @@ around the parse — so the Java column interleaves with the Python ones exactly
 as they interleave with each other, and neither JVM startup nor the pipe is
 inside any number.
 
-JIT warmup is not a round. :meth:`JavaAntlr.warm` parses until the median stops
-moving and reports how many parses that took, because a fixed count nobody
-checked is how an unwarmed JVM gets published as a slow engine.
+JIT warmup is not a round. :meth:`JavaAntlr.warm` parses a fixed budget large
+enough to clear the JIT's last step down, then reports whether the tail held
+still — because this JVM steps between long flat levels, and a warmup that
+stops at the first stable-looking one publishes whichever level it landed on.
 """
 
 from __future__ import annotations
 
+import statistics
 import subprocess
 from contextlib import ExitStack
 from pathlib import Path
@@ -35,15 +37,26 @@ _JAR = Path.home() / f".m2/repository/org/antlr/antlr4/{TOOL_VERSION}"
 WARM_BATCH = 12
 """Parses per warmup batch; the median of a batch is what must settle."""
 
-WARM_SETTLED = 3
-"""Consecutive stable batches required before the JIT is called settled. One
-was not enough — a C1 plateau reads as convergence while C2 still compiles."""
+WARM_BUDGET = 60
+"""Batches always parsed before the seat is read — 720 parses.
+
+A FIXED budget, not a search for the earliest stable point, and that is the
+whole correction. This JVM does not descend smoothly to a floor: it holds a
+level flat for 10 to 25 batches, steps to roughly half it, and holds again,
+with the last step landing between batch 40 and batch 75 depending on the
+grammar. Any "has it stopped moving" test therefore certifies whichever step
+the run is standing on when its counter runs out, and which step that is comes
+down to where the counter happened to expire — measured across seven processes
+on seven grammars, that put a 1.9x to 2.4x spread on every published figure.
+Sixty batches clears the last step on every grammar measured, so the processes
+agree instead.
+"""
+
+WARM_CONFIRM = 10
+"""Batches median-compared at each end of the budget's tail to call it settled."""
 
 WARM_STABLE = 0.03
-"""Relative move between consecutive batch medians that counts as warm."""
-
-WARM_LIMIT = 40
-"""Batches before warmup gives up and reports what it reached."""
+"""Relative move between the tail's two halves that still counts as settled."""
 
 
 def _classpath(classes: str) -> str:
@@ -148,31 +161,28 @@ class JavaAntlr:
         return self._stream_ns / max(self._parse_ns, 1.0)
 
     def warm(self, corpus: str) -> tuple[int, bool]:
-        """Parse until the median stops moving; record and return the cost.
+        """Parse a fixed budget, then say whether the tail actually held still.
 
-        Stability must hold for :data:`WARM_SETTLED` CONSECUTIVE batches. One
-        batch is not enough against a tiered JIT: HotSpot plateaus at C1 while
-        C2 is still compiling, and that plateau passed a single-window test.
-        Measured on the json row, six processes read 0.297 / 0.254 / 0.253 /
-        0.140 / 0.247 / 0.221 µs/char — a 2.1x spread in which the ONE fast
-        reading was also the one that happened to warm 192 parses instead of
-        72. The row was bimodal because the warmup was, so every antlr
-        comparison carried an unstated error bar.
+        Stability is CHECKED here, never searched for — see :data:`WARM_BUDGET`
+        for why searching cannot work against a JIT that steps between long
+        flat levels. The check compares the median of the last
+        :data:`WARM_CONFIRM` batches against the median of the
+        :data:`WARM_CONFIRM` before them; medians rather than a spread because
+        this JVM throws single slow batches — a deoptimisation, a collection —
+        that say nothing about the level the run has reached.
 
-        :returns: ``(parses spent, whether it settled)`` — an unsettled warmup is
-            reported, never silently accepted as if it had converged.
+        :param corpus: The document to warm on — the one that will be timed.
+        :returns: ``(parses spent, whether the tail held still)`` — an unsettled
+            warmup is reported, never silently accepted as if it had converged.
         """
-        previous, stable = 0.0, 0
-        for batch in range(1, WARM_LIMIT + 1):
+        medians = []
+        for _ in range(WARM_BUDGET):
             times = sorted(self._sample(corpus) for _ in range(WARM_BATCH))
-            median = times[len(times) // 2]
-            moved = abs(median - previous) / max(median, previous, 1e-9)
-            stable = stable + 1 if previous and moved < WARM_STABLE else 0
-            if stable >= WARM_SETTLED:
-                self.warmed = (batch * WARM_BATCH, True)
-                return self.warmed
-            previous = median
-        self.warmed = (WARM_LIMIT * WARM_BATCH, False)
+            medians.append(times[len(times) // 2])
+        late = statistics.median(medians[-WARM_CONFIRM:])
+        early = statistics.median(medians[-2 * WARM_CONFIRM : -WARM_CONFIRM])
+        settled = abs(late - early) / max(late, early, 1e-9) < WARM_STABLE
+        self.warmed = (WARM_BUDGET * WARM_BATCH, settled)
         return self.warmed
 
     def _sample(self, corpus: str) -> float:

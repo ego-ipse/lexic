@@ -53,9 +53,12 @@ own tree against its own lexic.** Concretely:
   definition (grammar, document, engine noun, rounds) by name.
 
 Local reproduction, exactly as the workflow: base sha is the PR base
-(`git merge-base main HEAD`, currently `0faa7289`); extract it OUTSIDE the
-repo (`git archive <sha> | tar -x -C /tmp/lexic-base`; never a worktree)
-and run HEAD's compare with the base source and base record arguments the
+(`git merge-base main HEAD`, currently `0faa7289`); extract it into this
+effort's own scratch — `git archive <sha> | tar -x -C
+zzz_current_work/260826-target-shaped-parse/scratch_vega/lexic-base`, which is
+gitignored so the arm never enters the checkout, and never a worktree, and
+never `/tmp` — and run HEAD's compare with the base source and base record
+arguments the
 workflow passes, plus whatever argument the new design needs for the base
 tools path — add it to `performance.yml` (the one place outside tools/ you
 may edit, mechanically, to pass the base checkout's path). Exit 0 with all

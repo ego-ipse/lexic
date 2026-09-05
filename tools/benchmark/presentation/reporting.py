@@ -8,15 +8,7 @@ from math import log10
 from typing import NamedTuple
 
 from tools.benchmark.bench import _JSON_SPECIALISTS, ENGINE, PRODUCT, Parse, _medians
-from tools.benchmark.cases.grammars import Bench
-from tools.benchmark.cases.grammars import declared_marks
-
-_WARM_CONVERGED = 150
-"""Warmup parses below which a JIT row has historically landed in its slow
-mode. Requiring three consecutive stable batches converges the json row 4 runs
-in 5 (0.118-0.148 µs/char, 192-204 parses) where one window converged 1 in 6;
-a run that settles sooner than this is reported as SHORT, because the residual
-bimodality is real and an unstated error bar is the thing to avoid."""
+from tools.benchmark.cases.grammars import Bench, declared_marks
 
 BAR_WIDTH = 40
 """Bar length. Wide enough that a 2x gap reads differently from a 4x one —
@@ -135,6 +127,8 @@ class Block(NamedTuple):
     :ivar floor: The harness's own noise, as a percentage.
     :ivar documents: What each row actually parsed.
     :ivar mt_notes: Per-row reasons that a requested mt row ran sequentially.
+    :ivar shares: Per-row fraction of the timed region spent building the
+        input stream, for the rows that pay one.
     """
 
     bench: Bench
@@ -143,6 +137,7 @@ class Block(NamedTuple):
     floor: float
     documents: dict[str, str]
     mt_notes: dict[str, str]
+    shares: dict[str, float]
 
 
 def _report(block: Block, color: bool) -> None:

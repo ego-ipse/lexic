@@ -64,8 +64,13 @@ def _dump_json(path: Path, rounds: int, cores: int | None, blocks: list[Block]) 
     label rather than silence, so a new seat cannot vanish from the record.
     """
     values: dict[str, dict[str, float | str]] = {}
+    shares: dict[str, dict[str, float]] = {}
     rows: list[str] = []
     for block in blocks:
+        if block.shares:
+            shares[block.bench.name] = {
+                name: round(share, 4) for name, share in sorted(block.shares.items())
+            }
         medians = _medians(block.samples)
         cells: dict[str, float | str] = {
             name: round(median, 6) for name, median in medians.items()
@@ -93,6 +98,11 @@ def _dump_json(path: Path, rounds: int, cores: int | None, blocks: list[Block]) 
             for name in rows
         },
         "values": values,
+        # A reader comparing these figures to a published one deserves to know
+        # what fraction of a row is a decode-and-copy of the input rather than
+        # parsing: the seats handed a `str` never pay it, and on the rows whose
+        # parse is cheap for their length it reaches an eighth of the number.
+        "charstream_share": shares,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {path}")
@@ -153,13 +163,20 @@ def _isolated_bench(
         for name, result in results.items()
         if result.mt_reason is not None
     }
+    # Only a seat handed something other than a `str` pays one, so a zero here
+    # is the ordinary answer and not a missing reading.
+    shares = {
+        name: result.charstream_share
+        for name, result in results.items()
+        if result.charstream_share
+    }
     anchor = next((name for name in names if name in samples), None)
     floor = (
         noise_floor(RowRequest(bench.name, anchor, rounds, cores, full), root)
         if anchor
         else 0.0
     )
-    return Block(bench, samples, refused, floor, documents, mt_notes), results
+    return Block(bench, samples, refused, floor, documents, mt_notes, shares), results
 
 
 def main(argv: Sequence[str] | None = None) -> None:
