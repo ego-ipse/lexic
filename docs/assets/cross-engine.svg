@@ -194,6 +194,6 @@ circle{stroke:#1a1a19}
 <circle cx="588.2" cy="412.0" r="5" class="c9"/>
 <circle cx="613.0" cy="412.0" r="5" class="c10"/>
 <circle cx="561.1" cy="412.0" r="5" class="c11"/>
-<text x="8.0" y="488.0" font-size="11" class="m">measured 2026-09-04 to 2026-09-06, per seat; 8 further seats (directive-matched competitor variants, format specialists) stay in</text>
+<text x="8.0" y="488.0" font-size="11" class="m">measured 2026-09-04 to 2026-09-06, per cell; 8 further seats (directive-matched competitor variants, format specialists) stay in</text>
 <text x="8.0" y="502.0" font-size="11" class="m">the artifact</text>
 </svg>

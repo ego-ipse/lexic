@@ -3,7 +3,8 @@
 ``--only`` narrows grammars; ``--seats`` narrows engines. The pair exists so a
 single engine can be re-measured without restating every other cell as though
 it were taken the same day — which is also why the artifact write splices and
-why provenance lives per seat.
+why provenance lives per ``(grammar, seat)`` cell, the exact granularity a run
+is allowed to update.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from tools import render_readme
 from tools.benchmark.bench import ENGINE
 from tools.benchmark.cases.grammars import BENCHES
 from tools.benchmark.presentation.cli import (
@@ -22,7 +24,7 @@ from tools.benchmark.presentation.cli import (
     _seats,
 )
 from tools.benchmark.presentation.reporting import Block
-from tools.render_readme import COMPETITORS, _measured_caption
+from tools.render_readme import COMPETITORS, _measured_caption, column_workers
 
 
 def _bench(name: str):
@@ -90,17 +92,25 @@ def _block(bench, samples: dict[str, list[float]]) -> Block:
     return Block(bench, samples, {}, 1.25, {}, {}, {})
 
 
+def _seeded(path: Path, edit=None) -> dict:
+    """Write the committed artifact to ``path``, optionally edited first."""
+    before = json.loads(COMPETITORS.read_text(encoding="utf-8"))
+    if edit is not None:
+        edit(before)
+    path.write_text(json.dumps(before, indent=2) + "\n", encoding="utf-8")
+    return before
+
+
 def test_a_seat_filtered_write_leaves_every_other_cell_byte_identical(
     tmp_path: Path,
 ) -> None:
     """The whole point of the filter: refreshing one engine may not restate
     figures from another day as though they were taken together."""
-    before = json.loads(COMPETITORS.read_text(encoding="utf-8"))
     path = tmp_path / "artifact.json"
-    path.write_text(json.dumps(before, indent=2) + "\n", encoding="utf-8")
+    before = _seeded(path)
     bench = _bench("csv")
 
-    _dump_json(path, 7, 16, [_block(bench, {"lexic-pda": [0.5, 0.5, 0.5]})])
+    _dump_json(path, 7, 16, False, [_block(bench, {"lexic-pda": [0.5, 0.5, 0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     assert after["values"]["csv"]["lexic-pda"] == 0.5
@@ -115,87 +125,191 @@ def test_a_refreshed_seat_keeps_its_column_and_a_new_one_is_appended(
     tmp_path: Path,
 ) -> None:
     """Order is the artifact's own, so a re-measure does not reshuffle the file."""
-    before = json.loads(COMPETITORS.read_text(encoding="utf-8"))
     path = tmp_path / "artifact.json"
-    path.write_text(json.dumps(before, indent=2) + "\n", encoding="utf-8")
+    before = _seeded(path)
     bench = _bench("csv")
     order = list(before["values"]["csv"])
 
-    _dump_json(path, 7, 16, [_block(bench, {"lexic-pda": [0.5]})])
+    _dump_json(path, 7, 16, False, [_block(bench, {"lexic-pda": [0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     assert list(after["values"]["csv"]) == order
 
 
-def test_only_the_written_seats_take_todays_date(tmp_path: Path) -> None:
-    """Provenance is per seat because a run refreshes some and not others.
+def _dated(payload: dict) -> None:
+    """Date every recorded cell in the past, so today's write stands out."""
+    for cells in payload["provenance"].values():
+        for record in cells.values():
+            record["measured"] = "2019-01-01"
+
+
+def test_only_the_written_cells_take_todays_date(tmp_path: Path) -> None:
+    """Provenance is per cell because a run refreshes some and not others.
 
     The fixture is dated by the test rather than read off the committed file:
     a seat this repository happened to measure today would otherwise make the
     written and unwritten dates agree, and the assertion pass for no reason.
     """
-    before = json.loads(COMPETITORS.read_text(encoding="utf-8"))
-    for seat in before["engines"].values():
-        seat["measured"] = "2019-01-01"
     path = tmp_path / "artifact.json"
-    path.write_text(json.dumps(before, indent=2) + "\n", encoding="utf-8")
+    before = _seeded(path, _dated)
     bench = _bench("csv")
 
-    _dump_json(path, 3, 8, [_block(bench, {"lexic-pda": [0.5]})])
+    _dump_json(path, 3, 8, False, [_block(bench, {"lexic-pda": [0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
-    assert after["engines"]["lexic-pda"]["rounds"] == 3
+    written = after["provenance"]["csv"]["lexic-pda"]
+    assert written["rounds"] == 3
+    assert written["measured"] == datetime.date.today().isoformat()
+    assert after["provenance"]["csv"]["lexic-earley"]["measured"] == "2019-01-01"
     assert (
-        after["engines"]["lexic-pda"]["measured"] == datetime.date.today().isoformat()
-    )
-    assert after["engines"]["lexic-earley"]["measured"] == "2019-01-01"
-    assert after["engines"]["lexic-earley"] == before["engines"]["lexic-earley"], (
-        "an unmeasured seat's provenance must not move"
-    )
+        after["provenance"]["csv"]["lexic-earley"]
+        == before["provenance"]["csv"]["lexic-earley"]
+    ), "an unmeasured seat's record must not move"
+
+
+def test_an_untouched_grammar_keeps_its_value_and_its_provenance(
+    tmp_path: Path,
+) -> None:
+    """The defect this granularity exists for.
+
+    ``--only csv --seats lexic-mt --cores 2`` refreshes one cell of one column.
+    Stored per column, that restated every other grammar's threaded figure as a
+    two-worker measurement taken today with three rounds — the numbers stayed
+    put and the record under them did not.
+    """
+    path = tmp_path / "artifact.json"
+    before = _seeded(path, _dated)
+    kept = before["provenance"]["json"]["lexic-mt"]
+    assert kept["cores"] == 16 and kept["rounds"] != 3, "the fixture must differ"
+
+    _dump_json(path, 3, 2, False, [_block(_bench("csv"), {"lexic-mt": [0.5]})])
+
+    after = json.loads(path.read_text(encoding="utf-8"))
+    assert after["values"]["json"]["lexic-mt"] == before["values"]["json"]["lexic-mt"]
+    assert after["provenance"]["json"]["lexic-mt"] == kept
+    refreshed = after["provenance"]["csv"]["lexic-mt"]
+    assert (refreshed["rounds"], refreshed["cores"]) == (3, 2)
+    assert refreshed["measured"] == datetime.date.today().isoformat()
 
 
 def test_a_non_threaded_seat_records_no_worker_request(tmp_path: Path) -> None:
     """``cores`` is the mt rows' request; every other seat is single-threaded."""
     path = tmp_path / "artifact.json"
     bench = _bench("csv")
-    _dump_json(path, 7, 16, [_block(bench, {"lexic-pda": [0.5], "lexic-mt": [0.2]})])
+    _dump_json(
+        path, 7, 16, False, [_block(bench, {"lexic-pda": [0.5], "lexic-mt": [0.2]})]
+    )
 
     after = json.loads(path.read_text(encoding="utf-8"))
-    assert after["engines"]["lexic-pda"]["cores"] is None
-    assert after["engines"]["lexic-mt"]["cores"] == 16
+    assert after["provenance"]["csv"]["lexic-pda"]["cores"] is None
+    assert after["provenance"]["csv"]["lexic-mt"]["cores"] == 16
+
+
+def test_the_record_says_which_document_the_seat_read(tmp_path: Path) -> None:
+    """``--full`` changes the work, so it changes the cell, not only its value."""
+    path = tmp_path / "artifact.json"
+    bench = _bench("csv")
+
+    _dump_json(path, 7, 16, False, [_block(bench, {"lexic-pda": [0.5]})])
+    corpus = json.loads(path.read_text(encoding="utf-8"))["provenance"]["csv"]
+    _dump_json(path, 7, 16, True, [_block(bench, {"lexic-pda": [0.5]})])
+    full = json.loads(path.read_text(encoding="utf-8"))["provenance"]["csv"]
+
+    assert (corpus["lexic-pda"]["scale"], full["lexic-pda"]["scale"]) == (
+        "corpus",
+        "full",
+    )
+    assert corpus["lexic-pda"]["chars"] == len(bench.corpus)
+    assert full["lexic-pda"]["chars"] == len(bench.full)
+
+
+def test_a_threaded_seat_always_records_the_full_input(tmp_path: Path) -> None:
+    """The mt rows read the full corpus whether or not ``--full`` was asked."""
+    path = tmp_path / "artifact.json"
+    bench = _bench("csv")
+
+    _dump_json(path, 7, 16, False, [_block(bench, {"lexic-mt": [0.2]})])
+
+    record = json.loads(path.read_text(encoding="utf-8"))["provenance"]["csv"]
+    assert record["lexic-mt"] == {
+        "measured": datetime.date.today().isoformat(),
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": len(bench.full),
+    }
 
 
 def test_the_noise_floor_is_recorded_per_grammar(tmp_path: Path) -> None:
     """A run that measured four grammars says nothing about the other eight."""
     path = tmp_path / "artifact.json"
     bench = _bench("csv")
-    _dump_json(path, 7, 16, [_block(bench, {"lexic-pda": [0.5]})])
+    _dump_json(path, 7, 16, False, [_block(bench, {"lexic-pda": [0.5]})])
 
     after = json.loads(path.read_text(encoding="utf-8"))
     assert after["noise_floor_percent"] == {"csv": 1.25}
 
 
-# ── the caption reads what the artifact says ──────────────────────────────
+def test_a_foreign_schema_is_refused_rather_than_spliced_into(tmp_path: Path) -> None:
+    """A layout that records provenance differently cannot be updated in part.
+
+    Reading one as another leaves cells nobody measured carrying this run's
+    date — the precise failure per-cell records exist to prevent.
+    """
+    path = tmp_path / "artifact.json"
+    _seeded(path, lambda payload: payload.update(schema=2))
+
+    with pytest.raises(SystemExit, match="schema"):
+        _dump_json(path, 7, 16, False, [_block(_bench("csv"), {"lexic-pda": [0.5]})])
+
+
+# ── the caption and the column labels read what the artifact says ─────────
 
 
 def test_one_date_reads_as_one_date() -> None:
     """Agreement is the common case and reads plainly."""
-    engines = {"a": {"measured": "2026-09-06"}, "b": {"measured": "2026-09-06"}}
-    assert _measured_caption(engines) == "measured 2026-09-06"
+    assert _measured_caption(["2026-09-06", "2026-09-06"]) == "measured 2026-09-06"
 
 
-def test_seats_taken_apart_are_captioned_as_a_span() -> None:
-    """One date over columns taken weeks apart claims a run that never
+def test_cells_taken_apart_are_captioned_as_a_span() -> None:
+    """One date over cells taken weeks apart claims a run that never
     happened."""
-    engines = {"a": {"measured": "2026-09-01"}, "b": {"measured": "2026-09-06"}}
-    assert _measured_caption(engines) == "measured 2026-09-01 to 2026-09-06, per seat"
+    assert (
+        _measured_caption(["2026-09-06", "2026-09-01"])
+        == "measured 2026-09-01 to 2026-09-06, per cell"
+    )
 
 
-def test_the_committed_artifact_carries_provenance_for_every_seat() -> None:
+def test_a_column_measured_at_one_worker_count_states_it() -> None:
+    """The committed artifact's threaded column is a single request."""
+    assert column_workers("lexic-mt") == 16
+    assert column_workers("lexic-pda") is None
+
+
+def test_a_column_measured_at_two_worker_counts_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A header states one count, so two is a refusal, not an average.
+
+    Silently printing either would relabel half the column; printing the
+    artifact's own disagreement is the only truthful move left.
+    """
+    records = json.loads(COMPETITORS.read_text(encoding="utf-8"))["provenance"]
+    records["csv"]["lexic-mt"] = dict(records["csv"]["lexic-mt"], cores=2)
+    monkeypatch.setattr(render_readme, "cell_records", lambda: records)
+
+    with pytest.raises(SystemExit, match="lexic-mt was measured at 16, 2 workers"):
+        column_workers("lexic-mt")
+
+
+def test_the_committed_artifact_carries_provenance_for_every_measured_cell() -> None:
     """The file the README renders from must be able to answer the question."""
     data = json.loads(COMPETITORS.read_text(encoding="utf-8"))
-    assert data["schema"] == 2
+    assert data["schema"] == 3
     missing = sorted(
-        name for name, meta in data["engines"].items() if "measured" not in meta
+        f"{grammar}/{seat}"
+        for grammar, cells in data["values"].items()
+        for seat in cells
+        if seat not in data["provenance"].get(grammar, {})
     )
     assert missing == [], missing

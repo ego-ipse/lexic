@@ -441,6 +441,93 @@ def test_an_unresolved_row_earns_more_pairs_up_to_the_bound(
     assert len(pairing.candidate) >= compare.MAX_PAIRS
 
 
+def test_growth_asks_for_whole_blocks_and_lands_on_the_ceiling_exactly() -> None:
+    """Every count growth can reach is even, floor and ceiling included.
+
+    Even bounds settle only the two counts a row stops at most often. A step
+    that is not the schedule's own period puts every count between them back in
+    play, and half of those are odd.
+    """
+    assert compare.BLOCK % 2 == 0, "an odd block reintroduces odd stopping points"
+    assert (compare.MAX_PAIRS - compare.MIN_PAIRS) % compare.BLOCK == 0
+    reachable = range(compare.MIN_PAIRS, compare.MAX_PAIRS + 1, compare.BLOCK)
+    assert all(count % 2 == 0 for count in reachable)
+
+
+def _settling_at_seven():
+    """Readings that first fall inside the envelope on the SEVENTH pair.
+
+    The first process costs a fixed ``exp(0.10)``; head costs ``exp(0.01)``
+    for six pairs and ``exp(-0.20)`` afterwards; the control's two arms are
+    identical. Returns the reading function and its call-counter reset.
+    """
+    calls = [0]
+
+    def reading(first: Job, second: Job, _row: str) -> tuple[float, float]:
+        """Both readings, the first process paying a constant slot cost."""
+        calls[0] += 1
+        head = math.exp(0.01) if (calls[0] - 1) // 2 < 6 else math.exp(-0.20)
+        costs = [
+            1.0 if job.label.endswith("/base") or "control" in job.label else head
+            for job in (first, second)
+        ]
+        return costs[0] * math.exp(0.10), costs[1]
+
+    return reading, lambda: calls.__setitem__(0, 0)
+
+
+def test_a_row_that_settles_mid_block_is_published_at_the_block_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Settling on the first pair of a block publishes at the boundary.
+
+    Adding one pair and returning the moment it settled let a row publish at 7,
+    9, 11, 13 or 15. At an odd count the candidate's numerator takes the first
+    slot once more than the control's and the control's once fewer, so the
+    published ratio keeps exactly the bias the even bounds remove — here the
+    control's own log ratios sum to -0.10 at seven pairs instead of zero.
+    """
+    reading, reset = _settling_at_seven()
+    monkeypatch.setattr(compare, "_pair", reading)
+    arms = compare.Arms(BASE, HEAD, 4)
+
+    reset()
+    at_six = compare.decide("json/x", compare.sample(arms, "json", "x", 6, 0), "cpu")
+    reset()
+    seven = compare.sample(arms, "json", "x", 7, 0)
+    assert at_six.status in compare.GROWS, "the fixture must have to grow"
+    assert compare.decide("json/x", seven, "cpu").status == "ok", (
+        "the fixture must settle on the first pair of a block"
+    )
+    assert sum(seven.control) == pytest.approx(-0.10), "the bias it would publish"
+
+    reset()
+    verdict, pairing = compare.grow(arms, "json", "x")
+
+    assert (verdict.status, verdict.pairs) == ("ok", 8)
+    assert len(pairing.candidate) % 2 == 0
+    assert sum(pairing.control) == pytest.approx(0.0), "the block cancels the slot"
+
+
+def test_an_already_balanced_result_is_not_grown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The floor is a complete block, so a row that settles there settles."""
+    asked: list[int] = []
+
+    def sample(
+        _arms: compare.Arms, _grammar: str, _row: str, pairs: int, _first: int
+    ) -> compare.Pairing:
+        asked.append(pairs)
+        return _pairing([0.0] * pairs, [0.01, -0.01] * (pairs // 2))
+
+    monkeypatch.setattr(compare, "sample", sample)
+    verdict, _settled = compare.grow(compare.Arms(BASE, HEAD, 4), "json", "x")
+
+    assert verdict.status == "ok"
+    assert asked == [compare.MIN_PAIRS]
+
+
 def test_a_threaded_row_is_judged_on_wall_and_a_sequential_one_on_cpu() -> None:
     """A split's result is latency; a sequential row's is work done."""
     observation = Observation(2.0, 9.0, "text", "shape", "accepted", True, "plan", 4)

@@ -60,40 +60,55 @@ ENGINE_META = {
 
 
 NOTE = (
-    "Cross-engine medians of isolated rounds. A run writes only the seats it "
-    "measured and leaves every other cell exactly as it found it, so each "
-    "seat carries its own measurement date, round count and worker request. "
-    "README rendering reads this file and never triggers a run."
+    "Cross-engine medians of isolated rounds. A run writes only the cells it "
+    "measured and leaves every other one exactly as it found it, so each "
+    "(grammar, seat) cell carries its own measurement date, round count, "
+    "worker request and input. `engines` is display metadata only. README "
+    "rendering reads this file and never triggers a run."
 )
 """The artifact's own account of how it is written."""
 
 
-SCHEMA = 2
-"""The artifact's shape version — per-seat provenance, per-grammar noise."""
+SCHEMA = 3
+"""The artifact's shape version — per-cell provenance, per-grammar noise."""
 
 type Cell = float | str
 """One measured median, or the word a refusing seat earned instead."""
 
 
 class Seat(NamedTuple):
-    """One seat's display metadata AND the run that measured it.
-
-    Provenance is per seat because a run refreshes some columns and not
-    others; one global date then describes cells nobody measured that day.
+    """One seat's display metadata, and nothing about any run.
 
     :ivar label: What the README calls this engine.
     :ivar runtime: ``python`` or ``java`` — the README styles java differently.
-    :ivar measured: The ISO date this seat's cells were taken.
-    :ivar rounds: Timed rounds behind each of them.
-    :ivar cores: The worker request an mt row rode; ``None`` for every seat
-        that runs on one thread.
     """
 
     label: str
     runtime: str
+
+
+class Provenance(NamedTuple):
+    """The run that measured ONE cell — one grammar, one seat.
+
+    Per cell because that is the granularity a run may update: ``--only`` picks
+    grammars and ``--seats`` picks engines, so a column holds cells from
+    different days. Stored per column, one refresh restated every untouched
+    grammar in that column as though it had been taken with it.
+
+    :ivar measured: The ISO date this cell was taken.
+    :ivar rounds: Timed rounds behind it.
+    :ivar cores: The worker request an mt row rode; ``None`` for every seat
+        that runs on one thread.
+    :ivar scale: ``corpus`` or ``full`` — which of the case's two documents the
+        seat read. ``--full`` changes the work, so it changes the cell.
+    :ivar chars: That document's length, so a resized fixture is visible.
+    """
+
     measured: str
     rounds: int
     cores: int | None
+    scale: str
+    chars: int
 
 
 class Artifact(NamedTuple):
@@ -106,18 +121,36 @@ class Artifact(NamedTuple):
 
     noise_floor_percent: dict[str, float]
     engines: dict[str, Seat]
+    provenance: dict[str, dict[str, Provenance]]
     values: dict[str, dict[str, Cell]]
     charstream_share: dict[str, dict[str, float]]
 
     @classmethod
     def load(cls, path: Path) -> Artifact:
-        """Read the artifact, or an empty one when the file is not there yet."""
+        """Read the artifact, or an empty one when the file is not there yet.
+
+        :param path: The artifact to read.
+        :returns: Its typed form.
+        :raises SystemExit: If the file states a different schema — a layout
+            that records provenance differently, read as this one, leaves the
+            cells nobody measured carrying this run's date.
+        """
         if not path.exists():
-            return cls({}, {}, {}, {})
+            return cls({}, {}, {}, {}, {})
         raw = json.loads(path.read_text(encoding="utf-8"))
+        if raw.get("schema") != SCHEMA:
+            raise SystemExit(
+                f"{path} states schema {raw.get('schema')!r}; this bench writes "
+                f"schema {SCHEMA}. Re-measure the whole roster rather than "
+                f"splicing into a layout that records provenance differently."
+            )
         return cls(
             dict(raw["noise_floor_percent"]),
             {name: Seat(**meta) for name, meta in raw["engines"].items()},
+            {
+                grammar: {seat: Provenance(**record) for seat, record in cells.items()}
+                for grammar, cells in raw["provenance"].items()
+            },
             {grammar: dict(cells) for grammar, cells in raw["values"].items()},
             {
                 grammar: dict(shares)
@@ -133,21 +166,50 @@ class Artifact(NamedTuple):
             "note": NOTE,
             "noise_floor_percent": self.noise_floor_percent,
             "engines": {name: seat._asdict() for name, seat in self.engines.items()},
+            "provenance": {
+                grammar: {seat: record._asdict() for seat, record in cells.items()}
+                for grammar, cells in self.provenance.items()
+            },
             "values": self.values,
             "charstream_share": self.charstream_share,
         }
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _provenance(name: str, rounds: int, cores: int | None) -> Seat:
-    """One seat's metadata, dated by the run that has just measured it."""
+def _display(name: str) -> Seat:
+    """One seat's display metadata; an unknown seat gets a default, not silence."""
     meta = ENGINE_META.get(name, {"label": name, "runtime": "python"})
-    return Seat(
-        meta["label"],
-        meta["runtime"],
+    return Seat(meta["label"], meta["runtime"])
+
+
+def measured_input(bench: Bench, name: str, full: bool) -> tuple[str, int]:
+    """Which of the case's documents one seat read, as ``(scale, length)``.
+
+    The mt rows always read the full corpus; ``--full`` puts every other seat
+    on it too. Public because the record and the run must not disagree about
+    which document a number came from.
+    """
+    full_input = full or name in MT_ROWS
+    return ("full", len(bench.full)) if full_input else ("corpus", len(bench.corpus))
+
+
+def _provenance(
+    name: str, rounds: int, cores: int | None, read: tuple[str, int]
+) -> Provenance:
+    """One cell's record, dated by the run that has just measured it.
+
+    :param name: The seat measured.
+    :param rounds: Timed rounds behind the median.
+    :param cores: The run's worker request, kept only for a threaded seat.
+    :param read: That seat's ``(scale, length)`` from :func:`measured_input`.
+    """
+    scale, chars = read
+    return Provenance(
         datetime.date.today().isoformat(),
         rounds,
         cores if name in MT_ROWS else None,
+        scale,
+        chars,
     )
 
 
@@ -163,15 +225,18 @@ def _spliced[T](kept: dict[str, T], fresh: dict[str, T]) -> dict[str, T]:
     return merged
 
 
-def _dump_json(path: Path, rounds: int, cores: int | None, blocks: list[Block]) -> None:
-    """Splice this run's measured or refused rows into the cross-engine artifact.
+def _dump_json(
+    path: Path, rounds: int, cores: int | None, full: bool, blocks: list[Block]
+) -> None:
+    """Splice this run's measured or refused cells into the cross-engine artifact.
 
-    Never a rewrite: a seat-filtered run measures a few columns of a few rows
-    and must leave every other cell byte-identical, or refreshing one engine
-    silently restates figures from a different day as though they were taken
-    together.
+    Never a rewrite: a filtered run measures a few seats of a few grammars and
+    must leave every other cell byte-identical — its number AND the record of
+    what produced it. Provenance is written for exactly the cells this run
+    measured, so refreshing one grammar cannot restate an untouched one in the
+    same column as a measurement of a different day, length or worker count.
 
-    Nothing measured is dropped: a row the metadata table does not know gets a
+    Nothing measured is dropped: a seat the metadata table does not know gets a
     default label rather than silence, so a new seat cannot vanish from the
     record.
     """
@@ -182,14 +247,23 @@ def _dump_json(path: Path, rounds: int, cores: int | None, blocks: list[Block]) 
             name: round(median, 6) for name, median in _medians(block.samples).items()
         }
         cells |= dict.fromkeys(block.refused, "refuses")
+        records = {
+            name: _provenance(
+                name, rounds, cores, measured_input(block.bench, name, full)
+            )
+            for name in cells
+        }
         for name in cells:
-            artifact.engines[name] = _provenance(name, rounds, cores)
+            artifact.engines[name] = _display(name)
+        artifact.provenance[grammar] = _spliced(
+            artifact.provenance.get(grammar, {}), records
+        )
         artifact.values[grammar] = _spliced(artifact.values.get(grammar, {}), cells)
         artifact.charstream_share[grammar] = _spliced(
             artifact.charstream_share.get(grammar, {}),
             {name: round(share, 4) for name, share in sorted(block.shares.items())},
         )
-        # Per grammar, for the same reason the dates are per seat: a run that
+        # Per grammar, for the same reason the dates are per cell: a run that
         # measured four grammars says nothing about the other eight's noise.
         artifact.noise_floor_percent[grammar] = round(block.floor, 2)
     artifact.write(path)
@@ -394,7 +468,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     result.charstream_share,
                 )
     if args.json:
-        _dump_json(args.json, args.rounds, cores, blocks)
+        _dump_json(args.json, args.rounds, cores, args.full, blocks)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
 from typing import NamedTuple
 
@@ -141,13 +142,54 @@ def mt_badge() -> str:
     top = max(speedup for _, speedup in mt_speedups())
     return (
         f"![Parallel parsing](https://img.shields.io/badge/"
-        f"parallel_parse-up_to_{top:.1f}x_on_16_threads-2a78d6)"
+        f"parallel_parse-up_to_{top:.1f}x_on_{mt_workers()}_threads-2a78d6)"
     )
 
 
 def lexic_values() -> dict[str, dict[str, float]]:
     """The artifact's per-grammar medians — the Lexic seats read from the same run."""
     return json.loads(COMPETITORS.read_text(encoding="utf-8"))["values"]
+
+
+def cell_records() -> dict[str, dict[str, dict[str, object]]]:
+    """The artifact's per-cell provenance, by grammar and then seat."""
+    return json.loads(COMPETITORS.read_text(encoding="utf-8"))["provenance"]
+
+
+def _seat_cells(seat: str) -> list[dict[str, object]]:
+    """Every recorded cell in one seat's column."""
+    return [cells[seat] for cells in cell_records().values() if seat in cells]
+
+
+def column_workers(seat: str) -> int | None:
+    """The worker request every cell in one seat's column agrees on.
+
+    A column header states ONE worker count, so it may only be printed when the
+    cells behind it were all taken at that count. A partial refresh at a
+    different count is refused here rather than relabelled: the artifact keeps
+    both truths, and the README declines to average them into a false one.
+
+    :param seat: The engine column to read.
+    :returns: The agreed count, or ``None`` when the seat records none.
+    :raises SystemExit: If the column's cells disagree.
+    """
+    counts = {record.get("cores") for record in _seat_cells(seat)}
+    if len(counts) > 1:
+        spread = sorted(str(count) for count in counts)
+        raise SystemExit(
+            f"{seat} was measured at {', '.join(spread)} workers across grammars; "
+            f"one column header cannot state them. Re-measure the seat whole."
+        )
+    found = counts.pop() if counts else None
+    return int(found) if isinstance(found, int) else None
+
+
+def mt_workers() -> int:
+    """The worker count the threaded row was measured at, from the artifact."""
+    workers = column_workers("lexic-mt")
+    if workers is None:
+        raise SystemExit("the artifact records no worker count for lexic-mt")
+    return workers
 
 
 DISPLAY_SEATS = (
@@ -179,23 +221,33 @@ threaded row leads the pruned sequential one on all twelve.
 """
 
 
-def _measured_caption(engines: dict[str, dict[str, str]]) -> str:
-    """What the artifact actually says about WHEN the shown seats were taken.
+def _measured_caption(dates: Iterable[str]) -> str:
+    """What the artifact actually says about WHEN the shown cells were taken.
 
-    Provenance is per seat, because a run may refresh one engine and leave the
-    rest of the file alone. One date is printed when they agree; a span when
-    they do not, because a single date over columns taken weeks apart claims
-    a run that never happened.
+    Provenance is per cell, because a run may refresh one seat of one grammar
+    and leave the rest of the file alone. One date is printed when they agree;
+    a span when they do not, because a single date over cells taken weeks apart
+    claims a run that never happened.
 
-    :param engines: The shown seats' metadata, each carrying its own date.
+    :param dates: Every shown cell's recorded measurement date.
     :returns: The caption's date clause.
     """
-    dates = sorted({str(meta["measured"]) for meta in engines.values()})
-    if not dates:
+    seen = sorted(set(dates))
+    if not seen:
         return "undated"
-    if len(dates) == 1:
-        return f"measured {dates[0]}"
-    return f"measured {dates[0]} to {dates[-1]}, per seat"
+    if len(seen) == 1:
+        return f"measured {seen[0]}"
+    return f"measured {seen[0]} to {seen[-1]}, per cell"
+
+
+def _shown_dates(shown: list[str]) -> list[str]:
+    """Every recorded date behind the cells the README displays."""
+    return [
+        str(record["measured"])
+        for cells in cell_records().values()
+        for seat, record in cells.items()
+        if seat in shown
+    ]
 
 
 def competitor_data() -> tuple[
@@ -204,8 +256,9 @@ def competitor_data() -> tuple[
     """The dated cross-engine artifact, narrowed to the display seats.
 
     Returns ``(caption, engines, values)`` — the caption carries the
-    measurement date and, when the artifact holds more seats than the README
-    shows, how many stayed in the file.
+    measurement dates the displayed CELLS record and, when the artifact holds
+    more seats than the README shows, how many stayed in the file. The threaded
+    columns' worker counts come from those same records.
     """
     data = json.loads(COMPETITORS.read_text(encoding="utf-8"))
     engines: dict[str, dict[str, str]] = data["engines"]
@@ -214,10 +267,10 @@ def competitor_data() -> tuple[
     picked = {}
     for name in shown:
         picked[name] = dict(engines[name])
-        cores = picked[name].get("cores")
-        if name.startswith("lexic-mt") and cores:
-            picked[name]["label"] = f"{picked[name]['label']} ({cores} workers)"
-    caption = _measured_caption(picked)
+        workers = column_workers(name)
+        if workers is not None:
+            picked[name]["label"] = f"{picked[name]['label']} ({workers} workers)"
+    caption = _measured_caption(_shown_dates(shown))
     if hidden:
         caption += (
             f"; {hidden} further seats (directive-matched competitor variants,"
@@ -231,7 +284,7 @@ def competitor_data() -> tuple[
 
 
 def mt_speedups() -> list[tuple[str, float]]:
-    """(grammar, wall-clock speedup) of the 16-worker row, fastest first."""
+    """(grammar, wall-clock speedup) of the threaded row, fastest first."""
     rows = [
         (grammar, cells["lexic-pda"] / cells["lexic-mt"])
         for grammar, cells in sorted(lexic_values().items())
@@ -244,7 +297,7 @@ def lexic_table() -> str:
     """The Lexic ladder, straight from the artifact's Lexic seats."""
     head = (
         "| grammar | pda | `@lexical` | `@lexical` `@non-semantic` |"
-        " 16-worker | speedup | earley |\n|---|---|---|---|---|---|---|"
+        f" {mt_workers()}-worker | speedup | earley |\n|---|---|---|---|---|---|---|"
     )
     lines = [head]
     for grammar, cells in sorted(lexic_values().items()):
@@ -542,11 +595,13 @@ The left gutter is derived from the artifact's own grammar names, the same way
 the cross-engine chart derives its engine-label gutter.
 """
 
-MT_CAPTION = (
-    "one document, 16 workers vs the same engine sequential — "
-    "from the committed ratchet baseline"
-)
-"""What the ladder's bars are ratios of."""
+
+def mt_caption() -> str:
+    """What the ladder's bars are ratios of, at the recorded worker count."""
+    return (
+        f"one document, {mt_workers()} workers vs the same engine sequential — "
+        "from the committed ratchet baseline"
+    )
 
 
 def _mt_x(left: float, value: float, ceiling: float) -> float:
@@ -586,17 +641,18 @@ def _mt_bar(left: float, y: float, row: tuple[str, float], ceiling: float) -> li
 
 
 def mt_svg() -> str:
-    """The multithreading ladder: one bar per grammar, 16-worker speedup."""
+    """The multithreading ladder: one bar per grammar, threaded-row speedup."""
     rows = mt_speedups()
+    workers = mt_workers()
     left = CE_PAD + max(_width(grammar, 13) for grammar, _ in rows) + 12.0
     bottom = MT_TOP + len(rows) * (MT_BAR + MT_GAP)
-    lines = _wrap(MT_CAPTION, MT_W - 2 * CE_PAD, 11)
+    lines = _wrap(mt_caption(), MT_W - 2 * CE_PAD, 11)
     height = bottom + 44.0 + 14.0 * len(lines)
     ceiling = math.ceil(max(speedup for _, speedup in rows)) + 0.5
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {MT_W:.0f} {height:.0f}"'
         f' width="{MT_W:.0f}" height="{height:.0f}" role="img"'
-        f' aria-label="Wall-clock speedup at 16 workers, per grammar">',
+        f' aria-label="Wall-clock speedup at {workers} workers, per grammar">',
         STYLE,
     ]
     parts += _mt_grid(left, bottom, ceiling)

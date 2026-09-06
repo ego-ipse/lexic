@@ -50,6 +50,10 @@ VERDICT, because the envelope is a magnitude and both sides of the comparison
 move together — but it does not cancel out of the reported RATIO, which is the
 number a person reads and quotes. One extra process pair per row buys a
 published figure with a known bias removed. Do not make either odd again.
+
+Even bounds are half the statement: the counts BETWEEN them must be even too,
+which is what :data:`BLOCK` settles. Their difference is a whole number of
+blocks, so growth reaches the ceiling exactly.
 """
 
 CONFIDENCE_Z = 1.96
@@ -383,14 +387,37 @@ slowdown, which stays slower with a tighter interval.
 """
 
 
+BLOCK = 2
+"""Pairs one growth round adds, and the count a verdict may be taken at.
+
+The period :func:`sample` alternates on. Growth used to add ONE pair and return
+the moment it settled, so a row could publish at 7, 9, 11, 13 or 15 — carrying
+exactly the first-slot bias :data:`MIN_PAIRS` and :data:`MAX_PAIRS` are even to
+remove. Even bounds settle only the two counts a row stops at MOST often; every
+count it can stop at has to be even, and that is a property of the growth step.
+
+Both bounds are a whole number of blocks apart, so the ceiling is reached
+exactly rather than stepped over.
+"""
+
+
 def grow(arms: Arms, grammar: str, row: str) -> tuple[Verdict, Pairing]:
-    """Sample a row until it settles inside the envelope, or the bound runs out."""
+    """Sample a row until it settles inside the envelope, or the bound runs out.
+
+    A verdict is taken only at a complete :data:`BLOCK` — never after the first
+    pair of one — so the two schedules have sampled the first slot equally often
+    at whatever count is published. An already balanced result is not grown: the
+    floor is itself a complete block, and a row that settles there settles.
+
+    Each round continues the absolute pair index, which is what keeps both
+    schedules in phase across the boundary.
+    """
     clock = "wall" if row in MT_ROWS else "cpu"
     label = f"{grammar}/{row}"
     pairing = sample(arms, grammar, row, MIN_PAIRS, 0)
     verdict = decide(label, pairing, clock)
     while verdict.status in GROWS and len(pairing.candidate) < MAX_PAIRS:
-        extra = sample(arms, grammar, row, 1, len(pairing.candidate))
+        extra = sample(arms, grammar, row, BLOCK, len(pairing.candidate))
         pairing = Pairing(
             pairing.candidate + extra.candidate,
             pairing.control + extra.control,

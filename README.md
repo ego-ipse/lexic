@@ -76,7 +76,7 @@ what lexic accepts *and refuse what lexic refuses*):
 | mixedends | **0.12** | **0.04** | **0.07** | **0.47** | **12.8** | 3.01 | 15.9 | 1.16 | 4.36 | 7.45 | *0.05* |
 | announced | **0.05** | **0.02** | **0.04** | **0.19** | **3.92** | 0.29 | 5.81 | 0.78 | 2.74 | 1.38 | *0.02* |
 
-µs/char, lower is faster; medians of isolated rounds; measured 2026-09-04 to 2026-09-06, per seat; 8 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
+µs/char, lower is faster; medians of isolated rounds; measured 2026-09-04 to 2026-09-06, per cell; 8 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
 <!-- lexic:end cross-bench -->
 
 Three things the table means, stated plainly:

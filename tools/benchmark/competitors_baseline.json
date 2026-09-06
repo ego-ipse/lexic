@@ -1,7 +1,7 @@
 {
-  "schema": 2,
+  "schema": 3,
   "unit": "microseconds_per_character",
-  "note": "Cross-engine medians of isolated rounds. A run writes only the seats it measured and leaves every other cell exactly as it found it, so each seat carries its own measurement date, round count and worker request. README rendering reads this file and never triggers a run.",
+  "note": "Cross-engine medians of isolated rounds. A run writes only the cells it measured and leaves every other one exactly as it found it, so each (grammar, seat) cell carries its own measurement date, round count, worker request and input. `engines` is display metadata only. README rendering reads this file and never triggers a run.",
   "noise_floor_percent": {
     "arithmetic": 2.15,
     "csv": 0.83,
@@ -19,136 +19,1547 @@
   "engines": {
     "lexic-mt": {
       "label": "lexic-mt",
-      "runtime": "python",
-      "measured": "2026-09-06",
-      "rounds": 7,
-      "cores": 16
+      "runtime": "python"
     },
     "lexic-mt-lex-ns": {
       "label": "lexic-mt-lex-ns",
-      "runtime": "python",
-      "measured": "2026-09-06",
-      "rounds": 7,
-      "cores": 16
+      "runtime": "python"
     },
     "lexic-lex": {
       "label": "lexic-lex",
-      "runtime": "python",
-      "measured": "2026-09-06",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "lexic-lex-ns": {
       "label": "lexic-lex-ns",
-      "runtime": "python",
-      "measured": "2026-09-06",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "lexic-pda": {
       "label": "lexic-pda",
-      "runtime": "python",
-      "measured": "2026-09-06",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "lexic-earley": {
       "label": "lexic-earley",
-      "runtime": "python",
-      "measured": "2026-09-06",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "lark-lalr": {
       "label": "lark (LALR)",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "lark-lalr-lex": {
       "label": "lark (LALR, marked)",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "lark-earley": {
       "label": "lark (Earley)",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "lark-earley-lex": {
       "label": "lark (Earley, marked)",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "parsimonious": {
       "label": "parsimonious",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "parsimonious-lex": {
       "label": "parsimonious (marked)",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "pyparsing": {
       "label": "pyparsing",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "antlr-py": {
       "label": "ANTLR (Python)",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "antlr-py-lex": {
       "label": "ANTLR (Python, marked)",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "antlr": {
       "label": "ANTLR (Java)",
-      "runtime": "java",
-      "measured": "2026-09-06",
-      "rounds": 7,
-      "cores": null
+      "runtime": "java"
     },
     "antlr-lex": {
       "label": "ANTLR (Java, marked)",
-      "runtime": "java",
-      "measured": "2026-09-06",
-      "rounds": 7,
-      "cores": null
+      "runtime": "java"
     },
     "stdlib-json": {
       "label": "json.loads (stdlib)",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
     },
     "msgspec": {
       "label": "msgspec",
-      "runtime": "python",
-      "measured": "2026-09-04",
-      "rounds": 7,
-      "cores": null
+      "runtime": "python"
+    }
+  },
+  "provenance": {
+    "arithmetic": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32774
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32774
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4000
+      }
+    },
+    "csv": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32939
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32939
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 12539
+      }
+    },
+    "json": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32983
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32983
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "stdlib-json": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      },
+      "msgspec": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2403
+      }
+    },
+    "gbnf-meta": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 40530
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 40530
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1377
+      }
+    },
+    "abnf-meta": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 37180
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 37180
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 2020
+      }
+    },
+    "vyx": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 33180
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 33180
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3461
+      }
+    },
+    "markdown": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 33224
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 33224
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 7304
+      }
+    },
+    "nested": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32911
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32911
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 1620
+      }
+    },
+    "lexruns": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 33130
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 33130
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 9180
+      }
+    },
+    "backtrack": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32790
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 32790
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3265
+      }
+    },
+    "mixedends": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 34408
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 34408
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 3507
+      }
+    },
+    "announced": {
+      "lexic-mt": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 43500
+      },
+      "lexic-mt-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": 16,
+        "scale": "full",
+        "chars": 43500
+      },
+      "lexic-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "lexic-lex-ns": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "lexic-pda": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "lexic-earley": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "lark-lalr": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "lark-lalr-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "lark-earley": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "lark-earley-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "parsimonious": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "parsimonious-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "pyparsing": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "antlr-py": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "antlr-py-lex": {
+        "measured": "2026-09-04",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "antlr": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      },
+      "antlr-lex": {
+        "measured": "2026-09-06",
+        "rounds": 7,
+        "cores": null,
+        "scale": "corpus",
+        "chars": 4350
+      }
     }
   },
   "values": {

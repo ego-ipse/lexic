@@ -52,6 +52,14 @@ fixed percentage allowance: what counts as noise is what this machine produced,
 this session, under the identical protocol. A row that will not settle within
 the pair bound is reported unresolved rather than forced into a median.
 
+Both bounds are even, and so is every count between them: the two schedules
+alternate on a period of two, so they sample the first slot equally often only
+at an even count, and growth therefore adds a whole period at a time and takes
+its verdict at the boundary. At an odd count a fixed first-slot cost leaves
++δ/n in the candidate's mean and −δ/n in the control's — harmless to the
+verdict, since the envelope is a magnitude and both sides move together, but
+not to the ratio that gets published.
+
 **Only a `slower` row fails the run.** An unresolved row has measured no
 slowdown; it has measured that this machine, this session, could not separate
 the two arms inside the pair bound. Failing on that makes the gate's answer
@@ -70,5 +78,13 @@ cannot reserve a quiet machine, so it proves the rows are still the rows and
 times nothing.
 
 `competitors_baseline.json` is the one committed artifact the README renders
-from — every seat's dated medians from a full `bench --json` run, Lexic's own
+from — every seat's medians from a whole-roster `bench --json` run, Lexic's own
 rows included. It is neither a cross-machine gate nor an approval channel.
+
+Each `(grammar, seat)` cell carries its own record: the date it was taken, the
+rounds behind it, the worker request an mt row rode, and which of the case's
+documents it read. That is the granularity `--only` and `--seats` update, so a
+run that refreshes one cell cannot restate an untouched one as a measurement it
+never was. `engines` holds display metadata and nothing else, and the README's
+captions and column headers are derived from the records — a column whose cells
+disagree on the worker count is refused rather than labelled with one of them.
