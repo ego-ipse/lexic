@@ -18,8 +18,6 @@ from tools.benchmark.bench import (
     MT_ROWS,
     PRODUCT,
     EngineBuild,
-    _interleaved,
-    _noise_floor,
     observe,
     one_engine,
     result_identity,
@@ -34,6 +32,7 @@ from tools.benchmark.measurement.contract import (
     digest,
 )
 from tools.benchmark.measurement.occupancy import Occupancy, declined_reason
+from tools.benchmark.measurement.sampling import interleaved, noise_spread
 
 _VARIANT_ROWS = frozenset({"lexic-lex", "lexic-lex-ns", "lexic-mt-lex-ns"})
 """Rows compiled with the case's declared `@lexical` set."""
@@ -146,7 +145,7 @@ def report_payload(
         return {"refusal": built.refusal}
     parse = built.parse
     try:
-        samples = _interleaved({engine: parse}, {engine: built.document}, rounds)
+        samples = interleaved({engine: parse}, {engine: built.document}, rounds)
         engaged, _split, _cores = _split_fields(_engagement(engine, built, cores))
         warmed = getattr(parse, "warmed", None)
         return {
@@ -172,7 +171,7 @@ def _noise_payload(
             f"benchmark row {bench.name}/{engine} refused: {built.refusal}"
         )
     try:
-        return {"noise_floor": _noise_floor(built.parse, built.document, rounds)}
+        return {"noise_floor": noise_spread(built.parse, built.document, rounds)}
     finally:
         getattr(built.parse, "close", lambda: None)()
 

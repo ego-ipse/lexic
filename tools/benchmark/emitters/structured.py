@@ -51,12 +51,20 @@ from tools.benchmark.emitters.emit import (
 
 
 def pyparsing_parser(ast: IrAst, longest: bool = True) -> pp.ParserElement:
-    """``ast`` as a live pyparsing element.
+    """``ast`` as a live pyparsing element, anchored at end of input.
 
     pyparsing has no grammar notation to emit into — it is combinators — so the
     translation builds objects instead of text. Forward references are declared
     up front so recursion resolves, which is the only structural difference from
     the text emitters.
+
+    The `StringEnd()` is part of the RETURNED element rather than
+    `parse_string`'s `parse_all` flag. `parse_all` builds its own anchor at
+    parse time, outside the empty-whitespace window below, so that one element
+    skipped whitespace and every row accepted arbitrary trailing space its
+    grammar does not admit. And the element is put in `parse_with_tabs` mode,
+    because `parse_string` expands tabs to spaces by default — which handed a
+    class holding a space a tab it does not hold.
 
     :param longest: Spell alternation as `Or` (try every arm, keep the longest)
         rather than `MatchFirst` (commit to the first that matches). `Or` is the
@@ -64,6 +72,7 @@ def pyparsing_parser(ast: IrAst, longest: bool = True) -> pp.ParserElement:
         PEG's ordered choice, and a grammar whose arms share a prefix then
         describes a different language — which is what dropped a meta row and
         got written down as a pyparsing limitation.
+    :returns: The start rule followed by end-of-input, tabs left alone.
     """
     if longest:
         # `Or` re-tries every arm at every position and is exponential without
@@ -83,7 +92,7 @@ def pyparsing_parser(ast: IrAst, longest: bool = True) -> pp.ParserElement:
         choice = pp.Or if longest else pp.MatchFirst
         for name, body in rules.items():
             forwards[name] <<= _pp(body, forwards, choice)
-        return forwards[start]
+        return (forwards[start] + pp.StringEnd()).parse_with_tabs()
     finally:
         pp.ParserElement.set_default_whitespace_chars(previous)
 

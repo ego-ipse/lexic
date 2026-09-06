@@ -15,7 +15,7 @@ parse one document across many threads on free-threaded Python.
 ![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.7x_on_16_threads-2a78d6)
 <!-- lexic:end mt-badge -->
 <!-- lexic:begin tests-badge -->
-![Tests](https://img.shields.io/badge/tests-5.7k%2B-brightgreen)
+![Tests](https://img.shields.io/badge/tests-5.8k%2B-brightgreen)
 <!-- lexic:end tests-badge -->
 ![Status](https://img.shields.io/badge/status-pre--1.0-orange)
 ![License: LGPL](https://img.shields.io/badge/license-LGPL-blue)
@@ -63,18 +63,18 @@ what lexic accepts *and refuse what lexic refuses*):
 <!-- lexic:begin cross-bench -->
 | grammar | **lexic-mt (16 workers)** | **lexic-mt-lex-ns (16 workers)** | **lexic-lex-ns** | **lexic-pda** | **lexic-earley** | lark (LALR) | lark (Earley) | parsimonious | pyparsing | ANTLR (Python) | *ANTLR (Java)* |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| arithmetic | **0.44** | **0.42** | **1.84** | **2.05** | **53.1** | 2.80 | 45.9 | 2.49 | 32.1 | 8.43 | *0.06* |
-| csv | **0.14** | **0.11** | **0.40** | **0.54** | **11.4** | 0.77 | 12.7 | 0.93 | 3.92 | 2.50 | *0.02* |
-| json | **0.27** | **0.20** | **0.75** | **1.22** | **29.2** | 3.63 | 46.1 | 1.85 | 10.4 | 10.1 | *0.07* |
+| arithmetic | **0.44** | **0.42** | **1.84** | **2.05** | **53.1** | 2.80 | 45.9 | 2.49 | 27.5 | 8.43 | *0.06* |
+| csv | **0.14** | **0.11** | **0.40** | **0.54** | **11.4** | 0.77 | 12.7 | 0.93 | 3.94 | 2.50 | *0.02* |
+| json | **0.27** | **0.20** | **0.75** | **1.22** | **29.2** | 3.63 | 46.1 | 1.85 | 12.0 | 10.1 | *0.07* |
 | gbnf-meta | **0.52** | **0.42** | **2.09** | **2.51** | **62.7** | refuses | 213.6 | refuses | refuses | 12.5 | *0.11* |
-| abnf-meta | **0.48** | **0.39** | **1.78** | **2.25** | **59.0** | refuses | 145.3 | 3.78 | 55.8 | 14.7 | *0.11* |
-| vyx | **0.47** | **0.32** | **2.26** | **2.67** | **46.6** | refuses | 137.3 | 2.50 | 29.4 | 11.1 | *0.08* |
-| markdown | **0.19** | **0.15** | **0.68** | **0.89** | **33.8** | 3.47 | 113.6 | refuses | 99.1 | 8.77 | *0.06* |
+| abnf-meta | **0.48** | **0.39** | **1.78** | **2.25** | **59.0** | refuses | 145.3 | 3.78 | 1253.0 | 14.7 | *0.11* |
+| vyx | **0.47** | **0.32** | **2.26** | **2.67** | **46.6** | refuses | 137.3 | 2.50 | refuses | 11.1 | *0.08* |
+| markdown | **0.19** | **0.15** | **0.68** | **0.89** | **33.8** | 3.47 | 113.6 | refuses | 96.2 | 8.77 | *0.06* |
 | nested | **0.42** | **0.43** | **1.15** | **1.17** | **27.3** | 2.80 | 41.2 | 3.43 | refuses | 12.8 | *0.07* |
-| lexruns | **0.05** | **0.04** | **0.10** | **0.14** | **7.52** | 2.63 | 12.9 | 0.79 | 2.70 | 6.14 | *0.04* |
-| backtrack | **0.06** | **0.04** | **0.10** | **0.20** | **6.52** | 2.60 | 9.81 | 0.79 | 3.88 | 6.84 | *0.05* |
-| mixedends | **0.12** | **0.04** | **0.07** | **0.47** | **12.8** | 3.01 | 15.9 | 1.16 | 4.36 | 7.45 | *0.05* |
-| announced | **0.05** | **0.02** | **0.04** | **0.19** | **3.92** | 0.29 | 5.81 | 0.78 | 2.74 | 1.38 | *0.02* |
+| lexruns | **0.05** | **0.04** | **0.10** | **0.14** | **7.52** | 2.63 | 12.9 | 0.79 | 2.65 | 6.14 | *0.04* |
+| backtrack | **0.06** | **0.04** | **0.10** | **0.20** | **6.52** | 2.60 | 9.81 | 0.79 | 3.81 | 6.84 | *0.05* |
+| mixedends | **0.12** | **0.04** | **0.07** | **0.47** | **12.8** | 3.01 | 15.9 | 1.16 | 4.39 | 7.45 | *0.05* |
+| announced | **0.05** | **0.02** | **0.04** | **0.19** | **3.92** | 0.29 | 5.81 | 0.78 | 2.73 | 1.38 | *0.02* |
 
 µs/char, lower is faster; medians of isolated rounds; measured 2026-09-04 to 2026-09-06, per cell; 8 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
 <!-- lexic:end cross-bench -->

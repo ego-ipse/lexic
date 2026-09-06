@@ -25,10 +25,12 @@ from lexic.parsing.parallel import (
     Replica,
     document_view,
     replica_count,
+)
+from lexic.parsing.parallel import replicas as replica_module
+from lexic.parsing.parallel import (
     worker_parse,
     worker_replica,
 )
-from lexic.parsing.parallel import replicas as replica_module
 from lexic.parsing.parallel.pool import WorkPool
 
 TEXT = "- alpha\n- beta\n- gamma\n"

@@ -13,7 +13,6 @@ replaced by the concatenation.
 
 from __future__ import annotations
 
-
 from lexic.exceptions import LexicError
 from lexic.ir import Bound, IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel

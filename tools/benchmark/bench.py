@@ -43,9 +43,7 @@ from __future__ import annotations
 
 import gc
 import json
-import random
 import re
-import time
 from collections.abc import Callable, Sequence
 from importlib import import_module
 from typing import NamedTuple
@@ -57,7 +55,9 @@ from tools.benchmark.cases.grammars import Bench, declared_marks
 from tools.benchmark.emitters.directives import NO_MARKS
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
 from tools.benchmark.measurement.contract import shape
+from tools.benchmark.measurement.language import disagreement, probes
 from tools.benchmark.measurement.occupancy import declined_reason
+from tools.benchmark.measurement.sampling import Parse, Pass, prime, timed
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -136,12 +136,11 @@ pure-Python ATN simulator and a different animal.
 `stdlib-json` and `msgspec` are FORMAT SPECIALISTS: hand-written C parsers for
 the one format their row's grammar happens to describe. They take no grammar
 and answer no capability question — their cells are the specialist floor, what
-dedicating compiled code to a single fixed language buys. The same
-:func:`unfaithful` differential gates them, which is what proves their
-hard-coded language and the row's grammar agree on the fixture set.
+dedicating compiled code to a single fixed language buys. Their language is the
+FORMAT and it is strictly larger than the row's grammar, so they are held to the
+accepting half of :func:`unfaithful` and not the refusing one; :data:`SPECIALISTS`
+says why that is a declaration rather than an exemption.
 """
-
-Parse = Callable[[str], object]
 
 
 def _antlr_name(bench: str) -> str:
@@ -270,6 +269,7 @@ def unfaithful(
     bench: Bench,
     document: str | None = None,
     exceptions: tuple[type[BaseException], ...] | None = None,
+    fixed_language: bool = False,
 ) -> str | None:
     """The first way ``parse`` disagrees with lexic about the language, or None.
 
@@ -281,8 +281,18 @@ def unfaithful(
     number for a different language is not a faster answer to the question, it
     is an answer to a different one.
 
+    The authored `accepts`/`rejects` are the adversarial sentences a person
+    chose; they run first because their names are the most readable failure.
+    What decides the question is the DERIVED differential behind them — see
+    :mod:`tools.benchmark.measurement.language` — because a sample nobody
+    thought of is the only thing that can separate two languages an author
+    believed were one.
+
     :param document: The text this engine will be timed on — the acceptance
         half is checked against exactly that (default: the small corpus).
+    :param fixed_language: This seat takes NO grammar — see :data:`SPECIALISTS`.
+        Only the accepting direction is then a claim about it, so the refusing
+        one is not asked rather than quietly passed.
     """
     why = refusal(
         parse,
@@ -295,10 +305,22 @@ def unfaithful(
         why = refusal(parse, text, exceptions)
         if why is not None:
             return f"refuses {text!r} — {why}"
-    for text in bench.rejects:
-        if accepts(parse, text, exceptions):
-            return f"accepts {text[:18]!r}, which lexic refuses"
-    return None
+    if not fixed_language:
+        for text in bench.rejects:
+            if accepts(parse, text, exceptions):
+                return f"accepts {text[:18]!r}, which lexic refuses"
+    return disagreement(parse, _probes(bench, fixed_language), exceptions)
+
+
+def _probes(bench: Bench, accepted_only: bool = False) -> tuple[tuple[str, bool], ...]:
+    """This bench's derived probe set, judged by its own compiled artefact."""
+    built = probes(
+        bench.name,
+        bench.ast,
+        bench.corpus,
+        lambda text: bench.compiled.parse(text, cores=1),
+    )
+    return tuple(pair for pair in built if pair[1]) if accepted_only else built
 
 
 def _lark_parse(bench: Bench, parser: str, marked: bool = False) -> Parse:
@@ -353,19 +375,18 @@ def _pp_parse(bench: Bench) -> Parse:
     it is faithful, and pay for `Or` only where it is not. That is the iteration
     a person hitting the bug would do, and it gives pyparsing its best HONEST
     number per grammar rather than its fastest wrong one.
+
+    The built element carries its own end-of-input anchor, so no row passes
+    `parse_all` — see `structured.pyparsing_parser` for the language that flag
+    silently widened.
     """
     pyparsing_parser = import_module(
         "tools.benchmark.emitters.structured"
     ).pyparsing_parser
-    quick = pyparsing_parser(bench.ast, longest=False)
-
-    def cheap(body: str) -> object:
-        return quick.parse_string(body, parse_all=True)
-
+    cheap = pyparsing_parser(bench.ast, longest=False).parse_string
     if unfaithful(cheap, bench) is None:
         return cheap
-    exact = pyparsing_parser(bench.ast, longest=True)
-    return lambda body: exact.parse_string(body, parse_all=True)
+    return pyparsing_parser(bench.ast, longest=True).parse_string
 
 
 def _java_parse(bench: Bench, marked: bool = False) -> Parse:
@@ -417,6 +438,21 @@ _JSON_SPECIALISTS: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
 )
 """The json row's format specialists (see :data:`PRODUCT`)."""
 
+SPECIALISTS = frozenset(name for name, _make in _JSON_SPECIALISTS)
+"""Seats that take NO grammar, so only one direction is a claim about them.
+
+A specialist's language is the FORMAT it hard-codes, and that format is strictly
+larger than the row's grammar — the bench's json admits no comma inside a string
+and no trailing whitespace after the document, and every real json parser takes
+both. Asking one to refuse those is asking it to be a different program, so the
+refusing half of :func:`unfaithful` is not asked of these rows at all.
+
+What IS asked, and is the whole claim their cells make, is the accepting half:
+they must take every sentence the row's grammar derives, including the derived
+probes. A specialist that refused one would be answering an easier question than
+the seats beside it.
+"""
+
 
 def _candidates(bench: Bench) -> tuple[tuple[str, Callable[[Bench], Parse]], ...]:
     """The candidate rows for one bench: every engine, plus its specialists.
@@ -446,7 +482,7 @@ def _competitors(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
         except refusals() as exc:
             refused[label] = f"{type(exc).__name__}: {' '.join(str(exc).split())}"
             continue
-        wrong = unfaithful(parse, bench)
+        wrong = unfaithful(parse, bench, fixed_language=label in SPECIALISTS)
         if wrong is None:
             built[label] = parse
         else:
@@ -457,6 +493,18 @@ def _competitors(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
 
 MT_ROWS = frozenset({"lexic-mt", "lexic-mt-lex-ns"})
 """The rows that always read the full corpus — a split needs the scale."""
+
+NOISE_ANCHOR = "lexic-pda"
+"""The one seat a grammar's noise floor is ever measured on.
+
+The floor is one number per grammar and nothing beside it records which engine
+produced it, so it must not depend on which engines a run was ASKED for.
+Anchored on the first row that happened to measure, `--seats antlr` replaced a
+grammar's floor with a JVM-measured control and `--seats lark-earley` replaced
+it again — three numbers for one cell, each written without a word. A fixed
+anchor makes the cell mean one thing, and a run that did not measure this seat
+leaves the committed floor alone rather than restating it.
+"""
 
 
 class EngineBuild(NamedTuple):
@@ -497,101 +545,11 @@ def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engine
                 None,
             )
     exceptions = LEXIC_REFUSALS if name in LEXIC_ROWS else None
-    wrong = unfaithful(parse, bench, document, exceptions)
+    wrong = unfaithful(parse, bench, document, exceptions, name in SPECIALISTS)
     if wrong is not None:
         getattr(parse, "close", lambda: None)()
         return EngineBuild(None, document, wrong, None)
     return EngineBuild(parse, document, None, artifact)
-
-
-class Pass(NamedTuple):
-    """One timed pass on both clocks, in seconds.
-
-    :ivar wall: ``perf_counter`` — latency, and the only honest clock for a row
-        whose work happens on other threads.
-    :ivar cpu: ``process_time`` — total work this process did, summed across
-        its threads. A parallel path that wins on wall while burning far more
-        CPU per byte is a real finding, and one clock cannot show it.
-    """
-
-    wall: float
-    cpu: float
-
-
-def _timed(parse: Parse, corpus: str) -> Pass:
-    """One pass with the collector LEFT ENABLED, on both clocks.
-
-    Production parsing does not disable the collector, so a row that does is
-    not measuring production: it hides allocation and cycle-creation cost and,
-    if the parse raises, used to leave the collector off for everything after.
-
-    An engine that measured the pass ITSELF is believed over the wall clock: the
-    Java row runs in a live JVM, and a `perf_counter` around it would charge
-    ANTLR for the pipe carrying the input across.
-    """
-    cpu_start = time.process_time()
-    wall_start = time.perf_counter()
-    parse(corpus)
-    wall = time.perf_counter() - wall_start
-    cpu = time.process_time() - cpu_start
-    inner = getattr(parse, "measured_us", None)
-    return Pass(inner() / 1e6 if inner else wall, cpu)
-
-
-def _once(parse: Parse, corpus: str) -> float:
-    """Microseconds per input character for one timed pass — the report's cell."""
-    return _timed(parse, corpus).wall * 1e6 / len(corpus)
-
-
-def _prime(parse: Parse, corpus: str) -> None:
-    """Bring one engine to steady state before any round counts.
-
-    A JIT-compiled engine's first parses are not the engine — the Java row's
-    first is ~20x its settled cost. `warm` parses a budget that clears the JIT's
-    last step down; an engine without one gets the single pass it always got.
-    """
-    warm = getattr(parse, "warm", None)
-    if warm is None:
-        parse(corpus)
-        return
-    warm(corpus)
-
-
-def _interleaved(
-    engines: dict[str, Parse], texts: dict[str, str], rounds: int
-) -> dict[str, list[float]]:
-    """Low-level sampler used inside one isolated worker.
-
-    ``texts`` names each row's document: the mt rows always read the full
-    corpus, everyone else reads whatever the ``--full`` decision assigned.
-
-    Each pass is followed by an UNTIMED ``gc.collect()``. The collector stays
-    ENABLED inside the timed pass, so a row pays its own allocation cost; the
-    collect afterwards only stops one sample's garbage landing in the next.
-    The same operation is applied to every row, so it cannot favour an arm.
-
-    Immediately before its timed pass, each row gets one untimed pass of ITSELF.
-    This keeps every sample in the same hot-parse state even after allocator or
-    collection work. The reported noun remains ONE timed parse and the
-    statistic remains the median — no batching or fastest-run selection.
-    """
-    for name, parse in engines.items():
-        _prime(parse, texts[name])
-    samples: dict[str, list[float]] = {name: [] for name in engines}
-    seats = list(engines.items())
-    rng = random.Random(0x5EA75)
-    for _ in range(rounds):
-        rng.shuffle(seats)
-        for name, parse in seats:
-            parse(texts[name])
-            samples[name].append(_once(parse, texts[name]))
-            gc.collect()
-    return samples
-
-
-def _medians(samples: dict[str, list[float]]) -> dict[str, float]:
-    """Each row's reported figure: the median of its per-round passes."""
-    return {name: sorted(runs)[len(runs) // 2] for name, runs in samples.items()}
 
 
 def observe(build: EngineBuild, rounds: int) -> Pass:
@@ -606,11 +564,11 @@ def observe(build: EngineBuild, rounds: int) -> Pass:
     parse, document = build.parse, build.document
     if parse is None:
         raise ValueError("cannot observe a refused benchmark row")
-    _prime(parse, document)
+    prime(parse, document)
     passes: list[Pass] = []
     for _ in range(rounds):
         parse(document)
-        passes.append(_timed(parse, document))
+        passes.append(timed(parse, document))
         gc.collect()
     walls = sorted(entry.wall for entry in passes)
     cpus = sorted(entry.cpu for entry in passes)
@@ -642,17 +600,6 @@ def result_identity(build: EngineBuild) -> Result:
     product = parse(build.document)
     rendered = product.to_text() if isinstance(product, GrammarModel) else repr(product)
     return Result(rendered, shape(product))
-
-
-def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
-    """Spread between two timings of the SAME engine, as a percentage.
-
-    Anything below this is not a result. Printing it is what stops a 2%
-    difference being read as a finding.
-    """
-    first = _medians(_interleaved({"a": parse}, {"a": corpus}, rounds))["a"]
-    second = _medians(_interleaved({"a": parse}, {"a": corpus}, rounds))["a"]
-    return abs(first - second) / max(first, second, 1e-9) * 100
 
 
 def _mt_check(

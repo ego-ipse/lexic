@@ -86,28 +86,29 @@ class _Strict:
         """ANTLR's hook: `(recognizer, symbol, line, column, message, error)`."""
         raise SyntaxError(f"{report[2]}:{report[3]} {report[4]}")
 
-    def refuse_ambiguity(self, *report):
-        """ANTLR reporting that a span derives more than one way.
-
-        Refused rather than reported, for the same reason lexic refuses it: a
-        row timing a parser that silently picked between meanings is not timing
-        the grammar it was given.
-        """
-        raise SyntaxError(f"ambiguous span: {report[2]}..{report[3]}")
-
     def note_prediction(self, *report):
-        """ANTLR escalating SLL prediction to full context, or resolving it.
+        """A prediction note — an escalation, a resolution, or an ambiguity.
 
-        Both are prediction-strategy notes, not verdicts about the input: the
-        parse continues and lands on one alternative. Ignored deliberately —
-        but the hooks must EXIST, because the proxy calls every listener
-        method it has and a missing one crashes the run rather than the parse.
-        A grammar whose decisions escalate is exactly the interesting case, so
-        the harness must survive it to report a number.
+        None of the three is a verdict about the input: the parse continues and
+        lands on one alternative. Ignored deliberately — but the hooks must
+        EXIST, because the proxy calls every listener method it has and a
+        missing one crashes the run rather than the parse. A grammar whose
+        decisions escalate is exactly the interesting case, so the harness must
+        survive it to report a number.
+
+        `reportAmbiguity` is here rather than raising, and the reason is a fact
+        about the EMITTED grammar: the two ambiguity reports the differential
+        reaches (`abnf-meta`'s adjacent `c-wsp*`/`filler*`, `vyx`'s env-field
+        loop against its budget) are loop-entry decisions over one run of
+        noise — a SPLIT, which lexic answers by rule and does not refuse. So
+        raising here refused inputs the reference accepts, on a report the Java
+        seat's `BaseErrorListener` ignores; the differential in
+        :mod:`tools.benchmark.measurement.language` is the gate, and it compares
+        VERDICTS rather than trusting either engine's report.
         """
 
     syntaxError = refuse_syntax
-    reportAmbiguity = refuse_ambiguity
+    reportAmbiguity = note_prediction
     reportAttemptingFullContext = note_prediction
     reportContextSensitivity = note_prediction
 

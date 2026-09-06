@@ -29,8 +29,8 @@ from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
 from tools.benchmark.bench import _lexic, _mt_check
-from tools.benchmark.measurement import occupancy
 from tools.benchmark.cases.grammars import BENCHES
+from tools.benchmark.measurement import occupancy
 
 FORMULATIONS = ("native", "json.gbnf", "json.abnf", "json.ebnf")
 WORKERS = (2, 4, 8)

@@ -15,6 +15,7 @@ from tools.benchmark.bench import (
     DEFAULT_ROUNDS,
     ENGINE,
     MT_ROWS,
+    NOISE_ANCHOR,
     SUMMARY,
     _candidates,
 )
@@ -25,11 +26,12 @@ from tools.benchmark.execution.isolation import (
     noise_floor,
     run_report_row,
 )
+from tools.benchmark.measurement.contract import digest
+from tools.benchmark.measurement.sampling import medians
 from tools.benchmark.presentation.reporting import (
     Block,
     _legend,
     _mark,
-    _medians,
     _report,
     _use_color,
     _warmup_values,
@@ -69,11 +71,29 @@ NOTE = (
 """The artifact's own account of how it is written."""
 
 
-SCHEMA = 3
+SCHEMA = 4
 """The artifact's shape version — per-cell provenance, per-grammar noise."""
 
 type Cell = float | str
 """One measured median, or the word a refusing seat earned instead."""
+
+
+class Run(NamedTuple):
+    """One invocation's measurement settings — the same for every cell it writes.
+
+    Carried as one value because they travel together everywhere: which
+    document a seat read, how many rounds stand behind its median and what
+    worker count it rode are three answers to "what run was this", and a cell's
+    record must not be able to disagree with the roster about any of them.
+
+    :ivar rounds: Timed rounds per row.
+    :ivar cores: The mt rows' worker request; ``None`` when there are no mt rows.
+    :ivar full: Whether every row reads the case's full document.
+    """
+
+    rounds: int
+    cores: int | None
+    full: bool
 
 
 class Seat(NamedTuple):
@@ -102,6 +122,18 @@ class Provenance(NamedTuple):
     :ivar scale: ``corpus`` or ``full`` — which of the case's two documents the
         seat read. ``--full`` changes the work, so it changes the cell.
     :ivar chars: That document's length, so a resized fixture is visible.
+    :ivar grammar_digest: Digest of the grammar SOURCE this cell was measured
+        under. A length says a fixture was resized; only a digest says it was
+        EDITED, and an edited grammar leaves every unrefreshed cell in the file
+        reading as a measurement of the current language.
+    :ivar document_digest: Digest of the exact input parsed, for the same
+        reason: a fixture rewritten to the same length is invisible to
+        :attr:`chars`.
+    :ivar warmed: Parses spent bringing a JIT seat to steady state, or ``None``
+        for a seat with no warm-up. A published figure standing on 2,400 warm
+        parses and one standing on 24 are not the same claim, and the cell used
+        to say neither. An UNSETTLED warm-up produces no cell at all — see
+        :func:`_unsettled`.
     """
 
     measured: str
@@ -109,6 +141,9 @@ class Provenance(NamedTuple):
     cores: int | None
     scale: str
     chars: int
+    grammar_digest: str
+    document_digest: str
+    warmed: int | None
 
 
 class Artifact(NamedTuple):
@@ -182,34 +217,39 @@ def _display(name: str) -> Seat:
     return Seat(meta["label"], meta["runtime"])
 
 
-def measured_input(bench: Bench, name: str, full: bool) -> tuple[str, int]:
-    """Which of the case's documents one seat read, as ``(scale, length)``.
+def measured_input(bench: Bench, name: str, full: bool) -> tuple[str, str]:
+    """Which of the case's documents one seat read, as ``(scale, text)``.
 
     The mt rows always read the full corpus; ``--full`` puts every other seat
     on it too. Public because the record and the run must not disagree about
     which document a number came from.
     """
     full_input = full or name in MT_ROWS
-    return ("full", len(bench.full)) if full_input else ("corpus", len(bench.corpus))
+    return ("full", bench.full) if full_input else ("corpus", bench.corpus)
 
 
-def _provenance(
-    name: str, rounds: int, cores: int | None, read: tuple[str, int]
-) -> Provenance:
+def _provenance(bench: Bench, name: str, run: Run, warmed: int | None) -> Provenance:
     """One cell's record, dated by the run that has just measured it.
 
+    The two digests come from the same :func:`digest` the row contract uses, so
+    a cell in this file and a contract from a worker name the same grammar and
+    the same document by the same value.
+
+    :param bench: The case measured.
     :param name: The seat measured.
-    :param rounds: Timed rounds behind the median.
-    :param cores: The run's worker request, kept only for a threaded seat.
-    :param read: That seat's ``(scale, length)`` from :func:`measured_input`.
+    :param run: The settings every cell of this invocation was taken under.
+    :param warmed: Parses this seat spent warming, or ``None``.
     """
-    scale, chars = read
+    scale, document = measured_input(bench, name, run.full)
     return Provenance(
         datetime.date.today().isoformat(),
-        rounds,
-        cores if name in MT_ROWS else None,
+        run.rounds,
+        run.cores if name in MT_ROWS else None,
         scale,
-        chars,
+        len(document),
+        digest(bench.source),
+        digest(document),
+        warmed,
     )
 
 
@@ -225,9 +265,7 @@ def _spliced[T](kept: dict[str, T], fresh: dict[str, T]) -> dict[str, T]:
     return merged
 
 
-def _dump_json(
-    path: Path, rounds: int, cores: int | None, full: bool, blocks: list[Block]
-) -> None:
+def _dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
     """Splice this run's measured or refused cells into the cross-engine artifact.
 
     Never a rewrite: a filtered run measures a few seats of a few grammars and
@@ -244,13 +282,11 @@ def _dump_json(
     for block in blocks:
         grammar = block.bench.name
         cells: dict[str, Cell] = {
-            name: round(median, 6) for name, median in _medians(block.samples).items()
+            name: round(median, 6) for name, median in medians(block.samples).items()
         }
         cells |= dict.fromkeys(block.refused, "refuses")
         records = {
-            name: _provenance(
-                name, rounds, cores, measured_input(block.bench, name, full)
-            )
+            name: _provenance(block.bench, name, run, block.warmed.get(name))
             for name in cells
         }
         for name in cells:
@@ -265,7 +301,11 @@ def _dump_json(
         )
         # Per grammar, for the same reason the dates are per cell: a run that
         # measured four grammars says nothing about the other eight's noise.
-        artifact.noise_floor_percent[grammar] = round(block.floor, 2)
+        # `None` is a run that could not measure the ANCHOR seat, and the
+        # committed floor is then left alone rather than rewritten against
+        # whichever engine this `--seats` filter happened to admit.
+        if block.floor is not None:
+            artifact.noise_floor_percent[grammar] = round(block.floor, 2)
     artifact.write(path)
     print(f"wrote {path}")
 
@@ -318,11 +358,7 @@ def _seats(asked: Sequence[str] | None) -> frozenset[str] | None:
 
 
 def _isolated_bench(
-    bench: Bench,
-    cores: int | None,
-    full: bool,
-    rounds: int,
-    seats: frozenset[str] | None = None,
+    bench: Bench, run: Run, seats: frozenset[str] | None = None
 ) -> tuple[Block, dict[str, ReportRow]]:
     """Time every row in its own process, one process at a time.
 
@@ -330,27 +366,24 @@ def _isolated_bench(
     compiles grammars, runs fidelity parses and holds artefacts, and doing that
     beside a timed parse contaminates cache, allocator and thermal state.
     """
-    names = _row_names(bench, cores, seats)
-    order = list(names)
+    order = _row_names(bench, run.cores, seats)
     random.Random(f"lexic-bench:{bench.name}").shuffle(order)
     results = {
         name: run_report_row(
-            RowRequest(bench.name, name, rounds, cores, full), Path.cwd()
+            RowRequest(bench.name, name, run.rounds, run.cores, run.full), Path.cwd()
         )
         for name in order
-    }
-    samples = {
-        name: result.samples for name, result in results.items() if result.samples
     }
     refused = {
         name: result.refusal or "refused without a reason"
         for name, result in results.items()
         if result.refusal is not None
     }
-    documents = {
-        name: bench.full if full or name in MT_ROWS else bench.corpus
-        for name in samples
+    samples = {
+        name: result.samples for name, result in results.items() if result.samples
     }
+    refused |= _unsettled(results, samples)
+    samples = {name: runs for name, runs in samples.items() if name not in refused}
     mt_notes = {
         name: result.mt_reason
         for name, result in results.items()
@@ -363,24 +396,60 @@ def _isolated_bench(
         for name, result in results.items()
         if result.charstream_share
     }
+    warmed = {
+        name: result.warmed[0]
+        for name, result in results.items()
+        if result.warmed is not None and name in samples
+    }
+    documents = {name: measured_input(bench, name, run.full)[1] for name in samples}
     floor = _noise_floor(
-        RowRequest(bench.name, "", rounds, cores, full), names, samples
+        RowRequest(bench.name, "", run.rounds, run.cores, run.full), samples
     )
-    return Block(bench, samples, refused, floor, documents, mt_notes, shares), results
+    block = Block(bench, samples, refused, floor, documents, mt_notes, shares, warmed)
+    return block, results
 
 
-def _noise_floor(
-    request: RowRequest, names: list[str], samples: dict[str, list[float]]
-) -> float:
-    """This block's same-engine control, run on the first row that measured.
+def _unsettled(
+    results: dict[str, ReportRow], samples: dict[str, list[float]]
+) -> dict[str, str]:
+    """Rows whose warm-up never stopped moving, with the words that say so.
 
-    Zero when nothing in the block did: a floor is a statement about a seat
-    that produced numbers, and there is none to make.
+    A JIT seat that has not settled is not measuring the parser: this JVM holds
+    a level flat and then steps to roughly half it, and a budget that ran out
+    mid-descent published a figure 2.0x to 2.9x above the settled one on five
+    of the twelve grammars. That verdict used to reach the console and nowhere
+    else, so a `--seats antlr` refresh spliced a soft number into the artifact
+    indistinguishably from a settled one.
+
+    It becomes a REFUSAL rather than a marked cell, which is the disposition
+    every other unanswerable row already gets: the harness does not publish a
+    number it cannot stand behind and print a caveat beside it, it prints the
+    reason instead. A figure 2x out is worse than an absent one, and a mark the
+    README would have to learn to decline is a second place for the rule to
+    live. What survives in the record is the BUDGET the settled figure stands
+    on (:attr:`Provenance.warmed`).
     """
-    anchor = next((name for name in names if name in samples), None)
-    if anchor is None:
-        return 0.0
-    return noise_floor(request._replace(engine=anchor), Path.cwd())
+    return {
+        name: (
+            f"warm-up never settled after {result.warmed[0]} parses — the "
+            f"number would be this JIT mid-descent, not this parser"
+        )
+        for name, result in results.items()
+        if name in samples and result.warmed is not None and not result.warmed[1]
+    }
+
+
+def _noise_floor(request: RowRequest, samples: dict[str, list[float]]) -> float | None:
+    """This block's same-engine control, always on :data:`NOISE_ANCHOR`.
+
+    :param request: The row request to re-issue against the anchor seat.
+    :param samples: What this block measured, by seat.
+    :returns: The floor, or ``None`` when the anchor did not measure here — a
+        floor is a statement about one seat, and there is none to make.
+    """
+    if NOISE_ANCHOR not in samples:
+        return None
+    return noise_floor(request._replace(engine=NOISE_ANCHOR), Path.cwd())
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -439,6 +508,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             "threaded parsing under the GIL measured 0.82-0.92x, a net loss"
         )
     cores = _mt_cores(args.cores)
+    run = Run(args.rounds, cores, args.full)
     color = _use_color(args.color)
     seats = _seats(args.seats)
     wanted = set(args.only or ())
@@ -455,7 +525,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     _legend(color)
     blocks: list[Block] = []
     for bench in benches:
-        block, results = _isolated_bench(bench, cores, args.full, args.rounds, seats)
+        block, results = _isolated_bench(bench, run, seats)
         blocks.append(block)
         _report(block, color)
         for name in _row_names(bench, cores, seats):
@@ -468,7 +538,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     result.charstream_share,
                 )
     if args.json:
-        _dump_json(args.json, args.rounds, cores, args.full, blocks)
+        _dump_json(args.json, run, blocks)
 
 
 if __name__ == "__main__":

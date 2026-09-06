@@ -10,6 +10,7 @@ reads as "the run is broken" rather than "this import is new".
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -201,3 +202,66 @@ def test_the_digest_moves_with_the_renamed_copy(tmp_path: Path) -> None:
     _rewrite(root, "fold")
 
     assert digest(root) != before
+
+
+def _merge_base(root: Path) -> str | None:
+    """The comparison base's sha, or ``None`` when this checkout cannot name it.
+
+    A runner clones one branch, so ``main`` is often not a local ref; the
+    remote-tracking name is tried next. When neither resolves there is no base
+    to check against and the caller skips rather than failing on the clone's
+    shape.
+    """
+    for ref in ("main", "origin/main"):
+        found = subprocess.run(
+            ["git", "merge-base", ref, "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=root,
+        )
+        if found.returncode == 0:
+            return found.stdout.strip()
+    return None
+
+
+def test_a_copied_module_imports_nothing_the_base_checkout_lacks() -> None:
+    """A copied module may import an uncopied one only if the BASE has it too.
+
+    The base arm is a checkout of the base revision with the protocol modules
+    copied over it, so an uncopied module resolves to the base's own — which is
+    fine for a module both revisions have, and a `ModuleNotFoundError` on the
+    runner for one this branch introduced. The local tree has every file, so no
+    other gate can see the difference.
+    """
+    root = BENCHMARK.parent.parent
+    base = _merge_base(root)
+    if base is None:
+        pytest.skip("no merge base resolvable in this checkout")
+    carried = {
+        f"tools.benchmark.{name[:-3].replace('/', '.')}" for name in PROTOCOL_MODULES
+    }
+    missing: dict[str, set[str]] = {}
+    for module in PROTOCOL_MODULES:
+        wanted = {
+            line.split()[1]
+            for line in (one.strip() for one in module_source(module).splitlines())
+            if line.startswith(("from tools.benchmark.", "import tools.benchmark."))
+        }
+        absent = set()
+        for name in wanted - carried:
+            path = name.replace(".", "/") + ".py"
+            found = subprocess.run(
+                ["git", "cat-file", "-e", f"{base}:{path}"],
+                capture_output=True,
+                check=False,
+                cwd=root,
+            )
+            if found.returncode != 0:
+                absent.add(name)
+        if absent:
+            missing[module] = absent
+    assert not missing, (
+        "a copied module imports a module this branch introduced and does not "
+        f"copy — the base arm cannot import it: {missing}"
+    )

@@ -1935,3 +1935,30 @@ cannot read a broken pool as an unparseable chunk; a lease whose phase raised
 closes its pool instead of returning it. Also corrected on the public-api page:
 `ParsePool`'s default is `cores=AUTO`, not `None`, and `WorkPool`/`PoolLease`
 are deliberately not re-exported from `lexic.parsing.parallel`.
+
+## The stitch's carrier type, and which plans may share a sweep
+
+[[lexic/parallel-parsing]] gains two invariants a reader would otherwise have to
+re-derive from code.
+
+**The repetition carrier is a plain `tuple`, and `is_run` tests the exact
+class.** An `IrTuple` in a repetition field compares equal, round-trips to
+identical text and walks to the same structure — a text digest, a shape digest
+and an equality check all pass — and still answers "not a repetition" to the one
+question the stitch asks. So a stitch must rebuild the exact class the
+sequential product builds, not a value equal to it, and `is_run` is public
+because a fourth spelling of `child.__class__ is tuple` would be a fourth chance
+to get the subclass case wrong.
+
+**Which plans may share a scan** now sits beside "Interiors: what a sweep must
+skip", where the rule a new plan shape has to be checked against belongs.
+`reads_a_sweep` is true only for a plan with no envelope and a non-opaque
+scanner: an envelope plan cuts on its own noise run and reads no window, an
+opaque plan walks the document under its own region table. `shared_scanner`
+unions the sweeping plans' spellings and returns `None` when none of them
+sweeps; the union is safe because marks carry no depth and each plan still
+narrows to its own spellings through `scan_marks`.
+
+The page's *Cache lifetime* section adds `roles()` as a bounded identity memo of
+the same shape as the split-plan memos: keyed on `id(grammar)`, value carrying
+the grammar so the strong reference pins the id.

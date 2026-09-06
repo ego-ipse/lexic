@@ -7,8 +7,9 @@ import sys
 from math import log10
 from typing import NamedTuple
 
-from tools.benchmark.bench import _JSON_SPECIALISTS, ENGINE, PRODUCT, Parse, _medians
+from tools.benchmark.bench import ENGINE, NOISE_ANCHOR, PRODUCT, SPECIALISTS
 from tools.benchmark.cases.grammars import Bench, declared_marks
+from tools.benchmark.measurement.sampling import Parse, medians
 
 BAR_WIDTH = 40
 """Bar length. Wide enough that a 2x gap reads differently from a 4x one —
@@ -72,10 +73,6 @@ def _bar(value: float, best: float, worst: float) -> str:
     return "█" * filled + "·" * (BAR_WIDTH - filled)
 
 
-SPECIALISTS = frozenset(name for name, _make in _JSON_SPECIALISTS)
-"""Rows that take NO grammar — hand-written C for one fixed format."""
-
-
 def _amount(value: float) -> str:
     """One timing, in the unit that keeps its significant digits.
 
@@ -124,20 +121,24 @@ class Block(NamedTuple):
     :ivar bench: The grammar and its documents.
     :ivar samples: Per-row timings, one list per round.
     :ivar refused: Rows that earned words instead of a number.
-    :ivar floor: The harness's own noise, as a percentage.
+    :ivar floor: The harness's own noise, as a percentage, or ``None`` when the
+        anchor seat did not measure in this run and there is no floor to state.
     :ivar documents: What each row actually parsed.
     :ivar mt_notes: Per-row reasons that a requested mt row ran sequentially.
     :ivar shares: Per-row fraction of the timed region spent building the
         input stream, for the rows that pay one.
+    :ivar warmed: Per-row parses spent reaching steady state, for the rows that
+        warm at all. Only settled rows are here — an unsettled one is a refusal.
     """
 
     bench: Bench
     samples: dict[str, list[float]]
     refused: dict[str, str]
-    floor: float
+    floor: float | None
     documents: dict[str, str]
     mt_notes: dict[str, str]
     shares: dict[str, float]
+    warmed: dict[str, int]
 
 
 def _report(block: Block, color: bool) -> None:
@@ -155,14 +156,20 @@ def _report(block: Block, color: bool) -> None:
     )
     if not block.samples:
         print("    no engine could parse this grammar")
-    _ranked_rows(_medians(block.samples), color)
+    _ranked_rows(medians(block.samples), color)
     for name, why in sorted(block.refused.items()):
         label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
         print(f"  {label}{'—':>9}             {_paint(why[:96], _DIM, color)}")
-    print(
-        f"  {'noise floor':<13}{block.floor:8.2f}%    "
-        "smaller differences are not results"
-    )
+    if block.floor is None:
+        print(
+            f"  {'noise floor':<13}{'—':>8}     "
+            f"{NOISE_ANCHOR} did not measure here; the committed floor stands"
+        )
+    else:
+        print(
+            f"  {'noise floor':<13}{block.floor:8.2f}%    "
+            "smaller differences are not results"
+        )
     for name, reason in sorted(block.mt_notes.items()):
         print(
             f"  {(name + ' check'):<17}{'off':>4}     {reason} — this row ran "
@@ -191,8 +198,8 @@ def _seat_check(bench: Bench, samples: dict[str, list[float]]) -> None:
     _, ns_marks = declared_marks(bench)
     if ns_marks:
         return
-    lex = _medians({"lex": samples["lexic-lex"]})["lex"]
-    ns = _medians({"ns": samples["lexic-lex-ns"]})["ns"]
+    lex = medians({"lex": samples["lexic-lex"]})["lex"]
+    ns = medians({"ns": samples["lexic-lex-ns"]})["ns"]
     spread = (ns - lex) / max(min(lex, ns), 1e-9) * 100
     print(
         f"  {'seat check':<13}{spread:+8.2f}%    lexic-lex vs lexic-lex-ns run "

@@ -53,9 +53,9 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.parallel import (
     AUTO,
     anchors,
+    document_view,
     reset_pools,
     split_model,
-    document_view,
 )
 from lexic.parsing.parallel.orchestrate import Request
 

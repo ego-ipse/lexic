@@ -23,21 +23,18 @@ from __future__ import annotations
 
 import pytest
 
+from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
-from tools.benchmark import bench as benchmark
-from tools.benchmark.bench import (
-    Parse,
-    _competitors,
-    _interleaved,
-    unfaithful,
-)
-from tools.benchmark.cases.grammars import BENCHES, Bench
-from tools.benchmark.cases.grammars import declared_marks
+from tools.benchmark.bench import SPECIALISTS, _competitors, unfaithful
+from tools.benchmark.cases.grammars import BENCHES, Bench, declared_marks
 from tools.benchmark.emitters.charsets import of_points
 from tools.benchmark.emitters.emit import lexical_layer, peg_grammar
 from tools.benchmark.emitters.structured import antlr_grammar
+from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts
+from tools.benchmark.measurement import sampling
+from tools.benchmark.measurement.sampling import Parse, interleaved
 from tools.benchmark.presentation.reporting import _warmup_note
 
 _ALL = frozenset(
@@ -118,25 +115,19 @@ EXPECTED: dict[str, frozenset[str]] = {
     # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
     # terminal, which Lark's dynamic Earley refuses outright ("zero-width
     # regexps") and its contextual lexer collides on. The unfolded rows answer.
-    "abnf-meta": frozenset(
-        {"lark-earley", "antlr", "antlr-py", "pyparsing", "parsimonious"}
-    ),
+    # parsimonious goes too, on a derived probe rather than on the corpus: an
+    # `alternation` whose arms are separated by `c-wsp*` needs a shorter reading
+    # of the preceding run, and PEG's repetition is possessive.
+    "abnf-meta": frozenset({"lark-earley", "antlr", "antlr-py", "pyparsing"}),
     # vyx is authored as pure CFG with disjoint arms (ordered choice spelled by
-    # charset subtraction), so the ordered-choice engines hold it whole —
-    # parsimonious needed only the `"` escape inside `~r"[...]"` (a class with
-    # the `!-"` range terminated the regex literal mid-class; the same
-    # notation-specific-escaping family as the Lark `/` bug). lark-lalr
-    # refuses at build with a reduce/reduce collision: not LALR(1).
-    "vyx": frozenset(
-        {
-            "lark-earley",
-            "lark-earley-lex",
-            "antlr",
-            "antlr-py",
-            "pyparsing",
-            "parsimonious",
-        }
-    ),
+    # charset subtraction), so it survives everywhere its formalism can back out
+    # of a committed choice. lark-lalr refuses at build with a reduce/reduce
+    # collision: not LALR(1). The two ordered-choice seats go on a derived probe
+    # — `!X:P L2< D:{ } >` needs the optional `body` to be re-tried after its
+    # first arm fails deep inside, which neither PEG's possessive `?` nor
+    # pyparsing's `Or` (longest match per decision, not a context-free parse)
+    # can do. Both held the corpus and every authored sentence.
+    "vyx": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
 }
 """Which competitors must survive each grammar, pinned.
 
@@ -172,7 +163,7 @@ def _built(bench: Bench) -> dict[str, Parse]:
 def test_every_reported_engine_agrees_with_lexic(bench: Bench) -> None:
     """No row is printed for a grammar we mistranslated, in either direction."""
     for name, parse in _built(bench).items():
-        wrong = unfaithful(parse, bench)
+        wrong = unfaithful(parse, bench, fixed_language=name in SPECIALISTS)
         assert wrong is None, (
             f"{bench.name}: the {name} translation {wrong} — the benchmark would "
             "print a number for a language that is not the grammar's"
@@ -261,10 +252,10 @@ def test_each_timed_benchmark_sample_is_preconditioned_by_its_own_engine(
         events.append("timed")
         return 1.0
 
-    monkeypatch.setattr(benchmark, "_once", timed)
-    monkeypatch.setattr(benchmark.gc, "collect", lambda: None)
+    monkeypatch.setattr(sampling, "once", timed)
+    monkeypatch.setattr(sampling.gc, "collect", lambda: None)
 
-    assert _interleaved({"row": parse}, {"row": "x"}, 2) == {"row": [1.0, 1.0]}
+    assert interleaved({"row": parse}, {"row": "x"}, 2) == {"row": [1.0, 1.0]}
     assert events == ["parse", "parse", "timed", "parse", "timed"]
 
 
@@ -306,3 +297,78 @@ def test_the_antlr_warmup_note_displays_its_cold_first_parse(
     assert "antlr first" in shown
     assert "3.250 µs/char" in shown
     assert "cold" in shown
+
+
+def _lexic_takes(bench: Bench, text: str) -> bool:
+    """Whether the row's own compiled artefact accepts ``text``."""
+    return accepts(
+        lambda body: bench.compiled.parse(body, cores=1), text, LEXIC_REFUSALS
+    )
+
+
+@pytest.mark.parametrize("bench", BENCHES, ids=lambda b: b.name)
+def test_the_derived_probes_catch_a_widening_no_authored_sentence_can(
+    bench: Bench,
+) -> None:
+    """A seat that ignores trailing whitespace passes every authored sentence.
+
+    That is not a hypothetical: it is what `parse_string(parse_all=True)` did to
+    the pyparsing seat, whose end-of-input anchor was built outside the emitter's
+    empty-whitespace window and therefore skipped whitespace. The authored
+    `rejects` hold no sentence of the form "the corpus with a newline on the
+    end", so the gate that existed could not see it on nine of the ten benches
+    pyparsing builds on. The derived probes can.
+    """
+    if _lexic_takes(bench, bench.corpus + "\n"):
+        pytest.skip(f"{bench.name} admits a trailing newline, so this is no widening")
+
+    def widened(text: str) -> object:
+        """lexic behind an end-of-input anchor that skips whitespace.
+
+        The whole input is tried first, so the language is strictly larger and
+        never different — what is added is exactly what the pyparsing anchor
+        added: a prefix that parses, and trailing whitespace walked over.
+        """
+        error: BaseException = UnsupportedConstructError("widened: no reading")
+        for at in range(len(text), len(text.rstrip()) - 1, -1):
+            try:
+                return bench.compiled.parse(text[:at], cores=1)
+            except LEXIC_REFUSALS as exc:
+                error = exc
+        raise error
+
+    if any(accepts(widened, text, LEXIC_REFUSALS) for text in bench.rejects):
+        pytest.skip(f"{bench.name}: an authored reject already separates this")
+    assert unfaithful(widened, bench, exceptions=LEXIC_REFUSALS) is not None, (
+        f"{bench.name}: a parser accepting the corpus with trailing whitespace "
+        "passed the faithfulness gate — the gate is back to proving nothing"
+    )
+
+
+@pytest.mark.parametrize("bench", BENCHES, ids=lambda b: b.name)
+def test_the_pyparsing_seat_anchors_inside_its_own_whitespace_window(
+    bench: Bench,
+) -> None:
+    """pyparsing's end-of-input must not be the one element that skips space.
+
+    `parse_string`'s `parse_all` builds its `StringEnd()` at PARSE time, after
+    :func:`pyparsing_parser` has restored `DEFAULT_WHITE_CHARS`, so that one
+    element admitted whitespace the grammar has no rule for. The anchor is part
+    of the returned element instead, and the same call is where tab expansion
+    was turned off — `parse_string` expands a tab to eight spaces by default,
+    which handed a class holding a space a tab it does not hold.
+    """
+    parse = _built(bench).get("pyparsing")
+    if parse is None:
+        pytest.skip(f"pyparsing does not survive {bench.name}")
+    for suffix in ("\n", " ", "\t", "\r", "  \n"):
+        text = bench.corpus + suffix
+        assert accepts(parse, text) == _lexic_takes(bench, text), (
+            f"{bench.name}: pyparsing and lexic disagree about {suffix!r} on the "
+            "end of the corpus — the anchor is outside the whitespace window"
+        )
+    tabbed = bench.corpus.replace(" ", "\t", 1)
+    assert accepts(parse, tabbed) == _lexic_takes(bench, tabbed), (
+        f"{bench.name}: pyparsing and lexic disagree about a tab in the corpus — "
+        "parse_string is expanding it to spaces before the parser sees it"
+    )

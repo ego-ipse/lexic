@@ -94,7 +94,7 @@ def test_worker_samples_only_the_exact_build_it_was_given(
         assert rounds == 3
         return {"lexic-pda": [1.0, 1.1, 0.9]}
 
-    monkeypatch.setattr(worker, "_interleaved", timed)
+    monkeypatch.setattr(worker, "interleaved", timed)
 
     result = worker.report_payload(bench, "lexic-pda", 3, 8, False)
 

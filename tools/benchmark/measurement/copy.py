@@ -40,7 +40,9 @@ PROTOCOL_MODULES = (
     "measurement/contract.py",
     "measurement/copy.py",
     "measurement/health.py",
+    "measurement/language.py",
     "measurement/occupancy.py",
+    "measurement/sampling.py",
     "presentation/cli.py",
     "presentation/reporting.py",
 )
@@ -67,6 +69,7 @@ SHARED_VOCABULARY = frozenset(
         "lexic.compile.compile_text",
         "lexic.exceptions.LexicError",
         "lexic.exceptions.UnsupportedConstructError",
+        "lexic.generate.generate",
         "lexic.grammars.ABNF_FLAVOUR",
         "lexic.grammars.GBNF_FLAVOUR",
         "lexic.ir.IrAst",

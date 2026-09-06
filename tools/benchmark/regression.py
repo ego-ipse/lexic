@@ -20,7 +20,9 @@ Performance acceptance belongs to the explicit serial A/B
 from __future__ import annotations
 
 import argparse
+import json
 from collections.abc import Sequence
+from pathlib import Path
 
 from tools.benchmark.bench import ENGINE, LEXIC_ROWS, MT_ROWS, PRODUCT
 from tools.benchmark.cases.grammars import BENCHES, Bench
@@ -31,6 +33,9 @@ from tools.benchmark.measurement.contract import (
     digest,
     read_contract,
 )
+
+ARTIFACT = Path(__file__).resolve().parent / "competitors_baseline.json"
+"""The committed cross-engine numbers — what the README publishes from."""
 
 EXPECTED_GRAMMARS = 12
 """How many languages the fixture set defines.
@@ -120,6 +125,37 @@ def _check_contracts(bench: Bench, problems: list[str]) -> None:
             problems.append(f"{label}: contract changed across its wire form")
 
 
+def _check_artifact(problems: list[str]) -> None:
+    """Every published cell names the grammar and document this tree holds.
+
+    The cheapest thing this gate can prove about the committed numbers, and the
+    one a hook must: a fixture edited without a re-measure leaves every stale
+    cell in the file reading as a measurement of the current language, and no
+    date, round count or character length distinguishes it. The digests do.
+    """
+    artifact = json.loads(ARTIFACT.read_text(encoding="utf-8"))
+    by_name = {bench.name: bench for bench in BENCHES}
+    for grammar, cells in artifact["provenance"].items():
+        bench = by_name.get(grammar)
+        if bench is None:
+            problems.append(
+                f"{grammar}: the artifact publishes a bench this tree does not define"
+            )
+            continue
+        for seat, record in cells.items():
+            document = bench.full if record["scale"] == "full" else bench.corpus
+            for field, held in (
+                ("grammar_digest", digest(bench.source)),
+                ("document_digest", digest(document)),
+            ):
+                if record[field] != held:
+                    problems.append(
+                        f"{grammar}/{seat}: measured against {field} "
+                        f"{record[field]}, this tree holds {held} — the cell is "
+                        f"a number for something else"
+                    )
+
+
 def check() -> list[str]:
     """Every structural problem with the benchmark's rows, in report order."""
     problems: list[str] = []
@@ -127,6 +163,7 @@ def check() -> list[str]:
     for bench in BENCHES:
         _check_directives(bench, problems)
         _check_contracts(bench, problems)
+    _check_artifact(problems)
     return problems
 
 

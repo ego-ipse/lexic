@@ -184,6 +184,37 @@ def column_workers(seat: str) -> int | None:
     return int(found) if isinstance(found, int) else None
 
 
+def row_grammar(grammar: str, shown: Iterable[str]) -> str:
+    """The grammar digest every displayed cell of one row agrees on.
+
+    A table row is a comparison across seats, so its cells must have been
+    measured against the SAME grammar. Editing a fixture and refreshing one
+    seat leaves the others reading as measurements of the current language and
+    nothing in the file says otherwise — which is what a digest exists to say
+    and a character count cannot. Refused for the same reason
+    :func:`column_workers` refuses a column: the artifact keeps both truths and
+    the README declines to render either as the whole one.
+
+    :param grammar: The bench row to read.
+    :param shown: The seats this table displays.
+    :returns: The agreed digest, or ``""`` when the row records none.
+    :raises SystemExit: If the row's displayed cells disagree.
+    """
+    picked = set(shown)
+    seen = {
+        str(record.get("grammar_digest", ""))
+        for seat, record in cell_records().get(grammar, {}).items()
+        if seat in picked
+    }
+    if len(seen) > 1:
+        raise SystemExit(
+            f"{grammar}'s displayed cells were measured against "
+            f"{len(seen)} different grammars ({', '.join(sorted(seen))}); "
+            f"they are not one comparison. Re-measure the grammar whole."
+        )
+    return seen.pop() if seen else ""
+
+
 def mt_workers() -> int:
     """The worker count the threaded row was measured at, from the artifact."""
     workers = column_workers("lexic-mt")
@@ -204,14 +235,17 @@ DISPLAY_SEATS = (
     "pyparsing",
     "antlr-py",
     "antlr",
-    "antlr-java",
 )
 """The seats the README shows, of the artifact's full roster.
 
 A deliberate, stated selection — the artifact keeps every measured seat
 (directive-matched competitor variants, json specialists); the rendered
 caption says how many were left in the file rather than dropping them
-silently.
+silently. Every name here must answer to a seat: the list once carried
+`antlr-java`, which no seat is called, and it was dropped without a word while
+the caption's "further seats" arithmetic stayed right — a column short of what
+this list says. :func:`competitor_data` refuses an unknown name now, the way
+the CLI's `--seats` refuses one.
 
 The two lexic threaded rows stand together, and so do the two directive-matched
 ones, because a reader compares what is adjacent. Showing plain MT without
@@ -259,9 +293,19 @@ def competitor_data() -> tuple[
     measurement dates the displayed CELLS record and, when the artifact holds
     more seats than the README shows, how many stayed in the file. The threaded
     columns' worker counts come from those same records.
+
+    :raises SystemExit: If :data:`DISPLAY_SEATS` names a seat the artifact does
+        not hold. Dropping it silently renders a table one column short of what
+        the list asks for, and every arithmetic around it still adds up.
     """
     data = json.loads(COMPETITORS.read_text(encoding="utf-8"))
     engines: dict[str, dict[str, str]] = data["engines"]
+    unknown = [name for name in DISPLAY_SEATS if name not in engines]
+    if unknown:
+        raise SystemExit(
+            f"DISPLAY_SEATS names no such seat: {', '.join(unknown)}\n"
+            f"the artifact holds: {', '.join(sorted(engines))}"
+        )
     shown = [name for name in DISPLAY_SEATS if name in engines]
     hidden = len(engines) - len(shown)
     picked = {}
@@ -280,6 +324,8 @@ def competitor_data() -> tuple[
         grammar: {name: cells[name] for name in shown if name in cells}
         for grammar, cells in data["values"].items()
     }
+    for grammar in values:
+        row_grammar(grammar, shown)
     return caption, picked, values
 
 

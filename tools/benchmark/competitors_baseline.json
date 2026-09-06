@@ -1,5 +1,5 @@
 {
-  "schema": 3,
+  "schema": 4,
   "unit": "microseconds_per_character",
   "note": "Cross-engine medians of isolated rounds. A run writes only the cells it measured and leaves every other one exactly as it found it, so each (grammar, seat) cell carries its own measurement date, round count, worker request and input. `engines` is display metadata only. README rendering reads this file and never triggers a run.",
   "noise_floor_percent": {
@@ -101,119 +101,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32774
+        "chars": 32774,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "cba0ce2b955275ff",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32774
+        "chars": 32774,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "cba0ce2b955275ff",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4000
+        "chars": 4000,
+        "grammar_digest": "d3eedfd78d7771af",
+        "document_digest": "6333636176e12772",
+        "warmed": 2400
       }
     },
     "csv": {
@@ -222,119 +273,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32939
+        "chars": 32939,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "aa46e78875268605",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32939
+        "chars": 32939,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "aa46e78875268605",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 12539
+        "chars": 12539,
+        "grammar_digest": "ae66032b9b2c2327",
+        "document_digest": "e3692cdad884e414",
+        "warmed": 2400
       }
     },
     "json": {
@@ -343,133 +445,190 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32983
+        "chars": 32983,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "0c8ab5a3982df172",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32983
+        "chars": 32983,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "0c8ab5a3982df172",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": 2400
       },
       "stdlib-json": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       },
       "msgspec": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2403
+        "chars": 2403,
+        "grammar_digest": "284bc58792c3d5e0",
+        "document_digest": "b8cf2bebd7e25b63",
+        "warmed": null
       }
     },
     "gbnf-meta": {
@@ -478,119 +637,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 40530
+        "chars": 40530,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "616e46d6ba8ceb32",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 40530
+        "chars": 40530,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "616e46d6ba8ceb32",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1377
+        "chars": 1377,
+        "grammar_digest": "6ba0197fe18b9e20",
+        "document_digest": "45a4fb9c6c47f80a",
+        "warmed": 2400
       }
     },
     "abnf-meta": {
@@ -599,119 +809,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 37180
+        "chars": 37180,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "eee866faeda7b610",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 37180
+        "chars": 37180,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "eee866faeda7b610",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 2020
+        "chars": 2020,
+        "grammar_digest": "3a921539c7ab507d",
+        "document_digest": "365ac07d436add47",
+        "warmed": 2400
       }
     },
     "vyx": {
@@ -720,119 +981,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 33180
+        "chars": 33180,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "0ff20faac135716f",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 33180
+        "chars": 33180,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "0ff20faac135716f",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3461
+        "chars": 3461,
+        "grammar_digest": "753aaf559c1612c2",
+        "document_digest": "5dc9e238e9d96b75",
+        "warmed": 2400
       }
     },
     "markdown": {
@@ -841,119 +1153,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 33224
+        "chars": 33224,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "3111e13be85035e6",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 33224
+        "chars": 33224,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "3111e13be85035e6",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 7304
+        "chars": 7304,
+        "grammar_digest": "e272e413c342fe2f",
+        "document_digest": "1125e62f18dafe22",
+        "warmed": 2400
       }
     },
     "nested": {
@@ -962,119 +1325,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32911
+        "chars": 32911,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "479c5c9ff25914d3",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32911
+        "chars": 32911,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "479c5c9ff25914d3",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 1620
+        "chars": 1620,
+        "grammar_digest": "f7f5601463d8543d",
+        "document_digest": "e122dac76a1b65b2",
+        "warmed": 2400
       }
     },
     "lexruns": {
@@ -1083,119 +1497,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 33130
+        "chars": 33130,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "b99b2fc9af08bfec",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 33130
+        "chars": 33130,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "b99b2fc9af08bfec",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 9180
+        "chars": 9180,
+        "grammar_digest": "5a2387e4cb6d612d",
+        "document_digest": "2a67aa5163095528",
+        "warmed": 2400
       }
     },
     "backtrack": {
@@ -1204,119 +1669,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32790
+        "chars": 32790,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "ad2ee8b68cd61e12",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 32790
+        "chars": 32790,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "ad2ee8b68cd61e12",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3265
+        "chars": 3265,
+        "grammar_digest": "a49cc890e479bda8",
+        "document_digest": "9a6cb680d4f41bbf",
+        "warmed": 2400
       }
     },
     "mixedends": {
@@ -1325,119 +1841,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 34408
+        "chars": 34408,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "4d03678841591814",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 34408
+        "chars": 34408,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "4d03678841591814",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 3507
+        "chars": 3507,
+        "grammar_digest": "901091e1c896bbb3",
+        "document_digest": "c5874d29231f2a23",
+        "warmed": 2400
       }
     },
     "announced": {
@@ -1446,119 +2013,170 @@
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 43500
+        "chars": 43500,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "3a034ebecb13ceb6",
+        "warmed": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": 16,
         "scale": "full",
-        "chars": 43500
+        "chars": 43500,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "3a034ebecb13ceb6",
+        "warmed": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "pyparsing": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": null
       },
       "antlr": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": 2400
       },
       "antlr-lex": {
         "measured": "2026-09-06",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
-        "chars": 4350
+        "chars": 4350,
+        "grammar_digest": "dab04ffe14d95262",
+        "document_digest": "a58b7d49bf07b1bd",
+        "warmed": 2400
       }
     }
   },
@@ -1576,7 +2194,7 @@
       "lark-earley-lex": 41.340994,
       "parsimonious": 2.491046,
       "parsimonious-lex": 2.551767,
-      "pyparsing": 32.14207,
+      "pyparsing": 27.488194,
       "antlr-py": 8.434056,
       "antlr-py-lex": 8.372181,
       "antlr": 0.063782,
@@ -1595,7 +2213,7 @@
       "lark-earley-lex": 9.185012,
       "parsimonious": 0.933651,
       "parsimonious-lex": 0.941233,
-      "pyparsing": 3.920104,
+      "pyparsing": 3.939193,
       "antlr-py": 2.504426,
       "antlr-py-lex": 2.344843,
       "antlr": 0.02004,
@@ -1614,7 +2232,7 @@
       "lark-earley-lex": 16.415336,
       "parsimonious": 1.850119,
       "parsimonious-lex": 1.890079,
-      "pyparsing": 10.425382,
+      "pyparsing": 11.970621,
       "antlr-py": 10.136488,
       "antlr-py-lex": 8.750937,
       "antlr": 0.074258,
@@ -1654,7 +2272,7 @@
       "lark-earley-lex": "refuses",
       "parsimonious": 3.781959,
       "parsimonious-lex": 3.201385,
-      "pyparsing": 55.824002,
+      "pyparsing": 1253.040557,
       "antlr-py": 14.663922,
       "antlr-py-lex": 11.143154,
       "antlr": 0.11484,
@@ -1673,7 +2291,7 @@
       "lark-earley-lex": 55.809816,
       "parsimonious": 2.495761,
       "parsimonious-lex": 2.40606,
-      "pyparsing": 29.4268,
+      "pyparsing": "refuses",
       "antlr-py": 11.133138,
       "antlr-py-lex": 9.979299,
       "antlr": 0.08066,
@@ -1692,7 +2310,7 @@
       "lark-earley-lex": 15.767925,
       "parsimonious": "refuses",
       "parsimonious-lex": "refuses",
-      "pyparsing": 99.106754,
+      "pyparsing": 96.205465,
       "antlr-py": 8.773889,
       "antlr-py-lex": 7.312295,
       "antlr": 0.061682,
@@ -1730,7 +2348,7 @@
       "lark-earley-lex": 4.152132,
       "parsimonious": 0.788848,
       "parsimonious-lex": 0.789231,
-      "pyparsing": 2.701511,
+      "pyparsing": 2.651489,
       "antlr-py": 6.13682,
       "antlr-py-lex": 5.934217,
       "antlr": 0.041436,
@@ -1749,7 +2367,7 @@
       "lark-earley-lex": 2.946953,
       "parsimonious": 0.794387,
       "parsimonious-lex": 0.94044,
-      "pyparsing": 3.87714,
+      "pyparsing": 3.806423,
       "antlr-py": 6.835523,
       "antlr-py-lex": 6.871438,
       "antlr": 0.051124,
@@ -1768,7 +2386,7 @@
       "lark-earley-lex": 4.047056,
       "parsimonious": 1.160951,
       "parsimonious-lex": 1.110906,
-      "pyparsing": 4.355585,
+      "pyparsing": 4.391414,
       "antlr-py": 7.447179,
       "antlr-py-lex": 6.589831,
       "antlr": 0.049442,
@@ -1787,7 +2405,7 @@
       "lark-earley-lex": 3.212558,
       "parsimonious": 0.77692,
       "parsimonious-lex": 0.763682,
-      "pyparsing": 2.736067,
+      "pyparsing": 2.73122,
       "antlr-py": 1.38254,
       "antlr-py-lex": 1.225416,
       "antlr": 0.019557,

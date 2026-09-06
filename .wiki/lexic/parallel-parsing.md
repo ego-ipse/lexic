@@ -76,6 +76,25 @@ plan; `_cut_offsets` filters candidate marks at runtime. Both read the same
 
 ---
 
+## The stitch rebuilds what the product BUILT, not something equal to it
+
+A repetition's run is a **plain `tuple`**, and `stitch/model.py`'s `is_run` tests
+that by exact class — `child.__class__ is tuple`, never `isinstance`. Every
+record and every `IrTuple` is a tuple subclass and none of them is a run, so a
+subclass test answers yes to things that are not repetitions.
+
+That makes the carrier's type load-bearing in a way nothing else in the model
+notices. An `IrTuple` in a repetition field compares equal to the plain one,
+round-trips to identical text, and walks to the same structure — so a text
+digest, a shape digest and an equality check all pass — and then answers "not a
+repetition" to the one question the stitch asks. **A stitch must rebuild the
+exact class the sequential product builds, not a value equal to it.**
+
+`is_run` is public for the same reason: three call sites ask it, and a fourth
+spelling would be a fourth chance to get the subclass case wrong.
+
+---
+
 ## Interiors: what a sweep must skip
 
 `discovery/` certifies regions a character sweep would otherwise misread —
@@ -87,6 +106,33 @@ region's own empty instance rather than a competitor.
 Certification is derived on the grammar the parser actually runs. That matters:
 the codegen passes hoist groups and arms, so shapes present in the authored
 grammar are not always the shapes the analysis meets.
+
+### Which plans may SHARE a sweep
+
+Several plans can be certified for one grammar, and the windowed ones sweep the
+same document for their own marks. `plan/cuts.py` answers who may share:
+
+- **`reads_a_sweep(plan)`** — true only when the plan has no envelope and its
+  scanner is not opaque. An **envelope** plan cuts on its own noise run and
+  reads no window at all; its mark is whitespace on the meta grammars, so
+  sweeping for it enumerates a mark every few characters and discards every
+  one. An **opaque** plan WALKS the document unit by unit under its own region
+  table, which is not a windowed sweep and is not interchangeable with one.
+- **`shared_scanner(grammar, plans)`** — one scanner over the UNION of the
+  sweeping plans' spellings, or `None` when no certified plan reads a sweep.
+  Every plan that does not read one is handed `None` and takes its own pass.
+
+Two things make the union safe. Marks carry no depth, so merging two plans'
+spellings changes neither window's depth accounting; and each plan still
+narrows the union to its own spellings through `scan_marks`, so sharing cannot
+propose a cut a plan would not have proposed alone. Narrowing to the certified
+plans' marks is the point: a document is only ever cut at a mark some certified
+plan keys on, and every other occurrence costs a `find`, a window build, a
+depth rebase and a discard.
+
+**A new plan shape must be checked against `reads_a_sweep`** — it is the rule
+that decides whether the shape's cuts come from the shared scan or from a pass
+of its own.
 
 ---
 
@@ -257,6 +303,15 @@ same grammar keeps what it still needs. `release` therefore also clears the
 released identities out of every OTHER owner's adoption record: without that
 sweep the surviving owner accumulates a dead id per released child for as long
 as it lives, and a recycled address later reads as still owned.
+
+**Derived roles are a bounded memo too.** `roles(grammar)` walks every arm of
+every rule to find the opener/closer pairs and repetition separators, and the
+split asks for it once per DOCUMENT rather than once per grammar — on a meta
+grammar that re-walk was several percent of the whole split parse. `_ROLES` is a
+registered `memo({})` keyed on `id(grammar)`, and its value carries the grammar
+itself: the strong reference pins the id, so a recycled address can never alias
+a live entry. The split-plan memos in `orchestrate.py` and `plan/routed.py` are
+the same shape.
 
 Every registered memo is a **pure memo**: dropping an entry costs a
 recomputation and changes no answer. That is what makes eviction safe even when
