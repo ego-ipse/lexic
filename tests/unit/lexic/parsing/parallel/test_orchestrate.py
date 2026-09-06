@@ -12,16 +12,24 @@ import string
 
 import pytest
 
-from lexic.compile import compile_text
+from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing import parse_model
 from lexic.parsing.parallel import orchestrate, split_model, split_plan
 from lexic.parsing.parallel.orchestrate import (
     Request,
     _certified,
+    _safe_plans,
     _split_plans,
 )
-from lexic.parsing.parallel.plan.cuts import cut_offsets, scan_marks, sole_mark
+from lexic.parsing.parallel.plan.cuts import (
+    cut_offsets,
+    reads_a_sweep,
+    scan_marks,
+    scan_windows,
+    shared_scanner,
+    sole_mark,
+)
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
@@ -29,6 +37,7 @@ from lexic.parsing.parallel.pool import WorkPool
 from tests.split_helpers import LEAD_RULE
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
     CONTINUATION_SOURCE,
+    ENVELOPE_SOURCE,
     TWO_MARK_SOURCE,
 )
 
@@ -717,7 +726,7 @@ def test_cut_offsets_filters_continuation_marks_out_of_the_candidate_set() -> No
 
     with WorkPool(2) as pool:
         raw_marks = scan_marks(certified, text, 2, pool)
-        cuts = cut_offsets(certified, text, 2, pool)
+        cuts = cut_offsets(certified, text, 2, pool).offsets
 
     admitted = [
         at
@@ -728,3 +737,132 @@ def test_cut_offsets_filters_continuation_marks_out_of_the_candidate_set() -> No
     assert cuts, "the certified plan must still find a usable cut"
     for cut in cuts:
         assert text[cut + 1 :].startswith("rule"), "a cut must land on a genuine head"
+
+
+# ── the one shared sweep: what it looks for, and what it does not ─────────
+
+MIXED_ENDS = """root ::= record+
+record ::= event | note
+event ::= "%" word eq word ";"
+note ::= word (sp word)* nl
+word ::= [a-z0-9]+
+eq ::= "="
+sp ::= " "
+nl ::= "\\n"
+"""
+"""A repetition whose two arms end differently and whose second arm repeats
+over a SPACE — so the grammar derives a separator role no certified plan can
+ever cut at."""
+
+
+def _mixed_ends_doc(records: int) -> str:
+    """A stream interleaving both record kinds."""
+    return "".join(
+        f"%key{n}=value{n};note{n} carries {n % 7} words here\n" for n in range(records)
+    )
+
+
+def _certified_mixed_ends() -> tuple[tuple[SplitPlan, ...], CompiledGrammar]:
+    """The certified plans for :data:`MIXED_ENDS`, and the artefact they came from."""
+    compiled = compile_text(MIXED_ENDS, cache_key="orch-mixed-ends")
+    plans = _safe_plans(
+        _split_plans(compiled.codegen_grammar),
+        compiled.split_analysis or compiled.grammar,
+    )
+    return plans, compiled
+
+
+def test_the_shared_sweep_looks_only_for_marks_a_certified_plan_cuts_at() -> None:
+    """A spelling no certified plan keys on can yield no cut, so an occurrence
+    of it is a position the scan need never report.
+
+    The grammar derives ``' '`` as a repetition separator — it genuinely is one
+    — but the plan that survives certification cuts on the record terminators.
+    Sweeping the space costs a pass over the document and a Python step per
+    hit, three times over: once building the window, once rebasing its depth,
+    once discarding it."""
+    plans, compiled = _certified_mixed_ends()
+    assert plans, "the fixture must certify a plan"
+    derived = orchestrate.roles(compiled.codegen_grammar)
+    assert " " in derived.marks, "the fixture must derive a mark no plan uses"
+
+    shared = shared_scanner(compiled.codegen_grammar, plans)
+    assert shared is not None
+    assert " " not in shared.separators
+    assert shared.separators == frozenset().union(*(plan.mark for plan in plans))
+
+
+def test_the_shared_sweep_reports_every_mark_the_plan_scanners_would() -> None:
+    """Narrowing may not lose a candidate: for every certified plan, the marks
+    read out of the shared sweep are exactly the ones its own scanner finds."""
+    plans, compiled = _certified_mixed_ends()
+    text = _mixed_ends_doc(400)
+    assert len(text) > 2 * MIN_CHUNK
+    shared = shared_scanner(compiled.codegen_grammar, plans)
+    assert shared is not None
+
+    with WorkPool(4) as pool:
+        narrowed = scan_windows(shared, text, 4, pool)
+        for plan in plans:
+            own = scan_windows(plan.scanner, text, 4, pool)
+            assert scan_marks(plan, text, 4, pool, narrowed) == scan_marks(
+                plan, text, 4, pool, own
+            )
+
+
+def test_a_walking_scan_neither_reads_nor_feeds_the_shared_sweep() -> None:
+    """A scanner carrying opaque regions walks unit by unit under its own
+    region table, so its pass answers that plan's question and no other's —
+    it takes nothing from the shared sweep and puts nothing into it."""
+    compiled = compile_text(FENCE, cache_key="orch-fenced-shared")
+    plans = _safe_plans(
+        _split_plans(compiled.codegen_grammar),
+        compiled.split_analysis or compiled.grammar,
+    )
+    walking = [plan for plan in plans if plan.scanner.opaque]
+    if not walking:
+        pytest.skip("this fixture certifies no walking plan")
+
+    shared = shared_scanner(compiled.codegen_grammar, plans)
+    for plan in walking:
+        assert not reads_a_sweep(plan)
+        if shared is not None:
+            assert not plan.mark & shared.separators
+
+
+def test_an_envelope_plan_puts_no_mark_into_the_shared_sweep() -> None:
+    """An envelope plan cuts on its own noise run and reads no window at all.
+
+    Its mark is whitespace on a meta grammar, so sweeping for it enumerated a
+    mark every few characters and threw every one away — measured at nearly
+    twice the whole split parse on ``gbnf-meta``.
+    """
+    compiled = compile_text(ENVELOPE_SOURCE, cache_key="orch-envelope-sweep")
+    plans = _safe_plans(
+        _split_plans(compiled.codegen_grammar),
+        compiled.split_analysis or compiled.grammar,
+    )
+    enveloped = [plan for plan in plans if plan.envelope is not None]
+    if not enveloped:
+        pytest.skip("this fixture certifies no envelope plan")
+
+    shared = shared_scanner(compiled.codegen_grammar, plans)
+    for plan in enveloped:
+        assert not reads_a_sweep(plan)
+        if shared is not None:
+            assert not plan.mark & shared.separators
+
+
+def test_a_proposal_and_a_proof_share_one_sweep() -> None:
+    """A proposal's opening alphabet is not in the grammar's derived marks, so
+    the union is what lets one pass serve both — the proposal used to rescan
+    the whole document for its own spellings."""
+    compiled = compile_text(TERMINATED, cache_key="orch-shared-terminated")
+    plans = _safe_plans(
+        _split_plans(compiled.codegen_grammar),
+        compiled.split_analysis or compiled.grammar,
+    )
+    shared = shared_scanner(compiled.codegen_grammar, plans)
+    assert shared is not None
+    for plan in plans:
+        assert plan.mark <= shared.separators

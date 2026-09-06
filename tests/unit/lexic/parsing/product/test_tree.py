@@ -1,6 +1,6 @@
 """Tests for lexic.parsing.product.tree — ParseTree completion, presence explicit.
 
-The module's own load-bearing distinction: a completed value may itself be
+The distinction the module rests on: a completed value may itself be
 Python ``None``, so absence is ``EMPTY_RESULT``, never a sentinel a real value
 could collide with. Every capture-mode absence rule below is derived directly
 from ``_captured``'s own arithmetic (read from source, not from a run): a

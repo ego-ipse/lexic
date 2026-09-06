@@ -31,13 +31,25 @@ from typing import NamedTuple
 from tools.benchmark.execution.isolation import Job, RowRequest, run_job, run_roster
 from tools.benchmark.measurement.contract import Observation, RowContract, RowResult
 
-MIN_PAIRS = 5
-MAX_PAIRS = 15
+MIN_PAIRS = 6
+MAX_PAIRS = 16
 """How many independent process pairs a verdict may cost.
 
 Below the minimum nothing is decided. Above the maximum the evidence is
 declared unresolved rather than forced into a median — a row that will not
 settle is a fact about the measurement, not a licence to pick a number.
+
+**Both are EVEN, and the parity is the reason, not a coincidence.** The two
+schedules in :func:`sample` alternate on a period of two, so they sample the
+first slot equally often only at an even count. At an odd one the candidate's
+numerator takes the first slot once more than the control's and the control's
+once fewer — 3/5 against 2/5 at five pairs, 8/15 against 7/15 at fifteen, the
+two counts a row is most likely to stop at. A slot cost δ then leaves +δ/n in
+the candidate's mean and −δ/n in the control's. That cancels out of the
+VERDICT, because the envelope is a magnitude and both sides of the comparison
+move together — but it does not cancel out of the reported RATIO, which is the
+number a person reads and quotes. One extra process pair per row buys a
+published figure with a known bias removed. Do not make either odd again.
 """
 
 CONFIDENCE_Z = 1.96
@@ -313,6 +325,18 @@ def sample(arms: Arms, grammar: str, row: str, pairs: int, first: int) -> Pairin
     at zero each call put head first on all ten one-pair growth rounds — thirteen
     of fifteen pairs — and left the control at its unswapped position throughout.
 
+    **Parity is what alternation cannot fix**, which is why :data:`MIN_PAIRS`
+    and :data:`MAX_PAIRS` are both even. At an even count the two schedules
+    sample the first slot equally often; at an odd one the candidate's
+    numerator takes it once more and the control's once fewer — 3/5 against
+    2/5 at five pairs, 8/15 against 7/15 at fifteen. A slot cost δ then leaves
+    +δ/n in the candidate's mean and −δ/n in the control's. The opposite signs
+    keep it out of the VERDICT: the envelope is a magnitude, so both sides of
+    ``low > envelope`` and of ``high <= envelope`` move by the same δ/n and it
+    cancels exactly. It does not cancel out of the reported RATIO, and that is
+    the bias the even bounds remove. Whatever survives is printed by
+    :func:`_report_control` rather than left to be inferred.
+
     :param pairs: How many pairs this call collects.
     :param first: The absolute index of the first of them.
     """
@@ -411,6 +435,56 @@ def _report_control(samples: dict[str, Pairing]) -> None:
     print(f"first-slot artefact: {math.exp(slot):.4f}x (control pairs, first/second)")
 
 
+def status(verdicts: Sequence[Verdict]) -> int:
+    """The run's exit code — decided by ``slower`` rows and nothing else.
+
+    An unresolved row has measured no slowdown. It has measured that this
+    machine, this session, could not separate the two arms within the pair
+    bound — a fact about the measurement, not about the code. Failing on it
+    makes the gate's answer depend on how quiet the host happened to be, and
+    the only move it leaves is to rerun until the noise cooperates, which is
+    optional stopping wearing a different hat.
+
+    Measured here rather than argued. Run against ITSELF — both roots the same
+    checkout, so every pair is byte-identical and no row can truly be slower —
+    twenty-four rows produced twenty-two ``ok`` and two ``unresolved``, and no
+    ``slower`` at all. One row in twelve could not be separated from the noise
+    it was made of, which under the old rule failed the whole run on code that
+    had not changed.
+
+    The rows still print in full, with their interval, envelope and pair count
+    — an unresolved row is evidence to read, and the summary says how many
+    there were and that they did not block.
+
+    :param verdicts: Every judged row.
+    :returns: 1 when some row is slower than this machine's envelope, else 0.
+    """
+    slower = [verdict for verdict in verdicts if verdict.status == "slower"]
+    unresolved = [verdict for verdict in verdicts if verdict.status == "unresolved"]
+    if unresolved:
+        print(
+            f"\n{len(unresolved)} row(s) unresolved after {MAX_PAIRS} pairs — "
+            f"reported, not blocking:"
+        )
+        for verdict in unresolved:
+            print(
+                f"  {verdict.row}: {verdict.ratio:.4f}x on {verdict.clock}, "
+                f"ci {verdict.low:.4f}..{verdict.high:.4f}, "
+                f"envelope {verdict.envelope:.4f}, {verdict.pairs} pairs"
+            )
+    if slower:
+        print(f"\n{len(slower)} row(s) slower than this machine's noise envelope:")
+        for verdict in slower:
+            print(
+                f"  {verdict.row}: {verdict.ratio:.4f}x on {verdict.clock}, "
+                f"ci {verdict.low:.4f}..{verdict.high:.4f}, "
+                f"envelope {verdict.envelope:.4f}, {verdict.pairs} pairs"
+            )
+        return 1
+    print("\nno row is slower than this machine's envelope")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the same-machine, per-tree A/B and judge every row."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -458,21 +532,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             ),
             encoding="utf-8",
         )
-    slower = [verdict for verdict in verdicts if verdict.status == "slower"]
-    unresolved = [verdict for verdict in verdicts if verdict.status == "unresolved"]
     _report_control(samples)
-    if slower:
-        print(f"\n{len(slower)} row(s) slower than this machine's noise envelope:")
-        for verdict in slower:
-            print(f"  {verdict.row}: {verdict.ratio:.4f}x on {verdict.clock}")
-        return 1
-    if unresolved:
-        print(f"\n{len(unresolved)} row(s) unresolved after {MAX_PAIRS} pairs:")
-        for verdict in unresolved:
-            print(f"  {verdict.row}: {verdict.low:.4f}..{verdict.high:.4f}")
-        return 1
-    print("\nevery row resolved, and none is slower than this machine's envelope")
-    return 0
+    return status(verdicts)
 
 
 if __name__ == "__main__":

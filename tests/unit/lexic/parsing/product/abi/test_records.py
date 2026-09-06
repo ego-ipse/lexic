@@ -1,6 +1,6 @@
 """Tests for lexic.parsing.product.abi.records — the product ABI's two layers.
 
-Field ORDER is load-bearing here, not decorative: ``lower.py`` reads an
+Field ORDER is part of the contract here, not presentation: ``lower.py`` reads an
 authored operation's row via ``tuple(operation)`` (positional), and
 ``ProductProgram``/``OperandTables`` are built positionally too — a silently
 reordered field would desync the row a lowered instruction reads from the

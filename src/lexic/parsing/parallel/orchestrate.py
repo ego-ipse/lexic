@@ -31,10 +31,12 @@ from lexic.parsing.parallel.discovery.regions import (
 from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
 from lexic.parsing.parallel.plan.cuts import (
+    Cuts,
     cut_offsets,
     cut_spans,
-    scan_marks,
+    reads_a_sweep,
     scan_windows,
+    shared_scanner,
     sole_mark,
 )
 from lexic.parsing.parallel.plan.envelope import (
@@ -407,7 +409,7 @@ def _speculate[M: IrNamedTuple](
     parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
-    proposed: tuple[list[int], list[int]],
+    proposed: Cuts,
     pool: WorkPool,
 ) -> M | None:
     """Verify proposed cuts by parsing, re-selecting a failing one, bounded.
@@ -605,32 +607,23 @@ def split_model[M: IrNamedTuple](
         return None
     safe_plans = _safe_plans(_split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
+        shared = shared_scanner(grammar, safe_plans)
         windows = (
-            scan_windows(safe_plans[0].scanner, ask.text, workers, pool)
-            if safe_plans
+            scan_windows(shared, ask.text, workers, pool)
+            if shared is not None
             else None
         )
         for plan in safe_plans:
-            # A proposal scans for its own opening alphabet, which is not in
-            # the roles the shared window pass swept.
-            seen = (
-                scan_windows(plan.scanner, ask.text, workers, pool)
-                if plan.opening
-                else windows
-            )
-            cuts = cut_offsets(plan, ask.text, cores, pool, seen)
-            if not cuts:
+            # Only a plan that reads a windowed sweep is handed the shared one;
+            # a walking scan owns its pass, and an envelope plan reads neither.
+            seen = windows if reads_a_sweep(plan) else None
+            chosen = cut_offsets(plan, ask.text, cores, pool, seen)
+            if not chosen.offsets:
                 continue
             model = (
-                _speculate(
-                    parse,
-                    plan,
-                    ask,
-                    (cuts, scan_marks(plan, ask.text, workers, pool, seen)),
-                    pool,
-                )
+                _speculate(parse, plan, ask, chosen, pool)
                 if plan.opening
-                else _split_parse(parse, plan, ask, cuts, pool)
+                else _split_parse(parse, plan, ask, chosen.offsets, pool)
             )
             if model is not None:
                 return model

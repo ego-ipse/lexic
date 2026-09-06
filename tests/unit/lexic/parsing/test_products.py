@@ -479,7 +479,7 @@ def _parse_into(
 def test_owned_text_returns_a_distinct_but_equal_object():
     """``_owned_text`` copies an exact ``str`` — same value, different object.
 
-    The load-bearing pin: CPython shortcuts ten different "copy" idioms back
+    Why this is pinned at all: CPython shortcuts ten different "copy" idioms back
     to the SAME object for an exact ``str`` (``s[:]``, ``str(s)``, ``s + ""``,
     ``"".join([s])``, ``s * 1`` all no-op). A regression to any of them would
     make the thread-owned copy silently vanish while every behavioural test in

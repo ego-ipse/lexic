@@ -52,6 +52,19 @@ fixed percentage allowance: what counts as noise is what this machine produced,
 this session, under the identical protocol. A row that will not settle within
 the pair bound is reported unresolved rather than forced into a median.
 
+**Only a `slower` row fails the run.** An unresolved row has measured no
+slowdown; it has measured that this machine, this session, could not separate
+the two arms inside the pair bound. Failing on that makes the gate's answer
+depend on how quiet the host happened to be, and the only move it leaves is to
+rerun until the noise cooperates — optional stopping wearing a different hat.
+The rate is measured, not assumed. Run against ITSELF — both roots the same
+checkout, so every pair is byte-identical and no row can truly be slower —
+twenty-four rows gave twenty-two `ok`, two `unresolved`, and no `slower` at
+all. One row in twelve could not be separated from the noise it was made of,
+which under the old rule failed the whole run on code that had not changed.
+Unresolved rows print in full — ratio, clock, interval, envelope, pair count —
+and the summary says how many there were and that they did not block.
+
 `regression.py` is structure, and it is what the pre-commit hook runs. A hook
 cannot reserve a quiet machine, so it proves the rows are still the rows and
 times nothing.

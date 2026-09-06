@@ -1,100 +1,164 @@
 {
-  "schema": 1,
+  "schema": 2,
   "unit": "microseconds_per_character",
-  "measured": "2026-09-04",
-  "rounds": 7,
-  "cores": 16,
-  "noise_floor_percent": [
-    0.01,
-    5.4
-  ],
-  "note": "Cross-engine medians of isolated rounds. Refreshed deliberately by rerunning the full bench with --json; README rendering reads this file and never triggers a run.",
+  "note": "Cross-engine medians of isolated rounds. A run writes only the seats it measured and leaves every other cell exactly as it found it, so each seat carries its own measurement date, round count and worker request. README rendering reads this file and never triggers a run.",
+  "noise_floor_percent": {
+    "arithmetic": 2.15,
+    "csv": 0.83,
+    "json": 0.52,
+    "gbnf-meta": 0.75,
+    "abnf-meta": 0.59,
+    "vyx": 0.53,
+    "markdown": 0.36,
+    "nested": 0.59,
+    "lexruns": 4.59,
+    "backtrack": 2.39,
+    "mixedends": 4.38,
+    "announced": 0.37
+  },
   "engines": {
     "lexic-mt": {
       "label": "lexic-mt",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-06",
+      "rounds": 7,
+      "cores": 16
     },
     "lexic-mt-lex-ns": {
       "label": "lexic-mt-lex-ns",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-06",
+      "rounds": 7,
+      "cores": 16
     },
     "lexic-lex": {
       "label": "lexic-lex",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-06",
+      "rounds": 7,
+      "cores": null
     },
     "lexic-lex-ns": {
       "label": "lexic-lex-ns",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-06",
+      "rounds": 7,
+      "cores": null
     },
     "lexic-pda": {
       "label": "lexic-pda",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-06",
+      "rounds": 7,
+      "cores": null
     },
     "lexic-earley": {
       "label": "lexic-earley",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-06",
+      "rounds": 7,
+      "cores": null
     },
     "lark-lalr": {
       "label": "lark (LALR)",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "lark-lalr-lex": {
       "label": "lark (LALR, marked)",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "lark-earley": {
       "label": "lark (Earley)",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "lark-earley-lex": {
       "label": "lark (Earley, marked)",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "parsimonious": {
       "label": "parsimonious",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "parsimonious-lex": {
       "label": "parsimonious (marked)",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "pyparsing": {
       "label": "pyparsing",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "antlr-py": {
       "label": "ANTLR (Python)",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "antlr-py-lex": {
       "label": "ANTLR (Python, marked)",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "antlr": {
       "label": "ANTLR (Java)",
-      "runtime": "java"
+      "runtime": "java",
+      "measured": "2026-09-06",
+      "rounds": 7,
+      "cores": null
     },
     "antlr-lex": {
       "label": "ANTLR (Java, marked)",
-      "runtime": "java"
+      "runtime": "java",
+      "measured": "2026-09-06",
+      "rounds": 7,
+      "cores": null
     },
     "stdlib-json": {
       "label": "json.loads (stdlib)",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     },
     "msgspec": {
       "label": "msgspec",
-      "runtime": "python"
+      "runtime": "python",
+      "measured": "2026-09-04",
+      "rounds": 7,
+      "cores": null
     }
   },
   "values": {
     "arithmetic": {
-      "lexic-mt": 0.606274,
-      "lexic-mt-lex-ns": 0.511564,
-      "lexic-lex": 1.816825,
-      "lexic-lex-ns": 1.848047,
-      "lexic-pda": 2.018117,
-      "lexic-earley": 54.687533,
+      "lexic-mt": 0.442872,
+      "lexic-mt-lex-ns": 0.416919,
+      "lexic-lex": 1.810467,
+      "lexic-lex-ns": 1.839173,
+      "lexic-pda": 2.048456,
+      "lexic-earley": 53.13934,
       "lark-lalr": 2.797357,
       "lark-lalr-lex": 2.563466,
       "lark-earley": 45.861297,
@@ -104,16 +168,16 @@
       "pyparsing": 32.14207,
       "antlr-py": 8.434056,
       "antlr-py-lex": 8.372181,
-      "antlr": 0.206152,
-      "antlr-lex": 0.251777
+      "antlr": 0.063782,
+      "antlr-lex": 0.064551
     },
     "csv": {
-      "lexic-mt": 0.157847,
-      "lexic-mt-lex-ns": 0.13487,
-      "lexic-lex": 0.396386,
-      "lexic-lex-ns": 0.401064,
-      "lexic-pda": 0.544519,
-      "lexic-earley": 11.42696,
+      "lexic-mt": 0.135488,
+      "lexic-mt-lex-ns": 0.11223,
+      "lexic-lex": 0.398247,
+      "lexic-lex-ns": 0.396787,
+      "lexic-pda": 0.540805,
+      "lexic-earley": 11.361096,
       "lark-lalr": 0.772938,
       "lark-lalr-lex": 0.576695,
       "lark-earley": 12.666189,
@@ -123,16 +187,16 @@
       "pyparsing": 3.920104,
       "antlr-py": 2.504426,
       "antlr-py-lex": 2.344843,
-      "antlr": 0.02936,
-      "antlr-lex": 0.027234
+      "antlr": 0.02004,
+      "antlr-lex": 0.016583
     },
     "json": {
-      "lexic-mt": 0.265178,
-      "lexic-mt-lex-ns": 0.203739,
-      "lexic-lex": 0.736583,
-      "lexic-lex-ns": 0.755386,
-      "lexic-pda": 1.204682,
-      "lexic-earley": 29.303767,
+      "lexic-mt": 0.266062,
+      "lexic-mt-lex-ns": 0.204666,
+      "lexic-lex": 0.740437,
+      "lexic-lex-ns": 0.749446,
+      "lexic-pda": 1.219245,
+      "lexic-earley": 29.157931,
       "lark-lalr": 3.630961,
       "lark-lalr-lex": 1.075237,
       "lark-earley": 46.14236,
@@ -142,18 +206,18 @@
       "pyparsing": 10.425382,
       "antlr-py": 10.136488,
       "antlr-py-lex": 8.750937,
-      "antlr": 0.343895,
-      "antlr-lex": 0.149911,
+      "antlr": 0.074258,
+      "antlr-lex": 0.061875,
       "stdlib-json": 0.008076,
       "msgspec": 0.00552
     },
     "gbnf-meta": {
-      "lexic-mt": 0.532775,
-      "lexic-mt-lex-ns": 0.438459,
-      "lexic-lex": 2.102542,
-      "lexic-lex-ns": 2.099922,
-      "lexic-pda": 2.582195,
-      "lexic-earley": 62.676667,
+      "lexic-mt": 0.517456,
+      "lexic-mt-lex-ns": 0.417291,
+      "lexic-lex": 2.136658,
+      "lexic-lex-ns": 2.087744,
+      "lexic-pda": 2.512094,
+      "lexic-earley": 62.699422,
       "lark-lalr": "refuses",
       "lark-lalr-lex": "refuses",
       "lark-earley": 213.588058,
@@ -163,16 +227,16 @@
       "pyparsing": "refuses",
       "antlr-py": 12.530891,
       "antlr-py-lex": 11.327197,
-      "antlr": 0.326203,
-      "antlr-lex": 0.320587
+      "antlr": 0.109714,
+      "antlr-lex": 0.096938
     },
     "abnf-meta": {
-      "lexic-mt": 0.484049,
-      "lexic-mt-lex-ns": 0.355178,
-      "lexic-lex": 2.101251,
-      "lexic-lex-ns": 1.837465,
-      "lexic-pda": 2.29622,
-      "lexic-earley": 62.980177,
+      "lexic-mt": 0.484154,
+      "lexic-mt-lex-ns": 0.386887,
+      "lexic-lex": 2.102388,
+      "lexic-lex-ns": 1.778223,
+      "lexic-pda": 2.247311,
+      "lexic-earley": 58.966866,
       "lark-lalr": "refuses",
       "lark-lalr-lex": "refuses",
       "lark-earley": 145.318582,
@@ -182,16 +246,16 @@
       "pyparsing": 55.824002,
       "antlr-py": 14.663922,
       "antlr-py-lex": 11.143154,
-      "antlr": 0.411574,
-      "antlr-lex": 0.245251
+      "antlr": 0.11484,
+      "antlr-lex": 0.085681
     },
     "vyx": {
-      "lexic-mt": 0.450967,
-      "lexic-mt-lex-ns": 0.298982,
-      "lexic-lex": 2.279287,
-      "lexic-lex-ns": 2.295665,
-      "lexic-pda": 2.661523,
-      "lexic-earley": 48.282449,
+      "lexic-mt": 0.468345,
+      "lexic-mt-lex-ns": 0.320833,
+      "lexic-lex": 2.266968,
+      "lexic-lex-ns": 2.263376,
+      "lexic-pda": 2.668877,
+      "lexic-earley": 46.563793,
       "lark-lalr": "refuses",
       "lark-lalr-lex": "refuses",
       "lark-earley": 137.308154,
@@ -201,16 +265,16 @@
       "pyparsing": 29.4268,
       "antlr-py": 11.133138,
       "antlr-py-lex": 9.979299,
-      "antlr": 0.118807,
-      "antlr-lex": 0.122732
+      "antlr": 0.08066,
+      "antlr-lex": 0.072187
     },
     "markdown": {
-      "lexic-mt": 0.2188,
-      "lexic-mt-lex-ns": 0.176023,
-      "lexic-lex": 0.671228,
-      "lexic-lex-ns": 0.680929,
-      "lexic-pda": 0.931396,
-      "lexic-earley": 38.011669,
+      "lexic-mt": 0.190845,
+      "lexic-mt-lex-ns": 0.152987,
+      "lexic-lex": 0.679359,
+      "lexic-lex-ns": 0.681057,
+      "lexic-pda": 0.893226,
+      "lexic-earley": 33.807966,
       "lark-lalr": 3.472613,
       "lark-lalr-lex": "refuses",
       "lark-earley": 113.5544,
@@ -220,16 +284,16 @@
       "pyparsing": 99.106754,
       "antlr-py": 8.773889,
       "antlr-py-lex": 7.312295,
-      "antlr": 0.198361,
-      "antlr-lex": 0.069943
+      "antlr": 0.061682,
+      "antlr-lex": 0.047873
     },
     "nested": {
-      "lexic-mt": 0.437037,
-      "lexic-mt-lex-ns": 0.501795,
-      "lexic-lex": 1.181381,
-      "lexic-lex-ns": 1.177548,
-      "lexic-pda": 1.174628,
-      "lexic-earley": 27.347981,
+      "lexic-mt": 0.418439,
+      "lexic-mt-lex-ns": 0.428877,
+      "lexic-lex": 1.159657,
+      "lexic-lex-ns": 1.150752,
+      "lexic-pda": 1.172428,
+      "lexic-earley": 27.325393,
       "lark-lalr": 2.79881,
       "lark-lalr-lex": 2.746633,
       "lark-earley": 41.209975,
@@ -239,16 +303,16 @@
       "pyparsing": "refuses",
       "antlr-py": 12.819224,
       "antlr-py-lex": 12.932577,
-      "antlr": 0.252244,
-      "antlr-lex": 0.255238
+      "antlr": 0.069899,
+      "antlr-lex": 0.069784
     },
     "lexruns": {
-      "lexic-mt": 0.053236,
-      "lexic-mt-lex-ns": 0.050546,
-      "lexic-lex": 0.097206,
-      "lexic-lex-ns": 0.099154,
-      "lexic-pda": 0.135214,
-      "lexic-earley": 7.596742,
+      "lexic-mt": 0.045624,
+      "lexic-mt-lex-ns": 0.039895,
+      "lexic-lex": 0.094361,
+      "lexic-lex-ns": 0.097127,
+      "lexic-pda": 0.137454,
+      "lexic-earley": 7.517225,
       "lark-lalr": 2.626159,
       "lark-lalr-lex": 2.039106,
       "lark-earley": 12.898702,
@@ -258,16 +322,16 @@
       "pyparsing": 2.701511,
       "antlr-py": 6.13682,
       "antlr-py-lex": 5.934217,
-      "antlr": 0.115244,
-      "antlr-lex": 0.106846
+      "antlr": 0.041436,
+      "antlr-lex": 0.042758
     },
     "backtrack": {
-      "lexic-mt": 0.093262,
-      "lexic-mt-lex-ns": 0.057594,
-      "lexic-lex": 0.097899,
-      "lexic-lex-ns": 0.097973,
-      "lexic-pda": 0.195715,
-      "lexic-earley": 6.628048,
+      "lexic-mt": 0.055761,
+      "lexic-mt-lex-ns": 0.03706,
+      "lexic-lex": 0.096535,
+      "lexic-lex-ns": 0.095323,
+      "lexic-pda": 0.195136,
+      "lexic-earley": 6.523804,
       "lark-lalr": 2.60304,
       "lark-lalr-lex": 0.116414,
       "lark-earley": 9.805838,
@@ -277,16 +341,16 @@
       "pyparsing": 3.87714,
       "antlr-py": 6.835523,
       "antlr-py-lex": 6.871438,
-      "antlr": 0.148053,
-      "antlr-lex": 0.126862
+      "antlr": 0.051124,
+      "antlr-lex": 0.049192
     },
     "mixedends": {
-      "lexic-mt": 0.151545,
-      "lexic-mt-lex-ns": 0.099361,
-      "lexic-lex": 0.069153,
-      "lexic-lex-ns": 0.069561,
-      "lexic-pda": 0.473956,
-      "lexic-earley": 12.838775,
+      "lexic-mt": 0.118766,
+      "lexic-mt-lex-ns": 0.044648,
+      "lexic-lex": 0.071151,
+      "lexic-lex-ns": 0.069614,
+      "lexic-pda": 0.46649,
+      "lexic-earley": 12.795603,
       "lark-lalr": 3.005568,
       "lark-lalr-lex": 0.205478,
       "lark-earley": 15.854191,
@@ -296,16 +360,16 @@
       "pyparsing": 4.355585,
       "antlr-py": 7.447179,
       "antlr-py-lex": 6.589831,
-      "antlr": 0.153737,
-      "antlr-lex": 0.136268
+      "antlr": 0.049442,
+      "antlr-lex": 0.045287
     },
     "announced": {
-      "lexic-mt": 0.067085,
-      "lexic-mt-lex-ns": 0.03551,
-      "lexic-lex": 0.04047,
-      "lexic-lex-ns": 0.040961,
-      "lexic-pda": 0.186598,
-      "lexic-earley": 3.898034,
+      "lexic-mt": 0.046832,
+      "lexic-mt-lex-ns": 0.0203,
+      "lexic-lex": 0.04039,
+      "lexic-lex-ns": 0.039851,
+      "lexic-pda": 0.185659,
+      "lexic-earley": 3.917078,
       "lark-lalr": 0.288178,
       "lark-lalr-lex": 0.111166,
       "lark-earley": 5.80774,
@@ -315,8 +379,58 @@
       "pyparsing": 2.736067,
       "antlr-py": 1.38254,
       "antlr-py-lex": 1.225416,
-      "antlr": 0.013109,
-      "antlr-lex": 0.013349
+      "antlr": 0.019557,
+      "antlr-lex": 0.009923
+    }
+  },
+  "charstream_share": {
+    "arithmetic": {
+      "antlr": 0.0123,
+      "antlr-lex": 0.0116
+    },
+    "csv": {
+      "antlr": 0.0328,
+      "antlr-lex": 0.0396
+    },
+    "json": {
+      "antlr": 0.0113,
+      "antlr-lex": 0.0142
+    },
+    "gbnf-meta": {
+      "antlr": 0.0101,
+      "antlr-lex": 0.0121
+    },
+    "abnf-meta": {
+      "antlr": 0.0084,
+      "antlr-lex": 0.0113
+    },
+    "vyx": {
+      "antlr": 0.0098,
+      "antlr-lex": 0.011
+    },
+    "markdown": {
+      "antlr": 0.0107,
+      "antlr-lex": 0.0137
+    },
+    "nested": {
+      "antlr": 0.0145,
+      "antlr-lex": 0.0147
+    },
+    "lexruns": {
+      "antlr": 0.0163,
+      "antlr-lex": 0.0151
+    },
+    "backtrack": {
+      "antlr": 0.0137,
+      "antlr-lex": 0.0156
+    },
+    "mixedends": {
+      "antlr": 0.0156,
+      "antlr-lex": 0.0179
+    },
+    "announced": {
+      "antlr": 0.0886,
+      "antlr-lex": 0.083
     }
   }
 }

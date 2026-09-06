@@ -9,8 +9,8 @@ piece before — the one arithmetic difference between a proposal and a proof.
 from __future__ import annotations
 
 from lexic.compile import compile_text
-from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.discovery.scan import clustered
+from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.plan.cuts import (
     _widths,
     after_mark,
@@ -103,7 +103,7 @@ def test_every_chosen_cut_clears_the_floor_on_both_sides() -> None:
     text = announced_doc(300)
     assert len(text) > 4 * MIN_CHUNK
     with WorkPool(8) as pool:
-        cuts = cut_offsets(plan, text, 8, pool)
+        cuts = cut_offsets(plan, text, 8, pool).offsets
     assert cuts
     bounds = [0, *cuts, len(text)]
     assert all(hi - lo >= MIN_CHUNK for lo, hi in zip(bounds, bounds[1:])), (
@@ -124,7 +124,7 @@ def test_a_proposal_is_never_cut_at_offset_zero() -> None:
     with WorkPool(8) as pool:
         windows = scan_windows(plan.scanner, text, 8, pool)
         assert 0 in scan_marks(plan, text, 8, pool, windows)
-        assert 0 not in cut_offsets(plan, text, 8, pool, windows)
+        assert 0 not in cut_offsets(plan, text, 8, pool, windows).offsets
 
 
 def test_every_candidate_stands_on_a_mark_of_the_plan() -> None:

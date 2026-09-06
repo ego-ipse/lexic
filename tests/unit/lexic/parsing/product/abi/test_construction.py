@@ -1,6 +1,6 @@
 """Tests for lexic.parsing.product.abi.construction — what a completion builds WITH.
 
-The load-bearing distinction this module draws is that only a LICENSED
+The distinction this module turns on is that only a LICENSED
 :class:`RecordConstructor` may resolve a positional construction licence, and
 :class:`SymbolConstructor` never does. Both resolution constructors
 (:meth:`Construction.of_record`, :meth:`Construction.of_symbol`) are tested

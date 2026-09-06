@@ -186,7 +186,7 @@ different values raise `ProbeFork`. That comparison is reached by CONVERGENCE
 rather than by running both sides to end-of-input; see *"A both-viable boundary
 is settled by convergence"* below.
 
-**The load-bearing choices:**
+**The choices this rests on:**
 
 - **Sub-runs are watermarked, not severed.** An attempt runs ON TOP of the
   live stack (`_drive(floor)`); nested viability walks and probes see the true
@@ -393,9 +393,9 @@ fold-refusal reroute stays as the last line of defence.
 
 ## 2026-06-04 — Primitive-node model (V2): a node IS its payload
 
-**Decision:** Replace the coercion-based node model with one where nodes *are* their payload. Three tiers: str-leaves (`IrLiteral`/`IrCharClass`/`IrRuleRef`) subclass `str` via `IrStr`; variadic collections (`IrSequence`/`IrAlternation`) subclass `tuple` via `IrTuple`; fixed-arity records (`IrItem`/`IrQuantifier`/`IrGroup`/`IrNot`/`IrRule`/`IrAst`) are frozen `IrComposite` dataclasses. Removed: `IrType`, `coerce`, the load-bearing `*args/**kwargs` `IrNode.__init__`, `_ir_field_types`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade (replaced by `__repr__`-is-codegen). There are **no** `.value`/`.items`/`.arms` accessors — use the node directly.
+**Decision:** Replace the coercion-based node model with one where nodes *are* their payload. Three tiers: str-leaves (`IrLiteral`/`IrCharClass`/`IrRuleRef`) subclass `str` via `IrStr`; variadic collections (`IrSequence`/`IrAlternation`) subclass `tuple` via `IrTuple`; fixed-arity records (`IrItem`/`IrQuantifier`/`IrGroup`/`IrNot`/`IrRule`/`IrAst`) are frozen `IrComposite` dataclasses. Removed: `IrType`, `coerce`, the coercing `*args/**kwargs` `IrNode.__init__`, `_ir_field_types`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade (replaced by `__repr__`-is-codegen). There are **no** `.value`/`.items`/`.arms` accessors — use the node directly.
 
-**Why:** The old `__init__(*args, **kwargs)` masked ~174 pyright errors (standard-mode 0 was a lie). Making nodes their payload eliminates coercion, the load-bearing init, and the variance that produced those errors. Construction is now honest per-field dataclass `__init__`/`__new__`; whole-tree pyright is genuinely 0.
+**Why:** The old `__init__(*args, **kwargs)` masked ~174 pyright errors (standard-mode 0 was a lie). Making nodes their payload eliminates coercion, that init, and the variance that produced those errors. Construction is now honest per-field dataclass `__init__`/`__new__`; whole-tree pyright is genuinely 0.
 
 **Impact:** Every consumer reads leaves as `str` and collections as `tuple`; construction is variadic (`IrSequence(*items)`, `IrAlternation(*arms)`, `IrAst(IrTuple(*rules), start)`). Full suite green (572 tests), `pyright src/ tests/` = 0. See [[ir-shapes]].
 

@@ -1,7 +1,7 @@
 """Tests for lexic.parsing.product.regular — the authoritative regular proof.
 
 Two obligations are pinned with a mutation control that proves each check is
-load-bearing rather than merely present: an inline group owes the same
+what makes its shape decline, rather than merely sitting there: an inline group owes the same
 first-disjoint/ordered-literal obligations a rule body does
 (``_group_holds``), and a rule reached through a reference is proved against
 its OWN continuation, not the region's (``_references_hold``). For four of
@@ -163,7 +163,7 @@ def test_the_regions_follow_would_have_licensed_a_wrong_answer(source):
     assert licensed != len(meant)
 
 
-# ── mutation controls: each obligation is load-bearing ──────────────────
+# ── mutation controls: neutralise an obligation, watch the declines vanish ──
 
 
 def test_neutralising_the_group_obligation_revives_every_unsound_shape(monkeypatch):

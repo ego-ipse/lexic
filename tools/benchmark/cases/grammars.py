@@ -285,9 +285,8 @@ and that is a property of the grammar, not of any position in the document.
 
 So a cut here cannot be read; it can only be proposed and then verified. That
 is what makes this the shape a certified speculative fallback exists for, where
-:data:`_MIXEDENDS` is the shape a wider static proof would reach. Both decline
-today and both report the sequential number with their mt rows declining in
-the open."""
+:data:`_MIXEDENDS` is the shape a wider static proof would reach. Both take the
+speculative route today, so both engage and report a parallel number."""
 
 
 def _announced_corpus(sections: int) -> str:
@@ -324,9 +323,9 @@ Every other repetition row here can be cut statically: its units share a
 terminator, or a separator stands between them. This one cannot. No character
 ends every arm, so no terminator derives; the only repeated body with a leading
 anchor (``note``'s spaces) is not reachable from the start rule as a container;
-and the start rule is a plain repetition, not an envelope. The split seam finds
-no eligible work and the document parses sequentially however many workers are
-offered.
+and the start rule is a plain repetition, not an envelope. What licenses a cut
+here is the certified speculative route rather than a static terminator or
+separator proof, so the split engages and the row reports a parallel number.
 
 Nothing about the language is hard: the arms open ``%``, ``<`` and a letter, so
 each record is decided by its first character and delimited by its own closer,
@@ -637,10 +636,10 @@ _DEFINED_BENCHES = (
         ),
         ("", "def a() {b}", "def () {b}", "def a() ?b;\n", "def a() = b\n"),
     ),
-    # A repetition with no derivable cut: three record kinds, three different
-    # closers. The split seam declines it, so the row reports the sequential
-    # number and its mt row says why — the standing witness for the shapes a
-    # certified speculative fallback is meant to reach.
+    # A repetition with no STATIC cut: three record kinds, three different
+    # closers, so no terminator or separator proof reaches it. Its cuts are
+    # proposed and then verified — the standing witness for the shapes the
+    # certified speculative route exists to reach.
     _bench(
         "mixedends",
         _MIXEDENDS,

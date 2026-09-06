@@ -8,10 +8,12 @@ import json
 import random
 from collections.abc import Sequence
 from pathlib import Path
+from typing import NamedTuple
 
 from lexic.parsing.parallel import AUTO, available_workers
 from tools.benchmark.bench import (
     DEFAULT_ROUNDS,
+    ENGINE,
     MT_ROWS,
     SUMMARY,
     _candidates,
@@ -57,54 +59,140 @@ ENGINE_META = {
 """Display metadata per row, in the artifact's column order."""
 
 
-def _dump_json(path: Path, rounds: int, cores: int | None, blocks: list[Block]) -> None:
-    """Write EVERY measured or refused row as the cross-engine artifact.
+NOTE = (
+    "Cross-engine medians of isolated rounds. A run writes only the seats it "
+    "measured and leaves every other cell exactly as it found it, so each "
+    "seat carries its own measurement date, round count and worker request. "
+    "README rendering reads this file and never triggers a run."
+)
+"""The artifact's own account of how it is written."""
 
-    Nothing is dropped: a row the metadata table does not know gets a default
-    label rather than silence, so a new seat cannot vanish from the record.
+
+SCHEMA = 2
+"""The artifact's shape version — per-seat provenance, per-grammar noise."""
+
+type Cell = float | str
+"""One measured median, or the word a refusing seat earned instead."""
+
+
+class Seat(NamedTuple):
+    """One seat's display metadata AND the run that measured it.
+
+    Provenance is per seat because a run refreshes some columns and not
+    others; one global date then describes cells nobody measured that day.
+
+    :ivar label: What the README calls this engine.
+    :ivar runtime: ``python`` or ``java`` — the README styles java differently.
+    :ivar measured: The ISO date this seat's cells were taken.
+    :ivar rounds: Timed rounds behind each of them.
+    :ivar cores: The worker request an mt row rode; ``None`` for every seat
+        that runs on one thread.
     """
-    values: dict[str, dict[str, float | str]] = {}
-    shares: dict[str, dict[str, float]] = {}
-    rows: list[str] = []
+
+    label: str
+    runtime: str
+    measured: str
+    rounds: int
+    cores: int | None
+
+
+class Artifact(NamedTuple):
+    """The committed cross-engine file, as the fields it actually has.
+
+    Named rather than carried as a JSON bag: the schema is fixed, and a
+    ``dict[str, Json]`` makes every write to it untypeable and every read a
+    narrowing.
+    """
+
+    noise_floor_percent: dict[str, float]
+    engines: dict[str, Seat]
+    values: dict[str, dict[str, Cell]]
+    charstream_share: dict[str, dict[str, float]]
+
+    @classmethod
+    def load(cls, path: Path) -> Artifact:
+        """Read the artifact, or an empty one when the file is not there yet."""
+        if not path.exists():
+            return cls({}, {}, {}, {})
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return cls(
+            dict(raw["noise_floor_percent"]),
+            {name: Seat(**meta) for name, meta in raw["engines"].items()},
+            {grammar: dict(cells) for grammar, cells in raw["values"].items()},
+            {
+                grammar: dict(shares)
+                for grammar, shares in raw["charstream_share"].items()
+            },
+        )
+
+    def write(self, path: Path) -> None:
+        """Write the artifact back, header first and in field order."""
+        payload = {
+            "schema": SCHEMA,
+            "unit": "microseconds_per_character",
+            "note": NOTE,
+            "noise_floor_percent": self.noise_floor_percent,
+            "engines": {name: seat._asdict() for name, seat in self.engines.items()},
+            "values": self.values,
+            "charstream_share": self.charstream_share,
+        }
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _provenance(name: str, rounds: int, cores: int | None) -> Seat:
+    """One seat's metadata, dated by the run that has just measured it."""
+    meta = ENGINE_META.get(name, {"label": name, "runtime": "python"})
+    return Seat(
+        meta["label"],
+        meta["runtime"],
+        datetime.date.today().isoformat(),
+        rounds,
+        cores if name in MT_ROWS else None,
+    )
+
+
+def _spliced[T](kept: dict[str, T], fresh: dict[str, T]) -> dict[str, T]:
+    """``kept`` with ``fresh`` written over it, in the order it already had.
+
+    Insertion order is the artifact's own: a refreshed seat keeps the column
+    it had, and a new one is appended rather than reordering the file.
+    """
+    merged = dict(kept)
+    for name, value in fresh.items():
+        merged[name] = value
+    return merged
+
+
+def _dump_json(path: Path, rounds: int, cores: int | None, blocks: list[Block]) -> None:
+    """Splice this run's measured or refused rows into the cross-engine artifact.
+
+    Never a rewrite: a seat-filtered run measures a few columns of a few rows
+    and must leave every other cell byte-identical, or refreshing one engine
+    silently restates figures from a different day as though they were taken
+    together.
+
+    Nothing measured is dropped: a row the metadata table does not know gets a
+    default label rather than silence, so a new seat cannot vanish from the
+    record.
+    """
+    artifact = Artifact.load(path)
     for block in blocks:
-        if block.shares:
-            shares[block.bench.name] = {
-                name: round(share, 4) for name, share in sorted(block.shares.items())
-            }
-        medians = _medians(block.samples)
-        cells: dict[str, float | str] = {
-            name: round(median, 6) for name, median in medians.items()
+        grammar = block.bench.name
+        cells: dict[str, Cell] = {
+            name: round(median, 6) for name, median in _medians(block.samples).items()
         }
         cells |= dict.fromkeys(block.refused, "refuses")
-        known = [name for name in ENGINE_META if name in cells]
-        ordered = known + sorted(set(cells) - set(known))
-        values[block.bench.name] = {name: cells[name] for name in ordered}
-        rows += [name for name in ordered if name not in rows]
-    payload = {
-        "schema": 1,
-        "unit": "microseconds_per_character",
-        "measured": datetime.date.today().isoformat(),
-        "rounds": rounds,
-        "cores": cores,
-        "noise_floor_percent": [
-            round(min(b.floor for b in blocks), 2),
-            round(max(b.floor for b in blocks), 2),
-        ],
-        "note": "Cross-engine medians of isolated rounds. Refreshed "
-        "deliberately by rerunning the full bench with --json; README "
-        "rendering reads this file and never triggers a run.",
-        "engines": {
-            name: ENGINE_META.get(name, {"label": name, "runtime": "python"})
-            for name in rows
-        },
-        "values": values,
-        # A reader comparing these figures to a published one deserves to know
-        # what fraction of a row is a decode-and-copy of the input rather than
-        # parsing: the seats handed a `str` never pay it, and on the rows whose
-        # parse is cheap for their length it reaches an eighth of the number.
-        "charstream_share": shares,
-    }
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        for name in cells:
+            artifact.engines[name] = _provenance(name, rounds, cores)
+        artifact.values[grammar] = _spliced(artifact.values.get(grammar, {}), cells)
+        artifact.charstream_share[grammar] = _spliced(
+            artifact.charstream_share.get(grammar, {}),
+            {name: round(share, 4) for name, share in sorted(block.shares.items())},
+        )
+        # Per grammar, for the same reason the dates are per seat: a run that
+        # measured four grammars says nothing about the other eight's noise.
+        artifact.noise_floor_percent[grammar] = round(block.floor, 2)
+    artifact.write(path)
     print(f"wrote {path}")
 
 
@@ -121,16 +209,46 @@ def _mt_cores(asked: int | None) -> int | None:
     return workers if workers > 1 else None
 
 
-def _row_names(bench: Bench, cores: int | None) -> list[str]:
-    """The isolated worker roster for one grammar."""
+def _row_names(
+    bench: Bench, cores: int | None, seats: frozenset[str] | None = None
+) -> list[str]:
+    """The isolated worker roster for one grammar, narrowed to ``seats``.
+
+    :param seats: The requested seat names, or ``None`` for every seat this
+        grammar admits. A seat the grammar does not offer — a format
+        specialist asked of another language — simply does not appear.
+    """
     lexic = ["lexic-pda", "lexic-earley", "lexic-lex", "lexic-lex-ns"]
     if cores is not None:
         lexic.extend(("lexic-mt", "lexic-mt-lex-ns"))
-    return lexic + [name for name, _make in _candidates(bench)]
+    names = lexic + [name for name, _make in _candidates(bench)]
+    return names if seats is None else [name for name in names if name in seats]
+
+
+def _seats(asked: Sequence[str] | None) -> frozenset[str] | None:
+    """The requested seat filter, refusing a name no seat answers to.
+
+    A misspelt seat must not read as "that engine measured nothing here": the
+    run would write a spliced artifact missing exactly the column it was asked
+    to refresh, and every untouched cell would still look freshly measured.
+    """
+    if not asked:
+        return None
+    unknown = sorted(frozenset(asked) - frozenset(ENGINE))
+    if unknown:
+        raise SystemExit(
+            f"no such benchmark seat: {', '.join(unknown)}\n"
+            f"seats: {', '.join(sorted(ENGINE))}"
+        )
+    return frozenset(asked)
 
 
 def _isolated_bench(
-    bench: Bench, cores: int | None, full: bool, rounds: int
+    bench: Bench,
+    cores: int | None,
+    full: bool,
+    rounds: int,
+    seats: frozenset[str] | None = None,
 ) -> tuple[Block, dict[str, ReportRow]]:
     """Time every row in its own process, one process at a time.
 
@@ -138,12 +256,13 @@ def _isolated_bench(
     compiles grammars, runs fidelity parses and holds artefacts, and doing that
     beside a timed parse contaminates cache, allocator and thermal state.
     """
-    names = _row_names(bench, cores)
-    root = Path.cwd()
+    names = _row_names(bench, cores, seats)
     order = list(names)
     random.Random(f"lexic-bench:{bench.name}").shuffle(order)
     results = {
-        name: run_report_row(RowRequest(bench.name, name, rounds, cores, full), root)
+        name: run_report_row(
+            RowRequest(bench.name, name, rounds, cores, full), Path.cwd()
+        )
         for name in order
     }
     samples = {
@@ -170,13 +289,24 @@ def _isolated_bench(
         for name, result in results.items()
         if result.charstream_share
     }
-    anchor = next((name for name in names if name in samples), None)
-    floor = (
-        noise_floor(RowRequest(bench.name, anchor, rounds, cores, full), root)
-        if anchor
-        else 0.0
+    floor = _noise_floor(
+        RowRequest(bench.name, "", rounds, cores, full), names, samples
     )
     return Block(bench, samples, refused, floor, documents, mt_notes, shares), results
+
+
+def _noise_floor(
+    request: RowRequest, names: list[str], samples: dict[str, list[float]]
+) -> float:
+    """This block's same-engine control, run on the first row that measured.
+
+    Zero when nothing in the block did: a floor is a statement about a seat
+    that produced numbers, and there is none to make.
+    """
+    anchor = next((name for name in names if name in samples), None)
+    if anchor is None:
+        return 0.0
+    return noise_floor(request._replace(engine=anchor), Path.cwd())
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -209,6 +339,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--only", nargs="*", metavar="NAME", help="benchmark only these grammars"
     )
     parser.add_argument(
+        "--seats",
+        nargs="+",
+        metavar="NAME",
+        help="benchmark only these seats (--only filters grammars, this "
+        "filters engines); an unknown name is refused, and --json then "
+        "splices these columns into the artifact and leaves the rest",
+    )
+    parser.add_argument(
         "--color",
         action="store_true",
         help="force ANSI colour (auto: only on a terminal, honouring NO_COLOR)",
@@ -228,20 +366,25 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     cores = _mt_cores(args.cores)
     color = _use_color(args.color)
+    seats = _seats(args.seats)
     wanted = set(args.only or ())
     benches = [b for b in BENCHES if not wanted or b.name in wanted]
     if not benches:
         raise SystemExit(f"no such grammar: {sorted(wanted)}")
+    benches = [b for b in benches if _row_names(b, cores, seats)]
+    if not benches:
+        raise SystemExit(f"no grammar here offers any of: {sorted(seats or ())}")
     print(
         f"rounds={args.rounds}{_mark(cores)}  grammars={', '.join(b.name for b in benches)}"
+        + (f"  seats={', '.join(sorted(seats))}" if seats else "")
     )
     _legend(color)
     blocks: list[Block] = []
     for bench in benches:
-        block, results = _isolated_bench(bench, cores, args.full, args.rounds)
+        block, results = _isolated_bench(bench, cores, args.full, args.rounds, seats)
         blocks.append(block)
         _report(block, color)
-        for name in _row_names(bench, cores):
+        for name in _row_names(bench, cores, seats):
             result = results[name]
             if result.warmed is not None:
                 _warmup_values(

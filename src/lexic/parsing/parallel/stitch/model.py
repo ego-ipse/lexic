@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, TypeIs, cast
 
 from lexic.exceptions import LexicError
-from lexic.ir import Bound, IrNamedTuple, IrSelf, IrTuple
+from lexic.ir import Bound, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
 from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel.stitch.plan import RegionPlan, field_slot
@@ -157,7 +157,13 @@ def stitch_terminated[M: IrNamedTuple](chunks: list[M]) -> M | None:
 def _stitch_separated(
     chunks: list[GrammarModel], lead_models: list[tuple]
 ) -> GrammarModel | None:
-    """Rebuild the container from chunk models; ``None`` = shape surprise."""
+    """Rebuild the container from chunk models; ``None`` = shape surprise.
+
+    The repetition field is a PLAIN tuple, as the model product builds it and
+    as :func:`is_run` reads it. An ``IrTuple`` here compared and rendered the
+    same, so text and structure matched a sequential parse — and then failed
+    the run test that decides whether a field is a repetition at all.
+    """
     heads = [tuple(chunk)[0] for chunk in chunks]
     rests = [tuple(chunk)[1] for chunk in chunks]
     template = next((rest[0] for rest in rests if rest), None)
@@ -167,7 +173,7 @@ def _stitch_separated(
     for k in range(1, len(chunks)):
         merged.append(template.rebuild([*lead_models[k - 1], heads[k]]))
         merged.extend(rests[k])
-    return chunks[0].rebuild([heads[0], IrTuple(*merged)])
+    return chunks[0].rebuild([heads[0], tuple(merged)])
 
 
 def _wrapper_route[M: IrNamedTuple](

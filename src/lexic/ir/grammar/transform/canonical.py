@@ -15,8 +15,8 @@ Rewrites (bottom-up over each rule body, then two AST-level passes):
    complement (ABNF cannot spell negation);
 5. a single-arm unquantified group → its arm spliced into the parent sequence;
 8. char-class normal form (dedupe, sort, coalesce ranges);
-8b. empty-literal items (``IrLiteral('')``, epsilon) drop — load-bearing: the
-   engine cannot parse a grammar containing a zero-width literal item;
+8b. empty-literal items (``IrLiteral('')``, epsilon) drop — required, not
+   tidying: the engine cannot parse a grammar containing a zero-width literal;
 7. rule names + refs fold to lowercase with ``_``→``-`` (post-fold collision of
    distinct rules raises :exc:`~lexic.exceptions.UnsupportedConstructError`);
 9. canonical rule order — start first, first-reference order, unreferenced last
@@ -357,7 +357,7 @@ def _inlined_body(
 ) -> IrAlternation:
     """Rule ``name``'s body, ref-free and re-canonicalised.
 
-    The second step is the load-bearing one: inlining inserts groups, the
+    The second step is the one that cannot be skipped: inlining inserts groups, the
     rewrites above are stated over shapes, so what inlining builds has to go
     back through the driver to reach the normal form.
 

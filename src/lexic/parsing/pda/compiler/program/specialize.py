@@ -3,8 +3,8 @@
 Split from :mod:`lexic.parsing.pda.compiler.program.flatten`, which defines the flat
 artefact and the readers the runtime walks it with; this module is everything
 that REWRITES that artefact once it exists. :func:`optimize_program` is the
-entry point and states the pass order, which is load-bearing: each pass reads
-codes or licences an earlier one established.
+entry point and states the pass order, which cannot be permuted: each pass
+reads codes or licences an earlier one established.
 
 Nothing here costs a parse anything — the program is built once, immutable, and
 shared across every parse.

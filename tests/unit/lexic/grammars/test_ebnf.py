@@ -152,7 +152,7 @@ def test_parse_integer_multiplication_is_exact_repetition():
 
 
 def test_parse_block_comment_is_noise():
-    """`(* ... *)` block comments are structural noise, not load-bearing."""
+    """`(* ... *)` block comments are structural noise — they reach no rule."""
     ast = parse_grammar('a = "x" ; (* a trailing comment *)\n', EBNF_FLAVOUR)
     assert [str(r.name) for r in ast.rules] == ["a"]
 

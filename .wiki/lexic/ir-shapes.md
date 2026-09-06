@@ -8,7 +8,7 @@ The IR is the contract between parsers, transformers, codegen, and flavour emitt
 
 ## Primitive-node model (V2)
 
-A node **is** its payload. There are NO `.value` / `.items` / `.arms` accessors — use the node directly. `IrType`, `coerce`, the load-bearing `IrNode.__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade are all GONE.
+A node **is** its payload. There are NO `.value` / `.items` / `.arms` accessors — use the node directly. `IrType`, `coerce`, the coercing `IrNode.__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade are all GONE.
 
 ### How a record's fields are derived — and why it is not `__dict__`
 

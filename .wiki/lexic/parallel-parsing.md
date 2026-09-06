@@ -50,7 +50,7 @@ document. `envelope_plans` returns one plan per provable mark in stable order.
 
 ## Safety proofs are per owner, and they refuse by default
 
-`stitch/safety.py` holds the proofs. Two things about them are load-bearing:
+`stitch/safety.py` holds the proofs. Two things about them decide what a split can do:
 
 **Per owner, never pooled.** Pooling every rule reachable anywhere would reject
 JSON, because a nested object quite properly contains commas. The proof asks

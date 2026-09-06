@@ -22,8 +22,8 @@ Everything a completion applies is therefore reachable by name from
 :data:`FOLD_SYMBOLS` or a surface's extension of it, and a key that is not
 there refuses with words rather than being called.
 
-Transforms are applied BY KEYWORD, which is load-bearing rather than
-incidental: :func:`absent_tail` distinguishes an omitted optional from a real
+Transforms are applied BY KEYWORD, and that is a requirement rather than a
+convention: :func:`absent_tail` distinguishes an omitted optional from a real
 value, and only omission — not a filled placeholder — can express that.
 Surface-specific transforms that are not shared stay on their own surface and
 join that surface's registry.
@@ -109,7 +109,7 @@ def absent_tail(**kwargs: object) -> object:
     A kwargs ctor (not a channel body): the single optional field arrives BY
     KEYWORD when the tail matched — any value, **including
     :data:`~lexic.ir.base.IrNone`** as a legitimate argument — and an empty call
-    means the tail matched nothing. The keyword mechanism is load-bearing here:
+    means the tail matched nothing. Only the keyword mechanism can say that:
     the channel adapter fills an omitted optional with ``IrNone``, which would
     be indistinguishable from a real ``IrNone`` value, so this idiom stays a
     keyword ctor (reused via :class:`~lexic.ir.base.IrLambda`, field-name-generic

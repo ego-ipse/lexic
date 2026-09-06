@@ -1,8 +1,8 @@
 """GPT-2 through the json reducer + IrTokenizer — the fourth real family.
 
 Small (1.3 MB, ~8 s), so this one runs in the DEFAULT lane rather than
-behind ``LEXIC_SLOW``. It carries three properties no other fixture has, each
-of which is load-bearing somewhere:
+behind ``LEXIC_SLOW``. It carries three properties no other fixture has, and
+each of them broke something real:
 
 - **no ``model.type``.** Older documents omit the discriminator entirely.
   Refusing an absent one locked out a whole generation of real files.

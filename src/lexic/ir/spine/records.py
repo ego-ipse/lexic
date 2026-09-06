@@ -330,7 +330,7 @@ class IrNamedTuple[*Ts](IrTuple[*Ts], IrNode[IrSelf, IrSelf]):
         reconstruct to the same defaults. One source of elision truth for
         :meth:`__repr__` and the notation emit half.
 
-        The type check is load-bearing, not pedantry: empty records compare
+        The type check earns its place, and is not pedantry: empty records compare
         equal CROSS-CLASS under tuple equality (``IrArgs() == IrTuple()``), so
         an equality-only elision renders ``IrJoin(IrArgs())`` as ``IrJoin()``,
         which reconstructs with the *wrong* default ``IrTuple()`` — repr-stable

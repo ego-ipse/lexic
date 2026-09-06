@@ -1,5 +1,98 @@
 # Ledger — target-shaped parsing
 
+## NEXT SESSION — start here (2026-09-06 ~04:10)
+
+**Tree.** `targeter` at `67e2fcee`, green on all four remote workflows.
+UNCOMMITTED on top of it, round 23 tasks 1–2:
+
+- `tools/render_readme.py` + both `docs/assets/*.svg` + new
+  `tests/integration/lexic/invariants/test_readme_charts.py` — the chart
+  fix. DONE and verified by the coordinator: both charts draw inside their
+  viewBoxes, every colour class defined, caption emitted once,
+  `run_checks.sh` exit 0, suite 5715 green at that point.
+- `tools/benchmark/engines/antlr_java.py` +
+  `tests/.../test_benchmark_antlr_seat.py` — the ANTLR warm-up fix.
+  Code-complete, GATE UNVERIFIED. `run_checks.sh` exits 4 on two pylint
+  `protected-access` findings at `test_benchmark_antlr_seat.py:53-54`
+  (`_parse_ns`, `_stream_ns`); everything else clean, pylint 10.00. Fix by
+  promoting those readings to public names, or keep the access with a
+  justification on the line. **First act next session: close those two and
+  confirm exit 0.**
+
+**Round 23 remaining**, in order: the MT cut-selection defect (MT loses to
+sequential on cheap grammars — mixedends 0.099 vs 0.069 best-sequential,
+announced only 1.14x on sixteen workers; establish the phase costs from
+scratch, floor untouched, no suppressed rows, structural decline if a split
+cannot pay); a `--seats` filter and the ANTLR re-measure spliced with
+per-seat provenance; the user's ruling that only a `slower` row blocks the
+performance gate; the control's 10:5 slot schedule; the README last.
+
+**Established this round, and worth not re-deriving.** At `67e2fcee` the
+ANTLR seat ALREADY has two-stage SLL with the `stream.seek(0)` rewind
+(mutation-proved: dropping only that line makes csv accept `a,,b` and
+arithmetic accept `1++2`), and the CharStream share ALREADY reaches
+`_dump_json`; the committed artifact lacks the key only because it predates
+the plumbing. The two real seat defects were both warm-up: five of twelve
+grammars take their last JIT step after batch 60, so the old budget
+published a figure 2.0–2.9x above the settled level on json, gbnf-meta,
+nested, backtrack and mixedends; and the JVM decays between rounds, so a
+single post-pause parse is a resumption cost. Fixed by a longer budget and
+a burst-median reading; cross-process spread 1.77x → 1.15x. **The committed
+ANTLR figures are wrong in ANTLR's DISFAVOUR — the re-measure makes that
+seat faster**, which bears on the README's "order of magnitude" bullet.
+Across twelve rows: two-stage buys 4.4–22.2 %, tree build is 15.6–24.1 % of
+the number, CharStream 1.3–12.5 %. Both stay inside the number. Arms must
+share one JVM: two JVMs settle at different JIT levels and produce
+incoherent readings.
+
+**Deferred, not in this round:** the frame pool (§6, with its one-line
+`_Published.frame` escape closure written beside its consumer); which
+benchmark seats the README displays (its own documentation effort — the
+user's framing: represent every engine correctly, lexic first among equals
+in attention, not in treatment).
+
+**Standing:** justified inline disables allowed, unjustified removed; no
+minimum effect size; no suppressed rows; the 2 KiB floor and logical
+`cores=AUTO` stand; agents write no files in `/tmp` and the effort dir takes
+`.md`/`.py` only — archived source trees belong outside the repo, one shared
+venv, deleted after use. No agent survives; spawn fresh from
+`prompts/IMPLEMENT_23.md` plus this block.
+
+## 2026-09-06 — round 22 wiped on the user's order
+
+**What was deleted.** Two agents (an implementer and a push investigator),
+their transcripts, all their uncommitted work, and their evidence: 393 MB
+under `proto/scratch_push`, 480 KB under `proto/scratch_impl22`,
+`reports/INVESTIGATION_PUSHES.md`, `prompts/INVESTIGATE_PUSHES.md`,
+`prompts/IMPLEMENT_22.md`. The tracked tree was restored to `67e2fcee` and
+is clean. Nothing committed was touched; `67e2fcee` remains green on all
+four remote workflows.
+
+**Why, per the user.** The user judged the work bad and ordered it wiped.
+The trigger was discovering that `proto/scratch_push` held 393 MB — five
+archived source trees, each carrying its own `uv`-created virtualenv. The
+user's position, stated plainly: the effort directory is for `.md` and `.py`
+files, agents running in parallel produced dogshit, and they wanted it gone.
+
+**The coordinator's error in it.** The user's 2026-09-05 rule was "no files
+in /tmp; scratch goes under the effort dir". The coordinator read that as
+*everything* — including `git archive` checkouts for cross-process A/B arms,
+which is what put whole trees and their venvs inside the effort packet. The
+rule meant instruments. Archived arms are regenerable from a SHA in seconds
+and should live outside the repo and outside the effort directory, deleted
+when their measurement ends, sharing one virtualenv
+(`UV_PROJECT_ENVIRONMENT`). The same waste existed before the rule — it sat
+in `/tmp` where nobody looked, alongside 215 MB of leaked ANTLR build dirs
+from committed tooling — so the disk cost belongs to the archived-tree
+protocol, not to running two agents. What parallelism cost was coordination:
+a 60-minute window granted and then queued for an hour, crossed messages,
+and work split across two agents where the user had asked for one.
+
+**Standing consequences.** Archived arms: outside the repo, outside the
+effort dir, deleted after use, one shared venv. Effort dir: documents and
+instruments only, and it should carry a size gate the way the repo carries a
+line-count gate. Neither is implemented.
+
 ## 2026-09-04 — the coordinator's work today was shite (user's verdict, recorded on the user's order)
 
 The user asked two questions: why virtual cores do not improve speed, and
@@ -124,8 +217,8 @@ vs 0.098 (0.59x), lexruns 0.051 vs 0.099 (0.51x); against plain-directive
 pda MT wins everywhere (0.3–0.5x), so it is fixed overhead a cheap parse
 cannot amortise. Rules: no floor change, no row suppression; instrument
 the phases outside src, name what dominates, remove it at the root, or
-decline structurally. Sent to terra-r18 as correction 9, after 1–2.
-**terra-r18 progress (2026-09-04 night):** 1 — a replica is claimed by a
+decline structurally. Sent to fuckwit-1 as correction 9, after 1–2.
+**fuckwit-1 progress (2026-09-04 night):** 1 — a replica is claimed by a
 THREAD once under one lock (`_MINTING`) and read from its thread-local on
 every parse; `worker_replicas(count)` deleted for `worker_replica`;
 exited threads' replicas dropped, not reissued; the per-chunk lookup gone
@@ -237,7 +330,7 @@ rule (STYLE §6 with the user's explicit permission: a suppression duly
 justified on the line is allowed; the user swept the unjustified ones
 tonight). The seven justified disables and the plugin exemption await the
 user's ruling; everything else is dispatched.
-**Progress:** R19 items 1–3, 5, 6 closed by terra-r18 — `document_view(grammar,
+**Progress:** R19 items 1–3, 5, 6 closed by fuckwit-1 — `document_view(grammar,
 binding)` claims the executable half before any split attempt (the
 instance product is memoised on the binding, so a private binding is a
 private parse; the grammar stays the artefact's so plan/roles/anchors are
@@ -267,7 +360,7 @@ row is arithmetic/lexic-lex-ns 1.0157 (CI 1.0055–1.0261, envelope 1.0037,
 1.0086) sits just short of it — the sequential directive rows cost ~1.5 %
 more CPU with no paid-path bytecode change; the changed thing is the
 sequential path now parsing on a thread-claimed replica instead of the
-original pair. Sent to terra-r18 to measure and fix at the root. Two of
+original pair. Sent to fuckwit-1 to measure and fix at the root. Two of
 the five unresolved rows are FALSE POSITIVES of the verdict logic:
 abnf-meta/lexic-pda 0.9947 (CI 0.9911–0.9983) and announced/lexic-mt
 0.9119 (CI 0.8584–0.9687) lie wholly below 1.0 yet read unresolved because
@@ -275,7 +368,7 @@ abnf-meta/lexic-pda 0.9947 (CI 0.9911–0.9983) and announced/lexic-mt
 `high ≤ envelope` can never be slower and passes; unresolved only when it
 straddles the upper edge. The other three (nested/pda 0.9854–1.0496,
 arithmetic/lex 0.9726–1.0368, nested/lex-ns) genuinely straddle.
-**Item-4 rulings and remote items closed (terra-r18, 2026-09-05 ~01:05):**
+**Item-4 rulings and remote items closed (fuckwit-1, 2026-09-05 ~01:05):**
 `WorkPool.map` catches `LexicError` only (a chunk's refusal drains the
 phase; a bug/interrupt/MemoryError reaches the caller at once), both
 disables gone, four tests. The shared terminal loop (`match_terminal`)

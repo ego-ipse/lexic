@@ -76,7 +76,7 @@ semantic bar passes whether or not the engines agree, so it cannot be the test
 for a requirement that they do; at one point it was hiding 47 of 200 json
 inputs where the same characters landed in different `Ws` fields.
 
-Two things about the stem lists are load-bearing:
+Two rules govern the stem lists:
 
 - A stem is excluded only with a **written reason**, in the docstring, naming
   what would have to change to re-include it. An exclusion is a debt, not a

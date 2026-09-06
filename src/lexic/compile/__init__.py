@@ -319,7 +319,7 @@ def _scan_directives(
     structural-noise rules, ``@lexical <rule> ...`` names rules whose
     references are inlined so they keep their text rather than an interior of
     models. The scan reads the raw source before the parser so comments never
-    become load-bearing grammar tokens; ``canonical_grammar`` resolves
+    become part of the grammar itself; ``canonical_grammar`` resolves
     precedence and applies the result to the AST.
 
     :param text: Grammar source text.

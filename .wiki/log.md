@@ -482,7 +482,7 @@ the opt-out is a caller-supplied deterministic `Resolver` handed both
 derivations — it replaced the `ambiguous` bool on `IslandPolicy`, `PdaKernel`,
 `pda_model` and `parse_model`. `ParseFirst` stays: a cyclic grammar has
 unboundedly many derivations, so a deterministic tree-level first is
-load-bearing, not a back-compat seam.
+necessary, not a back-compat seam.
 
 What blocked the gate: `FastTree` with a pinned family did not terminate on a
 cyclic chart (mutual unit arms), because the pin re-applied at every revisit
@@ -813,7 +813,7 @@ OUTCOME + `FOLLOWUP.md` + `NEXT_MILESTONES.md`.
 `codegen.md` describes the deleted module (mark superseded → `compile/`);
 `public-api.md` / `architecture.md` retain `codegen()`/`out_dir`/
 `_NORM_GRAMMAR_CACHE`/"Pydantic classes" references. The high-traffic
-`public-api.md` + `architecture.md` load-bearing entries are corrected in
+`public-api.md` + `architecture.md` entries readers actually rely on are corrected in
 this pass; a full page-by-page sweep of the remaining pages is a follow-up.
 
 ---
@@ -1470,7 +1470,7 @@ With the directive *content* now living on `IrAst` (Task 3), `parse_directives` 
 The "which rules are structural noise" fact now lives on the IR as `IrAst.non_semantic: frozenset[str]` (non-child payload beside `start`), a single declaration feeding `derive_specs`, `semantic_dump`, and the reducer's noise map.
 
 - **`IrAst`** (`ir/nodes.py`) grew `non_semantic: frozenset[str] = frozenset()` (third field; type params now `IrNamedTuple[IrSeq[IrRule], IrStr, frozenset[str]]`). `__eq__`/`__hash__` are **overridden to compare only `(rules, start)`** — `non_semantic` is compile-channel metadata (like a source location), and excluding it is what lets the self-hosting fixpoint `parse_grammar(flavour.apply(GRAMMAR), flavour) == GRAMMAR` survive (a fresh parse carries `frozenset()` while the authored self-grammar declares a non-empty set). `repr` still renders all three fields (valid codegen). See [[ir-shapes]].
-- **`Directives` dataclass deleted.** `parse_directives(text, line_comment)` (still in `ir/directives.py`, docstring rewritten off the stale Lark `%ignore` framing) now returns a plain `(start, non_semantic)` tuple. The scan stays **pre-lexical** — settled decision: in-parse capture would make comments load-bearing and block below-chart noise collapse.
+- **`Directives` dataclass deleted.** `parse_directives(text, line_comment)` (still in `ir/directives.py`, docstring rewritten off the stale Lark `%ignore` framing) now returns a plain `(start, non_semantic)` tuple. The scan stays **pre-lexical** — settled decision: in-parse capture would make comments part of the grammar and block below-chart noise collapse.
 - **`compile_grammar`** resolves precedence (explicit arg > directive > fallback) then **rebinds** the resolved `start` / `non_semantic` onto the parsed `IrAst` (frozen record → reconstructed).
 - **`derive_specs(ast)`** lost its `non_semantic_rules` parameter; it reads `ast.non_semantic`. `hoist_helpers` preserves `non_semantic` through the rebuild.
 - **Flavours:** the private `_NON_SEMANTIC` tuples are gone; `GBNF_GRAMMAR`/`ABNF_GRAMMAR` declare `non_semantic=frozenset({...})`, and `GBNF_NOISE`/`ABNF_NOISE` iterate `<GRAMMAR>.non_semantic` — one source of truth. (`grammars/json.py` needed no change; its `IrAst` defaults `non_semantic=frozenset()`.)
@@ -1520,7 +1520,7 @@ Deviations from the plan recorded in [[decisions]] (2026-06-05 entry): no `Cmp` 
 
 ## 2026-06-04 — Primitive-node model (V2) migration complete
 
-The coercion-based node model is gone. Nodes now ARE their payload — three tiers: str-leaves (`IrStr`: `IrLiteral`/`IrCharClass`/`IrRuleRef` subclass `str`), variadic collections (`IrTuple`: `IrSequence`/`IrAlternation` subclass `tuple`), and fixed-arity records (`IrComposite` frozen dataclasses). Removed `IrType`, `coerce`, `_ir_field_types`, the load-bearing `__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`__str__` cascade (now `__repr__`-is-codegen). No `.value`/`.items`/`.arms` accessors. Whole-tree `pyright src/ tests/` = 0 (genuine — the old `*args/**kwargs` init had masked ~174 errors); full suite 572 passed; pylint core 10/10.
+The coercion-based node model is gone. Nodes now ARE their payload — three tiers: str-leaves (`IrStr`: `IrLiteral`/`IrCharClass`/`IrRuleRef` subclass `str`), variadic collections (`IrTuple`: `IrSequence`/`IrAlternation` subclass `tuple`), and fixed-arity records (`IrComposite` frozen dataclasses). Removed `IrType`, `coerce`, `_ir_field_types`, the coercing `__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`__str__` cascade (now `__repr__`-is-codegen). No `.value`/`.items`/`.arms` accessors. Whole-tree `pyright src/ tests/` = 0 (genuine — the old `*args/**kwargs` init had masked ~174 errors); full suite 572 passed; pylint core 10/10.
 
 New decisions recorded in [[decisions]]: type-aware `IrStr.__eq__` (distinct leaf kinds unequal, plain-`str` compatible — fixes `@cache`/tree-equality poisoning); `IrThis` + lazy `IrReturn` for declarative find-first (no `IrCallable`); two type params `[Iri, Ir_co]` with `_bound` from the **last**; no `cast`/suppressions; **open-set consumer rework deferred** to a separate spec (`derive`/`codegen`/`parsing`/`generate` still carry closed-set `isinstance`/`dict[type,…]` ladders — legacy, not the target). [[ir-shapes]] rewritten to V2; `CLAUDE.md` IR-types section and flavour template updated (flavour dataclasses must NOT use `init=False` — it silently empties `actions`).
 

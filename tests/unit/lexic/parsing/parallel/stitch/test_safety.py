@@ -263,8 +263,8 @@ def test_nested_region_exact_adversarial_declines_without_becoming_vacuous() -> 
 def _admits_ignoring_the_mark(text: str, at: int, found: Boundary) -> bool:
     """A local twin of :func:`admits` without the ``!= mark`` exclusion.
 
-    Proves the real function's mark exclusion is load-bearing rather than
-    incidental: run against a ``Boundary`` whose noise charset was NOT
+    Proves the real function's mark exclusion is what stops the scan rather
+    than an accident: run against a ``Boundary`` whose noise charset was NOT
     stripped of the mark, this version keeps scanning across it.
     """
     size = len(text)

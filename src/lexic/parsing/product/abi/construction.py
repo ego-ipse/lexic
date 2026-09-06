@@ -110,7 +110,7 @@ class SymbolConstructor(NamedTuple):
     lowering is what turns it into a callable — the same no-``exec`` boundary
     :class:`~lexic.parsing.product.abi.expressions.SymbolExpr` draws.
 
-    Application is BY KEYWORD, which is load-bearing rather than stylistic: an
+    Application is BY KEYWORD, and the choice is semantic rather than stylistic: an
     absent optional capture is OMITTED from the call, so a transform whose job
     is to tell "the tail matched nothing" from "the tail matched ``IrNone``"
     (``foldkit.absent_tail``) can still tell them apart. Applying positionally,

@@ -639,7 +639,7 @@ def test_from_values_is_positional_not_keyed():
     """The values arrive in ``_fields`` order — the plan, not a parts dict.
 
     Reversing them builds a DIFFERENT (wrong) model rather than the same one,
-    which is what makes the ordering load-bearing and worth pinning.
+    so the order decides the result and is worth pinning.
     """
     ctor, _defaults, _order = Ident.fast_construct()
     assert Ident._fields == ("first", "ws")

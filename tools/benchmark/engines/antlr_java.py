@@ -14,10 +14,14 @@ around the parse — so the Java column interleaves with the Python ones exactly
 as they interleave with each other, and neither JVM startup nor the pipe is
 inside any number.
 
-JIT warmup is not a round. :meth:`JavaAntlr.warm` parses a fixed budget large
-enough to clear the JIT's last step down, then reports whether the tail held
-still — because this JVM steps between long flat levels, and a warmup that
-stops at the first stable-looking one publishes whichever level it landed on.
+Two things make that reading reproducible, and they are separate. :meth:`warm`
+parses a fixed budget large enough to clear the JIT's last step down, because
+this JVM steps between long flat levels and a warmup that stops at the first
+stable-looking one publishes whichever level it landed on. Then every reading
+is the median of a back-to-back BURST, because the JVM also decays while the
+harness is between rounds, and one parse taken after that pause is a
+resumption cost rather than a parse cost. Both are stated budgets, and what
+they buy is reproducibility — see :data:`SETTLE_BURST` for what they do not.
 """
 
 from __future__ import annotations
@@ -34,22 +38,28 @@ from tools.benchmark.engines.antlr_build import TOOL_VERSION, generate
 _JAR = Path.home() / f".m2/repository/org/antlr/antlr4/{TOOL_VERSION}"
 """Where `antlr4-tools` leaves the jar it fetched — it carries the Java runtime."""
 
+DRIVER = Path(__file__).with_name("Driver.java")
+"""The long-lived JVM's source, compiled beside every generated parser."""
+
 WARM_BATCH = 12
 """Parses per warmup batch; the median of a batch is what must settle."""
 
-WARM_BUDGET = 60
-"""Batches always parsed before the seat is read — 720 parses.
+WARM_BUDGET = 200
+"""Batches always parsed before the seat is read — 2400 parses.
 
-A FIXED budget, not a search for the earliest stable point, and that is the
-whole correction. This JVM does not descend smoothly to a floor: it holds a
-level flat for 10 to 25 batches, steps to roughly half it, and holds again,
-with the last step landing between batch 40 and batch 75 depending on the
-grammar. Any "has it stopped moving" test therefore certifies whichever step
-the run is standing on when its counter runs out, and which step that is comes
-down to where the counter happened to expire — measured across seven processes
-on seven grammars, that put a 1.9x to 2.4x spread on every published figure.
-Sixty batches clears the last step on every grammar measured, so the processes
-agree instead.
+A FIXED budget, not a search for the earliest stable point. This JVM does not
+descend smoothly to a floor: it holds a level flat, steps to roughly half it,
+and holds again, so any "has it stopped moving" test certifies whichever step
+the run is standing on when its counter runs out.
+
+The budget is set from the per-batch trajectory, traced over 400 batches in
+three processes on every grammar. The steps are reproducible in POSITION, not
+just in size, and the last one lands late: five of the twelve grammars step
+between batch 60 and batch 150, and one of those steps again around 250. A
+budget of 60 therefore published a figure 2.0x to 2.9x above the settled level
+on `json`, `gbnf-meta`, `nested`, `backtrack` and `mixedends` — not a spread,
+a systematic overstatement of ANTLR's cost. Two hundred clears every step
+observed, and the tail check below then agrees with what the processes do.
 """
 
 WARM_CONFIRM = 10
@@ -57,6 +67,24 @@ WARM_CONFIRM = 10
 
 WARM_STABLE = 0.03
 """Relative move between the tail's two halves that still counts as settled."""
+
+SETTLE_BURST = 24
+"""Parses run back-to-back for ONE reading; their median is the number.
+
+This JVM decays when it is left idle. A pause of a few tens of milliseconds —
+which is what the harness's own between-round work costs a process holding
+compiled grammars — leaves the next parse running some 13% slow, and it
+recovers gradually over the following dozen with no sharp settled point. A
+reading taken from one parse after that pause is therefore a resumption cost,
+and which resumption it caught moved the published figure by 1.07x to 1.77x
+between processes measuring the same grammar. Every Python row is flat under
+the same treatment, so this is the JVM's property and the correction belongs
+here rather than in the sampler.
+
+What a burst buys is REPRODUCIBILITY, not truth: the figure it publishes is
+what this parser costs parsing back-to-back, which is the most generous state
+ANTLR has and not what a caller parsing one document occasionally would see.
+"""
 
 
 def _classpath(classes: str) -> str:
@@ -74,8 +102,7 @@ def _build(ast: IrAst, name: str, marks: Marks = NO_MARKS) -> Path:
         result about the toolchain, reported rather than worked around.
     """
     target = generate(ast, name, "Java", marks)
-    driver = Path(__file__).with_name("Driver.java")
-    sources = sorted(str(path) for path in target.glob("*.java")) + [str(driver)]
+    sources = sorted(str(path) for path in target.glob("*.java")) + [str(DRIVER)]
     done = subprocess.run(
         [
             "javac",
@@ -129,7 +156,28 @@ class JavaAntlr:
         self.warmed: tuple[int, bool] = (0, False)
 
     def __call__(self, text: str) -> object:
-        """Parse ``text`` whole in the JVM, raising on any syntax error."""
+        """Parse ``text``, reading the median of a back-to-back settling burst.
+
+        The burst is what makes the reading reproducible across processes; see
+        :data:`SETTLE_BURST` for what it does and does not buy. A refusal
+        raises out of the first parse, so a rejected input costs one.
+        """
+        readings = [self.round(text) for _ in range(SETTLE_BURST)]
+        self._parse_ns = statistics.median(spent for spent, _ in readings)
+        self._stream_ns = statistics.median(stream for _, stream in readings)
+        return "ParserRuleContext"
+
+    def round(self, text: str) -> tuple[float, float]:
+        """One parse in the JVM, as its own ``(parse ns, CharStream ns)``.
+
+        Returns the reading rather than posting it, so a burst can reduce a
+        list of them and nothing has to reach into the seat to see one.
+
+        :param text: The whole input to parse.
+        :returns: The nanoseconds the JVM measured, and the share of them
+            spent building the CharStream.
+        :raises SyntaxError: When the parser refuses the input.
+        """
         body = text.encode("utf-8")
         stdin, stdout = self._proc.stdin, self._proc.stdout
         if stdin is None or stdout is None:
@@ -142,10 +190,10 @@ class JavaAntlr:
         if reply.startswith("ERR "):
             raise SyntaxError(reply[4:])
         _ok, parse_ns, stream_ns = reply.split()
-        self._parse_ns, self._stream_ns = float(parse_ns), float(stream_ns)
+        spent = float(parse_ns)
         if self.cold_us_per_char is None:
-            self.cold_us_per_char = self.measured_us() / max(len(text), 1)
-        return "ParserRuleContext"
+            self.cold_us_per_char = spent / 1e3 / max(len(text), 1)
+        return spent, float(stream_ns)
 
     def measured_us(self) -> float:
         """Microseconds the JVM itself measured for the last parse."""
@@ -171,24 +219,23 @@ class JavaAntlr:
         this JVM throws single slow batches — a deoptimisation, a collection —
         that say nothing about the level the run has reached.
 
+        Warming runs single rounds, never the reading burst: the budget counts
+        parses, and warming through the burst would multiply the number it
+        reports by :data:`SETTLE_BURST` without changing what it certifies.
+
         :param corpus: The document to warm on — the one that will be timed.
         :returns: ``(parses spent, whether the tail held still)`` — an unsettled
             warmup is reported, never silently accepted as if it had converged.
         """
         medians = []
         for _ in range(WARM_BUDGET):
-            times = sorted(self._sample(corpus) for _ in range(WARM_BATCH))
+            times = sorted(self.round(corpus)[0] for _ in range(WARM_BATCH))
             medians.append(times[len(times) // 2])
         late = statistics.median(medians[-WARM_CONFIRM:])
         early = statistics.median(medians[-2 * WARM_CONFIRM : -WARM_CONFIRM])
         settled = abs(late - early) / max(late, early, 1e-9) < WARM_STABLE
         self.warmed = (WARM_BUDGET * WARM_BATCH, settled)
         return self.warmed
-
-    def _sample(self, corpus: str) -> float:
-        """One parse, reported as the microseconds the JVM measured."""
-        self(corpus)
-        return self.measured_us()
 
     def _stderr(self) -> str:
         """Whatever the JVM said on its way out, as one line."""

@@ -1,6 +1,6 @@
 """Tests for ``lexic.parsing.parallel.discovery.scan`` — the self-locating window scan.
 
-The load-bearing property: windows scanned independently, rebased by an
+The property these tests defend: windows scanned independently, rebased by an
 O(windows) prefix sum, produce EXACTLY the offsets a single sequential
 window produces. One window IS the sequential scan — same code path.
 """

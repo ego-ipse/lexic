@@ -7,7 +7,11 @@ from lexic.ir import IrAst
 from lexic.model import GrammarModel
 from lexic.parsing import ModelExecutable, parse_model
 from lexic.parsing.parallel.plan.envelope import Envelope, envelope_plans, unit_witness
-from lexic.parsing.parallel.stitch.model import envelope_tails, stitch_envelope
+from lexic.parsing.parallel.stitch.model import (
+    envelope_tails,
+    is_run,
+    stitch_envelope,
+)
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import ENVELOPE_SOURCE
 from tests.unit.lexic.parsing.parallel.stitch.support import (
     assert_outer_split,
@@ -131,3 +135,38 @@ def test_direct_trailing_boundary_whitespace_round_trips_after_split() -> None:
 
     text = "(" + ",".join("a" * 20 for _ in range(900)) + "   )"
     assert_outer_split(split_case(source, text, "group", 4), text)
+
+
+# ── the run container: exactly a plain tuple, on every stitch route ───────
+
+SEPARATED = (
+    "root ::= entry more*\nmore ::= nl entry\n"
+    'entry ::= name eq name\nname ::= [a-z0-9_]+\neq ::= "="\nnl ::= "\\n"\n'
+)
+"""A separated repetition — the route :func:`_stitch_separated` rebuilds."""
+
+
+def _separated_doc(rows: int) -> str:
+    """A SEPARATED document of ``rows`` entries."""
+    return "\n".join(f"field_{'n' * (n % 12 + 4)}_{n}=value_{n}" for n in range(rows))
+
+
+def test_the_separated_stitch_builds_the_run_as_a_plain_tuple() -> None:
+    """``is_run`` is a class test, not an ``isinstance``: every record and
+    every ``IrTuple`` is a tuple subclass and none of them is a run.
+
+    A stitched ``IrTuple`` compared equal, rendered the same text and walked to
+    the same structure as a sequential parse — and then answered "not a
+    repetition" to the one question the stitch itself asks of a bound field.
+    """
+    text = _separated_doc(700)
+    compiled = compile_text(SEPARATED, cache_key="stitch-separated-run")
+    sequential = parse_model(compiled.codegen_grammar, text, compiled.product)
+    _plan, _seq, parallel = split_case(SEPARATED, text, "root", 8)
+    assert parallel is not None, "the fixture must split"
+
+    run = tuple(parallel)[1]
+    assert run.__class__ is tuple, f"the run is a {type(run).__name__}"
+    assert is_run(run)
+    assert run.__class__ is tuple(sequential)[1].__class__
+    assert parallel.to_text() == sequential.to_text() == text

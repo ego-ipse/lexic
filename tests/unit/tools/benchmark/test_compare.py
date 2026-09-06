@@ -161,6 +161,63 @@ def test_a_slot_penalty_reverses_in_the_control_instead_of_accumulating(
     assert list(pairing.slots) == [up] * 6
 
 
+def test_the_two_schedules_sample_the_first_slot_equally_often_at_even_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each ratio's numerator must occupy the first slot as often as the
+    other's, or a slot cost enters one mean and not the other."""
+    monkeypatch.setattr(compare, "_pair", _slot_reading)
+
+    for pairs in (6, 8, 10):
+        pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "x", pairs, 0)
+        assert sum(pairing.control) == pytest.approx(0.0), pairs
+        assert sum(pairing.candidate) == pytest.approx(0.0), pairs
+
+
+def test_an_odd_pair_count_leaves_one_slot_in_each_mean_and_they_oppose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Parity is the one thing alternation cannot fix.
+
+    At an odd count one arm necessarily takes the first slot once more than the
+    other, so a slot cost d leaves +d/n in the candidate's mean and -d/n in the
+    control's. Opposite signs are what makes it harmless to the VERDICT: the
+    envelope is a magnitude, so both sides of ``low > envelope`` and
+    ``high <= envelope`` move by the same d/n and it cancels. What it does not
+    cancel out of is the reported ratio — which is why the bounds are even.
+    """
+    monkeypatch.setattr(compare, "_pair", _slot_reading)
+    step = math.log(2.0)
+
+    for pairs in (5, 15):
+        pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "x", pairs, 0)
+        assert sum(pairing.candidate) == pytest.approx(step), pairs
+        assert sum(pairing.control) == pytest.approx(-step), pairs
+        # The artefact itself is oriented, so it reads as a constant whatever
+        # the parity does to the two means.
+        assert list(pairing.slots) == [step] * pairs
+
+
+def test_both_pair_bounds_are_even_so_the_reported_ratio_carries_no_slot_bias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bounds' parity is a measurement decision, not a round number.
+
+    A row stops at the floor or exhausts the ceiling far more often than it
+    stops anywhere between, so those two counts are the ones whose schedules
+    must balance. Making either odd puts a known slot bias back into every
+    published ratio, and this is the test that says so before it ships.
+    """
+    assert compare.MIN_PAIRS % 2 == 0, "an odd floor biases every quick verdict"
+    assert compare.MAX_PAIRS % 2 == 0, "an odd ceiling biases every hard one"
+
+    monkeypatch.setattr(compare, "_pair", _slot_reading)
+    for pairs in (compare.MIN_PAIRS, compare.MAX_PAIRS):
+        pairing = compare.sample(compare.Arms(BASE, HEAD, 4), "json", "x", pairs, 0)
+        assert sum(pairing.candidate) == pytest.approx(0.0), pairs
+        assert sum(pairing.control) == pytest.approx(0.0), pairs
+
+
 def test_the_candidate_holds_its_arm_while_reversing_execution_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -407,11 +464,32 @@ def _gate(monkeypatch: pytest.MonkeyPatch, statuses: list[str]) -> int:
     return compare.main(["--base-root", str(BASE), "--head-root", str(HEAD)])
 
 
-def test_an_unresolved_row_blocks_the_gate(
+def test_an_unresolved_row_does_not_block_the_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Inconclusive evidence is not a pass."""
-    assert _gate(monkeypatch, ["ok", "unresolved"]) == 1
+    """An unresolved row has measured no slowdown.
+
+    It has measured that this machine could not separate the two arms inside
+    the pair bound, which is a fact about the measurement. Failing on it makes
+    the gate's answer depend on how quiet the host happened to be, and the only
+    move it leaves is to rerun until the noise cooperates.
+    """
+    assert _gate(monkeypatch, ["ok", "unresolved"]) == 0
+
+
+def test_an_unresolved_row_is_still_printed_in_full(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Not blocking is not hiding: the row keeps its interval, its envelope
+    and its pair count, and the summary says it did not block."""
+    assert _gate(monkeypatch, ["ok", "unresolved"]) == 0
+    printed = capsys.readouterr().out
+
+    assert "g1/lexic-pda" in printed
+    assert "1 row(s) unresolved" in printed
+    assert "not blocking" in printed
+    assert "envelope 1.0200" in printed
+    assert "5 pairs" in printed
 
 
 def test_a_slower_row_blocks_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -419,10 +497,23 @@ def test_a_slower_row_blocks_the_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _gate(monkeypatch, ["slower"]) == 1
 
 
-def test_every_row_resolved_and_none_slower_passes(
+def test_a_mixed_run_fails_for_the_slower_row_alone(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One unresolved row beside a slower one must not change what failed."""
+    assert _gate(monkeypatch, ["ok", "unresolved", "slower"]) == 1
+    printed = capsys.readouterr().out
+
+    assert "1 row(s) slower" in printed
+    assert "1 row(s) unresolved" in printed
+    assert "g2/lexic-pda" in printed.split("slower than this machine")[1]
+
+
+def test_no_row_slower_passes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The only way through is every row decided, and none of them slower."""
+    """The only way to fail is a row this machine could separate AND call
+    slower."""
     assert _gate(monkeypatch, ["ok", "faster"]) == 0
 
 

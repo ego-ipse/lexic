@@ -457,7 +457,7 @@ def test_runs_of_the_mark_never_cut_adjacent_or_empty() -> None:
     )
     assert len(plans) == 1 and plans[0].trailing
     with PoolLease(8) as pool:
-        cuts = cut_offsets(plans[0], text, 8, pool)
+        cuts = cut_offsets(plans[0], text, 8, pool).offsets
     assert len(cuts) > 1
     assert all(text.startswith("\n\n", at) for at in cuts)
     assert all(later - earlier >= MIN_CHUNK for earlier, later in zip(cuts, cuts[1:]))
