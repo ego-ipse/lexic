@@ -22,7 +22,7 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
@@ -46,7 +46,7 @@ _WITNESS_DOC = _WITNESS_UNIT * 300
 def _routes_pda(cg, text: str) -> bool:
     """Whether ``text`` parses through the PDA, or islands to Earley."""
     try:
-        pda_model(prod(cg).pda, text, cg.fold)
+        pda_model(prod(cg).pda, text, cg.executor)
         return True
     except PdaFail:
         return False
@@ -156,7 +156,7 @@ _AMBIGUITY_CASES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 
 def _pda_verdict(cg, text: str) -> tuple[str, str]:
     try:
-        return ("ok", pda_model(prod(cg).pda, text, cg.fold).to_text())
+        return ("ok", pda_model(prod(cg).pda, text, cg.executor).to_text())
     except PdaFail:
         return ("declined", "")
     except UnsupportedConstructError as exc:
@@ -166,7 +166,7 @@ def _pda_verdict(cg, text: str) -> tuple[str, str]:
 def _earley_verdict(cg, text: str) -> tuple[str, str]:
     try:
         product = prod(cg)
-        model = earley_model(product.instance_grammar, text, cg.fold, product.tables)
+        model = earley_model(product.instance_grammar, text, cg.product, product.tables)
         return ("ok", model.to_text())
     except UnsupportedConstructError as exc:
         return ("refused", str(exc))

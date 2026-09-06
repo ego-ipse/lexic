@@ -44,13 +44,15 @@ def test_return_carries_value():
 def test_return_not_swallowed_by_except_exception():
     """_Return survives ``except Exception:`` inside a handler.
 
-    Broad Exception is explicitly ignored by pylint for _Return BaseException.
+    The catch-all IS the test: ``_Return`` derives from ``BaseException`` so
+    that a user's handler cannot eat a control signal, and the only way to
+    assert that is to write the handler that would have eaten it.
     """
 
     def body_that_catches_exception(_d, _n, _nc):
         try:
             raise _Return(99)
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught  # the subject
             return IrStr("swallowed")
 
     op = IrLambda(body_that_catches_exception)

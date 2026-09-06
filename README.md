@@ -12,10 +12,10 @@ parse one document across many threads on free-threaded Python.
 ![Python 3.14+](https://img.shields.io/badge/python-3.14+-3776AB?logo=python&logoColor=white)
 ![Zero runtime dependencies](https://img.shields.io/badge/runtime%20deps-zero-brightgreen)
 <!-- lexic:begin mt-badge -->
-![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.8x_on_16_threads-2a78d6)
+![Parallel parsing](https://img.shields.io/badge/parallel_parse-up_to_5.7x_on_16_threads-2a78d6)
 <!-- lexic:end mt-badge -->
 <!-- lexic:begin tests-badge -->
-![Tests](https://img.shields.io/badge/tests-5.3k%2B-brightgreen)
+![Tests](https://img.shields.io/badge/tests-5.7k%2B-brightgreen)
 <!-- lexic:end tests-badge -->
 ![Status](https://img.shields.io/badge/status-pre--1.0-orange)
 ![License: LGPL](https://img.shields.io/badge/license-LGPL-blue)
@@ -58,35 +58,49 @@ mechanically from the one `IrAst` lexic compiles, and every translation is
 gated by a differential in both directions (each emitted grammar must accept
 what lexic accepts *and refuse what lexic refuses*):
 
-![Parse speed per engine and grammar: lexic-pda sits at the fast edge of the Python field on every grammar; ANTLR's Java target is an order of magnitude faster; several Python engines refuse the hard grammars](docs/assets/cross-engine.svg)
+![Parse speed per engine and grammar: lexic's threaded rows are the fastest Python rows on all twelve, and lexic-pda sits at the fast edge of the sequential Python field; ANTLR's Java target is faster on all twelve, by an order of magnitude on eight of them; several Python engines refuse the hard grammars](docs/assets/cross-engine.svg)
 
 <!-- lexic:begin cross-bench -->
-| grammar | **lexic-mt (16 workers)** | **lexic-lex-ns** | **lexic-pda** | **lexic-earley** | lark (LALR) | lark (Earley) | parsimonious | pyparsing | ANTLR (Python) | *ANTLR (Java)* |
-|---|---|---|---|---|---|---|---|---|---|---|
-| arithmetic | **0.58** | **1.81** | **2.20** | **68.8** | 2.81 | 52.9 | 2.45 | 23.5 | 8.74 | *0.13* |
-| csv | **0.22** | **0.42** | **0.59** | **16.5** | 0.79 | 14.5 | 0.96 | 4.07 | 2.56 | *0.03* |
-| json | **0.29** | **1.03** | **1.25** | **37.2** | 3.59 | 39.9 | 1.84 | 11.6 | 10.3 | *0.33* |
-| gbnf-meta | **0.54** | **2.22** | **2.61** | **69.9** | refuses | 200.6 | refuses | refuses | 12.2 | *0.39* |
-| abnf-meta | **0.48** | **1.85** | **2.30** | **67.4** | refuses | 140.3 | 3.69 | 38.1 | 14.4 | *0.35* |
-| vyx | **0.53** | **2.28** | **2.76** | **53.8** | refuses | 104.1 | 2.41 | 16.9 | 11.1 | *0.22* |
-| markdown | **0.23** | **0.70** | **0.91** | **39.0** | 3.41 | 99.2 | refuses | 95.8 | 8.72 | *0.09* |
+| grammar | **lexic-mt (16 workers)** | **lexic-mt-lex-ns (16 workers)** | **lexic-lex-ns** | **lexic-pda** | **lexic-earley** | lark (LALR) | lark (Earley) | parsimonious | pyparsing | ANTLR (Python) | *ANTLR (Java)* |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| arithmetic | **0.44** | **0.42** | **1.84** | **2.05** | **53.1** | 2.80 | 45.9 | 2.49 | 32.1 | 8.43 | *0.06* |
+| csv | **0.14** | **0.11** | **0.40** | **0.54** | **11.4** | 0.77 | 12.7 | 0.93 | 3.92 | 2.50 | *0.02* |
+| json | **0.27** | **0.20** | **0.75** | **1.22** | **29.2** | 3.63 | 46.1 | 1.85 | 10.4 | 10.1 | *0.07* |
+| gbnf-meta | **0.52** | **0.42** | **2.09** | **2.51** | **62.7** | refuses | 213.6 | refuses | refuses | 12.5 | *0.11* |
+| abnf-meta | **0.48** | **0.39** | **1.78** | **2.25** | **59.0** | refuses | 145.3 | 3.78 | 55.8 | 14.7 | *0.11* |
+| vyx | **0.47** | **0.32** | **2.26** | **2.67** | **46.6** | refuses | 137.3 | 2.50 | 29.4 | 11.1 | *0.08* |
+| markdown | **0.19** | **0.15** | **0.68** | **0.89** | **33.8** | 3.47 | 113.6 | refuses | 99.1 | 8.77 | *0.06* |
+| nested | **0.42** | **0.43** | **1.15** | **1.17** | **27.3** | 2.80 | 41.2 | 3.43 | refuses | 12.8 | *0.07* |
+| lexruns | **0.05** | **0.04** | **0.10** | **0.14** | **7.52** | 2.63 | 12.9 | 0.79 | 2.70 | 6.14 | *0.04* |
+| backtrack | **0.06** | **0.04** | **0.10** | **0.20** | **6.52** | 2.60 | 9.81 | 0.79 | 3.88 | 6.84 | *0.05* |
+| mixedends | **0.12** | **0.04** | **0.07** | **0.47** | **12.8** | 3.01 | 15.9 | 1.16 | 4.36 | 7.45 | *0.05* |
+| announced | **0.05** | **0.02** | **0.04** | **0.19** | **3.92** | 0.29 | 5.81 | 0.78 | 2.74 | 1.38 | *0.02* |
 
-µs/char, lower is faster; medians of isolated rounds; measured 2026-08-25; 9 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
+µs/char, lower is faster; medians of isolated rounds; measured 2026-09-04 to 2026-09-06, per cell; 8 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
 <!-- lexic:end cross-bench -->
 
 Three things the table means, stated plainly:
 
-- **ANTLR's Java target is the fastest single-threaded thing here, by an
-  order of magnitude.** That is the honest result — and it is a
-  *tool+runtime* comparison: that column is Java, every other column is
-  Python.
-- **`lexic-mt` is the fastest Python row on every grammar**, and sequential
-  `lexic-pda` outruns `lark-lalr` on every grammar lark-lalr accepts while
-  being the only Python engine that parses all seven — building a typed,
-  byte-recoverable model, which no other row pays for. The one sequential
-  loss: parsimonious edges the unmarked row on `vyx` (2.41 vs 2.76) while
-  the directive-pruned rows stay ahead. A refusal is a genuine grammar
-  conflict, printed as a result.
+- **ANTLR's Java target is the fastest single-threaded thing here**, on every
+  one of the twelve. That is the honest result — and it is a *tool+runtime*
+  comparison: that column is Java, every other column is Python. The margin
+  is an order of magnitude on eight of them (10x to 29x) and narrows to
+  1.4x–2.3x on `lexruns`, `backtrack`, `mixedends` and `announced` — the four
+  where lexic's own directives buy the most.
+- **A threaded row is the fastest Python row on all twelve grammars** —
+  `lexic-mt-lex-ns` on eleven, plain `lexic-mt` on `nested`. Compare like with
+  like and the threading always pays: at matching directives the sixteen-worker
+  row leads its sequential twin on every grammar, from 1.6x on `mixedends` to
+  7.1x on `vyx`. The two columns that cross are `lexic-mt` and `lexic-lex-ns`
+  on `announced` and `mixedends`, and they differ in directives rather than in
+  threads — there the directives alone buy 4.7x and 6.7x. Sequential
+  `lexic-pda` outruns `lark-lalr` on every grammar lark-lalr accepts, and it
+  beats both other Python engines that parse all twelve — lark's Earley
+  backend and ANTLR's Python runtime — on every one of them, while building a
+  typed, byte-recoverable model no other row pays for. The one sequential
+  loss: parsimonious edges the unmarked row on `vyx` (2.50 vs 2.67) while the
+  directive-pruned rows stay ahead. A refusal is a genuine grammar conflict,
+  printed as a result.
 - **The engines do not build the same thing.** Lexic returns a typed model
   the source is byte-recoverable from; the others return generic trees.
 
@@ -98,35 +112,37 @@ certification — no grammar-specific casing), pieces parse independently, and
 the stitched model is byte-identical to the sequential parse, ambiguity
 refusals included. Wall-clock speedup at 16 workers, per bench grammar:
 
-![Wall-clock speedup at 16 workers per grammar, up to about 6x](docs/assets/mt-speedup.svg)
+![Wall-clock speedup at 16 workers per grammar, from about 3x to about 6x](docs/assets/mt-speedup.svg)
 
 The full Lexic ladder — directive-pruned rows (`@lexical`, `@non-semantic`)
-and the 16-worker row beside the plain engines (µs/char, from the committed
-regression baseline; a pre-commit ratchet confirms any >5% move in fresh
-processes before it can land):
+and the 16-worker row beside the plain engines (µs/char, from the same
+committed artifact as the table above; CI judges every change against its
+base as paired log ratios inside a byte-identical control's noise envelope,
+one fresh process per parse, so a slowdown the machine can distinguish from
+noise fails the build rather than a fixed percentage):
 
 <!-- lexic:begin lexic-bench -->
 | grammar | pda | `@lexical` | `@lexical` `@non-semantic` | 16-worker | speedup | earley |
 |---|---|---|---|---|---|---|
-| abnf-meta | 2.29 | 2.19 | 1.84 | 0.49 | **4.7×** | 69.3 |
-| announced | 0.19 | 0.13 | 0.13 | 0.07 | **2.6×** | 4.82 |
-| arithmetic | 2.10 | 1.92 | 1.86 | 0.59 | **3.6×** | 69.9 |
-| backtrack | 0.26 | 0.19 | 0.18 | 0.08 | **3.1×** | 7.94 |
-| csv | 0.56 | 0.42 | 0.42 | 0.17 | **3.3×** | 14.7 |
-| gbnf-meta | 2.62 | 2.28 | 2.31 | 0.51 | **5.2×** | 70.5 |
-| json | 1.24 | 1.04 | 1.05 | 0.30 | **4.1×** | 37.5 |
-| lexruns | 0.20 | 0.18 | 0.18 | 0.07 | **3.0×** | 8.08 |
-| markdown | 0.96 | 0.73 | 0.74 | 0.22 | **4.4×** | 40.3 |
-| mixedends | 0.52 | 0.30 | 0.31 | 0.17 | **3.0×** | 15.9 |
-| nested | 1.28 | 1.27 | 1.27 | 0.46 | **2.8×** | 34.4 |
-| vyx | 2.73 | 2.39 | 2.41 | 0.47 | **5.8×** | 55.6 |
+| abnf-meta | 2.25 | 2.10 | 1.78 | 0.48 | **4.6×** | 59.0 |
+| announced | 0.19 | 0.04 | 0.04 | 0.05 | **4.0×** | 3.92 |
+| arithmetic | 2.05 | 1.81 | 1.84 | 0.44 | **4.6×** | 53.1 |
+| backtrack | 0.20 | 0.10 | 0.10 | 0.06 | **3.5×** | 6.52 |
+| csv | 0.54 | 0.40 | 0.40 | 0.14 | **4.0×** | 11.4 |
+| gbnf-meta | 2.51 | 2.14 | 2.09 | 0.52 | **4.9×** | 62.7 |
+| json | 1.22 | 0.74 | 0.75 | 0.27 | **4.6×** | 29.2 |
+| lexruns | 0.14 | 0.09 | 0.10 | 0.05 | **3.0×** | 7.52 |
+| markdown | 0.89 | 0.68 | 0.68 | 0.19 | **4.7×** | 33.8 |
+| mixedends | 0.47 | 0.07 | 0.07 | 0.12 | **3.9×** | 12.8 |
+| nested | 1.17 | 1.16 | 1.15 | 0.42 | **2.8×** | 27.3 |
+| vyx | 2.67 | 2.27 | 2.26 | 0.47 | **5.7×** | 46.6 |
 <!-- lexic:end lexic-bench -->
 
-Run it yourself: `uv run python -m tools.benchmark.bench --rounds 3`, or
-`--only json vyx` for a subset. The ANTLR Java row needs a JDK. Every number
+Run it yourself: `uv run python -m tools.benchmark.bench --rounds 3 --cores 16`,
+or `--only json vyx` for a subset. The ANTLR Java row needs a JDK. Every number
 above is rendered by `uv run python -m tools.render_readme` from
-`tools/benchmark/*.json`; a suite invariant fails if this README drifts from
-those artifacts.
+`tools/benchmark/competitors_baseline.json`; a suite invariant fails if this
+README drifts from that artifact.
 
 ## Quickstart
 
@@ -194,7 +210,7 @@ flowchart LR
     R -->|canonicalize| C["canonical IrAst"]
     C -->|codegen passes| G["codegen grammar"]
     G -->|"type() synthesis"| M["model classes"]
-    G -->|binding view| F["instance fold"]
+    G -->|binding view| F["product program<br>(verified at binding)"]
     M --> CG["CompiledGrammar"]
     F --> CG
     CG -->|".parse(text)"| I["typed model"]
@@ -206,8 +222,9 @@ flowchart LR
 One canonical `IrAst` in the middle is what makes grammars portable: two
 notations describing the same language converge on the same tree, and every
 flavour is an emitter *from* that tree. The same engine parses grammar text
-(each flavour's self-grammar is data) and instances (a positional fold over
-the real codegen grammar).
+(each flavour's self-grammar is data) and instances: one product program per
+grammar, lowered once and verified before any parse, that both engines execute
+against the real codegen grammar.
 
 ## Getting started
 
@@ -224,7 +241,7 @@ run any of them as `uv run python -m getting_started.<name>`:
 | 06 | [`token_grammar`](getting_started/ex06_token_grammar.py) | Token grammars: parse token-granular, round-trip, next-token mask. |
 | 07 | [`constrained_generation`](getting_started/ex07_constrained_generation.py) | A generation loop: mask → pick → `push` until `accepts()`. |
 | 08 | [`twin_module`](getting_started/ex08_twin_module.py) | Export an importable twin; lexic parses its own export back. |
-| 09 | [`json_reducer`](getting_started/ex09_json_reducer.py) | `CompiledGrammar.reduce`: fold a document to IR values. |
+| 09 | [`json_reducer`](getting_started/ex09_json_reducer.py) | `CompiledGrammar.reduce`: reduce a document to IR values. |
 | 10 | [`templating`](getting_started/ex10_templating.py) | Extract selected paths; skip the rest as raw spans. |
 | 11 | [`hf_tokenizer`](getting_started/ex11_hf_tokenizer.py) | Read an HF `tokenizer.json` with lexic's own JSON grammar. |
 | 12 | [`real_think_flow`](getting_started/ex12_real_think_flow.py) | `<think>` constrained decoding against a real 151k vocabulary. |
@@ -256,7 +273,7 @@ spell (EBNF has no negation) are refused explicitly, never approximated.
   that is pure data — completeness, membership and fidelity gated on every
   run. → [.wiki/lexic/transpilation.md](.wiki/lexic/transpilation.md)
 - **Reduce** — `compiled.reduce(text, reducer)` derives a pruned variant,
-  parses only what the reading needs, and folds the result to IR values. A
+  parses only what the reading needs, and reduces the result to IR values. A
   reducer is a *reading*; one compiled grammar can carry several.
 - **Template** — `template(compiled, shape, spec)` parses one pass, models
   only the paths you keep, captures the rest as raw spans.

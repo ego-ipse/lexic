@@ -14,7 +14,7 @@ value under its own key. One definition, and the number this module reports
 for sharing means nothing except under it.
 
 It is WIDER than :meth:`~lexic.ir.spine.spine.IrSelf.children` on both halves,
-and both widenings are load-bearing:
+and both widenings are there for a reason:
 
 - ``children()`` honours ``_child_attrs`` and so omits a record's
   non-dispatched fields. Those hold real nodes — an ``IrRule``'s own name is

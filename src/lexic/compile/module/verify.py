@@ -7,14 +7,14 @@ from typing import ClassVar
 from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.module.export import docstring_lines, field_type, value_str_type
 from lexic.compile.module.selfgrammar import MClass, MField, MModule, parse_module
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir import IrBind, IrNamedTuple, IrNoneType, IrRule, IrSequence, rule_closure
 
 
 def _expected_fields(
-    bound: RuleBinding, rule: IrRule, class_by_rule: dict[str, str]
+    bound: RuleMap, rule: IrRule, class_by_rule: dict[str, str]
 ) -> tuple[MField, ...]:
     """Recompute the field records the exporter renders for ``bound``."""
     if bound.kind == "value_str":
@@ -59,7 +59,7 @@ class _VerifyCtx(IrNamedTuple[dict, str, bool, dict, dict]):
 
 
 def _verify_class(
-    mclass: MClass, bound: RuleBinding, rule: IrRule, ctx: _VerifyCtx
+    mclass: MClass, bound: RuleMap, rule: IrRule, ctx: _VerifyCtx
 ) -> None:
     class_by_rule, flavour_name, inline, shapes, authored = ctx
     _check(

@@ -22,7 +22,7 @@ from tests.unit.lexic.parsing.pda.compiler.test_clones import pda_from_text
 def _model_for(text: str, grammar: str, cache_key: str):
     pda = pda_from_text(grammar)
     compiled = compile_text(grammar, flavour="gbnf", cache_key=cache_key)
-    return pda_model(pda, text, compiled.fold)
+    return pda_model(pda, text, compiled.executor)
 
 
 def test_a_mixed_literal_clone_ref_and_charclass_leaf_builds_correctly():

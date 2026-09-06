@@ -32,8 +32,9 @@ The tuple-coded NamedTuples `compile_pda` produces before lowering:
 `CloneKey`, `IslandRef`, the loop gates (`StopGate` / `PairGate` /
 `KTupleGate` / `PeekGate`, with `ScanGate` from `core/` completing the union),
 and `ItemSpec` / `ArmSpec` / `GroupSpec` / `CloneSpec`. This is the shape the
-structural tests pin. A pure-data leaf — it imports only `CharSet`,
-`RuleFold`, and `ScanGate`; `clones.py` re-exposes it as its public surface.
+structural tests pin. A pure-data leaf — it imports only `CharSet`, the rule's
+product routine, and `ScanGate`; `clones.py` re-exposes it as its public
+surface.
 
 ## `flatten.py` — the int-coded runtime program
 

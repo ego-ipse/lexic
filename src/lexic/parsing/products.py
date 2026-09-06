@@ -26,12 +26,13 @@ from dataclasses import dataclass
 from lexic.exceptions import Refusal, UnsupportedConstructError
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo
-from lexic.parsing.earley.engine import EarleyParser, first_meaning
+from lexic.parsing.earley.engine import first_built_meaning
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree, ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
-    AmbiguityPolicy,
+    MeaningBuilder,
     Resolver,
-    another_meaning,
+    chosen_meaning,
+    different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
@@ -42,11 +43,15 @@ from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.tokenscan import TokenKernel
-from lexic.parsing.fold import ModelFold, collapsed_fold_tables, lift_optional_nullables
+from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import ProbeFork
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, pda_model
+from lexic.parsing.product import (
+    collapsed_product_tables,
+)
 
 __all__ = [
     "parse_model",
@@ -80,14 +85,14 @@ def _owned_text(text: str) -> str:
 def earley_model[M](
     grammar: IrAst,
     text: str,
-    fold: ModelFold[M],
+    binding: ModelExecutable[M],
     tables: ParserTables | None = None,
     resolve: Resolver | None = None,
 ) -> M:
-    """Parse ``text`` and fold it to a model through the Earley engine.
+    """Parse ``text`` and complete its model product through Earley.
 
     The instance product's Earley completion — :func:`~lexic.parsing.earley
-    .engine.first_meaning` folded through ``fold``. The fold is also the gate's
+    .engine.first_meaning` completed through ``binding``. The product is also the gate's
     ``build``: a span whose derivations fold to DIFFERENT models is refused
     unless ``resolve`` settles it, the same question the PDA's island sub-parse
     asks, so the two engines refuse (or resolve) identically instead of each
@@ -95,7 +100,7 @@ def earley_model[M](
 
     :param grammar: The Earley-normalised instance grammar.
     :param text: The input string.
-    :param fold: The positional ParseTree → model fold producing ``M``.
+    :param binding: The bound model product producing ``M``.
     :param tables: Optional pre-built run-collapsed tables for ``grammar``.
     :param resolve: The caller's deterministic answer to an ambiguity;
         ``None`` refuses one.
@@ -103,15 +108,20 @@ def earley_model[M](
     :raises UnsupportedConstructError: If ``text`` does not parse, or parses to
         two different models with no resolver supplied.
     """
-    policy = AmbiguityPolicy(fold.apply, resolve)
-    tree = first_meaning(EarleyParser(), grammar, text, tables, policy)
-    return fold.apply(tree)
+    executor = binding.executor
+    return first_built_meaning(
+        grammar,
+        text,
+        MeaningBuilder(executor.build, executor.replay),
+        tables,
+        resolve,
+    )
 
 
 def token_model[M](
     grammar: IrAst,
     text: str,
-    fold: ModelFold[M],
+    binding: ModelExecutable[M],
     bounds: dict[int, tuple[int, int]],
     resolve: Resolver | None = None,
 ) -> M:
@@ -125,7 +135,7 @@ def token_model[M](
 
     :param grammar: The codegen grammar (with resolved token terminals).
     :param text: The input string.
-    :param fold: The positional ParseTree → model fold producing ``M``.
+    :param binding: The bound model product producing ``M``.
     :param bounds: char position → ``(token_id, char_len)`` segmentation.
     :param resolve: The caller's deterministic resolver, or ``None`` to refuse
         an ambiguous span — the same contract the char route offers.
@@ -147,15 +157,11 @@ def token_model[M](
     tree = FastTree(kernel, {}).build(handle)
     if not isinstance(tree, ParseTree):
         raise UnsupportedConstructError("parsing: no token derivation")
-    witness = another_meaning(kernel, handle, fold.apply, tree)
-    if witness is None:
-        return fold.apply(tree)
-    if resolve is None:
-        raise UnsupportedConstructError(
-            "parsing: ambiguous input — two derivations that mean different "
-            "things; supply a resolver to choose between them"
-        )
-    return fold.apply(resolve(tree, witness))
+    executor = binding.executor
+    builder = MeaningBuilder(executor.build, executor.replay)
+    return chosen_meaning(
+        different_meaning(kernel, handle, builder, tree), builder, resolve
+    )
 
 
 # ── compiled-product records + per-identity memoisation ────────────────────
@@ -166,7 +172,7 @@ class _ModelProduct:
     """An instance product compiled once — the model PDA + collapsed tables.
 
     :ivar grammar: The authored codegen grammar (held to pin its identity key).
-    :ivar fold: The positional fold (held to pin its identity key).
+    :ivar binding: The bound model product (held to pin its identity key).
     :ivar pda: The model PDA (immediate-PdaFail start ⇒ Earley every parse).
     :ivar instance_grammar: ``normalize(lift_optional_nullables(grammar))`` — the
         completion grammar and island sub-parse shape.
@@ -174,7 +180,7 @@ class _ModelProduct:
     """
 
     grammar: IrAst
-    fold: ModelFold
+    binding: ModelExecutable
     pda: PdaTables
     instance_grammar: IrAst
     tables: ParserTables
@@ -209,31 +215,40 @@ def _token_tables(grammar: IrAst, bits: int) -> ParserTables:
 
 
 def _model_product(
-    grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS
+    grammar: IrAst, binding: ModelExecutable, bits: int = ORIGIN_BITS
 ) -> _ModelProduct:
-    """The compiled instance product for ``(grammar, fold, bits)``, memoised.
+    """The compiled instance product for ``(grammar, binding, bits)``, memoised.
 
     Keyed by identity plus the packing tier ``bits`` (the Earley tables pack
     at it). The PDA half is tier-independent but rides the key — a second
     tier for the same pair only ever compiles for a beyond-first-tier input.
     """
-    key = (id(grammar), id(fold), bits)
+    key = (id(grammar), id(binding), bits)
     cached = _MODEL_CACHE.get(key)
-    if cached is not None and cached.grammar is grammar and cached.fold is fold:
+    if cached is not None and cached.grammar is grammar and cached.binding is binding:
         return cached
     lifted = lift_optional_nullables(grammar)
     instance = normalize(lifted)
     product = _ModelProduct(
         grammar,
-        fold,
-        compile_pda(lifted, instance, fold.baked),
+        binding,
+        compile_pda(lifted, instance, binding),
         instance,
-        collapsed_fold_tables(instance, fold, bits),
+        collapsed_product_tables(instance, binding.routines, bits),
     )
     _MODEL_CACHE[key] = product
     # Normalisation and the PDA compile mint objects the engine's own memos
     # key on; they exist only inside this product, so they release with it.
+    #
+    # Under BOTH key identities, because either one retires this entry and
+    # neither outlives the other in general. A grammar outlives many private
+    # bindings — a document thread's view, a worker's replica — so owning
+    # these by the grammar alone left a whole derived chain behind for every
+    # thread that came and went. A rebind is the mirror case: a fresh codegen
+    # grammar over a SHARED product, where owning them by the binding alone
+    # leaves the chain pinned to a product that never dies.
     adopt(id(grammar), lifted, instance, product.pda, product.tables)
+    adopt(id(binding), lifted, instance, product.pda, product.tables)
     return product
 
 
@@ -271,13 +286,16 @@ def _refused(
 
 
 def parse_model[M](
-    grammar: IrAst, text: str, fold: ModelFold[M], resolve: Resolver | None = None
+    grammar: IrAst,
+    text: str,
+    binding: ModelExecutable[M],
+    resolve: Resolver | None = None,
 ) -> M:
     """Parse instance ``text`` to a model — PDA-first, Earley + fold completion.
 
     Takes the **authored** codegen grammar; lifting, normalisation, PDA and
     run-collapsed table compilation are internal, memoised per ``(grammar,
-    fold)`` identity plus the packing tier the input's size picks
+    binding)`` identity plus the packing tier the input's size picks
     (:func:`~lexic.parsing.earley.kernel.tables.tier_for`). Each parse runs the model
     PDA first and, on any :class:`PdaFail`, completes on the gated Earley
     first derivation + ``fold``. A span whose derivations mean two different
@@ -286,7 +304,7 @@ def parse_model[M](
 
     :param grammar: The authored codegen grammar.
     :param text: The instance input to parse.
-    :param fold: The positional ParseTree → model fold producing ``M``.
+    :param binding: The bound model product producing ``M``.
     :param resolve: The caller's deterministic answer to an ambiguity;
         ``None`` refuses one.
     :returns: The model the start rule folds to.
@@ -294,19 +312,21 @@ def parse_model[M](
         two different models with no resolver supplied.
     """
     text = _owned_text(text)
-    product = _model_product(grammar, fold, tier_for(len(text)))
+    product = _model_product(grammar, binding, tier_for(len(text)))
     try:
-        return pda_model(product.pda, text, fold, resolve=resolve)
+        return pda_model(product.pda, text, binding.executor, resolve=resolve)
     except PdaFail as fail:
         try:
             return earley_model(
-                product.instance_grammar, text, fold, product.tables, resolve
+                product.instance_grammar, text, binding, product.tables, resolve
             )
         except UnsupportedConstructError as refusal:
             raise _refused(fail, refusal) from None
 
 
-def pda_tables(grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS) -> PdaTables:
+def pda_tables(
+    grammar: IrAst, binding: ModelExecutable, bits: int = ORIGIN_BITS
+) -> PdaTables:
     """The instance product's compiled PDA — the artefact's predictive half.
 
     The public reach onto what :func:`parse_model` drives: identity-memoised
@@ -316,9 +336,9 @@ def pda_tables(grammar: IrAst, fold: ModelFold, bits: int = ORIGIN_BITS) -> PdaT
     subclass runs over.
 
     :param grammar: The authored codegen grammar.
-    :param fold: The positional fold the product is keyed with.
+    :param binding: The bound model product the compile is keyed with.
     :param bits: The packing tier the memo key rides (the PDA half itself is
         tier-independent).
     :returns: The compiled :class:`~lexic.parsing.pda.compiler.tables.PdaTables`.
     """
-    return _model_product(grammar, fold, bits).pda
+    return _model_product(grammar, binding, bits).pda

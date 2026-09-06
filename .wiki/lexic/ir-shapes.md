@@ -8,7 +8,7 @@ The IR is the contract between parsers, transformers, codegen, and flavour emitt
 
 ## Primitive-node model (V2)
 
-A node **is** its payload. There are NO `.value` / `.items` / `.arms` accessors — use the node directly. `IrType`, `coerce`, the load-bearing `IrNode.__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade are all GONE.
+A node **is** its payload. There are NO `.value` / `.items` / `.arms` accessors — use the node directly. `IrType`, `coerce`, the coercing `IrNode.__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade are all GONE.
 
 ### How a record's fields are derived — and why it is not `__dict__`
 
@@ -255,17 +255,17 @@ IrBind(item: int, mode: str, semantic: bool = True)
 
 `item` is the positional index into the rule's single sequence arm (`= the kid slot` in the parse tree — `normalize()` preserves item↔kid positions, so `kids[i] ↔ items[i]`, see [[architecture]]); `mode` is one of `BIND_MODES = ("text", "gtext", "model", "models")` — how the kid at that slot folds into the field value (`text`: terminal atom text; `gtext`: literal-only group text, absent when optional-and-empty; `model`: one sub-model; `models`: a list of sub-models; `span`: the slot's `IrSpan` — WHERE it was consumed rather than what it says); `semantic` is `False` for a structural-noise field (whitespace ref). `IrBind` is a plain `IrNamedTuple`-family record with `_child_attrs = ()` (all three fields are scalar payload), importable by generated modules and readable by `model.py`/the compile package.
 
-**`span` is a fold mode, never a binding one.** `compute_binding` cannot produce it — a generated field is what a rule MEANS, and a position is not — so no model class ever carries one. It exists for a fold that is asking WHERE: templating's raw-span capture binds the same two slots twice, in `text` mode and in `span` mode, so one capture yields both what the entry says and where it said it. Each route serves it from what it already had: the PDA reads the frame offsets it computes the span text from (`pda/runtime/build.py`), and the tree route accumulates them over the leaves `_subtree_text` already walks in order (`_tree_offsets`, `parsing/fold.py`), paid only by a fold that asked (`ModelFold.wants_spans`). A parity gate pins the two routes to each other, because a product that differed by engine would be worse than none.
+**`span` is a fold mode, never a binding one.** `compute_binding` cannot produce it — a generated field is what a rule MEANS, and a position is not — so no model class ever carries one. It exists for a fold that is asking WHERE: templating's raw-span capture binds the same two slots twice, in `text` mode and in `span` mode, so one capture yields both what the entry says and where it said it. Each route serves it from what it already had: the PDA reads the frame offsets it computes the span text from (`pda/runtime/build.py`), and the tree route accumulates them over the leaves `subtree_text` already walks in order (`tree_offsets`, `parsing/product/tree.py`), paid only by a product whose captures ask (a span-mode `CaptureRoutine`). A parity gate pins the two routes to each other, because a product that differed by engine would be worse than none.
 
 Sharing, on the tree route: the forest interns nodes, and the first occurrence wins in the offset pass. That is exact for every NON-EMPTY node — a non-empty derivation is chart-keyed by its span, so it cannot be shared across positions — and only zero-width nodes can collide, which is the one case that route cannot separate.
 
-`codegen/binding.py`'s `compute_binding(codegen_grammar)` produces these (one `RuleBinding` per rule, `fields: dict[str, IrBind]`); `codegen/model_emitter.py` renders them into `Annotated[<type>, IrBind(...)]` field metadata; `parsing/fold.py`'s `ModelFold` bakes its IR body-table (`IrMap[IrRuleRef, ModelBody]`) to the same plain-data `FieldFold` shape (`(item, mode, name, lo)`), built by `compile.py` — the fold never imports `IrBind`/codegen directly, only the `BIND_MODES` vocabulary.
+`compile/pipeline/rulemap.py`'s `compute_binding(codegen_grammar)` produces these (one `RuleMap` per rule, `fields: dict[str, IrBind]`); `synthesize` writes them into each class's `__binds__`; `compile/product/registry.py`'s `register_model` turns them into the product program's captures (`CAPTURE_FOR_BIND` maps each bind mode to a `CaptureMode`), which the engine reads back as `CaptureRoutine(slot, mode, optional, name)` — the engine never imports `IrBind`/the compile package, only the lowered tables.
 
 ## `kind` semantics
 
-There is no `RuleSpec.kind` field anymore. `codegen/binding.py`'s `classify_rule(rule)` derives a rule's kind fresh from the codegen grammar (`RuleKind = Literal["sequence", "alternation", "value_str"]`), carried on `RuleBinding.kind`:
+There is no `RuleSpec.kind` field anymore. `compile/pipeline/rulemap.py`'s `classify_rule(rule)` derives a rule's kind fresh from the codegen grammar (`RuleKind = Literal["sequence", "alternation", "value_str"]`), carried on `RuleMap.kind`:
 
-| `kind` | Body shape | `RuleBinding.fields` | Generated class |
+| `kind` | Body shape | `RuleMap.fields` | Generated class |
 |---|---|---|---|
 | `"value_str"` | no `IrRuleRef` anywhere in the body | empty (implicit `value` field, no `IrBind`) | concrete; `value: <pattern type>` |
 | `"alternation"` | more than one non-empty arm remains after `hoist_arms` | empty | abstract (ABC); each arm's target rule is a subclass |

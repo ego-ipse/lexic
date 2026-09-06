@@ -9,8 +9,7 @@ parse, so worker count never changes what an input means.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, NamedTuple
+from typing import NamedTuple
 
 from lexic.exceptions import LexicError
 from lexic.ir import (
@@ -24,7 +23,7 @@ from lexic.ir import (
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.fold import ModelFold
+from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import (
     choose,
     find,
@@ -32,10 +31,12 @@ from lexic.parsing.parallel.discovery.regions import (
 from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
 from lexic.parsing.parallel.plan.cuts import (
+    Cuts,
     cut_offsets,
     cut_spans,
-    scan_marks,
+    reads_a_sweep,
     scan_windows,
+    shared_scanner,
     sole_mark,
 )
 from lexic.parsing.parallel.plan.envelope import (
@@ -43,20 +44,20 @@ from lexic.parsing.parallel.plan.envelope import (
     unit_witness,
 )
 from lexic.parsing.parallel.plan.speculation import speculative_openings
-from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip
+from lexic.parsing.parallel.plan.split import SplitPlan, lead_skip, spellings
 from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, doc_workers
 from lexic.parsing.parallel.pool import PoolLease, WorkPool
-from lexic.parsing.parallel.replicas import worker_replicas
+from lexic.parsing.parallel.replicas import worker_parse
 from lexic.parsing.parallel.roles import Roles, Separator, Terminator, roles
 from lexic.parsing.parallel.stitch.interior import routed_split
 from lexic.parsing.parallel.stitch.merge import MergeRequest, standins, stitch_shell
 from lexic.parsing.parallel.stitch.model import (
-    RegionWork,
     envelope_tails,
     stitch_envelope,
     stitch_routed,
     stitch_terminated,
 )
+from lexic.parsing.parallel.stitch.plan import RegionWork
 from lexic.parsing.parallel.stitch.safety import (
     bounds_units,
     mark_interiors,
@@ -77,18 +78,13 @@ class Request[M: IrNamedTuple](NamedTuple):
     only this varies per call.
 
     :ivar text: The document.
-    :ivar fold: The instance fold producing ``M``.
+    :ivar binding: The bound model product producing ``M``.
     :ivar resolve: The caller's ambiguity resolver, or ``None``.
     """
 
     text: str
-    fold: ModelFold[M]
+    binding: ModelExecutable[M]
     resolve: Resolver | None = None
-
-
-ModelProduct = Callable[..., Any]
-"""The model product, injected: this module splits products, never imports
-them — that direction is what lets a product's own entry call into it."""
 
 
 def _unit_ref(item: IrItem) -> str | None:
@@ -167,6 +163,7 @@ def _plan_for(
         grammar,
         Scanner(roles(grammar)),
         frozenset({sep.mark}),
+        spellings(frozenset({sep.mark})),
         unit,
         wrappers,
         sep,
@@ -205,6 +202,7 @@ def _terminated_plans(
             grammar,
             Scanner(derived, mark_interiors(grammar, unit, record.mark)),
             record.mark,
+            spellings(record.mark),
             unit,
             (),
             None,
@@ -251,6 +249,7 @@ def _speculative_plans(
             grammar,
             Scanner(proposals),
             openings,
+            spellings(openings),
             unit,
             (),
             None,
@@ -302,34 +301,34 @@ def split_plan(grammar: IrAst) -> SplitPlan | None:
 
 
 def _split_parse[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
     cuts: list[int],
     pool: WorkPool,
 ) -> M | None:
     """One split attempt; ``None`` means: parse sequentially instead."""
-    text, fold, resolve = ask
+    text, binding, resolve = ask
     terminated = plan.terminated
     spans, leads = cut_spans(plan, text, cuts)
     if not terminated and plan.lead_grammar is None:
         if any(lead != plan.lead_literal for lead in leads):
             return None
-    # Each worker parses against its OWN equal grammar and fold copy: the
-    # tables are read-only, but sharing one set of them across cores is what
-    # flattens scaling at ~1.8x (refcount cache-line traffic, measured).
-    views = worker_replicas(plan.grammar, fold, len(spans))
     try:
         chunks = pool.map(
-            lambda k: parse(
-                views[k][0], text[spans[k][0] : spans[k][1]], views[k][1], resolve
+            lambda k: worker_parse(
+                parse,
+                plan.grammar,
+                text[spans[k][0] : spans[k][1]],
+                binding,
+                resolve,
             ),
             list(range(len(spans))),
         )
         if plan.envelope is not None:
             return _envelope_join(parse, plan, ask, (chunks, leads))
         lead_models = [
-            (parse(plan.lead_grammar, lead, fold, resolve),)
+            (parse(plan.lead_grammar, lead, binding, resolve),)
             if plan.lead_grammar is not None
             else ()
             for lead in leads
@@ -338,7 +337,7 @@ def _split_parse[M: IrNamedTuple](
         return None
     if terminated:
         return stitch_terminated(chunks)
-    return stitch_routed(chunks, lead_models, plan.wrappers, fold)
+    return stitch_routed(chunks, lead_models, plan.wrappers, binding)
 
 
 RETRIES = 2
@@ -350,9 +349,9 @@ character that merely LOOKS like a unit opening without letting a document of
 near-misses out-cost the sequential parse it is racing."""
 
 
-def _piece(
-    parse: ModelProduct, view: tuple, text: str, resolve: Resolver | None
-) -> IrNamedTuple | None:
+def _piece[M: IrNamedTuple](
+    parse: ModelParse[M], grammar: IrAst, text: str, ask: Request[M]
+) -> M | None:
     """One piece's model, or ``None`` when it refuses.
 
     A refusal here is a verdict on the CUT, never on the input: the piece was
@@ -360,23 +359,22 @@ def _piece(
     and the caller's sequential parse is what raises.
     """
     try:
-        return parse(view[0], text, view[1], resolve)
+        return worker_parse(parse, grammar, text, ask.binding, ask.resolve)
     except LexicError:
         return None
 
 
 def _attempt[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
     spans: list,
     pool: WorkPool,
 ) -> tuple[list, int]:
     """Parse every piece; the models, and the first failing index (``-1`` none)."""
-    text, fold, resolve = ask
-    views = worker_replicas(plan.grammar, fold, len(spans))
+    text = ask.text
     found = pool.map(
-        lambda k: _piece(parse, views[k], text[spans[k][0] : spans[k][1]], resolve),
+        lambda k: _piece(parse, plan.grammar, text[spans[k][0] : spans[k][1]], ask),
         list(range(len(spans))),
     )
     return found, next((k for k, one in enumerate(found) if one is None), -1)
@@ -408,10 +406,10 @@ def _reselect(
 
 
 def _speculate[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
-    proposed: tuple[list[int], list[int]],
+    proposed: Cuts,
     pool: WorkPool,
 ) -> M | None:
     """Verify proposed cuts by parsing, re-selecting a failing one, bounded.
@@ -450,16 +448,18 @@ def _speculate[M: IrNamedTuple](
 
 
 def _parse_region_parts[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     works: list[RegionWork],
     ask: Request[M],
     pool: WorkPool,
 ) -> list[list[GrammarModel]] | None:
     """Parse every region piece concurrently against per-worker replicas."""
-    tasks, owners = region_tasks(works, ask.fold)
+    tasks, owners = region_tasks(works)
     try:
         parsed = pool.map(
-            lambda k: parse(tasks[k][0], tasks[k][2], tasks[k][1], ask.resolve),
+            lambda k: worker_parse(
+                parse, tasks[k][0], tasks[k][1], ask.binding, ask.resolve
+            ),
             list(range(len(tasks))),
         )
     except LexicError:
@@ -473,7 +473,7 @@ def _parse_region_parts[M: IrNamedTuple](
 
 
 def _split_regions[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     grammar: IrAst,
     ask: Request[M],
     analysis: IrAst | None,
@@ -492,7 +492,7 @@ def _split_regions[M: IrNamedTuple](
     workers = pool.workers
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
-    routed = routed_split(parse, grammar, (ask.text, ask.fold, ask.resolve), pool)
+    routed = routed_split(parse, grammar, (ask.text, ask.binding, ask.resolve), pool)
     if routed is not None:
         return routed
     # A bracket span may cover the whole source while still sit BELOW a
@@ -505,11 +505,11 @@ def _split_regions[M: IrNamedTuple](
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
-    works = region_works(grammar, ask.fold, ask.text, divided, analysis or grammar)
+    works = region_works(grammar, ask.binding, ask.text, divided, analysis or grammar)
     if works is None:
         return None
     parsed = _parse_region_parts(parse, works, ask, pool)
-    merge = MergeRequest(parse, ask.text, ask.fold, ask.resolve)
+    merge = MergeRequest(parse, ask.text, ask.binding, ask.resolve)
     stands = standins(merge, works, parsed) if parsed is not None else None
     return stitch_shell(merge, grammar, works, stands) if stands else None
 
@@ -572,7 +572,7 @@ def _safe_plans(plans: tuple[SplitPlan, ...], view: IrAst) -> tuple[SplitPlan, .
 
 
 def split_model[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     grammar: IrAst,
     ask: Request[M],
     cores: int = AUTO,
@@ -591,7 +591,7 @@ def split_model[M: IrNamedTuple](
 
     :param parse: The model product, injected by the layer that owns it.
     :param grammar: The codegen grammar.
-    :param ask: The document, its fold, and the caller's ambiguity resolver.
+    :param ask: The document, its bound product, and the ambiguity resolver.
     :param cores: 0 = auto, 1 = sequential (so: never split), N = that many.
     :param analysis: A language-equivalent structural view for derived grammars
         whose parse model intentionally elides quoted interiors or wrappers.
@@ -601,38 +601,29 @@ def split_model[M: IrNamedTuple](
     # issue thousands of tiny SubRun parses; under the GIL every one has one
     # worker, and under AUTO a sub-2-chunk input cannot divide. Asking roles,
     # ownership and region safety for work that policy has already refused is
-    # pure serial overhead on the caller's fold path.
+    # pure serial overhead on the caller's parse path.
     workers = doc_workers(cores)
     if workers < 2 or len(ask.text) < 2 * MIN_CHUNK:
         return None
     safe_plans = _safe_plans(_split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
+        shared = shared_scanner(grammar, safe_plans)
         windows = (
-            scan_windows(safe_plans[0].scanner, ask.text, workers, pool)
-            if safe_plans
+            scan_windows(shared, ask.text, workers, pool)
+            if shared is not None
             else None
         )
         for plan in safe_plans:
-            # A proposal scans for its own opening alphabet, which is not in
-            # the roles the shared window pass swept.
-            seen = (
-                scan_windows(plan.scanner, ask.text, workers, pool)
-                if plan.opening
-                else windows
-            )
-            cuts = cut_offsets(plan, ask.text, cores, pool, seen)
-            if not cuts:
+            # Only a plan that reads a windowed sweep is handed the shared one;
+            # a walking scan owns its pass, and an envelope plan reads neither.
+            seen = windows if reads_a_sweep(plan) else None
+            chosen = cut_offsets(plan, ask.text, cores, pool, seen)
+            if not chosen.offsets:
                 continue
             model = (
-                _speculate(
-                    parse,
-                    plan,
-                    ask,
-                    (cuts, scan_marks(plan, ask.text, workers, pool, seen)),
-                    pool,
-                )
+                _speculate(parse, plan, ask, chosen, pool)
                 if plan.opening
-                else _split_parse(parse, plan, ask, cuts, pool)
+                else _split_parse(parse, plan, ask, chosen.offsets, pool)
             )
             if model is not None:
                 return model
@@ -653,6 +644,7 @@ def _envelope_split_plan(grammar: IrAst) -> tuple[SplitPlan, ...]:
             grammar,
             Scanner(derived),
             frozenset({found.mark}),
+            spellings(frozenset({found.mark})),
             found.shape.unit,
             (),
             None,
@@ -666,7 +658,7 @@ def _envelope_split_plan(grammar: IrAst) -> tuple[SplitPlan, ...]:
 
 
 def _envelope_join[M: IrNamedTuple](
-    parse: ModelProduct,
+    parse: ModelParse[M],
     plan: SplitPlan,
     ask: Request[M],
     parsed: tuple[list, list[str]],
@@ -678,14 +670,18 @@ def _envelope_join[M: IrNamedTuple](
     witness unit the stitch swaps for the next piece's real head.
     """
     found = plan.envelope
+    repeated = plan.lead_grammar
     chunks, leads = parsed
-    moved = envelope_tails(chunks, found.shape, ask.fold) if found else None
-    if found is None or moved is None:
+    moved = envelope_tails(chunks, found.shape, ask.binding) if found else None
+    # An envelope plan carries the repeated item as its lead grammar; without
+    # one there is nothing to reparse the separators under, so this declines
+    # exactly as any other unsupported shape does.
+    if found is None or moved is None or repeated is None:
         return None
     tails, trimmed = moved
     witness = unit_witness(plan.grammar, found.shape.unit) or ""
     rebuilt = [
-        parse(plan.lead_grammar, tails[at] + lead + witness, ask.fold, ask.resolve)
+        parse(repeated, tails[at] + lead + witness, ask.binding, ask.resolve)
         for at, lead in enumerate(leads)
     ]
-    return stitch_envelope(trimmed, rebuilt, found.shape, ask.fold)
+    return stitch_envelope(trimmed, rebuilt, found.shape, ask.binding)

@@ -21,6 +21,7 @@ Grammar input notes:
 from __future__ import annotations
 
 import gc
+import threading
 
 import pytest
 
@@ -39,9 +40,11 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.ir import IrChr, IrMap, IrStr, IrTokenizer, IrTuple
 from lexic.model import GrammarModel
-from lexic.parsing import PdaTables
+from lexic.parsing import PdaTables, parse_model
 from lexic.parsing.caches import _CLAIMED, _MEMOS, cached_entries, reset_caches
+from lexic.parsing.parallel import available_workers
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import LEAD_RULE, lead_rule_document
 from tests.unit.lexic.compile.compile_helpers import roundtrip
 
 
@@ -345,20 +348,20 @@ def test_a_derived_bind_does_not_steal_the_sources_claim() -> None:
     source = _fresh_artifact(_DRAIN_GRAMMAR, "claim-source")
     source.parse(_DRAIN_TEXT, cores=1)
     assert id(source.grammar) in _CLAIMED
-    assert id(source.fold) in _CLAIMED
-    before = _owned_count(source.fold)
-    assert before > 0  # the parse actually populated fold-identity-keyed entries
+    assert id(source.product) in _CLAIMED
+    before = _owned_count(source.product)
+    assert before > 0  # the parse actually populated product-identity-keyed entries
 
     derived = source.bind(tok)
     assert derived.grammar is source.grammar
-    assert derived.fold is source.fold
+    assert derived.product is source.product
     derived.parse(_DRAIN_TEXT, cores=1)
     del derived
     gc.collect()
 
     assert id(source.grammar) in _CLAIMED  # still claimed -- by source
-    assert id(source.fold) in _CLAIMED
-    assert _owned_count(source.fold) == before  # nothing the source owns was evicted
+    assert id(source.product) in _CLAIMED
+    assert _owned_count(source.product) == before  # nothing the source owns was evicted
     reset_cache_for_tests()
 
 
@@ -376,6 +379,122 @@ def test_the_adoption_chain_drains_every_registered_memo_on_release() -> None:
     del cg
     gc.collect()
     assert _memo_lengths() == baseline
+    reset_cache_for_tests()
+
+
+def _churn_round(compiled: CompiledGrammar, rounds: int, cores: int = 0) -> list[int]:
+    """Parse on ``rounds`` short-lived threads; entries after each one joins."""
+    counts: list[int] = []
+    for _ in range(rounds):
+        thread = threading.Thread(
+            target=compiled.parse, args=(_DRAIN_TEXT,), kwargs={"cores": cores}
+        )
+        thread.start()
+        thread.join(timeout=60)
+        counts.append(cached_entries())
+    return counts
+
+
+def test_document_thread_churn_plateaus_instead_of_growing() -> None:
+    """A retired document view takes its DERIVED caches with it.
+
+    The private binding is what privatises a parse — it mints its own lifted
+    grammar, instance, Earley tables and PDA — so those belong to it and not
+    to the grammar every thread shares. Owned by the grammar they could only
+    retire when the artefact died, and a long-lived artefact then grew by a
+    whole derived chain for every document thread that came and went.
+
+    The plateau is not zero growth: a view is reclaimed by the NEXT claim, so
+    the most recently exited thread's chain is still resident. What must not
+    happen is a count that keeps climbing.
+    """
+    reset_cache_for_tests()
+    compiled = _fresh_artifact(_DRAIN_GRAMMAR, "thread-churn")
+    compiled.parse(_DRAIN_TEXT, cores=1)
+
+    counts = _churn_round(compiled, 12, cores=1)
+
+    assert len(set(counts[1:])) == 1, f"entries still climbing: {counts}"
+    reset_cache_for_tests()
+
+
+def test_a_split_documents_worker_replicas_retire_with_the_document() -> None:
+    """The same leak one layer down: the pieces' replicas, not just the view.
+
+    A split mints a replica per chunk worker, keyed on the DOCUMENT's private
+    binding. When that binding retired they were orphaned — reachable from
+    nothing that ever dies — and the count grew by a whole set of chunk tables
+    per document thread rather than by the one un-reclaimed view.
+
+    Bounded rather than exact: the pool's threads outlive a document, so what
+    is still resident depends on which of them the last round happened to use.
+    The claim survives that — eleven further rounds must not cost what the
+    first one did.
+    """
+    reset_cache_for_tests()
+    compiled = _fresh_artifact(_DRAIN_GRAMMAR, "split-churn")
+    compiled.parse(_DRAIN_TEXT, cores=4)
+
+    counts = _churn_round(compiled, 12, cores=4)
+    one_round = counts[1] - counts[0]
+    rest = counts[-1] - counts[1]
+
+    assert rest <= one_round, f"eleven rounds cost more than the first: {counts}"
+    reset_cache_for_tests()
+
+
+def test_a_live_sibling_view_still_parses_after_another_retires() -> None:
+    """Retiring one thread's view must not evict a live thread's own.
+
+    The whole risk of releasing on thread exit is over-releasing: the memos
+    are shared, and a sweep that took a sibling's entries would leave a
+    running parse recompiling — or, worse, reading a product built for
+    another binding. The sibling here holds its view across the churn.
+    """
+    reset_cache_for_tests()
+    compiled = _fresh_artifact(_DRAIN_GRAMMAR, "sibling-view")
+    parsed: list[str] = []
+    holding = threading.Event()
+    release_it = threading.Event()
+
+    def sibling() -> None:
+        """Claim a view, wait out the churn, then parse through it again."""
+        parsed.append(compiled.parse(_DRAIN_TEXT).to_text())
+        holding.set()
+        release_it.wait(timeout=60)
+        parsed.append(compiled.parse(_DRAIN_TEXT).to_text())
+
+    held = threading.Thread(target=sibling)
+    held.start()
+    assert holding.wait(timeout=60)
+    _churn_round(compiled, 6)
+    release_it.set()
+    held.join(timeout=60)
+
+    assert parsed == [_DRAIN_TEXT, _DRAIN_TEXT]
+    assert compiled.parse(_DRAIN_TEXT).to_text() == _DRAIN_TEXT
+    reset_cache_for_tests()
+
+
+def test_the_shared_analysis_survives_a_retired_document_view() -> None:
+    """Plan, roles and anchors are the GRAMMAR's, and must outlive a thread.
+
+    They are memoised on the grammar precisely so a document thread does not
+    re-derive them, which is why the document view keeps the artefact's
+    grammar in the first place. A retirement that reached them would undo the
+    reason the view copies only the executable half.
+    """
+    reset_cache_for_tests()
+    compiled = _fresh_artifact(_DRAIN_GRAMMAR, "shared-analysis")
+    _churn_round(compiled, 1)  # warm it: the split derives this analysis lazily
+    anchors = compiled.anchors()
+    grammar_owned = _owned_count(compiled.codegen_grammar)
+    assert grammar_owned > 0, "the fixture must populate grammar-keyed memos"
+
+    _churn_round(compiled, 6)
+
+    assert _owned_count(compiled.codegen_grammar) == grammar_owned
+    assert compiled.anchors() is anchors
     reset_cache_for_tests()
 
 
@@ -408,3 +527,120 @@ def test_eviction_is_safe_a_live_artefact_recomputes_cold_but_exact() -> None:
     assert cold.to_text() == warm.to_text() == _DRAIN_TEXT
     assert cold.dump() == warm.dump()
     reset_cache_for_tests()
+
+
+# ── the document thread's executable view ─────────────────────────────────
+
+
+class _WhoParsed:
+    """Records the thread and the product every model parse ran through."""
+
+    def __init__(self, drivers: dict[int, str]) -> None:
+        """Hold the driver threads by ident, and the meeting they wait at."""
+        self.drivers = drivers
+        self.calls: list[tuple[str, int]] = []
+        self.met: set[int] = set()
+        self.overlap = threading.Barrier(2)
+        self.lock = threading.Lock()
+
+    def __call__(self, grammar, text, binding, resolve=None):
+        """Record one parse, hold the drivers together, then parse for real."""
+        who = threading.get_ident()
+        with self.lock:
+            self.calls.append((self.drivers.get(who, "worker"), id(binding)))
+            first = who in self.drivers and who not in self.met
+            self.met.add(who)
+        if first:
+            # Both drivers are now inside their split attempt at once, which is
+            # the interval the claim has to hold across.
+            self.overlap.wait(timeout=30)
+        return parse_model(grammar, text, binding, resolve)
+
+    def products(self, driver: str) -> set[int]:
+        """Every product identity that driver's own calls ran through."""
+        return {product for name, product in self.calls if name == driver}
+
+
+@pytest.mark.skipif(
+    available_workers() == 1,
+    reason=(
+        "the claim is about free-threaded OWNERSHIP. Where one worker is all "
+        "the build offers, document_view deliberately hands every thread the "
+        "original pair rather than compiling a product no thread can use in "
+        "parallel — so the two drivers meet on one product by design, and "
+        "there is no disjointness here to disprove."
+    ),
+)
+def test_two_overlapping_public_parses_never_share_a_product(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two whole-document parses in flight must not meet on one product.
+
+    The driver of a split parses the separator leads itself while its workers
+    run, and stitches through the same product afterwards. A view claimed only
+    on the sequential fallback would leave every one of those operations on the
+    pair the OTHER caller can be handed, which is what this pins: the two
+    drivers overlap by construction — neither proceeds past its first parse
+    until both have arrived — and their products are still disjoint.
+    """
+    compiled = compile_text(LEAD_RULE, cache_key="artifact-overlap")
+    text = lead_rule_document(1200)
+    idents: dict[int, str] = {}
+    parsed: dict[str, GrammarModel] = {}
+    watcher = _WhoParsed(idents)
+    monkeypatch.setattr(artifact_module, "parse_model", watcher)
+    ready = threading.Barrier(3)
+
+    def drive(name: str) -> None:
+        """Register this thread, wait for the other, then parse the document."""
+        idents[threading.get_ident()] = name
+        ready.wait(timeout=30)
+        parsed[name] = compiled.parse(text, cores=4)
+
+    drivers = [
+        threading.Thread(target=drive, args=("first",)),
+        threading.Thread(target=drive, args=("second",)),
+    ]
+    for driver in drivers:
+        driver.start()
+    ready.wait(timeout=30)
+    for driver in drivers:
+        driver.join(timeout=60)
+
+    assert len(watcher.products("first")) == 1
+    assert len(watcher.products("second")) == 1
+    assert watcher.products("first").isdisjoint(watcher.products("second"))
+    assert parsed["first"].to_text() == parsed["second"].to_text() == text
+
+
+def test_a_driver_parses_its_leads_on_its_own_product(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route with driver-thread parsing, on one thread, stated exactly.
+
+    A separated split hands the chunks out and re-parses every cut's lead
+    itself. Those lead parses are the ones a fallback-only claim left on the
+    shared pair: here they must run on the driver's own product, and no worker
+    may touch it.
+    """
+    compiled = compile_text(LEAD_RULE, cache_key="artifact-lead-view")
+    text = lead_rule_document(1200)
+    seen: list[tuple[int, int]] = []
+    lock = threading.Lock()
+
+    def watched(grammar, source, binding, resolve=None):
+        """Record which thread parsed through which product."""
+        with lock:
+            seen.append((threading.get_ident(), id(binding)))
+        return parse_model(grammar, source, binding, resolve)
+
+    monkeypatch.setattr(artifact_module, "parse_model", watched)
+    model = compiled.parse(text, cores=4)
+
+    driver = threading.get_ident()
+    mine = {product for thread, product in seen if thread == driver}
+    theirs = {product for thread, product in seen if thread != driver}
+    assert model.to_text() == text
+    assert len(seen) > len(mine), "the split never reached a worker thread"
+    assert len(mine) == 1, "the driver parsed through more than one product"
+    assert mine.isdisjoint(theirs)

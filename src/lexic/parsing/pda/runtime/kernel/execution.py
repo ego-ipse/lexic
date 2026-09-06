@@ -1,7 +1,17 @@
 """Leaf execution, island delegation, and completion for the PDA kernel."""
 
-# A mixin is an implementation seam, and shares the hot terminal loop shape.
-# pylint: disable=duplicate-code,too-few-public-methods
+# The terminal loop this file shares with kernel.py is duplicated ON PURPOSE,
+# and the alternative was built and measured rather than argued: one
+# `match_terminal(text, kind, payload, pos)` called from both item loops costs
+# a Python call per terminal ITEM, which read +1.0 % to +1.4 % of process CPU
+# on four of the five PDA rows (markdown 1.0144, mixedends 1.0139, abnf-meta
+# 1.0103, json 1.0103, arithmetic 1.0059) against a byte-identical control's
+# ±0.7 % floor — separate trees, one process per point, `taskset -c 0-3`,
+# sixteen rotating triples (proto/s4_tree_rows.py). Seven duplicated
+# lines are the cheaper of the two. `duplicate-code` cannot be answered at the
+# site — it is reported for a pair of modules at the end of a run — so the
+# withdrawal is stated here, for that pair and nothing else.
+# pylint: disable=duplicate-code
 
 from __future__ import annotations
 
@@ -10,7 +20,12 @@ from typing import Any, cast
 
 from lexic.parsing.earley.kernel.loop.kernel import Delegate
 from lexic.parsing.earley.kernel.tables.atoms import tier_for
-from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone, gate_take
+from lexic.parsing.pda.compiler.program.flatten import (
+    FlatArm,
+    FlatClone,
+    gate_take,
+    no_fast_construction,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_SEQ,
     BUILD_TRANSPARENT,
@@ -28,14 +43,7 @@ from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.admission import KernelCaches
 from lexic.parsing.pda.runtime.build import (
-    F_ARM,
-    F_CLONE,
-    F_ENDS,
-    F_MODE,
-    F_OUT,
-    F_SINKS,
-    F_START,
-    alt_model,
+    Frame,
     build_sequence,
     build_vstr,
     fast_values,
@@ -46,6 +54,7 @@ from lexic.parsing.pda.runtime.islands import IslandPolicy, island_parse, island
 from lexic.parsing.pda.runtime.matchers import (
     loop_spec,
     match_cc,
+    match_cc1,
     match_chartable,
     match_lit,
     run_span_once,
@@ -53,23 +62,22 @@ from lexic.parsing.pda.runtime.matchers import (
     vdisp_once,
     vstr_once,
 )
+from lexic.parsing.product import Completed
 
-_EMPTY_SLOT: Any = None
 
-
-class KernelExecutionMixin:
+class KernelExecutionMixin[Carry]:
     """Execution method group over state owned by ``PdaKernel``."""
 
     __slots__ = ()
 
     text: str
     pos: int
-    stack: list[list[Any]]
+    stack: list[Frame[Carry]]
     tables: PdaTables
     policy: IslandPolicy
-    _caches: KernelCaches
+    _caches: KernelCaches[Carry]
 
-    def _leaf_run(self, clone: FlatClone, out: list[Any]) -> None:
+    def _leaf_run(self, clone: FlatClone[Carry], out: list[Carry]) -> None:
         """A frame-less leaf clone's whole run — one of three shapes.
 
         A ``value_str`` leaf matches inline exactly as an ``OP_VSTR``
@@ -84,7 +92,7 @@ class KernelExecutionMixin:
         else:
             self.pos = self._run_leaf(clone, out, self.pos)
 
-    def _run_leaf(self, clone: FlatClone, out: list[Any], pos: int) -> int:
+    def _run_leaf(self, clone: FlatClone[Carry], out: list[Carry], pos: int) -> int:
         """Run an all-terminal ``sequence`` clone frame-lessly — match and build.
 
         The leaf licence guarantees no descent: every item is a terminal or an
@@ -102,23 +110,15 @@ class KernelExecutionMixin:
         """
         text = self.text
         arm = select_arm(clone, text[pos : pos + 1], pos)
-        if arm.n != clone.fold.n_items:
+        if arm.n != clone.n_items:
             return leaf_mismatch(clone, out, arm.n, pos, self._caches.intern)
         start = pos
-        ends = [0] * arm.n
+        ends = [start] * (arm.n + 1) if clone.needs_ends else None
         sinks: list[Any] | None = None
         for i in range(arm.n):
             k = arm.kinds[i]
             if k == OP_CC1:
-                payload = arm.payloads[i]
-                char = text[pos : pos + 1]
-                if (
-                    (char == "" or char in payload[0])
-                    if payload[1]
-                    else (char not in payload[0])
-                ):
-                    raise PdaFail(f"char class miss at {pos}", pos)
-                pos += 1
+                pos = match_cc1(text, arm.payloads[i], pos)
             elif k == OP_LIT1:
                 lit = arm.payloads[i]
                 if not text.startswith(lit, pos):
@@ -126,7 +126,7 @@ class KernelExecutionMixin:
                 pos += len(lit)
             elif k == OP_VSTR or k >= OP_VRUN:
                 if sinks is None:
-                    sinks = [_EMPTY_SLOT] * arm.n
+                    sinks = [None] * arm.n
                 sinks[i] = sub = []
                 # A tabled reference is exactly one iteration by its op-code, so
                 # it calls the matcher straight instead of the loop driver.
@@ -149,11 +149,12 @@ class KernelExecutionMixin:
                     if k == OP_LIT
                     else match_cc(text, arm, i, pos)
                 )
-            ends[i] = pos
-        out.append(clone.fast(fast_values(self.text, clone, (start, ends, sinks))))
+            if ends is not None:
+                ends[i + 1] = pos
+        out.append(clone.fast(fast_values(self.text, clone, (ends or (), sinks))))
         return pos
 
-    def _match_vstr(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _match_vstr(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
         """Inline a terminal-only ``value_str`` reference — no frame per iteration.
 
         Runs item ``i``'s whole quantifier loop: each iteration selects the
@@ -187,7 +188,7 @@ class KernelExecutionMixin:
             count += 1
         return pos
 
-    def _match_vdisp(self, sink: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _match_vdisp(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
         """Inline a reference to an all-``value_str`` dispatch — no frame, no table.
 
         The lead char picks the target clone afresh each iteration (the cursor
@@ -208,31 +209,38 @@ class KernelExecutionMixin:
 
     # ── island sub-parse + splice ─────────────────────────────────────
 
-    def _island(self, name: str, sink: list[object]) -> None:
+    def _island(self, name: str, sink: list[Carry]) -> None:
         """Resolve an island reference: a windowed Earley sub-parse, spliced.
 
         The island rule parses over a doubling window from the cursor — with its
         conflict-free interior rules delegated to their PDA clones
-        (:meth:`_delegates`) — and the longest completion folds through the
-        policy's fold, its sub-model appending to ``sink``. The cursor advances
-        past the consumed island span.
+        (:meth:`_delegates`) — and the longest completion completes through the
+        policy's product executor, its value appending to ``sink``. The cursor
+        advances past the consumed island span.
+
+        Presence is the product's answer, not a truth test on the value. A
+        recognition-only island — a noise rule reached through an island
+        reference — completes to nothing and splices nothing, while an island
+        whose value IS ``None`` splices that ``None``. The fold could not tell
+        those apart; the completion result can, which is why the splice reads
+        it rather than the value.
 
         :param name: The island rule name.
-        :param sink: The enclosing sink the sub-model splices into.
-        :raises PdaFail: With no fold to splice (island-free path), when the
+        :param sink: The enclosing sink the value splices into.
+        :raises PdaFail: With no product to splice (island-free path), when the
             island rule completes over no window from the cursor, or when the
-            fold refuses the completion (a window-truncated mis-parse — see
+            product refuses the completion (a window-truncated mis-parse — see
             :func:`~lexic.parsing.pda.runtime.islands.island_value`).
         """
-        fold = self.policy.fold
-        if fold is None:
+        executor = self.policy.executor
+        if executor is None:
             raise PdaFail(
-                f"island {name!r} at {self.pos}: no fold for splice", self.pos
+                f"island {name!r} at {self.pos}: no product for splice", self.pos
             )
         tree, end = self._island_subparse(name)
-        model = island_value(lambda: fold.apply(tree), name, self.pos)
-        if model is not None:
-            sink.append(model)
+        result = island_value(lambda: executor.splice(tree), name, self.pos)
+        if isinstance(result, Completed):
+            sink.append(result.value)
         self.pos += end
 
     def _island_subparse(self, name: str) -> tuple[Any, int]:
@@ -295,42 +303,42 @@ class KernelExecutionMixin:
         sub = cast(Any, type(self))(
             self.tables,
             window_text,
-            self.policy.fold,
+            self.policy.executor,
             resolve=self.policy.resolve,
         )
         return finish_delegate(sub, clone, window_text, pos)
 
     # ── frame completion → fused model build ──────────────────────────
 
-    def _complete(self, frame: list[Any]) -> None:
+    def _complete(self, frame: Frame[Carry]) -> None:
         """Pop a finished frame; build and report its model — the fused fold.
 
         A ``value_str`` frame slices its whole span, an ``alternation`` passes
         the first sub-model through, and a ``sequence`` binds each field to its
         item span or sub-model collection; a transparent frame builds nothing
-        (its children already funnelled to ``F_OUT``).
+        (its children already funnelled to ``out``).
         """
         self.stack.pop()
-        mode = frame[F_MODE]
+        mode = frame.clone.mode
         if mode == BUILD_TRANSPARENT:
             return  # children already funnelled to the nearest model sink
-        clone = frame[F_CLONE]
+        clone = frame.clone
         if mode == BUILD_SEQ:
-            if clone.fast is not None and frame[F_ARM].n == clone.fold.n_items:
+            if clone.fast is not no_fast_construction and frame.arm.n == clone.n_items:
                 model = clone.fast(
                     fast_values(
                         self.text,
                         clone,
-                        (frame[F_START], frame[F_ENDS], frame[F_SINKS]),
+                        (frame.ends or (), frame.sinks),
                     )
                 )
             else:
                 model = build_sequence(self.text, frame, clone, self._caches.intern)
         elif mode == BUILD_VALUE_STR:
             model = build_vstr(
-                clone, self.text[frame[F_START] : self.pos], self._caches.intern
+                clone, self.text[frame.span_start() : self.pos], self._caches.intern
             )
         else:  # BUILD_ALT
-            model = alt_model(frame)
+            model = frame.alt_model()
         if model is not None:
-            frame[F_OUT].append(model)
+            frame.out.append(model)

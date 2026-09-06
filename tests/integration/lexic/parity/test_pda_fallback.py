@@ -48,7 +48,7 @@ def test_arithmetic_stop_set_residue_forces_pda_fallback():
     # arithmetic compiles a real clone start — no whole-grammar opt-out.
     assert not isinstance(p.pda.start_key, IslandRef)
     with pytest.raises(PdaFail):
-        pda_model(p.pda, FALLBACK_INPUT, cg.fold)
+        pda_model(p.pda, FALLBACK_INPUT, cg.executor)
 
 
 def test_pda_fallback_returns_engine_correct_model():
@@ -64,7 +64,7 @@ def test_pda_fallback_returns_engine_correct_model():
     model = cg.parse(FALLBACK_INPUT)
     engine_model = cast(
         GrammarModel,
-        earley_model(p.instance_grammar, FALLBACK_INPUT, cg.fold, p.tables),
+        earley_model(p.instance_grammar, FALLBACK_INPUT, cg.product, p.tables),
     )
 
     assert model.semantic_dump() == engine_model.semantic_dump()

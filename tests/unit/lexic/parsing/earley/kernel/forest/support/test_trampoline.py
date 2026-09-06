@@ -14,6 +14,7 @@ No grammar or parsing machinery is used here — every cogen is hand-written.
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from typing import Iterator
 
 from lexic.ir import IrLeaf, IrLiteral, IrSelf, IrSeq
@@ -22,8 +23,17 @@ from lexic.parsing.earley.kernel.forest.support.trampoline import (
     ADVANCE,
     EMIT,
     EXHAUSTED,
+    Command,
     Trampoline,
 )
+
+type Cogen = Iterable[Command]
+"""What a child IS to the parent that advances into it: a source of commands.
+
+A parent never reads its child as an IR node — it calls ``iter`` on it and
+forwards what comes back — so this, and not :class:`IrSelf`, is the contract
+these fixtures hold their children under.
+"""
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -42,7 +52,7 @@ class EmitCogen(IrLeaf[IrSelf, IrSelf]):
         """:param values: The values emitted in order."""
         self._values = values
 
-    def __iter__(self) -> Iterator[tuple[object, object]]:
+    def __iter__(self) -> Iterator[Command]:
         """Yield ``(EMIT, v)`` for each stored value.
 
         :returns: A command iterator for the :class:`Trampoline`.
@@ -59,18 +69,18 @@ class DelegateCogen(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = ("_child",)
 
-    _child: IrSelf
+    _child: Cogen
 
-    def __init__(self, child: IrSelf) -> None:
+    def __init__(self, child: Cogen) -> None:
         """:param child: the child cogen to advance into."""
         self._child = child
 
-    def __iter__(self) -> Iterator[tuple[object, object]]:
+    def __iter__(self) -> Iterator[Command]:
         """Drive the child and re-emit each value received.
 
         :returns: A command iterator for the :class:`Trampoline`.
         """
-        sub = iter(self._child)  # type: ignore[call-overload]
+        sub = iter(self._child)
         received = yield (ADVANCE, sub)
         while received is not EXHAUSTED:
             yield (EMIT, received)
@@ -90,15 +100,15 @@ class ChainCogen(IrLeaf[IrSelf, IrSelf]):
 
     __slots__ = ("_next", "_value")
 
-    _next: IrSelf | None
+    _next: Cogen | None
     _value: IrSelf | None
 
-    def __init__(self, next_cogen: IrSelf | None, value: IrSelf | None = None) -> None:
+    def __init__(self, next_cogen: Cogen | None, value: IrSelf | None = None) -> None:
         """:param next_cogen: the next link; :param value: leaf emit value."""
         self._next = next_cogen
         self._value = value
 
-    def __iter__(self) -> Iterator[tuple[object, object]]:
+    def __iter__(self) -> Iterator[Command]:
         """Advance into the next link or emit the leaf value.
 
         :returns: A command iterator for the :class:`Trampoline`.
@@ -107,7 +117,7 @@ class ChainCogen(IrLeaf[IrSelf, IrSelf]):
             # leaf — emit the sentinel
             yield (EMIT, self._value)
         else:
-            sub = iter(self._next)  # type: ignore[call-overload]
+            sub = iter(self._next)
             received = yield (ADVANCE, sub)
             while received is not EXHAUSTED:
                 yield (EMIT, received)

@@ -26,31 +26,29 @@ from lexic.generate import generate
 from lexic.ir import (
     IrAlternation,
     IrAst,
-    IrInt,
     IrItem,
     IrLiteral,
     IrRule,
     IrRuleRef,
     IrSeq,
     IrSequence,
-    IrStr,
 )
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.pda.runtime.islands import (
     ISLAND_WINDOW,
     IslandPolicy,
-    _differs,
     island_derivation,
     island_parse,
     island_run,
     island_value,
 )
+from lexic.parsing.product.tree import EMPTY_RESULT, Completed, ProductExecutor
 from lexic.parsing.products import _model_product
 from tests.paths import GROUND_TRUTH
 
@@ -205,7 +203,9 @@ def test_island_parse_refuses_derivations_that_mean_different_things(sss_compile
     """
     tables = compile_tables(sss_compiled.codegen_grammar)
     with pytest.raises(UnsupportedConstructError, match="mean different things"):
-        island_parse(tables, "aaa", 0, "s", IslandPolicy(fold=sss_compiled.fold))
+        island_parse(
+            tables, "aaa", 0, "s", IslandPolicy(executor=sss_compiled.executor)
+        )
 
 
 def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
@@ -221,7 +221,9 @@ def test_island_parse_allows_derivations_that_mean_the_same_thing() -> None:
     )
     ready = normalize(lift_optional_nullables(compiled.codegen_grammar))
     tables = compile_tables(ready)
-    tree, end = island_parse(tables, "5", 0, "number", IslandPolicy(fold=compiled.fold))
+    tree, end = island_parse(
+        tables, "5", 0, "number", IslandPolicy(executor=compiled.executor)
+    )
     assert isinstance(tree, ParseTree)
     assert end == 1
 
@@ -296,86 +298,13 @@ def test_island_value_lets_non_library_exceptions_surface():
         island_value(_boom, "r", 0)
 
 
-# ── _differs — ambiguity is a question about VALUES ────────────────────
-
-
-def _tree(name: str) -> ParseTree:
-    """A distinguishable stand-in derivation — `_differs` only passes it on."""
-    return ParseTree(IrRuleRef(name), IrSeq())
-
-
-def test_differs_sees_a_genuine_difference():
-    """Two derivations that fold to different values ARE an ambiguity.
-
-    The whole point of the check: it must be able to answer YES. Reading the
-    apply off the fold with `getattr` meant anything that was not shaped like a
-    fold silently answered "no observable difference" — a missed ambiguity, and
-    a refusal that never fires is worse than no check at all.
-    """
-    one, other = _tree("one"), _tree("other")
-    assert _differs(lambda t: 1 if t is one else 2, one, other)
-
-
-def test_differs_compares_values_not_their_spelling():
-    """Equal values spelled differently are NOT an ambiguity.
-
-    `repr` is a proxy for a value, and two dicts of the same content built in
-    different key orders have the same value and different reprs. Judging by
-    the spelling refuses a document over a difference no consumer can observe.
-    """
-    one, other = _tree("one"), _tree("other")
-    first, second = {"a": 1, "b": 2}, {"b": 2, "a": 1}
-    assert repr(first) != repr(second)  # the proxy disagrees
-    assert first == second  # the value does not
-    assert not _differs(lambda t: first if t is one else second, one, other)
-
-
-def test_differs_sees_a_difference_of_type():
-    """A wrapped scalar and a bare one are NOT the same value.
-
-    `IrStr("a") == "a"` and `IrInt(1) == 1` — the IR wraps `str` and `int`, so
-    equality alone says two derivations agree when one built a leaf and the
-    other built bare text. A consumer that reads the field sees the
-    difference; the check must too.
-    """
-    one, other = _tree("one"), _tree("other")
-    assert _differs(lambda t: IrStr("a") if t is one else "a", one, other)
-    assert _differs(lambda t: IrInt(1) if t is one else 1, one, other)
-    assert _differs(lambda t: 1 if t is one else True, one, other)
-
-
-def test_differs_does_not_refuse_over_a_value_that_is_never_equal_to_itself():
-    """A float NaN is not an ambiguity with itself.
-
-    `nan != nan`, so a bare `!=` reports a difference between one value and
-    that same value — refusing a document over nothing at all.
-    """
-    one, other = _tree("one"), _tree("other")
-    nan = float("nan")
-    assert not _differs(lambda t: nan if t is one else float("nan"), one, other)
-
-
-def test_differs_does_not_refuse_over_a_value_with_no_value_semantics():
-    """An authored class without `__eq__` compares by identity, and two
-    derivations always build two objects. Refusing on that refuses every
-    ambiguous island whose fold ends in such a constructor — for a difference
-    the object itself declines to define. Cannot tell is not a difference.
-    """
-
-    # spelled as a type rather than a class body because its whole point is
-    # having no members at all — least of all __eq__
-    opaque = type("Opaque", (), {})
-    one, other = _tree("one"), _tree("other")
-    assert not _differs(lambda t: opaque() if t is one else opaque(), one, other)
-
-
 # ── ambiguity is a property of the FOREST, not of the first two derivations ──
 
 
 def _vyx_span(seed: int):
     """A vyx parse whose forest holds >2 derivations, and its kernel."""
     compiled = compile_from_path(GROUND_TRUTH / "vyx.gbnf")
-    product = _model_product(compiled.codegen_grammar, compiled.fold)
+    product = _model_product(compiled.codegen_grammar, compiled.product)
     rules = {r.name: r for r in compiled.grammar.rules}
     text = generate(
         compiled.grammar.start, rules, rng=random.Random(seed), max_depth=12
@@ -405,7 +334,7 @@ def test_a_decided_split_past_the_second_derivation_is_accepted(seed):
     item, end = best
     assert isinstance(
         island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
         ),
         ParseTree,
     )
@@ -424,10 +353,73 @@ def test_generated_quantifier_arms_past_the_second_derivation_are_splits():
     item, end = best
     assert isinstance(
         island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
         ),
         ParseTree,
     )
+
+
+class _CountingExecutor(ProductExecutor):
+    """A real ProductExecutor whose splice/splice_replay return fixed
+    results in order, instead of completing through a routine table.
+
+    ``different_meaning`` calls ``replay`` for both the baseline (via
+    ``remembered``) and each alternate sibling, so a two-derivation span
+    drives exactly two calls — the fixture controls both answers directly
+    rather than depending on what a real grammar happens to build.
+    """
+
+    __slots__ = ("_at", "_results")
+
+    def __init__(self, results):
+        super().__init__({})
+        self._results = list(results)
+        self._at = 0
+
+    def _next(self):
+        value = self._results[min(self._at, len(self._results) - 1)]
+        self._at += 1
+        return value
+
+    def splice(self, root):
+        del root
+        return self._next()
+
+    def splice_replay(self, root, results):
+        del root, results
+        return self._next()
+
+
+def test_an_empty_derivation_against_a_real_none_value_refuses_as_ambiguous(
+    sss_grammar: IrAst,
+):
+    """EmptyResult and Completed(None) are DIFFERENT types under same_value's
+    first check, so a two-derivation span where one means "produced nothing"
+    and the other means "produced a real None" refuses — the one behaviour
+    change a round-trip corpus cannot observe, because to_text() reproduces
+    the input for either derivation."""
+    tables = compile_tables(sss_grammar)
+    kern, best = island_run(tables, "aaa")
+    assert best is not None
+    item, end = best
+    executor = _CountingExecutor([EMPTY_RESULT, Completed(None)])
+    with pytest.raises(UnsupportedConstructError, match="mean different things"):
+        island_derivation(kern, item, end, "s", policy=IslandPolicy(executor=executor))
+
+
+def test_two_derivations_both_meaning_none_settle_as_one_meaning(sss_grammar: IrAst):
+    """The twin case: a real None built twice is still ONE value, not two —
+    a present Python None is not an absence, and same_value must not refuse
+    two derivations that agree on it."""
+    tables = compile_tables(sss_grammar)
+    kern, best = island_run(tables, "aaa")
+    assert best is not None
+    item, end = best
+    executor = _CountingExecutor([Completed(None), Completed(None)])
+    tree = island_derivation(
+        kern, item, end, "s", policy=IslandPolicy(executor=executor)
+    )
+    assert isinstance(tree, ParseTree)
 
 
 def test_authored_arm_past_the_second_derivation_still_refuses():
@@ -436,5 +428,5 @@ def test_authored_arm_past_the_second_derivation_still_refuses():
     item, end = best
     with pytest.raises(UnsupportedConstructError):
         island_derivation(
-            kern, item, end, "vyx", policy=IslandPolicy(fold=compiled.fold)
+            kern, item, end, "vyx", policy=IslandPolicy(executor=compiled.executor)
         )

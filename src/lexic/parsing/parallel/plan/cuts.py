@@ -10,12 +10,59 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from collections.abc import Iterator
+from typing import NamedTuple
 
+from lexic.ir import IrAst
 from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan, matched
-from lexic.parsing.parallel.policy import MIN_CHUNK, worker_count
+from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN, worker_count
 from lexic.parsing.parallel.pool import WorkPool
+from lexic.parsing.parallel.roles import Roles, Terminator, roles
+
+
+def reads_a_sweep(plan: SplitPlan) -> bool:
+    """Whether this plan's cuts come from the shared windowed scan.
+
+    Two shapes take their offsets elsewhere and must not put their marks into
+    it. An ENVELOPE plan cuts on its own noise run
+    (:meth:`~...plan.envelope.EnvelopePlan.cuts`) and never reads a window at
+    all — its mark is whitespace on the meta grammars, so sweeping for it
+    enumerated a mark every few characters and discarded every one. An OPAQUE
+    plan WALKS the document unit by unit under its own region table, so its
+    pass is not a windowed sweep and is not interchangeable with one.
+    """
+    return plan.envelope is None and not plan.scanner.opaque
+
+
+def shared_scanner(grammar: IrAst, plans: tuple[SplitPlan, ...]) -> Scanner | None:
+    """One scanner sweeping exactly the spellings the certified plans cut at.
+
+    A grammar derives every repetition separator and terminator it has, and the
+    plan scanners carry that whole set — but a document is only ever cut at a
+    mark some CERTIFIED plan keys on, so an occurrence of any other spelling is
+    a position no cut can be proposed at. Sweeping it costs a ``find`` over the
+    document and a Python step per hit, three times over: once building the
+    window, once rebasing its depth, once discarding it. A record grammar whose
+    units are separated by spaces and terminated by three different closers
+    scanned 3920 marks to select from 1680.
+
+    The union is what makes ONE sweep serve every plan that reads one,
+    proposals included: marks carry no depth, so merging two plans' spellings
+    changes neither window's depth accounting, and each plan still keeps its
+    own through :func:`scan_marks`. Pairs come from the grammar, because depth
+    does not belong to any one plan.
+
+    :param grammar: The codegen grammar the plans were derived from.
+    :param plans: The certified plans, in cascade order.
+    :returns: The shared scanner, or ``None`` when no certified plan reads a
+        windowed sweep — see :func:`reads_a_sweep`.
+    """
+    marks = [plan.mark for plan in plans if reads_a_sweep(plan)]
+    if not marks:
+        return None
+    wanted = frozenset[str]().union(*marks)
+    return Scanner(Roles(roles(grammar).pairs, (), (Terminator(wanted, "", ""),)))
 
 
 def scan_windows(
@@ -25,15 +72,21 @@ def scan_windows(
 
     A scanner carrying opaque regions walks instead: a window cannot know
     whether it begins inside one, and only the previous mark can say.
+
+    How many windows is the SCAN's question, not the parse's: a window costs
+    what a sweep of its own bytes costs, so :data:`~...policy.MIN_SCAN` bounds
+    the count. Handing one worker per parse chunk put more time into dispatch
+    than into scanning on every document a cheap grammar sees.
     """
     if scanner.opaque:
         return [scanner.walk(text)]
-    if workers < 2:
+    windows = min(workers, max(1, len(text) // MIN_SCAN))
+    if windows < 2:
         return [scanner.window(text, 0, len(text))]
-    step = len(text) // workers
+    step = len(text) // windows
     bounds = [
-        (k * step, (k + 1) * step if k < workers - 1 else len(text))
-        for k in range(workers)
+        (k * step, (k + 1) * step if k < windows - 1 else len(text))
+        for k in range(windows)
     ]
     return pool.map(lambda span: scanner.window(text, span[0], span[1]), bounds)
 
@@ -53,11 +106,24 @@ def scan_marks(
     window IS the sequential scan. A spelling that overlaps itself is thinned
     to one boundary per run, after the rebase, so the answer does not depend
     on where the windows fell.
+
+    The scanner reports every mark of the GRAMMAR; this plan keeps its own.
+    Where every spelling is one character that selection is a membership test
+    and nothing else: a one-character mark cannot overlap itself, so every
+    width is 1 and :func:`~...discovery.scan.clustered` is the identity —
+    which is that function's own stated contract, not a shortcut past it.
     """
     scanned = windows or scan_windows(plan.scanner, text, workers, pool)
     at_depth = plan.scanner.offsets(scanned, depth=0)
-    widths = {at: len(hit) for at in at_depth if (hit := matched(text, at, plan.mark))}
+    if all(len(mark) == 1 for mark in plan.mark):
+        return [at for at in at_depth if text[at] in plan.mark]
+    widths = _widths(text, at_depth, plan.ordered)
     return clustered(sorted(widths), widths, plan.trailing)
+
+
+def _widths(text: str, at_depth: list[int], ordered: tuple[str, ...]) -> dict[int, int]:
+    """Each kept mark's matched spelling width, in document order."""
+    return {at: len(hit) for at in at_depth if (hit := matched(text, at, ordered))}
 
 
 def sole_mark(plan: SplitPlan) -> str:
@@ -70,13 +136,29 @@ def sole_mark(plan: SplitPlan) -> str:
     return next(iter(plan.mark)) if len(plan.mark) == 1 else ""
 
 
+class Cuts(NamedTuple):
+    """One document's chosen cuts, and the candidates they were chosen from.
+
+    The two travel together because they come out of one pass. A proposal
+    re-selects a failing cut within the candidate set, and asking for it
+    separately scanned, rebased and filtered every mark in the document a
+    second time to rebuild a list the choice had just finished reading.
+
+    :ivar offsets: The chosen cut offsets, in document order; empty declines.
+    :ivar marks: Every candidate offset, in document order.
+    """
+
+    offsets: list[int]
+    marks: list[int]
+
+
 def cut_offsets(
     plan: SplitPlan,
     text: str,
     cores: int,
     pool: WorkPool,
     windows: list[Window] | None = None,
-) -> list[int]:
+) -> Cuts:
     """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
 
     The worker CEILING is settled before anything is scanned: it depends
@@ -87,10 +169,12 @@ def cut_offsets(
 
     A terminated plan's final mark is dropped: cutting after the document's
     last terminator leaves an empty chunk, which is not a document.
+
+    :returns: The chosen offsets and the candidates they came from.
     """
     ceiling = worker_count(len(text), len(text), cores)
     if ceiling < 2:
-        return []
+        return Cuts([], [])
     if plan.envelope is not None:
         marks = plan.envelope.cuts(text)
     else:
@@ -115,9 +199,9 @@ def cut_offsets(
     while workers >= 2:
         cuts = _balanced_cuts(plan, text, marks, workers)
         if cuts:
-            return cuts
+            return Cuts(cuts, marks)
         workers -= 1
-    return []
+    return Cuts([], marks)
 
 
 def _balanced_cuts(
@@ -148,7 +232,7 @@ def after_mark(plan: SplitPlan, text: str, mark: int) -> int:
         return plan.envelope.resumes(text, mark)
     if plan.opening:
         return mark  # the mark BEGINS the next unit, so the piece starts on it
-    after = mark + len(matched(text, mark, plan.mark))
+    after = mark + len(matched(text, mark, plan.ordered))
     while after < len(text) and text[after] in plan.skip:
         after += 1
     return after
@@ -206,7 +290,7 @@ def cut_spans(plan: SplitPlan, text: str, cuts: list[int]) -> tuple[list, list[s
         # An envelope piece KEEPS the mark: a separator that begins before one
         # (a comment closed by it) would otherwise straddle the cut, and the
         # piece's own tail is what absorbs the run before the join takes it.
-        kept = cut + len(matched(text, cut, plan.mark))
+        kept = cut + len(matched(text, cut, plan.ordered))
         owned = kept if plan.envelope is not None else cut
         spans.append((prev, after if terminated else owned))
         leads.append("" if terminated else text[owned:after])

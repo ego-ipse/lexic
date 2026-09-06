@@ -9,47 +9,44 @@ Neither path reparses a delegated subtree merely to discover where it belongs.
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Sequence
-from typing import Any, NamedTuple, cast
+from collections.abc import Sequence
+from typing import NamedTuple
 
 from lexic.exceptions import LexicError
 from lexic.generate import generate
-from lexic.ir import IrAst
+from lexic.ir import Bound, IrAst
 from lexic.model import GrammarModel
 from lexic.parsing.caches import memo
 from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
-from lexic.parsing.fold import ModelFold
+from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import shell
 from lexic.parsing.parallel.stitch.model import (
-    RegionPlan,
-    RegionWork,
     head_rest,
     region_items,
     sole_route,
     splice,
 )
-
-ModelProduct = Callable[..., Any]
+from lexic.parsing.parallel.stitch.plan import RegionPlan, RegionWork
 
 
 class MergeRequest[M](NamedTuple):
     """The parse service and per-document inputs shared by every stitch step."""
 
-    parse: ModelProduct
+    parse: ModelParse[M]
     text: str
-    fold: ModelFold[M]
+    binding: ModelExecutable[M]
     resolve: Resolver | None
 
-    def run(self, grammar: IrAst, text: str) -> Any:
+    def run(self, grammar: IrAst, text: str) -> M:
         """Parse one full, piece, boundary, or shell document."""
-        return self.parse(grammar, text, self.fold, self.resolve)
+        return self.parse(grammar, text, self.binding, self.resolve)
 
 
 def _replace_tail_head(
     template: GrammarModel, head: GrammarModel, plan: RegionPlan
 ) -> GrammarModel | None:
     """Reuse a certified one-character separator around a delegated head."""
-    children = cast(list[Any], list(template.children()))
+    children: list[Bound] = list(template.children())
     if plan.tail_head >= len(children):
         return None
     children[plan.tail_head] = head
@@ -221,7 +218,7 @@ def _merge_items[M](
     merged = _joined_tails(request, work, models, shaped)
     if merged is None:
         return None
-    children = cast(list[Any], list(first_items.children()))
+    children: list[Bound] = list(first_items.children())
     children[work.plan.items_rest] = tuple(merged)
     if work.plan.outer_items < 0 and work.plan.outer_end is not None:
         last = models[-1].children()
@@ -478,10 +475,12 @@ def stitch_shell[M](
     if not isinstance(whole, GrammarModel):
         return None
     routes = [sole_route(whole, needle) for needle in stands.needles]
-    if any(route is None for route in routes):
+    found = [route for route in routes if route is not None]
+    if len(found) != len(routes):
         return None
-    for route, value in zip(routes, stands.values, strict=True):
-        whole = splice(whole, cast(tuple, route), value)
-        if whole is None:
+    for route, value in zip(found, stands.values, strict=True):
+        spliced = splice(whole, route, value)
+        if spliced is None:
             return None
-    return cast(M, whole)
+        whole = spliced
+    return whole

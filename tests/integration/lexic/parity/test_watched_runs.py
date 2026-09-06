@@ -32,7 +32,7 @@ def test_the_scans_account_for_every_character(name: str) -> None:
     """The account tiles the document — no gap, no overlap, no shortfall."""
     compiled = compile_from_path(GROUND_TRUTH / name)
     for text in documents(name):
-        run = watch(compiled.pda_tables(), text, compiled.fold)
+        run = watch(compiled.pda_tables(), text, compiled.executor)
         if not run.derived:  # the predictive route bailed; the engine owns it
             continue
         at = 0
@@ -48,7 +48,7 @@ def test_every_event_references_the_document_and_the_grammar(name: str) -> None:
     compiled = compile_from_path(GROUND_TRUTH / name)
     known = {str(rule.name) for rule in compiled.codegen_grammar.rules} | {""}
     for text in documents(name):
-        run = watch(compiled.pda_tables(), text, compiled.fold)
+        run = watch(compiled.pda_tables(), text, compiled.executor)
         for event in run.events:
             assert event.kind in TRACE_KINDS
             assert 0 <= event.span.start <= event.span.end <= len(text)
@@ -60,8 +60,8 @@ def test_two_watched_runs_agree_across_the_corpus(name: str) -> None:
     """Determinism, per grammar and per document."""
     compiled = compile_from_path(GROUND_TRUTH / name)
     for text in documents(name):
-        first = watch(compiled.pda_tables(), text, compiled.fold)
-        assert first == watch(compiled.pda_tables(), text, compiled.fold)
+        first = watch(compiled.pda_tables(), text, compiled.executor)
+        assert first == watch(compiled.pda_tables(), text, compiled.executor)
 
 
 @pytest.mark.parametrize("name", CORPUS)
@@ -73,7 +73,7 @@ def test_watching_does_not_change_what_the_parse_says(name: str) -> None:
     """
     compiled = compile_from_path(GROUND_TRUTH / name)
     for text in documents(name):
-        model = parse_model(compiled.codegen_grammar, text, compiled.fold)
-        run = watch(compiled.pda_tables(), text, compiled.fold)
+        model = parse_model(compiled.codegen_grammar, text, compiled.product)
+        run = watch(compiled.pda_tables(), text, compiled.executor)
         if run.derived:
             assert model.to_text() == text, name

@@ -30,7 +30,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.kwindow import (
     MAX_K,
@@ -287,8 +287,8 @@ def test_finding1_lo_gt_k_bounded_twin_islands_at_k2():
 
 def test_finding1_k3_separation_rides_an_eof_carrying_charset():
     """The k=3 separator is EOF-exact: arm2's "12" is extended by the EOF
-    sentinel at position 3, not a generic character — the load-bearing shape
-    the part-(c) runtime window matcher must special-case."""
+    sentinel at position 3, not a generic character — the shape the part-(c)
+    runtime window matcher must special-case."""
     arm1 = [IrItem(digits(), IrQuantifier(4, IrNone)), IrItem(IrLiteral("x"))]
     arm2 = [IrItem(IrLiteral("12"))]
     got = arm_gate({}, [arm1, arm2], EOF, max_k=3)

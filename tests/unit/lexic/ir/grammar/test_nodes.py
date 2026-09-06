@@ -1,5 +1,9 @@
+# Test files may exceed max-module-lines (user ruling, 2026-07-04). Splitting
+# this one is not available either: the mirror gate in
+# tests/integration/lexic/invariants/test_test_parity.py pins one test file
+# per source module, so a second half would have to be exempted from a real
+# invariant to satisfy a line count.
 # pylint: disable=too-many-lines
-# Test files may exceed max-module-lines (user ruling, 2026-07-04).
 """IR AST node dataclasses — frozen, hashable, immutable tuples."""
 
 from __future__ import annotations

@@ -37,7 +37,7 @@ def test_parse_fast_on_exponential_ambiguity() -> None:
     """parse(sss, 'a'*40) raises ambiguity fast — polynomial, not exponential.
 
     Catalan(39) is astronomical, so an eager enumerator would never finish.
-    This proves the short-circuit path is the load-bearing one.
+    This proves the short-circuit path is the one that answers.
     """
     grammar = sss_grammar()
     text = "a" * 40
@@ -90,8 +90,8 @@ def test_eager_derivations_blows_up_guarded() -> None:
     """derivations(sss, 'a'*30) times out or OOMs under a tight guard.
 
     Catalan(29) is ~5.9 × 10^18. This CONTRAST test proves that the eager
-    full-enumeration path IS genuinely exponential, making the laziness
-    load-bearing — not just an optimisation.
+    full-enumeration path IS genuinely exponential, so the laziness is what
+    makes the parse terminate — not just an optimisation.
     """
     grammar = sss_grammar()
     text = "a" * 30

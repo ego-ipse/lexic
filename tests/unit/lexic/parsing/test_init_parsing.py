@@ -25,20 +25,15 @@ from lexic.parsing import (
     Chart,
     EarleyItem,
     EarleyParser,
-    FastCtor,
     FastTree,
-    FieldFold,
     GrammarAnalysis,
     Kernel,
     Link,
     Links,
-    ModelBody,
-    ModelFold,
     ParserTables,
     ParseTree,
     PdaKernel,
     PdaTables,
-    RuleFold,
     SppfNode,
     compile_tables,
     derivations,
@@ -50,12 +45,10 @@ from lexic.parsing import (
     parse_forest,
     parse_model,
     pda_tables,
-)
-from lexic.parsing import products as products_direct
-from lexic.parsing import (
     recognize,
     to_chart,
 )
+from lexic.parsing import products as products_direct
 from lexic.parsing.earley.engine import EarleyParser as EarleyParserDirect
 from lexic.parsing.earley.kernel.forest.chart import Chart as ChartDirect
 from lexic.parsing.earley.kernel.forest.chart import EarleyItem as EarleyItemDirect
@@ -191,17 +184,9 @@ def test_parse_model_callable_from_package():
 
 
 def test_new_root_exports_are_reachable():
-    """The engine exports its normalisation, fold, and fold-authoring types at
+    """The engine exports its normalisation and grammar-policy transforms at
     the package root (what compile.py imports, root-API-only)."""
-    for obj in (
-        normalize,
-        lift_optional_nullables,
-        ModelFold,
-        ModelBody,
-        RuleFold,
-        FieldFold,
-        FastCtor,
-    ):
+    for obj in (normalize, lift_optional_nullables):
         assert obj is not None
 
 

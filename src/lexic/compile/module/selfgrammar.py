@@ -27,37 +27,24 @@ Grammar design (the 260718 spike, productionized):
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import Callable, ClassVar
 
 import lexic.compile.notation.parse as _notation
 from lexic.compile.foldkit import (
-    ALT_BODY,
-    DECODE_INT,
-    FIRST_REST,
+    AuthoredRule,
     first_rest,
-    model_fold,
-    passthrough,
-    seq,
+    product_rules,
 )
+from lexic.compile.module.rules import module_grammar
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
-    IrAlternation,
-    IrAst,
-    IrCharClass,
-    IrChr,
-    IrItem,
-    IrLiteral,
     IrNamedTuple,
     IrNone,
-    IrQuantifier,
-    IrRange,
-    IrRule,
-    IrRuleRef,
     IrSelf,
-    IrSeq,
-    IrSequence,
 )
-from lexic.parsing import FieldFold, ModelBody, ModelFold, parse_model
+from lexic.parsing import ModelExecutable, parse_model
+from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 __all__ = [
     "MClass",
@@ -66,27 +53,6 @@ __all__ = [
     "module_grammar",
     "parse_module",
 ]
-
-_STAR = IrQuantifier(0, IrNone)
-_PLUS = IrQuantifier(1, IrNone)
-_OPT = IrQuantifier(0, 1)
-
-
-def _lit(text: str) -> IrItem:
-    return IrItem(IrLiteral(text))
-
-
-def _ref(name: str) -> IrItem:
-    return IrItem(IrRuleRef(name))
-
-
-def _rule(name: str, *arms: IrSequence, semantic: bool = True) -> IrRule:
-    return IrRule(name, IrAlternation(*arms), semantic)
-
-
-def _rng(lo: int | str, hi: int | str) -> IrRange:
-    return IrRange(IrChr(lo), IrChr(hi))
-
 
 # ── module model records (the fold's output, on the spine) ───────────────
 
@@ -124,303 +90,6 @@ class MModule(IrNamedTuple[str, tuple, tuple, tuple, IrSelf, bool]):
     classes: tuple = ()
     grammar: IrSelf = IrNone
     has_bind: bool = False
-
-
-# ── lexical pieces (statement layer — newline-significant) ───────────────
-
-_NAME_FIRST = IrCharClass(_rng("A", "Z"), _rng("a", "z"), IrChr("_"))
-_FIELD_FIRST = IrCharClass(_rng("A", "Z"), _rng("a", "z"))
-_NAME_REST = IrCharClass(_rng("0", "9"), _rng("A", "Z"), _rng("a", "z"), IrChr("_"))
-_DIGITS = IrCharClass(_rng("0", "9"))
-# Docstring / string-token content units: anything but quote/backslash
-# (newlines included — docstrings wrap), or a backslash escape pair.
-_DOC_PLAIN = IrCharClass(_rng(0x00, 0x21), _rng(0x23, 0x5B), _rng(0x5D, 0x10FFFF))
-_SQ_PLAIN = IrCharClass(_rng(0x00, 0x26), _rng(0x28, 0x5B), _rng(0x5D, 0x10FFFF))
-_ANY = IrCharClass(_rng(0x00, 0x10FFFF))
-
-_BINDS_LIT = "__binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {\n"
-
-_MODULE_RULES = [
-    _rule(
-        "m-module",
-        IrSequence(
-            _ref("m-docstring"),
-            _ref("m-nl"),
-            _ref("m-gap"),
-            _ref("m-imports"),
-            IrItem(IrRuleRef("m-class-block"), _STAR),
-            _ref("m-grammar-stmt"),
-            _ref("m-gap"),
-            IrItem(IrRuleRef("m-bind-stmt"), _OPT),
-        ),
-    ),
-    _rule("m-nl", IrSequence(_lit("\n"))),
-    _rule("m-gap", IrSequence(IrItem(IrLiteral("\n"), _STAR)), semantic=False),
-    # ``"""`` content ``"""`` — content spans lines; escapes pair-wise.
-    _rule(
-        "m-docstring",
-        IrSequence(_lit('"""'), IrItem(IrRuleRef("m-doc-unit"), _STAR), _lit('"""')),
-    ),
-    _rule(
-        "m-doc-unit",
-        IrSequence(IrItem(_DOC_PLAIN)),
-        IrSequence(_lit("\\"), IrItem(_ANY)),
-    ),
-    # isort-canonical import order: __future__, [typing], compile?, ir, model.
-    _rule(
-        "m-imports",
-        IrSequence(
-            _lit("from __future__ import annotations\n"),
-            _ref("m-gap"),
-            IrItem(IrRuleRef("m-typing-import"), _OPT),
-            IrItem(IrRuleRef("m-compile-import"), _OPT),
-            _ref("m-ir-import"),
-            _lit("from lexic.model import GrammarModel\n"),
-            _ref("m-gap"),
-        ),
-    ),
-    _rule(
-        "m-typing-import",
-        IrSequence(
-            _lit("from typing import "),
-            _ref("m-name-list"),
-            _ref("m-nl"),
-            _ref("m-gap"),
-        ),
-    ),
-    _rule(
-        "m-compile-import", IrSequence(_lit("from lexic.compile import bind_module\n"))
-    ),
-    _rule(
-        "m-ir-import",
-        IrSequence(_lit("from lexic.ir import "), _ref("m-import-tail")),
-    ),
-    # tail ::= paren | flat — sibling rules because the arms fold with
-    # different arities (the m-body precedent).
-    _rule(
-        "m-import-tail",
-        IrSequence(_ref("m-import-paren")),
-        IrSequence(_ref("m-import-flat")),
-    ),
-    _rule(
-        "m-import-paren",
-        IrSequence(_lit("(\n"), IrItem(IrRuleRef("m-import-line"), _PLUS), _lit(")\n")),
-    ),
-    _rule("m-import-flat", IrSequence(_ref("m-name-list"), _ref("m-nl"))),
-    _rule("m-import-line", IrSequence(_lit("    "), _ref("m-name"), _lit(",\n"))),
-    _rule(
-        "m-name-list",
-        IrSequence(_ref("m-name"), IrItem(IrRuleRef("m-more-name"), _STAR)),
-    ),
-    _rule("m-more-name", IrSequence(_lit(", "), _ref("m-name"))),
-    _rule("m-name", IrSequence(IrItem(_NAME_FIRST), IrItem(_NAME_REST, _STAR))),
-    # Field names are never underscore-led (keyword-mangle is TRAILING);
-    # the narrower first-char class is what gates a field line against
-    # ``__grammar__`` at one char. ``m-name`` keeps '_' for ``__future__``.
-    _rule("m-field-name", IrSequence(IrItem(_FIELD_FIRST), IrItem(_NAME_REST, _STAR))),
-    _rule("m-int", IrSequence(IrItem(_DIGITS, _PLUS))),
-    # class block: header, docstring line, then the arm-split body.
-    _rule(
-        "m-class-block",
-        IrSequence(
-            _lit("class "),
-            _ref("m-name"),
-            _lit("("),
-            _ref("m-name-list"),
-            _lit("):\n    "),
-            _ref("m-docstring"),
-            _ref("m-nl"),
-            _ref("m-body"),
-        ),
-    ),
-    # body ::= filled | empty — the field-less arm is a single nullable run,
-    # so adjacent gaps never split ambiguously; separate rules because the
-    # arms fold with different arities.
-    _rule(
-        "m-body",
-        IrSequence(_ref("m-filled-body")),
-        IrSequence(_ref("m-empty-body")),
-    ),
-    _rule(
-        "m-filled-body",
-        IrSequence(_lit("\n"), IrItem(IrRuleRef("m-body-line"), _PLUS), _ref("m-gap")),
-    ),
-    _rule("m-empty-body", IrSequence(_ref("m-gap"))),
-    # Every body line rides through ``m-indented-line`` (the shared leading
-    # 4-space indent); past the indent the three tails separate on their
-    # keyword — a field name ([A-Za-z] — ``m-field-name``, never
-    # underscore-led) vs ``__grammar__`` vs ``__shape__`` vs ``__binds__`` (the
-    # three '_'-led keywords separate at k=3: ``__g``/``__s``/``__b``).
-    # Predictive, no island.
-    _rule("m-body-line", IrSequence(_ref("m-indented-line"))),
-    _rule("m-indented-line", IrSequence(_lit("    "), _ref("m-line-tail"))),
-    _rule(
-        "m-line-tail",
-        IrSequence(_ref("m-field-tail")),
-        IrSequence(_ref("m-grammar-tail")),
-        IrSequence(_ref("m-shape-tail")),
-        IrSequence(_ref("m-inline-binds")),
-    ),
-    # The union loop rides INSIDE the line rule so the loop-exit has an
-    # in-rule (soft) continuation — ``" |"`` vs ``" ="``/``"\\n"`` separates
-    # at k=2. A standalone ``m-type`` rule would end on the loop (empty soft
-    # FOLLOW, hard FOLLOW unsound for a stored gate) and island.
-    _rule(
-        "m-field-tail",
-        IrSequence(
-            _ref("m-field-name"),
-            _lit(": "),
-            _ref("m-type-atom"),
-            IrItem(IrRuleRef("m-type-union"), _STAR),
-            IrItem(IrRuleRef("m-default"), _OPT),
-            _ref("m-nl"),
-        ),
-    ),
-    _rule("m-default", IrSequence(_lit(" = None"))),
-    # type expressions: T, list[T], Literal["…", …], unions with " | ".
-    # Inside brackets the union/separator tails are one flat loop whose
-    # in-rule exit is "]" — FIRST-disjoint from ' '/',' — so no rule ends
-    # on a loop (the same no-island shape as the field line; the fold
-    # concatenates, so the arg structure is not modelled, only spelled).
-    _rule("m-type-union", IrSequence(_lit(" | "), _ref("m-type-atom"))),
-    _rule(
-        "m-type-atom",
-        IrSequence(_ref("m-name"), IrItem(IrRuleRef("m-type-args"), _OPT)),
-    ),
-    _rule(
-        "m-type-args",
-        IrSequence(
-            _lit("["),
-            _ref("m-arg-unit"),
-            IrItem(IrRuleRef("m-arg-tail"), _STAR),
-            _lit("]"),
-        ),
-    ),
-    _rule(
-        "m-arg-tail",
-        IrSequence(_ref("m-arg-union")),
-        IrSequence(_ref("m-arg-sep")),
-    ),
-    _rule("m-arg-union", IrSequence(_lit(" | "), _ref("m-arg-unit"))),
-    _rule("m-arg-sep", IrSequence(_lit(", "), _ref("m-arg-unit"))),
-    _rule(
-        "m-arg-unit",
-        IrSequence(_ref("m-type-atom")),
-        IrSequence(_ref("m-str-token")),
-    ),
-    # A raw string token (Literal[...] values) — spelling preserved verbatim.
-    _rule(
-        "m-str-token",
-        IrSequence(_ref("m-dq-token")),
-        IrSequence(_ref("m-sq-token")),
-    ),
-    _rule(
-        "m-dq-token",
-        IrSequence(_lit('"'), IrItem(IrRuleRef("m-dq-unit"), _STAR), _lit('"')),
-    ),
-    _rule(
-        "m-sq-token",
-        IrSequence(_lit("'"), IrItem(IrRuleRef("m-sq-unit"), _STAR), _lit("'")),
-    ),
-    _rule(
-        "m-dq-unit",
-        IrSequence(IrItem(_DOC_PLAIN)),
-        IrSequence(_lit("\\"), IrItem(_ANY)),
-    ),
-    _rule(
-        "m-sq-unit", IrSequence(IrItem(_SQ_PLAIN)), IrSequence(_lit("\\"), IrItem(_ANY))
-    ),
-    # inline tables — a value-final line, so it OWNS its trailing newline
-    # (``value`` no longer swallows it; ``ws-inl`` stops at the newline).
-    _rule(
-        "m-grammar-tail",
-        IrSequence(
-            _lit("__grammar__: ClassVar[IrRule] = "), _ref("value"), _ref("m-nl")
-        ),
-    ),
-    _rule(
-        "m-shape-tail",
-        IrSequence(_lit("__shape__: ClassVar[int] = "), _ref("pos-int"), _ref("m-nl")),
-    ),
-    # Each entry consumes its trailing newline PLUS the next line's leading
-    # 4 spaces (one hoisted before the loop), so loop-take peeks ' ' against
-    # the '}' closer — FIRST-disjoint, no island.
-    _rule(
-        "m-inline-binds",
-        IrSequence(
-            _lit(_BINDS_LIT),
-            _lit("    "),
-            IrItem(IrRuleRef("m-bind-entry"), _PLUS),
-            _lit("}"),
-            _ref("m-nl"),
-        ),
-    ),
-    _rule(
-        "m-bind-entry",
-        IrSequence(
-            _lit("    "),
-            _ref("m-int"),
-            _lit(': ("'),
-            _ref("m-field-name"),
-            _lit('", '),
-            _ref("value"),
-            _lit("),\n    "),
-        ),
-    ),
-    _rule(
-        "m-grammar-stmt",
-        IrSequence(_lit("GRAMMAR: IrAst = "), _ref("value"), _ref("m-nl")),
-    ),
-    _rule("m-bind-stmt", IrSequence(_lit("bind_module(GRAMMAR, globals())\n"))),
-]
-
-# ── the notation token rules whose trailing ``ws`` must NOT cross a newline ─
-# (so a value-final statement's own ``m-nl`` is the consuming barrier).
-# ``comma``/``lparen`` keep the newline-permitting ``ws`` — a call spans lines
-# after ``(`` or ``,``.
-_INLINE_WS_RULES = frozenset(
-    {"rparen", "dq-str", "sq-str", "name", "neg-int", "pos-int"}
-)
-
-_WS_INL = _rule(
-    "ws-inl",
-    IrSequence(IrItem(IrCharClass(IrChr(9), IrChr(32)), _STAR)),
-    semantic=False,
-)
-
-
-def _inline_ws(rule: IrRule) -> IrRule:
-    """Rewrite a notation token rule's trailing ``ws`` ref to ``ws-inl``.
-
-    :param rule: A notation token rule (arity-preserving — only the ref name
-        changes, so the rule's fold entry stays aligned).
-    :returns: The rewritten rule.
-    """
-    arms = [
-        IrSequence(
-            *(
-                IrItem(IrRuleRef("ws-inl"), it.quantifier)
-                if isinstance(it.atom, IrRuleRef) and str(it.atom) == "ws"
-                else it
-                for it in arm
-            )
-        )
-        for arm in rule.body
-    ]
-    return IrRule(rule.name, IrAlternation(*arms), rule.semantic)
-
-
-def module_grammar() -> IrAst:
-    """The module self-grammar: statement skeleton + the notation rules.
-
-    :returns: The merged ``IrAst`` (start ``m-module``).
-    """
-    notation_rules = [
-        _inline_ws(r) if str(r.name) in _INLINE_WS_RULES else r
-        for r in _notation.NOTATION_GRAMMAR.rules
-        if str(r.name) != "start"
-    ]
-    return IrAst(IrSeq(*_MODULE_RULES, *notation_rules, _WS_INL), "m-module")
 
 
 # ── fold ctors (string composers + record assemblers) ────────────────────
@@ -543,134 +212,22 @@ def _m_module(
     )
 
 
-def _fold_config() -> dict[str, ModelBody]:
-    """The module fold table (merged over the notation's own body table)."""
-    cfg = {str(ref): body for ref, body in _notation.NOTATION_FOLD.bodies.items()}
-    cfg.update(
-        {
-            "m-module": seq(
-                _m_module,
-                8,
-                (
-                    FieldFold(0, "model", "doc", 1),
-                    FieldFold(3, "model", "imports", 1),
-                    FieldFold(4, "models", "classes", 0),
-                    FieldFold(5, "model", "grammar", 1),
-                    FieldFold(7, "model", "bind", 0),
-                ),
-            ),
-            "m-nl": seq(lambda: True, 1, ()),
-            "m-docstring": seq(_m_docstring, 3, (FieldFold(1, "text", "raw", 0),)),
-            "m-imports": seq(
-                _m_imports,
-                7,
-                (
-                    FieldFold(2, "model", "typing_names", 0),
-                    FieldFold(3, "model", "compile_import", 0),
-                    FieldFold(4, "model", "ir_names", 1),
-                ),
-            ),
-            "m-typing-import": seq(
-                _m_typing_import, 4, (FieldFold(1, "model", "names", 1),)
-            ),
-            "m-compile-import": seq(lambda: True, 1, ()),
-            "m-ir-import": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-            "m-import-tail": ALT_BODY,
-            "m-import-paren": seq(
-                _m_import_paren, 3, (FieldFold(1, "models", "lines", 0),)
-            ),
-            "m-import-flat": seq(passthrough, 2, (FieldFold(0, "model", "v", 1),)),
-            "m-import-line": seq(passthrough, 3, (FieldFold(1, "model", "v", 1),)),
-            "m-name-list": seq(
-                FIRST_REST,
-                2,
-                (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
-            ),
-            "m-more-name": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-            "m-name": seq(
-                _m_name,
-                2,
-                (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
-            ),
-            "m-field-name": seq(
-                _m_name,
-                2,
-                (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
-            ),
-            "m-int": seq(DECODE_INT, 1, (FieldFold(0, "text", "raw", 1),)),
-            "m-class-block": seq(
-                _m_class,
-                8,
-                (
-                    FieldFold(1, "model", "name", 1),
-                    FieldFold(3, "model", "bases", 1),
-                    FieldFold(5, "model", "doc", 1),
-                    FieldFold(7, "model", "body", 1),
-                ),
-            ),
-            "m-body": ALT_BODY,
-            "m-filled-body": seq(_m_body, 3, (FieldFold(1, "models", "lines", 0),)),
-            "m-empty-body": seq(_m_body, 1, ()),
-            "m-body-line": ALT_BODY,
-            "m-indented-line": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-            "m-line-tail": ALT_BODY,
-            "m-field-tail": seq(
-                _m_field_tail,
-                6,
-                (
-                    FieldFold(0, "model", "name", 1),
-                    FieldFold(2, "model", "atom", 1),
-                    FieldFold(3, "models", "unions", 0),
-                    FieldFold(4, "model", "default", 0),
-                ),
-            ),
-            "m-default": seq(lambda: True, 1, ()),
-            "m-type-union": seq(_m_type_union, 2, (FieldFold(1, "model", "atom", 1),)),
-            "m-type-atom": seq(
-                _m_type_atom,
-                2,
-                (FieldFold(0, "model", "name", 1), FieldFold(1, "model", "args", 0)),
-            ),
-            "m-type-args": seq(
-                _m_type_args,
-                4,
-                (FieldFold(1, "model", "first", 1), FieldFold(2, "models", "rest", 0)),
-            ),
-            "m-arg-tail": ALT_BODY,
-            "m-arg-union": seq(_m_type_union, 2, (FieldFold(1, "model", "atom", 1),)),
-            "m-arg-sep": seq(_m_arg_sep, 2, (FieldFold(1, "model", "arg", 1),)),
-            "m-arg-unit": ALT_BODY,
-            "m-str-token": ALT_BODY,
-            "m-dq-token": seq(_m_dq_token, 3, (FieldFold(1, "text", "raw", 0),)),
-            "m-sq-token": seq(_m_sq_token, 3, (FieldFold(1, "text", "raw", 0),)),
-            "m-grammar-tail": seq(
-                _m_inline_grammar, 3, (FieldFold(1, "model", "value", 1),)
-            ),
-            "m-shape-tail": seq(
-                _m_inline_shape, 3, (FieldFold(1, "model", "value", 1),)
-            ),
-            "m-inline-binds": seq(
-                _m_inline_binds, 5, (FieldFold(2, "models", "entries", 0),)
-            ),
-            "m-bind-entry": seq(
-                _m_bind_entry,
-                7,
-                (
-                    FieldFold(1, "model", "slot", 1),
-                    FieldFold(3, "model", "name", 1),
-                    FieldFold(5, "model", "value", 1),
-                ),
-            ),
-            "m-grammar-stmt": seq(passthrough, 3, (FieldFold(1, "model", "v", 1),)),
-            "m-bind-stmt": seq(lambda: True, 1, ()),
-            "m-gap": seq(lambda: None, 1, ()),
-        }
-    )
-    return cfg
+def _true() -> bool:
+    """A structural rule whose match is its own evidence — it folds to ``True``.
+
+    Named rather than a lambda so the product half can register it: a symbol is
+    a name in a registry, and four separate lambdas would be four names for one
+    behaviour.
+    """
+    return True
+
+
+def _none() -> None:
+    """A structural rule that folds to nothing at all."""
+    return None
 
 
 MODULE_GRAMMAR = module_grammar()
-MODULE_FOLD: ModelFold = model_fold(_fold_config())
 
 
 def parse_module(text: str) -> MModule:
@@ -681,9 +238,172 @@ def parse_module(text: str) -> MModule:
     :raises UnsupportedConstructError: When ``text`` is not a canonical
         generated module.
     """
-    result = parse_model(MODULE_GRAMMAR, text, MODULE_FOLD)
+    result = parse_model(MODULE_GRAMMAR, text, MODULE_BINDING)
     if not isinstance(result, MModule):
         raise UnsupportedConstructError(
             f"selfgrammar: module folded to {type(result).__name__!r}"
         )
     return result
+
+
+# ── the same rules in the product vocabulary ──────────────────────────────
+
+MODULE_SYMBOLS: dict[str, Callable[..., object]] = _notation.NOTATION_SYMBOLS | {
+    fn.__name__.lstrip("_"): fn
+    for fn in (
+        _true,
+        _none,
+        _m_module,
+        _m_docstring,
+        _m_imports,
+        _m_typing_import,
+        _m_import_paren,
+        _m_name,
+        _m_class,
+        _m_body,
+        _m_field_tail,
+        _m_type_union,
+        _m_type_atom,
+        _m_type_args,
+        _m_arg_sep,
+        _m_dq_token,
+        _m_sq_token,
+        _m_inline_grammar,
+        _m_inline_shape,
+        _m_inline_binds,
+        _m_bind_entry,
+    )
+}
+"""This surface's transforms by name, over the notation's — the self-grammar
+EXTENDS the notation, so its whitelist does too. Keyed by each transform's own
+name so a rename cannot leave the registry pointing at the old spelling."""
+
+_ONE = int(CaptureMode.ONE)
+_MANY = int(CaptureMode.MANY)
+_TEXT = int(CaptureMode.TEXT)
+
+MODULE_RULES: dict[str, AuthoredRule] = _notation.NOTATION_RULES | {
+    "m-module": AuthoredRule(
+        "m_module",
+        (
+            CaptureSpec(_ONE, 0),
+            CaptureSpec(_ONE, 3),
+            CaptureSpec(_MANY, 4),
+            CaptureSpec(_ONE, 5),
+            CaptureSpec(_ONE, 7),
+        ),
+        ("doc", "imports", "classes", "grammar", "bind"),
+        8,
+    ),
+    "m-nl": AuthoredRule("true", (), (), 1),
+    "m-docstring": AuthoredRule("m_docstring", (CaptureSpec(_TEXT, 1),), ("raw",), 3),
+    "m-imports": AuthoredRule(
+        "m_imports",
+        (CaptureSpec(_ONE, 2), CaptureSpec(_ONE, 3), CaptureSpec(_ONE, 4)),
+        ("typing_names", "compile_import", "ir_names"),
+        7,
+    ),
+    "m-typing-import": AuthoredRule(
+        "m_typing_import", (CaptureSpec(_ONE, 1),), ("names",), 4
+    ),
+    "m-compile-import": AuthoredRule("true", (), (), 1),
+    "m-ir-import": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "m-import-tail": AuthoredRule(""),
+    "m-import-paren": AuthoredRule(
+        "m_import_paren", (CaptureSpec(_MANY, 1),), ("lines",), 3
+    ),
+    "m-import-flat": AuthoredRule("passthrough", (CaptureSpec(_ONE, 0),), ("v",), 2),
+    "m-import-line": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 3),
+    "m-name-list": AuthoredRule(
+        "first_rest",
+        (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1)),
+        ("first", "rest"),
+        2,
+    ),
+    "m-more-name": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "m-name": AuthoredRule(
+        "m_name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1)), ("head", "tail"), 2
+    ),
+    "m-field-name": AuthoredRule(
+        "m_name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1)), ("head", "tail"), 2
+    ),
+    "m-int": AuthoredRule("decode_int", (CaptureSpec(_TEXT, 0),), ("raw",), 1),
+    "m-class-block": AuthoredRule(
+        "m_class",
+        (
+            CaptureSpec(_ONE, 1),
+            CaptureSpec(_ONE, 3),
+            CaptureSpec(_ONE, 5),
+            CaptureSpec(_ONE, 7),
+        ),
+        ("name", "bases", "doc", "body"),
+        8,
+    ),
+    "m-body": AuthoredRule(""),
+    "m-filled-body": AuthoredRule("m_body", (CaptureSpec(_MANY, 1),), ("lines",), 3),
+    "m-empty-body": AuthoredRule("m_body", (), (), 1),
+    "m-body-line": AuthoredRule(""),
+    "m-indented-line": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "m-line-tail": AuthoredRule(""),
+    "m-field-tail": AuthoredRule(
+        "m_field_tail",
+        (
+            CaptureSpec(_ONE, 0),
+            CaptureSpec(_ONE, 2),
+            CaptureSpec(_MANY, 3),
+            CaptureSpec(_ONE, 4),
+        ),
+        ("name", "atom", "unions", "default"),
+        6,
+    ),
+    "m-default": AuthoredRule("true", (), (), 1),
+    "m-type-union": AuthoredRule("m_type_union", (CaptureSpec(_ONE, 1),), ("atom",), 2),
+    "m-type-atom": AuthoredRule(
+        "m_type_atom", (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1)), ("name", "args"), 2
+    ),
+    "m-type-args": AuthoredRule(
+        "m_type_args",
+        (CaptureSpec(_ONE, 1), CaptureSpec(_MANY, 2)),
+        ("first", "rest"),
+        4,
+    ),
+    "m-arg-tail": AuthoredRule(""),
+    "m-arg-union": AuthoredRule("m_type_union", (CaptureSpec(_ONE, 1),), ("atom",), 2),
+    "m-arg-sep": AuthoredRule("m_arg_sep", (CaptureSpec(_ONE, 1),), ("arg",), 2),
+    "m-arg-unit": AuthoredRule(""),
+    "m-str-token": AuthoredRule(""),
+    "m-dq-token": AuthoredRule("m_dq_token", (CaptureSpec(_TEXT, 1),), ("raw",), 3),
+    "m-sq-token": AuthoredRule("m_sq_token", (CaptureSpec(_TEXT, 1),), ("raw",), 3),
+    "m-grammar-tail": AuthoredRule(
+        "m_inline_grammar", (CaptureSpec(_ONE, 1),), ("value",), 3
+    ),
+    "m-shape-tail": AuthoredRule(
+        "m_inline_shape", (CaptureSpec(_ONE, 1),), ("value",), 3
+    ),
+    "m-inline-binds": AuthoredRule(
+        "m_inline_binds", (CaptureSpec(_MANY, 2),), ("entries",), 5
+    ),
+    "m-bind-entry": AuthoredRule(
+        "m_bind_entry",
+        (CaptureSpec(_ONE, 1), CaptureSpec(_ONE, 3), CaptureSpec(_ONE, 5)),
+        ("slot", "name", "value"),
+        7,
+    ),
+    "m-grammar-stmt": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 3),
+    "m-bind-stmt": AuthoredRule("true", (), (), 1),
+    "m-gap": AuthoredRule("none", (), (), 1),
+}
+"""Every rule of the module self-grammar in the product vocabulary, over the
+notation's own — the same merge the fold table performs, said once more in the
+form the engines will run."""
+
+MODULE_PRODUCT = product_rules(MODULE_RULES)
+"""The assembled product: one ``RuleProduct`` per rule, symbol keys pooled, and
+the code each rule name resolves to."""
+
+MODULE_BINDING = ModelExecutable(
+    rules_by_name(MODULE_PRODUCT.rules, MODULE_PRODUCT.codes),
+    LoweringOwned(symbols=MODULE_PRODUCT.symbols, registry=MODULE_SYMBOLS),
+)
+"""What this surface hands a parse entry — its verified program, with the
+symbol transforms its completions run resolved at lowering."""

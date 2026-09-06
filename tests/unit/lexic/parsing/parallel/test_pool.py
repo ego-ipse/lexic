@@ -16,7 +16,7 @@ import pytest
 
 import lexic.parsing.parallel.pool as pool_module
 from lexic.compile import compile_text, reset_cache_for_tests
-from lexic.exceptions import UnsupportedConstructError
+from lexic.exceptions import TargetRefusalError, UnsupportedConstructError
 from lexic.parsing.parallel import ParsePool
 from lexic.parsing.parallel import policy as policy_module
 from lexic.parsing.parallel.pool import RETAINED, PoolLease, WorkPool
@@ -68,7 +68,7 @@ class _PhaseState:
         elif item == "fail":
             assert self.events["running_started"].wait(5)
             self.events["failure_raised"].set()
-            raise ValueError("phase failure")
+            raise UnsupportedConstructError("phase failure")
         elif item == "queued":
             self.events["queued_started"].set()
             self.events["release_queued"].wait(5)
@@ -199,7 +199,7 @@ def test_failed_phase_cancels_pending_and_waits_running_siblings(
                     state.work,
                     ["fail", "running", "queued", "canceled"],
                 )
-            except ValueError as error:
+            except UnsupportedConstructError as error:
                 state.errors.append(error)
 
         thread = Thread(target=failed_phase)
@@ -267,21 +267,94 @@ def test_a_failing_document_raises_its_own_exception():
 
 
 def test_failure_reports_the_lowest_input_index_for_both_pool_facades():
-    """A later fast failure cannot mask an earlier input's exception."""
+    """A later fast failure cannot mask an earlier input's refusal.
+
+    Stated over the engine's own verdicts, which is the family a phase drains
+    on: a chunk that will not parse is an answer about that chunk, and the
+    caller wants the earliest input's answer rather than the quickest.
+    """
 
     def work(item: int) -> int:
         if item == 0:
             sleep(0.05)
-            raise ValueError("first input")
-        raise KeyError("later input")
+            raise UnsupportedConstructError("first input")
+        raise TargetRefusalError("later input")
 
     with WorkPool(2) as pool:
-        with pytest.raises(ValueError, match="first input"):
+        with pytest.raises(UnsupportedConstructError, match="first input"):
             pool.map(work, [0, 1])
 
     with ParsePool(work, cores=2) as pool:
-        with pytest.raises(ValueError, match="first input"):
+        with pytest.raises(UnsupportedConstructError, match="first input"):
             pool.map([0, 1])
+
+
+def test_a_bug_in_an_item_is_not_ranked_against_the_others():
+    """Only a verdict about an item waits for the phase; a bug does not.
+
+    A ``TypeError`` from a worker is not an answer about that chunk, so there
+    is nothing to rank it against — it reaches the caller as raised, rather
+    than being held while the rest of the phase finishes producing verdicts.
+    """
+
+    def work(item: int) -> int:
+        if item == 0:
+            sleep(0.05)
+            raise UnsupportedConstructError("a refusal, later in time")
+        raise TypeError("a bug, first in time")
+
+    with WorkPool(2) as pool:
+        with pytest.raises(TypeError, match="a bug"):
+            pool.map(work, [0, 1])
+
+
+def test_an_interrupt_in_an_item_reaches_the_caller() -> None:
+    """A phase must not swallow the interrupt that stops the program.
+
+    ``KeyboardInterrupt`` is not an ``Exception`` and not a verdict: catching
+    it to drain would delay the one signal a user sends when they want the
+    work to stop now.
+    """
+    started = Event()
+
+    def work(item: int) -> int:
+        if item == 0:
+            raise KeyboardInterrupt
+        started.set()
+        sleep(0.05)
+        return item
+
+    with WorkPool(2) as pool:
+        with pytest.raises(KeyboardInterrupt):
+            pool.map(work, [0, 1, 2, 3])
+
+
+def test_a_refusal_still_drains_the_phase_before_it_is_raised() -> None:
+    """The earliest refusal is raised only after its siblings have finished.
+
+    The drain is what makes "earliest INPUT" answerable at all: a phase that
+    raised on the first refusal to arrive would report whichever chunk lost
+    the race, and the split would then move the wrong cut.
+    """
+    finished: list[int] = []
+    lock = Lock()
+
+    def work(item: int) -> int:
+        if item == 0:
+            sleep(0.05)
+            raise UnsupportedConstructError("earliest input")
+        if item == 1:
+            raise UnsupportedConstructError("later input, first to raise")
+        sleep(0.02)
+        with lock:
+            finished.append(item)
+        return item
+
+    with WorkPool(4) as pool:
+        with pytest.raises(UnsupportedConstructError, match="earliest input"):
+            pool.map(work, [0, 1, 2, 3])
+
+    assert finished, "the phase raised before its siblings could finish"
 
 
 def test_explicit_cores_is_the_worker_count():
@@ -446,3 +519,171 @@ def test_split_parse_matches_sequential_across_many_warm_pool_reuses():
         sequential = compiled.parse(text, cores=1)
         assert parallel == sequential
         assert parallel.to_text() == text
+
+
+class _BlockedSibling:
+    """One item that blocks on release, and one that raises once it is in flight.
+
+    The shape every ordering test below needs: an unrelated piece of work is
+    genuinely RUNNING (not queued) when the failure happens, so a phase that
+    waits before re-raising cannot be mistaken for one that does not.
+
+    Only ``TypeError`` is caught, on purpose. A refusal escaping instead would
+    go uncaught, leave ``caught`` empty, and fail the assertion — which is the
+    right answer, since the whole claim is that a BUG travels differently from
+    a verdict.
+    """
+
+    def __init__(self) -> None:
+        """Arm the events; the failing item always raises ``TypeError``."""
+        self.started = Event()
+        self.release = Event()
+        self.left = Event()
+        self.caught: list[TypeError] = []
+
+    def work(self, item: int) -> int:
+        """Item 0 blocks until released; item 1 fails once item 0 is running."""
+        if item == 0:
+            self.started.set()
+            assert self.release.wait(timeout=30)
+            return item
+        assert self.started.wait(timeout=30)
+        raise TypeError("a bug, not a verdict")
+
+    def drive(self, run) -> Thread:
+        """Run ``run(self.work)`` on its own thread, recording what escapes."""
+
+        def body() -> None:
+            try:
+                run(self.work)
+            except TypeError as error:
+                self.caught.append(error)
+            finally:
+                self.left.set()
+
+        thread = Thread(target=body)
+        thread.start()
+        return thread
+
+    def finish(self, thread: Thread) -> None:
+        """Release the blocked item and join the driver."""
+        self.release.set()
+        thread.join(timeout=30)
+
+
+def test_a_bug_reaches_the_caller_before_a_running_sibling_finishes() -> None:
+    """The error must not wait behind unrelated work that is still running.
+
+    Waiting learns nothing — a sibling's completion says nothing about a bug —
+    and a caller whose blocked item needs the error to release it deadlocks
+    against a phase that drains first. The delivery ORDER is the whole claim,
+    so it is asserted while the sibling is provably still blocked.
+    """
+    state = _BlockedSibling()
+    pool = WorkPool(4)
+    driver = state.drive(lambda work: pool.map(work, [0, 1]))
+    try:
+        assert state.left.wait(timeout=10), "the error waited for a running sibling"
+        assert isinstance(state.caught[0], TypeError)
+    finally:
+        state.finish(driver)
+        pool.close()
+
+
+def test_the_context_manager_exit_does_not_wait_either() -> None:
+    """Closing on the way out must not re-introduce the wait that was removed.
+
+    ``shutdown()`` blocks by default, so a ``map`` that stopped waiting would
+    still have handed the delay to ``__exit__``. Both facades are checked
+    because each owns its own exit.
+    """
+    for run in (_through_workpool, _through_parsepool):
+        state = _BlockedSibling()
+        driver = state.drive(run)
+        try:
+            assert state.left.wait(timeout=10), f"{run.__name__} waited on the sibling"
+            assert isinstance(state.caught[0], TypeError)
+        finally:
+            state.finish(driver)
+
+
+def _through_workpool(work) -> None:
+    """Map inside a ``WorkPool`` context manager."""
+    with WorkPool(4) as pool:
+        pool.map(work, [0, 1])
+
+
+def _through_parsepool(work) -> None:
+    """Map inside a ``ParsePool`` context manager."""
+    with ParsePool(work, cores=4) as pool:
+        pool.map([0, 1])
+
+
+def test_a_leased_pool_unwinds_without_waiting_and_is_not_returned_warm() -> None:
+    """A failed lease must neither block the unwind nor go back in the cache."""
+    state = _BlockedSibling()
+
+    leased: list[WorkPool] = []
+
+    def run(work) -> None:
+        """Map inside a leased pool, recording which pool was lent."""
+        with PoolLease(4) as pool:
+            leased.append(pool)
+            pool.map(work, [0, 1])
+
+    driver = state.drive(run)
+    try:
+        assert state.left.wait(timeout=10), "the lease waited on the sibling"
+        with PoolLease(4) as next_lease:
+            assert next_lease is not leased[0], "a failed pool went back warm"
+    finally:
+        state.finish(driver)
+
+
+def test_a_failed_pool_refuses_further_work_rather_than_running_it() -> None:
+    """Reuse is a misuse, and it must not read as a chunk that would not parse.
+
+    ``RuntimeError`` on purpose: a caller catches ``LexicError`` to fall back
+    to a sequential parse, so raising that family here would turn a broken pool
+    into a silent fallback.
+    """
+    state = _BlockedSibling()
+    pool = WorkPool(4)
+    driver = state.drive(lambda work: pool.map(work, [0, 1]))
+    try:
+        assert state.left.wait(timeout=10)
+        assert isinstance(state.caught[0], TypeError)
+        with pytest.raises(RuntimeError, match="cannot take further work"):
+            pool.map(lambda item: item, [1, 2, 3])
+    finally:
+        state.finish(driver)
+        pool.close()
+
+
+def test_a_refusal_still_waits_for_its_siblings_and_reports_the_earliest() -> None:
+    """The domain path is unchanged: a refusal drains before it is raised.
+
+    The correction separates a bug from a verdict, and this is the half that
+    must NOT move — without the drain, "earliest input" would report whichever
+    chunk lost the race and the split would move the wrong cut.
+
+    Ordered by events rather than by sleeping: item 1 refuses FIRST in time and
+    item 0 does not even begin refusing until it has, so the phase can only
+    raise item 0's verdict by having waited for it. Work past the first failure
+    is deliberately cancelled, so no sibling's completion is asserted here — a
+    later item's answer cannot change which input was earliest.
+    """
+    raised_later = Event()
+
+    def work(item: int) -> int:
+        """Item 1 refuses at once; item 0 refuses only once item 1 has."""
+        if item == 1:
+            raised_later.set()
+            raise UnsupportedConstructError("later input, first to raise")
+        assert raised_later.wait(timeout=30)
+        raise UnsupportedConstructError("earliest input")
+
+    with WorkPool(4) as pool:
+        with pytest.raises(UnsupportedConstructError, match="earliest input"):
+            pool.map(work, [0, 1])
+        assert pool.map(lambda item: item, [7, 8]) == [7, 8], "a refusal broke the pool"

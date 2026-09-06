@@ -1,11 +1,11 @@
-"""Tests for lexic.compile.module.bind — runtime binding for twin-module classes."""
+"""Tests for lexic.compile.module.attach — runtime binding for twin-module classes."""
 
 from __future__ import annotations
 
 import pytest
 
 from lexic.compile import compile_text
-from lexic.compile.module.bind import bind_module
+from lexic.compile.module.attach import attach_module
 from lexic.exceptions import UnsupportedConstructError
 from lexic.model import GrammarModel
 
@@ -30,7 +30,7 @@ def test_bind_module_attaches_grammar_and_binds_matching_the_runtime_classes():
     classes: same ``__grammar__`` and ``__binds__``."""
     cg = compile_text(BIND_TEXT, cache_key="bind-happy")
 
-    bind_module(cg.grammar, {"Root": HandRoot, "Mid": HandMid})
+    attach_module(cg.grammar, {"Root": HandRoot, "Mid": HandMid})
 
     assert HandRoot.__grammar__ == cg.classes["Root"].__grammar__
     assert HandMid.__grammar__ == cg.classes["Mid"].__grammar__
@@ -42,7 +42,7 @@ def test_bind_module_raises_when_a_class_is_missing():
     """A namespace missing a rule's class names both the rule and the class."""
     cg = compile_text(BIND_TEXT, cache_key="bind-missing")
     with pytest.raises(UnsupportedConstructError, match="mid.*Mid"):
-        bind_module(cg.grammar, {"Root": HandRoot})
+        attach_module(cg.grammar, {"Root": HandRoot})
 
 
 def test_bind_module_raises_when_the_entry_is_not_a_grammar_model():
@@ -50,7 +50,7 @@ def test_bind_module_raises_when_the_entry_is_not_a_grammar_model():
     rejected the same way as a missing entry."""
     cg = compile_text(BIND_TEXT, cache_key="bind-not-a-model")
     with pytest.raises(UnsupportedConstructError, match="Mid"):
-        bind_module(cg.grammar, {"Root": HandRoot, "Mid": object})
+        attach_module(cg.grammar, {"Root": HandRoot, "Mid": object})
 
 
 def test_bind_module_raises_on_a_field_shape_mismatch():
@@ -64,7 +64,7 @@ def test_bind_module_raises_on_a_field_shape_mismatch():
     with pytest.raises(
         UnsupportedConstructError, match=r"\('wrong_field',\).*\('value',\)"
     ):
-        bind_module(cg.grammar, {"Root": HandRoot, "Mid": _WrongFieldMid})
+        attach_module(cg.grammar, {"Root": HandRoot, "Mid": _WrongFieldMid})
 
 
 def test_bind_module_expects_no_fields_for_an_alternation_rule():
@@ -82,4 +82,4 @@ def test_bind_module_expects_no_fields_for_an_alternation_rule():
         stray: str
 
     with pytest.raises(UnsupportedConstructError, match=r"\(\)"):
-        bind_module(cg.grammar, {"Root": _ExtraFieldRoot, "A": _A, "B": _B})
+        attach_module(cg.grammar, {"Root": _ExtraFieldRoot, "A": _A, "B": _B})

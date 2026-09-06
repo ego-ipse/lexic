@@ -38,11 +38,11 @@ def test_interior_route_finds_the_shells_slot_and_the_runs_slot():
     """``at`` (the arm's own item index) and ``run`` (the unit's item index
     inside the interior rule) resolve to real field slots on both models."""
     compiled = compile_text(ROUTED_GRAMMAR)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     plan = routed_plan(grammar)
     assert plan is not None
 
-    route = interior_route(fold, str(grammar.start), plan.at, plan.rule, plan.run)
+    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
 
     assert route is not None
     slot, child = route
@@ -54,10 +54,10 @@ def test_interior_route_declines_a_container_or_rule_the_fold_does_not_know():
     """A shape surprise — a rule name the fold has no configuration for —
     declines rather than guessing a slot."""
     compiled = compile_text(ROUTED_GRAMMAR)
-    fold = compiled.fold
+    binding = compiled.product
 
-    assert interior_route(fold, "no-such-rule", 0, "block", 1) is None
-    assert interior_route(fold, "start", 0, "no-such-rule", 1) is None
+    assert interior_route(binding, "no-such-rule", 0, "block", 1) is None
+    assert interior_route(binding, "start", 0, "no-such-rule", 1) is None
 
 
 def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces():
@@ -65,7 +65,7 @@ def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces
     reproduces the sequential model exactly — the seam ``routed_split`` itself
     calls through the pool."""
     compiled = compile_text(ROUTED_GRAMMAR)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     text = routed_document(700)
     found = routed_pieces(grammar, text, 4)
     assert found is not None
@@ -76,13 +76,13 @@ def test_stitch_interior_replaces_the_stand_ins_run_with_the_concatenated_pieces
         + text[region.opener + 1 : region.marks[0] + 1]
         + text[region.closer :]
     )
-    shell = parse_model(grammar, stand_in, fold)
-    pieces = [parse_model(plan.rooted, part, fold) for part in parts]
-    route = interior_route(fold, str(grammar.start), plan.at, plan.rule, plan.run)
+    shell = parse_model(grammar, stand_in, binding)
+    pieces = [parse_model(plan.rooted, part, binding) for part in parts]
+    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
     assert route is not None
 
     stitched = stitch_interior(shell, pieces, route)
-    sequential = parse_model(grammar, text, fold)
+    sequential = parse_model(grammar, text, binding)
 
     assert stitched is not None
     assert stitched == sequential
@@ -93,9 +93,9 @@ def test_stitch_interior_declines_a_shape_surprise_at_the_slot():
     """A route slot that does not land on a model at all is a shape
     surprise, not a crash."""
     compiled = compile_text(ROUTED_GRAMMAR)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     text = routed_document(20)
-    shell = parse_model(grammar, text, fold)
+    shell = parse_model(grammar, text, binding)
 
     assert stitch_interior(shell, [shell], (999, 0)) is None
 
@@ -108,7 +108,7 @@ def test_the_split_equals_sequential_and_round_trips_at_two_and_eight_workers():
     the public ``compiled.parse`` seam."""
     compiled = compile_text(ROUTED_GRAMMAR)
     text = routed_document(700)
-    sequential = parse_model(compiled.codegen_grammar, text, compiled.fold)
+    sequential = parse_model(compiled.codegen_grammar, text, compiled.product)
 
     for cores in (2, 8):
         parallel = compiled.parse(text, cores=cores)
@@ -164,7 +164,7 @@ def test_a_lex_ns_style_variant_engages_the_same_route_and_region():
     assert variant_plan.closing == plain_plan.closing
     assert variant_plan.mark == plain_plan.mark
 
-    sequential = parse_model(variant.codegen_grammar, text, variant.fold)
+    sequential = parse_model(variant.codegen_grammar, text, variant.product)
     recording, parallel = recorded_split(variant, text, 8)
 
     assert parallel is not None
@@ -188,7 +188,7 @@ def test_the_vyx_fixtures_block_body_engages_the_route_and_splits_exactly():
     assert plan is not None
     assert plan.rule == "block-body"
 
-    sequential = parse_model(compiled.codegen_grammar, text, compiled.fold)
+    sequential = parse_model(compiled.codegen_grammar, text, compiled.product)
     for cores in (2, 8):
         parallel = compiled.parse(text, cores=cores)
         assert parallel == sequential

@@ -152,7 +152,7 @@ def test_the_gpt2_pattern_is_the_one_bytelevel_ships() -> None:
     ByteLevel remaps bytes to working characters, so the pieces are not
     comparable — the CUTS are, and they are what a pattern determines.
 
-    The long digit and letter runs are load-bearing: a quantifier retold as
+    The long digit and letter runs are what makes the check bite: a quantifier retold as
     ``{1,3}`` (the way a neighbouring family spells the same alternative) is
     indistinguishable from ``+`` on any run short enough to fit it.
     """

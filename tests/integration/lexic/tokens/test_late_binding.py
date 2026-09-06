@@ -89,7 +89,7 @@ def test_classes_binds_and_fold_are_reused_not_rebuilt(compiled) -> None:
     """What makes the shortcut sound — and cheap — is this invariance."""
     rebound = compiled.bind(HIGH)
     assert rebound.classes is compiled.classes
-    assert rebound.fold is compiled.fold
+    assert rebound.executor is compiled.executor
     assert sorted(rebound.classes) == sorted(compiled.classes)
 
 

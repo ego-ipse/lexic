@@ -11,20 +11,18 @@ and the loop-close bookkeeping.
 
 from __future__ import annotations
 
-from typing import Any
-
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.runtime.build import F_COUNT, F_ENDS, F_I
+from lexic.parsing.pda.runtime.build import Frame
 from lexic.parsing.pda.runtime.kernel.decisions import (
     _ADMITS_HARD,
     _ASCEND,
     _DEAD,
     _arm_rest_scan,
-    _close_loop,
     _composes,
     _item_admits,
 )
 from tests.unit.lexic.parsing.pda.compiler.test_clones import only_arm, pda_from_text
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 MIXED = 'root ::= "a"? mid [0-9]\nmid ::= "m"\n'
 
@@ -96,12 +94,17 @@ def test_composes_checks_the_next_character_against_follow():
 
 
 def test_close_loop_resets_count_advances_i_and_records_the_end():
-    """The frame's loop-close bookkeeping: count reset, ``i`` advanced, end recorded."""
-    frame: list[Any] = [None] * 9
-    frame[F_COUNT] = 5
-    frame[F_ENDS] = [None, None, None]
-    result = _close_loop(frame, 1, 42)
+    """The frame's loop-close bookkeeping: count reset, ``i`` advanced, end recorded.
+
+    Item ``i``'s end is ``ends[i + 1]``, because ``ends[0]`` is the frame's own
+    span start — the layout that removes the first-item test from every reader.
+    """
+    frame = Frame(flat_arm(3), [], flat_clone(), 0)
+    frame.count = 5
+    result = frame.close_loop(1, 42)
     assert result == 2
-    assert frame[F_COUNT] == 0
-    assert frame[F_I] == 2
-    assert frame[F_ENDS][1] == 42
+    assert frame.count == 0
+    assert frame.i == 2
+    ends = frame.ends
+    assert ends is not None  # this clone keeps boundaries
+    assert ends[2] == 42

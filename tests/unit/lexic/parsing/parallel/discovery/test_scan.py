@@ -1,6 +1,6 @@
 """Tests for ``lexic.parsing.parallel.discovery.scan`` — the self-locating window scan.
 
-The load-bearing property: windows scanned independently, rebased by an
+The property these tests defend: windows scanned independently, rebased by an
 O(windows) prefix sum, produce EXACTLY the offsets a single sequential
 window produces. One window IS the sequential scan — same code path.
 """
@@ -120,7 +120,7 @@ def test_occurrences_finds_a_mark_starting_at_the_windows_last_offset():
     remaining characters reach — the property that makes it safe to search
     past the window end by the spelling's own width."""
     text = "a\n\nb"
-    assert _occurrences(text, "\n\n", 0, 2) == {1}
+    assert _occurrences(text, "\n\n", 0, 2) == [1]
 
 
 def test_occurrences_belongs_to_the_window_it_starts_in_not_the_next():
@@ -128,7 +128,7 @@ def test_occurrences_belongs_to_the_window_it_starts_in_not_the_next():
     into: ownership is decided once, by where the spelling STARTS, so a
     window scanning ``[2, 4)`` never rediscovers the mark that started at 1."""
     text = "a\n\nb"
-    assert _occurrences(text, "\n\n", 2, 4) == set()
+    assert not _occurrences(text, "\n\n", 2, 4)
 
 
 def test_a_run_of_four_newlines_thins_to_one_boundary():

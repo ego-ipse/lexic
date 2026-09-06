@@ -33,10 +33,12 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_LIT1,
 )
 from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.build import build_vstr
+from lexic.parsing.pda.runtime.build import InternMemo, build_vstr
 
 
-def chase_dispatch(clone: FlatClone, char: str, pos: int) -> "FlatClone | None":
+def chase_dispatch[Carry](
+    clone: FlatClone[Carry], char: str, pos: int
+) -> FlatClone[Carry] | None:
     """Chase a frame-less dispatch alternation to its concrete target clone.
 
     The selection a dispatch alternation IS: a lead-char walk over selectors
@@ -67,8 +69,12 @@ def chase_dispatch(clone: FlatClone, char: str, pos: int) -> "FlatClone | None":
     return clone
 
 
-def vdisp_once(
-    text: str, intern: dict[Any, object], clone: FlatClone, sink: list[Any], pos: int
+def vdisp_once[Carry](
+    text: str,
+    intern: InternMemo[Carry],
+    clone: FlatClone[Carry],
+    sink: list[Carry],
+    pos: int,
 ) -> int:
     """One :data:`~lexic.parsing.pda.compiler.program.flatten.OP_VDISP` iteration —
     chase, then the landed clone's ordinary ``value_str`` match.
@@ -86,7 +92,7 @@ def vdisp_once(
     return vstr_once(text, intern, target, sink, pos)
 
 
-def select_arm(clone: FlatClone, char: str, pos: int) -> FlatArm:
+def select_arm[Carry](clone: FlatClone[Carry], char: str, pos: int) -> FlatArm:
     """The clone's FIRST-gated arm at lookahead ``char``, or its default.
 
     :raises PdaFail: When no arm's FIRST matches and there is no default.
@@ -100,6 +106,23 @@ def select_arm(clone: FlatClone, char: str, pos: int) -> FlatArm:
             f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
         )
     return default
+
+
+def match_cc1(text: str, payload: tuple[frozenset[str], bool], pos: int) -> int:
+    """Match one exactly-once char class, returning the position after it.
+
+    The ``OP_CC1`` body, kept out of the driver's inner loop: the mismatch test
+    is the only place the class's polarity is read, and no bench grammar emits
+    the op-code at all, so the driver need not carry the test or its locals.
+
+    :param payload: The item's ``(chars, negated)`` pair.
+    :raises PdaFail: On a mismatch, end of input included.
+    """
+    chars, negated = payload
+    char = text[pos : pos + 1]
+    if (char == "" or char in chars) if negated else char not in chars:
+        raise PdaFail(f"char class miss at {pos}", pos)
+    return pos + 1
 
 
 def match_lit(text: str, arm: FlatArm, i: int, pos: int) -> int:
@@ -201,7 +224,9 @@ def match_arm(text: str, arm: FlatArm, pos: int) -> int:
     return pos
 
 
-def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
+def match_chartable[Carry](
+    text: str, arm: FlatArm, i: int, sink: list[Carry], pos: int
+) -> int:
     """Run an ``OP_VSTR`` loop whose target carries a
     :attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone.chartable`.
 
@@ -238,23 +263,49 @@ def match_chartable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) 
     return pos
 
 
-def run_span_once(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
-    """One iteration of a run-valued ``value_str`` clone — match, then look up.
+def consult_extent[Carry](
+    text: str, clone: FlatClone[Carry], runarm: FlatArm, pos: int
+) -> int:
+    """The end of a proved clone's whole extent, decided by its recognizer.
 
-    The run itself is matched by the same call the untabled path makes, so the
-    span is identical; what the table answers is the SELECTION (there is one
-    always-selected arm) and the BUILD, keyed by that span. Fills as spans
-    arrive, capped — a corpus whose spans never repeat pays one dict miss per
-    occurrence and keeps the saved calls.
+    The authoritative half of :func:`~lexic.parsing.product.regular
+    .prove_regular`: the possessive pattern consumes exactly what the rule's own
+    program would, so one C-level match stands in for the arm selection, every
+    descent under it, and every per-character loop inside those. A miss is the
+    refusal the selection would have raised, in the same words at the same
+    position.
 
-    :returns: The position after the run.
+    :raises PdaFail: When the recognizer refuses at ``pos``.
+    """
+    matched = runarm.payloads[0].match(text, pos)
+    if matched is None:
+        raise PdaFail(
+            f"no arm at {pos}", pos, rule=clone.name, wanted=arm_expected(clone)
+        )
+    return matched.end()
+
+
+def run_span_once[Carry](
+    text: str, clone: FlatClone[Carry], sink: list[Carry], pos: int
+) -> int:
+    """One iteration of a whole-extent ``value_str`` clone — match, then look up.
+
+    The extent itself is matched by the same call the untabled path makes — or,
+    for a proved clone, by the one pattern that stands for the whole program —
+    so the span is identical; what the table answers is the SELECTION (there is
+    one always-selected answer) and the BUILD, keyed by that span. Fills as
+    spans arrive, capped — a corpus whose spans never repeat pays one dict miss
+    per occurrence and keeps the saved calls.
+
+    :returns: The position after the extent.
     """
     runarm = clone.runarm
-    end = (
-        match_cc(text, runarm, 0, pos)
-        if runarm.kinds[0] == OP_CC
-        else match_lit(text, runarm, 0, pos)
-    )
+    if runarm.kinds[0] == OP_CC:
+        end = match_cc(text, runarm, 0, pos)
+    elif runarm.kinds[0] == OP_LIT:
+        end = match_lit(text, runarm, 0, pos)
+    else:
+        end = consult_extent(text, clone, runarm, pos)
     span = text[pos:end]
     table = clone.chartable
     model = table.get(span)
@@ -276,7 +327,9 @@ def loop_spec(arm: FlatArm, i: int) -> tuple[int, int, int, Any]:
     return arm.los[i], arm.his[i], arm.gate_kinds[i], arm.gate_data[i]
 
 
-def match_runtable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -> int:
+def match_runtable[Carry](
+    text: str, arm: FlatArm, i: int, sink: list[Carry], pos: int
+) -> int:
     """Run an ``OP_VSTR`` loop whose target is a span-tabled run clone."""
     clone = arm.payloads[i]
     lo, hi, gk, gate = loop_spec(arm, i)
@@ -287,7 +340,9 @@ def match_runtable(text: str, arm: FlatArm, i: int, sink: list[Any], pos: int) -
     return pos
 
 
-def table_miss(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
+def table_miss[Carry](
+    text: str, clone: FlatClone[Carry], sink: list[Carry], pos: int
+) -> int:
     """What a char-table lookup miss means — the untabled path's own answer.
 
     A TOTAL dispatch table IS its clone's selector union, so a miss there is the
@@ -306,8 +361,12 @@ def table_miss(text: str, clone: FlatClone, sink: list[Any], pos: int) -> int:
     return vstr_once(text, {}, clone, sink, pos)
 
 
-def vstr_once(
-    text: str, intern: dict[Any, object], clone: FlatClone, sink: list[Any], pos: int
+def vstr_once[Carry](
+    text: str,
+    intern: InternMemo[Carry],
+    clone: FlatClone[Carry],
+    sink: list[Carry],
+    pos: int,
 ) -> int:
     """One ``value_str`` iteration — select, match, slice, build, append.
 

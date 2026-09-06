@@ -16,8 +16,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lexic.api import json_tokenizer
-from lexic.compile import artifact, reset_cache_for_tests
-from lexic.compile import CompiledGrammar, Directives, Vocabulary
+from lexic.compile import (
+    CompiledGrammar,
+    Directives,
+    Vocabulary,
+    artifact,
+    reset_cache_for_tests,
+)
 from lexic.compile.payload import Payload
 from lexic.compile.payload import export as payload_export
 from lexic.compile.reduce import fold as reduction_fold

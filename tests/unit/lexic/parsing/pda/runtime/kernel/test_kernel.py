@@ -38,7 +38,7 @@ from lexic.generate import generate
 from lexic.grammars import GBNF_FLAVOUR
 from lexic.model import GrammarModel
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import compile_pda
 from lexic.parsing.pda.runtime.islands import IslandPolicy
 from lexic.parsing.pda.runtime.kernel.kernel import PdaFail, PdaKernel, pda_model
@@ -185,7 +185,7 @@ def test_interning_shares_every_equal_value_str_submodel() -> None:
     path = GROUND_TRUTH / "arithmetic.gbnf"
     compiled, pda = compiled_and_pda(path)
     text = _INTERN_CORPUS["arithmetic.gbnf"]
-    built = pda_model(pda, text, compiled.fold)
+    built = pda_model(pda, text, compiled.executor)
     kinds = {b.rule_name: b.kind for b in compiled.moments.binding}
     classes = {
         name: kinds.get(str(getattr(cls, "__grammar__").name))
@@ -221,10 +221,10 @@ def test_fail_island_raises_pdafail_regardless_of_fold():
     canonical = canonical_grammar(text, GBNF_FLAVOUR)
     lifted = lift_optional_nullables(build_codegen_grammar(canonical))
     compiled = compile_text(text, flavour="gbnf")
-    pda = compile_pda(lifted, normalize(lifted), compiled.fold.config)
+    pda = compile_pda(lifted, normalize(lifted), compiled.product)
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):
-            pda_model(pda, inp, compiled.fold)
+            pda_model(pda, inp, compiled.executor)
 
 
 # ── one vocabulary for one concern ─────────────────────────────────────
@@ -243,8 +243,8 @@ def test_kernel_and_islands_share_one_policy_record():
     def take_first(first, _other):
         return first
 
-    kern = PdaKernel(pda, "{}", compiled.fold, resolve=take_first)
+    kern = PdaKernel(pda, "{}", compiled.executor, resolve=take_first)
     assert isinstance(kern.policy, IslandPolicy)
-    assert kern.policy.fold is compiled.fold
+    assert kern.policy.executor is compiled.executor
     assert kern.policy.resolve is take_first
     assert kern.policy.delegates is None  # filled per island, at the reference

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from lexic.ir import IrSelf, IrStr
 from lexic.parsing.pda.runtime.admission import KernelCaches, admits, frames_copy
-from lexic.parsing.pda.runtime.build import F_ENDS, F_OUT, F_SINKS
+from lexic.parsing.pda.runtime.build import Frame
+from tests.unit.lexic.parsing.pda.runtime.flat_support import flat_arm, flat_clone
 
 # ── admits — the FIRST pre-filter ─────────────────────────────────────
 
@@ -49,26 +48,26 @@ def _frame(
     out: list[IrSelf],
     ends: list[int],
     sinks: list[list[IrSelf] | None] | None,
-) -> list[Any]:
-    """A frame — the engine's own flat ``list[Any]`` record; only the slots
-    :func:`frames_copy` reads are filled."""
-    frame: list[Any] = [None] * 9
-    frame[F_OUT] = out
-    frame[F_ENDS] = ends
-    frame[F_SINKS] = sinks
+) -> Frame[IrSelf]:
+    """A frame with only the lanes :func:`frames_copy` reads filled."""
+    frame: Frame[IrSelf] = Frame(flat_arm(len(ends)), out, flat_clone(), 0)
+    frame.ends = ends
+    frame.sinks = sinks
     return frame
 
 
 def test_frames_copy_preserves_the_out_to_parent_sink_aliasing():
-    """A child's F_OUT IS a parent sink list; the copies must alias too."""
+    """A child's ``out`` IS a parent sink list; the copies must alias too."""
     holder: list[IrSelf] = []
     parent_sink: list[IrSelf] = [IrStr("m")]
     parent = _frame(holder, [0], [parent_sink, None])
     child = _frame(parent_sink, [0, 0], None)
     copies = frames_copy([parent, child])
-    assert copies[1][F_OUT] is copies[0][F_SINKS][0]
-    assert copies[1][F_OUT] is not parent_sink
-    assert copies[1][F_OUT] == [IrStr("m")]
+    copied_sinks = copies[0].sinks
+    assert copied_sinks is not None
+    assert copies[1].out is copied_sinks[0]
+    assert copies[1].out is not parent_sink
+    assert copies[1].out == [IrStr("m")]
 
 
 def test_frames_copy_mutations_never_reach_the_originals():
@@ -76,9 +75,11 @@ def test_frames_copy_mutations_never_reach_the_originals():
     holder: list[IrSelf] = []
     frame = _frame(holder, [3, 7], None)
     copies = frames_copy([frame])
-    copies[0][F_ENDS][0] = 99
-    copies[0][F_OUT].append(IrStr("probe"))
-    assert frame[F_ENDS] == [3, 7]
+    copied_ends = copies[0].ends
+    assert copied_ends is not None
+    copied_ends[0] = 99
+    copies[0].out.append(IrStr("probe"))
+    assert frame.ends == [3, 7]
     assert not holder
 
 
@@ -88,8 +89,11 @@ def test_frames_copy_shares_sink_contents_but_not_the_lists():
     sink: list[IrSelf] = [model]
     frame = _frame([], [0], [sink])
     copies = frames_copy([frame])
-    assert copies[0][F_SINKS][0] is not sink
-    assert copies[0][F_SINKS][0][0] is model
+    copied_sinks = copies[0].sinks
+    assert copied_sinks is not None
+    copied = copied_sinks[0]
+    assert copied is not sink
+    assert copied is not None and copied[0] is model
 
 
 def test_frames_copy_isolates_a_slot_assignment():
@@ -101,11 +105,13 @@ def test_frames_copy_isolates_a_slot_assignment():
     sibling value rather than adding a visible duplicate, and the parse still
     round-trips. This pins the isolation the copy is responsible for.
     """
-    committed = IrStr("committed")
-    sinks: list[Any] = [committed, None]
+    committed: list[IrSelf] = [IrStr("committed")]
+    sinks: list[list[IrSelf] | None] = [committed, None]
     frame = _frame([], [0, 0], sinks)
     copies = frames_copy([frame])
-    copies[0][F_SINKS][0] = IrStr("probe")
-    copies[0][F_SINKS][1] = IrStr("probe")
+    copied_sinks = copies[0].sinks
+    assert copied_sinks is not None
+    copied_sinks[0] = [IrStr("probe")]
+    copied_sinks[1] = [IrStr("probe")]
     assert sinks[0] is committed
     assert sinks[1] is None

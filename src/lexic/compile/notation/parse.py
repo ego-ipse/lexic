@@ -37,7 +37,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextvars import ContextVar
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 import lexic.ir.action.access as _access
 import lexic.ir.action.build as _build
@@ -60,14 +60,12 @@ import lexic.ir.text.spans as _spans
 import lexic.ir.text.tokenizer as _tokenizer
 from lexic.compile.foldkit import (
     ABSENT,
-    ALT_BODY,
-    DECODE_INT,
-    absent_tail,
+    FOLD_SYMBOLS,
+    AuthoredRule,
     first_rest,
-    model_fold,
-    passthrough,
-    seq,
+    product_rules,
 )
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IR_DEFAULT,
@@ -92,7 +90,8 @@ from lexic.ir import (
     Reducer,
     Yield,
 )
-from lexic.parsing import FieldFold, ModelBody, parse_model
+from lexic.parsing import ModelExecutable, parse_model
+from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 # ── the symbol table: THE binding + the no-exec boundary ─────────────────
 
@@ -490,47 +489,86 @@ def _neg_int(raw: str) -> int:
     return -int(raw)
 
 
-_BODIES: dict[str, ModelBody] = {
-    "start": seq(passthrough, 2, (FieldFold(1, "model", "v", 1),)),
-    "value": ALT_BODY,
-    "nv": seq(
-        _nv, 2, (FieldFold(0, "model", "sym", 1), FieldFold(1, "model", "call", 0))
-    ),
-    "name": seq(
-        _name, 3, (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0))
-    ),
-    "ct-opt": ALT_BODY,
-    "call-tail": seq(_call_tail, 3, (FieldFold(1, "model", "a", 0),)),
-    "args-opt": ALT_BODY,
-    "arglist": seq(
-        _arglist,
-        2,
-        (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
-    ),
-    "arg-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
-    "arg-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
-    "tuple": seq(_tuple, 3, (FieldFold(1, "model", "items", 0),)),
-    "tup-opt": ALT_BODY,
-    "tuplist": seq(
-        _tuplist,
-        3,
-        (
-            FieldFold(0, "model", "first", 1),
-            FieldFold(1, "model", "one", 1),
-            FieldFold(2, "models", "rest", 0),
-        ),
-    ),
-    "tup-tail": seq(absent_tail, 2, (FieldFold(1, "model", "v", 0),)),
-    "tup-val": seq(passthrough, 1, (FieldFold(0, "model", "v", 1),)),
-    "strval": ALT_BODY,
-    "sq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),
-    "dq-str": seq(_decode_escapes, 4, (FieldFold(1, "text", "raw", 0),)),
-    "intval": ALT_BODY,
-    "pos-int": seq(DECODE_INT, 2, (FieldFold(0, "text", "raw", 1),)),
-    "neg-int": seq(_neg_int, 3, (FieldFold(1, "text", "raw", 1),)),
-}
+# ── the same rules in the product vocabulary ──────────────────────────────
 
-NOTATION_FOLD = model_fold(_BODIES)
+NOTATION_SYMBOLS: dict[str, Callable[..., object]] = FOLD_SYMBOLS | {
+    "nv": _nv,
+    "name": _name,
+    "call_tail": _call_tail,
+    "arglist": _arglist,
+    "tuple": _tuple,
+    "tuplist": _tuplist,
+    "decode_escapes": _decode_escapes,
+    "neg_int": _neg_int,
+}
+"""This surface's transforms, by the names its rules complete through.
+
+The whitelist lowering resolves against — the shared idioms plus the eight
+transforms only this notation has. A name that is not here cannot reach a
+parse, which is the same no-``eval`` boundary :class:`IrNamed` already draws
+for the fold half."""
+
+_ONE = int(CaptureMode.ONE)
+_MANY = int(CaptureMode.MANY)
+_TEXT = int(CaptureMode.TEXT)
+
+NOTATION_RULES: dict[str, AuthoredRule] = {
+    "start": AuthoredRule("passthrough", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "value": AuthoredRule(""),
+    "nv": AuthoredRule(
+        "nv", (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1)), ("sym", "call"), 2
+    ),
+    "name": AuthoredRule(
+        "name", (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1)), ("head", "tail"), 3
+    ),
+    "ct-opt": AuthoredRule(""),
+    "call-tail": AuthoredRule("call_tail", (CaptureSpec(_ONE, 1),), ("a",), 3),
+    "args-opt": AuthoredRule(""),
+    "arglist": AuthoredRule(
+        "arglist", (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1)), ("first", "rest"), 2
+    ),
+    "arg-tail": AuthoredRule("absent_tail", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "arg-val": AuthoredRule("passthrough", (CaptureSpec(_ONE, 0),), ("v",), 1),
+    "tuple": AuthoredRule("tuple", (CaptureSpec(_ONE, 1),), ("items",), 3),
+    "tup-opt": AuthoredRule(""),
+    "tuplist": AuthoredRule(
+        "tuplist",
+        (CaptureSpec(_ONE, 0), CaptureSpec(_ONE, 1), CaptureSpec(_MANY, 2)),
+        ("first", "one", "rest"),
+        3,
+    ),
+    "tup-tail": AuthoredRule("absent_tail", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "tup-val": AuthoredRule("passthrough", (CaptureSpec(_ONE, 0),), ("v",), 1),
+    "strval": AuthoredRule(""),
+    "sq-str": AuthoredRule("decode_escapes", (CaptureSpec(_TEXT, 1),), ("raw",), 4),
+    "dq-str": AuthoredRule("decode_escapes", (CaptureSpec(_TEXT, 1),), ("raw",), 4),
+    "intval": AuthoredRule(""),
+    "pos-int": AuthoredRule("decode_int", (CaptureSpec(_TEXT, 0),), ("raw",), 2),
+    "neg-int": AuthoredRule("neg_int", (CaptureSpec(_TEXT, 1),), ("raw",), 3),
+}
+"""Every rule of this surface, said in the vocabulary both engines will run.
+
+Each entry is the registry key the rule's completion applies, what it
+captures, the keyword each capture fills, which captures may be absent, and how
+wide the arm is; ``""`` is the alternation pass-through. Authored beside the fold
+rather than derived from it: a derivation would keep the fold as the source of
+truth and make its deletion a rename. The two are held to each other rule by
+rule — same captures, same transform — by the authored-surface differential.
+
+Exposed as the authored table rather than only as the assembled product
+because the module self-grammar EXTENDS this surface, exactly as it extends
+the fold's own body table."""
+
+NOTATION_PRODUCT = product_rules(NOTATION_RULES)
+"""This surface's rules assembled — one :class:`RuleProduct` each, its symbol
+keys pooled, and the code each rule name resolves to."""
+
+NOTATION_BINDING = ModelExecutable(
+    rules_by_name(NOTATION_PRODUCT.rules, NOTATION_PRODUCT.codes),
+    LoweringOwned(symbols=NOTATION_PRODUCT.symbols, registry=NOTATION_SYMBOLS),
+)
+"""What this surface hands a parse entry — its verified program, with its
+transforms resolved through its own whitelist at lowering."""
 
 
 # ── the entry ─────────────────────────────────────────────────────────────
@@ -560,7 +598,7 @@ def load_ir(text: str, symbols: Mapping[str, type] | None = None) -> IrSelf:
         or a supplied symbol that is not an ``IrSelf`` subclass.
     """
     if not symbols:
-        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_FOLD))
+        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_BINDING))
     for name, symbol in symbols.items():
         if not (isinstance(symbol, type) and issubclass(symbol, IrSelf)):
             raise UnsupportedConstructError(
@@ -569,7 +607,7 @@ def load_ir(text: str, symbols: Mapping[str, type] | None = None) -> IrSelf:
             )
     token = _EXTRA_SYMBOLS.set(symbols)
     try:
-        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_FOLD))
+        return cast(IrSelf, parse_model(NOTATION_GRAMMAR, text, NOTATION_BINDING))
     finally:
         _EXTRA_SYMBOLS.reset(token)
 

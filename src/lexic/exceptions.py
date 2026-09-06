@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import NamedTuple
 
 
@@ -35,6 +36,36 @@ class Refusal(NamedTuple):
     expected: tuple[str, ...] = ()
     negated: bool = False
     undecidable: bool = False
+
+
+class SemanticVerdict(NamedTuple):
+    """One target-semantic refusal, held as a value rather than raised.
+
+    A target's semantic contract is settled AFTER its lower syntax has been
+    recognized, so a refusal has to survive as data until then: an exception
+    thrown mid-parse would report a semantic failure over text that turns out
+    not to parse at all, and syntax wins. Like :class:`Refusal`, this is a
+    boundary record on the public error surface, so it is made of primitives —
+    :mod:`lexic.exceptions` imports nothing from lexic.
+
+    ``(pos, order)`` is a stable total key: it orders the verdicts of one
+    document, and it orders the verdicts a parallel split's fragments each
+    recorded independently, without either side consulting the other.
+
+    :ivar sort: The declared verdict sort — which of the target's checks
+        refused (an unsupported knob, a repeated decoded key, a missing
+        required field, a target-shape mismatch, a root cross-field failure).
+    :ivar words: Why it refused, in the target's own words.
+    :ivar pos: The offset the refused occurrence began at, or ``-1`` when the
+        check belongs to root finalization rather than to a position.
+    :ivar order: Which check refused first among those sharing ``pos`` — the
+        target's own declaration order.
+    """
+
+    sort: str
+    words: str
+    pos: int = -1
+    order: int = 0
 
 
 class LexicError(Exception):
@@ -71,6 +102,29 @@ class IrKeyError(UnsupportedConstructError, KeyError):
     ``Mapping`` protocol machinery catching :exc:`KeyError` (e.g.
     ``Mapping.get``) both work.
     """
+
+
+class TargetRefusalError(LexicError):
+    """A document parses, and the target it was reduced INTO refuses its meaning.
+
+    The division of labour with :exc:`UnsupportedConstructError` is the point:
+    that one says a construct cannot run here — a grammar shape, a binding
+    mismatch, a defective compiled artefact, a text that does not derive.
+    This one says the text derived, the compiled product ran, and the target's
+    own semantic contract rejected the result.
+
+    :ivar verdicts: Every :class:`SemanticVerdict` the run recorded, in
+        ``(pos, order)`` order. The earliest is the one the message states;
+        the rest are kept because a caller fixing a document wants all of
+        them, not one per re-run.
+    """
+
+    __slots__ = ("verdicts",)
+
+    def __init__(self, message: str, verdicts: Sequence[SemanticVerdict] = ()) -> None:
+        """Bind the human-readable reason and the ordered verdicts behind it."""
+        super().__init__(message)
+        self.verdicts = tuple(verdicts)
 
 
 class FieldValidationError(LexicError):

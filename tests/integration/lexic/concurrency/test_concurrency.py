@@ -96,6 +96,26 @@ def test_a_wedged_worker_fails_the_race_rather_than_hanging_it() -> None:
     forever.set()
 
 
+def test_the_races_own_gate_reaches_full_overlap_with_no_work_inside_gate() -> None:
+    """``race``/``parallel`` guarantee full overlap on their own — a caller
+    needs no barrier inside ``work`` to reach it.
+
+    ``_identity`` returns immediately with no synchronization of its own. A
+    single-gate release (worker resumes, then registers itself as "in
+    flight") can be descheduled between those two steps under CPU
+    oversubscription, and an unlucky ordering can let one worker finish its
+    whole enter/work/leave cycle before a sibling ever registers — reading
+    ``peak == 1`` despite every worker having been released together. The
+    race's own second gate closes that: no worker may start ``work`` until
+    every worker has already registered, so ``peak`` reaches the full width
+    by construction. Run many times, because a single pass could pass by
+    luck even with the single-gate defect this pins against.
+    """
+    for _ in range(50):
+        result = parallel(_identity, WORKERS)
+        assert result.peak == WORKERS
+
+
 def test_flight_tracks_its_high_water_mark_not_its_current_depth() -> None:
     """The witness reports the peak, which is what a later assert needs."""
     flight = Flight()

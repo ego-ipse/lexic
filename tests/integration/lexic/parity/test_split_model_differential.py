@@ -28,8 +28,8 @@ from lexic.parsing import parse_model
 from lexic.parsing.parallel import split_model, split_plan
 from lexic.parsing.parallel.orchestrate import Request
 from tests.paths import GROUND_TRUTH
-from tools.benchmark import bench as benchmark
 from tools.benchmark.bench import _lexic, _mt_check
+from tools.benchmark.measurement import occupancy
 from tools.benchmark.cases.grammars import BENCHES
 
 FORMULATIONS = ("native", "json.gbnf", "json.abnf", "json.ebnf")
@@ -75,9 +75,9 @@ def test_nested_model_split_equals_sequential_and_round_trips(
 ) -> None:
     """Every formulation and explicit worker count produces one exact model."""
     name, compiled = json_compiled
-    grammar, fold = compiled.codegen_grammar, compiled.fold
-    sequential = parse_model(grammar, DOCUMENT, fold)
-    split = split_model(parse_model, grammar, Request(DOCUMENT, fold), workers)
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    sequential = parse_model(grammar, DOCUMENT, binding)
+    split = split_model(parse_model, grammar, Request(DOCUMENT, binding), workers)
 
     assert split is not None, f"{name}: nested differential became vacuous"
     assert type(split) is type(sequential)
@@ -98,7 +98,7 @@ def test_nested_differential_is_not_vacuous(
     split = split_model(
         parse_model,
         compiled.codegen_grammar,
-        Request(DOCUMENT, compiled.fold),
+        Request(DOCUMENT, compiled.product),
         WORKERS[-1],
     )
     assert split is not None, f"{name}: no nested region was actually split"
@@ -112,12 +112,12 @@ def test_reducer_derived_variant_really_splits(
     """The reducer's pruned variant reaches the same model split seam."""
     name, compiled = json_compiled
     entry = _reduce_entry(compiled, JSON_REDUCER)
-    grammar, fold = entry.variant.codegen_grammar, entry.variant.fold
-    sequential = parse_model(grammar, DOCUMENT, fold)
+    grammar, binding = entry.variant.codegen_grammar, entry.variant.product
+    sequential = parse_model(grammar, DOCUMENT, binding)
     split = split_model(
         parse_model,
         grammar,
-        Request(DOCUMENT, fold),
+        Request(DOCUMENT, binding),
         workers,
         analysis=entry.variant.split_analysis,
     )
@@ -150,17 +150,17 @@ def test_reducer_variant_uses_source_interiors_for_region_discovery() -> None:
         f"{json.dumps(f'key{{,[{chr(34)}{i:04d}')}:{i}" for i in range(1000)
     )
     text = '{"vocab":{' + entries + '},"tail":0}'
-    grammar, fold = entry.variant.codegen_grammar, entry.variant.fold
+    grammar, binding = entry.variant.codegen_grammar, entry.variant.product
 
     assert entry.variant.split_analysis is compiled.grammar
     split = split_model(
         parse_model,
         grammar,
-        Request(text, fold),
+        Request(text, binding),
         4,
         analysis=entry.variant.split_analysis,
     )
-    sequential = parse_model(grammar, text, fold)
+    sequential = parse_model(grammar, text, binding)
     assert split is not None
     assert split == sequential
     assert entry.variant.parse(text, cores=4) == sequential
@@ -182,11 +182,11 @@ def test_nested_region_shell_does_not_reparse_delegated_interior() -> None:
     split = split_model(
         recording_parse,
         root,
-        Request(text, compiled.fold),
+        Request(text, compiled.product),
         4,
     )
     assert split is not None
-    assert split == parse_model(root, text, compiled.fold)
+    assert split == parse_model(root, text, compiled.product)
     assert split.to_text() == text
 
     root_calls = [source for start, source in calls if start == str(root.start)]
@@ -210,9 +210,9 @@ def test_outer_region_owns_nested_child_territory() -> None:
         calls.append((str(grammar.start), source))
         return parse_model(grammar, source, fold, resolve)
 
-    split = split_model(recording_parse, root, Request(text, compiled.fold), 4)
+    split = split_model(recording_parse, root, Request(text, compiled.product), 4)
     assert split is not None
-    assert split == parse_model(root, text, compiled.fold)
+    assert split == parse_model(root, text, compiled.product)
     assert split.to_text() == text
     assert any(start == "object" and '"inner"' in source for start, source in calls)
     assert not any(start == "array" for start, _source in calls)
@@ -230,13 +230,13 @@ def test_public_cores_ceiling_keeps_a_fourish_way_nested_region() -> None:
     split = split_model(
         recording_parse,
         compiled.codegen_grammar,
-        Request(DOCUMENT, compiled.fold),
+        Request(DOCUMENT, compiled.product),
         8,
     )
     assert split is not None, "cores=8 declined useful nested work"
     assert split.to_text() == DOCUMENT
     assert compiled.parse(DOCUMENT, cores=8) == parse_model(
-        compiled.codegen_grammar, DOCUMENT, compiled.fold
+        compiled.codegen_grammar, DOCUMENT, compiled.product
     )
 
     # The array has enough balanced items for a useful several-way split.  A
@@ -269,7 +269,7 @@ post ::= "y"
         split_model(
             parse_model,
             compiled.codegen_grammar,
-            Request(text, compiled.fold),
+            Request(text, compiled.product),
             2,
             analysis=compiled.grammar,
         )
@@ -297,7 +297,9 @@ def test_benchmark_mt_status_covers_base_and_lex_ns_rows(
         probed.append(grammar)
         return None if grammar is declined else object()
 
-    monkeypatch.setattr(benchmark, "split_model", recording_split)
+    # The split entry is patched where the occupancy probe reaches it: the
+    # status check asks the real seam, and this is that seam.
+    monkeypatch.setattr(occupancy, "split_model", recording_split)
     notes = _mt_check(artifacts, bench.full, 4)
 
     assert len(probed) == 2
@@ -315,10 +317,10 @@ def test_a_whole_document_run_declines_and_public_parse_falls_back(
     """A top-level JSON array is a region, but its pieces have the wrong root."""
     name, compiled = json_compiled
     text = "[" + ",".join(str(i) for i in range(2500)) + "]"
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
 
-    expected = parse_model(grammar, text, fold)
-    split = split_model(parse_model, grammar, Request(text, fold), WORKERS[-1])
+    expected = parse_model(grammar, text, binding)
+    split = split_model(parse_model, grammar, Request(text, binding), WORKERS[-1])
     assert split is not None
     assert split == expected
     actual = compiled.parse(text, cores=WORKERS[-1])
@@ -333,9 +335,9 @@ def test_malformed_nested_input_declines_then_sequentially_refuses(
     """A malformed candidate must fall back; the public refusal remains CATCH."""
     name, compiled = json_compiled
     bad = DOCUMENT.replace('"shared": 0', '"shared": ]', 1)
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
 
-    assert split_model(parse_model, grammar, Request(bad, fold), WORKERS[-1]) is None
+    assert split_model(parse_model, grammar, Request(bad, binding), WORKERS[-1]) is None
     with pytest.raises(UnsupportedConstructError):
         compiled.parse(bad, cores=WORKERS[-1])
     assert name in FORMULATIONS
@@ -398,7 +400,7 @@ def test_boundary_ambiguity_declines_or_matches_sequential_refusal() -> None:
         'forced ::= "#" [a-z]*\n'
         'nl ::= "\\n"\n'
     )
-    grammar, fold = compiled.codegen_grammar, compiled.fold
+    grammar, binding = compiled.codegen_grammar, compiled.product
     plain_line = "a" * 20 + "\n"
     lines = [plain_line] * 300
     lines[150] = "#ab\n"
@@ -413,7 +415,7 @@ def test_boundary_ambiguity_declines_or_matches_sequential_refusal() -> None:
         calls.append(source)
         return parse_model(g, source, f, resolve)
 
-    declined = split_model(recording_parse, grammar, Request(text, fold), 2)
+    declined = split_model(recording_parse, grammar, Request(text, binding), 2)
     assert declined is None, "the ambiguous chunk must not silently resolve"
     assert len(calls) >= 2, "the split must have actually attempted both chunks"
 
@@ -455,14 +457,14 @@ def test_scan_agrees_guard_is_reachable_and_declines_without_mis_scanning(
 
     # A direct sequential fold (not compiled.parse: that would re-derive its
     # OWN matching analysis view and mix a true agreement into `calls`).
-    sequential = parse_model(scanned.codegen_grammar, text, scanned.fold)
+    sequential = parse_model(scanned.codegen_grammar, text, scanned.product)
     assert sequential.to_text() == text
 
     for workers in (2, 8, 16):
         declined = split_model(
             parse_model,
             scanned.codegen_grammar,
-            Request(text, scanned.fold),
+            Request(text, scanned.product),
             workers,
             analysis=view,
         )
@@ -494,7 +496,7 @@ def test_a_lex_ns_variant_with_a_merged_tail_literal_engages_the_split() -> None
         calls.append(len(source_piece))
         return parse_model(g, source_piece, f, resolve)
 
-    split = split_model(recording_parse, grammar, Request(text, variant.fold), 8)
+    split = split_model(recording_parse, grammar, Request(text, variant.product), 8)
     assert split is not None
     assert len(calls) >= 2, "the plan must have actually divided the document"
 

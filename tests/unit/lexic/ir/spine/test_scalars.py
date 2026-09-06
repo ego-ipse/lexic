@@ -141,7 +141,7 @@ def test_irnamedtuple_is_immutable():
     """Assigning to a named field raises AttributeError (tuples are immutable)."""
     r = Rec(IrStr("v"), IrInt(1))
     with pytest.raises(AttributeError):
-        r.a = IrStr("other")  # type: ignore[misc]
+        setattr(r, "a", IrStr("other"))
 
 
 def test_irnamedtuple_children_returns_all_elements():

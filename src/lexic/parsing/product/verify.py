@@ -1,0 +1,436 @@
+"""Physical-table verification — refuse a defective program before it runs.
+
+A compiled product is data, and data can be wrong in ways the type system
+cannot see: a rule pointing at no completion range, an empty range, a range
+running off its table, an opcode with no operand table, an operand past that
+table's end. Each of those is a defect of the artefact, so each is diagnosed
+with words *before* the paid loop starts rather than crashing inside it.
+
+The exact-int audit is the other half. Lowering converts every authored
+:class:`~enum.IntEnum` to a plain ``int``; this checks it did, by comparing the
+value's exact class. ``isinstance`` is the wrong test here and would defeat the
+purpose — an ``IntEnum`` member passes ``isinstance(x, int)`` happily and would
+ride into a runtime table, paying enum lookup on every completion.
+
+This is cold work. It runs once per bound program, never at a completion.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+
+from lexic.exceptions import UnsupportedConstructError
+from lexic.parsing.product.abi.expressions import ExprCode
+from lexic.parsing.product.abi.records import (
+    CaptureMode,
+    CompletionRange,
+    FlatRuleProduct,
+    OpCode,
+    ProductProgram,
+    RangeKind,
+    RecordConstructor,
+)
+
+__all__ = ["verify_exact_ints", "verify_program"]
+
+_CAPTURE_MODES = frozenset(int(mode) for mode in CaptureMode)
+"""The lowered capture vocabulary. A mode outside it would index a lane the
+frame does not have, so it is refused here rather than at the first capture."""
+
+_ONE = int(CaptureMode.ONE)
+_PASS = int(OpCode.PASS)
+_RECORD = int(OpCode.RECORD)
+_EXPRESSION = int(RangeKind.EXPRESSION)
+_FUSED_KINDS = frozenset(
+    (int(RangeKind.FUSED), int(RangeKind.RECOVERY), int(RangeKind.DELEGATE))
+)
+"""EXPRESSION indexes the reducer-expression tables; the other three index the
+fused tables. A range naming anything else is refused."""
+
+_FUSED_LANES: Mapping[int, tuple[tuple[int, str], ...]] = {
+    int(OpCode.CONSTANT): ((0, "constants"),),
+    int(OpCode.FINISH_SEQUENCE): ((1, "sequences"),),
+    int(OpCode.FINISH_MAPPING): ((1, "mappings"),),
+    int(OpCode.RECORD): ((0, "constructors"),),
+}
+"""Which row field of a fused instruction indexes which operand table.
+
+An operation's fields are all lane indices, and until now only the operand's
+own row table was bounded — an instruction could name constructor 9 of a
+two-entry table and reach the engine. Open, like every other dispatch here: an
+operation joins by adding its row, and one with no row indexes no operand
+table, which is the truth for the collection begins and the pass-through."""
+
+_EXPRESSION_LANES: Mapping[int, tuple[tuple[int, str], ...]] = {
+    int(ExprCode.CONSTANT): ((0, "constants"),),
+    int(ExprCode.BUILD): ((0, "constructors"),),
+    int(ExprCode.LOOKUP): ((1, "routes"),),
+    int(ExprCode.SYMBOL): ((0, "symbols"),),
+}
+"""The same, for the reducer-expression table. ``SYMBOL`` is the one that must
+never be unbounded: its lane holds the only resolved callables in the program."""
+
+
+def verify_exact_ints(values: Iterable[int], what: str) -> None:
+    """Refuse any value that is not a plain ``int``.
+
+    :param values: The lowered table entries, DECLARED as plain ints; this is
+        the check that the declaration is physically true.
+    :param what: What the table is, for the message.
+    :raises UnsupportedConstructError: On the first non-``int`` value. An
+        ``IntEnum`` member fails here by design, which is why the test is an
+        exact-class comparison and not ``isinstance``.
+    """
+    for value in values:
+        if value.__class__ is not int:
+            raise UnsupportedConstructError(
+                f"product program: {what} holds {value!r} of type "
+                f"{type(value).__name__}, not a lowered int"
+            )
+
+
+def verify_program[Carry, Result](program: ProductProgram[Carry, Result]) -> None:
+    """Refuse a program whose physical tables cannot be executed.
+
+    :param program: The compiled product to check.
+    :raises UnsupportedConstructError: On a missing, empty, mixed, or
+        out-of-bounds completion range, a mismatched opcode/operand table, an
+        unknown opcode, an out-of-range operand, or a table entry that is not
+        a plain ``int``.
+    """
+    _verify_table_shape(program)
+    _verify_program_lanes(program)
+    for at, rule in enumerate(program.rules):
+        _verify_rule_shape(program, at, rule.capture_modes, rule.capture_slots)
+        _verify_arm_width(at, rule.n_items)
+        completion = _completion_of(program, at, rule.completion)
+        _verify_range(program, at, completion)
+        _verify_completion(program, at, rule, completion)
+
+
+def _verify_completion[Carry, Result](
+    program: ProductProgram[Carry, Result],
+    at: int,
+    rule: FlatRuleProduct,
+    completion: CompletionRange,
+) -> None:
+    """Refuse a completion whose own operands contradict the rule that names it.
+
+    Physical bounds say an instruction can be READ. These are the relations
+    that say what it reads is COHERENT: which capture a pass-through forwards,
+    and whether a record's constructor and the rule's captures describe the
+    same call. Which operations a given engine can run is not a property of
+    the program — that answer belongs to the binding that proposes to execute
+    it (:func:`~lexic.parsing.product.routines.rule_routines`), so a stage
+    whose lane has no executor yet still verifies its own tables here.
+
+    :raises UnsupportedConstructError: On a completion whose operands and
+        captures cannot describe one call.
+    """
+    if completion.kind == _EXPRESSION or completion.length != 1:
+        return
+    opcode = program.fused_opcodes[completion.start]
+    row = program.fused_operand_rows[opcode][program.fused_operands[completion.start]]
+    if opcode == _PASS:
+        _verify_pass(at, row[0], rule.capture_modes)
+    elif opcode == _RECORD:
+        _verify_record(at, program.operands.constructors[row[0]], rule.capture_modes)
+
+
+def _verify_pass(at: int, source: int, modes: tuple[int, ...]) -> None:
+    """Refuse a pass-through whose source is not one single-value capture."""
+    if source < 0 or source >= len(modes):
+        raise UnsupportedConstructError(
+            f"product program: rule {at} passes capture {source} through, and "
+            f"declares {len(modes)} captures"
+        )
+    if modes[source] != _ONE:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} passes capture {source} through, but "
+            f"that capture's mode {modes[source]} is not one value"
+        )
+
+
+def _verify_record[Carry](
+    at: int, entry: RecordConstructor[Carry], modes: tuple[int, ...]
+) -> None:
+    """Refuse a record completion whose call the rule's captures cannot fill."""
+    if len(entry.names) != len(modes):
+        raise UnsupportedConstructError(
+            f"product program: rule {at} declares {len(modes)} captures and "
+            f"its constructor names {len(entry.names)} fields"
+        )
+    outside = sorted(one for one in entry.optional if not 0 <= one < len(entry.names))
+    if outside:
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s constructor marks captures {outside} "
+            f"optional, outside its {len(entry.names)} names"
+        )
+    _verify_matched_field(at, entry)
+
+
+def _verify_matched_field[Carry](at: int, entry: RecordConstructor[Carry]) -> None:
+    """Cross-check the own-text field against the licence and the captures.
+
+    The field is DECLARED rather than derived, and it is also derivable — a
+    class field that no capture fills and no default covers has nothing else
+    that could construct it — so the derivation is the guard. A record whose
+    defaults later change makes the two disagree, and this says so with words
+    instead of quietly baking a default where the matched text belongs.
+
+    The derivation is only tight under the licence, which is refused outright
+    when an unfilled field has no default; an unlicensed entry is constructed
+    by name through the class's own checks, so only the declaration is checked.
+    """
+    licence = entry.licence
+    if entry.matched_field and entry.matched_field in entry.names:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} fills {entry.matched_field!r} with its "
+            "own matched text AND with a capture; a field takes one value"
+        )
+    if licence is None:
+        return
+    if entry.matched_field and entry.matched_field not in licence.order:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} fills {entry.matched_field!r} with its "
+            f"own matched text, and its licence orders {licence.order}"
+        )
+    unfilled = tuple(
+        name
+        for name in licence.order
+        if name not in entry.names and name not in entry.defaults
+    )
+    declared = (entry.matched_field,) if entry.matched_field else ()
+    if unfilled != declared:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} declares {declared} as filled by its "
+            f"own matched text, and its licence leaves {unfilled} with neither "
+            "a capture nor a default"
+        )
+
+
+def _verify_program_lanes[Carry, Result](
+    program: ProductProgram[Carry, Result],
+) -> None:
+    """Refuse the program-level operands that name a lane out of range.
+
+    The root finalizer and the meaning comparator are named once for the whole
+    program rather than by an instruction, so they are bounded here. Routes and
+    continuations pair positionally — a route classifies a key and the
+    continuation says where it goes — so an unpaired table would leave a
+    classified key with nowhere to land.
+    """
+    operands = program.operands
+    _verify_lane("the root finalizer", program.root.finalizer, len(operands.roots))
+    _verify_lane(
+        "the meaning comparator", program.meaning.comparator, len(operands.meanings)
+    )
+    if operands.continuations and len(operands.continuations) != len(operands.routes):
+        raise UnsupportedConstructError(
+            f"product program: {len(operands.routes)} routes and "
+            f"{len(operands.continuations)} continuations do not pair"
+        )
+
+
+def _verify_lane(what: str, index: int, size: int) -> None:
+    """Refuse a lane index outside the table it names.
+
+    :param what: What names the lane, for the message.
+    :param index: The index it names.
+    :param size: How many entries that table holds.
+    :raises UnsupportedConstructError: When the index is not a lowered int, is
+        negative, or is past the table's end.
+    """
+    if index.__class__ is not int:
+        raise UnsupportedConstructError(f"product program: {what} is not a lowered int")
+    if index < 0 or index >= size:
+        raise UnsupportedConstructError(
+            f"product program: {what} names entry {index} of a {size}-entry table"
+        )
+
+
+def _verify_table_shape[Carry, Result](program: ProductProgram[Carry, Result]) -> None:
+    """Refuse instruction tables whose opcodes and operands disagree."""
+    if len(program.expression_opcodes) != len(program.expression_operands):
+        raise UnsupportedConstructError(
+            "product program: expression opcode and operand tables differ in "
+            f"length ({len(program.expression_opcodes)} vs "
+            f"{len(program.expression_operands)})"
+        )
+    if len(program.fused_opcodes) != len(program.fused_operands):
+        raise UnsupportedConstructError(
+            "product program: fused opcode and operand tables differ in "
+            f"length ({len(program.fused_opcodes)} vs "
+            f"{len(program.fused_operands)})"
+        )
+    verify_exact_ints(program.expression_opcodes, "the expression opcode table")
+    verify_exact_ints(program.expression_operands, "the expression operand table")
+    verify_exact_ints(program.fused_opcodes, "the fused opcode table")
+    verify_exact_ints(program.fused_operands, "the fused operand table")
+
+
+def _verify_arm_width(at: int, n_items: int) -> None:
+    """Refuse an arm width that is not a lowered, non-negative int.
+
+    Deliberately not compared against the widest capture slot: a rule that
+    passes its one child through declares no arm to count, and yet captures
+    slot 0 — so "wider than every slot" is a property of sequence completions
+    only, and this record does not say which completions those are.
+
+    :param at: The rule index, for the message.
+    :param n_items: The declared sequence-arm item count.
+    :raises UnsupportedConstructError: When the width is not a lowered int or
+        is negative.
+    """
+    if n_items.__class__ is not int:
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s arm width is not a lowered int"
+        )
+    if n_items < 0:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} declares {n_items} items"
+        )
+
+
+def _verify_rule_shape[Carry, Result](
+    program: ProductProgram[Carry, Result],
+    at: int,
+    modes: tuple[int, ...],
+    slots: tuple[int, ...],
+) -> None:
+    """Refuse a capture layout that is not int-coded, paired, and in range."""
+    del program
+    if len(modes) != len(slots):
+        raise UnsupportedConstructError(
+            f"product program: rule {at} has {len(modes)} capture modes and "
+            f"{len(slots)} capture slots"
+        )
+    verify_exact_ints(modes, f"rule {at}'s capture modes")
+    verify_exact_ints(slots, f"rule {at}'s capture slots")
+    unknown = sorted(set(modes) - _CAPTURE_MODES)
+    if unknown:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} captures under unknown modes {unknown}"
+        )
+    negative = sorted(slot for slot in slots if slot < 0)
+    if negative:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} captures into negative slots {negative}"
+        )
+
+
+def _completion_of[Carry, Result](
+    program: ProductProgram[Carry, Result], at: int, index: int
+) -> CompletionRange:
+    """The rule's one completion range, or a refusal naming the rule."""
+    if index.__class__ is not int:
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s completion index is not a lowered int"
+        )
+    if index < 0 or index >= len(program.completions):
+        raise UnsupportedConstructError(
+            f"product program: rule {at} names completion range {index}, "
+            f"which is outside the {len(program.completions)} declared"
+        )
+    return program.completions[index]
+
+
+def _verify_range[Carry, Result](
+    program: ProductProgram[Carry, Result], at: int, completion: CompletionRange
+) -> None:
+    """Refuse an empty, mis-tagged, or out-of-bounds instruction range."""
+    if completion.length <= 0:
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s completion range is empty"
+        )
+    if completion.start < 0:
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s completion range starts at "
+            f"{completion.start}"
+        )
+    opcodes, operands, rows = _tables_for(program, at, completion.kind)
+    lanes = _EXPRESSION_LANES if completion.kind == _EXPRESSION else _FUSED_LANES
+    stop = completion.start + completion.length
+    if stop > len(opcodes):
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s completion range ends at {stop}, "
+            f"past its {len(opcodes)}-instruction table"
+        )
+    for index in range(completion.start, stop):
+        _verify_instruction(at, index, opcodes[index], operands[index], rows)
+        opcode = opcodes[index]
+        _verify_operand_lanes(
+            program,
+            f"rule {at}'s instruction {index} (opcode {opcode})",
+            opcode,
+            rows[opcode][operands[index]],
+            lanes,
+        )
+
+
+def _verify_operand_lanes[Carry, Result](
+    program: ProductProgram[Carry, Result],
+    where: str,
+    opcode: int,
+    row: tuple[int, ...],
+    lanes: Mapping[int, tuple[tuple[int, str], ...]],
+) -> None:
+    """Refuse an instruction naming an entry its operand table does not have.
+
+    The row's own bounds are checked by :func:`_verify_instruction`; this
+    checks where the row POINTS. An operation with no lane row indexes no
+    operand table and is passed over.
+    """
+    for field, table in lanes.get(opcode, ()):
+        _verify_lane(
+            f"{where} into `{table}`",
+            row[field],
+            len(getattr(program.operands, table)),
+        )
+
+
+def _tables_for[Carry, Result](
+    program: ProductProgram[Carry, Result], at: int, kind: int
+) -> tuple[tuple[int, ...], tuple[int, ...], tuple[tuple[tuple[int, ...], ...], ...]]:
+    """The physical tables one range kind indexes.
+
+    The tables are separate objects, which is what makes "a rule executes its
+    expression range or its fused range, never both" structural: a rule holds
+    one range index, and that index resolves into exactly one table.
+    """
+    if kind == _EXPRESSION:
+        return (
+            program.expression_opcodes,
+            program.expression_operands,
+            program.expression_operand_rows,
+        )
+    if kind in _FUSED_KINDS:
+        return (
+            program.fused_opcodes,
+            program.fused_operands,
+            program.fused_operand_rows,
+        )
+    raise UnsupportedConstructError(
+        f"product program: rule {at}'s completion range has unknown kind {kind}"
+    )
+
+
+def _verify_instruction(
+    at: int,
+    index: int,
+    opcode: int,
+    operand: int,
+    rows: tuple[tuple[tuple[int, ...], ...], ...],
+) -> None:
+    """Refuse an unknown opcode or an operand past its own opcode's rows."""
+    if opcode < 0 or opcode >= len(rows):
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s instruction {index} has unknown "
+            f"opcode {opcode}"
+        )
+    if operand < 0 or operand >= len(rows[opcode]):
+        raise UnsupportedConstructError(
+            f"product program: rule {at}'s instruction {index} has operand "
+            f"{operand}, past the {len(rows[opcode])} rows opcode {opcode} declares"
+        )
+    verify_exact_ints(rows[opcode][operand], f"opcode {opcode}'s row {operand}")

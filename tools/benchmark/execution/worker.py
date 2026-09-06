@@ -1,24 +1,48 @@
-"""Fresh-process execution of one exact benchmark grammar/engine pair."""
+"""Fresh-process execution of one exact benchmark grammar/engine pair.
+
+This process owns the machine for its whole life: it starts, builds its row,
+validates it, warms it, takes ONE observation, closes and exits. Nothing else
+benchmark-shaped runs beside it. What it writes is a row CONTRACT — the exact
+identity of what was measured — beside the numbers, so a comparator can refuse
+two arms that did not measure the same thing instead of averaging them.
+"""
 
 from __future__ import annotations
 
 import argparse
+import gc
 import json
-import sys
 from collections.abc import Sequence
-from typing import Any
 
 from tools.benchmark.bench import (
+    MT_ROWS,
+    PRODUCT,
     EngineBuild,
     _interleaved,
-    _mt_check,
     _noise_floor,
+    observe,
     one_engine,
+    result_identity,
 )
-from tools.benchmark.cases.grammars import BENCHES
+from tools.benchmark.cases.grammars import BENCHES, Bench
+from tools.benchmark.measurement.contract import (
+    CLOCKS,
+    PROTOCOL,
+    Json,
+    Observation,
+    RowContract,
+    digest,
+)
+from tools.benchmark.measurement.occupancy import Occupancy, declined_reason
+
+_VARIANT_ROWS = frozenset({"lexic-lex", "lexic-lex-ns", "lexic-mt-lex-ns"})
+"""Rows compiled with the case's declared `@lexical` set."""
+
+_NS_ROWS = frozenset({"lexic-lex-ns", "lexic-mt-lex-ns"})
+"""Rows that additionally carry the case's declared `@non-semantic` set."""
 
 
-def _bench(grammar: str) -> Any:
+def _bench(grammar: str) -> Bench:
     """Resolve the one grammar imported into this worker."""
     bench = next(
         (candidate for candidate in BENCHES if candidate.name == grammar), None
@@ -28,69 +52,127 @@ def _bench(grammar: str) -> Any:
     return bench
 
 
-def _result(
-    name: str, built: EngineBuild, bench: Any, rounds: int, cores: int | None
-) -> dict[str, Any]:
-    """Sample one already-built row alone and return its wire payload."""
+def _directives(bench: Bench, engine: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The EXACT directive sets this row compiles with, as declared."""
+    lexical = bench.lexical if engine in _VARIANT_ROWS else ()
+    non_semantic = bench.non_semantic if engine in _NS_ROWS else ()
+    return tuple(sorted(lexical)), tuple(sorted(non_semantic))
+
+
+def _contract(
+    bench: Bench, engine: str, document: str, cores: int | None, full: bool
+) -> RowContract:
+    """Everything a comparator needs to accept or refuse this row."""
+    lexical, non_semantic = _directives(bench, engine)
+    scale = "full" if full or engine in MT_ROWS else "corpus"
+    return RowContract(
+        PROTOCOL,
+        engine,
+        bench.name,
+        digest(bench.source),
+        lexical,
+        non_semantic,
+        digest(document),
+        len(document.encode("utf-8")),
+        scale,
+        PRODUCT[engine],
+        1 if cores is None or engine not in MT_ROWS else cores,
+        gc.isenabled(),
+        CLOCKS,
+    )
+
+
+def _engagement(engine: str, built: EngineBuild, cores: int | None) -> Occupancy | None:
+    """What one untimed split attempt did, or ``None`` if the row is sequential.
+
+    A sequential row is not asked at all, which is a different answer from
+    "asked, and it declined". Everything here comes from that one attempt,
+    outside every measured span — the request is not an observation, and a row
+    that echoes it certifies nothing.
+    """
+    if engine not in MT_ROWS or cores is None or built.artifact is None:
+        return None
+    return declined_reason(built.artifact, built.document, cores)
+
+
+def _split_fields(seen: Occupancy | None) -> tuple[bool | None, str, int]:
+    """One attempt's ``(engaged, split digest, workers)`` for the observation."""
+    if seen is None:
+        return None, "", 1
+    return seen.declined is None, seen.plan, seen.workers
+
+
+def _payload(
+    bench: Bench, engine: str, rounds: int, cores: int | None, full: bool
+) -> dict[str, Json]:
+    """Build, validate, warm, time and close one row; return its wire form."""
+    built = one_engine(bench, engine, cores, full)
     if built.parse is None:
         return {"refusal": built.refusal}
-    parse = built.parse
-    samples = _interleaved({name: parse}, {name: built.document}, rounds)[name]
-    mt_reason = None
-    if built.artifact is not None:
-        mt_reason = _mt_check({name: built.artifact}, bench.full, cores).get(name)
-    warmed = getattr(parse, "warmed", None)
-    cold = getattr(parse, "cold_us_per_char", None)
-    share = getattr(parse, "charstream_share", lambda: 0.0)()
-    return {
-        "samples": samples,
-        "document_length": len(built.document),
-        "mt_reason": mt_reason,
-        "warmed": list(warmed) if warmed is not None else None,
-        "cold_us_per_char": cold,
-        "charstream_share": share,
-    }
-
-
-def _build(
-    grammar: str, engine: str, cores: int | None, full: bool
-) -> tuple[Any, EngineBuild]:
-    """Construct and validate one exact requested row."""
-    bench = _bench(grammar)
-    return bench, one_engine(bench, engine, cores, full)
-
-
-def _close(built: EngineBuild) -> None:
-    """Close a row parser when its engine owns external resources."""
-    if built.parse is not None:
+    try:
+        contract = _contract(bench, engine, built.document, cores, full)
+        engaged, split, effective = _split_fields(_engagement(engine, built, cores))
+        result = result_identity(built)
+        timing = observe(built, rounds)
+        observation = Observation(
+            timing.wall,
+            timing.cpu,
+            digest(result.text),
+            digest(result.shape),
+            "accepted",
+            engaged,
+            split,
+            effective,
+        )
+        return {
+            "contract": contract.wire(),
+            "observations": [observation.wire()],
+        }
+    finally:
         getattr(built.parse, "close", lambda: None)()
 
 
-def execute(
-    grammar: str,
-    engine: str,
-    rounds: int,
-    cores: int | None,
-    full: bool,
-) -> dict[str, Any]:
-    """Build and sample one exact row in its own process."""
-    bench, built = _build(grammar, engine, cores, full)
-    try:
-        return _result(engine, built, bench, rounds, cores)
-    finally:
-        _close(built)
+def report_payload(
+    bench: Bench, engine: str, rounds: int, cores: int | None, full: bool
+) -> dict[str, Json]:
+    """The cross-engine REPORT's payload for one row — reading, not a gate.
 
-
-def execute_noise(
-    grammar: str, engine: str, rounds: int, cores: int | None, full: bool
-) -> float:
-    """Measure the same-engine control for one exact row."""
-    bench = _bench(grammar)
+    The report wants many per-character samples and the warm-up account; the
+    acceptance gate wants one process-level observation under a row contract.
+    Two questions, two payloads, neither pretending to be the other.
+    """
     built = one_engine(bench, engine, cores, full)
     if built.parse is None:
-        raise ValueError(f"benchmark row {grammar}/{engine} refused: {built.refusal}")
+        return {"refusal": built.refusal}
+    parse = built.parse
     try:
-        return _noise_floor(built.parse, built.document, rounds)
+        samples = _interleaved({engine: parse}, {engine: built.document}, rounds)
+        engaged, _split, _cores = _split_fields(_engagement(engine, built, cores))
+        warmed = getattr(parse, "warmed", None)
+        return {
+            "samples": samples[engine],
+            "mt_reason": None
+            if engaged is not False
+            else "the unified split seam found no eligible work",
+            "warmed": list(warmed) if warmed is not None else None,
+            "cold_us_per_char": getattr(parse, "cold_us_per_char", None),
+            "charstream_share": getattr(parse, "charstream_share", lambda: 0.0)(),
+        }
+    finally:
+        getattr(parse, "close", lambda: None)()
+
+
+def _noise_payload(
+    bench: Bench, engine: str, rounds: int, cores: int | None, full: bool
+) -> dict[str, Json]:
+    """Measure the same-engine control for one exact row."""
+    built = one_engine(bench, engine, cores, full)
+    if built.parse is None:
+        raise ValueError(
+            f"benchmark row {bench.name}/{engine} refused: {built.refusal}"
+        )
+    try:
+        return {"noise_floor": _noise_floor(built.parse, built.document, rounds)}
     finally:
         getattr(built.parse, "close", lambda: None)()
 
@@ -104,26 +186,18 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--cores", type=int)
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--noise", action="store_true")
-    parser.add_argument("--wait", action="store_true")
+    parser.add_argument("--report", action="store_true")
     args = parser.parse_args(argv)
+    if args.engine not in PRODUCT:
+        parser.error(f"unknown benchmark row {args.engine!r}")
+    bench = _bench(args.grammar)
     if args.noise:
-        if args.wait:
-            parser.error("--noise and --wait are mutually exclusive")
-        payload: dict[str, Any] = {
-            "noise_floor": execute_noise(
-                args.grammar, args.engine, args.rounds, args.cores, args.full
-            )
-        }
+        build = _noise_payload
+    elif args.report:
+        build = report_payload
     else:
-        bench, built = _build(args.grammar, args.engine, args.cores, args.full)
-        try:
-            if args.wait:
-                print('{"ready":true}', flush=True)
-                if sys.stdin.readline().strip() != "run":
-                    raise ValueError("waiting benchmark worker expected 'run'")
-            payload = _result(args.engine, built, bench, args.rounds, args.cores)
-        finally:
-            _close(built)
+        build = _payload
+    payload = build(bench, args.engine, args.rounds, args.cores, args.full)
     print(json.dumps(payload, separators=(",", ":")))
 
 

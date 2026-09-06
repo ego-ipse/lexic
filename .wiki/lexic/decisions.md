@@ -27,22 +27,28 @@ two instances of any class that never defined `__eq__` different from each
 other. A type that declined to define equality has declined to answer, and
 "cannot tell" reads as no observable difference, hence no refusal.
 
-**It lives in `parsing/earley/kernel/forest/ambiguity.py`** so the island
+**It lives in `parsing/earley/kernel/forest/support/ambiguity.py`** so the island
 sub-parse, the reduce path and the Earley model completion decide it once and
 the same way. The reduce path used to count derivations, and the cost was the
 whole EBNF fallback: that self-grammar has adjacent nullable `ws` slots, so
 every whitespace-carrying EBNF file derived at least two ways, reduced to
 exactly one value, and was refused. The model completion used to not ask at
 all — it took the first derivation, and the PDA took a different "first", so
-an ambiguous arm choice was answered two ways in silence; `first_meaning`
-(`earley/engine.py`) now asks on that path too.
+an ambiguous arm choice was answered two ways in silence; `first_built_meaning`
+(`earley/engine.py`) now asks on that path too, where the values it compares
+are built.
 
-**The opt-out is a resolver, not a flag.** `another_meaning` returns the
-differing derivation itself — the witness — so a caller opting out of the
-default refusal supplies a deterministic `Resolver` that is handed both
-derivations and picks; how it picks is the caller's concern. The same
-`AmbiguityPolicy` / `Resolver` vocabulary reaches wherever a derivation is
-chosen: `parse_model`, the PDA's `IslandPolicy`, and the Earley completion.
+**The opt-out is a resolver, not a flag.** `different_meaning` returns a
+`MeaningPair` carrying the baseline and, when the span means two things, the
+differing derivation itself — the witness — with both values already built.
+`chosen_meaning` is the one place that settles such a pair: it refuses by
+default, and a caller opting out supplies a deterministic `Resolver` that is
+handed both derivations and picks; how it picks is the caller's concern. That
+`Resolver` reaches wherever a derivation is chosen: `parse_model`, the PDA's
+`IslandPolicy`, and the Earley completion. There is no policy record beside it
+— a build and a resolver bundled as one carrier was a second route to the same
+decision, and the tree route asks nothing (`first_meaning` returns the
+deterministic first, and only the value route can answer what a span MEANS).
 
 **A flipped point is consumed at its first visit.** A unit cycle's same-span
 completions make the chart CYCLIC (`a ::= b | "x"` / `b ::= a | "y"`), and a
@@ -180,7 +186,7 @@ different values raise `ProbeFork`. That comparison is reached by CONVERGENCE
 rather than by running both sides to end-of-input; see *"A both-viable boundary
 is settled by convergence"* below.
 
-**The load-bearing choices:**
+**The choices this rests on:**
 
 - **Sub-runs are watermarked, not severed.** An attempt runs ON TOP of the
   live stack (`_drive(floor)`); nested viability walks and probes see the true
@@ -345,7 +351,17 @@ fold-refusal reroute stays as the last line of defence.
 
 ---
 
-## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3)
+## 2026-09-04 — The product ABI replaces the instance fold; §4 rulings
+
+**Decision:** `ModelFold`/`ModelBody`/`RuleFold` (`parsing/fold.py`) are deleted. What a parse runs is a **product program** (`parsing/product/`): authored per-rule operations (`RuleProduct`), lowered once to flat int-coded tables, verified cold at binding (`verify_program` checks the PASS/RECORD/optional/matched-text/field-order relations), and read back as one `RuleRoutine` per rule for BOTH engines — the PDA bakes it into clones, the tree route runs it over the `ParseTree`. Binding (`compile/product/registry.py`'s `register_model` → `ModelExecutable`, memoised in a `ProductRegistry`) is the one moment an authored program becomes executable; the executable is **immutable after verification** (rebinding raises `UnsupportedConstructError`, the defective-artefact error, not the model-field one). A class's fast construction is a structural `ConstructionLicence`, never reflection. Rulings recorded with it: the PDA frame is a typed slotted `Frame` (seven lanes; slot reads beat list subscripts) whose boundary list exists only when the clone's build reads a position (`needs_ends`, which covers `value_str` clones — a value-string model IS its extent); a split parse's worker takes the table replica bound to its THREAD, never to the task's index (`worker_parse`); `cores=AUTO` stays the logical CPU count; the performance gate is paired log ratios against a byte-identical control envelope with NO minimum effect size and no growth for faster/ok rows; the PDA route lane (`RouteLane`, `admission.py`) stays in `src/` unconsumed until its §6 consumer.
+
+**Why:** one program both engines execute removes the privileged model-construction vocabulary the fold was, makes every target a specialisation of the same data, and lets a defect be refused cold with words instead of carried as `source == -1`.
+
+**Impact:** `CompiledGrammar.fold` → `CompiledGrammar.product`; `parse_model(grammar, text, binding)`, `pda_tables(grammar, binding)`, `watch(tables, text, executor)`; new packages `parsing/product/`, `compile/product/`; `pipeline/binding.py` → `pipeline/rulemap.py`, `module/bind.py` → `module/attach.py`; `parsing/lift.py` split out; `stitch/plan.py` split out of `stitch/model.py`. The 2026-07-06 decision below is superseded.
+
+---
+
+## 2026-07-06 — One IR fold type: `ModelFold` + `ModelBody` (unified-parse-engine Task 3) — SUPERSEDED 2026-09-04
 
 **Decision:** The instance fold's authored form is now **one IR-native type**, `ModelFold` (`parsing/fold.py`), whose `bodies` is a per-rule `IrMap[IrRuleRef, ModelBody]` — the *same shape* the grammar-text `Reducer` carries its `reductions` in (a per-rule `IrMap` to `IrSelf` bodies). A `ModelBody(kind, ctor, n_items, fields, fast)` (an `IrNamedTuple`, `_child_attrs=()`) carries the model constructor as an `IrLambda` (`IrNone` for an `alternation`, which has none) plus structural metadata. On construction `ModelFold` **bakes** every body (`ModelBody.bake()`) to the flat-runtime `config: dict[str, RuleFold]` (`.baked`) — the record the PDA clone compiler and the engine-fallback `apply` consume **byte-for-byte unchanged**. `RuleFold`/`FieldFold`/`FastCtor` survive as that lowered/baked representation; `ModelBody.of(rf)` is the inverse lift and `ModelFold.from_config(dict)` the direct-from-baked (lowered) constructor.
 
@@ -377,9 +393,9 @@ fold-refusal reroute stays as the last line of defence.
 
 ## 2026-06-04 — Primitive-node model (V2): a node IS its payload
 
-**Decision:** Replace the coercion-based node model with one where nodes *are* their payload. Three tiers: str-leaves (`IrLiteral`/`IrCharClass`/`IrRuleRef`) subclass `str` via `IrStr`; variadic collections (`IrSequence`/`IrAlternation`) subclass `tuple` via `IrTuple`; fixed-arity records (`IrItem`/`IrQuantifier`/`IrGroup`/`IrNot`/`IrRule`/`IrAst`) are frozen `IrComposite` dataclasses. Removed: `IrType`, `coerce`, the load-bearing `*args/**kwargs` `IrNode.__init__`, `_ir_field_types`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade (replaced by `__repr__`-is-codegen). There are **no** `.value`/`.items`/`.arms` accessors — use the node directly.
+**Decision:** Replace the coercion-based node model with one where nodes *are* their payload. Three tiers: str-leaves (`IrLiteral`/`IrCharClass`/`IrRuleRef`) subclass `str` via `IrStr`; variadic collections (`IrSequence`/`IrAlternation`) subclass `tuple` via `IrTuple`; fixed-arity records (`IrItem`/`IrQuantifier`/`IrGroup`/`IrNot`/`IrRule`/`IrAst`) are frozen `IrComposite` dataclasses. Removed: `IrType`, `coerce`, the coercing `*args/**kwargs` `IrNode.__init__`, `_ir_field_types`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`_inner_str`/`__str__` cascade (replaced by `__repr__`-is-codegen). There are **no** `.value`/`.items`/`.arms` accessors — use the node directly.
 
-**Why:** The old `__init__(*args, **kwargs)` masked ~174 pyright errors (standard-mode 0 was a lie). Making nodes their payload eliminates coercion, the load-bearing init, and the variance that produced those errors. Construction is now honest per-field dataclass `__init__`/`__new__`; whole-tree pyright is genuinely 0.
+**Why:** The old `__init__(*args, **kwargs)` masked ~174 pyright errors (standard-mode 0 was a lie). Making nodes their payload eliminates coercion, that init, and the variance that produced those errors. Construction is now honest per-field dataclass `__init__`/`__new__`; whole-tree pyright is genuinely 0.
 
 **Impact:** Every consumer reads leaves as `str` and collections as `tuple`; construction is variadic (`IrSequence(*items)`, `IrAlternation(*arms)`, `IrAst(IrTuple(*rules), start)`). Full suite green (572 tests), `pyright src/ tests/` = 0. See [[ir-shapes]].
 

@@ -25,7 +25,8 @@ from lexic.grammars import GBNF_FLAVOUR, flavour_for_extension
 from lexic.ir import IrAst
 from lexic.parsing.earley.kernel.tables.records import ORIGIN_BITS, ParserTables
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.clones import (
     CC,
     GRP,
@@ -70,8 +71,8 @@ def pda_for(path: Path) -> PdaTables:
     compiled = compile_from_path(path)
     return compile_pda(
         lifted,
-        _model_product(compiled.codegen_grammar, compiled.fold).instance_grammar,
-        compiled.fold.config,
+        _model_product(compiled.codegen_grammar, compiled.product).instance_grammar,
+        compiled.product,
     )
 
 
@@ -96,8 +97,8 @@ def pda_from_text(text: str) -> PdaTables:
     compiled = compile_text(text, flavour="gbnf")
     return compile_pda(
         lifted,
-        _model_product(compiled.codegen_grammar, compiled.fold).instance_grammar,
-        compiled.fold.config,
+        _model_product(compiled.codegen_grammar, compiled.product).instance_grammar,
+        compiled.product,
     )
 
 
@@ -171,6 +172,26 @@ def test_clone_count_matches_pinned(stem: str):
     """The compiled clone count matches the pinned, coordinator-verified value."""
     pda = pda_for(GROUND_TRUTH / stem)
     assert len(pda.clones) == PINNED_CLONE_COUNTS[stem]
+
+
+@pytest.mark.parametrize("stem", ALL_STEMS)
+def test_every_named_clones_completion_is_an_in_bounds_range_of_its_own_rule(
+    stem: str,
+):
+    """Every named clone's routine names an in-bounds range of the SAME
+    grammar's own verified program — the range a clone was baked from is
+    one the program's own table actually declares, not a stale or
+    cross-grammar index."""
+    pda = pda_for(GROUND_TRUTH / stem)
+    compiled = compile_from_path(GROUND_TRUTH / stem)
+    completions = compiled.product.program.completions
+    checked = 0
+    for spec in pda.clones.values():
+        if spec.routine is None:
+            continue
+        assert 0 <= spec.routine.completion < len(completions), spec.name
+        checked += 1
+    assert checked  # every named clone in the corpus has SOME routine
 
 
 @pytest.mark.parametrize("stem", ALL_STEMS)
@@ -350,7 +371,7 @@ def test_hand_grammar_loop_over_soft_only_follower_islands_and_refuses():
         build_codegen_grammar(canonical_grammar(text, GBNF_FLAVOUR))
     )
     live = compile_pda(
-        lifted, normalize(lifted), compile_text(text, flavour="gbnf").fold.config
+        lifted, normalize(lifted), compile_text(text, flavour="gbnf").product
     )
     for inp in ("ab", "cab"):
         with pytest.raises(PdaFail):
@@ -417,7 +438,7 @@ def test_long_ref_chain_compiles_at_constant_stack_depth():
     lifted = lift_optional_nullables(
         build_codegen_grammar(canonical_grammar(grammar, GBNF_FLAVOUR))
     )
-    pda = compile_pda(lifted, normalize(lifted), {})
+    pda = compile_pda(lifted, normalize(lifted), ModelExecutable())
     assert isinstance(pda.start_key, CloneKey)
     assert all(spec.name for spec in pda.clones.values())  # no _PENDING left
 

@@ -7,8 +7,8 @@ import json as stdlib_json  # oracle only — never in src
 import pytest
 
 from lexic.compile import compile_ast
-from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.moments import build_codegen_grammar
+from lexic.compile.pipeline.rulemap import compute_binding
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.json import JSON_GRAMMAR, JSON_REDUCER

@@ -57,14 +57,6 @@ jobs:
           else
             sha="$(git rev-parse HEAD^)"
           fi
-          if ! git cat-file -e "$sha:tools/benchmark/lexic_baseline.json" 2>/dev/null; then
-            sha="$(git log --diff-filter=A -n 1 --format=%H -- tools/benchmark/lexic_baseline.json)"
-            if [[ -z "$sha" ]]; then
-              echo "No compatible performance comparison base exists" >&2
-              exit 1
-            fi
-            echo "event base predates the performance harness; using $sha"
-          fi
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       - name: Check out base
@@ -91,9 +83,15 @@ jobs:
           print('python:', sys.version.split()[0], 'gil enabled:', sys._is_gil_enabled())
           "
 
+      - name: Install the corrected protocol into the base measurement copy
+        working-directory: head
+        run: |
+          uv run python -m tools.benchmark.measurement.copy ../base --rename fold
+
       - name: Compare base and HEAD on this runner
         working-directory: head
         run: |
           uv run python -u -m tools.benchmark.compare \
-            --base-source ../base/src \
-            --base-record ../base/tools/benchmark/lexic_baseline.json
+            --base-root ../base \
+            --head-root . \
+            --json ../ab.json

@@ -34,6 +34,23 @@ amortization point, this constant moves to what was measured.
 """
 
 
+MIN_SCAN = 4 * MIN_CHUNK
+"""The least text one SCAN window should own — the scan's own floor.
+
+A window is one C-level sweep per mark spelling plus a Python step per
+occurrence: measured at 1.5 ns/char where a document holds a mark every 80
+characters and 21 ns/char at its densest (four spellings, a mark every 9). One
+pool task costs ~15 µs to hand out, so sixteen windows over a 34 KB document
+spent 0.24 ms dispatching between 0.05 and 0.7 ms of work, and three of four
+measured grammars scanned faster on one thread than on sixteen.
+
+This is the SCAN's amortization point and not the parse's: :data:`MIN_CHUNK` is
+what a 2.6 ms chunk parse amortizes, and scanning is two orders of magnitude
+cheaper per byte than parsing. Splitting the document into parse chunks is
+untouched by it.
+"""
+
+
 def _free_threaded() -> bool:
     """Whether this interpreter runs without the GIL (free-threaded build)."""
     gil_enabled = getattr(sys, "_is_gil_enabled", None)

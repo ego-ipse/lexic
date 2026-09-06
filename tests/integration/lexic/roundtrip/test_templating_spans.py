@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import MapShape, compile_from_path, spanify
-from lexic.compile.output.templating import SpanPair
+from lexic.compile.output.templating import SpanPair, span_level
 from lexic.ir import IrSpan
 from lexic.parsing import parse_model
 from lexic.parsing.products import _model_product, earley_model
@@ -52,7 +52,7 @@ def test_the_offsets_slice_back_to_the_entrys_own_text(
 ) -> None:
     """The gate: every offset pair selects exactly the text it was captured as."""
     pair = pair_for(name)
-    for entry in parse_model(pair.spans, document, pair.span_fold):
+    for entry in span_level(parse_model(pair.spans, document, pair.span_binding)):
         assert entry.key_at.of(document) == entry.key
         assert entry.value_at.of(document) == entry.value
 
@@ -67,10 +67,12 @@ def test_both_engine_routes_produce_identical_entries(name: str, document: str) 
     so this is where a divergence would show.
     """
     pair = pair_for(name)
-    product = _model_product(pair.spans, pair.span_fold)
-    predictive = list(parse_model(pair.spans, document, pair.span_fold))
+    product = _model_product(pair.spans, pair.span_binding)
+    predictive = list(span_level(parse_model(pair.spans, document, pair.span_binding)))
     earley = list(
-        earley_model(product.instance_grammar, document, pair.span_fold, product.tables)
+        earley_model(
+            product.instance_grammar, document, pair.span_binding, product.tables
+        )
     )
     assert predictive == earley
 
@@ -83,7 +85,7 @@ def test_a_repeated_spelling_is_not_re_found_by_search() -> None:
     """
     pair = pair_for("json.gbnf")
     document = '{"name": "a", "d": "name"}'
-    entries = list(parse_model(pair.spans, document, pair.span_fold))
+    entries = list(span_level(parse_model(pair.spans, document, pair.span_binding)))
     key = next(e for e in entries if e.key == '"name"')
     value = next(e for e in entries if e.value == '"name"')
     assert key.key_at == IrSpan(1, 7)
@@ -95,7 +97,7 @@ def test_offsets_are_in_document_order() -> None:
     """Entries come out in document order and their spans do not overlap."""
     pair = pair_for("json.gbnf")
     document = '{"a": 1, "b": 2, "c": 3}'
-    entries = list(parse_model(pair.spans, document, pair.span_fold))
+    entries = list(span_level(parse_model(pair.spans, document, pair.span_binding)))
     assert [e.key for e in entries] == ['"a"', '"b"', '"c"']
     at = 0
     for entry in entries:
@@ -113,8 +115,10 @@ def test_a_nested_level_reports_offsets_into_the_span_it_was_parsed_from() -> No
     """
     pair = pair_for("json.gbnf")
     document = '{"outer": {"inner": 1}}'
-    outer = next(iter(parse_model(pair.spans, document, pair.span_fold)))
+    outer = next(iter(span_level(parse_model(pair.spans, document, pair.span_binding))))
     nested_text = outer.value_at.of(document)
     assert nested_text == '{"inner": 1}'
-    inner = next(iter(parse_model(pair.sections, nested_text, pair.span_fold)))
+    inner = next(
+        iter(span_level(parse_model(pair.sections, nested_text, pair.span_binding)))
+    )
     assert inner.key_at.of(nested_text) == '"inner"'

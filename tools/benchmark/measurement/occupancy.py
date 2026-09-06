@@ -1,0 +1,167 @@
+"""What a split attempt DID, as against what it was asked for.
+
+The request is not an observation. Production clamps useful workers by document
+size and cut count, cut selection can clamp them again, and the executor only
+starts the threads its submitted tasks demand — so a row that reports the
+number it asked for certifies nothing, and two arms echoing the same request
+can divide one document differently and still compare.
+
+**Two different questions come out of one attempt, and they must not be
+confused.** What the split DECIDED to do — how it carved the document, and how
+many workers that carving admits — is derived from the grammar, the document
+and the core request, and is identical on every attempt. How many threads
+happened to pick the pieces up is the executor's business: thirty identical
+attempts on one artefact read eight workers twenty-eight times and seven twice.
+The first is workload identity and belongs in the comparison; the second is
+diagnostic evidence and would reject a pair of identical trees.
+
+Every measurement here runs on an untimed attempt, outside every measured span,
+and nothing in it reaches into `src`: the split is driven through its public
+entry with a stand-in for the product it would have used.
+
+This module is one of the protocol files copied into the OTHER arm's checkout,
+so every name it imports from `lexic` has to be one both revisions have. The
+compiled grammar's build object is the name that moves, and the stand-in never
+writes it down: it is generic in whatever the parse entry it wraps accepts.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import threading
+from collections.abc import Callable
+from typing import NamedTuple
+
+from lexic.compile import CompiledGrammar
+from lexic.ir import IrAst
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.parallel import split_model, worker_count
+from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.products import parse_model
+
+type ModelProduct[M, B] = Callable[[IrAst, str, B, Resolver | None], M]
+"""A revision's model parse entry, as this benchmark uses one.
+
+``B`` is the compiled grammar's build object, and the point of the parameter is
+that nothing here writes it down: the probe is handed the entry, reads ``B``
+off it, and passes back exactly what it was given.
+"""
+
+
+class Occupancy(NamedTuple):
+    """What one untimed split attempt did, as against what it was asked for.
+
+    :ivar declined: Why the split did not engage, or ``None`` when it did.
+    :ivar plan: Digest of the DERIVED work — the pieces the split carved and
+        the workers that carving admits. Identical on every attempt against
+        one grammar, document and core request, so it is the field two arms
+        are held to.
+    :ivar workers: How many worker threads actually ran a piece of it. One
+        when the split declined, so the row reports the parse that ran.
+        Scheduling, not identity: reported as evidence, never compared.
+    """
+
+    declined: str | None
+    plan: str
+    workers: int
+
+
+class _Attempt:
+    """One untimed attempt's record: the pieces carved, the threads that ran.
+
+    The two are kept apart deliberately. Piece lengths come out of the split
+    plan, so they are the same on every attempt; thread idents come out of the
+    executor, so they are not.
+    """
+
+    def __init__(self) -> None:
+        """Start with nothing seen."""
+        self.pieces: list[int] = []
+        self.threads: set[int] = set()
+        self.lock = threading.Lock()
+
+    def mark(self, piece: str) -> None:
+        """Record one piece and the thread that took it."""
+        with self.lock:
+            self.pieces.append(len(piece))
+            self.threads.add(threading.get_ident())
+
+    def workers_besides(self, driver: int) -> int:
+        """How many threads other than ``driver`` ran a piece of the split.
+
+        At least one: a split that engaged did its work somewhere, and a row
+        reporting zero workers for a parse that happened would be a third
+        wrong answer beside the request and the ceiling.
+        """
+        return len(self.threads - {driver}) or 1
+
+    def plan(self, size: int, cores: int) -> str:
+        """Digest of the pieces carved and the workers that carving admits.
+
+        Sorted, because the ORDER pieces are handed out in is the executor's
+        and varies where the carving does not. The admission ceiling rides
+        along because two carvings can agree on every piece and still differ
+        in how much of the document may run at once.
+        """
+        pieces = sorted(self.pieces)
+        ceiling = worker_count(size, max(0, len(pieces) - 1), cores)
+        shape = f"{ceiling}:{','.join(str(length) for length in pieces)}"
+        return hashlib.sha256(shape.encode("utf-8")).hexdigest()[:16]
+
+
+class _WatchedParse[M, B](NamedTuple):
+    """The model product, marking the thread every piece was driven from.
+
+    Wraps the product the split is handed rather than the pool, because every
+    piece of concurrent work in every route — cut chunks, region pieces,
+    routed interiors — reaches the engine through this one callable. The
+    driver's own thread is excluded by the reader, which knows its own ident.
+
+    The entry is supplied rather than reached for, which is what lets ``B`` —
+    the build object this revision hands a parse — be read off the argument
+    instead of spelled.
+
+    :ivar parse: This revision's model parse entry.
+    :ivar attempt: The record every call marks.
+    """
+
+    parse: ModelProduct[M, B]
+    attempt: _Attempt
+
+    def __call__(
+        self,
+        grammar: IrAst,
+        text: str,
+        build: B,
+        resolve: Resolver | None = None,
+    ) -> M:
+        """Record the piece and the calling thread, then parse as the product does."""
+        self.attempt.mark(text)
+        return self.parse(grammar, text, build, resolve)
+
+
+def declined_reason(compiled: CompiledGrammar, document: str, cores: int) -> Occupancy:
+    """What this artifact's split does on this document, observed not assumed.
+
+    Asked of the split entry directly, not inferred from timings: a split that
+    declines falls back to the sequential parse, so the mt cell alone cannot
+    distinguish "threading bought nothing" from "nothing threaded". The plan is
+    observed the same way, because the REQUEST is not an answer: the policy
+    clamps useful workers by document size and cut count, and cut selection can
+    clamp them again, so a 17 KiB document asked for sixteen cannot occupy more
+    than eight.
+
+    This attempt is untimed and runs outside every measured span.
+    """
+    attempt = _Attempt()
+    split = split_model(
+        _WatchedParse(parse_model, attempt),
+        compiled.codegen_grammar,
+        Request(document, compiled.product, None),
+        cores,
+        analysis=compiled.split_analysis or compiled.grammar,
+    )
+    plan = attempt.plan(len(document), cores)
+    if split is None:
+        return Occupancy("the unified split seam found no eligible work", plan, 1)
+    return Occupancy(None, plan, attempt.workers_besides(threading.get_ident()))

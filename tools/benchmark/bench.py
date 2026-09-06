@@ -51,17 +51,13 @@ from importlib import import_module
 from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar, Directives, compile_text
-from lexic.exceptions import LexicError
-from lexic.parsing.parallel import split_model
-from lexic.parsing.parallel.orchestrate import Request
-from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.kernel.kernel import pda_model
-from lexic.parsing.products import _model_product, earley_model, parse_model
-from lexic.parsing.trace import watch
-from tools.benchmark.cases.grammars import Bench
-from tools.benchmark.cases.variants import variant_marks
+from lexic.model import GrammarModel
+from lexic.parsing.products import _model_product, earley_model
+from tools.benchmark.cases.grammars import Bench, declared_marks
 from tools.benchmark.emitters.directives import NO_MARKS
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
+from tools.benchmark.measurement.contract import shape
+from tools.benchmark.measurement.occupancy import declined_reason
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -191,7 +187,7 @@ def _lexic(
     unknown = wanted - LEXIC_ROWS
     if unknown:
         raise ValueError(f"unknown Lexic benchmark rows: {sorted(unknown)}")
-    fold = bench.fold
+    binding = bench.compiled.product
     sequential = bench.compiled.parse
     engines: dict[str, Parse] = {}
     # The production seam, like every competitor's own entry API — the
@@ -201,9 +197,9 @@ def _lexic(
     if "lexic-pda" in wanted:
         engines["lexic-pda"] = lambda text: sequential(text, cores=1)
     if "lexic-earley" in wanted:
-        product = _model_product(bench.compiled.codegen_grammar, fold)
+        product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
         engines["lexic-earley"] = lambda text: earley_model(
-            product.instance_grammar, text, fold, product.tables
+            product.instance_grammar, text, binding, product.tables
         )
     mt_artifacts: dict[str, CompiledGrammar] = {}
     if cores is not None and "lexic-mt" in wanted:
@@ -226,9 +222,16 @@ def _lexic(
 def _variant_engines(
     bench: Bench, wanted: frozenset[str], cores: int | None
 ) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
-    """Compile only the requested directive-bearing Lexic variants."""
-    lex_marks, ns_marks = variant_marks(bench.ast)
-    lex_marks = _licensed_marks(bench, lex_marks)
+    """Compile only the requested directive-bearing Lexic variants.
+
+    The directives are the case's DECLARED sets. They are not derived from the
+    grammar by heuristic and not trimmed by what this engine finds eligible or
+    fast: a row label must denote the same workload in every revision, and a
+    licence that removes marks until the row stops regressing hides exactly the
+    regression the row exists to expose.
+    """
+    lex_marks = frozenset(bench.lexical)
+    ns_marks = frozenset(bench.non_semantic)
     engines: dict[str, Parse] = {}
     artifacts: dict[str, CompiledGrammar] = {}
     for label, directives in (
@@ -260,51 +263,6 @@ def _variant_engines(
             )
             artifacts["lexic-mt-lex-ns"] = variant
     return engines, artifacts
-
-
-def _decision_cost(compiled, corpus: str) -> int | None:
-    """Watched decision work (probes, gates, rollbacks) on the raw PDA; None = incapable."""
-    fold = compiled.fold
-    product = _model_product(compiled.codegen_grammar, fold)
-    try:
-        pda_model(product.pda, corpus, fold)
-    except LexicError, PdaFail:
-        return None
-    run = watch(product.pda, corpus, fold, cap=1_000_000)
-    return sum(
-        1 for event in run.events if str(event.kind) in ("rollback", "probe", "gate")
-    )
-
-
-def _licensed_marks(bench: Bench, marks: frozenset[str]) -> frozenset[str]:
-    """Marks licensed by ENGINE EVIDENCE, dropped one by one until sound.
-
-    lexruns collapses a run only after PROVING charset, uniqueness and
-    FOLLOW-disjointness; a benchmark heuristic proving none of them was
-    measured making three grammars slower and one PDA-incapable. The licence
-    here holds marks to the same standard, empirically: a mark set survives
-    only if the raw PDA still takes the corpus AND the watched decision trace
-    shows no more rollbacks than the plain compile — otherwise marks drop
-    (alphabetically last first) until the remainder is sound, possibly none.
-    The honest declaration for that grammar is then NOTHING, and the variant
-    row equals plain rather than regressing it.
-    """
-    if not marks:
-        return marks
-    baseline = _decision_cost(bench.compiled, bench.corpus)
-    candidates = sorted(marks)
-    while candidates:
-        trial = compile_text(
-            bench.source,
-            cache_key=f"bench-{bench.name}-lic-{len(candidates)}-{candidates[0]}",
-            flavour=bench.flavour,
-            directives=Directives(lexical=frozenset(candidates)),
-        )
-        cost = _decision_cost(trial, bench.corpus)
-        if cost is not None and (baseline is None or cost <= baseline):
-            return frozenset(candidates)
-        candidates.pop()
-    return frozenset()
 
 
 def unfaithful(
@@ -358,7 +316,7 @@ def _lark_parse(bench: Bench, parser: str, marked: bool = False) -> Parse:
     """
     lark = import_module("lark")
     lark_grammar = import_module("tools.benchmark.emitters.emit").lark_grammar
-    marks = variant_marks(bench.ast) if marked else NO_MARKS
+    marks = declared_marks(bench) if marked else NO_MARKS
     text = lark_grammar(bench.ast, refine=parser == "lalr", marks=marks)
     return lark.Lark(text, parser=parser).parse
 
@@ -378,7 +336,7 @@ def _peg_parse(bench: Bench, marked: bool = False) -> Parse:
     preferred = getattr(expressions, "re")
     setattr(expressions, "re", re)
     try:
-        marks = variant_marks(bench.ast) if marked else NO_MARKS
+        marks = declared_marks(bench) if marked else NO_MARKS
         return parsimonious.Grammar(peg_grammar(bench.ast, marks)).parse
     finally:
         setattr(expressions, "re", preferred)
@@ -415,7 +373,7 @@ def _java_parse(bench: Bench, marked: bool = False) -> Parse:
     java_antlr_parser = import_module(
         "tools.benchmark.engines.antlr_java"
     ).java_antlr_parser
-    marks = variant_marks(bench.ast) if marked else NO_MARKS
+    marks = declared_marks(bench) if marked else NO_MARKS
     suffix = "-lex" if marked else ""
     return java_antlr_parser(bench.ast, _antlr_name(bench.name + suffix), marks)
 
@@ -423,7 +381,7 @@ def _java_parse(bench: Bench, marked: bool = False) -> Parse:
 def _antlr_parse(bench: Bench, marked: bool = False) -> Parse:
     """Build one Python ANTLR row without importing ANTLR for Lexic workers."""
     antlr_parser = import_module("tools.benchmark.engines.antlr_build").antlr_parser
-    marks = variant_marks(bench.ast) if marked else NO_MARKS
+    marks = declared_marks(bench) if marked else NO_MARKS
     suffix = "-lex" if marked else ""
     return antlr_parser(bench.ast, _antlr_name(bench.name + suffix), marks)
 
@@ -546,29 +504,51 @@ def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engine
     return EngineBuild(parse, document, None, artifact)
 
 
-def _once(parse: Parse, corpus: str) -> float:
-    """Microseconds per input character for one timed pass, GC held off.
+class Pass(NamedTuple):
+    """One timed pass on both clocks, in seconds.
+
+    :ivar wall: ``perf_counter`` — latency, and the only honest clock for a row
+        whose work happens on other threads.
+    :ivar cpu: ``process_time`` — total work this process did, summed across
+        its threads. A parallel path that wins on wall while burning far more
+        CPU per byte is a real finding, and one clock cannot show it.
+    """
+
+    wall: float
+    cpu: float
+
+
+def _timed(parse: Parse, corpus: str) -> Pass:
+    """One pass with the collector LEFT ENABLED, on both clocks.
+
+    Production parsing does not disable the collector, so a row that does is
+    not measuring production: it hides allocation and cycle-creation cost and,
+    if the parse raises, used to leave the collector off for everything after.
 
     An engine that measured the pass ITSELF is believed over the wall clock: the
     Java row runs in a live JVM, and a `perf_counter` around it would charge
-    ANTLR for the pipe carrying the input across. Every in-process engine has no
-    such reading and is timed the ordinary way.
+    ANTLR for the pipe carrying the input across.
     """
-    gc.disable()
-    start = time.perf_counter()
+    cpu_start = time.process_time()
+    wall_start = time.perf_counter()
     parse(corpus)
-    elapsed = time.perf_counter() - start
-    gc.enable()
+    wall = time.perf_counter() - wall_start
+    cpu = time.process_time() - cpu_start
     inner = getattr(parse, "measured_us", None)
-    return (inner() if inner else elapsed * 1e6) / len(corpus)
+    return Pass(inner() / 1e6 if inner else wall, cpu)
+
+
+def _once(parse: Parse, corpus: str) -> float:
+    """Microseconds per input character for one timed pass — the report's cell."""
+    return _timed(parse, corpus).wall * 1e6 / len(corpus)
 
 
 def _prime(parse: Parse, corpus: str) -> None:
     """Bring one engine to steady state before any round counts.
 
     A JIT-compiled engine's first parses are not the engine — the Java row's
-    first is ~20x its settled cost. `warm` parses until the median stops moving;
-    an engine without one gets the single pass it always got.
+    first is ~20x its settled cost. `warm` parses a budget that clears the JIT's
+    last step down; an engine without one gets the single pass it always got.
     """
     warm = getattr(parse, "warm", None)
     if warm is None:
@@ -585,9 +565,10 @@ def _interleaved(
     ``texts`` names each row's document: the mt rows always read the full
     corpus, everyone else reads whatever the ``--full`` decision assigned.
 
-    Each pass is followed by an UNTIMED ``gc.collect()``. Timed passes run
-    under ``gc.disable()``, so this prevents garbage from one sample moving
-    collection work into a later sample.
+    Each pass is followed by an UNTIMED ``gc.collect()``. The collector stays
+    ENABLED inside the timed pass, so a row pays its own allocation cost; the
+    collect afterwards only stops one sample's garbage landing in the next.
+    The same operation is applied to every row, so it cannot favour an arm.
 
     Immediately before its timed pass, each row gets one untimed pass of ITSELF.
     This keeps every sample in the same hot-parse state even after allocator or
@@ -613,6 +594,56 @@ def _medians(samples: dict[str, list[float]]) -> dict[str, float]:
     return {name: sorted(runs)[len(runs) // 2] for name, runs in samples.items()}
 
 
+def observe(build: EngineBuild, rounds: int) -> Pass:
+    """This process's ONE observation of its row, on both clocks.
+
+    The independent unit of a comparison is the PROCESS, not the pass. Several
+    inner passes are reduced here to a single answer so that a warm allocator
+    or a lucky cache line inside one interpreter cannot be counted as several
+    independent structural samples. The reduction is the median on each clock,
+    which is what a repeated measurement of one state is worth.
+    """
+    parse, document = build.parse, build.document
+    if parse is None:
+        raise ValueError("cannot observe a refused benchmark row")
+    _prime(parse, document)
+    passes: list[Pass] = []
+    for _ in range(rounds):
+        parse(document)
+        passes.append(_timed(parse, document))
+        gc.collect()
+    walls = sorted(entry.wall for entry in passes)
+    cpus = sorted(entry.cpu for entry in passes)
+    return Pass(walls[len(walls) // 2], cpus[len(cpus) // 2])
+
+
+class Result(NamedTuple):
+    """What one row BUILT, digested both ways.
+
+    :ivar text: The product rendered back to text — the fidelity check.
+    :ivar shape: Its structure — the check that says two arms built the same
+        product, which the text cannot answer for a round trip.
+    """
+
+    text: str
+    shape: str
+
+
+def result_identity(build: EngineBuild) -> Result:
+    """Parse once, and answer both questions a timing pair must pass.
+
+    A lexic row round-trips its model; every other product answers for itself
+    through ``repr``. Both digests travel in the observation — a timing pair
+    whose two arms built different things is not a comparison.
+    """
+    parse = build.parse
+    if parse is None:
+        raise ValueError("cannot read a refused benchmark row's result")
+    product = parse(build.document)
+    rendered = product.to_text() if isinstance(product, GrammarModel) else repr(product)
+    return Result(rendered, shape(product))
+
+
 def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
     """Spread between two timings of the SAME engine, as a percentage.
 
@@ -627,29 +658,14 @@ def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
 def _mt_check(
     artifacts: dict[str, CompiledGrammar], document: str, cores: int | None
 ) -> dict[str, str]:
-    """Why each exact mt artifact did not thread; absent rows engaged.
-
-    Asked of the split entry directly, not inferred from timings: a split
-    that declines falls back to the sequential parse, so the mt cell alone
-    cannot distinguish "threading bought nothing" from "nothing threaded".
-    The same lesson as the seat check — a row that runs the same program as
-    its twin must say so, or the spread between them reads as a result.
-    """
+    """Why each exact mt artifact did not thread; absent rows engaged."""
     if cores is None:
         return {}
-    declined: dict[str, str] = {}
-    for name, compiled in artifacts.items():
-        request = Request(document, compiled.fold, None)
-        split = split_model(
-            parse_model,
-            compiled.codegen_grammar,
-            request,
-            cores,
-            analysis=compiled.split_analysis or compiled.grammar,
-        )
-        if split is None:
-            declined[name] = "the unified split seam found no eligible work"
-    return declined
+    seen = {
+        name: declined_reason(compiled, document, cores).declined
+        for name, compiled in artifacts.items()
+    }
+    return {name: why for name, why in seen.items() if why is not None}
 
 
 def main(argv: Sequence[str] | None = None) -> None:

@@ -56,9 +56,7 @@ def no_delegates_variant(source: DelegateSource) -> DelegateSource:
     """A no-delegates :class:`DelegateSource` built from ``source``'s own
     construction ingredients — the off arm of the injection seam, constructed
     through the same constructor as the real (on) source."""
-    return NoDelegates(
-        source.lifted, source.name_to_rid, source.fold_config, source.seams
-    )
+    return NoDelegates(source.lifted, source.name_to_rid, source.binding, source.seams)
 
 
 def with_delegates(pda: PdaTables, on: bool, run: Callable[[], object]) -> object:
@@ -115,7 +113,7 @@ def instance_ab(cg: CompiledGrammar, text: str) -> None:
 
     def _parse() -> object:
         try:
-            return pda_model(pda, text, cg.fold)
+            return pda_model(pda, text, cg.executor)
         except PdaFail:
             return None
 
@@ -147,7 +145,7 @@ def test_delegation_instance_parity(stem: str) -> None:
         text = generate(start, specs, rng=random.Random(0), max_depth=4) or "x"
         for flag in (True, False):
             with pytest.raises(PdaFail):
-                with_delegates(pda, flag, lambda: pda_model(pda, text, cg.fold))
+                with_delegates(pda, flag, lambda: pda_model(pda, text, cg.executor))
         return
     checked = 0
     for seed in range(40):

@@ -284,7 +284,7 @@ def case_relax_sets_min_zero_on_nullable_noise_refs(passes: ModuleType) -> None:
 
 
 def case_relax_keeps_refs_to_required_noise_rules(passes: ModuleType) -> None:
-    """A ref to a NON-nullable noise rule keeps its bound — the load-bearing half.
+    """A ref to a NON-nullable noise rule keeps its bound — the half that refuses.
 
     Relaxing here would widen the accepted language, and a widening can make an
     unambiguous formulation ambiguous (GBNF's ``n ::= nunit+`` is the case that

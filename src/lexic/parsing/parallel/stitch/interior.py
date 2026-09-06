@@ -13,13 +13,12 @@ replaced by the concatenation.
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any, cast
 
 from lexic.exceptions import LexicError
-from lexic.ir import IrAst, IrNamedTuple, IrSelf
+from lexic.ir import Bound, IrAst, IrNamedTuple, IrSelf
 from lexic.model import GrammarModel
-from lexic.parsing.fold import ModelFold
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import Region
 from lexic.parsing.parallel.plan.routed import (
     RoutedPlan,
@@ -28,12 +27,13 @@ from lexic.parsing.parallel.plan.routed import (
     routed_plan,
 )
 from lexic.parsing.parallel.pool import WorkPool
-from lexic.parsing.parallel.replicas import worker_replicas
-from lexic.parsing.parallel.stitch.model import field_slot, splice
+from lexic.parsing.parallel.replicas import worker_parse
+from lexic.parsing.parallel.stitch.model import is_run, splice
+from lexic.parsing.parallel.stitch.plan import field_slot
 
 
 def interior_route[M: IrNamedTuple](
-    fold: ModelFold[M], container: str, at: int, rule: str, run: int
+    binding: ModelExecutable[M], container: str, at: int, rule: str, run: int
 ) -> tuple[int, int] | None:
     """``(slot of the interior, slot of its run)``, or ``None``.
 
@@ -42,8 +42,8 @@ def interior_route[M: IrNamedTuple](
     :param rule: The interior's own rule.
     :param run: The repetition's item index within it.
     """
-    outer = fold.config.get(container)
-    inner = fold.config.get(rule)
+    outer = binding.routines.get(container)
+    inner = binding.routines.get(rule)
     if outer is None or inner is None:
         return None
     slot = field_slot(outer, at)
@@ -51,9 +51,9 @@ def interior_route[M: IrNamedTuple](
     return None if slot is None or child is None else (slot, child)
 
 
-def stitch_interior(
-    shell: GrammarModel, pieces: list[GrammarModel], route: tuple[int, int]
-) -> GrammarModel | None:
+def stitch_interior[S: GrammarModel](
+    shell: S, pieces: list[GrammarModel], route: tuple[int, int]
+) -> S | None:
     """Put the pieces' runs back into the shell; ``None`` = shape surprise."""
     slot, child = route
     fields = list(shell.children())
@@ -63,26 +63,27 @@ def stitch_interior(
     merged = _merged_run(pieces, child)
     if merged is None:
         return None
-    rebuilt = list(stand.children())
-    rebuilt[child] = cast(IrSelf, merged)
+    rebuilt: list[Bound] = list(stand.children())
+    rebuilt[child] = merged
     return splice(shell, ((slot, None),), stand.rebuild(rebuilt))
 
 
-def _merged_run(pieces: list[GrammarModel], child: int) -> tuple | None:
+def _merged_run(pieces: list[GrammarModel], child: int) -> tuple[IrSelf, ...] | None:
     """Every piece's repeated run, end to end, or ``None`` on a shape miss."""
     merged: list[IrSelf] = []
     for piece in pieces:
         run = list(piece.children())
-        if child >= len(run) or run[child].__class__ is not tuple:
+        found = run[child] if child < len(run) else None
+        if not is_run(found):
             return None
-        merged.extend(cast(tuple, run[child]))
+        merged.extend(found)
     return tuple(merged)
 
 
 def routed_split[M: IrNamedTuple](
-    parse: Callable[..., Any],
+    parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelFold[M], object],
+    ask: tuple[str, ModelExecutable[M], Resolver | None],
     pool: WorkPool,
 ) -> M | None:
     """Split a routed interior across the pool, or ``None`` for sequential.
@@ -92,45 +93,52 @@ def routed_split[M: IrNamedTuple](
     concatenation. Anything unproven — no route, no balanced division, a piece
     that will not parse — declines to the caller's sequential parse.
     """
-    text, fold, resolve = ask
+    text, binding, resolve = ask
     plan = routed_plan(grammar)
     region = locate(text, plan) if plan is not None else None
     parts = divide(text, region, pool.workers) if region is not None else None
     if plan is None or region is None or parts is None:
         return None
-    route = interior_route(fold, str(grammar.start), plan.at, plan.rule, plan.run)
+    route = interior_route(binding, str(grammar.start), plan.at, plan.rule, plan.run)
     if route is None:
         return None
-    parsed = _parsed(parse, grammar, (text, fold, resolve), (plan, region, parts), pool)
+    parsed = _parsed(
+        parse, grammar, (text, binding, resolve), (plan, region, parts), pool
+    )
     if parsed is None:
         return None
     shell, pieces = parsed
-    return cast(M, stitch_interior(shell, pieces, route))
+    if not isinstance(shell, GrammarModel):
+        return None
+    return stitch_interior(shell, pieces, route)
 
 
-def _parsed(
-    parse: Callable[..., Any],
+def _parsed[M: IrNamedTuple](
+    parse: ModelParse[M],
     grammar: IrAst,
-    ask: tuple[str, ModelFold, object],
+    ask: tuple[str, ModelExecutable[M], Resolver | None],
     work: tuple[RoutedPlan, Region, list[str]],
     pool: WorkPool,
-) -> tuple[GrammarModel, list[GrammarModel]] | None:
-    """Parse the stand-in shell and every piece, or decline."""
-    text, fold, resolve = ask
+) -> tuple[M, list[GrammarModel]] | None:
+    """Parse the stand-in shell and every piece, or decline.
+
+    The shell keeps the product's own type; whether it is a model at all is
+    the caller's question, asked where the answer is needed.
+    """
+    text, binding, resolve = ask
     plan, region, parts = work
-    views = worker_replicas(plan.rooted, fold, len(parts))
     try:
-        shell = parse(grammar, _stand_in(text, region), fold, resolve)
+        shell = parse(grammar, _stand_in(text, region), binding, resolve)
         pieces = pool.map(
-            lambda k: parse(views[k][0], parts[k], views[k][1], resolve),
+            lambda k: worker_parse(parse, plan.rooted, parts[k], binding, resolve),
             list(range(len(parts))),
         )
     except LexicError:
         return None
-    whole = isinstance(shell, GrammarModel) and all(
-        isinstance(piece, GrammarModel) for piece in pieces
-    )
-    return (shell, pieces) if whole else None
+    models = [piece for piece in pieces if isinstance(piece, GrammarModel)]
+    if len(models) != len(pieces):
+        return None
+    return shell, models
 
 
 def _stand_in(text: str, region: Region) -> str:

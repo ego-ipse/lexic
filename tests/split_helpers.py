@@ -38,8 +38,29 @@ def engages(compiled: CompiledGrammar, text: str, cores: int = WORKERS) -> bool:
     found = split_model(
         parse_model,
         compiled.codegen_grammar,
-        Request(text, compiled.fold, None),
+        Request(text, compiled.product, None),
         cores,
         analysis=compiled.split_analysis or compiled.grammar,
     )
     return found is not None
+
+
+LEAD_RULE = (
+    "root ::= pair tail*\n"
+    "tail ::= comma pair\n"
+    'comma ::= "," ws\n'
+    'pair ::= [a-z]+ ":" [0-9]+\n'
+    'ws ::= " "*\n'
+)
+"""A SEPARATED repetition: the split re-parses every cut's lead on the driver.
+
+One copy for the same reason as :func:`engages`. Two suites need the shape
+whose split does work on the submitting thread — the orchestrator's own tests
+and the artefact's document-view regression — and a second spelling of it would
+drift into a different shape while both still claimed to be testing this one.
+"""
+
+
+def lead_rule_document(pairs: int) -> str:
+    """A ``LEAD_RULE`` document of ``pairs`` items, long enough to divide."""
+    return ", ".join(f"key{'x' * (index % 7)}:{index}" for index in range(pairs))

@@ -32,8 +32,8 @@ Module map:
                         :class:`FastTree` the unambiguous builder, the ambiguity
                         question, the readout and the walk trampoline.
 - :mod:`.earley.engine`   — the per-capability orchestration nodes the API drives.
-- :mod:`.fold`        — :class:`~lexic.parsing.fold.ModelFold`, forest →
-                        ``GrammarModel`` (the instance product).
+- :mod:`.lift`        — the optional-nullable lift, an engine-ambiguity policy
+                        over one grammar.
 - :mod:`.earley.normalize` — desugar IR into classical Earley-shaped rules.
 - :mod:`.pda.charsets`    — :class:`~lexic.parsing.pda.core.charsets.CharSet`, the PDA analysis
                         substrate (polarity-aware co-finite char sets).
@@ -43,7 +43,7 @@ Module map:
                         per-(rule, continuation) clone compiler.
 - :mod:`.pda.flatten` — the int-coded PDA runtime program + optimizer passes.
 - :mod:`.pda.runtime`  — :class:`~lexic.parsing.pda.runtime.kernel.kernel.PdaKernel`, the fused
-                        predictive runtime (parse + fold, no ``ParseTree``).
+                        predictive runtime (parse + build, no ``ParseTree``).
 
 The forest is a full SPPF (Scott 2008): nullable-rule completion (Aycock-Horspool)
 and ambiguity are handled — ``parse`` returns the single derivation and raises on
@@ -65,7 +65,7 @@ toolkit that takes an Earley-normalised grammar (a truth value is an
 - :func:`recognize` — does ``text`` derive from the start rule.
 - :func:`parse` — the strict single derivation as a :class:`.earley.forest.ParseTree`.
 - :func:`parse_first` — the FIRST derivation, deterministic under ambiguity
-  (the instance completion, see :mod:`.fold`).
+  (the instance completion, see :mod:`.product`).
 - :func:`parse_forest` — the SPPF root :class:`.earley.forest.SppfNode`, or
   :data:`~lexic.ir.base.IrNone` on no parse.
 - :func:`derivations` — ALL derivations as an :class:`~lexic.ir.base.IrSeq`.
@@ -149,19 +149,14 @@ from lexic.parsing.earley.tokenscan import (
     TokenMaskCursor,
     TokenTermCursor,
 )
-from lexic.parsing.fold import (
-    FastCtor,
-    FieldFold,
-    ModelBody,
-    ModelFold,
-    RuleFold,
-    lift_optional_nullables,
-)
+from lexic.parsing.executable import ModelExecutable
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.parallel.pool import reset_pools
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.predicates import nullable_names
 from lexic.parsing.pda.compiler.tables import PdaTables
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
+from lexic.parsing.product import ProductExecutor
 from lexic.parsing.products import (
     earley_model,
     parse_model,
@@ -214,14 +209,14 @@ def parse_first(
     unboundedly many derivations, so a deterministic first is what makes such
     grammars answerable at all. Prefer :func:`parse` (strict) wherever a
     single honest derivation is required; the value-level ambiguity gate lives
-    in the model product (:func:`parse_model`), where a fold exists to compare
+    in the model product (:func:`parse_model`), where a product exists to compare
     what derivations MEAN.
 
     :param grammar: The grammar, Earley-normalised.
     :param text: The input string.
     :param tables: Optional pre-built (run-collapsed) tables for ``grammar`` —
-        the instance path passes fold-licenced collapsed tables (see
-        :func:`lexic.parsing.fold.collapsed_fold_tables`) for a faster
+        the instance path passes product-licenced collapsed tables (see
+        :func:`lexic.parsing.product.collapsed_product_tables`) for a faster
         lexical layer; ``None`` compiles the plain tables.
     :returns: One derivation of ``text`` under the start rule.
     :raises UnsupportedConstructError: If ``text`` does not parse.
@@ -271,22 +266,17 @@ __all__ = [
     "Chart",
     "EarleyParser",
     "EarleyItem",
-    "FastCtor",
     "FastTree",
-    "FieldFold",
     "GrammarAnalysis",
     "Kernel",
     "Link",
     "Links",
-    "ModelBody",
-    "ModelFold",
     "ParseTree",
     "ParserTables",
     "PdaKernel",
     "PdaTables",
     "Resolver",
     "RootNode",
-    "RuleFold",
     "SppfNode",
     "accept_handle",
     "accept_handle",
@@ -309,6 +299,8 @@ __all__ = [
     "parse",
     "parse_first",
     "parse_forest",
+    "ModelExecutable",
+    "ProductExecutor",
     "parse_model",
     "pda_tables",
     "CharTrieCursor",

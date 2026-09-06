@@ -11,7 +11,7 @@ clone key / island reference targets.
 A leaf w.r.t. the compiler — pure data definitions, imported by
 :mod:`lexic.parsing.pda.compiler.clones` (which re-exposes them as its public surface);
 imports only :class:`~lexic.parsing.pda.core.charsets.CharSet`,
-:class:`~lexic.parsing.fold.RuleFold`, and
+:class:`~lexic.parsing.product.RuleRoutine`, and
 :class:`~lexic.parsing.pda.core.scanner.ScanGate`.
 """
 
@@ -19,9 +19,9 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from lexic.parsing.fold import RuleFold
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
+from lexic.parsing.product import RegularProof, RuleRoutine
 
 LIT, CC, REF, GRP = "lit", "cc", "ref", "grp"
 """The :attr:`ItemSpec.kind` tags: literal, char class, rule reference, group.
@@ -241,10 +241,12 @@ class CloneSpec(NamedTuple):
     :ivar arms: The FIRST-gated arms (after arm hoisting every non-empty arm
         selects on its own FIRST).
     :ivar default: The all-nullable default arm's specs, or ``None``.
-    :ivar fold: The rule's baked :class:`~lexic.parsing.fold.RuleFold`, or
-        ``None`` for a transparent helper clone.
-    :ivar match_only: ``True`` for a ``value_str`` rule — pure-terminal
-        interior, the runtime slices ``text[a:b]`` instead of building below.
+    :ivar routine: The rule's verified :class:`~lexic.parsing.product
+        .RuleRoutine`, or ``None`` for a transparent helper clone — what the
+        clone's capture layout and build plan are baked from.
+    :ivar match_only: ``True`` for a rule whose value IS its own matched text
+        — pure-terminal interior, the runtime slices ``text[a:b]`` instead of
+        building below.
     :ivar struct_arm: The empty-arm structured-noise gate (a
         :class:`~lexic.parsing.pda.core.scanner.ScanGate`), or ``None``. When set, the
         runtime consults it before the FIRST-gated selection: a take admits the
@@ -255,12 +257,19 @@ class CloneSpec(NamedTuple):
         (nullable arms last), FIRSTs may overlap, and the runtime tries arms
         with rollback instead of selecting one; the follow set is the
         cross-span composition evidence its second-success audit reads.
+    :ivar consult: The authoritative regular proof for a :attr:`match_only`
+        rule whose whole extent one recognizer can decide, else ``None``.
+        Proved against the rule's OWN continuation rather than a widest
+        follow, because a consult that could run past its terminator would
+        answer a different question than the per-character program it
+        replaces.
     """
 
     name: str
     arms: tuple[ArmSpec, ...]
     default: tuple[ItemSpec, ...] | None
-    fold: RuleFold | None
+    routine: RuleRoutine | None
     match_only: bool
     struct_arm: ScanGate | None = None
     attempt_follow: CharSet | None = None
+    consult: RegularProof | None = None

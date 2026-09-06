@@ -226,7 +226,7 @@ all five fields.
 `lexic.compile` altogether — the only route was a deep import of
 `compile.payload`, which the layering rule forbids. The seam was audited
 once and the family fixed: `export_value`, `compile_ast`,
-`build_codegen_grammar`, `compute_binding`, `synthesize` and `RuleBinding`
+`build_codegen_grammar`, `compute_binding`, `synthesize` and `RuleMap`
 joined `lexic.compile.__all__`. Everything still reachable-but-unlisted is
 either a stdlib import, or a symbol whose own package already exports it
 (`lexic.ir`'s `canonicalize`/`concretize`/the spine types, `lexic.parsing`'s
@@ -482,7 +482,7 @@ the opt-out is a caller-supplied deterministic `Resolver` handed both
 derivations — it replaced the `ambiguous` bool on `IslandPolicy`, `PdaKernel`,
 `pda_model` and `parse_model`. `ParseFirst` stays: a cyclic grammar has
 unboundedly many derivations, so a deterministic tree-level first is
-load-bearing, not a back-compat seam.
+necessary, not a back-compat seam.
 
 What blocked the gate: `FastTree` with a pinned family did not terminate on a
 cyclic chart (mutual unit arms), because the pin re-applied at every revisit
@@ -749,7 +749,7 @@ Landed on top of Task 0 below:
   Ruff/subprocess deleted from the compile path.
 - **Exported twin modules** ([[generated-modules]]): `export_module`/
   `export_source` (explicit-path-only writes, `inline_tables` option),
-  `bind_module` (import-time table attachment), `CompiledGrammar` moved
+  `attach_module` (import-time table attachment), `CompiledGrammar` moved
   to `compile/artifact.py` (+ `flavour`/`stem`), reserved class names
   trimmed to the real header. `tools/check_generated.py` is the corpus
   tool-clean gate (pyright/pylint default configs).
@@ -813,7 +813,7 @@ OUTCOME + `FOLLOWUP.md` + `NEXT_MILESTONES.md`.
 `codegen.md` describes the deleted module (mark superseded → `compile/`);
 `public-api.md` / `architecture.md` retain `codegen()`/`out_dir`/
 `_NORM_GRAMMAR_CACHE`/"Pydantic classes" references. The high-traffic
-`public-api.md` + `architecture.md` load-bearing entries are corrected in
+`public-api.md` + `architecture.md` entries readers actually rely on are corrected in
 this pass; a full page-by-page sweep of the remaining pages is a follow-up.
 
 ---
@@ -888,7 +888,7 @@ even after leaf-first rebuild). Fix: `codegen/binding.py` computes each
 rule's inlined-schema depth over the ref topology (`_schema_depths` —
 cycle edges add nothing, they stay def-refs; `ir/order.refs_in_order` is the
 new public edge extractor) and flags every 64th class along a chain
-(`_SCHEMA_JOINT_STRIDE`, `RuleBinding.schema_joint`, emitted as
+(`_SCHEMA_JOINT_STRIDE`, `RuleMap.schema_joint`, emitted as
 `__schema_joint__` ClassVar). `GrammarModel.__get_pydantic_core_schema__`
 (base.py) returns, for a *completed* joint, a shallow
 validate-through-the-class schema (`model_validate` + a `_joint_dump`
@@ -1048,7 +1048,7 @@ hand-authored-grammar helpers (`rule_of`/`item_of`/`analysis_of`) moved to
 ## 2026-07-13 — Vyx-parse Tasks 1–2: L1 multi-membership codegen + L2 root arm-choice packing
 
 Fixed both lexic bugs pinned by the probe. **L1 (multiple inheritance):**
-`RuleBinding.parent_class_name: str` → `parent_class_names: tuple[str, ...]`;
+`RuleMap.parent_class_name: str` → `parent_class_names: tuple[str, ...]`;
 `codegen/binding.py::_parent_rules` now returns every owning alternation of a
 unit-ref arm, ordered most-derived first (`_order_bases` over the transitive
 parent closure so a base that is itself an arm of another base precedes it —
@@ -1270,10 +1270,10 @@ Task 7 closes the IR-native codegen effort: the code has been IR-native since Ta
 
 - **Fixture fix + headline parity test.** `resources/ground_truth/json.abnf` was missing the `; @non-semantic ws` directive its `json.gbnf` sibling carried (the GBNF file even says in its header comment "both files must lower to the same neutral IR") — added. `tests/integration/test_cross_flavour.py` gained `test_json_gbnf_and_abnf_compile_to_identical_generated_source`: compiles both fixtures through the public `compile_text` entry point and asserts the generated module **source** is byte-identical modulo the one docstring line naming the (content-hashed, therefore necessarily distinct) stem. This is the user-visible form of `canonicalize(parse(json.gbnf)) == canonicalize(parse(json.abnf)) == JSON_GRAMMAR`.
 - **`getting_started/`:** all five examples (`ex01`–`ex05`) already ran clean end-to-end against the current API (ported in earlier tasks) — no source changes needed. `getting_started/README.md` still described `MetaGrammarParser`, `model.__grammar__` as a `RuleSpec`, and a `compiled.specs` field that no longer exists — updated to `parse_grammar`/`compiled.grammar`/`__grammar__` as an `IrRule`.
-- **CLAUDE.md rewrite** (surgical, structure/voice kept): §Before-you-touch-anything gained a "RuleSpec cutover complete" bullet; §Current-state rewritten (three cutovers now: primitive-node V2, Lark→Earley, RuleSpec→IR-native); §Project-layout rewritten module-by-module against actual disk contents (`ir/bind.py`, `ir/canonical.py`, `ir/order.py`, `ir/meta.py`, `ir/mapping.py`, `codegen/binding.py`, `codegen/passes.py`, `parsing/fold.py` added; `derive.py`/`spec.py`/`emit.py`/`naming.py`/`topo.py`/`utils/`/`ir/regex_portable.py` — the last pre-dating this effort entirely — removed); pipeline diagram redrawn to the Target-pipeline shape verified against `compile.py`; §Layering-rules updated (`lexic.codegen` no longer imports `lexic.grammars` — codegen is IR-native, needs no flavour adapters); §IR-types fixed the known drift (records are `IrNamedTuple`, not `IrComposite` frozen dataclasses — verified against `ir/nodes.py`/`ir/base.py`/`ir/meta.py`) and gained an `IrCachingTuple` mention; new §`kind`-semantics subsection (now `RuleBinding.kind` via `classify_rule`, not `RuleSpec.kind`); §Field-naming re-pointed to `codegen/binding.py`'s `_HINT`/`_TIER2` tables; §GrammarModel rewritten against the actual `base.py` (`__grammar__: IrRule` + per-field `IrBind` metadata, no `to_ir_rule()`); §Directives fixed (`canonical_grammar`, not `compile_grammar`/`derive_specs`); §Import-paths — every listed import verified by actually importing it.
+- **CLAUDE.md rewrite** (surgical, structure/voice kept): §Before-you-touch-anything gained a "RuleSpec cutover complete" bullet; §Current-state rewritten (three cutovers now: primitive-node V2, Lark→Earley, RuleSpec→IR-native); §Project-layout rewritten module-by-module against actual disk contents (`ir/bind.py`, `ir/canonical.py`, `ir/order.py`, `ir/meta.py`, `ir/mapping.py`, `codegen/binding.py`, `codegen/passes.py`, `parsing/fold.py` added; `derive.py`/`spec.py`/`emit.py`/`naming.py`/`topo.py`/`utils/`/`ir/regex_portable.py` — the last pre-dating this effort entirely — removed); pipeline diagram redrawn to the Target-pipeline shape verified against `compile.py`; §Layering-rules updated (`lexic.codegen` no longer imports `lexic.grammars` — codegen is IR-native, needs no flavour adapters); §IR-types fixed the known drift (records are `IrNamedTuple`, not `IrComposite` frozen dataclasses — verified against `ir/nodes.py`/`ir/base.py`/`ir/meta.py`) and gained an `IrCachingTuple` mention; new §`kind`-semantics subsection (now `RuleMap.kind` via `classify_rule`, not `RuleSpec.kind`); §Field-naming re-pointed to `codegen/binding.py`'s `_HINT`/`_TIER2` tables; §GrammarModel rewritten against the actual `base.py` (`__grammar__: IrRule` + per-field `IrBind` metadata, no `to_ir_rule()`); §Directives fixed (`canonical_grammar`, not `compile_grammar`/`derive_specs`); §Import-paths — every listed import verified by actually importing it.
 - **README.md:** pipeline diagram redrawn (canonicalize → codegen-grammar passes → binding/codegen/fold, replacing the `derive_specs`/`ModelFold` shape); "action-driven" paragraph's example list (`derive` → `canonicalization`); test-grammar count (seven → eight `.gbnf` + two `.abnf` siblings); Project-status closing line gained the RuleSpec→IR-native cutover mention.
 - **Wiki:**
-  - `.wiki/lexic/ir-shapes.md` — full rewrite: `IrComposite` → `IrNamedTuple`/`IrCachingTuple` throughout; `IrGroup` removed (never existed post-cutover — an inline group is an `IrAlternation` used as an atom); `IrNot` re-homed to `ir/operators.py`, correctly shown as a variadic-tuple wrapper not a record; new sections for `IrBind`/`BIND_MODES`, `kind` semantics (now on `RuleBinding`), canonicalization (`ir/canonical.py`'s rewrite list + the headline fixpoint), and `codegen/passes.py`'s hoist/relax passes (successors of the retired `ir/derive.py` jobs); dispatch section corrected (`IrDispatch` is an `IrCachingTuple`, no `_resolve_cache` memo — `ir/mapping.py`'s `IrTypeMap.resolve` is a live MRO walk every time); dead `RuleSpec` section removed.
+  - `.wiki/lexic/ir-shapes.md` — full rewrite: `IrComposite` → `IrNamedTuple`/`IrCachingTuple` throughout; `IrGroup` removed (never existed post-cutover — an inline group is an `IrAlternation` used as an atom); `IrNot` re-homed to `ir/operators.py`, correctly shown as a variadic-tuple wrapper not a record; new sections for `IrBind`/`BIND_MODES`, `kind` semantics (now on `RuleMap`), canonicalization (`ir/canonical.py`'s rewrite list + the headline fixpoint), and `codegen/passes.py`'s hoist/relax passes (successors of the retired `ir/derive.py` jobs); dispatch section corrected (`IrDispatch` is an `IrCachingTuple`, no `_resolve_cache` memo — `ir/mapping.py`'s `IrTypeMap.resolve` is a live MRO walk every time); dead `RuleSpec` section removed.
   - `.wiki/lexic/architecture.md` — full rewrite: pipeline diagram redrawn to match `compile.py` exactly; new "positional fold replaces the wrapper-rule bridge" section explaining `kids[i] ↔ items[i]`; layering table/exceptions updated (`lexic.codegen ✗ lexic.grammars`); module ownership + file tree updated to current disk contents; explicit note that `ir/derive.py`/`spec.py`/`emit.py`/`naming.py`/`topo.py`/`parsing/models.py`/`utils/` are gone outright.
   - `.wiki/lexic/new-codegen.md` **renamed to `.wiki/lexic/codegen.md`** and fully rewritten: it described the Tasks-8–14 `new_codegen/` scaffold built against `NewRuleSpec` during the May cutover; the page now documents the current IR-native `lexic.codegen` (`passes.py`'s three grammar→grammar rewrites, `binding.py`'s open-table binding view, `model_emitter.py`'s `Annotated`/`IrBind` field emission, `aliases.py` unchanged in spirit). `.wiki/index.md` re-pointed.
   - `.wiki/lexic/field-naming.md` — full rewrite: source moved from `ir/naming.py`+`ir/derive.py` to `codegen/binding.py`; `_ATOM_HINT`/`_FIELD_BASE` closed dicts → `_HINT`/`_TIER2` open `IrDispatch` tables; `CHARCLASS_NAMES` corrected to 8 entries keyed by canonical (post-`canonicalize`) pattern forms, not the pre-canonical mixed-case spellings; added the fold-mode (`mode_for`/`BIND_MODES`) sibling-table note.
@@ -1393,7 +1393,7 @@ Tasks 4/5 consume them, Task 6 deletes derive):
   composition `build_codegen_grammar = relax(arm_hoist(hoist(ast)))`.
 - `src/lexic/codegen/binding.py` — the open-table successor of derive's
   classify/parents/naming: `compute_binding(codegen_grammar) ->
-  list[RuleBinding(rule_name, class_name, parent_class_name, kind, fields)]`
+  list[RuleMap(rule_name, class_name, parent_class_name, kind, fields)]`
   with `fields: dict[str, IrBind]`. Naming cascade and fold-mode derivation are
   `IrDispatch`/`IrTypeMap` tables (raising defaults — `IrNot` deliberately
   unregistered, canonicalize rewrite 4 removes it); `class_name_for` absorbs
@@ -1470,7 +1470,7 @@ With the directive *content* now living on `IrAst` (Task 3), `parse_directives` 
 The "which rules are structural noise" fact now lives on the IR as `IrAst.non_semantic: frozenset[str]` (non-child payload beside `start`), a single declaration feeding `derive_specs`, `semantic_dump`, and the reducer's noise map.
 
 - **`IrAst`** (`ir/nodes.py`) grew `non_semantic: frozenset[str] = frozenset()` (third field; type params now `IrNamedTuple[IrSeq[IrRule], IrStr, frozenset[str]]`). `__eq__`/`__hash__` are **overridden to compare only `(rules, start)`** — `non_semantic` is compile-channel metadata (like a source location), and excluding it is what lets the self-hosting fixpoint `parse_grammar(flavour.apply(GRAMMAR), flavour) == GRAMMAR` survive (a fresh parse carries `frozenset()` while the authored self-grammar declares a non-empty set). `repr` still renders all three fields (valid codegen). See [[ir-shapes]].
-- **`Directives` dataclass deleted.** `parse_directives(text, line_comment)` (still in `ir/directives.py`, docstring rewritten off the stale Lark `%ignore` framing) now returns a plain `(start, non_semantic)` tuple. The scan stays **pre-lexical** — settled decision: in-parse capture would make comments load-bearing and block below-chart noise collapse.
+- **`Directives` dataclass deleted.** `parse_directives(text, line_comment)` (still in `ir/directives.py`, docstring rewritten off the stale Lark `%ignore` framing) now returns a plain `(start, non_semantic)` tuple. The scan stays **pre-lexical** — settled decision: in-parse capture would make comments part of the grammar and block below-chart noise collapse.
 - **`compile_grammar`** resolves precedence (explicit arg > directive > fallback) then **rebinds** the resolved `start` / `non_semantic` onto the parsed `IrAst` (frozen record → reconstructed).
 - **`derive_specs(ast)`** lost its `non_semantic_rules` parameter; it reads `ast.non_semantic`. `hoist_helpers` preserves `non_semantic` through the rebuild.
 - **Flavours:** the private `_NON_SEMANTIC` tuples are gone; `GBNF_GRAMMAR`/`ABNF_GRAMMAR` declare `non_semantic=frozenset({...})`, and `GBNF_NOISE`/`ABNF_NOISE` iterate `<GRAMMAR>.non_semantic` — one source of truth. (`grammars/json.py` needed no change; its `IrAst` defaults `non_semantic=frozenset()`.)
@@ -1520,7 +1520,7 @@ Deviations from the plan recorded in [[decisions]] (2026-06-05 entry): no `Cmp` 
 
 ## 2026-06-04 — Primitive-node model (V2) migration complete
 
-The coercion-based node model is gone. Nodes now ARE their payload — three tiers: str-leaves (`IrStr`: `IrLiteral`/`IrCharClass`/`IrRuleRef` subclass `str`), variadic collections (`IrTuple`: `IrSequence`/`IrAlternation` subclass `tuple`), and fixed-arity records (`IrComposite` frozen dataclasses). Removed `IrType`, `coerce`, `_ir_field_types`, the load-bearing `__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`__str__` cascade (now `__repr__`-is-codegen). No `.value`/`.items`/`.arms` accessors. Whole-tree `pyright src/ tests/` = 0 (genuine — the old `*args/**kwargs` init had masked ~174 errors); full suite 572 passed; pylint core 10/10.
+The coercion-based node model is gone. Nodes now ARE their payload — three tiers: str-leaves (`IrStr`: `IrLiteral`/`IrCharClass`/`IrRuleRef` subclass `str`), variadic collections (`IrTuple`: `IrSequence`/`IrAlternation` subclass `tuple`), and fixed-arity records (`IrComposite` frozen dataclasses). Removed `IrType`, `coerce`, `_ir_field_types`, the coercing `__init__`, `IrStrLeaf`, `IrCollection`/`_items_attr`, and the `_str_name`/`__str__` cascade (now `__repr__`-is-codegen). No `.value`/`.items`/`.arms` accessors. Whole-tree `pyright src/ tests/` = 0 (genuine — the old `*args/**kwargs` init had masked ~174 errors); full suite 572 passed; pylint core 10/10.
 
 New decisions recorded in [[decisions]]: type-aware `IrStr.__eq__` (distinct leaf kinds unequal, plain-`str` compatible — fixes `@cache`/tree-equality poisoning); `IrThis` + lazy `IrReturn` for declarative find-first (no `IrCallable`); two type params `[Iri, Ir_co]` with `_bound` from the **last**; no `cast`/suppressions; **open-set consumer rework deferred** to a separate spec (`derive`/`codegen`/`parsing`/`generate` still carry closed-set `isinstance`/`dict[type,…]` ladders — legacy, not the target). [[ir-shapes]] rewritten to V2; `CLAUDE.md` IR-types section and flavour template updated (flavour dataclasses must NOT use `init=False` — it silently empties `actions`).
 
@@ -1875,3 +1875,63 @@ nine such dangling references were removed.
 2026-08-25: Added [[lexic/transpilation]] — the user-facing transpilation story (both planes, the RULES vocabulary, the run-time contract gates), extracted from the README so the front page can link instead of inline it.
 
 2026-08-25: [[lexic/parallel-parsing]] corrected — shared synthesized classes do NOT set the free-threaded ceiling (heap types carry deferred refcounts; measured equal to per-worker classes). New section: the document is copied per thread at the product entries; the copy idiom and why every obvious idiom is a no-op; orchestrate's slices already clear.
+
+2026-09-04: The product ABI replaces the instance fold — mechanical page
+updates for the delta from `main`. [[lexic/architecture]] and
+[[lexic/public-api]] now describe `CompiledGrammar.product`
+(`ModelExecutable`, verified cold at binding, immutable after), the
+`parsing/product/` and `compile/product/` packages (`register_model`,
+`ProductRegistry`, `RuleRoutine`, `CaptureRoutine`, `verify_program`,
+`complete_product`), the `pipeline/binding.py → rulemap.py` and
+`module/bind.py → attach.py` renames, `parsing/lift.py` and
+`stitch/plan.py`, and the changed signatures (`parse_model(grammar, text,
+binding)`, `pda_tables(grammar, binding)`, `watch(tables, text, executor)`).
+[[lexic/ir-shapes]] points span capture and `compute_binding` at their
+current homes. [[lexic/decisions]] records the 2026-09-04 decision and the §4
+rulings (typed slotted `Frame` with boundaries only under `needs_ends`;
+replicas bound to the worker's THREAD via `worker_parse`; `cores=AUTO` the
+logical count; the control-envelope performance gate with no minimum effect
+size; `RouteLane` retained until §6) and marks the 2026-07-06 `ModelFold`
+decision superseded. [[lexic/parallel-parsing]] corrects the replica
+mechanism (per-object reference-count ownership, paid on one CPU with no
+concurrency) and states the thread binding with its measured effect. The
+README renders from one artifact now — `lexic_baseline.json` (the deleted
+ratchet's file) is gone and `tools/render_readme.py` reads the Lexic seats
+from `competitors_baseline.json`.
+
+2026-09-04: Replica ownership corrected in source and in [[lexic/parallel-parsing]] — a replica is claimed by a THREAD under one cold lock and read back from that thread's own thread-local, replacing a global per-artefact list grown by length-then-append and indexed by a pool-LOCAL worker number (two live pools issued the same numbers; sixteen concurrent first-touches minted twenty-three to thirty-two replicas for seventeen requests). `worker_replicas(grammar, binding, count)` is gone; `worker_replica`, `thread_replica` (the policy-guarded document twin) and `replica_count` (the ownership meter) are the surface, updated in [[lexic/public-api]]. An exited thread's replica is dropped and its memo entries released rather than re-issued. [[lexic/decisions]] restates the ambiguity opt-out: `another_meaning` and `AmbiguityPolicy` are deleted, `different_meaning` into `chosen_meaning` is the one settlement route, and `first_meaning` is the tree route's deterministic first with no gate — only the value route can answer what a span MEANS. `src/lexic/parsing/README.md` now describes `ModelExecutable` and the product program instead of `ModelFold`/`fold.py`, the typed slotted `Frame` instead of flat-list frames, and the real package layout; the compile, PDA-compiler and product READMEs lost their last `RuleFold`/`ModelFold` references.
+
+2026-09-05: Replica ownership and the pool's failure contract corrected in
+[[lexic/parallel-parsing]] and [[lexic/public-api]] — the pages still taught
+single-owner adoption, which is the model that produced a memo leak. Three
+things are now written down. **Two claimants, never one.** A whole-document
+thread claims its own executable view with `document_view` in
+`CompiledGrammar.parse`, before a split is attempted at all, and every
+driver-thread operation runs on it — separator leads, routed stand-in shells,
+region boundaries, the sequential fallback, and the stitch; its GRAMMAR stays
+the artefact's, because that is the split plan's identity and every analysis is
+memoised on it. A chunk worker claims by THREAD with `worker_replica` and
+always mints, grammar included, since it also reaches grammar-keyed memos. The
+first document thread keeps the original pair, so a single-threaded program
+compiles no second set of tables; where `available_workers()` is 1 nothing is
+claimed at all. `thread_replica` is gone — `document_view` is the name, and it
+returns the executable half only. **Adoption is under BOTH key identities.**
+The model product is memoised per `(grammar, binding)` and mints the whole
+derived chain — lifted grammar, normalised instance, PDA tables, Earley tables
+— so the chain is adopted under each key: owned by the grammar alone it
+outlives every private binding and one leaks per thread that comes and goes;
+owned by the binding alone the mirror leaks, because `CompiledGrammar.bind`
+returns a fresh codegen grammar over the SAME product. `release` now also
+clears released identities out of every other owner's record, or the survivor
+accumulates a dead id per released child and a recycled address later reads as
+still owned. **A refusal and a bug leave a pool by different doors.** A
+`LexicError` drains the phase — cancel past the failure, wait, collect — and
+the earliest input's verdict wins, leaving the pool usable; anything else
+cancels queued work and reaches the caller without waiting on running siblings
+(one may be blocked on that caller), retires the pool, and makes `close()`
+cancel rather than wait. Reuse of a failed pool raises `RuntimeError`,
+deliberately NOT a `LexicError`, so a caller's sequential-fallback `except`
+cannot read a broken pool as an unparseable chunk; a lease whose phase raised
+closes its pool instead of returning it. Also corrected on the public-api page:
+`ParsePool`'s default is `cores=AUTO`, not `None`, and `WorkPool`/`PoolLease`
+are deliberately not re-exported from `lexic.parsing.parallel`.

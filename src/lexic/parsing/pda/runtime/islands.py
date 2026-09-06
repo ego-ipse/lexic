@@ -6,7 +6,8 @@ and :mod:`earley <lexic.parsing.earley>` types, never the ``PdaKernel`` cursor,
 so the module is a leaf — ``runtime`` imports it, not the reverse — and the
 contract between the halves is the argument list rather than an implicit
 ``self`` nothing checks. The thin ``PdaKernel._island`` dispatcher (which owns
-the cursor state — fold, tables, position) calls :func:`island_parse` here.
+the cursor state — product completion, tables, position) calls
+:func:`island_parse` here.
 
 **Not for speed.** Neither shape costs anything measurable: CPython's inline
 ``LOAD_ATTR_METHOD_NO_DICT`` cache makes an extra MRO hop free on a ``__slots__``
@@ -31,9 +32,9 @@ from lexic.parsing.earley.kernel.forest.forest import (
     SppfNode,
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    MeaningBuilder,
     Resolver,
-    another_meaning,
-    same_value,
+    different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     decode_item,
@@ -42,9 +43,9 @@ from lexic.parsing.earley.kernel.forest.support.readout import (
 )
 from lexic.parsing.earley.kernel.loop.kernel import Delegate, Kernel
 from lexic.parsing.earley.kernel.tables.records import ParserTables
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.errors import PdaFail
+from lexic.parsing.product import ProductExecutor
 
 __all__ = [
     "ISLAND_WINDOW",
@@ -60,29 +61,30 @@ while the chart is still live at the window edge and input remains."""
 
 
 def island_value[T](compute: Callable[[], T], name: str, pos: int) -> T:
-    """Run an island's fold/reduce step, failing SOFT on a library error.
+    """Run an island's completion step, failing SOFT on a library error.
 
     The last line of defence under the windowed sub-parse: should a window
     ever cut a token and splice a truncated completion (the growth predicate
-    reads the chart's own evidence, but the fold is the final authority), the
-    fold/reduce step is the first thing to notice — an unknown symbol, a
-    refused field. Such a :class:`~lexic.exceptions.LexicError` reroutes to
-    :class:`PdaFail`, so the Earley completion — which parses the WHOLE input
-    and re-runs the same fold — becomes the authority; a genuine fold error
-    reproduces there identically. Non-library exceptions (authored-constructor
-    bugs) still surface loudly.
+    reads the chart's own evidence, but the completion is the final
+    authority), the completion step is the first thing to notice — an unknown
+    symbol, a refused field, a subtree that produces no value at all. Such a
+    :class:`~lexic.exceptions.LexicError` reroutes to :class:`PdaFail`, so the
+    Earley completion — which parses the WHOLE input and re-runs the same
+    product — becomes the authority; a genuine completion error reproduces
+    there identically. Non-library exceptions (authored-constructor bugs)
+    still surface loudly.
 
-    :param compute: The deferred fold/reduce application.
+    :param compute: The deferred completion.
     :param name: The island rule name (for the failure message).
     :param pos: The cursor position (for the failure message).
-    :returns: The computed sub-model / IR value.
+    :returns: The completed sub-value.
     :raises PdaFail: When ``compute`` raises a :class:`LexicError`.
     """
     try:
         return compute()
     except LexicError as exc:
         raise PdaFail(
-            f"island {name!r} at {pos}: fold refused the completion", pos
+            f"island {name!r} at {pos}: the product refused the completion", pos
         ) from exc
 
 
@@ -122,16 +124,17 @@ def _may_extend(kern: Kernel) -> bool:
 class IslandPolicy[M](NamedTuple):
     """How an island's interior is run, and what may come out of it.
 
-    ``fold`` is here for the ambiguity question alone: whether two derivations
-    are a real ambiguity is a question about the VALUES they build, and only
-    the fold can answer it. ``follow`` is the island rule's continuation
-    charset (analysis soft FOLLOW) — the cross-span composition evidence;
-    ``None`` (a caller without analysis) accepts plain longest-match.
+    ``executor`` is the bound product's completion, and it is here for the
+    ambiguity question alone: whether two derivations are a real ambiguity is
+    a question about the VALUES they build, and only the product can answer
+    it. ``follow`` is the island rule's continuation charset (analysis soft
+    FOLLOW) — the cross-span composition evidence; ``None`` (a caller without
+    analysis) accepts plain longest-match.
     """
 
     delegates: dict[int, Delegate] | None = None
     resolve: Resolver | None = None
-    fold: ModelFold[M] | None = None
+    executor: ProductExecutor[M] | None = None
     follow: CharSet | None = None
 
     def for_island(
@@ -139,9 +142,9 @@ class IslandPolicy[M](NamedTuple):
     ) -> IslandPolicy[M]:
         """This policy with the per-island parts filled in — what one island
         reference hands to its sub-parse. The delegates and the follow set are
-        the only per-island parts; the fold and the resolver belong to the
+        the only per-island parts; the executor and the resolver belong to the
         whole parse."""
-        return IslandPolicy(delegates, self.resolve, self.fold, follow)
+        return IslandPolicy(delegates, self.resolve, self.executor, follow)
 
 
 def island_parse(
@@ -203,9 +206,9 @@ def island_parse(
     # ...and the fast path SUCCEEDING is not proof of unambiguity either, which
     # is what this used to assume. Measured: `FastTree` builds a tree for a
     # completion whose arms mean different things, so trusting it here answered
-    # an ambiguous input instead of refusing it. The model path does not rely on
-    # the fast path as an oracle — `_one_meaning` asks this question separately —
-    # and the model path must ask it too.
+    # an ambiguous input instead of refusing it. The value route does not rely
+    # on the fast path as an oracle — `different_meaning` asks this question
+    # separately — and the model path must ask it too.
     return _settle_two_meanings(kern, handle, tree, name, policy), end
 
 
@@ -218,24 +221,37 @@ def _settle_two_meanings(
     :param handle: The packed accepting item and end.
     :param tree: The derivation already in hand.
     :param name: The island rule name (for the failure message).
-    :param policy: Carries the fold that answers the question, and the caller's
-        resolver.
+    :param policy: Carries the product completion that answers the question,
+        and the caller's resolver.
     :returns: ``tree`` when every derivation means the same thing, else what
         the resolver chooses.
     :raises UnsupportedConstructError: When the span means two things and no
         resolver was supplied.
     """
-    if policy.fold is None:
+    executor = policy.executor
+    if executor is None:
         return tree
-    witness = another_meaning(kern, handle, policy.fold.apply, tree)
-    if witness is None:
+    # The value-once route, and the OCCURRENCE completion within it. Value-once
+    # because the baseline is built once and an alternate replays only what it
+    # changed, where the tree-consumer view rebuilt the whole span per
+    # alternative. Occurrence because an island rule may honestly produce no
+    # value, so the compared meaning is the presence-carrying result — which
+    # also keeps "produced nothing" distinct from "produced None", a difference
+    # the fold could not express and a resolver should not be asked to guess.
+    pair = different_meaning(
+        kern,
+        handle,
+        MeaningBuilder(executor.splice, executor.splice_replay),
+        tree,
+    )
+    if pair.witness is None:
         return tree
     if policy.resolve is None:
         raise UnsupportedConstructError(
             f"parsing: island {name!r} derives the same text two ways that mean "
             "different things — supply a resolver to choose between them"
         )
-    return policy.resolve(tree, witness)
+    return policy.resolve(tree, pair.witness.tree)
 
 
 def island_run(
@@ -282,15 +298,15 @@ def island_derivation(
     :param item: The accepting item.
     :param end: The completion's consumed length.
     :param name: The island rule name (for the failure message).
-    :param policy: Carries the fold that answers the question, and the caller's
-        resolver.
+    :param policy: Carries the product completion that answers the question,
+        and the caller's resolver.
     :returns: The first derivation tree, or what the resolver chooses.
     :raises PdaFail: When the completion decodes to no derivation.
     :raises UnsupportedConstructError: When a second derivation builds a
         different value and no resolver was supplied.
     """
     handle = (item << kern.tables.packing.bits) | end
-    if policy.fold is None:
+    if policy.executor is None:
         return _one_derivation(kern, handle, name)
     tree = _one_derivation(kern, handle, name, {})
     return _settle_two_meanings(kern, handle, tree, name, policy)
@@ -312,26 +328,3 @@ def _one_derivation(
     if not isinstance(got, ParseTree):
         raise PdaFail(f"island {name!r}: no derivation")
     return got
-
-
-def _differs(
-    apply: Callable[[ParseTree], object], one: ParseTree, other: ParseTree
-) -> bool:
-    """Do two derivations of one span build different values?
-
-    Compares the VALUES, not their spelling: two dicts of the same content in
-    different key orders are one value and two reprs, and refusing a document
-    over that refuses it for a difference no consumer can observe.
-
-    Takes the fold's ``apply`` rather than the fold, so the question it answers
-    is exactly "what do these two build" — a fold that had no ``apply`` used to
-    answer "no difference" to everything, which is a refusal that never fires.
-
-    A fold that refuses either tree answers nothing about ambiguity — that is a
-    fold failure, and the caller's own completion will report it — so it counts
-    as "no observable difference" here rather than masquerading as one.
-    """
-    try:
-        return not same_value(apply(one), apply(other))
-    except LexicError:
-        return False
