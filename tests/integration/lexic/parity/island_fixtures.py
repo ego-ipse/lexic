@@ -9,7 +9,11 @@ regression on the splice path.
 
 from __future__ import annotations
 
+from typing import Callable
+
+from lexic.compile.foldkit import AuthoredRule, product_rules
 from lexic.compile.notation import parse as notation
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
@@ -26,7 +30,8 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.fold import FieldFold, ModelFold, RuleFold
+from lexic.parsing import ModelExecutable
+from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 STAR = IrQuantifier(0, IrNone)
 OPT = IrQuantifier(0, 1)
@@ -114,24 +119,40 @@ def unwrap_rest(v: object) -> object:
     return v
 
 
-ALT = RuleFold("alternation", lambda: None, 0, ())
-FOLD = ModelFold.from_config(
-    {
-        "start": RuleFold("sequence", start, 2, (FieldFold(1, "model", "v", 1),)),
-        "list": RuleFold(
-            "sequence",
-            make_list,
-            3,
-            (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0)),
-        ),
-        "rest": RuleFold("sequence", unwrap_rest, 2, (FieldFold(1, "model", "v", 1),)),
-        "value": RuleFold(
-            "sequence",
-            name,
-            3,
-            (FieldFold(0, "text", "head", 1), FieldFold(1, "text", "tail", 0)),
-        ),
-    }
+_ONE = int(CaptureMode.ONE)
+_MANY = int(CaptureMode.MANY)
+_TEXT = int(CaptureMode.TEXT)
+
+MINI_RULES: dict[str, AuthoredRule] = {
+    "start": AuthoredRule("start", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "list": AuthoredRule(
+        "make_list",
+        (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1)),
+        ("first", "rest"),
+        3,
+    ),
+    "rest": AuthoredRule("unwrap_rest", (CaptureSpec(_ONE, 1),), ("v",), 2),
+    "value": AuthoredRule(
+        "name",
+        (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 1)),
+        ("head", "tail"),
+        3,
+    ),
+}
+"""The same four rules in the product vocabulary — this fixture is an authored
+surface like any other, so it says what its rules do in both halves."""
+
+MINI_SYMBOLS: dict[str, Callable[..., object]] = {
+    "start": start,
+    "make_list": make_list,
+    "unwrap_rest": unwrap_rest,
+    "name": name,
+}
+
+_MINI_PRODUCT = product_rules(MINI_RULES)
+BINDING = ModelExecutable(
+    rules_by_name(_MINI_PRODUCT.rules, _MINI_PRODUCT.codes),
+    LoweringOwned(symbols=_MINI_PRODUCT.symbols, registry=MINI_SYMBOLS),
 )
 
 
@@ -141,8 +162,8 @@ FOLD = ModelFold.from_config(
 # makes the windowed best completion back off BELOW the window edge (the
 # unclosed call after the cut refuses, so a bare-name prefix wins) — the
 # splice-path (`island_value`) variant of the truncation, where a truncated
-# ``IrChr`` folds as the unknown symbol ``IrCh``. Built from the PUBLIC
-# notation surface: NOTATION_GRAMMAR + NOTATION_FOLD.baked.
+# ``IrChr`` completes as the unknown symbol ``IrCh``. Built from the PUBLIC
+# notation surface: NOTATION_GRAMMAR + NOTATION_RULES.
 
 
 def arg_rest_value(v: object) -> object:
@@ -150,10 +171,10 @@ def arg_rest_value(v: object) -> object:
     return v
 
 
-def notation_variant() -> tuple[IrAst, ModelFold]:
+def notation_variant() -> tuple[IrAst, ModelExecutable]:
     """The notation grammar with ``arglist`` widened to the UNGATEABLE
     trailing-comma island shape (``value arg-rest* comma?`` — loop and
-    optional share FIRST=','), plus its matching fold — the splice-path
+    optional share FIRST=','), plus its matching product — the splice-path
     repro fixture. The STOCK notation now uses the gateable arg-tail shape,
     so this fixture authors its own ``arg-rest`` rule to stay the island
     repro the engine tests need."""
@@ -182,18 +203,22 @@ def notation_variant() -> tuple[IrAst, ModelFold]:
             continue
         rules.append(rule)
     grammar = IrAst(IrSeq(*rules), notation.NOTATION_GRAMMAR.start)
-    baked = dict(notation.NOTATION_FOLD.baked)
-    arglist = baked["arglist"]
-    baked.pop("arg-tail", None)
-    baked.pop("arg-val", None)
-    baked["arglist"] = RuleFold(arglist.kind, arglist.ctor, 3, arglist.fields, None)
-    baked["arg-rest"] = RuleFold(
-        "sequence", arg_rest_value, 2, (FieldFold(1, "model", "v", 1),)
+    rules = dict(notation.NOTATION_RULES)
+    rules.pop("arg-tail", None)
+    rules.pop("arg-val", None)
+    rules["arglist"] = rules["arglist"]._replace(n_items=3)
+    rules["arg-rest"] = AuthoredRule(
+        "arg_rest_value", (CaptureSpec(_ONE, 1),), ("v",), 2
     )
-    return grammar, ModelFold.from_config(baked)
+    product = product_rules(rules)
+    registry = notation.NOTATION_SYMBOLS | {"arg_rest_value": arg_rest_value}
+    return grammar, ModelExecutable(
+        rules_by_name(product.rules, product.codes),
+        LoweringOwned(symbols=product.symbols, registry=registry),
+    )
 
 
-NOTATION_VARIANT_GRAMMAR, NOTATION_VARIANT_FOLD = notation_variant()
+NOTATION_VARIANT_GRAMMAR, NOTATION_VARIANT_BINDING = notation_variant()
 
 # 280 chars: the 256 window cuts inside the last ``IrChr`` names; the best
 # arglist completion ends short of the edge on a bare-name prefix.

@@ -50,7 +50,7 @@ document. `envelope_plans` returns one plan per provable mark in stable order.
 
 ## Safety proofs are per owner, and they refuse by default
 
-`stitch/safety.py` holds the proofs. Two things about them are load-bearing:
+`stitch/safety.py` holds the proofs. Two things about them decide what a split can do:
 
 **Per owner, never pooled.** Pooling every rule reachable anywhere would reject
 JSON, because a nested object quite properly contains commas. The proof asks
@@ -76,6 +76,30 @@ plan; `_cut_offsets` filters candidate marks at runtime. Both read the same
 
 ---
 
+## The stitch rebuilds what the product BUILT, not something equal to it
+
+A repetition's run is a **plain `tuple`**, and `stitch/model.py`'s `is_run` tests
+that by exact class — `child.__class__ is tuple`, never `isinstance`. Every
+record and every `IrTuple` is a tuple subclass and none of them is a run, so a
+subclass test answers yes to things that are not repetitions.
+
+That makes the carrier's type load-bearing in a way most of the model does not
+notice. An `IrTuple` in a repetition field compares equal to the plain one and
+round-trips to identical text, so equality and a digest of the rendered TEXT
+both pass — and it still answers "not a repetition" to the one question the
+stitch asks. **A stitch must rebuild the exact class the sequential product
+builds, not a value equal to it.**
+
+What DOES separate them is the type-aware shape digest: it renders class names,
+so a plain run reads `tuple(…)` and an `IrTuple` reads `IrTuple(tuple(…))`.
+That is how the baseline failure was caught, and it is why "did the document
+survive" and "is this the same product" are two questions with two digests.
+
+`is_run` is public for the same reason: three call sites ask it, and a fourth
+spelling would be a fourth chance to get the subclass case wrong.
+
+---
+
 ## Interiors: what a sweep must skip
 
 `discovery/` certifies regions a character sweep would otherwise misread —
@@ -88,22 +112,91 @@ Certification is derived on the grammar the parser actually runs. That matters:
 the codegen passes hoist groups and arms, so shapes present in the authored
 grammar are not always the shapes the analysis meets.
 
+### Which plans may SHARE a sweep
+
+Several plans can be certified for one grammar, and the windowed ones sweep the
+same document for their own marks. `plan/cuts.py` answers who may share:
+
+- **`reads_a_sweep(plan)`** — true only when the plan has no envelope and its
+  scanner is not opaque. An **envelope** plan cuts on its own noise run and
+  reads no window at all; its mark is whitespace on the meta grammars, so
+  sweeping for it enumerates a mark every few characters and discards every
+  one. An **opaque** plan WALKS the document unit by unit under its own region
+  table, which is not a windowed sweep and is not interchangeable with one.
+- **`shared_scanner(grammar, plans)`** — one scanner over the UNION of the
+  sweeping plans' spellings, or `None` when no certified plan reads a sweep.
+  Every plan that does not read one is handed `None` and takes its own pass.
+
+Two things make the union safe. Marks carry no depth, so merging two plans'
+spellings changes neither window's depth accounting; and each plan still
+narrows the union to its own spellings through `scan_marks`, so sharing cannot
+propose a cut a plan would not have proposed alone. Narrowing to the certified
+plans' marks is the point: a document is only ever cut at a mark some certified
+plan keys on, and every other occurrence costs a `find`, a window build, a
+depth rebase and a discard.
+
+**A new plan shape must be checked against `reads_a_sweep`** — it is the rule
+that decides whether the shape's cuts come from the shared scan or from a pass
+of its own.
+
 ---
 
 ## Replicas: why concurrent parses stop fighting
 
-The engine memoises compiled tables per `(grammar, fold)` **identity**. Under
-free threading that is the bottleneck — the tables are read-only, but reading
-them from many cores ping-pongs their refcount cache lines, and scaling flattens
-around 1.8× however many cores exist.
+The engine memoises compiled tables per `(grammar, binding)` **identity**. Under
+free threading that is the bottleneck — the tables are read-only, but an object
+one thread allocated costs every OTHER thread an atomic reference count per
+read (biased reference counting: ownership is per object, and the cost is paid
+on a single CPU with no concurrency at all, not only as cross-core cache-line
+traffic), and scaling flattens around 1.8× however many cores exist.
 
-Each worker gets an **equal but distinct** grammar and its own view of the fold,
-hence its own memo entry, hence its own cache lines. Measured on 8 threads:
-1.82× shared, 3.71× with grammar replicas, 4.21× with the fold shallow-copied,
-5.34× once the fold's container spine is copied too. Synthesized model classes
-stay shared by necessity — two workers building two different classes for one
-rule would break model equality, which is the thing the split exists to
-preserve.
+Each worker gets an **equal but distinct** grammar and its own replica of the
+product's executor (`Replica`, `ModelExecutable.replica()`), hence its own memo
+entry, hence its own objects. Measured on 8 threads when this landed: 1.82×
+shared, 3.71× with grammar replicas, 4.21× with the executor shallow-copied,
+5.34× once its container spine is copied too.
+
+A replica only pays when the thread that PARSES against it is the thread that
+compiled it, so **a replica is owned by a THREAD**, and by one thread only.
+Ownership is established once under `_MINTING` — a cold lock, taken the first
+time a thread asks for a pair; every later parse reads the answer out of that
+thread's own thread-local. Neither half of the pairing can be an index:
+choosing by TASK let the pool reshuffle the pairing every document, and 44 % of
+cut-route and 74 % of region-route chunk parses ran against another thread's
+replica at 12–23 % of a chunk's CPU; a pool-LOCAL worker number cannot be an
+identity at all, because two live pools number their own threads from zero. The
+lock is what a length read plus an append cannot do — without it, N threads
+first-touching one pair all mint against the same stale population.
+
+**Two kinds of claimant, and they never share one view.**
+
+- The thread parsing a whole DOCUMENT claims its own EXECUTABLE view with
+  `document_view`, in `CompiledGrammar.parse`, **before a split is even
+  attempted** — because a split's driver does not only hand chunks out. It
+  parses the separator leads, the routed stand-in shells and the region
+  boundaries itself while the workers run, it parses the sequential fallback
+  when the split declines, and it stitches through that same product
+  afterwards. Claiming only on the fallback would leave every one of those on a
+  pair a concurrent whole-document caller can be handed. The GRAMMAR stays the
+  artefact's: it is the split plan's identity and every analysis is memoised on
+  it, so replicating it would re-derive them per thread to privatise nothing
+  that thread parses through.
+- A chunk WORKER claims with `worker_replica`, by thread, and always mints —
+  including a copy of the grammar, because a worker also reaches memos keyed on
+  the grammar alone. `worker_parse` is the entry, and it is called from inside
+  the work, never from the submitting thread.
+
+The FIRST document thread keeps the original pair, which is therefore never
+issued to a worker, so a single-threaded program compiles no second set of
+tables. Where `available_workers()` is 1 at all — a GIL build, a one-cpu
+machine — `document_view` hands the binding straight back and claims nothing.
+An exited thread's replica is dropped and its tables released rather
+than re-issued, since re-issuing hands a live worker objects a dead thread
+allocated. `replica_count` is the meter.
+
+Synthesized model classes stay shared by necessity — two workers building two
+different classes for one rule would break model equality, which is the thing
+the split exists to preserve.
 
 Sharing those classes turns out to cost nothing, and the reason generalises:
 free-threaded CPython gives heap **types**, functions and module dicts
@@ -161,16 +254,69 @@ cache.**
 the plan is consulted, so a declining grammar leaves a warm pool behind whose
 executor never had work submitted to it.
 
+### A refusal and a bug leave by different doors
+
+`WorkPool.map` — and `ParsePool.map` through it — treats the two kinds of
+failure as different facts, because they are:
+
+- A **domain refusal**, meaning anything in the `LexicError` family, is an
+  answer about one item. The phase DRAINS: work past the first failure is
+  cancelled, everything still running is waited on and collected, and the
+  EARLIEST input's verdict is what gets raised. Without the drain, "earliest
+  input" would report whichever chunk lost the race and the split would move
+  the wrong cut. The pool is whole afterwards and stays usable.
+- **Anything else** is a bug, not a verdict, so nothing about it is learned by
+  waiting. The queued work is cancelled, the pool is marked failed, and the
+  error reaches the caller AT ONCE — running siblings are *not* waited on,
+  since one of them may be blocked on the very caller this error has to
+  release. `close()` on a failed pool likewise does not wait, and cancels
+  instead.
+
+Reusing a failed pool raises **`RuntimeError`**, and the type is the point:
+deliberately NOT a `LexicError`. A caller catches that family to fall back to a
+sequential parse, and a broken pool must not read as a chunk that would not
+parse. A failed pool is never re-lent either — a lease whose phase raised
+closes its pool rather than returning it to the cache.
+
 ---
 
 ## Cache lifetime
 
 `parsing/caches.py` bounds the identity memos by the artefact that owns them.
 A memo registers with `memo()`, saying which key positions hold an owner
-identity; a derived object stored as a memo's value is `adopt`ed under that
-entry's identity, so the chain — artefact → codegen grammar → tables → run
-analysis — releases transitively from one root. An owner calls `track()` once
-and a weakref finalizer releases the rest when it dies.
+identity; a derived object stored as a memo's value is `adopt`ed under the
+identities that entry is keyed by, so the chain — artefact → codegen grammar →
+lifted grammar, normalised instance, PDA tables, Earley tables → run analysis —
+releases transitively from one root. An owner calls `track()` once and a
+weakref finalizer releases the rest when it dies.
+
+**Adoption is under BOTH key identities, never one.** The model product is
+memoised per `(grammar, binding)` pair and mints that whole derived chain, and
+neither key outlives the other in general:
+
+- Owned by the GRAMMAR alone, a chain minted for a private binding — a document
+  thread's view, a worker's replica — outlives the binding it was minted for and
+  can then be released by nothing short of the artefact. Every thread that comes
+  and goes leaves one chain behind: that is the leak.
+- Owned by the BINDING alone, the mirror case leaks. `CompiledGrammar.bind`
+  returns a new artefact carrying a FRESH codegen grammar over the SAME product,
+  so a service rebinding per vocabulary pins its chains to a product that never
+  dies.
+
+Under both, a retiring binding takes its chain with it and a live sibling on the
+same grammar keeps what it still needs. `release` therefore also clears the
+released identities out of every OTHER owner's adoption record: without that
+sweep the surviving owner accumulates a dead id per released child for as long
+as it lives, and a recycled address later reads as still owned.
+
+**Derived roles are a bounded memo too.** `roles(grammar)` walks every arm of
+every rule to find the opener/closer pairs and repetition separators, and the
+split asks for it once per DOCUMENT rather than once per grammar — on a meta
+grammar that re-walk was several percent of the whole split parse. `_ROLES` is a
+registered `memo({})` keyed on `id(grammar)`, and its value carries the grammar
+itself: the strong reference pins the id, so a recycled address can never alias
+a live entry. The split-plan memos in `orchestrate.py` and `plan/routed.py` are
+the same shape.
 
 Every registered memo is a **pure memo**: dropping an entry costs a
 recomputation and changes no answer. That is what makes eviction safe even when

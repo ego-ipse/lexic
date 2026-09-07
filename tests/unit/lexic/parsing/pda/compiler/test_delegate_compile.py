@@ -63,9 +63,7 @@ def test_no_delegates_variant_yields_no_delegates() -> None:
     construction ingredients, compiles nothing for any island — the
     injection mechanism the A/B parity harness swaps in for its off arm."""
     _analysis, source, _cg = compiled()
-    off = NoDelegates(
-        source.lifted, source.name_to_rid, source.fold_config, source.seams
-    )
+    off = NoDelegates(source.lifted, source.name_to_rid, source.binding, source.seams)
     assert off.for_island("item") == {}
 
 

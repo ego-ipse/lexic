@@ -60,7 +60,7 @@ def test_a_real_refusal_reports_the_position_it_stopped_at():
     """The kernel's own failure names its position as an int, not as prose."""
     compiled = compile_text('root ::= "abc" digit\ndigit ::= [0-9]\n')
     with pytest.raises(PdaFail) as caught:
-        PdaKernel(compiled.pda_tables(), "abcX", compiled.fold).run()
+        PdaKernel(compiled.pda_tables(), "abcX", compiled.executor).run()
     assert caught.value.pos == 3
 
 
@@ -74,5 +74,5 @@ def test_the_position_is_where_the_failing_construct_began():
     """
     compiled = compile_text('root ::= "abc" "def"\n')
     with pytest.raises(PdaFail) as caught:
-        PdaKernel(compiled.pda_tables(), "abcXef", compiled.fold).run()
+        PdaKernel(compiled.pda_tables(), "abcXef", compiled.executor).run()
     assert caught.value.pos == 0

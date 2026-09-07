@@ -72,7 +72,7 @@ def _variant(base: CompiledGrammar) -> CompiledGrammar:
     moments = base.moments.grammar
     return CompiledGrammar(
         grammar=base.grammar,
-        fold=base.fold,
+        product=base.product,
         moments=CompileMoments(
             GrammarMoments(*moments[:-1], resolved=IrAst(*moments.resolved)),
             base.moments.binding,

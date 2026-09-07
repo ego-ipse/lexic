@@ -35,6 +35,11 @@ class SplitPlan(NamedTuple):
         characters where the boundary is a blank line or a doubled anchor; a
         whole SET where the unit's arms close differently and every one of
         their closing characters bounds a unit.
+    :ivar ordered: The same spellings in match order — :func:`spellings` of
+        :attr:`mark`. The order is a property of the SET and the plan is what
+        owns the set, so it is settled here, once per grammar. Deriving it
+        where a mark is READ put one sort on every candidate a document
+        offers and every cut it accepts.
     :ivar owner: The repeated unit that must exclude the mark; empty for a
         terminated plan whose mark belongs to the unit itself.
     :ivar wrappers: Single-reference rules between the grammar start and the
@@ -66,6 +71,7 @@ class SplitPlan(NamedTuple):
     grammar: IrAst
     scanner: Scanner
     mark: frozenset[str]
+    ordered: tuple[str, ...]
     owner: str
     wrappers: tuple[str, ...]
     sep: Separator | None
@@ -130,14 +136,25 @@ def lead_skip(
     return frozenset(out) - set(mark)
 
 
-def matched(text: str, at: int, marks: frozenset[str]) -> str:
-    """The mark standing at ``at``, longest first, or ``""`` when none does.
+def spellings(marks: frozenset[str]) -> tuple[str, ...]:
+    """A mark set in match order — longest first.
 
     Longest first for the same reason a region's skip table orders its
     openings that way: a two-character spelling whose first character is also
     a mark must read as the wider one, or the cut lands mid-spelling.
+
+    Ordering is a property of the SET, so it is settled where the set is
+    rather than at every occurrence a document happens to hold.
     """
-    for mark in sorted(marks, key=len, reverse=True):
+    return tuple(sorted(marks, key=len, reverse=True))
+
+
+def matched(text: str, at: int, ordered: tuple[str, ...]) -> str:
+    """The mark standing at ``at``, or ``""`` when none does.
+
+    :param ordered: The mark set through :func:`spellings`.
+    """
+    for mark in ordered:
         if text.startswith(mark, at):
             return mark
     return ""

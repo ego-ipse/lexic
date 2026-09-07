@@ -167,6 +167,10 @@ permission.** Fix the root cause. This is absolute.
 Plain `None`, bare tuple aliases (`_WMeta`, `TrieNode`), positional tuple
 access and mutable cursors are correct choices in the engine and should not be
 "cleaned up" into records. Strictness is `ir/`'s contract, not the engine's.
+The PDA frame is the exception, and the reason is the test: its lanes have
+different types, so a flat list erased all nine and made one of them
+unnameable. A record earns its place where positional access hides a type,
+not merely where a record would look tidier.
 
 **Time CPU, not the wall.** `time.process_time()` ignores the time the process
 spent descheduled, so a loaded machine stops mattering. The same comparison that

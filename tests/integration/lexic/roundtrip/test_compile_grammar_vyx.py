@@ -24,7 +24,7 @@ from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.parsing import is_ambiguous, recognize
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from tests.paths import GROUND_TRUTH
 
 VYX_GBNF = GROUND_TRUTH / "vyx.gbnf"

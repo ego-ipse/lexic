@@ -28,8 +28,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import ClassVar
 
-from lexic.compile.pipeline.binding import classify_rule, unit_ref_arm
 from lexic.compile.pipeline.naming import has_ruleref
+from lexic.compile.pipeline.rulemap import classify_rule, unit_ref_arm
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     Field,

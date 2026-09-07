@@ -15,7 +15,7 @@ from lexic.compile import (
     Directives,
     Vocabulary,
     _scan_directives,
-    bind_module,
+    attach_module,
     canonical_grammar,
     compile_ast,
     compile_from_path,
@@ -50,8 +50,8 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.model import GrammarModel
-from lexic.parsing.fold import ModelFold
 from lexic.parsing.pda.compiler.specs import IslandRef
+from lexic.parsing.product.tree import ProductExecutor
 from lexic.parsing.products import earley_model
 from tests.paths import GRAMMARS, GROUND_TRUTH
 from tests.reduce_helpers import reduce_text
@@ -170,10 +170,13 @@ def test_compiled_grammar_grammar_field_is_the_canonical_ast():
     assert cg.grammar == canonical_grammar(text, GBNF_FLAVOUR)
 
 
-def test_compiled_grammar_fold_field_is_positional_fold():
-    """CompiledGrammar.fold is the ParseTree -> model-instance ModelFold."""
+def test_compiled_grammar_executor_field_is_the_products_executor():
+    """Port of the deleted ``CompiledGrammar.fold`` field pin: ``.fold`` is
+    gone, replaced by ``.executor``, which is exactly ``cg.product.executor``
+    — one completion, read off the bound product, never a second copy."""
     cg = compile_from_path(GROUND_TRUTH / "arithmetic.gbnf")
-    assert isinstance(cg.fold, ModelFold)
+    assert cg.executor is cg.product.executor
+    assert isinstance(cg.executor, ProductExecutor)
 
 
 @pytest.mark.parametrize(
@@ -195,7 +198,7 @@ def test_collapsed_and_plain_tables_parse_to_the_same_model(grammar_file, text):
     cg = compile_from_path(GROUND_TRUTH / grammar_file)
     p = prod(cg)
     collapsed_model = cg.parse(text)
-    plain_model = earley_model(p.instance_grammar, text, cg.fold)
+    plain_model = earley_model(p.instance_grammar, text, cg.product)
     assert isinstance(plain_model, GrammarModel)
     assert collapsed_model.dump() == plain_model.dump()
     assert collapsed_model.to_text() == plain_model.to_text() == text
@@ -681,7 +684,7 @@ def test_compiledgrammar_pda_and_earley_agree():
     p = prod(cg)
     text = "x=1\n"
     model = cg.parse(text)
-    expected = earley_model(p.instance_grammar, text, cg.fold, p.tables)
+    expected = earley_model(p.instance_grammar, text, cg.product, p.tables)
     assert isinstance(expected, GrammarModel)
     assert model.dump() == expected.dump()
     assert model.to_text() == text
@@ -774,7 +777,7 @@ def test_parse_instance_accepts_a_flavour_instance():
     assert inst.to_text() == "x42"
 
 
-# ── bind_module ──────────────────────────────────────────────────────────
+# ── attach_module ──────────────────────────────────────────────────────────
 
 BIND_MODULE_TEXT = 'root ::= "a" mid "b"\nmid ::= "x" | "y"\n'
 
@@ -799,7 +802,7 @@ def test_bind_module_binds_a_hand_built_namespace_successfully():
     before_root_child_attrs = getattr(HandRoot, "_child_attrs")
     before_mid_child_attrs = getattr(HandMid, "_child_attrs")
 
-    bind_module(cg.grammar, {"Root": HandRoot, "Mid": HandMid})
+    attach_module(cg.grammar, {"Root": HandRoot, "Mid": HandMid})
 
     assert HandRoot.__grammar__ == cg.classes["Root"].__grammar__
     assert HandMid.__grammar__ == cg.classes["Mid"].__grammar__
@@ -816,7 +819,7 @@ def test_bind_module_raises_when_a_class_is_missing_from_the_namespace():
     """A namespace missing a rule's class names the rule and the class."""
     cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-missing")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": HandRoot})
+        attach_module(cg.grammar, {"Root": HandRoot})
     message = str(exc_info.value)
     assert "mid" in message
     assert "Mid" in message
@@ -827,7 +830,7 @@ def test_bind_module_raises_when_the_namespace_class_is_not_a_grammar_model():
     rejected the same way as a missing entry."""
     cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-not-a-model")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": HandRoot, "Mid": object})
+        attach_module(cg.grammar, {"Root": HandRoot, "Mid": object})
     assert "Mid" in str(exc_info.value)
 
 
@@ -840,7 +843,7 @@ def test_bind_module_raises_on_a_field_shape_mismatch():
 
     cg = compile_text(BIND_MODULE_TEXT, cache_key="bind-module-mismatch")
     with pytest.raises(UnsupportedConstructError) as exc_info:
-        bind_module(cg.grammar, {"Root": HandRoot, "Mid": _WrongFieldMid})
+        attach_module(cg.grammar, {"Root": HandRoot, "Mid": _WrongFieldMid})
     message = str(exc_info.value)
     assert "('wrong_field',)" in message
     assert "('value',)" in message

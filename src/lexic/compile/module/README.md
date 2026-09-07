@@ -12,7 +12,7 @@ compiled, path, *, inline_tables=False)` is the **sole file-write seam**.
 The layout: docstring = the rule in the source flavour (flat emission — the
 docstring fill-wrap on the layout algebra owns the line breaks); typed
 defaults-last fields; `GRAMMAR` in the notation via `emit_ir`; a module-end
-`bind_module(GRAMMAR, globals())` call, or inline `__grammar__`/`__binds__`
+`attach_module(GRAMMAR, globals())` call, or inline `__grammar__`/`__binds__`
 ClassVars under `inline_tables=True`. Always-on gates: `ast.parse` +
 `load_ir(GRAMMAR) == compiled.grammar`. Formatting is `lexic.ir.layout` —
 no `ruff`, no subprocess — and a fresh export is an isort + ruff-format

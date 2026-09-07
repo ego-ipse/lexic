@@ -1,9 +1,11 @@
 repos:
   - repo: local
     hooks:
-      # Measure before lint/tests heat or contend with the performance run.
-      - id: lexic-benchmark-regression
-        name: Lexic benchmark regression guard
+      # Structure only. A hook cannot reserve a quiet machine or establish
+      # comparable hardware, so it enforces the row contracts and never runs a
+      # hardware-specific absolute ratchet; the serial A/B owns acceptance.
+      - id: lexic-benchmark-structure
+        name: Lexic benchmark row-contract and structure gate
         entry: uv run python -m tools.benchmark.regression
         language: system
         pass_filenames: false

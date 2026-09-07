@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from lexic.ir import IrAlternation, IrAst, IrRule, IrRuleRef
 from lexic.parsing.caches import memo
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.parallel.discovery.anchors import anchors
 from lexic.parsing.parallel.discovery.shapes import (
     arm_empty,

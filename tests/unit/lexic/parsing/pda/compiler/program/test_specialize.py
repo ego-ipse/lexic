@@ -9,6 +9,9 @@ silently wrong parse, not a slow one.
 
 from __future__ import annotations
 
+import re
+from types import MappingProxyType
+
 import pytest
 
 from lexic.compile import compile_text
@@ -16,6 +19,8 @@ from lexic.parsing.pda.compiler.clones import IslandRef
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
+    no_construction,
+    no_fast_construction,
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -30,6 +35,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_AVSTR,
     OP_CC,
     OP_CC1,
+    OP_CONSULT,
     OP_FAIL,
     OP_GRP,
     OP_ISLAND,
@@ -46,9 +52,12 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 )
 from lexic.parsing.pda.compiler.program.specialize import (
     CHARTABLE_CAP,
+    NO_CONSULTS,
     _inline_value_strs,
     _vstr_inlinable,
+    bake_consults,
     clone_arms,
+    consult_arm,
     vdisp_target,
 )
 from lexic.parsing.pda.runtime.kernel.kernel import pda_model
@@ -105,18 +114,174 @@ def test_a_terminal_only_value_str_clone_earns_the_leaf_flag():
     assert arm.payloads == ("ab",)
 
 
-def test_a_value_str_clone_that_can_descend_is_not_frame_less():
-    """The licence is about descent, not about the build mode.
-
-    ``@lexical`` is what makes a ref-bearing rule a ``value_str``; its body can
-    still hold a group, and then a frame is exactly what the entry needs.
-    """
+def test_a_first_disjoint_value_str_group_earns_a_sound_consult_and_is_frame_less():
+    """``("a" | "bb")+`` has first-disjoint group arms, so the authoritative
+    proof grants a whole-extent consult and the clone collapses to one
+    C-level match — frame-less, not a descent shape."""
     text = '# @lexical pair\nroot ::= pair\npair ::= ("a" | "bb")+\n'
     pair = only_arm(pda_from_text(text).program.start).payloads[0]
     assert isinstance(pair, FlatClone)
     assert pair.mode == BUILD_VALUE_STR
+    assert pair.runarm is not None
+    assert pair.runarm.kinds[0] == OP_CONSULT
+    assert pair.leaf is True
+    assert pair.chartable == {}
+
+
+def test_a_non_first_disjoint_value_str_group_keeps_its_descent_and_frame():
+    """The companion the soundness turns on: ``("a" | "ab")+`` is NOT
+    first-disjoint (``a`` is a proper prefix of ``ab``), so it earns no
+    consult and keeps the group descent — either half alone is not the
+    contract; both must hold together.
+    """
+    text = '# @lexical pair\nroot ::= pair\npair ::= ("a" | "ab")+\n'
+    pair = only_arm(pda_from_text(text).program.start).payloads[0]
+    assert isinstance(pair, FlatClone)
+    assert pair.mode == BUILD_VALUE_STR
+    assert pair.runarm is None
     assert OP_GRP in only_arm(pair).kinds  # the descent the frame is there for
     assert pair.leaf is False
+
+
+# ── consult_arm: the licence, decline branch by decline branch ───────────
+
+
+def _bare_arm(n: int) -> FlatArm:
+    """A minimal FlatArm carrying only what consult_arm's licence reads."""
+    arm = FlatArm.__new__(FlatArm)
+    arm.n = n
+    arm.kinds = (OP_LIT1,) * n
+    arm.payloads = ("x",) * n
+    arm.los = (1,) * n
+    arm.his = (1,) * n
+    arm.gate_kinds = ()
+    arm.gate_data = ()
+    return arm
+
+
+_BARE_CLONE_DEFAULTS = {
+    "mode": BUILD_VALUE_STR,
+    "attempt": None,
+    "struct_arm": None,
+    "kwin_selectors": None,
+    "pn_selectors": None,
+    "selectors": (),
+    "default": None,
+}
+"""What ``_bare_clone`` sets on every field ``consult_arm``'s licence reads,
+before a caller's own overrides are applied."""
+
+
+def _bare_clone(**overrides) -> FlatClone:
+    """A minimal FlatClone carrying only what consult_arm's licence reads."""
+    clone = FlatClone.__new__(FlatClone)
+    for name, value in {**_BARE_CLONE_DEFAULTS, **overrides}.items():
+        setattr(clone, name, value)
+    return clone
+
+
+_GRANTABLE_SELECTORS = ((frozenset("a"), False, _bare_arm(2)),)
+"""One arm of TWO items — not "already one matcher call", so the licence
+question is genuinely open, unlike every decline fixture below."""
+
+
+def test_consult_arm_declines_a_non_value_str_clone():
+    """The licence is for value_str clones only — nothing else has an extent
+    whose whole span a possessive pattern could stand in for."""
+    clone = _bare_clone(mode=BUILD_SEQ, selectors=_GRANTABLE_SELECTORS)
+    assert consult_arm(clone, re.compile("x")) is None
+
+
+def test_consult_arm_declines_an_attempted_clone():
+    """An ATTEMPT clone must stay able to roll one iteration back — a
+    possessive match cannot give a character back once taken."""
+    clone = _bare_clone(
+        attempt=((frozenset(), False), ()), selectors=_GRANTABLE_SELECTORS
+    )
+    assert consult_arm(clone, re.compile("x")) is None
+
+
+def test_consult_arm_declines_a_struct_gated_clone():
+    """A structured-noise (empty-arm) gate is a decision the consult cannot
+    make — the escape arm is chosen by the gate, not by a possessive match."""
+    clone = _bare_clone(struct_arm=object(), selectors=_GRANTABLE_SELECTORS)
+    assert consult_arm(clone, re.compile("x")) is None
+
+
+def test_consult_arm_declines_a_kwindow_gated_clone():
+    """A k-window-gated alternation selects arms by a wider lookahead than
+    the single-char selectors a consult would be baked beside."""
+    clone = _bare_clone(kwin_selectors=(((),),), selectors=())
+    assert consult_arm(clone, re.compile("x")) is None
+
+
+def test_consult_arm_declines_a_noise_skip_gated_clone():
+    """The P3 noise-skip peek path is the other gated shape the licence excludes."""
+    clone = _bare_clone(pn_selectors=(((frozenset(), False), ())), selectors=())
+    assert consult_arm(clone, re.compile("x")) is None
+
+
+def test_consult_arm_declines_a_clone_with_no_arms():
+    """Nothing to consult in place of — an empty clone has no extent to prove."""
+    clone = _bare_clone(selectors=(), default=None)
+    assert consult_arm(clone, re.compile("x")) is None
+
+
+def test_consult_arm_declines_when_the_program_is_already_one_matcher_call():
+    """A single-item arm is already matched by ONE call through the ordinary
+    inline matcher — a consult would replace a call with a call, which the
+    module's own docstring names as the reason a tabled clone declines too."""
+    clone = _bare_clone(selectors=((frozenset("a"), False, _bare_arm(1)),))
+    assert consult_arm(clone, re.compile("x")) is None
+
+
+def test_consult_arm_grants_a_genuinely_multi_item_match_only_clone():
+    """The one shape left standing: value_str, ungated, more than one item —
+    the licence is granted and the pattern is carried through unchanged."""
+    pattern = re.compile("x")
+    clone = _bare_clone(selectors=_GRANTABLE_SELECTORS)
+    granted = consult_arm(clone, pattern)
+    assert granted is not None
+    assert granted.kinds == (OP_CONSULT,)
+    assert granted.payloads == (pattern,)
+
+
+# ── bake_consults / NO_CONSULTS ───────────────────────────────────────────
+
+
+def test_bake_consults_only_installs_a_runarm_where_a_pattern_was_offered():
+    """A clone absent from the consults mapping keeps runarm untouched."""
+    clone = _bare_clone(selectors=_GRANTABLE_SELECTORS)
+    clone.runarm = None
+    bake_consults([clone], NO_CONSULTS)
+    assert clone.runarm is None
+
+
+def test_bake_consults_installs_the_proved_run_arm():
+    """A clone present in the consults mapping earns its whole-extent arm."""
+    clone = _bare_clone(selectors=_GRANTABLE_SELECTORS)
+    clone.runarm = None
+    pattern = re.compile("x")
+    bake_consults([clone], {id(clone): pattern})
+    assert clone.runarm is not None
+    assert clone.runarm.payloads == (pattern,)
+
+
+def test_bake_consults_runs_before_bake_chartables_and_its_arm_survives():
+    """A consult clone's runarm must still be set once chartables are baked —
+    bake_chartables reads runarm to decide the clone fills its table by
+    span, so ordering the other way would leave a consult clone untabled."""
+    text = 'root ::= chunk+ "!"\nchunk ::= [a-z]+ ";"\n'
+    pda = pda_from_text(text)
+    chunk = only_arm(pda.program.start).payloads[0]
+    assert chunk.runarm is not None  # bake_consults already ran in the pipeline
+    assert chunk.chartable == {}  # bake_chartables read the runarm and filled it
+
+
+def test_no_consults_is_a_mapping_proxy_and_so_cannot_be_mutated():
+    """The empty sentinel is a MappingProxyType, immutable by construction —
+    every write it could ever receive raises TypeError, not only this one."""
+    assert isinstance(NO_CONSULTS, MappingProxyType)
 
 
 # ── chartable_for: the reconstruction licence ──────────────────────────────
@@ -260,7 +425,11 @@ def test_an_attempt_gated_value_str_gets_the_attempt_aware_inline_opcode():
     )
     assert arm.kinds[0] == OP_VSTR  # un-gated: inlines
     target = arm.payloads[0]
-    assert _vstr_inlinable(target) and target.chartable is None  # the plain licence
+    # `chunk` is match_only and proves regular (its one arm's boundary does
+    # not overlap ";"), so it earns a whole-extent consult and fills its
+    # table as a run-keyed cache (`{}`), not `None`.
+    assert _vstr_inlinable(target) and target.chartable == {}
+    assert target.runarm is not None and target.runarm.kinds[0] == OP_CONSULT
 
     arm.kinds = (OP_REF, *arm.kinds[1:])
     arm.gate_kinds = (GATE_ATTEMPT, *arm.gate_kinds[1:])
@@ -539,7 +708,7 @@ def test_specialize_calls_is_blocked_by_a_needs_ends_sequence_clone():
 # ── inline group flatten (_flatten_group / BUILD_TRANSPARENT) ────────────
 
 
-def test_inline_group_flattens_transparent_with_no_fold_and_no_fast_ctor():
+def test_inline_group_flattens_transparent_with_no_ctor_and_no_fast_ctor():
     """A ref-bearing inline group (too small to be hoisted to a named rule)
     flattens to a frame-less BUILD_TRANSPARENT clone: no RuleFold, no
     fields, no fast constructor, never leaf-licenced.
@@ -551,9 +720,9 @@ def test_inline_group_flattens_transparent_with_no_fold_and_no_fast_ctor():
     assert arm.kinds == (OP_GRP,)
     group = arm.payloads[0]
     assert group.mode == BUILD_TRANSPARENT
-    assert group.fold is None
+    assert group.ctor is no_construction
     assert group.fields == ()
-    assert group.fast is None
+    assert group.fast is no_fast_construction
     assert group.defaults is None
     assert group.leaf is False
     assert len(group.selectors) == 2

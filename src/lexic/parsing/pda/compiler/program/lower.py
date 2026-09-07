@@ -9,15 +9,14 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple, Sequence, cast
 
-from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.fold import FastCtor, RuleFold
-from lexic.parsing.pda.compiler.program.flatten import FlatArm, FlatClone, PdaProgram
+from lexic.parsing.pda.compiler.eligibility import extent_pattern
+from lexic.parsing.pda.compiler.program.flatten import (
+    FlatArm,
+    FlatClone,
+    PdaProgram,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
-    BUILD_ALT,
     BUILD_DISPATCH,
-    BUILD_SEQ,
-    BUILD_TRANSPARENT,
-    BUILD_VALUE_STR,
     GATE_ATTEMPT,
     GATE_KWIN,
     GATE_PAIR,
@@ -25,9 +24,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_SCAN,
     GATE_STOP,
     HI_UNBOUNDED,
-    M_CONST,
-    M_VALUE,
-    MODE_CODE,
     OP_AVDISP,
     OP_AVSTR,
     OP_CC,
@@ -45,6 +41,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VRUN,
     OP_VSTR,
 )
+from lexic.parsing.pda.compiler.program.product import bake_product_build
 from lexic.parsing.pda.compiler.program.specialize import (
     convert_dispatch,
     optimize_program,
@@ -81,25 +78,6 @@ def _flat_windows(
 ) -> tuple[tuple[tuple[frozenset[str], bool], ...], ...]:
     """Pre-resolve CharSet windows to the ``((chars, negated), ...)`` flat form."""
     return tuple(tuple((cs.chars, cs.negated) for cs in win) for win in windows)
-
-
-def _build_mode(fold: RuleFold | None) -> int:
-    """Map a clone's fold to its flat build-mode.
-
-    :param fold: The clone's :class:`~lexic.parsing.fold.RuleFold`, or ``None``.
-    :returns: One of the ``_BUILD_*`` constants.
-    :raises UnsupportedConstructError: On a fold kind outside the vocabulary.
-    """
-    if fold is None:
-        return BUILD_TRANSPARENT
-    kind = fold.kind
-    if kind == "value_str":
-        return BUILD_VALUE_STR
-    if kind == "alternation":
-        return BUILD_ALT
-    if kind == "sequence":
-        return BUILD_SEQ
-    raise UnsupportedConstructError(f"pda: unknown fold kind {kind!r}")
 
 
 def _flatten_gate(
@@ -189,60 +167,6 @@ def _flatten_item(spec: ItemSpec, low: Lowering) -> tuple[int, object]:
     return OP_REF, low.shells[cast(CloneKey, target)]
 
 
-def _bake_build(clone: FlatClone, fold: RuleFold | None) -> None:
-    """Bake a clone's fold and fused-build plan (fields/fast/defaults) in place."""
-    clone.fold = fold
-    clone.leaf = False  # granted by _mark_leaves once the arm shapes are final
-    clone.chartable = None  # baked last, off the final plan, by bake_chartables
-    clone.chartotal = True
-    clone.runarm = None
-    clone.needs_ends = fold is not None and any(
-        f.mode in ("text", "gtext") for f in fold.fields
-    )
-    if fold is None or fold.fast is None:
-        clone.fields = ()
-        clone.plan = ()
-        clone.fast = None
-        clone.defaults = None
-        return
-    clone.fields = tuple((f.item, MODE_CODE[f.mode], f.name, f.lo) for f in fold.fields)
-    clone.plan = _build_plan(fold, fold.fast)
-    clone.fast = fold.fast.make
-    clone.defaults = dict(fold.fast.defaults)
-
-
-def _build_plan(
-    fold: RuleFold, fast: FastCtor
-) -> tuple[tuple[int, int, int, Any], ...]:
-    """The clone's POSITIONAL build plan — one entry per field of the class.
-
-    In the record's own field order, so the fused build reads it straight into
-    a values list and constructs the tuple: no defaults-dict copy, no
-    supplied-key set, no read-back by name. A field no bound field supplies is
-    :data:`~lexic.parsing.pda.compiler.program.flatten.M_CONST` and carries its default
-    outright; a ``value_str`` rule's ``value`` field is
-    :data:`~lexic.parsing.pda.compiler.program.flatten.M_VALUE`.
-
-    :param fold: The rule's fold.
-    :param fast: Its granted licence — the field order and the defaults.
-    :returns: ``(mode, item, lo, default)`` per class field.
-    """
-    bound = {f.name: f for f in fold.fields}
-    defaults = fast.defaults
-    plan: list[tuple[int, int, int, Any]] = []
-    for name in fast.fields:
-        field = bound.get(name)
-        if field is not None:
-            plan.append(
-                (MODE_CODE[field.mode], field.item, field.lo, defaults.get(name))
-            )
-        elif fold.kind == "value_str" and name == "value":
-            plan.append((M_VALUE, 0, 0, None))
-        else:
-            plan.append((M_CONST, 0, 0, defaults.get(name)))
-    return tuple(plan)
-
-
 def _flatten_selectors(
     arms: Sequence[ArmSpec], low: Lowering
 ) -> tuple[tuple[tuple[frozenset[str], bool, FlatArm], ...], object, object]:
@@ -304,8 +228,7 @@ def _flatten_group(group: GroupSpec, low: Lowering) -> FlatClone:
     )
     if clone.attempt is not None:
         low.groups.append((clone, group.arms))
-    clone.mode = BUILD_TRANSPARENT
-    _bake_build(clone, None)
+    bake_product_build(clone, None)
     return clone
 
 
@@ -520,7 +443,9 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     sub.struct_arm = None
     sub.attempt = None
     sub.mode = clone.mode
-    sub.fold = clone.fold
+    sub.ctor = clone.ctor
+    sub.matched = clone.matched
+    sub.n_items = clone.n_items
     sub.fields = clone.fields
     sub.plan = clone.plan
     sub.fast = clone.fast
@@ -567,6 +492,20 @@ def _attempt_entries(
     return tuple(entries)
 
 
+def _consults(clones: dict[CloneKey, CloneSpec], low: Lowering) -> dict[int, Pattern]:
+    """Each proved clone's own extent pattern, keyed by the shell it belongs to.
+
+    A clone is a rule compiled for ONE continuation and the proof was taken
+    against that continuation, so the pattern rides the shell rather than the
+    rule name — two clones of one rule can differ on whether it holds at all.
+    """
+    return {
+        id(low.shells[key]): extent_pattern(spec.consult)
+        for key, spec in clones.items()
+        if spec.consult is not None
+    }
+
+
 def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClone]:
     """Lower a compiled clone table to its live :class:`FlatClone` shells.
 
@@ -598,9 +537,8 @@ def flatten_clones(clones: dict[CloneKey, CloneSpec]) -> dict[CloneKey, FlatClon
         clone.attempt = (
             (spec.attempt_follow, ()) if spec.attempt_follow is not None else None
         )
-        clone.mode = _build_mode(spec.fold)
-        _bake_build(clone, spec.fold)
-    optimize_program(list(low.shells.values()))
+        bake_product_build(clone, spec.routine)
+    optimize_program(list(low.shells.values()), _consults(clones, low))
     attempting = [
         (low.shells[key], spec.arms, spec.attempt_follow)
         for key, spec in clones.items()
@@ -628,8 +566,7 @@ def _optimize_entries(entries: tuple[Any, ...]) -> None:
 
 
 def flatten_program(
-    clones: dict[CloneKey, CloneSpec],
-    start_key: CloneKey | IslandRef,
+    clones: dict[CloneKey, CloneSpec], start_key: CloneKey | IslandRef
 ) -> PdaProgram:
     """Lower the compiled clone table to the flat runtime :class:`PdaProgram`."""
     shells = flatten_clones(clones)

@@ -1,6 +1,6 @@
 # Generated Modules — the importable twins
 
-**When to load:** exporting a compiled grammar or a parsed VALUE to a `.py` file; touching `compile/module/export.py`, `compile/payload/`, `compile/writer.py`, `bind_module`, `ir/layout.py`, or the notation emit half; reasoning about twin-vs-runtime class identity.
+**When to load:** exporting a compiled grammar or a parsed VALUE to a `.py` file; touching `compile/module/export.py`, `compile/payload/`, `compile/writer.py`, `attach_module`, `ir/layout.py`, or the notation emit half; reasoning about twin-vs-runtime class identity.
 
 See also: [[architecture]], [[ir-shapes]], [[field-naming]], [[public-api]]
 
@@ -14,7 +14,7 @@ The module shape (the approved showcase):
 - a complete import block **derived from the emitted content** (`from lexic.ir import (...)` covers exactly the constructor names used; `Literal` only when a `Literal[...]` value_str renders; `ClassVar` only under `inline_tables`);
 - one `GrammarModel` subclass per rule: docstring = the rule rendered in the source flavour's syntax; typed fields in the binding view's **defaults-last declaration order** (required first, `= None` optionals after — see [[field-naming]]); NO dunders in the default mode;
 - `GRAMMAR: IrAst = ...` — the canonical AST in IR-constructor notation;
-- `bind_module(GRAMMAR, globals())` — the module-end call that recomputes `build_codegen_grammar` + `compute_binding` (deterministic) and attaches `__grammar__`/`__binds__` to each class. It validates class presence, `GrammarModel` ancestry, and field-shape agreement (`UnsupportedConstructError` otherwise) and deliberately does NOT touch `_child_attrs` (the class-body annotations already derived the runtime-identical value at class creation).
+- `attach_module(GRAMMAR, globals())` — the module-end call that recomputes `build_codegen_grammar` + `compute_binding` (deterministic) and attaches `__grammar__`/`__binds__` to each class. It validates class presence, `GrammarModel` ancestry, and field-shape agreement (`UnsupportedConstructError` otherwise) and deliberately does NOT touch `_child_attrs` (the class-body annotations already derived the runtime-identical value at class creation).
 
 `inline_tables=True` instead writes `__grammar__`/`__binds__` as ClassVars per class (no bind call, self-contained, ~2× faster first import, busier classes). Same classes either way.
 
@@ -36,7 +36,7 @@ No ruff, no subprocess anywhere in `lexic.compile`:
 `compile/module/selfgrammar.py` (260718-module-selfgrammar): `module_grammar()` is
 an authored `IrAst` for the canonical exported layout — a strict statement
 skeleton (newlines/4-space indents as REQUIRED literals; `class`/`from`/
-`GRAMMAR`/`bind_module` keywords FIRST-disjoint) embedding the notation
+`GRAMMAR`/`attach_module` keywords FIRST-disjoint) embedding the notation
 rules wholesale for expressions plus a type-annotation mini-grammar.
 `parse_module(text)` folds a file to an `MModule` model (`MClass`/`MField`
 records on the spine); `verify_module(compiled, text)` cross-checks it
@@ -62,7 +62,7 @@ passthrough) is the build-path-unification seed shared with the notation.
 
 ## Reserved class names
 
-`_RESERVED_CLASS_NAMES` (`compile/pipeline/binding.py`) = `{GrammarModel, ClassVar, Literal}` ∪ the `Ir*` constructor names the notation emits — exactly the header's PascalCase bindings (lowercase `bind_module` and UPPERCASE `GRAMMAR` can never collide with a PascalCase class name). The typing-era names (`StringConstraints`, `Annotated`, `List`, `Optional`, `Union`) were trimmed 2026-07-18 — parity-neutral on the whole GT corpus. Drift-pinned against a real export.
+`_RESERVED_CLASS_NAMES` (`compile/pipeline/rulemap.py`) = `{GrammarModel, ClassVar, Literal}` ∪ the `Ir*` constructor names the notation emits — exactly the header's PascalCase bindings (lowercase `attach_module` and UPPERCASE `GRAMMAR` can never collide with a PascalCase class name). The typing-era names (`StringConstraints`, `Annotated`, `List`, `Optional`, `Union`) were trimmed 2026-07-18 — parity-neutral on the whole GT corpus. Drift-pinned against a real export.
 
 ## The compiled payload — a parsed VALUE as a module
 

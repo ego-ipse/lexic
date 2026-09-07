@@ -164,6 +164,47 @@ def test_adopt_does_not_release_an_unadopted_sibling() -> None:
     assert entries == {(id(unrelated), "unrelated"): "u"}
 
 
+def test_releasing_a_child_clears_it_from_every_other_owners_record() -> None:
+    """A jointly adopted identity leaves no record behind when it retires.
+
+    The engine adopts one object under two owners — a thread's replica lives
+    under the grammar it was minted for AND is released on its own when that
+    thread exits. Without the sweep, the surviving owner keeps one dead ``id``
+    per released child for its whole life: a slow leak in the bookkeeping that
+    exists to prevent leaks, and a recycled address that later reads as owned.
+    """
+    entries = memo({}, 0)
+    long_lived = _fresh_owner()
+    child = object()
+    grandchild = object()
+    entries[(id(grandchild), "grandchild")] = "g"
+
+    adopt(id(long_lived), child)
+    adopt(id(child), grandchild)
+    release((id(child),))
+
+    assert not entries, "the child's own chain should have drained"
+    assert id(child) not in _ADOPTED.get(id(long_lived), set())
+
+
+def test_the_surviving_owner_still_releases_what_it_kept() -> None:
+    """The sweep removes the retired child only — siblings still drain."""
+    entries = memo({}, 0)
+    long_lived = _fresh_owner()
+    retired = object()
+    kept = object()
+    entries[(id(kept), "kept")] = "k"
+
+    adopt(id(long_lived), retired, kept)
+    release((id(retired),))
+    assert entries == {(id(kept), "kept"): "k"}
+
+    track(long_lived, long_lived)
+    del long_lived
+    gc.collect()
+    assert not entries
+
+
 def test_reset_caches_empties_every_registered_memo_and_bookkeeping() -> None:
     """The test seam wipes entries, adoption edges and claims alike."""
     entries_a = memo({}, 0)

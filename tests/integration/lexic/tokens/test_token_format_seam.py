@@ -19,7 +19,10 @@ test pins.
 
 from __future__ import annotations
 
-from lexic.compile.foldkit import model_fold, seq
+from typing import Callable
+
+from lexic.compile.foldkit import AuthoredRule, product_rules
+from lexic.compile.product import rules_by_name
 from lexic.ir import (
     IrAlternation,
     IrAst,
@@ -39,7 +42,8 @@ from lexic.ir import (
     IrTokenizer,
     IrTuple,
 )
-from lexic.parsing import FieldFold, parse_model
+from lexic.parsing import ModelExecutable, parse_model
+from lexic.parsing.product import CaptureMode, CaptureSpec, LoweringOwned
 
 _STAR = IrQuantifier(0, IrNone)
 _PLUS = IrQuantifier(1, IrNone)
@@ -62,9 +66,24 @@ def _make_head_tail(first: object, rest: list | None = None) -> tuple:
     return (first, *(rest or ()))
 
 
-def _head_tail_fields() -> tuple[FieldFold, FieldFold]:
-    """The (head model, tail models) field pair shared by both start rules."""
-    return (FieldFold(0, "model", "first", 1), FieldFold(1, "models", "rest", 0))
+_ONE = int(CaptureMode.ONE)
+_MANY = int(CaptureMode.MANY)
+_TEXT = int(CaptureMode.TEXT)
+
+_HEAD_TAIL_CAPTURES = (CaptureSpec(_ONE, 0), CaptureSpec(_MANY, 1))
+"""The (head value, tail values) capture pair shared by both start rules."""
+
+
+def _binding(
+    rules: dict[str, AuthoredRule],
+    registry: dict[str, Callable[..., object]],
+) -> ModelExecutable:
+    """One fixture format's binding, from its own registry."""
+    product = product_rules(rules)
+    return ModelExecutable(
+        rules_by_name(product.rules, product.codes),
+        LoweringOwned(symbols=product.symbols, registry=registry),
+    )
 
 
 # ── the vocab format: "token<TAB>id" lines → IrMap ───────────────────────
@@ -101,15 +120,17 @@ def _make_entry(token: str, num: str) -> IrTuple:
     return IrTuple(IrStr(token), IrChr(int(num)))
 
 
-VOCAB_FOLD = model_fold(
+VOCAB_BINDING = _binding(
     {
-        "start": seq(_make_vocab, 2, _head_tail_fields()),
-        "entry": seq(
-            _make_entry,
+        "start": AuthoredRule("make_vocab", _HEAD_TAIL_CAPTURES, ("first", "rest"), 2),
+        "entry": AuthoredRule(
+            "make_entry",
+            (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 2)),
+            ("token", "num"),
             4,
-            (FieldFold(0, "text", "token", 1), FieldFold(2, "text", "num", 1)),
         ),
-    }
+    },
+    {"make_vocab": _make_vocab, "make_entry": _make_entry},
 )
 
 
@@ -148,15 +169,17 @@ def _make_dyad(left: str, right: str) -> IrTuple:
     return IrTuple(IrStr(left), IrStr(right))
 
 
-MERGES_FOLD = model_fold(
+MERGES_BINDING = _binding(
     {
-        "start": seq(_make_merges, 2, _head_tail_fields()),
-        "mline": seq(
-            _make_dyad,
+        "start": AuthoredRule("make_merges", _HEAD_TAIL_CAPTURES, ("first", "rest"), 2),
+        "mline": AuthoredRule(
+            "make_dyad",
+            (CaptureSpec(_TEXT, 0), CaptureSpec(_TEXT, 2)),
+            ("left", "right"),
             4,
-            (FieldFold(0, "text", "left", 1), FieldFold(2, "text", "right", 1)),
         ),
-    }
+    },
+    {"make_merges": _make_merges, "make_dyad": _make_dyad},
 )
 
 
@@ -167,7 +190,7 @@ _VOCAB_FIXTURE = "<think>\t0\n</think>\t1\n hi \t2\n"
 
 def test_vocab_format_parses_to_irmap() -> None:
     """The vocab format text parses straight into a real ``IrMap``."""
-    vocab = parse_model(VOCAB_GRAMMAR, _VOCAB_FIXTURE, VOCAB_FOLD)
+    vocab = parse_model(VOCAB_GRAMMAR, _VOCAB_FIXTURE, VOCAB_BINDING)
     assert isinstance(vocab, IrMap)
     assert vocab.get(IrStr("<think>")) == IrChr(0)
     assert vocab.get(IrStr(" hi ")) == IrChr(2)
@@ -175,7 +198,7 @@ def test_vocab_format_parses_to_irmap() -> None:
 
 def test_vocab_format_builds_a_working_tokenizer() -> None:
     """The parsed vocab drives a longest-match tokenizer that round-trips."""
-    vocab = parse_model(VOCAB_GRAMMAR, _VOCAB_FIXTURE, VOCAB_FOLD)
+    vocab = parse_model(VOCAB_GRAMMAR, _VOCAB_FIXTURE, VOCAB_BINDING)
     tok = IrTokenizer.from_vocab("fixture", vocab)
     text = "<think> hi </think>"
     assert tok.tokenize(text) == [0, 2, 1]
@@ -198,7 +221,7 @@ def _bpe_vocab() -> IrMap:
 
 def test_merges_format_parses_to_ordered_irtuple() -> None:
     """The merges format text parses into an ordered ``IrTuple`` of dyads."""
-    merges = parse_model(MERGES_GRAMMAR, _MERGES_FIXTURE, MERGES_FOLD)
+    merges = parse_model(MERGES_GRAMMAR, _MERGES_FIXTURE, MERGES_BINDING)
     assert merges == IrTuple(
         IrTuple(IrStr("a"), IrStr("b")),
         IrTuple(IrStr("ab"), IrStr("c")),
@@ -207,6 +230,6 @@ def test_merges_format_parses_to_ordered_irtuple() -> None:
 
 def test_merges_format_builds_a_bpe_tokenizer() -> None:
     """The parsed merges drive the ranked-merge (BPE) segmentation."""
-    merges = parse_model(MERGES_GRAMMAR, _MERGES_FIXTURE, MERGES_FOLD)
+    merges = parse_model(MERGES_GRAMMAR, _MERGES_FIXTURE, MERGES_BINDING)
     tok = IrTokenizer.from_merges("bpe", _bpe_vocab(), merges)
     assert tok.tokenize("abc") == [4]  # a+b→ab, ab+c→abc (id 4)

@@ -30,11 +30,11 @@ grammar text
             └─ canonicalize ────────► canonical IrAst                 [ir/canonical.py]
                   = canonical_grammar()   (start bound, noise flagged semantic=False)
                         └─ build_codegen_grammar ─► THE codegen grammar
-                              ├─ compute_binding ──► list[RuleBinding]
+                              ├─ compute_binding ──► list[RuleMap]
                               ├─ synthesize ───────► dict[str, type]   (type() build, NO file)
-                              └─ ModelFold(fold config) ─► the instance fold
-   ⇒ CompiledGrammar(classes, grammar, codegen_grammar, fold)
-        .parse(text) = parse_model(codegen_grammar, text, fold)       [engine product]
+                              └─ register_model ───────► the bound product (lowered + verified)
+   ⇒ CompiledGrammar(classes, grammar, codegen_grammar, product)
+        .parse(text) = parse_model(codegen_grammar, text, product)    [engine product]
 ```
 
 ## 1. Public API (`__init__.py`)
@@ -54,14 +54,17 @@ grammar text
 `parse_module` / `verify_module` in `lexic.compile.module.selfgrammar` —
 all re-exported at the package root.
 
-`CompiledGrammar(classes, grammar, codegen_grammar, fold)` — `.parse(text)`
-runs the engine's sole `parse_model` product and `.reduce(text, reducer)` parses a
-reducer-derived pruned variant. The model route is
-PDA-first (with Earley completion inside the engine) and returns the start rule's
-`GrammarModel`, or raises `UnsupportedConstructError` if the start rule does
-not fold to one. `grammar` is the canonical AST (the transpile/re-emit
-source); `codegen_grammar` is the post-pass grammar the fold binds against and
-the engine memoises its compilation on.
+`CompiledGrammar(grammar, product, moments, …)` — `.parse(text)` runs the
+engine's sole `parse_model` product and `.reduce(text, reducer)` parses a
+reducer-derived pruned variant. The model route is PDA-first (with Earley
+completion inside the engine) and returns the start rule's `GrammarModel`, or
+raises `UnsupportedConstructError` if the start rule builds none. `grammar` is
+the canonical AST (the transpile/re-emit source); `product` is the
+`ModelExecutable[GrammarModel]` — the verified product program both engines
+run; `moments` retains every stage the compilation passed through, and
+`.classes` and `.codegen_grammar` read out of it. The codegen grammar is the
+post-pass grammar the product binds against and the engine memoises its
+compilation on.
 
 ## 2. The design: passes in, classes out, no codegen module
 
@@ -91,8 +94,10 @@ compile/
   pipeline/      grammar → classes (see its README)
     passes.py      build_codegen_grammar — hoist_groups → hoist_arms →
                    relax_non_semantic
-    binding.py     compute_binding → list[RuleBinding]; kind classification;
-                   field naming; the open supplied-class contract (§5)
+    rulemap.py     compute_binding → list[RuleMap]; kind classification;
+                   the open supplied-class contract (§5)
+    naming.py      what a class and its fields are CALLED — spelling only
+    moments.py     the compile moments — one retaining product per compilation
     synthesis.py   synthesize(codegen_grammar, binding, stem) → dict[str, type]
   notation/      the IR-constructor notation (see its README)
     parse.py       load_ir — text → real IR objects (§4)
@@ -104,14 +109,13 @@ compile/
 ```
 
 Layering: the package reads/writes `lexic.ir`, imports `lexic.grammars` (to
-resolve flavours) and the engine — `lexic.parsing` (root: `parse_model`,
-the fold toolkit) plus the one licensed submodule
-`lexic.parsing.earley.reduce` (the `DROP`/`KEEP_REDUCED`/`YIELD` sentinels).
+resolve flavours) and the engine's package root — `lexic.parsing`
+(`parse_model`, `ModelExecutable`, the split entry, the Earley toolkit).
 Nothing reaches past that surface.
 
 ## 4. The binding view and the open table (`binding.py`)
 
-`compute_binding` returns one `RuleBinding(rule_name, class_name,
+`compute_binding` returns one `RuleMap(rule_name, class_name,
 parent_class_names, kind, fields)` per rule, parents before subclasses.
 `classify_rule` derives the `kind` fresh from the codegen grammar:
 
@@ -122,12 +126,12 @@ parent_class_names, kind, fields)` per rule, parents before subclasses.
 - **`sequence`** — concrete; fields come from the single sequence arm, each an
   `IrBind(item, mode, semantic)` (`mode ∈ text/gtext/model/models`).
 
-Binding is **open**: a rule's fold body may be *synthesized* (the default) or
-*supplied*. A supplied class is sugar — a `ModelBody` derived from the binding
-view — and must accept the binding's field-name kwargs (`field_kwargs` /
-`check_supplied_class`, raising `UnsupportedConstructError` on violation). The
-`_fold_config` `overrides` channel takes either a full authored `ModelBody`
-(total control — what the notation uses) or such a supplied class.
+A rule's construction is authored, not supplied: `model_plan` derives one
+`RecordConstructor` per constructing rule from the binding view, naming the
+generated class, the keyword each capture fills, which may be absent, and
+whether validation may be skipped. There is one channel — an authored surface
+writes its own `AuthoredRule` table, and the generated model writes its own
+from the view.
 
 Field naming is a three-tier cascade (rule-ref name → pattern library →
 positional), and reserved names mangle with a trailing `_`: field names in
@@ -168,7 +172,7 @@ their conformance twins.
 `export_source(compiled)` renders a compiled grammar as an **importable twin
 module** in the record-spine syntax (`GrammarModel` subclasses with typed
 defaults-last fields; `GRAMMAR` in the notation via `emit_ir`; a module-end
-`bind_module` call, or inline `__grammar__`/`__binds__` ClassVars under
+`attach_module` call, or inline `__grammar__`/`__binds__` ClassVars under
 `inline_tables=True`). It reprs only pure grammar-AST records — **never** a
 `Reducer` or a flavour's noise map. Formatting is `lexic.ir.layout` — no
 `ruff`, no subprocess — and a fresh export is an isort + ruff-format

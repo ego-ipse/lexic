@@ -34,7 +34,7 @@ from typing import NamedTuple
 from lexic.compile import CompiledGrammar, compile_text
 from lexic.grammars import ABNF_FLAVOUR, GBNF_FLAVOUR
 from lexic.ir import IrAst
-from lexic.parsing.fold import ModelFold
+from tools.benchmark.cases.directives import DIRECTIVES, validate_directives
 
 _ROOT = Path(__file__).resolve().parents[3]
 _ONLY_BENCHMARK = os.environ.get("LEXIC_BENCHMARK_GRAMMAR")
@@ -60,7 +60,10 @@ class Bench(NamedTuple):
     :ivar rejects: Inputs the grammar must NOT accept. Checking both directions
         is the point: a translation that accepts everything passes an
         accept-only check, and one that refuses everything passes the other.
-    :ivar compiled: lexic's own artefact, carrying the fold it parses with.
+    :ivar compiled: lexic's own artefact, carrying the product it parses with.
+    :ivar lexical: The case's declared `@lexical` rule names — what the variant
+        rows compile with, fixed by the case rather than by engine eligibility.
+    :ivar non_semantic: The case's declared `@non-semantic` rule names.
     """
 
     name: str
@@ -72,11 +75,8 @@ class Bench(NamedTuple):
     source: str
     flavour: str
     full: str
-
-    @property
-    def fold(self) -> ModelFold:
-        """The positional fold lexic builds its model through."""
-        return self.compiled.fold
+    lexical: tuple[str, ...]
+    non_semantic: tuple[str, ...]
 
 
 class Samples(NamedTuple):
@@ -88,6 +88,16 @@ class Samples(NamedTuple):
 
     corpus: str
     full: str
+
+
+def declared_marks(bench: Bench) -> tuple[frozenset[str], frozenset[str]]:
+    """One case's declared directive sets, for lexic and competitors alike.
+
+    Every seat that claims to face "the grammar's own directives" must face the
+    SAME ones lexic's variant rows compile with, or the two are not comparable.
+    There is one declaration and this is the only way to read it.
+    """
+    return frozenset(bench.lexical), frozenset(bench.non_semantic)
 
 
 def _bench(
@@ -106,6 +116,8 @@ def _bench(
         return None
     flavour = "abnf" if name.endswith("abnf-meta") else "gbnf"
     compiled = compile_text(source, cache_key=f"bench-{name}", flavour=flavour)
+    lexical, non_semantic = DIRECTIVES[name]
+    validate_directives(name, compiled.grammar, lexical, non_semantic)
     return Bench(
         name,
         compiled.grammar,
@@ -116,6 +128,8 @@ def _bench(
         source,
         flavour,
         samples.full,
+        lexical,
+        non_semantic,
     )
 
 
@@ -271,9 +285,8 @@ and that is a property of the grammar, not of any position in the document.
 
 So a cut here cannot be read; it can only be proposed and then verified. That
 is what makes this the shape a certified speculative fallback exists for, where
-:data:`_MIXEDENDS` is the shape a wider static proof would reach. Both decline
-today and both report the sequential number with their mt rows declining in
-the open."""
+:data:`_MIXEDENDS` is the shape a wider static proof would reach. Both take the
+speculative route today, so both engage and report a parallel number."""
 
 
 def _announced_corpus(sections: int) -> str:
@@ -310,9 +323,9 @@ Every other repetition row here can be cut statically: its units share a
 terminator, or a separator stands between them. This one cannot. No character
 ends every arm, so no terminator derives; the only repeated body with a leading
 anchor (``note``'s spaces) is not reachable from the start rule as a container;
-and the start rule is a plain repetition, not an envelope. The split seam finds
-no eligible work and the document parses sequentially however many workers are
-offered.
+and the start rule is a plain repetition, not an envelope. What licenses a cut
+here is the certified speculative route rather than a static terminator or
+separator proof, so the split engages and the row reports a parallel number.
 
 Nothing about the language is hard: the arms open ``%``, ``<`` and a letter, so
 each record is decided by its first character and delimited by its own closer,
@@ -623,10 +636,10 @@ _DEFINED_BENCHES = (
         ),
         ("", "def a() {b}", "def () {b}", "def a() ?b;\n", "def a() = b\n"),
     ),
-    # A repetition with no derivable cut: three record kinds, three different
-    # closers. The split seam declines it, so the row reports the sequential
-    # number and its mt row says why — the standing witness for the shapes a
-    # certified speculative fallback is meant to reach.
+    # A repetition with no STATIC cut: three record kinds, three different
+    # closers, so no terminator or separator proof reaches it. Its cuts are
+    # proposed and then verified — the standing witness for the shapes the
+    # certified speculative route exists to reach.
     _bench(
         "mixedends",
         _MIXEDENDS,

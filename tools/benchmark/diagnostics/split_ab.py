@@ -85,7 +85,7 @@ def _case(name: str):
         compiled = compile_text(NESTED_PLUS, cache_key="split-ab-nested")
         text = NESTED_TEXT
     elif name == "vyx":
-        root = Path(__file__).resolve().parents[2]
+        root = Path(__file__).resolve().parents[3]
         compiled = compile_from_path(root / "resources/ground_truth/vyx.gbnf")
         text = VYX_TEXT
     elif name == "control":
@@ -93,23 +93,23 @@ def _case(name: str):
         text = CONTROL_TEXT
     else:  # pragma: no cover - argparse/constant-owned call sites
         raise ValueError(name)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.fold), text
+    return compiled, _model_product(compiled.codegen_grammar, compiled.product), text
 
 
 def _call(row: Row) -> Callable[[], object]:
     """Build the production-adjacent callable for one row."""
     compiled, product, text = _case(row.case)
     if row.engine == "pda":
-        return lambda: pda_model(product.pda, text, compiled.fold)
+        return lambda: pda_model(product.pda, text, compiled.executor)
     if row.engine == "earley-gated":
         return lambda: earley_model(
-            product.instance_grammar, text, compiled.fold, product.tables
+            product.instance_grammar, text, compiled.product, product.tables
         )
     if row.engine == "earley-resolved":
         return lambda: earley_model(
             product.instance_grammar,
             text,
-            compiled.fold,
+            compiled.product,
             product.tables,
             lambda first, _other: first,
         )

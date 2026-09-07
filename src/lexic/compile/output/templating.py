@@ -11,16 +11,16 @@ from collections.abc import Mapping
 from typing import Callable, ClassVar, Self, cast
 
 from lexic.compile.artifact import CompiledGrammar
-from lexic.compile.foldkit import ALT_BODY, model_fold
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
+from lexic.compile.foldkit import AuthoredRule, product_rules
 from lexic.compile.pipeline.passes import retargeter, skip_rules
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
+from lexic.compile.product import rules_by_name
 from lexic.exceptions import LexicError, UnsupportedConstructError
 from lexic.ir import (
     IrAlternation,
     IrAst,
     IrBind,
     IrBottomUp,
-    IrLambda,
     IrMap,
     IrNamedTuple,
     IrNoneType,
@@ -36,7 +36,8 @@ from lexic.ir import (
     refs_in_order,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import FieldFold, ModelBody, ModelFold, parse_model
+from lexic.parsing import ModelExecutable, parse_model
+from lexic.parsing.product import CAPTURE_FOR_BIND, CaptureSpec, LoweringOwned
 
 __all__ = [
     "KEEP",
@@ -44,10 +45,12 @@ __all__ = [
     "MapShape",
     "Spec",
     "SpanEntry",
+    "SpanCarry",
     "SpanLevel",
     "SpanPair",
     "Template",
     "skip_rules",
+    "span_level",
     "spanify",
     "template",
 ]
@@ -166,25 +169,37 @@ class SpanLevel(IrSeq[SpanEntry]):
     """One parsed section level — the span fold's product, in document order."""
 
 
+type SpanCarry = SpanEntry | SpanLevel
+"""What a span-product rule completes to — the level, or one of its entries.
+
+The product's START rule builds a level; the entry rule beneath it builds an
+entry. Naming the union is what lets the executable say honestly what its
+completions produce, with the root's narrower claim made once, where it is
+read.
+"""
+
+
 class SpanPair(
-    IrNamedTuple[IrAst, IrAst, ModelFold[SpanLevel], IrAst, ModelFold[GrammarModel]]
+    IrNamedTuple[
+        IrAst, IrAst, ModelExecutable[SpanCarry], IrAst, ModelExecutable[GrammarModel]
+    ]
 ):
     """The retained span-mode artifacts one :func:`spanify` call produces.
 
     :ivar spans: The span grammar, rooted at the start rule's ``-tm`` clone.
     :ivar sections: The same rules rooted at the section clone (recursion).
-    :ivar span_fold: The binding-derived span fold (clones only).
+    :ivar span_binding: The derived span product (clones only).
     :ivar values: The codegen grammar re-rooted at the derived value rule.
-    :ivar value_fold: The compiled grammar's own fold (rule-keyed, so
+    :ivar value_binding: The compiled grammar's own product (rule-keyed, so
         re-rooting shares it).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     spans: IrAst
     sections: IrAst
-    span_fold: ModelFold[SpanLevel]
+    span_binding: ModelExecutable[SpanCarry]
     values: IrAst
-    value_fold: ModelFold[GrammarModel]
+    value_binding: ModelExecutable[GrammarModel]
 
 
 def _reaching(grammar: IrAst, entry: str) -> frozenset[str]:
@@ -248,19 +263,19 @@ def _flatten_into(out: list[SpanEntry], value: object) -> None:
     )
 
 
-class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleBinding]", frozenset]):
+class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleMap]", frozenset]):
     """The resolved shape over one compiled grammar — validation's product.
 
     :ivar grammar: The codegen grammar.
     :ivar shape: The user's declaration.
-    :ivar binding: Rule name → its :class:`RuleBinding`.
+    :ivar binding: Rule name → its :class:`RuleMap`.
     :ivar reaching: The entry-reaching rule names (entry included).
     """
 
     _child_attrs: ClassVar[tuple[str, ...]] = ()
     grammar: IrAst
     shape: MapShape
-    binding: dict[str, RuleBinding]
+    binding: dict[str, RuleMap]
     reaching: frozenset
 
     def entry_arm(self) -> IrSequence:
@@ -288,9 +303,7 @@ class _ShapeView(IrNamedTuple[IrAst, MapShape, "dict[str, RuleBinding]", frozens
         return out
 
 
-def _section_for(
-    grammar: IrAst, entry: str, bound: RuleBinding, value_field: str
-) -> str:
+def _section_for(grammar: IrAst, entry: str, bound: RuleMap, value_field: str) -> str:
     """The rule a mapping level is — derived, not declared.
 
     A level is the rule the VALUE can reach that reaches the entry back: that
@@ -351,7 +364,7 @@ def _hops_to(grammar: IrAst, target: str) -> dict[str, int]:
     return seen
 
 
-def _value_ref(grammar: IrAst, entry: str, bound: RuleBinding, value_field: str) -> str:
+def _value_ref(grammar: IrAst, entry: str, bound: RuleMap, value_field: str) -> str:
     """The rule name the entry's value field is bound to."""
     body = next(r.body for r in grammar.rules if str(r.name) == entry)
     refs: list[str] = []
@@ -460,53 +473,77 @@ def _entry_clone(view: _ShapeView, tm: IrBottomUp, sk: IrBottomUp) -> IrRule:
     )
 
 
-def _entry_body(view: _ShapeView) -> ModelBody:
-    """The entry clone's fold body: the two raw spans, text AND position.
+def _entry_rule(view: _ShapeView) -> AuthoredRule:
+    """The entry clone — the two raw spans, text AND position.
 
-    Four fields over TWO slots: a field is a (slot, mode) pair, so the same
-    slot read in ``text`` mode and in ``span`` mode is what the entry says
-    and where it said it — one capture, both halves, no second pass.
+    Four fields over TWO slots: what the entry says and where it said it, from
+    one occurrence. A capture is a (mode, slot) pair and nothing makes a slot
+    exclusive. None is absence-bearing — a text capture that matched nothing
+    IS the empty string, and an extent always has one.
     """
     arm, shape = view.entry_arm(), view.shape
     bound = (
         ("key", view.entry_bind(shape.key_field)),
         ("value", view.entry_bind(shape.value_field)),
     )
-    fields = tuple(
-        FieldFold(bind.item, mode, name + suffix, int(arm[bind.item].quantifier.lo))
+    pairs = tuple(
+        (name + suffix, mode, bind)
         for mode, suffix in (("text", ""), ("span", "_at"))
         for name, bind in bound
     )
-    return ModelBody("sequence", IrLambda(_span_entry), len(arm), fields)
+    captures = tuple(
+        CaptureSpec(int(CAPTURE_FOR_BIND[mode]), bind.item) for _n, mode, bind in pairs
+    )
+    names = tuple(name for name, _m, _b in pairs)
+    return AuthoredRule("span_entry", captures, names, len(arm))
 
 
-def _clone_body(view: _ShapeView, name: str) -> ModelBody | None:
-    """The binding-derived span-fold body for a reaching rule's ``-tm`` clone.
+def _clone_rule(view: _ShapeView, name: str) -> AuthoredRule | None:
+    """A reaching rule's ``-tm`` clone.
 
-    :returns: The body, or ``None`` for a kind with nothing to build
+    :returns: The rule, or ``None`` for a kind with nothing to build
         (``value_str`` cannot reach; a body-less clone stays transparent).
     """
     kind = view.binding[name].kind
     if kind == "alternation":
-        return ALT_BODY
+        return AuthoredRule("")
     if kind != "sequence":
         return None
     arm = next(r.body for r in view.grammar.rules if r.name == name)[0]
-    fields = tuple(
-        FieldFold(bind.item, bind.mode, field, int(arm[bind.item].quantifier.lo))
-        for field, bind in view.reaching_fields(name).items()
+    reaching = view.reaching_fields(name)
+    los = {field: int(arm[bind.item].quantifier.lo) for field, bind in reaching.items()}
+    captures = tuple(
+        CaptureSpec(int(CAPTURE_FOR_BIND[bind.mode]), bind.item)
+        for bind in reaching.values()
     )
-    return ModelBody("sequence", IrLambda(_collect), len(arm), fields)
+    optional = tuple(
+        at
+        for at, (field, bind) in enumerate(reaching.items())
+        if bind.mode == "gtext" and los[field] == 0
+    )
+    return AuthoredRule("collect", captures, tuple(reaching), len(arm), optional)
 
 
-def _span_fold(view: _ShapeView) -> ModelFold[SpanLevel]:
-    """The derived span fold — bodies for the ``-tm`` clones only."""
-    bodies: dict[str, ModelBody] = {view.shape.entry + _SPAN: _entry_body(view)}
+SPAN_SYMBOLS: dict[str, Callable[..., SpanCarry]] = {
+    "span_entry": _span_entry,
+    "collect": _collect,
+}
+
+
+def _span_binding(view: _ShapeView) -> ModelExecutable[SpanCarry]:
+    """The span surface's product, from one walk over the reaching set."""
+    entry = view.shape.entry + _SPAN
+    rules: dict[str, AuthoredRule] = {entry: _entry_rule(view)}
     for name in view.reaching - {view.shape.entry}:
-        body = _clone_body(view, name)
-        if body is not None:
-            bodies[name + _SPAN] = body
-    return model_fold(bodies)
+        rule = _clone_rule(view, name)
+        if rule is None:  # a kind with nothing to build stays transparent
+            continue
+        rules[name + _SPAN] = rule
+    product = product_rules(rules)
+    return ModelExecutable(
+        rules_by_name(product.rules, product.codes),
+        LoweringOwned(symbols=product.symbols, registry=SPAN_SYMBOLS),
+    )
 
 
 def spanify(compiled: CompiledGrammar, shape: MapShape) -> SpanPair:
@@ -533,7 +570,7 @@ def spanify(compiled: CompiledGrammar, shape: MapShape) -> SpanPair:
     spans = IrAst(IrSeq(*rules), grammar.start + _SPAN)
     sections = IrAst(IrSeq(*rules), shape.section + _SPAN)
     values = IrAst(grammar.rules, view.value_rule())
-    return SpanPair(spans, sections, _span_fold(view), values, compiled.fold)
+    return SpanPair(spans, sections, _span_binding(view), values, compiled.product)
 
 
 def _lift_spec(spec: Mapping[str, object] | IrMap) -> Spec:
@@ -582,18 +619,35 @@ class Template(IrNamedTuple[SpanPair, Spec], init=False):
 
     def run(self, text: str) -> IrMap[IrTuple, GrammarModel]:
         """Extract kept paths as a flat path-to-model map."""
-        entries = _parse_step(self.span.spans, self.span.span_fold, text, "<document>")
+        entries = span_level(
+            _parse_step(self.span.spans, self.span.span_binding, text, "<document>")
+        )
         kept: list[IrTuple] = []
         _collect_kept(self.span, self.spec, entries, (), kept)
         return IrMap(*kept)
 
 
-def _parse_step[M](grammar: IrAst, fold: ModelFold[M], text: str, path: str) -> M:
+def _parse_step[M](
+    grammar: IrAst, binding: ModelExecutable[M], text: str, path: str
+) -> M:
     """One engine call, wrapped with the document path on failure."""
     try:
-        return parse_model(grammar, text, fold)
+        return parse_model(grammar, text, binding)
     except LexicError as err:
         raise UnsupportedConstructError(f"template at {path}: {err}") from err
+
+
+def span_level(built: SpanCarry) -> SpanLevel:
+    """Narrow one span parse to the level its start rule builds.
+
+    :raises UnsupportedConstructError: When the span product completed to an
+        entry rather than the level a section parse is defined to produce.
+    """
+    if isinstance(built, SpanLevel):
+        return built
+    raise UnsupportedConstructError(
+        "template: the span product completed to an entry, not a section level"
+    )
 
 
 def _collect_kept(
@@ -618,11 +672,11 @@ def _collect_kept(
         path = prefix + (IrStr(key),)
         where = ".".join(str(part) for part in path)
         if isinstance(want, Keep):
-            model = _parse_step(pair.values, pair.value_fold, span, where)
+            model = _parse_step(pair.values, pair.value_binding, span, where)
             out.append(IrTuple(IrTuple(*path), model))
             continue
-        sub = _parse_step(pair.sections, pair.span_fold, span, where)
-        _collect_kept(pair, want, sub, path, out)
+        sub = _parse_step(pair.sections, pair.span_binding, span, where)
+        _collect_kept(pair, want, span_level(sub), path, out)
 
 
 def template(

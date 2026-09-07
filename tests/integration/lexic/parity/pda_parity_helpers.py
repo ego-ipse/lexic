@@ -125,7 +125,7 @@ def grammar_for(
 def forced_engine(cg: CompiledGrammar, text: str) -> GrammarModel:
     """Parse ``text`` via the forced-engine seam (bypassing the PDA entirely)."""
     tree = parse_first(prod(cg).instance_grammar, text, prod(cg).tables)
-    return cast(GrammarModel, cg.fold.apply(tree))
+    return cast(GrammarModel, cg.product.executor.build(tree))
 
 
 def deep_semantic(value: object) -> object:
@@ -162,7 +162,7 @@ def check_one(cg: CompiledGrammar, text: str, tally: dict) -> None:
         tally["engine_only"] += 1
         return
     try:
-        built = pda_model(prod(cg).pda, text, cg.fold)
+        built = pda_model(prod(cg).pda, text, cg.executor)
     except PdaFail:
         tally["fallback"] += 1
         tally["checked"] += 1

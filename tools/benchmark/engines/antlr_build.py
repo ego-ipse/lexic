@@ -5,17 +5,21 @@ tool generates source, which is then compiled or imported. That build is part of
 using ANTLR — as `Lark(...)` construction is part of using Lark — so it happens
 once per grammar and never inside a timed round.
 
-Generated code lands in a temporary directory that lives as long as the process,
-because the import machinery needs the files to stay put.
+Generated code lands in a directory that lives as long as the process, because
+the import machinery needs the files to stay put — and is removed when the
+process ends, because nothing needs them afterwards.
 """
 
 from __future__ import annotations
 
+import atexit
 import importlib
+import os
+import shutil
 import subprocess
 import sys
-import tempfile
 from collections.abc import Callable
+from functools import cache
 from pathlib import Path
 
 from antlr4 import CommonTokenStream, InputStream
@@ -24,8 +28,32 @@ from lexic.ir import IrAst
 from tools.benchmark.emitters.directives import NO_MARKS, Marks
 from tools.benchmark.emitters.structured import antlr_grammar
 
-BUILD_ROOT = Path(tempfile.mkdtemp(prefix="lexic-antlr-"))
-"""Where generated parsers live. Kept for the process, not per call."""
+BUILD_ROOT = Path(__file__).resolve().parents[3] / "tmp" / "antlr"
+"""Where generated parsers live — a repo-local, gitignored build root.
+
+Deliberately not the system temp directory. This module is importable, so a
+build root minted at import scatters a directory per import outside the
+repository, where nothing that cleans the tree can see it; a named path under
+the repo is inspectable while a run is live and swept with the checkout.
+"""
+
+
+@cache
+def _build_dir() -> Path:
+    """This process's own build directory, made on first use and swept at exit.
+
+    Per PROCESS, because the A/B arms of a comparison run side by side over the
+    same grammar names: one shared directory would have them generating onto
+    each other's sources, and either one's exit would delete modules the other
+    still has imported. Created lazily, so importing this module builds nothing.
+
+    :returns: The directory generated sources land in, guaranteed to exist.
+    """
+    mine = BUILD_ROOT / f"pid{os.getpid()}"
+    mine.mkdir(parents=True, exist_ok=True)
+    atexit.register(shutil.rmtree, mine, ignore_errors=True)
+    return mine
+
 
 TOOL_VERSION = "4.13.2"
 """The ANTLR tool version, PINNED.
@@ -58,28 +86,29 @@ class _Strict:
         """ANTLR's hook: `(recognizer, symbol, line, column, message, error)`."""
         raise SyntaxError(f"{report[2]}:{report[3]} {report[4]}")
 
-    def refuse_ambiguity(self, *report):
-        """ANTLR reporting that a span derives more than one way.
-
-        Refused rather than reported, for the same reason lexic refuses it: a
-        row timing a parser that silently picked between meanings is not timing
-        the grammar it was given.
-        """
-        raise SyntaxError(f"ambiguous span: {report[2]}..{report[3]}")
-
     def note_prediction(self, *report):
-        """ANTLR escalating SLL prediction to full context, or resolving it.
+        """A prediction note — an escalation, a resolution, or an ambiguity.
 
-        Both are prediction-strategy notes, not verdicts about the input: the
-        parse continues and lands on one alternative. Ignored deliberately —
-        but the hooks must EXIST, because the proxy calls every listener
-        method it has and a missing one crashes the run rather than the parse.
-        A grammar whose decisions escalate is exactly the interesting case, so
-        the harness must survive it to report a number.
+        None of the three is a verdict about the input: the parse continues and
+        lands on one alternative. Ignored deliberately — but the hooks must
+        EXIST, because the proxy calls every listener method it has and a
+        missing one crashes the run rather than the parse. A grammar whose
+        decisions escalate is exactly the interesting case, so the harness must
+        survive it to report a number.
+
+        `reportAmbiguity` is here rather than raising, and the reason is a fact
+        about the EMITTED grammar: the two ambiguity reports the differential
+        reaches (`abnf-meta`'s adjacent `c-wsp*`/`filler*`, `vyx`'s env-field
+        loop against its budget) are loop-entry decisions over one run of
+        noise — a SPLIT, which lexic answers by rule and does not refuse. So
+        raising here refused inputs the reference accepts, on a report the Java
+        seat's `BaseErrorListener` ignores; the differential in
+        :mod:`tools.benchmark.measurement.language` is the gate, and it compares
+        VERDICTS rather than trusting either engine's report.
         """
 
     syntaxError = refuse_syntax
-    reportAmbiguity = refuse_ambiguity
+    reportAmbiguity = note_prediction
     reportAttemptingFullContext = note_prediction
     reportContextSensitivity = note_prediction
 
@@ -94,7 +123,7 @@ def generate(ast: IrAst, name: str, language: str, marks: Marks = NO_MARKS) -> P
     :raises RuntimeError: When the ANTLR tool itself refuses the grammar — a
         capability result, reported rather than worked around.
     """
-    target = BUILD_ROOT / language / name
+    target = _build_dir() / language / name
     target.mkdir(parents=True, exist_ok=True)
     source = target / f"{name}.g4"
     source.write_text(antlr_grammar(ast, name, marks), encoding="utf-8")

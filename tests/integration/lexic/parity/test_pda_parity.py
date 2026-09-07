@@ -7,7 +7,7 @@ carry at least one), each driven through both internal seams directly:
 
 - **forced-PDA** — :func:`~lexic.parsing.pda.runtime.kernel.kernel.pda_model` with the real
   fold supplied (so island references splice their Earley sub-parse);
-- **forced-engine** — ``cg.fold.apply(parse_first(prod(cg).instance_grammar, text,
+- **forced-engine** — ``cg.product.executor.build(parse_first(prod(cg).instance_grammar, text,
   prod(cg).tables))``, the same call :meth:`~lexic.compile.CompiledGrammar.parse`'s
   fallback branch makes.
 
@@ -188,7 +188,7 @@ def test_p2_chess_parses_pure_pda_with_zero_fallback() -> None:
         for item in arm.specs
     ), "the demoted nonpawn loop must carry a k-window gate"
     for text in CHESS_ADVERSARIAL:
-        built = pda_model(prod(cg).pda, text, cg.fold)
+        built = pda_model(prod(cg).pda, text, cg.executor)
         engine_model = forced_engine(cg, text)
         assert deep_semantic(built) == deep_semantic(engine_model)
         assert built.to_text() == text
@@ -208,12 +208,12 @@ def test_p2_lo_gt_k_arm_gate_is_eof_exact_end_to_end() -> None:
     assert any(clone.kwin_selectors is not None for clone in clones), (
         "the demoted alternation must select by k-window"
     )
-    assert pda_model(prod(cg).pda, "12", cg.fold).to_text() == "12"
+    assert pda_model(prod(cg).pda, "12", cg.executor).to_text() == "12"
     for text in ("1234x", "1234567x"):
-        assert pda_model(prod(cg).pda, text, cg.fold).to_text() == text
+        assert pda_model(prod(cg).pda, text, cg.executor).to_text() == text
     with pytest.raises(PdaFail):
         pda_model(
-            prod(cg).pda, "123x", cg.fold
+            prod(cg).pda, "123x", cg.executor
         )  # 3 digits < lo=4 — in no arm's language
 
 
@@ -255,7 +255,7 @@ def test_p3_json_parses_pure_pda_with_zero_fallback() -> None:
         for item in arm.specs
     ), "the array-item loop must carry a peek gate"
     for text in JSON_ADVERSARIAL:
-        built = pda_model(prod(cg).pda, text, cg.fold)
+        built = pda_model(prod(cg).pda, text, cg.executor)
         engine_model = forced_engine(cg, text)
         assert deep_semantic(built) == deep_semantic(engine_model)
         assert built.to_text() == text
@@ -335,7 +335,7 @@ def test_both_engines_build_the_same_model_not_just_the_same_meaning(
             continue
         try:
             want = forced_engine(cg, text)
-            got = pda_model(product.pda, text, cg.fold)
+            got = pda_model(product.pda, text, cg.executor)
         except PdaFail, UnsupportedConstructError:
             continue
         checked += 1
@@ -373,7 +373,7 @@ def test_an_attempt_gated_value_str_builds_the_same_model_pda_and_earley(
         ATTEMPT_GATED_VSTR, flavour="gbnf", cache_key="i18-attempt-parity"
     )
     product = prod(cg)
-    pda_built = pda_model(product.pda, text, cg.fold)
+    pda_built = pda_model(product.pda, text, cg.executor)
     earley_built = forced_engine(cg, text)
     assert repr(pda_built) == repr(earley_built)
     assert pda_built.to_text() == earley_built.to_text() == text
@@ -398,12 +398,12 @@ def test_the_pda_refuses_an_arm_choice_rather_than_answering_it() -> None:
     It is not: measured, `FastTree.build` returns a tree for a completion whose
     arms mean different things, so the gate never ran and the PDA answered
     `Forced('#ab')` for an input it had itself classified as needing an island.
-    The reduce path never relied on the fast path as an oracle — `_one_meaning`
-    asks separately — and this is the model path asking too.
+    The value route never relied on the fast path as an oracle —
+    `different_meaning` asks separately — and this is the model path asking too.
     """
     cg = compile_text(_ARM_AMBIGUOUS, cache_key="parity-arm-pda")
     with pytest.raises((UnsupportedConstructError, PdaFail)):
-        pda_model(prod(cg).pda, "#ab", cg.fold)
+        pda_model(prod(cg).pda, "#ab", cg.executor)
 
 
 def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> None:
@@ -411,10 +411,10 @@ def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> 
 
     This is vyx's divergence in four lines, without vyx's tokenizer. Before the
     fix the two paths disagreed in silence — Earley folded `Plain('#ab')` and
-    the PDA folded `Forced('#ab')` — because `earley_model` goes through
+    the PDA folded `Forced('#ab')` — because `earley_model` went through
     `parse_first` (deterministic under ambiguity by design) while only the
-    reduce path asked `_one_meaning`. Two engines each picking "the first"
-    derivation are not picking the same one.
+    value route asked whether the span meant two things. Two engines each
+    picking "the first" derivation are not picking the same one.
 
     A split has a defined answer and is not covered here; `is_arm_choice`
     separates the two, and this input is on the refusing side of it.
@@ -431,9 +431,9 @@ def test_an_arm_choice_is_refused_by_both_engines_not_answered_differently() -> 
     for label, call in (
         (
             "earley",
-            lambda: earley_model(pr.instance_grammar, "#ab", cg.fold, pr.tables),
+            lambda: earley_model(pr.instance_grammar, "#ab", cg.product, pr.tables),
         ),
-        ("pda", lambda: pda_model(product.pda, "#ab", cg.fold)),
+        ("pda", lambda: pda_model(product.pda, "#ab", cg.executor)),
     ):
         try:
             outcomes[label] = call()
@@ -467,7 +467,7 @@ def test_earley_refuses_a_cross_span_arm_choice() -> None:
     cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-earley")
     pr = prod(cg)
     with pytest.raises(UnsupportedConstructError):
-        earley_model(pr.instance_grammar, "abc", cg.fold, pr.tables)
+        earley_model(pr.instance_grammar, "abc", cg.product, pr.tables)
 
 
 def test_the_pda_refuses_a_cross_span_arm_choice_too() -> None:
@@ -480,6 +480,6 @@ def test_the_pda_refuses_a_cross_span_arm_choice_too() -> None:
     """
     cg = compile_text(_CROSS_SPAN_AMBIGUOUS, cache_key="parity-cross-span-pda")
     with pytest.raises((UnsupportedConstructError, PdaFail)):
-        pda_model(prod(cg).pda, "abc", cg.fold)
+        pda_model(prod(cg).pda, "abc", cg.executor)
     with pytest.raises(UnsupportedConstructError):
         cg.parse("abc")

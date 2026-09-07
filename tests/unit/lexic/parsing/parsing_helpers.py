@@ -3,7 +3,7 @@
 ``prod`` is duplicated verbatim (pre-relocation) across the fold, compile,
 delegate-compile and PDA-parity test files — the instance product for a
 ``CompiledGrammar`` (its ``instance_grammar``/``tables``/``pda``, the fields
-the artefact itself no longer carries; memoised per ``(grammar, fold)``).
+the artefact itself no longer carries; memoised per ``(grammar, binding)``).
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ PRODUCTS_GRAMMAR_TEXT = 'root ::= "a" "b"\n'
 
 def prod(cg: CompiledGrammar):
     """The instance product for a CompiledGrammar — its instance_grammar / tables /
-    pda (the fields the artefact no longer carries; memoised per (grammar, fold))."""
-    return _model_product(cg.codegen_grammar, cg.fold)
+    pda (the fields the artefact no longer carries; memoised per (grammar, binding))."""
+    return _model_product(cg.codegen_grammar, cg.product)
 
 
 def compiled() -> CompiledGrammar:

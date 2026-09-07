@@ -115,8 +115,10 @@ Two conventions worth knowing before you go looking:
 - A flavour is **data, not methods**: `IrFlavour` is an `IrEmitter` carrying its
   own self-grammar and reducer as ClassVars. It defines zero parsing methods.
 - `parsing/` and `compile/` hot paths **deliberately** use plain `None`, bare
-  tuple aliases and mutable cursors. Strictness is `ir/`'s contract, not
-  theirs — don't "clean up" the engine into records.
+  tuple aliases and mutable cursors for their LANES. Strictness is `ir/`'s
+  contract, not theirs — don't "clean up" the engine into records. The PDA
+  frame is the stated exception: it is a typed slotted `Frame[M]`, read and
+  written by name, because its seven lanes have seven different types.
 
 ## Project layout
 
@@ -127,10 +129,11 @@ anyone noticed). Annotations are one line; module docstrings carry the detail.
 ```
 src/lexic/
   __init__.py                      Lexic — Grammar engine
-  exceptions.py                    LexicError hierarchy — UnsupportedConstructError, FieldValidationError
+  exceptions.py                    LexicError hierarchy — UnsupportedConstructError, TargetRefusalError, FieldValidationError
   generate.py                      random string generator — walks a canonical grammar's rules directly
   model.py                         GrammarModel on IrNamedTuple — models ARE IrSelf; to_text/to_grammar/dump
   model_emission.py                Stack records and extent reservation for addressed model emission
+  model_fields.py                  Per-field construction checks a field's own grammar ITEM decides
   api/
     __init__.py                    Readers for third-party formats — applications of lexic, shipped with it
     json_tokenizer.py              tokenizer.json → IrTokenizer; the json formulation is a parameter
@@ -153,8 +156,9 @@ src/lexic/
       variant.py                   Recognition-only twins for dropped reduction subtrees
     module/
       __init__.py                  The twin-module surface — export (emit half) + selfgrammar (parse-back half)
-      bind.py                      Runtime binding for generated twin-module classes
+      attach.py                    Runtime binding for generated twin-module classes
       export.py                    export_source / export_module — the importable .py twin
+      rules.py                     The module self-grammar's rules — the statement skeleton it is built from
       selfgrammar.py               The generated-module self-grammar — lexic parses its own exports
       verify.py                    Cross-check generated module text against compiled binding
     notation/
@@ -168,9 +172,12 @@ src/lexic/
       encode.py                    Value → the three flat tables — the projection's lexic side
       export.py                    export_value — a projected value as an importable, self-contained module
       reader.py                    The payload's reader — zero lexic imports, by design and by test
+    product/
+      __init__.py                  The compile half of the product ABI — binding an authored declaration
+      registry.py                  Bound products and their lifetime — one registry per declaration kind
     pipeline/
       __init__.py                  The compile pipeline — grammar → classes (passes, binding, synthesis)
-      binding.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
+      rulemap.py                   Binding view — the codegen grammar's per-rule class/kind/parent/field map
       moments.py                    The compile moments — one retaining product the whole pipeline runs through
       naming.py                    What a generated class and its fields are CALLED — spelling, and nothing else
       passes.py                    Grammar→grammar codegen passes — hoist groups, hoist arms, relax noise
@@ -190,7 +197,7 @@ src/lexic/
     __init__.py                    Public IR surface — a LAZY façade; import everything from here
     flavour.py                     IrFlavour ABC — config bundle every grammar flavour subclasses
     identity.py                    The identity walk — a value's graph under ONE stated child definition
-    reduction.py                   Reducer declarations + contribution-policy sentinels — grammar-side IR data
+    reduction.py                   Reducer, semantic-signature and target-schema declarations — grammar-side IR data
     spine/                        The node substrate — everything else is downstream
       __init__.py                the group's package marker; the façade is the import surface
       bind.py                       IrBind — the field-binding marker generated model fields carry
@@ -230,8 +237,9 @@ src/lexic/
         escapes.py                 EscapeCodec — flavour-side canonical spelling
   parsing/
     __init__.py                    public API: parse_model product + the Earley toolkit
+    executable.py                  The bound model product — what a parse entry is handed
     caches.py                      Identity-memo registry — every id-keyed cache, bounded by its artefact
-    fold.py                        ParseTree → object fold — the instance-parsing bridge
+    lift.py                        The optional-nullable lift — one engine-ambiguity policy over a grammar
     products.py                    The model product entry — PDA-first with Earley completion
     trace.py                       The watched run — what the predictive kernel DID, as an ordered event stream
     earley/
@@ -264,6 +272,19 @@ src/lexic/
       normalize.py                 Desugar an IR grammar into classical Earley shape
       resume.py                    The resumable recognizer — mark / extend / rollback on one growing chart
       tokenscan.py                 The token-scanning kernel — Earley over a token-segmented input
+    product/
+      __init__.py                  The product ABI — the package's one import surface
+      abi/                         The product ABI records — authored and flat layers, and the construction records both name
+        __init__.py                the group's package marker
+        construction.py            Construction records — what a completion builds its value with
+        expressions.py             The reducer's own algebra in authored form — its own lowering table
+        records.py                 Immutable authored operations and the flat int-coded tables they lower to
+      lower.py                     Authored product operations → the flat int-coded tables
+      routines.py                  The verified program read back — one executable completion per rule
+      tree.py                      Product-driven ParseTree completion, explicit result presence, and source spans
+      state.py                     Parse-local builders, deferred verdicts, constant-size transaction marks
+      verify.py                    Physical-table verification — the cold gate before the paid loop
+      regular.py                   The authoritative regular-language proof
     parallel/
       __init__.py                  The parallel layer — split analysis, roles, scan, policy (orchestrator home)
       orchestrate.py               Split orchestration — one document chunk-parsed and stitched to the exact model
@@ -290,6 +311,7 @@ src/lexic/
         interior.py                Routed-interior split — concatenate the pieces' runs, splice once
         merge.py                   Shallow boundary reconstruction and delegated-region shell attachment
         model.py                   Type-aware shell routes and immutable replacement
+        plan.py                    One bracket rule's region plan — the recurrence, its classes and its slots
         safety.py                  Per-owner proof that a cut separator cannot belong to the repeated item
         tasks.py                   Region pieces flattened onto distinct worker model views
     pda/
@@ -312,6 +334,7 @@ src/lexic/
         __init__.py                The PDA clone compiler — an IrAst into flat int-coded tables
         clones.py                  Clone compiler — the predictive-parser artifact beside `ParserTables`
         delegate_compile.py        Island-interior delegate compile — the per-island clone selector
+        eligibility.py             What the clone compiler ASKS about a rule — match-only, and its extent proof
         specs.py                   Clone-compiler intermediate specs — the NamedTuple vocabulary tests pin
         tables.py                  PdaTables — what a compiled grammar's predictive half IS
         program/
@@ -319,6 +342,7 @@ src/lexic/
           flatten.py               Flat int-coded runtime records and readers
           lower.py                 Clone-set lowering
           opcodes.py               Runtime program vocabulary
+          product.py               The product-side build bake — a clone's build state from its rule product
           specialize.py            Post-flatten specialization passes
       core/
         __init__.py                Shared PDA leaves — CharSet, the ScanGate scanner, PdaFail

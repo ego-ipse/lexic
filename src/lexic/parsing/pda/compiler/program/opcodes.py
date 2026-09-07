@@ -73,6 +73,15 @@ decision owner while letting that tentative iteration use the existing
 frame-less matcher.
 """
 
+OP_CONSULT = 16
+"""The whole extent of a rule, decided by one proved possessive recognizer.
+
+Never an item op-code in a real arm: it appears only as the sole kind of the
+synthetic :attr:`FlatClone.runarm` a proved ``value_str`` clone earns
+(:func:`~lexic.parsing.pda.compiler.program.specialize.consult_arm`), whose
+payload is the compiled pattern. Numbered past every arm code so a reader that
+ranges over the arm vocabulary cannot mistake it for one."""
+
 GATE_STOP, GATE_PAIR, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4, 5
 """Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, the
 ``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved

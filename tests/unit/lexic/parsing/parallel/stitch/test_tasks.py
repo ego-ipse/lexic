@@ -22,8 +22,8 @@ def test_true_start_rule_is_filtered_before_piece_parsing() -> None:
         calls.append(source)
         return parse_model(grammar, source, fold, resolve)
 
-    grammar, fold = compiled.codegen_grammar, compiled.fold
-    assert split_model(recording_parse, grammar, Request(text, fold), 4) is None
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    assert split_model(recording_parse, grammar, Request(text, binding), 4) is None
     assert not calls
     assert compiled.parse(text, cores=1).to_text() == text
 

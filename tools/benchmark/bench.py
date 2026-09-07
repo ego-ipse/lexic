@@ -42,26 +42,26 @@ noise floor says what difference must be beaten.
 from __future__ import annotations
 
 import gc
-import json
-import random
-import re
-import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from importlib import import_module
 from typing import NamedTuple
 
 from lexic.compile import CompiledGrammar, Directives, compile_text
-from lexic.exceptions import LexicError
-from lexic.parsing.parallel import split_model
-from lexic.parsing.parallel.orchestrate import Request
-from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.pda.runtime.kernel.kernel import pda_model
-from lexic.parsing.products import _model_product, earley_model, parse_model
-from lexic.parsing.trace import watch
+from lexic.model import GrammarModel
+from lexic.parsing.products import _model_product, earley_model
 from tools.benchmark.cases.grammars import Bench
-from tools.benchmark.cases.variants import variant_marks
-from tools.benchmark.emitters.directives import NO_MARKS
-from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
+from tools.benchmark.engines.refusals import LEXIC_REFUSALS, refusals
+from tools.benchmark.engines.seats import SPECIALISTS, candidates
+from tools.benchmark.measurement.contract import (
+    CLOCKS,
+    PROTOCOL,
+    RowContract,
+    digest,
+    shape,
+)
+from tools.benchmark.measurement.language import unfaithful
+from tools.benchmark.measurement.occupancy import declined_reason
+from tools.benchmark.measurement.sampling import Parse, Pass, prime, timed
 
 SUMMARY = "Time every engine on the same grammar and the same input."
 """The CLI description. Named, because `__doc__` is `str | None`."""
@@ -140,17 +140,11 @@ pure-Python ATN simulator and a different animal.
 `stdlib-json` and `msgspec` are FORMAT SPECIALISTS: hand-written C parsers for
 the one format their row's grammar happens to describe. They take no grammar
 and answer no capability question — their cells are the specialist floor, what
-dedicating compiled code to a single fixed language buys. The same
-:func:`unfaithful` differential gates them, which is what proves their
-hard-coded language and the row's grammar agree on the fixture set.
+dedicating compiled code to a single fixed language buys. Their language is the
+FORMAT and it is strictly larger than the row's grammar, so they are held to the
+accepting half of :func:`unfaithful` and not the refusing one; :data:`SPECIALISTS`
+says why that is a declaration rather than an exemption.
 """
-
-Parse = Callable[[str], object]
-
-
-def _antlr_name(bench: str) -> str:
-    """An identifier grammar name for ANTLR's generated code."""
-    return "B" + "".join(part.title() for part in bench.replace("-", "_").split("_"))
 
 
 LEXIC_ROWS = frozenset(
@@ -191,7 +185,7 @@ def _lexic(
     unknown = wanted - LEXIC_ROWS
     if unknown:
         raise ValueError(f"unknown Lexic benchmark rows: {sorted(unknown)}")
-    fold = bench.fold
+    binding = bench.compiled.product
     sequential = bench.compiled.parse
     engines: dict[str, Parse] = {}
     # The production seam, like every competitor's own entry API — the
@@ -201,9 +195,9 @@ def _lexic(
     if "lexic-pda" in wanted:
         engines["lexic-pda"] = lambda text: sequential(text, cores=1)
     if "lexic-earley" in wanted:
-        product = _model_product(bench.compiled.codegen_grammar, fold)
+        product = _model_product(bench.compiled.codegen_grammar, bench.compiled.product)
         engines["lexic-earley"] = lambda text: earley_model(
-            product.instance_grammar, text, fold, product.tables
+            product.instance_grammar, text, binding, product.tables
         )
     mt_artifacts: dict[str, CompiledGrammar] = {}
     if cores is not None and "lexic-mt" in wanted:
@@ -226,9 +220,16 @@ def _lexic(
 def _variant_engines(
     bench: Bench, wanted: frozenset[str], cores: int | None
 ) -> tuple[dict[str, Parse], dict[str, CompiledGrammar]]:
-    """Compile only the requested directive-bearing Lexic variants."""
-    lex_marks, ns_marks = variant_marks(bench.ast)
-    lex_marks = _licensed_marks(bench, lex_marks)
+    """Compile only the requested directive-bearing Lexic variants.
+
+    The directives are the case's DECLARED sets. They are not derived from the
+    grammar by heuristic and not trimmed by what this engine finds eligible or
+    fast: a row label must denote the same workload in every revision, and a
+    licence that removes marks until the row stops regressing hides exactly the
+    regression the row exists to expose.
+    """
+    lex_marks = frozenset(bench.lexical)
+    ns_marks = frozenset(bench.non_semantic)
     engines: dict[str, Parse] = {}
     artifacts: dict[str, CompiledGrammar] = {}
     for label, directives in (
@@ -262,243 +263,116 @@ def _variant_engines(
     return engines, artifacts
 
 
-def _decision_cost(compiled, corpus: str) -> int | None:
-    """Watched decision work (probes, gates, rollbacks) on the raw PDA; None = incapable."""
-    fold = compiled.fold
-    product = _model_product(compiled.codegen_grammar, fold)
-    try:
-        pda_model(product.pda, corpus, fold)
-    except LexicError, PdaFail:
-        return None
-    run = watch(product.pda, corpus, fold, cap=1_000_000)
-    return sum(
-        1 for event in run.events if str(event.kind) in ("rollback", "probe", "gate")
-    )
-
-
-def _licensed_marks(bench: Bench, marks: frozenset[str]) -> frozenset[str]:
-    """Marks licensed by ENGINE EVIDENCE, dropped one by one until sound.
-
-    lexruns collapses a run only after PROVING charset, uniqueness and
-    FOLLOW-disjointness; a benchmark heuristic proving none of them was
-    measured making three grammars slower and one PDA-incapable. The licence
-    here holds marks to the same standard, empirically: a mark set survives
-    only if the raw PDA still takes the corpus AND the watched decision trace
-    shows no more rollbacks than the plain compile — otherwise marks drop
-    (alphabetically last first) until the remainder is sound, possibly none.
-    The honest declaration for that grammar is then NOTHING, and the variant
-    row equals plain rather than regressing it.
-    """
-    if not marks:
-        return marks
-    baseline = _decision_cost(bench.compiled, bench.corpus)
-    candidates = sorted(marks)
-    while candidates:
-        trial = compile_text(
-            bench.source,
-            cache_key=f"bench-{bench.name}-lic-{len(candidates)}-{candidates[0]}",
-            flavour=bench.flavour,
-            directives=Directives(lexical=frozenset(candidates)),
-        )
-        cost = _decision_cost(trial, bench.corpus)
-        if cost is not None and (baseline is None or cost <= baseline):
-            return frozenset(candidates)
-        candidates.pop()
-    return frozenset()
-
-
-def unfaithful(
-    parse: Parse,
-    bench: Bench,
-    document: str | None = None,
-    exceptions: tuple[type[BaseException], ...] | None = None,
-) -> str | None:
-    """The first way ``parse`` disagrees with lexic about the language, or None.
-
-    The single place a translation is judged, in BOTH directions. An
-    over-permissive one describes a larger language and passes any accept-only
-    check; an over-restrictive one passes the corpus and then refuses a sentence
-    nobody sampled — which is what a context-free lexer does to a grammar whose
-    character classes overlap. Either way the engine gets no number, because a
-    number for a different language is not a faster answer to the question, it
-    is an answer to a different one.
-
-    :param document: The text this engine will be timed on — the acceptance
-        half is checked against exactly that (default: the small corpus).
-    """
-    why = refusal(
-        parse,
-        document if document is not None else bench.corpus,
-        exceptions,
-    )
-    if why is not None:
-        return f"refuses the corpus — {why}"
-    for text in bench.accepts:
-        why = refusal(parse, text, exceptions)
-        if why is not None:
-            return f"refuses {text!r} — {why}"
-    for text in bench.rejects:
-        if accepts(parse, text, exceptions):
-            return f"accepts {text[:18]!r}, which lexic refuses"
-    return None
-
-
-def _lark_parse(bench: Bench, parser: str, marked: bool = False) -> Parse:
-    """Lark on one of its two algorithms, each given the token set it needs.
-
-    The two backends carry different lexers and want different grammars, which
-    is a distinction Lark's own documentation makes. `earley` runs a `dynamic`
-    lexer that offers every matching terminal to the parser, so it settles an
-    overlap itself and keeps the run terminals. `lalr` runs a `contextual` lexer
-    that must commit to one terminal per position, so it gets the partitioned
-    alphabet — without it a single space between `ws` and `chars` goes to the
-    wrong slot, which is a token-set problem rather than a limit of LALR.
-    :param marked: Translate the grammar's own directives too — see
-        :data:`PRODUCT` for why that is a seat rather than a correction.
-    """
-    lark = import_module("lark")
-    lark_grammar = import_module("tools.benchmark.emitters.emit").lark_grammar
-    marks = variant_marks(bench.ast) if marked else NO_MARKS
-    text = lark_grammar(bench.ast, refine=parser == "lalr", marks=marks)
-    return lark.Lark(text, parser=parser).parse
-
-
-def _peg_parse(bench: Bench, marked: bool = False) -> Parse:
-    """parsimonious over the emitted PEG, compiled on stdlib ``re``.
-
-    parsimonious prefers the third-party ``regex`` module when installed and
-    ships it as a dependency, but stdlib ``re`` measured 9-19% faster on the
-    bench's patterns. The row measures the PEG scheme, not the dependency's
-    regex engine, so the grammar is compiled under the faster module — a
-    construction-time swap only; matching runs on the compiled patterns.
-    """
-    parsimonious = import_module("parsimonious")
-    expressions = import_module("parsimonious.expressions")
-    peg_grammar = import_module("tools.benchmark.emitters.emit").peg_grammar
-    preferred = getattr(expressions, "re")
-    setattr(expressions, "re", re)
-    try:
-        marks = variant_marks(bench.ast) if marked else NO_MARKS
-        return parsimonious.Grammar(peg_grammar(bench.ast, marks)).parse
-    finally:
-        setattr(expressions, "re", preferred)
-
-
-def _pp_parse(bench: Bench) -> Parse:
-    """pyparsing's combinator tree, on the CHEAPEST faithful alternation.
-
-    pyparsing spells two alternations and they are not interchangeable:
-    `MatchFirst` commits to the first arm that matches (PEG's ordered choice),
-    `Or` keeps the longest (what a context-free `|` means). `MatchFirst` is what
-    a pyparsing author writes and it is far faster — but where arms share a
-    prefix it parses a different language. So build the cheap one, ask whether
-    it is faithful, and pay for `Or` only where it is not. That is the iteration
-    a person hitting the bug would do, and it gives pyparsing its best HONEST
-    number per grammar rather than its fastest wrong one.
-    """
-    pyparsing_parser = import_module(
-        "tools.benchmark.emitters.structured"
-    ).pyparsing_parser
-    quick = pyparsing_parser(bench.ast, longest=False)
-
-    def cheap(body: str) -> object:
-        return quick.parse_string(body, parse_all=True)
-
-    if unfaithful(cheap, bench) is None:
-        return cheap
-    exact = pyparsing_parser(bench.ast, longest=True)
-    return lambda body: exact.parse_string(body, parse_all=True)
-
-
-def _java_parse(bench: Bench, marked: bool = False) -> Parse:
-    """Build one Java ANTLR row without importing ANTLR for Lexic workers."""
-    java_antlr_parser = import_module(
-        "tools.benchmark.engines.antlr_java"
-    ).java_antlr_parser
-    marks = variant_marks(bench.ast) if marked else NO_MARKS
-    suffix = "-lex" if marked else ""
-    return java_antlr_parser(bench.ast, _antlr_name(bench.name + suffix), marks)
-
-
-def _antlr_parse(bench: Bench, marked: bool = False) -> Parse:
-    """Build one Python ANTLR row without importing ANTLR for Lexic workers."""
-    antlr_parser = import_module("tools.benchmark.engines.antlr_build").antlr_parser
-    marks = variant_marks(bench.ast) if marked else NO_MARKS
-    suffix = "-lex" if marked else ""
-    return antlr_parser(bench.ast, _antlr_name(bench.name + suffix), marks)
-
-
-def _msgspec_parse(_bench: Bench) -> Parse:
-    """Load msgspec only when its JSON specialist row is requested."""
-    msgspec = import_module("msgspec")
-    return msgspec.json.decode
-
-
-_CANDIDATES: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
-    ("lark-earley", lambda bench: _lark_parse(bench, "earley")),
-    ("lark-lalr", lambda bench: _lark_parse(bench, "lalr")),
-    ("lark-earley-lex", lambda bench: _lark_parse(bench, "earley", marked=True)),
-    ("lark-lalr-lex", lambda bench: _lark_parse(bench, "lalr", marked=True)),
-    ("parsimonious", _peg_parse),
-    ("parsimonious-lex", lambda bench: _peg_parse(bench, marked=True)),
-    # ANTLR builds a parser before anything runs — the Java tool, then javac for
-    # the Java row. That is part of using ANTLR, as `Lark(...)` construction is,
-    # so it happens here and never inside a timed round.
-    ("antlr", _java_parse),
-    ("antlr-lex", lambda bench: _java_parse(bench, marked=True)),
-    ("antlr-py", _antlr_parse),
-    ("antlr-py-lex", lambda bench: _antlr_parse(bench, marked=True)),
-    ("pyparsing", _pp_parse),
-)
-"""Every competitor, as a name and the one way to build it from a bench."""
-
-
-_JSON_SPECIALISTS: tuple[tuple[str, Callable[[Bench], Parse]], ...] = (
-    ("stdlib-json", lambda bench: json.loads),
-    ("msgspec", _msgspec_parse),
-)
-"""The json row's format specialists (see :data:`PRODUCT`)."""
-
-
-def _candidates(bench: Bench) -> tuple[tuple[str, Callable[[Bench], Parse]], ...]:
-    """The candidate rows for one bench: every engine, plus its specialists.
-
-    A specialist parses one fixed FORMAT, so it is a candidate only for the
-    bench whose language it hard-codes — offering `json.loads` a csv corpus
-    would print a refusal row that answers no question anyone asked.
-    """
-    if bench.name != "json":
-        return _CANDIDATES
-    return _CANDIDATES + _JSON_SPECIALISTS
-
-
-def _competitors(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
-    """Every competitor that can take this grammar, and why the others cannot.
-
-    A tool that cannot express the grammar gets a REASON in its own words, never
-    a substituted easier grammar. Building is not enough either: a parser that
-    builds and then describes a different language is exactly the failure a
-    benchmark cannot see, so :func:`unfaithful` gates every candidate.
-    """
-    built: dict[str, Parse] = {}
-    refused: dict[str, str] = {}
-    for label, make in _candidates(bench):
-        try:
-            parse = make(bench)
-        except refusals() as exc:
-            refused[label] = f"{type(exc).__name__}: {' '.join(str(exc).split())}"
-            continue
-        wrong = unfaithful(parse, bench)
-        if wrong is None:
-            built[label] = parse
-        else:
-            refused[label] = wrong
-            getattr(parse, "close", lambda: None)()
-    return built, refused
-
-
 MT_ROWS = frozenset({"lexic-mt", "lexic-mt-lex-ns"})
 """The rows that always read the full corpus — a split needs the scale."""
+
+LEXICAL_ROWS = frozenset(
+    {
+        "lexic-lex",
+        "lexic-lex-ns",
+        "lexic-mt-lex-ns",
+        "lark-earley-lex",
+        "lark-lalr-lex",
+        "parsimonious-lex",
+        "antlr-lex",
+        "antlr-py-lex",
+    }
+)
+"""Every seat built with the case's declared `@lexical` set.
+
+Declared rather than derived from the name, for the same reason
+:data:`~tools.benchmark.cases.directives.DIRECTIVES` is declared: a row label
+must denote the same work in every revision. The naming convention is pinned
+beside it by test, so a new `-lex` seat cannot be added without landing here.
+"""
+
+NON_SEMANTIC_ROWS = LEXICAL_ROWS - {"lexic-lex"}
+"""Every seat that ALSO carries the case's `@non-semantic` set.
+
+`lexic-lex` is the one seat that takes the fold without the noise drop — it
+exists precisely to price the two declarations apart, and `PRODUCT` labels it
+that way. Every other marked seat faces both, because a translation handed one
+and not the other is not the grammar lexic's variant rows compile.
+"""
+
+NOISE_ANCHOR = "lexic-pda"
+"""The one seat a grammar's noise floor is ever measured on.
+
+The floor is one number per grammar and nothing beside it records which engine
+produced it, so it must not depend on which engines a run was ASKED for.
+Anchored on the first row that happened to measure, `--seats antlr` replaced a
+grammar's floor with a JVM-measured control and `--seats lark-earley` replaced
+it again — three numbers for one cell, each written without a word. A fixed
+anchor makes the cell mean one thing, and a run that did not measure this seat
+leaves the committed floor alone rather than restating it.
+"""
+
+
+def seat_directives(bench: Bench, seat: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The EXACT directive sets one seat is built with, sorted.
+
+    The single reading of "what did this seat compile with", shared by the row
+    contract, the artifact's per-cell record and the structural gate — because
+    a cell that disagrees with the contract about the declarations is exactly
+    the drift the record exists to expose.
+
+    :param bench: The case, carrying its declared sets.
+    :param seat: The row name.
+    :returns: ``(lexical, non_semantic)``, empty for an unmarked seat.
+    """
+    lexical = tuple(sorted(bench.lexical)) if seat in LEXICAL_ROWS else ()
+    non_semantic = (
+        tuple(sorted(bench.non_semantic)) if seat in NON_SEMANTIC_ROWS else ()
+    )
+    return lexical, non_semantic
+
+
+def directive_digest(bench: Bench, seat: str) -> str:
+    """One seat's directive sets as a digest, for the per-cell record.
+
+    A digest rather than the names themselves: `gbnf-meta` declares fifteen
+    `@lexical` rules and the artifact holds a record per (grammar, seat), so
+    spelling them out would multiply the file by its longest declaration to
+    answer one question — did this change since the cell was measured.
+    """
+    lexical, non_semantic = seat_directives(bench, seat)
+    return digest("\n".join(lexical) + "\x1f" + "\n".join(non_semantic))
+
+
+def build_contract(
+    bench: Bench, row: str, document: str, cores: int, gc_enabled: bool
+) -> RowContract:
+    """The exact identity of one row over one document — the ONE constructor.
+
+    The worker builds this from what it measured and the structural gate builds
+    it from what a row WOULD be measured under, and the two must agree field for
+    field or the gate is checking a shape nobody writes. `scale` is derived from
+    the document rather than passed, so the record cannot disagree with what was
+    actually parsed.
+
+    :param bench: The case.
+    :param row: The seat name.
+    :param document: The exact input this row reads.
+    :param cores: The worker request; 1 for every sequential row.
+    :param gc_enabled: Whether the collector ran during the observation.
+    :returns: The row's contract.
+    """
+    lexical, non_semantic = seat_directives(bench, row)
+    return RowContract(
+        PROTOCOL,
+        row,
+        bench.name,
+        digest(bench.source),
+        lexical,
+        non_semantic,
+        digest(document),
+        len(document.encode("utf-8")),
+        "full" if document == bench.full else "corpus",
+        PRODUCT[row],
+        cores,
+        gc_enabled,
+        CLOCKS,
+    )
 
 
 class EngineBuild(NamedTuple):
@@ -526,7 +400,7 @@ def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engine
                 None,
             )
     else:
-        makers = dict(_candidates(bench))
+        makers = dict(candidates(bench))
         if name not in makers:
             raise ValueError(f"unknown benchmark row {name!r} for {bench.name}")
         try:
@@ -539,117 +413,74 @@ def one_engine(bench: Bench, name: str, cores: int | None, full: bool) -> Engine
                 None,
             )
     exceptions = LEXIC_REFUSALS if name in LEXIC_ROWS else None
-    wrong = unfaithful(parse, bench, document, exceptions)
+    wrong = unfaithful(parse, bench, document, exceptions, name in SPECIALISTS)
     if wrong is not None:
         getattr(parse, "close", lambda: None)()
         return EngineBuild(None, document, wrong, None)
     return EngineBuild(parse, document, None, artifact)
 
 
-def _once(parse: Parse, corpus: str) -> float:
-    """Microseconds per input character for one timed pass, GC held off.
+def observe(build: EngineBuild, rounds: int) -> Pass:
+    """This process's ONE observation of its row, on both clocks.
 
-    An engine that measured the pass ITSELF is believed over the wall clock: the
-    Java row runs in a live JVM, and a `perf_counter` around it would charge
-    ANTLR for the pipe carrying the input across. Every in-process engine has no
-    such reading and is timed the ordinary way.
+    The independent unit of a comparison is the PROCESS, not the pass. Several
+    inner passes are reduced here to a single answer so that a warm allocator
+    or a lucky cache line inside one interpreter cannot be counted as several
+    independent structural samples. The reduction is the median on each clock,
+    which is what a repeated measurement of one state is worth.
     """
-    gc.disable()
-    start = time.perf_counter()
-    parse(corpus)
-    elapsed = time.perf_counter() - start
-    gc.enable()
-    inner = getattr(parse, "measured_us", None)
-    return (inner() if inner else elapsed * 1e6) / len(corpus)
-
-
-def _prime(parse: Parse, corpus: str) -> None:
-    """Bring one engine to steady state before any round counts.
-
-    A JIT-compiled engine's first parses are not the engine — the Java row's
-    first is ~20x its settled cost. `warm` parses until the median stops moving;
-    an engine without one gets the single pass it always got.
-    """
-    warm = getattr(parse, "warm", None)
-    if warm is None:
-        parse(corpus)
-        return
-    warm(corpus)
-
-
-def _interleaved(
-    engines: dict[str, Parse], texts: dict[str, str], rounds: int
-) -> dict[str, list[float]]:
-    """Low-level sampler used inside one isolated worker.
-
-    ``texts`` names each row's document: the mt rows always read the full
-    corpus, everyone else reads whatever the ``--full`` decision assigned.
-
-    Each pass is followed by an UNTIMED ``gc.collect()``. Timed passes run
-    under ``gc.disable()``, so this prevents garbage from one sample moving
-    collection work into a later sample.
-
-    Immediately before its timed pass, each row gets one untimed pass of ITSELF.
-    This keeps every sample in the same hot-parse state even after allocator or
-    collection work. The reported noun remains ONE timed parse and the
-    statistic remains the median — no batching or fastest-run selection.
-    """
-    for name, parse in engines.items():
-        _prime(parse, texts[name])
-    samples: dict[str, list[float]] = {name: [] for name in engines}
-    seats = list(engines.items())
-    rng = random.Random(0x5EA75)
+    parse, document = build.parse, build.document
+    if parse is None:
+        raise ValueError("cannot observe a refused benchmark row")
+    prime(parse, document)
+    passes: list[Pass] = []
     for _ in range(rounds):
-        rng.shuffle(seats)
-        for name, parse in seats:
-            parse(texts[name])
-            samples[name].append(_once(parse, texts[name]))
-            gc.collect()
-    return samples
+        parse(document)
+        passes.append(timed(parse, document))
+        gc.collect()
+    walls = sorted(entry.wall for entry in passes)
+    cpus = sorted(entry.cpu for entry in passes)
+    return Pass(walls[len(walls) // 2], cpus[len(cpus) // 2])
 
 
-def _medians(samples: dict[str, list[float]]) -> dict[str, float]:
-    """Each row's reported figure: the median of its per-round passes."""
-    return {name: sorted(runs)[len(runs) // 2] for name, runs in samples.items()}
+class Result(NamedTuple):
+    """What one row BUILT, digested both ways.
 
-
-def _noise_floor(parse: Parse, corpus: str, rounds: int) -> float:
-    """Spread between two timings of the SAME engine, as a percentage.
-
-    Anything below this is not a result. Printing it is what stops a 2%
-    difference being read as a finding.
+    :ivar text: The product rendered back to text — the fidelity check.
+    :ivar shape: Its structure — the check that says two arms built the same
+        product, which the text cannot answer for a round trip.
     """
-    first = _medians(_interleaved({"a": parse}, {"a": corpus}, rounds))["a"]
-    second = _medians(_interleaved({"a": parse}, {"a": corpus}, rounds))["a"]
-    return abs(first - second) / max(first, second, 1e-9) * 100
+
+    text: str
+    shape: str
+
+
+def result_identity(build: EngineBuild) -> Result:
+    """Parse once, and answer both questions a timing pair must pass.
+
+    A lexic row round-trips its model; every other product answers for itself
+    through ``repr``. Both digests travel in the observation — a timing pair
+    whose two arms built different things is not a comparison.
+    """
+    parse = build.parse
+    if parse is None:
+        raise ValueError("cannot read a refused benchmark row's result")
+    product = parse(build.document)
+    rendered = product.to_text() if isinstance(product, GrammarModel) else repr(product)
+    return Result(rendered, shape(product))
 
 
 def _mt_check(
     artifacts: dict[str, CompiledGrammar], document: str, cores: int | None
 ) -> dict[str, str]:
-    """Why each exact mt artifact did not thread; absent rows engaged.
-
-    Asked of the split entry directly, not inferred from timings: a split
-    that declines falls back to the sequential parse, so the mt cell alone
-    cannot distinguish "threading bought nothing" from "nothing threaded".
-    The same lesson as the seat check — a row that runs the same program as
-    its twin must say so, or the spread between them reads as a result.
-    """
+    """Why each exact mt artifact did not thread; absent rows engaged."""
     if cores is None:
         return {}
-    declined: dict[str, str] = {}
-    for name, compiled in artifacts.items():
-        request = Request(document, compiled.fold, None)
-        split = split_model(
-            parse_model,
-            compiled.codegen_grammar,
-            request,
-            cores,
-            analysis=compiled.split_analysis or compiled.grammar,
-        )
-        if split is None:
-            declined[name] = "the unified split seam found no eligible work"
-    return declined
+    seen = {
+        name: declined_reason(compiled, document, cores).declined
+        for name, compiled in artifacts.items()
+    }
+    return {name: why for name, why in seen.items() if why is not None}
 
 
 def main(argv: Sequence[str] | None = None) -> None:

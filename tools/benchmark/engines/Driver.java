@@ -19,15 +19,19 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 
+import org.antlr.v4.runtime.BailErrorStrategy;
 import org.antlr.v4.runtime.BaseErrorListener;
 import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
+import org.antlr.v4.runtime.DefaultErrorStrategy;
 import org.antlr.v4.runtime.Lexer;
 import org.antlr.v4.runtime.Parser;
 import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
 import org.antlr.v4.runtime.TokenStream;
+import org.antlr.v4.runtime.atn.PredictionMode;
+import org.antlr.v4.runtime.misc.ParseCancellationException;
 
 public final class Driver {
 
@@ -50,6 +54,7 @@ public final class Driver {
     private final CommonTokenStream tokens;
     private final Parser parser;
     private final Method entry;
+    private final Strict strict = new Strict();
 
     private Driver(String name) throws Exception {
         Class<?> lexerClass = Class.forName(name + "Lexer");
@@ -61,9 +66,9 @@ public final class Driver {
         this.parser = (Parser) parserCtor.newInstance(this.tokens);
         this.entry = parserClass.getMethod("entry_");
         this.lexer.removeErrorListeners();
-        this.lexer.addErrorListener(new Strict());
+        this.lexer.addErrorListener(strict);
         this.parser.removeErrorListeners();
-        this.parser.addErrorListener(new Strict());
+        this.parser.addErrorListener(strict);
     }
 
     /** Parse {@code text} whole, returning {@code {parse ns, charstream ns}}.
@@ -76,11 +81,52 @@ public final class Driver {
         long start = System.nanoTime();
         CharStream stream = CharStreams.fromString(text);
         long built = System.nanoTime();
+        feed(stream);
+        twoStage(stream);
+        return new long[] {System.nanoTime() - start, built - start};
+    }
+
+    /** Point the lexer, token stream and parser at {@code stream} from its start. */
+    private void feed(CharStream stream) {
         lexer.setInputStream(stream);
         tokens.setTokenSource(lexer);
         parser.setTokenStream(tokens);
+    }
+
+    /** SLL with a bail strategy first; full LL only when that stage gives up.
+     *
+     * ANTLR's own documented fast configuration: SLL decides almost every input
+     * on its own, and the inputs it cannot decide are re-parsed under the exact
+     * configuration the one-stage seat used — same prediction mode, same error
+     * strategy, same listener — so what the seat ACCEPTS and what it REFUSES are
+     * unchanged, message included.
+     *
+     * The rewind is the load-bearing line. Stage one leaves the CharStream
+     * wherever it stopped, and `Lexer.setInputStream` nulls the lexer's input
+     * before resetting it, so nothing puts the stream back to the beginning:
+     * without the seek, stage two re-lexes the TAIL and answers a question about
+     * a different input. It fails in the accepting direction — a suffix that
+     * happens to parse turns a refusal into an acceptance — which is why the
+     * differential, not a crash, is what catches it. */
+    private void twoStage(CharStream stream) throws Exception {
+        parser.getInterpreter().setPredictionMode(PredictionMode.SLL);
+        parser.removeErrorListeners();
+        parser.setErrorHandler(new BailErrorStrategy());
+        try {
+            entry.invoke(parser);
+            return;
+        } catch (InvocationTargetException e) {
+            if (!(e.getCause() instanceof ParseCancellationException)) {
+                throw e;
+            }
+        } finally {
+            parser.getInterpreter().setPredictionMode(PredictionMode.LL);
+            parser.setErrorHandler(new DefaultErrorStrategy());
+            parser.addErrorListener(strict);
+        }
+        stream.seek(0);
+        feed(stream);
         entry.invoke(parser);
-        return new long[] {System.nanoTime() - start, built - start};
     }
 
     /** Read one length-prefixed frame, or {@code null} at the quit signal. */

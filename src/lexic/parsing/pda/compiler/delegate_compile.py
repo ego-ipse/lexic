@@ -17,6 +17,7 @@ from typing import Any, Callable, Mapping
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrAst, IrItem, IrLeaf, IrNoneType, IrRuleRef, IrSelf
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 
 _DELEGATE_MIN_ATOMS = 4
@@ -116,16 +117,19 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
 
     :ivar lifted: The lifted codegen grammar (analysis substrate).
     :ivar name_to_rid: Rule name → its id in the island tables.
-    :ivar fold_config: The model fold config baked into delegated clones.
+    :ivar binding: The bound model product delegated clones are baked from —
+        its rules give their build state, its constructor table is what a
+        record completion indexes, and its fold is what they still complete
+        through.
     :ivar seams: ``(compiler_factory, flatten_clones)`` — the injected clone
         compiler and its lowering pass.
     """
 
-    __slots__ = ("lifted", "name_to_rid", "fold_config", "seams", "_cache")
+    __slots__ = ("lifted", "name_to_rid", "binding", "seams", "_cache")
 
     lifted: IrAst
     name_to_rid: Mapping[str, int]
-    fold_config: Mapping[str, object]
+    binding: ModelExecutable
     seams: tuple[Callable[..., Any], Callable[..., Any]]
     _cache: dict[str, dict[int, object]]
 
@@ -133,13 +137,13 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         self,
         lifted: IrAst,
         name_to_rid: Mapping[str, int],
-        fold_config: Mapping[str, object],
+        binding: ModelExecutable,
         seams: tuple[Callable[..., Any], Callable[..., Any]],
     ) -> None:
         """Bind one grammar's delegate-compile ingredients + the injected seams."""
         self.lifted = lifted
         self.name_to_rid = name_to_rid
-        self.fold_config = fold_config
+        self.binding = binding
         self.seams = seams
         self._cache = {}
 
@@ -173,7 +177,7 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
         if not delegable:
             return {}
         compiler_factory, flatten_clones = self.seams
-        compiler: Any = compiler_factory(analysis, self.fold_config)
+        compiler: Any = compiler_factory(analysis, self.binding.routines)
         rid_key: dict[int, object] = {}
         try:
             for rname in delegable:

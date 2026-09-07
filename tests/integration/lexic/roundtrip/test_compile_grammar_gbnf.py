@@ -8,15 +8,15 @@ from lexic.compile import (
     compile_text,
     reset_cache_for_tests,
 )
-from lexic.compile.pipeline.binding import compute_binding
 from lexic.compile.pipeline.moments import build_codegen_grammar
+from lexic.compile.pipeline.rulemap import compute_binding
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import IrRuleRef
 from tests.paths import GROUND_TRUTH
 
 
 def binding(text: str, **kwargs):
-    """(canonical ast, codegen grammar, {rule_name: RuleBinding}) for a GBNF string."""
+    """(canonical ast, codegen grammar, {rule_name: RuleMap}) for a GBNF string."""
     ast = canonical_grammar(text, GBNF_FLAVOUR, **kwargs)
     codegen_grammar = build_codegen_grammar(ast)
     bound = compute_binding(codegen_grammar)

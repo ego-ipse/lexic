@@ -4,7 +4,7 @@ Renders a compiled grammar as an importable module: one typed
 :class:`~lexic.model.GrammarModel` subclass per rule (docstring = the rule in
 the source flavour's syntax; fields in the binding view's defaults-last
 declaration order), the canonical ``GRAMMAR`` in IR-constructor notation, and
-a module-end :func:`~lexic.compile.bind_module` call that attaches
+a module-end :func:`~lexic.compile.attach_module` call that attaches
 ``__grammar__``/``__binds__`` at import time. ``export_module(compiled,
 path, ...)`` is the sole write site (ruling 2: files are written only on an
 explicit output path); ``inline_tables=True`` writes the tables as ClassVars
@@ -35,8 +35,8 @@ from lexic.compile.artifact import CompiledGrammar
 from lexic.compile.notation.emit import black_quoted, ir_doc
 from lexic.compile.notation.parse import load_ir
 from lexic.compile.output.writer import write_module
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding, non_empty_arms
 from lexic.compile.pipeline.naming import class_name_for
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding, non_empty_arms
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import get_flavour
 from lexic.ir import (
@@ -199,7 +199,7 @@ def docstring_lines(rule_text: str) -> list[str]:
 
 
 def _sequence_field_lines(
-    bind: RuleBinding, rule: IrRule, class_by_rule: dict[str, str]
+    bind: RuleMap, rule: IrRule, class_by_rule: dict[str, str]
 ) -> list[str]:
     """Field lines for a ``sequence``-kind class, in declaration order."""
     arm = next((a for a in rule.body if a), IrSequence())
@@ -246,13 +246,13 @@ def _indented_ir(prefix: str, node: IrSelf) -> _Rendered:
     return _Rendered(text.split("\n"), notation.symbols)
 
 
-def _inline_table_lines(bind: RuleBinding, rule: IrRule, shape: int) -> _Rendered:
+def _inline_table_lines(bind: RuleMap, rule: IrRule, shape: int) -> _Rendered:
     """The ``inline_tables`` ClassVars: ``__grammar__``, ``__shape__``, ``__binds__``.
 
     Strings render double-quoted (:func:`~lexic.compile.notation.black_quoted`)
     so the inline tables are a formatter fixpoint like the rest of the module.
 
-    ``__shape__`` is written here for the same reason ``bind_module`` writes it:
+    ``__shape__`` is written here for the same reason ``attach_module`` writes it:
     it is the class's provenance, and a twin without it reads as a class with no
     grammar at all — which makes a payload naming it lose its provenance
     silently in one direction and be refused in the other.
@@ -285,7 +285,7 @@ class _ClassInput(NamedTuple):
     runtime class carries and a twin is meant to be its equal.
     """
 
-    bind: RuleBinding
+    bind: RuleMap
     rule: IrRule
     authored: IrRule
     rule_text: str
@@ -333,7 +333,7 @@ def _import_block(spelled: frozenset[str], *, inline_tables: bool) -> str:
     ``spelled`` is what the renderers reported, routed to the module each name
     lives on. Nothing is read back out of the rendered text: a scan cannot tell
     a spelling from a mention, and walking the value instead over-imports
-    (the notation elides trailing defaults). ``bind_module`` and
+    (the notation elides trailing defaults). ``attach_module`` and
     ``GrammarModel`` are the module's fixed frame, not derived. The lexic block
     is emitted in sorted module order (``compile`` < ``ir`` < ``model``) so a
     user's isort/format-on-save pass is a NO-OP on a fresh export —
@@ -358,7 +358,7 @@ def _import_block(spelled: frozenset[str], *, inline_tables: bool) -> str:
     if typing_names:
         lines += [f"from typing import {', '.join(typing_names)}", ""]
     if not inline_tables:
-        lines.append("from lexic.compile import bind_module")
+        lines.append("from lexic.compile import attach_module")
     joined = f"from lexic.ir import {', '.join(ir_names)}"
     if len(joined) <= WIDTH:
         lines.append(joined)
@@ -435,7 +435,7 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
     # states in one file. Everything else (the field types, and the
     # Everything a class CARRIES renders off the pre-resolution grammar, which
     # is what the runtime carries: `_compile_core` calls
-    # `synthesize(unresolved, …)` and `bind_module` rebuilds from the twin's own
+    # `synthesize(unresolved, …)` and `attach_module` rebuilds from the twin's own
     # authored `GRAMMAR`. The inline tables once kept the RESOLVED rule so a
     # self-contained twin would not ship token terminals unbound to ids — but a
     # twin does not parse, so the ids buy it nothing, and they cost the authored
@@ -480,7 +480,7 @@ def _module_body(compiled: CompiledGrammar, *, inline_tables: bool) -> _Rendered
     blocks.append("\n".join(grammar.lines))
     spelled |= grammar.symbols | {"IrAst"}  # the annotation this line writes
     if not inline_tables:
-        blocks.append("bind_module(GRAMMAR, globals())")
+        blocks.append("attach_module(GRAMMAR, globals())")
     return _Rendered(blocks, spelled)
 
 

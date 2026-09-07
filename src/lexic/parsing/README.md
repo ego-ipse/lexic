@@ -9,9 +9,9 @@ each an alternation of sequences of atoms — so it drives a parser as-is.
 
 **One engine, one product, PDA-first:**
 
-- **instance text → model** — `parse_model(grammar, text, fold)`: parse
-  input against a compiled grammar's rules and build the model object
-  through the `ModelFold`.
+- **instance text → model** — `parse_model(grammar, text, binding)`: parse
+  input against a compiled grammar's rules and build the model object through
+  the `ModelExecutable` — the verified product program both engines run.
 
 The entry runs the PDA first — a table-driven predictive walk that builds
 the product *during* the parse (no intermediate `ParseTree`) — and complete
@@ -21,13 +21,13 @@ this package; consumers see one call. `lexic.compile` (the runtime's sole
 consumer) imports nothing but this package's root API.
 
 ```
-parse_model(grammar, text, fold)
+parse_model(grammar, text, binding)
         │  (once per grammar, memoised)
         ├─ lift + normalize ─► model PDA tables
         └─ lift + normalize ─► Earley tables
         │  (per parse)
-        ├─ PDA walk ───────────────────► model
-        └─ on PdaFail: parse_first + fold ─► model
+        ├─ PDA walk ──────────────────────────► model
+        └─ on PdaFail: Earley + product ──────► model
 ```
 
 ---
@@ -40,7 +40,7 @@ its submodules (enforced by the layering test).
 
 | Function | Returns | Meaning |
 |---|---|---|
-| `parse_model(grammar, text, fold: ModelFold[M])` | `M` | **Instance product.** PDA-first, `parse_first` + fold completion. Same authored-grammar contract; memoised per (grammar, fold) identity — the tables bake the fold's rule records and the collapsed lexical runs. Generic in the model type `M` the fold produces: the engine stays a leaf w.r.t. `lexic.model`, so the concrete model type rides the fold's type parameter rather than an import — `compile.py` binds `ModelFold[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. |
+| `parse_model(grammar, text, binding: ModelExecutable[M], resolve=None)` | `M` | **Instance product.** PDA-first, Earley + product completion. Same authored-grammar contract; memoised per (grammar, binding) identity — the tables bake the binding's rule routines and the collapsed lexical runs. Generic in the model type `M` the binding builds: the engine stays a leaf w.r.t. `lexic.model`, so the concrete model type rides the binding's type parameter rather than an import — `compile/` binds `ModelExecutable[GrammarModel]`, so `CompiledGrammar.parse` types as `GrammarModel`. `resolve` is the caller's ambiguity resolver; `None` refuses a span that means two things. |
 | `recognize(grammar, text)` | `IrInt` 0/1 | Does `text` derive from the start rule? (No forest built.) |
 | `parse(grammar, text)` | `ParseTree` | The single derivation. **Raises** on no-parse *or* ambiguity. |
 | `parse_first(grammar, text, tables=None)` | `ParseTree` | The *first* derivation — deterministic under ambiguity. Raises only on no-parse. |
@@ -48,8 +48,8 @@ its submodules (enforced by the layering test).
 | `derivations(grammar, text)` | `IrSeq[ParseTree]` | *Every* derivation, nothing silently dropped. |
 | `is_ambiguous(grammar, text)` | `IrInt` 0/1 | More than one derivation? (Short-circuits at 2.) |
 
-Also exported from the root: `ModelFold` (and its authoring
-types), `ParseTree`, `SppfNode`, `ParserTables`, `compile_tables`,
+Also exported from the root: `ModelExecutable` and `ProductExecutor` (the
+binding and the completion it runs), `Resolver`, `ParseTree`, `SppfNode`, `ParserTables`, `compile_tables`,
 `normalize`, `lift_optional_nullables` — plus the rest of the forest/chart
 toolkit the root exports today (`Chart`, `Links`, `Link`, `EarleyItem`,
 `Kernel`, `FastTree`, `EarleyParser`, `BuildTree`), which stays. Per the
@@ -70,14 +70,17 @@ It is raised and caught inside the product entry; no caller ever sees it.
 
 **The grammar compiles once; the paid loop runs over the compiled form.**
 `compile_tables()` and the PDA compile are the parser's "codegen moment":
-exactly as `codegen/` emits Python classes from an `IrAst`, `earley/tables.py`
-and `pda/clones.py` compile an `IrAst` into flat int-coded tables, and
-`earley/kernel.py` / `pda/runtime/kernel/kernel.py` run over them with no per-item IR
-dispatch, no IR object as a hot-path key, and no tuple allocation per
-advance.
+exactly as `compile/` synthesizes Python classes from an `IrAst`,
+`earley/kernel/tables/` and `pda/compiler/clones.py` compile an `IrAst` into
+flat int-coded tables, and `earley/kernel/loop/kernel.py` /
+`pda/runtime/kernel/kernel.py` run over them with no per-item IR dispatch, no
+IR object as a hot-path key, and no tuple allocation per advance. The product
+is compiled once the same way: authored per-rule operations lower to flat
+int-coded tables, are verified cold at binding, and are read back as one
+`RuleRoutine` per rule that BOTH engines run.
 
 The IR seams sit at the edges, all IR-native: the compiles walk the grammar
-in; `ModelFold` / the fused PDA build carry the model out;
+in; the product routines and the fused PDA build carry the model out;
 `Kernel.to_chart()` decodes the packed
 SPPF into the IR-native `Chart` for the forest readers. State objects
 (`ParserTables`, `Kernel`, `PdaKernel`) ARE-AN `IrLeaf`; logic lives on
@@ -91,19 +94,32 @@ measured performance floor demands.
 ```
 parsing/
   __init__.py       the public API (§1): one product entry + the Earley toolkit
-  fold.py           ModelFold — the authored instance fold (§8)
+  products.py       parse_model / token_model / earley_model — the entries
+  executable.py     ModelExecutable — the bound, verified product (§8)
   caches.py         the identity-memo registry — what every `id()`-keyed cache
                     registers with, and how an artefact's death frees it
+  lift.py           the optional-nullable lift (one engine-ambiguity policy)
+  trace.py          the watched run — what the predictive kernel DID
+  product/          the product ABI: authored ops, the flat tables they lower
+    │               to, the cold verifier, and the routines both engines run
+    abi/              authored + flat records and the construction records
+    lower.py          authored operations → flat int-coded tables
+    verify.py         the cold gate before the paid loop
+    routines.py       the verified program read back, one routine per rule
+    tree.py           product-driven completion over a ParseTree
+    state.py          parse-local builders and constant-size transaction marks
+    regular.py        the authoritative regular-language proof
   earley/           the Earley engine (imports only itself)
-    tables.py         ParserTables, compile_tables (memoised per IrAst identity)
-    kernel.py         Kernel — predict/scan/complete, Leo, packed SPPF; FastTree;
-                      longest_start_completion (the PDA island seam)
-    chart.py          Chart/Links — the decoded SPPF; EarleyItem
     engine.py         per-capability orchestration nodes behind the public API
-    forest.py         ParseTree, SppfNode, trampolined enumeration
     normalize.py      desugar IR into classical Earley shape (§6)
     lexruns.py        derived run terminals (§5)
-    trampoline.py     depth-safe generator driver
+    resume.py         the resumable recognizer — mark / extend / rollback
+    tokenscan.py      Earley over a token-segmented input
+    kernel/
+      loop/             what FILLS the chart: the flat kernel, Leo, the state
+      forest/           what the chart MEANS: SPPF, FastTree, ParseTree, the
+                        ambiguity question, the readout seam, the trampoline
+      tables/           ParserTables + compile_tables (memoised per identity)
   pda/              the predictive PDA (imports earley/) — a one-way
     │               core ← analysis ← compiler ← runtime chain
     core/             shared leaves (imported everywhere, import ~nothing)
@@ -112,23 +128,29 @@ parsing/
       errors.py         PdaFail — internal, never user-facing
     analysis/         decide every point, then store the gate specs (§10)
       analysis.py       GrammarAnalysis — fixpoints + the decision taxonomy
-      noise.py          noise/semantic attribution — peek + structured gates
-      structured.py     folding-aware structured/probe gates
-      kwindow.py        FIRST_k over CharSet tuples — bounded-lookahead gates
+      conflicts.py      the late conflict classifiers
+      cursors.py        the small records that ride the analysis `nc` channel
+      predicates.py     per-node predicates + their dispatch tables
       taxonomy.py       Taxonomy — classified notes + the stored gate specs
+      gates/            one analysis per decision: kwindow, leftrec, noise,
+                        structured, windows
     compiler/         compile the IrAst into flat int-coded tables (§11)
       clones.py         the model clone compiler
+      eligibility.py    what the compiler ASKS about a rule, and its proof
       specs.py          the compiler-intermediate NamedTuple vocabulary
-      flatten.py        the int-coded runtime program + optimizer passes
-      delegate_compile.py DelegateSource — island-interior delegation (§13)
+      tables.py         PdaTables — the compiled predictive half
+      delegate_compile.py island-interior delegation (§13)
+      program/          the flat program: opcodes, lowering, the product bake,
+                        post-flatten specialisation
     runtime/          execute the tables — the fused model build (§12)
-      kernel/           the driver and its shed halves
-        kernel.py         PdaKernel — the fused model runtime
-        decisions.py      the attempt/probe method group the kernel inherits
+      kernel/           the fused driver and its shed halves
       admission.py      attempt-seam leaves — admission tests, scratch, stack copy
-      build.py          frame-slot layout + the fused model-build tail
+      build.py          the typed `Frame` vocabulary + the fused build tail
       matchers.py       terminal matching — the cursor-free recognition leaf
       islands.py        the windowed Earley island sub-parse (§13)
+  parallel/         ONE document split across workers and stitched back to the
+                    exact sequential model — above the products, consumed by
+                    neither engine (its own README)
 ```
 
 Each folder carries its own `README.md` orientation note. Layering: the
@@ -185,7 +207,7 @@ only when three proofs hold — fixed charset, derivation uniqueness (pairwise
 disjoint alternatives, so the collapse hides no ambiguity from the SPPF), and
 follow disjointness (`FOLLOW(rule) ∩ charset = ∅`, so no continuation ever
 needs a shorter match). The fold-side licence is
-`fold.collapsed_fold_tables` (safe iff no constructor-bearing rule sits
+`product.collapsed_product_tables` (safe iff no constructor-bearing rule sits
 among a run's unit leaves). Collapsed tables are per (policy, grammar) and
 memoised; `parse`/`recognize`/forest readers keep plain tables and exact
 `ParseTree` shapes.
@@ -198,22 +220,27 @@ quantifiers desugar to synthetic right-recursive rules (`*`/`?` nullable; Leo
 keeps the recursion linear). Large *bounded* counts (`{lo, hi}`) still unroll
 `hi`-deep at desugar time — the one remaining rough edge.
 
-## 8. The instance fold (`fold.py`) — text → model
+## 8. The product program (`product/`, `executable.py`) — text → model
 
 Instance parsing runs over the **real codegen grammar** (no wrapper rules, no
 name protocol): `normalize()` replaces items in place, so `kids[i] ↔ items[i]`
-positionally. `ModelFold[M]` is a positional tree → model fold, generic in the
-model type `M` it produces (`apply -> M`), whose
-authored form is a per-rule IR body-table (`IrMap[IrRuleRef, ModelBody]`)
-baking to flat runtime records (`RuleFold`/`FieldFold`/`FastCtor`) on
-construction — the same baked records every PDA clone carries (§11). Per
-`kind`: `value_str` → `ctor(value=<subtree text>)`; `alternation` →
+positionally. What a parse RUNS is a product program: authored per-rule
+operations (`RuleProduct`) lowered once to flat int-coded tables, verified
+cold at binding (`verify_program` checks the PASS/RECORD/optional/matched-text/
+field-order relations), and read back as one `RuleRoutine` per rule that BOTH
+engines execute — the PDA bakes it into its clones, the tree route runs it over
+the `ParseTree`. `ModelExecutable[M]` IS that binding, generic in the model
+type `M` it builds, and it is immutable after verification: rebinding one of
+its attributes raises, so the program the verifier passed is the program that
+runs. Per `kind`: `value_str` → the rule's own matched text; `alternation` →
 pass-through (the matched arm's sub-model identifies itself); `sequence` →
-per-field slot reads (`text`/`gtext` take consumed text, `model`/`models`
-collect sub-models through synthetic layers). The Earley completion runs
-`parse_first` because an all-nullable arm would otherwise make the empty
-match ambiguous; `lift_optional_nullables` (`R? → R` for nullable `R`)
-encodes that policy at normalise time for both compiled paths.
+per-field slot reads, collecting sub-models through synthetic layers. A class's
+fast construction is a structural `ConstructionLicence`, never reflection. The
+Earley completion takes the first derivation because an all-nullable arm would
+otherwise make the empty match ambiguous; `lift_optional_nullables` (`R? → R`
+for nullable `R`) encodes that policy at normalise time for both compiled
+paths, and whether the span MEANS two things is asked where the values exist
+(`different_meaning` into `chosen_meaning`).
 
 ## 9. `CharSet` (`pda/charsets.py`) — the analysis substrate
 
@@ -276,8 +303,8 @@ lowers to a tuple-coded `ItemSpec` (`lit`/`cc`/`ref`/`grp`) carrying its
 bounds and loop gate (`StopGate`/`PairGate`/`KTupleGate`/`PeekGate`/
 `ScanGate`); arm selection is FIRST-gated `ArmSpec`s (per-arm gate specs are
 attached inside the compiler's own arm enumeration so spec↔arm alignment
-cannot drift) plus at most one nullable default. Every clone bakes its
-`RuleFold`; island rules are not cloned (`IslandRef`, §13). A start rule
+cannot drift) plus at most one nullable default. Every clone bakes its rule's
+product routine; island rules are not cloned (`IslandRef`, §13). A start rule
 that is itself an island compiles to a start that fails immediately to the Earley completion: the
 tables are still total, there is no `None` and no windowed self-parse of
 the whole input. The `CloneSpec`/`ItemSpec`
@@ -292,12 +319,16 @@ sibling consumers (op-codes, flat records, gate helpers) is public by name.
 
 ## 12. The fused runtime (`pda/runtime/kernel/`)
 
-`PdaKernel` is the model runtime: an explicit descent stack of flat list
-frames (no Python recursion) walks the int-coded `PdaProgram`, **building the
-model during the walk** — no `ParseTree`. Terminal quantifier loops match
-inline; capture frames own per-item spans and sub-model sinks, capture
+`PdaKernel` is the model runtime: an explicit descent stack (no Python
+recursion) walks the int-coded `PdaProgram`, **building the model during the
+walk** — no `ParseTree`. A stack entry is a typed slotted `Frame`, read and
+written by name: its lanes have different types, and a flat list erased all of
+them and made one unnameable. The boundary list a frame carries exists only
+when the clone's build reads a position (`needs_ends`, which covers `value_str`
+clones — a value-string model IS its extent). Terminal quantifier loops match
+inline; capture frames own per-item spans and sub-model sinks, and capture
 bubbles to the nearest bound item through transparent frames (groups,
-no-constructor clones) exactly as `ModelFold` collects. `pda_model` is the
+no-constructor clones) exactly as the tree route's routines collect. `pda_model` is the
 single predictive runtime entry. On *any* non-deterministic point the runtime raises **`PdaFail`**
 (`errors.py`) — caught inside the product entries, which retry on the Earley
 completion; the completion owns user-facing diagnostics.
@@ -349,10 +380,11 @@ Earley completion.
 
 ## 15. Performance
 
-Benchmarks live in `tools/benchmark/`: `parse_bench.py` (grammar-text and
-instance workloads on the ground-truth corpus and both self-grammars; Lark is
-kept as an external reference baseline) and `pipeline_bench.py` (compile
-pipeline). Saved baselines sit next to them. Characteristics: the Earley
+Benchmarks live in `tools/benchmark/`: `bench.py` drives one row per
+(grammar, engine) pair over the ground-truth corpus and both self-grammars,
+each row measured in a process of its own under a row CONTRACT, and
+`compare.py` judges two revisions against a byte-identical control envelope.
+Characteristics: the Earley
 engine alone beats Lark's Earley on the grammar-text product roughly 2×, with
 linear deep right recursion; the PDA-first paths add roughly another 2× on
 grammar text where the self-grammars gate deterministically, and up to an

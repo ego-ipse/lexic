@@ -6,7 +6,7 @@ says how the parse-tree kid at that slot folds into the field value, and
 ``semantic`` is ``False`` for structural-noise fields (whitespace refs).
 
 Pure data: readable by ``base.py`` and the ``lexic.compile`` package. The
-binding view (:mod:`lexic.compile.pipeline.binding`) produces these; the fold consumes
+binding view (:mod:`lexic.compile.pipeline.rulemap`) produces these; the fold consumes
 them.
 """
 

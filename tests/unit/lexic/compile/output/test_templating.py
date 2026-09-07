@@ -24,7 +24,7 @@ from lexic.compile import (
     template,
 )
 from lexic.compile.output.templating import skip_rules
-from lexic.compile.pipeline.binding import compute_binding
+from lexic.compile.pipeline.rulemap import compute_binding
 from lexic.exceptions import IrKeyError, UnsupportedConstructError
 from lexic.ir import IrMap, IrSelf, refs_in_order
 from lexic.model import GrammarModel
@@ -289,7 +289,7 @@ def test_absent_key_raises_ir_key_error() -> None:
 def test_span_fold_product_is_a_span_level() -> None:
     """The span fold's product is the on-spine SpanLevel, not a plain list."""
     pair = spanify(_TOY_COMPILED, _SHAPE)
-    level = parse_model(pair.sections, "(a=1, f=4)", pair.span_fold)
+    level = parse_model(pair.sections, "(a=1, f=4)", pair.span_binding)
     assert isinstance(level, SpanLevel)
     assert all(isinstance(each, SpanEntry) for each in level)
 

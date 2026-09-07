@@ -105,15 +105,32 @@ class Flight:
             self.live -= 1
 
 
-def _run_one[T](work: Callable[[], T], barrier: threading.Barrier, flight: Flight) -> T:
-    """One worker: wait for the start gun, then run inside the flight count.
+def _run_one[T](
+    work: Callable[[], T],
+    start: threading.Barrier,
+    counted: threading.Barrier,
+    flight: Flight,
+) -> T:
+    """One worker: wait for the start gun, register, wait for every worker to
+    have registered too, THEN run inside the flight count.
+
+    A single gate is not enough: a worker released from ``start`` can be
+    descheduled before it reaches ``flight.enter()``, so an unlucky worker can
+    finish its own ``enter``/``work``/``leave`` cycle before a slower sibling
+    ever calls ``enter`` — ``peak`` then reads 1 despite every worker having
+    been released together, which is a deschedule the counting missed, not an
+    absence of concurrency. The second barrier closes that gap structurally:
+    no worker may proceed to ``work()`` until every worker has already called
+    ``flight.enter()``, so ``peak`` reaches the full worker count by
+    construction rather than by scheduling luck.
 
     Exceptions are not caught here. The worker runs on a future, which carries
     whatever it raised back to :func:`race` — so the harness records a failure
     without ever standing between an exception and the caller.
     """
-    barrier.wait()
+    start.wait()
     flight.enter()
+    counted.wait()
     try:
         return work()
     finally:
@@ -139,11 +156,14 @@ def race[T](
     :returns: Each worker's outcome and the peak overlap observed.
     :raises AssertionError: A worker was still running at the deadline.
     """
-    barrier = threading.Barrier(len(works))
+    start = threading.Barrier(len(works))
+    counted = threading.Barrier(len(works))
     flight = Flight()
     pool = ThreadPoolExecutor(max_workers=len(works))
     try:
-        futures = [pool.submit(_run_one, work, barrier, flight) for work in works]
+        futures = [
+            pool.submit(_run_one, work, start, counted, flight) for work in works
+        ]
         pending = wait(futures, timeout=timeout)[1]
         assert not pending, (
             f"{len(pending)} of {len(works)} workers still running after "

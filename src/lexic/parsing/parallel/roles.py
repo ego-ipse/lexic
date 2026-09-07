@@ -35,6 +35,7 @@ from lexic.ir import (
     IrRule,
     IrRuleRef,
 )
+from lexic.parsing.caches import memo
 from lexic.parsing.parallel.discovery.anchors import anchors
 from lexic.parsing.parallel.discovery.shapes import (
     MARK_ARITY,
@@ -242,14 +243,33 @@ def _body_leads(
     return (chars, lead)
 
 
+_ROLES: dict[int, tuple[IrAst, Roles]] = memo({})
+"""Derived roles — id(grammar) → (grammar, roles). The strong reference pins
+the id, so a recycled id can never alias a live entry."""
+
+
 def roles(grammar: IrAst) -> Roles:
     """Derive the grammar's opener/closer pairs and repetition separators.
+
+    Memoised per grammar identity: the derivation walks every arm of every
+    rule, and the split asks for it once per document rather than once per
+    grammar — on a meta grammar that re-walk was several percent of the whole
+    split parse.
 
     :param grammar: The grammar to analyse (the codegen grammar for a
         compiled artefact — repetition groups are hoisted there, so the
         ``(sep unit)*`` shape appears as an unbounded rule reference).
     :returns: The derived :class:`Roles`; empty roles when nothing matches.
     """
+    entry = _ROLES.get(id(grammar))
+    if entry is None:
+        entry = (grammar, _derive_roles(grammar))
+        _ROLES[id(grammar)] = entry
+    return entry[1]
+
+
+def _derive_roles(grammar: IrAst) -> Roles:
+    """Walk every arm of every rule and classify its anchors, once."""
     anchor_set = anchors(grammar)
     by_name: dict[str, IrRule] = {str(rule.name): rule for rule in grammar.rules}
     pairs: list[tuple[str, str]] = []

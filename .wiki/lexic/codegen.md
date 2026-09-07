@@ -2,7 +2,7 @@
 
 > **SUPERSEDED (2026-07-18).** `src/lexic/codegen/` is DELETED. The
 > grammar→grammar passes and the binding view now live in the `compile/`
-> package (`compile/pipeline/passes.py`, `compile/pipeline/binding.py`); classes are
+> package (`compile/pipeline/passes.py`, `compile/pipeline/rulemap.py`); classes are
 > synthesized at runtime via `type()` in `compile/pipeline/synthesis.py` (no
 > source-emit `model_emitter.py`, no automatic file write);
 > `compile/module/export.py` renders an IMPORTABLE twin module on explicit request
@@ -27,7 +27,7 @@ canonical IrAst ──► build_codegen_grammar (passes.py) ──► THE codege
                                     ┌─────────────────────────────┤
                                     ▼                              ▼
                          compute_binding (binding.py)      emit_module_source (model_emitter.py)
-                         list[RuleBinding]  ───────────────────────┘
+                         list[RuleMap]  ───────────────────────┘
                                     │
                                     ▼
                         codegen(canonical, codegen_grammar, binding, stem)
@@ -44,7 +44,7 @@ Three language-preserving-for-instances rewrites, composed as `build_codegen_gra
 
 ## `codegen/binding.py` — the binding view
 
-`compute_binding(codegen_grammar) -> list[RuleBinding]` is the open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleBinding(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, in emission order (`ir/order.py`'s `RuleOrder.ordered_parents_first` — parent-edge policy, so a base class is always emitted before its subclasses).
+`compute_binding(codegen_grammar) -> list[RuleMap]` is the open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleMap(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, in emission order (`ir/order.py`'s `RuleOrder.ordered_parents_first` — parent-edge policy, so a base class is always emitted before its subclasses).
 
 - **Kind** (`classify_rule`): `"value_str"` (no `IrRuleRef` anywhere), `"alternation"` (>1 non-empty arm after `hoist_arms`), else `"sequence"`.
 - **Parent inference** (`_parent_rules`): a rule referenced as a unit-ref alternation arm gets that alternation as its parent class; everything else parents `GrammarModel` directly. Post arm-hoisting this covers both original single-ref arms and synthesized `-arm<N>` rules.
@@ -85,7 +85,7 @@ Emitted as a module-level type alias: `Digit = Annotated[str, StringConstraints(
 ## `codegen/__init__.py` — the entry point
 
 ```python
-codegen(canonical: IrAst, codegen_grammar: IrAst, binding: list[RuleBinding], stem: str) -> dict[str, type]
+codegen(canonical: IrAst, codegen_grammar: IrAst, binding: list[RuleMap], stem: str) -> dict[str, type]
 ```
 
 Renders the module source, writes `generated/<stem>.py` (ruff-formatted), imports it (purging any stale `sys.modules[f"generated.{stem}"]` first), calls `model_rebuild()` on every loaded class (**required** — under `from __future__ import annotations` a field's `IrBind` metadata only resolves to real objects after the deferred annotations are evaluated), and returns `{class_name: cls}` for every class the binding names. **No `flavour` parameter** — codegen is flavour-agnostic and needs no flavour adapters at all (unlike the pre-cutover shape, which is why `lexic.codegen` no longer imports `lexic.grammars`).

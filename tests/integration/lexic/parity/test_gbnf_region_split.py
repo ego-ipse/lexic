@@ -76,15 +76,15 @@ def test_worker_counts_match_sequential_and_round_trip(compiled, workers: int) -
 def test_the_split_is_not_vacuous(compiled) -> None:
     """The instrumented seam proves several workers actually parsed — not a
     sequential fallback dressed as a split."""
-    grammar, fold = compiled.codegen_grammar, compiled.fold
-    sequential = parse_model(grammar, DOCUMENT, fold)
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    sequential = parse_model(grammar, DOCUMENT, binding)
     calls: list[int] = []
 
     def recording_parse(g, source, f, resolve=None):
         calls.append(len(source))
         return parse_model(g, source, f, resolve)
 
-    split = split_model(recording_parse, grammar, Request(DOCUMENT, fold), 8)
+    split = split_model(recording_parse, grammar, Request(DOCUMENT, binding), 8)
 
     assert split is not None, "the region-family activation must carry this split"
     assert split == sequential

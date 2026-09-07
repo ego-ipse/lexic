@@ -40,7 +40,7 @@ def test_a_resumed_attempt_probe_keeps_its_completed_iteration() -> None:
     chunk = bench.full[2542:5117]
     tables = compiled.pda_tables()
 
-    run = watch(tables, chunk, compiled.fold, cap=10_000)
+    run = watch(tables, chunk, compiled.executor, cap=10_000)
 
     assert run.derived
-    assert pda_model(tables, chunk, compiled.fold).to_text() == chunk
+    assert pda_model(tables, chunk, compiled.executor).to_text() == chunk

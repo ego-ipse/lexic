@@ -1,231 +1,362 @@
-"""Tests for the checked-in Lexic benchmark regression guard."""
+"""Tests for the benchmark's row-contract and structure gate.
+
+The checked-in absolute ratchet is gone by ruling — `assess`, `Confirmed`,
+`save`, the five-percent threshold, `--accept-regression` and the execution
+relations over two different documents were its whole subject, so the tests that
+pinned them are gone with it. A hook cannot reserve a quiet machine, and the
+serial A/B owns acceptance.
+
+What this gate proves instead is that the rows are still the rows, in seconds
+and without timing anything. A row whose identity drifted is exactly the failure
+the timing gate cannot see from its own numbers.
+"""
 
 from __future__ import annotations
+
+import time
+from pathlib import Path
 
 import pytest
 
 from tools.benchmark import regression
-from tools.benchmark.execution.isolation import IsolatedRow, Job, RowRequest
-from tools.benchmark.regression import Confirmed, assess
-
-JSON_PDA: regression.Key = ("json", "lexic-pda")
-VYX_LEX: regression.Key = ("vyx", "lexic-lex")
-
-
-def test_faster_values_and_new_rows_ratchet_from_confirmation() -> None:
-    """Only the aggregate confirmation may establish a stored target."""
-    baseline: regression.Values = {JSON_PDA: 2.0}
-    first: regression.Values = {JSON_PDA: 1.8, VYX_LEX: 2.5}
-    asked: list[frozenset[tuple[str, str]]] = []
-
-    def repeat(keys: frozenset[tuple[str, str]]) -> Confirmed:
-        asked.append(keys)
-        return Confirmed({JSON_PDA: 1.82, VYX_LEX: 2.45}, frozenset())
-
-    outcome = assess(baseline, first, repeat)
-
-    assert asked == [frozenset(first)]
-    assert outcome.baseline == {JSON_PDA: 1.82, VYX_LEX: 2.45}
-    assert outcome.regressions == {}
-    assert outcome.inconclusive == frozenset()
+from tools.benchmark.bench import ENGINE, LEXIC_ROWS, MT_ROWS, PRODUCT
+from tools.benchmark.cases.grammars import BENCHES, Bench
+from tools.benchmark.measurement.contract import PROTOCOL, read_contract
+from tools.benchmark.presentation.cli import REFUSES, UNMEASURED, Artifact
 
 
-def test_noise_sized_change_is_not_repeated_or_stored() -> None:
-    """Noise-sized movement does not drag the ratchet toward an outlier."""
-    baseline: regression.Values = {JSON_PDA: 2.0}
-    outcome = assess(
-        baseline,
-        {JSON_PDA: 1.92},
-        lambda _keys: pytest.fail("a noise-sized change was repeated"),
-    )
-    assert outcome.baseline == baseline
+def _bench(name: str = "json") -> Bench:
+    """One real case, so the gate is tested against real IR."""
+    return next(candidate for candidate in BENCHES if candidate.name == name)
 
 
-def test_recovered_short_pass_does_not_move_the_record() -> None:
-    """A seven-round anomaly is harmless when aggregate confirmation clears it."""
-    baseline: regression.Values = {JSON_PDA: 2.0}
-    outcome = assess(
-        baseline,
-        {JSON_PDA: 2.2},
-        lambda _keys: Confirmed({JSON_PDA: 2.09}, frozenset()),
-    )
-    assert outcome.baseline == baseline
-    assert outcome.regressions == {}
+def test_the_intact_fixture_set_reports_no_problems() -> None:
+    """The shipped cases pass their own structure gate."""
+    assert not regression.check()
 
 
-def test_accept_regression_raises_only_confirmed_slowdowns() -> None:
-    """Acceptance cannot raise a target that confirmation cleared."""
-    vyx_pda = ("vyx", "lexic-pda")
-    baseline: regression.Values = {JSON_PDA: 2.0, vyx_pda: 3.0}
-    first: regression.Values = {JSON_PDA: 2.2, vyx_pda: 3.2}
-    repeated = Confirmed({JSON_PDA: 2.16, vyx_pda: 3.1}, frozenset())
-
-    rejected = assess(baseline, first, lambda _keys: repeated)
-    accepted = assess(
-        baseline,
-        first,
-        lambda _keys: repeated,
-        accept_regression=True,
-    )
-
-    assert rejected.regressions == {JSON_PDA: (2.0, 2.16)}
-    assert rejected.baseline == baseline
-    assert accepted.baseline == {JSON_PDA: 2.16, vyx_pda: 3.0}
+def test_the_gate_exits_zero_on_an_intact_tree(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The hook's success path names what it proved."""
+    assert regression.main([]) == 0
+    assert "contracts intact" in capsys.readouterr().out
 
 
-def test_inconclusive_confirmation_never_changes_the_record() -> None:
-    """A boundary-crossing interval cannot be accepted as a regression."""
-    baseline: regression.Values = {JSON_PDA: 2.0}
-    outcome = assess(
-        baseline,
-        {JSON_PDA: 2.2},
-        lambda _keys: Confirmed({}, frozenset({JSON_PDA})),
-        accept_regression=True,
-    )
-    assert outcome.baseline == baseline
-    assert outcome.regressions == {}
-    assert outcome.inconclusive == frozenset({JSON_PDA})
+def test_the_roster_is_twelve_grammars_and_seventy_two_rows() -> None:
+    """The A/B's row count is this product, and a silent drop must fail."""
+    assert len(BENCHES) == regression.EXPECTED_GRAMMARS == 12
+    assert len(LEXIC_ROWS) == 6
+    assert len(BENCHES) * len(LEXIC_ROWS) == 72
 
 
-def test_targeted_sample_prepares_only_the_exact_requested_rows(
+def test_a_missing_grammar_is_a_failure_not_a_smaller_benchmark(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A repeat constructs neither third-party parsers nor neighbouring Lexic rows."""
-    json_lex = ("json", "lexic-lex")
-    selected = frozenset({JSON_PDA, json_lex})
-    seen: list[Job] = []
-    monkeypatch.setattr(regression, "_active_keys", lambda: selected)
-    monkeypatch.setattr(regression, "_mt_cores", lambda _asked: 4)
+    """A case dropping out cannot quietly shrink the gate."""
+    monkeypatch.setattr(regression, "BENCHES", BENCHES[:-1])
+    problems = regression.check()
 
-    def run_jobs(jobs: list[Job]) -> dict[str, IsolatedRow]:
-        result = IsolatedRow([2.0, 1.8, 1.9], None, None, None, None, 0.0)
-        seen.extend(jobs)
-        return {job.label: result for job in jobs}
+    assert any("expected 12 benchmark grammars" in problem for problem in problems)
 
-    monkeypatch.setattr(regression, "run_jobs", run_jobs)
 
-    assert regression.measure(selected, 3) == {JSON_PDA: 1.9, json_lex: 1.9}
-    assert seen == [
-        Job("json/lexic-lex", RowRequest("json", "lexic-lex", 3, 4, False)),
-        Job("json/lexic-pda", RowRequest("json", "lexic-pda", 3, 4, False)),
+def test_every_lexic_row_is_named_by_both_legend_tables() -> None:
+    """A row nobody can describe is a number without a noun."""
+    for row in LEXIC_ROWS:
+        assert row in ENGINE
+        assert row in PRODUCT
+
+
+def test_the_gate_times_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A pre-commit hook cannot reserve a quiet machine, so it must not try."""
+
+    def forbidden() -> float:
+        raise AssertionError("the structure gate must not read a clock")
+
+    monkeypatch.setattr(time, "perf_counter", forbidden)
+    monkeypatch.setattr(time, "process_time", forbidden)
+
+    assert not regression.check()
+
+
+def test_a_directive_naming_an_unknown_rule_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A declaration must name rules the grammar actually has."""
+    broken = _bench()._replace(lexical=("not-a-rule",))
+    monkeypatch.setattr(regression, "BENCHES", (broken,))
+    problems = regression.check()
+
+    assert any("names unknown rules" in problem for problem in problems)
+
+
+def test_an_unsorted_directive_declaration_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sorted declarations are what let two arms' contracts compare equal."""
+    bench = _bench()
+    monkeypatch.setattr(
+        regression, "BENCHES", (bench._replace(lexical=tuple(reversed(bench.lexical))),)
+    )
+    problems = regression.check()
+
+    assert any("is not sorted" in problem for problem in problems)
+
+
+def test_the_declared_directives_are_the_grammar_s_own_rules() -> None:
+    """Every shipped declaration validates against its own grammar."""
+    for bench in BENCHES:
+        names = {str(rule.name) for rule in bench.ast.rules}
+        assert set(bench.lexical) <= names
+        assert set(bench.non_semantic) <= names
+
+
+def test_a_threaded_row_reads_the_full_document_and_a_sequential_one_the_corpus() -> (
+    None
+):
+    """The relation rows must not compare two different documents."""
+    bench = _bench()
+    threaded = regression.row_contract(bench, "lexic-mt")
+    sequential = regression.row_contract(bench, "lexic-pda")
+
+    assert threaded.scale == "full"
+    assert sequential.scale == "corpus"
+    assert threaded.document_digest != sequential.document_digest
+    assert threaded.document_bytes == len(bench.full.encode("utf-8"))
+
+
+def test_both_threaded_rows_read_the_same_full_document() -> None:
+    """An execution-mode relation needs one document, not two scales."""
+    bench = _bench()
+    digests = {
+        regression.row_contract(bench, row).document_digest for row in sorted(MT_ROWS)
+    }
+
+    assert len(digests) == 1
+
+
+def test_only_the_variant_rows_carry_directives() -> None:
+    """A row's contract states the exact directives it compiled with."""
+    bench = _bench()
+    plain = regression.row_contract(bench, "lexic-pda")
+    lexical = regression.row_contract(bench, "lexic-lex")
+    both = regression.row_contract(bench, "lexic-lex-ns")
+
+    assert plain.lexical == () and plain.non_semantic == ()
+    assert lexical.lexical == tuple(sorted(bench.lexical))
+    assert lexical.non_semantic == ()
+    assert both.non_semantic == tuple(sorted(bench.non_semantic))
+
+
+def test_acceptance_rows_record_the_collector_as_enabled() -> None:
+    """Production does not disable the collector, so a timed row must not."""
+    contract = regression.row_contract(_bench(), "lexic-pda")
+
+    assert contract.gc_enabled is True
+
+
+def test_a_collector_disabled_row_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gate says so rather than letting the masked cost through."""
+    bench = _bench()
+    original = regression.row_contract
+
+    def disabled(case: Bench, row: str):
+        return original(case, row)._replace(gc_enabled=False)
+
+    monkeypatch.setattr(regression, "BENCHES", (bench,))
+    monkeypatch.setattr(regression, "row_contract", disabled)
+    problems = regression.check()
+
+    assert any("collector enabled" in problem for problem in problems)
+
+
+def test_every_contract_round_trips_through_its_wire_form() -> None:
+    """What a worker writes is what the comparator reads back."""
+    for bench in BENCHES:
+        for row in sorted(LEXIC_ROWS):
+            contract = regression.row_contract(bench, row)
+            assert read_contract(contract.wire()) == contract
+
+
+def test_a_foreign_protocol_is_refused_rather_than_compared() -> None:
+    """Two harness copies at different versions are not one instrument."""
+    wire = regression.row_contract(_bench(), "lexic-pda").wire()
+    wire["protocol"] = PROTOCOL + 1
+
+    with pytest.raises(ValueError, match="protocol mismatch"):
+        read_contract(wire)
+
+
+# ── a published cell says what it is, and why it is not a number ──────────
+
+
+def _staged(path: Path, monkeypatch: pytest.MonkeyPatch) -> Artifact:
+    """The committed artifact, for a test to bend and the gate to read at ``path``.
+
+    Bent through the record the writer uses rather than through the raw JSON,
+    so a crafted file is one this harness could have written.
+    """
+    artifact = Artifact.load(regression.ARTIFACT)
+    monkeypatch.setattr(regression, "ARTIFACT", path)
+    return artifact
+
+
+def _cell(artifact: Artifact) -> tuple[str, str]:
+    """One committed ``(grammar, seat)`` that publishes a number today."""
+    for grammar, cells in artifact.values.items():
+        for seat, value in cells.items():
+            if not isinstance(value, str):
+                return grammar, seat
+    raise AssertionError("the artifact publishes no number at all")
+
+
+def test_the_committed_artifact_states_a_reason_for_every_nonnumeric_cell() -> None:
+    """The defect this invariant exists for, read straight off the file.
+
+    Fifteen refusals published the word and `note: null`, so the artifact said
+    a seat cannot take a language and would not say why — while every per-cell
+    check passed, because none of them read a value beside its record.
+    """
+    artifact = Artifact.load(regression.ARTIFACT)
+    silent = [
+        f"{grammar}/{seat}"
+        for grammar, cells in artifact.values.items()
+        for seat, value in cells.items()
+        if isinstance(value, str) and not artifact.provenance[grammar][seat].note
     ]
 
+    assert silent == [], silent
 
-def test_confirmation_resolves_stable_rows_after_twenty_one_aggregate_rounds(
-    monkeypatch: pytest.MonkeyPatch,
+
+def test_every_committed_value_is_a_number_or_one_of_the_two_declared_words() -> None:
+    """`refuses` and `unmeasured` are the vocabulary; a third word is not."""
+    artifact = Artifact.load(regression.ARTIFACT)
+    words = {
+        value
+        for cells in artifact.values.values()
+        for value in cells.values()
+        if isinstance(value, str)
+    }
+
+    assert words <= {REFUSES, UNMEASURED}, words
+
+
+def test_a_refusal_carrying_no_reason_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Stable recovery and regression use three batches, not a lucky pair."""
-    vyx_pda = ("vyx", "lexic-pda")
-    keys = frozenset({JSON_PDA, vyx_pda})
-    calls: list[tuple[frozenset[tuple[str, str]], int]] = []
-
-    def sampled(
-        selected: frozenset[tuple[str, str]] | None, rounds: int
-    ) -> dict[tuple[str, str], list[float]]:
-        assert selected is not None
-        calls.append((selected, rounds))
-        return {key: [2.0 if key == JSON_PDA else 3.3] * rounds for key in selected}
-
-    monkeypatch.setattr(regression, "sample", sampled)
-    result = regression.confirmation(keys, {JSON_PDA: 2.0, vyx_pda: 3.0})
-
-    assert result == Confirmed({JSON_PDA: 2.0, vyx_pda: 3.3}, frozenset())
-    assert sum(rounds for selected, rounds in calls if JSON_PDA in selected) == 21
-    assert sum(rounds for selected, rounds in calls if vyx_pda in selected) == 21
-
-
-def test_confirmation_aggregates_every_batch_before_bounded_decision(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """More rounds cannot manufacture success by choosing a favorable batch."""
-    calls: list[int] = []
-
-    def sampled(
-        selected: frozenset[tuple[str, str]] | None, rounds: int
-    ) -> dict[tuple[str, str], list[float]]:
-        assert selected == frozenset({JSON_PDA})
-        calls.append(rounds)
-        # The aggregate median stays at the boundary, but its robust sigma is
-        # far too wide to trust even at the bounded maximum.
-        values = [1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.0]
-        return {JSON_PDA: values[:rounds]}
-
-    monkeypatch.setattr(regression, "sample", sampled)
-    result = regression.confirmation(frozenset({JSON_PDA}), {JSON_PDA: 2.0})
-
-    assert result == Confirmed({JSON_PDA: 2.1}, frozenset())
-    assert calls == [7, 7, 7, 7, 7]
-    assert sum(calls) == regression.CONFIRM_MAX_ROUNDS == 35
-
-
-def test_more_rounds_reduce_sigma_before_classifying_an_anomaly() -> None:
-    """A noisy median is deferred at 14 and trusted after its error shrinks."""
-    batch = [1.72, 1.86, 1.99, 2.12, 2.25, 2.38, 2.52]
-
-    assert regression.state(2.0, batch * 2, 5.0) is None
-    assert regression.state(2.0, batch * 5, 5.0) == "regression"
-
-
-def test_execution_relation_flags_only_a_materially_slower_optimized_row() -> None:
-    """Mode ordering uses the same five-percent trigger as stored targets."""
-    relation = regression.Relation("json", "lexic-lex-ns", "lexic-lex")
-    rows = frozenset({relation})
-
-    assert (
-        regression.relation_failures(
-            {("json", "lexic-lex"): 1.0, ("json", "lexic-lex-ns"): 1.04}, rows
-        )
-        == frozenset()
+    """A cell that publishes a word owes the reader the words behind it."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.values[grammar][seat] = REFUSES
+    artifact.provenance[grammar][seat] = artifact.provenance[grammar][seat]._replace(
+        note=None
     )
-    assert (
-        regression.relation_failures(
-            {("json", "lexic-lex"): 1.0, ("json", "lexic-lex-ns"): 1.06}, rows
-        )
-        == rows
+    artifact.write(path)
+
+    problems = regression.check()
+
+    assert any(f"{grammar}/{seat}" in problem for problem in problems)
+    assert any("no reason" in problem for problem in problems), problems
+
+
+def test_a_blank_reason_reads_as_no_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spaces in `note` satisfy a `is not None` check and tell nobody anything."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.values[grammar][seat] = UNMEASURED
+    artifact.provenance[grammar][seat] = artifact.provenance[grammar][seat]._replace(
+        note="   "
+    )
+    artifact.write(path)
+
+    assert any("no reason" in problem for problem in regression.check())
+
+
+def test_a_measured_cell_carrying_a_reason_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`note` says why a cell holds NO number, so a number with one disagrees
+    with itself — and a refusal spliced over by a later measurement leaves
+    exactly that shape behind."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.provenance[grammar][seat] = artifact.provenance[grammar][seat]._replace(
+        note="left over from the refusal this cell used to be"
+    )
+    artifact.write(path)
+
+    problems = regression.check()
+
+    assert any("left over" in problem for problem in problems), problems
+
+
+def test_a_word_the_schema_never_declared_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The renderer draws `×` for one word and `?` for the other; a third is
+    silently drawn as one of them."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.values[grammar][seat] = "n/a"
+    artifact.provenance[grammar][seat] = artifact.provenance[grammar][seat]._replace(
+        note="crafted"
+    )
+    artifact.write(path)
+
+    assert any("'n/a'" in problem for problem in regression.check())
+
+
+def test_a_value_that_is_not_a_finite_number_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`Infinity` survives a JSON round trip and divides into a speedup."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.values[grammar][seat] = float("inf")
+    artifact.write(path)
+
+    assert any("finite" in problem for problem in regression.check())
+
+
+def test_an_absent_artifact_is_a_problem_and_not_an_empty_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reader that answers "no cells" for a missing file passes every cell
+    check by having none, which is the one answer a gate must not give."""
+    monkeypatch.setattr(regression, "ARTIFACT", tmp_path / "gone.json")
+
+    assert any("not here" in problem for problem in regression.check())
+
+
+def test_a_published_cell_with_no_record_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A value nothing recorded cannot be checked against the tree at all."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    del artifact.provenance[grammar][seat]
+    artifact.write(path)
+
+    assert any("no record" in problem for problem in regression.check())
+
+
+def test_the_gate_reports_every_problem_it_found(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failing hook names the cases, not just a count."""
+    monkeypatch.setattr(
+        regression, "BENCHES", (_bench()._replace(lexical=("not-a-rule",)),)
     )
 
-
-def test_relation_confirmation_repeats_only_both_sides_of_anomaly(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ordering confirmation is paired, bounded, and excludes unrelated rows."""
-    relation = regression.Relation("json", "lexic-lex-ns", "lexic-lex")
-    expected = frozenset({("json", "lexic-lex-ns"), ("json", "lexic-lex")})
-    calls: list[frozenset[regression.Key]] = []
-
-    def sampled(
-        selected: frozenset[regression.Key] | None, rounds: int
-    ) -> regression.Samples:
-        assert selected is not None
-        assert selected == expected
-        calls.append(selected)
-        return {
-            ("json", "lexic-lex"): [1.0] * rounds,
-            ("json", "lexic-lex-ns"): [1.1] * rounds,
-        }
-
-    monkeypatch.setattr(regression, "sample", sampled)
-    _values, failures = regression.confirm_relations(frozenset({relation}))
-
-    assert failures == frozenset({relation})
-    assert calls == [expected, expected, expected]
-
-
-def test_new_row_gets_the_full_bounded_measurement(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A newly benchmarked grammar/row starts with a robust stored number."""
-    calls: list[int] = []
-
-    def sampled(
-        selected: frozenset[tuple[str, str]] | None, rounds: int
-    ) -> dict[tuple[str, str], list[float]]:
-        assert selected == frozenset({VYX_LEX})
-        calls.append(rounds)
-        return {VYX_LEX: [1.5] * rounds}
-
-    monkeypatch.setattr(regression, "sample", sampled)
-    result = regression.confirmation(frozenset({VYX_LEX}), {})
-
-    assert result == Confirmed({VYX_LEX: 1.5}, frozenset())
-    assert calls == [35]
+    assert regression.main([]) == 1
+    assert "not-a-rule" in capsys.readouterr().out

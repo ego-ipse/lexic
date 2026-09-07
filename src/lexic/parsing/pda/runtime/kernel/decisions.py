@@ -35,6 +35,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.runtime.admission import (
     KernelCaches,
+    RouteLane,
+    Side,
     admits,
     control_signature,
     frames_copy,
@@ -43,7 +45,9 @@ from lexic.parsing.pda.runtime.admission import (
     value_shape,
     values_agree,
 )
-from lexic.parsing.pda.runtime.build import F_ARM, F_COUNT, F_ENDS, F_I, F_OUT
+from lexic.parsing.pda.runtime.build import (
+    Frame,
+)
 
 __all__ = ["Attempting", "sole_admitted"]
 
@@ -129,15 +133,7 @@ def _composes(follow: Any, text: str, end: int) -> bool:
     return end >= len(text) or follow.has(text[end : end + 1])
 
 
-def _close_loop(frame: list[Any], i: int, pos: int) -> int:
-    """Close the loop at the current count — the driver continues past ``i``."""
-    frame[F_COUNT] = 0
-    frame[F_I] = i + 1
-    frame[F_ENDS][i] = pos
-    return i + 1
-
-
-class Attempting:
+class Attempting[Carry]:
     """The attempt/probe methods, hosted for the kernel to inherit.
 
     Declares the kernel surface it reads (the kernel's own slots and the
@@ -149,10 +145,11 @@ class Attempting:
 
     text: str
     pos: int
-    stack: list[list[Any]]
-    _caches: KernelCaches
+    stack: list[Frame[Carry]]
+    _caches: KernelCaches[Carry]
+    _routes: RouteLane | None
 
-    def _enter(self, clone: FlatClone, out: list[object]) -> bool:
+    def _enter(self, clone: FlatClone[Carry], out: list[Carry]) -> bool:
         """Provided by the kernel — push (or inline) ``clone``'s frame."""
         raise NotImplementedError
 
@@ -160,16 +157,16 @@ class Attempting:
         """Provided by the kernel — drain the frame stack down to ``floor``."""
         raise NotImplementedError
 
-    def _sink_for(self, frame: list[Any], arm: FlatArm, i: int) -> list[Any]:
+    def _sink_for(self, frame: Frame[Carry], arm: FlatArm, i: int) -> list[Carry]:
         """Provided by the kernel — item ``i``'s lazily-allocated sink."""
         raise NotImplementedError
 
-    def _island(self, name: str, sink: list[object]) -> None:
+    def _island(self, name: str, sink: list[Carry]) -> None:
         """Provided by the kernel — the windowed Earley island splice."""
         raise NotImplementedError
 
     def attempt_iteration(
-        self, frame: list[Any], arm: FlatArm, i: int, pos: int
+        self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
     ) -> int:
         """One ATTEMPTED optional loop iteration — failure closes the loop.
 
@@ -203,7 +200,7 @@ class Attempting:
         char = self.text[pos : pos + 1]
         first = arm.gate_data[i][0]
         if not admits(char, *first):
-            return _close_loop(frame, i, pos)
+            return frame.close_loop(i, pos)
         k = arm.kinds[i]
         if k in (OP_ISLAND, OP_FAIL):  # no (end, values) to fork-probe
             if self._stop_viable(arm, i, char):
@@ -214,12 +211,12 @@ class Attempting:
             return self._attempt_island(frame, arm, i, pos)
         got = self._attempt_run(arm.payloads[i], pos)
         if got is None or got[0] == pos:
-            return _close_loop(frame, i, pos)
+            return frame.close_loop(i, pos)
         if not self._attempt_choice(arm, i, pos, got):
-            return _close_loop(frame, i, pos)
+            return frame.close_loop(i, pos)
         end, values = got
         self._sink_for(frame, arm, i).extend(values)
-        frame[F_COUNT] += 1
+        frame.count += 1
         self.pos = end
         return i
 
@@ -228,7 +225,7 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        got: tuple[int, list[object]],
+        got: tuple[int, list[Carry]],
     ) -> bool:
         """Whether one successful tentative iteration may commit."""
         # The stored soft continuation over-approximates every viable stop
@@ -273,7 +270,7 @@ class Attempting:
         verdict, opt = _arm_rest_scan(arm, i, char)
         if verdict == _ASCEND:
             for frame in self.stack[-2::-1]:
-                verdict, o = _arm_rest_scan(frame[F_ARM], frame[F_I], char)
+                verdict, o = _arm_rest_scan(frame.arm, frame.i, char)
                 opt = opt or o
                 if verdict != _ASCEND:
                     break
@@ -288,7 +285,9 @@ class Attempting:
         the island branch's trigger (:meth:`_beyond_class` in truth form)."""
         return self._beyond_class(arm, i, char) in (_ADMITS, _ADMITS_HARD)
 
-    def _attempt_island(self, frame: list[Any], arm: FlatArm, i: int, pos: int) -> int:
+    def _attempt_island(
+        self, frame: Frame[Carry], arm: FlatArm, i: int, pos: int
+    ) -> int:
         """An attempted ISLAND / fail-island iteration — failure closes the loop."""
         if arm.kinds[i] == OP_ISLAND:
             sink = self._sink_for(frame, arm, i)
@@ -297,17 +296,17 @@ class Attempting:
             except PdaFail:
                 pass
             else:
-                frame[F_COUNT] += 1
+                frame.count += 1
                 return i
         self.pos = pos
-        return _close_loop(frame, i, pos)
+        return frame.close_loop(i, pos)
 
     def _fork_verdict(
         self,
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]],
+        taken: tuple[int, list[Carry]],
     ) -> int:
         """A both-viable boundary's resolution — take, stop, or fork.
 
@@ -344,7 +343,7 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]],
+        taken: tuple[int, list[Carry]],
     ) -> int | None:
         """The boundary settled by CONVERGENCE, or ``None`` to run it the long way.
 
@@ -385,7 +384,9 @@ class Attempting:
                 return None  # a dead side — the slow path names which
             target = max(left[1], right[1])
             if left[1] == right[1]:
-                if control_signature(*left) == control_signature(*right):
+                if control_signature(left[0], left[1]) == control_signature(
+                    right[0], right[1]
+                ):
                     return self._converged(left, right, shape)
                 target += _LOCKSTEP_STEP
             left = self._advance(left, target)
@@ -394,8 +395,8 @@ class Attempting:
 
     def _converged(
         self,
-        left: tuple[list[Any], int],
-        right: tuple[list[Any], int],
+        left: Side,
+        right: Side,
         shape: tuple[Any, ...],
     ) -> int | None:
         """The verdict once both sides share a position and a control state.
@@ -418,34 +419,32 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]] | None,
-    ) -> tuple[list[Any], int] | None:
-        """One side of the boundary as its own resumable ``(stack, pos)``.
+        taken: tuple[int, list[Carry]] | None,
+    ) -> Side | None:
+        """One side of the boundary as its own resumable ``(stack, pos, lane)``.
 
         The same fork :meth:`_probe` builds — a structural stack copy with the
         boundary decided — but handed back undriven so the caller can advance
-        it in step with the other.
+        it in step with the other. The lane forks with the stack, so whichever
+        side loses takes the routes it published with it.
         """
         forked = frames_copy(self.stack)
+        routes = None if self._routes is None else self._routes.forked(forked)
         top = forked[-1]
         if taken is None:
-            top[F_COUNT] = 0
-            top[F_I] = i + 1
-            top[F_ENDS][i] = pos
-            return forked, pos
-        top[F_COUNT] += 1
-        top[F_I] = i
+            top.close_loop(i, pos)
+            return forked, pos, routes
+        top.count += 1
+        top.i = i
         saved = self.stack
         self.stack = forked
         try:
             self._sink_for(top, arm, i).extend(taken[1])
         finally:
             self.stack = saved
-        return forked, taken[0]
+        return forked, taken[0], routes
 
-    def _advance(
-        self, side: tuple[list[Any], int], limit: int
-    ) -> tuple[list[Any], int] | None:
+    def _advance(self, side: Side, limit: int) -> Side | None:
         """Drive one side to ``limit`` (``-1`` = to the end), or ``None`` if it dies.
 
         Swapped in and out under the same discipline :meth:`_probe` uses, and
@@ -458,22 +457,23 @@ class Attempting:
         is the whole population this exists for.
         """
         caches = self._caches
-        saved_stack, saved_pos = self.stack, self.pos
-        self.stack, self.pos = side[0], side[1]
+        saved_stack, saved_pos, saved_routes = self.stack, self.pos, self._routes
+        self.stack, self.pos, self._routes = side[0], side[1], side[2]
         caches.probing += 1
         saved_unc = caches.uncertain
         caches.uncertain = False
         try:
             self._drive(limit=limit)
-            return self.stack, self.pos
+            return self.stack, self.pos, self._routes
         except PdaFail, LexicError:
             return None
         finally:
             caches.probing -= 1
             caches.uncertain = saved_unc
             self.stack, self.pos = saved_stack, saved_pos
+            self._routes = saved_routes
 
-    def attempt(self, clone: FlatClone, out: list[object]) -> None:
+    def attempt(self, clone: FlatClone[Carry], out: list[Carry]) -> None:
         """Try an attempt clone's entries in order — the third gate class, live.
 
         Each entry runs as a self-contained sub-run from the cursor
@@ -492,7 +492,7 @@ class Attempting:
         pos = self.pos
         char = self.text[pos : pos + 1]
         winner = -1
-        best: tuple[int, list[object]] | None = None
+        best: tuple[int, list[Carry]] | None = None
         for idx, (chars, negated, prefix, window, sub) in enumerate(entries):
             if chars is not None and (  # `admits`, read in place
                 (char == "" or char in chars) if negated else (char not in chars)
@@ -590,7 +590,9 @@ class Attempting:
             self.text = whole
         return bounded is not None and bounded[0] == end
 
-    def _attempt_run(self, sub: FlatClone, pos: int) -> tuple[int, list[object]] | None:
+    def _attempt_run(
+        self, sub: FlatClone[Carry], pos: int
+    ) -> tuple[int, list[Carry]] | None:
         """One arm attempt as a self-contained sub-run — fail-soft, rolled back.
 
         Runs ON TOP of the live stack, bounded by a depth watermark (not a
@@ -611,7 +613,7 @@ class Attempting:
         saved_pos = self.pos
         floor = len(self.stack)
         self.pos = pos
-        holder: list[object] = []
+        holder: list[Carry] = []
         try:
             self._enter(sub, holder)
             self._drive(floor)
@@ -631,8 +633,8 @@ class Attempting:
         arm: FlatArm,
         i: int,
         pos: int,
-        taken: tuple[int, list[object]] | None,
-    ) -> tuple[list[object] | None, bool]:
+        taken: tuple[int, list[Carry]] | None,
+    ) -> tuple[list[Carry] | None, bool]:
         """One side of a boundary, run to end-of-input on a copied stack.
 
         The continuation from a boundary is runnable because the live stack
@@ -654,16 +656,20 @@ class Attempting:
         caches = self._caches
         saved_stack, saved_pos = self.stack, self.pos
         forked = frames_copy(saved_stack)
-        root_out = forked[0][F_OUT]
+        # The lane rides the fork: a probe that publishes a route must not
+        # leave it behind on the real stack when the probe is discarded.
+        # `None` for every unrouted program, so this costs one test.
+        saved_routes = self._routes
+        if saved_routes is not None:
+            self._routes = saved_routes.forked(forked)
+        root_out = forked[0].out
         top = forked[-1]
         if taken is None:
-            top[F_COUNT] = 0
-            top[F_I] = i + 1
-            top[F_ENDS][i] = pos
+            top.close_loop(i, pos)
             start = pos
         else:
-            top[F_COUNT] += 1
-            top[F_I] = i
+            top.count += 1
+            top.i = i
             start = taken[0]
         self.stack = forked
         self.pos = start
@@ -684,3 +690,4 @@ class Attempting:
             caches.probing -= 1
             caches.uncertain = saved_unc
             self.stack, self.pos = saved_stack, saved_pos
+            self._routes = saved_routes

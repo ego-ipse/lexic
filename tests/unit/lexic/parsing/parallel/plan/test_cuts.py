@@ -9,8 +9,10 @@ piece before — the one arithmetic difference between a proposal and a proof.
 from __future__ import annotations
 
 from lexic.compile import compile_text
+from lexic.parsing.parallel.discovery.scan import clustered
 from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.plan.cuts import (
+    _widths,
     after_mark,
     cut_offsets,
     cut_spans,
@@ -18,7 +20,8 @@ from lexic.parsing.parallel.plan.cuts import (
     scan_windows,
     sole_mark,
 )
-from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.plan.split import matched, spellings
+from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN
 from lexic.parsing.parallel.pool import WorkPool
 from tests.unit.lexic.parsing.parallel.speculation_fixtures import (
     ANNOUNCED,
@@ -26,6 +29,16 @@ from tests.unit.lexic.parsing.parallel.speculation_fixtures import (
 )
 
 LINES = 'root ::= line+\nline ::= [a-z0-9]* nl\nnl ::= "\\n"\n'
+
+
+def _lines(size: int) -> str:
+    """A LINES document of at least ``size`` characters."""
+    out: list[str] = []
+    total = 0
+    while total < size:
+        out.append(f"line{len(out)}\n")
+        total += len(out[-1])
+    return "".join(out)
 
 
 def _plan(source: str, key: str):
@@ -90,7 +103,7 @@ def test_every_chosen_cut_clears_the_floor_on_both_sides() -> None:
     text = announced_doc(300)
     assert len(text) > 4 * MIN_CHUNK
     with WorkPool(8) as pool:
-        cuts = cut_offsets(plan, text, 8, pool)
+        cuts = cut_offsets(plan, text, 8, pool).offsets
     assert cuts
     bounds = [0, *cuts, len(text)]
     assert all(hi - lo >= MIN_CHUNK for lo, hi in zip(bounds, bounds[1:])), (
@@ -111,7 +124,7 @@ def test_a_proposal_is_never_cut_at_offset_zero() -> None:
     with WorkPool(8) as pool:
         windows = scan_windows(plan.scanner, text, 8, pool)
         assert 0 in scan_marks(plan, text, 8, pool, windows)
-        assert 0 not in cut_offsets(plan, text, 8, pool, windows)
+        assert 0 not in cut_offsets(plan, text, 8, pool, windows).offsets
 
 
 def test_every_candidate_stands_on_a_mark_of_the_plan() -> None:
@@ -123,3 +136,110 @@ def test_every_candidate_stands_on_a_mark_of_the_plan() -> None:
         marks = scan_marks(plan, text, 8, pool)
     assert marks
     assert all(text[at] in plan.mark for at in marks)
+
+
+# ── how many windows the scan uses, and why it changes no answer ──────────
+
+
+def test_a_document_below_the_scan_floor_is_swept_once() -> None:
+    """A window must be worth handing to a worker.
+
+    Scanning is two orders of magnitude cheaper per byte than parsing, so the
+    chunk floor is the wrong unit for it: at one window per parse chunk a small
+    document spent more time dispatching windows than sweeping them.
+    """
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(MIN_SCAN + MIN_CHUNK)
+    assert len(text) < 2 * MIN_SCAN
+
+    with WorkPool(8) as pool:
+        assert len(scan_windows(plan.scanner, text, 8, pool)) == 1
+
+
+def test_a_large_document_is_swept_in_windows_bounded_by_both_floors() -> None:
+    """Above the scan floor the sweep divides, and never past the workers."""
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(5 * MIN_SCAN)
+    assert len(text) >= 5 * MIN_SCAN
+
+    with WorkPool(2) as pool:
+        assert len(scan_windows(plan.scanner, text, 2, pool)) == 2
+    with WorkPool(8) as pool:
+        assert len(scan_windows(plan.scanner, text, 8, pool)) == len(text) // MIN_SCAN
+
+
+def test_the_window_count_changes_no_mark_and_no_cut() -> None:
+    """Windows are arithmetic and self-locating, so their number is a
+    scheduling choice and never an answer."""
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(4 * MIN_SCAN)
+
+    with WorkPool(8) as pool:
+        one = plan.scanner.window(text, 0, len(text))
+        many = scan_windows(plan.scanner, text, 8, pool)
+        assert len(many) > 1
+        assert plan.scanner.offsets([one]) == plan.scanner.offsets(many)
+        assert scan_marks(plan, text, 8, pool, [one]) == scan_marks(
+            plan, text, 8, pool, many
+        )
+        assert cut_offsets(plan, text, 8, pool, [one]) == cut_offsets(
+            plan, text, 8, pool, many
+        )
+
+
+# ── selecting this plan's own marks out of the grammar's ──────────────────
+
+
+def test_a_one_character_mark_set_selects_exactly_what_widths_would() -> None:
+    """The membership test and the width table must agree, mark for mark.
+
+    A one-character spelling cannot overlap itself, so every width is 1 and the
+    run thinning is the identity — the two paths are one answer, and this is
+    the check that they stay one.
+    """
+    plan = _plan(LINES, "cuts-lines")
+    text = _lines(2 * MIN_CHUNK)
+
+    with WorkPool(4) as pool:
+        windows = scan_windows(plan.scanner, text, 4, pool)
+        at_depth = plan.scanner.offsets(windows, depth=0)
+        widths = _widths(text, at_depth, spellings(plan.mark))
+
+        assert scan_marks(plan, text, 4, pool, windows) == clustered(
+            sorted(widths), widths, plan.trailing
+        )
+
+
+def test_the_widest_spelling_at_an_offset_is_the_one_that_matches() -> None:
+    """Longest first, or a cut lands mid-spelling — and the ordering is the
+    SET's, settled once rather than at every occurrence."""
+    ordered = spellings(frozenset({"\n", "\n\n", ";"}))
+
+    assert ordered[0] == "\n\n"
+    assert matched("a\n\nb", 1, ordered) == "\n\n"
+    assert matched("a\nb", 1, ordered) == "\n"
+    assert matched("ab", 1, ordered) == ""
+
+
+def test_a_plan_carries_its_marks_in_match_order_already_settled() -> None:
+    """Order is a property of the mark SET, so the plan is what holds it.
+
+    Deriving it where a mark is READ sorted once per candidate examined and
+    once per cut accepted, on the same immutable set, every document.
+    """
+    plan = _plan(LINES, "cuts-lines")
+
+    assert plan.ordered == spellings(plan.mark)
+    assert plan.ordered == ("\n",)
+
+
+def test_the_ordering_a_plan_carries_is_the_one_matching_uses() -> None:
+    """A wider spelling at an offset still wins, through the plan's tuple."""
+    plan = _plan(LINES, "cuts-lines")
+    wide = plan._replace(
+        mark=frozenset({"\n", "\n\n"}), ordered=spellings(frozenset({"\n", "\n\n"}))
+    )
+    text = "a\n\nb\n"
+
+    assert after_mark(wide, text, 1) == 3
+    assert after_mark(plan, text, 1) == 2

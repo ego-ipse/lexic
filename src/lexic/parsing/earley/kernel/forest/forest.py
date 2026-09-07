@@ -100,7 +100,7 @@ class ParseTree(IrNamedTuple[IrRuleRef, IrSeq]):
         return tuple.__new__(cls, (symbol, kids))
 
 
-class PayloadLeaf(IrLeaf[IrSelf, IrSelf]):
+class PayloadLeaf[Carry](IrLeaf[IrSelf, IrSelf]):
     """A pre-folded family child spliced in by island-interior delegation.
 
     When the PDA delegates a conflict-free rule's interior, its sub-run yields a
@@ -110,23 +110,26 @@ class PayloadLeaf(IrLeaf[IrSelf, IrSelf]):
     scanned character occupies. It therefore decodes as a normal terminal-like
     family child (:class:`ChildDerivs` / :meth:`~lexic.parsing.earley.kernel.loop.kernel
     .Kernel._child` / :class:`~lexic.parsing.earley.kernel.loop.kernel.FastTree`), and the
-    :class:`~lexic.parsing.fold.ModelFold` passes its :attr:`payload` straight
-    through as an already-folded child (mirroring the PDA-side island splice).
+    :class:`~lexic.parsing.product.ProductExecutor` passes its :attr:`payload`
+    straight through as an already-completed child (mirroring the PDA-side
+    island splice).
     Not a :class:`ParseTree` and
     not an :class:`~lexic.ir.grammar.nodes.IrLiteral`, so every kid-walk that
     discriminates on those two leaves it alone.
 
-    :ivar payload: The pre-built model value (``None`` for a nullable match).
+    :ivar payload: The present pre-built value; it may itself be Python
+        ``None``. Delegated rules are non-nullable, so a leaf is always a
+        present completion rather than an absence marker.
     :ivar text: The consumed span text (read by ``text`` / ``gtext`` folds and
         text-bearing model folds).
     """
 
     __slots__ = ("payload", "text")
 
-    payload: object
+    payload: Carry
     text: str
 
-    def __init__(self, payload: object, text: str) -> None:
+    def __init__(self, payload: Carry, text: str) -> None:
         """:param payload: the pre-built value; :param text: its consumed span."""
         self.payload = payload
         self.text = text

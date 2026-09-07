@@ -33,10 +33,17 @@ EMIT = object()
 EXHAUSTED = object()
 """Sent into a parent cogen when an advanced child cogen is exhausted."""
 
-# A command's payload is heterogeneous — a child cogen (ADVANCE) or an emitted
-# IrSelf value (EMIT) — so it is typed ``object`` and narrowed at the seam.
-_Command = tuple[object, object]
-_CoGen = Generator[_Command, object, None]
+Command = tuple[object, object]
+"""What a cogen yields: ``(tag, payload)``.
+
+The payload is heterogeneous by design — a child cogen under ``ADVANCE``, an
+emitted value under ``EMIT`` — so it is typed ``object``: the driver never
+reads it, it only routes it, and every consumer narrows at its own seam. Public
+because a cogen is written against this vocabulary, here and in the tests that
+hand-write one.
+"""
+
+_CoGen = Generator[Command, object, None]
 
 
 class Trampoline(IrLeaf[IrSelf, IrSelf]):
@@ -65,7 +72,7 @@ class Trampoline(IrLeaf[IrSelf, IrSelf]):
 
         :returns: An iterator over the root cogen's emitted values.
         """
-        stack: list[_CoGen] = [cast(_CoGen, iter(cast(Iterable[_Command], self._root)))]
+        stack: list[_CoGen] = [cast(_CoGen, iter(cast(Iterable[Command], self._root)))]
         to_send: object = None
         while stack:
             top = stack[-1]

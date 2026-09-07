@@ -26,7 +26,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.structured import (
     _exit_is_noise,

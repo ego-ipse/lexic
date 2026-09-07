@@ -193,19 +193,19 @@ Retention is a tuple of references to values the pipeline computed anyway — a 
 ### `compute_binding(codegen_grammar)` — `compile/__init__.py`
 
 ```python
-compute_binding(ast: IrAst) -> list[RuleBinding]
+compute_binding(ast: IrAst) -> list[RuleMap]
 ```
 
-Implemented in `compile/pipeline/binding.py`, imported from `lexic.compile`.
+Implemented in `compile/pipeline/rulemap.py`, imported from `lexic.compile`.
 
-The open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleBinding(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, parents before subclasses — `RuleBinding` is exported beside it, since the returned list cannot be typed without it. See [[field-naming]].
+The open-table successor of the retired `derive_specs`'s classify/parents/naming jobs. `RuleMap(rule_name, class_name, parent_class_name, kind, fields: dict[str, IrBind])`, one per rule, parents before subclasses — `RuleMap` is exported beside it, since the returned list cannot be typed without it. See [[field-naming]].
 
 ---
 
 ### `synthesize(codegen_grammar, binding, stem)` — `compile/__init__.py`
 
 ```python
-synthesize(codegen_grammar: IrAst, binding: list[RuleBinding], stem: str) -> dict[str, type]
+synthesize(codegen_grammar: IrAst, binding: list[RuleMap], stem: str) -> dict[str, type]
 ```
 
 Implemented in `compile/pipeline/synthesis.py`, imported from `lexic.compile`.
@@ -214,9 +214,11 @@ Builds the model classes **at runtime** via `type(name, bases, ns)` and returns 
 
 ---
 
-### The instance fold — `parsing/fold.py`
+### The bound product — `parsing/executable.py` and `parsing/product/`
 
-There is no `build_instance_parser`/wrapper-rule bridge anymore (`parsing/models.py` is deleted outright). The **one authored instance-fold** is `ModelFold` (2026-07-06; the name is reclaimed — the retired wrapper-rule `ModelFold` in `parsing/models.py` is unrelated): the compile package's `_compile_core` builds a per-rule **IR body-table** (`IrMap[IrRuleRef, ModelBody]`, from the binding view + generated classes — each `ModelBody` carries its model constructor as an `IrLambda` plus structural metadata `kind`/`n_items`/`fields`/`fast`) and constructs `ModelFold(bodies)`. On construction the fold **bakes** every body to the flat-runtime `config: dict[str, RuleFold]` (`.baked`), the record the PDA clone compiler and the engine-fallback `apply` consume unchanged — byte-for-byte identical to the retired plain-data config. The IR body-table is the *same shape* the grammar-text `Reducer` carries its reductions in (a per-rule `IrMap` to `IrSelf` bodies). The instance grammar is `normalize(lift_optional_nullables(codegen_grammar))` — the *same* codegen grammar `synthesize()` built classes against, so `kids[i] ↔ items[i]` and field extraction is positional indexing, not a name lookup against a synthetic wrapper grammar. See [[architecture]]'s "positional fold" section.
+There is no instance fold anymore (`parsing/fold.py`, `ModelFold`, `ModelBody`, `RuleFold` are deleted). What a parse runs is a **product program** (`parsing/product/`): per rule, a `RuleProduct` saying what it captures and how it completes, lowered once to flat int-coded tables (`lower_product`, `lower_routes`) and verified cold (`verify_program` — a PASS source names a single-value capture, a RECORD's names match its captures, optional indices are in range, matched-text ownership and licensed field order are consistent), from which `rule_routines` reads back one executable `RuleRoutine` per rule with one `CaptureRoutine(slot, mode, optional, name)` per bound slot. A record build is a `Construction` (`Construction.of_record` / `Construction.of_symbol`); a class's fast construction is a structural `ConstructionLicence` the declarer builds, never a reflective check.
+
+Binding is `register_model(codegen_grammar, view, classes)` (`compile/product/registry.py`, memoised in a `ProductRegistry` keyed by artefact identity): the one moment an authored program becomes a `ModelExecutable[M]` — the verified program plus the readers both engines use (`codes`, `routines` as read-only views; `.executor` a `ProductExecutor`; `replica()` for a worker's own copy). It is **immutable after verification**: every later rebinding or deletion raises `UnsupportedConstructError`. The PDA bakes each routine into its clones (`pda/compiler/program/product.py`); the tree route completes a `ParseTree` with `complete_product` (`parsing/product/tree.py`). The instance grammar is `normalize(lift_optional_nullables(codegen_grammar))` — the *same* codegen grammar `synthesize()` built classes against, so `kids[i] ↔ items[i]` and field extraction is positional indexing, not a name lookup against a synthetic wrapper grammar. See [[architecture]]'s "positional fold" section.
 
 ---
 
@@ -227,13 +229,14 @@ Returned by `compile_text` / `compile_from_path`. Fields:
 | Field | Type | Purpose |
 |---|---|---|
 | `grammar` | `IrAst` | The **canonical** grammar (what the user's grammar IS — the transpile/re-emit source) |
-| `fold` | `ModelFold` | The one authored instance-fold: an IR body-table (`bodies: IrMap[IrRuleRef, ModelBody]`) that bakes to `config: dict[str, RuleFold]` and folds positionally over `codegen_grammar` |
+| `product` | `ModelExecutable[GrammarModel]` | The bound product program both engines execute (above) — verified cold at binding, immutable afterwards; `.executor` is its `ProductExecutor` |
 | `moments` | `CompileMoments` | Every stage the compilation passed through (above) — the artefact is BUILT from it, not beside it |
 | `classes` | `dict[str, type]` | Rule name → synthesized model class (`GrammarModel` subclass). A read of `moments.classes`: two copies of one answer is a drift surface |
-| `codegen_grammar` | `IrAst` | The post-pass grammar the fold binds against — the engine key `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity). A read of `moments.grammar.resolved` |
+| `codegen_grammar` | `IrAst` | The post-pass grammar the product binds against — the engine key `.parse` hands to `parse_model` (the engine memoises its lifted/normalised/PDA/run-collapsed compilation per this grammar's identity). A read of `moments.grammar.resolved` |
 | `flavour` | `str` | The source flavour's name (drives export docstrings) |
 | `stem` | `str` | The grammar stem — the exported module's default identity |
 | `tokens` | `TokenBinding` | What this grammar knows about tokens (below) |
+| `split_analysis` | `IrAst \| None` | The grammar the parallel split analyses, when it differs from `codegen_grammar` |
 
 ### `TokenBinding` — three facts, deliberately separate
 
@@ -273,8 +276,8 @@ whole ground-truth corpus by
 ### `.bind(tokenizer, registry=None)` — one grammar, many vocabularies
 
 Compiling is per-grammar; a vocabulary is per-deployment. `bind` re-resolves
-`tokens.unresolved` and returns a **new** artefact, reusing classes, binding
-and fold unchanged — they are invariant under which tokenizer is bound,
+`tokens.unresolved` and returns a **new** artefact, reusing classes and
+product unchanged — they are invariant under which tokenizer is bound,
 because field naming dispatches on the atom TYPE (`IrAlphabet`) and
 resolution rewrites only the inner ordinals. Roughly an order of magnitude
 cheaper than recompiling, and the ratio grows with grammar size.
@@ -284,19 +287,19 @@ identity, and a rebound grammar genuinely *is* a different identity.
 
 ### `.pda_tables()` — the predictive half, memo-hot
 
-Returns the engine's compiled `PdaTables` for `(codegen_grammar, fold)` — the trace substrate a `PdaKernel` subclass runs over. The artefact holds the exact objects the engine's instance-product memo is keyed by (identity), so the tables returned are the very ones `.parse` drives: hot if this grammar has parsed already, compiled once and shared forward if not.
+Returns the engine's compiled `PdaTables` for `(codegen_grammar, product)` — the trace substrate a `PdaKernel` subclass runs over. The artefact holds the exact objects the engine's instance-product memo is keyed by (identity), so the tables returned are the very ones `.parse` drives: hot if this grammar has parsed already, compiled once and shared forward if not.
 
 ### `.anchors()` — provable split points
 
 Returns the grammar's structural anchor characters as a `frozenset[str]` — the characters no *opaque interior* can emit: no co-finite class (`[^"]`-style string interiors, comment bodies, token terminals) covers them and no derived run charset contains them. Every occurrence of such a character in valid input is structural, so a local scan cannot be fooled — the property a parallel splitter needs to cut text without left context. Multi-site anchors are legitimate; WHICH site an occurrence belongs to is the orchestrator's question, answered over `lexic.parsing.parallel.anchor_sites(grammar)` (anchor → defining rules). Site membership is counted over the PDA's polarity-aware `CharSet`s — exact, no poison approximation. The analysis lives in `lexic.parsing.parallel` (with role derivation, the self-locating window scan, and the worker-count policy), memoised per grammar identity; the artefact passes its codegen grammar. An empty set means no provable split point — an answer (process sequentially), not an error.
 
-On explicit request `export_module(compiled, path, *, stem=None, inline_tables=False)` writes an importable twin module (`export_source` is the string-taker it wraps) — see [[generated-modules]]. `bind_module(grammar, namespace)` is the twin modules' module-end binder.
+On explicit request `export_module(compiled, path, *, stem=None, inline_tables=False)` writes an importable twin module (`export_source` is the string-taker it wraps) — see [[generated-modules]]. `attach_module(grammar, namespace)` is the twin modules' module-end binder.
 
-`.parse(text)` is the only method callers need. It runs `parse_model(self.codegen_grammar, text, self.fold)` — the engine's instance product (PDA-first, Earley completion inside the engine, memoised per `(grammar, fold)` identity). If the start rule does not fold to a `GrammarModel`, `.parse` raises `UnsupportedConstructError`.
+`.parse(text)` is the only method callers need. It runs `parse_model(self.codegen_grammar, text, self.product)` — the engine's instance product (PDA-first, Earley completion inside the engine, memoised per `(grammar, product)` identity). If the start rule does not build a `GrammarModel`, `.parse` raises `UnsupportedConstructError`.
 
 **Ambiguity is refused, by both engines.** A span whose derivations build two different models raises `UnsupportedConstructError` rather than one engine quietly picking — the PDA's "first" and Earley's "first" are not the same first, and a parser that answers an ambiguous question is not answering the question asked. The test is about VALUES, not derivation counts: a grammar routinely derives one text several ways without meaning anything by it, and a *split* — one production carved two ways, same arm, different boundary — has a defined answer (the first slot owns the text) and is never refused. Only an *arm* choice, two different productions over one span, is a question the grammar left open.
 
-The opt-out is a **resolver, not a flag**: `parse_model(grammar, text, fold, resolve=...)` takes a deterministic `Resolver`, handed the derivation in hand and the witness that differs, and whatever it returns is the parse. Its behaviour is the caller's concern, not the engine's. The same resolver reaches whichever engine ends up choosing, so the answer does not depend on which route ran. `CompiledGrammar.parse(text, resolve=...)` surfaces it too, and reaches the **token** route as well as the char one — the promise does not depend on whether a grammar's terminals happen to name an encoding.
+The opt-out is a **resolver, not a flag**: `parse_model(grammar, text, binding, resolve=...)` takes a deterministic `Resolver`, handed the derivation in hand and the witness that differs, and whatever it returns is the parse. Its behaviour is the caller's concern, not the engine's. The same resolver reaches whichever engine ends up choosing, so the answer does not depend on which route ran. `CompiledGrammar.parse(text, resolve=...)` surfaces it too, and reaches the **token** route as well as the char one — the promise does not depend on whether a grammar's terminals happen to name an encoding.
 
 ---
 
@@ -322,17 +325,19 @@ Equality is type-aware (same concrete class + payload; the `IrBounds` pattern) a
 
 ## The engine floor — `lexic.parsing` root exports
 
-The engine's public root carries, beside the model products (`parse_model` / `token_model`) and the Earley toolkit (`Kernel`, `compile_tables`, `normalize`, `lift_optional_nullables`, the tree/forest readers):
+The engine's public root carries, beside the model products (`parse_model` / `token_model`), the bound-product types (`ModelExecutable`, `ProductExecutor`) and the Earley toolkit (`Kernel`, `compile_tables`, `normalize`, `lift_optional_nullables`, the tree/forest readers):
 
 - **`earley_model`** — the model product's Earley completion, public as the route-forcing seam. Forcing an engine route means calling a different product entry, never passing a flag: an engine selector chooses between `parse_model` (PDA-first) and `earley_model` (Earley only).
 - **`PdaKernel`** — the fused predictive runtime, subclassable for tracing; `WatchedKernel` is that subclass.
-- **`watch(tables, text, fold, *, cap, resolve)` → `WatchedRun`** — the watched run: an ordered `Trace` of `TraceEvent(order, kind, rule, verdict, span)`, where `kind` is one of `TRACE_KINDS` (`scan` / `probe` / `rollback` / `gate`) and `span` is an `IrSpan` — the SAME record an emission's extents carry, so a trace row and a document occurrence co-select without translation. **Pay to watch**: watching re-executes the parse, and the product carries no model precisely so the re-run cannot be confused with the parse a caller already holds. It carries `cap`/`capped` instead (a truncated account says so) and `derived` — a refused predictive run is ordinary (the compile seam retries on the gated engine) and comes back as a stream ending in the refusal rather than as an exception. The unwatched path pays nothing: the instrumentation is a subclass, nothing under `parsing/pda/` imports it, and a unit gate reads `PdaKernel`'s own code objects to prove no method of it so much as names the watch.
+- **`watch(tables, text, executor, *, cap, resolve)` → `WatchedRun`** — the watched run: an ordered `Trace` of `TraceEvent(order, kind, rule, verdict, span)`, where `kind` is one of `TRACE_KINDS` (`scan` / `probe` / `rollback` / `gate`) and `span` is an `IrSpan` — the SAME record an emission's extents carry, so a trace row and a document occurrence co-select without translation. **Pay to watch**: watching re-executes the parse, and the product carries no model precisely so the re-run cannot be confused with the parse a caller already holds. It carries `cap`/`capped` instead (a truncated account says so) and `derived` — a refused predictive run is ordinary (the compile seam retries on the gated engine) and comes back as a stream ending in the refusal rather than as an exception. The unwatched path pays nothing: the instrumentation is a subclass, nothing under `parsing/pda/` imports it, and a unit gate reads `PdaKernel`'s own code objects to prove no method of it so much as names the watch.
 - **`GrammarAnalysis`** — the decision taxonomy (verdicts, gate specs) the analysis produces per grammar.
-- **`pda_tables(grammar, fold, bits=...)` / `PdaTables`** — the compiled predictive tables, identity-memoised with the parse path; `CompiledGrammar.pda_tables()` is the artefact-side reach onto the same memo entry.
+- **`pda_tables(grammar, binding, bits=...)` / `PdaTables`** — the compiled predictive tables, identity-memoised with the parse path; `CompiledGrammar.pda_tables()` is the artefact-side reach onto the same memo entry.
 
-**`.parse` is parallel when it can be, by itself.** On a free-threaded interpreter, a grammar whose start rule is a repetition the analysis can cut — `root ::= line+` with the line ending in an anchor (terminated), or `root ::= unit (sep unit)*` (separated) — has its input split at derived cut points, the chunks parsed concurrently under the same grammar and fold, and the result stitched into the model the sequential parse would have built. There is no flag and no second entry point: the engine composes it, exactly as it composes PDA-first-then-Earley. Everything else — a GIL build, an unsupported shape, too few cut points, any chunk that fails or is ambiguous — IS the sequential parse, so what an input MEANS never depends on how it was scheduled. A caller who wants N *documents* in flight uses `ParsePool`.
+**`.parse` is parallel when it can be, by itself.** On a free-threaded interpreter, a grammar whose start rule is a repetition the analysis can cut — `root ::= line+` with the line ending in an anchor (terminated), or `root ::= unit (sep unit)*` (separated) — has its input split at derived cut points, the chunks parsed concurrently under the same grammar and product, each worker against the replica its own THREAD owns (`worker_parse`, [[parallel-parsing]]), and the result stitched into the model the sequential parse would have built. The calling thread claims its own executable view (`document_view`) before the split is attempted at all, and drives the leads, the stand-in shells, the region boundaries, the sequential fallback and the stitch through that one product. There is no flag and no second entry point: the engine composes it, exactly as it composes PDA-first-then-Earley. Everything else — a GIL build, an unsupported shape, too few cut points, any chunk that fails or is ambiguous — IS the sequential parse, so what an input MEANS never depends on how it was scheduled. A caller who wants N *documents* in flight uses `ParsePool`.
 
-The parallel layer — `lexic.parsing.parallel` (`anchors`/`anchor_sites`, `roles`, `Scanner`, `split_plan`/`parallel_model`, `ParsePool`, `worker_count`/`doc_workers`) — deliberately does NOT surface at the parsing root: neither engine consumes it. `CompiledGrammar.anchors()` is the user surface; `ParsePool(parse, cores=None)` is document-level parallelism (lexic owns the threading — N documents in flight against one shared artefact, policy-sized: cpu count on a free-threaded build, 1 under the GIL); the rest is the orchestrator's vocabulary.
+The parallel layer — `lexic.parsing.parallel` (`anchors`/`anchor_sites`, `roles`, `Scanner`, `split_plan`/`split_model`, `ParsePool`, `Replica`/`worker_replica`/`document_view`/`worker_parse`/`replica_count`, `available_workers`/`worker_count`/`doc_workers`) — deliberately does NOT surface at the parsing root: neither engine consumes it. `CompiledGrammar.anchors()` is the user surface; `ParsePool(parse, cores=AUTO)` is document-level parallelism (lexic owns the threading — N documents in flight against one shared artefact, policy-sized: cpu count on a free-threaded build, 1 under the GIL); the rest is the orchestrator's vocabulary. `WorkPool` and `PoolLease`, the split's own warm-executor machinery, are deliberately not re-exported here.
+
+**`ParsePool.map` has two exits, and a caller must tell them apart.** A `LexicError` from an item is a verdict about that item: the phase drains, later work is cancelled, and the EARLIEST input's refusal is raised — the pool survives and stays usable. Anything else is a bug: queued work is cancelled and the error reaches the caller without waiting on running siblings (one of them may be blocked on that caller), and the pool is dead. A later `map` on a dead pool raises **`RuntimeError`** — deliberately not a `LexicError`, because a caller catches that family to fall back to a sequential parse and must not read a broken pool as an unparseable chunk. See [[parallel-parsing]].
 
 There is deliberately no `lexic.parsing.pda` façade — the PDA names surface at the parsing root beside `Kernel`.
 

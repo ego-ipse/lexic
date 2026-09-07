@@ -21,7 +21,7 @@ from lexic.compile.artifact import (
     reset_reduction_cache,
     segmentation_tokenizer,
 )
-from lexic.compile.module.bind import bind_module
+from lexic.compile.module.attach import attach_module
 from lexic.compile.module.export import export_module, export_source
 from lexic.compile.module.selfgrammar import parse_module
 from lexic.compile.module.verify import verify_module
@@ -49,14 +49,15 @@ from lexic.compile.output.transpile import (
     transpile,
 )
 from lexic.compile.payload.export import export_value
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.moments import (
     GRAMMAR_MOMENTS,
     CompileMoments,
     GrammarMoments,
     build_codegen_grammar,
 )
-from lexic.compile.pipeline.synthesis import fold_config, synthesize
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
+from lexic.compile.pipeline.synthesis import synthesize
+from lexic.compile.product import register_model
 from lexic.compile.verdict import Verdict
 from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars import flavour_for_extension, get_flavour
@@ -78,14 +79,13 @@ from lexic.ir import (
     refs_in_order,
 )
 from lexic.model import GrammarModel
-from lexic.parsing import ModelFold
 
 # Case-insensitive public export order.
 __all__ = [
     "Directives",
     "Draw",
     "Vocabulary",
-    "bind_module",
+    "attach_module",
     "build_codegen_grammar",
     "CompileMoments",
     "canonical_grammar",
@@ -116,7 +116,7 @@ __all__ = [
     "Row",
     "Rows",
     "reset_cache_for_tests",
-    "RuleBinding",
+    "RuleMap",
     "SpanEntry",
     "SpanLevel",
     "SpanPair",
@@ -319,7 +319,7 @@ def _scan_directives(
     structural-noise rules, ``@lexical <rule> ...`` names rules whose
     references are inlined so they keep their text rather than an interior of
     models. The scan reads the raw source before the parser so comments never
-    become load-bearing grammar tokens; ``canonical_grammar`` resolves
+    become part of the grammar itself; ``canonical_grammar`` resolves
     precedence and applies the result to the AST.
 
     :param text: Grammar source text.
@@ -486,10 +486,10 @@ def _assemble_core(
     unresolved = moments.grammar.relaxed
     codegen_grammar = moments.grammar.resolved
     classes = moments.classes
-    fold = ModelFold(fold_config(codegen_grammar, moments.binding, classes))
+    product = register_model(codegen_grammar, moments.binding, classes)
     return CompiledGrammar(
         grammar=ast,
-        fold=fold,
+        product=product,
         moments=moments,
         flavour=flavour_name,
         stem=stem,

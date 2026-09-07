@@ -7,16 +7,10 @@ import sys
 from math import log10
 from typing import NamedTuple
 
-from tools.benchmark.bench import _JSON_SPECIALISTS, ENGINE, PRODUCT, Parse, _medians
-from tools.benchmark.cases.grammars import Bench
-from tools.benchmark.cases.variants import variant_marks
-
-_WARM_CONVERGED = 150
-"""Warmup parses below which a JIT row has historically landed in its slow
-mode. Requiring three consecutive stable batches converges the json row 4 runs
-in 5 (0.118-0.148 µs/char, 192-204 parses) where one window converged 1 in 6;
-a run that settles sooner than this is reported as SHORT, because the residual
-bimodality is real and an unstated error bar is the thing to avoid."""
+from tools.benchmark.bench import ENGINE, NOISE_ANCHOR, PRODUCT
+from tools.benchmark.cases.grammars import Bench, declared_marks
+from tools.benchmark.engines.seats import SPECIALISTS
+from tools.benchmark.measurement.sampling import Parse, medians
 
 BAR_WIDTH = 40
 """Bar length. Wide enough that a 2x gap reads differently from a 4x one —
@@ -80,10 +74,6 @@ def _bar(value: float, best: float, worst: float) -> str:
     return "█" * filled + "·" * (BAR_WIDTH - filled)
 
 
-SPECIALISTS = frozenset(name for name, _make in _JSON_SPECIALISTS)
-"""Rows that take NO grammar — hand-written C for one fixed format."""
-
-
 def _amount(value: float) -> str:
     """One timing, in the unit that keeps its significant digits.
 
@@ -132,17 +122,29 @@ class Block(NamedTuple):
     :ivar bench: The grammar and its documents.
     :ivar samples: Per-row timings, one list per round.
     :ivar refused: Rows that earned words instead of a number.
-    :ivar floor: The harness's own noise, as a percentage.
+    :ivar floor: The harness's own noise, as a percentage, or ``None`` when the
+        anchor seat did not measure in this run and there is no floor to state.
     :ivar documents: What each row actually parsed.
     :ivar mt_notes: Per-row reasons that a requested mt row ran sequentially.
+    :ivar shares: Per-row fraction of the timed region spent building the
+        input stream, for the rows that pay one.
+    :ivar warmed: Per-row parses spent reaching steady state, for every row that
+        warms at all — an unsettled row included, because the budget it spent is
+        the evidence for why it has no number.
+    :ivar unmeasured: Rows this run could not put a trustworthy number in, and
+        why. Kept APART from :attr:`refused`: that one is a fact about the seat
+        (it cannot take this language), this one is a fact about the run.
     """
 
     bench: Bench
     samples: dict[str, list[float]]
     refused: dict[str, str]
-    floor: float
+    floor: float | None
     documents: dict[str, str]
     mt_notes: dict[str, str]
+    shares: dict[str, float]
+    warmed: dict[str, int]
+    unmeasured: dict[str, str]
 
 
 def _report(block: Block, color: bool) -> None:
@@ -160,14 +162,24 @@ def _report(block: Block, color: bool) -> None:
     )
     if not block.samples:
         print("    no engine could parse this grammar")
-    _ranked_rows(_medians(block.samples), color)
+    _ranked_rows(medians(block.samples), color)
     for name, why in sorted(block.refused.items()):
         label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
         print(f"  {label}{'—':>9}             {_paint(why[:96], _DIM, color)}")
-    print(
-        f"  {'noise floor':<13}{block.floor:8.2f}%    "
-        "smaller differences are not results"
-    )
+    # Apart from the refusals above, and said so: this seat takes the grammar.
+    for name, why in sorted(block.unmeasured.items()):
+        label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
+        print(f"  {label}{'no number':>9}     {_paint(why[:92], _DIM, color)}")
+    if block.floor is None:
+        print(
+            f"  {'noise floor':<13}{'—':>8}     "
+            f"{NOISE_ANCHOR} did not measure here; the committed floor stands"
+        )
+    else:
+        print(
+            f"  {'noise floor':<13}{block.floor:8.2f}%    "
+            "smaller differences are not results"
+        )
     for name, reason in sorted(block.mt_notes.items()):
         print(
             f"  {(name + ' check'):<17}{'off':>4}     {reason} — this row ran "
@@ -193,11 +205,11 @@ def _seat_check(bench: Bench, samples: dict[str, list[float]]) -> None:
     """
     if "lexic-lex" not in samples or "lexic-lex-ns" not in samples:
         return
-    _, ns_marks = variant_marks(bench.ast)
+    _, ns_marks = declared_marks(bench)
     if ns_marks:
         return
-    lex = _medians({"lex": samples["lexic-lex"]})["lex"]
-    ns = _medians({"ns": samples["lexic-lex-ns"]})["ns"]
+    lex = medians({"lex": samples["lexic-lex"]})["lex"]
+    ns = medians({"ns": samples["lexic-lex-ns"]})["ns"]
     spread = (ns - lex) / max(min(lex, ns), 1e-9) * 100
     print(
         f"  {'seat check':<13}{spread:+8.2f}%    lexic-lex vs lexic-lex-ns run "
@@ -225,14 +237,22 @@ def _warmup_values(
     cold: float | None,
     share: float,
 ) -> None:
-    """Print one Java worker's cold parse and warmup state."""
+    """Print one Java worker's cold parse and warmup state.
+
+    An unsettled row says NO NUMBER, because that is what the block above it
+    printed: `_isolated_bench` drops such a row's samples and `_report` marks
+    it `no number`. Calling the same row's figure "soft" here described a
+    published-but-shaky number that does not exist, so one report gave two
+    incompatible accounts of one row. The budget and the movement stay — they
+    are the evidence for the absence.
+    """
     if cold is not None:
         print(
             f"  {name + ' first':<17}{_amount(cold)}    cold first parse "
             "before JIT warmup"
         )
     spent, settled = warmed
-    state = "median settled" if settled else "STILL MOVING — number is soft"
+    state = "median settled" if settled else "STILL MOVING — no number published"
     print(
         f"  {name + ' warmup':<13}{spent:6} parses   {state}; "
         f"{share * 100:.0f}% of the timed region builds the CharStream"

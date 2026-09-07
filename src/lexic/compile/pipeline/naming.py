@@ -30,6 +30,15 @@ from lexic.ir import (
     IrVisitor,
 )
 
+VALUE_FIELD = "value"
+"""The one field a ``value_str`` class carries — the rule's own matched text.
+
+Not derived from anything in the rule: a ``value_str`` rule's whole body IS
+the field, so there is no item to name it after. Spelled here because three
+moments have to agree on it — the class namespace, the constructor kwargs the
+binding declares, and the product that says which field the matched text fills.
+"""
+
 _ASCII_ALNUM: frozenset[str] = frozenset(
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 )
@@ -85,7 +94,7 @@ _RESERVED_CLASS_NAMES: frozenset[str] = frozenset(
 imports (``GrammarModel``, ``ClassVar``/``Literal`` from ``typing`` when
 used) plus the IR constructor names that appear in the emitted notation. A
 generated class of the same name would shadow them in that source; lowercase
-(``bind_module``) and UPPERCASE (``GRAMMAR``) bindings can never collide
+(``attach_module``) and UPPERCASE (``GRAMMAR``) bindings can never collide
 with a PascalCase class name. Drift-pinned against a real export by
 ``test_reserved_class_names_cover_the_export_header``."""
 RESERVED_FIELD_NAMES: frozenset[str] = frozenset(keyword.kwlist) | frozenset(

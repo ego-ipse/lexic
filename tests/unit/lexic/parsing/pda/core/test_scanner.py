@@ -27,7 +27,7 @@ from lexic.ir import (
     IrSeq,
     IrSequence,
 )
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.compiler.program.flatten import window_admits
 from lexic.parsing.pda.core.scanner import (
     SG_PROBE,

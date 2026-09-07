@@ -3,8 +3,8 @@
 Split from :mod:`lexic.parsing.pda.compiler.program.flatten`, which defines the flat
 artefact and the readers the runtime walks it with; this module is everything
 that REWRITES that artefact once it exists. :func:`optimize_program` is the
-entry point and states the pass order, which is load-bearing: each pass reads
-codes or licences an earlier one established.
+entry point and states the pass order, which cannot be permuted: each pass
+reads codes or licences an earlier one established.
 
 Nothing here costs a parse anything — the program is built once, immutable, and
 shared across every parse.
@@ -12,6 +12,8 @@ shared across every parse.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from lexic.exceptions import LexicError
@@ -19,6 +21,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     CHARTABLE_CAP,
     FlatArm,
     FlatClone,
+    no_fast_construction,
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -28,10 +31,12 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_VALUE_STR,
     DISPATCH_EMPTY,
     GATE_ATTEMPT,
+    GATE_STOP,
     OP_AVDISP,
     OP_AVSTR,
     OP_CC,
     OP_CC1,
+    OP_CONSULT,
     OP_GRP,
     OP_LEAF1,
     OP_LIT,
@@ -44,6 +49,16 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     OP_VSTR,
     TERMINAL_OPS,
 )
+from lexic.parsing.pda.core.scanner import Pattern
+
+NO_CONSULTS: Mapping[int, Pattern] = MappingProxyType({})
+"""What :func:`optimize_program` reads when no clone was proved regular.
+
+Keyed by ``id`` of the shell, which is how the lowering names a clone it has
+built but not yet placed — the shells outlive the call, so the identities are
+stable for exactly as long as the mapping is read. A proxy rather than a bare
+``{}`` because it is a shared default: an empty dict handed to every caller is
+one object away from being filled by one of them."""
 
 
 def clone_arms(clone: FlatClone) -> list[FlatArm]:
@@ -280,6 +295,74 @@ def runarm_for(clone: FlatClone) -> "FlatArm | None":
     return clone.default
 
 
+def _pattern_arm(pattern: Pattern) -> FlatArm:
+    """One compiled pattern as the arm that matches a clone's whole extent.
+
+    A :class:`FlatArm` because that is what :attr:`FlatClone.runarm` IS: the
+    runtime reaches it through the ``chartable``/``runarm`` pair it already
+    tests, and tells it from a quantified run by the item kind it already
+    reads — so the consult stays off every path that does not take it.
+    """
+    arm = FlatArm.__new__(FlatArm)
+    arm.n = 1
+    arm.kinds = (OP_CONSULT,)
+    arm.payloads = (pattern,)
+    arm.los = (1,)
+    arm.his = (1,)
+    arm.gate_kinds = (GATE_STOP,)
+    arm.gate_data = ((frozenset(), False),)
+    return arm
+
+
+def consult_arm(clone: FlatClone, pattern: Pattern) -> "FlatArm | None":
+    """The proved whole-extent matcher a ``value_str`` clone earns, or ``None``.
+
+    The third way to answer "what did this rule match" in one step, beside
+    :func:`chartable_for`'s lookup and :func:`runarm_for`'s single run. The
+    authoritative proof (:func:`~lexic.parsing.product.regular.prove_regular`,
+    taken against this clone's own continuation) says a possessive recognizer
+    consumes exactly what the rule's own program would, so the whole subtree
+    collapses to one C-level match and the span keys the model as a run's does.
+
+    Declined where the decision is not the recognizer's to make — a gated or
+    attempted selection, since an attempt must stay able to roll one back — and
+    where the program is ALREADY one matcher call, since a pattern would then
+    replace a call with a call. That second decline keeps a consult off a
+    TABLED clone too, both table licences being strict cases of it; no separate
+    table test exists because there is no table yet.
+
+    :param clone: The candidate clone (post-specialisation, tables not yet baked).
+    :param pattern: The proof's own compiled pattern for this rule.
+    :returns: The synthetic run arm, or ``None`` when the licence does not hold.
+    """
+    if clone.mode != BUILD_VALUE_STR:
+        return None
+    if clone.attempt is not None or clone.struct_arm is not None:
+        return None
+    if clone.kwin_selectors is not None or clone.pn_selectors is not None:
+        return None
+    arms = clone_arms(clone)
+    if not arms:
+        return None
+    if _vstr_inlinable(clone) and all(arm.n == 1 for arm in arms):
+        return None
+    return _pattern_arm(pattern)
+
+
+def bake_consults(clones: list[FlatClone], consults: Mapping[int, Pattern]) -> None:
+    """Install every proved whole-extent matcher, before any table is baked.
+
+    Before, because :func:`bake_chartables` reads :attr:`FlatClone.runarm` to
+    decide that a clone fills its table by span; a consult clone wants exactly
+    that treatment, and getting it by being there first is what spares the
+    baking a second notion of the same fact.
+    """
+    for clone in clones:
+        pattern = consults.get(id(clone))
+        if pattern is not None:
+            clone.runarm = consult_arm(clone, pattern)
+
+
 def _value_str_chartable(clone: FlatClone) -> "dict[str, object] | None":
     """The table of a ``value_str`` clone whose every accepted string is one char."""
     table: dict[str, object] = {}
@@ -366,7 +449,9 @@ def bake_chartables(clones: list[FlatClone]) -> None:
     What the fixpoint could not enumerate then gets a fill-on-first-sight table
     (:func:`charcache_for`, keyed by character; :func:`runarm_for`, keyed by the
     matched span) — same licence, key set discovered instead of written down, so
-    :attr:`FlatClone.chartotal` records which kind a clone has.
+    :attr:`FlatClone.chartotal` records which kind a clone has. A consult arm
+    (:func:`bake_consults`) is already in the span-keyed slot when this runs and
+    keeps it: it answers the same question over a wider class of clones.
     """
     pending = True
     while pending:
@@ -378,7 +463,8 @@ def bake_chartables(clones: list[FlatClone]) -> None:
     for clone in clones:
         if clone.chartable is not None:
             continue
-        clone.runarm = runarm_for(clone)
+        if clone.runarm is None:
+            clone.runarm = runarm_for(clone)
         filling = clone.runarm is not None or charcache_for(clone) is not None
         if filling:
             clone.chartable = {}
@@ -402,7 +488,10 @@ def _share_filling_tables(clones: list[FlatClone]) -> None:
     for clone in clones:
         if clone.chartable is None or clone.chartotal:
             continue
-        clone.chartable = by_ctor.setdefault(clone.fold.ctor, clone.chartable)
+        # Keyed on the constructor the clone builds through, which IS the key
+        # the fold gave: a generated model's fold ctor was the class object
+        # itself, so the intern key space is unchanged rather than equivalent.
+        clone.chartable = by_ctor.setdefault(clone.ctor, clone.chartable)
 
 
 def _specialize_vruns(arm: FlatArm) -> None:
@@ -481,15 +570,16 @@ def _mark_leaves(clone: FlatClone) -> None:
     without a frame.
 
     ``value_str`` earns it on exactly :func:`_vstr_inlinable`'s terms — the same
-    licence that lets a REFERENCE to such a clone become ``OP_VSTR``. A clone
-    reached by reference was already running frame-lessly; one reached by
-    ENTRY (through a dispatch chase, say) was not, and paid a frame per
-    occurrence for a match that cannot descend.
+    licence that lets a REFERENCE to such a clone become ``OP_VSTR`` — or on a
+    proved consult arm, which answers the whole extent in one match and so
+    cannot descend either. A clone reached by reference was already running
+    frame-lessly; one reached by ENTRY (through a dispatch chase, say) was not,
+    and paid a frame per occurrence for a match that cannot descend.
     """
-    if clone.fast is None:
+    if clone.fast is no_fast_construction:
         return
     if clone.mode == BUILD_VALUE_STR:
-        clone.leaf = _vstr_inlinable(clone)
+        clone.leaf = _vstr_inlinable(clone) or clone.runarm is not None
         return
     if clone.mode != BUILD_SEQ:
         return
@@ -556,7 +646,9 @@ def _mark_arm_leaf_refs(arm: FlatArm) -> None:
     arm.kinds = tuple(kinds)
 
 
-def optimize_program(roots: list[FlatClone]) -> None:
+def optimize_program(
+    roots: list[FlatClone], consults: Mapping[int, Pattern] = NO_CONSULTS
+) -> None:
     """Run the post-flatten passes over every reachable clone, in order.
 
     Terminal specialisation first (``OP_LIT1``/``OP_CC1``), then **dispatch
@@ -564,6 +656,12 @@ def optimize_program(roots: list[FlatClone]) -> None:
     specialised op-codes), then leaf marking (which reads ``OP_VSTR``), then
     call specialisation (``OP_REF1``). All compile-time only — nothing here is
     a per-parse cost.
+
+    Consults (:func:`bake_consults`) land just before the tables, because the
+    licence reads the specialised op-codes and the table baking reads the arm it
+    installs. ``consults`` is the caller's ``id(clone) → pattern`` map for the
+    clones whose rule proved regular against their own continuation; an empty
+    map is a program with nothing proved, which is most of them.
 
     Char tables (:func:`bake_chartables`) come after dispatch conversion — a
     dispatch clone can be tabled, and only conversion makes it one — and BEFORE
@@ -586,6 +684,7 @@ def optimize_program(roots: list[FlatClone]) -> None:
             specialize_terminals(arm)
     for clone in clones:
         convert_dispatch(clone)
+    bake_consults(clones, consults)
     bake_chartables(clones)
     for clone in clones:
         for arm in clone_arms(clone):

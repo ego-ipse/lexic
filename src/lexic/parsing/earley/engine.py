@@ -21,7 +21,6 @@ compiling the grammar (memoised), running one :class:`~lexic.parsing.earley.kern
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Sequence
 
 from lexic.exceptions import UnsupportedConstructError
@@ -34,8 +33,10 @@ from lexic.parsing.earley.kernel.forest.forest import (
     ParseTree,
 )
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
-    AmbiguityPolicy,
-    another_meaning,
+    MeaningBuilder,
+    Resolver,
+    chosen_meaning,
+    different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import (
     accept_handle,
@@ -104,62 +105,37 @@ def _single_tree(d: IrSelf, kernel: Kernel) -> ParseTree:
     return built
 
 
-def _one_meaning(kernel: Kernel, build: Callable[[ParseTree], object]) -> ParseTree:
-    """The derivation to interpret, refusing only a span with two meanings.
-
-    The strict :func:`_single_tree` refuses on a second DERIVATION, which is the
-    rule the island path abandoned: a grammar derives one text several ways
-    without meaning anything by it, and two adjacent nullable slots split a gap
-    two ways to the same end. Under the counting rule every whitespace-carrying
-    EBNF file was refused, because that self-grammar has exactly that shape.
-
-    :raises UnsupportedConstructError: When two derivations build different
-        values, or when nothing derives.
-    """
-    handle = accept_handle(kernel)
-    # An empty choices map takes family 0 at every ambiguity point instead of
-    # bailing on one, so this builds whenever the links are complete — the
-    # enumerating fallback would only reinstate the counting rule.
-    tree = FastTree(kernel, {}).build(handle)
-    if not isinstance(tree, ParseTree):
-        raise UnsupportedConstructError("parsing: no derivation")
-    if another_meaning(kernel, handle, build, tree) is not None:
-        raise UnsupportedConstructError(
-            "parsing: ambiguous input — two derivations that mean different "
-            "things; use the forest enumeration entry to choose between them"
-        )
-    return tree
-
-
 def first_meaning(
     d: IrSelf,
     n: IrSelf,
     text: str,
     tables: ParserTables | None = None,
-    policy: AmbiguityPolicy | None = None,
 ) -> ParseTree:
-    """The first derivation of ``text`` — gated, given a ``policy``, on meaning.
+    """The first derivation of ``text`` — deterministic under ambiguity.
 
-    The model completion's derivation chooser. Without a policy this is the
-    plain deterministic first (what :class:`ParseFirst` returns). With one, the
-    span is asked whether another derivation builds a DIFFERENT value
-    (:func:`~lexic.parsing.earley.kernel.forest.support.ambiguity.another_meaning`):
-    a real arm choice is refused by default, and the policy's ``resolve`` is
-    the caller's explicit opt-out — a deterministic resolver handed both
-    derivations, whose choice is their concern. A function argument rather than
-    part of the action's ``nc``, because a fold's callable is not an IR value
-    and does not belong on an IR channel.
+    The tree route's chooser. Whether the span MEANS two things is a question
+    about values, so it is asked where the values are built
+    (:func:`first_built_meaning`, and :func:`~lexic.parsing.earley.kernel.forest
+    .support.ambiguity.chosen_meaning` under it); a tree consumer has nothing to
+    compare and takes the deterministic first.
 
     :param d: The dispatcher seam the forest readers thread.
     :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
     :param text: The input string.
     :param tables: Optional pre-built (run-collapsed) tables for ``n``.
-    :param policy: The build that makes the meaning question answerable, and
-        the resolver that settles it; ``None`` skips the question entirely.
-    :returns: The chosen derivation.
-    :raises UnsupportedConstructError: If ``text`` does not parse, or means two
-        things and no resolver was supplied.
+    :returns: The first derivation.
+    :raises UnsupportedConstructError: If ``text`` does not parse.
     """
+    return _first_derivation(d, n, text, tables)[2]
+
+
+def _first_derivation(
+    d: IrSelf,
+    n: IrSelf,
+    text: str,
+    tables: ParserTables | None,
+) -> tuple[Kernel, int, ParseTree]:
+    """Run Earley and return its kernel, accepting handle, and first tree."""
     if not isinstance(n, IrAst):
         raise UnsupportedConstructError(
             f"parsing: expected an IrAst grammar, got {type(n).__name__}"
@@ -189,17 +165,37 @@ def first_meaning(
         first = next(iter(stream), IrNone)
         if not isinstance(first, ParseTree):
             raise UnsupportedConstructError("parsing: no derivation")
-    if policy is None:
-        return first
-    witness = another_meaning(kernel, handle, policy.build, first)
-    if witness is None:
-        return first
-    if policy.resolve is None:
-        raise UnsupportedConstructError(
-            "parsing: ambiguous input — two derivations that mean different "
-            "things; supply a resolver to choose between them"
-        )
-    return policy.resolve(first, witness)
+    return kernel, handle, first
+
+
+def first_built_meaning[Value, NodeValue](
+    n: IrSelf,
+    text: str,
+    builder: MeaningBuilder[Value, NodeValue],
+    tables: ParserTables | None = None,
+    resolve: Resolver | None = None,
+) -> Value:
+    """Return the chosen value, constructing each considered meaning once.
+
+    The value-route twin of :func:`first_meaning`: same derivation, same
+    question, and the answer is the VALUE rather than the tree that carried
+    it. The dispatcher seam is not a parameter because this route has exactly
+    one — the shared :data:`EARLEY_PARSER` the forest readers are threaded
+    with either way.
+
+    :param n: The grammar (an :class:`~lexic.ir.grammar.nodes.IrAst`).
+    :param text: The input string.
+    :param builder: The interpretation's fresh and seeded entry points.
+    :param tables: Optional pre-built (run-collapsed) tables for ``n``.
+    :param resolve: The caller's resolver, or ``None`` to refuse an ambiguity.
+    :returns: The chosen meaning's value.
+    :raises UnsupportedConstructError: If ``text`` does not parse, or means two
+        things and no resolver was supplied.
+    """
+    kernel, handle, first = _first_derivation(EARLEY_PARSER, n, text, tables)
+    return chosen_meaning(
+        different_meaning(kernel, handle, builder, first), builder, resolve
+    )
 
 
 class Recognize(IrLeaf[IrSelf, IrSelf]):
@@ -250,16 +246,16 @@ class ParseFirst(IrLeaf[IrSelf, IrSelf]):
     (``s ::= s | "a"``) derives its text through unboundedly many derivations,
     so "the single derivation" does not exist there and a deterministic first
     is what makes such grammars answerable at all. The VALUE-level ambiguity
-    question — does the span mean two things — needs a fold to answer and is
-    asked by :func:`first_meaning`, which the model completion drives; this
-    action is that function without the gate. Fast path identical to
-    :class:`Parse`; the lazy stream is only driven one item on the slow path.
+    question — does the span mean two things — needs a fold to answer, so it is
+    asked on the value route (:func:`first_built_meaning`) rather than here.
+    Fast path identical to :class:`Parse`; the lazy stream is only driven one
+    item on the slow path.
 
     ``nc`` may carry pre-built :class:`~lexic.parsing.earley.kernel.tables.ParserTables` as a
     second element — the instance path passes run-collapsed tables (built with
-    the fold-config licence in :mod:`lexic.parsing.fold`) so lexical runs step
+    the rule-keyed licence in :mod:`lexic.parsing.product`) so lexical runs step
     in one scan and land as a single multi-char leaf. A collapsed run is
-    text-preserving, so :class:`~lexic.parsing.fold.ModelFold` reads it
+    text-preserving, so :class:`~lexic.parsing.product.ProductExecutor` reads it
     identically to the per-char expansion. On a fast-path miss (ambiguity), the
     collapsed run terminals cannot shape the enumeration the same way, so the
     fold-back re-parses over plain tables and takes the stream's first —
@@ -334,6 +330,7 @@ class EarleyParser(IrDispatch):
     """
 
 
+EARLEY_PARSER = EarleyParser()
 RECOGNIZE = Recognize()
 PARSE = Parse()
 PARSE_FIRST = ParseFirst()

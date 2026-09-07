@@ -9,8 +9,9 @@ from lexic.generate import generate
 from lexic.parsing.earley.kernel.forest.fasttree import FastTree
 from lexic.parsing.earley.kernel.forest.forest import ParseTree
 from lexic.parsing.earley.kernel.forest.support.ambiguity import (
+    MeaningBuilder,
     ambiguity_points,
-    another_meaning,
+    different_meaning,
 )
 from lexic.parsing.earley.kernel.forest.support.readout import accept_item
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
@@ -31,7 +32,9 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
     grammar meant.
     """
     compiled = compile_from_path(GROUND_TRUTH / "json.gbnf")
-    product = _model_product(compiled.codegen_grammar, compiled.fold)
+    product = _model_product(compiled.codegen_grammar, compiled.product)
+    executor = compiled.product.executor
+    builder = MeaningBuilder(executor.build, executor.replay)
     rules = {r.name: r for r in compiled.grammar.rules}
     with_points = flagged = 0
     for seed in range(200):
@@ -49,7 +52,7 @@ def test_a_decided_nullable_split_is_not_reported_as_ambiguity():
             continue
         if ambiguity_points(kernel, handle):
             with_points += 1
-        if another_meaning(kernel, handle, compiled.fold.apply, tree) is not None:
+        if different_meaning(kernel, handle, builder, tree).witness is not None:
             flagged += 1
     assert with_points, "no ambiguous json input generated — the test proves nothing"
     assert not flagged, (

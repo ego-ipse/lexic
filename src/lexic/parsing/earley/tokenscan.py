@@ -35,7 +35,7 @@ from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.kernel.tables.records import ParserTables
 from lexic.parsing.earley.normalize import normalize
 from lexic.parsing.earley.resume import ResumableKernel
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 
 TokenSpec = tuple[frozenset[int], bool]
 """A token terminal's ``(id-set, negated)`` — the id test the scan applies."""

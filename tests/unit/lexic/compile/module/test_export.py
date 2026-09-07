@@ -30,8 +30,8 @@ from lexic.compile.module.export import (
     field_type,
     value_str_type,
 )
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.naming import _RESERVED_CLASS_NAMES
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.grammars import get_flavour
 from lexic.ir import (
     IrAlternation,
@@ -48,7 +48,7 @@ from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.compile.compile_helpers import import_hermetic_module
 
 
-def by_name(binding: list[RuleBinding]) -> dict[str, RuleBinding]:
+def by_name(binding: list[RuleMap]) -> dict[str, RuleMap]:
     """A binding list keyed by rule name."""
     return {b.rule_name: b for b in binding}
 
@@ -226,7 +226,7 @@ def test_default_mode_has_no_dunders_and_ends_in_the_bind_call():
     source = export_source(cg, stem="probe")
     assert "__grammar__" not in source
     assert "__binds__" not in source
-    assert source.rstrip().endswith("bind_module(GRAMMAR, globals())")
+    assert source.rstrip().endswith("attach_module(GRAMMAR, globals())")
 
 
 def test_inline_tables_mode_writes_classvars_and_no_bind_call():
@@ -235,7 +235,7 @@ def test_inline_tables_mode_writes_classvars_and_no_bind_call():
     source = export_source(cg, stem="probe", inline_tables=True)
     assert "__grammar__: ClassVar[IrRule] = " in source
     assert "__binds__: ClassVar[dict[int, tuple[str, IrBind]]] = {" in source
-    assert "bind_module" not in source
+    assert "attach_module" not in source
     for bound in compute_binding(cg.codegen_grammar):
         for name, ibind in bound.fields.items():
             tail = ", False" if not ibind.semantic else ""
@@ -261,7 +261,7 @@ def test_reserved_class_names_cover_the_export_header():
     """Every class-shadowable name a real export's header binds is reserved.
 
     Union over the GT corpus in both table modes. ``annotations`` (the
-    ``__future__`` flag) and ``bind_module`` are lowercase — never a
+    ``__future__`` flag) and ``attach_module`` are lowercase — never a
     PascalCase collision target.
     """
     shadowable: set[str] = set()
@@ -533,7 +533,7 @@ def test_inline_grammar_table_carries_the_rule_the_runtime_carries() -> None:
     the authored spelling: the inline twin rendered
     ``root ::= <[0]> thinking <[1]>`` where the runtime and the bind-mode twin
     both render ``root ::= <think> thinking </think>``. ``synthesize`` is given
-    the unresolved grammar and ``bind_module`` rebuilds from the twin's own
+    the unresolved grammar and ``attach_module`` rebuilds from the twin's own
     authored ``GRAMMAR``; the inline mode was the one path that disagreed.
 
     Read by AST rather than by slicing the text: ``GRAMMAR`` later in the same

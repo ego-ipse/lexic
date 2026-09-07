@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.moments import build_codegen_grammar
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.ir import IrBind, IrRule
 from lexic.model import GrammarModel
@@ -31,7 +31,7 @@ from tests.paths import GROUND_TRUTH
 GRAMMARS = sorted(GROUND_TRUTH.glob("*.gbnf")) + sorted(GROUND_TRUTH.glob("*.abnf"))
 
 
-def emit(path: Path) -> tuple[list[RuleBinding], dict[str, type]]:
+def emit(path: Path) -> tuple[list[RuleMap], dict[str, type]]:
     """Run the synthesis path; return (binding, classes)."""
     canonical = canonical_ast(path)
     codegen_grammar = build_codegen_grammar(canonical)

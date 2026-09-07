@@ -1,204 +1,318 @@
 """Per-worker table replicas — why concurrent parses stop fighting each other.
 
-The engine memoises its compiled tables per ``(grammar, fold)`` **identity**,
+The engine memoises its compiled tables per ``(grammar, binding)`` **identity**,
 so every worker parsing one document against one artefact drives the same
 table objects. Under free threading that is the bottleneck: the tables are
 read-only, but reading them from many cores ping-pongs their reference-count
 cache lines, and measured scaling flattens at ~1.8x however many cores exist.
 
 Handing each worker an EQUAL BUT DISTINCT grammar (and its own view of the
-fold) gives it its own memo entry, hence its own tables, hence its own cache
-lines. Measured on 8 threads: 1.82x shared, 3.71x with grammar replicas, 4.21x
-with the fold shallow-copied, 5.34x once the fold's container spine is
-copied too (:func:`_replicate` — deepcopy cannot be used, and a shallow
-copy leaves every table shared).
+binding) gives it its own memo entry, hence its own tables, hence its own cache
+lines. Measured on 8 threads: 1.82x shared, 3.71x with grammar replicas alone.
+The binding copy adds its own private completion container on top of that;
+:meth:`~lexic.parsing.executable.ModelExecutable.replica` is where the depth of that
+copy is decided, and the figures measured on a deeper one are not carried here.
 
-The models stay identical because the replica is equal by value and the fold
-copy holds the SAME synthesized classes — which is also the ceiling here.
-The classes are shared by necessity (two workers building two different
-classes for one rule would break model equality, the thing the split exists
-to preserve), so their own refcount traffic remains, and ~4.2x rather than
-the ~6.5x of fully separate artefacts is what this buys.
+**A replica belongs to a THREAD, and to one thread only.** Ownership is
+established once, under a lock, the first time a thread asks for a pair; every
+later parse reads the answer out of that thread's own thread-local. Neither
+half can be an index into a shared list: a pool numbers its own threads, so
+two live pools would issue the same numbers against one list, and a length read
+followed by an append over-allocates when several threads first-touch a pair at
+once.
+
+The models stay identical because the replica is equal by value and holds the
+SAME synthesized classes — which is also the ceiling here. The classes are
+shared by necessity (two workers building two different classes for one rule
+would break model equality, the thing the split exists to preserve), so their
+own refcount traffic remains.
 """
 
 from __future__ import annotations
 
-import copy
-import itertools
 import threading
 from typing import NamedTuple
 
 from lexic.ir import IrAst
-from lexic.parsing.caches import adopt, memo
-from lexic.parsing.fold import ModelFold
+from lexic.parsing.caches import adopt, memo, release
+from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
+from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.policy import available_workers
 
-Replica = tuple[IrAst, ModelFold]
-"""One worker's private view: an equal grammar, and a fold copy."""
-
-_MAX_DEPTH = 6
-"""How deep a fold's container graph is rebuilt. Past this the sharing costs
-less than the walk; measured, the win is all in the first few levels."""
+type Replica[M] = tuple[IrAst, ModelExecutable[M]]
+"""One worker's private view: an equal grammar, and a binding copy."""
 
 
-def _replicate(value: object, depth: int = 0) -> object:
-    """A private copy of ``value``'s plain containers; everything else shared.
+class _Held(NamedTuple):
+    """One live thread and the replica it owns until it exits.
 
-    ``copy.deepcopy`` cannot be used — a fold holds ``IrLambda`` bodies that
-    refuse reconstruction — and a shallow copy leaves every table shared,
-    which is most of what workers contend on. Rebuilding the plain
-    ``dict``/``list``/``tuple`` spine is the part that CAN be copied, and
-    measured it moved 8-thread scaling from 4.21x to 5.34x.
-
-    Exact types only, so IR nodes (tuple SUBCLASSES) and synthesized model
-    classes stay shared: copying those would change what a model IS, and
-    model equality across workers is the contract the whole split rests on.
+    :ivar owner: The claiming thread, held so its liveness can be asked.
+    :ivar replica: What that thread parses against for this pair.
     """
-    if depth > _MAX_DEPTH:
-        return value
-    kind = type(value)
-    if kind is dict:
-        assert isinstance(value, dict)
-        return {k: _replicate(v, depth + 1) for k, v in value.items()}
-    if kind is list:
-        assert isinstance(value, list)
-        return [_replicate(v, depth + 1) for v in value]
-    if kind is tuple:
-        assert isinstance(value, tuple)
-        return tuple(_replicate(v, depth + 1) for v in value)
-    return value
+
+    owner: threading.Thread
+    replica: Replica
 
 
-def _fold_copy[M](fold: ModelFold[M]) -> ModelFold[M]:
-    """A fold whose container spine is this worker's own."""
-    out = copy.copy(fold)
-    names = [
-        slot for cls in type(fold).__mro__ for slot in getattr(cls, "__slots__", ())
-    ]
-    names += list(vars(out)) if hasattr(out, "__dict__") else []
-    for name in names:
-        try:
-            setattr(out, name, _replicate(getattr(out, name)))
-        except AttributeError, TypeError:
-            continue  # read-only or absent: sharing it is always correct
-    return out
+class _Mine[M](NamedTuple):
+    """One thread's own replica for a pair, with both key objects pinned.
 
+    Pinned for the reason :class:`_Issued` states: an entry keyed on bare
+    ``id`` values can be hit by a brand-new object that landed where a dead one
+    used to be, so a hit is only trustworthy while the keys are held.
 
-_REPLICAS: dict[tuple[int, int], tuple[IrAst, ModelFold, list[Replica]]] = memo(
-    {}, 0, 1
-)
-"""Replica memo — (id(grammar), id(fold)) → (grammar, fold, replicas). The
-strong references pin both ids, so a recycled id cannot alias a live entry."""
-
-
-def worker_replicas[M](grammar: IrAst, fold: ModelFold[M], count: int) -> list[Replica]:
-    """``count`` private ``(grammar, fold)`` views, grown and reused per pair.
-
-    Replicas are built once per pair and kept: each carries its own compiled
-    tables, so discarding them would pay the compile again on the next parse.
-    Growing an existing list keeps the already-warm replicas warm.
-
-    :param grammar: The codegen grammar workers parse against.
-    :param fold: The instance fold that grammar was compiled with.
-    :param count: How many workers need a view.
-    :returns: Exactly ``count`` replicas; the first is the original pair, so
-        a single worker costs nothing.
-    """
-    key = (id(grammar), id(fold))
-    entry = _REPLICAS.get(key)
-    if entry is None:
-        entry = (grammar, fold, [(grammar, fold)])
-        _REPLICAS[key] = entry
-    pool = entry[2]
-    while len(pool) < count:
-        replica = (IrAst(grammar.rules, grammar.start), _fold_copy(fold))
-        # A replica exists to get its OWN memo entries — tables, products,
-        # run analyses. They live inside this pool, so they release with it.
-        adopt(key[0], *replica)
-        pool.append(replica)
-    return pool[:count]
-
-
-class _Assigned(NamedTuple):
-    """One thread's resolved replica, with both key objects pinned.
-
-    The pins are the correctness argument, not a cache. ``id()`` is recycled
-    as soon as an address is free, so an entry keyed on bare ints can be HIT
-    by a brand-new grammar that merely landed where a dead one used to be —
-    handing it a replica compiled for a different grammar entirely. Holding
-    the key objects means an address cannot be recycled while it is cached,
-    so a hit is always the right pair. This is the same argument
-    :data:`_REPLICAS` states one function above; only this cache lacked it.
-
-    :ivar grammar: The key grammar, pinned and identity-checked on read.
-    :ivar fold: The key fold, likewise.
+    :ivar grammar: The key grammar, identity-checked on read.
+    :ivar binding: The key binding, likewise.
     :ivar replica: What this thread parses against for that pair.
     """
 
     grammar: IrAst
-    fold: ModelFold
-    replica: Replica
+    binding: ModelExecutable[M]
+    replica: Replica[M]
 
+
+class _Issued[M](NamedTuple):
+    """One artefact pair's replicas, and the key objects they are keyed by.
+
+    The pins are the correctness argument, not a cache. ``id()`` is recycled as
+    soon as an address is free, so an entry keyed on bare ints can be HIT by a
+    brand-new grammar that merely landed where a dead one used to be — handing
+    it a replica compiled for a different grammar entirely.
+
+    :ivar grammar: The key grammar, pinned and identity-checked on read.
+    :ivar binding: The key binding, likewise.
+    :ivar held: One entry per thread that has claimed a replica for the pair.
+    """
+
+    grammar: IrAst
+    binding: ModelExecutable[M]
+    held: list[_Held]
+
+
+_REPLICAS: dict[tuple[int, int], _Issued] = memo({}, 0, 1)
+"""Replica registry — (id(grammar), id(binding)) → who owns what for that pair."""
+
+_MINTING = threading.Lock()
+"""The one synchronised step: claiming a replica for the calling thread.
+
+Cold by construction — a thread claims once per pair and reads its own
+thread-local on every parse afterwards, so no lock and no shared lookup is on
+the paid path. Without it, N threads first-touching one pair all read the same
+old population and mint against it: 16 concurrent requests for 17 replicas
+produced 23 to 32 of them.
+"""
 
 _ASSIGNED = threading.local()
-"""Each thread's own replica cache: its slot index, and the replica it
-resolved per pair. The cache is what keeps the hot path a thread-local
-attribute read — resolving through the shared memo on every parse would
-put the lookup itself on the contended path this module exists to clear,
-and it measured the difference between 4.1x and 5.6x."""
+"""Each thread's own replica cache, per pair. The cache is what keeps the hot
+path a thread-local attribute read — resolving through the shared registry on
+every parse would put the lookup itself on the contended path this module
+exists to clear, and it measured the difference between 4.1x and 5.6x."""
 
-_TICKET = itertools.count()
-"""Hands out replica indices round-robin as threads first ask."""
+
+def _mint[M](
+    key: tuple[int, int], grammar: IrAst, binding: ModelExecutable[M], document: bool
+) -> Replica[M]:
+    """A view of the pair whose compiled tables are this thread's own.
+
+    The BINDING is always copied, and copying it is what makes the view
+    private: the instance product is memoised per ``(grammar, binding)``
+    identity and mints everything it holds — the lifted grammar, the
+    normalised instance, the PDA tables, the collapsed Earley tables — so a
+    private binding is a private parse.
+
+    The GRAMMAR is copied for a chunk worker, which also reaches memos keyed
+    on the grammar alone, and kept for a document thread, which does not: the
+    split plan, the roles, the anchors and every other analysis are memoised
+    on it, and replicating it would re-derive all of them per thread to
+    privatise nothing that thread parses through.
+    """
+    view = grammar if document else IrAst(grammar.rules, grammar.start)
+    replica = (view, binding.replica())
+    # A minted half exists to get its OWN memo entries — tables, products, run
+    # analyses. They live under this entry, so they release with it — under
+    # BOTH key identities, because either one retires the entry and neither
+    # outlives the other in general. Owned by the grammar alone, a worker's
+    # replica outlived the document binding it was minted for and could then
+    # be released by nothing short of the artefact.
+    minted = tuple(part for part in replica if part is not grammar)
+    adopt(key[0], *minted)
+    adopt(key[1], *minted)
+    return replica
+
+
+def _reclaim(entry: _Issued) -> None:
+    """Drop the claims of threads that have exited, and their memo entries.
+
+    A claim dies with its thread: the thread-local holding it is freed with the
+    thread's state, so nothing can still be parsing against that replica. It is
+    not re-issued either — its tables were allocated BY the dead thread, and a
+    read of another thread's object is exactly the atomic reference count this
+    module exists to avoid, so the next worker mints its own and the dead one's
+    tables are released rather than kept warm for nobody. What the registry is
+    KEYED by is the exception: those two objects outlive every claim, so their
+    entries are the artefact's own to release and never a dead claim's.
+    """
+    alive = [held for held in entry.held if held.owner.is_alive()]
+    if len(alive) == len(entry.held):
+        return
+    gone = tuple(
+        id(part)
+        for held in entry.held
+        if not held.owner.is_alive()
+        for part in held.replica
+        if part is not entry.grammar and part is not entry.binding
+    )
+    entry.held[:] = alive
+    release(gone)
+
+
+def _claim[M](
+    key: tuple[int, int],
+    grammar: IrAst,
+    binding: ModelExecutable[M],
+    document: bool,
+) -> Replica[M]:
+    """Record a view for this thread — the one synchronised step.
+
+    The original pair is a view like any other, and it belongs to the thread
+    that owns the DOCUMENT: it is what the submitting thread parses a lead, a
+    stand-in shell or a sequential fallback against, so handing it to a chunk
+    worker would put that worker on objects the submitting thread allocated. A
+    worker therefore always mints; a document thread takes the original when no
+    live thread holds it, which also means a single-threaded program compiles
+    no second set of tables.
+    """
+    with _MINTING:
+        entry = _REPLICAS.get(key)
+        if entry is None:
+            entry = _Issued(grammar, binding, [])
+            _REPLICAS[key] = entry
+        _reclaim(entry)
+        spare = not any(held.replica[1] is binding for held in entry.held)
+        replica = (
+            (grammar, binding)
+            if document and spare
+            else _mint(key, grammar, binding, document)
+        )
+        entry.held.append(_Held(threading.current_thread(), replica))
+    return replica
 
 
 def _resolve[M](
-    mine: dict[tuple[int, int], _Assigned],
+    mine: dict[tuple[int, int], _Mine],
     key: tuple[int, int],
     grammar: IrAst,
-    fold: ModelFold[M],
-    workers: int,
-) -> Replica:
-    """Resolve a pair this thread has not cached, and prune what died.
+    binding: ModelExecutable[M],
+    document: bool,
+) -> Replica[M]:
+    """Claim a pair this thread has not cached, and prune what died.
 
     Off the hot path by construction: a cached pair returns before reaching
     here, so the prune costs a live parse nothing. It bounds the cache by the
     artefacts that still exist — the pinned keys would otherwise make every
     pair this thread ever saw immortal, which is a leak of its own, and this
     cache is the one place with no release path to do it for us. The shared
-    memo is keyed identically and IS released, so it is the liveness oracle.
+    registry is keyed identically and IS released, so it is the liveness oracle.
     """
     for stale in [at for at in mine if at not in _REPLICAS]:
         del mine[stale]
-    pool = worker_replicas(grammar, fold, workers)
-    replica = pool[_ASSIGNED.index % workers]
-    mine[key] = _Assigned(grammar, fold, replica)
+    replica = _claim(key, grammar, binding, document)
+    mine[key] = _Mine(grammar, binding, replica)
     return replica
 
 
-def thread_replica[M](grammar: IrAst, fold: ModelFold[M]) -> Replica:
-    """This thread's private view of ``(grammar, fold)`` — its own tables.
-
-    The document-level twin of :func:`worker_replicas`: where a split hands each
-    CHUNK a view, concurrent whole-document parses need each THREAD to have
-    one, and to keep it. Sequential callers and GIL builds get the original
-    pair back, so nothing is compiled or held that could not be used.
-
-    :param grammar: The codegen grammar.
-    :param fold: The instance fold.
-    :returns: The calling thread's replica.
-    """
-    workers = available_workers()
-    if workers < 2:
-        return (grammar, fold)
+def _view[M](grammar: IrAst, binding: ModelExecutable[M], document: bool) -> Replica[M]:
+    """This thread's view of the pair — cached, or claimed and then cached."""
     mine = getattr(_ASSIGNED, "cache", None)
     if mine is None:
         mine = _ASSIGNED.cache = {}
-        _ASSIGNED.index = next(_TICKET)
-    key = (id(grammar), id(fold))
+    key = (id(grammar), id(binding))
     got = mine.get(key)
     # Positional, not by name: this runs once per parse and a NamedTuple's
     # attribute access goes through a descriptor, which measured 87ns dearer
     # per lookup than indexing the same tuple.
-    if got is not None and got[0] is grammar and got[1] is fold:
+    if got is not None and got[0] is grammar and got[1] is binding:
         return got[2]
-    return _resolve(mine, key, grammar, fold, workers)
+    return _resolve(mine, key, grammar, binding, document)
+
+
+def worker_replica[M](grammar: IrAst, binding: ModelExecutable[M]) -> Replica[M]:
+    """The CALLING worker thread's own view of ``(grammar, binding)``.
+
+    Held for the thread's whole life, so a worker parsing chunk after chunk
+    stays on the objects it compiled. A replica's tables are built by whichever
+    thread first parses against it, and under free threading every later read
+    of those objects from a different thread is an atomic reference count
+    instead of a local one: pairing a chunk with the replica at its TASK number
+    put 44% (cut route) to 74% (region route) of chunk parses on some other
+    thread's replica, and such a parse costs 12 to 23% more CPU.
+
+    :param grammar: The codegen grammar this thread parses against.
+    :param binding: The bound product that grammar was compiled with.
+    :returns: This thread's replica — never the original pair, which belongs
+        to the thread that submitted the work.
+    """
+    return _view(grammar, binding, False)
+
+
+def document_view[M](grammar: IrAst, binding: ModelExecutable[M]) -> ModelExecutable[M]:
+    """A whole-document parse's own EXECUTABLE view of the pair.
+
+    Claimed before any split work and held for the whole of it. A split's
+    driver thread does not only hand chunks out: it parses the separator
+    leads, the routed stand-in shell, the region boundaries, and the
+    sequential fallback, and it stitches through this product afterwards. All
+    of that must run on a view no other whole-document caller can be handed.
+
+    The executable half ONLY, because that is the half that privatises a
+    parse — see :func:`_mint`. The grammar stays the artefact's, so the split
+    plan and every analysis keyed on it are still derived once for the
+    process rather than once per thread.
+
+    The FIRST document thread keeps the original product: it is the submitting
+    thread's, and a program parsing on one thread must not compile a second
+    set of tables to say so. GIL builds and sequential callers get it without
+    claiming anything.
+
+    :param grammar: The codegen grammar, which is also the plan's identity.
+    :param binding: The bound model product.
+    :returns: The calling thread's executable view of it.
+    """
+    if available_workers() < 2:
+        return binding
+    return _view(grammar, binding, True)[1]
+
+
+def worker_parse[M](
+    parse: ModelParse[M],
+    grammar: IrAst,
+    text: str,
+    binding: ModelExecutable[M],
+    resolve: Resolver | None,
+) -> M:
+    """Parse ``text`` against the CALLING worker thread's own view of ``grammar``.
+
+    **Call it from inside the work, never from the submitting thread.** The
+    view belongs to the thread, not to the task, and the submitting thread has
+    its own — so no worker ever reads objects that thread allocated.
+
+    :param parse: The model product, injected by the caller.
+    :param grammar: The grammar this chunk is parsed against.
+    :param text: This worker's chunk, not the whole document.
+    :param binding: The bound product producing ``M``.
+    :param resolve: The caller's ambiguity resolver, or ``None``.
+    :returns: The chunk's model.
+    """
+    view_grammar, view_binding = worker_replica(grammar, binding)
+    return parse(view_grammar, text, view_binding, resolve)
+
+
+def replica_count(grammar: IrAst, binding: ModelExecutable) -> int:
+    """How many replicas a pair has issued — the ownership probe's meter.
+
+    :param grammar: The key grammar.
+    :param binding: The key binding.
+    :returns: One per claiming thread, live or exited but not yet reclaimed.
+    """
+    entry = _REPLICAS.get((id(grammar), id(binding)))
+    return 0 if entry is None else len(entry.held)

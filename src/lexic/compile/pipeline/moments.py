@@ -30,8 +30,8 @@ from __future__ import annotations
 
 from typing import ClassVar, Self
 
-from lexic.compile.pipeline.binding import RuleBinding, compute_binding
 from lexic.compile.pipeline.passes import hoist_arms, hoist_groups, relax_non_semantic
+from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
 from lexic.compile.pipeline.synthesis import synthesize
 from lexic.ir import IrAst, IrMap, IrNamedTuple, concretize
 
@@ -104,7 +104,7 @@ class GrammarMoments(IrNamedTuple[IrAst, IrAst, IrAst, IrAst, IrAst]):
         )
 
 
-class CompileMoments(IrNamedTuple[GrammarMoments, list[RuleBinding], dict[str, type]]):
+class CompileMoments(IrNamedTuple[GrammarMoments, list[RuleMap], dict[str, type]]):
     """One compilation, from its canonical grammar to its classes.
 
     The retaining product the pipeline itself runs through: ``_assemble_core``
@@ -113,7 +113,7 @@ class CompileMoments(IrNamedTuple[GrammarMoments, list[RuleBinding], dict[str, t
 
     :ivar grammar: The five grammar moments.
     :ivar binding: The binding view of ``grammar.resolved`` — one
-        :class:`~lexic.compile.pipeline.binding.RuleBinding` per rule, parents
+        :class:`~lexic.compile.pipeline.rulemap.RuleMap` per rule, parents
         before subclasses.
     :ivar classes: The synthesized model classes by class name — the final
         moment, and what ``compile_text`` is after.
@@ -121,7 +121,7 @@ class CompileMoments(IrNamedTuple[GrammarMoments, list[RuleBinding], dict[str, t
 
     _child_attrs: ClassVar[tuple[str, ...]] = ("grammar",)
     grammar: GrammarMoments
-    binding: list[RuleBinding]
+    binding: list[RuleMap]
     classes: dict[str, type]
 
     @classmethod

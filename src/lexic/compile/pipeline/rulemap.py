@@ -1,7 +1,7 @@
 """Binding view — the codegen grammar's per-rule class/kind/parent/field map.
 
 ``compute_binding(ast)`` reads the codegen grammar (canonical AST after the
-:mod:`lexic.compile.passes` rewrites) and produces one :class:`RuleBinding`
+:mod:`lexic.compile.passes` rewrites) and produces one :class:`RuleMap`
 per rule, in emission order (parents before subclasses via
 :class:`~lexic.ir.grammar.transform.order.RuleOrder`'s parent-edge policy). This is the
 open-table successor of ``derive_specs``'s classify/parents/naming jobs:
@@ -19,7 +19,6 @@ Field naming keeps the three-tier cascade:
 
 from __future__ import annotations
 
-import inspect
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -31,7 +30,6 @@ from lexic.compile.pipeline.naming import (
     class_name_for,
     has_ruleref,
 )
-from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAction,
     IrAlphabet,
@@ -73,7 +71,7 @@ _UNIT = IrQuantifier(1, 1)
 
 
 @dataclass(frozen=True)
-class RuleBinding:
+class RuleMap:
     """One rule's codegen identity: class, kind, parents, bound fields.
 
     ``fields`` maps each generated field name to its :class:`IrBind`, in
@@ -476,13 +474,13 @@ def _bind_rule(
     rule: IrRule,
     parent_rules: dict[str, tuple[str, ...]],
     non_semantic: frozenset[str],
-) -> RuleBinding:
+) -> RuleMap:
     """Build one rule's binding."""
     kind = classify_rule(rule)
     arms = non_empty_arms(rule.body)
     fields = bind_fields(arms[0], non_semantic) if kind == "sequence" else {}
     parents = parent_rules.get(str(rule.name), ())
-    return RuleBinding(
+    return RuleMap(
         rule_name=str(rule.name),
         class_name=class_name_for(str(rule.name)),
         parent_class_names=tuple(class_name_for(p) for p in parents),
@@ -491,7 +489,7 @@ def _bind_rule(
     )
 
 
-def compute_binding(ast: IrAst) -> list[RuleBinding]:
+def compute_binding(ast: IrAst) -> list[RuleMap]:
     """Compute the binding view of a codegen grammar.
 
     Expects the post-pass grammar (groups hoisted, arms hoisted, non-semantic
@@ -500,7 +498,7 @@ def compute_binding(ast: IrAst) -> list[RuleBinding]:
     after its inheritance parent.
 
     :param ast: The codegen grammar.
-    :returns: One :class:`RuleBinding` per rule, parents before subclasses.
+    :returns: One :class:`RuleMap` per rule, parents before subclasses.
     """
     rules = list(ast.rules)
     parent_rules = _parent_rules(rules)
@@ -514,65 +512,3 @@ def compute_binding(ast: IrAst) -> list[RuleBinding]:
 
     order = RuleOrder(by_name, ast.start, parent_edge).ordered_parents_first()
     return [by_name[name] for name in order]
-
-
-# ── open binding: the supplied-class sugar contract ───────────────────
-#
-# Rule→class binding is open (settled 7): the compile seam builds each rule's
-# fold body from EITHER a full authored ``ModelBody`` (the primitive — total
-# control, what the notation uses) OR a *supplied class* (the sugar — a body
-# derived from this binding view, the class serving as the fold constructor).
-# The fold calls the constructor with the binding's field-name kwargs
-# (``ctor(**kwargs)`` / ``ctor(value=...)``), so a supplied class must accept
-# them; ``check_supplied_class`` enforces that contract loudly.
-
-
-def field_kwargs(binding: RuleBinding) -> frozenset[str]:
-    """The kwarg names the fold hands a rule's constructor.
-
-    A ``value_str`` rule folds through ``ctor(value=<text>)``; a ``sequence``
-    rule through ``ctor(**{field: value})`` over its bound fields; an
-    ``alternation`` passes its matched arm's sub-model through and calls no
-    constructor.
-
-    :param binding: The rule's binding view.
-    :returns: The constructor kwarg names for the rule's kind.
-    """
-    if binding.kind == "value_str":
-        return frozenset({"value"})
-    if binding.kind == "alternation":
-        return frozenset()
-    return frozenset(binding.fields)
-
-
-def check_supplied_class(cls: type, kwargs: frozenset[str]) -> None:
-    """Assert a supplied class accepts the fold's field-name kwargs.
-
-    The fold constructs instances via ``cls(**kwargs)``; a class whose
-    signature rejects one of the kwargs would fail deep inside the parse. This
-    surfaces the mismatch at bind time. A class with a ``**kwargs`` catch-all,
-    or one whose constructor cannot be introspected (a C-level builtin), is
-    trusted.
-
-    :param cls: The supplied constructor class.
-    :param kwargs: The field-name kwargs the fold will pass.
-    :raises UnsupportedConstructError: When ``cls`` accepts none-such kwarg.
-    """
-    try:
-        params = inspect.signature(cls).parameters
-    except TypeError, ValueError:
-        return  # un-introspectable (builtin) — trust the caller
-    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
-        return
-    accepted = {
-        name
-        for name, p in params.items()
-        if p.kind
-        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-    }
-    missing = set(kwargs) - accepted
-    if missing:
-        raise UnsupportedConstructError(
-            f"supplied class {cls.__name__!r} does not accept fold kwargs "
-            f"{sorted(missing)} (accepts {sorted(accepted)})"
-        )

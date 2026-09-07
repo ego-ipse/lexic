@@ -39,7 +39,7 @@ from lexic.parsing.earley.tokenscan import (
     split_literals,
     viable_prefix,
 )
-from lexic.parsing.fold import lift_optional_nullables
+from lexic.parsing.lift import lift_optional_nullables
 from tests.paths import GROUND_TRUTH
 
 _VOCAB = {"<think>": 0, "</think>": 1, "a": 2, "b": 3, "<": 4, "/think>": 5}

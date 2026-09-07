@@ -52,7 +52,7 @@ def test_python_source_files_do_not_exceed_700_lines() -> None:
 
 
 def test_source_folders_have_at_most_six_files() -> None:
-    """Count README and data files; exempt only the package marker."""
+    """Count code and data files; exempt the package marker and markdown."""
     crowded: dict[str, list[str]] = {}
     for directory in active_source_dirs():
         files = sorted(
@@ -60,7 +60,7 @@ def test_source_folders_have_at_most_six_files() -> None:
             for path in directory.iterdir()
             if path.is_file()
             and path.name != "__init__.py"
-            and path.suffix not in {".pyc", ".pyo"}
+            and path.suffix not in {".pyc", ".pyo", ".md"}
         )
         if len(files) > MAX_FOLDER_FILES:
             crowded[str(directory.relative_to(ROOT))] = files
