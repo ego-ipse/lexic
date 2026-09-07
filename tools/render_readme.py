@@ -39,7 +39,23 @@ ASSETS = ROOT / "docs" / "assets"
 COMPETITORS = ROOT / "tools" / "benchmark" / "competitors_baseline.json"
 
 Cell = float | str
-"""One artifact value — a µs/char median, or the string ``"refuses"``."""
+"""One artifact value — a µs/char median, or one of :data:`NO_NUMBER`."""
+
+REFUSES = "refuses"
+"""The artifact's word for a seat that cannot take this row's language."""
+
+UNMEASURED = "unmeasured"
+"""The artifact's word for a cell no run could put a trustworthy number in.
+
+A different fact from :data:`REFUSES` and rendered differently: the seat parses
+the grammar, and what is missing is a figure the harness stands behind. These
+two strings are the artifact's own vocabulary, duplicated here on purpose —
+this module reads the committed JSON and imports no benchmark code, so the
+words travel as a wire format. A test pins them against the writer's.
+"""
+
+NO_NUMBER = (REFUSES, UNMEASURED)
+"""Every cell value that is not a measurement."""
 
 STYLE = """<style>
 text{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;fill:#52514e}
@@ -147,8 +163,30 @@ def mt_badge() -> str:
 
 
 def lexic_values() -> dict[str, dict[str, float]]:
-    """The artifact's per-grammar medians — the Lexic seats read from the same run."""
-    return json.loads(COMPETITORS.read_text(encoding="utf-8"))["values"]
+    """The artifact's per-grammar medians, refusing a Lexic seat with no number.
+
+    The ladder and the speedup badge divide these cells, so a nonnumeric one is
+    a `TypeError` deep inside a render rather than a sentence. Lexic's own rows
+    are the ones this project publishes about itself: if any of them has no
+    figure the tables cannot be drawn, and saying which is the only useful
+    thing left to do.
+
+    :returns: The per-grammar cells, every Lexic seat numeric.
+    :raises SystemExit: If a Lexic seat's cell holds no number.
+    """
+    values = json.loads(COMPETITORS.read_text(encoding="utf-8"))["values"]
+    missing = [
+        f"{grammar}/{seat} ({cell})"
+        for grammar, cells in values.items()
+        for seat, cell in cells.items()
+        if seat.startswith("lexic") and isinstance(cell, str)
+    ]
+    if missing:
+        raise SystemExit(
+            "the Lexic tables need a number in every Lexic cell; the artifact "
+            f"holds none for {', '.join(missing)}. Re-measure those rows."
+        )
+    return values
 
 
 def cell_records() -> dict[str, dict[str, dict[str, object]]]:
@@ -384,7 +422,11 @@ def competitors_table() -> str:
 
 
 def _styled(cell: Cell, engine: str, runtime: str) -> str:
-    """One cross-engine table cell — lexic bold, Java italic, refusals plain."""
+    """One cross-engine table cell — lexic bold, Java italic, no-number plain.
+
+    A nonnumeric cell prints the artifact's own word, so `refuses` and
+    `unmeasured` read as the different facts they are rather than as one.
+    """
     if isinstance(cell, str):
         return cell
     if engine.startswith("lexic"):
@@ -393,8 +435,17 @@ def _styled(cell: Cell, engine: str, runtime: str) -> str:
 
 
 def _median(cells: dict[str, Cell]) -> float:
-    """Median of the numeric cells one engine posted."""
+    """Median of the numeric cells one engine posted, or ``inf`` for none.
+
+    An engine can hold a whole column of nonnumeric cells — every grammar
+    refused, or a refresh whose warm-up never settled — and it still has a row
+    to draw. Ranking it by an empty median raised `IndexError` and took the
+    whole render down; ``inf`` sorts it last, after every engine that posted a
+    figure, which is where a row with nothing to plot belongs.
+    """
     ran = sorted(v for v in cells.values() if isinstance(v, float))
+    if not ran:
+        return math.inf
     mid = len(ran) // 2
     return ran[mid] if len(ran) % 2 else (ran[mid - 1] + ran[mid]) / 2
 
@@ -519,16 +570,20 @@ def _ce_row(
     slot: dict[str, str],
     column: dict[str, int],
 ) -> list[str]:
-    """One engine's dots — and × marks in each refused grammar's own column.
+    """One engine's dots — and a mark in each numberless grammar's own column.
 
-    The × column is keyed by grammar, not by how many refusals the row has
+    The mark column is keyed by grammar, not by how many marks the row has
     already emitted, so a column means one grammar in every row it appears in.
+    The GLYPH says which fact it is: `×` for a seat that cannot take the
+    language, `?` for a cell no run could measure. Drawing both as `×` would
+    put a claim about someone else's parser under a chart legend.
     """
     parts: list[str] = []
     for grammar, cell in cells.items():
         if isinstance(cell, str):
             x = geom.right + CE_MARK_GAP + column[grammar] * CE_MARK_PITCH
-            parts.append(_text(x, y + 4.5, "×", f"{slot[grammar]} b", 13))
+            glyph = "×" if cell == REFUSES else "?"
+            parts.append(_text(x, y + 4.5, glyph, f"{slot[grammar]} b", 13))
             continue
         dot = f'<circle cx="{_ce_x(geom, cell):.1f}" cy="{y:.1f}" r="5"'
         parts.append(f'{dot} class="{slot[grammar]}"/>')
@@ -562,7 +617,7 @@ def _ce_geometry(
     band = CE_PAD
     if refusing:
         marks = CE_MARK_GAP + CE_MARK_PITCH * len(refusing) + CE_PAD
-        band = max(marks, CE_MARK_GAP + _width("refuses", 11) + CE_PAD)
+        band = max(marks, CE_MARK_GAP + _width(_mark_caption(by_engine), 11) + CE_PAD)
     top = CE_PAD + 14.0 + legend_lines * CE_LEGEND_H + 14.0
     lo, hi = _ce_domain(by_engine)
     bottom = top + CE_ROW_H * len(engines)
@@ -622,11 +677,27 @@ def cross_engine_svg() -> str:
     parts += _ce_legend(legend, slot)
     parts += _ce_grid(geom)
     if refusing:
-        parts.append(_text(geom.right + CE_MARK_GAP, geom.top - 10, "refuses", "m", 11))
+        caption_text = _mark_caption(by_engine)
+        parts.append(
+            _text(geom.right + CE_MARK_GAP, geom.top - 10, caption_text, "m", 11)
+        )
     parts += _ce_rows(geom, engines, by_engine, slot, dict(_columns(refusing)))
     parts += _ce_caption(geom.bottom, lines)
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
+
+
+def _mark_caption(by_engine: dict[str, dict[str, Cell]]) -> str:
+    """What the right-margin marks mean, naming only the kinds actually drawn."""
+    seen = {
+        c for cells in by_engine.values() for c in cells.values() if isinstance(c, str)
+    }
+    parts = []
+    if REFUSES in seen:
+        parts.append(f"× {REFUSES}")
+    if UNMEASURED in seen:
+        parts.append(f"? {UNMEASURED}")
+    return "   ".join(parts)
 
 
 def _columns(refusing: list[str]) -> list[tuple[str, int]]:

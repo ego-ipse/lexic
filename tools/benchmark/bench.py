@@ -54,7 +54,13 @@ from lexic.parsing.products import _model_product, earley_model
 from tools.benchmark.cases.grammars import Bench, declared_marks
 from tools.benchmark.emitters.directives import NO_MARKS
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts, refusal, refusals
-from tools.benchmark.measurement.contract import shape
+from tools.benchmark.measurement.contract import (
+    CLOCKS,
+    PROTOCOL,
+    RowContract,
+    digest,
+    shape,
+)
 from tools.benchmark.measurement.language import disagreement, probes
 from tools.benchmark.measurement.occupancy import declined_reason
 from tools.benchmark.measurement.sampling import Parse, Pass, prime, timed
@@ -494,6 +500,35 @@ def _competitors(bench: Bench) -> tuple[dict[str, Parse], dict[str, str]]:
 MT_ROWS = frozenset({"lexic-mt", "lexic-mt-lex-ns"})
 """The rows that always read the full corpus — a split needs the scale."""
 
+LEXICAL_ROWS = frozenset(
+    {
+        "lexic-lex",
+        "lexic-lex-ns",
+        "lexic-mt-lex-ns",
+        "lark-earley-lex",
+        "lark-lalr-lex",
+        "parsimonious-lex",
+        "antlr-lex",
+        "antlr-py-lex",
+    }
+)
+"""Every seat built with the case's declared `@lexical` set.
+
+Declared rather than derived from the name, for the same reason
+:data:`~tools.benchmark.cases.directives.DIRECTIVES` is declared: a row label
+must denote the same work in every revision. The naming convention is pinned
+beside it by test, so a new `-lex` seat cannot be added without landing here.
+"""
+
+NON_SEMANTIC_ROWS = LEXICAL_ROWS - {"lexic-lex"}
+"""Every seat that ALSO carries the case's `@non-semantic` set.
+
+`lexic-lex` is the one seat that takes the fold without the noise drop — it
+exists precisely to price the two declarations apart, and `PRODUCT` labels it
+that way. Every other marked seat faces both, because a translation handed one
+and not the other is not the grammar lexic's variant rows compile.
+"""
+
 NOISE_ANCHOR = "lexic-pda"
 """The one seat a grammar's noise floor is ever measured on.
 
@@ -505,6 +540,73 @@ it again — three numbers for one cell, each written without a word. A fixed
 anchor makes the cell mean one thing, and a run that did not measure this seat
 leaves the committed floor alone rather than restating it.
 """
+
+
+def seat_directives(bench: Bench, seat: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The EXACT directive sets one seat is built with, sorted.
+
+    The single reading of "what did this seat compile with", shared by the row
+    contract, the artifact's per-cell record and the structural gate — because
+    a cell that disagrees with the contract about the declarations is exactly
+    the drift the record exists to expose.
+
+    :param bench: The case, carrying its declared sets.
+    :param seat: The row name.
+    :returns: ``(lexical, non_semantic)``, empty for an unmarked seat.
+    """
+    lexical = tuple(sorted(bench.lexical)) if seat in LEXICAL_ROWS else ()
+    non_semantic = (
+        tuple(sorted(bench.non_semantic)) if seat in NON_SEMANTIC_ROWS else ()
+    )
+    return lexical, non_semantic
+
+
+def directive_digest(bench: Bench, seat: str) -> str:
+    """One seat's directive sets as a digest, for the per-cell record.
+
+    A digest rather than the names themselves: `gbnf-meta` declares fifteen
+    `@lexical` rules and the artifact holds a record per (grammar, seat), so
+    spelling them out would multiply the file by its longest declaration to
+    answer one question — did this change since the cell was measured.
+    """
+    lexical, non_semantic = seat_directives(bench, seat)
+    return digest("\n".join(lexical) + "\x1f" + "\n".join(non_semantic))
+
+
+def build_contract(
+    bench: Bench, row: str, document: str, cores: int, gc_enabled: bool
+) -> RowContract:
+    """The exact identity of one row over one document — the ONE constructor.
+
+    The worker builds this from what it measured and the structural gate builds
+    it from what a row WOULD be measured under, and the two must agree field for
+    field or the gate is checking a shape nobody writes. `scale` is derived from
+    the document rather than passed, so the record cannot disagree with what was
+    actually parsed.
+
+    :param bench: The case.
+    :param row: The seat name.
+    :param document: The exact input this row reads.
+    :param cores: The worker request; 1 for every sequential row.
+    :param gc_enabled: Whether the collector ran during the observation.
+    :returns: The row's contract.
+    """
+    lexical, non_semantic = seat_directives(bench, row)
+    return RowContract(
+        PROTOCOL,
+        row,
+        bench.name,
+        digest(bench.source),
+        lexical,
+        non_semantic,
+        digest(document),
+        len(document.encode("utf-8")),
+        "full" if document == bench.full else "corpus",
+        PRODUCT[row],
+        cores,
+        gc_enabled,
+        CLOCKS,
+    )
 
 
 class EngineBuild(NamedTuple):

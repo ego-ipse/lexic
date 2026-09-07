@@ -24,10 +24,16 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from tools.benchmark.bench import ENGINE, LEXIC_ROWS, MT_ROWS, PRODUCT
+from tools.benchmark.bench import (
+    ENGINE,
+    LEXIC_ROWS,
+    MT_ROWS,
+    PRODUCT,
+    build_contract,
+    directive_digest,
+)
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.measurement.contract import (
-    CLOCKS,
     PROTOCOL,
     RowContract,
     digest,
@@ -46,25 +52,13 @@ benchmark. The A/B compares 72 rows; that number is this times the row count.
 
 
 def row_contract(bench: Bench, row: str) -> RowContract:
-    """The contract this row would be measured under, without measuring it."""
-    variant = row in {"lexic-lex", "lexic-lex-ns", "lexic-mt-lex-ns"}
-    with_noise = row in {"lexic-lex-ns", "lexic-mt-lex-ns"}
+    """The contract this row would be measured under, without measuring it.
+
+    The same constructor a worker writes its own contract with, so the gate
+    cannot pass a shape the measurement never produces.
+    """
     document = bench.full if row in MT_ROWS else bench.corpus
-    return RowContract(
-        PROTOCOL,
-        row,
-        bench.name,
-        digest(bench.source),
-        tuple(sorted(bench.lexical)) if variant else (),
-        tuple(sorted(bench.non_semantic)) if with_noise else (),
-        digest(document),
-        len(document.encode("utf-8")),
-        "full" if row in MT_ROWS else "corpus",
-        PRODUCT[row],
-        1,
-        True,
-        CLOCKS,
-    )
+    return build_contract(bench, row, document, 1, True)
 
 
 def _check_roster(problems: list[str]) -> None:
@@ -126,12 +120,19 @@ def _check_contracts(bench: Bench, problems: list[str]) -> None:
 
 
 def _check_artifact(problems: list[str]) -> None:
-    """Every published cell names the grammar and document this tree holds.
+    """Every published cell names the grammar, document and directives held here.
 
     The cheapest thing this gate can prove about the committed numbers, and the
     one a hook must: a fixture edited without a re-measure leaves every stale
     cell in the file reading as a measurement of the current language, and no
     date, round count or character length distinguishes it. The digests do.
+
+    The DIRECTIVE digest is separate, and per seat, because the declarations
+    live in `cases/directives.py` and not in the grammar source: editing them
+    changes what every marked cell measured while the grammar and document
+    digests stay put. Per seat rather than per row, because the marked and
+    unmarked seats of one grammar are built with different sets on purpose, so
+    one value for the row could not express either.
     """
     artifact = json.loads(ARTIFACT.read_text(encoding="utf-8"))
     by_name = {bench.name: bench for bench in BENCHES}
@@ -143,17 +144,24 @@ def _check_artifact(problems: list[str]) -> None:
             )
             continue
         for seat, record in cells.items():
-            document = bench.full if record["scale"] == "full" else bench.corpus
-            for field, held in (
-                ("grammar_digest", digest(bench.source)),
-                ("document_digest", digest(document)),
-            ):
-                if record[field] != held:
-                    problems.append(
-                        f"{grammar}/{seat}: measured against {field} "
-                        f"{record[field]}, this tree holds {held} — the cell is "
-                        f"a number for something else"
-                    )
+            _check_cell(bench, seat, record, problems)
+
+
+def _check_cell(
+    bench: Bench, seat: str, record: dict[str, object], problems: list[str]
+) -> None:
+    """One published cell's three identities against what this tree holds."""
+    document = bench.full if record["scale"] == "full" else bench.corpus
+    for field, held in (
+        ("grammar_digest", digest(bench.source)),
+        ("document_digest", digest(document)),
+        ("directive_digest", directive_digest(bench, seat)),
+    ):
+        if record[field] != held:
+            problems.append(
+                f"{bench.name}/{seat}: measured against {field} {record[field]}, "
+                f"this tree holds {held} — the cell is a number for something else"
+            )
 
 
 def check() -> list[str]:

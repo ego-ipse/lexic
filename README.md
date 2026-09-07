@@ -67,8 +67,8 @@ what lexic accepts *and refuse what lexic refuses*):
 | csv | **0.14** | **0.11** | **0.40** | **0.54** | **11.4** | 0.77 | 12.7 | 0.93 | 3.94 | 2.50 | *0.02* |
 | json | **0.27** | **0.20** | **0.75** | **1.22** | **29.2** | 3.63 | 46.1 | 1.85 | 12.0 | 10.1 | *0.07* |
 | gbnf-meta | **0.52** | **0.42** | **2.09** | **2.51** | **62.7** | refuses | 213.6 | refuses | refuses | 12.5 | *0.11* |
-| abnf-meta | **0.48** | **0.39** | **1.78** | **2.25** | **59.0** | refuses | 145.3 | 3.78 | 1253.0 | 14.7 | *0.11* |
-| vyx | **0.47** | **0.32** | **2.26** | **2.67** | **46.6** | refuses | 137.3 | 2.50 | refuses | 11.1 | *0.08* |
+| abnf-meta | **0.48** | **0.39** | **1.78** | **2.25** | **59.0** | refuses | 145.3 | refuses | 1253.0 | 14.7 | *0.11* |
+| vyx | **0.47** | **0.32** | **2.26** | **2.67** | **46.6** | refuses | 137.3 | refuses | refuses | 11.1 | *0.08* |
 | markdown | **0.19** | **0.15** | **0.68** | **0.89** | **33.8** | 3.47 | 113.6 | refuses | 96.2 | 8.77 | *0.06* |
 | nested | **0.42** | **0.43** | **1.15** | **1.17** | **27.3** | 2.80 | 41.2 | 3.43 | refuses | 12.8 | *0.07* |
 | lexruns | **0.05** | **0.04** | **0.10** | **0.14** | **7.52** | 2.63 | 12.9 | 0.79 | 2.65 | 6.14 | *0.04* |
@@ -76,7 +76,7 @@ what lexic accepts *and refuse what lexic refuses*):
 | mixedends | **0.12** | **0.04** | **0.07** | **0.47** | **12.8** | 3.01 | 15.9 | 1.16 | 4.39 | 7.45 | *0.05* |
 | announced | **0.05** | **0.02** | **0.04** | **0.19** | **3.92** | 0.29 | 5.81 | 0.78 | 2.73 | 1.38 | *0.02* |
 
-µs/char, lower is faster; medians of isolated rounds; measured 2026-09-04 to 2026-09-06, per cell; 8 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
+µs/char, lower is faster; medians of isolated rounds; measured 2026-09-04 to 2026-09-07, per cell; 8 further seats (directive-matched competitor variants, format specialists) stay in the artifact.
 <!-- lexic:end cross-bench -->
 
 Three things the table means, stated plainly:

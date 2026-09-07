@@ -21,13 +21,25 @@ competitors, and that the lexical layer handed out is the one lexic derives.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
+from pathlib import Path
+
 import pytest
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
-from tools.benchmark.bench import SPECIALISTS, _competitors, unfaithful
+from lexic.parsing.parallel import available_workers
+from tools.benchmark.bench import (
+    LEXIC_ROWS,
+    MT_ROWS,
+    SPECIALISTS,
+    _competitors,
+    one_engine,
+    unfaithful,
+)
 from tools.benchmark.cases.grammars import BENCHES, Bench, declared_marks
 from tools.benchmark.emitters.charsets import of_points
 from tools.benchmark.emitters.emit import lexical_layer, peg_grammar
@@ -52,22 +64,6 @@ _ALL = frozenset(
         "antlr-py-lex",
     }
 )
-
-_DIRECTIVE_MATCHED = frozenset(
-    {
-        "lark-earley-lex",
-        "lark-lalr-lex",
-        "parsimonious-lex",
-        "antlr-lex",
-        "antlr-py-lex",
-    }
-)
-"""The seats built with the grammar's own directives translated. Folding a rule
-into a TERMINAL moves a decision from the parser to the lexer, and a lexer has
-neither the parser state nor the backtracking to make it — so the fold is worth
-3x where it lands and costs a row outright where it does not. Both outcomes are
-pinned, because a fold that silently stopped applying would otherwise read as
-the competitor merely getting slower."""
 
 EXPECTED: dict[str, frozenset[str]] = {
     "arithmetic": _ALL,
@@ -371,4 +367,61 @@ def test_the_pyparsing_seat_anchors_inside_its_own_whitespace_window(
     assert accepts(parse, tabbed) == _lexic_takes(bench, tabbed), (
         f"{bench.name}: pyparsing and lexic disagree about a tab in the corpus — "
         "parse_string is expanding it to spaces before the parser sees it"
+    )
+
+
+ARTIFACT = (
+    Path(__file__).resolve().parents[4] / "tools/benchmark/competitors_baseline.json"
+)
+"""The committed cross-engine numbers — what the README publishes from."""
+
+
+def _published(grammar: str) -> dict[str, float | str]:
+    """One grammar's committed cells, by seat."""
+    return json.loads(ARTIFACT.read_text(encoding="utf-8"))["values"].get(grammar, {})
+
+
+def _lexic_passing(bench: Bench, seats: Iterable[str]) -> set[str]:
+    """Which of this case's Lexic seats the gate admits today."""
+    cores = available_workers() if available_workers() > 1 else None
+    passing = set()
+    for row in seats:
+        if row in MT_ROWS and cores is None:
+            continue
+        if one_engine(bench, row, cores, row in MT_ROWS).refusal is None:
+            passing.add(row)
+    return passing
+
+
+@pytest.mark.parametrize("bench", BENCHES, ids=lambda b: b.name)
+def test_no_published_number_comes_from_a_seat_the_gate_now_refuses(
+    bench: Bench,
+) -> None:
+    """The link the artifact's own checks could not make.
+
+    A cell's freshness and its structure both passed while it held a timing for
+    a seat the language gate had since started refusing: strengthening the gate
+    removed two PEG seats from `abnf-meta` and `vyx`, only the pyparsing column
+    was refreshed, and four obsolete numbers stayed — two of them in the README.
+    Nothing in the file could notice, because nothing tied a published NUMBER to
+    the faithfulness result.
+
+    A refusal cell is not checked in the other direction on purpose: a seat that
+    started passing again is a row waiting to be measured, not a false claim.
+    """
+    numeric = {
+        seat
+        for seat, cell in _published(bench.name).items()
+        if not isinstance(cell, str)
+    }
+    if available_workers() == 1:
+        # A GIL build cannot construct the threaded rows at all. That is a fact
+        # about this interpreter, not about what the cells published.
+        numeric -= MT_ROWS
+    passing = set(_built(bench)) | _lexic_passing(bench, numeric & LEXIC_ROWS)
+    stale = sorted(numeric - passing)
+    assert not stale, (
+        f"{bench.name}: {stale} publish a timing but no longer pass the language "
+        "gate — the number is for a language the seat does not describe. Refresh "
+        "those cells so they record the refusal, and never keep the timing"
     )

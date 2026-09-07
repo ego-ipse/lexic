@@ -83,12 +83,17 @@ that by exact class — `child.__class__ is tuple`, never `isinstance`. Every
 record and every `IrTuple` is a tuple subclass and none of them is a run, so a
 subclass test answers yes to things that are not repetitions.
 
-That makes the carrier's type load-bearing in a way nothing else in the model
-notices. An `IrTuple` in a repetition field compares equal to the plain one,
-round-trips to identical text, and walks to the same structure — so a text
-digest, a shape digest and an equality check all pass — and then answers "not a
-repetition" to the one question the stitch asks. **A stitch must rebuild the
-exact class the sequential product builds, not a value equal to it.**
+That makes the carrier's type load-bearing in a way most of the model does not
+notice. An `IrTuple` in a repetition field compares equal to the plain one and
+round-trips to identical text, so equality and a digest of the rendered TEXT
+both pass — and it still answers "not a repetition" to the one question the
+stitch asks. **A stitch must rebuild the exact class the sequential product
+builds, not a value equal to it.**
+
+What DOES separate them is the type-aware shape digest: it renders class names,
+so a plain run reads `tuple(…)` and an `IrTuple` reads `IrTuple(tuple(…))`.
+That is how the baseline failure was caught, and it is why "did the document
+survive" and "is this the same product" are two questions with two digests.
 
 `is_run` is public for the same reason: three call sites ask it, and a fourth
 spelling would be a fourth chance to get the subclass case wrong.

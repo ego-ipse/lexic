@@ -147,9 +147,20 @@ def test_refusal_column_means_one_grammar() -> None:
     assert all(len(seen) == 1 for seen in columns.values()), columns
 
 
-def test_refuses_caption_is_emitted_once() -> None:
-    """One chart, one legend for the × glyph."""
-    assert cross_engine_svg().count(">refuses<") == 1
+def test_the_margin_caption_is_emitted_once_and_names_what_it_marks() -> None:
+    """One chart, one legend, and it names only the marks actually drawn.
+
+    `refuses` and `unmeasured` are different facts — a seat that cannot take
+    the language against a run that could not measure one — so they take
+    different glyphs and the caption spells out whichever appear.
+    """
+    svg = cross_engine_svg()
+    captions = [
+        line for line in svg.splitlines() if "refuses" in line or "unmeasured" in line
+    ]
+    assert len(captions) == 1, captions
+    assert ">× refuses<" in svg
+    assert "unmeasured" not in svg, "this artifact holds no unmeasured cell"
 
 
 def test_every_dot_lands_inside_the_plot() -> None:

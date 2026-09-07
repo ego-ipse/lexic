@@ -1,7 +1,7 @@
 {
-  "schema": 4,
+  "schema": 5,
   "unit": "microseconds_per_character",
-  "note": "Cross-engine medians of isolated rounds. A run writes only the cells it measured and leaves every other one exactly as it found it, so each (grammar, seat) cell carries its own measurement date, round count, worker request and input. `engines` is display metadata only. README rendering reads this file and never triggers a run.",
+  "note": "Cross-engine medians of isolated rounds. A run writes only the cells it measured and leaves every other one exactly as it found it, so each (grammar, seat) cell carries its own measurement date, round count, worker request and input. A cell is a number, `refuses` (the seat cannot take this language) or `unmeasured` (the seat could, but this run could not obtain a figure it stands behind); the two are different facts and `note` says which. `engines` is display metadata only. README rendering reads this file and never triggers a run.",
   "noise_floor_percent": {
     "arithmetic": 2.15,
     "csv": 0.83,
@@ -104,7 +104,9 @@
         "chars": 32774,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "cba0ce2b955275ff",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -114,7 +116,9 @@
         "chars": 32774,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "cba0ce2b955275ff",
-        "warmed": null
+        "directive_digest": "5557b1668e67e3b8",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -124,7 +128,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "5557b1668e67e3b8",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -134,7 +140,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "5557b1668e67e3b8",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -144,7 +152,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -154,7 +164,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -164,7 +176,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -174,7 +188,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "5557b1668e67e3b8",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -184,7 +200,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -194,7 +212,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "5557b1668e67e3b8",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -204,7 +224,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -214,7 +236,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "5557b1668e67e3b8",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -224,7 +248,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -234,7 +260,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -244,7 +272,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": null
+        "directive_digest": "5557b1668e67e3b8",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -254,7 +284,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -264,7 +296,9 @@
         "chars": 4000,
         "grammar_digest": "d3eedfd78d7771af",
         "document_digest": "6333636176e12772",
-        "warmed": 2400
+        "directive_digest": "5557b1668e67e3b8",
+        "warmed": 2400,
+        "note": null
       }
     },
     "csv": {
@@ -276,7 +310,9 @@
         "chars": 32939,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "aa46e78875268605",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -286,7 +322,9 @@
         "chars": 32939,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "aa46e78875268605",
-        "warmed": null
+        "directive_digest": "db2e02e8b0364498",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -296,7 +334,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "da5381295ae0e149",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -306,7 +346,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "db2e02e8b0364498",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -316,7 +358,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -326,7 +370,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -336,7 +382,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -346,7 +394,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "db2e02e8b0364498",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -356,7 +406,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -366,7 +418,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "db2e02e8b0364498",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -376,7 +430,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -386,7 +442,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "db2e02e8b0364498",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -396,7 +454,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -406,7 +466,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -416,7 +478,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": null
+        "directive_digest": "db2e02e8b0364498",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -426,7 +490,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -436,7 +502,9 @@
         "chars": 12539,
         "grammar_digest": "ae66032b9b2c2327",
         "document_digest": "e3692cdad884e414",
-        "warmed": 2400
+        "directive_digest": "db2e02e8b0364498",
+        "warmed": 2400,
+        "note": null
       }
     },
     "json": {
@@ -448,7 +516,9 @@
         "chars": 32983,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "0c8ab5a3982df172",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -458,7 +528,9 @@
         "chars": 32983,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "0c8ab5a3982df172",
-        "warmed": null
+        "directive_digest": "4ca515b29ec02e44",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -468,7 +540,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "45f315cccee0fabf",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -478,7 +552,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "4ca515b29ec02e44",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -488,7 +564,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -498,7 +576,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -508,7 +588,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -518,7 +600,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "4ca515b29ec02e44",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -528,7 +612,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -538,7 +624,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "4ca515b29ec02e44",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -548,7 +636,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -558,7 +648,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "4ca515b29ec02e44",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -568,7 +660,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -578,7 +672,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -588,7 +684,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "4ca515b29ec02e44",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -598,7 +696,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -608,7 +708,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": 2400
+        "directive_digest": "4ca515b29ec02e44",
+        "warmed": 2400,
+        "note": null
       },
       "stdlib-json": {
         "measured": "2026-09-04",
@@ -618,7 +720,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "msgspec": {
         "measured": "2026-09-04",
@@ -628,7 +732,9 @@
         "chars": 2403,
         "grammar_digest": "284bc58792c3d5e0",
         "document_digest": "b8cf2bebd7e25b63",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       }
     },
     "gbnf-meta": {
@@ -640,7 +746,9 @@
         "chars": 40530,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "616e46d6ba8ceb32",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -650,7 +758,9 @@
         "chars": 40530,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "616e46d6ba8ceb32",
-        "warmed": null
+        "directive_digest": "d9d5ead31276c92a",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -660,7 +770,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "d9d5ead31276c92a",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -670,7 +782,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "d9d5ead31276c92a",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -680,7 +794,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -690,7 +806,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -700,7 +818,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -710,7 +830,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "d9d5ead31276c92a",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -720,7 +842,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -730,7 +854,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "d9d5ead31276c92a",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -740,7 +866,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -750,7 +878,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "d9d5ead31276c92a",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -760,7 +890,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -770,7 +902,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -780,7 +914,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": null
+        "directive_digest": "d9d5ead31276c92a",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -790,7 +926,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -800,7 +938,9 @@
         "chars": 1377,
         "grammar_digest": "6ba0197fe18b9e20",
         "document_digest": "45a4fb9c6c47f80a",
-        "warmed": 2400
+        "directive_digest": "d9d5ead31276c92a",
+        "warmed": 2400,
+        "note": null
       }
     },
     "abnf-meta": {
@@ -812,7 +952,9 @@
         "chars": 37180,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "eee866faeda7b610",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -822,7 +964,9 @@
         "chars": 37180,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "eee866faeda7b610",
-        "warmed": null
+        "directive_digest": "dc2fbbbed3b4112a",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -832,7 +976,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "b396903cf8069d31",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -842,7 +988,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "dc2fbbbed3b4112a",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -852,7 +1000,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -862,7 +1012,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -872,7 +1024,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -882,7 +1036,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "dc2fbbbed3b4112a",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -892,7 +1048,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -902,27 +1060,33 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "dc2fbbbed3b4112a",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": "refuses the derived probe 'S;\\n\\t\\t=/<> <>\\t<>/<>/<>\\r\\n' \u2014 ParseError: Rule 'alternation' didn't match at '/<> <> <>/<>/<> ' (line 2, column 4)."
       },
       "parsimonious-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "dc2fbbbed3b4112a",
+        "warmed": null,
+        "note": "refuses the derived probe 'S;\\n\\t\\t=/<> <>\\t<>/<>/<>\\r\\n' \u2014 ParseError: Rule 'alternation' didn't match at '/<> <> <>/<>/<> ' (line 2, column 4)."
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -932,7 +1096,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -942,7 +1108,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -952,7 +1120,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": null
+        "directive_digest": "dc2fbbbed3b4112a",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -962,7 +1132,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -972,7 +1144,9 @@
         "chars": 2020,
         "grammar_digest": "3a921539c7ab507d",
         "document_digest": "365ac07d436add47",
-        "warmed": 2400
+        "directive_digest": "dc2fbbbed3b4112a",
+        "warmed": 2400,
+        "note": null
       }
     },
     "vyx": {
@@ -984,7 +1158,9 @@
         "chars": 33180,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "0ff20faac135716f",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -994,7 +1170,9 @@
         "chars": 33180,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "0ff20faac135716f",
-        "warmed": null
+        "directive_digest": "0bff2e0714393980",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -1004,7 +1182,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "0bff2e0714393980",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -1014,7 +1194,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "0bff2e0714393980",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -1024,7 +1206,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -1034,7 +1218,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -1044,7 +1230,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -1054,7 +1242,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "0bff2e0714393980",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1064,7 +1254,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -1074,27 +1266,33 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "0bff2e0714393980",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 IncompleteParseError: Rule 'packet' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with ' D:{ } >' (line 1, column 9)."
       },
       "parsimonious-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "0bff2e0714393980",
+        "warmed": null,
+        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 IncompleteParseError: Rule 'packet' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with ' D:{ } >' (line 1, column 9)."
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -1104,7 +1302,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -1114,7 +1314,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -1124,7 +1326,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": null
+        "directive_digest": "0bff2e0714393980",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -1134,7 +1338,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -1144,7 +1350,9 @@
         "chars": 3461,
         "grammar_digest": "753aaf559c1612c2",
         "document_digest": "5dc9e238e9d96b75",
-        "warmed": 2400
+        "directive_digest": "0bff2e0714393980",
+        "warmed": 2400,
+        "note": null
       }
     },
     "markdown": {
@@ -1156,7 +1364,9 @@
         "chars": 33224,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "3111e13be85035e6",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -1166,7 +1376,9 @@
         "chars": 33224,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "3111e13be85035e6",
-        "warmed": null
+        "directive_digest": "ecffd9c07306b4a3",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -1176,7 +1388,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "1e2230010f25e464",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -1186,7 +1400,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ecffd9c07306b4a3",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -1196,7 +1412,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -1206,7 +1424,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -1216,7 +1436,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -1226,7 +1448,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ecffd9c07306b4a3",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1236,7 +1460,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -1246,7 +1472,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ecffd9c07306b4a3",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -1256,7 +1484,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -1266,7 +1496,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ecffd9c07306b4a3",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -1276,7 +1508,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -1286,7 +1520,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -1296,7 +1532,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": null
+        "directive_digest": "ecffd9c07306b4a3",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -1306,7 +1544,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -1316,7 +1556,9 @@
         "chars": 7304,
         "grammar_digest": "e272e413c342fe2f",
         "document_digest": "1125e62f18dafe22",
-        "warmed": 2400
+        "directive_digest": "ecffd9c07306b4a3",
+        "warmed": 2400,
+        "note": null
       }
     },
     "nested": {
@@ -1328,7 +1570,9 @@
         "chars": 32911,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "479c5c9ff25914d3",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -1338,7 +1582,9 @@
         "chars": 32911,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "479c5c9ff25914d3",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -1348,7 +1594,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -1358,7 +1606,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -1368,7 +1618,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -1378,7 +1630,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -1388,7 +1642,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -1398,7 +1654,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1408,7 +1666,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -1418,7 +1678,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -1428,7 +1690,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -1438,7 +1702,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -1448,7 +1714,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -1458,7 +1726,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -1468,7 +1738,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -1478,7 +1750,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -1488,7 +1762,9 @@
         "chars": 1620,
         "grammar_digest": "f7f5601463d8543d",
         "document_digest": "e122dac76a1b65b2",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       }
     },
     "lexruns": {
@@ -1500,7 +1776,9 @@
         "chars": 33130,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "b99b2fc9af08bfec",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -1510,7 +1788,9 @@
         "chars": 33130,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "b99b2fc9af08bfec",
-        "warmed": null
+        "directive_digest": "97a018f58bb8a407",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -1520,7 +1800,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "3205ade45f3f83b0",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -1530,7 +1812,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "97a018f58bb8a407",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -1540,7 +1824,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -1550,7 +1836,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -1560,7 +1848,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -1570,7 +1860,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "97a018f58bb8a407",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1580,7 +1872,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -1590,7 +1884,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "97a018f58bb8a407",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -1600,7 +1896,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -1610,7 +1908,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "97a018f58bb8a407",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -1620,7 +1920,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -1630,7 +1932,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -1640,7 +1944,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": null
+        "directive_digest": "97a018f58bb8a407",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -1650,7 +1956,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -1660,7 +1968,9 @@
         "chars": 9180,
         "grammar_digest": "5a2387e4cb6d612d",
         "document_digest": "2a67aa5163095528",
-        "warmed": 2400
+        "directive_digest": "97a018f58bb8a407",
+        "warmed": 2400,
+        "note": null
       }
     },
     "backtrack": {
@@ -1672,7 +1982,9 @@
         "chars": 32790,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "ad2ee8b68cd61e12",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -1682,7 +1994,9 @@
         "chars": 32790,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "ad2ee8b68cd61e12",
-        "warmed": null
+        "directive_digest": "5c8b3d600f44ece7",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -1692,7 +2006,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "cd81333196d09d3d",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -1702,7 +2018,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "5c8b3d600f44ece7",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -1712,7 +2030,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -1722,7 +2042,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -1732,7 +2054,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -1742,7 +2066,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "5c8b3d600f44ece7",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1752,7 +2078,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -1762,7 +2090,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "5c8b3d600f44ece7",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -1772,7 +2102,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -1782,7 +2114,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "5c8b3d600f44ece7",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -1792,7 +2126,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -1802,7 +2138,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -1812,7 +2150,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": null
+        "directive_digest": "5c8b3d600f44ece7",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -1822,7 +2162,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -1832,7 +2174,9 @@
         "chars": 3265,
         "grammar_digest": "a49cc890e479bda8",
         "document_digest": "9a6cb680d4f41bbf",
-        "warmed": 2400
+        "directive_digest": "5c8b3d600f44ece7",
+        "warmed": 2400,
+        "note": null
       }
     },
     "mixedends": {
@@ -1844,7 +2188,9 @@
         "chars": 34408,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "4d03678841591814",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -1854,7 +2200,9 @@
         "chars": 34408,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "4d03678841591814",
-        "warmed": null
+        "directive_digest": "c75762cfea16e4bc",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -1864,7 +2212,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "d26ef6434d5bc4e6",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -1874,7 +2224,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "c75762cfea16e4bc",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -1884,7 +2236,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -1894,7 +2248,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -1904,7 +2260,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -1914,7 +2272,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "c75762cfea16e4bc",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1924,7 +2284,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -1934,7 +2296,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "c75762cfea16e4bc",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -1944,7 +2308,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -1954,7 +2320,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "c75762cfea16e4bc",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -1964,7 +2332,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -1974,7 +2344,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -1984,7 +2356,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": null
+        "directive_digest": "c75762cfea16e4bc",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -1994,7 +2368,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -2004,7 +2380,9 @@
         "chars": 3507,
         "grammar_digest": "901091e1c896bbb3",
         "document_digest": "c5874d29231f2a23",
-        "warmed": 2400
+        "directive_digest": "c75762cfea16e4bc",
+        "warmed": 2400,
+        "note": null
       }
     },
     "announced": {
@@ -2016,7 +2394,9 @@
         "chars": 43500,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "3a034ebecb13ceb6",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-mt-lex-ns": {
         "measured": "2026-09-06",
@@ -2026,7 +2406,9 @@
         "chars": 43500,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "3a034ebecb13ceb6",
-        "warmed": null
+        "directive_digest": "df981ab220edc269",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex": {
         "measured": "2026-09-06",
@@ -2036,7 +2418,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "0b5035fe662f96c2",
+        "warmed": null,
+        "note": null
       },
       "lexic-lex-ns": {
         "measured": "2026-09-06",
@@ -2046,7 +2430,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "df981ab220edc269",
+        "warmed": null,
+        "note": null
       },
       "lexic-pda": {
         "measured": "2026-09-06",
@@ -2056,7 +2442,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lexic-earley": {
         "measured": "2026-09-06",
@@ -2066,7 +2454,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr": {
         "measured": "2026-09-04",
@@ -2076,7 +2466,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-lalr-lex": {
         "measured": "2026-09-04",
@@ -2086,7 +2478,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "df981ab220edc269",
+        "warmed": null,
+        "note": null
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -2096,7 +2490,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "lark-earley-lex": {
         "measured": "2026-09-04",
@@ -2106,7 +2502,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "df981ab220edc269",
+        "warmed": null,
+        "note": null
       },
       "parsimonious": {
         "measured": "2026-09-04",
@@ -2116,7 +2514,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "parsimonious-lex": {
         "measured": "2026-09-04",
@@ -2126,7 +2526,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "df981ab220edc269",
+        "warmed": null,
+        "note": null
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -2136,7 +2538,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -2146,7 +2550,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": null,
+        "note": null
       },
       "antlr-py-lex": {
         "measured": "2026-09-04",
@@ -2156,7 +2562,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": null
+        "directive_digest": "df981ab220edc269",
+        "warmed": null,
+        "note": null
       },
       "antlr": {
         "measured": "2026-09-06",
@@ -2166,7 +2574,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": 2400
+        "directive_digest": "ffe679bb831c95b6",
+        "warmed": 2400,
+        "note": null
       },
       "antlr-lex": {
         "measured": "2026-09-06",
@@ -2176,7 +2586,9 @@
         "chars": 4350,
         "grammar_digest": "dab04ffe14d95262",
         "document_digest": "a58b7d49bf07b1bd",
-        "warmed": 2400
+        "directive_digest": "df981ab220edc269",
+        "warmed": 2400,
+        "note": null
       }
     }
   },
@@ -2270,8 +2682,8 @@
       "lark-lalr-lex": "refuses",
       "lark-earley": 145.318582,
       "lark-earley-lex": "refuses",
-      "parsimonious": 3.781959,
-      "parsimonious-lex": 3.201385,
+      "parsimonious": "refuses",
+      "parsimonious-lex": "refuses",
       "pyparsing": 1253.040557,
       "antlr-py": 14.663922,
       "antlr-py-lex": 11.143154,
@@ -2289,8 +2701,8 @@
       "lark-lalr-lex": "refuses",
       "lark-earley": 137.308154,
       "lark-earley-lex": 55.809816,
-      "parsimonious": 2.495761,
-      "parsimonious-lex": 2.40606,
+      "parsimonious": "refuses",
+      "parsimonious-lex": "refuses",
       "pyparsing": "refuses",
       "antlr-py": 11.133138,
       "antlr-py-lex": 9.979299,

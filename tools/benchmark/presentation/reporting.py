@@ -127,8 +127,12 @@ class Block(NamedTuple):
     :ivar mt_notes: Per-row reasons that a requested mt row ran sequentially.
     :ivar shares: Per-row fraction of the timed region spent building the
         input stream, for the rows that pay one.
-    :ivar warmed: Per-row parses spent reaching steady state, for the rows that
-        warm at all. Only settled rows are here — an unsettled one is a refusal.
+    :ivar warmed: Per-row parses spent reaching steady state, for every row that
+        warms at all — an unsettled row included, because the budget it spent is
+        the evidence for why it has no number.
+    :ivar unmeasured: Rows this run could not put a trustworthy number in, and
+        why. Kept APART from :attr:`refused`: that one is a fact about the seat
+        (it cannot take this language), this one is a fact about the run.
     """
 
     bench: Bench
@@ -139,6 +143,7 @@ class Block(NamedTuple):
     mt_notes: dict[str, str]
     shares: dict[str, float]
     warmed: dict[str, int]
+    unmeasured: dict[str, str]
 
 
 def _report(block: Block, color: bool) -> None:
@@ -160,6 +165,10 @@ def _report(block: Block, color: bool) -> None:
     for name, why in sorted(block.refused.items()):
         label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
         print(f"  {label}{'—':>9}             {_paint(why[:96], _DIM, color)}")
+    # Apart from the refusals above, and said so: this seat takes the grammar.
+    for name, why in sorted(block.unmeasured.items()):
+        label = _paint(f"{name:<17}", _TINT.get(name, ""), color)
+        print(f"  {label}{'no number':>9}     {_paint(why[:92], _DIM, color)}")
     if block.floor is None:
         print(
             f"  {'noise floor':<13}{'—':>8}     "

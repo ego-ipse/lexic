@@ -1942,13 +1942,14 @@ are deliberately not re-exported from `lexic.parsing.parallel`.
 re-derive from code.
 
 **The repetition carrier is a plain `tuple`, and `is_run` tests the exact
-class.** An `IrTuple` in a repetition field compares equal, round-trips to
-identical text and walks to the same structure — a text digest, a shape digest
-and an equality check all pass — and still answers "not a repetition" to the one
-question the stitch asks. So a stitch must rebuild the exact class the
-sequential product builds, not a value equal to it, and `is_run` is public
-because a fourth spelling of `child.__class__ is tuple` would be a fourth chance
-to get the subclass case wrong.
+class.** An `IrTuple` in a repetition field compares equal and round-trips to
+identical text — equality and a digest of the rendered text both pass — and
+still answers "not a repetition" to the one question the stitch asks. The
+type-aware shape digest is what separates them, and what caught the baseline
+failure. So a stitch must rebuild the exact class the sequential product
+builds, not a value equal to it, and `is_run` is public because a fourth
+spelling of `child.__class__ is tuple` would be a fourth chance to get the
+subclass case wrong.
 
 **Which plans may share a scan** now sits beside "Interiors: what a sweep must
 skip", where the rule a new plan shape has to be checked against belongs.
@@ -1962,3 +1963,27 @@ narrows to its own spellings through `scan_marks`.
 The page's *Cache lifetime* section adds `roles()` as a bounded identity memo of
 the same shape as the split-plan memos: keyed on `id(grammar)`, value carrying
 the grammar so the strong reference pins the id.
+
+## A cell that holds no number says WHICH of the two reasons it has
+
+[[lexic/parallel-parsing]]'s repetition-carrier paragraph is corrected: it said
+a shape digest passes for an `IrTuple` in a run field. It does not — the digest
+is type-aware, so the plain carrier renders `tuple(…)` and the subclass renders
+`IrTuple(tuple(…))`, and that is exactly what caught the failure. Equality and
+the rendered TEXT are what pass.
+
+The benchmark artifact's cell vocabulary is now three values, not two. A number
+is a measurement; `refuses` is a fact about the SEAT (it cannot take this row's
+language); `unmeasured` is a fact about the RUN (the seat can, and this run
+could not obtain a figure worth publishing — a JIT whose warm-up never settled
+is the standing case). Collapsing the third into the second published a claim
+about someone else's parser that nobody had established, and dropped the
+warm-up budget that was the evidence. Both carry their reason in the cell's
+own record, and the renderer marks them with different glyphs.
+
+Two identity gaps closed with them. A cell records the digest of the DIRECTIVE
+sets its seat was built with, per seat rather than per row, because the
+declarations live outside the grammar source and the marked and unmarked seats
+of one grammar are built with different sets on purpose. And a published NUMBER
+must still pass the language gate — freshness and structure both passed while
+four cells held timings for seats the strengthened gate had begun refusing.

@@ -16,12 +16,22 @@ from pathlib import Path
 import pytest
 
 from tools import render_readme
-from tools.benchmark.bench import ENGINE
+from tools.benchmark import regression
+from tools.benchmark.bench import (
+    ENGINE,
+    LEXICAL_ROWS,
+    NON_SEMANTIC_ROWS,
+    directive_digest,
+    seat_directives,
+)
 from tools.benchmark.cases.grammars import BENCHES
 from tools.benchmark.execution.isolation import ReportRow
 from tools.benchmark.measurement.contract import digest
+from tools.benchmark.presentation import cli
 from tools.benchmark.presentation.cli import (
+    REFUSES,
     SCHEMA,
+    UNMEASURED,
     Run,
     _dump_json,
     _row_names,
@@ -29,6 +39,7 @@ from tools.benchmark.presentation.cli import (
     _unsettled,
 )
 from tools.benchmark.presentation.reporting import Block
+from tools.benchmark.regression import row_contract
 from tools.render_readme import COMPETITORS, _measured_caption, column_workers
 
 _WARMLESS = ReportRow([0.5], None, None, None, None, 0.0)
@@ -97,7 +108,7 @@ def test_the_mt_rows_appear_only_when_cores_are_asked_for() -> None:
 
 def _block(bench, samples: dict[str, list[float]], floor: float | None = 1.25) -> Block:
     """One presentation block carrying only the given seats' samples."""
-    return Block(bench, samples, {}, floor, {}, {}, {}, {})
+    return Block(bench, samples, {}, floor, {}, {}, {}, {}, {})
 
 
 def _seeded(path: Path, edit=None) -> dict:
@@ -249,7 +260,9 @@ def test_a_threaded_seat_always_records_the_full_input(tmp_path: Path) -> None:
         "chars": len(bench.full),
         "grammar_digest": digest(bench.source),
         "document_digest": digest(bench.full),
+        "directive_digest": directive_digest(bench, "lexic-mt"),
         "warmed": None,
+        "note": None,
     }
 
 
@@ -471,3 +484,201 @@ def test_a_filtered_run_that_missed_the_anchor_leaves_the_floor_alone(
     after = json.loads(path.read_text(encoding="utf-8"))
     assert after["noise_floor_percent"] == before["noise_floor_percent"]
     assert after["values"]["csv"]["antlr"] == 0.5, "the cell itself is still written"
+
+
+# ── an unsettled measurement is not a language refusal ────────────────────
+
+
+def _crafted(cli_module, monkeypatch, rows: dict[str, ReportRow], bench) -> Block:
+    """One block built from crafted worker payloads, with no process spawned."""
+    monkeypatch.setattr(
+        cli_module, "run_report_row", lambda request, _root: rows[request.engine]
+    )
+    monkeypatch.setattr(cli_module, "_row_names", lambda *_a, **_k: list(rows))
+    monkeypatch.setattr(
+        cli_module, "noise_floor", lambda *_a: pytest.fail("no floor to measure")
+    )
+    block, _results = _crafted_block(cli_module, bench)
+    return block
+
+
+def _crafted_block(cli_module, bench) -> tuple[Block, dict[str, ReportRow]]:
+    """Run the real ``_isolated_bench`` over whatever the patches supply."""
+    # The private isolation path IS the subject: the review required the whole
+    # result-to-artifact-to-render chain exercised, not `_unsettled` alone.
+    return cli_module._isolated_bench(  # pylint: disable=protected-access
+        bench, Run(7, None, False)
+    )
+
+
+def test_an_unsettled_run_is_not_serialized_as_a_language_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole path: worker payload, block, artifact, and what a reader sees.
+
+    A JIT whose warm-up never settled parses the grammar perfectly well. Writing
+    that as ``refuses`` published a claim about someone else's parser, and the
+    budget it spent — the evidence — was dropped on the way.
+    """
+    bench = _bench("csv")
+    rows = {
+        "antlr": ReportRow([0.5], None, None, (2400, False), None, 0.0),
+        "lark-lalr": ReportRow([0.25], None, None, None, None, 0.0),
+    }
+    block = _crafted(cli, monkeypatch, rows, bench)
+
+    assert "antlr" not in block.samples, "an unsettled row publishes no number"
+    assert block.refused == {}, "and it is not a refusal"
+    assert "2400" in block.unmeasured["antlr"]
+    assert block.warmed["antlr"] == 2400, "the budget it spent is the evidence"
+
+    path = tmp_path / "artifact.json"
+    _dump_json(path, Run(7, None, False), [block])
+    written = json.loads(path.read_text(encoding="utf-8"))
+
+    assert written["values"]["csv"]["antlr"] == UNMEASURED
+    assert written["values"]["csv"]["antlr"] != REFUSES
+    record = written["provenance"]["csv"]["antlr"]
+    assert record["warmed"] == 2400
+    assert "warm-up never settled" in record["note"]
+    assert written["values"]["csv"]["lark-lalr"] == 0.25
+    assert written["provenance"]["csv"]["lark-lalr"]["note"] is None
+
+
+def test_a_language_refusal_keeps_its_own_word_and_carries_its_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the pair: a seat that cannot take the grammar."""
+    bench = _bench("csv")
+    rows = {
+        "lark-lalr": ReportRow([], "GrammarError: reduce/reduce", None, None, None, 0.0)
+    }
+    block = _crafted(cli, monkeypatch, rows, bench)
+
+    path = tmp_path / "artifact.json"
+    _dump_json(path, Run(7, None, False), [block])
+    written = json.loads(path.read_text(encoding="utf-8"))
+
+    assert written["values"]["csv"]["lark-lalr"] == REFUSES
+    assert written["provenance"]["csv"]["lark-lalr"]["note"] == (
+        "GrammarError: reduce/reduce"
+    )
+
+
+def test_the_writer_and_the_renderer_agree_on_the_artifact_vocabulary() -> None:
+    """`render_readme` reads the committed JSON and imports no benchmark code.
+
+    The two words are therefore duplicated on purpose, as a wire format. This
+    is what stops them drifting.
+    """
+    assert render_readme.REFUSES == REFUSES
+    assert render_readme.UNMEASURED == UNMEASURED
+    assert set(render_readme.NO_NUMBER) == {REFUSES, UNMEASURED}
+
+
+def _artifact_with(column: str, value: str) -> dict:
+    """The committed artifact with one whole seat column made nonnumeric."""
+    payload = json.loads(COMPETITORS.read_text(encoding="utf-8"))
+    for grammar, cells in payload["values"].items():
+        if column in cells:
+            cells[column] = value
+            payload["provenance"][grammar][column]["note"] = "crafted"
+    return payload
+
+
+@pytest.mark.parametrize("value", [REFUSES, UNMEASURED])
+def test_a_wholly_nonnumeric_column_still_renders(
+    value: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`_median` assumed every displayed engine had a number; it crashed.
+
+    An unsettled refresh of a single seat is now an ordinary route to a column
+    with nothing to rank, and the renderer must draw it rather than raise.
+    """
+    path = tmp_path / "artifact.json"
+    path.write_text(json.dumps(_artifact_with("antlr", value)), encoding="utf-8")
+    monkeypatch.setattr(render_readme, "COMPETITORS", path)
+
+    svg = render_readme.cross_engine_svg()
+    table = render_readme.competitors_table()
+
+    assert "ANTLR (Java)" in svg, "the row is drawn, not dropped"
+    assert _column(table, "*ANTLR (Java)*") == [value] * 12, "every cell says so"
+    glyph = "×" if value == REFUSES else "?"
+    assert f"{glyph} {value}" in svg, "the margin caption names what it marks"
+
+
+def _column(table: str, header: str) -> list[str]:
+    """One rendered column's cells, by its header label."""
+    rows = [line for line in table.splitlines() if line.startswith("| ")]
+    heads = [cell.strip() for cell in rows[0].strip("| ").split(" | ")]
+    at = heads.index(header)
+    return [
+        [cell.strip() for cell in row.strip("| ").split(" | ")][at] for row in rows[1:]
+    ]
+
+
+# ── a cell knows which DIRECTIVES it was measured with ────────────────────
+
+
+def test_the_marked_seats_are_declared_not_read_off_their_names() -> None:
+    """The roster's naming convention and the declaration must not drift apart.
+
+    `LEXICAL_ROWS` is written out rather than derived, for the same reason the
+    directive sets themselves are — but a new `-lex` seat added to the roster
+    and forgotten here would face the marks while its cells recorded none.
+    """
+    assert {name for name in ENGINE if "-lex" in name} == LEXICAL_ROWS
+    assert NON_SEMANTIC_ROWS == LEXICAL_ROWS - {"lexic-lex"}
+
+
+def test_each_seat_records_the_directives_it_is_actually_built_with() -> None:
+    """Three shapes, and the artifact must be able to tell them apart."""
+    bench = _bench("csv")
+    assert seat_directives(bench, "lexic-pda") == ((), ())
+    assert seat_directives(bench, "lexic-lex") == (tuple(sorted(bench.lexical)), ())
+    both = (tuple(sorted(bench.lexical)), tuple(sorted(bench.non_semantic)))
+    assert seat_directives(bench, "lexic-lex-ns") == both
+    assert seat_directives(bench, "parsimonious-lex") == both, (
+        "a marked competitor faces the same declarations lexic's variant compiles"
+    )
+    digests = {
+        seat: directive_digest(bench, seat)
+        for seat in ("lexic-pda", "lexic-lex", "lexic-lex-ns", "parsimonious-lex")
+    }
+    assert len(set(digests.values())) == 3, digests
+
+
+def test_the_row_contract_and_the_cell_read_one_declaration() -> None:
+    """Two readings of "what did this seat compile with" could disagree."""
+    bench = _bench("csv")
+    for seat in ("lexic-pda", "lexic-lex", "lexic-lex-ns"):
+        contract = row_contract(bench, seat)
+        assert (contract.lexical, contract.non_semantic) == seat_directives(bench, seat)
+
+
+def test_a_declaration_only_change_rejects_exactly_the_marked_cells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The witness the review supplied, which the old check could not see.
+
+    Editing `cases/directives.py` changes what every marked cell measured while
+    the grammar source and the document stay byte-identical, so neither of the
+    other two digests moves.
+    """
+    bench = _bench("csv")
+    stripped = bench._replace(lexical=(), non_semantic=())
+    monkeypatch.setattr(
+        regression,
+        "BENCHES",
+        tuple(stripped if b.name == "csv" else b for b in BENCHES),
+    )
+
+    problems = regression.check()
+
+    named = {line.split(":")[0] for line in problems}
+    assert named == {f"csv/{seat}" for seat in LEXICAL_ROWS}, named
+    assert all("directive_digest" in line for line in problems)
+    assert not any("grammar_digest" in line for line in problems), (
+        "the grammar source did not change, and its digest must not say it did"
+    )

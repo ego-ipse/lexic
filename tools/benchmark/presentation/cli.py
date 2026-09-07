@@ -18,6 +18,7 @@ from tools.benchmark.bench import (
     NOISE_ANCHOR,
     SUMMARY,
     _candidates,
+    directive_digest,
 )
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.execution.isolation import (
@@ -65,17 +66,38 @@ NOTE = (
     "Cross-engine medians of isolated rounds. A run writes only the cells it "
     "measured and leaves every other one exactly as it found it, so each "
     "(grammar, seat) cell carries its own measurement date, round count, "
-    "worker request and input. `engines` is display metadata only. README "
-    "rendering reads this file and never triggers a run."
+    "worker request and input. A cell is a number, `refuses` (the seat cannot "
+    "take this language) or `unmeasured` (the seat could, but this run could "
+    "not obtain a figure it stands behind); the two are different facts and "
+    "`note` says which. `engines` is display metadata only. README rendering "
+    "reads this file and never triggers a run."
 )
 """The artifact's own account of how it is written."""
 
 
-SCHEMA = 4
+SCHEMA = 5
 """The artifact's shape version — per-cell provenance, per-grammar noise."""
 
+REFUSES = "refuses"
+"""A cell whose seat cannot take this row's language — a fact about the SEAT.
+
+Published, and informative: it is the answer to "can this tool express this
+grammar", and the harness prefers it to a number for a different language.
+"""
+
+UNMEASURED = "unmeasured"
+"""A cell this run could not put a trustworthy number in — a fact about the RUN.
+
+Not a capability result and not interchangeable with :data:`REFUSES`. A JIT
+whose warm-up never settled can parse the grammar perfectly well; what is
+missing is a figure the harness will stand behind. Serialising that as
+`refuses` told every reader — the README included — that the tool had failed
+at the language, which is a claim about someone else's parser that we would be
+making up.
+"""
+
 type Cell = float | str
-"""One measured median, or the word a refusing seat earned instead."""
+"""One measured median, or :data:`REFUSES` / :data:`UNMEASURED`."""
 
 
 class Run(NamedTuple):
@@ -129,11 +151,22 @@ class Provenance(NamedTuple):
     :ivar document_digest: Digest of the exact input parsed, for the same
         reason: a fixture rewritten to the same length is invisible to
         :attr:`chars`.
+    :ivar directive_digest: Digest of the EXACT directive sets this seat was
+        built with (:func:`~tools.benchmark.bench.seat_directives`). The
+        declarations live in `cases/directives.py`, not in the grammar source,
+        so editing them changes what a `-lex` cell measured while leaving
+        :attr:`grammar_digest` and :attr:`document_digest` untouched. Per SEAT
+        rather than per row, because the marked and unmarked seats of one
+        grammar are built with different sets on purpose.
     :ivar warmed: Parses spent bringing a JIT seat to steady state, or ``None``
         for a seat with no warm-up. A published figure standing on 2,400 warm
         parses and one standing on 24 are not the same claim, and the cell used
-        to say neither. An UNSETTLED warm-up produces no cell at all — see
-        :func:`_unsettled`.
+        to say neither. An UNSETTLED warm-up keeps this field — the budget it
+        spent is the evidence — and takes :data:`UNMEASURED` as its value.
+    :ivar note: Why a nonnumeric cell holds no number, in the seat's own words;
+        ``None`` for a measured one. The reason used to reach the console and
+        stop there, which is what let a refusal and a failed measurement
+        serialise identically.
     """
 
     measured: str
@@ -143,7 +176,9 @@ class Provenance(NamedTuple):
     chars: int
     grammar_digest: str
     document_digest: str
+    directive_digest: str
     warmed: int | None
+    note: str | None
 
 
 class Artifact(NamedTuple):
@@ -228,19 +263,23 @@ def measured_input(bench: Bench, name: str, full: bool) -> tuple[str, str]:
     return ("full", bench.full) if full_input else ("corpus", bench.corpus)
 
 
-def _provenance(bench: Bench, name: str, run: Run, warmed: int | None) -> Provenance:
+def _provenance(
+    bench: Bench, name: str, run: Run, seen: tuple[int | None, str | None]
+) -> Provenance:
     """One cell's record, dated by the run that has just measured it.
 
-    The two digests come from the same :func:`digest` the row contract uses, so
-    a cell in this file and a contract from a worker name the same grammar and
-    the same document by the same value.
+    Every digest comes from the same functions the row contract uses, so a cell
+    in this file and a contract from a worker name the same grammar, the same
+    document and the same declarations by the same values.
 
     :param bench: The case measured.
     :param name: The seat measured.
     :param run: The settings every cell of this invocation was taken under.
-    :param warmed: Parses this seat spent warming, or ``None``.
+    :param seen: ``(warm-up parses, why this cell holds no number)``, either
+        part ``None`` when it does not apply.
     """
     scale, document = measured_input(bench, name, run.full)
+    warmed, note = seen
     return Provenance(
         datetime.date.today().isoformat(),
         run.rounds,
@@ -249,7 +288,9 @@ def _provenance(bench: Bench, name: str, run: Run, warmed: int | None) -> Proven
         len(document),
         digest(bench.source),
         digest(document),
+        directive_digest(bench, name),
         warmed,
+        note,
     )
 
 
@@ -266,7 +307,7 @@ def _spliced[T](kept: dict[str, T], fresh: dict[str, T]) -> dict[str, T]:
 
 
 def _dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
-    """Splice this run's measured or refused cells into the cross-engine artifact.
+    """Splice this run's measured, refused or unmeasured cells into the artifact.
 
     Never a rewrite: a filtered run measures a few seats of a few grammars and
     must leave every other cell byte-identical — its number AND the record of
@@ -276,7 +317,10 @@ def _dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
 
     Nothing measured is dropped: a seat the metadata table does not know gets a
     default label rather than silence, so a new seat cannot vanish from the
-    record.
+    record. And a cell that holds no number says WHICH of the two reasons it
+    has — :data:`REFUSES` or :data:`UNMEASURED` — with the words in `note`,
+    because collapsing both to one word published a measurement failure as a
+    claim about someone else's parser.
     """
     artifact = Artifact.load(path)
     for block in blocks:
@@ -284,9 +328,13 @@ def _dump_json(path: Path, run: Run, blocks: list[Block]) -> None:
         cells: dict[str, Cell] = {
             name: round(median, 6) for name, median in medians(block.samples).items()
         }
-        cells |= dict.fromkeys(block.refused, "refuses")
+        cells |= dict.fromkeys(block.refused, REFUSES)
+        cells |= dict.fromkeys(block.unmeasured, UNMEASURED)
+        reasons = block.refused | block.unmeasured
         records = {
-            name: _provenance(block.bench, name, run, block.warmed.get(name))
+            name: _provenance(
+                block.bench, name, run, (block.warmed.get(name), reasons.get(name))
+            )
             for name in cells
         }
         for name in cells:
@@ -382,8 +430,8 @@ def _isolated_bench(
     samples = {
         name: result.samples for name, result in results.items() if result.samples
     }
-    refused |= _unsettled(results, samples)
-    samples = {name: runs for name, runs in samples.items() if name not in refused}
+    unmeasured = _unsettled(results, samples)
+    samples = {name: runs for name, runs in samples.items() if name not in unmeasured}
     mt_notes = {
         name: result.mt_reason
         for name, result in results.items()
@@ -396,16 +444,21 @@ def _isolated_bench(
         for name, result in results.items()
         if result.charstream_share
     }
+    # Every seat that WARMED, whether or not it kept its samples: the budget an
+    # unsettled row spent is the evidence for why it has no number, so dropping
+    # it here is what left that cell recording `warmed=None`.
     warmed = {
         name: result.warmed[0]
         for name, result in results.items()
-        if result.warmed is not None and name in samples
+        if result.warmed is not None and (name in samples or name in unmeasured)
     }
     documents = {name: measured_input(bench, name, run.full)[1] for name in samples}
     floor = _noise_floor(
         RowRequest(bench.name, "", run.rounds, run.cores, run.full), samples
     )
-    block = Block(bench, samples, refused, floor, documents, mt_notes, shares, warmed)
+    block = Block(
+        bench, samples, refused, floor, documents, mt_notes, shares, warmed, unmeasured
+    )
     return block, results
 
 
@@ -421,13 +474,18 @@ def _unsettled(
     else, so a `--seats antlr` refresh spliced a soft number into the artifact
     indistinguishably from a settled one.
 
-    It becomes a REFUSAL rather than a marked cell, which is the disposition
-    every other unanswerable row already gets: the harness does not publish a
-    number it cannot stand behind and print a caveat beside it, it prints the
-    reason instead. A figure 2x out is worse than an absent one, and a mark the
-    README would have to learn to decline is a second place for the rule to
-    live. What survives in the record is the BUDGET the settled figure stands
-    on (:attr:`Provenance.warmed`).
+    The row publishes no number — a figure 2x out is worse than an absent one —
+    but it is NOT a refusal. A refusal is a fact about the seat: this tool
+    cannot take this language. An unsettled warm-up is a fact about the run:
+    the tool parses the grammar perfectly well and we could not get a figure we
+    stand behind. Serialising the first for the second told every reader that
+    someone else's parser had failed at a language it handles, which is a claim
+    we would be making up. So these become :data:`UNMEASURED` cells carrying
+    both the reason and the budget spent.
+
+    :param results: Every row's payload, by seat.
+    :param samples: The rows that produced timings at all.
+    :returns: Seat → why its measurement is not usable.
     """
     return {
         name: (

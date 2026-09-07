@@ -18,27 +18,19 @@ from tools.benchmark.bench import (
     MT_ROWS,
     PRODUCT,
     EngineBuild,
+    build_contract,
     observe,
     one_engine,
     result_identity,
 )
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.measurement.contract import (
-    CLOCKS,
-    PROTOCOL,
     Json,
     Observation,
-    RowContract,
     digest,
 )
 from tools.benchmark.measurement.occupancy import Occupancy, declined_reason
 from tools.benchmark.measurement.sampling import interleaved, noise_spread
-
-_VARIANT_ROWS = frozenset({"lexic-lex", "lexic-lex-ns", "lexic-mt-lex-ns"})
-"""Rows compiled with the case's declared `@lexical` set."""
-
-_NS_ROWS = frozenset({"lexic-lex-ns", "lexic-mt-lex-ns"})
-"""Rows that additionally carry the case's declared `@non-semantic` set."""
 
 
 def _bench(grammar: str) -> Bench:
@@ -49,36 +41,6 @@ def _bench(grammar: str) -> Bench:
     if bench is None:
         raise ValueError(f"unknown benchmark grammar {grammar!r}")
     return bench
-
-
-def _directives(bench: Bench, engine: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """The EXACT directive sets this row compiles with, as declared."""
-    lexical = bench.lexical if engine in _VARIANT_ROWS else ()
-    non_semantic = bench.non_semantic if engine in _NS_ROWS else ()
-    return tuple(sorted(lexical)), tuple(sorted(non_semantic))
-
-
-def _contract(
-    bench: Bench, engine: str, document: str, cores: int | None, full: bool
-) -> RowContract:
-    """Everything a comparator needs to accept or refuse this row."""
-    lexical, non_semantic = _directives(bench, engine)
-    scale = "full" if full or engine in MT_ROWS else "corpus"
-    return RowContract(
-        PROTOCOL,
-        engine,
-        bench.name,
-        digest(bench.source),
-        lexical,
-        non_semantic,
-        digest(document),
-        len(document.encode("utf-8")),
-        scale,
-        PRODUCT[engine],
-        1 if cores is None or engine not in MT_ROWS else cores,
-        gc.isenabled(),
-        CLOCKS,
-    )
 
 
 def _engagement(engine: str, built: EngineBuild, cores: int | None) -> Occupancy | None:
@@ -109,7 +71,10 @@ def _payload(
     if built.parse is None:
         return {"refusal": built.refusal}
     try:
-        contract = _contract(bench, engine, built.document, cores, full)
+        workers = cores if cores and engine in MT_ROWS else 1
+        contract = build_contract(
+            bench, engine, built.document, workers, gc.isenabled()
+        )
         engaged, split, effective = _split_fields(_engagement(engine, built, cores))
         result = result_identity(built)
         timing = observe(built, rounds)
