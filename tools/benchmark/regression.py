@@ -20,8 +20,8 @@ Performance acceptance belongs to the explicit serial A/B
 from __future__ import annotations
 
 import argparse
-import json
 from collections.abc import Sequence
+from math import isfinite
 from pathlib import Path
 
 from tools.benchmark.bench import (
@@ -38,6 +38,13 @@ from tools.benchmark.measurement.contract import (
     RowContract,
     digest,
     read_contract,
+)
+from tools.benchmark.presentation.cli import (
+    REFUSES,
+    UNMEASURED,
+    Artifact,
+    Cell,
+    Provenance,
 )
 
 ARTIFACT = Path(__file__).resolve().parent / "competitors_baseline.json"
@@ -134,9 +141,12 @@ def _check_artifact(problems: list[str]) -> None:
     unmarked seats of one grammar are built with different sets on purpose, so
     one value for the row could not express either.
     """
-    artifact = json.loads(ARTIFACT.read_text(encoding="utf-8"))
+    if not ARTIFACT.exists():
+        problems.append(f"{ARTIFACT.name}: the published artifact is not here")
+        return
+    artifact = Artifact.load(ARTIFACT)
     by_name = {bench.name: bench for bench in BENCHES}
-    for grammar, cells in artifact["provenance"].items():
+    for grammar, cells in artifact.provenance.items():
         bench = by_name.get(grammar)
         if bench is None:
             problems.append(
@@ -145,23 +155,71 @@ def _check_artifact(problems: list[str]) -> None:
             continue
         for seat, record in cells.items():
             _check_cell(bench, seat, record, problems)
+    _check_published(artifact, problems)
 
 
 def _check_cell(
-    bench: Bench, seat: str, record: dict[str, object], problems: list[str]
+    bench: Bench, seat: str, record: Provenance, problems: list[str]
 ) -> None:
     """One published cell's three identities against what this tree holds."""
-    document = bench.full if record["scale"] == "full" else bench.corpus
-    for field, held in (
-        ("grammar_digest", digest(bench.source)),
-        ("document_digest", digest(document)),
-        ("directive_digest", directive_digest(bench, seat)),
+    document = bench.full if record.scale == "full" else bench.corpus
+    for field, measured, held in (
+        ("grammar_digest", record.grammar_digest, digest(bench.source)),
+        ("document_digest", record.document_digest, digest(document)),
+        ("directive_digest", record.directive_digest, directive_digest(bench, seat)),
     ):
-        if record[field] != held:
+        if measured != held:
             problems.append(
-                f"{bench.name}/{seat}: measured against {field} {record[field]}, "
+                f"{bench.name}/{seat}: measured against {field} {measured}, "
                 f"this tree holds {held} — the cell is a number for something else"
             )
+
+
+def _check_published(artifact: Artifact, problems: list[str]) -> None:
+    """Every published cell is a number or a declared word, and says which.
+
+    The schema's own contract, read over the WHOLE file rather than over the
+    cells one run happened to write: a value is a finite number or one of the
+    two declared words, a cell holding no number carries the reason in `note`,
+    and a cell holding one carries none. Refusals published that word with
+    `note: null`, so the file said a seat could not take a language and would
+    not say why — and every per-cell check passed, because none of them read a
+    value beside its record.
+    """
+    for grammar, cells in artifact.values.items():
+        records = artifact.provenance.get(grammar, {})
+        for seat, cell in cells.items():
+            record = records.get(seat)
+            if record is None:
+                problems.append(
+                    f"{grammar}/{seat}: published with no record of what measured it"
+                )
+                continue
+            fault = _cell_fault(cell, record.note)
+            if fault is not None:
+                problems.append(f"{grammar}/{seat}: {fault}")
+
+
+def _cell_fault(cell: Cell, note: str | None) -> str | None:
+    """Why one published cell breaks that contract, or ``None`` when it holds."""
+    if isinstance(cell, str):
+        if cell not in (REFUSES, UNMEASURED):
+            return f"value {cell!r} is neither a number nor {REFUSES}/{UNMEASURED}"
+        if not (note or "").strip():
+            return f"holds {cell} and no reason — the schema puts one in `note`"
+        return None
+    if not _finite(cell):
+        return f"value {cell!r} is not a finite number"
+    if note is not None:
+        return f"holds a number and the reason {note!r}, which says why it holds none"
+    return None
+
+
+def _finite(cell: Cell) -> bool:
+    """Whether a nonstring cell is a real finite measurement — a bool is not."""
+    if isinstance(cell, bool) or not isinstance(cell, float | int):
+        return False
+    return isfinite(cell)
 
 
 def check() -> list[str]:

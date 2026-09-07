@@ -14,6 +14,7 @@ the timing gate cannot see from its own numbers.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 
@@ -21,6 +22,7 @@ from tools.benchmark import regression
 from tools.benchmark.bench import ENGINE, LEXIC_ROWS, MT_ROWS, PRODUCT
 from tools.benchmark.cases.grammars import BENCHES, Bench
 from tools.benchmark.measurement.contract import PROTOCOL, read_contract
+from tools.benchmark.presentation.cli import REFUSES, UNMEASURED, Artifact
 
 
 def _bench(name: str = "json") -> Bench:
@@ -185,6 +187,167 @@ def test_a_foreign_protocol_is_refused_rather_than_compared() -> None:
 
     with pytest.raises(ValueError, match="protocol mismatch"):
         read_contract(wire)
+
+
+# ── a published cell says what it is, and why it is not a number ──────────
+
+
+def _staged(path: Path, monkeypatch: pytest.MonkeyPatch) -> Artifact:
+    """The committed artifact, for a test to bend and the gate to read at ``path``.
+
+    Bent through the record the writer uses rather than through the raw JSON,
+    so a crafted file is one this harness could have written.
+    """
+    artifact = Artifact.load(regression.ARTIFACT)
+    monkeypatch.setattr(regression, "ARTIFACT", path)
+    return artifact
+
+
+def _cell(artifact: Artifact) -> tuple[str, str]:
+    """One committed ``(grammar, seat)`` that publishes a number today."""
+    for grammar, cells in artifact.values.items():
+        for seat, value in cells.items():
+            if not isinstance(value, str):
+                return grammar, seat
+    raise AssertionError("the artifact publishes no number at all")
+
+
+def test_the_committed_artifact_states_a_reason_for_every_nonnumeric_cell() -> None:
+    """The defect this invariant exists for, read straight off the file.
+
+    Fifteen refusals published the word and `note: null`, so the artifact said
+    a seat cannot take a language and would not say why — while every per-cell
+    check passed, because none of them read a value beside its record.
+    """
+    artifact = Artifact.load(regression.ARTIFACT)
+    silent = [
+        f"{grammar}/{seat}"
+        for grammar, cells in artifact.values.items()
+        for seat, value in cells.items()
+        if isinstance(value, str) and not artifact.provenance[grammar][seat].note
+    ]
+
+    assert silent == [], silent
+
+
+def test_every_committed_value_is_a_number_or_one_of_the_two_declared_words() -> None:
+    """`refuses` and `unmeasured` are the vocabulary; a third word is not."""
+    artifact = Artifact.load(regression.ARTIFACT)
+    words = {
+        value
+        for cells in artifact.values.values()
+        for value in cells.values()
+        if isinstance(value, str)
+    }
+
+    assert words <= {REFUSES, UNMEASURED}, words
+
+
+def test_a_refusal_carrying_no_reason_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cell that publishes a word owes the reader the words behind it."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.values[grammar][seat] = REFUSES
+    artifact.provenance[grammar][seat] = artifact.provenance[grammar][seat]._replace(
+        note=None
+    )
+    artifact.write(path)
+
+    problems = regression.check()
+
+    assert any(f"{grammar}/{seat}" in problem for problem in problems)
+    assert any("no reason" in problem for problem in problems), problems
+
+
+def test_a_blank_reason_reads_as_no_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Spaces in `note` satisfy a `is not None` check and tell nobody anything."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.values[grammar][seat] = UNMEASURED
+    artifact.provenance[grammar][seat] = artifact.provenance[grammar][seat]._replace(
+        note="   "
+    )
+    artifact.write(path)
+
+    assert any("no reason" in problem for problem in regression.check())
+
+
+def test_a_measured_cell_carrying_a_reason_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`note` says why a cell holds NO number, so a number with one disagrees
+    with itself — and a refusal spliced over by a later measurement leaves
+    exactly that shape behind."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.provenance[grammar][seat] = artifact.provenance[grammar][seat]._replace(
+        note="left over from the refusal this cell used to be"
+    )
+    artifact.write(path)
+
+    problems = regression.check()
+
+    assert any("left over" in problem for problem in problems), problems
+
+
+def test_a_word_the_schema_never_declared_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The renderer draws `×` for one word and `?` for the other; a third is
+    silently drawn as one of them."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.values[grammar][seat] = "n/a"
+    artifact.provenance[grammar][seat] = artifact.provenance[grammar][seat]._replace(
+        note="crafted"
+    )
+    artifact.write(path)
+
+    assert any("'n/a'" in problem for problem in regression.check())
+
+
+def test_a_value_that_is_not_a_finite_number_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`Infinity` survives a JSON round trip and divides into a speedup."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    artifact.values[grammar][seat] = float("inf")
+    artifact.write(path)
+
+    assert any("finite" in problem for problem in regression.check())
+
+
+def test_an_absent_artifact_is_a_problem_and_not_an_empty_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reader that answers "no cells" for a missing file passes every cell
+    check by having none, which is the one answer a gate must not give."""
+    monkeypatch.setattr(regression, "ARTIFACT", tmp_path / "gone.json")
+
+    assert any("not here" in problem for problem in regression.check())
+
+
+def test_a_published_cell_with_no_record_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A value nothing recorded cannot be checked against the tree at all."""
+    path = tmp_path / "artifact.json"
+    artifact = _staged(path, monkeypatch)
+    grammar, seat = _cell(artifact)
+    del artifact.provenance[grammar][seat]
+    artifact.write(path)
+
+    assert any("no record" in problem for problem in regression.check())
 
 
 def test_the_gate_reports_every_problem_it_found(

@@ -34,6 +34,7 @@ from tools.benchmark.presentation.cli import (
     UNMEASURED,
     Run,
     _dump_json,
+    _isolated_bench,
     _row_names,
     _seats,
     _unsettled,
@@ -490,7 +491,12 @@ def test_a_filtered_run_that_missed_the_anchor_leaves_the_floor_alone(
 
 
 def _crafted(cli_module, monkeypatch, rows: dict[str, ReportRow], bench) -> Block:
-    """One block built from crafted worker payloads, with no process spawned."""
+    """One block built from crafted worker payloads, with no process spawned.
+
+    The real isolation path IS the subject — the whole result-to-artifact-to-
+    render chain, not ``_unsettled`` alone — so the patches replace what it
+    calls and ``_isolated_bench`` itself runs.
+    """
     monkeypatch.setattr(
         cli_module, "run_report_row", lambda request, _root: rows[request.engine]
     )
@@ -498,17 +504,8 @@ def _crafted(cli_module, monkeypatch, rows: dict[str, ReportRow], bench) -> Bloc
     monkeypatch.setattr(
         cli_module, "noise_floor", lambda *_a: pytest.fail("no floor to measure")
     )
-    block, _results = _crafted_block(cli_module, bench)
+    block, _results = _isolated_bench(bench, Run(7, None, False))
     return block
-
-
-def _crafted_block(cli_module, bench) -> tuple[Block, dict[str, ReportRow]]:
-    """Run the real ``_isolated_bench`` over whatever the patches supply."""
-    # The private isolation path IS the subject: the review required the whole
-    # result-to-artifact-to-render chain exercised, not `_unsettled` alone.
-    return cli_module._isolated_bench(  # pylint: disable=protected-access
-        bench, Run(7, None, False)
-    )
 
 
 def test_an_unsettled_run_is_not_serialized_as_a_language_refusal(

@@ -811,7 +811,7 @@
         "note": null
       },
       "lark-lalr": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -820,10 +820,10 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('B21', 'v') at line 7, column 18. Expected one of: * B19 * B10 * B32 * B9"
       },
       "lark-lalr-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -832,7 +832,7 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('RULENAME_', 'value') at line 7, column 18. Expected one of: * B19 * B10 * B32 * B9"
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -859,7 +859,7 @@
         "note": null
       },
       "parsimonious": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -868,10 +868,10 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'grammar' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '::= ws \"[\" ws begin-' (line 9, column 17)."
       },
       "parsimonious-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -880,10 +880,10 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "d9d5ead31276c92a",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'grammar' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '::= ws \"[\" ws begin-' (line 9, column 17)."
       },
       "pyparsing": {
-        "measured": "2026-09-06",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -892,7 +892,7 @@
         "document_digest": "45a4fb9c6c47f80a",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 ParseException: Expected end of text, found ':' (at char 244), (line:9, col:17)"
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -1017,7 +1017,7 @@
         "note": null
       },
       "lark-lalr": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1026,10 +1026,10 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": "GrammarError: Reduce/Reduce collision in Terminal('B2') between the following rules: - <__blank_star_4 : wsp> - <c_wsp : c_nl wsp> Reduce/Reduce collision in Terminal('B0') between the following rules: - <__blank_star_4 : wsp> - <c_wsp : c\u2026"
       },
       "lark-lalr-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1038,7 +1038,7 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": null,
-        "note": null
+        "note": "GrammarError: Reduce/Reduce collision in Terminal('WSP_') between the following rules: - <_c_wsp : _c_nl WSP_> - <__blank_star_4 : WSP_> Reduce/Reduce collision in Terminal('CRLF_') between the following rules: - <_c_wsp : _c_nl WSP_> - <_\u2026"
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1053,7 +1053,7 @@
         "note": null
       },
       "lark-earley-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1062,7 +1062,7 @@
         "document_digest": "365ac07d436add47",
         "directive_digest": "dc2fbbbed3b4112a",
         "warmed": null,
-        "note": null
+        "note": "GrammarError: (\"Dynamic Earley doesn't allow zero-width regexps\", TerminalDef('CSBODY_', '(?:[ -!#-~]+)?'))"
       },
       "parsimonious": {
         "measured": "2026-09-07",
@@ -1223,7 +1223,7 @@
         "note": null
       },
       "lark-lalr": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1232,10 +1232,10 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": "GrammarError: Reduce/Reduce collision in Terminal('B21') between the following rules: - <__key_plus_11 : B40> - <sw_first : B40> Reduce/Reduce collision in Terminal('B10') between the following rules: - <__key_plus_11 : B40> - <sw_first : \u2026"
       },
       "lark-lalr-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1244,7 +1244,7 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "0bff2e0714393980",
         "warmed": null,
-        "note": null
+        "note": "GrammarError: Reduce/Reduce collision in Terminal('B21') between the following rules: - <__nl_escape_plus_10 : __nl_escape_plus_10 B4> - <__nl_escape_star_11 : B4> Reduce/Reduce collision in Terminal('B10') between the following rules: - <\u2026"
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1295,7 +1295,7 @@
         "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 IncompleteParseError: Rule 'packet' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with ' D:{ } >' (line 1, column 9)."
       },
       "pyparsing": {
-        "measured": "2026-09-06",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1304,7 +1304,7 @@
         "document_digest": "5dc9e238e9d96b75",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": "refuses the derived probe '!X:P L2< D:{ } >' \u2014 ParseException: Expected end of text, found ' ' (at char 8), (line:1, col:9)"
       },
       "antlr-py": {
         "measured": "2026-09-04",
@@ -1441,7 +1441,7 @@
         "note": null
       },
       "lark-lalr-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1450,7 +1450,7 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 UnexpectedToken: Unexpected token Token('FENCELINE_', '\\n') at line 2, column 1. Expected one of: * B15 * $END * B5 * B10 * B8 * B13 * B0 * B11 * B14 * B2 * BLANK_ * B9 * B6 * RULE_ * B4"
       },
       "lark-earley": {
         "measured": "2026-09-04",
@@ -1477,7 +1477,7 @@
         "note": null
       },
       "parsimonious": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1486,10 +1486,10 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'document' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '## Section 0 Prose f' (line 3, column 1)."
       },
       "parsimonious-lex": {
-        "measured": "2026-09-04",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1498,7 +1498,7 @@
         "document_digest": "1125e62f18dafe22",
         "directive_digest": "ecffd9c07306b4a3",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 IncompleteParseError: Rule 'document' matched in its entirety, but it didn't consume all the text. The non-matching portion of the text begins with '## Section 0 Prose f' (line 3, column 1)."
       },
       "pyparsing": {
         "measured": "2026-09-06",
@@ -1707,7 +1707,7 @@
         "note": null
       },
       "pyparsing": {
-        "measured": "2026-09-06",
+        "measured": "2026-09-07",
         "rounds": 7,
         "cores": null,
         "scale": "corpus",
@@ -1716,7 +1716,7 @@
         "document_digest": "e122dac76a1b65b2",
         "directive_digest": "ffe679bb831c95b6",
         "warmed": null,
-        "note": null
+        "note": "refuses the corpus \u2014 RecursionError: maximum recursion depth exceeded"
       },
       "antlr-py": {
         "measured": "2026-09-04",

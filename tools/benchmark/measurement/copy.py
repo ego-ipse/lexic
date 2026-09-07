@@ -33,6 +33,7 @@ PROTOCOL_MODULES = (
     "cases/directives.py",
     "cases/grammars.py",
     "diagnostics/split_ab.py",
+    "engines/seats.py",
     "execution/isolation.py",
     "execution/roster.py",
     "execution/worker.py",

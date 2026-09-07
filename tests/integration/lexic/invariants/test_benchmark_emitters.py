@@ -31,23 +31,19 @@ from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.earley.kernel.tables.builder import compile_tables
 from lexic.parsing.earley.lexruns import run_candidates
 from lexic.parsing.earley.normalize import normalize
-from lexic.parsing.parallel import available_workers
-from tools.benchmark.bench import (
-    LEXIC_ROWS,
-    MT_ROWS,
-    SPECIALISTS,
-    _competitors,
-    one_engine,
-    unfaithful,
-)
+from lexic.parsing.parallel import available_workers, reset_pools
+from lexic.parsing.parallel.pool import _IDLE
+from tools.benchmark.bench import LEXIC_ROWS, MT_ROWS, one_engine
 from tools.benchmark.cases.grammars import BENCHES, Bench, declared_marks
 from tools.benchmark.emitters.charsets import of_points
 from tools.benchmark.emitters.emit import lexical_layer, peg_grammar
 from tools.benchmark.emitters.structured import antlr_grammar
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts
+from tools.benchmark.engines.seats import SPECIALISTS, competitors
 from tools.benchmark.measurement import sampling
+from tools.benchmark.measurement.language import unfaithful
 from tools.benchmark.measurement.sampling import Parse, interleaved
-from tools.benchmark.presentation.reporting import _warmup_note
+from tools.benchmark.presentation.reporting import _warmup_note, _warmup_values
 
 _ALL = frozenset(
     {
@@ -151,7 +147,7 @@ def _built(bench: Bench) -> dict[str, Parse]:
     and the tests over four grammars would otherwise pay for that many times.
     """
     if bench.name not in _BUILT:
-        _BUILT[bench.name] = _competitors(bench)[0]
+        _BUILT[bench.name] = competitors(bench)[0]
     return _BUILT[bench.name]
 
 
@@ -295,6 +291,27 @@ def test_the_antlr_warmup_note_displays_its_cold_first_parse(
     assert "cold" in shown
 
 
+def test_an_unsettled_warm_up_reports_no_number_rather_than_a_soft_one(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """One terminal report gives one account of a row.
+
+    An unsettled row's samples are dropped and the block above prints `no
+    number` for it, so the warm-up line beneath cannot describe a published
+    figure that is merely shaky. The budget and the movement stay: they are
+    the evidence for the absence.
+    """
+    _warmup_values("antlr", (2400, False), None, 0.2)
+    _warmup_values("antlr-lex", (24, True), None, 0.2)
+
+    moving, settled = capsys.readouterr().out.splitlines()
+
+    assert "no number published" in moving
+    assert "soft" not in moving, "no number was published, so none can be soft"
+    assert "STILL MOVING" in moving and "2400" in moving
+    assert "median settled" in settled, "a settled row still stands behind its own"
+
+
 def _lexic_takes(bench: Bench, text: str) -> bool:
     """Whether the row's own compiled artefact accepts ``text``."""
     return accepts(
@@ -382,14 +399,26 @@ def _published(grammar: str) -> dict[str, float | str]:
 
 
 def _lexic_passing(bench: Bench, seats: Iterable[str]) -> set[str]:
-    """Which of this case's Lexic seats the gate admits today."""
+    """Which of this case's Lexic seats the gate admits today.
+
+    An mt seat is built at the machine's own worker count, because the stitched
+    result is the product that cell publishes and a sequential seat is not
+    evidence for it. Building one leases a pool and returns it to the
+    process-global idle cache, so this closes what it warmed: a retained pool
+    and its executor threads outlive the test and reach whatever runs next,
+    according to selection and ordering.
+    """
     cores = available_workers() if available_workers() > 1 else None
     passing = set()
-    for row in seats:
-        if row in MT_ROWS and cores is None:
-            continue
-        if one_engine(bench, row, cores, row in MT_ROWS).refusal is None:
-            passing.add(row)
+    try:
+        for row in seats:
+            if row in MT_ROWS and cores is None:
+                continue
+            if one_engine(bench, row, cores, row in MT_ROWS).refusal is None:
+                passing.add(row)
+    finally:
+        reset_pools()
+    assert not _IDLE, "the language check must leave no pool in the idle cache"
     return passing
 
 

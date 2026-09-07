@@ -18,6 +18,10 @@ refuses a probe lexic accepts.
 
 The probes are computed ONCE per bench per process and are deterministic, so a
 disagreement is replayable by name and seed rather than by rerunning a search.
+
+:func:`unfaithful` is the judgement those probes exist to answer, and it lives
+here for that reason: a seat earns a number only by describing the row's
+language, and there is one place that decides it.
 """
 
 from __future__ import annotations
@@ -27,7 +31,9 @@ from collections.abc import Callable
 
 from lexic.generate import generate
 from lexic.ir import IrAst
+from tools.benchmark.cases.grammars import Bench
 from tools.benchmark.engines.refusals import LEXIC_REFUSALS, accepts, refusal
+from tools.benchmark.measurement.sampling import Parse
 
 PROBE_SEEDS: tuple[int, ...] = tuple(range(16))
 """Generation seeds — fixed, so a failing probe is named rather than hunted."""
@@ -135,3 +141,64 @@ def disagreement(
             return f"refuses the derived probe {text[:24]!r} — {why}"
         return f"accepts the derived probe {text[:24]!r}, which lexic refuses"
     return None
+
+
+def unfaithful(
+    parse: Parse,
+    bench: Bench,
+    document: str | None = None,
+    exceptions: tuple[type[BaseException], ...] | None = None,
+    fixed_language: bool = False,
+) -> str | None:
+    """The first way ``parse`` disagrees with lexic about the language, or None.
+
+    The single place a translation is judged, in BOTH directions. An
+    over-permissive one describes a larger language and passes any accept-only
+    check; an over-restrictive one passes the corpus and then refuses a sentence
+    nobody sampled — which is what a context-free lexer does to a grammar whose
+    character classes overlap. Either way the engine gets no number, because a
+    number for a different language is not a faster answer to the question, it
+    is an answer to a different one.
+
+    The authored `accepts`/`rejects` are the adversarial sentences a person
+    chose; they run first because their names are the most readable failure.
+    What decides the question is the DERIVED differential behind them —
+    :func:`probes` and :func:`disagreement` — because a sample nobody thought
+    of is the only thing that can separate two languages an author believed
+    were one.
+
+    :param document: The text this engine will be timed on — the acceptance
+        half is checked against exactly that (default: the small corpus).
+    :param fixed_language: This seat takes NO grammar. Only the accepting
+        direction is then a claim about it, so the refusing one is not asked
+        rather than quietly passed.
+    """
+    why = refusal(
+        parse,
+        document if document is not None else bench.corpus,
+        exceptions,
+    )
+    if why is not None:
+        return f"refuses the corpus — {why}"
+    for text in bench.accepts:
+        why = refusal(parse, text, exceptions)
+        if why is not None:
+            return f"refuses {text!r} — {why}"
+    if not fixed_language:
+        for text in bench.rejects:
+            if accepts(parse, text, exceptions):
+                return f"accepts {text[:18]!r}, which lexic refuses"
+    return disagreement(parse, _case_probes(bench, fixed_language), exceptions)
+
+
+def _case_probes(
+    bench: Bench, accepted_only: bool = False
+) -> tuple[tuple[str, bool], ...]:
+    """This bench's derived probe set, judged by its own compiled artefact."""
+    built = probes(
+        bench.name,
+        bench.ast,
+        bench.corpus,
+        lambda text: bench.compiled.parse(text, cores=1),
+    )
+    return tuple(pair for pair in built if pair[1]) if accepted_only else built

@@ -17,10 +17,10 @@ from tools.benchmark.bench import (
     MT_ROWS,
     NOISE_ANCHOR,
     SUMMARY,
-    _candidates,
     directive_digest,
 )
 from tools.benchmark.cases.grammars import BENCHES, Bench
+from tools.benchmark.engines.seats import candidates
 from tools.benchmark.execution.isolation import (
     ReportRow,
     RowRequest,
@@ -99,6 +99,16 @@ making up.
 type Cell = float | str
 """One measured median, or :data:`REFUSES` / :data:`UNMEASURED`."""
 
+NOTE_LIMIT = 240
+"""How much of a nonnumeric cell's reason one record keeps.
+
+The reason is a sentence a reader acts on, and some tools answer with a dump:
+Lark's reduce/reduce verdict on `vyx` runs to 70 KB — most of this artifact
+again, for one cell — and every clause after the first restates the same
+collision for another terminal. The head IS the reason, so the record keeps
+that much and marks where it stopped.
+"""
+
 
 class Run(NamedTuple):
     """One invocation's measurement settings — the same for every cell it writes.
@@ -163,10 +173,10 @@ class Provenance(NamedTuple):
         parses and one standing on 24 are not the same claim, and the cell used
         to say neither. An UNSETTLED warm-up keeps this field — the budget it
         spent is the evidence — and takes :data:`UNMEASURED` as its value.
-    :ivar note: Why a nonnumeric cell holds no number, in the seat's own words;
-        ``None`` for a measured one. The reason used to reach the console and
-        stop there, which is what let a refusal and a failed measurement
-        serialise identically.
+    :ivar note: Why a nonnumeric cell holds no number, in the seat's own words,
+        bounded by :data:`NOTE_LIMIT`; ``None`` for a measured one. The reason
+        used to reach the console and stop there, which is what let a refusal
+        and a failed measurement serialise identically.
     """
 
     measured: str
@@ -290,8 +300,23 @@ def _provenance(
         digest(document),
         directive_digest(bench, name),
         warmed,
-        note,
+        reason(note),
     )
+
+
+def reason(note: str | None) -> str | None:
+    """One cell's reason as a record keeps it — bounded, and marked where cut.
+
+    Public because a cell whose reason is re-derived outside a timing run is
+    recorded through this same function: two spellings of "the reason this cell
+    holds no number" would differ on exactly the cells nobody re-measures.
+
+    :param note: The seat's own words, or ``None`` for a measured cell.
+    :returns: The same reason within :data:`NOTE_LIMIT`, ``None`` unchanged.
+    """
+    if note is None or len(note) <= NOTE_LIMIT:
+        return note
+    return note[: NOTE_LIMIT - 1] + "…"
 
 
 def _spliced[T](kept: dict[str, T], fresh: dict[str, T]) -> dict[str, T]:
@@ -383,7 +408,7 @@ def _row_names(
     lexic = ["lexic-pda", "lexic-earley", "lexic-lex", "lexic-lex-ns"]
     if cores is not None:
         lexic.extend(("lexic-mt", "lexic-mt-lex-ns"))
-    names = lexic + [name for name, _make in _candidates(bench)]
+    names = lexic + [name for name, _make in candidates(bench)]
     return names if seats is None else [name for name in names if name in seats]
 
 

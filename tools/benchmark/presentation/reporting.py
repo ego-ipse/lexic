@@ -7,8 +7,9 @@ import sys
 from math import log10
 from typing import NamedTuple
 
-from tools.benchmark.bench import ENGINE, NOISE_ANCHOR, PRODUCT, SPECIALISTS
+from tools.benchmark.bench import ENGINE, NOISE_ANCHOR, PRODUCT
 from tools.benchmark.cases.grammars import Bench, declared_marks
+from tools.benchmark.engines.seats import SPECIALISTS
 from tools.benchmark.measurement.sampling import Parse, medians
 
 BAR_WIDTH = 40
@@ -236,14 +237,22 @@ def _warmup_values(
     cold: float | None,
     share: float,
 ) -> None:
-    """Print one Java worker's cold parse and warmup state."""
+    """Print one Java worker's cold parse and warmup state.
+
+    An unsettled row says NO NUMBER, because that is what the block above it
+    printed: `_isolated_bench` drops such a row's samples and `_report` marks
+    it `no number`. Calling the same row's figure "soft" here described a
+    published-but-shaky number that does not exist, so one report gave two
+    incompatible accounts of one row. The budget and the movement stay — they
+    are the evidence for the absence.
+    """
     if cold is not None:
         print(
             f"  {name + ' first':<17}{_amount(cold)}    cold first parse "
             "before JIT warmup"
         )
     spent, settled = warmed
-    state = "median settled" if settled else "STILL MOVING — number is soft"
+    state = "median settled" if settled else "STILL MOVING — no number published"
     print(
         f"  {name + ' warmup':<13}{spent:6} parses   {state}; "
         f"{share * 100:.0f}% of the timed region builds the CharStream"

@@ -88,3 +88,13 @@ run that refreshes one cell cannot restate an untouched one as a measurement it
 never was. `engines` holds display metadata and nothing else, and the README's
 captions and column headers are derived from the records — a column whose cells
 disagree on the worker count is refused rather than labelled with one of them.
+
+A cell's VALUE is a finite number, `refuses` (this seat cannot take the row's
+language) or `unmeasured` (it can, and the run obtained no figure it stands
+behind). Those are different facts, so a cell holding either says which in its
+record's `note`, and a cell holding a number carries no note at all. The note
+is bounded — one Lark reduce/reduce verdict runs to 70 KB of the same
+collision restated per terminal, and the head is the reason. `regression.py`
+checks that pairing over the whole file: refusals once published the word with
+`note: null`, and every per-cell check passed, because none of them read a
+value beside its record.
