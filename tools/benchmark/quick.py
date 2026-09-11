@@ -362,8 +362,8 @@ def _report_floors(floors: Sequence[Floor]) -> None:
     print()
     for floor in floors:
         print(
-            f"null floor, {floor.rows} {floor.schedule} row(s) at {floor.lanes} lane(s): control median "
-            f"{floor.control:.4f}x, median row envelope "
+            f"null floor, {floor.rows} {floor.schedule} row(s) at {floor.lanes} "
+            f"lane(s): control median {floor.control:.4f}x, median row envelope "
             f"{floor.envelope:.4f}x, first-slot {floor.slot:.4f}x"
         )
 
