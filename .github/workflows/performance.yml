@@ -86,7 +86,7 @@ jobs:
       - name: Install the corrected protocol into the base measurement copy
         working-directory: head
         run: |
-          uv run python -m tools.benchmark.measurement.copy ../base --rename fold
+          uv run python -m tools.benchmark.measurement.copy ../base
 
       - name: Compare base and HEAD on this runner
         working-directory: head
