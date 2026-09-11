@@ -39,7 +39,6 @@ from lexic.parsing.pda.compiler.program.flatten import (
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
-    M_CONST,
     M_GTEXT,
     M_MODEL,
     M_MODELS,
@@ -196,9 +195,9 @@ def build_sequence[Carry](
     off the frame's ``ends``, ``model`` / ``models`` its ``sinks``). A
     zero-item arm match builds ``ctor()`` (the rule's empty alternate arm);
     any other item-count mismatch is a compile/runtime disagreement. With a
-    positional licence the values list is read straight off the clone's baked
-    plan and handed to the validation-skip constructor; without one,
-    :func:`build_validated` builds by keyword.
+    positional licence the clone's own composed build runs — one operation per
+    field, bound at bake, no plan walk; without one, :func:`build_validated`
+    builds by keyword.
 
     :param memo: The per-parse intern memo — repeated identical sub-models are
         built once and shared (immutable models make sharing transparent).
@@ -213,10 +212,9 @@ def build_sequence[Carry](
                 f"{clone.n_items} slots nor the empty arm"
             )
         return _intern_empty(clone.ctor, memo)  # empty alternate arm matched
-    spans = (frame.ends or (), frame.sinks)
     if clone.fast is no_fast_construction:
-        return build_validated(text, spans, clone, memo)
-    return clone.fast(fast_values(text, clone, spans))
+        return build_validated(text, (frame.ends or (), frame.sinks), clone, memo)
+    return clone.build(text, frame.ends or (), frame.sinks)
 
 
 def _intern_empty[Carry](ctor: Callable[..., Carry], memo: InternMemo[Carry]) -> Carry:
@@ -234,63 +232,14 @@ def _intern_empty[Carry](ctor: Callable[..., Carry], memo: InternMemo[Carry]) ->
     return model
 
 
-# A fast clone's captured span/sink data — the (item boundaries, per-item sink
-# lists) pair grouped so the build sites stay within the argument budget;
-# ``_run_leaf`` builds it from locals, ``_complete`` from the frame slots.
+# A validated clone's captured span/sink data — the (item boundaries, per-item
+# sink lists) pair grouped so the keyword build stays within the argument
+# budget. ``build_sequence`` is its only producer; the positional build takes
+# the two apart, so nothing pairs them for it.
 # ``ends[0]`` is the span start, so no reader tests for the first item. A clone
 # whose build reads no position keeps no boundaries at all and passes ``()``:
 # its plan carries no span mode, so nothing indexes it.
 type Spans[Carry] = tuple[Sequence[int], list[list[Carry] | None] | None]
-
-
-def fast_values[Carry](
-    text: str, clone: FlatClone[Carry], spans: Spans[Carry]
-) -> list[ProductValue[Carry]]:
-    """A fast clone's field values, in the record's own field order.
-
-    The fast build IS ``clone.fast(fast_values(text, clone, spans))`` — one pass
-    over the plan into a values list, then one tuple construction. It is spelled
-    at each call site rather than wrapped in a function of its own: the engine
-    builds about one model per character of input, so a wrapper whose whole body
-    is that expression is a Python frame per character for no work.
-
-    **Not interned.** The record path's intern key had to project the values a
-    second way (strings by value, sub-models by ``id``), and that projection
-    plus its tuple, its nested hash and two dict operations cost more than the
-    ``tuple.__new__`` a hit saves. Measured hit rates ran 0.0% (csv) to 57.3%
-    (vyx), so the memo was not even reliably answering. ``value_str`` models
-    still intern (:func:`build_vstr`): that key is ``(ctor, span)``, already at
-    hand, and hits 50-95%.
-
-    One pass over :attr:`~lexic.parsing.pda.compiler.program.flatten.FlatClone.plan`,
-    which already carries each field's mode, the item it reads and the default
-    it falls back on — so the build allocates one list and nothing else.
-
-    :param text: The whole input.
-    :param clone: The clone (fast licence granted).
-    :param spans: The captured ``(ends, sinks)`` pair.
-    :returns: One value per field of the model class.
-    """
-    ends, sinks = spans
-    values: list[ProductValue[Carry]] = []
-    for mode, item, lo, default in clone.plan:
-        if mode == M_MODEL:
-            sub = sinks[item] if sinks else None
-            values.append(sub[0] if sub else default)
-        elif mode == M_MODELS:
-            sub = (sinks[item] if sinks else None) or ()
-            values.append(tuple(sub))
-        elif mode == M_GTEXT:
-            span = text[ends[item] : ends[item + 1]]
-            values.append(span if (span or lo) else default)
-        elif mode == M_SPAN:
-            # The offsets the kernel already has — kept, not recomputed.
-            values.append(IrSpan(ends[item], ends[item + 1]))
-        elif mode == M_CONST:
-            values.append(default)
-        else:  # M_TEXT
-            values.append(text[ends[item] : ends[item + 1]])
-    return values
 
 
 def build_validated[Carry](
@@ -311,8 +260,7 @@ def build_validated[Carry](
     cached) and then stores the result. ``FieldValidationError`` behaviour is
     therefore unchanged.
 
-    :param memo: The per-parse intern memo (same key scheme as
-        :func:`fast_values`).
+    :param memo: The per-parse intern memo.
     :raises UnsupportedConstructError: On a capture mode outside the build
         vocabulary.
     """

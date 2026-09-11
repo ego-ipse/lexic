@@ -1,5 +1,32 @@
 # Log
 
+## The positional build licence can be declined (2026-09-11)
+
+`fast_construct()` was documented in [[lexic/public-api]] as "always granted",
+returning a pair. It returns three things, and it is no longer always granted.
+
+The PDA now composes one builder per record shape at bake, off the clone's
+plan, and constructs through `tuple.__new__(cls, values)` inlined — which is
+exactly what `GrammarModel._from_values` does, and only while that stays true.
+So a class that overrides `_from_values` anywhere in its MRO is refused at
+synthesis, where the licence is issued, with the ancestor carrying the override
+named in the message. Declining the grant is the whole mechanism: there is no
+second build path that honours an override, because a runtime test for one
+would be the per-record cost the composition removes.
+
+Two couplings came with it and are pinned rather than described. A licence
+carries the class it was granted FOR, and the cold gate checks that against the
+constructor's own class — three channels naming one class, and the positional
+build cannot notice a mismatch since the values fit any record of that width.
+And `build` is composed from `plan` once, so a pass that rewrote `plan` after
+the bake would leave a builder reading the old one: same class, same width,
+wrong values.
+
+`M_VALUE` has no composed reading. It names the rule's own matched extent,
+which is not any item's span, so the mode is refused in the build vocabulary
+and its clone is built by `vstr_model`. Answering it with item zero's text
+agrees only where the rule has one item.
+
 ## Split ownership: a repeat's next occurrence is not a follower (2026-08-18)
 
 `a7ed17c`. Both engines were wrong about `item+` over `[a-z]+` on `"ab"` — the

@@ -23,6 +23,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Never
 
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.pda.compiler.program.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     GATE_KWIN,
@@ -314,8 +315,9 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     :ivar mode: The build-mode (one of the ``_BUILD_*`` constants).
     :ivar ctor: What this clone's completion calls to build its value — the
         declared class, or the surface transform its symbol resolved to — or
-        ``None`` when the clone builds nothing. Called by KEYWORD; the
-        positional shortcut is :attr:`fast`.
+        ``None`` when the clone builds nothing. Called by KEYWORD; a
+        ``sequence`` clone's positional shortcut is :attr:`build`, and
+        :attr:`fast` is the positional constructor :func:`vstr_model` calls.
     :ivar matched: The field :attr:`ctor` fills from the clone's OWN matched
         extent, ``""`` when no field does. What makes the ``value_str``
         construction sayable without a field name spelled in engine code.
@@ -327,13 +329,21 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         clone builds nothing.
     :ivar plan: The fused build's POSITIONAL plan — one ``(mode, item, lo,
         default)`` entry per field of the model class, in the record's own
-        field order, so a build reads the plan straight into a values list and
-        constructs the tuple. Empty without a fast licence. Building by name
-        instead cost a defaults-dict copy, a supplied-key set and a read-back
-        through ``map(parts.get, cls._fields)`` per model.
+        field order. Read once, at bake, to compose :attr:`build`; no build
+        walks it. Empty without a fast licence. Building by name instead cost
+        a defaults-dict copy, a supplied-key set and a read-back through
+        ``map(parts.get, cls._fields)`` per model.
+    :ivar build: This shape's whole build, composed from :attr:`plan` at bake
+        (:func:`~lexic.parsing.pda.compiler.program.lowering.shape_build`) — one
+        operation per field, bound once, and no mode read per record. The two
+        travel together: a pass that rewrites one MUST rewrite the other.
+        :data:`~lexic.parsing.pda.compiler.program.lowering.no_shape_build` when the
+        clone has no positional build, a ``value_str`` clone included
+        (:func:`vstr_model` owns that construction).
     :ivar fast: The class's positional constructor when it granted the
         validation-skip licence, else ``None`` (the runtime builds through
-        :attr:`ctor` by keyword).
+        :attr:`ctor` by keyword). Called by :func:`vstr_model`; a ``sequence``
+        clone's own build goes through :attr:`build`.
     :ivar defaults: The construction's field defaults the fused build seeds
         each plan entry from, or ``None``.
     :ivar leaf: ``True`` for a fast-licenced ``sequence`` clone whose every arm
@@ -372,6 +382,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "fields",
         "plan",
         "fast",
+        "build",
         "defaults",
         "leaf",
         "chartable",
@@ -395,6 +406,7 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     fields: tuple[tuple[int, int, str, int], ...]
     plan: BuildPlan[Carry]
     fast: FastConstruction[Carry]
+    build: ShapeBuild[Carry]
     defaults: Mapping[str, ProductValue[Carry]] | None
     leaf: bool
     chartable: Any  # dict[str, Carry] | None — specialized table payload
@@ -438,6 +450,7 @@ def clear_build[Carry](clone: FlatClone[Carry]) -> None:
     clone.fields = ()
     clone.plan = ()
     clone.fast = no_fast_construction
+    clone.build = no_shape_build
     clone.defaults = None
 
 

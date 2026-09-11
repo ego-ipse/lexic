@@ -297,10 +297,16 @@ def test_a_bug_in_an_item_is_not_ranked_against_the_others():
     than being held while the rest of the phase finishes producing verdicts.
     """
 
+    bug_raised = Event()
+
     def work(item: int) -> int:
         if item == 0:
-            sleep(0.05)
+            # The lower index — the one ranking would prefer — cannot produce
+            # its verdict until the bug has happened. Ordering by a sleep left
+            # the outcome to the scheduler, and a loaded machine inverted it.
+            bug_raised.wait(timeout=5)
             raise UnsupportedConstructError("a refusal, later in time")
+        bug_raised.set()
         raise TypeError("a bug, first in time")
 
     with WorkPool(2) as pool:

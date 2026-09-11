@@ -317,7 +317,9 @@ Every synthesized class subclasses `GrammarModel(IrNamedTuple)` — the record s
 | `semantic_dump()` | `dict` | `dump()` minus the receiver's OWN fields whose `IrBind.semantic` is `False` (top-level-only exclusion) |
 | `bound_fields()` | `dict[int, (name, IrBind)]` | The slot → field map (classmethod) |
 | `children()` / `rebuild(kids)` | | Bound-field values in ITEM order — the IrSelf walk/viz payload |
-| `fast_construct()` | `(ctor, defaults)` | Always granted — a record build is one C-level tuple construction |
+| `fast_construct()` | `(ctor, defaults, order)` | The positional build licence — one C-level tuple construction. Granted for every class whose `_from_values` is the spine's; **refused** for one that overrides it (see below) |
+
+**Overriding `_from_values` forfeits the positional build.** The licence `fast_construct()` grants says a record is exactly `tuple.__new__(cls, values)`, and the parse inlines that: the PDA composes one builder per shape at bake and constructs through it, so an override would be skipped rather than called. A class that overrides `_from_values` anywhere in its MRO is therefore refused at synthesis with `UnsupportedConstructError` naming the ancestor that carries it — the grant is declined where it is issued, never worked around at the build. Subclass a model freely; to change how it is CONSTRUCTED, that construction has to be the spine's.
 
 Equality is type-aware (same concrete class + payload; the `IrBounds` pattern) and hash-consistent. Hand construction (`__new__`) runs IR-intrinsic per-field checked construction raising `FieldValidationError` (charclass membership + bounds, `Literal` membership, model/models `isinstance`, required-presence); an unexpected kwarg still raises `TypeError`. Parse paths (fold/PDA) use trusted construction and bypass the checks. `models`-mode lists coerce to tuples at construction. `to_text()` raises `NotImplementedError` on an abstract alternation class (no fields, no binds) — call it on a concrete subclass instance.
 

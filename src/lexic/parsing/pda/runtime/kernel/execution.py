@@ -46,7 +46,6 @@ from lexic.parsing.pda.runtime.build import (
     Frame,
     build_sequence,
     build_vstr,
-    fast_values,
     finish_delegate,
     leaf_mismatch,
 )
@@ -151,7 +150,7 @@ class KernelExecutionMixin[Carry]:
                 )
             if ends is not None:
                 ends[i + 1] = pos
-        out.append(clone.fast(fast_values(self.text, clone, (ends or (), sinks))))
+        out.append(clone.build(self.text, ends or (), sinks))
         return pos
 
     def _match_vstr(self, sink: list[Carry], arm: FlatArm, i: int, pos: int) -> int:
@@ -325,13 +324,7 @@ class KernelExecutionMixin[Carry]:
         clone = frame.clone
         if mode == BUILD_SEQ:
             if clone.fast is not no_fast_construction and frame.arm.n == clone.n_items:
-                model = clone.fast(
-                    fast_values(
-                        self.text,
-                        clone,
-                        (frame.ends or (), frame.sinks),
-                    )
-                )
+                model = clone.build(self.text, frame.ends or (), frame.sinks)
             else:
                 model = build_sequence(self.text, frame, clone, self._caches.intern)
         elif mode == BUILD_VALUE_STR:
