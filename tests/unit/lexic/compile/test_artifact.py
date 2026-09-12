@@ -426,20 +426,27 @@ def test_a_split_documents_worker_replicas_retire_with_the_document() -> None:
     nothing that ever dies — and the count grew by a whole set of chunk tables
     per document thread rather than by the one un-reclaimed view.
 
-    Bounded rather than exact: the pool's threads outlive a document, so what
-    is still resident depends on which of them the last round happened to use.
-    The claim survives that — eleven further rounds must not cost what the
-    first one did.
+    The claim is that the count PLATEAUS, not that any particular round is
+    the expensive one. The pool's threads outlive a document, so a worker
+    first used at round five mints its set at round five — a one-off step,
+    bounded by the pool, and scheduling decides which round wears it. The leak
+    this guards looks nothing like that: a set orphaned per document thread
+    grows at EVERY round and never settles.
+
+    So the tail is what is asserted. Comparing the first round against the
+    rest cannot state this: when round one happens to reuse an already-warm
+    worker it costs nothing, and "no round may cost more than zero" is a
+    claim about the scheduler rather than about retention.
     """
     reset_cache_for_tests()
     compiled = _fresh_artifact(_DRAIN_GRAMMAR, "split-churn")
     compiled.parse(_DRAIN_TEXT, cores=4)
 
-    counts = _churn_round(compiled, 12, cores=4)
-    one_round = counts[1] - counts[0]
-    rest = counts[-1] - counts[1]
+    rounds = 16
+    counts = _churn_round(compiled, rounds, cores=4)
+    tail = counts[rounds // 2 :]
 
-    assert rest <= one_round, f"eleven rounds cost more than the first: {counts}"
+    assert tail[-1] == tail[0], f"still growing in the second half: {counts}"
     reset_cache_for_tests()
 
 
