@@ -264,7 +264,7 @@ def build_validated[Carry](
     :raises UnsupportedConstructError: On a capture mode outside the build
         vocabulary.
     """
-    kwargs, key_parts = _validated_fields(text, spans, clone)
+    kwargs, key_parts = clone.validated(text, spans[0], spans[1])
     key = (clone.ctor, key_parts)
     hit = memo.get(key, INTERN_MISS)
     if hit is not INTERN_MISS:

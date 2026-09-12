@@ -19,7 +19,11 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatClone,
     no_fast_construction,
 )
-from lexic.parsing.pda.compiler.program.lowering import shape_build
+from lexic.parsing.pda.compiler.program.lowering import (
+    shape_build,
+    validated_build,
+    vstr_build,
+)
 from lexic.parsing.pda.compiler.program.opcodes import (
     M_CONST,
     M_GTEXT,
@@ -200,6 +204,7 @@ def seq_clone(fields, *, fast, defaults=None, n_items=None, plan=None):
         FlatClone,
         SimpleNamespace(
             fold=fold,
+            validated=validated_build(fields),
             fast=fast,
             defaults=defaults or {},
             fields=fields,
@@ -284,12 +289,14 @@ def test_fast_build_does_not_intern_the_record_path():
 
 
 def test_build_validated_unknown_mode_raises():
-    """A capture mode outside the build vocabulary is a hard error."""
-    clone = cast(
-        FlatClone, SimpleNamespace(fields=((0, 99, "x", 1),), ctor=lambda **kw: kw)
-    )
-    with pytest.raises(UnsupportedConstructError):
-        build_validated("ab", ([0, 2], None), clone, {})
+    """A capture mode outside the build vocabulary is a hard error.
+
+    Refused at BAKE now rather than per record: the keyword build is composed
+    once from the capture layout, so a mode nothing can serve fails where the
+    layout is read instead of on the first document that reaches it.
+    """
+    with pytest.raises(UnsupportedConstructError, match="unknown capture mode"):
+        validated_build(((0, 99, "x", 1),))
 
 
 def test_build_validated_does_not_cache_a_raising_construction():
@@ -304,8 +311,10 @@ def test_build_validated_does_not_cache_a_raising_construction():
             raise FieldValidationError("bad field")
         return ("ok", kwargs)
 
+    fields = ((0, M_TEXT, "head", 1),)
     clone = cast(
-        FlatClone, SimpleNamespace(fields=((0, M_TEXT, "head", 1),), ctor=ctor)
+        FlatClone,
+        SimpleNamespace(fields=fields, ctor=ctor, validated=validated_build(fields)),
     )
     frame = make_frame({"ends": [0, 2], "sinks": None})
     ends = frame.ends
@@ -380,7 +389,13 @@ def test_build_vstr_interns_by_ctor_and_span():
 
     clone = cast(
         FlatClone,
-        SimpleNamespace(ctor=ctor, matched="value", fast=no_fast_construction, plan=()),
+        SimpleNamespace(
+            ctor=ctor,
+            matched="value",
+            fast=no_fast_construction,
+            plan=(),
+            vstr=vstr_build(None, (), ctor, "value"),
+        ),
     )
     memo: dict = {}
     a = build_vstr(clone, "true", memo)
@@ -394,13 +409,20 @@ def test_build_vstr_interns_by_ctor_and_span():
 def test_build_vstr_uses_fast_ctor_when_licensed():
     """With a fast licence, ``build_vstr`` builds positionally off the plan."""
     seen = []
+
+    def fast(values):
+        seen.extend(values)
+        return "fast-built"
+
+    plan = ((M_VALUE, 0, 0, None),)
     clone = cast(
         FlatClone,
         SimpleNamespace(
             ctor=lambda value: None,
             matched="value",
-            fast=lambda values: seen.extend(values) or "fast-built",
-            plan=((M_VALUE, 0, 0, None),),
+            fast=fast,
+            plan=plan,
+            vstr=vstr_build(fast, plan, lambda value: None, "value"),
         ),
     )
     assert build_vstr(clone, "42", {}) == "fast-built"
@@ -416,7 +438,8 @@ def test_build_vstr_fills_a_non_value_field_from_the_plan_default():
             ctor=lambda value: None,
             matched="value",
             fast=seen.extend,
-            plan=((M_VALUE, 0, 0, None), (M_CONST, 0, 0, "DEF")),
+            plan=(plan := ((M_VALUE, 0, 0, None), (M_CONST, 0, 0, "DEF"))),
+            vstr=vstr_build(seen.extend, plan, lambda value: None, "value"),
         ),
     )
     build_vstr(clone, "42", {})
@@ -437,7 +460,8 @@ def test_build_vstr_still_interns_by_ctor_and_span():
             ctor=lambda value: None,
             matched="value",
             fast=fast,
-            plan=((M_VALUE, 0, 0, None),),
+            plan=(plan := ((M_VALUE, 0, 0, None),)),
+            vstr=vstr_build(fast, plan, lambda value: None, "value"),
         ),
     )
     memo: dict = {}

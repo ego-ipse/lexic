@@ -30,6 +30,7 @@ NOT_IDENTITY_KEYED = frozenset(
         ("parsing/parallel/pool.py", "_IDLE"),
         ("parsing/pda/compiler/program/lowering.py", "_READS"),
         ("parsing/pda/compiler/program/lowering.py", "_TEMPLATES"),
+        ("parsing/pda/compiler/program/lowering.py", "_PUTS"),
     }
 )
 """Module-level dicts whose key type mentions ``int`` but is not an object
@@ -39,9 +40,10 @@ identity (``id(...)``) at all.
 address subject to reuse -- and already carries its own seam
 (:func:`~lexic.parsing.parallel.pool.reset_pools`, capped by ``RETAINED``).
 
-``_READS`` and ``_TEMPLATES`` are closed vocabularies, not caches: one keyed by
-the build-mode code and one by a record's field count. Both are written at
-import and never grow, so there is no entry to evict and no object to pin.
+``_READS``, ``_TEMPLATES`` and ``_PUTS`` are closed vocabularies, not caches:
+keyed by the build-mode code, by a record's field count, and by the capture
+mode. All three are written at import from module-level literals and never
+grow, so there is no entry to evict and no object to pin.
 
 Nothing here pins an id() alive, so :func:`~lexic.parsing.caches.memo` does
 not apply; the exemption is what keeps the guard honest rather than blind.

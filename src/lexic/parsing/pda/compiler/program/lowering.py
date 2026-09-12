@@ -30,6 +30,7 @@ argument, an attribute load — re-introduces the cost being removed.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import Any, Never
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrSpan
@@ -40,10 +41,22 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_MODELS,
     M_SPAN,
     M_TEXT,
+    M_VALUE,
 )
 from lexic.parsing.product.abi.construction import ProductValue
 
-__all__ = ["UNROLL_LIMIT", "ShapeBuild", "no_shape_build", "shape_build"]
+__all__ = [
+    "UNROLL_LIMIT",
+    "ShapeBuild",
+    "Validated",
+    "VstrBuild",
+    "no_shape_build",
+    "no_validated_build",
+    "no_vstr_build",
+    "shape_build",
+    "validated_build",
+    "vstr_build",
+]
 
 UNROLL_LIMIT = 8
 """Widest arity with a template of its own.
@@ -371,3 +384,204 @@ def shape_build[Carry](
     )
     template = _TEMPLATES.get(len(reads))
     return _general(cls, reads) if template is None else template(cls, reads)
+
+
+# ── the value_str build: the rule's own extent, composed at bake ──────────
+
+type VstrBuild[Carry] = Callable[[str], Carry]
+"""One ``value_str`` shape's whole build, given the extent it matched."""
+
+
+def no_vstr_build(_span: str) -> Never:
+    """What a clone that is not a ``value_str`` carries.
+
+    ``Never`` rather than a bound ``Carry``: this function does not return, and
+    saying so is what lets it stand in for any record's build — a type variable
+    appearing only in the return position has nothing to bind it.
+
+    :raises UnsupportedConstructError: Always — reaching it is a bake defect.
+    """
+    raise UnsupportedConstructError("pda: this clone builds no value_str")
+
+
+def _vstr_only[Carry](construct, _consts, _slot: int) -> VstrBuild[Carry]:
+    """The whole record IS the matched extent — one field, one value."""
+
+    def build(span):
+        return construct([span])
+
+    return build
+
+
+def _vstr_beside[Carry](construct, consts: list, slot: int) -> VstrBuild[Carry]:
+    """The extent plus constant fields — the constants are fixed at bake."""
+
+    def build(span):
+        values = consts.copy()
+        values[slot] = span
+        return construct(values)
+
+    return build
+
+
+def _vstr_keyword[Carry](ctor, matched: str) -> VstrBuild[Carry]:
+    """No positional licence: the class's own checked constructor, by name."""
+
+    def build(span):
+        return ctor(**{matched: span})
+
+    return build
+
+
+def vstr_build[Carry](
+    construct,
+    plan: Sequence[tuple[int, int, int, ProductValue[Carry]]],
+    ctor,
+    matched: str,
+) -> VstrBuild[Carry]:
+    """Compose one ``value_str`` shape's build, once, from its plan alone.
+
+    The record is unchanged: the matched extent fills the one field the plan
+    marks :data:`M_VALUE` and every other field takes its constant, which is
+    what the per-call plan walk computed. Only the extent varies between
+    calls, so everything else is decided here.
+
+    The one-field case is given its own form because it is overwhelmingly the
+    common one — a rule whose value IS its text usually has nothing else — and
+    it skips the copy the general form needs.
+
+    :param construct: The class's positional constructor, or ``None`` when no
+        licence was granted.
+    :param plan: The class-ordered plan; empty without a licence.
+    :param ctor: The class's keyword constructor, for the unlicensed path.
+    :param matched: The field the rule's own extent fills.
+    :returns: ``build(span)``.
+    """
+    slots = [at for at, (mode, *_rest) in enumerate(plan) if mode == M_VALUE]
+    if construct is None or not plan or len(slots) != 1:
+        return _vstr_keyword(ctor, matched)
+    consts = [default for _m, _i, _lo, default in plan]
+    if len(consts) == 1:
+        return _vstr_only(construct, consts, slots[0])
+    return _vstr_beside(construct, consts, slots[0])
+
+
+# ── the validated build: kwargs and intern key, composed at bake ──────────
+
+type Validated[Carry] = Callable[
+    [str, Sequence[int], Sinks[Carry]], tuple[dict[str, ProductValue[Carry]], tuple]
+]
+"""One shape's keyword build state: ``(kwargs, key_parts)``."""
+
+
+def no_validated_build[Carry](
+    _text: str, _ends: Sequence[int], _sinks: Sinks[Carry]
+) -> tuple[dict[str, ProductValue[Carry]], tuple]:
+    """What a clone with no keyword layout carries."""
+    return {}, ()
+
+
+def _put_text(item: int, name: str):
+    """A required TEXT capture: always present, always keyed."""
+
+    def put(text, ends, _sinks, kwargs, keys):
+        span = text[ends[item] : ends[item + 1]]
+        kwargs[name] = span
+        keys.append(span)
+
+    return put
+
+
+def _put_gtext(item: int, name: str):
+    """An absence-bearing TEXT capture: an empty span is OMITTED, not filled."""
+
+    def put(text, ends, _sinks, kwargs, keys):
+        span = text[ends[item] : ends[item + 1]]
+        if span:
+            kwargs[name] = span
+        keys.append(span or None)
+
+    return put
+
+
+def _put_model(item: int, name: str):
+    """One sub-model, omitted when the item never produced one."""
+
+    def put(_text, _ends, sinks, kwargs, keys):
+        sub = sinks[item] if sinks else None
+        if sub:
+            kwargs[name] = sub[0]
+        keys.append(id(sub[0]) if sub else None)
+
+    return put
+
+
+def _put_models(item: int, name: str):
+    """A run of sub-models — always filled, empty where nothing descended."""
+
+    def put(_text, _ends, sinks, kwargs, keys):
+        sub = (sinks[item] if sinks else None) or []
+        kwargs[name] = sub
+        keys.append(tuple(id(model) for model in sub))
+
+    return put
+
+
+def _put_span(item: int, name: str):
+    """Where the item was consumed, as an address."""
+
+    def put(_text, ends, _sinks, kwargs, keys):
+        extent = IrSpan(ends[item], ends[item + 1])
+        kwargs[name] = extent
+        keys.append(extent)
+
+    return put
+
+
+_PUTS: dict[int, Callable[[int, str], Any]] = {
+    M_TEXT: _put_text,
+    M_GTEXT: _put_gtext,
+    M_MODEL: _put_model,
+    M_MODELS: _put_models,
+    M_SPAN: _put_span,
+}
+"""Capture mode to the operation it names. Read once per capture, at bake.
+
+``M_CONST`` and ``M_VALUE`` are absent because neither is a CAPTURE: the
+keyword layout holds only fields an item fills, and a field no item fills is
+left to the class's own default.
+"""
+
+
+def validated_build[Carry](
+    fields: Sequence[tuple[int, int, str, int]],
+) -> Validated[Carry]:
+    """Compose one shape's keyword build, once, from its capture layout.
+
+    Same contract as the per-capture walk it replaces: an ABSENT capture is
+    omitted from the keywords rather than filled, which is what lets a declared
+    class apply its own default and an authored transform tell "the tail
+    matched nothing" from "the tail matched a value" — and it is still
+    represented in the key parts, so two different absences cannot collide in
+    the intern memo.
+
+    :param fields: The ``(item, mode, name, lo)`` capture layout.
+    :returns: ``build(text, ends, sinks) -> (kwargs, key_parts)``.
+    :raises UnsupportedConstructError: On a capture mode outside the vocabulary.
+    """
+    puts = []
+    for item, mode, name, _lo in fields:
+        make = _PUTS.get(mode)
+        if make is None:
+            raise UnsupportedConstructError(f"pda: unknown capture mode {mode!r}")
+        puts.append(make(item, name))
+    frozen = tuple(puts)
+
+    def build(text, ends, sinks):
+        kwargs: dict[str, ProductValue[Carry]] = {}
+        keys: list = []
+        for put in frozen:
+            put(text, ends, sinks, kwargs, keys)
+        return kwargs, tuple(keys)
+
+    return build
