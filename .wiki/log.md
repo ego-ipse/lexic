@@ -1,5 +1,34 @@
 # Log
 
+## Region discovery reads one spelling, and can be windowed (2026-09-12)
+
+The region walk classified each structural character with three shared dict
+tests. Shared-dict membership in that loop does not scale across threads on
+this build — 0.53x on sixteen against 7.64x for private containers — so the
+four role tables became ONE concatenated spelling read with a single
+`str.find`, the section order carrying the branch precedence that the elif
+chain used to spell out. Faster serially too, so it does not rest on the
+scaling explanation.
+
+On top of that, `par_find`: arithmetic windows, a per-window stack allowed to
+underflow, four event kinds, and an O(windows x depth) replay against one
+stack. Sound because every watched spelling is one character, so no occurrence
+straddles a window boundary. A grammar whose vocabulary carries an opaque
+interior takes the serial walk — a window cannot know whether it starts inside
+one without a pass over everything before it, and that prepass costs more than
+the walk it enables.
+
+A spelling is not an alphabet, and conflating them was a real bug. The
+spelling holds a two-role character once PER ROLE, which is what makes
+classification by precedence work; a sweep must iterate each character ONCE.
+Sweeping the spelling reported every offset of a separator that is also a
+closer twice. The deduplicated alphabet is derived from the spelling and
+stored beside it, which also makes `spelling.find` total over swept offsets —
+neither walk tests for a miss.
+
+The parser's per-character loop is now pinned by the instruction sequence of
+its compiled code objects, so discovery may change and that loop may not.
+
 ## The positional build licence can be declined (2026-09-11)
 
 `fast_construct()` was documented in [[lexic/public-api]] as "always granted",

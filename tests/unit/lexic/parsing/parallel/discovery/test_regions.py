@@ -308,7 +308,24 @@ def _vocab(
 
 def test_roles_of_an_empty_vocabulary_is_all_empty() -> None:
     """No skips, no pairs, no marks — every table comes out empty."""
-    assert _roles(_vocab()) == Roles("", (), (), 0, 0, "")
+    assert _roles(_vocab()) == Roles("", "", (), (), 0, 0, "")
+
+
+def test_watched_deduplicates_a_two_role_character() -> None:
+    """A separator that is also a closer stands twice in the classification
+    spelling and ONCE in the sweep alphabet.
+
+    The spelling needs both, so `find` can resolve the character by precedence;
+    a sweep that iterated it would report every one of that character's offsets
+    twice.
+    """
+    vocab = _vocab(
+        pairs={"[": ("]", "list")}, closers={"]": "[", "|": "("}, marks={"|"}
+    )
+    roles = _roles(vocab)
+    assert roles.spelling.count("|") == 2
+    assert roles.watched.count("|") == 1
+    assert set(roles.watched) == set(roles.spelling)
 
 
 def test_names_is_padded_across_the_skip_section() -> None:

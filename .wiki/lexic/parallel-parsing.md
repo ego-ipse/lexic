@@ -100,6 +100,54 @@ spelling would be a fourth chance to get the subclass case wrong.
 
 ---
 
+## The region walk reads ONE spelling string
+
+`regions.py` classifies each structural character with a single `str.find` into
+one concatenated spelling, not with a chain of dict tests. The sections are laid
+out skips, openers, then closers and marks together, and **that order IS the
+branch precedence**: `find` returns the earliest match, so a character carrying
+two roles resolves exactly as it did when each table was tested in turn. Closers
+and marks share a section because one test already separates them — a closer's
+value is its opener, a mark's is `""` — which is also what lets an unmatched
+closer fall through to the mark branch.
+
+This is not a style preference. Shared-dict membership in that loop does not
+scale across threads on this build: 0.53x on sixteen threads, against 7.64x for
+the same loop over private containers. Reading one string is faster serially
+too, so the change does not rest on that explanation holding. The tables are
+aliased into locals before the loop — reading them off the record inside it
+measures 10-30% slower across the roster.
+
+**A spelling is not an alphabet.** `Roles.spelling` holds a two-role character
+once per role, because that is what makes classification by precedence work.
+`Roles.watched` holds each character once, and is what a sweep iterates.
+Sweeping the spelling reports every offset of a two-role character twice.
+`watched` is derived from `spelling`, which is what makes `spelling.find` total
+over swept offsets: neither walk tests for `-1`.
+
+## The windowed find: same answer, discovered in parallel
+
+`par_find` divides a document into arithmetic windows, walks each with a stack
+that may UNDERFLOW, and replays what a window could not settle against one
+stack. Four event kinds carry that: a region opened and closed inside the window
+is already final; a closer that underflowed carries the opener it wants and
+whether it is also a separator; a separator at the underflow level; and an
+opener still standing at the window's end, whose mark list later windows keep
+appending to. The merge is O(windows x depth) — each window contributes at most
+its own residual depth in openers, and every other event settles in constant
+time.
+
+Window bounds are arithmetic, which is sound because every watched spelling is
+one character: no occurrence straddles a boundary, and every offset belongs to
+exactly one window.
+
+**A grammar whose vocabulary carries an opaque interior takes the serial walk.**
+A window cannot know whether it begins inside one without a pass over everything
+before it, and that prepass costs more than the walk it enables — it turned a
+win into a regression on the grammar that needs it. The condition is read off
+the vocabulary, so a grammar qualifies by what it derives; no grammar is named,
+and one that grows an interior loses the window by itself.
+
 ## Interiors: what a sweep must skip
 
 `discovery/` certifies regions a character sweep would otherwise misread —

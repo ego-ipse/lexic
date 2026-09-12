@@ -54,6 +54,27 @@ strings and take the serial walk, so they cannot exercise this path at all.
 """
 
 
+OVERLAP = (
+    'root ::= "[" items "]"\n'
+    'items ::= item ("|" item)*\n'
+    'item ::= "(" inner "|"\n'
+    "inner ::= [a-z0-9]+\n"
+)
+"""A grammar whose SEPARATOR is also a CLOSER: ``|`` ends an item and divides
+the list.
+
+The first fixture cannot catch a sweep that visits a two-role character twice,
+because its roles are disjoint and so is every eligible bench grammar's. This
+one holds the property on purpose, and `test_the_overlap_fixture_really_overlaps`
+fails if it ever stops holding it.
+"""
+
+
+def overlap_document(items: int) -> str:
+    """A document of the overlap grammar — every ``|`` wears both roles."""
+    return "[" + "|".join(f"(w{i}|" for i in range(items)) + "]"
+
+
 def bracket_document(records: int) -> str:
     """One long object over many nested short ones."""
     body = ",".join(
@@ -164,6 +185,43 @@ def test_one_window_and_many_agree() -> None:
     fixture = compile_text(BRACKETS).codegen_grammar
     text = bracket_document(120)
     assert par_find(fixture, text, 0, 1) == par_find(fixture, text, 0, 9)
+
+
+# ── a character that is BOTH a closer and a separator ─────────────────────
+
+
+def test_the_overlap_fixture_really_overlaps() -> None:
+    """The fixture holds the property the sweep bug needs to show itself.
+
+    Without a character in both roles the windowed sweep and the serial sweep
+    cannot disagree, and every case below would pass on a broken sweep.
+    """
+    vocab = _vocabulary(compile_text(OVERLAP).codegen_grammar)
+    both = set(vocab.closers) & set(vocab.marks)
+    assert both, f"no character is both closer and separator: {vocab}"
+    assert windowed(compile_text(OVERLAP).codegen_grammar)
+
+
+@pytest.mark.parametrize("windows", WINDOWS)
+@pytest.mark.parametrize("min_span", MIN_SPANS)
+def test_a_two_role_character_windows_identically(min_span: int, windows: int) -> None:
+    """A separator that is also a closer, every window count, both floors."""
+    fixture = compile_text(OVERLAP).codegen_grammar
+    serial, parallel = both_finds(fixture, overlap_document(80), min_span, windows)
+    assert parallel == serial
+    assert serial, "the overlap fixture found no regions"
+
+
+@pytest.mark.parametrize("windows", WINDOWS)
+@pytest.mark.parametrize("seed", range(8))
+def test_ragged_two_role_documents_window_identically(seed: int, windows: int) -> None:
+    """The fuzz, under the overlap grammar — imbalance plus a doubled role."""
+    fixture = compile_text(OVERLAP).codegen_grammar
+    rng = random.Random(seed)
+    alphabet = ["[", "]", "(", "|", "a", "wq", " ", "\n"]
+    text = "".join(rng.choice(alphabet) for _ in range(rng.randint(200, 600)))
+    serial, parallel = both_finds(fixture, text, 0, windows)
+    assert parallel == serial, f"seed {seed}, {windows} windows"
 
 
 # ── the refusal: an opaque interior takes the serial walk ─────────────────

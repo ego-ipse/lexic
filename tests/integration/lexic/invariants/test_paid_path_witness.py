@@ -40,7 +40,10 @@ from collections.abc import Callable
 import pytest
 
 from lexic.parsing.earley.kernel.loop.kernel import Kernel
+from lexic.parsing.pda.compiler.program import flatten
+from lexic.parsing.pda.core import scanner
 from lexic.parsing.pda.runtime import matchers
+from lexic.parsing.pda.runtime.kernel.attempt_inline import AttemptInlineMixin
 from lexic.parsing.pda.runtime.kernel.kernel import PdaKernel
 
 PAID: dict[str, tuple[object, str]] = {
@@ -53,6 +56,23 @@ PAID: dict[str, tuple[object, str]] = {
     "matchers.vstr_once": (matchers, "vstr_once"),
     "matchers.run_span_once": (matchers, "run_span_once"),
     "matchers.select_arm": (matchers, "select_arm"),
+    "matchers.match_runtable": (matchers, "match_runtable"),
+    # The gates the per-character loops consult on every iteration.
+    "flatten.gate_take": (flatten, "gate_take"),
+    "scanner.scan_gate_take": (scanner, "scan_gate_take"),
+    # The attempt loops: a per-character loop each, frame-lessly.
+    "AttemptInlineMixin.attempt_inline_loop": (
+        AttemptInlineMixin,
+        "attempt_inline_loop",
+    ),
+    "AttemptInlineMixin._attempt_vdisp_loop": (
+        AttemptInlineMixin,
+        "_attempt_vdisp_loop",
+    ),
+    "AttemptInlineMixin._attempt_tabled_loop": (
+        AttemptInlineMixin,
+        "_attempt_tabled_loop",
+    ),
     # The PDA driver: the loop those matchers are called from.
     "PdaKernel._drive": (PdaKernel, "_drive"),
     "PdaKernel._quant_step": (PdaKernel, "_quant_step"),
@@ -75,6 +95,9 @@ made.
 """
 
 WITNESS: dict[str, str] = {
+    "AttemptInlineMixin._attempt_tabled_loop": "c4566542d199cf29",
+    "AttemptInlineMixin._attempt_vdisp_loop": "1f2c3fe908c9e76e",
+    "AttemptInlineMixin.attempt_inline_loop": "6c7e913ef9c86b20",
     "Kernel._advance_all": "56e7c5a8e276af55",
     "Kernel._close": "2705b7a15a0c4493",
     "Kernel._scan": "f65fdad568fc8431",
@@ -82,14 +105,17 @@ WITNESS: dict[str, str] = {
     "PdaKernel._drive": "ba05ca518cf2dc27",
     "PdaKernel._match_span": "c8e6c3f1fd849ad7",
     "PdaKernel._quant_step": "1c88d7247121a287",
+    "flatten.gate_take": "8837a6a4a4d34f83",
     "matchers.match_arm": "483581add68bea95",
     "matchers.match_cc": "6b78e9f226877ddf",
     "matchers.match_cc1": "93cc598602726811",
     "matchers.match_chartable": "336772203f653b76",
     "matchers.match_lit": "16c3da82cab78248",
+    "matchers.match_runtable": "11b9846c122f07b0",
     "matchers.run_span_once": "4ad4f40a11fa6667",
     "matchers.select_arm": "ff51ffda2566a8bb",
     "matchers.vstr_once": "12911c3d94372ea8",
+    "scanner.scan_gate_take": "d4d3e62975559ffd",
 }
 """The pinned instruction digests. Regenerate deliberately — see the docstring."""
 

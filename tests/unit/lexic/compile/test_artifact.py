@@ -446,7 +446,7 @@ def test_a_split_documents_worker_replicas_retire_with_the_document() -> None:
     counts = _churn_round(compiled, rounds, cores=4)
     tail = counts[rounds // 2 :]
 
-    assert tail[-1] == tail[0], f"still growing in the second half: {counts}"
+    assert len(set(tail)) == 1, f"still growing in the second half: {counts}"
     reset_cache_for_tests()
 
 

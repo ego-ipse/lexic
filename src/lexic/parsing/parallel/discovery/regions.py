@@ -33,6 +33,7 @@ from lexic.parsing.parallel.discovery.interiors import (
 )
 from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
 from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.pool import WorkPool
 
 
 class Region(NamedTuple):
@@ -178,7 +179,18 @@ class Roles(NamedTuple):
     there — the one question a single find cannot answer.
 
     :ivar spelling: Every watched character: skips, openers, then closers and
-        marks together.
+        marks together. A character carrying two roles appears ONCE PER ROLE,
+        which is what lets ``find`` classify it by precedence — so this is a
+        classification table and never a set of characters to look for.
+    :ivar watched: The same characters, each ONCE. What a sweep iterates. The
+        two differ exactly when a character holds two roles, and sweeping
+        :attr:`spelling` then finds every one of its offsets twice.
+
+        Derived FROM :attr:`spelling`, which is what makes ``spelling.find``
+        total over swept offsets: every offset a sweep reports holds a
+        character of this string, so the find can never miss. Both walks rely
+        on that and neither tests for ``-1``. A sweep alphabet built from
+        anything else would break the assumption silently.
     :ivar skips: Parallel to the skip section, which starts at zero.
     :ivar names: Parallel to the WHOLE spelling — the bracket rule under an
         opener, the owning opener under a closer, ``""`` under a mark, and
@@ -191,6 +203,7 @@ class Roles(NamedTuple):
     """
 
     spelling: str
+    watched: str
     skips: tuple[Skip, ...]
     names: tuple[str, ...]
     n_skip: int
@@ -216,11 +229,12 @@ def _roles(vocab: Vocab) -> Roles:
     """
     marks = "".join(vocab.marks)
     n_skip = len(vocab.skips)
+    spelling = (
+        "".join(vocab.skips) + "".join(vocab.pairs) + "".join(vocab.closers) + marks
+    )
     return Roles(
-        spelling="".join(vocab.skips)
-        + "".join(vocab.pairs)
-        + "".join(vocab.closers)
-        + marks,
+        spelling=spelling,
+        watched="".join(dict.fromkeys(spelling)),
         skips=tuple(vocab.skips.values()),
         names=(
             ("",) * n_skip  # the skip section, so `names` indexes by `pos`
@@ -318,9 +332,7 @@ def _walk(text: str, offsets: list[int], roles: Roles, min_span: int) -> list[Re
         if at < skip_to:
             continue  # inside an opaque interior — never read
         char = text[at]
-        pos = spelling.find(char)
-        if pos < 0:
-            continue  # swept for a character this vocabulary no longer claims
+        pos = spelling.find(char)  # never -1: see Roles.watched
         if pos < n_skip:
             skip_to = skip_delimited(text, at, skips[pos])
         elif pos < n_open:
@@ -376,7 +388,11 @@ later windows keep appending to.
 
 
 def par_find(
-    grammar: IrAst, text: str, min_span: int, workers: int, pool=None
+    grammar: IrAst,
+    text: str,
+    min_span: int,
+    workers: int,
+    pool: WorkPool | None = None,
 ) -> list[Region]:
     """:func:`find`, over ``workers`` windows — same regions, same order.
 
@@ -392,8 +408,8 @@ def par_find(
     :param text: The document.
     :param min_span: Omit smaller regions at close time.
     :param workers: How many windows to divide the document into.
-    :param pool: A pool exposing ``map``, or ``None`` to run every window on
-        this thread. The answer may not depend on which — the differential
+    :param pool: The pool the windows run on, or ``None`` to run every window
+        on this thread. The answer may not depend on which — the differential
         runs without one.
     :returns: The regions, in closing order.
     """
@@ -403,13 +419,21 @@ def par_find(
     if vocab.skips or windows < 2:
         return _walk(text, _sweep(text, vocab.watched), roles, min_span)
     spans = _bounds(len(text), windows)
-
-    def run(span: tuple[int, int]) -> list[tuple]:
-        """One window's replayable contribution."""
-        return _window(text, span[0], span[1], roles, min_span)
-
+    run = partial(_run_window, text, roles, min_span)
     chunks = pool.map(run, spans) if pool is not None else [run(s) for s in spans]
     return merge_windows(chunks, min_span)
+
+
+def _run_window(
+    text: str, roles: Roles, min_span: int, span: tuple[int, int]
+) -> list[tuple]:
+    """One window's replayable contribution.
+
+    Module-level and bound with :func:`functools.partial` rather than closed
+    over inside :func:`par_find`: the document, the roles and the floor are the
+    same for every window, and the span is the only thing that varies.
+    """
+    return _window(text, span[0], span[1], roles, min_span)
 
 
 def _bounds(size: int, windows: int) -> list[tuple[int, int]]:
@@ -420,15 +444,20 @@ def _bounds(size: int, windows: int) -> list[tuple[int, int]]:
     ]
 
 
-def _sweep_window(text: str, spelling: str, lo: int, hi: int) -> list[int]:
+def _sweep_window(text: str, watched: str, lo: int, hi: int) -> list[int]:
     """:func:`_sweep` restricted to ``[lo, hi)``.
 
     Sound because every watched spelling is ONE character, so no occurrence can
     straddle an arithmetic boundary and every offset belongs to exactly one
     window.
+
+    Takes the DEDUPLICATED alphabet, never the classification spelling: a
+    character that is both a closer and a separator stands in two sections of
+    the spelling, and sweeping that would report every one of its offsets
+    twice — which the serial sweep, over a set, never does.
     """
     offsets: list[int] = []
-    for char in spelling:
+    for char in watched:
         at = text.find(char, lo, hi)
         while at != -1:
             offsets.append(at)
@@ -451,11 +480,9 @@ def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tu
     spelling, names, n_open = roles.spelling, roles.names, roles.n_open
     events: list[tuple] = []
     stack: list[Frame] = []
-    for at in _sweep_window(text, spelling, lo, hi):
+    for at in _sweep_window(text, roles.watched, lo, hi):
         char = text[at]
-        pos = spelling.find(char)
-        if pos < 0:
-            continue  # swept for a character this vocabulary no longer claims
+        pos = spelling.find(char)  # never -1: see Roles.watched
         if pos < n_open:
             stack.append((at, char, [], names[pos]))
         elif stack and stack[-1][1] == names[pos]:
@@ -470,19 +497,11 @@ def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tu
                 if not names[pos]
                 else (R_CLOSE, at, names[pos], char in roles.mark_at)
             )
+    # Already in document order, and the residual openers belong at the end:
+    # the loop appends as it sweeps, which is ascending, and every frame still
+    # on the stack opened before the window's last event and closes after it.
     events.extend((R_OPEN, frame[0], frame) for frame in stack)
-    events.sort(key=_at_of)
     return events
-
-
-def _at_of(event: tuple) -> int:
-    """An event's document offset.
-
-    Every event carries it second, and a closed region carries its CLOSER —
-    which is what orders the serial walk's answer, so replaying in this order
-    reproduces that order rather than approximating it.
-    """
-    return event[1]
 
 
 def merge_windows(chunks: list[list[tuple]], min_span: int) -> list[Region]:
