@@ -17,7 +17,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from lexic.ir import IrSpan
+from lexic.parsing.pda.compiler.program.flatten import FlatClone
 from lexic.parsing.pda.compiler.program.opcodes import (
+    BUILD_DISPATCH,
     M_CONST,
     M_GTEXT,
     M_MODEL,
@@ -25,6 +27,7 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_SPAN,
     M_TEXT,
 )
+from lexic.parsing.pda.compiler.program.specialize import clone_arms
 
 
 def plan_means(
@@ -61,3 +64,27 @@ def plan_means(
         else:
             raise AssertionError(f"a composed build carries mode {mode!r}")
     return values
+
+
+def every_clone(node, seen: dict[int, FlatClone]) -> None:
+    """Each clone of a compiled program, once, by identity.
+
+    One copy, because two suites walk the same artefact to ask different
+    questions of it — whether each builder matches its plan, and whether each
+    composed build matches the walk it replaced. A second spelling of the walk
+    would drift into visiting a different set of clones while both suites still
+    claimed to cover "every clone".
+    """
+    if not isinstance(node, FlatClone) or id(node) in seen:
+        return
+    seen[id(node)] = node
+    if node.mode == BUILD_DISPATCH:
+        for _chars, _negated, target in node.selectors:
+            every_clone(target, seen)
+        every_clone(node.default, seen)
+        return
+    for arm in clone_arms(node):
+        for payload in arm.payloads:
+            every_clone(payload, seen)
+    for entry in node.attempt[1] if node.attempt else ():
+        every_clone(entry[-1], seen)

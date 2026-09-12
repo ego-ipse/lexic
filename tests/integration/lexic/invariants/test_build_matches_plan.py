@@ -25,10 +25,8 @@ import pytest
 
 from lexic.compile import compile_from_path
 from lexic.parsing.pda.compiler.program.flatten import FlatClone, no_shape_build
-from lexic.parsing.pda.compiler.program.opcodes import BUILD_DISPATCH
-from lexic.parsing.pda.compiler.program.specialize import clone_arms
 from lexic.parsing.products import pda_tables
-from tests.build_tail_helpers import plan_means
+from tests.build_tail_helpers import every_clone, plan_means
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 
 NEEDS_VOCABULARY = frozenset({"think.gbnf"})
@@ -45,23 +43,6 @@ PDA_SOURCES = (
     "src/lexic/parsing/pda/compiler/program/specialize.py",
 )
 """Every module that may write clone build state."""
-
-
-def every_clone(node, seen: dict[int, FlatClone]) -> None:
-    """Each clone of a compiled program, once, by identity."""
-    if not isinstance(node, FlatClone) or id(node) in seen:
-        return
-    seen[id(node)] = node
-    if node.mode == BUILD_DISPATCH:
-        for _chars, _negated, target in node.selectors:
-            every_clone(target, seen)
-        every_clone(node.default, seen)
-        return
-    for arm in clone_arms(node):
-        for payload in arm.payloads:
-            every_clone(payload, seen)
-    for entry in node.attempt[1] if node.attempt else ():
-        every_clone(entry[-1], seen)
 
 
 def capture_state(width: int):

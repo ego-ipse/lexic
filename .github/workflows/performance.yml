@@ -32,7 +32,7 @@ jobs:
   lexic:
     name: Same-run Lexic A/B (${{ matrix.grammar }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       PYTHON_GIL: "0"
       LEXIC_REQUIRE_FREE_THREADED: "1"

@@ -24,7 +24,6 @@ from lexic.parsing.pda.compiler.program.flatten import (
 )
 from lexic.parsing.pda.compiler.program.lowering import validated_build, vstr_build
 from lexic.parsing.pda.compiler.program.opcodes import (
-    BUILD_DISPATCH,
     BUILD_VALUE_STR,
     M_GTEXT,
     M_MODEL,
@@ -33,8 +32,8 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     M_TEXT,
     M_VALUE,
 )
-from lexic.parsing.pda.compiler.program.specialize import clone_arms
 from lexic.parsing.products import pda_tables
+from tests.build_tail_helpers import every_clone
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 
 NEEDS_VOCABULARY = frozenset({"think.gbnf"})
@@ -42,23 +41,6 @@ NEEDS_VOCABULARY = frozenset({"think.gbnf"})
 
 SPANS = ("", "x", "hello", '"quoted"', "0123456789" * 4)
 """Extents to build each ``value_str`` shape over, empty included."""
-
-
-def every_clone(node, seen: dict[int, FlatClone]) -> None:
-    """Each clone of a compiled program, once, by identity."""
-    if not isinstance(node, FlatClone) or id(node) in seen:
-        return
-    seen[id(node)] = node
-    if node.mode == BUILD_DISPATCH:
-        for _chars, _negated, target in node.selectors:
-            every_clone(target, seen)
-        every_clone(node.default, seen)
-        return
-    for arm in clone_arms(node):
-        for payload in arm.payloads:
-            every_clone(payload, seen)
-    for entry in node.attempt[1] if node.attempt else ():
-        every_clone(entry[-1], seen)
 
 
 def clones_of(name: str) -> list[FlatClone]:
