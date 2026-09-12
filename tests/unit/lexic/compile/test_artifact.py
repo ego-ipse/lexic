@@ -450,6 +450,56 @@ def test_a_split_documents_worker_replicas_retire_with_the_document() -> None:
     reset_cache_for_tests()
 
 
+def _tail_plateaus(counts: list[int], rounds: int) -> bool:
+    """The plateau claim above, spelled out independently on synthetic
+    counts so it cannot drift silently with the assertion it pins."""
+    tail = counts[rounds // 2 :]
+    return tail[-1] == tail[0]
+
+
+_PLATEAU_ROUNDS = 16
+"""Matches the real test's round count, so the boundary pinned here is the
+one the real assertion actually uses."""
+
+
+def test_the_plateau_claim_fails_a_synthetic_per_round_leak() -> None:
+    """A count that never stops climbing must not read as a plateau — this is
+    the exact shape of the leak the real test guards against."""
+    counts = list(range(1, _PLATEAU_ROUNDS + 1))
+    assert not _tail_plateaus(counts, _PLATEAU_ROUNDS)
+
+
+@pytest.mark.parametrize("step", range(_PLATEAU_ROUNDS // 2))
+def test_the_plateau_claim_survives_a_one_off_step_before_the_tail(step: int) -> None:
+    """A worker minted once, anywhere before the tail window opens, has
+    already settled by the time the tail is sampled."""
+    counts = [0] * step + [50] * (_PLATEAU_ROUNDS - step)
+    assert _tail_plateaus(counts, _PLATEAU_ROUNDS)
+
+
+@pytest.mark.parametrize("step", range(_PLATEAU_ROUNDS // 2 + 1, _PLATEAU_ROUNDS))
+def test_the_plateau_claim_fails_a_step_inside_the_tail(step: int) -> None:
+    """A step landing INSIDE the sampled tail is indistinguishable from an
+    ongoing leak, and the assertion correctly refuses to call it a plateau.
+
+    This does not cover ``step == rounds // 2`` — the tail's own first
+    sample — which is a separate, documented boundary case below.
+    """
+    counts = [0] * step + [50] * (_PLATEAU_ROUNDS - step)
+    assert not _tail_plateaus(counts, _PLATEAU_ROUNDS)
+
+
+def test_a_step_exactly_at_the_tail_boundary_reads_as_settled() -> None:
+    """The one index the plateau window cannot distinguish from "no step at
+    all": the tail's first sample already carries the elevated value, so a
+    step landing exactly there passes rather than failing. A property of any
+    tail-window plateau check, not a gap this suite can close without also
+    flagging a legitimate one-off worker warm-up."""
+    step = _PLATEAU_ROUNDS // 2
+    counts = [0] * step + [50] * (_PLATEAU_ROUNDS - step)
+    assert _tail_plateaus(counts, _PLATEAU_ROUNDS)
+
+
 def test_a_live_sibling_view_still_parses_after_another_retires() -> None:
     """Retiring one thread's view must not evict a live thread's own.
 
