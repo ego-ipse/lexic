@@ -12,8 +12,6 @@ layout, in the shape the old code used, so the two arms cannot drift together.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from lexic.compile import compile_from_path, compile_text
@@ -87,7 +85,7 @@ def vstr_by_plan(clone: FlatClone, span: str):
     return clone.ctor(**{clone.matched: span})
 
 
-def kwargs_by_layout(clone: FlatClone, text, ends, sinks):
+def kwargs_by_layout(fields, text, ends, sinks):
     """What the capture walk produced — restated here, independently.
 
     Absence is OMITTED rather than filled, and still represented in the key
@@ -95,7 +93,7 @@ def kwargs_by_layout(clone: FlatClone, text, ends, sinks):
     """
     kwargs: dict = {}
     keys: list = []
-    for item, mode, name, _lo in clone.fields:
+    for item, mode, name, _lo in fields:
         if mode == M_TEXT:
             span = text[ends[item] : ends[item + 1]]
             kwargs[name] = span
@@ -180,11 +178,10 @@ def test_the_validated_build_matches_the_capture_walk() -> None:
         (4, M_SPAN, "at", 1),
     )
     build = validated_build(fields)
-    layout = SimpleNamespace(fields=fields)
     text = "abcdefgh"
     ends = [0, 2, 2, 4, 6, 8]
     for sinks in (None, [None, None, ["K"], ["A", "B"], None]):
-        assert build(text, ends, sinks) == kwargs_by_layout(layout, text, ends, sinks)
+        assert build(text, ends, sinks) == kwargs_by_layout(fields, text, ends, sinks)
 
 
 def test_an_absent_capture_is_omitted_not_defaulted() -> None:
