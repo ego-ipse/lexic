@@ -23,20 +23,14 @@ from collections.abc import Callable, Mapping
 from typing import Any, Never
 
 from lexic.ir import IrLeaf, IrSelf
-from lexic.parsing.pda.compiler.program.lowering import (
-    ShapeBuild,
-    Validated,
-    VstrBuild,
-    no_shape_build,
-    no_validated_build,
-    no_vstr_build,
-)
+from lexic.parsing.pda.compiler.program.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     GATE_KWIN,
     GATE_PAIR,
     GATE_PEEK,
     GATE_STOP,
+    M_VALUE,
 )
 from lexic.parsing.pda.core.errors import PdaFail, ProbeFork
 from lexic.parsing.pda.core.scanner import scan_gate_take
@@ -389,8 +383,6 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
         "plan",
         "fast",
         "build",
-        "vstr",
-        "validated",
         "defaults",
         "leaf",
         "chartable",
@@ -415,8 +407,6 @@ class FlatClone[Carry](IrLeaf[IrSelf, IrSelf]):
     plan: BuildPlan[Carry]
     fast: FastConstruction[Carry]
     build: ShapeBuild[Carry]
-    vstr: VstrBuild[Carry]
-    validated: Validated[Carry]
     defaults: Mapping[str, ProductValue[Carry]] | None
     leaf: bool
     chartable: Any  # dict[str, Carry] | None — specialized table payload
@@ -461,8 +451,6 @@ def clear_build[Carry](clone: FlatClone[Carry]) -> None:
     clone.plan = ()
     clone.fast = no_fast_construction
     clone.build = no_shape_build
-    clone.vstr = no_vstr_build
-    clone.validated = no_validated_build
     clone.defaults = None
 
 
@@ -474,16 +462,16 @@ def vstr_model[Carry](clone: FlatClone[Carry], span: str) -> Carry:
     :attr:`FlatClone.chartable` both go through it, so a tabled model and a
     parse-built one cannot drift.
 
-    The construction itself is composed at bake
-    (:func:`~lexic.parsing.pda.compiler.program.lowering.vstr_build`): only the
-    extent varies between calls, so the plan walk that once decided which field
-    it fills is not paid per occurrence.
-
     :param clone: The ``value_str`` clone (or a ``value_str``-ref target).
     :param span: The matched source span — the model's ``value``.
     :returns: The built model.
     """
-    return clone.vstr(span)
+    fast = clone.fast
+    if fast is not no_fast_construction and (plan := clone.plan):
+        return fast(
+            [span if mode == M_VALUE else default for mode, _i, _lo, default in plan]
+        )
+    return clone.ctor(**{clone.matched: span})
 
 
 CHARTABLE_CAP = 256

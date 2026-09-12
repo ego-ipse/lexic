@@ -48,12 +48,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_construction,
     no_fast_construction,
 )
-from lexic.parsing.pda.compiler.program.lowering import (
-    no_shape_build,
-    shape_build,
-    validated_build,
-    vstr_build,
-)
+from lexic.parsing.pda.compiler.program.lowering import no_shape_build, shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_SEQ,
@@ -162,13 +157,11 @@ def bake_product_build[Carry](
     clone.ctor = construction.call
     clone.matched = construction.matched
     clone.fields = _capture_layout(routine, construction)
-    clone.validated = validated_build(clone.fields)
     licence = construction.licence
     if licence is None:
         clone.plan = ()
         clone.fast = no_fast_construction
         clone.build = no_shape_build
-        clone.vstr = vstr_build(None, (), clone.ctor, clone.matched)
         clone.defaults = None
         return
     clone.plan = _build_plan(routine, construction, licence.order)
@@ -183,7 +176,6 @@ def bake_product_build[Carry](
         if clone.mode == BUILD_VALUE_STR
         else shape_build(licence.record, clone.plan)
     )
-    clone.vstr = vstr_build(licence.construct, clone.plan, clone.ctor, clone.matched)
     clone.defaults = dict(construction.defaults)
 
 
