@@ -45,6 +45,31 @@ def engages(compiled: CompiledGrammar, text: str, cores: int = WORKERS) -> bool:
     return found is not None
 
 
+def assert_parallel_matches_sequential(
+    compiled: CompiledGrammar, text: str, workers: int
+):
+    """The parallel answer IS the sequential one — class, model and text.
+
+    One copy for the same reason as :func:`engages`: every suite that divides
+    a document owes exactly these three, and a second spelling would drift
+    into asserting less while still reading like this one. Equality alone is
+    not enough — two models of different classes can compare equal field for
+    field — and the round-trip is what catches a stitch that reassembled the
+    right values in the wrong order.
+
+    :param compiled: The artefact to parse with.
+    :param text: The document, long enough that the split takes it.
+    :param workers: The worker count to parse at.
+    :returns: The sequential model, for a caller with more to ask of it.
+    """
+    sequential = compiled.parse(text, cores=1)
+    parallel = compiled.parse(text, cores=workers)
+    assert type(parallel) is type(sequential)
+    assert parallel == sequential
+    assert parallel.to_text() == text
+    return sequential
+
+
 LEAD_RULE = (
     "root ::= pair tail*\n"
     "tail ::= comma pair\n"

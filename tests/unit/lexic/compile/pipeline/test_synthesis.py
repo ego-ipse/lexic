@@ -10,10 +10,15 @@ subclasses.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
+import pytest
+
 from lexic.compile import canonical_grammar, compile_from_path, compile_text
 from lexic.compile.pipeline.moments import build_codegen_grammar
 from lexic.compile.pipeline.rulemap import RuleMap, compute_binding
-from lexic.compile.pipeline.synthesis import synthesize
+from lexic.compile.pipeline.synthesis import _declared_licence, synthesize
+from lexic.exceptions import UnsupportedConstructError
 from lexic.grammars.gbnf import GBNF_FLAVOUR
 from lexic.ir import (
     IrAlternation,
@@ -310,3 +315,82 @@ def test_the_module_name_still_reads_as_the_file(tmp_path) -> None:
     (tmp_path / "chess.gbnf").write_text("root ::= [a-z]+\n", encoding="utf-8")
     cls = compile_from_path(tmp_path / "chess.gbnf").classes["Root"]
     assert cls.__module__.startswith("generated.chess_")
+
+
+# ── the cold guard: _from_values may not be overridden ────────────────────
+
+
+def _value_str_grammar(name: str) -> IrRule:
+    """A minimal value_str rule — enough shape for a hand-authored subclass."""
+    return IrRule(name, IrAlternation(IrSequence(IrItem(IrLiteral("x")))))
+
+
+def test_declared_licence_refuses_a_class_that_overrides_from_values():
+    """The composed build inlines what the licence means — one bare
+    ``tuple.__new__`` — so a subclass whose own ``_from_values`` means
+    something else must be refused, not silently bypassed."""
+
+    class Overridden(GrammarModel):
+        """A hand-authored model whose ``_from_values`` means something else."""
+
+        __grammar__: ClassVar[IrRule] = _value_str_grammar("overridden")
+        value: str
+
+        @classmethod
+        def _from_values(cls, values):
+            return tuple.__new__(cls, values)
+
+    with pytest.raises(UnsupportedConstructError, match="overrides _from_values"):
+        _declared_licence(Overridden, {})
+
+
+def test_declared_licence_names_the_overriding_class_in_the_message():
+    """The refusal names the class that actually carries the override."""
+
+    class Named(GrammarModel):
+        """A hand-authored model whose ``_from_values`` means something else."""
+
+        __grammar__: ClassVar[IrRule] = _value_str_grammar("named")
+        value: str
+
+        @classmethod
+        def _from_values(cls, values):
+            return tuple.__new__(cls, values)
+
+    with pytest.raises(UnsupportedConstructError, match="Named overrides"):
+        _declared_licence(Named, {})
+
+
+def test_declared_licence_refuses_an_inherited_override_too():
+    """The override may sit on an ancestor rather than ``cls`` itself — the
+    mro walk must still catch it, or a further subclass could sneak the
+    invalid construction back through undetected."""
+
+    class Base(GrammarModel):
+        """A hand-authored model whose ``_from_values`` means something else."""
+
+        __grammar__: ClassVar[IrRule] = _value_str_grammar("based")
+        value: str
+
+        @classmethod
+        def _from_values(cls, values):
+            return tuple.__new__(cls, values)
+
+    class Derived(Base):
+        """A plain subclass that never overrides ``_from_values`` itself."""
+
+        __grammar__: ClassVar[IrRule] = _value_str_grammar("derived")
+
+    with pytest.raises(UnsupportedConstructError, match="Base overrides"):
+        _declared_licence(Derived, {})
+
+
+def test_declared_licence_grants_an_ordinary_class_the_spines_own_from_values():
+    """A class that never touches ``_from_values`` is granted the licence,
+    carrying its own record class — the mirror of the refusal above."""
+    classes, _grammar, _binding = synth('root ::= "hi"\n')
+    cls = classes["Root"]
+    licence = _declared_licence(cls, {})
+    spine_construct, _defaults, _order = cls.fast_construct()
+    assert licence.construct == spine_construct
+    assert licence.record is cls

@@ -100,6 +100,61 @@ spelling would be a fourth chance to get the subclass case wrong.
 
 ---
 
+## The region walk reads ONE spelling string
+
+`regions.py` classifies each structural character with a single `str.find` into
+one concatenated spelling, not with a chain of dict tests. The sections are laid
+out skips, openers, then closers and marks together, and **that order IS the
+branch precedence**: `find` returns the earliest match, so a character carrying
+two roles resolves exactly as it did when each table was tested in turn. Closers
+and marks share a section because one test already separates them — a closer's
+value is its opener, a mark's is `""` — which is also what lets an unmatched
+closer fall through to the mark branch.
+
+This is not a style preference. Shared-dict membership in that loop does not
+scale across threads on this build: 0.53x on sixteen threads, against 7.64x for
+the same loop over private containers. Reading one string is faster serially
+too, so the change does not rest on that explanation holding. The tables are
+aliased into locals before the loop — reading them off the record inside it
+measures 10-30% slower across the roster.
+
+**Read the document from a parameter, never a module global.** A global read
+takes a strong reference to a shared mortal object, and in a per-character loop
+that alone costs all the scaling: a probe reading its input from a module
+global measured 0.45x whatever container it used, and passing the same operands
+as parameters restored the figures above. It is a rule about any hot loop here,
+not about this one.
+
+**A spelling is not an alphabet.** `Roles.spelling` holds a two-role character
+once per role, because that is what makes classification by precedence work.
+`Roles.watched` holds each character once, and is what a sweep iterates.
+Sweeping the spelling reports every offset of a two-role character twice.
+`watched` is derived from `spelling`, which is what makes `spelling.find` total
+over swept offsets: neither walk tests for `-1`.
+
+## The windowed find: same answer, discovered in parallel
+
+`par_find` divides a document into arithmetic windows, walks each with a stack
+that may UNDERFLOW, and replays what a window could not settle against one
+stack. Four event kinds carry that: a region opened and closed inside the window
+is already final; a closer that underflowed carries the opener it wants and
+whether it is also a separator; a separator at the underflow level; and an
+opener still standing at the window's end, whose mark list later windows keep
+appending to. The merge is O(windows x depth) — each window contributes at most
+its own residual depth in openers, and every other event settles in constant
+time.
+
+Window bounds are arithmetic, which is sound because every watched spelling is
+one character: no occurrence straddles a boundary, and every offset belongs to
+exactly one window.
+
+**A grammar whose vocabulary carries an opaque interior takes the serial walk.**
+A window cannot know whether it begins inside one without a pass over everything
+before it, and that prepass costs more than the walk it enables — it turned a
+win into a regression on the grammar that needs it. The condition is read off
+the vocabulary, so a grammar qualifies by what it derives; no grammar is named,
+and one that grows an interior loses the window by itself.
+
 ## Interiors: what a sweep must skip
 
 `discovery/` certifies regions a character sweep would otherwise misread —
@@ -279,6 +334,37 @@ parse. A failed pool is never re-lent either — a lease whose phase raised
 closes its pool rather than returning it to the cache.
 
 ---
+
+## What a retain-heavy caller pays the collector
+
+A replica's tables are ordinary objects, so a process holding many of them pays
+for them on every full collection. The numbers, on this tree, for one grammar
+at sixteen workers:
+
+| | objects | gen-2 collection |
+|---|---|---|
+| before any split | 129,959 | 7.3 ms |
+| after six splits, pools still warm | 164,511 | 11.8 ms |
+| after those pools are dropped | 162,897 | 11.5 ms |
+
+Two things follow. A warm pool's replicas are **not** garbage — its workers are
+alive and those tables are theirs, which is why a retained pool holds them on
+purpose. And a dropped pool's were: before reclamation those claims sat on
+exited threads and stayed until the next parse of the same pair, so a process
+that split once and then did something else kept paying for them. A pool now
+releases its workers' claims as it dies, so the tail settles without another
+parse.
+
+What is left is the collector's own cost on what a caller legitimately holds,
+and that is the caller's to manage. Two facts worth knowing before trying:
+
+- **GC thresholds are process-wide.** Nothing in `lexic` reads or writes
+  collector state, and nothing here will: a library that tuned the collector
+  would be tuning every other library in the process.
+- **`gc.freeze()` is an application-lifecycle tool**, not a parsing one. A
+  caller that compiles its grammars at startup and then parses can freeze what
+  it built out of the collector's reach; that is a decision about a program's
+  shape and is not prescribed here.
 
 ## Cache lifetime
 

@@ -26,7 +26,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import (
     choose,
-    find,
+    par_find,
 )
 from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
@@ -501,7 +501,9 @@ def _split_regions[M: IrNamedTuple](
     # yields no non-empty route and declines in ``_stitch_shell``.
     found = [
         region
-        for region in find(analysis or grammar, ask.text, 2 * MIN_CHUNK)
+        for region in par_find(
+            analysis or grammar, ask.text, 2 * MIN_CHUNK, workers, pool
+        )
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)
@@ -608,15 +610,19 @@ def split_model[M: IrNamedTuple](
     safe_plans = _safe_plans(_split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
         shared = shared_scanner(grammar, safe_plans)
-        windows = (
-            scan_windows(shared, ask.text, workers, pool)
+        # Rebased ONCE, not once per plan: the rebase is a prefix sum over the
+        # windows' own deltas and reads nothing of the scanner, so every plan
+        # that reads this sweep was recomputing the same list before applying
+        # its own filter to it. The filter is the part that differs.
+        rebased = (
+            shared.offsets(scan_windows(shared, ask.text, workers, pool), depth=0)
             if shared is not None
             else None
         )
         for plan in safe_plans:
             # Only a plan that reads a windowed sweep is handed the shared one;
             # a walking scan owns its pass, and an envelope plan reads neither.
-            seen = windows if reads_a_sweep(plan) else None
+            seen = rebased if reads_a_sweep(plan) else None
             chosen = cut_offsets(plan, ask.text, cores, pool, seen)
             if not chosen.offsets:
                 continue

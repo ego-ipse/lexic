@@ -1,5 +1,91 @@
 # Log
 
+## A pool's replicas are released when it dies (2026-09-12)
+
+A worker's replica claim was pruned by the next parse of that pair and by
+nothing else, so a process that split once and then did something else kept
+paying for tables whose threads were gone — measured at 82 of 85 claims on
+exited threads, 377 memo entries, and several milliseconds per full collection
+that never settled.
+
+A pool now knows its own workers. Its executor's initializer counts each worker
+that STARTS — not the requested width, since an executor spawns lazily and a
+pool sized for sixteen running two tasks starts two — and parks a record in the
+worker's thread-local carrying the Thread captured right then. CPython clears a
+thread's state when it ends, so that record's finalizer runs on the worker as
+it dies, which is later than any callback the executor could offer.
+
+Two paths, one line apart. A clean close has already waited, so a sweep finds
+every worker gone. A failed close must not wait, and keeps that: each worker
+releases its OWN claims as it dies and whichever exits last sweeps the residue.
+
+Two things the design did not anticipate, both found by running it.
+`threading.current_thread()` does not answer inside a finalizer — the thread is
+gone from the active table and the call builds a fresh dummy, so a claim keyed
+by identity silently matches nothing. And a last-signal sweep cannot stand
+alone: the signal runs on its own dying thread, where liveness is still true of
+it, which is exactly the claim such a sweep would skip.
+
+The document thread's own claim carries no crew and is never swept. A refused
+split therefore leaves exactly one claim — the caller's, which it is still
+parsing against.
+
+## Region discovery reads one spelling, and can be windowed (2026-09-12)
+
+The region walk classified each structural character with three shared dict
+tests. Shared-dict membership in that loop does not scale across threads on
+this build — 0.53x on sixteen against 7.64x for private containers — so the
+four role tables became ONE concatenated spelling read with a single
+`str.find`, the section order carrying the branch precedence that the elif
+chain used to spell out. Faster serially too, so it does not rest on the
+scaling explanation.
+
+On top of that, `par_find`: arithmetic windows, a per-window stack allowed to
+underflow, four event kinds, and an O(windows x depth) replay against one
+stack. Sound because every watched spelling is one character, so no occurrence
+straddles a window boundary. A grammar whose vocabulary carries an opaque
+interior takes the serial walk — a window cannot know whether it starts inside
+one without a pass over everything before it, and that prepass costs more than
+the walk it enables.
+
+A spelling is not an alphabet, and conflating them was a real bug. The
+spelling holds a two-role character once PER ROLE, which is what makes
+classification by precedence work; a sweep must iterate each character ONCE.
+Sweeping the spelling reported every offset of a separator that is also a
+closer twice. The deduplicated alphabet is derived from the spelling and
+stored beside it, which also makes `spelling.find` total over swept offsets —
+neither walk tests for a miss.
+
+The parser's per-character loop is now pinned by the instruction sequence of
+its compiled code objects, so discovery may change and that loop may not.
+
+## The positional build licence can be declined (2026-09-11)
+
+`fast_construct()` was documented in [[lexic/public-api]] as "always granted",
+returning a pair. It returns three things, and it is no longer always granted.
+
+The PDA now composes one builder per record shape at bake, off the clone's
+plan, and constructs through `tuple.__new__(cls, values)` inlined — which is
+exactly what `GrammarModel._from_values` does, and only while that stays true.
+So a class that overrides `_from_values` anywhere in its MRO is refused at
+synthesis, where the licence is issued, with the ancestor carrying the override
+named in the message. Declining the grant is the whole mechanism: there is no
+second build path that honours an override, because a runtime test for one
+would be the per-record cost the composition removes.
+
+Two couplings came with it and are pinned rather than described. A licence
+carries the class it was granted FOR, and the cold gate checks that against the
+constructor's own class — three channels naming one class, and the positional
+build cannot notice a mismatch since the values fit any record of that width.
+And `build` is composed from `plan` once, so a pass that rewrote `plan` after
+the bake would leave a builder reading the old one: same class, same width,
+wrong values.
+
+`M_VALUE` has no composed reading. It names the rule's own matched extent,
+which is not any item's span, so the mode is refused in the build vocabulary
+and its clone is built by `vstr_model`. Answering it with item zero's text
+agrees only where the rule has one item.
+
 ## Split ownership: a repeat's next occurrence is not a follower (2026-08-18)
 
 `a7ed17c`. Both engines were wrong about `item+` over `[a-z]+` on `"ab"` — the

@@ -16,7 +16,12 @@ from lexic.ir import IrAst
 from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan, matched
-from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN, worker_count
+from lexic.parsing.parallel.policy import (
+    MIN_CHUNK,
+    MIN_SCAN,
+    worker_count,
+    worth_dispatching,
+)
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import Roles, Terminator, roles
 
@@ -77,10 +82,19 @@ def scan_windows(
     what a sweep of its own bytes costs, so :data:`~...policy.MIN_SCAN` bounds
     the count. Handing one worker per parse chunk put more time into dispatch
     than into scanning on every document a cheap grammar sees.
+
+    Two floors, asking different questions. ``MIN_SCAN`` asks whether the
+    document is BIG enough to divide; :func:`~...policy.worth_dispatching`
+    asks whether its sweep is EXPENSIVE enough to be worth handing out at all.
+    A document can clear the first and fail the second, and then the whole scan
+    runs here — where the worst case is the sweep the caller was going to pay
+    for regardless.
     """
     if scanner.opaque:
         return [scanner.walk(text)]
     windows = min(workers, max(1, len(text) // MIN_SCAN))
+    if not worth_dispatching(len(text), windows):
+        windows = 1
     if windows < 2:
         return [scanner.window(text, 0, len(text))]
     step = len(text) // windows
@@ -96,7 +110,7 @@ def scan_marks(
     text: str,
     workers: int,
     pool: WorkPool,
-    windows: list[Window] | None = None,
+    rebased: list[int] | None = None,
 ) -> list[int]:
     """Depth-0 marks of this plan's spelling, over ``workers`` windows.
 
@@ -112,9 +126,18 @@ def scan_marks(
     and nothing else: a one-character mark cannot overlap itself, so every
     width is 1 and :func:`~...discovery.scan.clustered` is the identity —
     which is that function's own stated contract, not a shortcut past it.
+
+    :param rebased: The shared depth-0 rebase, already computed. Sound to
+        share because :meth:`~...discovery.scan.Scanner.offsets` reads the
+        WINDOWS and nothing of the scanner that produced them — a prefix sum
+        over their deltas — so every plan reading one sweep rebases to the
+        same list. Each plan still applies its OWN filter to it, which is
+        where the plans differ and the only part worth doing per plan.
     """
-    scanned = windows or scan_windows(plan.scanner, text, workers, pool)
-    at_depth = plan.scanner.offsets(scanned, depth=0)
+    at_depth = rebased
+    if at_depth is None:
+        scanned = scan_windows(plan.scanner, text, workers, pool)
+        at_depth = plan.scanner.offsets(scanned, depth=0)
     if all(len(mark) == 1 for mark in plan.mark):
         return [at for at in at_depth if text[at] in plan.mark]
     widths = _widths(text, at_depth, plan.ordered)
@@ -157,7 +180,7 @@ def cut_offsets(
     text: str,
     cores: int,
     pool: WorkPool,
-    windows: list[Window] | None = None,
+    rebased: list[int] | None = None,
 ) -> Cuts:
     """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
 
@@ -170,6 +193,9 @@ def cut_offsets(
     A terminated plan's final mark is dropped: cutting after the document's
     last terminator leaves an empty chunk, which is not a document.
 
+    :param rebased: The shared depth-0 rebase for plans that read one sweep;
+        ``None`` makes this plan scan and rebase its own.
+
     :returns: The chosen offsets and the candidates they came from.
     """
     ceiling = worker_count(len(text), len(text), cores)
@@ -178,7 +204,7 @@ def cut_offsets(
     if plan.envelope is not None:
         marks = plan.envelope.cuts(text)
     else:
-        marks = scan_marks(plan, text, ceiling, pool, windows)
+        marks = scan_marks(plan, text, ceiling, pool, rebased)
         if plan.bound is not None:
             # The unit emits its own mark, so a mark is a candidate rather than
             # a boundary: keep the ones a unit actually begins after. A

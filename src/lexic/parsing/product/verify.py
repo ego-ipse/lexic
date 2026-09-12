@@ -166,7 +166,24 @@ def _verify_record[Carry](
             f"product program: rule {at}'s constructor marks captures {outside} "
             f"optional, outside its {len(entry.names)} names"
         )
+    _verify_licenced_record(at, entry)
     _verify_matched_field(at, entry)
+
+
+def _verify_licenced_record[Carry](at: int, entry: RecordConstructor[Carry]) -> None:
+    """Refuse a licence granted for a class other than the one being built.
+
+    The licence's subject is what the positional build constructs, and it
+    builds by ``tuple.__new__`` with validation skipped — so a licence naming
+    a different class silently yields the wrong record type. Nothing else on
+    this path can notice: the values fit any record of the same width.
+    """
+    licence = entry.licence
+    if licence is not None and licence.record is not entry.cls:
+        raise UnsupportedConstructError(
+            f"product program: rule {at} constructs {entry.cls.__name__} and its "
+            f"licence is granted for {licence.record.__name__}"
+        )
 
 
 def _verify_matched_field[Carry](at: int, entry: RecordConstructor[Carry]) -> None:

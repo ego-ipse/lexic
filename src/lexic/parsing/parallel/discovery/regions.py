@@ -33,6 +33,7 @@ from lexic.parsing.parallel.discovery.interiors import (
 )
 from lexic.parsing.parallel.discovery.shapes import edge_char, literal_char, unbounded
 from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.pool import WorkPool
 
 
 class Region(NamedTuple):
@@ -148,6 +149,105 @@ class Vocab(NamedTuple):
         return set(self.pairs) | set(self.closers) | self.marks | set(self.skips)
 
 
+class Roles(NamedTuple):
+    """The whole vocabulary as ONE string, and what each position means.
+
+    Every role table has between one and a handful of entries and all of them
+    are keyed by ONE character — ``literal_char`` for the pairs and the marks,
+    an interior's lead character for the skips — so the four tables concatenate
+    into a single spelling and ``str.find`` classifies a character in one pass.
+    Which ROLE it found is which section the index landed in, and the same
+    index reads :attr:`names` (or :attr:`skips`) for whatever that role needs.
+
+    **The section order IS the branch precedence.** ``find`` returns the
+    earliest match, and the sections are laid out skips, openers, closers,
+    marks — the order the walk's branches used to be written in — so a
+    character carrying two roles resolves exactly as it did when each table
+    was tested in turn.
+
+    This is not a micro-preference. Shared-dict membership in this loop does
+    not scale across threads on this build — measured at 0.53x on sixteen
+    threads against 7.64x for the same loop over private containers — and the
+    walk consulted three such dicts per structural offset. Reading one string
+    is also faster serially, so the change does not rest on that explanation
+    holding.
+
+    **Closers and marks share a section**, and no boundary separates them,
+    because one test already does: a closer's value is its opener and a mark's
+    is ``""``. An unmatched closer therefore falls through to the mark branch
+    exactly as the elif chain let it, and the mark spelling is consulted only
+    there — the one question a single find cannot answer.
+
+    :ivar spelling: Every watched character: skips, openers, then closers and
+        marks together. A character carrying two roles appears ONCE PER ROLE,
+        which is what lets ``find`` classify it by precedence — so this is a
+        classification table and never a set of characters to look for.
+    :ivar watched: The same characters, each ONCE. What a sweep iterates. The
+        two differ exactly when a character holds two roles, and sweeping
+        :attr:`spelling` then finds every one of its offsets twice.
+
+        Derived FROM :attr:`spelling`, which is what makes ``spelling.find``
+        total over swept offsets: every offset a sweep reports holds a
+        character of this string, so the find can never miss. Both walks rely
+        on that and neither tests for ``-1``. A sweep alphabet built from
+        anything else would break the assumption silently.
+    :ivar skips: Parallel to the skip section, which starts at zero.
+    :ivar names: Parallel to the WHOLE spelling — the bracket rule under an
+        opener, the owning opener under a closer, ``""`` under a mark, and
+        ``""`` under the skip section, which is padded so the walk indexes by
+        position and never subtracts.
+    :ivar n_skip: Where the opener section begins.
+    :ivar n_open: Where the closers and marks begin.
+    :ivar mark_at: The mark characters, read only to decide whether an
+        unmatched closer is also a separator.
+    """
+
+    spelling: str
+    watched: str
+    skips: tuple[Skip, ...]
+    names: tuple[str, ...]
+    n_skip: int
+    n_open: int
+    mark_at: str
+
+
+type Frame = tuple[int, str, list[int], str]
+"""One open bracket on the walk's stack: where, which, its marks, its rule.
+
+The rule travels ON the frame because the index that named it was already in
+hand at OPEN time; re-deriving it at close would be the lookup this spelling
+removes.
+"""
+
+
+def _roles(vocab: Vocab) -> Roles:
+    """Spell a vocabulary for the walk, sections in precedence order.
+
+    Each section's characters and its values come from ONE iteration of the
+    same mapping, so position ``i`` of the spelling and entry ``i`` of the
+    values cannot disagree.
+    """
+    marks = "".join(vocab.marks)
+    n_skip = len(vocab.skips)
+    spelling = (
+        "".join(vocab.skips) + "".join(vocab.pairs) + "".join(vocab.closers) + marks
+    )
+    return Roles(
+        spelling=spelling,
+        watched="".join(dict.fromkeys(spelling)),
+        skips=tuple(vocab.skips.values()),
+        names=(
+            ("",) * n_skip  # the skip section, so `names` indexes by `pos`
+            + tuple(rule for _closer, rule in vocab.pairs.values())
+            + tuple(vocab.closers.values())
+            + ("",) * len(marks)
+        ),
+        n_skip=n_skip,
+        n_open=n_skip + len(vocab.pairs),
+        mark_at=marks,
+    )
+
+
 def _vocabulary(grammar: IrAst) -> Vocab:
     """What the scan watches for: bracket pairs, separators, interiors.
 
@@ -204,35 +304,233 @@ def find(grammar: IrAst, text: str, min_span: int = 0) -> list[Region]:
     :returns: The regions, in closing order.
     """
     vocab = _vocabulary(grammar)
-    return _walk(text, _sweep(text, vocab.watched), vocab, min_span)
+    return _walk(text, _sweep(text, vocab.watched), _roles(vocab), min_span)
 
 
-def _walk(text: str, offsets: list[int], vocab: Vocab, min_span: int) -> list[Region]:
+def _walk(text: str, offsets: list[int], roles: Roles, min_span: int) -> list[Region]:
     """The stack walk over the swept structural offsets.
 
-    The hot branches (skips and openers, tested first and most often) read
-    local aliases; the closer and mark branches read through ``vocab``, which
-    keeps the walk inside the locals budget without touching its fast half.
+    ONE ``find`` per structural character classifies it: which section of
+    :attr:`Roles.spelling` the index lands in is the role, and the same index
+    reads the value that role needs. See :class:`Roles` for why the tables are
+    one string rather than four dicts, and why the section order reproduces the
+    branch precedence the walk used to spell out.
+
+    The tables are aliased into locals before the loop, deliberately: reading
+    them off the record inside it measured 10-30% slower across the roster,
+    18% on the grammar that walks the most offsets.
+
+    The opening bracket's rule is read at OPEN time, off the index the find
+    already produced, and carried on the stack — so closing needs no lookup.
     """
-    pairs, skips = vocab.pairs, vocab.skips
+    spelling, skips, names = roles.spelling, roles.skips, roles.names
+    n_skip, n_open = roles.n_skip, roles.n_open
     found: list[Region] = []
-    stack: list[tuple[int, str, list[int]]] = []
+    stack: list[Frame] = []
     skip_to = 0
     for at in offsets:
         if at < skip_to:
             continue  # inside an opaque interior — never read
         char = text[at]
-        entry = skips.get(char)
-        if entry is not None:
-            skip_to = skip_delimited(text, at, entry)
-        elif char in pairs:
-            stack.append((at, char, []))
-        elif char in vocab.closers and stack and stack[-1][1] == vocab.closers[char]:
-            opener, open_char, inside = stack.pop()
-            if inside and at - opener >= min_span:
-                found.append(Region(opener, at, pairs[open_char][1], tuple(inside)))
-        elif char in vocab.marks and stack:
-            stack[-1][2].append(at)
+        pos = spelling.find(char)  # never -1: see Roles.watched
+        if pos < n_skip:
+            skip_to = skip_delimited(text, at, skips[pos])
+        elif pos < n_open:
+            stack.append((at, char, [], names[pos]))
+        elif stack and stack[-1][1] == names[pos]:
+            _close(stack, found, at, min_span)
+        elif stack and (not names[pos] or char in roles.mark_at):
+            stack[-1][2].append(at)  # a mark, or a closer nothing wanted
+    return found
+
+
+def _closed(stack: list[Frame], at: int, min_span: int) -> Region | None:
+    """Pop the matched opener; the region it makes, or ``None`` if too small.
+
+    Shed from the loop bodies because it runs once per REGION rather than once
+    per structural offset: a walk's locals belong to the branches that run per
+    character, and this one does not.
+    """
+    opener, _open_char, inside, rule = stack.pop()
+    if inside and at - opener >= min_span:
+        return Region(opener, at, rule, tuple(inside))
+    return None
+
+
+def _close(stack: list[Frame], found: list[Region], at: int, min_span: int) -> None:
+    """Record the closed region, if it clears the floor.
+
+    Appends rather than returning so :func:`_walk` spends no name on an outcome
+    it only forwards.
+    """
+    region = _closed(stack, at, min_span)
+    if region is not None:
+        found.append(region)
+
+
+# ── the windowed find: the same answer, discovered in parallel ────────────
+
+R_DONE, R_CLOSE, R_MARK, R_OPEN = "R", "C", "M", "O"
+"""The four things a window can contribute to the merge.
+
+A window walks its own slice with a stack that starts empty and is allowed to
+UNDERFLOW, because the brackets enclosing its slice were opened in an earlier
+one. Everything it can settle alone is settled; everything else becomes an
+ordered event the merge replays against the one real stack.
+
+``R_DONE`` is a region opened and closed inside the window — already final.
+``R_CLOSE`` is a closer that underflowed, carrying the opener it wants and
+whether it is also a separator, which is the one thing the merge would
+otherwise have to look up. ``R_MARK`` is a separator at the underflow level.
+``R_OPEN`` is an opener still standing at the window's end, whose mark list
+later windows keep appending to.
+"""
+
+
+def par_find(
+    grammar: IrAst,
+    text: str,
+    min_span: int,
+    workers: int,
+    pool: WorkPool | None = None,
+) -> list[Region]:
+    """:func:`find`, over ``workers`` windows — same regions, same order.
+
+    **A grammar whose vocabulary carries an opaque interior takes the serial
+    walk.** A window cannot know whether it begins inside one without a pass
+    over everything before it, and that prepass measured 55.6% of the windowed
+    find's wall clock on the grammar that needs it — more than the walk it
+    enables, turning a win into a 17% regression. The condition is read off the
+    vocabulary, so a grammar qualifies or not by what it derives; no grammar is
+    named here, and one that grows an interior loses the window by itself.
+
+    :param grammar: The grammar whose roles and interiors drive the scan.
+    :param text: The document.
+    :param min_span: Omit smaller regions at close time.
+    :param workers: How many windows to divide the document into.
+    :param pool: The pool the windows run on, or ``None`` to run every window
+        on this thread. Only its ``map`` is used, and the answer may not depend
+        on whether the windows really ran concurrently — which is why the
+        differential runs without a pool at all.
+    :returns: The regions, in closing order.
+    """
+    vocab = _vocabulary(grammar)
+    roles = _roles(vocab)
+    windows = max(1, min(workers, len(text)))
+    if vocab.skips or windows < 2:
+        return _walk(text, _sweep(text, vocab.watched), roles, min_span)
+    spans = _bounds(len(text), windows)
+    run = partial(_run_window, text, roles, min_span)
+    chunks = pool.map(run, spans) if pool is not None else [run(s) for s in spans]
+    return merge_windows(chunks, min_span)
+
+
+def _run_window(
+    text: str, roles: Roles, min_span: int, span: tuple[int, int]
+) -> list[tuple]:
+    """One window's replayable contribution.
+
+    Module-level and bound with :func:`functools.partial` rather than closed
+    over inside :func:`par_find`: the document, the roles and the floor are the
+    same for every window, and the span is the only thing that varies.
+    """
+    return _window(text, span[0], span[1], roles, min_span)
+
+
+def _bounds(size: int, windows: int) -> list[tuple[int, int]]:
+    """Arithmetic bounds covering ``[0, size)``, the last one taking the tail."""
+    step = size // windows
+    return [
+        (k * step, (k + 1) * step if k < windows - 1 else size) for k in range(windows)
+    ]
+
+
+def _sweep_window(text: str, watched: str, lo: int, hi: int) -> list[int]:
+    """:func:`_sweep` restricted to ``[lo, hi)``.
+
+    Sound because every watched spelling is ONE character, so no occurrence can
+    straddle an arithmetic boundary and every offset belongs to exactly one
+    window.
+
+    Takes the DEDUPLICATED alphabet, never the classification spelling: a
+    character that is both a closer and a separator stands in two sections of
+    the spelling, and sweeping that would report every one of its offsets
+    twice — which the serial sweep, over a set, never does.
+    """
+    offsets: list[int] = []
+    for char in watched:
+        at = text.find(char, lo, hi)
+        while at != -1:
+            offsets.append(at)
+            at = text.find(char, at + 1, hi)
+    offsets.sort()
+    return offsets
+
+
+def _window(text: str, lo: int, hi: int, roles: Roles, min_span: int) -> list[tuple]:
+    """Walk ``[lo, hi)`` with a stack that may underflow, as ordered events.
+
+    A mirror of :func:`_walk`, branch for branch and in the same order, with
+    two differences: the stack starts empty and may go below its own floor, and
+    what it cannot resolve alone becomes an event instead of being dropped.
+
+    There is no skip branch. :func:`par_find` refuses to window a vocabulary
+    that has one, so ``n_skip`` is zero here and the opener section starts at
+    the first position.
+    """
+    spelling, names, n_open = roles.spelling, roles.names, roles.n_open
+    events: list[tuple] = []
+    stack: list[Frame] = []
+    for at in _sweep_window(text, roles.watched, lo, hi):
+        char = text[at]
+        pos = spelling.find(char)  # never -1: see Roles.watched
+        if pos < n_open:
+            stack.append((at, char, [], names[pos]))
+        elif stack and stack[-1][1] == names[pos]:
+            region = _closed(stack, at, min_span)
+            if region is not None:
+                events.append((R_DONE, at, region))
+        elif stack and (not names[pos] or char in roles.mark_at):
+            stack[-1][2].append(at)  # a mark, or a closer nothing wanted
+        elif not stack:
+            events.append(
+                (R_MARK, at)
+                if not names[pos]
+                else (R_CLOSE, at, names[pos], char in roles.mark_at)
+            )
+    # Already in document order, and the residual openers belong at the end:
+    # the loop appends as it sweeps, which is ascending, and every frame still
+    # on the stack opened before the window's last event and closes after it.
+    events.extend((R_OPEN, frame[0], frame) for frame in stack)
+    return events
+
+
+def merge_windows(chunks: list[list[tuple]], min_span: int) -> list[Region]:
+    """Replay every window's events against one stack, in document order.
+
+    O(windows x depth): each window contributes at most its own residual depth
+    in openers, and every other event is settled in constant time.
+
+    Public because the replay IS the windowed find's correctness argument, and
+    the differential that proves it has to be able to break it: a sabotage
+    that cannot reach this cannot show the comparison would fail.
+    """
+    stack: list[Frame] = []
+    found: list[Region] = []
+    for events in chunks:
+        for event in events:
+            kind = event[0]
+            if kind == R_DONE:
+                found.append(event[2])
+            elif kind == R_OPEN:
+                stack.append(event[2])
+            elif kind == R_CLOSE:
+                if stack and stack[-1][1] == event[2]:
+                    _close(stack, found, event[1], min_span)
+                elif stack and event[3]:
+                    stack[-1][2].append(event[1])
+            elif stack:  # R_MARK
+                stack[-1][2].append(event[1])
     return found
 
 

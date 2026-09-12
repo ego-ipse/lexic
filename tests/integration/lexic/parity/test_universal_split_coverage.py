@@ -33,6 +33,7 @@ from lexic.parsing import parse_model
 from lexic.parsing.parallel import orchestrate, split_model
 from lexic.parsing.parallel.orchestrate import Request
 from lexic.parsing.parallel.policy import MIN_CHUNK
+from tests.split_helpers import assert_parallel_matches_sequential
 
 # ── shared document vocabulary ─────────────────────────────────────────────
 
@@ -389,14 +390,9 @@ def test_worker_counts_match_sequential_and_round_trip(
     family: str, size: str, workers: int
 ) -> None:
     """Every family, size and worker count reproduces the ``cores=1`` model."""
-    compiled = _compiled(family)
-    text = _document(family, size)
-    sequential = compiled.parse(text, cores=1)
-    parallel = compiled.parse(text, cores=workers)
-
-    assert type(parallel) is type(sequential)
-    assert parallel == sequential
-    assert parallel.to_text() == text
+    assert_parallel_matches_sequential(
+        _compiled(family), _document(family, size), workers
+    )
 
 
 # ── 2: non-vacuity — the large document actually engages several workers ──
@@ -466,7 +462,7 @@ def test_sub_floor_document_declines_before_any_plan_analysis(
     monkeypatch.setattr(orchestrate, "_split_plans", unexpected)
     monkeypatch.setattr(orchestrate, "owner_excludes", unexpected)
     monkeypatch.setattr(orchestrate, "terminates_once", unexpected)
-    monkeypatch.setattr(orchestrate, "find", unexpected)
+    monkeypatch.setattr(orchestrate, "par_find", unexpected)
 
     declined = orchestrate.split_model(
         parse_model,

@@ -72,7 +72,9 @@ def _record_program(entry, captures=()):
 def test_refuses_a_matched_field_the_licence_does_not_order():
     """A declared own-text field the class's own construction order never names."""
     entry = RecordConstructor(
-        cls=Pair, matched_field="c", licence=ConstructionLicence(Pair, {}, ("a", "b"))
+        cls=Pair,
+        matched_field="c",
+        licence=ConstructionLicence(Pair, {}, ("a", "b"), Pair),
     )
     with pytest.raises(UnsupportedConstructError, match="licence orders"):
         verify_program(_record_program(entry))
@@ -89,7 +91,7 @@ def test_refuses_a_matched_field_that_is_also_a_capture():
 def test_refuses_a_licensed_constructor_leaving_a_field_uncovered():
     """A licensed entry whose class has a field no capture or default reaches."""
     entry = RecordConstructor(
-        cls=Pair, names=("a",), licence=ConstructionLicence(Pair, {}, ("a", "b"))
+        cls=Pair, names=("a",), licence=ConstructionLicence(Pair, {}, ("a", "b"), Pair)
     )
     captures = (CaptureSpec(int(CaptureMode.TEXT), 0),)
     with pytest.raises(

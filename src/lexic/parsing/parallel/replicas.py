@@ -22,10 +22,12 @@ followed by an append over-allocates when several threads first-touch a pair at
 once.
 
 The models stay identical because the replica is equal by value and holds the
-SAME synthesized classes — which is also the ceiling here. The classes are
-shared by necessity (two workers building two different classes for one rule
-would break model equality, the thing the split exists to preserve), so their
-own refcount traffic remains.
+SAME synthesized classes. Sharing them is a necessity — two workers building
+two different classes for one rule would break model equality, the thing the
+split exists to preserve — and it is not what bounds the scaling: building
+against private synthesized classes and against shared ones measures alike,
+1.33x and 1.27x on sixteen threads. Whatever the ceiling is, the shared class
+is not it.
 """
 
 from __future__ import annotations
@@ -48,10 +50,14 @@ class _Held(NamedTuple):
 
     :ivar owner: The claiming thread, held so its liveness can be asked.
     :ivar replica: What that thread parses against for this pair.
+    :ivar crew: The pool whose worker made this claim, or ``None`` for a
+        document thread's own. What lets a retiring pool find its claims
+        without asking every thread in the process whether it is one of its.
     """
 
     owner: threading.Thread
     replica: Replica
+    crew: Crew | None
 
 
 class _Mine[M](NamedTuple):
@@ -107,6 +113,168 @@ _ASSIGNED = threading.local()
 path a thread-local attribute read — resolving through the shared registry on
 every parse would put the lookup itself on the contended path this module
 exists to clear, and it measured the difference between 4.1x and 5.6x."""
+
+
+class Crew:
+    """One pool's workers, counted, so their claims can be released.
+
+    A claim belongs to a THREAD and the replica registry is keyed by artefact
+    pair, so neither end knows about pools. This is the association: every
+    worker joins its crew as it starts, every claim it makes is tagged with
+    it, and the crew is what a retiring pool names to find them.
+
+    The count is of workers that STARTED, not of ``max_workers``. An executor
+    spawns lazily — a pool sized for sixteen that runs two tasks starts two
+    threads — so anything counting down from the requested width never closes.
+    """
+
+    __slots__ = ("_closing", "_exited", "_lock", "_started")
+
+    def __init__(self) -> None:
+        """A crew nobody has joined yet."""
+        self._lock = threading.Lock()
+        self._started = 0
+        self._exited = 0
+        self._closing = False
+
+    def worker_started(self) -> None:
+        """Runs ON a worker, from the executor's initializer."""
+        with self._lock:
+            self._started += 1
+
+    def closing(self) -> None:
+        """The pool declares that no further worker will start.
+
+        Without it the count is always provisional: ``started == exited`` is
+        equally true of a pool resting between phases.
+        """
+        with self._lock:
+            self._closing = True
+            last = self._started == self._exited
+        if last:
+            retire_crew(self)
+
+    def worker_exited(self) -> None:
+        """Runs ON a dying worker, after it has released its own claims."""
+        with self._lock:
+            self._exited += 1
+            last = self._closing and self._started == self._exited
+        if last:
+            retire_crew(self)
+
+
+def join_crew(crew: Crew) -> None:
+    """The executor ``initializer`` — runs on each worker as it starts.
+
+    Module-level and flat: an executor holds its initializer for the pool's
+    whole life, and a closure here would hold the pool through it.
+    """
+    crew.worker_started()
+    _enter_crew(crew)
+
+
+class _Sentinel(NamedTuple):
+    """Parked in a worker's thread-local; its finalizer IS the worker's exit.
+
+    A pool has an initializer and no per-worker exit callback, so the exit has
+    to be observed rather than reported: CPython clears a thread's state when
+    it ends, dropping the last reference to whatever its thread-local held, so
+    this object's ``__del__`` runs on that thread as it dies. That is strictly
+    later than any callback the executor could offer, which is the property a
+    release needs.
+
+    It carries the Thread captured when the worker STARTED.
+    ``threading.current_thread()`` cannot be asked here: by the time the
+    finalizer runs the thread is gone from ``threading._active`` and the call
+    builds a fresh dummy, so matching a claim by identity silently finds
+    nothing.
+
+    A record, because that is what it is: the pool this worker serves and the
+    worker itself, fixed when it started. It publishes nothing — the finalizer
+    is its whole purpose.
+
+    :ivar crew: The pool whose claims this worker's exit settles.
+    :ivar thread: The worker, captured while it could still name itself.
+    """
+
+    crew: Crew
+    thread: threading.Thread
+
+    def __del__(self) -> None:
+        """Release this worker's claims, then tell the pool it has gone."""
+        _worker_exited(self.crew, self.thread)
+
+
+def _enter_crew(crew: Crew) -> None:
+    """Join a pool — called ON a worker, from its executor's initializer.
+
+    The one moment the worker can name itself: it is running normally, so
+    ``current_thread()`` is the Thread its claims will be keyed by.
+    """
+    _ASSIGNED.crew = crew
+    _ASSIGNED.sentinel = _Sentinel(crew, threading.current_thread())
+
+
+def _crew_of_this_thread() -> Crew | None:
+    """The pool this thread serves, or ``None`` for a document thread."""
+    return getattr(_ASSIGNED, "crew", None)
+
+
+def _release_claims(gone: list[_Held], entry: _Issued) -> tuple[int, ...]:
+    """The identities ``gone`` held, minus the two the registry is keyed by."""
+    return tuple(
+        id(part)
+        for held in gone
+        for part in held.replica
+        if part is not entry.grammar and part is not entry.binding
+    )
+
+
+def _worker_exited(crew: Crew, thread: threading.Thread) -> None:
+    """Release one worker's claims as it dies, then count it out.
+
+    Does the least it can: one pass under the minting lock collecting this
+    thread's own entries, one ``release``, and a call back to the pool. No
+    liveness test — a thread running its own finalizer has finished with its
+    tables, and asking ``is_alive`` about itself here answers TRUE, which is
+    exactly the claim a sweep would then skip.
+    """
+    dropped: list[tuple[int, ...]] = []
+    with _MINTING:
+        for entry in _REPLICAS.values():
+            mine = [held for held in entry.held if held.owner is thread]
+            if not mine:
+                continue
+            entry.held[:] = [held for held in entry.held if held.owner is not thread]
+            dropped.append(_release_claims(mine, entry))
+    for identities in dropped:
+        release(identities)
+    crew.worker_exited()
+
+
+def retire_crew(crew: Crew) -> None:
+    """Release every claim made under ``crew`` whose thread has exited.
+
+    The residual sweep, for the path where the pool waited: every worker is
+    already gone, so liveness answers cleanly and a worker that never ran its
+    finalizer is caught here. A live thread's claim is never touched — a
+    document thread carries no crew, and a worker still running is still using
+    its tables.
+    """
+    dropped: list[tuple[int, ...]] = []
+    with _MINTING:
+        for entry in _REPLICAS.values():
+            gone = [
+                held
+                for held in entry.held
+                if held.crew is crew and not held.owner.is_alive()
+            ]
+            if not gone:
+                continue
+            entry.held[:] = [held for held in entry.held if held not in gone]
+            dropped.append(_release_claims(gone, entry))
+    for identities in dropped:
+        release(identities)
 
 
 def _mint[M](
@@ -194,7 +362,9 @@ def _claim[M](
             if document and spare
             else _mint(key, grammar, binding, document)
         )
-        entry.held.append(_Held(threading.current_thread(), replica))
+        entry.held.append(
+            _Held(threading.current_thread(), replica, _crew_of_this_thread())
+        )
     return replica
 
 

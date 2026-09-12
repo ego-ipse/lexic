@@ -449,6 +449,7 @@ def _attempt_sub(clone: FlatClone) -> FlatClone:
     sub.fields = clone.fields
     sub.plan = clone.plan
     sub.fast = clone.fast
+    sub.build = clone.build
     sub.defaults = clone.defaults
     sub.leaf = False
     sub.chartable = None  # the sub runs framed — no leaf licence, no table

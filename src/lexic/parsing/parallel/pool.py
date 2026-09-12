@@ -21,6 +21,7 @@ from typing import Self, cast
 
 from lexic.exceptions import LexicError
 from lexic.parsing.parallel.policy import AUTO, doc_workers
+from lexic.parsing.parallel.replicas import Crew, join_crew
 
 
 def _drained[M](
@@ -61,7 +62,10 @@ class WorkPool:
     def __init__(self, cores: int = AUTO) -> None:
         """Resolve the worker ceiling and create the lazy executor."""
         self.workers = doc_workers(cores)
-        self._pool = ThreadPoolExecutor(max_workers=self.workers)
+        self.crew = Crew()
+        self._pool = ThreadPoolExecutor(
+            max_workers=self.workers, initializer=join_crew, initargs=(self.crew,)
+        )
         self._slots = local()
         self._taken = count()
         self._slot_lock = Lock()
@@ -159,8 +163,16 @@ class WorkPool:
         unrelated to the error that retired it, and blocking a caller's unwind
         on it is the deadlock this exists to avoid. The threads are left to
         finish on their own — nothing here kills one.
+
+        Both paths reclaim, by different routes and in the same one line of
+        code. The clean path has already waited, so every worker is gone and
+        :func:`~...replicas.retire_crew` finds them all. The failed path
+        returns at once and keeps its immediacy: each worker releases its OWN
+        claims as it dies, and whichever exits last finds ``closing`` already
+        declared and sweeps the residue. Nothing waits for a parse.
         """
         self._pool.shutdown(wait=not self._failed, cancel_futures=self._failed)
+        self.crew.closing()
 
     def __enter__(self) -> Self:
         """Return this pool for a bounded multi-phase lifetime."""

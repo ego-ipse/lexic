@@ -341,6 +341,7 @@ src/lexic/
           __init__.py              Flat-program package marker
           flatten.py               Flat int-coded runtime records and readers
           lower.py                 Clone-set lowering
+          lowering.py              The per-shape build tail — one callable composed once, at bake
           opcodes.py               Runtime program vocabulary
           product.py               The product-side build bake — a clone's build state from its rule product
           specialize.py            Post-flatten specialization passes

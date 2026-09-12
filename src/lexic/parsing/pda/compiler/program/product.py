@@ -48,6 +48,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     no_construction,
     no_fast_construction,
 )
+from lexic.parsing.pda.compiler.program.lowering import no_shape_build, shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_ALT,
     BUILD_SEQ,
@@ -160,11 +161,21 @@ def bake_product_build[Carry](
     if licence is None:
         clone.plan = ()
         clone.fast = no_fast_construction
+        clone.build = no_shape_build
         clone.defaults = None
         return
-    make, _class_defaults, order = licence
-    clone.plan = _build_plan(routine, construction, order)
-    clone.fast = make
+    clone.plan = _build_plan(routine, construction, licence.order)
+    clone.fast = licence.construct
+    # A ``value_str`` clone's construction belongs to ``vstr_model``, which
+    # reads the plan's M_VALUE entry against the clone's OWN matched extent.
+    # No composed build can say that — the plan names item 0, which is the
+    # rule's extent only when the rule has one item — and nothing asks it to:
+    # the mode routes to ``vstr_once``, never to a positional build.
+    clone.build = (
+        no_shape_build
+        if clone.mode == BUILD_VALUE_STR
+        else shape_build(licence.record, clone.plan)
+    )
     clone.defaults = dict(construction.defaults)
 
 

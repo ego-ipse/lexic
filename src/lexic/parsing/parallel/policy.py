@@ -50,6 +50,44 @@ cheaper per byte than parsing. Splitting the document into parse chunks is
 untouched by it.
 """
 
+SCAN_DISPATCH_NS = 15_000
+"""What handing ONE scan window to the pool costs, in nanoseconds.
+
+The figure :data:`MIN_SCAN` is argued from, stated as a constant so the gate
+beside it can do the arithmetic rather than restate the conclusion.
+"""
+
+SCAN_NS_PER_CHAR = 1.5
+"""The CHEAPEST measured sweep rate, in nanoseconds per character.
+
+The cheapest, deliberately. This is used to ask whether a sweep is worth
+dispatching, so under-estimating the work is the conservative direction: a
+document that clears the bar at 1.5 ns/char clears it at every denser rate
+too, and one that does not is scanned on the driver, where the worst case is
+the sweep the caller would have paid for anyway.
+"""
+
+
+def worth_dispatching(size: int, windows: int) -> bool:
+    """Whether handing ``windows`` scan windows out beats scanning here.
+
+    :data:`MIN_SCAN` bounds how many windows a document is BIG enough for; this
+    asks whether its sweep is EXPENSIVE enough to hand out at all. A document
+    can clear the size floor and still have a sweep so cheap that the hand-out
+    costs more than the scan — measured at 0.17-0.45 occupancy on the cheap
+    grammars, 0.3-1.6 ms of wall dispatched for 0.06-0.7 ms of work.
+
+    Binary, and deliberately so. Shaving the window COUNT keeps every
+    hand-out and removes only parallelism, which measured slower on all ten
+    rows it was meant to help; the finding is that the map itself is the loss,
+    so the answer is to make it or not make it.
+
+    :param size: The document's length in characters.
+    :param windows: How many windows the size floor and the worker count allow.
+    :returns: Whether the sweep is worth more than its own dispatch.
+    """
+    return size * SCAN_NS_PER_CHAR >= windows * SCAN_DISPATCH_NS
+
 
 def _free_threaded() -> bool:
     """Whether this interpreter runs without the GIL (free-threaded build)."""
