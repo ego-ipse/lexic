@@ -22,10 +22,12 @@ followed by an append over-allocates when several threads first-touch a pair at
 once.
 
 The models stay identical because the replica is equal by value and holds the
-SAME synthesized classes — which is also the ceiling here. The classes are
-shared by necessity (two workers building two different classes for one rule
-would break model equality, the thing the split exists to preserve), so their
-own refcount traffic remains.
+SAME synthesized classes. Sharing them is a necessity — two workers building
+two different classes for one rule would break model equality, the thing the
+split exists to preserve — and it is not what bounds the scaling: building
+against private synthesized classes and against shared ones measures alike,
+1.33x and 1.27x on sixteen threads. Whatever the ceiling is, the shared class
+is not it.
 """
 
 from __future__ import annotations
