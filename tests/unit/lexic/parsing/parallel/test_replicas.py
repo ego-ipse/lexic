@@ -202,6 +202,10 @@ def test_two_overlapping_pools_never_share_a_replica() -> None:
     Two live ``WorkPool(2)`` leases number their own threads 0 and 1, so any
     scheme indexing one shared list by that number hands both pools' slot 0 the
     same replica. Four live worker threads owe four distinct views.
+
+    The count is taken while the pools are OPEN, which is the only time it
+    means anything: once they close their workers are gone and their claims go
+    with them, which the second assertion pins.
     """
     grammar, binding = _pair("overlapping-pools")
     parse = _Recorder()
@@ -214,11 +218,15 @@ def test_two_overlapping_pools_never_share_a_replica() -> None:
         driver.start()
         _pool_views(two, parse, arrived, (grammar, binding))
         driver.join(timeout=30)
+        live = replica_count(grammar, binding)
 
     assert len(parse.calls) == 4
     assert len(parse.views()) == 4
     assert id(grammar) not in parse.views()
-    assert replica_count(grammar, binding) == 4
+    assert live == 4, "four live worker threads owe four distinct views"
+    assert replica_count(grammar, binding) == 0, (
+        "both pools closed, so their workers' claims are released with them"
+    )
 
 
 def test_worker_parse_hands_the_product_this_threads_view() -> None:

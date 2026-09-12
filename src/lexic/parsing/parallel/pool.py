@@ -21,6 +21,7 @@ from typing import Self, cast
 
 from lexic.exceptions import LexicError
 from lexic.parsing.parallel.policy import AUTO, doc_workers
+from lexic.parsing.parallel.replicas import enter_crew, retire_crew
 
 
 def _drained[M](
@@ -55,13 +56,74 @@ def _drained[M](
     return failures[min(failures)]
 
 
+class Crew:
+    """One pool's workers, counted, so their claims can be released.
+
+    A claim belongs to a THREAD and the replica registry is keyed by artefact
+    pair, so neither end knows about pools. This is the association: every
+    worker joins its crew as it starts, every claim it makes is tagged with
+    it, and the crew is what a retiring pool names to find them.
+
+    The count is of workers that STARTED, not of ``max_workers``. An executor
+    spawns lazily — a pool sized for sixteen that runs two tasks starts two
+    threads — so anything counting down from the requested width never closes.
+    """
+
+    __slots__ = ("_closing", "_exited", "_lock", "_started")
+
+    def __init__(self) -> None:
+        """A crew nobody has joined yet."""
+        self._lock = Lock()
+        self._started = 0
+        self._exited = 0
+        self._closing = False
+
+    def worker_started(self) -> None:
+        """Runs ON a worker, from the executor's initializer."""
+        with self._lock:
+            self._started += 1
+
+    def closing(self) -> None:
+        """The pool declares that no further worker will start.
+
+        Without it the count is always provisional: ``started == exited`` is
+        equally true of a pool resting between phases.
+        """
+        with self._lock:
+            self._closing = True
+            last = self._started == self._exited
+        if last:
+            retire_crew(self)
+
+    def worker_exited(self) -> None:
+        """Runs ON a dying worker, after it has released its own claims."""
+        with self._lock:
+            self._exited += 1
+            last = self._closing and self._started == self._exited
+        if last:
+            retire_crew(self)
+
+
+def _join_crew(crew: Crew) -> None:
+    """The executor ``initializer`` — runs on each worker as it starts.
+
+    Module-level and flat: an executor holds its initializer for the pool's
+    whole life, and a closure here would hold the pool through it.
+    """
+    crew.worker_started()
+    enter_crew(crew)
+
+
 class WorkPool:
     """One executor reused by differently typed phases of a split parse."""
 
     def __init__(self, cores: int = AUTO) -> None:
         """Resolve the worker ceiling and create the lazy executor."""
         self.workers = doc_workers(cores)
-        self._pool = ThreadPoolExecutor(max_workers=self.workers)
+        self.crew = Crew()
+        self._pool = ThreadPoolExecutor(
+            max_workers=self.workers, initializer=_join_crew, initargs=(self.crew,)
+        )
         self._slots = local()
         self._taken = count()
         self._slot_lock = Lock()
@@ -159,8 +221,16 @@ class WorkPool:
         unrelated to the error that retired it, and blocking a caller's unwind
         on it is the deadlock this exists to avoid. The threads are left to
         finish on their own — nothing here kills one.
+
+        Both paths reclaim, by different routes and in the same one line of
+        code. The clean path has already waited, so every worker is gone and
+        :func:`~...replicas.retire_crew` finds them all. The failed path
+        returns at once and keeps its immediacy: each worker releases its OWN
+        claims as it dies, and whichever exits last finds ``closing`` already
+        declared and sweeps the residue. Nothing waits for a parse.
         """
         self._pool.shutdown(wait=not self._failed, cancel_futures=self._failed)
+        self.crew.closing()
 
     def __enter__(self) -> Self:
         """Return this pool for a bounded multi-phase lifetime."""

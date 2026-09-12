@@ -7,6 +7,7 @@ its own exception.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
 from threading import Barrier, Event, Lock, Thread, active_count
@@ -83,9 +84,21 @@ class _AdmissionExecutor:
 
     instances: list[_AdmissionExecutor] = []
 
-    def __init__(self, max_workers: int) -> None:
-        """Create a real executor and expose admission counters."""
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+    def __init__(
+        self,
+        max_workers: int,
+        initializer: Callable[..., object] | None = None,
+        initargs: tuple = (),
+    ) -> None:
+        """Create a real executor and expose admission counters.
+
+        Takes the crew initializer the pool installs and passes it on, so the
+        seam stands in for the real executor rather than for the argument list
+        it happened to be built with.
+        """
+        self.executor = ThreadPoolExecutor(
+            max_workers=max_workers, initializer=initializer, initargs=initargs
+        )
         self.maximum = 0
         self.submitted = 0
         self.window_reached = Event()
