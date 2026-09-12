@@ -118,6 +118,13 @@ too, so the change does not rest on that explanation holding. The tables are
 aliased into locals before the loop — reading them off the record inside it
 measures 10-30% slower across the roster.
 
+**Read the document from a parameter, never a module global.** A global read
+takes a strong reference to a shared mortal object, and in a per-character loop
+that alone costs all the scaling: a probe reading its input from a module
+global measured 0.45x whatever container it used, and passing the same operands
+as parameters restored the figures above. It is a rule about any hot loop here,
+not about this one.
+
 **A spelling is not an alphabet.** `Roles.spelling` holds a two-role character
 once per role, because that is what makes classification by precedence work.
 `Roles.watched` holds each character once, and is what a sweep iterates.
@@ -327,6 +334,37 @@ parse. A failed pool is never re-lent either — a lease whose phase raised
 closes its pool rather than returning it to the cache.
 
 ---
+
+## What a retain-heavy caller pays the collector
+
+A replica's tables are ordinary objects, so a process holding many of them pays
+for them on every full collection. The numbers, on this tree, for one grammar
+at sixteen workers:
+
+| | objects | gen-2 collection |
+|---|---|---|
+| before any split | 129,959 | 7.3 ms |
+| after six splits, pools still warm | 164,511 | 11.8 ms |
+| after those pools are dropped | 162,897 | 11.5 ms |
+
+Two things follow. A warm pool's replicas are **not** garbage — its workers are
+alive and those tables are theirs, which is why a retained pool holds them on
+purpose. And a dropped pool's were: before reclamation those claims sat on
+exited threads and stayed until the next parse of the same pair, so a process
+that split once and then did something else kept paying for them. A pool now
+releases its workers' claims as it dies, so the tail settles without another
+parse.
+
+What is left is the collector's own cost on what a caller legitimately holds,
+and that is the caller's to manage. Two facts worth knowing before trying:
+
+- **GC thresholds are process-wide.** Nothing in `lexic` reads or writes
+  collector state, and nothing here will: a library that tuned the collector
+  would be tuning every other library in the process.
+- **`gc.freeze()` is an application-lifecycle tool**, not a parsing one. A
+  caller that compiles its grammars at startup and then parses can freeze what
+  it built out of the collector's reach; that is a decision about a program's
+  shape and is not prescribed here.
 
 ## Cache lifetime
 

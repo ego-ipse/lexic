@@ -1,5 +1,35 @@
 # Log
 
+## A pool's replicas are released when it dies (2026-09-12)
+
+A worker's replica claim was pruned by the next parse of that pair and by
+nothing else, so a process that split once and then did something else kept
+paying for tables whose threads were gone — measured at 82 of 85 claims on
+exited threads, 377 memo entries, and several milliseconds per full collection
+that never settled.
+
+A pool now knows its own workers. Its executor's initializer counts each worker
+that STARTS — not the requested width, since an executor spawns lazily and a
+pool sized for sixteen running two tasks starts two — and parks a record in the
+worker's thread-local carrying the Thread captured right then. CPython clears a
+thread's state when it ends, so that record's finalizer runs on the worker as
+it dies, which is later than any callback the executor could offer.
+
+Two paths, one line apart. A clean close has already waited, so a sweep finds
+every worker gone. A failed close must not wait, and keeps that: each worker
+releases its OWN claims as it dies and whichever exits last sweeps the residue.
+
+Two things the design did not anticipate, both found by running it.
+`threading.current_thread()` does not answer inside a finalizer — the thread is
+gone from the active table and the call builds a fresh dummy, so a claim keyed
+by identity silently matches nothing. And a last-signal sweep cannot stand
+alone: the signal runs on its own dying thread, where liveness is still true of
+it, which is exactly the claim such a sweep would skip.
+
+The document thread's own claim carries no crew and is never swept. A refused
+split therefore leaves exactly one claim — the caller's, which it is still
+parsing against.
+
 ## Region discovery reads one spelling, and can be windowed (2026-09-12)
 
 The region walk classified each structural character with three shared dict

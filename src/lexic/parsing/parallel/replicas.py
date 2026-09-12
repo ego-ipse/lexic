@@ -57,7 +57,7 @@ class _Held(NamedTuple):
 
     owner: threading.Thread
     replica: Replica
-    crew: object | None
+    crew: Crew | None
 
 
 class _Mine[M](NamedTuple):
@@ -115,7 +115,65 @@ every parse would put the lookup itself on the contended path this module
 exists to clear, and it measured the difference between 4.1x and 5.6x."""
 
 
-class _Sentinel:
+class Crew:
+    """One pool's workers, counted, so their claims can be released.
+
+    A claim belongs to a THREAD and the replica registry is keyed by artefact
+    pair, so neither end knows about pools. This is the association: every
+    worker joins its crew as it starts, every claim it makes is tagged with
+    it, and the crew is what a retiring pool names to find them.
+
+    The count is of workers that STARTED, not of ``max_workers``. An executor
+    spawns lazily — a pool sized for sixteen that runs two tasks starts two
+    threads — so anything counting down from the requested width never closes.
+    """
+
+    __slots__ = ("_closing", "_exited", "_lock", "_started")
+
+    def __init__(self) -> None:
+        """A crew nobody has joined yet."""
+        self._lock = threading.Lock()
+        self._started = 0
+        self._exited = 0
+        self._closing = False
+
+    def worker_started(self) -> None:
+        """Runs ON a worker, from the executor's initializer."""
+        with self._lock:
+            self._started += 1
+
+    def closing(self) -> None:
+        """The pool declares that no further worker will start.
+
+        Without it the count is always provisional: ``started == exited`` is
+        equally true of a pool resting between phases.
+        """
+        with self._lock:
+            self._closing = True
+            last = self._started == self._exited
+        if last:
+            retire_crew(self)
+
+    def worker_exited(self) -> None:
+        """Runs ON a dying worker, after it has released its own claims."""
+        with self._lock:
+            self._exited += 1
+            last = self._closing and self._started == self._exited
+        if last:
+            retire_crew(self)
+
+
+def join_crew(crew: Crew) -> None:
+    """The executor ``initializer`` — runs on each worker as it starts.
+
+    Module-level and flat: an executor holds its initializer for the pool's
+    whole life, and a closure here would hold the pool through it.
+    """
+    crew.worker_started()
+    _enter_crew(crew)
+
+
+class _Sentinel(NamedTuple):
     """Parked in a worker's thread-local; its finalizer IS the worker's exit.
 
     A pool has an initializer and no per-worker exit callback, so the exit has
@@ -130,21 +188,24 @@ class _Sentinel:
     finalizer runs the thread is gone from ``threading._active`` and the call
     builds a fresh dummy, so matching a claim by identity silently finds
     nothing.
+
+    A record, because that is what it is: the pool this worker serves and the
+    worker itself, fixed when it started. It publishes nothing — the finalizer
+    is its whole purpose.
+
+    :ivar crew: The pool whose claims this worker's exit settles.
+    :ivar thread: The worker, captured while it could still name itself.
     """
 
-    __slots__ = ("crew", "thread")
-
-    def __init__(self, crew: object, thread: threading.Thread) -> None:
-        """Hold the pool this worker serves and the worker itself."""
-        self.crew = crew
-        self.thread = thread
+    crew: Crew
+    thread: threading.Thread
 
     def __del__(self) -> None:
         """Release this worker's claims, then tell the pool it has gone."""
         _worker_exited(self.crew, self.thread)
 
 
-def enter_crew(crew: object) -> None:
+def _enter_crew(crew: Crew) -> None:
     """Join a pool — called ON a worker, from its executor's initializer.
 
     The one moment the worker can name itself: it is running normally, so
@@ -154,7 +215,7 @@ def enter_crew(crew: object) -> None:
     _ASSIGNED.sentinel = _Sentinel(crew, threading.current_thread())
 
 
-def _crew_of_this_thread() -> object | None:
+def _crew_of_this_thread() -> Crew | None:
     """The pool this thread serves, or ``None`` for a document thread."""
     return getattr(_ASSIGNED, "crew", None)
 
@@ -169,7 +230,7 @@ def _release_claims(gone: list[_Held], entry: _Issued) -> tuple[int, ...]:
     )
 
 
-def _worker_exited(crew: object, thread: threading.Thread) -> None:
+def _worker_exited(crew: Crew, thread: threading.Thread) -> None:
     """Release one worker's claims as it dies, then count it out.
 
     Does the least it can: one pass under the minting lock collecting this
@@ -188,12 +249,10 @@ def _worker_exited(crew: object, thread: threading.Thread) -> None:
             dropped.append(_release_claims(mine, entry))
     for identities in dropped:
         release(identities)
-    done = getattr(crew, "worker_exited", None)
-    if done is not None:
-        done()
+    crew.worker_exited()
 
 
-def retire_crew(crew: object) -> None:
+def retire_crew(crew: Crew) -> None:
     """Release every claim made under ``crew`` whose thread has exited.
 
     The residual sweep, for the path where the pool waited: every worker is
