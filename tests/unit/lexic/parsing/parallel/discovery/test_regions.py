@@ -8,8 +8,7 @@ Model stitching is owned by the orchestrator, not this analysis leaf.
 
 from __future__ import annotations
 
-from functools import partial
-from types import SimpleNamespace
+from typing import NamedTuple, cast
 
 import pytest
 
@@ -41,6 +40,7 @@ from lexic.parsing.parallel.discovery.regions import (
     shell,
     stub,
 )
+from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
 
 JSON_FORMULATIONS = ("json.gbnf", "json.abnf", "json.ebnf")
@@ -320,7 +320,9 @@ def test_watched_deduplicates_a_two_role_character() -> None:
     twice.
     """
     vocab = _vocab(
-        pairs={"[": ("]", "list")}, closers={"]": "[", "|": "("}, marks={"|"}
+        pairs={"[": ("]", "list")},
+        closers={"]": "[", "|": "("},
+        marks=frozenset({"|"}),
     )
     roles = _roles(vocab)
     assert roles.spelling.count("|") == 2
@@ -430,13 +432,43 @@ def test_a_chunk_with_no_events_contributes_nothing() -> None:
 # ── par_find refusal ──────────────────────────────────────────────────────
 
 
-def _raise_if_called(fn, spans):
-    """A pool ``map`` a refused call must never reach."""
-    raise AssertionError("par_find touched the pool on a refused call")
+class RaisingPool(NamedTuple):
+    """A mapper a refused call must never reach; it fails loudly if one does.
+
+    A real type rather than a namespace: `par_find` asks for something that
+    maps, and a stub should satisfy that requirement honestly rather than be
+    an object the checker cannot look inside. It carries no state, so it is
+    spelled as the empty record it is.
+    """
+
+    def map(self, work, items):
+        """Never legitimately called."""
+        raise AssertionError("par_find touched the pool on a refused call")
 
 
-_RAISING_POOL = SimpleNamespace(map=_raise_if_called)
-"""A pool stub whose ``map`` fails loudly if a refusal ever reaches it."""
+class RecordingPool:
+    """Runs every window on this thread, keeping the spans it was handed.
+
+    What the pool DOES with the windows is the pool's business; what `par_find`
+    hands it is this module's, so the stub records and then runs serially. The
+    question asked of the recording lives here too, beside what recorded it.
+    """
+
+    def __init__(self) -> None:
+        self.spans: list[tuple[int, int]] = []
+
+    def map(self, work, items):
+        """Record the spans, then apply ``work`` to each in order."""
+        self.spans.extend(items)
+        return [work(item) for item in items]
+
+    def covers_exactly_once(self, size: int) -> bool:
+        """Whether the recorded spans partition ``[0, size)``."""
+        return _covers_exactly_once(self.spans, size)
+
+
+_RAISING_POOL = cast(WorkPool, RaisingPool())
+"""One shared instance — it holds no state and exists to refuse."""
 
 
 BRACKET_SOURCE = 'root ::= arr\narr ::= "[" item ("," item)* "]"\nitem ::= [a-z0-9]+\n'
@@ -475,24 +507,17 @@ def test_a_document_shorter_than_the_worker_count_never_touches_the_pool() -> No
 # ── par_find with a real pool ─────────────────────────────────────────────
 
 
-def _record_and_run(seen: list[tuple[int, int]], fn, spans):
-    """Record ``spans`` into ``seen``, then run every window on this thread."""
-    seen.extend(spans)
-    return [fn(span) for span in spans]
-
-
 def test_the_pool_receives_every_span_exactly_once_and_matches_serial() -> None:
     """The spans handed to the pool partition the document exactly once, and
     the merged answer equals the serial walk on a document whose one region
     is the whole array — straddling every window boundary by construction."""
     grammar = compile_text(BRACKET_SOURCE, cache_key="test-regions-pool-spans").grammar
     doc = "[" + ",".join(f"item-{i:04d}" for i in range(400)) + "]"
-    spans_seen: list[tuple[int, int]] = []
-    pool = SimpleNamespace(map=partial(_record_and_run, spans_seen))
-    result = par_find(grammar, doc, 0, 5, pool=pool)
+    pool = RecordingPool()
+    result = par_find(grammar, doc, 0, 5, pool=cast(WorkPool, pool))
 
-    assert len(spans_seen) == 5
-    assert _covers_exactly_once(spans_seen, len(doc))
+    assert len(pool.spans) == 5
+    assert pool.covers_exactly_once(len(doc))
 
     serial = find(grammar, doc, 0)
     assert result == serial
