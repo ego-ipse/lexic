@@ -32,7 +32,7 @@ from lexic.parsing.parallel.plan.cuts import (
 )
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan
-from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK
+from lexic.parsing.parallel.policy import AUTO, MIN_CHUNK, MIN_SCAN, worth_dispatching
 from lexic.parsing.parallel.pool import WorkPool
 from tests.split_helpers import LEAD_RULE
 from tests.unit.lexic.parsing.parallel.envelope_fixtures import (
@@ -174,11 +174,16 @@ def test_one_work_pool_is_reused_for_scan_and_parse(monkeypatch: pytest.MonkeyPa
 
     The seam is the LEASE: a split borrows one pool for all of its phases and
     returns it, so intercepting the lease is intercepting every phase. The
-    document clears the SCAN floor as well as the chunk floor, so both phases
-    are mapped work: below it the scan is one sweep and never reaches a pool.
+    document clears every SCAN floor as well as the chunk floor, so both
+    phases are mapped work: under the size floor or under the dispatch gate
+    the scan is one sweep and never reaches a pool at all.
     """
     compiled = compile_text(LEAD_RULE)
-    text = _doc(2000)
+    text = _doc(8000)
+    allowed = max(1, min(8, len(text) // MIN_SCAN))
+    assert worth_dispatching(len(text), allowed), (
+        "the fixture must clear the dispatch gate, or the scan never maps"
+    )
     created = 0
     map_calls = 0
 

@@ -16,7 +16,12 @@ from lexic.ir import IrAst
 from lexic.parsing.parallel.discovery.scan import Scanner, Window, clustered
 from lexic.parsing.parallel.plan.envelope import admits
 from lexic.parsing.parallel.plan.split import SplitPlan, matched
-from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN, worker_count
+from lexic.parsing.parallel.policy import (
+    MIN_CHUNK,
+    MIN_SCAN,
+    worker_count,
+    worth_dispatching,
+)
 from lexic.parsing.parallel.pool import WorkPool
 from lexic.parsing.parallel.roles import Roles, Terminator, roles
 
@@ -77,10 +82,19 @@ def scan_windows(
     what a sweep of its own bytes costs, so :data:`~...policy.MIN_SCAN` bounds
     the count. Handing one worker per parse chunk put more time into dispatch
     than into scanning on every document a cheap grammar sees.
+
+    Two floors, asking different questions. ``MIN_SCAN`` asks whether the
+    document is BIG enough to divide; :func:`~...policy.worth_dispatching`
+    asks whether its sweep is EXPENSIVE enough to be worth handing out at all.
+    A document can clear the first and fail the second, and then the whole scan
+    runs here — where the worst case is the sweep the caller was going to pay
+    for regardless.
     """
     if scanner.opaque:
         return [scanner.walk(text)]
     windows = min(workers, max(1, len(text) // MIN_SCAN))
+    if not worth_dispatching(len(text), windows):
+        windows = 1
     if windows < 2:
         return [scanner.window(text, 0, len(text))]
     step = len(text) // windows

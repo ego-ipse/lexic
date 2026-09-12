@@ -21,7 +21,7 @@ from lexic.parsing.parallel.plan.cuts import (
     sole_mark,
 )
 from lexic.parsing.parallel.plan.split import matched, spellings
-from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN
+from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN, worth_dispatching
 from lexic.parsing.parallel.pool import WorkPool
 from tests.unit.lexic.parsing.parallel.speculation_fixtures import (
     ANNOUNCED,
@@ -156,23 +156,54 @@ def test_a_document_below_the_scan_floor_is_swept_once() -> None:
         assert len(scan_windows(plan.scanner, text, 8, pool)) == 1
 
 
-def test_a_large_document_is_swept_in_windows_bounded_by_both_floors() -> None:
-    """Above the scan floor the sweep divides, and never past the workers."""
+def test_a_large_document_is_swept_in_windows_bounded_by_every_floor() -> None:
+    """Above the floors the sweep divides, and never past any of them.
+
+    Three bounds, asking three different questions: the worker count is what
+    the caller offered, ``MIN_SCAN`` is whether the document is BIG enough to
+    divide, and `affordable_windows` is whether its sweep is EXPENSIVE enough
+    to be worth handing out. Each is asserted on its own so a failure names
+    which one moved.
+    """
     plan = _plan(LINES, "cuts-lines")
-    text = _lines(5 * MIN_SCAN)
-    assert len(text) >= 5 * MIN_SCAN
+    text = _lines(16 * MIN_SCAN)
+    allowed = max(1, min(8, len(text) // MIN_SCAN))
+    assert worth_dispatching(len(text), allowed), (
+        "the fixture must clear the WORK floor, or it never divides"
+    )
 
     with WorkPool(2) as pool:
         assert len(scan_windows(plan.scanner, text, 2, pool)) == 2
     with WorkPool(8) as pool:
-        assert len(scan_windows(plan.scanner, text, 8, pool)) == len(text) // MIN_SCAN
+        count = len(scan_windows(plan.scanner, text, 8, pool))
+    assert count <= 8, "more windows than workers offered"
+    assert count <= len(text) // MIN_SCAN, "a window below the size floor"
+    assert worth_dispatching(len(text), count), "dispatched more than the work pays"
+    assert count >= 2, "a document this size must still divide"
+
+
+def test_a_cheap_sweep_is_not_dispatched_at_all() -> None:
+    """A document over the size floor whose sweep is too cheap to hand out.
+
+    This is the gate's whole point, and it is stated as a document rather than
+    as a call: over ``MIN_SCAN`` by size, under the dispatch cost by work, so
+    the scan runs on the driver.
+    """
+    plan = _plan(LINES, "cuts-cheap-sweep")
+    text = _lines(2 * MIN_SCAN)
+    assert len(text) >= 2 * MIN_SCAN, "the fixture must clear the SIZE floor"
+    allowed = max(1, min(8, len(text) // MIN_SCAN))
+    assert not worth_dispatching(len(text), allowed), "fixture must fail the WORK floor"
+
+    with WorkPool(8) as pool:
+        assert len(scan_windows(plan.scanner, text, 8, pool)) == 1
 
 
 def test_the_window_count_changes_no_mark_and_no_cut() -> None:
     """Windows are arithmetic and self-locating, so their number is a
     scheduling choice and never an answer."""
     plan = _plan(LINES, "cuts-lines")
-    text = _lines(4 * MIN_SCAN)
+    text = _lines(16 * MIN_SCAN)
 
     with WorkPool(8) as pool:
         one = plan.scanner.window(text, 0, len(text))

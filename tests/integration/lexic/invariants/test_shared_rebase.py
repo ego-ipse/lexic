@@ -1,4 +1,7 @@
-"""Selecting cuts once yields exactly what selecting them per plan yielded.
+"""Selecting cuts once, and not dispatching a sweep too cheap to hand out.
+
+Two optimisations over one seam, so one differential covers both: the offsets
+must not move.
 
 The depth-0 rebase is a prefix sum over the scan windows' own deltas and reads
 nothing of the scanner that produced them, so every certified plan reading one
@@ -24,7 +27,7 @@ from lexic.parsing.parallel.plan.cuts import (
     scan_windows,
     shared_scanner,
 )
-from lexic.parsing.parallel.policy import MIN_CHUNK
+from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN, worth_dispatching
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import ABNF_GRAMMARS, GBNF_GRAMMARS, GROUND_TRUTH
 from tools.benchmark.cases.grammars import BENCHES
@@ -131,6 +134,58 @@ def test_the_comparison_reaches_every_plan_kind() -> None:
     assert bearing >= 4, f"only {bearing} certified plans across the roster"
     assert "swept" in kinds, f"no plan reads the shared sweep: {kinds}"
     assert len(kinds) >= 2, f"only one plan kind in the roster: {kinds}"
+
+
+# ── the scan-dispatch gate ────────────────────────────────────────────────
+
+
+def swept_both_ways(plan, text: str, pool):
+    """`(gated, forced)` marks — what the gate chose against a full division.
+
+    `forced` divides the document into as many windows as the SIZE floor
+    allows, ignoring what the sweep costs. The gate may take fewer; it may not
+    take different ones.
+    """
+    gated = plan.scanner.offsets(scan_windows(plan.scanner, text, WORKERS, pool))
+    count = max(1, min(WORKERS, len(text) // MIN_SCAN))
+    step = len(text) // count
+    bounds = [
+        (k * step, (k + 1) * step if k < count - 1 else len(text)) for k in range(count)
+    ]
+    forced = plan.scanner.offsets(
+        [plan.scanner.window(text, lo, hi) for lo, hi in bounds]
+    )
+    return gated, forced
+
+
+@pytest.mark.parametrize("bench", BENCHES, ids=lambda b: b.name)
+def test_the_dispatch_gate_moves_no_offset(bench) -> None:
+    """Whether the sweep was handed out changes nothing about its answer."""
+    text = bench.full or bench.corpus
+    if len(text) < 2 * MIN_CHUNK:
+        pytest.skip(f"{bench.name}: document below the split floor")
+    _grammar, plans = plans_of(bench.compiled)
+    with WorkPool(WORKERS) as pool:
+        for plan in plans:
+            if plan.scanner.opaque:
+                continue  # walks under its own region table, never windowed
+            gated, forced = swept_both_ways(plan, text, pool)
+            assert gated == forced, (bench.name, plan.mark)
+
+
+def test_the_gate_actually_declines_on_some_bench_document() -> None:
+    """The roster really contains a document the gate keeps off the pool.
+
+    Without one, every case above compares a divided sweep with itself and the
+    gate is untested.
+    """
+    declined = {
+        bench.name: len(bench.full or bench.corpus)
+        for bench in BENCHES
+        if (size := len(bench.full or bench.corpus)) >= 2 * MIN_CHUNK
+        and not worth_dispatching(size, max(1, min(WORKERS, size // MIN_SCAN)))
+    }
+    assert declined, "no bench document falls under the dispatch gate"
 
 
 def test_a_grammar_with_several_sweeping_plans_shares_one_rebase() -> None:
