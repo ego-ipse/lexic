@@ -26,7 +26,7 @@ from lexic.parsing.earley.kernel.forest.support.ambiguity import Resolver
 from lexic.parsing.executable import ModelExecutable, ModelParse
 from lexic.parsing.parallel.discovery.regions import (
     choose,
-    find,
+    par_find,
 )
 from lexic.parsing.parallel.discovery.scan import Scanner
 from lexic.parsing.parallel.discovery.shapes import UNIT, unbounded
@@ -501,7 +501,9 @@ def _split_regions[M: IrNamedTuple](
     # yields no non-empty route and declines in ``_stitch_shell``.
     found = [
         region
-        for region in find(analysis or grammar, ask.text, 2 * MIN_CHUNK)
+        for region in par_find(
+            analysis or grammar, ask.text, 2 * MIN_CHUNK, workers, pool
+        )
         if region.rule != str(grammar.start)
     ]
     divided = choose(ask.text, found, workers)

@@ -112,13 +112,13 @@ def test_a_routed_region_split_never_pays_for_the_bracket_sweep(
     line = "abcdefghij"
     text = "!abc\n" + "".join(f"{line[i % 10]}wordy\n" for i in range(900)) + ">"
     swept: list[int] = []
-    real_find = orchestrate.find
+    real_find = orchestrate.par_find
 
     def counting_find(*args, **kwargs):
         swept.append(1)
         return real_find(*args, **kwargs)
 
-    monkeypatch.setattr(orchestrate, "find", counting_find)
+    monkeypatch.setattr(orchestrate, "par_find", counting_find)
     split = split_model(
         parse_model, compiled.codegen_grammar, Request(text, compiled.product), 8
     )
@@ -144,7 +144,7 @@ def test_universal_gates_skip_plan_and_safety_analysis(
     monkeypatch.setattr(orchestrate, "_split_plans", unexpected_analysis)
     monkeypatch.setattr(orchestrate, "owner_excludes", unexpected_analysis)
     monkeypatch.setattr(orchestrate, "terminates_once", unexpected_analysis)
-    monkeypatch.setattr(orchestrate, "find", unexpected_analysis)
+    monkeypatch.setattr(orchestrate, "par_find", unexpected_analysis)
 
     assert (
         orchestrate.split_model(

@@ -24,7 +24,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
     gate_take,
-    no_fast_construction,
+    no_shape_build,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_SEQ,
@@ -323,7 +323,7 @@ class KernelExecutionMixin[Carry]:
             return  # children already funnelled to the nearest model sink
         clone = frame.clone
         if mode == BUILD_SEQ:
-            if clone.fast is not no_fast_construction and frame.arm.n == clone.n_items:
+            if clone.build is not no_shape_build and frame.arm.n == clone.n_items:
                 model = clone.build(self.text, frame.ends or (), frame.sinks)
             else:
                 model = build_sequence(self.text, frame, clone, self._caches.intern)

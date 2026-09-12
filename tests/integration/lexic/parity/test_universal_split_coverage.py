@@ -462,7 +462,7 @@ def test_sub_floor_document_declines_before_any_plan_analysis(
     monkeypatch.setattr(orchestrate, "_split_plans", unexpected)
     monkeypatch.setattr(orchestrate, "owner_excludes", unexpected)
     monkeypatch.setattr(orchestrate, "terminates_once", unexpected)
-    monkeypatch.setattr(orchestrate, "find", unexpected)
+    monkeypatch.setattr(orchestrate, "par_find", unexpected)
 
     declined = orchestrate.split_model(
         parse_model,

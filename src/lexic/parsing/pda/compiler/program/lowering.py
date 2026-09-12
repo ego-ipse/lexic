@@ -54,6 +54,11 @@ because the general builder's per-field cost FALLS as shapes widen (227 ns per
 field at arity one, 88 at arity nine), so the fraction an extra template buys
 shrinks while its lines do not. Nothing reads the roster: a shape wider than
 this is built by the general path, correctly and without new code.
+
+The ground-truth corpus happens to top out at arity eight as well, and that
+coincidence is not what fixed the limit — the per-field trend above is. The
+general builder was priced well past this width, and the unit tests exercise
+nine, ten, eleven and twenty-four.
 """
 
 type Sinks[Carry] = Sequence[Sequence[Carry] | None] | None

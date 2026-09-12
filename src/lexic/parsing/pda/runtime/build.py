@@ -35,7 +35,7 @@ from lexic.ir import IrSpan
 from lexic.parsing.pda.compiler.program.flatten import (
     FlatArm,
     FlatClone,
-    no_fast_construction,
+    no_shape_build,
     vstr_model,
 )
 from lexic.parsing.pda.compiler.program.opcodes import (
@@ -212,7 +212,7 @@ def build_sequence[Carry](
                 f"{clone.n_items} slots nor the empty arm"
             )
         return _intern_empty(clone.ctor, memo)  # empty alternate arm matched
-    if clone.fast is no_fast_construction:
+    if clone.build is no_shape_build:
         return build_validated(text, (frame.ends or (), frame.sinks), clone, memo)
     return clone.build(text, frame.ends or (), frame.sinks)
 
