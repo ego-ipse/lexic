@@ -122,9 +122,9 @@ def test_a_proposal_is_never_cut_at_offset_zero() -> None:
     text = announced_doc(300)
     assert text[0] == "#", "the fixture must open ON a proposal character"
     with WorkPool(8) as pool:
-        windows = scan_windows(plan.scanner, text, 8, pool)
-        assert 0 in scan_marks(plan, text, 8, pool, windows)
-        assert 0 not in cut_offsets(plan, text, 8, pool, windows).offsets
+        rebased = plan.scanner.offsets(scan_windows(plan.scanner, text, 8, pool))
+        assert 0 in scan_marks(plan, text, 8, pool, rebased)
+        assert 0 not in cut_offsets(plan, text, 8, pool, rebased).offsets
 
 
 def test_every_candidate_stands_on_a_mark_of_the_plan() -> None:
@@ -178,12 +178,14 @@ def test_the_window_count_changes_no_mark_and_no_cut() -> None:
         one = plan.scanner.window(text, 0, len(text))
         many = scan_windows(plan.scanner, text, 8, pool)
         assert len(many) > 1
-        assert plan.scanner.offsets([one]) == plan.scanner.offsets(many)
-        assert scan_marks(plan, text, 8, pool, [one]) == scan_marks(
-            plan, text, 8, pool, many
+        from_one = plan.scanner.offsets([one])
+        from_many = plan.scanner.offsets(many)
+        assert from_one == from_many
+        assert scan_marks(plan, text, 8, pool, from_one) == scan_marks(
+            plan, text, 8, pool, from_many
         )
-        assert cut_offsets(plan, text, 8, pool, [one]) == cut_offsets(
-            plan, text, 8, pool, many
+        assert cut_offsets(plan, text, 8, pool, from_one) == cut_offsets(
+            plan, text, 8, pool, from_many
         )
 
 
@@ -205,7 +207,7 @@ def test_a_one_character_mark_set_selects_exactly_what_widths_would() -> None:
         at_depth = plan.scanner.offsets(windows, depth=0)
         widths = _widths(text, at_depth, spellings(plan.mark))
 
-        assert scan_marks(plan, text, 4, pool, windows) == clustered(
+        assert scan_marks(plan, text, 4, pool, at_depth) == clustered(
             sorted(widths), widths, plan.trailing
         )
 

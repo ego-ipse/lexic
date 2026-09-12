@@ -802,9 +802,11 @@ def test_the_shared_sweep_reports_every_mark_the_plan_scanners_would() -> None:
     assert shared is not None
 
     with WorkPool(4) as pool:
-        narrowed = scan_windows(shared, text, 4, pool)
+        narrowed = shared.offsets(scan_windows(shared, text, 4, pool), depth=0)
         for plan in plans:
-            own = scan_windows(plan.scanner, text, 4, pool)
+            own = plan.scanner.offsets(
+                scan_windows(plan.scanner, text, 4, pool), depth=0
+            )
             assert scan_marks(plan, text, 4, pool, narrowed) == scan_marks(
                 plan, text, 4, pool, own
             )

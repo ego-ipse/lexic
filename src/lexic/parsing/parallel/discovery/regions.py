@@ -409,8 +409,9 @@ def par_find(
     :param min_span: Omit smaller regions at close time.
     :param workers: How many windows to divide the document into.
     :param pool: The pool the windows run on, or ``None`` to run every window
-        on this thread. The answer may not depend on which — the differential
-        runs without one.
+        on this thread. Only its ``map`` is used, and the answer may not depend
+        on whether the windows really ran concurrently — which is why the
+        differential runs without a pool at all.
     :returns: The regions, in closing order.
     """
     vocab = _vocabulary(grammar)
