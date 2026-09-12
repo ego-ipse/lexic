@@ -576,11 +576,7 @@ def _mark_leaves(clone: FlatClone) -> None:
     frame-lessly; one reached by ENTRY (through a dispatch chase, say) was not,
     and paid a frame per occurrence for a match that cannot descend.
     """
-    # `fast`, not `build`: this asks whether the clone has a positional
-    # CONSTRUCTOR, which a value_str clone has and uses through `vstr_model`
-    # while carrying no composed build at all. The two build sites that call
-    # `clone.build` test `build` instead, because there that is the question.
-    if clone.fast is no_fast_construction:
+    if clone.fast is no_fast_construction:  # a CONSTRUCTOR, not a composed build
         return
     if clone.mode == BUILD_VALUE_STR:
         clone.leaf = _vstr_inlinable(clone) or clone.runarm is not None
