@@ -240,7 +240,31 @@ tables. Where `available_workers()` is 1 at all — a GIL build, a one-cpu
 machine — `document_view` hands the binding straight back and claims nothing.
 An exited thread's replica is dropped and its tables released rather
 than re-issued, since re-issuing hands a live worker objects a dead thread
-allocated. `replica_count` is the meter.
+allocated. `replica_count` meters one pair; `claim_census()` answers the
+lifetime question it cannot — how many claims are held by threads that have
+already exited.
+
+**A worker releases its own claim when it exits, not when someone next asks.**
+The liveness sweep inside `_claim` only ever prunes the pair being claimed
+against, so a pair no document touches again would keep its dead claims for the
+life of the process: one pass over a twelve-grammar roster left **189 of 203
+claims held by exited threads**, and further parses of the first grammar never
+moved it, because that pair self-cleans while the other sixteen are never
+claimed against again.
+
+The signal is object lifetime. `ThreadPoolExecutor` has an initializer and no
+per-worker exit callback, so the first time a thread claims, a bare sentinel
+goes into that thread's own local state with a `weakref.finalize` armed on it;
+the thread's state is freed when the thread ends, the sentinel is collected,
+and the finalizer retires what that thread held. Three details are load-bearing:
+
+- the owning `Thread` is captured at claim time and passed to the finalizer,
+  never read inside it — `threading.current_thread()` during a worker's
+  teardown returns a dummy thread that matches no claim;
+- the sentinel declares `__slots__ = ("__weakref__",)`; with `__slots__ = ()`
+  it cannot be weakly referenced at all and the arming raises;
+- arming happens at CLAIM time rather than in the pool's initializer, so a
+  worker that never touches the registry pays nothing and holds nothing.
 
 Synthesized model classes stay shared by necessity — two workers building two
 different classes for one rule would break model equality, which is the thing
@@ -374,3 +398,48 @@ This matters most where grammars are DERIVED at run time — `bind()` mints a
 fresh codegen grammar per vocabulary, a reducer mints a variant per policy — so
 a service that rebinds per request would otherwise grow every memo without
 bound.
+
+## The collector, for callers that retain
+
+A compiled artefact is a large, permanently live, gc-tracked population, and
+every full collection walks all of it. Measured on this machine, parsing each
+roster grammar once at `cores=1`, medians of seven collections:
+
+| tracked objects | full collection |
+|---|---|
+| 129,979 (interpreter + lexic) | 7.36 ms |
+| 141,873 (4 artefacts) | 8.55 ms |
+| 169,357 (8 artefacts) | 9.95 ms |
+| 172,450 (12 artefacts) | 10.19 ms |
+
+The cost tracks the population, and the population is what the caller chose to
+keep. A service holding many compiled grammars pays that walk on every
+collection the whole process triggers, including ones its own allocation did
+not cause.
+
+**`gc.freeze()` is the tool, and it belongs to the application.** It moves
+everything currently tracked into a permanent generation that collections skip.
+On the twelve-artefact tree above: 172,421 objects frozen, and a full collection
+goes from **9.99 ms to 5.02 ms** — half. `gc.unfreeze()` restores it exactly
+(10.00 ms).
+
+Lexic does not call it, and a library should not: freezing is a statement about
+a process's whole lifecycle, made once after the artefacts a program intends to
+keep are built and before it starts serving. The same applies to
+`gc.set_threshold()` — thresholds are **process-wide**, so a library that tuned
+them would be tuning its host's collector for every other allocation in the
+program. Both are documented here as levers an application may reach for, and
+neither is prescribed.
+
+## A per-character loop must not read the document from a module global
+
+Reproducible, and it costs everything: a loop that runs once per input
+character and reads the text from a module-level name scales at **0.45x on
+sixteen threads**, whatever container holds it. A module global is a shared
+mortal object, so every read is an atomic reference count on one cache line,
+and the loop does one per character.
+
+Pass the text in. A parameter is a local, and a local read is not shared
+traffic. This is the same effect the replicas exist to remove, arriving through
+a different door — and it is worth stating on its own, because it is invisible
+at one thread and looks like a scaling ceiling rather than a defect.

@@ -2043,3 +2043,42 @@ declarations live outside the grammar source and the marked and unmarked seats
 of one grammar are built with different sets on purpose. And a published NUMBER
 must still pass the language gate — freshness and structure both passed while
 four cells held timings for seats the strengthened gate had begun refusing.
+
+## A worker releases its own replica when it exits, and what the collector costs
+
+Reclamation used to ride on the next claim: `_claim`'s liveness sweep prunes
+only the pair being claimed against, so a pair no document touches again kept
+its dead claims for the life of the process. Measured before the fix, one pass
+over the twelve-grammar roster left **189 of 203 claims held by exited
+threads**, and further parses of the first grammar never moved the figure —
+that pair self-cleans while the other sixteen are never claimed against again.
+`reset_pools()` drops the pools and does not touch the claims.
+
+The signal had to be object lifetime, because `ThreadPoolExecutor` offers an
+initializer and no per-worker exit callback. Three things decide the shape, and
+each rejected an alternative: a future's done-callback may run on the
+SUBMITTING thread and so cannot identify the worker; a signal carried by the
+WORK never fires for workers the work did not visit; and a liveness sweep run
+from inside the signal cannot see its own dying thread as dead, because the
+finalizer runs while that thread is still tearing down. Hence a captured
+`Thread` passed to a `weakref.finalize` on a per-thread sentinel —
+`threading.current_thread()` inside the finalizer returns a dummy that matches
+no claim.
+
+Arming moved from the pool initializer, where the prototype put it, to the
+first CLAIM. An initializer charges every worker an executor starts, including
+those that never touch the registry and therefore have nothing to release;
+arming at claim time is narrower, costs 641 ns against a 365 µs first claim,
+and removed a `pool.py → replicas.py` import edge. `claim_census()` is the new
+meter for the lifetime question `replica_count` cannot answer.
+
+Beside it, two things retain-heavy callers need and lexic will not do for them.
+A full collection walks the whole permanent population — 7.36 ms at 130k
+tracked objects, 10.19 ms at 172k — and `gc.freeze()` halves it (9.99 → 5.02 ms
+with 172,421 objects frozen), but freezing and `gc.set_threshold()` are both
+process-wide statements about an application's lifecycle, so they are
+documented as levers and never called from the library. And the module-global
+rule, reproducible and expensive: a per-character loop reading the document
+from a module-level name scales at 0.45x on sixteen threads whatever the
+container, because a module global is a shared mortal object and every read is
+an atomic reference count. Pass the text in.
