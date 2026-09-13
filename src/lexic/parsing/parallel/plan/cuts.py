@@ -77,9 +77,18 @@ def scan_windows(
     what a sweep of its own bytes costs, so :data:`~...policy.MIN_SCAN` bounds
     the count. Handing one worker per parse chunk put more time into dispatch
     than into scanning on every document a cheap grammar sees.
+
+    A scan map with nothing in it is not dispatched at all. That is a second
+    bound beside the size one and it reads the vocabulary rather than the
+    document: a mark whose characters play a bracket role is not kept as a
+    separator, so a scanner left with none cannot report a mark for ANY input.
+    Every window such a sweep hands out is guaranteed to come back empty, at
+    every size, forever — and one empty window is the same answer for no work.
     """
     if scanner.opaque:
         return [scanner.walk(text)]
+    if not scanner.separators:
+        return [Window(0, 0, 0, 0, ())]
     windows = min(workers, max(1, len(text) // MIN_SCAN))
     if windows < 2:
         return [scanner.window(text, 0, len(text))]
