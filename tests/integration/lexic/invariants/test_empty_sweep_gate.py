@@ -32,6 +32,7 @@ from lexic.parsing.parallel.plan.cuts import rebase, scan_windows, shared_scanne
 from lexic.parsing.parallel.policy import MIN_CHUNK, MIN_SCAN
 from lexic.parsing.parallel.pool import WorkPool
 from tests.paths import GROUND_TRUTH
+from tests.split_helpers import engages
 from tools.benchmark.cases.grammars import BENCHES
 
 EMPTY_SWEEP = 'root ::= grp+\ngrp ::= "(" word ")"\nword ::= [a-z]+\n'
@@ -157,6 +158,20 @@ def test_the_witness_still_parses_and_round_trips(workers: int) -> None:
     assert model == compiled.parse(text, cores=1)
 
 
+@pytest.mark.parametrize("workers", (4, 16))
+def test_the_gate_declines_the_split_rather_than_raising(workers: int) -> None:
+    """The single empty window costs nothing and never reaches an exception.
+
+    The witness's only certified plan is exactly the empty-separator case, with
+    no envelope and no region route to fall back on, so the split entry must
+    decline outright — `engages` is what tells a decline from a model actually
+    produced, which a round-trip alone cannot.
+    """
+    compiled = witness()
+    text = empty_document(2000)
+    assert not engages(compiled, text, cores=workers)
+
+
 # ── the gate is silent on everything that can actually sweep ──────────────
 
 
@@ -199,3 +214,39 @@ def test_every_bench_grammar_is_unchanged(bench, workers: int) -> None:
     model = bench.compiled.parse(bench.full, cores=workers)
     assert model.to_text() == bench.full
     assert model == bench.compiled.parse(bench.full, cores=1)
+
+
+# ── opacity decides before the empty-separator gate is ever asked ─────────
+
+
+def opaque_separated_plan():
+    """A real plan whose scanner is both OPAQUE and separator-bearing.
+
+    `scan_windows` checks `scanner.opaque` first, so a scanner that hides
+    marks inside a region must walk regardless of what its separator set
+    holds — the empty-separator gate is a second, independent bound that
+    never gets asked. Read off the real roster rather than hand-built, so the
+    property under test is the grammar's own, not a fixture's.
+    """
+    for bench in BENCHES:
+        grammar = bench.compiled.codegen_grammar
+        for plan in _safe_plans(_split_plans(grammar), grammar):
+            if plan.scanner.opaque and plan.scanner.separators:
+                return bench, plan
+    raise AssertionError("no bench grammar offers an opaque, separator-bearing plan")
+
+
+@pytest.mark.parametrize("workers", WORKERS)
+def test_an_opaque_scanner_with_separators_still_walks(workers: int) -> None:
+    """Separators are not read at all once a scanner is opaque.
+
+    The gate reads `separators` ONLY on the non-opaque path; an opaque
+    scanner with a full separator set must still return the single walked
+    window, never the arithmetic windows a non-empty set would otherwise earn.
+    """
+    bench, plan = opaque_separated_plan()
+    scanner = plan.scanner
+    document = bench.full
+    with WorkPool(workers) as pool:
+        windows = scan_windows(scanner, document, workers, pool)
+    assert windows == [scanner.walk(document)]

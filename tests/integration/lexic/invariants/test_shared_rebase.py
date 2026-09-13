@@ -27,7 +27,7 @@ from __future__ import annotations
 import pytest
 
 from lexic.compile import compile_from_path, compile_text
-from lexic.parsing.parallel.discovery.scan import Window
+from lexic.parsing.parallel.discovery.scan import Scanner, Window
 from lexic.parsing.parallel.orchestrate import _safe_plans, _split_plans
 from lexic.parsing.parallel.plan.cuts import (
     cut_offsets,
@@ -238,3 +238,114 @@ def test_an_empty_rebase_is_an_answer_not_an_absence() -> None:
         for plan in sweepers:
             assert scan_marks(plan, text, 4, pool, []) == []
             assert cut_offsets(plan, text, 4, pool, []).marks == []
+
+
+# ── a document that genuinely carries no mark at depth 0 ───────────────────
+
+
+NO_DEPTH_ZERO = 'root ::= item ("," item)*\nitem ::= "(" word ")"\nword ::= [a-z]+\n'
+"""A separated repetition whose separator sits inside a REAL bracket pair.
+
+`item`'s interior is a rule reference (`word`), which is what qualifies `(`
+and `)` as a genuine depth-tracked pair — an inline character class in the
+same spot would not (see `roles._arm_pair`'s ``delimited`` test). A document
+that opens one such pair and never closes it holds every comma at depth 1
+forever: real separator occurrences, at a depth the plan never keys on. That
+is distinct from `test_empty_sweep_gate.py`'s witness, whose separator SET is
+itself empty — here the vocabulary is fine and the DOCUMENT is what empties.
+"""
+
+
+def unclosed_document(commas: int) -> str:
+    """A `NO_DEPTH_ZERO` document with every comma inside one open paren."""
+    return "(" + "," * commas
+
+
+class _Budgeted:
+    """Delegates to a real scanner, but raises once its call budget is spent.
+
+    Proves a callee did not sweep again rather than merely agreeing with one
+    that did: two arms comparing `scan_marks` against `scan_marks` cannot
+    distinguish "read the handed offsets" from "ignored them and rescanned to
+    the same answer". A budget that raises on the extra call can.
+    """
+
+    def __init__(self, scanner: Scanner, budget: int) -> None:
+        """Wrap ``scanner``, allowing exactly ``budget`` `window` calls."""
+        self._scanner = scanner
+        self._budget = budget
+        self.made = 0
+        self.opaque = scanner.opaque
+        self.separators = scanner.separators
+
+    def window(self, text: str, lo: int, hi: int) -> Window:
+        """Delegate to the wrapped scanner, or raise once the budget is spent."""
+        if self.made >= self._budget:
+            raise AssertionError("the scanner swept the document a second time")
+        self.made += 1
+        return self._scanner.window(text, lo, hi)
+
+    def offsets(self, windows: list[Window], depth: int = 0) -> list[int]:
+        """Delegate the prefix-sum read straight through — never budgeted.
+
+        Reading depths off already-scanned windows is not a sweep, so it
+        carries no call-count claim; only :meth:`window` does.
+        """
+        return self._scanner.offsets(windows, depth=depth)
+
+
+def no_depth_zero_plan():
+    """`NO_DEPTH_ZERO`'s one sweeping plan."""
+    grammar = compile_text(NO_DEPTH_ZERO, cache_key="no-depth-zero").codegen_grammar
+    _plans, sweepers = sweeping_plans(grammar)
+    assert len(sweepers) == 1, "the fixture must read exactly one shared sweep"
+    return sweepers[0]
+
+
+def test_a_document_with_no_depth_zero_mark_rebases_to_empty() -> None:
+    """No mark stands at depth 0, and the honest sweep says so.
+
+    Distinct from a caller handing in an empty list: here the scanner is
+    really asked, finds real separator occurrences (every comma), and the
+    prefix sum genuinely nets to no offset at depth 0.
+    """
+    plan = no_depth_zero_plan()
+    text = unclosed_document(200)
+    with WorkPool(1) as pool:
+        honest = rebase(plan.scanner, text, 1, pool)
+    assert honest == []
+
+
+def test_rebased_none_scans_the_document_exactly_once() -> None:
+    """`scan_marks` with no offsets handed in sweeps the document once.
+
+    A budget of one lets the call through and would raise on a second one, so
+    a form that rebased twice within a single call — once to decide, once to
+    read — fails here rather than merely costing more.
+    """
+    plan = no_depth_zero_plan()
+    text = unclosed_document(200)
+    stub = _Budgeted(plan.scanner, budget=1)
+    budgeted = plan._replace(scanner=stub)
+    with WorkPool(1) as pool:
+        result = scan_marks(budgeted, text, 1, pool, rebased=None)
+    assert result == []
+    assert stub.made == 1
+
+
+def test_an_empty_rebase_costs_no_second_sweep() -> None:
+    """Handing the honest (empty) offsets down triggers no rescan.
+
+    The stub's budget is spent by the first call; a `scan_marks` that read
+    `rebased` off truthiness rather than off `is None` would sweep again for
+    an empty list and raise here.
+    """
+    plan = no_depth_zero_plan()
+    text = unclosed_document(200)
+    stub = _Budgeted(plan.scanner, budget=1)
+    budgeted = plan._replace(scanner=stub)
+    with WorkPool(1) as pool:
+        first = scan_marks(budgeted, text, 1, pool, rebased=None)
+        second = scan_marks(budgeted, text, 1, pool, rebased=first)
+    assert first == [] and second == []
+    assert stub.made == 1, "a second sweep ran despite the handed-in offsets"

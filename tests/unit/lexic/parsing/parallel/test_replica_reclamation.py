@@ -37,6 +37,7 @@ from lexic.parsing.parallel import replicas
 from lexic.parsing.parallel.pool import PoolLease, WorkPool, reset_pools
 from lexic.parsing.parallel.replicas import (
     claim_census,
+    replica_count,
     retire_thread,
     worker_replica,
 )
@@ -59,6 +60,16 @@ def settled(want: int, which: int = 1) -> tuple[int, int]:
         time.sleep(0.01)
         counted = claims()
     return counted
+
+
+def settled_count(grammar, binding, want: int) -> int:
+    """Poll ``replica_count`` for one pair until it reaches ``want``."""
+    end = time.monotonic() + DEADLINE
+    count = replica_count(grammar, binding)
+    while time.monotonic() < end and count != want:
+        time.sleep(0.01)
+        count = replica_count(grammar, binding)
+    return count
 
 
 @pytest.fixture(name="artefact")
@@ -130,6 +141,67 @@ def test_every_worker_signals_even_when_the_work_did_not_visit_it() -> None:
     assert len(started) < 16, "the fixture must leave workers unvisited"
     _live, dead = settled(0)
     assert dead == 0, f"{dead} claims left by workers that exited"
+
+
+def test_a_thread_claiming_two_pairs_releases_both_at_exit() -> None:
+    """One thread's exit drops every pair it touched, not just the last.
+
+    `retire_thread` loops over the whole registry, so a thread that claimed
+    against two artefacts must not leave the first one's claim behind while
+    dropping the second.
+    """
+    first = compile_text(LEAD_RULE, cache_key="reclamation-two-pairs-a")
+    second = compile_text(LEAD_RULE, cache_key="reclamation-two-pairs-b")
+
+    def claim_both() -> None:
+        worker_replica(first.codegen_grammar, first.product)
+        worker_replica(second.codegen_grammar, second.product)
+
+    thread = threading.Thread(target=claim_both)
+    thread.start()
+    thread.join(DEADLINE)
+
+    assert settled_count(first.codegen_grammar, first.product, 0) == 0
+    assert settled_count(second.codegen_grammar, second.product, 0) == 0
+
+
+def test_two_threads_claiming_one_pair_release_independently() -> None:
+    """Each thread's own claim leaves when IT exits, not when the other does.
+
+    A prune keyed on the wrong thread, or one that swept the whole entry
+    instead of that thread's own held list, would drop the still-running
+    thread's claim early or leave the exited one's behind.
+    """
+    grammar = compile_text(LEAD_RULE, cache_key="reclamation-two-threads-one-pair")
+    entered_a = threading.Event()
+    entered_b = threading.Event()
+    release_b = threading.Event()
+
+    def hold_a() -> None:
+        worker_replica(grammar.codegen_grammar, grammar.product)
+        entered_a.set()
+
+    def hold_b() -> None:
+        worker_replica(grammar.codegen_grammar, grammar.product)
+        entered_b.set()
+        release_b.wait(DEADLINE)
+
+    thread_a = threading.Thread(target=hold_a)
+    thread_b = threading.Thread(target=hold_b)
+    thread_a.start()
+    thread_b.start()
+    assert entered_a.wait(DEADLINE) and entered_b.wait(DEADLINE), (
+        "both threads must claim before either exits"
+    )
+    thread_a.join(DEADLINE)
+
+    assert settled_count(grammar.codegen_grammar, grammar.product, 1) == 1, (
+        "thread A's exit must not touch thread B's still-live claim"
+    )
+
+    release_b.set()
+    thread_b.join(DEADLINE)
+    assert settled_count(grammar.codegen_grammar, grammar.product, 0) == 0
 
 
 # ── the release does not take what is still in use ────────────────────────

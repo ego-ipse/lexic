@@ -271,6 +271,28 @@ class Marker:
     __slots__ = ("__weakref__",)
 '''
 
+_FINALIZER_MARKER_WITH_METHOD = '''"""A finalizer marker that also publishes a public method."""
+
+
+class Marker:
+    """Weakly referenceable, but not silent: it has a public method."""
+
+    __slots__ = ("__weakref__",)
+
+    def ping(self) -> int:
+        """Return a constant — a genuine public interface."""
+        return 1
+'''
+
+_FINALIZER_MARKER_LIST_SLOTS = '''"""A finalizer marker declared with a list, not a tuple."""
+
+
+class Marker:
+    """Nothing is read off it; it exists to be weakly referenceable."""
+
+    __slots__ = ["__weakref__"]
+'''
+
 _SLOTTED_HOLDER = '''"""A slotted class that does hold something."""
 
 
@@ -335,6 +357,39 @@ def test_a_finalizer_marker_publishes_nothing_by_design(tmp_path: Path):
 def test_a_slotted_class_that_holds_something_still_counts(tmp_path: Path):
     """The exemption is about holding nothing, not about having slots."""
     assert "R0903" in _lint(_SLOTTED_HOLDER, tmp_path, "slotted_holder", "R0903")
+
+
+@pytest.mark.xfail(
+    reason="_is_finalizer_marker reads only __slots__ and never checks "
+    "whether the class also declares a public method, so a marker that "
+    "gained one is still exempted from the count its own docstring says "
+    "does not apply to it",
+    strict=True,
+)
+def test_a_finalizer_marker_with_a_public_method_is_still_reported(tmp_path: Path):
+    """A marker that publishes a method is not publishing nothing.
+
+    The predicate's own licence is that the class "can hold nothing and
+    publish nothing" — a slot list naming only the weak reference leaves no
+    ATTRIBUTE to read. A method is not an attribute the slot list constrains,
+    so a marker that grows one genuinely publishes an interface, and counting
+    it is exactly what the message is for.
+    """
+    assert "R0903" in _lint(
+        _FINALIZER_MARKER_WITH_METHOD, tmp_path, "marker_with_method", "R0903"
+    )
+
+
+def test_a_finalizer_marker_declared_with_a_list_is_exempt_too(tmp_path: Path):
+    """`__slots__` spelled as a list reads the same names as a tuple would.
+
+    The predicate reads the assigned value's `.elts`, which a `List` node
+    carries exactly as a `Tuple` node does, so the exemption does not depend
+    on which literal spells the one slot.
+    """
+    assert "R0903" not in _lint(
+        _FINALIZER_MARKER_LIST_SLOTS, tmp_path, "marker_list_slots", "R0903"
+    )
 
 
 def test_a_weakly_referenceable_class_with_state_still_counts(tmp_path: Path):
