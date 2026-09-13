@@ -91,12 +91,34 @@ def scan_windows(
     return pool.map(lambda span: scanner.window(text, span[0], span[1]), bounds)
 
 
+def rebase(scanner: Scanner, text: str, workers: int, pool: WorkPool) -> list[int]:
+    """Scan the document and rebase its windows to absolute depth 0, once.
+
+    The two halves of a windowed scan that depend on the document and nothing
+    else: what the windows found, and where their marks stand once the prefix
+    sum has run. Every plan reading the sweep gets the same answer to both, so
+    the orchestrator asks once and hands the offsets down.
+
+    That the rebase is shareable is a property of
+    :meth:`~...discovery.scan.Scanner.offsets` rather than a coincidence: it
+    reads only the windows' own marks and deltas, so which scanner is asked
+    cannot change what comes back.
+
+    :param scanner: The scanner whose spellings the windows were swept for.
+    :param text: The whole document.
+    :param workers: The worker ceiling the window count is bounded by.
+    :param pool: The pool the windows are dispatched on.
+    :returns: The marks standing at absolute depth 0, in document order.
+    """
+    return scanner.offsets(scan_windows(scanner, text, workers, pool), depth=0)
+
+
 def scan_marks(
     plan: SplitPlan,
     text: str,
     workers: int,
     pool: WorkPool,
-    windows: list[Window] | None = None,
+    rebased: list[int] | None = None,
 ) -> list[int]:
     """Depth-0 marks of this plan's spelling, over ``workers`` windows.
 
@@ -112,9 +134,12 @@ def scan_marks(
     and nothing else: a one-character mark cannot overlap itself, so every
     width is 1 and :func:`~...discovery.scan.clustered` is the identity —
     which is that function's own stated contract, not a shortcut past it.
+
+    :param rebased: The shared depth-0 offsets, or ``None`` to scan for them.
+        An EMPTY list is an answer — a document carrying no mark at depth 0 —
+        so absence is stated rather than read off falsiness.
     """
-    scanned = windows or scan_windows(plan.scanner, text, workers, pool)
-    at_depth = plan.scanner.offsets(scanned, depth=0)
+    at_depth = rebase(plan.scanner, text, workers, pool) if rebased is None else rebased
     if all(len(mark) == 1 for mark in plan.mark):
         return [at for at in at_depth if text[at] in plan.mark]
     widths = _widths(text, at_depth, plan.ordered)
@@ -157,7 +182,7 @@ def cut_offsets(
     text: str,
     cores: int,
     pool: WorkPool,
-    windows: list[Window] | None = None,
+    rebased: list[int] | None = None,
 ) -> Cuts:
     """The chosen cut offsets — depth-0 marks of this plan's char, thinned.
 
@@ -170,6 +195,7 @@ def cut_offsets(
     A terminated plan's final mark is dropped: cutting after the document's
     last terminator leaves an empty chunk, which is not a document.
 
+    :param rebased: The shared depth-0 offsets, or ``None`` to scan for them.
     :returns: The chosen offsets and the candidates they came from.
     """
     ceiling = worker_count(len(text), len(text), cores)
@@ -178,7 +204,7 @@ def cut_offsets(
     if plan.envelope is not None:
         marks = plan.envelope.cuts(text)
     else:
-        marks = scan_marks(plan, text, ceiling, pool, windows)
+        marks = scan_marks(plan, text, ceiling, pool, rebased)
         if plan.bound is not None:
             # The unit emits its own mark, so a mark is a candidate rather than
             # a boundary: keep the ones a unit actually begins after. A

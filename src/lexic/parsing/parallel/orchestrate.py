@@ -35,7 +35,7 @@ from lexic.parsing.parallel.plan.cuts import (
     cut_offsets,
     cut_spans,
     reads_a_sweep,
-    scan_windows,
+    rebase,
     shared_scanner,
     sole_mark,
 )
@@ -610,15 +610,17 @@ def split_model[M: IrNamedTuple](
     safe_plans = _safe_plans(_split_plans(grammar), analysis or grammar)
     with PoolLease(workers) as pool:
         shared = shared_scanner(grammar, safe_plans)
-        windows = (
-            scan_windows(shared, ask.text, workers, pool)
-            if shared is not None
-            else None
+        # The rebase belongs to the document, not to a plan: it reads only the
+        # windows' marks and deltas, so every plan reading the sweep recomputed
+        # the same offsets over every mark in the document.
+        rebased = (
+            rebase(shared, ask.text, workers, pool) if shared is not None else None
         )
         for plan in safe_plans:
-            # Only a plan that reads a windowed sweep is handed the shared one;
-            # a walking scan owns its pass, and an envelope plan reads neither.
-            seen = windows if reads_a_sweep(plan) else None
+            # Only a plan that reads a windowed sweep is handed the shared
+            # offsets; a walking scan owns its pass, and an envelope plan reads
+            # neither.
+            seen = rebased if reads_a_sweep(plan) else None
             chosen = cut_offsets(plan, ask.text, cores, pool, seen)
             if not chosen.offsets:
                 continue

@@ -25,8 +25,8 @@ from lexic.parsing.parallel.orchestrate import (
 from lexic.parsing.parallel.plan.cuts import (
     cut_offsets,
     reads_a_sweep,
+    rebase,
     scan_marks,
-    scan_windows,
     shared_scanner,
     sole_mark,
 )
@@ -802,9 +802,9 @@ def test_the_shared_sweep_reports_every_mark_the_plan_scanners_would() -> None:
     assert shared is not None
 
     with WorkPool(4) as pool:
-        narrowed = scan_windows(shared, text, 4, pool)
+        narrowed = rebase(shared, text, 4, pool)
         for plan in plans:
-            own = scan_windows(plan.scanner, text, 4, pool)
+            own = rebase(plan.scanner, text, 4, pool)
             assert scan_marks(plan, text, 4, pool, narrowed) == scan_marks(
                 plan, text, 4, pool, own
             )
