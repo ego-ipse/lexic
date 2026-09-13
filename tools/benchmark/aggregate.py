@@ -19,24 +19,13 @@ import sys
 from pathlib import Path
 from typing import NamedTuple, Sequence
 
-
-class Row(NamedTuple):
-    """One judged row, as ``compare`` wrote it."""
-
-    row: str
-    status: str
-    ratio: float
-    low: float
-    high: float
-    envelope: float
-    pairs: int
-    clock: str
+from tools.benchmark.compare import Verdict
 
 
 class Gathered(NamedTuple):
     """Every artifact read, and every grammar whose artifact was not there."""
 
-    rows: tuple[Row, ...]
+    rows: tuple[Verdict, ...]
     missing: tuple[str, ...]
 
 
@@ -47,7 +36,7 @@ def gather(results: Path, grammars: Sequence[str]) -> Gathered:
     :param grammars: The matrix, in matrix order.
     :returns: The rows found, and the grammars with no artifact.
     """
-    rows: list[Row] = []
+    rows: list[Verdict] = []
     missing: list[str] = []
     for grammar in grammars:
         file = results / f"ab-{grammar}.json"
@@ -55,7 +44,7 @@ def gather(results: Path, grammars: Sequence[str]) -> Gathered:
             missing.append(grammar)
             continue
         payload = json.loads(file.read_text(encoding="utf-8"))
-        rows.extend(Row(**verdict) for verdict in payload["verdicts"])
+        rows.extend(Verdict(**verdict) for verdict in payload["verdicts"])
     return Gathered(tuple(rows), tuple(missing))
 
 
@@ -64,7 +53,7 @@ def _cell(value: float) -> str:
     return f"{value:.4f}"
 
 
-def _markdown_rows(rows: Sequence[Row]) -> list[str]:
+def _markdown_rows(rows: Sequence[Verdict]) -> list[str]:
     """One markdown table of ``rows``, slowest first."""
     lines = [
         "| row | clock | ratio | ci low | ci high | noise | pairs | status |",
