@@ -2068,7 +2068,7 @@ no claim.
 Arming moved from the pool initializer, where the prototype put it, to the
 first CLAIM. An initializer charges every worker an executor starts, including
 those that never touch the registry and therefore have nothing to release;
-arming at claim time is narrower, costs 641 ns against a 365 µs first claim,
+arming at claim time is narrower, costs 721 ns against a 350 µs first claim — two tenths of a percent of it —
 and removed a `pool.py → replicas.py` import edge. `claim_census()` is the new
 meter for the lifetime question `replica_count` cannot answer.
 

@@ -6,13 +6,16 @@ before this landed: one pass over a twelve-grammar roster left **189 of 203
 claims held by threads that had already exited**, and eight further splits of
 the first grammar did not move it.
 
-The mechanism is a per-worker sentinel installed by the pool's initializer,
+The mechanism is a per-thread sentinel armed at the thread's first claim,
 releasing the claims of the `Thread` it captured, finalized when that thread's
 state is freed. `ThreadPoolExecutor` offers an initializer and no per-worker
 exit callback, so object lifetime is the only signal available that fires for
 every worker that ever claimed. Arming at CLAIM time rather than at worker
 start is both cheaper and narrower: a worker that never claims holds nothing
 to release, and a pool whose phases never touch the registry pays nothing.
+
+Releasing can POP the registry the retirement is walking, because that
+registry is itself a memo keyed on the identities a replica part may be.
 
 What these cases defend is not that the release happens but that it happens to
 the RIGHT claims: a running worker keeps its tables, the document thread keeps
@@ -37,11 +40,11 @@ from lexic.parsing.parallel import replicas
 from lexic.parsing.parallel.pool import PoolLease, WorkPool, reset_pools
 from lexic.parsing.parallel.replicas import (
     claim_census,
-    replica_count,
+    document_view,
     retire_thread,
     worker_replica,
 )
-from tests.split_helpers import LEAD_RULE
+from tests.split_helpers import LEAD_RULE, settled_replica_count
 
 DEADLINE = 5.0
 """Seconds a finalizer is given before the case fails."""
@@ -60,16 +63,6 @@ def settled(want: int, which: int = 1) -> tuple[int, int]:
         time.sleep(0.01)
         counted = claims()
     return counted
-
-
-def settled_count(grammar, binding, want: int) -> int:
-    """Poll ``replica_count`` for one pair until it reaches ``want``."""
-    end = time.monotonic() + DEADLINE
-    count = replica_count(grammar, binding)
-    while time.monotonic() < end and count != want:
-        time.sleep(0.01)
-        count = replica_count(grammar, binding)
-    return count
 
 
 @pytest.fixture(name="artefact")
@@ -161,8 +154,8 @@ def test_a_thread_claiming_two_pairs_releases_both_at_exit() -> None:
     thread.start()
     thread.join(DEADLINE)
 
-    assert settled_count(first.codegen_grammar, first.product, 0) == 0
-    assert settled_count(second.codegen_grammar, second.product, 0) == 0
+    assert settled_replica_count(first.codegen_grammar, first.product, 0) == 0
+    assert settled_replica_count(second.codegen_grammar, second.product, 0) == 0
 
 
 def test_two_threads_claiming_one_pair_release_independently() -> None:
@@ -195,13 +188,13 @@ def test_two_threads_claiming_one_pair_release_independently() -> None:
     )
     thread_a.join(DEADLINE)
 
-    assert settled_count(grammar.codegen_grammar, grammar.product, 1) == 1, (
+    assert settled_replica_count(grammar.codegen_grammar, grammar.product, 1) == 1, (
         "thread A's exit must not touch thread B's still-live claim"
     )
 
     release_b.set()
     thread_b.join(DEADLINE)
-    assert settled_count(grammar.codegen_grammar, grammar.product, 0) == 0
+    assert settled_replica_count(grammar.codegen_grammar, grammar.product, 0) == 0
 
 
 # ── the release does not take what is still in use ────────────────────────
@@ -308,6 +301,49 @@ def test_a_one_worker_machine_claims_nothing_for_the_document(
     live, dead = settled(0)
     assert dead == 0, "a claim outlived its thread on the one-worker path"
     assert live == before, "a one-worker document parse claimed something"
+
+
+@pytest.mark.filterwarnings("error::pytest.PytestUnraisableExceptionWarning")
+def test_releasing_a_claim_that_is_another_entrys_key(artefact) -> None:
+    """Releasing may POP the registry the retirement is walking.
+
+    The registry is itself a registered memo keyed on both identities, so a
+    second document thread's binding replica becomes ANOTHER entry's key: the
+    workers that thread starts claim against it. Retiring the thread releases
+    that binding while the walk is in progress, dropping an entry underneath
+    the iterator.
+
+    Built deterministically rather than by racing two parses. A concurrent
+    reproduction exists, but it depends on which entry the pop lands on, and
+    the exception surfaces inside a finalizer where it is printed and
+    swallowed — so a test written that way passes on the defect, which is why
+    none of the ones here caught it. The marker is what closes that door: an
+    unraisable exception becomes an error instead of a warning, so a finalizer
+    that raises fails this case rather than printing into a green run.
+    """
+    compiled, _text = artefact
+    grammar, binding = compiled.codegen_grammar, compiled.product
+    claimed: list[threading.Thread] = []
+
+    def claim_both() -> None:
+        """Take a document view, then claim against that view in turn."""
+        mine = document_view(grammar, binding)
+        if mine is not binding:
+            worker_replica(grammar, mine)
+        claimed.append(threading.current_thread())
+
+    for _ in range(2):
+        thread = threading.Thread(target=claim_both)
+        thread.start()
+        thread.join(DEADLINE)
+    assert len(claimed) == 2, "both threads must have claimed"
+    assert not any(thread.is_alive() for thread in claimed)
+
+    for thread in claimed:
+        retire_thread(thread)
+
+    _live, dead = settled(0)
+    assert dead == 0, f"{dead} claims outlived their threads"
 
 
 # ── the signal's own contract ─────────────────────────────────────────────

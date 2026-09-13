@@ -167,11 +167,20 @@ def _reclaim(entry: _Issued) -> None:
     KEYED by is the exception: those two objects outlive every claim, so their
     entries are the artefact's own to release and never a dead claim's.
     """
-    alive = [held for held in entry.held if held.owner.is_alive()]
-    if len(alive) == len(entry.held):
+    _drop(entry, [held for held in entry.held if not held.owner.is_alive()])
+
+
+def _drop(entry: _Issued, dropped: list[_Held]) -> None:
+    """Remove ``dropped`` from ``entry`` and release what they owned.
+
+    One pass over the claims and one place that mutates them, because the two
+    callers — the liveness sweep and a thread's own exit — remove different
+    claims for the same reason and owe the memos the same thing.
+    """
+    if not dropped:
         return
-    dropped = [held for held in entry.held if not held.owner.is_alive()]
-    entry.held[:] = alive
+    doomed = {id(held) for held in dropped}
+    entry.held[:] = [held for held in entry.held if id(held) not in doomed]
     _release_claims(entry, dropped)
 
 
@@ -180,9 +189,13 @@ def _release_claims(entry: _Issued, dropped: list[_Held]) -> None:
 
     The two objects the registry is KEYED by outlive every claim, so they are
     the artefact's own to release and are excluded here however they were
-    claimed. Shared by the liveness sweep and by a worker's own exit signal,
-    which remove different claims for different reasons and owe the memos the
-    same thing.
+    claimed.
+
+    **Releasing can pop entries from this very registry.** `_REPLICAS` is
+    itself a registered memo keyed on both identities, and a second document
+    thread's binding replica becomes another entry's KEY — so releasing that
+    thread's claim drops that entry. Every caller therefore has to treat the
+    registry as changed underneath it afterwards.
     """
     release(
         tuple(
@@ -210,13 +223,15 @@ def retire_thread(thread: threading.Thread) -> None:
     :param thread: The worker whose claims are to be dropped.
     """
     with _MINTING:
-        for entry in _REPLICAS.values():
-            keep = [held for held in entry.held if held.owner is not thread]
-            if len(keep) == len(entry.held):
-                continue
-            dropped = [held for held in entry.held if held.owner is thread]
-            entry.held[:] = keep
-            _release_claims(entry, dropped)
+        # A SNAPSHOT, because releasing a claim can pop entries from the
+        # registry being walked: a second document thread's binding replica is
+        # another entry's key, and its release drops that entry. Iterating the
+        # live view raised `dictionary changed size during iteration` inside
+        # the finalizer, where the exception is printed and swallowed — so the
+        # loop stopped and every later entry kept this thread's claims, which
+        # is the leak this function exists to remove.
+        for entry in tuple(_REPLICAS.values()):
+            _drop(entry, [held for held in entry.held if held.owner is thread])
 
 
 def _arm(thread: threading.Thread) -> None:
@@ -243,7 +258,11 @@ def _arm(thread: threading.Thread) -> None:
     marker = _Marker()
     _ASSIGNED.exit = marker
     _ASSIGNED.armed = True
-    finalize(marker, retire_thread, thread)
+    # Not at interpreter exit: the process is tearing down, every memo goes
+    # with it, and a finalizer running then would take the lock and walk the
+    # registry to free memory the OS is about to reclaim. `caches.track` sets
+    # it the same way for the same reason.
+    finalize(marker, retire_thread, thread).atexit = False
 
 
 def _claim[M](
@@ -268,6 +287,11 @@ def _claim[M](
             entry = _Issued(grammar, binding, [])
             _REPLICAS[key] = entry
         _reclaim(entry)
+        # `_reclaim` releases, releasing can pop, and what it pops may be this
+        # entry: re-register before appending, or the claim lands on a list
+        # nothing will read again and the replica it records leaks.
+        if _REPLICAS.get(key) is not entry:
+            _REPLICAS[key] = entry
         spare = not any(held.replica[1] is binding for held in entry.held)
         replica = (
             (grammar, binding)
@@ -399,15 +423,10 @@ def claim_census() -> tuple[int, int]:
 
     :returns: ``(live, dead)`` claim counts.
     """
-    live = dead = 0
     with _MINTING:
-        for entry in _REPLICAS.values():
-            for held in entry.held:
-                if held.owner.is_alive():
-                    live += 1
-                else:
-                    dead += 1
-    return live, dead
+        owners = [held.owner for entry in _REPLICAS.values() for held in entry.held]
+    live = sum(owner.is_alive() for owner in owners)
+    return live, len(owners) - live
 
 
 def replica_count(grammar: IrAst, binding: ModelExecutable) -> int:

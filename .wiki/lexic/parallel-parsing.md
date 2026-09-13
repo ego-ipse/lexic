@@ -407,10 +407,10 @@ roster grammar once at `cores=1`, medians of seven collections:
 
 | tracked objects | full collection |
 |---|---|
-| 129,979 (interpreter + lexic) | 7.36 ms |
-| 141,873 (4 artefacts) | 8.55 ms |
-| 169,357 (8 artefacts) | 9.95 ms |
-| 172,450 (12 artefacts) | 10.19 ms |
+| 130,009 (interpreter + lexic) | 7.71 ms |
+| 141,902 (4 artefacts) | 9.03 ms |
+| 169,316 (8 artefacts) | 10.91 ms |
+| 172,409 (12 artefacts) | 10.86 ms |
 
 The cost tracks the population, and the population is what the caller chose to
 keep. A service holding many compiled grammars pays that walk on every
@@ -419,9 +419,8 @@ not cause.
 
 **`gc.freeze()` is the tool, and it belongs to the application.** It moves
 everything currently tracked into a permanent generation that collections skip.
-On the twelve-artefact tree above: 172,421 objects frozen, and a full collection
-goes from **9.99 ms to 5.02 ms** — half. `gc.unfreeze()` restores it exactly
-(10.00 ms).
+On the twelve-artefact tree above: 172,380 objects frozen, and a full collection
+goes from **10.38 ms to 5.20 ms** — half. `gc.unfreeze()` restores it.
 
 Lexic does not call it, and a library should not: freezing is a statement about
 a process's whole lifecycle, made once after the artefacts a program intends to

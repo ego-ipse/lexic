@@ -12,9 +12,14 @@ a stale second answer behind.
 
 from __future__ import annotations
 
+import time
+
 from lexic.compile import CompiledGrammar
+from lexic.ir import IrAst
+from lexic.parsing.executable import ModelExecutable
 from lexic.parsing.parallel import split_model
 from lexic.parsing.parallel.orchestrate import Request
+from lexic.parsing.parallel.replicas import replica_count
 from lexic.parsing.products import parse_model
 
 WORKERS = 8
@@ -89,3 +94,29 @@ drift into a different shape while both still claimed to be testing this one.
 def lead_rule_document(pairs: int) -> str:
     """A ``LEAD_RULE`` document of ``pairs`` items, long enough to divide."""
     return ", ".join(f"key{'x' * (index % 7)}:{index}" for index in range(pairs))
+
+
+SETTLE = 5.0
+"""Seconds a thread's exit signal is given before a case fails."""
+
+
+def settled_replica_count(
+    grammar: IrAst, binding: ModelExecutable, want: int, deadline: float = SETTLE
+) -> int:
+    """Poll ``replica_count`` until it reaches ``want``, or the deadline fails.
+
+    One copy, because two files assert on the same release and two polls would
+    drift. Finalization is not synchronous with `Thread.join` returning: the
+    exit signal fires when the thread's own state is freed, which CPython does
+    on its way out and not before releasing the join. Reading the count
+    straight after a join relies on an ordering nothing promises.
+
+    The deadline is a FAILURE, not a pass — a release that needs the whole of
+    it has not been demonstrated.
+    """
+    end = time.monotonic() + deadline
+    count = replica_count(grammar, binding)
+    while time.monotonic() < end and count != want:
+        time.sleep(0.01)
+        count = replica_count(grammar, binding)
+    return count

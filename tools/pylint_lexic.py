@@ -216,29 +216,62 @@ def _is_method_group(node: nodes.ClassDef) -> bool:
     )
 
 
+def _slot_names(node: nodes.ClassDef) -> list[object] | None:
+    """The names a class declares in ``__slots__``, or ``None`` if it has none.
+
+    Both spellings count: a sequence, and the bare string that declares one
+    slot. Reading only the sequence form would call a legal single-slot class
+    slotless.
+    """
+    slots = node.locals.get("__slots__")
+    if not slots:
+        return None
+    value = getattr(getattr(slots[0], "parent", None), "value", None)
+    names = getattr(value, "elts", None)
+    if names is None:
+        single = getattr(value, "value", None)
+        return [single] if isinstance(single, str) else None
+    return [getattr(name, "value", None) for name in names]
+
+
+def _declares_only_the_weak_slot(node: nodes.ClassDef) -> bool:
+    """True when ``__slots__`` names the weak-reference slot and nothing else."""
+    return _slot_names(node) == ["__weakref__"]
+
+
+def _publishes_nothing(node: nodes.ClassDef) -> bool:
+    """True if the class defines no public method and inherits no interface.
+
+    ``__slots__`` constrains instance ATTRIBUTES and says nothing about an
+    interface, so the slot list alone cannot license the exemption: a class can
+    declare one slot and still publish methods, or inherit them from a base.
+    Both halves of the licence have to be checked, or the predicate exempts the
+    very thing the message is about.
+    """
+    own = any(
+        isinstance(value, nodes.FunctionDef) and not value.name.startswith("_")
+        for values in node.locals.values()
+        for value in values
+    )
+    inherited = [base for base in node.ancestors() if base.qname() != "builtins.object"]
+    return not own and not inherited
+
+
 def _is_finalizer_marker(node: nodes.ClassDef) -> bool:
     """True for a sentinel whose whole interface is being weakly referenceable.
 
-    One structural fact, no name: the class declares ``__slots__`` and the ONLY
-    slot it declares is ``__weakref__``. Such a class holds nothing and
-    publishes nothing — it cannot, since a slot list that names only the weak
-    reference leaves no attribute to read. It exists so a finalizer can be
-    armed on an object whose lifetime is exactly some other thing's, and
-    counting its public methods measures the absence it was built for.
+    Two structural facts, no name: the only slot the class declares is
+    ``__weakref__``, AND it publishes nothing — no public method of its own and
+    no base beyond ``object``. Such a class holds nothing and offers nothing;
+    it exists so a finalizer can be armed on an object whose lifetime is
+    exactly some other thing's, and counting its public methods measures the
+    absence it was built for.
 
     Declaring the slot is not incidental: a class with ``__slots__ = ()`` is
     not weakly referenceable at all, so the one member here is the whole
     mechanism.
     """
-    slots = node.locals.get("__slots__")
-    if not slots:
-        return False
-    assigned = getattr(slots[0], "parent", None)
-    value = getattr(assigned, "value", None)
-    names = getattr(value, "elts", None)
-    if names is None:
-        return False
-    return [getattr(name, "value", None) for name in names] == ["__weakref__"]
+    return _declares_only_the_weak_slot(node) and _publishes_nothing(node)
 
 
 type Exempt = Callable[[nodes.ClassDef], bool]

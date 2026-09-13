@@ -271,6 +271,32 @@ class Marker:
     __slots__ = ("__weakref__",)
 '''
 
+_MARKER_WITH_AN_INHERITED_INTERFACE = '''"""A marker whose BASE publishes the interface."""
+
+
+class Published:
+    """An ordinary class with a public method."""
+
+    def read(self) -> int:
+        """Publish something."""
+        return 1
+
+
+class Marker(Published):
+    """Only slot is __weakref__, but the interface is inherited."""
+
+    __slots__ = ("__weakref__",)
+'''
+
+_MARKER_WITH_A_STRING_SLOT = '''"""`__slots__` as a bare string is a legal single slot."""
+
+
+class Marker:
+    """Declares the weak-reference slot without a sequence."""
+
+    __slots__ = "__weakref__"
+'''
+
 _FINALIZER_MARKER_WITH_METHOD = '''"""A finalizer marker that also publishes a public method."""
 
 
@@ -359,13 +385,6 @@ def test_a_slotted_class_that_holds_something_still_counts(tmp_path: Path):
     assert "R0903" in _lint(_SLOTTED_HOLDER, tmp_path, "slotted_holder", "R0903")
 
 
-@pytest.mark.xfail(
-    reason="_is_finalizer_marker reads only __slots__ and never checks "
-    "whether the class also declares a public method, so a marker that "
-    "gained one is still exempted from the count its own docstring says "
-    "does not apply to it",
-    strict=True,
-)
 def test_a_finalizer_marker_with_a_public_method_is_still_reported(tmp_path: Path):
     """A marker that publishes a method is not publishing nothing.
 
@@ -377,6 +396,30 @@ def test_a_finalizer_marker_with_a_public_method_is_still_reported(tmp_path: Pat
     """
     assert "R0903" in _lint(
         _FINALIZER_MARKER_WITH_METHOD, tmp_path, "marker_with_method", "R0903"
+    )
+
+
+def test_a_marker_that_inherits_an_interface_is_still_reported(tmp_path: Path):
+    """`__slots__` constrains attributes and says nothing about a base.
+
+    A class can declare the weak-reference slot and still publish a whole
+    interface through what it derives from, so the slot list alone cannot
+    license the exemption.
+    """
+    assert "R0903" in _lint(
+        _MARKER_WITH_AN_INHERITED_INTERFACE, tmp_path, "marker_inherits", "R0903"
+    )
+
+
+def test_a_marker_declared_with_a_bare_string_is_exempt_too(tmp_path: Path):
+    """``__slots__ = "__weakref__"`` declares the same one slot a tuple would.
+
+    Reading only the sequence form would call a legal single-slot class
+    slotless, and the predicate's licence is about what the class declares,
+    not how the declaration is spelled.
+    """
+    assert "R0903" not in _lint(
+        _MARKER_WITH_A_STRING_SLOT, tmp_path, "marker_string_slot", "R0903"
     )
 
 

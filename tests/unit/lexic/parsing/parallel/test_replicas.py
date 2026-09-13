@@ -32,6 +32,7 @@ from lexic.parsing.parallel import (
     worker_replica,
 )
 from lexic.parsing.parallel.pool import WorkPool
+from tests.split_helpers import settled_replica_count
 
 TEXT = "- alpha\n- beta\n- gamma\n"
 
@@ -283,12 +284,12 @@ def test_an_exited_workers_replica_is_dropped_rather_than_reissued() -> None:
     first = _in_thread(lambda: worker_replica(grammar, binding))
     # The thread has already exited, so its own exit signal has released the
     # claim: the registry does not grow with every pool the process started.
-    assert replica_count(grammar, binding) == 0
+    assert settled_replica_count(grammar, binding, 0) == 0
 
     second = _in_thread(lambda: worker_replica(grammar, binding))
 
     assert second[0] is not first[0], "a dead thread's tables were re-issued"
-    assert replica_count(grammar, binding) == 0
+    assert settled_replica_count(grammar, binding, 0) == 0
 
 
 def test_a_live_workers_replica_survives_another_threads_claim() -> None:
@@ -301,7 +302,7 @@ def test_a_live_workers_replica_survives_another_threads_claim() -> None:
     assert worker_replica(grammar, binding) is mine
     # One live claim — this thread's. The other thread has exited and released
     # its own, which is liveness deciding the answer rather than recency.
-    assert replica_count(grammar, binding) == 1
+    assert settled_replica_count(grammar, binding, 1) == 1
 
 
 def test_the_first_document_thread_keeps_the_original_pair(
@@ -333,7 +334,7 @@ def test_a_second_document_thread_gets_a_view_of_its_own(
 
     assert mine is binding
     assert theirs is not binding
-    assert replica_count(grammar, binding) == 1, (
+    assert settled_replica_count(grammar, binding, 1) == 1, (
         "the exited second document thread must have released its own view"
     )
 
