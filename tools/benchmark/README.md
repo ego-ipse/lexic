@@ -73,6 +73,11 @@ which under the old rule failed the whole run on code that had not changed.
 Unresolved rows print in full — ratio, clock, interval, envelope, pair count —
 and the summary says how many there were and that they did not block.
 
+On the remote the gate runs as one `compare.py` job per grammar, each
+uploading its `--json` verdicts; `aggregate.py` reads them back, applies the
+same rule, and writes the job summary — a grammar whose job never reported
+and every `slower` row come first, every row in one table below them.
+
 `regression.py` is structure, and it is what the pre-commit hook runs. A hook
 cannot reserve a quiet machine, so it proves the rows are still the rows and
 times nothing.

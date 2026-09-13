@@ -131,6 +131,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Check out the aggregator
+        uses: actions/checkout@v7.0.1
+        with:
+          sparse-checkout: tools
+          sparse-checkout-cone-mode: false
+
       - name: Download every grammar's result
         uses: actions/download-artifact@v8.0.1
         with:
@@ -141,32 +147,10 @@ jobs:
       - name: Combine and judge every row
         shell: bash
         run: |
-          # Must match the matrix's grammar list above.
-          grammars=(
-            arithmetic csv json gbnf-meta abnf-meta vyx
-            markdown nested lexruns backtrack mixedends announced
-          )
-          fail=0
-          printf '%-28s %-8s %8s  %s\n' "row" "clock" "ratio" "status"
-          for grammar in "${grammars[@]}"; do
-            file="results/ab-${grammar}.json"
-            if [[ ! -f "$file" ]]; then
-              echo "MISSING: ${grammar} produced no artifact (job failed or was cancelled)"
-              fail=1
-              continue
-            fi
-            jq -r '.verdicts[] | [.row, .clock, (.ratio | tostring), .status] | @tsv' "$file" \
-              | while IFS=$'\t' read -r row clock ratio verdict_status; do
-                  printf '%-28s %-8s %8s  %s\n' "$row" "$clock" "$ratio" "$verdict_status"
-                done
-            if jq -e 'any(.verdicts[]; .status == "slower")' "$file" > /dev/null; then
-              fail=1
-            fi
-          done
-          if [[ "$fail" -ne 0 ]]; then
-            echo
-            echo "aggregate: at least one row is slower than this machine's envelope, or a matrix job did not report"
-            exit 1
-          fi
-          echo
-          echo "aggregate: no row is slower than this machine's envelope"
+          # The grammar list must match the matrix above. Problems — a job
+          # that never reported, a row slower than the envelope — render at
+          # the top of the job summary, every row below them.
+          python3 -m tools.benchmark.aggregate results \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --expect arithmetic csv json gbnf-meta abnf-meta vyx \
+                     markdown nested lexruns backtrack mixedends announced
