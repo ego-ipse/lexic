@@ -148,6 +148,11 @@ def test_every_source_module_has_a_mirrored_unit_test_file() -> None:
 
 
 BEHAVIOUR_SUITES: dict[str, str] = {
+    "parsing/parallel/test_replica_reclamation.py": (
+        "the replica LIFETIME as a behaviour — a claim is released when its "
+        "worker exits, which spans replicas.py and the pool that starts the "
+        "threads; the per-module surfaces have their mirrors beside it"
+    ),
     "compile/payload/test_project.py": (
         "a defect-regression suite — each test names the defect it stands "
         "over, so it is named for what it defends, not for one module"

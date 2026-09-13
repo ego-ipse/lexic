@@ -262,6 +262,33 @@ class ExecutionMixin:
         return len(self.text)
 '''
 
+_FINALIZER_MARKER = '''"""A sentinel whose whole interface is being finalizable."""
+
+
+class Marker:
+    """Nothing is read off it; it exists to be weakly referenceable."""
+
+    __slots__ = ("__weakref__",)
+'''
+
+_SLOTTED_HOLDER = '''"""A slotted class that does hold something."""
+
+
+class Holder:
+    """One ordinary slot — an abstraction with a thin interface."""
+
+    __slots__ = ("value",)
+'''
+
+_MARKER_WITH_STATE = '''"""Weakly referenceable AND stateful — not a marker."""
+
+
+class Both:
+    """Declares the weak reference slot beside real state."""
+
+    __slots__ = ("__weakref__", "value")
+'''
+
 _THIN_ABSTRACTION = '''"""A module-level class with a thin public interface."""
 
 
@@ -292,6 +319,31 @@ def test_a_method_group_publishes_nothing_by_design(tmp_path: Path):
     class inherits it.
     """
     assert "R0903" not in _lint(_METHOD_GROUP, tmp_path, "method_group", "R0903")
+
+
+def test_a_finalizer_marker_publishes_nothing_by_design(tmp_path: Path):
+    """A class whose only slot is ``__weakref__`` can hold nothing at all.
+
+    Recognised by what it IS, never by a name: a slot list naming only the
+    weak reference leaves no attribute to read, so the class exists solely to
+    let an object's lifetime be observed. Declaring the slot is the whole
+    mechanism — ``__slots__ = ()`` is not weakly referenceable.
+    """
+    assert "R0903" not in _lint(_FINALIZER_MARKER, tmp_path, "marker", "R0903")
+
+
+def test_a_slotted_class_that_holds_something_still_counts(tmp_path: Path):
+    """The exemption is about holding nothing, not about having slots."""
+    assert "R0903" in _lint(_SLOTTED_HOLDER, tmp_path, "slotted_holder", "R0903")
+
+
+def test_a_weakly_referenceable_class_with_state_still_counts(tmp_path: Path):
+    """Declaring ``__weakref__`` beside real state is not a marker.
+
+    The narrow reading is the point: a class that can be finalized AND holds a
+    value is an abstraction, and counting its interface means what it says.
+    """
+    assert "R0903" in _lint(_MARKER_WITH_STATE, tmp_path, "marker_state", "R0903")
 
 
 def test_a_genuine_thin_abstraction_is_still_reported(tmp_path: Path):

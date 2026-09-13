@@ -32,7 +32,7 @@ body still resolves the parameter it declared.
 
 The exemption is `too-few-public-methods`. The design checker already skips the
 shapes that are not abstractions with a public interface — an Enum, a named
-tuple, a TypedDict, a dataclass — through one predicate. Two of this
+tuple, a TypedDict, a dataclass — through one predicate. Three of this
 repository's shapes belong in that set for the same reason, so they are added
 to that predicate rather than answered one site at a time: see
 :func:`_counts_no_interface`.
@@ -216,6 +216,31 @@ def _is_method_group(node: nodes.ClassDef) -> bool:
     )
 
 
+def _is_finalizer_marker(node: nodes.ClassDef) -> bool:
+    """True for a sentinel whose whole interface is being weakly referenceable.
+
+    One structural fact, no name: the class declares ``__slots__`` and the ONLY
+    slot it declares is ``__weakref__``. Such a class holds nothing and
+    publishes nothing — it cannot, since a slot list that names only the weak
+    reference leaves no attribute to read. It exists so a finalizer can be
+    armed on an object whose lifetime is exactly some other thing's, and
+    counting its public methods measures the absence it was built for.
+
+    Declaring the slot is not incidental: a class with ``__slots__ = ()`` is
+    not weakly referenceable at all, so the one member here is the whole
+    mechanism.
+    """
+    slots = node.locals.get("__slots__")
+    if not slots:
+        return False
+    assigned = getattr(slots[0], "parent", None)
+    value = getattr(assigned, "value", None)
+    names = getattr(value, "elts", None)
+    if names is None:
+        return False
+    return [getattr(name, "value", None) for name in names] == ["__weakref__"]
+
+
 type Exempt = Callable[[nodes.ClassDef], bool]
 """The checker's own question: is this class one the count means nothing for?"""
 
@@ -233,12 +258,20 @@ def _counts_no_interface(exempt: Exempt, node: nodes.ClassDef) -> bool:
     - a class with no ``__init__``, ``__slots__ = ()`` and annotations it never
       assigns is a method group: it holds nothing, it is never instantiated,
       and both its state and its interface belong to the class that inherits
-      it (``parsing/README.md`` calls this an implementation seam).
+      it (``parsing/README.md`` calls this an implementation seam);
+    - a class whose only slot is ``__weakref__`` is a finalizer marker: it can
+      hold nothing and publish nothing, and exists solely to be weakly
+      referenceable so an object's lifetime can be observed.
 
     Everything else the checker decides for itself, which is what keeps a
     genuine thin abstraction reported.
     """
-    return exempt(node) or _is_fixture_class(node) or _is_method_group(node)
+    return (
+        exempt(node)
+        or _is_fixture_class(node)
+        or _is_method_group(node)
+        or _is_finalizer_marker(node)
+    )
 
 
 def register(_linter: PyLinter) -> None:

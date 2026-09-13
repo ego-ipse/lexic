@@ -22,16 +22,19 @@ followed by an append over-allocates when several threads first-touch a pair at
 once.
 
 The models stay identical because the replica is equal by value and holds the
-SAME synthesized classes — which is also the ceiling here. The classes are
-shared by necessity (two workers building two different classes for one rule
-would break model equality, the thing the split exists to preserve), so their
-own refcount traffic remains.
+SAME synthesized classes. That sharing is a NECESSITY rather than a compromise
+— two workers building two different classes for one rule would break model
+equality, which is the thing the split exists to preserve — and it is not what
+bounds the scaling: measured on sixteen threads, private classes and shared
+ones scale alike (1.33x against 1.27x), so the classes' own refcount traffic is
+not where the remaining ceiling sits.
 """
 
 from __future__ import annotations
 
 import threading
 from typing import NamedTuple
+from weakref import finalize
 
 from lexic.ir import IrAst
 from lexic.parsing.caches import adopt, memo, release
@@ -102,6 +105,18 @@ old population and mint against it: 16 concurrent requests for 17 replicas
 produced 23 to 32 of them.
 """
 
+
+# A sentinel has no interface by design: nothing is ever read off it, and its
+# only job is to be weakly referenceable, so a finalizer can be armed on an
+# object that dies exactly when a thread's own state is freed. The weak
+# reference slot is the one thing it must declare — without it the arming
+# raises, which is how this was first got wrong.
+class _Marker:
+    """A per-thread object whose collection IS that thread's exit signal."""
+
+    __slots__ = ("__weakref__",)
+
+
 _ASSIGNED = threading.local()
 """Each thread's own replica cache, per pair. The cache is what keeps the hot
 path a thread-local attribute read — resolving through the shared registry on
@@ -155,15 +170,80 @@ def _reclaim(entry: _Issued) -> None:
     alive = [held for held in entry.held if held.owner.is_alive()]
     if len(alive) == len(entry.held):
         return
-    gone = tuple(
-        id(part)
-        for held in entry.held
-        if not held.owner.is_alive()
-        for part in held.replica
-        if part is not entry.grammar and part is not entry.binding
-    )
+    dropped = [held for held in entry.held if not held.owner.is_alive()]
     entry.held[:] = alive
-    release(gone)
+    _release_claims(entry, dropped)
+
+
+def _release_claims(entry: _Issued, dropped: list[_Held]) -> None:
+    """Release the memo entries of claims just removed — never the keys.
+
+    The two objects the registry is KEYED by outlive every claim, so they are
+    the artefact's own to release and are excluded here however they were
+    claimed. Shared by the liveness sweep and by a worker's own exit signal,
+    which remove different claims for different reasons and owe the memos the
+    same thing.
+    """
+    release(
+        tuple(
+            id(part)
+            for held in dropped
+            for part in held.replica
+            if part is not entry.grammar and part is not entry.binding
+        )
+    )
+
+
+def retire_thread(thread: threading.Thread) -> None:
+    """Release every replica ``thread`` claimed — its own exit calling in.
+
+    Keyed on the thread OBJECT captured when the worker started, never on
+    :func:`threading.current_thread`: this runs while that thread's state is
+    being torn down, where the call returns a dummy thread and would match
+    nothing.
+
+    This is what makes the release independent of any later parse.
+    :func:`_reclaim` prunes only the pair being claimed against, so a pair no
+    document touches again keeps its dead claims for the life of the process —
+    measured at 189 of 203 claims after one pass over a twelve-grammar roster.
+
+    :param thread: The worker whose claims are to be dropped.
+    """
+    with _MINTING:
+        for entry in _REPLICAS.values():
+            keep = [held for held in entry.held if held.owner is not thread]
+            if len(keep) == len(entry.held):
+                continue
+            dropped = [held for held in entry.held if held.owner is thread]
+            entry.held[:] = keep
+            _release_claims(entry, dropped)
+
+
+def _arm(thread: threading.Thread) -> None:
+    """Arm this thread's exit signal, once, the first time it claims.
+
+    The signal comes from object lifetime, because
+    :class:`~concurrent.futures.ThreadPoolExecutor` has an initializer and no
+    per-worker exit callback. A bare marker goes into this thread's own local
+    state and a finalizer is armed on it: the state is freed when the thread
+    ends, the marker is collected, and the finalizer retires what that thread
+    held.
+
+    Armed at CLAIM time rather than at worker start, which is both cheaper and
+    narrower: a worker that never claims has nothing to release, and a pool
+    whose phases never touch the registry pays nothing at all.
+
+    The owning thread is captured here and passed to the finalizer, never read
+    inside it. :func:`threading.current_thread` called during a worker's
+    teardown returns a dummy thread that matches no claim, so a signal that
+    asked who it was at finalization time would retire nothing.
+    """
+    if getattr(_ASSIGNED, "armed", False):
+        return
+    marker = _Marker()
+    _ASSIGNED.exit = marker
+    _ASSIGNED.armed = True
+    finalize(marker, retire_thread, thread)
 
 
 def _claim[M](
@@ -194,7 +274,9 @@ def _claim[M](
             if document and spare
             else _mint(key, grammar, binding, document)
         )
-        entry.held.append(_Held(threading.current_thread(), replica))
+        owner = threading.current_thread()
+        entry.held.append(_Held(owner, replica))
+        _arm(owner)
     return replica
 
 
@@ -305,6 +387,27 @@ def worker_parse[M](
     """
     view_grammar, view_binding = worker_replica(grammar, binding)
     return parse(view_grammar, text, view_binding, resolve)
+
+
+def claim_census() -> tuple[int, int]:
+    """Claims across the whole registry, split by whether their thread lives.
+
+    The sibling of :func:`replica_count`, which meters one pair. This one
+    answers the lifetime question the pair-wise meter cannot: whether anything
+    is held by a thread that has already exited. A non-zero second element
+    means a claim outlived its owner and nothing released it.
+
+    :returns: ``(live, dead)`` claim counts.
+    """
+    live = dead = 0
+    with _MINTING:
+        for entry in _REPLICAS.values():
+            for held in entry.held:
+                if held.owner.is_alive():
+                    live += 1
+                else:
+                    dead += 1
+    return live, dead
 
 
 def replica_count(grammar: IrAst, binding: ModelExecutable) -> int:

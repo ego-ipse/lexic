@@ -134,11 +134,24 @@ def test_one_thread_claims_one_replica_per_pair() -> None:
 
 
 def _claim_together(grammar: IrAst, binding: ModelExecutable, count: int):
-    """``count`` threads claiming at once, none exiting before all have."""
+    """``count`` threads claiming at once, none exiting before all have.
+
+    The registry is read AT the finish barrier, while every claimant is still
+    alive. A worker releases its claim when it exits, so a count taken after
+    the join would measure reclamation instead of allocation.
+    """
     started = threading.Barrier(count)
-    finished = threading.Barrier(count)
     claimed: list[Replica] = []
+    live: list[int] = []
     lock = threading.Lock()
+
+    # Read in the barrier's ACTION, which runs once when the barrier trips and
+    # BEFORE any waiter is released. Reading after release is a race: the
+    # barrier frees all sixteen at once and the first to look has already lost
+    # some of the others to their own exit signals.
+    finished = threading.Barrier(
+        count, action=lambda: live.append(replica_count(grammar, binding))
+    )
 
     def claim() -> None:
         started.wait(timeout=30)
@@ -152,7 +165,7 @@ def _claim_together(grammar: IrAst, binding: ModelExecutable, count: int):
         thread.start()
     for thread in threads:
         thread.join(timeout=30)
-    return claimed
+    return claimed, live[0]
 
 
 def test_concurrent_first_touches_allocate_exactly_one_replica_each() -> None:
@@ -164,20 +177,20 @@ def test_concurrent_first_touches_allocate_exactly_one_replica_each() -> None:
     """
     grammar, binding = _pair("first-touch-race")
 
-    claimed = _claim_together(grammar, binding, 16)
+    claimed, live = _claim_together(grammar, binding, 16)
 
     assert len(claimed) == 16
     assert len({id(replica) for replica in claimed}) == 16
     assert len({id(replica[0]) for replica in claimed}) == 16
     assert len({id(replica[1]) for replica in claimed}) == 16
-    assert replica_count(grammar, binding) == 16
+    assert live == 16, f"the registry held {live} while all sixteen were alive"
 
 
 def test_no_worker_is_handed_the_original_pair() -> None:
     """The submitting thread's own objects stay its own."""
     grammar, binding = _pair("original-pair")
 
-    claimed = _claim_together(grammar, binding, 4)
+    claimed, _live = _claim_together(grammar, binding, 4)
 
     assert all(replica[0] is not grammar for replica in claimed)
     assert all(replica[1] is not binding for replica in claimed)
@@ -214,11 +227,17 @@ def test_two_overlapping_pools_never_share_a_replica() -> None:
         driver.start()
         _pool_views(two, parse, arrived, (grammar, binding))
         driver.join(timeout=30)
+        live_count = replica_count(grammar, binding)
 
     assert len(parse.calls) == 4
     assert len(parse.views()) == 4
     assert id(grammar) not in parse.views()
-    assert replica_count(grammar, binding) == 4
+    # Counted while the four workers were alive. The count AFTER their pools
+    # close is not this test's subject and is no longer four: a worker releases
+    # its claim when it exits, so a post-hoc count measures reclamation rather
+    # than whether two live pools ever shared a view.
+    assert live_count == 4
+    assert replica_count(grammar, binding) <= 1
 
 
 def test_worker_parse_hands_the_product_this_threads_view() -> None:
@@ -262,12 +281,14 @@ def test_an_exited_workers_replica_is_dropped_rather_than_reissued() -> None:
     grammar, binding = _pair("exited-worker")
 
     first = _in_thread(lambda: worker_replica(grammar, binding))
-    assert replica_count(grammar, binding) == 1
+    # The thread has already exited, so its own exit signal has released the
+    # claim: the registry does not grow with every pool the process started.
+    assert replica_count(grammar, binding) == 0
 
     second = _in_thread(lambda: worker_replica(grammar, binding))
 
-    assert second[0] is not first[0]
-    assert replica_count(grammar, binding) == 1
+    assert second[0] is not first[0], "a dead thread's tables were re-issued"
+    assert replica_count(grammar, binding) == 0
 
 
 def test_a_live_workers_replica_survives_another_threads_claim() -> None:
@@ -278,7 +299,9 @@ def test_a_live_workers_replica_survives_another_threads_claim() -> None:
     _in_thread(lambda: worker_replica(grammar, binding))
 
     assert worker_replica(grammar, binding) is mine
-    assert replica_count(grammar, binding) == 2
+    # One live claim — this thread's. The other thread has exited and released
+    # its own, which is liveness deciding the answer rather than recency.
+    assert replica_count(grammar, binding) == 1
 
 
 def test_the_first_document_thread_keeps_the_original_pair(
@@ -310,7 +333,9 @@ def test_a_second_document_thread_gets_a_view_of_its_own(
 
     assert mine is binding
     assert theirs is not binding
-    assert replica_count(grammar, binding) == 2
+    assert replica_count(grammar, binding) == 1, (
+        "the exited second document thread must have released its own view"
+    )
 
 
 def test_a_document_view_is_an_executable_and_a_worker_view_is_a_pair(
