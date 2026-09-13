@@ -33,6 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from lexic.compile import compile_text
+from lexic.parsing.parallel import replicas
 from lexic.parsing.parallel.pool import PoolLease, WorkPool, reset_pools
 from lexic.parsing.parallel.replicas import (
     claim_census,
@@ -74,13 +75,20 @@ def _artefact():
 
 
 def test_a_clean_close_leaves_no_dead_claim(artefact) -> None:
-    """Workers that exited hold nothing, and no further parse is needed."""
+    """Workers that exited hold nothing, and no further parse is needed.
+
+    The live count is compared against its own BEFORE, never against one: a
+    machine offering a single worker claims nothing for the document thread at
+    all (see `test_a_one_worker_machine_claims_nothing_for_the_document`), so
+    an absolute floor asserts a property of the runner rather than of the code.
+    """
     compiled, text = artefact
+    before = claims()[0]
     compiled.parse(text, cores=8)
     reset_pools()
     live, dead = settled(0)
     assert dead == 0, f"{dead} claims outlived their threads"
-    assert live >= 1, "the document thread's own claim must remain"
+    assert live >= before, "a live thread's claim was released"
 
 
 def test_a_pair_never_touched_again_is_still_cleaned(artefact) -> None:
@@ -188,11 +196,12 @@ def test_a_live_idle_pool_keeps_its_replicas(artefact) -> None:
     """A pool returned to the idle cache still owns its workers' tables."""
     compiled, text = artefact
     compiled.parse(text, cores=8)
+    before = claims()[0]
     with PoolLease(8) as pool:
         assert pool.workers >= 2
         live, dead = claims()
     assert dead == 0
-    assert live >= 1, "the idle pool's live workers must keep their claims"
+    assert live >= before, "a live claim was dropped while a pool was idle"
 
 
 def test_the_document_thread_keeps_its_view(artefact) -> None:
@@ -205,6 +214,28 @@ def test_the_document_thread_keeps_its_view(artefact) -> None:
     assert dead == 0
     assert live >= before, "the document thread's view was swept"
     assert compiled.parse(text, cores=1).to_text() == text
+
+
+def test_a_one_worker_machine_claims_nothing_for_the_document(
+    monkeypatch: pytest.MonkeyPatch, artefact
+) -> None:
+    """Why no case here may assert an absolute live count.
+
+    `document_view` hands the binding straight back when the machine offers
+    fewer than two workers — a GIL build, one cpu, or a container whose quota
+    `os.process_cpu_count()` reads as one — so the document thread claims
+    nothing and a whole-registry census can legitimately be empty. Asserting
+    `live >= 1` anywhere in this file passes here and fails there, which is
+    exactly how it failed on a four-vcpu runner under xdist.
+    """
+    compiled, text = artefact
+    monkeypatch.setattr(replicas, "available_workers", lambda: 1)
+    before = claims()[0]
+    compiled.parse(text, cores=8)
+    reset_pools()
+    live, dead = settled(0)
+    assert dead == 0, "a claim outlived its thread on the one-worker path"
+    assert live == before, "a one-worker document parse claimed something"
 
 
 # ── the signal's own contract ─────────────────────────────────────────────
