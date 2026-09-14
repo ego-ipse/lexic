@@ -38,7 +38,12 @@ from lexic.parsing.pda.analysis.gates.structured import (
     structured_arm_gate,
 )
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import SG_MATCH, SG_PROBE, SG_SCAN
+from lexic.parsing.pda.core.scanner import (
+    SG_MATCH,
+    SG_PROBE,
+    SG_SCAN,
+    ScanGate,
+)
 from tests.unit.lexic.parsing.pda.analysis.gates.test_noise import (
     WS,
     item,
@@ -102,11 +107,19 @@ def test_one_root_candidate_when_the_declaration_adds_nothing():
     assert root_candidates(analysis) == (run_roots(analysis),)
 
 
-def struct_gate(analysis: GrammarAnalysis, rule_name: str, item_index: int):
+def struct_gate(analysis: GrammarAnalysis, rule_name: str, item_index: int) -> ScanGate:
     """The stored :class:`ScanGate` for ``rule_name``'s body-arm-0 item at
-    ``item_index`` — the taxonomy's identity-keyed struct-gate channel."""
+    ``item_index`` — the taxonomy's identity-keyed runtime-ready channel.
+
+    That channel holds either a :class:`ScanGate` or the split-greedy licence's
+    spec, so the kind is asserted here rather than assumed by every caller: a
+    test reaching for ``.kind`` on a licence would be asking the wrong gate
+    about the wrong decision.
+    """
     items = [i for i in analysis.rules[rule_name].body[0] if isinstance(i, IrItem)]
-    return analysis.taxonomy.ready_loop_gates[id(items[item_index])]
+    gate = analysis.taxonomy.ready_loop_gates[id(items[item_index])]
+    assert isinstance(gate, ScanGate), f"{rule_name}[{item_index}] is not a scan gate"
+    return gate
 
 
 def test_gbnf_sequence_loop_demotes_to_sg_probe():

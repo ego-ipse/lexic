@@ -320,9 +320,11 @@ src/lexic/
         __init__.py                The PDA analysis — decide every decision point, then store the gate specs
         analysis.py                Grammar analysis + decision taxonomy — the PDA compiler's oracle
         conflicts.py               Late conflict classifiers split from the oracle
+        demote.py                  The demotion cascade — what a conflicted decision may be demoted TO
         cursors.py                 Analysis context cursors — the small data records that ride the nc channel
         gates/                 The gate analyses — one per decision the PDA must settle
           __init__.py          the group's package marker
+          greedy.py           The split-greedy licence — a loop the split rule settles, not lookahead
           kwindow.py          FIRST_k over CharSet tuples — the k-window (bounded-lookahead) analysis
           leftrec.py          Left-recursion detection — the predictive-descent impossibility check
           noise.py            Noise/semantic attribution — the P6 licence + P3 noise-skip substrate

@@ -33,7 +33,7 @@ from lexic.ir import (
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, kwindow, nullable_names
 from lexic.parsing.pda.core.charsets import CharSet
-from lexic.parsing.pda.core.scanner import SG_PROBE, SG_SCAN
+from lexic.parsing.pda.core.scanner import ScanGate, SG_PROBE, SG_SCAN
 from tests.paths import GROUND_TRUTH
 from tests.unit.lexic.parsing.ir_fixtures import analysis_of as _analysis
 from tests.unit.lexic.parsing.ir_fixtures import item_of as _item
@@ -520,8 +520,16 @@ def test_self_grammar_struct_gate_kinds(name: str, root_rule: str, expected_kind
     now demotes via the exact-match gate's P6 precision clause."""
     analysis = self_grammar_analysis(name)
     assert root_rule not in analysis.conflicts
-    kinds = sorted(gate.kind for gate in analysis.taxonomy.ready_loop_gates.values())
-    assert kinds == expected_kinds
+    # The channel also carries the split-greedy licence, whose spec has no
+    # kind — a self-grammar issues none, and the filter says so rather than
+    # assuming it.
+    gates = [
+        gate
+        for gate in analysis.taxonomy.ready_loop_gates.values()
+        if isinstance(gate, ScanGate)
+    ]
+    assert len(gates) == len(analysis.taxonomy.ready_loop_gates)
+    assert sorted(gate.kind for gate in gates) == expected_kinds
 
 
 # ── struct_arm_gates (Task 4/4b): the empty-arm ARM gate ───────────────────

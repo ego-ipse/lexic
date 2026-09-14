@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from lexic.ir import IrItem, IrNoneType
+from lexic.parsing.pda.analysis.demote import demote_loop
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
 from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
@@ -37,7 +38,7 @@ def soft_gap_conflict(
     if noise_greedy_licensed(analysis, items, k, scope):
         notes.soft.append(f"{scope.rule}[{k}]: loop stop-set applied (noise-greedy)")
         return
-    if not analysis._demote_loop(items, k, scope, notes):
+    if not demote_loop(analysis, items, k, scope, notes):
         notes.hard.append(f"{scope.rule}[{k}]: loop over-eats soft FOLLOW, not gatable")
         analysis.taxonomy.attempt_loops[id(items[k])] = analysis.beyond_at(
             items, k, scope

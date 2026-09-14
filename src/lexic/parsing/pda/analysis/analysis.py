@@ -14,7 +14,6 @@ __all__ = ["AttemptSpec", "GrammarAnalysis", "Taxonomy", "nullable_names"]
 
 from typing import Sequence, cast
 
-from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import (
     IrAst,
     IrAtom,
@@ -31,6 +30,7 @@ from lexic.parsing.pda.analysis.conflicts import (
     soft_gap_conflict,
     sub_conflict,
 )
+from lexic.parsing.pda.analysis import demote
 from lexic.parsing.pda.analysis.cursors import (
     Cont,
     FeedCtx,
@@ -40,18 +40,10 @@ from lexic.parsing.pda.analysis.cursors import (
     Site,
 )
 from lexic.parsing.pda.analysis.gates import kwindow
-from lexic.parsing.pda.analysis.gates.greedy import greedy_loop_gate
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
-    noise_alphabet,
     noise_greedy_licensed,
-    peek_arm_gate,
-    peek_loop_gate,
     stopset_escapes_soft_follow,
-)
-from lexic.parsing.pda.analysis.gates.structured import (
-    structured_arm_gate,
-    structured_loop_gate,
 )
 from lexic.parsing.pda.analysis.gates.windows import END, MORE, UNK, KWindowFirst
 from lexic.parsing.pda.analysis.predicates import (
@@ -316,128 +308,6 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         """Whether ``atom`` is a single-char loop atom (char class / negation)."""
         return cast(bool, STOPSET_ATOM.resolve(atom).eval(self, atom, ()))
 
-    def _store_loop_gate(
-        self, item: IrItem, spec: tuple[tuple[CharSet, ...], ...]
-    ) -> None:
-        """File a demoted loop's ``taken`` windows under the item node's identity.
-
-        :raises UnsupportedConstructError: If the same node already carries a
-            *different* spec — a shared node at two decision sites with distinct
-            FOLLOWs, which the identity key cannot express (a confident-wrong
-            gate would be silent, so the whole grammar opts out instead).
-        """
-        key = id(item)
-        prior = self.taxonomy.loop_gates.get(key)
-        if prior is not None and prior != spec:
-            raise UnsupportedConstructError(
-                "pda analysis: conflicting k-window loop gates for one item node"
-            )
-        self.taxonomy.loop_gates[key] = spec
-
-    def _demote_arms(
-        self,
-        arms: list[Sequence[IrItem]],
-        site: Site,
-        notes: Notes,
-    ) -> bool:
-        """The arm-overlap demotion cascade — P2 k-window, then the P3
-        noise-skip peek — storing the winning gate spec in its taxonomy
-        channel plus the soft note. ``False`` ⇒ the overlap stays hard.
-
-        Serves a rule body and an inline group alike: the cascade reads only
-        the arms and the continuation, so ``site`` is the only thing that
-        differs between them.
-        """
-        gate = kwindow.arm_gate(self.rules, arms, site.follow)
-        if gate is not None:
-            self.taxonomy.store_arm_windows(
-                site.at, tuple(kwindow.windows_of(s) for s in gate[1])
-            )
-            notes.soft.append(f"{site.label}: arms k-window separable (demoted)")
-            return True
-        w = noise_alphabet(self)
-        peek = peek_arm_gate(self, arms, w)
-        if peek is not None:
-            self.taxonomy.store_arm_peek(site.at, (w, peek))
-            notes.soft.append(f"{site.label}: arms noise-skip separable (demoted)")
-            return True
-        return False
-
-    def _demote_follow_windows(
-        self, arms: Sequence[Sequence[IrItem]], label: str, notes: Notes
-    ) -> bool:
-        """Empty-arm FOLLOW\\ :sub:`k` demotion via :func:`kwindow.follow_arm_gate`:
-        store the separating per-arm windows (body-arm order) in
-        :attr:`Taxonomy.arm_gates` + the soft note; ``False`` ⇒ no licence."""
-        gate = kwindow.follow_arm_gate(self.rules, self.start, arms, label)
-        if gate is None:
-            return False
-        self.taxonomy.arm_gates[label] = gate
-        notes.soft.append(f"{label}: arms FOLLOW-window separable (demoted)")
-        return True
-
-    def _demote_struct_arm(
-        self, arms: Sequence[Sequence[IrItem]], label: str, notes: Notes
-    ) -> bool:
-        """The empty-arm structured-noise demotion: store the scan gate + escape
-        arm index in its taxonomy channel plus the soft note. ``False`` ⇒ no
-        licence (the caller keeps today's greedy behavior)."""
-        gate = structured_arm_gate(self, list(arms), label)
-        if gate is None:
-            return False
-        self.taxonomy.store_struct_arm(label, gate)
-        notes.soft.append(f"{label}: empty-arm structured-noise (demoted)")
-        return True
-
-    def _demote_loop(
-        self, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
-    ) -> bool:
-        """The loop take/skip demotion cascade — P2 k-window, then the P3
-        noise-skip peek — storing the spec under the item node's identity plus
-        the soft note. ``False`` ⇒ the decision stays an island note."""
-        gate = kwindow.loop_gate(self.rules, items, k, scope.tail)
-        if gate is not None:
-            self._store_loop_gate(items[k], kwindow.windows_of(gate[1]))
-            notes.soft.append(f"{scope.rule}[{k}]: loop k-window (demoted)")
-            return True
-        w = noise_alphabet(self)
-        take = peek_loop_gate(self, items, k, self.cont_at(items, k, scope.tail), w)
-        if take is not None:
-            key = id(items[k])
-            prior = self.taxonomy.pn_loop_gates.get(key)
-            if prior is not None and prior != (w, take):
-                raise UnsupportedConstructError(
-                    "pda analysis: conflicting noise-skip loop gates for one item node"
-                )
-            self.taxonomy.pn_loop_gates[key] = (w, take)
-            notes.soft.append(f"{scope.rule}[{k}]: loop noise-skip (demoted)")
-            return True
-        struct = structured_loop_gate(self, items, k, scope)
-        if struct is not None:
-            self.taxonomy.store_ready_loop(id(items[k]), struct)
-            notes.soft.append(f"{scope.rule}[{k}]: loop structured-noise (demoted)")
-            return True
-        # The split-greedy licence, last because it answers a DIFFERENT question
-        # from the three above: they ask whether the decision separates, and
-        # this one asks whether the SPLIT RULE settles it. A loop the k-window
-        # can decide never reaches here.
-        #
-        # Withheld inside a delegate. Its condition (e) is about where the
-        # INPUT ends, and an island interior runs over a doubling window whose
-        # end is an artefact of the window rather than of the document
-        # (`runtime/kernel/execution.py::_delegate_run`). The window-edge
-        # decline would catch the consequence, but a licence that is not
-        # certified against the boundary it will be executed against should not
-        # be issued in the first place.
-        if self.taxonomy.delegated:
-            return False
-        greedy = greedy_loop_gate(self.rules, self.start, scope.rule, items, k)
-        if greedy is not None:
-            self.taxonomy.store_ready_loop(id(items[k]), greedy)
-            notes.soft.append(f"{scope.rule}[{k}]: loop split-greedy (demoted)")
-            return True
-        return False
-
     # ── FOLLOW ─────────────────────────────────────────────────────────
 
     def _follow_fixpoint(
@@ -585,7 +455,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 if first_i.overlaps(first_j):
                     overlaps.append((i, j))
         if overlaps:
-            demoted = self._demote_arms(list(arms), site, notes)
+            demoted = demote.demote_arms(self, list(arms), site, notes)
             if not demoted:
                 for i, j in overlaps:
                     notes.hard.append(f"{site.label}: arms {i}/{j} FIRST overlap")
@@ -600,8 +470,8 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                 bool(greedy)
                 and site.label in self.rules
                 and (
-                    self._demote_follow_windows(list(arms), site.label, notes)
-                    or self._demote_struct_arm(arms, site.label, notes)
+                    demote.demote_follow_windows(self, list(arms), site.label, notes)
+                    or demote.demote_struct_arm(self, arms, site.label, notes)
                 )
             )
             if not gated:
@@ -670,7 +540,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
         if first.overlaps(self.hard_cont_at(items, k, scope.tail)):
             policy = self.loop_policy(item, items[k + 1 :])
             if policy == "island":
-                if not self._demote_loop(items, k, scope, notes):
+                if not demote.demote_loop(self, items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
                     self.taxonomy.attempt_loops[id(item)] = self.beyond_at(
                         items, k, scope
