@@ -321,14 +321,20 @@ def _uniquely_empty(
 def _item_uniquely_empty(
     rules: Mapping[str, IrRule], item: IrItem, depth: int
 ) -> bool | None:
-    """One zero-lower-bound item's contribution to uniqueness."""
+    """One zero-lower-bound item's contribution to uniqueness.
+
+    An operand that cannot itself derive ε settles it: zero repetitions is then
+    the only way this item contributes nothing, whatever the operand's shape.
+    An earlier version went on to ask whether the operand's own BODY derived ε
+    uniquely, which is a different question and the wrong one — it answered
+    False for a named operand and so licensed ``i ::= [a]* t`` while refusing
+    the identical ``i ::= letter* t`` with ``letter ::= [a]``. Spelling a
+    character class as a rule is not a change of language.
+    """
     empty = _derives_empty(rules, item.atom, depth)
-    if empty is None or empty:
-        return None  # unknown, or a positive count that also derives ε
-    if isinstance(item.atom, (IrCharClass, IrLiteral)):
-        return True
-    arm = _sole_arm(rules, item.atom)
-    return None if arm is None else _uniquely_empty(rules, arm, depth + 1)
+    if empty is None:
+        return None  # unknown — never assumed either way
+    return not empty  # a nullable operand: zero repeats is not the unique ε
 
 
 def _derives_empty(

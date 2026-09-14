@@ -209,7 +209,12 @@ def _at_the_unit_end(text: str, pos: int, gate: Any) -> bool:
         return False
     after = pos + len(tail)
     if starters is None:
-        return text[after:] == close
+        # Length FIRST, then a bounded startswith. `text[after:] == close`
+        # copies the whole remaining suffix every time the tail matches, which
+        # on a run of terminators is O(n) boundaries × O(n) copy — quadratic
+        # character work, from a gate whose entire claim is that it reads a
+        # bounded window.
+        return after + len(close) == len(text) and text.startswith(close, after)
     return after == len(text) or text[after] in starters
 
 

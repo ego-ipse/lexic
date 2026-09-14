@@ -42,6 +42,22 @@ def _spec_key(gate: ScanGate) -> tuple:
     return (gate.kind, gate.roots, gate.take, gate.probe)
 
 
+def _ready_key(gate: ScanGate | GreedySpec) -> tuple:
+    """A runtime-ready loop gate's stable identity, whichever kind it is.
+
+    The two share a slot, so the tripwire has to read both: a
+    :class:`ScanGate` by its spec fields, a
+    :data:`~lexic.parsing.pda.analysis.gates.greedy.GreedySpec` by its own
+    values, which are already hashable and stable. Tagged by kind so a ScanGate
+    and a greedy spec can never compare EQUAL and slip past the conflict check
+    — they are different decisions, and one node carrying both is exactly what
+    the tripwire is for.
+    """
+    if isinstance(gate, ScanGate):
+        return ("scan", _spec_key(gate))
+    return ("greedy", gate)
+
+
 def _arm_spec_key(arm: ArmGate) -> tuple:
     """An :class:`ArmGate`'s stable identity — its scan gate's spec plus the
     escape arm index; the conflicting-re-store tripwire compares these."""
@@ -309,7 +325,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
             out instead).
         """
         prior = self.gates.ready_loop.get(key)
-        if prior is not None and _spec_key(prior) != _spec_key(gate):
+        if prior is not None and _ready_key(prior) != _ready_key(gate):
             raise UnsupportedConstructError(
                 "pda analysis: conflicting runtime-ready loop gates for one item node"
             )
