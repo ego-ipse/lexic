@@ -14,13 +14,11 @@ from typing import SupportsIndex
 
 import pytest
 
-from lexic.compile import compile_text
-from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.compiler.program.flatten import gate_take
 from lexic.parsing.pda.compiler.program.opcodes import GATE_GREEDY
-from lexic.parsing.pda.core.errors import PdaFail
-from lexic.parsing.products import _model_product, earley_model, parse_model, pda_model
+from lexic.parsing.products import earley_model, parse_model, pda_model
+from tests.parity_helpers import answers, built
 
 PARA = (
     "doc ::= para+\n"
@@ -68,32 +66,6 @@ VARIABLE_PREFIX = (
 """A prefix whose extent is a split of its own — outside condition (h)."""
 
 
-def _built(source: str, key: str):
-    """Compile ``source``; return the compiled grammar and its model product."""
-    compiled = compile_text(source, cache_key=key)
-    return compiled, _model_product(compiled.codegen_grammar, compiled.product)
-
-
-def _answers(source: str, key: str, text: str) -> tuple[str, str]:
-    """``(predictive, gated)`` for one document — a decline or refusal named."""
-    compiled, product = _built(source, key)
-    try:
-        predictive = repr(pda_model(product.pda, text, compiled.product.executor))
-    except PdaFail:
-        predictive = "declined"
-    except UnsupportedConstructError:
-        predictive = "refused"
-    try:
-        gated = repr(
-            earley_model(
-                product.instance_grammar, text, compiled.product, product.tables
-            )
-        )
-    except UnsupportedConstructError:
-        gated = "refused"
-    return predictive, gated
-
-
 DOCUMENTS = [
     "\n\n",  # one empty line, then the tail
     "a\n\n",
@@ -113,7 +85,7 @@ def test_both_engines_answer_the_same_way(text: str) -> None:
     licence reasons about — nothing but the tail, a single empty item, a run of
     them, and a tail in the middle that must NOT end the unit.
     """
-    predictive, gated = _answers(PARA, "licence-para", text)
+    predictive, gated = answers(PARA, "licence-para", text)
 
     assert predictive == gated
     assert predictive != "declined", "the licence should have taken this shape"
@@ -122,7 +94,7 @@ def test_both_engines_answer_the_same_way(text: str) -> None:
 @pytest.mark.parametrize("text", ["\n\n\n", "a\n\n\n", "a\nb\n\n\nc\n\n\n"])
 def test_a_two_terminator_tail_answers_the_same_way(text: str) -> None:
     """``m = 2``: the gate reads three characters and must still agree."""
-    predictive, gated = _answers(TWO_TAIL, "licence-two-tail", text)
+    predictive, gated = answers(TWO_TAIL, "licence-two-tail", text)
 
     assert predictive == gated
     assert predictive != "declined"
@@ -136,7 +108,7 @@ def test_the_charged_continuation_answers_the_same_way(text: str) -> None:
     first boundary and differ in the answer, so a two-character window would
     get one of them wrong. Both are here.
     """
-    predictive, gated = _answers(ASTRA, "licence-astra", text)
+    predictive, gated = answers(ASTRA, "licence-astra", text)
 
     assert predictive == gated
     assert predictive != "declined"
@@ -144,7 +116,7 @@ def test_the_charged_continuation_answers_the_same_way(text: str) -> None:
 
 def test_the_document_that_is_only_a_tail_is_refused_by_both() -> None:
     """Not in the language — a unit needs an item, and neither engine invents one."""
-    predictive, gated = _answers(PARA, "licence-para", "\n")
+    predictive, gated = answers(PARA, "licence-para", "\n")
 
     assert gated == "refused"
     assert predictive in {"refused", "declined"}
@@ -160,7 +132,7 @@ def test_the_wrapped_shape_answers_the_same_way(text: str) -> None:
     the licence extends to it — and the continuation the gate charges is what
     follows ``body`` in ``doc``'s arm, not what follows the loop in ``body``'s.
     """
-    predictive, gated = _answers(WRAPPED, "licence-wrapped", text)
+    predictive, gated = answers(WRAPPED, "licence-wrapped", text)
 
     assert predictive == gated
     assert predictive != "declined", "the wrapper condition should have taken this"
@@ -177,7 +149,7 @@ def test_a_variable_extent_prefix_is_issued_no_licence() -> None:
     the prefix's maximisation outrank the loop's. The licence proves nothing
     about that interaction, so it withholds rather than assume.
     """
-    compiled, _product = _built(VARIABLE_PREFIX, "licence-variable-prefix")
+    compiled, _product = built(VARIABLE_PREFIX, "licence-variable-prefix")
     analysis = GrammarAnalysis(compiled.codegen_grammar)
     analysis.eval(analysis, compiled.codegen_grammar, ())
 
@@ -191,7 +163,7 @@ def test_the_variable_prefix_grammar_still_answers_through_the_composed_entry(
     text: str,
 ) -> None:
     """Withholding a licence may not cost an answer — only the fast path."""
-    compiled, product = _built(VARIABLE_PREFIX, "licence-variable-prefix")
+    compiled, product = built(VARIABLE_PREFIX, "licence-variable-prefix")
     composed = parse_model(compiled.codegen_grammar, text, compiled.product)
     gated = earley_model(
         product.instance_grammar, text, compiled.product, product.tables
@@ -209,7 +181,7 @@ def test_a_delegated_analysis_issues_no_licence() -> None:
     grammar above declines for a different reason — condition (f) — and a guard
     that is never exercised is a guard nobody has tested.
     """
-    compiled, _product = _built(PARA, "licence-para")
+    compiled, _product = built(PARA, "licence-para")
     delegated = GrammarAnalysis(compiled.codegen_grammar, delegated=True)
     delegated.eval(delegated, compiled.codegen_grammar, ())
     ordinary = GrammarAnalysis(compiled.codegen_grammar)
@@ -281,7 +253,7 @@ def test_a_document_the_gated_engine_cannot_finish_parses_on_the_predictive_path
     asserted here is that the predictive path TAKES the shape and the model
     round-trips — the timing itself is cited, never re-measured.
     """
-    compiled, product = _built(PARA, "licence-para")
+    compiled, product = built(PARA, "licence-para")
     text = "abc def\nghi\n\n" * 1260
 
     model = pda_model(product.pda, text, compiled.product.executor)
@@ -296,7 +268,7 @@ def test_the_shape_no_longer_islands() -> None:
     Before it, ``para`` was an island and every document went to the gated
     engine. An island here would make the row above pass by falling back.
     """
-    compiled, _product = _built(PARA, "licence-para")
+    compiled, _product = built(PARA, "licence-para")
     analysis = GrammarAnalysis(compiled.codegen_grammar)
     analysis.eval(analysis, compiled.codegen_grammar, ())
 
