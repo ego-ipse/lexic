@@ -14,6 +14,7 @@ import string
 
 import pytest
 
+from lexic.compile import compile_text
 from lexic.grammars import get_flavour
 from lexic.ir import (
     IrAlternation,
@@ -33,10 +34,13 @@ from lexic.ir import (
 from lexic.parsing.lift import lift_optional_nullables
 from lexic.parsing.pda.analysis.analysis import GrammarAnalysis
 from lexic.parsing.pda.analysis.gates.kwindow import (
+    FOLLOW_LOOP_K,
     MAX_K,
     arm_gate,
     follow_arm_gate,
+    follow_loop_gate,
     loop_gate,
+    rule_references,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
@@ -50,6 +54,8 @@ from lexic.parsing.pda.analysis.gates.windows import (
     windows_of,
 )
 from lexic.parsing.pda.core.charsets import CharSet
+from tests.gate_grammars import ARM_FINAL_LOOP
+from tests.gate_grammars import NULL_ARM as NULL_ARM_GRAMMAR
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import arm_items as _rule_items
 from tests.unit.lexic.parsing.pda.analysis.test_analysis import (
     lifted_analysis as _ground_truth_analysis,
@@ -508,3 +514,181 @@ def test_chess_nonpawn_loop_separates_at_k3():
 def test_json_value_arm_gate_stays_island():
     """json's ``value`` alternation is genuinely not k-window separable."""
     assert arm_k(_ground_truth_analysis("json.gbnf"), "value") is None
+
+
+# ── the FOLLOW-window loop gate ────────────────────────────────────────
+#
+# `loop_gate` takes the enclosing rule's FOLLOW as a bare `CharSet`, which
+# becomes exactly ONE length-1 window, and `collide` compares over the shorter
+# prefix. So for a loop that is the arm's LAST item the skip side is one
+# position wide and separation collapses to the single-character stop-set test —
+# every character past the first is compared against nothing, and no `k` can
+# change the verdict. `follow_loop_gate` asks the same decision with both sides
+# `k` deep.
+#
+# Each test below takes a grammar satisfying the other preconditions and breaks
+# exactly ONE, so a refusal names its reason.
+
+
+CLASS = ARM_FINAL_LOOP
+NULL_ARM = NULL_ARM_GRAMMAR
+
+
+def _compiled_analysis(source: str, key: str) -> GrammarAnalysis:
+    """One grammar's finished analysis."""
+    compiled = compile_text(source, cache_key=key)
+    analysis = GrammarAnalysis(compiled.codegen_grammar)
+    analysis.eval(analysis, compiled.codegen_grammar, ())
+    return analysis
+
+
+def _gate(source: str, rule: str, key: str, idx: int = 0):
+    """The windows the gate issues for ``rule``'s loop at ``idx``, or ``None``."""
+    analysis = _compiled_analysis(source, key)
+    items = list(analysis.rules[rule].body[0])
+    return follow_loop_gate(analysis.rules, analysis.start, items, idx, rule)
+
+
+# ── the licence ────────────────────────────────────────────────────────
+
+
+def test_the_class_is_licensed_and_its_windows_are_two_deep() -> None:
+    """The control: without it every refusal below could be for another reason.
+
+    The gate's product is the ``taken`` window set, and it must be `k` deep —
+    a one-position window is exactly the thing this gate exists to replace.
+    """
+    windows = _gate(CLASS, "run", "flg-class")
+
+    assert windows is not None
+    assert all(len(one) == FOLLOW_LOOP_K for one in windows)
+
+
+def test_the_class_loop_is_no_longer_a_conflict() -> None:
+    """End to end: the cascade reaches the gate and the island note goes away."""
+    analysis = _compiled_analysis(CLASS, "flg-class")
+
+    assert not analysis.conflicts
+    assert analysis.taxonomy.loop_gates, "the gate should have filed its windows"
+
+
+def test_the_licence_leaves_the_attempt_gate_unused() -> None:
+    """The point of the gate is that the loop stops being decided by running it."""
+    analysis = _compiled_analysis(CLASS, "flg-class")
+
+    assert not analysis.taxonomy.attempt_loops
+
+
+# ── the withholds ──────────────────────────────────────────────────────
+
+
+def test_a_loop_a_stop_set_already_decides_never_reaches_the_gate() -> None:
+    """`%` cannot start a word, so k = 1 settles it and no fixpoint is built.
+
+    A gate that fired here would be taxing a decision the cheapest tier already
+    makes — which is why it sits at the BOTTOM of the separability tiers.
+    """
+    analysis = _compiled_analysis(NULL_ARM, "flg-null")
+
+    assert not analysis.conflicts
+    assert not analysis.taxonomy.loop_gates
+    assert not analysis.taxonomy.attempt_loops
+
+
+def test_a_rule_referenced_twice_is_refused() -> None:
+    """The fixpoint unions every call site, so a two-site rule's FOLLOW is a union.
+
+    A window separating in the union need not separate at the site that runs, and
+    the gate is stored per RULE and applied wherever that rule runs. So the
+    licence is withheld rather than proved against a continuation that is not
+    the one in force.
+    """
+    source = (
+        "root ::= first second\n"
+        "first ::= run sep\n"
+        "second ::= run other\n"
+        "run ::= word+\n"
+        "word ::= [a-z]+ sp\n"
+        'sep ::= "e." nl\n'
+        'other ::= "e:" nl\n'
+        'sp ::= " "\n'
+        'nl ::= "\\n"\n'
+    )
+    analysis = _compiled_analysis(source, "flg-two-refs")
+
+    assert rule_references(analysis.rules, "run") == 2
+    items = list(analysis.rules["run"].body[0])
+    assert follow_loop_gate(analysis.rules, analysis.start, items, 0, "run") is None
+
+
+def test_a_loop_that_is_not_arm_final_is_refused() -> None:
+    """With items after the loop, `loop_gate`'s skip side is ALREADY k deep.
+
+    This gate exists for the one-position skip side; where the arm supplies a
+    real continuation there is nothing for it to add, and firing would duplicate
+    a cheaper tier's question.
+    """
+    source = (
+        "root ::= run sep\n"
+        "run ::= word+ marker\n"
+        "word ::= [a-z]+ sp\n"
+        'marker ::= "!"\n'
+        'sep ::= "e." nl\n'
+        'sp ::= " "\n'
+        'nl ::= "\\n"\n'
+    )
+    analysis = _compiled_analysis(source, "flg-not-final")
+    items = list(analysis.rules["run"].body[0])
+
+    assert len(items) == 2, "the loop must have a real continuation after it"
+    assert items[0].quantifier.hi is IrNone, "item 0 must be the unbounded loop"
+    assert follow_loop_gate(analysis.rules, analysis.start, items, 0, "run") is None
+
+
+def test_a_decision_needing_three_characters_is_refused() -> None:
+    """The width is `FOLLOW_LOOP_K`, and it is a cap rather than a budget.
+
+    `sep ::= "ee."` agrees with a word for TWO characters and diverges on the
+    third, so a 2-deep window cannot separate it. Measured across the roster,
+    nothing is settled by a wider window that a 2-deep one misses, while the
+    fixpoint's cost climbs into seconds — so the gate declines instead of
+    widening, and this pins that it does.
+    """
+    source = (
+        "root ::= run sep\n"
+        "run ::= word+\n"
+        "word ::= [a-z]+ sp\n"
+        'sep ::= "ee." nl\n'
+        'sp ::= " "\n'
+        'nl ::= "\\n"\n'
+    )
+
+    assert _gate(source, "run", "flg-three") is None
+
+
+def test_the_width_is_two() -> None:
+    """Stated as a constant so a future widening is a deliberate edit, not a drift."""
+    assert FOLLOW_LOOP_K == 2
+
+
+# ── the reference counter ──────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("name", "count"),
+    [("run", 1), ("word", 1), ("sp", 1), ("nowhere", 0)],
+)
+def test_the_reference_counter_counts_reference_nodes(name: str, count: int) -> None:
+    """It walks each body's own tree and never through a reference, so a
+    recursive grammar terminates without a visited set."""
+    analysis = _compiled_analysis(CLASS, "flg-class")
+
+    assert rule_references(analysis.rules, name) == count
+
+
+def test_the_reference_counter_terminates_on_a_recursive_grammar() -> None:
+    """A rule referring to itself is counted, not followed."""
+    source = 'root ::= list\nlist ::= "(" list ")" | "x"\n'
+    analysis = _compiled_analysis(source, "flg-recursive")
+
+    assert rule_references(analysis.rules, "list") >= 1

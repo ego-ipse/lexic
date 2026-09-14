@@ -44,6 +44,7 @@ from lexic.ir.grammar.nodes import (
     IrRule,
     IrRuleRef,
 )
+from lexic.parsing.pda.analysis.gates.kwindow import rule_references
 
 _DEPTH = 8
 """How far a reader follows a reference before it declines."""
@@ -172,7 +173,7 @@ def _continuation(
     slot takes as much as it can, so ITS boundary would have priority over the
     loop's. That is a different question and this licence does not answer it.
     """
-    if _references(rules, unit) != 1:
+    if rule_references(rules, unit) != 1:
         return None  # (h): one gate, one continuation — see `_references`
     found = _occurrence(rules, start, unit)
     if found is None:
@@ -228,32 +229,12 @@ def _occurrence(
         if str(item.atom) == unit:
             return list(arm[:index]), item, list(arm[index + 1 :])
     for index, item in enumerate(arm):
-        if not _exactly_once(item) or _references(rules, str(item.atom)) != 1:
+        if not _exactly_once(item) or rule_references(rules, str(item.atom)) != 1:
             continue
         inner = _sole_arm(rules, item.atom)
         if inner is not None and len(inner) == 1 and str(inner[0].atom) == unit:
             return list(arm[:index]), inner[0], list(arm[index + 1 :])
     return None
-
-
-def _references(rules: Mapping[str, IrRule], name: str) -> int:
-    """How many times ``name`` is referenced anywhere in the grammar.
-
-    The gate is stored per RULE and applied at every use of it, while its
-    continuation is read off ONE occurrence. A unit reached from two places
-    would be given a boundary proved for only one of them, so the licence
-    requires the occurrence it examined to be the only one.
-    """
-    return sum(_refs_in(body, name) for body in rules.values())
-
-
-def _refs_in(node: object, name: str) -> int:
-    """References to ``name`` in one node's tree — the arms are plain tuples."""
-    if isinstance(node, IrRuleRef):
-        return int(str(node) == name)
-    if isinstance(node, str) or not isinstance(node, tuple):
-        return 0
-    return sum(_refs_in(child, name) for child in node)
 
 
 def _sole_arm(rules: Mapping[str, IrRule], atom: object) -> list[IrItem] | None:

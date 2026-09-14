@@ -6,11 +6,15 @@ it filed a spec in the taxonomy and left a soft note, ``False`` when the
 decision stays an island.
 
 The loop cascade runs in a deliberate order: the k-window first (P2), then the
-noise-skip peek (P3), then the folding-aware structured gate (P3/P5), and last
-the split-greedy licence — which is last because it answers a DIFFERENT
-question. The first three ask whether the decision SEPARATES; the licence asks
-whether the split rule already settles it, and a loop the k-window can decide
-never reaches it.
+noise-skip peek (P3), then the folding-aware structured gate (P3/P5), then the
+FOLLOW-window gate, and last the split-greedy licence — which is last because it
+answers a DIFFERENT question. The first four ask whether the decision SEPARATES;
+the licence asks whether the split rule already settles it, and a loop any of
+them can decide never reaches it.
+
+The FOLLOW-window gate is last among the separability tiers because it is the
+only one that builds a whole-grammar fixpoint: it runs once every cheaper
+question has been asked and declined.
 
 Taken as a module because these are the analysis' demotions rather than its
 classification, and because `conflicts` already reached across for one of them:
@@ -118,9 +122,47 @@ def demote_struct_arm(
 def demote_loop(
     analysis: Any, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
 ) -> bool:
-    """The loop take/skip demotion cascade — P2 k-window, then the P3
-    noise-skip peek — storing the spec under the item node's identity plus
-    the soft note. ``False`` ⇒ the decision stays an island note."""
+    """The loop take/skip demotion cascade, storing the winning spec under the
+    item node's identity plus the soft note. ``False`` ⇒ the decision stays an
+    island note.
+
+    Two halves, and the order between them is the point: every tier that asks
+    whether the decision SEPARATES runs first, and only then the split-greedy
+    licence, which asks whether the split rule already settles it.
+    """
+    if _separable_loop(analysis, items, k, scope, notes):
+        return True
+    # The split-greedy licence, last because it answers a DIFFERENT question
+    # from the separability tiers: they ask whether the decision separates,
+    # and this one asks whether the SPLIT RULE settles it. A loop any of them
+    # can decide never reaches here.
+    #
+    # Withheld inside a delegate. Its condition (e) is about where the
+    # INPUT ends, and an island interior runs over a doubling window whose
+    # end is an artefact of the window rather than of the document
+    # (`runtime/kernel/execution.py::_delegate_run`). The window-edge
+    # decline would catch the consequence, but a licence that is not
+    # certified against the boundary it will be executed against should not
+    # be issued in the first place.
+    if analysis.taxonomy.delegated:
+        return False
+    greedy = greedy_loop_gate(analysis.rules, analysis.start, scope.rule, items, k)
+    if greedy is not None:
+        analysis.taxonomy.store_ready_loop(id(items[k]), greedy)
+        notes.soft.append(f"{scope.rule}[{k}]: loop split-greedy (demoted)")
+        return True
+    return False
+
+
+def _separable_loop(
+    analysis: Any, items: Sequence[IrItem], k: int, scope: Scope, notes: Notes
+) -> bool:
+    """The tiers that ask whether the loop's take/skip decision SEPARATES.
+
+    In cost order: the P2 k-window, the P3 noise-skip peek, the folding-aware
+    structured gate, and last the FOLLOW-window gate — last because it is the
+    only one that builds a whole-grammar fixpoint.
+    """
     gate = kwindow.loop_gate(analysis.rules, items, k, scope.tail)
     if gate is not None:
         store_loop_gate(analysis, items[k], kwindow.windows_of(gate[1]))
@@ -143,23 +185,16 @@ def demote_loop(
         analysis.taxonomy.store_ready_loop(id(items[k]), struct)
         notes.soft.append(f"{scope.rule}[{k}]: loop structured-noise (demoted)")
         return True
-    # The split-greedy licence, last because it answers a DIFFERENT question
-    # from the three above: they ask whether the decision separates, and
-    # this one asks whether the SPLIT RULE settles it. A loop the k-window
-    # can decide never reaches here.
-    #
-    # Withheld inside a delegate. Its condition (e) is about where the
-    # INPUT ends, and an island interior runs over a doubling window whose
-    # end is an artefact of the window rather than of the document
-    # (`runtime/kernel/execution.py::_delegate_run`). The window-edge
-    # decline would catch the consequence, but a licence that is not
-    # certified against the boundary it will be executed against should not
-    # be issued in the first place.
-    if analysis.taxonomy.delegated:
+    # The last SEPARABILITY tier, and the reason it is last among them: it is
+    # the only one that builds a whole-grammar fixpoint, so it runs once every
+    # cheaper question has been asked and declined. It reaches what the others
+    # structurally cannot — an arm-final loop, whose skip side `loop_gate` can
+    # only see one character of.
+    deep = kwindow.follow_loop_gate(
+        analysis.rules, analysis.start, items, k, scope.rule
+    )
+    if deep is None:
         return False
-    greedy = greedy_loop_gate(analysis.rules, analysis.start, scope.rule, items, k)
-    if greedy is not None:
-        analysis.taxonomy.store_ready_loop(id(items[k]), greedy)
-        notes.soft.append(f"{scope.rule}[{k}]: loop split-greedy (demoted)")
-        return True
-    return False
+    store_loop_gate(analysis, items[k], deep)
+    notes.soft.append(f"{scope.rule}[{k}]: loop FOLLOW-window (demoted)")
+    return True

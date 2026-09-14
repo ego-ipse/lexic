@@ -43,6 +43,7 @@ from lexic.ir import (
     IrTypeMap,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
+    END,
     FollowWindows,
     KWindowFirst,
     Pref,
@@ -59,10 +60,13 @@ def _items(seq: Sequence[IrSelf]) -> list[IrItem]:
 
 
 __all__ = [
+    "FOLLOW_LOOP_K",
     "MAX_K",
     "arm_gate",
     "follow_arm_gate",
+    "follow_loop_gate",
     "loop_gate",
+    "rule_references",
     "two_prefix_seq",
     "group_two_prefix",
     "atom_two_prefix",
@@ -71,6 +75,16 @@ __all__ = [
 
 MAX_K = 3
 """The widest lookahead window any gate tries (``k ≤ 3``)."""
+
+FOLLOW_LOOP_K = 2
+"""The one width :func:`follow_loop_gate` tries.
+
+Not a budget to be raised. Measured across the roster's loop conflicts, every
+decision FOLLOW\\ :sub:`k` settles is settled at ``k = 2``, nothing further
+separates at 3 or 4, and the fixpoint's cost climbs from unmeasurable at 2 to
+seconds at 4 on the self-grammars — which would put those seconds on COMPILING
+every grammar that reaches this tier, in exchange for nothing.
+"""
 
 
 # ── atom-prefix dispatch (open IrTypeMap, budget on nc) ────────────────────
@@ -83,6 +97,35 @@ MAX_K = 3
 
 
 # ── FOLLOW_k windows (the k-deep generalization of FOLLOW) ─────────────────
+
+
+def rule_references(rules: Mapping[str, IrRule], name: str) -> int:
+    """How many times ``name`` is referenced anywhere in the grammar.
+
+    A gate stored per RULE is applied at every use of it while being proved
+    against ONE occurrence's continuation, so a gate whose proof reads a rule's
+    FOLLOW is only sound where that FOLLOW belongs to a single site. Counting
+    is the cheap way to know: one reference means the rule's FOLLOW IS its call
+    site's continuation, and the union a FOLLOW fixpoint computes is a union of
+    one.
+
+    The walk is over each rule body's own tree, never through a reference, so
+    it terminates on a recursive grammar without a visited set.
+
+    :param rules: The grammar's rule table.
+    :param name: The rule name to count references to.
+    :returns: The number of :class:`IrRuleRef` nodes naming ``name``.
+    """
+    return sum(_refs_in(body, name) for body in rules.values())
+
+
+def _refs_in(node: object, name: str) -> int:
+    """References to ``name`` in one node's tree — IR records ARE tuples."""
+    if isinstance(node, IrRuleRef):
+        return int(str(node) == name)
+    if isinstance(node, str) or not isinstance(node, tuple):
+        return 0
+    return sum(_refs_in(child, name) for child in node)
 
 
 def follow_arm_gate(
@@ -187,6 +230,65 @@ def loop_gate(
         if separable([taken, skip]):
             return k, taken, skip
     return None
+
+
+def follow_loop_gate(
+    rules: Mapping[str, IrRule],
+    start: str,
+    items: Sequence[IrItem],
+    idx: int,
+    label: str,
+) -> tuple[tuple[CharSet, ...], ...] | None:
+    """An ARM-FINAL loop's take/skip decision under a ``k``-deep FOLLOW.
+
+    :func:`loop_gate` takes the enclosing rule's FOLLOW as a single
+    :class:`CharSet`, which :func:`~...windows.extend_follow` turns into exactly
+    ONE length-1 window; :func:`~...windows.collide` compares two prefixes over
+    their shorter length. So when the looping item is the arm's LAST, the skip
+    side is one position wide and separation collapses to
+    ``FIRST(item) ∩ FOLLOW(rule) = ∅`` — the single-character stop-set test.
+    Every character past the first is compared against nothing, and widening
+    ``k`` cannot change the verdict. This asks the same decision with both sides
+    ``k`` deep, over the :class:`FollowWindows` fixpoint that already serves
+    :func:`follow_arm_gate`.
+
+    **Soundness — the direction of approximation.** ``taken`` is FIRST\\ :sub:`k`
+    of one more iteration, an over-approximation of what a real continuation can
+    look like. ``skip`` is built from the SOFT FOLLOW, which over-approximates
+    what can follow a real exit — soft is the correct side here, and the hard
+    tail would be unsound because it is too small. Two over-approximations that
+    are disjoint imply the true sets are disjoint, so a separation proved here is
+    stronger than the runtime needs: the window admits every real continuation
+    and no real exit.
+
+    **Why one reference.** The fixpoint unions every call site's continuation. A
+    window separating in the union need not separate at the site that runs, so
+    the licence is withheld unless the rule is referenced exactly once — then the
+    union is a union of one. This also keeps the fixpoint off grammars that
+    cannot use it: a multiply-referenced rule is refused before one is built.
+
+    :param rules: The grammar's rule table.
+    :param start: The start rule name (the FOLLOW fixpoint's EOF seed).
+    :param items: The enclosing arm's items.
+    :param idx: The looping item's index — must be the arm's last.
+    :param label: The enclosing rule, whose FOLLOW\\ :sub:`k` extends both sides.
+    :returns: The ``taken`` windows, ready for the ``GATE_KWIN`` runtime op, or
+        ``None`` where any precondition fails or the decision does not separate.
+    """
+    if idx != len(items) - 1:
+        return None  # not arm-final: `loop_gate`'s skip side is already k deep
+    if rule_references(rules, label) != 1:
+        return None
+    k = FOLLOW_LOOP_K
+    windows = FollowWindows(rules, start, k)
+    follow = windows.follow.get(label, set())
+    if not follow:
+        return None  # nothing known to follow: a zero-length skip side collides
+    item = items[idx]
+    loop_item = IrItem(item.atom, IrQuantifier(1, item.quantifier.hi))
+    taken = extend_follow(windows.solver.arm_prefixes([loop_item], k), follow, k)
+    skip = extend_follow({((), END)}, follow, k)
+    return windows_of(taken) if separable([taken, skip]) else None
 
 
 # ── 2-char LL(2) prefix machinery (the pivot-6 ``pairs`` substrate) ────────
