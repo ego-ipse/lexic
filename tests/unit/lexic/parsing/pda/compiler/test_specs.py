@@ -17,7 +17,6 @@ from lexic.parsing.pda.compiler.specs import (
     IslandRef,
     ItemSpec,
     KTupleGate,
-    PairGate,
     PeekGate,
     StopGate,
 )
@@ -46,7 +45,6 @@ def test_loop_gates_carry_their_payloads():
     """Each loop-gate NamedTuple exposes its payload by field name."""
     cs = CharSet.from_chars(",")
     assert StopGate(cs).charset == cs
-    assert PairGate(frozenset({"fx"})).pairs == frozenset({"fx"})
     assert KTupleGate(((cs,),)).windows == ((cs,),)
     peek = PeekGate(cs, cs)
     assert (peek.w, peek.take) == (cs, cs)
@@ -109,7 +107,6 @@ def test_clones_re_exports_the_spec_types():
         CloneKey,
         IslandRef,
         StopGate,
-        PairGate,
         KTupleGate,
         PeekGate,
         ItemSpec,

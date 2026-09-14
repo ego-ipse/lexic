@@ -146,7 +146,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     public channel.
 
     :ivar conflicts: Rule name → island-worthy notes (presence marks an island).
-    :ivar demoted: Rule name → stop-set / LL(2) demotion notes.
+    :ivar demoted: Rule name → stop-set / window demotion notes.
     :ivar fail: The fail-island rule names — semantic rules that fired the F1
         stop-set-escape branch (a subset of :attr:`conflicts`' keys).
     :ivar attempts: Conflicted-but-attemptable rule name → its

@@ -31,7 +31,8 @@ from lexic.ir import (
     IrSequence,
 )
 from lexic.parsing.lift import lift_optional_nullables
-from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, kwindow, nullable_names
+from lexic.parsing.pda.analysis.analysis import GrammarAnalysis, nullable_names
+from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import SG_PROBE, SG_SCAN, ScanGate
 from tests.paths import GROUND_TRUTH
@@ -127,7 +128,7 @@ def test_island_set_matches_poc(stem: str):
 
 @pytest.mark.parametrize("stem", sorted(PINNED_DEMOTED))
 def test_demotion_set_matches_poc(stem: str):
-    """The stop-set / LL(2) demotion set equals the PoC's output exactly."""
+    """The stop-set / window demotion set equals the PoC's output exactly."""
     analysis = lifted_analysis(stem)
     assert sorted(analysis.demoted) == PINNED_DEMOTED[stem]
 
@@ -860,32 +861,33 @@ def test_follow_repetition_feeds_own_first():
 # ── loop-policy taxonomy (one case per tier) ───────────────────────────────
 
 
-def test_loop_policy_ll2_pair_gate():
-    """A ``(0, 1)`` item whose 2-char prefix discriminates yields an LL(2) gate.
+def test_loop_policy_sends_an_optional_item_to_the_cascade():
+    """`loop_policy` is SHAPE-selected, and an optional item is not its shape.
 
-    The chess ``fxf5`` vs ``f5`` shape: a leading ``fx`` disambiguates from the
-    ``f1`` continuation on the second character.
+    The chess ``fxf5`` vs ``f5`` shape used to be answered here by a dedicated
+    2-character prefix gate. It is answered by the demotion cascade's k-window
+    now, so the policy's own job is to say "not mine" — a stop-set is a greedy
+    run over a single-character atom and nothing else.
     """
     analysis = _analysis(_rule("s", IrSequence(IrItem(IrLiteral("z")))))
     item = _item(IrLiteral("fx"), lo=0, hi=1)
-    rest = [IrItem(IrLiteral("f1"))]
-    policy = analysis.loop_policy(item, rest)
-    assert policy == ("pairs", frozenset({"fx"}))
+
+    assert analysis.loop_policy(item) == "island"
 
 
 def test_loop_policy_stopset_for_unbounded_charclass():
     """An unbounded ``[^"]*`` loop is a stop-set (non-greedy on the overlap)."""
     analysis = _analysis(_rule("s", IrSequence(IrItem(IrLiteral("z")))))
     item = _item(IrNot(IrCharClass(IrChr('"'))), lo=0, hi=None)
-    assert analysis.loop_policy(item, []) == "stopset"
+    assert analysis.loop_policy(item) == "stopset"
 
 
 def test_loop_policy_island_when_not_gatable():
-    """An optional ref with no LL(2) discriminator is a genuine island."""
+    """An optional ref with no discriminator is a genuine island."""
     inner = _rule("inner", IrSequence(IrItem(IrLiteral("a"))))
     analysis = _analysis(inner)
     item = _item(IrRuleRef("inner"), lo=0, hi=1)
-    assert analysis.loop_policy(item, []) == "island"
+    assert analysis.loop_policy(item) == "island"
 
 
 # ── raising default: an unregistered atom type must not silently classify ──

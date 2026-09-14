@@ -17,30 +17,19 @@ the open-``IrTypeMap`` atom dispatch idiom.
 
 A leaf w.r.t. :mod:`lexic.parsing.pda.analysis.analysis`: it takes the rule table
 (``Mapping[str, IrRule]``) and the pre-computed FOLLOW sets it needs as plain
-arguments, so ``analysis`` imports this, never the reverse. It also homes the
-older 2-char LL(2) prefix machinery (:func:`two_prefix_seq` /
-:func:`atom_two_prefix`, the pivot-6 ``pairs`` substrate) as free functions
-over the analysis — superseded by the k-window fixpoint for demotion, still
-the :class:`~lexic.parsing.pda.compiler.clones.PairGate` source.
+arguments, so ``analysis`` imports this, never the reverse.
 """
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence, cast
+from typing import Mapping, Sequence
 
 from lexic.ir import (
-    IrAction,
-    IrAlternation,
-    IrCharClass,
     IrItem,
-    IrLambda,
-    IrLiteral,
-    IrNot,
     IrQuantifier,
     IrRule,
     IrRuleRef,
     IrSelf,
-    IrTypeMap,
 )
 from lexic.parsing.pda.analysis.gates.windows import (
     END,
@@ -67,9 +56,6 @@ __all__ = [
     "follow_loop_gate",
     "loop_gate",
     "rule_references",
-    "two_prefix_seq",
-    "group_two_prefix",
-    "atom_two_prefix",
 ]
 
 
@@ -289,144 +275,3 @@ def follow_loop_gate(
     taken = extend_follow(windows.solver.arm_prefixes([loop_item], k), follow, k)
     skip = extend_follow({((), END)}, follow, k)
     return windows_of(taken) if separable([taken, skip]) else None
-
-
-# ── 2-char LL(2) prefix machinery (the pivot-6 ``pairs`` substrate) ────────
-# Moved from ``analysis.py`` (C0302 headroom); superseded by the k-window
-# fixpoint for demotion, still the PairGate source via ``loop_policy``.
-
-
-_MAX_PAIR_PRODUCT = 4096
-"""Cap on the ``|FIRST(a)| * |FIRST(b)|`` product a 2-char prefix set will
-enumerate; a wider product is treated as non-derivable (``None``)."""
-
-
-def _single_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The single leading char of a non-empty literal, as a one-element set."""
-    text = str(n)
-    return frozenset({text[0]}) if text else None
-
-
-def _single_charclass(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The member set of a positive char class; ``None`` if it went co-finite."""
-    assert isinstance(n, IrCharClass)
-    cs = CharSet.from_charclass(n)
-    return None if cs.negated else cs.chars
-
-
-def _single_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """Rule refs, groups and negations are not single deterministic chars."""
-    return None
-
-
-def _two_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The 2-char prefix of a ≥2-char literal, else ``None``."""
-    text = str(n)
-    return frozenset({text[:2]}) if len(text) >= 2 else None
-
-
-def _two_group(d: Any, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """The union of the arms' 2-char prefixes, or ``None`` if any is underivable."""
-    assert isinstance(n, IrAlternation)
-    return group_two_prefix(d, n)
-
-
-def _two_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """A char class, negation or rule ref yields no standalone 2-char prefix."""
-    return None
-
-
-def _lead_literal(_d: object, n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """A leading ≥2-char literal's 2-char prefix, else ``None`` (literal-only)."""
-    text = str(n)
-    return frozenset({text[:2]}) if len(text) >= 2 else None
-
-
-def _lead_none(_d: object, _n: IrSelf, _nc: object) -> frozenset[str] | None:
-    """Only a leading literal short-circuits a sequence's 2-char prefix."""
-    return None
-
-
-_SINGLE: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_single_literal)),
-    IrAction(IrCharClass, IrLambda(_single_charclass)),
-    IrAction(IrNot, IrLambda(_single_none)),
-    IrAction(IrRuleRef, IrLambda(_single_none)),
-    IrAction(IrAlternation, IrLambda(_single_none)),
-)
-
-_TWO_PREFIX: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_two_literal)),
-    IrAction(IrCharClass, IrLambda(_two_none)),
-    IrAction(IrNot, IrLambda(_two_none)),
-    IrAction(IrRuleRef, IrLambda(_two_none)),
-    IrAction(IrAlternation, IrLambda(_two_group)),
-)
-
-_LEAD_PREFIX: IrTypeMap = IrTypeMap(
-    IrAction(IrLiteral, IrLambda(_lead_literal)),
-    IrAction(IrCharClass, IrLambda(_lead_none)),
-    IrAction(IrNot, IrLambda(_lead_none)),
-    IrAction(IrRuleRef, IrLambda(_lead_none)),
-    IrAction(IrAlternation, IrLambda(_lead_none)),
-)
-
-
-def _single_chars(d: Any, atom: IrSelf) -> frozenset[str] | None:
-    """The finite positive single-char set of ``atom``, or ``None``.
-
-    A literal contributes its leading char, a positive char class its members;
-    refs, groups, negations and co-finite classes yield ``None``. ``d`` is the
-    nullability oracle (the :class:`~lexic.parsing.pda.analysis.analysis.GrammarAnalysis`
-    at every call site — ``Any``-typed to keep this module a leaf).
-    """
-    return cast("frozenset[str] | None", _SINGLE.resolve(atom).eval(d, atom, ()))
-
-
-def two_prefix_seq(d: Any, items: Sequence[IrItem]) -> frozenset[str] | None:
-    """The 2-char prefix set of a sequence, or ``None`` (not derivable).
-
-    A leading ≥2-char literal supplies it; else the first two non-nullable
-    single-char atoms' cross-product, subject to :data:`_MAX_PAIR_PRODUCT`.
-    ``d`` is the nullability oracle (see :func:`_single_chars`).
-    """
-    if items and not d.item_nullable(items[0]):
-        atom = items[0].atom
-        lead = cast(
-            "frozenset[str] | None", _LEAD_PREFIX.resolve(atom).eval(d, atom, ())
-        )
-        if lead is not None:
-            return lead
-    if len(items) < 2:
-        return None
-    first_item, second_item = items[0], items[1]
-    if d.item_nullable(first_item) or d.item_nullable(second_item):
-        return None
-    first_chars = _single_chars(d, first_item.atom)
-    second_chars = _single_chars(d, second_item.atom)
-    if first_chars is None or second_chars is None:
-        return None
-    if len(first_chars) * len(second_chars) > _MAX_PAIR_PRODUCT:
-        return None
-    return frozenset(a + b for a in first_chars for b in second_chars)
-
-
-def group_two_prefix(d: Any, group: IrAlternation) -> frozenset[str] | None:
-    """The union of a group's arms' 2-char prefixes, else ``None``."""
-    out: set[str] = set()
-    for arm in group:
-        sub = two_prefix_seq(d, _items(arm))
-        if sub is None:
-            return None
-        out |= sub
-    return frozenset(out)
-
-
-def atom_two_prefix(d: Any, atom: IrSelf) -> frozenset[str] | None:
-    """The standalone 2-char prefix set of ``atom``, or ``None``.
-
-    ``d`` is the nullability oracle (see :func:`_single_chars`).
-
-    :raises UnsupportedConstructError: On an unregistered atom type.
-    """
-    return cast("frozenset[str] | None", _TWO_PREFIX.resolve(atom).eval(d, atom, ()))

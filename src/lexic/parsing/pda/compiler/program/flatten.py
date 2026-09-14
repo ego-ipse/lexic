@@ -28,7 +28,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
-    GATE_PAIR,
     GATE_PEEK,
     GATE_STOP,
     M_VALUE,
@@ -146,8 +145,6 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
         return (ch != "" and ch not in chars) if negated else ch in chars
     if gk == GATE_ATTEMPT:
         return _attempt_admits(text, pos, gate)
-    if gk == GATE_PAIR:
-        return text[pos : pos + 2] in gate
     return _wide_gate_take(text, pos, gk, gate)
 
 
@@ -295,9 +292,9 @@ class FlatArm(IrLeaf[IrSelf, IrSelf]):
         precedent) so the hot loop reads it without a per-access ``cast``.
     :ivar los: Per-item quantifier lower bound.
     :ivar his: Per-item quantifier upper bound (``HI_UNBOUNDED`` for none).
-    :ivar gate_kinds: Per-item loop-gate code (``GATE_STOP`` / ``GATE_PAIR``).
+    :ivar gate_kinds: Per-item loop-gate code (``GATE_STOP`` / ``GATE_KWIN``).
     :ivar gate_data: Per-item gate body — a ``(chars, negated)`` pair (stop) or
-        a frozenset of 2-char prefixes (pair). ``Any``-typed for the same reason
+        a tuple of `CharSet` windows (kwin). ``Any``-typed for the same reason
         as :attr:`payloads`.
     """
 

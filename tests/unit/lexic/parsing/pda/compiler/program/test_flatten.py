@@ -38,7 +38,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
-    GATE_PAIR,
     GATE_STOP,
     HI_UNBOUNDED,
     M_GTEXT,
@@ -90,8 +89,8 @@ def test_terminal_ops_are_the_four_terminal_op_codes():
 
 
 def test_gate_codes_are_distinct():
-    """The stop-set and LL(2) pair gate codes are distinct."""
-    assert GATE_STOP != GATE_PAIR
+    """The stop-set and window gate codes are distinct."""
+    assert GATE_STOP != GATE_KWIN
 
 
 def test_build_mode_codes_are_pairwise_distinct():
@@ -285,8 +284,6 @@ def test_every_gate_kind_still_answers_through_the_one_entry_point() -> None:
     table = [
         ("STOP takes a char in its set", GATE_STOP, semi, "a;", 1, True),
         ("STOP refuses one outside it", GATE_STOP, semi, "ab", 1, False),
-        ("PAIR takes a listed pair", GATE_PAIR, frozenset({";a"}), "x;a", 1, True),
-        ("PAIR refuses an unlisted one", GATE_PAIR, frozenset({";a"}), "x;b", 1, False),
         (
             "ATTEMPT takes a FIRST-only char",
             GATE_ATTEMPT,

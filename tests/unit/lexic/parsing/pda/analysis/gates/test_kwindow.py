@@ -692,3 +692,52 @@ def test_the_reference_counter_terminates_on_a_recursive_grammar() -> None:
     analysis = _compiled_analysis(source, "flg-recursive")
 
     assert rule_references(analysis.rules, "list") >= 1
+
+
+# ── the shapes the retired 2-char prefix gate used to answer ───────────
+#
+# A dedicated LL(2) gate compared concrete 2-character prefix STRINGS, and the
+# concern when it was removed was that a set of positionwise CharSets is
+# coarser — that `{"ab","cd"}` against `{"ad"}` would separate as strings and
+# collide as a merged `({a,c},{b,d})` box.
+#
+# It does not, because `arm_prefixes` keeps one window PER DERIVATION and
+# `collide` runs per window pair: the take side is `('a','b')` and `('c','d')`,
+# never `({a,c},{b,d})`. These pin that, since the grammars below are exactly
+# the ones the retired gate used to claim and nothing else would notice if the
+# window quietly started merging them.
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'root ::= ("ab" | "cd")? "ad"',
+        'root ::= ("ab" | "cd")? "cb"',
+        'root ::= ("ax" | "by")? "ay"',
+        'root ::= ([a-h] "x")? [a-h] [1-8]',  # chess `pawn`
+    ],
+)
+def test_a_two_char_prefix_decision_separates_at_k2(source: str) -> None:
+    """Prefix sets disjoint, windows per-derivation — the k-window settles it."""
+    analysis = _compiled_analysis(source + "\n", f"kw-pair-{hash(source)}")
+    items = list(analysis.rules["root"].body[0])
+    gate = loop_gate(analysis.rules, items, 0, analysis.follow["root"])
+
+    assert gate is not None, "the window must settle what the pair gate used to"
+    assert gate[0] == 2
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'root ::= ("ab" | "cd")? "ad"',
+        'root ::= ("ax" | "by")? "ay"',
+        'root ::= ([a-h] "x")? [a-h] [1-8]',
+    ],
+)
+def test_such_a_grammar_carries_no_island(source: str) -> None:
+    """The decision is MADE, not deferred — no island, no attempt."""
+    analysis = _compiled_analysis(source + "\n", f"kw-pair-{hash(source)}")
+
+    assert not analysis.islands
+    assert not analysis.taxonomy.attempt_loops

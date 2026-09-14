@@ -1,8 +1,8 @@
 """Grammar analysis + decision taxonomy — the PDA compiler's oracle.
 
 :class:`GrammarAnalysis`, over a *lifted codegen grammar*, runs the predictive
-fixpoints (nullability, FIRST/hard-FIRST, FOLLOW/hard-FOLLOW, LL(2) prefixes) and
-classifies each decision ``island`` / ``stopset`` / ``("pairs", set)`` into
+fixpoints (nullability, FIRST/hard-FIRST, FOLLOW/hard-FOLLOW) and
+classifies each decision ``island`` / ``stopset`` into
 :attr:`conflicts` / :attr:`demoted` / :attr:`fail_islands`, via an open dispatch
 raising :exc:`~lexic.exceptions.UnsupportedConstructError` on an unknown atom.
 """
@@ -39,7 +39,6 @@ from lexic.parsing.pda.analysis.cursors import (
     Scope,
     Site,
 )
-from lexic.parsing.pda.analysis.gates import kwindow
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
     noise_greedy_licensed,
@@ -154,7 +153,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     @property
     def demoted(self) -> dict[str, list[str]]:
-        """Rule name → stop-set / LL(2) demotion notes."""
+        """Rule name → stop-set / window demotion notes."""
         return self.taxonomy.demoted
 
     @property
@@ -284,23 +283,18 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
 
     # ── loop policy (the pivot-6 taxonomy) ─────────────────────────────
 
-    def loop_policy(
-        self, item: IrItem, rest: Sequence[IrItem]
-    ) -> tuple[str, frozenset[str]] | str:
+    def loop_policy(self, item: IrItem) -> str:
         """Classify a looping item whose FIRST overlaps its hard continuation.
 
-        :returns: ``("pairs", set)`` for an LL(2) gate, ``"stopset"`` for a
-            non-greedy single-char loop, or ``"island"`` otherwise.
+        Shape-selected, not width-selected: a stop-set is a GREEDY RUN over a
+        single-character atom, and it is the only thing this answers. Anything
+        else goes to the demotion cascade, where the separability tiers ask
+        their own questions in cost order.
+
+        :returns: ``"stopset"`` for a non-greedy single-char loop, else
+            ``"island"``.
         """
-        atom = item.atom
-        lo = int(item.quantifier.lo)
-        hi = _hi(item)
-        if lo == 0 and hi == 1:
-            taken = kwindow.atom_two_prefix(self, atom)
-            skip = kwindow.two_prefix_seq(self, list(rest))
-            if taken is not None and skip is not None and not taken & skip:
-                return ("pairs", taken)
-        if hi is None and self._stopset_eligible(atom):
+        if _hi(item) is None and self._stopset_eligible(item.atom):
             return "stopset"
         return "island"
 
@@ -538,7 +532,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             return
         first = self.atom_first(atom)
         if first.overlaps(self.hard_cont_at(items, k, scope.tail)):
-            policy = self.loop_policy(item, items[k + 1 :])
+            policy = self.loop_policy(item)
             if policy == "island":
                 if not demote.demote_loop(self, items, k, scope, notes):
                     notes.hard.append(f"{scope.rule}[{k}]: loop overlap, not gatable")
@@ -558,8 +552,6 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
                         f"{scope.rule}[{k}]: loop stop-set escapes soft FOLLOW"
                     )
                     notes.f1 = True
-            else:
-                notes.soft.append(f"{scope.rule}[{k}]: LL(2) pair gate")
             return
         soft_gap_conflict(self, items, k, scope, notes)
 

@@ -20,7 +20,6 @@ from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
     GATE_GREEDY,
     GATE_KWIN,
-    GATE_PAIR,
     GATE_PEEK,
     GATE_SCAN,
     GATE_STOP,
@@ -61,7 +60,6 @@ from lexic.parsing.pda.compiler.specs import (
     ItemSpec,
     KTupleGate,
     LoopGate,
-    PairGate,
     PeekGate,
     StopGate,
 )
@@ -85,8 +83,6 @@ def _flat_windows(
 
 def _flatten_gate(gate: LoopGate) -> tuple[int, object]:
     """Lower a loop gate to its ``(code, data)`` flat pair."""
-    if isinstance(gate, PairGate):
-        return GATE_PAIR, gate.pairs
     if isinstance(gate, GreedyGate):
         return GATE_GREEDY, (gate.tail, gate.close, gate.starters)
     if isinstance(gate, KTupleGate):

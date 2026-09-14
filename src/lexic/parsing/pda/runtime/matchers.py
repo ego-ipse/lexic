@@ -164,7 +164,7 @@ def match_lit(text: str, arm: FlatArm, i: int, pos: int) -> int:
 def match_cc(text: str, arm: FlatArm, i: int, pos: int) -> int:
     """Match a char-class item's whole quantifier loop, returning the new pos.
 
-    The gate loop needs no atom re-check: a stop-set / LL(2) pair is a subset of
+    The gate loop needs no atom re-check: a stop-set is a subset of
     the atom's own FIRST, so a gate-admitted char always matches.
 
     :raises PdaFail: On a mismatch in the mandatory run.

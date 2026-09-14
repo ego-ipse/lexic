@@ -21,8 +21,8 @@ from lexic.compile import CompiledGrammar, compile_text
 from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
-    _ModelProduct,
     _model_product,
+    _ModelProduct,
     earley_model,
     pda_model,
 )

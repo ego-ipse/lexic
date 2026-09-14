@@ -7,7 +7,7 @@ The remaining sections prove the island/clone dedup invariants that make the
 clone table meaningful (islands never cloned, refs to them always carry
 :class:`IslandRef`, no in-progress placeholder survives), the pivot-4/6 gate
 shapes on the arithmetic ``ws`` / json ``ws`` fixtures named in the plan, and
-the small hand-grammar shapes (LL(2) pair gate, stop-set, island ref,
+the small hand-grammar shapes (window gate, stop-set, island ref,
 ``value_str``/``match_only``, empty-arm-as-default) that are easiest to see in
 isolation.
 """
@@ -37,7 +37,7 @@ from lexic.parsing.pda.compiler.clones import (
     GroupSpec,
     IslandRef,
     ItemSpec,
-    PairGate,
+    KTupleGate,
     StopGate,
     compile_pda,
 )
@@ -307,18 +307,27 @@ def test_json_ws_is_cloned_with_a_greedy_whitespace_stopgate():
 # ── small hand-grammar shapes ───────────────────────────────────────────────
 
 
-def test_hand_grammar_optional_literal_gets_pair_gate_on_ll2_discriminator():
-    """``"fx"? "f1"`` — the chess ``fxf5``/``f5`` shape — compiles to a
-    PairGate: FIRST(``"fx"``) overlaps FIRST(``"f1"``) on the leading char,
-    but the second char discriminates.
+def test_hand_grammar_optional_literal_gets_a_window_gate_on_its_second_char():
+    """``"fx"? "f1"`` — the chess ``fxf5``/``f5`` shape — compiles to a window.
+
+    FIRST(``"fx"``) overlaps FIRST(``"f1"``) on the leading character and the
+    second one discriminates. This used to be a dedicated 2-character prefix
+    gate; the k-window settles the same decision at ``k = 2``, because its
+    prefixes are kept PER DERIVATION rather than merged into one positionwise
+    box — a set of per-alternative windows discriminates exactly as a set of
+    concrete 2-character strings does.
     """
     pda = pda_from_text('root ::= "fx"? "f1"\n')
     root = sole_clone(pda, "root")
     fx_spec = root.arms[0].specs[0]
     assert fx_spec.kind == LIT
     assert fx_spec.payload == "fx"
-    assert isinstance(fx_spec.gate, PairGate)
-    assert fx_spec.gate.pairs == frozenset({"fx"})
+    assert isinstance(fx_spec.gate, KTupleGate)
+    assert all(len(one) == 2 for one in fx_spec.gate.windows)
+    assert sorted("".join(sorted(cs.chars)) for cs in fx_spec.gate.windows[0]) == [
+        "f",
+        "x",
+    ]
 
 
 def test_hand_grammar_unbounded_negated_charclass_gets_stopgate():

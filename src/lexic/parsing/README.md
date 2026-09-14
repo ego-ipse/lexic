@@ -261,7 +261,7 @@ family can make deterministic becomes an **island** (§13); everything else
 compiles to a gate. The gate families, tried in order:
 
 - **1- and 2-char lookahead** — disjoint FIRST sets, or 2-char prefix
-  separation (`PairGate`).
+  separation (the k-window `KTupleGate`).
 - **k-window** (`kwindow.py`) — FIRST_k over `CharSet` tuples: does the
   decision separate positionwise at k ≤ 3 (END/MORE/UNK-tagged ≤k windows,
   rule-FOLLOW extension, *soft* FOLLOW only — hard FOLLOW is unsound here)?
@@ -300,7 +300,7 @@ The clone compiler is **total**: it always returns tables. A rule is
 compiled once per distinct **hard continuation** that reaches it (a
 *clone*), because the stop-sets it bakes are call-site-exact. Each item
 lowers to a tuple-coded `ItemSpec` (`lit`/`cc`/`ref`/`grp`) carrying its
-bounds and loop gate (`StopGate`/`PairGate`/`KTupleGate`/`PeekGate`/
+bounds and loop gate (`StopGate`/`KTupleGate`/`PeekGate`/
 `ScanGate`); arm selection is FIRST-gated `ArmSpec`s (per-arm gate specs are
 attached inside the compiler's own arm enumeration so spec↔arm alignment
 cannot drift) plus at most one nullable default. Every clone bakes its rule's

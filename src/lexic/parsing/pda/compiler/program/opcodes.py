@@ -82,13 +82,13 @@ synthetic :attr:`FlatClone.runarm` a proved ``value_str`` clone earns
 payload is the compiled pattern. Numbered past every arm code so a reader that
 ranges over the arm vocabulary cannot mistake it for one."""
 
-GATE_STOP, GATE_PAIR, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4, 5
-GATE_GREEDY = 6
-"""Flat loop-gate codes: single-char stop-set, LL(2) 2-char pair set, the
-``k``-window gate (Task 6.3 part c) — a set of ``≤k``-length pre-resolved
+GATE_STOP, GATE_KWIN, GATE_PEEK, GATE_SCAN, GATE_ATTEMPT = 0, 1, 2, 3, 4
+GATE_GREEDY = 5
+"""Flat loop-gate codes: single-char stop-set, the
+``k``-window gate — a set of ``≤k``-length pre-resolved
 ``(chars, negated)`` position windows the runtime matches EOF-exactly against
-``text[pos:pos+k]`` (the P2 demotion of a loop the single-char stop-set /
-LL(2) pair could not separate) — and the P3 noise-skip peek gate (Task 6.4):
+``text[pos:pos+k]`` (the P2 demotion of a loop the single-char stop-set
+could not separate) — and the P3 noise-skip peek gate (Task 6.4):
 ``((w_chars, w_negated), (take_chars, take_negated))`` — skip the maximal
 ``W``-noise run *without consuming*, take another iteration iff the first
 post-noise char is in ``take`` (the iteration then re-parses the noise
