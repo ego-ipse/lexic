@@ -69,6 +69,119 @@ def leftmost_chain(
     return _choose(levels)
 
 
+def spec_for(codes, bits: int, code_choice: tuple[int, ...], key: int) -> ChainSpec:
+    """The chain constants for ``key``'s own arm.
+
+    Every family at a key shares that key's item, so its predecessors share an
+    item too, and one spec cuts the key, its families and their chains alike.
+
+    :param codes: The compiled code tables (``arm_base``/``code_arm``).
+    :param bits: The tables' packing tier.
+    :param code_choice: Completed code → authored choice identity.
+    :param key: The packed ``(item << bits) | end`` being read.
+    """
+    return ChainSpec(
+        codes.arm_base[codes.code_arm[key >> bits >> bits]], bits, code_choice
+    )
+
+
+def canonical_indices(
+    links: dict[int, list[KLink]], bucket: list[KLink], spec: ChainSpec
+) -> list[int]:
+    """One family index per ARM — that arm's maximum, in arm-first-seen order.
+
+    **What a consumer of an ambiguous key may be shown.** Families naming one
+    arm over different spans are that arm carved two ways, and the split rule
+    has already said which carving the arm HAS. A reader offered the other one
+    is offered a derivation this engine would never produce — which is how a
+    span comes to refuse over a carving already rejected, its real choice
+    between ARMS never reached.
+
+    So every reader of a multi-arm key sees exactly one family per arm. The
+    order is the order the arms first appear, so the default reading stays the
+    first arm the chart recorded.
+
+    :param links: The parse's SPPF family table.
+    :param bucket: The key's families.
+    :param spec: The chain constants for that key.
+    :returns: Indices into ``bucket``, one per arm, ascending.
+    """
+    best: dict[object, int] = {}
+    for index, link in enumerate(bucket):
+        arm = arm_of(link[2], spec.bits, spec.code_choice)
+        held = best.get(arm)
+        if held is None or dominant(links, bucket[held], link, spec) is link:
+            best[arm] = index
+    return sorted(best.values())
+
+
+def dominant(
+    links: dict[int, list[KLink]],
+    first: KLink,
+    second: KLink,
+    spec: ChainSpec,
+) -> KLink:
+    """Which of two same-arm families at ONE key the split rule keeps.
+
+    The pairwise form of the rule :func:`leftmost_chain` reads off a whole
+    chain, for a caller holding two candidates rather than a level DAG: every
+    family at a key shares that key's item, so two of them differ only in where
+    the predecessor ends, and choosing between them is choosing between their
+    predecessors' chains.
+
+    **Exact on any forest.** Each predecessor's vector is read by
+    :func:`leftmost_chain` from that predecessor as its own handle — the rule's
+    own reading, whatever the buckets under it hold. A cheaper walk that
+    descended both chains through family 0 would answer identically only where
+    every key it stepped through held ONE family; on a forest that keeps every
+    derivation, a predecessor's first-recorded family is not the one the reader
+    descends into, and such a walk compares two chart-order chains and can
+    crown the wrong carving.
+
+    A dead chain loses to a live one; an exact tie goes to the larger
+    predecessor key, the tie :func:`_choose` takes by maximising the key.
+
+    :param links: The parse's SPPF family table.
+    :param first: The family in hand.
+    :param second: The family contesting it.
+    :param spec: The chain constants for the key they both sit at.
+    :returns: ``first`` or ``second`` — never a new object.
+    """
+    bits = spec.bits
+    mask = (1 << bits) - 1
+    a = (first[0] << bits) | first[1]
+    b = (second[0] << bits) | second[1]
+    if a == b:
+        return first
+    va = _vector(links, a, spec, mask)
+    vb = _vector(links, b, spec, mask)
+    if va is None or vb is None:
+        if va is not None:
+            return first
+        if vb is not None:
+            return second
+    elif va != vb:
+        return first if va > vb else second
+    return first if a >= b else second
+
+
+def _vector(
+    links: dict[int, list[KLink]], key: int, spec: ChainSpec, mask: int
+) -> tuple[int, ...] | None:
+    """``V(key)`` — its chain's boundaries from dot 1 up, deepest first.
+
+    Deepest first because the vector is maximised from the LEFT, so ordinary
+    tuple comparison IS the rule. ``None`` when the chain does not reach the
+    bottom: a family that derives nothing cannot be the answer.
+    """
+    if key >> spec.bits >> spec.bits == spec.base:
+        return (key & mask,)
+    chain = leftmost_chain(links, key, spec, {})
+    if chain is None:
+        return None
+    return tuple(link[1] for link in chain[1:]) + (key & mask,)
+
+
 def _descend(
     links: dict[int, list[KLink]],
     handle: int,
@@ -109,9 +222,7 @@ def _edges_at(
     # the point once, default policy after.
     edges = [
         ((link[0] << spec.bits) | link[1], index, link)
-        for index, link in _candidates(
-            bucket, choices.pop(key, None), spec.bits, spec.code_choice
-        )
+        for index, link in _candidates(links, bucket, choices.pop(key, None), spec)
     ]
     return edges or None
 
@@ -126,30 +237,37 @@ def is_arm_choice(bucket: list[KLink], bits: int, code_choice: tuple[int, ...]) 
     naming DIFFERENT arms are a structural choice the grammar stated two ways,
     which nothing about lengths can settle: that is what the refusal is for.
     """
-    return len({_arm_of(link[2], bits, code_choice) for link in bucket}) > 1
+    return len({arm_of(link[2], bits, code_choice) for link in bucket}) > 1
 
 
 def _candidates(
+    links: dict[int, list[KLink]],
     bucket: list[KLink],
     pinned: int | None,
-    bits: int,
-    code_choice: tuple[int, ...],
+    spec: ChainSpec,
 ) -> list[tuple[int, KLink]]:
     """The families this policy may choose between at one key.
 
     A pinned key contributes only what it was pinned to. Families naming more
-    than one child arm are a structural choice, not a split, and keep today's
-    selection.
+    than one child arm are a structural choice, not a split, so the policy does
+    not choose between them — but WHICH carving stands for the default arm is
+    still a split, and :func:`canonical_indices` answers it, so what is read is
+    that arm's own carving rather than the first one the chart recorded.
     """
     if pinned is not None:
         return [(pinned, bucket[pinned])]
-    if is_arm_choice(bucket, bits, code_choice):
-        return [(0, bucket[0])]
+    if is_arm_choice(bucket, spec.bits, spec.code_choice):
+        index = canonical_indices(links, bucket, spec)[0]
+        return [(index, bucket[index])]
     return list(enumerate(bucket))
 
 
-def _arm_of(child: object, bits: int, code_choice: tuple[int, ...]) -> object:
-    """A family child's authored choice — scans and payloads are their own."""
+def arm_of(child: object, bits: int, code_choice: tuple[int, ...]) -> object:
+    """A family child's authored choice — scans and payloads are their own.
+
+    The one reading of what arm a family names: :func:`is_arm_choice`, the
+    canonical selection and every consumer that asks the question read it here.
+    """
     if isinstance(child, int) and not isinstance(child, bool):
         return code_choice[child >> bits >> bits]
     return type(child)
