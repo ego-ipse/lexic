@@ -69,8 +69,6 @@ from lexic.parsing.pda.compiler.program.flatten import (
 )
 from lexic.parsing.pda.compiler.program.lower import flatten_clones
 from lexic.parsing.pda.compiler.specs import (
-    GreedyGate,
-    LoopGate,
     CC,
     GRP,
     LIT,
@@ -80,10 +78,12 @@ from lexic.parsing.pda.compiler.specs import (
     AttemptGate,
     CloneKey,
     CloneSpec,
+    GreedyGate,
     GroupSpec,
     IslandRef,
     ItemSpec,
     KTupleGate,
+    LoopGate,
     PairGate,
     PeekGate,
     StopGate,

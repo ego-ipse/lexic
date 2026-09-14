@@ -24,13 +24,13 @@ from lexic.ir import (
     IrRuleRef,
     IrSelf,
 )
+from lexic.parsing.pda.analysis import demote
 from lexic.parsing.pda.analysis.conflicts import (
     attempt_group,
     attempt_spec,
     soft_gap_conflict,
     sub_conflict,
 )
-from lexic.parsing.pda.analysis import demote
 from lexic.parsing.pda.analysis.cursors import (
     Cont,
     FeedCtx,

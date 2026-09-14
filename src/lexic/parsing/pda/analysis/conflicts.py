@@ -8,8 +8,8 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from lexic.ir import IrItem, IrNoneType
-from lexic.parsing.pda.analysis.demote import demote_loop
 from lexic.parsing.pda.analysis.cursors import ConflictCtx, Cont, Notes, Scope, Site
+from lexic.parsing.pda.analysis.demote import demote_loop
 from lexic.parsing.pda.analysis.gates.noise import noise_greedy_licensed
 from lexic.parsing.pda.analysis.predicates import SEQ_ATOM, seq_nullable
 from lexic.parsing.pda.analysis.taxonomy import AttemptSpec

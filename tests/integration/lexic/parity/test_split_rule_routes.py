@@ -31,8 +31,8 @@ import pytest
 
 from lexic.compile import compile_text
 from lexic.exceptions import UnsupportedConstructError
-from lexic.parsing.earley.kernel.forest.fasttree import ParseTree
 from lexic.parsing import parse
+from lexic.parsing.earley.kernel.forest.fasttree import ParseTree
 from lexic.parsing.products import _model_product, earley_model
 from tests.unit.lexic.parsing.parsing_helpers import engines_agree_or_both_refuse
 

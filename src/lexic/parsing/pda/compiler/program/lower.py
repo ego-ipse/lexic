@@ -48,8 +48,6 @@ from lexic.parsing.pda.compiler.program.specialize import (
     optimize_program,
 )
 from lexic.parsing.pda.compiler.specs import (
-    GreedyGate,
-    LoopGate,
     CC,
     GRP,
     LIT,
@@ -57,10 +55,12 @@ from lexic.parsing.pda.compiler.specs import (
     AttemptGate,
     CloneKey,
     CloneSpec,
+    GreedyGate,
     GroupSpec,
     IslandRef,
     ItemSpec,
     KTupleGate,
+    LoopGate,
     PairGate,
     PeekGate,
     StopGate,

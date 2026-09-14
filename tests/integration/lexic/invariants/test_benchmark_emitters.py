@@ -103,6 +103,40 @@ EXPECTED: dict[str, frozenset[str]] = {
     # lookahead for everyone. Same as above: the row prices the split, and
     # every engine holds the grammar.
     "announced": _ALL,
+    # The split-ambiguous repetition, and the price the rest of the field pays
+    # for it. Both PEG engines have POSSESSIVE repetition: `line+` swallows the
+    # blank line that was the paragraph's tail and cannot give it back, so they
+    # run out of input at the last paragraph — `Rule 'nl' didn't match at ''`.
+    # lark-lalr reports the same fact as a grammar property: a reduce/reduce
+    # collision between `line : nl` and `blank : nl`, which is the split itself,
+    # stated one token wide. Nothing is wrong with the emitters; the shape is
+    # simply not LALR(1) and not PEG-expressible, which is why lexic settles it
+    # by the split rule rather than by lookahead.
+    "split-nullable": _ALL
+    - frozenset(
+        {"lark-lalr", "lark-lalr-lex", "parsimonious", "parsimonious-lex", "pyparsing"}
+    ),
+    # The same five, for the same reason: the wrapper is consumed once and
+    # changes nothing about the repetition inside it.
+    "wrapped-unit": _ALL
+    - frozenset(
+        {"lark-lalr", "lark-lalr-lex", "parsimonious", "parsimonious-lex", "pyparsing"}
+    ),
+    # Left recursion, which PEG cannot express at all — parsimonious says so by
+    # name and pyparsing exhausts the interpreter stack. lark-lalr is at home
+    # here and holds it. What both `-lex` lark seats lose is unrelated to the
+    # recursion: folding `text` into a terminal makes a ZERO-WIDTH regexp, and
+    # neither lark lexer allows one. The unfolded lark-earley seat holds the row.
+    "island-earley": _ALL
+    - frozenset(
+        {
+            "lark-earley-lex",
+            "lark-lalr-lex",
+            "parsimonious",
+            "parsimonious-lex",
+            "pyparsing",
+        }
+    ),
     "gbnf-meta": frozenset({"lark-earley", "lark-earley-lex", "antlr", "antlr-py"}),
     # abnf-meta loses BOTH directive-matched seats: `c-wsp` folds to a nullable
     # terminal, which Lark's dynamic Earley refuses outright ("zero-width

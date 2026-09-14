@@ -8,8 +8,8 @@ the artefact itself no longer carries; memoised per ``(grammar, binding)``).
 
 from __future__ import annotations
 
-from lexic.exceptions import UnsupportedConstructError
 from lexic.compile import CompiledGrammar, compile_text
+from lexic.exceptions import UnsupportedConstructError
 from lexic.parsing.pda.core.errors import PdaFail
 from lexic.parsing.products import (
     _model_product,
