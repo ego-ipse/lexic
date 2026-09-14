@@ -172,7 +172,9 @@ class DelegateSource(IrLeaf[IrSelf, IrSelf]):
 
     def _compile(self, island_name: str) -> dict[int, object]:
         """Compile island ``island_name``'s delegate clones (uncached)."""
-        analysis = GrammarAnalysis(IrAst(self.lifted.rules, island_name))
+        analysis = GrammarAnalysis(
+            IrAst(self.lifted.rules, island_name), delegated=True
+        )
         delegable = _delegable_names(analysis, island_name)
         if not delegable:
             return {}

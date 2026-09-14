@@ -105,7 +105,7 @@ WITNESS: dict[str, str] = {
     "PdaKernel._drive": "ba05ca518cf2dc27",
     "PdaKernel._match_span": "c8e6c3f1fd849ad7",
     "PdaKernel._quant_step": "1c88d7247121a287",
-    "flatten.gate_take": "8837a6a4a4d34f83",
+    "flatten.gate_take": "ccc983f9f56a2e10",
     "matchers.match_arm": "483581add68bea95",
     "matchers.match_cc": "6b78e9f226877ddf",
     "matchers.match_cc1": "93cc598602726811",

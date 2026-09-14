@@ -19,7 +19,7 @@ def test_taxonomy_seeds_empty():
     assert not tax.conflicts and not tax.demoted and not tax.fail
     assert not tax.arm_gates and not tax.loop_gates
     assert not tax.pn_arm_gates and not tax.pn_loop_gates
-    assert not tax.struct_loop_gates
+    assert not tax.ready_loop_gates
 
 
 def test_gate_accessors_are_live_views_of_the_store():
@@ -31,20 +31,20 @@ def test_gate_accessors_are_live_views_of_the_store():
     assert tax.gates.loop == {7: ()}
 
 
-def test_store_struct_loop_accepts_equal_respecification():
+def test_store_ready_loop_accepts_equal_respecification():
     """Re-storing an identical spec (fresh recognizer object) is not a conflict."""
     tax = Taxonomy()
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
-    assert tax.struct_loop_gates[1].kind == SG_MATCH
+    tax.store_ready_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
+    tax.store_ready_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
+    assert tax.ready_loop_gates[1].kind == SG_MATCH
 
 
-def test_store_struct_loop_raises_on_conflicting_spec():
+def test_store_ready_loop_raises_on_conflicting_spec():
     """A different spec under the same item identity is the opt-out tripwire."""
     tax = Taxonomy()
-    tax.store_struct_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
+    tax.store_ready_loop(1, ScanGate(SG_MATCH, rec(), (0,)))
     with pytest.raises(UnsupportedConstructError):
-        tax.store_struct_loop(
+        tax.store_ready_loop(
             1, ScanGate(SG_SCAN, rec(), (0,), (frozenset("x"), False))
         )
 

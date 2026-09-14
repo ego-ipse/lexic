@@ -520,7 +520,7 @@ def test_self_grammar_struct_gate_kinds(name: str, root_rule: str, expected_kind
     now demotes via the exact-match gate's P6 precision clause."""
     analysis = self_grammar_analysis(name)
     assert root_rule not in analysis.conflicts
-    kinds = sorted(gate.kind for gate in analysis.taxonomy.struct_loop_gates.values())
+    kinds = sorted(gate.kind for gate in analysis.taxonomy.ready_loop_gates.values())
     assert kinds == expected_kinds
 
 

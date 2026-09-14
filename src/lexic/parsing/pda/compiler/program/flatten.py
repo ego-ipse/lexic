@@ -26,6 +26,7 @@ from lexic.ir import IrLeaf, IrSelf
 from lexic.parsing.pda.compiler.program.lowering import ShapeBuild, no_shape_build
 from lexic.parsing.pda.compiler.program.opcodes import (
     GATE_ATTEMPT,
+    GATE_GREEDY,
     GATE_KWIN,
     GATE_PAIR,
     GATE_PEEK,
@@ -144,24 +145,72 @@ def gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
         chars, negated = gate
         return (ch != "" and ch not in chars) if negated else ch in chars
     if gk == GATE_ATTEMPT:
-        ch = text[pos : pos + 1]
-        chars, negated = gate[0]
-        take = (ch != "" and ch not in chars) if negated else ch in chars
-        if take:
-            fchars, fnegated = gate[1]
-            if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
-                raise ProbeFork(
-                    f"attempt loop at {pos}: taking and stopping are both viable",
-                    pos,
-                )
-        return take
+        return _attempt_admits(text, pos, gate)
     if gk == GATE_PAIR:
         return text[pos : pos + 2] in gate
+    return _wide_gate_take(text, pos, gk, gate)
+
+
+def _wide_gate_take(text: str, pos: int, gk: int, gate: Any) -> bool:
+    """The gates that read more than two characters.
+
+    Split from :func:`gate_take` so the three one- and two-character kinds —
+    the ones a hot loop consults per iteration — keep their comparison and
+    return with nothing in front of them. A gate that is about to scan a window,
+    a noise run or a whole tail can afford the call it costs to get here.
+    """
+    if gk == GATE_GREEDY:
+        return not _at_the_unit_end(text, pos, gate)
     if gk == GATE_KWIN:
         return window_admits(text, pos, gate)
     if gk == GATE_PEEK:
         return _peek_admits(text, pos, gate)
     return scan_gate_take(text, pos, gate)  # GATE_SCAN — the ScanGate itself
+
+
+def _attempt_admits(text: str, pos: int, gate: Any) -> bool:
+    """The TERMINAL attempt loop's decision — take while the char is FIRST-only.
+
+    :raises PdaFail: A boundary whose char both the FIRST and the stored soft
+        continuation accept is an arm choice in loop clothing, and a terminal
+        loop has no sub-run to consult, so it bails to the gated engine.
+    """
+    ch = text[pos : pos + 1]
+    chars, negated = gate[0]
+    take = (ch != "" and ch not in chars) if negated else ch in chars
+    if take:
+        fchars, fnegated = gate[1]
+        if (ch != "" and ch not in fchars) if fnegated else ch in fchars:
+            raise ProbeFork(
+                f"attempt loop at {pos}: taking and stopping are both viable", pos
+            )
+    return take
+
+
+def _at_the_unit_end(text: str, pos: int, gate: Any) -> bool:
+    """Is what remains the unit's tail and its certified continuation?
+
+    The split-greedy licence's whole predicate. The loop runs greedily because
+    the leftmost chain does, so the only place it may stop is where no further
+    item could be carved without leaving the unit no tail to end with.
+
+    ``starters`` present means the continuation's first characters cannot begin
+    an item: the tail followed by one of them locates where the continuation
+    BEGINS, and the continuation is parsed normally from there. Absent, the
+    continuation is matched by spelling to the end of the input — its own
+    characters could otherwise start an item, and a FIRST set is not an
+    occurrence boundary.
+
+    Answering ``False`` says only "not here": ordinary item recognition and the
+    loop's minimum decide whether another iteration actually parses.
+    """
+    tail, close, starters = gate
+    if not text.startswith(tail, pos):
+        return False
+    after = pos + len(tail)
+    if starters is None:
+        return text[after:] == close
+    return after == len(text) or text[after] in starters
 
 
 def arm_expected(clone: FlatClone) -> tuple[tuple[str, ...], bool]:

@@ -12,6 +12,7 @@ from typing import NamedTuple
 
 from lexic.exceptions import UnsupportedConstructError
 from lexic.ir import IrLeaf, IrSelf
+from lexic.parsing.pda.analysis.gates.greedy import GreedySpec
 from lexic.parsing.pda.core.charsets import CharSet
 from lexic.parsing.pda.core.scanner import ArmGate, ScanGate
 
@@ -80,7 +81,11 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
     :ivar grp_arm: ``id(group)`` → an inline group's :data:`GroupGate` — the
         P2, P3 and attempt families in one entry, since one node key addresses
         all three.
-    :ivar struct_loop: ``id(item)`` → a folding-aware ScanGate (P3/P5).
+    :ivar ready_loop: ``id(item)`` → a RUNTIME-READY loop gate: a folding-aware
+        :class:`~lexic.parsing.pda.core.scanner.ScanGate` (P3 structured / P5) or
+        a :data:`~lexic.parsing.pda.analysis.gates.greedy.GreedySpec` (the
+        split-greedy licence). One slot for both because the demotion cascade
+        stops at the first gate that answers, so an item has at most one.
     :ivar struct_arm: Rule name → a folding-aware :class:`ArmGate` (empty-arm
         structured-noise / probe demotion, P3/P5).
     """
@@ -91,7 +96,7 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
         "pn_arm",
         "pn_loop",
         "grp_arm",
-        "struct_loop",
+        "ready_loop",
         "struct_arm",
     )
 
@@ -100,7 +105,7 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
     pn_arm: dict[str, Peek]
     pn_loop: dict[int, tuple[CharSet, CharSet]]
     grp_arm: dict[int, GroupGate]
-    struct_loop: dict[int, ScanGate]
+    ready_loop: dict[int, ScanGate | GreedySpec]
     struct_arm: dict[str, ArmGate]
 
     def __init__(self) -> None:
@@ -110,7 +115,7 @@ class _GateStore(IrLeaf[IrSelf, IrSelf]):
         self.pn_arm = {}
         self.pn_loop = {}
         self.grp_arm = {}
-        self.struct_loop = {}
+        self.ready_loop = {}
         self.struct_arm = {}
 
 
@@ -135,6 +140,7 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         loop (greedy take + rollback; a loop extent is a SPLIT with a defined
         answer, so no gate). Never left-recursive rules (no arm order helps
         re-entry at the same position) and never fail islands.
+    :ivar delegated: Whether this is an island interior's classification.
     :ivar attempt_loops: ``id(item)`` of every ungatable-loop decision an
         attempt licence covers (the identity-key convention of
         :attr:`loop_gates` — analysis and clone compiler walk the same lifted
@@ -148,17 +154,33 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
     :ivar gates: The :class:`_GateStore` behind the per-family accessors.
     """
 
-    __slots__ = ("conflicts", "demoted", "fail", "attempts", "attempt_loops", "gates")
+    __slots__ = (
+        "conflicts",
+        "demoted",
+        "fail",
+        "attempts",
+        "attempt_loops",
+        "gates",
+        "delegated",
+    )
 
     conflicts: dict[str, list[str]]
     demoted: dict[str, list[str]]
     fail: set[str]
     attempts: dict[str, AttemptSpec]
     attempt_loops: dict[int, CharSet]
+    delegated: bool
     gates: _GateStore
 
-    def __init__(self) -> None:
-        """Seed the note maps, the fail-island set and the gate store empty."""
+    def __init__(self, delegated: bool = False) -> None:
+        """Seed the note maps, the fail-island set and the gate store empty.
+
+        :param delegated: This classification is an ISLAND INTERIOR's, compiled
+            with the island as its start rule and run over a window whose end
+            is not the document's. A gate that reasons about where the INPUT
+            ends is not certified against that boundary and is withheld.
+        """
+        self.delegated = delegated
         self.conflicts = {}
         self.demoted = {}
         self.fail = set()
@@ -205,13 +227,16 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
         return self.gates.pn_loop
 
     @property
-    def struct_loop_gates(self) -> dict[int, ScanGate]:
-        """``id(item)`` → the folding-aware
-        :class:`~lexic.parsing.pda.core.scanner.ScanGate` for a P3 *structured*
-        noise-skip (comment-bearing / LWS folding) or P5 rulename-probe loop
-        demotion — the runtime-ready gate the clone compiler stores and returns
-        verbatim (Task 6.6)."""
-        return self.gates.struct_loop
+    def ready_loop_gates(self) -> dict[int, ScanGate | GreedySpec]:
+        """``id(item)`` → a runtime-ready loop gate the clone compiler passes
+        through: the folding-aware
+        :class:`~lexic.parsing.pda.core.scanner.ScanGate` of a P3 *structured*
+        noise-skip (comment-bearing / LWS folding) or P5 rulename-probe
+        demotion (Task 6.6), or the
+        :data:`~lexic.parsing.pda.analysis.gates.greedy.GreedySpec` of a loop
+        whose exit the SPLIT RULE settles — no ``k`` separates that one, and
+        none has to."""
+        return self.gates.ready_loop
 
     @property
     def struct_arm_gates(self) -> dict[str, ArmGate]:
@@ -274,8 +299,8 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
             )
         self.gates.grp_arm[at] = gate
 
-    def store_struct_loop(self, key: int, gate: ScanGate) -> None:
-        """File a structured loop gate under the looping item node's identity.
+    def store_ready_loop(self, key: int, gate: ScanGate | GreedySpec) -> None:
+        """File a runtime-ready loop gate under the looping item node's identity.
 
         :raises UnsupportedConstructError: If the node already carries a
             *different* spec — a shared node at two decision sites with
@@ -283,12 +308,12 @@ class Taxonomy(IrLeaf[IrSelf, IrSelf]):
             confident-wrong gate would be silent, so the whole grammar opts
             out instead).
         """
-        prior = self.gates.struct_loop.get(key)
+        prior = self.gates.ready_loop.get(key)
         if prior is not None and _spec_key(prior) != _spec_key(gate):
             raise UnsupportedConstructError(
-                "pda analysis: conflicting structured loop gates for one item node"
+                "pda analysis: conflicting runtime-ready loop gates for one item node"
             )
-        self.gates.struct_loop[key] = gate
+        self.gates.ready_loop[key] = gate
 
     def store_struct_arm(self, name: str, gate: ArmGate) -> None:
         """File a structured empty-arm gate under its enclosing rule name.

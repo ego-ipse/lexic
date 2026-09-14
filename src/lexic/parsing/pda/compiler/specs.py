@@ -168,7 +168,40 @@ class ItemSpec(NamedTuple):
     payload: str | CharSet | CloneKey | IslandRef | GroupSpec
     lo: int
     hi: int | None
-    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate
+    gate: LoopGate
+
+
+class GreedyGate(NamedTuple):
+    """Exit the loop exactly where the leftmost chain does, and nowhere else.
+
+    The split-greedy licence
+    (:mod:`~lexic.parsing.pda.analysis.gates.greedy`) as the clone compiler
+    carries it. No ``k`` separates the decision this settles and none has to:
+    the loop runs greedily because the split rule does, so the only place it
+    may stop is where the unit's tail and its certified continuation are all
+    that remain.
+
+    :ivar tail: ``m`` copies of the item's terminator.
+    :ivar close: The continuation matched in full after the tail; ``""`` where
+        the certified boundary is the end of the input.
+    :ivar starters: What the continuation may BEGIN with, where those cannot
+        begin an item; ``None`` where it is matched by spelling instead.
+    """
+
+    tail: str
+    close: str
+    starters: frozenset[str] | None
+
+    @property
+    def width(self) -> int:
+        """Characters this gate reads: the tail plus the charged continuation."""
+        return len(self.tail) + len(self.close) + 1
+
+
+type LoopGate = (
+    StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate | GreedyGate
+)
+"""Every gate a loop's take/skip decision can compile to."""
 
 
 class ArmSpec(NamedTuple):

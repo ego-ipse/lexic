@@ -40,6 +40,7 @@ from lexic.parsing.pda.analysis.cursors import (
     Site,
 )
 from lexic.parsing.pda.analysis.gates import kwindow
+from lexic.parsing.pda.analysis.gates.greedy import greedy_loop_gate
 from lexic.parsing.pda.analysis.gates.leftrec import left_recursive_names
 from lexic.parsing.pda.analysis.gates.noise import (
     noise_alphabet,
@@ -117,8 +118,15 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
     _follows: tuple[dict[str, CharSet], dict[str, CharSet], dict[str, CharSet]]
     taxonomy: Taxonomy
 
-    def __init__(self, grammar: IrAst) -> None:
-        """Run every fixpoint and classify every rule of the lifted grammar."""
+    def __init__(self, grammar: IrAst, delegated: bool = False) -> None:
+        """Run every fixpoint and classify every rule of the lifted grammar.
+
+        :param grammar: The lifted grammar.
+        :param delegated: This is an ISLAND INTERIOR's analysis, compiled with
+            the island as its start rule. A delegate runs over a WINDOW whose
+            end is not the document's, so a licence that reasons about the end
+            of the input is not certified here and is withheld.
+        """
         self.rules = {str(r.name): r for r in grammar.rules}
         self.start = str(grammar.start)
         self.nullable = nullable_names(list(grammar.rules))
@@ -129,7 +137,7 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             self._follow_fixpoint(hard=True, loopback=False, nullable_first=False),
             self._follow_fixpoint(hard=False, loopback=False, nullable_first=True),
         )
-        self.taxonomy = Taxonomy()
+        self.taxonomy = Taxonomy(delegated)
         self._classify()
 
     @property
@@ -406,8 +414,27 @@ class GrammarAnalysis(IrLeaf[IrSelf, IrSelf]):
             return True
         struct = structured_loop_gate(self, items, k, scope)
         if struct is not None:
-            self.taxonomy.store_struct_loop(id(items[k]), struct)
+            self.taxonomy.store_ready_loop(id(items[k]), struct)
             notes.soft.append(f"{scope.rule}[{k}]: loop structured-noise (demoted)")
+            return True
+        # The split-greedy licence, last because it answers a DIFFERENT question
+        # from the three above: they ask whether the decision separates, and
+        # this one asks whether the SPLIT RULE settles it. A loop the k-window
+        # can decide never reaches here.
+        #
+        # Withheld inside a delegate. Its condition (e) is about where the
+        # INPUT ends, and an island interior runs over a doubling window whose
+        # end is an artefact of the window rather than of the document
+        # (`runtime/kernel/execution.py::_delegate_run`). The window-edge
+        # decline would catch the consequence, but a licence that is not
+        # certified against the boundary it will be executed against should not
+        # be issued in the first place.
+        if self.taxonomy.delegated:
+            return False
+        greedy = greedy_loop_gate(self.rules, self.start, scope.rule, items, k)
+        if greedy is not None:
+            self.taxonomy.store_ready_loop(id(items[k]), greedy)
+            notes.soft.append(f"{scope.rule}[{k}]: loop split-greedy (demoted)")
             return True
         return False
 

@@ -106,7 +106,7 @@ def struct_gate(analysis: GrammarAnalysis, rule_name: str, item_index: int):
     """The stored :class:`ScanGate` for ``rule_name``'s body-arm-0 item at
     ``item_index`` — the taxonomy's identity-keyed struct-gate channel."""
     items = [i for i in analysis.rules[rule_name].body[0] if isinstance(i, IrItem)]
-    return analysis.taxonomy.struct_loop_gates[id(items[item_index])]
+    return analysis.taxonomy.ready_loop_gates[id(items[item_index])]
 
 
 def test_gbnf_sequence_loop_demotes_to_sg_probe():

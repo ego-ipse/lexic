@@ -18,6 +18,7 @@ from lexic.parsing.pda.compiler.program.flatten import (
 from lexic.parsing.pda.compiler.program.opcodes import (
     BUILD_DISPATCH,
     GATE_ATTEMPT,
+    GATE_GREEDY,
     GATE_KWIN,
     GATE_PAIR,
     GATE_PEEK,
@@ -47,6 +48,8 @@ from lexic.parsing.pda.compiler.program.specialize import (
     optimize_program,
 )
 from lexic.parsing.pda.compiler.specs import (
+    GreedyGate,
+    LoopGate,
     CC,
     GRP,
     LIT,
@@ -80,12 +83,12 @@ def _flat_windows(
     return tuple(tuple((cs.chars, cs.negated) for cs in win) for win in windows)
 
 
-def _flatten_gate(
-    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate,
-) -> tuple[int, object]:
+def _flatten_gate(gate: LoopGate) -> tuple[int, object]:
     """Lower a loop gate to its ``(code, data)`` flat pair."""
     if isinstance(gate, PairGate):
         return GATE_PAIR, gate.pairs
+    if isinstance(gate, GreedyGate):
+        return GATE_GREEDY, (gate.tail, gate.close, gate.starters)
     if isinstance(gate, KTupleGate):
         return GATE_KWIN, _flat_windows(gate.windows)
     if isinstance(gate, PeekGate):
@@ -95,6 +98,11 @@ def _flatten_gate(
         )
     if isinstance(gate, ScanGate):
         return GATE_SCAN, gate  # runtime-ready; scan_gate_take reads it directly
+    return _flatten_charset_gate(gate)
+
+
+def _flatten_charset_gate(gate: AttemptGate | StopGate) -> tuple[int, object]:
+    """The two gates whose payload is char sets alone."""
     if isinstance(gate, AttemptGate):
         return GATE_ATTEMPT, (
             (gate.charset.chars, gate.charset.negated),

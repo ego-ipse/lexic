@@ -69,6 +69,8 @@ from lexic.parsing.pda.compiler.program.flatten import (
 )
 from lexic.parsing.pda.compiler.program.lower import flatten_clones
 from lexic.parsing.pda.compiler.specs import (
+    GreedyGate,
+    LoopGate,
     CC,
     GRP,
     LIT,
@@ -205,14 +207,14 @@ class _ItemCtx(IrLeaf[IrSelf, IrSelf]):
     lo: int
     hi: int | None
     cont: CharSet
-    gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate
+    gate: LoopGate
 
     def __init__(
         self,
         lo: int,
         hi: int | None,
         cont: CharSet,
-        gate: StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate,
+        gate: LoopGate,
     ) -> None:
         """Bind one item's bounds, continuation and gate."""
         self.lo = lo
@@ -593,9 +595,7 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
         ctx = _ItemCtx(lo, hi, cont, gate)
         return cast(ItemSpec, _ATOM_SPEC.resolve(atom).eval(self, atom, (ctx,)))
 
-    def _loop_gate(
-        self, items: Sequence[IrItem], idx: int, cont: CharSet
-    ) -> StopGate | AttemptGate | PairGate | KTupleGate | PeekGate | ScanGate:
+    def _loop_gate(self, items: Sequence[IrItem], idx: int, cont: CharSet) -> LoopGate:
         """The loop-continuation gate — stop-set, LL(2) pair, or k-window set.
 
         Defaults to the non-greedy stop-set (``FIRST(atom) − continuation``); a
@@ -628,9 +628,11 @@ class PdaCompiler(IrLeaf[IrSelf, IrSelf]):
             pspec = analysis.taxonomy.pn_loop_gates.get(id(item))
             if pspec is not None:
                 return PeekGate(*pspec)
-            sspec = analysis.taxonomy.struct_loop_gates.get(id(item))
-            if sspec is not None:
-                return sspec  # a folding-aware ScanGate (P3 structured / P5)
+            ready = analysis.taxonomy.ready_loop_gates.get(id(item))
+            if ready is not None:
+                # A ScanGate is runtime-ready as it stands (P3 structured / P5);
+                # a greedy spec is the split rule's licence, wrapped here.
+                return ready if isinstance(ready, ScanGate) else GreedyGate(*ready)
             licence = analysis.taxonomy.attempt_loops.get(id(item))
             if licence is not None:
                 # The attempt licence: FIRST admits an iteration ATTEMPT —
