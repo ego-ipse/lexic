@@ -223,7 +223,13 @@ def test_a_running_worker_keeps_its_replica(artefact) -> None:
         "a live worker's claim was dropped during no-wait shutdown"
     )
     release.set()
-    _live, dead = settled(0)
+    # Settle the LIVE count back to its own before, not dead to zero: dead is
+    # already zero while the worker is still alive, so that wait returned at
+    # once and the case exited with the worker running and its claim counted
+    # live — a stray that retired inside whichever case ran next, and read
+    # there as a sweep of a claim that case had counted in its own before.
+    live, dead = settled(before_live, which=0)
+    assert live == before_live, "the worker's claim outlived its exit"
     assert dead == 0
 
 
