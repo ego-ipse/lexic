@@ -1,15 +1,20 @@
-"""Tests for the PRELIMINARY tier — its budget, its scope and its words.
+"""Tests for the local tier — its budget, its priority rule and its promise.
 
-Three things are the tier's whole contract, and each one is here because
-breaking it silently turns a cheap reading into something that reads like an
-acceptance result: the budget is fixed, the scope is an intersection the caller
-states, and no outcome is ever spelled the way the gate spells one.
+Three things are this tier's whole contract. The rows come from the diff, so a
+run never measures what the change cannot reach and never quietly measures less
+than it selected. The budget is pairs, stated before anything starts, and a row
+it cannot afford is REPORTED rather than dropped. And no row is ever left
+saying nothing: an unresolved row carries the count that would settle it, which
+is the difference between "cannot tell" and "not at this budget".
+
+The words are the gate's, deliberately, because the rule is the gate's. What is
+tested here is that they stay the gate's — a tier that invented a softer word
+for `slower` would be a second gate wearing a disguise.
 """
 
 from __future__ import annotations
 
 import ast
-import json
 import math
 from pathlib import Path
 
@@ -54,9 +59,13 @@ ROSTER = (
     ("json", "lexic-pda"),
     ("json", "lexic-lex"),
     ("json", "lexic-mt"),
+    ("json", "lexic-earley"),
     ("vyx", "lexic-pda"),
 )
 """A small roster with both schedules in it, claimed by both trees."""
+
+PDA_REACH = frozenset({"lexic-pda", "lexic-lex", "lexic-mt"})
+"""What a change under the predictive runtime reaches, within this roster."""
 
 
 def _pairing(candidate: list[float], control: list[float]) -> compare.Pairing:
@@ -69,10 +78,45 @@ def _result(reading: float) -> RowResult:
     return RowResult(CONTRACT, (OBSERVED._replace(wall=reading, cpu=reading),), None)
 
 
+def _unresolved(row: str = "g/r", pairs: int = 6) -> quick.Reading:
+    """A row the gate genuinely cannot settle — one real row's statistics.
+
+    Built from the numbers an actual unresolved roster row produced, because a
+    hand-picked pair of lists is easy to get accidentally decidable and a test
+    that thinks it is exercising the unresolved path while exercising ``ok``
+    proves nothing.
+    """
+    pairing = _spread_pairing(0.0249, 0.0302, 0.0012, 0.0253, pairs)
+    verdict = compare.decide(row, pairing, "cpu")
+    assert verdict.status == "unresolved", verdict
+    return quick.Reading(verdict, pairing, None)
+
+
 def _reading(row: str, candidate: list[float], control: list[float]) -> quick.Reading:
     """One judged row, built from stated log ratios."""
     pairing = _pairing(candidate, control)
-    return quick.Reading(quick.preliminary(row, pairing, "cpu"), pairing)
+    return quick.Reading(compare.decide(row, pairing, "cpu"), pairing, None)
+
+
+def _spread_pairing(
+    mean: float, sigma: float, control_mean: float, control_sigma: float, pairs: int
+) -> compare.Pairing:
+    """A pairing whose sample mean and sample deviation ARE the ones asked for.
+
+    Built rather than drawn, so a projection test states its own inputs instead
+    of depending on a generator's luck. The half-step is scaled by
+    ``sqrt((n-1)/n)`` because the sample deviation divides by ``n - 1``.
+    """
+
+    def arm(centre: float, deviation: float) -> tuple[float, ...]:
+        half = deviation * math.sqrt((pairs - 1) / pairs)
+        return tuple(
+            centre + (half if index % 2 == 0 else -half) for index in range(pairs)
+        )
+
+    return compare.Pairing(
+        arm(mean, sigma), arm(control_mean, control_sigma), (0.0,) * pairs
+    )
 
 
 def _one(_job: Job) -> RowResult:
@@ -90,331 +134,364 @@ def _stub_digest(_root: Path) -> str:
     return "0000000000000000"
 
 
+def _reaches_the_pda(_paths) -> frozenset[str]:
+    """Stand in for the diff: a change under the predictive runtime."""
+    return PDA_REACH
+
+
+def _one_changed_path(_base: str, _root: Path) -> tuple[str, ...]:
+    """Stand in for git: one file changed."""
+    return ("src/lexic/parsing/pda/runtime/admission.py",)
+
+
+def _quiet_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Wire main() to a roster and a worker that need no disk and no git."""
+    monkeypatch.setattr(quick, "rosters", _both_trees_claim)
+    monkeypatch.setattr(quick, "digest", _stub_digest)
+    monkeypatch.setattr(quick, "changed_paths", _one_changed_path)
+    monkeypatch.setattr(quick, "seats_for", _reaches_the_pda)
+    monkeypatch.setattr(compare, "run_job", _one)
+
+
 # ---------------------------------------------------------------- the words
 
-
 GATE_WORDS = frozenset({"ok", "slower", "faster", "unresolved"})
-"""What the gate says; nothing the tier says may collide with any of them."""
+"""What the gate says — and what this tier says, because the rule is the gate's."""
 
 
-@pytest.mark.parametrize(
-    ("candidate", "control"),
-    [
-        ([0.1] * 4, [0.0] * 4),
-        ([-0.1] * 4, [0.0] * 4),
-        ([0.001] * 4, [0.05, -0.05, 0.05, -0.05]),
-        ([-0.1, 0.1, -0.1, 0.1], [0.0] * 4),
-    ],
-)
-def test_no_outcome_is_ever_spelled_the_way_the_gate_spells_one(
-    candidate: list[float], control: list[float]
-) -> None:
-    """A quick word read against the gate's rule would be read against the wrong one."""
-    verdict = quick.preliminary("json/lexic-pda", _pairing(candidate, control), "cpu")
+def test_every_verdict_this_tier_publishes_is_spelled_the_gate_s_way() -> None:
+    """The tier judges by the gate's rule, so it must not invent a vocabulary.
 
-    assert verdict.status not in GATE_WORDS
-
-
-def test_a_row_above_the_envelope_only_leans_slower() -> None:
-    """Four pairs may indicate a direction; they may not condemn a tree."""
-    verdict = quick.preliminary("json/lexic-pda", _pairing([0.1] * 4, [0.0] * 4), "cpu")
-
-    assert verdict.status == quick.LEANS_SLOWER
-    assert verdict.ratio == pytest.approx(math.exp(0.1))
-
-
-def test_a_row_below_the_envelope_only_leans_faster() -> None:
-    """The same restraint in the flattering direction."""
-    verdict = quick.preliminary(
-        "json/lexic-pda", _pairing([-0.1] * 4, [0.0] * 4), "cpu"
-    )
-
-    assert verdict.status == quick.LEANS_FASTER
-
-
-def _flat_group(*pairings: compare.Pairing) -> list[str]:
-    """Every row's settled word, judged as one schedule."""
-    settled = quick.settle(
-        [
-            quick.Reading(quick.preliminary(f"row{index}", pairing, "cpu"), pairing)
-            for index, pairing in enumerate(pairings)
-        ]
-    )
-    return [reading.verdict.status for reading in settled]
-
-
-def test_flat_needs_both_edges_inside_the_envelope() -> None:
-    """A direction reading is not the gate's one-sided question.
-
-    The gate calls a row `ok` on `high <= envelope` alone, because it asks only
-    whether the row is slower. This tier is read for direction, so an interval
-    whose lower edge escapes the envelope has not shown one.
+    An earlier tier deliberately spelled its outcomes differently, because it
+    decided on a DIFFERENT rule and a reader had to be unable to mistake the
+    two. This one uses ``decide`` itself, so the opposite is now true: a word
+    of its own would claim a distinction that no longer exists.
     """
-    inside = _pairing([0.001] * 4, [0.05, -0.05, 0.05, -0.05])
-    # Candidate mean -0.02 with a wide interval: the top edge is inside the
-    # 0.02 envelope, the bottom edge is not.
-    low_edge_out = _pairing(
-        [-0.0465, 0.0065, -0.0465, 0.0065], [0.02, -0.02, 0.02, -0.02]
-    )
-
-    assert compare.decide("row", low_edge_out, "cpu").status == "ok"
-    assert _flat_group(inside, inside) == [quick.FLAT, quick.FLAT]
-    assert _flat_group(low_edge_out, low_edge_out) == [
-        quick.INCONCLUSIVE,
-        quick.INCONCLUSIVE,
-    ]
+    for candidate, control in (
+        ([0.1] * 6, [0.0] * 6),
+        ([-0.1] * 6, [0.0] * 6),
+        ([0.001] * 6, [0.05, -0.05] * 3),
+        ([0.0] * 6, [0.0] * 6),
+    ):
+        verdict = compare.decide("g/r", _pairing(candidate, control), "cpu")
+        assert verdict.status in GATE_WORDS
 
 
-def test_preliminary_alone_never_says_flat() -> None:
-    """A row cannot be called unchanged before the run's own noise is known."""
-    inside = _pairing([0.001] * 4, [0.05, -0.05, 0.05, -0.05])
+def test_no_preliminary_vocabulary_survives_in_the_module() -> None:
+    """The old tier's words are gone, not merely unused.
 
-    assert quick.preliminary("row", inside, "cpu").status == quick.INCONCLUSIVE
-
-
-def test_a_row_noisier_than_the_run_is_not_flat_however_wide_its_interval() -> None:
-    """The defect this rule exists for: a huge envelope swallowing a reading.
-
-    One row read 0.9672 with a 1.1763 envelope and was called unchanged, in a
-    run whose typical envelope was 1.0338. A row whose noise is anomalous for
-    the run has separated nothing, and `flat` is the one word that must not say
-    otherwise.
+    They described a weaker rule. Leaving one spelled anywhere in the file
+    would let a reader think this tier still hedges, and would let a future
+    edit reach for it.
     """
-    typical = _pairing([0.001] * 4, [0.01, -0.01, 0.01, -0.01])
-    swallowed = _pairing([-0.033] * 4, [0.2, -0.2, 0.2, -0.2])
-
-    assert _flat_group(typical, typical, swallowed) == [
-        quick.FLAT,
-        quick.FLAT,
-        quick.INCONCLUSIVE,
-    ]
+    text = Path(quick.__file__).read_text(encoding="utf-8")
+    for word in ("PRELIMINARY", "leans-slower", "leans-faster", "inconclusive"):
+        assert word not in text, word
 
 
-def test_the_ceiling_is_relative_to_the_run_s_own_noise() -> None:
-    """The same row is flat in a noisy run and inconclusive in a quiet one."""
-    row = _pairing([0.001] * 4, [0.05, -0.05, 0.05, -0.05])
-    quiet = _pairing([0.001] * 4, [0.005, -0.005, 0.005, -0.005])
-    loud = _pairing([0.001] * 4, [0.2, -0.2, 0.2, -0.2])
-
-    assert _flat_group(row, loud, loud)[0] == quick.FLAT
-    assert _flat_group(row, quiet, quiet)[0] == quick.INCONCLUSIVE
+def test_a_slower_row_fails_the_run() -> None:
+    """The one verdict that is a decision rather than a reading."""
+    slower = _reading("g/r", [0.2] * 6, [0.0] * 6)
+    assert slower.verdict.status == "slower"
+    assert quick.exit_code([slower]) == 1
 
 
-def test_the_ceiling_scales_the_noise_and_not_the_ratio() -> None:
-    """1.5 against a 1.0338 envelope means 1.0507, never 1.5507.
+def test_an_unresolved_row_never_fails_the_run() -> None:
+    """It measured no slowdown — only that this host could not separate them.
 
-    An envelope is a ratio whose whole meaning is its distance from 1.0, so a
-    multiple has to be taken of that distance. Multiplying the ratio would put
-    the ceiling at 50% and admit anything.
+    Failing on it would make the answer depend on how quiet the machine was,
+    and the only move that leaves is to rerun until the noise cooperates.
     """
-    readings = [_reading(f"row{n}", [0.0] * 4, [0.02, -0.02] * 2) for n in range(3)]
-    typical = readings[0].verdict.envelope
-    ceiling = quick.ceiling_of(readings)
-
-    assert ceiling == pytest.approx(1.0 + quick.NOISE_SLACK * (typical - 1.0))
-    assert ceiling < 1.0 + (typical - 1.0) * 2
+    assert quick.exit_code([_unresolved()]) == 0
 
 
-def test_an_ordinary_run_is_not_barred_by_the_ceiling() -> None:
-    """The property the bare median lacked, and the reason it was replaced.
-
-    A median bars half the field by construction: half of any run's rows sit
-    above it. A run whose rows are all quiet and all much of a muchness must
-    come out flat, not half flat.
-    """
-    spread = [0.01, 0.011, 0.012, 0.013, 0.014]
-    rows = [_pairing([0.0005] * 4, [width, -width] * 2) for width in spread]
-
-    assert _flat_group(*rows) == [quick.FLAT] * len(spread)
-
-
-def test_settling_never_touches_a_leaning_row() -> None:
-    """A lean is about the row against its own noise; the run cannot revoke it."""
-    leaning = _pairing([0.1] * 4, [0.0] * 4)
-    quiet = _pairing([0.001] * 4, [0.005, -0.005, 0.005, -0.005])
-
-    assert _flat_group(leaning, quiet, quiet)[0] == quick.LEANS_SLOWER
-
-
-def test_a_straddling_interval_is_inconclusive_and_earns_nothing() -> None:
-    """Where the gate would grow, this tier stops and says so."""
-    verdict = quick.preliminary(
-        "json/lexic-pda", _pairing([-0.1, 0.1, -0.1, 0.1], [0.0] * 4), "cpu"
-    )
-
-    assert verdict.status == quick.INCONCLUSIVE
-    assert verdict.pairs == 4
+def test_a_run_with_nothing_slower_passes() -> None:
+    """Every other outcome is a reading, and a reading does not block."""
+    assert quick.exit_code([_reading("g/r", [0.0] * 6, [0.0] * 6)]) == 0
 
 
 # --------------------------------------------------------------- the budget
 
 
-def test_a_row_costs_exactly_the_fixed_pair_budget(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No growth: four candidate pairs and four control pairs, always."""
-    seen: list[str] = []
-
-    def run(job: Job) -> RowResult:
-        seen.append(job.label)
-        return _result(1.0 if job.root == BASE else 1.4)
-
-    monkeypatch.setattr(compare, "run_job", run)
-    reading = quick.measure(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda")
-
-    assert len(reading.pairing.candidate) == quick.PAIRS
-    assert len(reading.pairing.control) == quick.PAIRS
-    assert len(seen) == quick.PAIRS * 4
-    assert reading.verdict.pairs == quick.PAIRS
+def test_the_floor_cost_is_the_gate_s_minimum_for_every_selected_row() -> None:
+    """Below the gate's floor nothing is decided, so that IS the price."""
+    assert quick.floor_cost(ROSTER) == compare.MIN_PAIRS * len(ROSTER)
+    assert quick.floor_cost(()) == 0
 
 
-def test_a_row_that_will_not_separate_still_costs_the_same(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The unresolved row is exactly the one the gate spends sixteen pairs on."""
-    swings = iter([1.2, 0.8] * quick.PAIRS)
-
-    def run(job: Job) -> RowResult:
-        if job.label.endswith("head"):
-            return _result(next(swings))
-        return _result(1.0)
-
-    monkeypatch.setattr(compare, "run_job", run)
-    reading = quick.measure(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda")
-
-    assert reading.verdict.status == quick.INCONCLUSIVE
-    assert reading.verdict.pairs == quick.PAIRS
-
-
-def test_the_pair_budget_is_even() -> None:
-    """Odd counts leave the first-slot cost in the published ratio."""
-    assert quick.PAIRS % 2 == 0
-
-
-def test_the_default_lane_count_claims_no_unmeasured_concurrency() -> None:
-    """A default may not exceed the lane count whose floor was measured.
-
-    Four lanes read a control spread of 0.0431 against the gate's 0.0277 on the
-    same rows. The calibration that was meant to settle it measured one, two and
-    four lanes and failed on its own declared statistic: 0.2464, 0.0892 and
-    0.0918 against the gate's 0.0249, with ONE lane the worst arm — and one lane
-    is the gate's own schedule, so that statistic was not reading concurrency.
-    Robust measures reverse the ordering, and adopting them after the fact would
-    be choosing the statistic to fit the result. Raise this with an experiment
-    that answers, not with the one that did not.
-    """
-    assert quick.LANES == 1
-
-
-def test_a_threaded_row_gets_its_own_smaller_budget() -> None:
-    """Threaded rows may not share the machine, so they cost more and get less."""
-    assert quick.budget("lexic-mt") == quick.MT_PAIRS
-    assert quick.budget("lexic-pda") == quick.PAIRS
-    assert quick.MT_PAIRS < quick.PAIRS
-
-
-def test_a_threaded_row_costs_exactly_its_own_budget(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The smaller budget has to reach the sampler, not just the constant."""
-    seen: list[str] = []
-
-    def run(job: Job) -> RowResult:
-        seen.append(job.label)
-        return _result(1.0)
-
-    monkeypatch.setattr(compare, "run_job", run)
-    reading = quick.measure(compare.Arms(BASE, HEAD, 4), "json", "lexic-mt")
-
-    assert reading.verdict.pairs == quick.MT_PAIRS
-    assert len(seen) == quick.MT_PAIRS * 4
-
-
-# ------------------------------------------------------ the threaded opt-in
-
-
-def test_threaded_rows_in_scope_are_not_measured_without_the_flag(
+def test_the_selection_s_cost_is_printed_before_any_process_starts(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The expensive half is a choice, and skipping it is said out loud."""
-    monkeypatch.setattr(quick, "rosters", _both_trees_claim)
-    monkeypatch.setattr(compare, "run_job", _one)
-    monkeypatch.setattr(quick, "digest", _stub_digest)
-
-    quick.main(["--base-root", str(BASE), "--grammars", "csv"])
-
-    printed = capsys.readouterr().out
-    assert "--mt" in printed
-    assert "lexic-mt" not in printed
-
-
-def test_the_threaded_cost_is_printed_before_the_threaded_rows_start(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A caller decides against a long run only if told before it begins."""
+    """A caller declines a long run only if told before it begins."""
     order: list[str] = []
 
     def run(job: Job) -> RowResult:
         order.append(job.label)
         return _result(1.0)
 
-    monkeypatch.setattr(quick, "rosters", _both_trees_claim)
+    _quiet_run(monkeypatch)
     monkeypatch.setattr(compare, "run_job", run)
-    monkeypatch.setattr(quick, "digest", _stub_digest)
-
-    quick.main(["--base-root", str(BASE), "--grammars", "csv", "--mt"])
+    quick.main(["--base-root", str(BASE), "--grammars", "json"])
 
     printed = capsys.readouterr().out
-    announced = printed.index("worker processes one at a time")
-    assert announced < printed.index("csv/lexic-mt:")
-    assert "min" in printed[announced : announced + 80]
-    assert any(label.startswith("csv/lexic-mt") for label in order)
+    assert f"pairs to measure them all at the gate's floor of {compare.MIN_PAIRS}" in (
+        printed
+    )
+    assert printed.index("row(s) selected") < printed.index("json/lexic")
+    assert order
 
 
-def test_a_threaded_only_scope_without_the_flag_is_refused(
+def test_the_default_budget_is_exactly_the_floor_cost(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A default run measures every selected row at the gate's own minimum."""
+    _quiet_run(monkeypatch)
+    quick.main(["--base-root", str(BASE), "--grammars", "json"])
+
+    printed = capsys.readouterr().out
+    rows = [row for row in ROSTER if row[0] == "json" and row[1] in PDA_REACH]
+    sequential = [row for row in rows if row[1] not in compare.MT_ROWS]
+    assert f"budget {quick.floor_cost(sequential)} pairs" in printed
+    assert "not measured" not in printed
+
+
+def test_a_budget_below_the_floor_reports_the_rows_it_could_not_afford(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The failure this tool must never have is a silent omission.
+
+    A row missing from the table reads as a row that did not matter, and the
+    whole point of deriving the selection from the diff is that every row in it
+    matters. So an unaffordable row is printed with zero pairs and the reason.
+    """
+    _quiet_run(monkeypatch)
+    quick.main(["--base-root", str(BASE), "--budget", str(compare.MIN_PAIRS)])
+
+    printed = capsys.readouterr().out
+    assert "selected row(s) not measured" in printed
+    assert f"0 pairs — {quick.NO_BUDGET}" in printed
+
+
+def test_a_budget_of_zero_measures_nothing_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Zero is a real budget, and its run is a list of what it could not do."""
+    _quiet_run(monkeypatch)
+    assert quick.main(["--base-root", str(BASE), "--budget", "0"]) == 0
+
+    printed = capsys.readouterr().out
+    assert "0 pairs" in printed
+    assert "selected row(s) not measured" in printed
+
+
+def test_the_floor_funds_rows_in_roster_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Silently measuring nothing is the failure this tier must never have."""
-    monkeypatch.setattr(quick, "rosters", _both_trees_claim)
+    """Deterministic, not cheapest-first.
 
-    with pytest.raises(ValueError, match="--mt"):
-        quick.main(["--base-root", str(BASE), "--only", "lexic-mt"])
-
-
-# ---------------------------------------------------------------- the scope
-
-
-def test_the_scope_intersects_seats_with_grammars() -> None:
-    """Unlike the gate's union `--only`, a seat list crossed with a grammar list."""
-    chosen = quick.scoped(ROSTER, ["lexic-pda"], ["json", "vyx"])
-
-    assert chosen == (("json", "lexic-pda"), ("vyx", "lexic-pda"))
-
-
-def test_an_empty_list_means_every_name_on_that_axis() -> None:
-    """Omitting one axis selects all of it rather than none of it."""
-    assert quick.scoped(ROSTER, None, ["csv"]) == (
-        ("csv", "lexic-pda"),
-        ("csv", "lexic-mt"),
+    Cheapest-first would measure more rows per second, and make WHICH rows a
+    run covers depend on how fast the host happened to be that morning. A
+    reader comparing two runs needs the same rows in both.
+    """
+    monkeypatch.setattr(compare, "run_job", _one)
+    rows = (("csv", "lexic-pda"), ("json", "lexic-pda"), ("vyx", "lexic-pda"))
+    readings, unfunded, left = quick.fund_floor(
+        compare.Arms(BASE, HEAD, 4), rows, 2 * compare.MIN_PAIRS, 1
     )
-    assert quick.scoped(ROSTER, ["lexic-mt"], None) == (
-        ("csv", "lexic-mt"),
-        ("json", "lexic-mt"),
+
+    assert {r.verdict.row for r in readings} == {"csv/lexic-pda", "json/lexic-pda"}
+    assert [row.row for row in unfunded] == ["vyx/lexic-pda"]
+    assert left == 0
+
+
+def test_the_floor_never_measures_a_row_at_less_than_the_gate_s_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A row measured at less could not be judged at all, so it is not judged."""
+    monkeypatch.setattr(compare, "run_job", _one)
+    readings, unfunded, left = quick.fund_floor(
+        compare.Arms(BASE, HEAD, 4),
+        (("json", "lexic-pda"),),
+        compare.MIN_PAIRS - 1,
+        1,
     )
-    assert quick.scoped(ROSTER, None, None) == ROSTER
+
+    assert not readings
+    assert len(unfunded) == 1
+    assert left == compare.MIN_PAIRS - 1
+
+
+# ------------------------------------------------------- where spare pairs go
+
+
+def test_the_spare_budget_queues_the_rows_furthest_from_one_first() -> None:
+    """The row most likely to be a regression is the one that looks most like one."""
+    near, middle, far = (_unresolved(name) for name in ("g/near", "g/middle", "g/far"))
+    near = near._replace(verdict=near.verdict._replace(ratio=1.005))
+    middle = middle._replace(verdict=middle.verdict._replace(ratio=0.97))
+    far = far._replace(verdict=far.verdict._replace(ratio=1.06))
+
+    queued = quick.growth_order([near, far, middle])
+    assert [r.verdict.row for r in queued] == ["g/far", "g/middle", "g/near"]
+
+
+def test_a_settled_row_never_takes_a_pair_of_the_spare_budget() -> None:
+    """Growth is for rows that have not answered; the rest have."""
+    settled = _reading("g/ok", [0.0] * 6, [0.0] * 6)
+    assert settled.verdict.status != "unresolved"
+    assert not quick.growth_order([settled])
+
+
+def test_a_row_whose_projection_fits_the_budget_is_grown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Spare pairs go where they buy an answer."""
+    grew: list[int] = []
+
+    def grow(_arms, reading: quick.Reading, pairs: int) -> quick.Reading:
+        grew.append(pairs)
+        return _reading(reading.verdict.row, [0.2] * 16, [0.0] * 16)
+
+    monkeypatch.setattr(quick, "extend", grow)
+    monkeypatch.setattr(quick, "separation", lambda _pairing: 10)
+
+    readings, left = quick.fund_growth(compare.Arms(BASE, HEAD, 4), [_unresolved()], 20)
+    assert grew == [10 - compare.MIN_PAIRS]
+    assert left == 20 - (10 - compare.MIN_PAIRS)
+    assert readings[0].verdict.status == "slower"
+
+
+def test_a_row_needing_more_than_the_budget_keeps_its_projection_instead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole difference between "cannot tell" and "not at this budget".
+
+    Funding a row that cannot separate inside what remains spends the budget
+    the other rows needed and still answers nothing — which is the behaviour
+    this tier was rebuilt to stop.
+    """
+
+    def refuse(_arms, _reading, _pairs):
+        raise AssertionError("grew a row the budget cannot settle")
+
+    monkeypatch.setattr(quick, "extend", refuse)
+    monkeypatch.setattr(quick, "separation", lambda _pairing: 40)
+
+    readings, left = quick.fund_growth(compare.Arms(BASE, HEAD, 4), [_unresolved()], 4)
+    assert left == 4
+    assert readings[0].projection == 40
+    assert readings[0].verdict.status == "unresolved"
+
+
+def test_growth_never_takes_a_row_past_the_gate_s_own_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Above the ceiling the gate declares the evidence unresolved rather than
+    forcing it into a median; a cheaper tier may not spend more than that."""
+    grew: list[int] = []
+
+    def grow(_arms, reading: quick.Reading, pairs: int) -> quick.Reading:
+        grew.append(pairs)
+        return reading
+
+    monkeypatch.setattr(quick, "extend", grow)
+    monkeypatch.setattr(quick, "separation", lambda _pairing: 300)
+
+    quick.fund_growth(compare.Arms(BASE, HEAD, 4), [_unresolved()], 1000)
+    assert grew == [compare.MAX_PAIRS - compare.MIN_PAIRS]
+
+
+def test_every_row_keeps_its_place_in_the_table_after_growth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Funding order is not reporting order; a reader compares runs by row."""
+    monkeypatch.setattr(quick, "separation", lambda _pairing: None)
+    rows = [
+        _reading("g/a", [0.0] * 6, [0.0] * 6),
+        _unresolved("g/b"),
+        _reading("g/c", [0.0] * 6, [0.0] * 6),
+    ]
+    readings, _left = quick.fund_growth(compare.Arms(BASE, HEAD, 4), rows, 100)
+    assert [r.verdict.row for r in readings] == ["g/a", "g/b", "g/c"]
+
+
+# ----------------------------------------------------- no row says nothing
+
+
+def test_an_unresolved_row_is_reported_with_what_would_settle_it(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The sentence this tier exists to replace "cannot tell" with."""
+    quick.report_projections([_unresolved()._replace(projection=42)])
+    assert "about 42 pairs would settle it" in capsys.readouterr().out
+
+
+def test_a_row_no_count_can_separate_says_that_instead(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The tie: the candidate's mean sits exactly on the control's own band."""
+    quick.report_projections([_unresolved()._replace(projection=None)])
+    assert "no pair count separates it" in capsys.readouterr().out
+
+
+def test_a_settled_row_is_not_listed_among_the_unresolved(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Only rows without an answer need the projection printed."""
+    quick.report_projections([_reading("g/r", [0.0] * 6, [0.0] * 6)])
+    assert not capsys.readouterr().out
+
+
+# -------------------------------------------------------------- the selection
+
+
+def test_a_caller_may_narrow_the_selection() -> None:
+    """Fewer seats and fewer grammars are both the caller's to ask for."""
+    assert quick.narrowed(ROSTER, PDA_REACH, ["lexic-pda"], ["json"]) == (
+        ("json", "lexic-pda"),
+    )
+
+
+def test_a_caller_may_not_widen_the_selection() -> None:
+    """A reading on a row the change cannot reach answers nobody's question,
+    with budget the reachable rows needed."""
+    with pytest.raises(ValueError, match="does not reach"):
+        quick.narrowed(ROSTER, PDA_REACH, ["lexic-earley"], None)
 
 
 def test_a_misspelt_name_is_refused_rather_than_selecting_nothing() -> None:
-    """Selecting nothing would read as a fast, clean run over unmeasured rows."""
-    with pytest.raises(ValueError, match="jsonn"):
-        quick.refuse_unknown(ROSTER, ["lexic-pda"], ["jsonn"])
-    with pytest.raises(ValueError, match="lexic-pdaa"):
-        quick.refuse_unknown(ROSTER, ["lexic-pdaa"], None)
+    """A typo would otherwise read as a fast, clean run over no rows."""
+    with pytest.raises(ValueError, match="no such benchmark seat or grammar"):
+        quick.narrowed(ROSTER, PDA_REACH, None, ["jsonn"])
 
 
-def test_a_scope_the_roster_carries_is_accepted() -> None:
-    """The refusal must not fire on names that are there."""
-    assert quick.refuse_unknown(ROSTER, ["lexic-mt"], ["csv", "json"]) is None
+def test_an_unasked_axis_means_everything_the_change_reaches() -> None:
+    """The default is the diff's own answer, not the whole roster."""
+    chosen = quick.narrowed(ROSTER, PDA_REACH, None, None)
+    assert {row[1] for row in chosen} <= PDA_REACH
+
+
+def test_a_diff_that_reaches_nothing_measures_nothing_and_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A documentation change has no row to report, and that is not a failure."""
+    _quiet_run(monkeypatch)
+    monkeypatch.setattr(quick, "seats_for", lambda _paths: frozenset())
+
+    assert quick.main(["--base-root", str(BASE)]) == 0
+    assert "no row to measure" in capsys.readouterr().out
+
+
+def test_the_run_names_which_paths_selected_which_seats(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A selection a reader cannot check is a selection they must trust."""
+    _quiet_run(monkeypatch)
+    quick.main(["--base-root", str(BASE), "--grammars", "json"])
+
+    printed = capsys.readouterr().out
+    assert "changed path(s) reach" in printed
+    assert "lexic-pda" in printed
 
 
 ROSTER_GRAMMARS = (
@@ -435,12 +512,12 @@ ROSTER_GRAMMARS = (
 
 
 def test_no_grammar_name_is_written_into_this_module() -> None:
-    """The touched set is a fact about a change, so the caller derives it.
+    """The selection is a fact about a change, so no language is privileged.
 
-    A default grammar list in the code would be a privileged formulation: the
-    tier would measure that language's rows whatever the change touched. Read
-    off the string CONSTANTS rather than the text, so that the module importing
-    the standard library's `json` cannot hide a `"json"` written beside it.
+    A default grammar list in the code would measure that language's rows
+    whatever the change touched. Read off the string CONSTANTS rather than the
+    text, so that the module importing the standard library's `json` cannot
+    hide a `"json"` written beside it.
     """
     tree = ast.parse(Path(quick.__file__).read_text(encoding="utf-8"))
     literals = {
@@ -452,158 +529,186 @@ def test_no_grammar_name_is_written_into_this_module() -> None:
     assert not literals & set(ROSTER_GRAMMARS)
 
 
-# ------------------------------------------------------------- the schedule
+# --------------------------------------------------------------- the schedule
 
 
 def test_threaded_rows_are_separated_from_sequential_ones() -> None:
     """A wall-clock row cannot share the machine with anything."""
     shared, alone = quick.by_schedule(ROSTER)
-
-    assert alone == (("csv", "lexic-mt"), ("json", "lexic-mt"))
-    assert all(row not in compare.MT_ROWS for _grammar, row in shared)
+    assert not {row[1] for row in shared} & compare.MT_ROWS
+    assert {row[1] for row in alone} <= compare.MT_ROWS
     assert len(shared) + len(alone) == len(ROSTER)
 
 
+@pytest.mark.parametrize("grammar,row", ROSTER)
 def test_every_threaded_row_in_the_roster_is_judged_on_wall(
-    monkeypatch: pytest.MonkeyPatch,
+    grammar: str, row: str
 ) -> None:
-    """The clock follows the row, not the schedule it happened to run under."""
-    monkeypatch.setattr(compare, "run_job", _one)
-    threaded = quick.measure(compare.Arms(BASE, HEAD, 4), "json", "lexic-mt")
-    sequential = quick.measure(compare.Arms(BASE, HEAD, 4), "json", "lexic-pda")
+    """A threaded row's result IS latency; CPU would hide the whole effect."""
+    expected = "wall" if row in compare.MT_ROWS else "cpu"
+    assert quick.clock_for(f"{grammar}/{row}") == expected
 
-    assert threaded.verdict.clock == "wall"
-    assert sequential.verdict.clock == "cpu"
+
+def test_threaded_rows_that_the_change_reaches_are_still_opt_in(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The expensive half is a choice, and skipping it is said out loud."""
+    _quiet_run(monkeypatch)
+    quick.main(["--base-root", str(BASE), "--grammars", "csv"])
+
+    printed = capsys.readouterr().out
+    assert "csv/lexic-mt:" not in printed
+    assert "--mt" in printed
 
 
 def test_lanes_change_how_many_rows_run_not_how_a_row_is_measured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Alternation lives inside a lane, so concurrency cannot disturb it."""
-    seen: list[tuple[str, Path]] = []
+    """Concurrency is a schedule, never a change to a row's own protocol."""
+    monkeypatch.setattr(compare, "run_job", _one)
+    rows = (("csv", "lexic-pda"), ("json", "lexic-pda"))
+    arms = compare.Arms(BASE, HEAD, 4)
 
-    def run(job: Job) -> RowResult:
-        seen.append((job.label, job.root))
-        return _result(1.0 if job.root == BASE else 1.4)
-
-    monkeypatch.setattr(compare, "run_job", run)
-    rows = (("json", "lexic-pda"), ("csv", "lexic-pda"))
-    readings = quick.run_rows(compare.Arms(BASE, HEAD, 4), rows, 2)
-
-    assert len(readings) == 2
-    for grammar, _row in rows:
-        candidate = [
-            root
-            for label, root in seen
-            if label.startswith(grammar) and label.endswith(("/base", "/head"))
-        ]
-        # The first pair runs head first, the second base first, and so on.
-        assert candidate[:4] == [HEAD, BASE, BASE, HEAD]
-        assert len(candidate) == quick.PAIRS * 2
+    one = {r.verdict.row: r.verdict.pairs for r in quick.run_rows(arms, rows, 1)}
+    two = {r.verdict.row: r.verdict.pairs for r in quick.run_rows(arms, rows, 2)}
+    assert one == two
+    assert set(one) == {"csv/lexic-pda", "json/lexic-pda"}
 
 
 def test_an_empty_group_costs_no_processes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A scope with no threaded rows must not start a pool to run none."""
+    """No rows means no worker, not a pool started to run nothing."""
 
-    def run(_job: Job) -> RowResult:
-        raise AssertionError("no worker may start for an empty group")
+    def refuse(_job: Job) -> RowResult:
+        raise AssertionError("started a worker for an empty group")
 
-    monkeypatch.setattr(compare, "run_job", run)
-    measured = quick.run_rows(compare.Arms(BASE, HEAD, 4), (), 4)
-
-    assert isinstance(measured, tuple)
-    assert not measured
+    monkeypatch.setattr(compare, "run_job", refuse)
+    assert not quick.run_rows(compare.Arms(BASE, HEAD, 4), (), 4)
 
 
-# --------------------------------------------------------------- the floor
+def test_the_default_lane_count_is_the_gate_s_own_schedule() -> None:
+    """A wider envelope than the gate's would unresolve rows the gate settles.
+
+    The calibration meant to raise this failed on its own declared statistic —
+    0.2464, 0.0892 and 0.0918 at one, two and four lanes against the gate's
+    0.0249, with ONE lane the worst arm, which is the gate's own schedule. So
+    the question is open, and the default stays where the rule it borrows is.
+    """
+    assert quick.LANES == 1
+
+
+# ------------------------------------------------------------- the null floor
 
 
 def test_the_null_floor_reports_the_control_arm_that_ran_beside_the_rows() -> None:
-    """The floor is measured, not assumed: it is the control pairs' own median."""
-    readings = (
-        _reading("json/lexic-pda", [0.01] * 4, [0.02, -0.01, 0.02, -0.01]),
-        _reading("csv/lexic-pda", [0.01] * 4, [0.03, -0.01, 0.03, -0.01]),
-    )
-
-    floor = quick.floor_of("sequential", readings, 4)
-
+    """The floor IS the null arm, not a separate run."""
+    readings = [
+        _reading("g/a", [0.0] * 6, [0.01] * 6),
+        _reading("g/b", [0.0] * 6, [0.03] * 6),
+    ]
+    floor = quick.floor_of("sequential", readings, 2)
     assert floor.rows == 2
-    assert floor.lanes == 4
-    assert floor.control == pytest.approx(math.exp(0.005))
-    assert floor.envelope > 1.0
+    assert floor.lanes == 2
+    assert floor.control == pytest.approx(math.exp(0.02))
 
 
 def test_a_noisier_control_widens_the_reported_floor() -> None:
-    """Concurrency that costs something has to be visible in this number."""
-    quiet = quick.floor_of(
-        "sequential", (_reading("row", [0.0] * 4, [0.001, -0.001] * 2),), 1
-    )
+    """A run that kept loud company has to say so in its own numbers."""
+    quiet = quick.floor_of("sequential", [_reading("g/a", [0.0] * 6, [0.0] * 6)], 1)
     loud = quick.floor_of(
-        "sequential", (_reading("row", [0.0] * 4, [0.2, -0.2] * 2),), 8
+        "sequential", [_reading("g/a", [0.0] * 6, [0.2, -0.2] * 3)], 1
     )
-
     assert loud.envelope > quiet.envelope
 
 
-# ---------------------------------------------------------------- the run
+def test_an_empty_schedule_reports_a_floor_of_no_rows() -> None:
+    """A run without threaded rows still prints a threaded floor, honestly."""
+    floor = quick.floor_of("threaded", (), 1)
+    assert floor.rows == 0
+    assert floor.control == pytest.approx(1.0)
 
 
-def test_the_run_exits_zero_even_when_a_row_leans_slower(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """A preliminary reading has no verdict to fail a run with."""
+# -------------------------------------------- what a row would cost to settle
 
-    def run(job: Job) -> RowResult:
-        return _result(1.0 if job.root == BASE else 1.4)
 
-    monkeypatch.setattr(quick, "rosters", _both_trees_claim)
-    monkeypatch.setattr(compare, "run_job", run)
-    monkeypatch.setattr(quick, "digest", _stub_digest)
-    out = tmp_path / "quick.json"
+def test_the_projection_agrees_with_the_gate_at_the_count_that_was_run() -> None:
+    """The anti-drift pin: two ways of asking the same question.
 
-    code = quick.main(
-        [
-            "--base-root",
-            str(BASE),
-            "--head-root",
-            str(HEAD),
-            "--only",
-            "lexic-pda",
-            "--grammars",
-            "json",
-            "--json",
-            str(out),
-        ]
+    ``separation`` rescales the same three comparisons ``decide`` makes, so at
+    the count a row was ACTUALLY measured at the two must give the same answer.
+    If they ever disagree, the projection has stopped describing the rule it is
+    projecting and every number it prints is about a different gate.
+    """
+    cases = (
+        (math.log(1.10), 0.005, 0.0, 0.005),
+        (0.0249, 0.0302, 0.0012, 0.0253),
+        (0.0, 0.02, 0.0, 0.02),
+        (-math.log(1.20), 0.004, 0.0, 0.004),
     )
-
-    written = json.loads(out.read_text(encoding="utf-8"))
-    assert code == 0
-    assert written["tier"] == "PRELIMINARY"
-    assert written["pairs"] == quick.PAIRS
-    assert [entry["status"] for entry in written["verdicts"]] == [quick.LEANS_SLOWER]
-    assert not {entry["status"] for entry in written["verdicts"]} & GATE_WORDS
+    for mean, sigma, control_mean, control_sigma in cases:
+        pairing = _spread_pairing(mean, sigma, control_mean, control_sigma, 4)
+        decided = compare.decide("g/r", pairing, "cpu").status != "unresolved"
+        assert quick.decided_at(pairing, 4) is decided, (mean, sigma)
 
 
-def test_the_tier_word_reaches_the_text_output(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A reader who sees only the terminal must still see which tier ran."""
-    monkeypatch.setattr(quick, "rosters", _both_trees_claim)
-    monkeypatch.setattr(compare, "run_job", _one)
-    monkeypatch.setattr(quick, "digest", _stub_digest)
-
-    quick.main(["--base-root", str(BASE), "--only", "lexic-pda", "--grammars", "csv"])
-
-    printed = capsys.readouterr().out
-    assert printed.count("PRELIMINARY") >= 2
-    assert "compare.py decides what lands" in printed
+def test_a_clean_effect_needs_no_pairs_beyond_the_ones_it_has() -> None:
+    """A large effect against a quiet control has already answered."""
+    pairing = _spread_pairing(math.log(1.10), 0.005, 0.0, 0.005, 4)
+    assert quick.separation(pairing) == 4
 
 
-def test_a_scope_selecting_no_rows_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An empty run that prints a clean table is the worst possible answer."""
-    monkeypatch.setattr(quick, "rosters", _both_trees_claim)
+def test_a_projection_never_names_a_count_below_the_one_already_spent() -> None:
+    """The two tests are not monotone in the pair count.
 
-    with pytest.raises(ValueError, match="no rows"):
-        quick.main(
-            ["--base-root", str(BASE), "--only", "lexic-lex", "--grammars", "vyx"]
-        )
+    The envelope narrows as the control gains pairs, so a row can read ``ok``
+    at six and ``unresolved`` at sixteen. A search from zero would then answer
+    an unresolved row with a count it has already passed — "needs eight pairs"
+    after sixteen were spent, which is the search's artefact and not advice.
+    """
+    pairing = _spread_pairing(0.0058, 0.0180, 0.0007, 0.0250, 16)
+    assert compare.decide("g/r", pairing, "cpu").status == "unresolved"
+    assert quick.decided_at(pairing, 6)
+    projected = quick.separation(pairing)
+    assert projected is None or projected > 16
+
+
+def test_a_projected_count_is_always_even() -> None:
+    """Odd counts carry the first-slot bias the gate's bounds exist to remove."""
+    for sigma in (0.01, 0.02, 0.03, 0.04, 0.05):
+        pairing = _spread_pairing(0.02, sigma, 0.001, sigma, 6)
+        projected = quick.separation(pairing)
+        assert projected is None or projected % 2 == 0, sigma
+
+
+def test_a_row_can_need_more_pairs_than_the_gate_itself_will_spend() -> None:
+    """The sentence the tier exists to replace "cannot tell" with.
+
+    These are one real unresolved row's statistics. It does not settle at the
+    gate's own ceiling of sixteen pairs — the landing gate would not answer it
+    either — and the projection says what would: about twenty-two. That is a
+    number someone can act on, where a bare `unresolved` is not.
+    """
+    pairing = _spread_pairing(0.0249, 0.0302, 0.0012, 0.0253, 4)
+    assert compare.decide("g/r", pairing, "cpu").status == "unresolved"
+    assert not quick.decided_at(pairing, compare.MAX_PAIRS)
+    projected = quick.separation(pairing)
+    assert projected is not None
+    assert compare.MAX_PAIRS < projected <= 24
+
+
+def test_the_projection_never_promises_what_the_current_count_already_denies() -> None:
+    """A row that has settled projects the count it settled at or lower."""
+    pairing = _spread_pairing(math.log(1.30), 0.004, 0.0, 0.004, 6)
+    assert compare.decide("g/r", pairing, "cpu").status == "slower"
+    assert quick.separation(pairing) == 6
+
+
+def test_a_projection_reads_the_per_pair_spread_not_the_pair_count() -> None:
+    """The same per-pair noise projects the same count from any sample size.
+
+    The quantity has to be per-pair: a standard error already carries the count
+    it was taken at, and projecting from one would answer the question with its
+    own premise.
+    """
+    small = _spread_pairing(0.02, 0.03, 0.001, 0.02, 4)
+    large = _spread_pairing(0.02, 0.03, 0.001, 0.02, 16)
+    assert quick.separation(small) == quick.separation(large)

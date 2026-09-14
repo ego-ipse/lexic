@@ -82,112 +82,62 @@ and every `slower` row come first, every row in one table below them.
 cannot reserve a quiet machine, so it proves the rows are still the rows and
 times nothing.
 
-## The preliminary tier
+## The local tier
 
-`quick.py` is the gate's cheap neighbour, for a tree that will change again
-before it lands. It gives a DIRECTION over the rows a change can reach, in
-minutes rather than a morning.
+`quick.py` answers one question — did this change move anything on a paid path
+it can reach? — and it answers it for every row it selects. It is not a cheaper
+sweep of the roster. It is the gate's own rule, over the gate's own control
+envelope, applied to a smaller set of rows and a stated budget.
 
 ```bash
-uv run python -m tools.benchmark.quick \
-  --base-root ../base --only lexic-pda lexic-lex --grammars csv json \
-  --lanes 4 --json quick.json
+uv run python -m tools.benchmark.quick --base-root ../base --base-rev HEAD~1
 ```
 
-Three things separate it from the gate, and each is a deliberate loss. **Scope**
-— only the seats and grammars asked for, both axes intersected, because what
-makes a row worth measuring is a fact about the change and the caller is what
-knows it. An omitted axis means all of it; a name the roster does not carry is
-refused rather than quietly selecting nothing. **Budget** — four process pairs
-per row, never grown, so the cost of a run is known before it starts. **Schedule**
-— sequential rows are single-threaded processes and several run at once on their
-own cores; threaded rows own the machine one at a time, because their reading IS
-latency and a co-tenant is indistinguishable from a regression.
+**The rows come from the diff.** `git` says what changed — tracked files and
+untracked ones, because a module written and not yet added is exactly the
+change whose rows most need measuring — and `scope/paths.py` maps each changed
+path to the seats whose paid path it sits on. A change under `parsing/pda/`
+selects the predictive seats and the two folding variants that are also the
+PDA; one under `parsing/parallel/` selects the threaded seats; one under `ir/`
+or `compile/` selects everything. A path under the package that the table does
+not name selects everything too, which is the safe direction: minutes are
+cheaper than a regression nobody saw. A change outside the package selects
+nothing, and the run says so and exits 0.
 
-**The threaded seats are opt-in, behind `--mt`.** They are the expensive half by
-a wide margin, and they are expensive for a reason no scheduler can remove: they
-cannot share the machine, so their processes run end to end. A run without the
-flag says how many threaded rows it left out; a run with it prints how many
-worker processes they will start and roughly how long that is, before starting
-any of them. They also take three pairs rather than four, which is the whole
-difference between a threaded half a caller will wait for and one they will not.
-Three is odd, so a fixed first-slot cost lands in a threaded row's published
-ratio at a third of its size; the run prints that artefact beside the rows
-rather than leaving it to be assumed away.
+`--only` and `--grammars` **narrow** that selection. Widening it is refused: a
+reading on a row the change cannot reach answers nobody's question, with budget
+the reachable rows needed.
 
-Measured on a sixteen-core host, nine grammars, against a base one commit back:
+**The budget is process pairs, and the run prints what the selection costs
+before it starts.** The default budget is exactly that cost — `MIN_PAIRS` for
+every selected row — so a default run measures every row at the count below
+which the gate decides nothing. `--budget` caps it, and a row the cap cannot
+afford is printed with zero pairs and the reason rather than dropped from the
+table; a row missing from a table reads as a row that did not matter.
 
-| Half | Rows | Pairs each | Worker processes | Wall |
-|---|---|---|---|---|
-| Sequential, `--lanes 4` | 36 | 4 | 576 | 354 s |
-| Threaded, alone, `--mt` | 18 | 3 | 216 | up to ~22 min |
+**Spare budget goes where it can buy an answer.** Unresolved rows are funded in
+descending distance from 1.0 — the row most likely to be a regression is the
+one that looks most like one — but only where the pairs the row would need fit
+what remains. A row needing more than that keeps its projection instead.
 
-The same rows through `compare.py` cost about 39 minutes sequential and about
-60 minutes threaded. A worker process itself costs 0.95 s sequential and 1.29 s
-threaded on the smallest roster grammar, 3.17 s and 3.88 s on the largest; the
-threaded ceiling above is the 6.05 s a whole loaded gate run averages, which is
-the number `--mt` prints because a caller deciding against a wait should be
-given the one that cannot surprise them.
+**No row is left saying nothing.** Every unresolved row is reported with the
+pair count that would settle it, projected from its own per-pair spread. That
+is the difference between "cannot tell" and "not at this budget, and here is
+the count that would": one is a dead end, the other says whether to reserve a
+quiet machine or to stop looking. A row needing about forty pairs is worth
+another run; one needing four hundred has an effect smaller than the host can
+see, and no amount of rerunning changes that.
+
+**The words are the gate's** — `ok`, `slower`, `faster`, `unresolved` — because
+the rule is the gate's, and a run exits 1 on `slower` exactly as `compare.py`
+does. An unresolved row never blocks: it has measured no slowdown, only that
+this host could not separate the arms within the pairs it was given.
+
+The threaded seats stay opt-in behind `--mt`. They cannot share the machine, so
+their processes run end to end; a run without the flag says how many reachable
+threaded rows it left out.
 
 What does not change is the observation: the same worker, the same rounds, the
 same row contract, and the same byte-identical control beside every candidate
-pair. That control IS the null arm, taken under whatever company the lanes
-created, and its median is printed per schedule beside the median row envelope.
-A floor wider than the gate's is the signal to run fewer lanes.
-
-**The default lane count is unsettled, and it is deliberately conservative.**
-Four lanes were measured and cost more noise than the gate pays: over 36 rows
-the control arm's per-pair spread read 0.0431 against the gate's 0.0277 on the
-same rows, run one at a time. A calibration at one, two and four lanes was then
-run to settle it and did not: the spreads came out 0.2464, 0.0892 and 0.0918
-against the gate's 0.0249, with ONE lane the worst arm — and one lane is the
-gate's own schedule, so that statistic was reading something other than
-concurrency. A few control pairs dominate it, two byte-identical processes
-reading as far as 1.84x apart. So `--lanes` defaults to one, the only count
-whose floor is not in question, and the concurrency this tier is built for is
-available by asking for it. Settling the default needs lane counts interleaved
-pair by pair rather than run in blocks, more than four pairs per arm, and a
-dispersion statistic declared in advance and robust to those outliers.
-
-**Its words are not the gate's.** A row leans slower, leans faster, is flat or is
-inconclusive; PRELIMINARY travels through the text output and the JSON, and the
-run always exits 0. Nothing here decides what lands.
-
-`flat` is a stricter statement than the gate's `ok`, and it carries two
-conditions. Both edges of the interval must sit inside the row's envelope — the
-gate asks only whether a row is slower, so it passes on its interval's top
-alone. And the row's own envelope must be no wider than 1.5 times the schedule's
-median row envelope, because a row whose noise is anomalous for the run has
-separated nothing whatever its interval says. The multiple applies to the noise,
-the envelope's excess over 1.0, so 1.5 against a typical 1.0338 admits up to
-1.0507. A bare median would bar half the field by construction, since half of
-any run's rows sit above it, and the rule is for outliers rather than for the
-ordinary upper half.
-
-That second condition is why `flat` is decided after the whole schedule is
-measured rather than a row at a time, and why the progress lines print a ratio
-and no word. The ceiling is taken per schedule: a threaded row's envelope runs
-several times a sequential one's, so one median over both would license and
-condemn the wrong rows.
-
-`competitors_baseline.json` is the one committed artifact the README renders
-from — every seat's medians from a whole-roster `bench --json` run, Lexic's own
-rows included. It is neither a cross-machine gate nor an approval channel.
-
-Each `(grammar, seat)` cell carries its own record: the date it was taken, the
-rounds behind it, the worker request an mt row rode, and which of the case's
-documents it read. That is the granularity `--only` and `--seats` update, so a
-run that refreshes one cell cannot restate an untouched one as a measurement it
-never was. `engines` holds display metadata and nothing else, and the README's
-captions and column headers are derived from the records — a column whose cells
-disagree on the worker count is refused rather than labelled with one of them.
-
-A cell's VALUE is a finite number, `refuses` (this seat cannot take the row's
-language) or `unmeasured` (it can, and the run obtained no figure it stands
-behind). Those are different facts, so a cell holding either says which in its
-record's `note`, and a cell holding a number carries no note at all. The note
-is bounded — one Lark reduce/reduce verdict runs to 70 KB of the same
-collision restated per terminal, and the head is the reason. `regression.py`
-checks that pairing over the whole file: refusals once published the word with
-`note: null`, and every per-cell check passed, because none of them read a
-value beside its record.
+pair. That control IS the null arm, and its median is printed per schedule
+beside the median row envelope.
