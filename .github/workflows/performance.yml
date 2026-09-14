@@ -29,8 +29,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  roster:
+    name: Read the roster
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      grammars: ${{ steps.names.outputs.grammars }}
+    steps:
+      - name: Check out HEAD
+        uses: actions/checkout@v7.0.1
+
+      - name: Install Python
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: "3.14t"
+
+      - name: Install the locked development environment
+        run: uv sync --locked --group dev
+
+      - name: List the roster's grammars
+        id: names
+        shell: bash
+        run: |
+          # The matrix IS the roster: one job per `Bench` in
+          # tools/benchmark/cases/grammars.py, read at run time so a row added
+          # there runs here without anyone editing this file.
+          names="$(uv run python -c 'import json; from tools.benchmark.cases.grammars import BENCHES; print(json.dumps([b.name for b in BENCHES]))')"
+          echo "grammars=$names" >> "$GITHUB_OUTPUT"
+          echo "$names"
+
   lexic:
     name: Same-run Lexic A/B (${{ matrix.grammar }})
+    needs: roster
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -39,21 +69,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Static by design — a reader sees the whole matrix in the yaml. Must
-        # match `BENCHES` in tools/benchmark/cases/grammars.py.
-        grammar:
-          - arithmetic
-          - csv
-          - json
-          - gbnf-meta
-          - abnf-meta
-          - vyx
-          - markdown
-          - nested
-          - lexruns
-          - backtrack
-          - mixedends
-          - announced
+        grammar: ${{ fromJSON(needs.roster.outputs.grammars) }}
     steps:
       - name: Check out HEAD
         uses: actions/checkout@v7.0.1
@@ -126,7 +142,7 @@ jobs:
 
   aggregate:
     name: Aggregate results
-    needs: lexic
+    needs: [roster, lexic]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -147,10 +163,9 @@ jobs:
       - name: Combine and judge every row
         shell: bash
         run: |
-          # The grammar list must match the matrix above. Problems — a job
-          # that never reported, a row slower than the envelope — render at
-          # the top of the job summary, every row below them.
+          # The expected rows are the roster's, the same list the matrix ran.
+          # Problems — a job that never reported, a row slower than the
+          # envelope — render at the top of the job summary, every row below.
           python3 -m tools.benchmark.aggregate results \
             --summary "$GITHUB_STEP_SUMMARY" \
-            --expect arithmetic csv json gbnf-meta abnf-meta vyx \
-                     markdown nested lexruns backtrack mixedends announced
+            --expect ${{ join(fromJSON(needs.roster.outputs.grammars), ' ') }}
